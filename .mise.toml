@@ -1,0 +1,31 @@
+# .mise.toml - Mise configuration file
+# See https://mise.sh for documentation
+
+# Defines the tools required for this project.
+# `mise install` will install these versions.
+[tools]
+go = "1.24.4"    # Use the version from go.mod
+atlas = "latest" # Use the latest version of Atlas
+
+
+# Defines custom tasks for the project.
+[tasks.generate-schema]
+description = "Generate schema.sql from Bun models"
+run = "go run internal/infrastructure/database/rdb/migrations/generate_schema.go"
+sources = [
+    "internal/infrastructure/database/rdb/model.go",
+    "internal/infrastructure/database/rdb/generate_schema.go",
+]
+outputs = ["internal/infrastructure/database/rdb/migrations/schema.sql"]
+hide = true # This is a dependency for `migrate`, so hide it from the main task list.
+
+[tasks.migrate]
+description = "Generate a new migration file from model changes"
+usage = "mise run migrate <migration_name>"
+run = "atlas migrate diff --env local {{.ARGV}}"
+depends = ["generate-schema"]
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run ./... --timeout=3m --fix"
+sources = ["**/*.go", "go.mod", ".golangci.yml"]

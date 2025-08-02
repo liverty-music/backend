@@ -1,0 +1,46 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: scaffold_test
+        options: >-
+          --health-cmd "pg_isready -U testuser -d scaffold_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Apply schema
+        run: psql -h localhost -p 5432 -U testuser -d scaffold_test -f internal/infrastructure/database/rdb/migrations/schema.sql
+        env:
+          PGPASSWORD: testpassword
+
+      - name: Run benchmarks
+        run: go test -bench=. -benchmem -run=^$ ./...

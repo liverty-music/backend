@@ -1,0 +1,38 @@
+name: '🔧 Improvement Proposal'
+description: 'Propose an improvement for documentation, CI/CD, or other non-feature changes'
+title: 'Chore: [Short description of the improvement]'
+labels: ['improvement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping to make the project better!
+  - type: textarea
+    id: improvement-and-motivation
+    attributes:
+      label: 'Improvement and Motivation'
+      description: 'Describe the area you want to improve and explain why this change is valuable.'
+      placeholder: |
+        **Area of Improvement:**
+        The CI `test` job currently takes over 5 minutes to run on every pull request.
+
+        **Motivation / Benefit:**
+        Reducing the CI execution time will speed up the development cycle, allow for faster feedback on pull requests, and reduce costs on GitHub Actions runners.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: 'Proposed Solution / Implementation Ideas'
+      description: 'Outline your proposed solution or ideas on how to implement the improvement.'
+      placeholder: |
+        - **For CI:** Cache the `govulncheck` binary to avoid reinstalling it on every run.
+        - **For Refactoring:** Refactor the `PostRepository` to use a more generic interface to improve testability.
+        - **For Documentation:** Restructure the README to include a "Getting Started" section for new contributors.
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 'Additional Context'
+      description: 'Add any other context, such as links to relevant documentation or screenshots.'

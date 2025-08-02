@@ -1,0 +1,69 @@
+name: '✨ Feature Request'
+description: 'Suggest an idea for this project'
+title: 'Feat: [Short description of the feature]'
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest in improving the project! Please provide details about your feature idea.
+  - type: textarea
+    id: problem-and-goal
+    attributes:
+      label: 'Problem and Goal'
+      description: "What problem does this feature solve? What is the goal from a user's perspective?"
+      placeholder: |
+        **Problem:**
+        Currently, there is no way for administrators to see a list of all registered users, which makes user management difficult.
+
+        **User Story:**
+        As an administrator,
+        I want to view a paginated list of all users,
+        so that I can efficiently manage user accounts.
+    validations:
+      required: true
+  - type: textarea
+    id: specification-and-acceptance
+    attributes:
+      label: 'Specification and Acceptance Criteria'
+      description: 'Describe the proposed solution and the specific criteria that must be met for it to be considered complete.'
+      placeholder: |
+        **Specification:**
+        A new gRPC endpoint `ListUsers` will be created. It will accept pagination parameters (page, size) and return a list of users with their ID, name, and email.
+
+        **Acceptance Criteria:**
+        - [ ] The `ListUsers` endpoint is implemented and accessible.
+        - [ ] Requesting with valid pagination returns a 200 OK status and a list of users.
+        - [ ] Requesting with invalid parameters (e.g., negative page number) returns a 400 Bad Request error.
+        - [ ] The number of returned users matches the requested page size.
+        - [ ] Unit and integration tests for the new use case are added.
+        - [ ] API documentation is updated.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 'Scope'
+      description: 'Clearly define what is in and out of scope for this feature to prevent scope creep.'
+      placeholder: |
+        **In Scope:**
+        - Creating a new API endpoint for fetching user profiles.
+        - Adding unit tests for the new use case.
+        **Out of Scope:**
+        - UI implementation for displaying the profile.
+        - Modifying the authentication logic.
+  - type: textarea
+    id: implementation-plan
+    attributes:
+      label: 'High-Level Implementation Plan'
+      description: '(Optional) Outline the technical approach. Which layers/packages will be affected?'
+      placeholder: |
+        - Add new fields to the `posts` table in the database.
+        - Create a new `GetPostWithComments` use case in the `usecase` layer.
+        - Implement the repository method in `internal/infra/persistence/post_repository.go`.
+        - Expose the new functionality via a gRPC handler in `internal/adapter/handler/`.
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 'Additional Context'
+      description: 'Add any other context, such as alternatives considered, screenshots, or links to related documents.'

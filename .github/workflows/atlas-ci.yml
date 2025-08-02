@@ -1,0 +1,49 @@
+name: Atlas CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'internal/infrastructure/database/rdb/migrations/**'
+      - 'internal/infrastructure/database/rdb/model.go'
+      - 'atlas.hcl'
+
+env:
+  DATABASE_URL: "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
+  ATLAS_CLOUD_TOKEN: ${{ secrets.ATLAS_CLOUD_TOKEN }}
+
+jobs:
+  atlas-ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Atlas
+        uses: ariga/setup-atlas@v0
+        # with:
+        #   cloud-token: ${{ secrets.ATLAS_CLOUD_TOKEN }}
+
+      # TODO: enable after Atlas Cloud is available
+      # - name: Atlas Migrate Lint
+      #   uses: ariga/atlas-action/migrate/lint@v1
+      #   with:
+      #     dir: file://internal/infrastructure/database/rdb/migrations/versions
+      #     dev-url: ${{ env.DATABASE_URL }}
+      #     dir-name: pannpers
+      #     env: ci
