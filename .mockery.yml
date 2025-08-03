@@ -12,6 +12,6 @@ require-template-schema-exists: true
 template: testify
 template-schema: '{{.Template}}.schema.json'
 packages:
-  github.com/pannpers/go-backend-scaffold/internal/entity:
+  github.com/liverty-music/backend/internal/entity:
     config:
       all: true

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/pannpers/go-backend-scaffold/pkg/logging/attr"
+	"github.com/liverty-music/backend/pkg/logging/attr"
 	"go.opentelemetry.io/otel/trace"
 )
 

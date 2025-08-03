@@ -7,8 +7,8 @@ import (
 	"context"
 
 	"github.com/google/wire"
-	"github.com/pannpers/go-backend-scaffold/internal/infrastructure/server"
-	"github.com/pannpers/go-backend-scaffold/internal/usecase"
+	"github.com/liverty-music/backend/internal/infrastructure/server"
+	"github.com/liverty-music/backend/internal/usecase"
 )
 
 // InitializeApp creates a new App with all dependencies wired up.

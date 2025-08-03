@@ -10,10 +10,10 @@ buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250606164443-9d1800bf
 buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250606164443-9d1800bf4ccc.1/go.mod h1:vi8xjh+6SQRvLQYnyVFZ7kOBrFevwFudusxWVc6E58A=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.6-20250606164443-9d1800bf4ccc.1 h1:iiP7EL8EWrWmxn9qPDQTFdVSu04qIrmglpyjC10K4IU=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.6-20250606164443-9d1800bf4ccc.1/go.mod h1:bUPpZtzAkcnTA7OLfKCvkvkxEAC6dG/ZIlbnbUJicL4=
-buf.build/gen/go/pannpers/scaffold/connectrpc/go v1.18.1-20250731122303-38f22112218d.1 h1:Eqk4mC1nLOE9l7pLaMM66EZzlFg5OKZ73l20av6gO+s=
-buf.build/gen/go/pannpers/scaffold/connectrpc/go v1.18.1-20250731122303-38f22112218d.1/go.mod h1:WfleeMi6Nvt8rpzL1LTlGeH84o3D+aEwiax2AYqr3Ak=
-buf.build/gen/go/pannpers/scaffold/protocolbuffers/go v1.36.6-20250731122303-38f22112218d.1 h1:Gul7R952/TXFfi1hJ13t5upk5Zzv7Nmxy2lSpShmweU=
-buf.build/gen/go/pannpers/scaffold/protocolbuffers/go v1.36.6-20250731122303-38f22112218d.1/go.mod h1:ieg3xl4jEvCfA4yfwvq+EHl2lLUGxG9e6e9NO62+3Yo=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.18.1-20250803053944-e21aa78a50f6.1 h1:8xZlhRr+gAKUsd1wYCaDKdIz0j7A6hGTbrs9P/dtPNM=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.18.1-20250803053944-e21aa78a50f6.1/go.mod h1:CPL2nO1w4sjN9wCqw6MTq2LWWY8OBW0+qkdnQS6N3fw=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.6-20250803053944-e21aa78a50f6.1 h1:0wbv0YexxywDsMhCxpeaLCyHQzE/Yaq5+u3MaE7GPpI=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.6-20250803053944-e21aa78a50f6.1/go.mod h1:HD0TwYiy/WockYIf7Bc03YzJpNmeNCD1gPPljmx/NzQ=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.6-20241007202033-cf42259fcbfc.1 h1:trcsXBDm8exui7mvndZnvworCyBq1xuMnod2N0j79K8=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.6-20241007202033-cf42259fcbfc.1/go.mod h1:OUbhXurY+VHFGn9FBxcRy8UB7HXk9NvJ2qCgifOMypQ=
 buf.build/go/app v0.1.0 h1:nlqD/h0rhIN73ZoiDElprrPiO2N6JV+RmNK34K29Ihg=

@@ -5,8 +5,8 @@ import (
 	"errors"
 
 	"connectrpc.com/connect"
-	"github.com/pannpers/go-backend-scaffold/pkg/apperr/codes"
-	"github.com/pannpers/go-backend-scaffold/pkg/logging"
+	"github.com/liverty-music/backend/pkg/apperr/codes"
+	"github.com/liverty-music/backend/pkg/logging"
 )
 
 // NewInterceptor creates a Connect interceptor that handles AppErr conversion and logging.

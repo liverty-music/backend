@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pannpers/go-backend-scaffold/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 )
@@ -20,7 +20,10 @@ func main() {
 	// Create tables
 	models := []any{
 		(*rdb.User)(nil),
-		(*rdb.Post)(nil),
+		(*rdb.Artist)(nil),
+		(*rdb.Concert)(nil),
+		(*rdb.Notification)(nil),
+		(*rdb.UserArtistSubscription)(nil),
 	}
 
 	var ddlStatements []string

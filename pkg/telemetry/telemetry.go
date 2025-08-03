@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/pannpers/go-backend-scaffold/pkg/config"
+	"github.com/liverty-music/backend/pkg/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"

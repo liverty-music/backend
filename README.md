@@ -1,15 +1,25 @@
-# Go Backend Scaffold
+# Liverty Music Backend
 
-A modern Go backend scaffold following clean architecture principles with gRPC support, structured logging, and dependency injection.
+The backend service for Liverty Music - a concert notification platform that transforms concert discovery from active search to personalized, automated alerts. Built with modern Go following clean architecture principles, featuring gRPC support, structured logging, and dependency injection.
+
+**Mission**: Provide a "passive experience where the information you want 'finds you'" for passionate music fans who attend 10+ concerts annually.
 
 ## Features
 
+### Core Business Features
+- **Artist Subscription System**: Users register favorite artists for personalized notifications
+- **Concert Data Management**: Comprehensive concert information with venue, pricing, and status tracking
+- **Smart Notifications**: Multi-type notifications (announced, tickets available, reminders, cancellations)
+- **Multilingual Support**: English/Japanese notification delivery
+- **Geographic Filtering**: Location-based concert discovery and alerts
+
+### Technical Features
 - **Connect-RPC Server**: HTTP/gRPC-compatible server with protobuf support
 - **Database Migrations**: Atlas-powered versioned migrations with schema generation from Bun models
 - **Structured Logging**: Advanced logger with OpenTelemetry integration for distributed tracing
 - **Dependency Injection**: Wire-based dependency injection for clean architecture
 - **Clean Architecture**: Well-organized project structure following domain-driven design
-- **Protobuf Integration**: Ready-to-use with `buf.build/pannpers/scaffold` from BSR
+- **Protobuf Integration**: Ready-to-use with `buf.build/liverty-music/schema` from BSR
 
 ## Project Structure
 
@@ -19,11 +29,12 @@ A modern Go backend scaffold following clean architecture principles with gRPC s
 │   └── api/                    # Main application entry point
 ├── internal/
 │   ├── adapter/               # External interface adapters
-│   │   └── grpc/             # gRPC handlers and services
+│   │   └── rpc/              # Connect-RPC handlers and services
 │   ├── di/                   # Dependency injection configuration
-│   ├── entitiy/              # Domain entities
+│   ├── entity/               # Domain entities (User, Artist, Concert, Notification)
 │   ├── infrastructure/       # Infrastructure concerns
-│   │   └── server/           # HTTP and gRPC server implementations
+│   │   ├── database/         # Database implementations
+│   │   └── server/           # HTTP and Connect-RPC server implementations
 │   └── usecase/              # Business logic and use cases
 ├── pkg/
 │   └── logger/               # Structured logging with OpenTelemetry
@@ -44,8 +55,8 @@ A modern Go backend scaffold following clean architecture principles with gRPC s
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/pannpers/go-backend-scaffold.git
-cd go-backend-scaffold
+git clone https://github.com/liverty-music/backend.git
+cd backend
 ```
 
 2. Install dependencies:
@@ -89,7 +100,7 @@ You can test your Connect API endpoints using [buf curl](https://docs.buf.build/
 
 - [buf CLI](https://docs.buf.build/installation)
 - The Connect server running locally (see below)
-- Access to the protobuf schema from BSR (`buf.build/pannpers/scaffold`)
+- Access to the protobuf schema from BSR (`buf.build/liverty-music/schema`)
 
 #### Start the Connect Server
 
@@ -102,24 +113,32 @@ The Connect server will start on port 9090.
 #### Example: GetUser
 
 ```bash
-buf curl --schema buf.build/pannpers/scaffold --protocol connect \
+buf curl --schema buf.build/liverty-music/schema --protocol connect \
   -d '{"user_id": {"value": "123"}}' \
-  http://localhost:9090/pannpers.api.v1.UserService/GetUser
+  http://localhost:9090/liverty.api.v1.UserService/GetUser
 ```
 
-#### Example: CreateUser
+#### Example: GetArtist
 
 ```bash
-buf curl --schema buf.build/pannpers/scaffold --protocol connect \
-  -d '{"title": {"value": "Sample Post"}, "author_id": {"value": "user123"}}' \
-  http://localhost:9090/pannpers.api.v1.PostService/CreatePost
+buf curl --schema buf.build/liverty-music/schema --protocol connect \
+  -d '{"artist_id": {"value": "artist123"}}' \
+  http://localhost:9090/liverty.api.v1.ArtistService/GetArtist
+```
+
+#### Example: GetConcert
+
+```bash
+buf curl --schema buf.build/liverty-music/schema --protocol connect \
+  -d '{"concert_id": {"value": "concert456"}}' \
+  http://localhost:9090/liverty.api.v1.ConcertService/GetConcert
 ```
 
 #### Notes
 
-- **Service paths:** Use `/pannpers.api.v1.UserService/` and `/pannpers.api.v1.PostService/` for BSR schema.
+- **Service paths:** Use `/liverty.api.v1.UserService/`, `/liverty.api.v1.ArtistService/`, `/liverty.api.v1.ConcertService/`, `/liverty.api.v1.NotificationService/` for BSR schema.
 - **Protocol:** Always use `--protocol connect` for Connect servers.
-- **Schema:** Use BSR schema reference `buf.build/pannpers/scaffold` for direct access to protobuf definitions.
+- **Schema:** Use BSR schema reference `buf.build/liverty-music/schema` for direct access to protobuf definitions.
 - **No need for `--http2-prior-knowledge`**: The Connect server works with plain HTTP/1.1 for buf curl.
 
 ### Database Migrations
@@ -178,16 +197,16 @@ mise run lint
 The scaffold includes a powerful structured logger with OpenTelemetry integration:
 
 ```go
-import "github.com/pannpers/go-backend-scaffold/pkg/logger"
+import "github.com/liverty-music/backend/pkg/logging"
 
 // Create a logger with default options (JSON format)
-logger := logger.New()
+logger := logging.NewSlogLogger()
 
 // Create a logger with custom options
-logger := logger.New(
-    logger.WithLevel(slog.LevelDebug),
-    logger.WithFormat(logger.FormatText), // Human-readable format
-    logger.WithWriter(os.Stderr),
+logger := logging.NewSlogLogger(
+    logging.WithLevel(slog.LevelDebug),
+    logging.WithFormat(logging.FormatText), // Human-readable format
+    logging.WithWriter(os.Stderr),
 )
 
 // Log with context (automatically includes trace_id and span_id)
@@ -195,24 +214,25 @@ ctx := context.Background()
 logger.Info(ctx, "User logged in", slog.String("user_id", "123"))
 ```
 
-#### gRPC Handler Implementation
+#### Connect-RPC Handler Implementation
 
-The scaffold provides a foundation for implementing gRPC services:
+The service provides a foundation for implementing Connect-RPC services:
 
 ```go
 // Example handler implementation
 type UserHandler struct {
-    api.UnimplementedUserServiceServer
+    userUsecase usecase.UserUsecase
 }
 
-func (h *UserHandler) GetUser(ctx context.Context, req *api.GetUserRequest) (*api.GetUserResponse, error) {
-    // Your business logic here
-    return &api.GetUserResponse{
-        User: &entity.User{
-            Id: &entity.UserId{Value: req.UserId},
-            Name: &entity.UserName{Value: "Example User"},
-        },
-    }, nil
+func (h *UserHandler) GetUser(ctx context.Context, req *connect.Request[api.GetUserRequest]) (*connect.Response[api.GetUserResponse], error) {
+    user, err := h.userUsecase.Get(ctx, req.Msg.UserId.Value)
+    if err != nil {
+        return nil, err
+    }
+    
+    return connect.NewResponse(&api.GetUserResponse{
+        User: mapper.UserToProto(user),
+    }), nil
 }
 ```
 
@@ -244,7 +264,7 @@ This scaffold follows clean architecture principles:
 - **Bun ORM**: `github.com/uptrace/bun` for PostgreSQL database access
 - **Wire**: `github.com/google/wire` for dependency injection
 - **OpenTelemetry**: `go.opentelemetry.io/otel` for distributed tracing
-- **Protobuf Scaffold**: `buf.build/pannpers/scaffold` for shared protobuf definitions from BSR
+- **Protobuf Schema**: `buf.build/liverty-music/schema` for shared protobuf definitions from BSR
 
 ## Contributing
 

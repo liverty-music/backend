@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/pannpers/go-backend-scaffold/pkg/config"
-	"github.com/pannpers/go-backend-scaffold/pkg/logging"
+	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/logging"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"

@@ -5,9 +5,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/pannpers/go-backend-scaffold/internal/infrastructure/database/rdb"
-	"github.com/pannpers/go-backend-scaffold/pkg/config"
-	"github.com/pannpers/go-backend-scaffold/pkg/logging"
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/logging"
 	"github.com/uptrace/bun/extra/bundebug"
 )
 
@@ -58,7 +58,6 @@ func setupTestDatabase() *rdb.Database {
 
 	models := []interface{}{
 		(*rdb.User)(nil),
-		(*rdb.Post)(nil),
 	}
 
 	for _, model := range models {

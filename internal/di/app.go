@@ -7,8 +7,8 @@ import (
 	"io"
 	"log"
 
-	"github.com/pannpers/go-backend-scaffold/internal/infrastructure/database/rdb"
-	"github.com/pannpers/go-backend-scaffold/internal/infrastructure/server"
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/server"
 )
 
 func newApp(server *server.ConnectServer, db *rdb.Database, telemetryCloser io.Closer) *App {

@@ -1,16 +1,15 @@
-module github.com/pannpers/go-backend-scaffold
+module github.com/liverty-music/backend
 
 go 1.24.4
 
 require (
-	buf.build/gen/go/pannpers/scaffold/connectrpc/go v1.18.1-20250731122303-38f22112218d.1
-	buf.build/gen/go/pannpers/scaffold/protocolbuffers/go v1.36.6-20250731122303-38f22112218d.1
+	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.18.1-20250803053944-e21aa78a50f6.1
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.6-20250803053944-e21aa78a50f6.1
 	connectrpc.com/connect v1.18.1
 	connectrpc.com/grpchealth v1.4.0
 	connectrpc.com/otelconnect v0.7.2
 	github.com/bufbuild/buf v1.55.1
 	github.com/golangci/golangci-lint/v2 v2.3.0
-	github.com/google/uuid v1.6.0
 	github.com/google/wire v0.6.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/uptrace/bun v1.2.15
@@ -143,6 +142,7 @@ require (
 	github.com/google/go-containerregistry v0.20.6 // indirect
 	github.com/google/pprof v0.0.0-20250607225305-033d6d78b36a // indirect
 	github.com/google/subcommands v1.2.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/gordonklaus/ineffassign v0.1.0 // indirect
 	github.com/gostaticanalysis/analysisutil v0.7.1 // indirect
 	github.com/gostaticanalysis/comment v1.5.0 // indirect

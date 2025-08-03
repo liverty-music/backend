@@ -11,10 +11,10 @@ import (
 
 	"connectrpc.com/connect"
 	"connectrpc.com/otelconnect"
-	"github.com/pannpers/go-backend-scaffold/internal/infrastructure/database/rdb"
-	"github.com/pannpers/go-backend-scaffold/pkg/apperr"
-	"github.com/pannpers/go-backend-scaffold/pkg/config"
-	"github.com/pannpers/go-backend-scaffold/pkg/logging"
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/pkg/apperr"
+	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/logging"
 )
 
 // ConnectServer represents the Connect server.

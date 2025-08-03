@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/pannpers/go-backend-scaffold/pkg/logging"
+	"github.com/liverty-music/backend/pkg/logging"
 	"github.com/stretchr/testify/assert"
 )
 

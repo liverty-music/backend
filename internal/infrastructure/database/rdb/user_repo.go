@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pannpers/go-backend-scaffold/internal/entity"
-	"github.com/pannpers/go-backend-scaffold/pkg/apperr"
-	"github.com/pannpers/go-backend-scaffold/pkg/apperr/codes"
+	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/apperr"
+	"github.com/liverty-music/backend/pkg/apperr/codes"
 )
 
 // UserRepository implements entity.UserRepository interface.
@@ -15,7 +15,7 @@ type UserRepository struct {
 }
 
 // NewUserRepository creates a new user repository instance.
-func NewUserRepository(db *Database) entity.UserRepository {
+func NewUserRepository(db *Database) *UserRepository {
 	return &UserRepository{db: db}
 }
 

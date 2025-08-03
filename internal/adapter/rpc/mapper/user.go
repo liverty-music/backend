@@ -3,8 +3,8 @@ package mapper
 import (
 	"time"
 
-	"github.com/pannpers/go-backend-scaffold/internal/entity"
-	proto "buf.build/gen/go/pannpers/scaffold/protocolbuffers/go/pannpers/entity/v1"
+	proto "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	"github.com/liverty-music/backend/internal/entity"
 )
 
 // UserToProto converts domain User entity to protobuf User.
@@ -70,3 +70,22 @@ func NewUserFromProto(protoUser *proto.User) *entity.NewUser {
 
 	return newUser
 }
+
+// UserArtistSubscriptionToProto converts domain UserArtistSubscription entity to protobuf.
+// func UserArtistSubscriptionToProto(subscription *entity.UserArtistSubscription) *proto.UserArtistSubscription {
+// 	if subscription == nil {
+// 		return nil
+// 	}
+
+// 	return &proto.UserArtistSubscription{
+// 		Id: &proto.UserArtistSubscriptionId{
+// 			Value: subscription.ID,
+// 		},
+// 		UserId: &proto.UserId{
+// 			Value: subscription.UserID,
+// 		},
+// 		ArtistId: &proto.ArtistId{
+// 			Value: subscription.ArtistID,
+// 		},
+// 	}
+// }

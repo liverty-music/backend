@@ -4,7 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a modern Go backend scaffold implementing clean architecture with gRPC/Connect-RPC, structured logging, and dependency injection. The project uses protobuf definitions from `github.com/pannpers/protobuf-scaffold` and follows domain-driven design principles.
+This is the backend service for Liverty Music, a concert notification platform that provides personalized music event alerts to passionate music fans. The service implements clean architecture with gRPC/Connect-RPC, structured logging, and dependency injection. The project uses protobuf definitions from the `github.com/liverty-music/schema` repository and follows domain-driven design principles.
+
+Liverty Music aims to transform concert discovery from an active search to an automated, personalized experience - providing a "passive experience where the information you want 'finds you'" for users who attend 10+ concerts annually.
+
+### Core Business Features
+
+1. **Artist Registration System**
+   - Users can register favorite artists for personalized notifications
+   - Support for multiple artist identifiers (Spotify, MusicBrainz)
+   - Subscription management with activation/deactivation
+
+2. **Concert Data Management**
+   - Comprehensive concert information storage (venue, date, tickets, pricing)
+   - Multi-location support with country/city filtering
+   - Concert status tracking (scheduled, sold out, cancelled, completed)
+
+3. **Notification Infrastructure**
+   - Multi-type notifications (announced, tickets available, reminders, cancellations)
+   - Multilingual support (English/Japanese)
+   - Scheduled delivery with status tracking
+   - Push notification integration ready
+
+4. **Data Collection & Matching**
+   - Scalable data ingestion from multiple concert sources
+   - Intelligent user-artist matching for relevant notifications
+   - Geographic and preference-based filtering
 
 ## Development Commands
 
@@ -52,14 +77,19 @@ atlas migrate apply --env local
 ### API Testing with buf curl
 ```bash
 # Test GetUser endpoint
-buf curl --schema buf.build/pannpers/scaffold --protocol connect \
+buf curl --schema buf.build/liverty-music/schema --protocol connect \
   -d '{"user_id": {"value": "123"}}' \
-  http://localhost:9090/pannpers.api.v1.UserService/GetUser
+  http://localhost:9090/liverty.api.v1.UserService/GetUser
 
-# Test CreatePost endpoint  
-buf curl --schema buf.build/pannpers/scaffold --protocol connect \
-  -d '{"title": {"value": "Sample Post"}, "author_id": {"value": "user123"}}' \
-  http://localhost:9090/pannpers.api.v1.PostService/CreatePost
+# Test GetArtist endpoint  
+buf curl --schema buf.build/liverty-music/schema --protocol connect \
+  -d '{"artist_id": {"value": "artist123"}}' \
+  http://localhost:9090/liverty.api.v1.ArtistService/GetArtist
+
+# Test GetConcert endpoint
+buf curl --schema buf.build/liverty-music/schema --protocol connect \
+  -d '{"concert_id": {"value": "concert456"}}' \
+  http://localhost:9090/liverty.api.v1.ConcertService/GetConcert
 
 # Test Health Check endpoint
 buf curl --schema buf.build/grpc/health --protocol connect \
@@ -97,8 +127,10 @@ internal/
 │   ├── wire.go          # Wire provider definitions
 │   └── wire_gen.go      # Generated DI code
 ├── entity/               # Enterprise Business Rules Layer
-│   ├── user.go          # User domain entity
-│   ├── post.go          # Post domain entity
+│   ├── user.go          # User domain entity (notification recipients)
+│   ├── artist.go        # Artist domain entity
+│   ├── concert.go       # Concert domain entity
+│   ├── notification.go  # Notification domain entity
 │   └── mocks.go         # Entity mocks for testing
 ├── infrastructure/       # Frameworks & Drivers Layer
 │   ├── database/        # Database implementations
@@ -112,8 +144,12 @@ internal/
 └── usecase/             # Application Business Rules Layer
     ├── user.go          # User use case implementations
     ├── user_test.go     # User use case tests
-    ├── post.go          # Post use case implementations
-    └── post_test.go     # Post use case tests
+    ├── artist.go        # Artist use case implementations
+    ├── artist_test.go   # Artist use case tests
+    ├── concert.go       # Concert use case implementations
+    ├── concert_test.go  # Concert use case tests
+    ├── notification.go  # Notification use case implementations
+    └── notification_test.go # Notification use case tests
 ```
 
 ### Clean Architecture Layers
@@ -128,7 +164,7 @@ internal/
 ### Key Dependencies
 - **Connect-RPC**: [`connectrpc.com/connect`](https://connectrpc.com/connect) for HTTP/gRPC-compatible APIs
 - **Wire**: [`github.com/google/wire`](https://github.com/google/wire) for compile-time dependency injection  
-- **Protobuf**: Uses [`github.com/pannpers/protobuf-scaffold`](https://github.com/pannpers/protobuf-scaffold) for shared definitions
+- **Protobuf**: Uses [`github.com/liverty-music/schema`](https://github.com/liverty-music/schema) for shared definitions
 - **Database**: Bun ORM with PostgreSQL support via [`github.com/uptrace/bun`](https://github.com/uptrace/bun)
 - **Logging**: Custom structured logging with OpenTelemetry integration
 - **Tracing**: OpenTelemetry distributed tracing with [`connectrpc.com/otelconnect`](https://connectrpc.com/otelconnect)
@@ -162,8 +198,10 @@ The project uses environment variables for configuration with prefix support:
 
 ### Connect-RPC Handlers
 Handlers are in `internal/adapter/rpc/` and implement the generated service interfaces:
-- **User Service**: `user_handler.go` - User management endpoints (`/api.UserService/`)
-- **Post Service**: `post_handler.go` - Post management endpoints (`/api.PostService/`)
+- **User Service**: `user_handler.go` - User management and subscription endpoints (`/liverty.api.v1.UserService/`)
+- **Artist Service**: `artist_handler.go` - Artist management endpoints (`/liverty.api.v1.ArtistService/`)
+- **Concert Service**: `concert_handler.go` - Concert management endpoints (`/liverty.api.v1.ConcertService/`)
+- **Notification Service**: `notification_handler.go` - Notification management endpoints (`/liverty.api.v1.NotificationService/`)
 - **Health Check**: `health_handler.go` - Database connectivity health checks (`/grpc.health.v1.Health/`)
 - Use Connect protocol, not plain gRPC
 - Handlers are bound to interfaces via Wire in `internal/di/wire.go`
@@ -232,8 +270,10 @@ go run cmd/api/main.go
 
 ## Development Notes
 
-- The project follows Go module conventions with `github.com/pannpers/go-backend-scaffold` as module name
+- The project follows Go module conventions with `github.com/liverty-music/backend` as module name
 - Wire dependency injection requires regeneration when `wire.go` is modified
 - Connect-RPC handlers use HTTP/1.1 compatible protocol (no need for HTTP/2)
 - Configuration supports multiple environments (development, staging, production)
 - Graceful shutdown is implemented in main.go with proper resource cleanup
+- All domain entities support internationalization for multi-language notifications
+- Database schema is designed for high-volume concert data ingestion and user notifications

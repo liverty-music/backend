@@ -71,7 +71,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/pannpers/go-backend-scaffold/pkg/apperr/codes"
+	"github.com/liverty-music/backend/pkg/apperr/codes"
 )
 
 // AppErr represents an application error with status code compatibility.

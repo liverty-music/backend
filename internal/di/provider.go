@@ -7,17 +7,18 @@ import (
 	"net/http"
 	"time"
 
+	v1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/rpcv1connect"
+
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
-	"github.com/pannpers/go-backend-scaffold/internal/adapter/rpc"
-	"github.com/pannpers/go-backend-scaffold/internal/entity"
-	"github.com/pannpers/go-backend-scaffold/internal/infrastructure/database/rdb"
-	"github.com/pannpers/go-backend-scaffold/internal/infrastructure/server"
-	"github.com/pannpers/go-backend-scaffold/internal/usecase"
-	"github.com/pannpers/go-backend-scaffold/pkg/config"
-	"github.com/pannpers/go-backend-scaffold/pkg/logging"
-	"github.com/pannpers/go-backend-scaffold/pkg/telemetry"
-	v1connect "buf.build/gen/go/pannpers/scaffold/connectrpc/go/pannpers/api/v1/apiv1connect"
+	"github.com/liverty-music/backend/internal/adapter/rpc"
+	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/server"
+	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/logging"
+	"github.com/liverty-music/backend/pkg/telemetry"
 )
 
 // provideConfig creates a new config instance.
@@ -62,7 +63,7 @@ func provideTelemetry(ctx context.Context, cfg *config.Config) (io.Closer, error
 	return telemetry.SetupTelemetry(ctx, cfg)
 }
 
-func provideHandlerFuncs(logger *logging.Logger, db *rdb.Database, userUseCase *usecase.UserUseCase, postUseCase *usecase.PostUseCase) []server.RPCHandlerFunc {
+func provideHandlerFuncs(logger *logging.Logger, db *rdb.Database, userUseCase *usecase.UserUseCase) []server.RPCHandlerFunc {
 	return []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return grpchealth.NewHandler(
@@ -72,13 +73,8 @@ func provideHandlerFuncs(logger *logging.Logger, db *rdb.Database, userUseCase *
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return v1connect.NewUserServiceHandler(
-				rpc.NewUserHandler(userUseCase, logger),
-				opts...,
-			)
-		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return v1connect.NewPostServiceHandler(
-				rpc.NewPostHandler(postUseCase, logger),
+				// rpc.NewUserHandler(userUseCase, logger),
+				nil,
 				opts...,
 			)
 		},
@@ -115,39 +111,8 @@ func (m *MockUserRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// MockPostRepository is a simple mock implementation for development
-type MockPostRepository struct{}
-
-func (m *MockPostRepository) Create(ctx context.Context, params *entity.NewPost) (*entity.Post, error) {
-	return &entity.Post{
-		ID:        "mock-post-id",
-		Title:     params.Title,
-		UserID:    params.UserID,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}, nil
-}
-
-func (m *MockPostRepository) Get(ctx context.Context, id string) (*entity.Post, error) {
-	return &entity.Post{
-		ID:        id,
-		Title:     "Mock Post",
-		UserID:    "mock-user-id",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}, nil
-}
-
-func (m *MockPostRepository) Delete(ctx context.Context, id string) error {
-	return nil
-}
-
 // provideUserRepository creates a user repository implementation using the database.
 func provideUserRepository(db *rdb.Database) entity.UserRepository {
-	return rdb.NewUserRepository(db)
-}
-
-// providePostRepository creates a post repository implementation using the database.
-func providePostRepository(db *rdb.Database) entity.PostRepository {
-	return rdb.NewPostRepository(db)
+	// return rdb.NewUserRepository(db)
+	return nil
 }

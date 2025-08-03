@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 
+	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/v1"
 	"connectrpc.com/connect"
-	"github.com/pannpers/go-backend-scaffold/internal/adapter/rpc/mapper"
-	"github.com/pannpers/go-backend-scaffold/internal/usecase"
-	"github.com/pannpers/go-backend-scaffold/pkg/logging"
-	api "buf.build/gen/go/pannpers/scaffold/protocolbuffers/go/pannpers/api/v1"
+	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/logging"
 )
 
 // UserHandler implements the UserService Connect interface.
@@ -26,7 +26,7 @@ func NewUserHandler(userUseCase *usecase.UserUseCase, logger *logging.Logger) *U
 }
 
 // GetUser retrieves a user by ID.
-func (h *UserHandler) GetUser(ctx context.Context, req *connect.Request[api.GetUserRequest]) (*connect.Response[api.GetUserResponse], error) {
+func (h *UserHandler) GetUser(ctx context.Context, req *connect.Request[rpc.GetUserRequest]) (*connect.Response[rpc.GetUserResponse], error) {
 	if req == nil || req.Msg == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
 	}
@@ -41,13 +41,13 @@ func (h *UserHandler) GetUser(ctx context.Context, req *connect.Request[api.GetU
 		return nil, err
 	}
 
-	return connect.NewResponse(&api.GetUserResponse{
+	return connect.NewResponse(&rpc.GetUserResponse{
 		User: mapper.UserToProto(user),
 	}), nil
 }
 
 // CreateUser creates a new user.
-func (h *UserHandler) CreateUser(ctx context.Context, req *connect.Request[api.CreateUserRequest]) (*connect.Response[api.CreateUserResponse], error) {
+func (h *UserHandler) CreateUser(ctx context.Context, req *connect.Request[rpc.CreateUserRequest]) (*connect.Response[rpc.CreateUserResponse], error) {
 	if req == nil || req.Msg == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
 	}
@@ -65,7 +65,7 @@ func (h *UserHandler) CreateUser(ctx context.Context, req *connect.Request[api.C
 		return nil, err
 	}
 
-	return connect.NewResponse(&api.CreateUserResponse{
+	return connect.NewResponse(&rpc.CreateUserResponse{
 		User: mapper.UserToProto(createdUser),
 	}), nil
 }

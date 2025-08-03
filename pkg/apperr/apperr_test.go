@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pannpers/go-backend-scaffold/pkg/apperr/codes"
+	"github.com/liverty-music/backend/pkg/apperr/codes"
 )
 
 // Interface method tests - verify AppErr implements error interface correctly

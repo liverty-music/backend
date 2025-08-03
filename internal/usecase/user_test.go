@@ -7,11 +7,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pannpers/go-backend-scaffold/internal/entity"
-	"github.com/pannpers/go-backend-scaffold/internal/usecase"
-	"github.com/pannpers/go-backend-scaffold/pkg/apperr"
-	"github.com/pannpers/go-backend-scaffold/pkg/apperr/codes"
-	"github.com/pannpers/go-backend-scaffold/pkg/logging"
+	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/apperr"
+	"github.com/liverty-music/backend/pkg/apperr/codes"
+	"github.com/liverty-music/backend/pkg/logging"
 )
 
 var fakeTime = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)

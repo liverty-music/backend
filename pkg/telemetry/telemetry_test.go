@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pannpers/go-backend-scaffold/pkg/config"
-	"github.com/pannpers/go-backend-scaffold/pkg/telemetry"
+	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

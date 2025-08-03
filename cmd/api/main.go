@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/pannpers/go-backend-scaffold/internal/di"
+	"github.com/liverty-music/backend/internal/di"
 )
 
 func main() {

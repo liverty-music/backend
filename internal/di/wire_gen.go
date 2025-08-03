@@ -8,8 +8,8 @@ package di
 
 import (
 	"context"
-	"github.com/pannpers/go-backend-scaffold/internal/infrastructure/server"
-	"github.com/pannpers/go-backend-scaffold/internal/usecase"
+	"github.com/liverty-music/backend/internal/infrastructure/server"
+	"github.com/liverty-music/backend/internal/usecase"
 )
 
 // Injectors from wire.go:
@@ -27,9 +27,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	userRepository := provideUserRepository(database)
 	userUseCase := usecase.NewUserUseCase(userRepository, logger)
-	postRepository := providePostRepository(database)
-	postUseCase := usecase.NewPostUseCase(postRepository, logger)
-	v := provideHandlerFuncs(logger, database, userUseCase, postUseCase)
+	v := provideHandlerFuncs(logger, database, userUseCase)
 	connectServer := server.NewConnectServer(config, logger, database, v...)
 	closer, err := provideTelemetry(ctx, config)
 	if err != nil {

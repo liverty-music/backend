@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pannpers/go-backend-scaffold/pkg/logging"
+	"github.com/liverty-music/backend/pkg/logging"
 	"go.opentelemetry.io/otel/trace"
 )
 
