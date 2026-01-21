@@ -7,6 +7,7 @@ The backend service for Liverty Music - a concert notification platform that tra
 ## Features
 
 ### Core Business Features
+
 - **Artist Subscription System**: Users register favorite artists for personalized notifications
 - **Concert Data Management**: Comprehensive concert information with venue, pricing, and status tracking
 - **Smart Notifications**: Multi-type notifications (announced, tickets available, reminders, cancellations)
@@ -14,6 +15,7 @@ The backend service for Liverty Music - a concert notification platform that tra
 - **Geographic Filtering**: Location-based concert discovery and alerts
 
 ### Technical Features
+
 - **Connect-RPC Server**: HTTP/gRPC-compatible server with protobuf support
 - **Database Migrations**: Atlas-powered versioned migrations with schema generation from Bun models
 - **Structured Logging**: Advanced logger with OpenTelemetry integration for distributed tracing
@@ -43,8 +45,9 @@ The backend service for Liverty Music - a concert notification platform that tra
 
 ## Prerequisites
 
-- Go 1.24 or later
-- Atlas CLI (for database migrations)
+- Go 1.25 or later
+- Atlas CLI (binary installation required)
+- golangci-lint (binary installation required)
 - PostgreSQL (for database development)
 - Protocol Buffers compiler (for gRPC development)
 
@@ -65,11 +68,17 @@ cd backend
 go mod download
 ```
 
-3. Install Atlas CLI:
+3. Install Tools:
+
+This project uses binary installations for tools like Atlas and golangci-lint to avoid Go module dependency conflicts.
 
 ```bash
 # Install Atlas CLI
 curl -sSf https://atlasgo.sh | sh
+
+# Install golangci-lint (Binary)
+# See https://golangci-lint.run/usage/install/#local-installation
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.64.5
 ```
 
 4. Start the database (optional, for local development):
@@ -147,16 +156,14 @@ This project uses Atlas for database schema management with versioned migrations
 
 #### Generating a New Migration (Recommended)
 
-This project uses `mise` to streamline the migration workflow. To generate a new migration file from your model changes, simply run:
+To generate a new migration file from your models, use `go tool atlas` with the configured arguments:
 
 ```bash
-# This single command will automatically:
-# 1. Generate schema.sql from your Bun models.
-# 2. Compare it with the current database state and create a new migration file.
-mise run migrate <migration_name>
+# This command compares your Bun models (schema.sql) with the database state.
+atlas migrate diff --env local <migration_name>
 
 # Example:
-mise run migrate create_users_table
+atlas migrate diff --env local create_users_table
 ```
 
 #### Atlas Migration Commands
@@ -185,11 +192,11 @@ internal/infrastructure/database/rdb/migrations/
 
 #### Linting
 
-This project uses `golangci-lint` for linting. You can run the linter using `mise`:
+This project uses `golangci-lint` for linting. Install the binary as described in Prerequisites, then run:
 
 ```bash
 # This will run all configured linters
-mise run lint
+golangci-lint run ./...
 ```
 
 #### Logger Usage
@@ -229,7 +236,7 @@ func (h *UserHandler) GetUser(ctx context.Context, req *connect.Request[api.GetU
     if err != nil {
         return nil, err
     }
-    
+
     return connect.NewResponse(&api.GetUserResponse{
         User: mapper.UserToProto(user),
     }), nil
