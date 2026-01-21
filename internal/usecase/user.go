@@ -29,7 +29,7 @@ func NewUserUseCase(userRepo entity.UserRepository, logger *logging.Logger) *Use
 func (uc *UserUseCase) CreateUser(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
 	user, err := uc.userRepo.Create(ctx, params)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.Internal, "failed to create user", 
+		return nil, apperr.Wrap(err, codes.Internal, "failed to create user",
 			slog.String("name", params.Name),
 			slog.String("email", params.Email),
 		)
@@ -48,7 +48,7 @@ func (uc *UserUseCase) GetUser(ctx context.Context, id string) (*entity.User, er
 
 	user, err := uc.userRepo.Get(ctx, id)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.NotFound, "failed to get user", 
+		return nil, apperr.Wrap(err, codes.NotFound, "failed to get user",
 			slog.String("user_id", id),
 		)
 	}
@@ -64,7 +64,7 @@ func (uc *UserUseCase) DeleteUser(ctx context.Context, id string) error {
 
 	err := uc.userRepo.Delete(ctx, id)
 	if err != nil {
-		return apperr.Wrap(err, codes.Internal, "failed to delete user", 
+		return apperr.Wrap(err, codes.Internal, "failed to delete user",
 			slog.String("user_id", id),
 		)
 	}

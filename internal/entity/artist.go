@@ -7,15 +7,15 @@ import (
 
 // Artist represents an artist/musician domain entity.
 type Artist struct {
-	ID          string
-	Name        string
-	SpotifyID   string
+	ID            string
+	Name          string
+	SpotifyID     string
 	MusicBrainzID string
-	Genres      []string
-	Country     string
-	ImageURL    string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	Genres        []string
+	Country       string
+	ImageURL      string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // NewArtist represents data for creating a new artist.
