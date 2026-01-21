@@ -29,10 +29,10 @@ type NewUser struct {
 
 // UserArtistSubscription represents a user's subscription to an artist.
 type UserArtistSubscription struct {
-	ID       string
-	UserID   string
-	ArtistID string
-	IsActive bool
+	ID        string
+	UserID    string
+	ArtistID  string
+	IsActive  bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

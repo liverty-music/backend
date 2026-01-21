@@ -57,3 +57,9 @@ dist/
 # If your project has a specific binary name, you might want to add it
 # For example, if your main executable is 'go-backend-scaffold':
 # go-backend-scaffold
+
+# Binaries
+prototype-cli
+
+# Debug files
+debug_output.txt
