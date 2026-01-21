@@ -102,7 +102,7 @@ buf curl --schema buf.build/grpc/health --protocol connect \
 
 - **Bun ORM** with PostgreSQL.
 - **Migrations**: `internal/infrastructure/database/rdb/migrations/`.
-- **Command**: `mise run migrate <migration_name>` (Recommended over raw Atlas commands for creating migrations).
+- **Command**: `atlas migrate diff --env local <migration_name>` (Recommended over raw Atlas commands for creating migrations).
 
 ### Telemetry & Logging
 
