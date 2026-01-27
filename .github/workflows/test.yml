@@ -3,7 +3,25 @@ name: Test
 on:
   push:
     branches: [main]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'internal/infrastructure/database/rdb/migrations/**'
+      - '.github/workflows/test.yml'
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   pull_request:
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'internal/infrastructure/database/rdb/migrations/**'
+      - '.github/workflows/test.yml'
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
 
 jobs:
   test:
