@@ -8,7 +8,8 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConcertRepository_Create(t *testing.T) {
@@ -25,107 +26,103 @@ func TestConcertRepository_Create(t *testing.T) {
 		SpotifyID:     "spotify-create-001",
 		MusicBrainzID: "mb-create-001",
 	}
-	if err := artistRepo.Create(ctx, testArtist); err != nil {
-		t.Fatalf("Failed to setup test artist: %v", err)
-	}
+	err := artistRepo.Create(ctx, testArtist)
+	require.NoError(t, err)
 
 	testVenue := &entity.Venue{
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 		Name: "Concert Test Arena",
 	}
-	if err := venueRepo.Create(ctx, testVenue); err != nil {
-		t.Fatalf("Failed to setup test venue: %v", err)
-	}
+	err = venueRepo.Create(ctx, testVenue)
+	require.NoError(t, err)
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
 	startTime, _ := time.Parse("15:04", "20:00")
 	openTime, _ := time.Parse("15:04", "18:00")
 
+	type args struct {
+		concert *entity.Concert
+	}
+
 	tests := []struct {
 		name    string
-		concert *entity.Concert
-		wantErr bool
-		errCode codes.Code
+		args    args
+		wantErr error
 	}{
 		{
 			name: "create valid concert",
-			concert: &entity.Concert{
-				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
-				ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-				VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-				Title:     "New Year's Eve Concert",
-				Date:      concertDate,
-				StartTime: startTime,
-				OpenTime:  &openTime,
-				Status:    entity.ConcertStatusScheduled,
+			args: args{
+				concert: &entity.Concert{
+					ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
+					ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+					Title:     "New Year's Eve Concert",
+					Date:      concertDate,
+					StartTime: startTime,
+					OpenTime:  &openTime,
+					Status:    entity.ConcertStatusScheduled,
+				},
 			},
-			wantErr: false,
+			wantErr: nil,
 		},
 		{
 			name: "duplicate concert ID",
-			concert: &entity.Concert{
-				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
-				ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-				VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-				Title:     "Duplicate Concert",
-				Date:      concertDate,
-				StartTime: startTime,
-				OpenTime:  &openTime,
-				Status:    entity.ConcertStatusScheduled,
+			args: args{
+				concert: &entity.Concert{
+					ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
+					ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+					Title:     "Duplicate Concert",
+					Date:      concertDate,
+					StartTime: startTime,
+					OpenTime:  &openTime,
+					Status:    entity.ConcertStatusScheduled,
+				},
 			},
-			wantErr: true,
-			errCode: codes.AlreadyExists,
+			wantErr: apperr.ErrAlreadyExists,
 		},
 		{
 			name: "foreign key violation - invalid artist",
-			concert: &entity.Concert{
-				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c2",
-				ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a0",
-				VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-				Title:     "Invalid Artist Concert",
-				Date:      concertDate,
-				StartTime: startTime,
-				OpenTime:  &openTime,
-				Status:    entity.ConcertStatusScheduled,
+			args: args{
+				concert: &entity.Concert{
+					ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c2",
+					ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a0",
+					VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+					Title:     "Invalid Artist Concert",
+					Date:      concertDate,
+					StartTime: startTime,
+					OpenTime:  &openTime,
+					Status:    entity.ConcertStatusScheduled,
+				},
 			},
-			wantErr: true,
-			errCode: codes.FailedPrecondition,
+			wantErr: apperr.ErrFailedPrecondition,
 		},
 		{
 			name: "foreign key violation - invalid venue",
-			concert: &entity.Concert{
-				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c3",
-				ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-				VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b0",
-				Title:     "Invalid Venue Concert",
-				Date:      concertDate,
-				StartTime: startTime,
-				OpenTime:  &openTime,
-				Status:    entity.ConcertStatusScheduled,
+			args: args{
+				concert: &entity.Concert{
+					ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c3",
+					ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b0",
+					Title:     "Invalid Venue Concert",
+					Date:      concertDate,
+					StartTime: startTime,
+					OpenTime:  &openTime,
+					Status:    entity.ConcertStatusScheduled,
+				},
 			},
-			wantErr: true,
-			errCode: codes.FailedPrecondition,
+			wantErr: apperr.ErrFailedPrecondition,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := concertRepo.Create(ctx, tt.concert)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ConcertRepository.Create() error = %v, wantErr %v", err, tt.wantErr)
+			err := concertRepo.Create(ctx, tt.args.concert)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}
-
-			if tt.wantErr && err != nil {
-				appErr, ok := err.(*apperr.AppErr)
-				if !ok {
-					t.Errorf("Expected *apperr.AppErr, got %T", err)
-					return
-				}
-				if appErr.Code != tt.errCode {
-					t.Errorf("Expected error code %v, got %v", tt.errCode, appErr.Code)
-				}
-			}
+			assert.NoError(t, err)
 		})
 	}
 }
@@ -155,15 +152,12 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		Name: "List Test Arena",
 	}
 
-	if err := artistRepo.Create(ctx, testArtist1); err != nil {
-		t.Fatalf("Failed to setup test artist 1: %v", err)
-	}
-	if err := artistRepo.Create(ctx, testArtist2); err != nil {
-		t.Fatalf("Failed to setup test artist 2: %v", err)
-	}
-	if err := venueRepo.Create(ctx, testVenue); err != nil {
-		t.Fatalf("Failed to setup test venue: %v", err)
-	}
+	err := artistRepo.Create(ctx, testArtist1)
+	require.NoError(t, err)
+	err = artistRepo.Create(ctx, testArtist2)
+	require.NoError(t, err)
+	err = venueRepo.Create(ctx, testVenue)
+	require.NoError(t, err)
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-06-15")
 	startTime, _ := time.Parse("15:04", "20:00")
@@ -206,76 +200,82 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	}
 
 	for _, c := range concerts {
-		if err := concertRepo.Create(ctx, c); err != nil {
-			t.Fatalf("Failed to setup test concert: %v", err)
-		}
+		err := concertRepo.Create(ctx, c)
+		require.NoError(t, err)
+	}
+
+	type args struct {
+		artistID string
 	}
 
 	tests := []struct {
-		name          string
-		artistID      string
-		wantErr       bool
-		expectedCount int
-		validate      func(t *testing.T, concerts []*entity.Concert)
+		name string
+		args args
+		want struct {
+			count int
+		}
+		wantErr  error
+		validate func(t *testing.T, concerts []*entity.Concert)
 	}{
 		{
-			name:          "list concerts for artist with 2 concerts",
-			artistID:      "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
-			wantErr:       false,
-			expectedCount: 2,
+			name: "list concerts for artist with 2 concerts",
+			args: args{
+				artistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+			},
+			want: struct {
+				count int
+			}{
+				count: 2,
+			},
+			wantErr: nil,
 			validate: func(t *testing.T, concerts []*entity.Concert) {
-				if len(concerts) != 2 {
-					t.Errorf("Expected 2 concerts, got %d", len(concerts))
-					return
-				}
-				// Verify all concerts belong to the correct artist
 				for _, c := range concerts {
-					if c.ArtistID != "018b2f19-e591-7d12-bf9e-f0e74f1b49a2" {
-						t.Errorf("Expected ArtistID '018b2f19-e591-7d12-bf9e-f0e74f1b49a2', got '%s'", c.ArtistID)
-					}
-					if c.CreatedAt.IsZero() {
-						t.Error("Expected CreatedAt to be set")
-					}
+					assert.Equal(t, "018b2f19-e591-7d12-bf9e-f0e74f1b49a2", c.ArtistID)
+					assert.False(t, c.CreatedAt.IsZero())
 				}
 			},
 		},
 		{
-			name:          "list concerts for artist with 1 concert",
-			artistID:      "018b2f19-e591-7d12-bf9e-f0e74f1b49a3",
-			wantErr:       false,
-			expectedCount: 1,
+			name: "list concerts for artist with 1 concert",
+			args: args{
+				artistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a3",
+			},
+			want: struct {
+				count int
+			}{
+				count: 1,
+			},
+			wantErr: nil,
 			validate: func(t *testing.T, concerts []*entity.Concert) {
-				if len(concerts) != 1 {
-					t.Errorf("Expected 1 concert, got %d", len(concerts))
-					return
-				}
-				if concerts[0].Title != "Concert 3" {
-					t.Errorf("Expected title 'Concert 3', got '%s'", concerts[0].Title)
-				}
+				assert.Equal(t, "Concert 3", concerts[0].Title)
 			},
 		},
 		{
-			name:          "list concerts for artist with no concerts",
-			artistID:      "018b2f19-e591-7d12-bf9e-f0e74f1b49a0",
-			wantErr:       false,
-			expectedCount: 0,
-			validate: func(t *testing.T, concerts []*entity.Concert) {
-				if len(concerts) != 0 {
-					t.Errorf("Expected 0 concerts, got %d", len(concerts))
-				}
+			name: "list concerts for artist with no concerts",
+			args: args{
+				artistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a0",
 			},
+			want: struct {
+				count int
+			}{
+				count: 0,
+			},
+			wantErr: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := concertRepo.ListByArtist(ctx, tt.artistID)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ConcertRepository.ListByArtist() error = %v, wantErr %v", err, tt.wantErr)
+			got, err := concertRepo.ListByArtist(ctx, tt.args.artistID)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, got)
 				return
 			}
 
-			if !tt.wantErr && tt.validate != nil {
+			assert.NoError(t, err)
+			assert.Len(t, got, tt.want.count)
+			if tt.validate != nil {
 				tt.validate(t, got)
 			}
 		})

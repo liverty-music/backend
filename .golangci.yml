@@ -1,4 +1,4 @@
-version: 1
+version: '2'
 
 run:
   timeout: 3m
@@ -6,16 +6,14 @@ run:
   modules-download-mode: readonly
 
 linters:
-  default: standard
   enable:
-    - revive  # Enable revive for code quality checks
-
-linters-settings:
-  revive:
-    rules:
-      - name: exported
-        severity: warning
-        disabled: false
-        arguments:
-          - "checkPrivateReceivers"  # Check receiver names
-          - "sayRepetitiveInsteadOfStutters"  # Better error messages
+    - revive
+  settings:
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+          disabled: false
+          arguments:
+            - "checkPrivateReceivers"
+            - "sayRepetitiveInsteadOfStutters"
