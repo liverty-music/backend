@@ -18,9 +18,7 @@ func TestMain(m *testing.M) {
 		flag.Parse()
 	}
 
-	if !testing.Short() {
-		testDB = setupTestDatabase()
-	}
+	testDB = setupTestDatabase()
 
 	// Run tests
 	code := m.Run()
@@ -59,7 +57,20 @@ func setupTestDatabase() *rdb.Database {
 		panic("Failed to connect to test database: " + err.Error())
 	}
 
-	// Clean all tables
+	cleanTables(db)
+
+	return db
+}
+
+func cleanDatabase() {
+	if testDB == nil {
+		testDB = setupTestDatabase()
+	}
+	cleanTables(testDB)
+}
+
+func cleanTables(db *rdb.Database) {
+	ctx := context.Background()
 	tables := []string{
 		"notifications",
 		"user_artist_subscriptions",
@@ -76,6 +87,4 @@ func setupTestDatabase() *rdb.Database {
 			panic("Failed to clean table " + table + ": " + err.Error())
 		}
 	}
-
-	return db
 }

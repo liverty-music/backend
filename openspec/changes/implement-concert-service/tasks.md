@@ -1,3 +1,5 @@
+# Implement Concert Service Backend (#8)
+
 ## 1. Preparation
 
 - [x] 1.1 Verify database schema exists for Artist and Concert entities <!-- id: 0 -->

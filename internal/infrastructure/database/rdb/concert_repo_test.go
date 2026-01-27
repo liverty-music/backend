@@ -5,17 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 func TestConcertRepository_Create(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-
+	cleanDatabase()
 	concertRepo := rdb.NewConcertRepository(testDB)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
@@ -23,15 +20,17 @@ func TestConcertRepository_Create(t *testing.T) {
 
 	// Setup: Create test artist and venue
 	testArtist := &entity.Artist{
-		ID:   "artist-concert-001",
-		Name: "Concert Test Band",
+		ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+		Name:          "Concert Test Band",
+		SpotifyID:     "spotify-create-001",
+		MusicBrainzID: "mb-create-001",
 	}
 	if err := artistRepo.Create(ctx, testArtist); err != nil {
 		t.Fatalf("Failed to setup test artist: %v", err)
 	}
 
 	testVenue := &entity.Venue{
-		ID:   "venue-concert-001",
+		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 		Name: "Concert Test Arena",
 	}
 	if err := venueRepo.Create(ctx, testVenue); err != nil {
@@ -51,9 +50,9 @@ func TestConcertRepository_Create(t *testing.T) {
 		{
 			name: "create valid concert",
 			concert: &entity.Concert{
-				ID:        "concert-001",
-				ArtistID:  "artist-concert-001",
-				VenueID:   "venue-concert-001",
+				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
+				ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+				VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 				Title:     "New Year's Eve Concert",
 				Date:      concertDate,
 				StartTime: startTime,
@@ -65,9 +64,9 @@ func TestConcertRepository_Create(t *testing.T) {
 		{
 			name: "duplicate concert ID",
 			concert: &entity.Concert{
-				ID:        "concert-001",
-				ArtistID:  "artist-concert-001",
-				VenueID:   "venue-concert-001",
+				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
+				ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+				VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 				Title:     "Duplicate Concert",
 				Date:      concertDate,
 				StartTime: startTime,
@@ -80,9 +79,9 @@ func TestConcertRepository_Create(t *testing.T) {
 		{
 			name: "foreign key violation - invalid artist",
 			concert: &entity.Concert{
-				ID:        "concert-002",
-				ArtistID:  "artist-nonexistent",
-				VenueID:   "venue-concert-001",
+				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c2",
+				ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a0",
+				VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 				Title:     "Invalid Artist Concert",
 				Date:      concertDate,
 				StartTime: startTime,
@@ -90,14 +89,14 @@ func TestConcertRepository_Create(t *testing.T) {
 				Status:    entity.ConcertStatusScheduled,
 			},
 			wantErr: true,
-			errCode: codes.InvalidArgument,
+			errCode: codes.FailedPrecondition,
 		},
 		{
 			name: "foreign key violation - invalid venue",
 			concert: &entity.Concert{
-				ID:        "concert-003",
-				ArtistID:  "artist-concert-001",
-				VenueID:   "venue-nonexistent",
+				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c3",
+				ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+				VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b0",
 				Title:     "Invalid Venue Concert",
 				Date:      concertDate,
 				StartTime: startTime,
@@ -105,7 +104,7 @@ func TestConcertRepository_Create(t *testing.T) {
 				Status:    entity.ConcertStatusScheduled,
 			},
 			wantErr: true,
-			errCode: codes.InvalidArgument,
+			errCode: codes.FailedPrecondition,
 		},
 	}
 
@@ -118,13 +117,13 @@ func TestConcertRepository_Create(t *testing.T) {
 			}
 
 			if tt.wantErr && err != nil {
-				_, ok := err.(*connect.Error)
+				appErr, ok := err.(*apperr.AppErr)
 				if !ok {
-					t.Errorf("Expected AppError, got %T", err)
+					t.Errorf("Expected *apperr.AppErr, got %T", err)
 					return
 				}
-				if connect.CodeOf(err) != tt.errCode.ToConnect() {
-					t.Errorf("Expected error code %v, got %v", tt.errCode, connect.CodeOf(err))
+				if appErr.Code != tt.errCode {
+					t.Errorf("Expected error code %v, got %v", tt.errCode, appErr.Code)
 				}
 			}
 		})
@@ -132,10 +131,7 @@ func TestConcertRepository_Create(t *testing.T) {
 }
 
 func TestConcertRepository_ListByArtist(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-
+	cleanDatabase()
 	concertRepo := rdb.NewConcertRepository(testDB)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
@@ -143,15 +139,19 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 
 	// Setup: Create test data
 	testArtist1 := &entity.Artist{
-		ID:   "artist-list-001",
-		Name: "List Test Band 1",
+		ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+		Name:          "List Test Band 1",
+		SpotifyID:     "spotify-list-001",
+		MusicBrainzID: "mb-list-001",
 	}
 	testArtist2 := &entity.Artist{
-		ID:   "artist-list-002",
-		Name: "List Test Band 2",
+		ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49a3",
+		Name:          "List Test Band 2",
+		SpotifyID:     "spotify-list-002",
+		MusicBrainzID: "mb-list-002",
 	}
 	testVenue := &entity.Venue{
-		ID:   "venue-list-001",
+		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 		Name: "List Test Arena",
 	}
 
@@ -174,9 +174,9 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	// Create concerts
 	concerts := []*entity.Concert{
 		{
-			ID:        "concert-list-001",
-			ArtistID:  "artist-list-001",
-			VenueID:   "venue-list-001",
+			ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c4",
+			ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+			VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 			Title:     "Concert 1",
 			Date:      concertDate,
 			StartTime: startTime,
@@ -184,9 +184,9 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 			Status:    entity.ConcertStatusScheduled,
 		},
 		{
-			ID:        "concert-list-002",
-			ArtistID:  "artist-list-001",
-			VenueID:   "venue-list-001",
+			ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c5",
+			ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+			VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 			Title:     "Concert 2",
 			Date:      concertDate.AddDate(0, 1, 0),
 			StartTime: startTime2,
@@ -194,9 +194,9 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 			Status:    entity.ConcertStatusScheduled,
 		},
 		{
-			ID:        "concert-list-003",
-			ArtistID:  "artist-list-002",
-			VenueID:   "venue-list-001",
+			ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c6",
+			ArtistID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49a3",
+			VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 			Title:     "Concert 3",
 			Date:      concertDate,
 			StartTime: startTime,
@@ -220,7 +220,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	}{
 		{
 			name:          "list concerts for artist with 2 concerts",
-			artistID:      "artist-list-001",
+			artistID:      "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
 			wantErr:       false,
 			expectedCount: 2,
 			validate: func(t *testing.T, concerts []*entity.Concert) {
@@ -230,8 +230,8 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 				}
 				// Verify all concerts belong to the correct artist
 				for _, c := range concerts {
-					if c.ArtistID != "artist-list-001" {
-						t.Errorf("Expected ArtistID 'artist-list-001', got '%s'", c.ArtistID)
+					if c.ArtistID != "018b2f19-e591-7d12-bf9e-f0e74f1b49a2" {
+						t.Errorf("Expected ArtistID '018b2f19-e591-7d12-bf9e-f0e74f1b49a2', got '%s'", c.ArtistID)
 					}
 					if c.CreatedAt.IsZero() {
 						t.Error("Expected CreatedAt to be set")
@@ -241,7 +241,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		},
 		{
 			name:          "list concerts for artist with 1 concert",
-			artistID:      "artist-list-002",
+			artistID:      "018b2f19-e591-7d12-bf9e-f0e74f1b49a3",
 			wantErr:       false,
 			expectedCount: 1,
 			validate: func(t *testing.T, concerts []*entity.Concert) {
@@ -256,7 +256,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		},
 		{
 			name:          "list concerts for artist with no concerts",
-			artistID:      "artist-nonexistent",
+			artistID:      "018b2f19-e591-7d12-bf9e-f0e74f1b49a0",
 			wantErr:       false,
 			expectedCount: 0,
 			validate: func(t *testing.T, concerts []*entity.Concert) {

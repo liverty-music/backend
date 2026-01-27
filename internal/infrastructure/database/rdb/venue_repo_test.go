@@ -4,17 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 func TestVenueRepository_Create(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-
+	cleanDatabase()
 	repo := rdb.NewVenueRepository(testDB)
 	ctx := context.Background()
 
@@ -27,7 +24,7 @@ func TestVenueRepository_Create(t *testing.T) {
 		{
 			name: "create valid venue",
 			venue: &entity.Venue{
-				ID:   "venue-001",
+				ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e1",
 				Name: "Test Arena",
 			},
 			wantErr: false,
@@ -35,7 +32,7 @@ func TestVenueRepository_Create(t *testing.T) {
 		{
 			name: "duplicate venue ID",
 			venue: &entity.Venue{
-				ID:   "venue-001",
+				ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e1",
 				Name: "Duplicate Arena",
 			},
 			wantErr: true,
@@ -44,7 +41,7 @@ func TestVenueRepository_Create(t *testing.T) {
 		{
 			name: "empty venue name",
 			venue: &entity.Venue{
-				ID:   "venue-002",
+				ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e2",
 				Name: "",
 			},
 			wantErr: false, // Database allows empty strings
@@ -60,13 +57,13 @@ func TestVenueRepository_Create(t *testing.T) {
 			}
 
 			if tt.wantErr && err != nil {
-				_, ok := err.(*connect.Error)
+				appErr, ok := err.(*apperr.AppErr)
 				if !ok {
-					t.Errorf("Expected AppError, got %T", err)
+					t.Errorf("Expected *apperr.AppErr, got %T", err)
 					return
 				}
-				if connect.CodeOf(err) != tt.errCode.ToConnect() {
-					t.Errorf("Expected error code %v, got %v", tt.errCode, connect.CodeOf(err))
+				if appErr.Code != tt.errCode {
+					t.Errorf("Expected error code %v, got %v", tt.errCode, appErr.Code)
 				}
 			}
 		})
@@ -74,16 +71,13 @@ func TestVenueRepository_Create(t *testing.T) {
 }
 
 func TestVenueRepository_Get(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-
+	cleanDatabase()
 	repo := rdb.NewVenueRepository(testDB)
 	ctx := context.Background()
 
 	// Setup: Create a test venue
 	testVenue := &entity.Venue{
-		ID:   "venue-get-001",
+		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
 		Name: "Get Test Arena",
 	}
 	if err := repo.Create(ctx, testVenue); err != nil {
@@ -99,14 +93,14 @@ func TestVenueRepository_Get(t *testing.T) {
 	}{
 		{
 			name:    "get existing venue",
-			venueID: "venue-get-001",
+			venueID: "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
 			wantErr: false,
 			validate: func(t *testing.T, venue *entity.Venue) {
 				if venue == nil {
 					t.Fatal("Expected venue, got nil")
 				}
-				if venue.ID != "venue-get-001" {
-					t.Errorf("Expected ID 'venue-get-001', got '%s'", venue.ID)
+				if venue.ID != "018b2f19-e591-7d12-bf9e-f0e74f1b49e3" {
+					t.Errorf("Expected ID '018b2f19-e591-7d12-bf9e-f0e74f1b49e3', got '%s'", venue.ID)
 				}
 				if venue.Name != "Get Test Arena" {
 					t.Errorf("Expected name 'Get Test Arena', got '%s'", venue.Name)
@@ -121,7 +115,7 @@ func TestVenueRepository_Get(t *testing.T) {
 		},
 		{
 			name:    "get non-existent venue",
-			venueID: "venue-nonexistent",
+			venueID: "018b2f19-e591-7d12-bf9e-f0e74f1b49e0",
 			wantErr: true,
 			errCode: codes.NotFound,
 		},
@@ -129,7 +123,7 @@ func TestVenueRepository_Get(t *testing.T) {
 			name:    "get with empty ID",
 			venueID: "",
 			wantErr: true,
-			errCode: codes.NotFound,
+			errCode: codes.InvalidArgument,
 		},
 	}
 
@@ -142,13 +136,13 @@ func TestVenueRepository_Get(t *testing.T) {
 			}
 
 			if tt.wantErr && err != nil {
-				_, ok := err.(*connect.Error)
+				appErr, ok := err.(*apperr.AppErr)
 				if !ok {
-					t.Errorf("Expected AppError, got %T", err)
+					t.Errorf("Expected *apperr.AppErr, got %T", err)
 					return
 				}
-				if connect.CodeOf(err) != tt.errCode.ToConnect() {
-					t.Errorf("Expected error code %v, got %v", tt.errCode, connect.CodeOf(err))
+				if appErr.Code != tt.errCode {
+					t.Errorf("Expected error code %v, got %v", tt.errCode, appErr.Code)
 				}
 			}
 
