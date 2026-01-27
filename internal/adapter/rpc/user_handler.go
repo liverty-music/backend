@@ -8,17 +8,17 @@ import (
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/liverty-music/backend/pkg/logging"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // UserHandler implements the UserService Connect interface.
 type UserHandler struct {
-	userUseCase *usecase.UserUseCase
+	userUseCase usecase.UserUseCase
 	logger      *logging.Logger
 }
 
 // NewUserHandler creates a new user handler.
-func NewUserHandler(userUseCase *usecase.UserUseCase, logger *logging.Logger) *UserHandler {
+func NewUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger) *UserHandler {
 	return &UserHandler{
 		userUseCase: userUseCase,
 		logger:      logger,
@@ -36,7 +36,7 @@ func (h *UserHandler) GetUser(ctx context.Context, req *connect.Request[rpc.GetU
 	}
 
 	// Use the use case layer for business logic
-	user, err := h.userUseCase.GetUser(ctx, req.Msg.UserId.GetValue())
+	user, err := h.userUseCase.Get(ctx, req.Msg.UserId.GetValue())
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (h *UserHandler) CreateUser(ctx context.Context, req *connect.Request[rpc.C
 	newUser := mapper.NewUserFromProto(req.Msg.User)
 
 	// Use the use case layer for business logic
-	createdUser, err := h.userUseCase.CreateUser(ctx, newUser)
+	createdUser, err := h.userUseCase.Create(ctx, newUser)
 	if err != nil {
 		return nil, err
 	}

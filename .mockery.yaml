@@ -1,0 +1,10 @@
+with-expecter: true
+dir: "{{.InterfaceDir}}/mocks"
+mockname: "Mock{{.InterfaceName}}"
+outpkg: mocks
+packages:
+  github.com/liverty-music/backend/internal/usecase:
+    interfaces:
+      ArtistUseCase:
+      ConcertUseCase:
+      UserUseCase:

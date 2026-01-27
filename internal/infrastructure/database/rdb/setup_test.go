@@ -2,24 +2,27 @@ package rdb_test
 
 import (
 	"context"
+	"flag"
 	"os"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/pkg/config"
-	"github.com/liverty-music/backend/pkg/logging"
-	"github.com/uptrace/bun/extra/bundebug"
+	"github.com/pannpers/go-logging/logging"
 )
 
 var testDB *rdb.Database
 
 func TestMain(m *testing.M) {
-	testDB = setupTestDatabase()
-	testDB.AddQueryHook(bundebug.NewQueryHook(
-		bundebug.WithVerbose(true),
-	))
+	if !flag.Parsed() {
+		flag.Parse()
+	}
 
-	// Run tests first to determine if we're in short mode
+	if !testing.Short() {
+		testDB = setupTestDatabase()
+	}
+
+	// Run tests
 	code := m.Run()
 
 	// Clean up database if it was initialized
@@ -47,7 +50,7 @@ func setupTestDatabase() *rdb.Database {
 		},
 	}
 
-	logger := logging.New()
+	logger, _ := logging.New()
 	ctx := context.Background()
 
 	// Create database connection using rdb.New()
@@ -56,17 +59,21 @@ func setupTestDatabase() *rdb.Database {
 		panic("Failed to connect to test database: " + err.Error())
 	}
 
-	models := []interface{}{
-		(*rdb.User)(nil),
+	// Clean all tables
+	tables := []string{
+		"notifications",
+		"user_artist_subscriptions",
+		"artist_media",
+		"concerts",
+		"artists",
+		"venues",
+		"users",
 	}
 
-	for _, model := range models {
-		_, err := db.DB.NewTruncateTable().
-			Model(model).
-			Cascade().
-			Exec(ctx)
+	for _, table := range tables {
+		_, err := db.Pool.Exec(ctx, "TRUNCATE TABLE "+table+" CASCADE")
 		if err != nil {
-			panic("Failed to clean table: " + err.Error())
+			panic("Failed to clean table " + table + ": " + err.Error())
 		}
 	}
 

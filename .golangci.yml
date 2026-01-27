@@ -7,3 +7,15 @@ run:
 
 linters:
   default: standard
+  enable:
+    - revive  # Enable revive for code quality checks
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        disabled: false
+        arguments:
+          - "checkPrivateReceivers"  # Check receiver names
+          - "sayRepetitiveInsteadOfStutters"  # Better error messages

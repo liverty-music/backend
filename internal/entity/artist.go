@@ -1,3 +1,4 @@
+// Package entity defines core domain entities and business logic interfaces.
 package entity
 
 import (
@@ -5,7 +6,7 @@ import (
 	"time"
 )
 
-// Artist represents an artist/musician domain entity.
+// Artist represents a musical artist or group.
 type Artist struct {
 	ID            string
 	Name          string
@@ -14,6 +15,7 @@ type Artist struct {
 	Genres        []string
 	Country       string
 	ImageURL      string
+	Media         []*Media
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -28,12 +30,34 @@ type NewArtist struct {
 	ImageURL      string
 }
 
-// ArtistRepository defines the interface for artist data access.
+// Media represents a social media or web link for an artist.
+type Media struct {
+	ID        string
+	ArtistID  string
+	Type      MediaType
+	URL       string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// MediaType defines the type of media link.
+type MediaType string
+
+// MediaType values for artist media links.
+const (
+	// MediaTypeWeb represents a general website link.
+	MediaTypeWeb       MediaType = "WEB"
+	MediaTypeTwitter   MediaType = "TWITTER"
+	MediaTypeInstagram MediaType = "INSTAGRAM"
+)
+
+// ArtistRepository defines the data access interface for Artists.
 type ArtistRepository interface {
-	Create(ctx context.Context, params *NewArtist) (*Artist, error)
+	Create(ctx context.Context, artist *Artist) error
+	List(ctx context.Context) ([]*Artist, error)
 	Get(ctx context.Context, id string) (*Artist, error)
-	GetBySpotifyID(ctx context.Context, spotifyID string) (*Artist, error)
-	Update(ctx context.Context, id string, params *NewArtist) (*Artist, error)
-	Delete(ctx context.Context, id string) error
-	List(ctx context.Context, limit, offset int) ([]*Artist, error)
+
+	// Media operations
+	AddMedia(ctx context.Context, media *Media) error
+	DeleteMedia(ctx context.Context, mediaID string) error
 }

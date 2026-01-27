@@ -1,3 +1,5 @@
-h1:FiUYsWSonRBf9O2TIPIqvFFQay3bVnpwhM0b7q2RwxA=
+h1:cLGFJOX7+OUjdR6BTadYIpLtrLiP3trvDejToVbjk1o=
 20250726081442_initial_schema.sql h1:f98vPRiLIRql4U7yJNeuQQfgt2svbFOZ8ion7LMan7M=
 20250726101741_add_foreign_key_to_posts.sql h1:Uia//w3mht8p0x4x/su76IB6lClt6I66eX86XHlzs7c=
+20260127145500_concert_service_tables.sql h1:BQxgH25Fj8WIyhglwCai2U3RiSoSbBIsVsP+qe3wRGQ=
+20260127145501_convert_varchar_to_text_and_adopt_uuidv7.sql h1:oIZc6inPqIXDgNPdqccHoeMrJT4/AcU5KdUKJqxlJ3A=

@@ -20,97 +20,33 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
-## Development Cheatsheet
+# Project Context & Architecture
 
-### Running the Application
+## Core Architecture
 
-```bash
-# Start the server (HTTP on :8080, gRPC/Connect on :9090)
-go run cmd/api/main.go
-```
+This project follows **Clean Architecture** principles.
 
-### Testing
+| Layer              | Path                       | Responsibility                                                                  |
+| ------------------ | -------------------------- | ------------------------------------------------------------------------------- |
+| **Entity**         | `internal/entity/`         | Core business objects (User, Artist). Pure structs, no tags (unless necessary). |
+| **Use Case**       | `internal/usecase/`        | Business logic & Application rules. Interfaces defined here.                    |
+| **Adapter**        | `internal/adapter/`        | Interface adapters. RPC handlers (`ipc/`) convert Proto <-> Entity.             |
+| **Infrastructure** | `internal/infrastructure/` | Frameworks & Drivers. DB (`database/rdb`), Server (`server/`).                  |
+| **DI**             | `internal/di/`             | Dependency Injection wiring using Google Wire.                                  |
 
-```bash
-# Run all tests
-go test ./...
+## Key Technical Decisions
 
-# Run tests for a specific package
-# Run tests for a specific package
-go test ./pkg/config
-```
+### 1. RPC & Communication
 
-### Linting
+- **Framework**: Connect-RPC (`connectrpc.com/connect`).
+- **Schema**: Managed via BSR (`buf.build/liverty-music/schema`).
+- **Pattern**: Handlers should strictly map Proto messages to Domain Entities and delegate logic to UseCases.
 
-```bash
-# Run linters
-golangci-lint run ./...
-```
+## Development Workflows
 
-### Code Generation
+For procedural commands (Build, Test, Migrate, Gen), **load the `backend-workflow` skill**.
 
-```bash
-# Generate Wire dependency injection code (when wire.go is modified)
-wire internal/di/
+- Skill Path: `.agent/skills/backend-workflow/SKILL.md`
 
-# Generate protobuf code (if working with proto files)
-buf generate
-
-# Generate database schema from Bun models
-go run internal/infrastructure/database/rdb/migrations/generate_schema.go
-```
-
-### Database Migrations (Atlas)
-
-```bash
-# Generate migration from schema changes
-atlas migrate diff --env local
-
-# Validate migrations
-atlas migrate validate --env local
-
-# Apply migrations (for local development only)
-atlas migrate apply --env local
-```
-
-### API Testing (buf curl)
-
-```bash
-# Test GetUser endpoint
-buf curl --schema buf.build/liverty-music/schema --protocol connect \
-  -d '{"user_id": {"value": "123"}}' \
-  http://localhost:9090/liverty.api.v1.UserService/GetUser
-
-# Health Check
-buf curl --schema buf.build/grpc/health --protocol connect \
-  -d '{"service": ""}' \
-  http://localhost:9090/grpc.health.v1.Health/Check
-```
-
-## Service Implementation Reference
-
-### Connect-RPC Handlers (`internal/adapter/rpc/`)
-
-- Implement generated service interfaces.
-- **User Service**: `user_handler.go`
-- **Artist Service**: `artist_handler.go`
-- **Concert Service**: `concert_handler.go`
-- **Notification Service**: `notification_handler.go`
-- **Health Check**: `health_handler.go` (`/grpc.health.v1.Health/`)
-
-### Database Integration (`internal/infrastructure/database/rdb/`)
-
-- **Bun ORM** with PostgreSQL.
-- **Migrations**: `internal/infrastructure/database/rdb/migrations/`.
-- **Command**: `atlas migrate diff --env local <migration_name>` (Recommended over raw Atlas commands for creating migrations).
-
-### Telemetry & Logging
-
-- **Tracing**: Automatic for Connect-RPC.
-- **Logging**: Use `pkg/logging` with context.
-  ```go
-  logger.Info(ctx, "User logged in", slog.String("user_id", "123"))
-  ```
-- **Configuration**:
-  - `APP_TELEMETRY_OTLP_ENDPOINT`: Exporter URL.
-  - `APP_TELEMETRY_SERVICE_NAME`: Service name.
+> [!TIP]
+> If the user asks "How do I run this?" or "Test the API", refer to the `backend-workflow` skill.

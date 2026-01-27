@@ -1,3 +1,4 @@
+// Package di provides dependency injection and application bootstrapping.
 package di
 
 import (
@@ -18,12 +19,15 @@ func newApp(server *server.ConnectServer, db *rdb.Database, telemetryCloser io.C
 	}
 }
 
+// App represents the application with all its dependencies and lifecycle management.
 type App struct {
 	Server  *server.ConnectServer
 	Closers []io.Closer
 }
 
-func (a *App) Shutdown(ctx context.Context) error {
+
+// Shutdown gracefully shuts down the application and closes all resources.
+func (a *App) Shutdown(_ context.Context) error {
 	log.Println("Starting application shutdown...")
 
 	var errs error

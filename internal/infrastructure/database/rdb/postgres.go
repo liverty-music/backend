@@ -2,41 +2,40 @@ package rdb
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/liverty-music/backend/pkg/config"
-	"github.com/liverty-music/backend/pkg/logging"
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/pgdialect"
-	"github.com/uptrace/bun/driver/pgdriver"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // Database represents the database instance.
 type Database struct {
-	*bun.DB
+	Pool   *pgxpool.Pool
 	logger *logging.Logger
 }
 
 // New creates a new database instance with connection and ping verification.
 func New(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Database, error) {
-	// Create PostgreSQL driver
 	dsn := cfg.Database.GetDSN()
-	driver := pgdriver.NewConnector(pgdriver.WithDSN(dsn))
 
-	sqldb := sql.OpenDB(driver)
+	// Create pgxpool for direct pgx usage
+	poolConfig, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse pgxpool config: %w", err)
+	}
+	poolConfig.MaxConns = int32(cfg.Database.MaxOpenConns)
+	poolConfig.MinConns = int32(cfg.Database.MaxIdleConns)
 
-	db := bun.NewDB(sqldb, pgdialect.New())
-
-	// Set connection pool settings
-	sqldb.SetMaxOpenConns(cfg.Database.MaxOpenConns)
-	sqldb.SetMaxIdleConns(cfg.Database.MaxIdleConns)
-	sqldb.SetConnMaxLifetime(time.Duration(cfg.Database.ConnMaxLifetime) * time.Second)
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pgxpool: %w", err)
+	}
 
 	database := &Database{
-		DB:     db,
+		Pool:   pool,
 		logger: logger,
 	}
 
@@ -62,7 +61,7 @@ func (d *Database) Ping(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, pingTimeout)
 	defer cancel()
 
-	if err := d.PingContext(ctx); err != nil {
+	if err := d.Pool.Ping(ctx); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -71,12 +70,9 @@ func (d *Database) Ping(ctx context.Context) error {
 
 // Close closes the database connection.
 func (d *Database) Close() error {
-	if d.DB != nil {
+	if d.Pool != nil {
 		d.logger.Info(context.Background(), "Closing database connection")
-
-		if err := d.DB.Close(); err != nil {
-			return fmt.Errorf("failed to close database connection: %w", err)
-		}
+		d.Pool.Close()
 	}
 
 	return nil

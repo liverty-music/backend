@@ -1,3 +1,4 @@
+// Package server provides HTTP server implementation with Connect-RPC support.
 package server
 
 import (
@@ -11,10 +12,11 @@ import (
 
 	"connectrpc.com/connect"
 	"connectrpc.com/otelconnect"
+	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/pkg/apperr"
 	"github.com/liverty-music/backend/pkg/config"
-	"github.com/liverty-music/backend/pkg/logging"
+	apperr_connect "github.com/pannpers/go-apperr/apperr/connect"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // ConnectServer represents the Connect server.
@@ -32,7 +34,7 @@ type RPCHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler)
 func NewConnectServer(
 	cfg *config.Config,
 	logger *logging.Logger,
-	db *rdb.Database,
+	_ *rdb.Database,
 	handlerFuncs ...RPCHandlerFunc,
 ) *ConnectServer {
 	mux := http.NewServeMux()
@@ -40,15 +42,16 @@ func NewConnectServer(
 	// Create interceptors
 	tracingInterceptor, _ := otelconnect.NewInterceptor()
 	accessLogInterceptor := logging.NewAccessLogInterceptor(logger)
-	errorInterceptor := apperr.NewInterceptor(logger)
+	validationInterceptor := validate.NewInterceptor()
 
 	for _, handlerFunc := range handlerFuncs {
 		path, handler := handlerFunc(
 			newRecoverHandler(logger),
 			connect.WithInterceptors(
+				apperr_connect.NewErrorHandlingInterceptor(logger),
 				tracingInterceptor,
 				accessLogInterceptor,
-				errorInterceptor,
+				validationInterceptor,
 			),
 		)
 		mux.Handle(path, handler)
@@ -96,7 +99,7 @@ func (s *ConnectServer) Stop() error {
 }
 
 func newRecoverHandler(logger *logging.Logger) connect.HandlerOption {
-	return connect.WithRecover(func(ctx context.Context, spec connect.Spec, header http.Header, p any) error {
+	return connect.WithRecover(func(ctx context.Context, spec connect.Spec, _ http.Header, p any) error {
 		logger.Error(ctx, "Panic recovered in Connect handler", fmt.Errorf("panic: %v", p),
 			slog.String("procedure", spec.Procedure),
 		)

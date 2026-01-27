@@ -1,3 +1,4 @@
+// Package main provides the API server entry point.
 package main
 
 import (

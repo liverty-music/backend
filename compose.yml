@@ -2,7 +2,7 @@ name: scaffold-dev
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:18
     container_name: postgres
     environment:
       POSTGRES_USER: testuser

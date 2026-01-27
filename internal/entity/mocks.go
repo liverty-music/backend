@@ -37,55 +37,44 @@ func (_m *MockArtistRepository) EXPECT() *MockArtistRepository_Expecter {
 	return &MockArtistRepository_Expecter{mock: &_m.Mock}
 }
 
-// Create provides a mock function for the type MockArtistRepository
-func (_mock *MockArtistRepository) Create(ctx context.Context, params *NewArtist) (*Artist, error) {
-	ret := _mock.Called(ctx, params)
+// AddMedia provides a mock function for the type MockArtistRepository
+func (_mock *MockArtistRepository) AddMedia(ctx context.Context, media *Media) error {
+	ret := _mock.Called(ctx, media)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Create")
+		panic("no return value specified for AddMedia")
 	}
 
-	var r0 *Artist
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *NewArtist) (*Artist, error)); ok {
-		return returnFunc(ctx, params)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *NewArtist) *Artist); ok {
-		r0 = returnFunc(ctx, params)
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *Media) error); ok {
+		r0 = returnFunc(ctx, media)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Artist)
-		}
+		r0 = ret.Error(0)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *NewArtist) error); ok {
-		r1 = returnFunc(ctx, params)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
+	return r0
 }
 
-// MockArtistRepository_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
-type MockArtistRepository_Create_Call struct {
+// MockArtistRepository_AddMedia_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddMedia'
+type MockArtistRepository_AddMedia_Call struct {
 	*mock.Call
 }
 
-// Create is a helper method to define mock.On call
+// AddMedia is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params *NewArtist
-func (_e *MockArtistRepository_Expecter) Create(ctx interface{}, params interface{}) *MockArtistRepository_Create_Call {
-	return &MockArtistRepository_Create_Call{Call: _e.mock.On("Create", ctx, params)}
+//   - media *Media
+func (_e *MockArtistRepository_Expecter) AddMedia(ctx interface{}, media interface{}) *MockArtistRepository_AddMedia_Call {
+	return &MockArtistRepository_AddMedia_Call{Call: _e.mock.On("AddMedia", ctx, media)}
 }
 
-func (_c *MockArtistRepository_Create_Call) Run(run func(ctx context.Context, params *NewArtist)) *MockArtistRepository_Create_Call {
+func (_c *MockArtistRepository_AddMedia_Call) Run(run func(ctx context.Context, media *Media)) *MockArtistRepository_AddMedia_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *NewArtist
+		var arg1 *Media
 		if args[1] != nil {
-			arg1 = args[1].(*NewArtist)
+			arg1 = args[1].(*Media)
 		}
 		run(
 			arg0,
@@ -95,46 +84,103 @@ func (_c *MockArtistRepository_Create_Call) Run(run func(ctx context.Context, pa
 	return _c
 }
 
-func (_c *MockArtistRepository_Create_Call) Return(artist *Artist, err error) *MockArtistRepository_Create_Call {
-	_c.Call.Return(artist, err)
+func (_c *MockArtistRepository_AddMedia_Call) Return(err error) *MockArtistRepository_AddMedia_Call {
+	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockArtistRepository_Create_Call) RunAndReturn(run func(ctx context.Context, params *NewArtist) (*Artist, error)) *MockArtistRepository_Create_Call {
+func (_c *MockArtistRepository_AddMedia_Call) RunAndReturn(run func(ctx context.Context, media *Media) error) *MockArtistRepository_AddMedia_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Delete provides a mock function for the type MockArtistRepository
-func (_mock *MockArtistRepository) Delete(ctx context.Context, id string) error {
-	ret := _mock.Called(ctx, id)
+// Create provides a mock function for the type MockArtistRepository
+func (_mock *MockArtistRepository) Create(ctx context.Context, artist *Artist) error {
+	ret := _mock.Called(ctx, artist)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Delete")
+		panic("no return value specified for Create")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = returnFunc(ctx, id)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *Artist) error); ok {
+		r0 = returnFunc(ctx, artist)
 	} else {
 		r0 = ret.Error(0)
 	}
 	return r0
 }
 
-// MockArtistRepository_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
-type MockArtistRepository_Delete_Call struct {
+// MockArtistRepository_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
+type MockArtistRepository_Create_Call struct {
 	*mock.Call
 }
 
-// Delete is a helper method to define mock.On call
+// Create is a helper method to define mock.On call
 //   - ctx context.Context
-//   - id string
-func (_e *MockArtistRepository_Expecter) Delete(ctx interface{}, id interface{}) *MockArtistRepository_Delete_Call {
-	return &MockArtistRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, id)}
+//   - artist *Artist
+func (_e *MockArtistRepository_Expecter) Create(ctx interface{}, artist interface{}) *MockArtistRepository_Create_Call {
+	return &MockArtistRepository_Create_Call{Call: _e.mock.On("Create", ctx, artist)}
 }
 
-func (_c *MockArtistRepository_Delete_Call) Run(run func(ctx context.Context, id string)) *MockArtistRepository_Delete_Call {
+func (_c *MockArtistRepository_Create_Call) Run(run func(ctx context.Context, artist *Artist)) *MockArtistRepository_Create_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *Artist
+		if args[1] != nil {
+			arg1 = args[1].(*Artist)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_Create_Call) Return(err error) *MockArtistRepository_Create_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockArtistRepository_Create_Call) RunAndReturn(run func(ctx context.Context, artist *Artist) error) *MockArtistRepository_Create_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteMedia provides a mock function for the type MockArtistRepository
+func (_mock *MockArtistRepository) DeleteMedia(ctx context.Context, mediaID string) error {
+	ret := _mock.Called(ctx, mediaID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteMedia")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = returnFunc(ctx, mediaID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockArtistRepository_DeleteMedia_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteMedia'
+type MockArtistRepository_DeleteMedia_Call struct {
+	*mock.Call
+}
+
+// DeleteMedia is a helper method to define mock.On call
+//   - ctx context.Context
+//   - mediaID string
+func (_e *MockArtistRepository_Expecter) DeleteMedia(ctx interface{}, mediaID interface{}) *MockArtistRepository_DeleteMedia_Call {
+	return &MockArtistRepository_DeleteMedia_Call{Call: _e.mock.On("DeleteMedia", ctx, mediaID)}
+}
+
+func (_c *MockArtistRepository_DeleteMedia_Call) Run(run func(ctx context.Context, mediaID string)) *MockArtistRepository_DeleteMedia_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -152,12 +198,12 @@ func (_c *MockArtistRepository_Delete_Call) Run(run func(ctx context.Context, id
 	return _c
 }
 
-func (_c *MockArtistRepository_Delete_Call) Return(err error) *MockArtistRepository_Delete_Call {
+func (_c *MockArtistRepository_DeleteMedia_Call) Return(err error) *MockArtistRepository_DeleteMedia_Call {
 	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockArtistRepository_Delete_Call) RunAndReturn(run func(ctx context.Context, id string) error) *MockArtistRepository_Delete_Call {
+func (_c *MockArtistRepository_DeleteMedia_Call) RunAndReturn(run func(ctx context.Context, mediaID string) error) *MockArtistRepository_DeleteMedia_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -230,77 +276,9 @@ func (_c *MockArtistRepository_Get_Call) RunAndReturn(run func(ctx context.Conte
 	return _c
 }
 
-// GetBySpotifyID provides a mock function for the type MockArtistRepository
-func (_mock *MockArtistRepository) GetBySpotifyID(ctx context.Context, spotifyID string) (*Artist, error) {
-	ret := _mock.Called(ctx, spotifyID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetBySpotifyID")
-	}
-
-	var r0 *Artist
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*Artist, error)); ok {
-		return returnFunc(ctx, spotifyID)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *Artist); ok {
-		r0 = returnFunc(ctx, spotifyID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Artist)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = returnFunc(ctx, spotifyID)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockArtistRepository_GetBySpotifyID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBySpotifyID'
-type MockArtistRepository_GetBySpotifyID_Call struct {
-	*mock.Call
-}
-
-// GetBySpotifyID is a helper method to define mock.On call
-//   - ctx context.Context
-//   - spotifyID string
-func (_e *MockArtistRepository_Expecter) GetBySpotifyID(ctx interface{}, spotifyID interface{}) *MockArtistRepository_GetBySpotifyID_Call {
-	return &MockArtistRepository_GetBySpotifyID_Call{Call: _e.mock.On("GetBySpotifyID", ctx, spotifyID)}
-}
-
-func (_c *MockArtistRepository_GetBySpotifyID_Call) Run(run func(ctx context.Context, spotifyID string)) *MockArtistRepository_GetBySpotifyID_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockArtistRepository_GetBySpotifyID_Call) Return(artist *Artist, err error) *MockArtistRepository_GetBySpotifyID_Call {
-	_c.Call.Return(artist, err)
-	return _c
-}
-
-func (_c *MockArtistRepository_GetBySpotifyID_Call) RunAndReturn(run func(ctx context.Context, spotifyID string) (*Artist, error)) *MockArtistRepository_GetBySpotifyID_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // List provides a mock function for the type MockArtistRepository
-func (_mock *MockArtistRepository) List(ctx context.Context, limit int, offset int) ([]*Artist, error) {
-	ret := _mock.Called(ctx, limit, offset)
+func (_mock *MockArtistRepository) List(ctx context.Context) ([]*Artist, error) {
+	ret := _mock.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for List")
@@ -308,18 +286,18 @@ func (_mock *MockArtistRepository) List(ctx context.Context, limit int, offset i
 
 	var r0 []*Artist
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) ([]*Artist, error)); ok {
-		return returnFunc(ctx, limit, offset)
+	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]*Artist, error)); ok {
+		return returnFunc(ctx)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) []*Artist); ok {
-		r0 = returnFunc(ctx, limit, offset)
+	if returnFunc, ok := ret.Get(0).(func(context.Context) []*Artist); ok {
+		r0 = returnFunc(ctx)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*Artist)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, int, int) error); ok {
-		r1 = returnFunc(ctx, limit, offset)
+	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = returnFunc(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -333,30 +311,18 @@ type MockArtistRepository_List_Call struct {
 
 // List is a helper method to define mock.On call
 //   - ctx context.Context
-//   - limit int
-//   - offset int
-func (_e *MockArtistRepository_Expecter) List(ctx interface{}, limit interface{}, offset interface{}) *MockArtistRepository_List_Call {
-	return &MockArtistRepository_List_Call{Call: _e.mock.On("List", ctx, limit, offset)}
+func (_e *MockArtistRepository_Expecter) List(ctx interface{}) *MockArtistRepository_List_Call {
+	return &MockArtistRepository_List_Call{Call: _e.mock.On("List", ctx)}
 }
 
-func (_c *MockArtistRepository_List_Call) Run(run func(ctx context.Context, limit int, offset int)) *MockArtistRepository_List_Call {
+func (_c *MockArtistRepository_List_Call) Run(run func(ctx context.Context)) *MockArtistRepository_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 int
-		if args[1] != nil {
-			arg1 = args[1].(int)
-		}
-		var arg2 int
-		if args[2] != nil {
-			arg2 = args[2].(int)
-		}
 		run(
 			arg0,
-			arg1,
-			arg2,
 		)
 	})
 	return _c
@@ -367,81 +333,7 @@ func (_c *MockArtistRepository_List_Call) Return(artists []*Artist, err error) *
 	return _c
 }
 
-func (_c *MockArtistRepository_List_Call) RunAndReturn(run func(ctx context.Context, limit int, offset int) ([]*Artist, error)) *MockArtistRepository_List_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Update provides a mock function for the type MockArtistRepository
-func (_mock *MockArtistRepository) Update(ctx context.Context, id string, params *NewArtist) (*Artist, error) {
-	ret := _mock.Called(ctx, id, params)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Update")
-	}
-
-	var r0 *Artist
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *NewArtist) (*Artist, error)); ok {
-		return returnFunc(ctx, id, params)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *NewArtist) *Artist); ok {
-		r0 = returnFunc(ctx, id, params)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Artist)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, *NewArtist) error); ok {
-		r1 = returnFunc(ctx, id, params)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockArtistRepository_Update_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Update'
-type MockArtistRepository_Update_Call struct {
-	*mock.Call
-}
-
-// Update is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-//   - params *NewArtist
-func (_e *MockArtistRepository_Expecter) Update(ctx interface{}, id interface{}, params interface{}) *MockArtistRepository_Update_Call {
-	return &MockArtistRepository_Update_Call{Call: _e.mock.On("Update", ctx, id, params)}
-}
-
-func (_c *MockArtistRepository_Update_Call) Run(run func(ctx context.Context, id string, params *NewArtist)) *MockArtistRepository_Update_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 *NewArtist
-		if args[2] != nil {
-			arg2 = args[2].(*NewArtist)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockArtistRepository_Update_Call) Return(artist *Artist, err error) *MockArtistRepository_Update_Call {
-	_c.Call.Return(artist, err)
-	return _c
-}
-
-func (_c *MockArtistRepository_Update_Call) RunAndReturn(run func(ctx context.Context, id string, params *NewArtist) (*Artist, error)) *MockArtistRepository_Update_Call {
+func (_c *MockArtistRepository_List_Call) RunAndReturn(run func(ctx context.Context) ([]*Artist, error)) *MockArtistRepository_List_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -474,31 +366,20 @@ func (_m *MockConcertRepository) EXPECT() *MockConcertRepository_Expecter {
 }
 
 // Create provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) Create(ctx context.Context, params *NewConcert) (*Concert, error) {
-	ret := _mock.Called(ctx, params)
+func (_mock *MockConcertRepository) Create(ctx context.Context, concert *Concert) error {
+	ret := _mock.Called(ctx, concert)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
 	}
 
-	var r0 *Concert
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *NewConcert) (*Concert, error)); ok {
-		return returnFunc(ctx, params)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *NewConcert) *Concert); ok {
-		r0 = returnFunc(ctx, params)
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *Concert) error); ok {
+		r0 = returnFunc(ctx, concert)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Concert)
-		}
+		r0 = ret.Error(0)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *NewConcert) error); ok {
-		r1 = returnFunc(ctx, params)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
+	return r0
 }
 
 // MockConcertRepository_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
@@ -508,20 +389,20 @@ type MockConcertRepository_Create_Call struct {
 
 // Create is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params *NewConcert
-func (_e *MockConcertRepository_Expecter) Create(ctx interface{}, params interface{}) *MockConcertRepository_Create_Call {
-	return &MockConcertRepository_Create_Call{Call: _e.mock.On("Create", ctx, params)}
+//   - concert *Concert
+func (_e *MockConcertRepository_Expecter) Create(ctx interface{}, concert interface{}) *MockConcertRepository_Create_Call {
+	return &MockConcertRepository_Create_Call{Call: _e.mock.On("Create", ctx, concert)}
 }
 
-func (_c *MockConcertRepository_Create_Call) Run(run func(ctx context.Context, params *NewConcert)) *MockConcertRepository_Create_Call {
+func (_c *MockConcertRepository_Create_Call) Run(run func(ctx context.Context, concert *Concert)) *MockConcertRepository_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 *NewConcert
+		var arg1 *Concert
 		if args[1] != nil {
-			arg1 = args[1].(*NewConcert)
+			arg1 = args[1].(*Concert)
 		}
 		run(
 			arg0,
@@ -531,184 +412,57 @@ func (_c *MockConcertRepository_Create_Call) Run(run func(ctx context.Context, p
 	return _c
 }
 
-func (_c *MockConcertRepository_Create_Call) Return(concert *Concert, err error) *MockConcertRepository_Create_Call {
-	_c.Call.Return(concert, err)
-	return _c
-}
-
-func (_c *MockConcertRepository_Create_Call) RunAndReturn(run func(ctx context.Context, params *NewConcert) (*Concert, error)) *MockConcertRepository_Create_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Delete provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) Delete(ctx context.Context, id string) error {
-	ret := _mock.Called(ctx, id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Delete")
-	}
-
-	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = returnFunc(ctx, id)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockConcertRepository_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
-type MockConcertRepository_Delete_Call struct {
-	*mock.Call
-}
-
-// Delete is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-func (_e *MockConcertRepository_Expecter) Delete(ctx interface{}, id interface{}) *MockConcertRepository_Delete_Call {
-	return &MockConcertRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, id)}
-}
-
-func (_c *MockConcertRepository_Delete_Call) Run(run func(ctx context.Context, id string)) *MockConcertRepository_Delete_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockConcertRepository_Delete_Call) Return(err error) *MockConcertRepository_Delete_Call {
+func (_c *MockConcertRepository_Create_Call) Return(err error) *MockConcertRepository_Create_Call {
 	_c.Call.Return(err)
 	return _c
 }
 
-func (_c *MockConcertRepository_Delete_Call) RunAndReturn(run func(ctx context.Context, id string) error) *MockConcertRepository_Delete_Call {
+func (_c *MockConcertRepository_Create_Call) RunAndReturn(run func(ctx context.Context, concert *Concert) error) *MockConcertRepository_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Get provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) Get(ctx context.Context, id string) (*Concert, error) {
-	ret := _mock.Called(ctx, id)
+// ListByArtist provides a mock function for the type MockConcertRepository
+func (_mock *MockConcertRepository) ListByArtist(ctx context.Context, artistID string) ([]*Concert, error) {
+	ret := _mock.Called(ctx, artistID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Get")
+		panic("no return value specified for ListByArtist")
 	}
 
-	var r0 *Concert
+	var r0 []*Concert
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*Concert, error)); ok {
-		return returnFunc(ctx, id)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) ([]*Concert, error)); ok {
+		return returnFunc(ctx, artistID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *Concert); ok {
-		r0 = returnFunc(ctx, id)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) []*Concert); ok {
+		r0 = returnFunc(ctx, artistID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Concert)
+			r0 = ret.Get(0).([]*Concert)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = returnFunc(ctx, id)
+		r1 = returnFunc(ctx, artistID)
 	} else {
 		r1 = ret.Error(1)
 	}
 	return r0, r1
 }
 
-// MockConcertRepository_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
-type MockConcertRepository_Get_Call struct {
+// MockConcertRepository_ListByArtist_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByArtist'
+type MockConcertRepository_ListByArtist_Call struct {
 	*mock.Call
 }
 
-// Get is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-func (_e *MockConcertRepository_Expecter) Get(ctx interface{}, id interface{}) *MockConcertRepository_Get_Call {
-	return &MockConcertRepository_Get_Call{Call: _e.mock.On("Get", ctx, id)}
-}
-
-func (_c *MockConcertRepository_Get_Call) Run(run func(ctx context.Context, id string)) *MockConcertRepository_Get_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		run(
-			arg0,
-			arg1,
-		)
-	})
-	return _c
-}
-
-func (_c *MockConcertRepository_Get_Call) Return(concert *Concert, err error) *MockConcertRepository_Get_Call {
-	_c.Call.Return(concert, err)
-	return _c
-}
-
-func (_c *MockConcertRepository_Get_Call) RunAndReturn(run func(ctx context.Context, id string) (*Concert, error)) *MockConcertRepository_Get_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetByArtist provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) GetByArtist(ctx context.Context, artistID string, limit int, offset int) ([]*Concert, error) {
-	ret := _mock.Called(ctx, artistID, limit, offset)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetByArtist")
-	}
-
-	var r0 []*Concert
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, int, int) ([]*Concert, error)); ok {
-		return returnFunc(ctx, artistID, limit, offset)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, int, int) []*Concert); ok {
-		r0 = returnFunc(ctx, artistID, limit, offset)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*Concert)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, int, int) error); ok {
-		r1 = returnFunc(ctx, artistID, limit, offset)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockConcertRepository_GetByArtist_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByArtist'
-type MockConcertRepository_GetByArtist_Call struct {
-	*mock.Call
-}
-
-// GetByArtist is a helper method to define mock.On call
+// ListByArtist is a helper method to define mock.On call
 //   - ctx context.Context
 //   - artistID string
-//   - limit int
-//   - offset int
-func (_e *MockConcertRepository_Expecter) GetByArtist(ctx interface{}, artistID interface{}, limit interface{}, offset interface{}) *MockConcertRepository_GetByArtist_Call {
-	return &MockConcertRepository_GetByArtist_Call{Call: _e.mock.On("GetByArtist", ctx, artistID, limit, offset)}
+func (_e *MockConcertRepository_Expecter) ListByArtist(ctx interface{}, artistID interface{}) *MockConcertRepository_ListByArtist_Call {
+	return &MockConcertRepository_ListByArtist_Call{Call: _e.mock.On("ListByArtist", ctx, artistID)}
 }
 
-func (_c *MockConcertRepository_GetByArtist_Call) Run(run func(ctx context.Context, artistID string, limit int, offset int)) *MockConcertRepository_GetByArtist_Call {
+func (_c *MockConcertRepository_ListByArtist_Call) Run(run func(ctx context.Context, artistID string)) *MockConcertRepository_ListByArtist_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -718,338 +472,20 @@ func (_c *MockConcertRepository_GetByArtist_Call) Run(run func(ctx context.Conte
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
-		var arg2 int
-		if args[2] != nil {
-			arg2 = args[2].(int)
-		}
-		var arg3 int
-		if args[3] != nil {
-			arg3 = args[3].(int)
-		}
 		run(
 			arg0,
 			arg1,
-			arg2,
-			arg3,
 		)
 	})
 	return _c
 }
 
-func (_c *MockConcertRepository_GetByArtist_Call) Return(concerts []*Concert, err error) *MockConcertRepository_GetByArtist_Call {
+func (_c *MockConcertRepository_ListByArtist_Call) Return(concerts []*Concert, err error) *MockConcertRepository_ListByArtist_Call {
 	_c.Call.Return(concerts, err)
 	return _c
 }
 
-func (_c *MockConcertRepository_GetByArtist_Call) RunAndReturn(run func(ctx context.Context, artistID string, limit int, offset int) ([]*Concert, error)) *MockConcertRepository_GetByArtist_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetByLocation provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) GetByLocation(ctx context.Context, city string, country string, limit int, offset int) ([]*Concert, error) {
-	ret := _mock.Called(ctx, city, country, limit, offset)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetByLocation")
-	}
-
-	var r0 []*Concert
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int, int) ([]*Concert, error)); ok {
-		return returnFunc(ctx, city, country, limit, offset)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int, int) []*Concert); ok {
-		r0 = returnFunc(ctx, city, country, limit, offset)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*Concert)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, int, int) error); ok {
-		r1 = returnFunc(ctx, city, country, limit, offset)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockConcertRepository_GetByLocation_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByLocation'
-type MockConcertRepository_GetByLocation_Call struct {
-	*mock.Call
-}
-
-// GetByLocation is a helper method to define mock.On call
-//   - ctx context.Context
-//   - city string
-//   - country string
-//   - limit int
-//   - offset int
-func (_e *MockConcertRepository_Expecter) GetByLocation(ctx interface{}, city interface{}, country interface{}, limit interface{}, offset interface{}) *MockConcertRepository_GetByLocation_Call {
-	return &MockConcertRepository_GetByLocation_Call{Call: _e.mock.On("GetByLocation", ctx, city, country, limit, offset)}
-}
-
-func (_c *MockConcertRepository_GetByLocation_Call) Run(run func(ctx context.Context, city string, country string, limit int, offset int)) *MockConcertRepository_GetByLocation_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 string
-		if args[2] != nil {
-			arg2 = args[2].(string)
-		}
-		var arg3 int
-		if args[3] != nil {
-			arg3 = args[3].(int)
-		}
-		var arg4 int
-		if args[4] != nil {
-			arg4 = args[4].(int)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-			arg3,
-			arg4,
-		)
-	})
-	return _c
-}
-
-func (_c *MockConcertRepository_GetByLocation_Call) Return(concerts []*Concert, err error) *MockConcertRepository_GetByLocation_Call {
-	_c.Call.Return(concerts, err)
-	return _c
-}
-
-func (_c *MockConcertRepository_GetByLocation_Call) RunAndReturn(run func(ctx context.Context, city string, country string, limit int, offset int) ([]*Concert, error)) *MockConcertRepository_GetByLocation_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetUpcoming provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) GetUpcoming(ctx context.Context, limit int, offset int) ([]*Concert, error) {
-	ret := _mock.Called(ctx, limit, offset)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetUpcoming")
-	}
-
-	var r0 []*Concert
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) ([]*Concert, error)); ok {
-		return returnFunc(ctx, limit, offset)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) []*Concert); ok {
-		r0 = returnFunc(ctx, limit, offset)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*Concert)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, int, int) error); ok {
-		r1 = returnFunc(ctx, limit, offset)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockConcertRepository_GetUpcoming_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetUpcoming'
-type MockConcertRepository_GetUpcoming_Call struct {
-	*mock.Call
-}
-
-// GetUpcoming is a helper method to define mock.On call
-//   - ctx context.Context
-//   - limit int
-//   - offset int
-func (_e *MockConcertRepository_Expecter) GetUpcoming(ctx interface{}, limit interface{}, offset interface{}) *MockConcertRepository_GetUpcoming_Call {
-	return &MockConcertRepository_GetUpcoming_Call{Call: _e.mock.On("GetUpcoming", ctx, limit, offset)}
-}
-
-func (_c *MockConcertRepository_GetUpcoming_Call) Run(run func(ctx context.Context, limit int, offset int)) *MockConcertRepository_GetUpcoming_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 int
-		if args[1] != nil {
-			arg1 = args[1].(int)
-		}
-		var arg2 int
-		if args[2] != nil {
-			arg2 = args[2].(int)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockConcertRepository_GetUpcoming_Call) Return(concerts []*Concert, err error) *MockConcertRepository_GetUpcoming_Call {
-	_c.Call.Return(concerts, err)
-	return _c
-}
-
-func (_c *MockConcertRepository_GetUpcoming_Call) RunAndReturn(run func(ctx context.Context, limit int, offset int) ([]*Concert, error)) *MockConcertRepository_GetUpcoming_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// List provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) List(ctx context.Context, limit int, offset int) ([]*Concert, error) {
-	ret := _mock.Called(ctx, limit, offset)
-
-	if len(ret) == 0 {
-		panic("no return value specified for List")
-	}
-
-	var r0 []*Concert
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) ([]*Concert, error)); ok {
-		return returnFunc(ctx, limit, offset)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, int, int) []*Concert); ok {
-		r0 = returnFunc(ctx, limit, offset)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*Concert)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, int, int) error); ok {
-		r1 = returnFunc(ctx, limit, offset)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockConcertRepository_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
-type MockConcertRepository_List_Call struct {
-	*mock.Call
-}
-
-// List is a helper method to define mock.On call
-//   - ctx context.Context
-//   - limit int
-//   - offset int
-func (_e *MockConcertRepository_Expecter) List(ctx interface{}, limit interface{}, offset interface{}) *MockConcertRepository_List_Call {
-	return &MockConcertRepository_List_Call{Call: _e.mock.On("List", ctx, limit, offset)}
-}
-
-func (_c *MockConcertRepository_List_Call) Run(run func(ctx context.Context, limit int, offset int)) *MockConcertRepository_List_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 int
-		if args[1] != nil {
-			arg1 = args[1].(int)
-		}
-		var arg2 int
-		if args[2] != nil {
-			arg2 = args[2].(int)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockConcertRepository_List_Call) Return(concerts []*Concert, err error) *MockConcertRepository_List_Call {
-	_c.Call.Return(concerts, err)
-	return _c
-}
-
-func (_c *MockConcertRepository_List_Call) RunAndReturn(run func(ctx context.Context, limit int, offset int) ([]*Concert, error)) *MockConcertRepository_List_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Update provides a mock function for the type MockConcertRepository
-func (_mock *MockConcertRepository) Update(ctx context.Context, id string, params *NewConcert) (*Concert, error) {
-	ret := _mock.Called(ctx, id, params)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Update")
-	}
-
-	var r0 *Concert
-	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *NewConcert) (*Concert, error)); ok {
-		return returnFunc(ctx, id, params)
-	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, *NewConcert) *Concert); ok {
-		r0 = returnFunc(ctx, id, params)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Concert)
-		}
-	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, *NewConcert) error); ok {
-		r1 = returnFunc(ctx, id, params)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockConcertRepository_Update_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Update'
-type MockConcertRepository_Update_Call struct {
-	*mock.Call
-}
-
-// Update is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-//   - params *NewConcert
-func (_e *MockConcertRepository_Expecter) Update(ctx interface{}, id interface{}, params interface{}) *MockConcertRepository_Update_Call {
-	return &MockConcertRepository_Update_Call{Call: _e.mock.On("Update", ctx, id, params)}
-}
-
-func (_c *MockConcertRepository_Update_Call) Run(run func(ctx context.Context, id string, params *NewConcert)) *MockConcertRepository_Update_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		var arg0 context.Context
-		if args[0] != nil {
-			arg0 = args[0].(context.Context)
-		}
-		var arg1 string
-		if args[1] != nil {
-			arg1 = args[1].(string)
-		}
-		var arg2 *NewConcert
-		if args[2] != nil {
-			arg2 = args[2].(*NewConcert)
-		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
-	})
-	return _c
-}
-
-func (_c *MockConcertRepository_Update_Call) Return(concert *Concert, err error) *MockConcertRepository_Update_Call {
-	_c.Call.Return(concert, err)
-	return _c
-}
-
-func (_c *MockConcertRepository_Update_Call) RunAndReturn(run func(ctx context.Context, id string, params *NewConcert) (*Concert, error)) *MockConcertRepository_Update_Call {
+func (_c *MockConcertRepository_ListByArtist_Call) RunAndReturn(run func(ctx context.Context, artistID string) ([]*Concert, error)) *MockConcertRepository_ListByArtist_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2628,6 +2064,158 @@ func (_c *MockUserArtistSubscriptionRepository_GetByUserAndArtist_Call) Return(u
 }
 
 func (_c *MockUserArtistSubscriptionRepository_GetByUserAndArtist_Call) RunAndReturn(run func(ctx context.Context, userID string, artistID string) (*UserArtistSubscription, error)) *MockUserArtistSubscriptionRepository_GetByUserAndArtist_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// NewMockVenueRepository creates a new instance of MockVenueRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewMockVenueRepository(t interface {
+	mock.TestingT
+	Cleanup(func())
+}) *MockVenueRepository {
+	mock := &MockVenueRepository{}
+	mock.Mock.Test(t)
+
+	t.Cleanup(func() { mock.AssertExpectations(t) })
+
+	return mock
+}
+
+// MockVenueRepository is an autogenerated mock type for the VenueRepository type
+type MockVenueRepository struct {
+	mock.Mock
+}
+
+type MockVenueRepository_Expecter struct {
+	mock *mock.Mock
+}
+
+func (_m *MockVenueRepository) EXPECT() *MockVenueRepository_Expecter {
+	return &MockVenueRepository_Expecter{mock: &_m.Mock}
+}
+
+// Create provides a mock function for the type MockVenueRepository
+func (_mock *MockVenueRepository) Create(ctx context.Context, venue *Venue) error {
+	ret := _mock.Called(ctx, venue)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Create")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *Venue) error); ok {
+		r0 = returnFunc(ctx, venue)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockVenueRepository_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
+type MockVenueRepository_Create_Call struct {
+	*mock.Call
+}
+
+// Create is a helper method to define mock.On call
+//   - ctx context.Context
+//   - venue *Venue
+func (_e *MockVenueRepository_Expecter) Create(ctx interface{}, venue interface{}) *MockVenueRepository_Create_Call {
+	return &MockVenueRepository_Create_Call{Call: _e.mock.On("Create", ctx, venue)}
+}
+
+func (_c *MockVenueRepository_Create_Call) Run(run func(ctx context.Context, venue *Venue)) *MockVenueRepository_Create_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 *Venue
+		if args[1] != nil {
+			arg1 = args[1].(*Venue)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockVenueRepository_Create_Call) Return(err error) *MockVenueRepository_Create_Call {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockVenueRepository_Create_Call) RunAndReturn(run func(ctx context.Context, venue *Venue) error) *MockVenueRepository_Create_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Get provides a mock function for the type MockVenueRepository
+func (_mock *MockVenueRepository) Get(ctx context.Context, id string) (*Venue, error) {
+	ret := _mock.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Get")
+	}
+
+	var r0 *Venue
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*Venue, error)); ok {
+		return returnFunc(ctx, id)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *Venue); ok {
+		r0 = returnFunc(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*Venue)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = returnFunc(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockVenueRepository_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
+type MockVenueRepository_Get_Call struct {
+	*mock.Call
+}
+
+// Get is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+func (_e *MockVenueRepository_Expecter) Get(ctx interface{}, id interface{}) *MockVenueRepository_Get_Call {
+	return &MockVenueRepository_Get_Call{Call: _e.mock.On("Get", ctx, id)}
+}
+
+func (_c *MockVenueRepository_Get_Call) Run(run func(ctx context.Context, id string)) *MockVenueRepository_Get_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockVenueRepository_Get_Call) Return(venue *Venue, err error) *MockVenueRepository_Get_Call {
+	_c.Call.Return(venue, err)
+	return _c
+}
+
+func (_c *MockVenueRepository_Get_Call) RunAndReturn(run func(ctx context.Context, id string) (*Venue, error)) *MockVenueRepository_Get_Call {
 	_c.Call.Return(run)
 	return _c
 }

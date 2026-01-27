@@ -25,7 +25,9 @@ type Notification struct {
 // NotificationType represents the type of notification.
 type NotificationType string
 
+// Notification type values.
 const (
+	// NotificationTypeConcertAnnounced indicates a new concert has been announced.
 	NotificationTypeConcertAnnounced NotificationType = "concert_announced"
 	NotificationTypeTicketsAvailable NotificationType = "tickets_available"
 	NotificationTypeConcertReminder  NotificationType = "concert_reminder"
@@ -35,7 +37,9 @@ const (
 // NotificationStatus represents the status of a notification.
 type NotificationStatus string
 
+// Notification status values.
 const (
+	// NotificationStatusPending indicates the notification has not been sent yet.
 	NotificationStatusPending   NotificationStatus = "pending"
 	NotificationStatusSent      NotificationStatus = "sent"
 	NotificationStatusFailed    NotificationStatus = "failed"

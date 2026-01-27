@@ -1,3 +1,4 @@
+// Package main provides the prototype CLI tool for live event information extraction.
 package main
 
 import (
