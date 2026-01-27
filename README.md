@@ -17,7 +17,7 @@ The backend service for Liverty Music - a concert notification platform that tra
 ### Technical Features
 
 - **Connect-RPC Server**: HTTP/gRPC-compatible server with protobuf support
-- **Database Migrations**: Atlas-powered versioned migrations with schema generation from Bun models
+- **Database Migrations**: Atlas-powered versioned migrations with schema alignment to entity definitions
 - **Structured Logging**: Advanced logger with OpenTelemetry integration for distributed tracing
 - **Dependency Injection**: Wire-based dependency injection for clean architecture
 - **Clean Architecture**: Well-organized project structure following domain-driven design
@@ -159,7 +159,7 @@ This project uses Atlas for database schema management with versioned migrations
 To generate a new migration file from your models, use `go tool atlas` with the configured arguments:
 
 ```bash
-# This command compares your Bun models (schema.sql) with the database state.
+# This command compares your SQL schema (schema.sql) with the database state.
 atlas migrate diff --env local <migration_name>
 
 # Example:
@@ -183,7 +183,6 @@ atlas migrate apply --env local
 
 ```
 internal/infrastructure/database/rdb/migrations/
-├── generate_schema.go    # Schema generation script
 ├── schema.sql           # Base schema file
 └── versions/            # Versioned migration files
 ```
@@ -204,13 +203,13 @@ golangci-lint run ./...
 The scaffold includes a powerful structured logger with OpenTelemetry integration:
 
 ```go
-import "github.com/liverty-music/backend/pkg/logging"
+import "github.com/pannpers/go-logging/logging"
 
 // Create a logger with default options (JSON format)
-logger := logging.NewSlogLogger()
+logger, err := logging.New()
 
 // Create a logger with custom options
-logger := logging.NewSlogLogger(
+logger, err := logging.New(
     logging.WithLevel(slog.LevelDebug),
     logging.WithFormat(logging.FormatText), // Human-readable format
     logging.WithWriter(os.Stderr),
@@ -268,7 +267,7 @@ This scaffold follows clean architecture principles:
 
 - **Connect-RPC**: `connectrpc.com/connect` for HTTP/gRPC-compatible APIs
 - **Atlas**: Database migration tool with versioned migrations
-- **Bun ORM**: `github.com/uptrace/bun` for PostgreSQL database access
+- **SQL Support**: `github.com/jackc/pgx/v5` for PostgreSQL database access with raw SQL support
 - **Wire**: `github.com/google/wire` for dependency injection
 - **OpenTelemetry**: `go.opentelemetry.io/otel` for distributed tracing
 - **Protobuf Schema**: `buf.build/liverty-music/schema` for shared protobuf definitions from BSR

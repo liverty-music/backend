@@ -6,7 +6,7 @@ import (
 
 	"connectrpc.com/grpchealth"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	"github.com/liverty-music/backend/pkg/logging"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // HealthCheckHandler implements grpchealth.Checker interface with database ping.

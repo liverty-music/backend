@@ -9,9 +9,9 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/liverty-music/backend/pkg/apperr"
-	"github.com/liverty-music/backend/pkg/apperr/codes"
-	"github.com/liverty-music/backend/pkg/logging"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 )
 
 var fakeTime = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -45,7 +45,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 			},
 			dep: func() dep {
 				mockRepo := entity.NewMockUserRepository(t)
-				logger := logging.New()
+				logger, _ := logging.New()
 
 				expectedUser := &entity.User{
 					ID:        "user-123",
@@ -85,7 +85,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 			},
 			dep: func() dep {
 				mockRepo := entity.NewMockUserRepository(t)
-				logger := logging.New()
+				logger, _ := logging.New()
 
 				mockRepo.EXPECT().Create(context.Background(), &entity.NewUser{
 					Name:  "Jane Doe",
@@ -107,7 +107,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 			d := tt.dep()
 			uc := usecase.NewUserUseCase(d.userRepo, d.logger)
 
-			got, err := uc.CreateUser(tt.args.ctx, tt.args.params)
+			got, err := uc.Create(tt.args.ctx, tt.args.params)
 
 			if tt.wantErr != nil {
 				assert.Error(t, err)
@@ -148,7 +148,7 @@ func TestUserUseCase_GetUser(t *testing.T) {
 			},
 			dep: func() dep {
 				mockRepo := entity.NewMockUserRepository(t)
-				logger := logging.New()
+				logger, _ := logging.New()
 
 				expectedUser := &entity.User{
 					ID:        "user-123",
@@ -182,7 +182,7 @@ func TestUserUseCase_GetUser(t *testing.T) {
 			},
 			dep: func() dep {
 				mockRepo := entity.NewMockUserRepository(t)
-				logger := logging.New()
+				logger, _ := logging.New()
 
 				// No expectations on mockRepo since validation happens before repo call
 
@@ -202,7 +202,7 @@ func TestUserUseCase_GetUser(t *testing.T) {
 			},
 			dep: func() dep {
 				mockRepo := entity.NewMockUserRepository(t)
-				logger := logging.New()
+				logger, _ := logging.New()
 
 				mockRepo.EXPECT().Get(context.Background(), "user-123").Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 
@@ -221,7 +221,7 @@ func TestUserUseCase_GetUser(t *testing.T) {
 			d := tt.dep()
 			uc := usecase.NewUserUseCase(d.userRepo, d.logger)
 
-			got, err := uc.GetUser(tt.args.ctx, tt.args.id)
+			got, err := uc.Get(tt.args.ctx, tt.args.id)
 
 			if tt.wantErr != nil {
 				assert.Error(t, err)
@@ -261,7 +261,7 @@ func TestUserUseCase_DeleteUser(t *testing.T) {
 			},
 			dep: func() dep {
 				mockRepo := entity.NewMockUserRepository(t)
-				logger := logging.New()
+				logger, _ := logging.New()
 
 				mockRepo.EXPECT().Delete(context.Background(), "user-123").Return(nil).Once()
 
@@ -280,7 +280,7 @@ func TestUserUseCase_DeleteUser(t *testing.T) {
 			},
 			dep: func() dep {
 				mockRepo := entity.NewMockUserRepository(t)
-				logger := logging.New()
+				logger, _ := logging.New()
 
 				// No expectations on mockRepo since validation happens before repo call
 
@@ -299,7 +299,7 @@ func TestUserUseCase_DeleteUser(t *testing.T) {
 			},
 			dep: func() dep {
 				mockRepo := entity.NewMockUserRepository(t)
-				logger := logging.New()
+				logger, _ := logging.New()
 
 				mockRepo.EXPECT().Delete(context.Background(), "user-123").Return(apperr.New(codes.Internal, "failed to delete user")).Once()
 
@@ -317,7 +317,7 @@ func TestUserUseCase_DeleteUser(t *testing.T) {
 			d := tt.dep()
 			uc := usecase.NewUserUseCase(d.userRepo, d.logger)
 
-			err := uc.DeleteUser(tt.args.ctx, tt.args.id)
+			err := uc.Delete(tt.args.ctx, tt.args.id)
 
 			if tt.wantErr != nil {
 				assert.Error(t, err)
@@ -336,6 +336,8 @@ func TestNewUserUseCase(t *testing.T) {
 		logger   *logging.Logger
 	}
 
+	logger, _ := logging.New()
+
 	tests := []struct {
 		name string
 		args args
@@ -345,9 +347,8 @@ func TestNewUserUseCase(t *testing.T) {
 			name: "return UserUseCase with provided dependencies",
 			args: args{
 				userRepo: entity.NewMockUserRepository(t),
-				logger:   logging.New(),
+				logger:   logger,
 			},
-			want: &usecase.UserUseCase{},
 		},
 	}
 

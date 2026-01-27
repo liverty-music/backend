@@ -2,13 +2,10 @@ package di
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"net/http"
-	"time"
 
 	v1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/rpcv1connect"
-
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
@@ -17,20 +14,73 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
-	"github.com/liverty-music/backend/pkg/logging"
 	"github.com/liverty-music/backend/pkg/telemetry"
+	"github.com/pannpers/go-logging/logging"
 )
 
-// provideConfig creates a new config instance.
-func provideConfig() (*config.Config, error) {
-	return config.Load("")
+// InitializeApp creates a new App with all dependencies wired up manually.
+func InitializeApp(ctx context.Context) (*App, error) {
+	cfg, err := config.Load("")
+	if err != nil {
+		return nil, err
+	}
+
+	logger, err := provideLogger(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := rdb.New(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Repositories
+	userRepo := provideUserRepository(db)
+	artistRepo := rdb.NewArtistRepository(db)
+	concertRepo := rdb.NewConcertRepository(db)
+	venueRepo := rdb.NewVenueRepository(db)
+	_ = venueRepo // VenueRepo is not used by UseCases yet but registered in registry if needed
+
+	// Use Cases
+	userUC := usecase.NewUserUseCase(userRepo, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, logger)
+	concertUC := usecase.NewConcertUseCase(concertRepo, logger)
+
+	// Handlers
+	handlers := []server.RPCHandlerFunc{
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return grpchealth.NewHandler(
+				rpc.NewHealthCheckHandler(db, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return v1connect.NewUserServiceHandler(
+				rpc.NewUserHandler(userUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return v1connect.NewConcertServiceHandler(
+				rpc.NewConcertHandler(artistUC, concertUC, logger),
+				opts...,
+			)
+		},
+	}
+
+	srv := server.NewConnectServer(cfg, logger, db, handlers...)
+
+	return newApp(srv, db, telemetryCloser), nil
 }
 
-// provideLogger creates a new logger instance based on config.
-func provideLogger(cfg *config.Config) *logging.Logger {
+func provideLogger(cfg *config.Config) (*logging.Logger, error) {
 	var opts []logging.Option
-
-	// Set log level based on config
 	switch cfg.Logging.Level {
 	case "debug":
 		opts = append(opts, logging.WithLevel(slog.LevelDebug))
@@ -41,78 +91,48 @@ func provideLogger(cfg *config.Config) *logging.Logger {
 	case "error":
 		opts = append(opts, logging.WithLevel(slog.LevelError))
 	}
-
-	// Set log format based on config
 	switch cfg.Logging.Format {
 	case "text":
 		opts = append(opts, logging.WithFormat(logging.FormatText))
 	case "json":
 		opts = append(opts, logging.WithFormat(logging.FormatJSON))
 	}
-
 	return logging.New(opts...)
 }
 
-// provideDatabase creates a new database instance.
-func provideDatabase(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*rdb.Database, error) {
-	return rdb.New(ctx, cfg, logger)
+func provideUserRepository(_ *rdb.Database) entity.UserRepository {
+	return &MockUserRepository{}
 }
-
-// provideTelemetry creates a new telemetry instance and returns the closer.
-func provideTelemetry(ctx context.Context, cfg *config.Config) (io.Closer, error) {
-	return telemetry.SetupTelemetry(ctx, cfg)
-}
-
-func provideHandlerFuncs(logger *logging.Logger, db *rdb.Database, userUseCase *usecase.UserUseCase) []server.RPCHandlerFunc {
-	return []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return grpchealth.NewHandler(
-				rpc.NewHealthCheckHandler(db, logger),
-				opts...,
-			)
-		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return v1connect.NewUserServiceHandler(
-				// rpc.NewUserHandler(userUseCase, logger),
-				nil,
-				opts...,
-			)
-		},
-	}
-}
-
-// Mock implementations for development/testing
-// TODO: Replace with actual database implementations
 
 // MockUserRepository is a simple mock implementation for development
 type MockUserRepository struct{}
 
-func (m *MockUserRepository) Create(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
-	return &entity.User{
-		ID:        "mock-user-id",
-		Name:      params.Name,
-		Email:     params.Email,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}, nil
+// Create is a mock implementation that always returns nil.
+func (m *MockUserRepository) Create(_ context.Context, _ *entity.NewUser) (*entity.User, error) {
+	return nil, nil
 }
 
-func (m *MockUserRepository) Get(ctx context.Context, id string) (*entity.User, error) {
-	return &entity.User{
-		ID:        id,
-		Name:      "Mock User",
-		Email:     "mock@example.com",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}, nil
+// Get is a mock implementation that always returns nil.
+func (m *MockUserRepository) Get(_ context.Context, _ string) (*entity.User, error) {
+	return nil, nil
 }
 
-func (m *MockUserRepository) Delete(ctx context.Context, id string) error {
+// GetByEmail is a mock implementation that always returns nil.
+func (m *MockUserRepository) GetByEmail(_ context.Context, _ string) (*entity.User, error) {
+	return nil, nil
+}
+
+// Update is a mock implementation that always returns nil.
+func (m *MockUserRepository) Update(_ context.Context, _ string, _ *entity.NewUser) (*entity.User, error) {
+	return nil, nil
+}
+
+// Delete is a mock implementation that always returns nil.
+func (m *MockUserRepository) Delete(_ context.Context, _ string) error {
 	return nil
 }
 
-// provideUserRepository creates a user repository implementation using the database.
-func provideUserRepository(db *rdb.Database) entity.UserRepository {
-	// return rdb.NewUserRepository(db)
-	return nil
+// List is a mock implementation that always returns nil.
+func (m *MockUserRepository) List(_ context.Context, _, _ int) ([]*entity.User, error) {
+	return nil, nil
 }
