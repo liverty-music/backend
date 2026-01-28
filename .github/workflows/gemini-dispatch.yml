@@ -6,11 +6,11 @@ on:
   pull_request_review:
     types: ['submitted']
   pull_request:
-    types: ['opened']
+    types: ['opened', 'reopened', 'synchronize']
   issue_comment:
     types: ['created']
   issues:
-    types: ['opened']
+    types: ['opened', 'reopened']
 
 permissions:
   contents: 'read'
