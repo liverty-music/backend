@@ -26,6 +26,9 @@ jobs:
       prompt: '${{ steps.extract_command.outputs.prompt }}'
       additional_context: '${{ steps.extract_command.outputs.additional_context }}'
     steps:
+      - name: 'Checkout repository'
+        uses: 'actions/checkout@v4'
+
       - name: 'Extract command'
         id: 'extract_command'
         uses: 'actions/github-script@v7'
