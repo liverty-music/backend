@@ -63,3 +63,9 @@ prototype-cli
 
 # Debug files
 debug_output.txt
+
+# gemini-cli settings
+.gemini/*
+!.gemini/GEMINI.md
+# GitHub App credentials
+gha-creds-*.json
