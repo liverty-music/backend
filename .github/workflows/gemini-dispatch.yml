@@ -23,7 +23,6 @@ jobs:
     runs-on: 'ubuntu-latest'
     outputs:
       command: '${{ steps.extract_command.outputs.command }}'
-      prompt: '${{ steps.extract_command.outputs.prompt }}'
       additional_context: '${{ steps.extract_command.outputs.additional_context }}'
     steps:
       - name: 'Checkout repository'
@@ -41,8 +40,6 @@ jobs:
             const eventName = process.env.EVENT_NAME;
             const eventAction = process.env.EVENT_ACTION;
             const request = process.env.REQUEST || '';
-
-            core.setOutput('prompt', request);
 
             if (eventName === 'pull_request' && eventAction === 'opened') {
               core.setOutput('command', 'review');
@@ -71,6 +68,10 @@ jobs:
     needs: 'dispatch'
     if: needs.dispatch.outputs.command == 'review'
     uses: './.github/workflows/gemini-review.yml'
+    permissions:
+      contents: 'read'
+      issues: 'write'
+      pull-requests: 'write'
     secrets: inherit
     with:
       additional_context: '${{ needs.dispatch.outputs.additional_context }}'
@@ -79,7 +80,10 @@ jobs:
     needs: 'dispatch'
     if: needs.dispatch.outputs.command == 'invoke'
     uses: './.github/workflows/gemini-invoke.yml'
+    permissions:
+      contents: 'read'
+      issues: 'write'
+      pull-requests: 'write'
     secrets: inherit
     with:
-      prompt: '${{ needs.dispatch.outputs.prompt }}'
       additional_context: '${{ needs.dispatch.outputs.additional_context }}'
