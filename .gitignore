@@ -69,3 +69,5 @@ debug_output.txt
 !.gemini/GEMINI.md
 # GitHub App credentials
 gha-creds-*.json
+
+tmp/

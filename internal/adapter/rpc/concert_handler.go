@@ -83,28 +83,12 @@ func (h *ConcertHandler) CreateArtist(ctx context.Context, req *connect.Request[
 	}), nil
 }
 
-// CreateArtistMedia adds a media link to an artist.
+// CreateArtistMedia is a placeholder (deprecated).
 func (h *ConcertHandler) CreateArtistMedia(ctx context.Context, req *connect.Request[rpcv1.CreateArtistMediaRequest]) (*connect.Response[rpcv1.CreateArtistMediaResponse], error) {
-	media := &entity.Media{
-		ArtistID: req.Msg.ArtistId.Value,
-		Type:     mapper.MapProtoTypeToEntity(req.Msg.Type),
-		URL:      req.Msg.Url.Value,
-	}
-
-	err := h.artistUseCase.AddMedia(ctx, media)
-	if err != nil {
-		return nil, err
-	}
-
 	return connect.NewResponse(&rpcv1.CreateArtistMediaResponse{}), nil
 }
 
-// DeleteArtistMedia removes a media link.
+// DeleteArtistMedia is a placeholder (deprecated).
 func (h *ConcertHandler) DeleteArtistMedia(ctx context.Context, req *connect.Request[rpcv1.DeleteArtistMediaRequest]) (*connect.Response[rpcv1.DeleteArtistMediaResponse], error) {
-	err := h.artistUseCase.DeleteMedia(ctx, req.Msg.MediaId.Value)
-	if err != nil {
-		return nil, err
-	}
-
 	return connect.NewResponse(&rpcv1.DeleteArtistMediaResponse{}), nil
 }

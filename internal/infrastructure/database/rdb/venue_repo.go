@@ -15,7 +15,7 @@ type VenueRepository struct {
 const (
 	insertVenueQuery = `
 		INSERT INTO venues (id, name, created_at, updated_at)
-		VALUES ($1, $2, NOW(), NOW())
+		VALUES ($1, $2, $3, $4)
 	`
 	getVenueQuery = `
 		SELECT id, name, created_at, updated_at
@@ -31,7 +31,7 @@ func NewVenueRepository(db *Database) *VenueRepository {
 
 // Create creates a new venue in the database.
 func (r *VenueRepository) Create(ctx context.Context, venue *entity.Venue) error {
-	_, err := r.db.Pool.Exec(ctx, insertVenueQuery, venue.ID, venue.Name)
+	_, err := r.db.Pool.Exec(ctx, insertVenueQuery, venue.ID, venue.Name, venue.CreateTime, venue.UpdateTime)
 	if err != nil {
 		return toAppErr(err, "failed to create venue", slog.String("venue_id", venue.ID), slog.String("name", venue.Name))
 	}
@@ -41,7 +41,7 @@ func (r *VenueRepository) Create(ctx context.Context, venue *entity.Venue) error
 // Get retrieves a venue by ID from the database.
 func (r *VenueRepository) Get(ctx context.Context, id string) (*entity.Venue, error) {
 	var v entity.Venue
-	err := r.db.Pool.QueryRow(ctx, getVenueQuery, id).Scan(&v.ID, &v.Name, &v.CreatedAt, &v.UpdatedAt)
+	err := r.db.Pool.QueryRow(ctx, getVenueQuery, id).Scan(&v.ID, &v.Name, &v.CreateTime, &v.UpdateTime)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get venue", slog.String("venue_id", id))
 	}

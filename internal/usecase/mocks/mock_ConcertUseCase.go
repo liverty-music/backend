@@ -81,6 +81,65 @@ func (_c *MockConcertUseCase_ListByArtist_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
+// SearchNewConcerts provides a mock function with given fields: ctx, artistID
+func (_m *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SearchNewConcerts")
+	}
+
+	var r0 []*entity.Concert
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Concert, error)); ok {
+		return rf(ctx, artistID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Concert); ok {
+		r0 = rf(ctx, artistID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Concert)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, artistID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertUseCase_SearchNewConcerts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SearchNewConcerts'
+type MockConcertUseCase_SearchNewConcerts_Call struct {
+	*mock.Call
+}
+
+// SearchNewConcerts is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockConcertUseCase_Expecter) SearchNewConcerts(ctx interface{}, artistID interface{}) *MockConcertUseCase_SearchNewConcerts_Call {
+	return &MockConcertUseCase_SearchNewConcerts_Call{Call: _e.mock.On("SearchNewConcerts", ctx, artistID)}
+}
+
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) Run(run func(ctx context.Context, artistID string)) *MockConcertUseCase_SearchNewConcerts_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertUseCase_SearchNewConcerts_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Concert, error)) *MockConcertUseCase_SearchNewConcerts_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockConcertUseCase creates a new instance of MockConcertUseCase. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockConcertUseCase(t interface {

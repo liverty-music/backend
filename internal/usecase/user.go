@@ -13,8 +13,26 @@ import (
 
 // UserUseCase defines the interface for user-related business logic.
 type UserUseCase interface {
+	// Create registers a new user.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If email or name is invalid.
+	//  - AlreadyExists: If a user with the same email already exists.
 	Create(ctx context.Context, params *entity.NewUser) (*entity.User, error)
+
+	// Get retrieves a user by their unique ID.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
 	Get(ctx context.Context, id string) (*entity.User, error)
+
+	// Delete removes a user from the system.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
 	Delete(ctx context.Context, id string) error
 }
 
@@ -28,6 +46,7 @@ type userUseCase struct {
 var _ UserUseCase = (*userUseCase)(nil)
 
 // NewUserUseCase creates a new user use case.
+// It requires a user repository for data persistence and a logger.
 func NewUserUseCase(userRepo entity.UserRepository, logger *logging.Logger) UserUseCase {
 	return &userUseCase{
 		userRepo: userRepo,

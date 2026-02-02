@@ -22,53 +22,6 @@ func (_m *MockArtistUseCase) EXPECT() *MockArtistUseCase_Expecter {
 	return &MockArtistUseCase_Expecter{mock: &_m.Mock}
 }
 
-// AddMedia provides a mock function with given fields: ctx, media
-func (_m *MockArtistUseCase) AddMedia(ctx context.Context, media *entity.Media) error {
-	ret := _m.Called(ctx, media)
-
-	if len(ret) == 0 {
-		panic("no return value specified for AddMedia")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *entity.Media) error); ok {
-		r0 = rf(ctx, media)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockArtistUseCase_AddMedia_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddMedia'
-type MockArtistUseCase_AddMedia_Call struct {
-	*mock.Call
-}
-
-// AddMedia is a helper method to define mock.On call
-//   - ctx context.Context
-//   - media *entity.Media
-func (_e *MockArtistUseCase_Expecter) AddMedia(ctx interface{}, media interface{}) *MockArtistUseCase_AddMedia_Call {
-	return &MockArtistUseCase_AddMedia_Call{Call: _e.mock.On("AddMedia", ctx, media)}
-}
-
-func (_c *MockArtistUseCase_AddMedia_Call) Run(run func(ctx context.Context, media *entity.Media)) *MockArtistUseCase_AddMedia_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*entity.Media))
-	})
-	return _c
-}
-
-func (_c *MockArtistUseCase_AddMedia_Call) Return(_a0 error) *MockArtistUseCase_AddMedia_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockArtistUseCase_AddMedia_Call) RunAndReturn(run func(context.Context, *entity.Media) error) *MockArtistUseCase_AddMedia_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Create provides a mock function with given fields: ctx, artist
 func (_m *MockArtistUseCase) Create(ctx context.Context, artist *entity.Artist) (*entity.Artist, error) {
 	ret := _m.Called(ctx, artist)
@@ -128,17 +81,17 @@ func (_c *MockArtistUseCase_Create_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
-// DeleteMedia provides a mock function with given fields: ctx, mediaID
-func (_m *MockArtistUseCase) DeleteMedia(ctx context.Context, mediaID string) error {
-	ret := _m.Called(ctx, mediaID)
+// CreateOfficialSite provides a mock function with given fields: ctx, site
+func (_m *MockArtistUseCase) CreateOfficialSite(ctx context.Context, site *entity.OfficialSite) error {
+	ret := _m.Called(ctx, site)
 
 	if len(ret) == 0 {
-		panic("no return value specified for DeleteMedia")
+		panic("no return value specified for CreateOfficialSite")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, mediaID)
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.OfficialSite) error); ok {
+		r0 = rf(ctx, site)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -146,31 +99,90 @@ func (_m *MockArtistUseCase) DeleteMedia(ctx context.Context, mediaID string) er
 	return r0
 }
 
-// MockArtistUseCase_DeleteMedia_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteMedia'
-type MockArtistUseCase_DeleteMedia_Call struct {
+// MockArtistUseCase_CreateOfficialSite_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateOfficialSite'
+type MockArtistUseCase_CreateOfficialSite_Call struct {
 	*mock.Call
 }
 
-// DeleteMedia is a helper method to define mock.On call
+// CreateOfficialSite is a helper method to define mock.On call
 //   - ctx context.Context
-//   - mediaID string
-func (_e *MockArtistUseCase_Expecter) DeleteMedia(ctx interface{}, mediaID interface{}) *MockArtistUseCase_DeleteMedia_Call {
-	return &MockArtistUseCase_DeleteMedia_Call{Call: _e.mock.On("DeleteMedia", ctx, mediaID)}
+//   - site *entity.OfficialSite
+func (_e *MockArtistUseCase_Expecter) CreateOfficialSite(ctx interface{}, site interface{}) *MockArtistUseCase_CreateOfficialSite_Call {
+	return &MockArtistUseCase_CreateOfficialSite_Call{Call: _e.mock.On("CreateOfficialSite", ctx, site)}
 }
 
-func (_c *MockArtistUseCase_DeleteMedia_Call) Run(run func(ctx context.Context, mediaID string)) *MockArtistUseCase_DeleteMedia_Call {
+func (_c *MockArtistUseCase_CreateOfficialSite_Call) Run(run func(ctx context.Context, site *entity.OfficialSite)) *MockArtistUseCase_CreateOfficialSite_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*entity.OfficialSite))
+	})
+	return _c
+}
+
+func (_c *MockArtistUseCase_CreateOfficialSite_Call) Return(_a0 error) *MockArtistUseCase_CreateOfficialSite_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockArtistUseCase_CreateOfficialSite_Call) RunAndReturn(run func(context.Context, *entity.OfficialSite) error) *MockArtistUseCase_CreateOfficialSite_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetOfficialSite provides a mock function with given fields: ctx, artistID
+func (_m *MockArtistUseCase) GetOfficialSite(ctx context.Context, artistID string) (*entity.OfficialSite, error) {
+	ret := _m.Called(ctx, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetOfficialSite")
+	}
+
+	var r0 *entity.OfficialSite
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.OfficialSite, error)); ok {
+		return rf(ctx, artistID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.OfficialSite); ok {
+		r0 = rf(ctx, artistID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.OfficialSite)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, artistID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockArtistUseCase_GetOfficialSite_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOfficialSite'
+type MockArtistUseCase_GetOfficialSite_Call struct {
+	*mock.Call
+}
+
+// GetOfficialSite is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockArtistUseCase_Expecter) GetOfficialSite(ctx interface{}, artistID interface{}) *MockArtistUseCase_GetOfficialSite_Call {
+	return &MockArtistUseCase_GetOfficialSite_Call{Call: _e.mock.On("GetOfficialSite", ctx, artistID)}
+}
+
+func (_c *MockArtistUseCase_GetOfficialSite_Call) Run(run func(ctx context.Context, artistID string)) *MockArtistUseCase_GetOfficialSite_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockArtistUseCase_DeleteMedia_Call) Return(_a0 error) *MockArtistUseCase_DeleteMedia_Call {
-	_c.Call.Return(_a0)
+func (_c *MockArtistUseCase_GetOfficialSite_Call) Return(_a0 *entity.OfficialSite, _a1 error) *MockArtistUseCase_GetOfficialSite_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockArtistUseCase_DeleteMedia_Call) RunAndReturn(run func(context.Context, string) error) *MockArtistUseCase_DeleteMedia_Call {
+func (_c *MockArtistUseCase_GetOfficialSite_Call) RunAndReturn(run func(context.Context, string) (*entity.OfficialSite, error)) *MockArtistUseCase_GetOfficialSite_Call {
 	_c.Call.Return(run)
 	return _c
 }

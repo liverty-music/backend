@@ -74,7 +74,7 @@ func cleanTables(db *rdb.Database) {
 	tables := []string{
 		"notifications",
 		"user_artist_subscriptions",
-		"artist_media",
+		"artist_official_site",
 		"concerts",
 		"artists",
 		"venues",
