@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -23,15 +22,10 @@ const (
 		WHERE id = $1
 	`
 
-	getUserByEmailQuery = `
-		SELECT id, email, name, preferred_language, country, time_zone, is_active, created_at, updated_at
-		FROM users
-		WHERE email = $1
-	`
-
 	insertUserQuery = `
-		INSERT INTO users (id, email, name, preferred_language, country, time_zone, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO users (email, name, preferred_language, country, time_zone, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, created_at, updated_at
 	`
 	deleteUserQuery = `
 		DELETE FROM users WHERE id = $1
@@ -56,15 +50,11 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 		Country:           params.Country,
 		TimeZone:          params.TimeZone,
 		IsActive:          true,
-		ID:                "temp-uuid", // This should probably be generated or handled by the DB if returning id, but insertUserQuery expects it.
 	}
 
-	user.CreateTime = time.Now()
-	user.UpdateTime = time.Now()
-
-	_, err := r.db.Pool.Exec(ctx, insertUserQuery,
-		user.ID, user.Email, user.Name, user.PreferredLanguage, user.Country, user.TimeZone, user.IsActive, user.CreateTime, user.UpdateTime,
-	)
+	err := r.db.Pool.QueryRow(ctx, insertUserQuery,
+		user.Email, user.Name, user.PreferredLanguage, user.Country, user.TimeZone, user.IsActive,
+	).Scan(&user.ID, &user.CreateTime, &user.UpdateTime)
 	if err != nil {
 		return nil, toAppErr(err, "failed to create user", slog.String("email", user.Email))
 	}

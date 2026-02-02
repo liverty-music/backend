@@ -32,27 +32,27 @@ func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 		return nil
 	}
 
-	return entityv1.Concert_builder{
-		Id: entityv1.ConcertId_builder{
+	return &entityv1.Concert{
+		Id: &entityv1.ConcertId{
 			Value: c.ID,
-		}.Build(),
-		ArtistId: entityv1.ArtistId_builder{
+		},
+		ArtistId: &entityv1.ArtistId{
 			Value: c.ArtistID,
-		}.Build(),
-		VenueId: entityv1.VenueId_builder{
+		},
+		VenueId: &entityv1.VenueId{
 			Value: c.VenueID,
-		}.Build(),
+		},
 		Date: &date.Date{
 			Year:  int32(c.LocalEventDate.Year()),
 			Month: int32(c.LocalEventDate.Month()),
 			Day:   int32(c.LocalEventDate.Day()),
 		},
 		StartTime: TimeToTimeOfDayProto(c.StartTime),
-		OpenTime: TimeToTimeOfDayProto(c.OpenTime),
-		Title: entityv1.ConcertTitle_builder{
+		OpenTime:  TimeToTimeOfDayProto(c.OpenTime),
+		Title: &entityv1.ConcertTitle{
 			Value: c.Title,
-		}.Build(),
-	}.Build()
+		},
+	}
 }
 
 // ConcertsToProto converts a slice of domain Concert entities to protobuf.
