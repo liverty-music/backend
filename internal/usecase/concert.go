@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -142,5 +141,5 @@ func getUniqueKey(date time.Time, startTime *time.Time) string {
 	if startTime != nil {
 		stStr = startTime.Format(time.RFC3339)
 	}
-	return fmt.Sprintf("%s|%s", date.Format("2006-01-02"), stStr)
+	return date.Format("2006-01-02") + "|" + stStr
 }
