@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package gemini_test
 
@@ -15,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGeminiConcertSearcher_Search_Real(t *testing.T) {
+func TestConcertSearcher_Search_Real(t *testing.T) {
 	// This test requires GCP credentials (ADC) and real API access.
 	ctx := context.Background()
 	cfg := gemini.Config{
@@ -29,7 +28,7 @@ func TestGeminiConcertSearcher_Search_Real(t *testing.T) {
 		logging.WithLevel(slog.LevelDebug),
 		logging.WithFormat(logging.FormatJSON),
 	)
-	s, err := gemini.NewGeminiConcertSearcher(ctx, cfg, nil, logger) // Pass nil for Real test
+	s, err := gemini.NewConcertSearcher(ctx, cfg, nil, logger) // Pass nil for Real test
 	require.NoError(t, err)
 
 	artist := &entity.Artist{ID: "artist-uverworld", Name: "UVERworld"}

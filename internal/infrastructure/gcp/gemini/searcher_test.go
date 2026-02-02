@@ -33,7 +33,7 @@ func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return http.DefaultTransport.RoundTrip(req)
 }
 
-func TestGeminiConcertSearcher_Search(t *testing.T) {
+func TestConcertSearcher_Search(t *testing.T) {
 	logger, _ := logging.New()
 	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
@@ -279,7 +279,9 @@ func TestGeminiConcertSearcher_Search(t *testing.T) {
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.statusCode)
 				if tt.statusCode != http.StatusOK {
-					w.Write([]byte(tt.responseBody))
+					if _, err := w.Write([]byte(tt.responseBody)); err != nil {
+				t.Errorf("failed to write response body: %v", err)
+			}
 					return
 				}
 
@@ -307,7 +309,9 @@ func TestGeminiConcertSearcher_Search(t *testing.T) {
 				}`, strconv.Quote(tt.responseBody))
 
 				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(fullResponse))
+				if _, err := w.Write([]byte(fullResponse)); err != nil {
+					t.Errorf("failed to write response body: %v", err)
+				}
 			}))
 			defer ts.Close()
 
@@ -315,7 +319,7 @@ func TestGeminiConcertSearcher_Search(t *testing.T) {
 				Transport: &rewriteTransport{URL: ts.URL},
 			}
 
-			s, err := gemini.NewGeminiConcertSearcher(ctx, gemini.Config{
+			s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 				ProjectID: "test",
 				Location:  "us-central1",
 				ModelName: "gemini-pro",

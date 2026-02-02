@@ -49,7 +49,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	_ = venueRepo // VenueRepo is not used by UseCases yet but registered in registry if needed
 
 	// Infrastructure - Gemini
-	geminiSearcher, err := gemini.NewGeminiConcertSearcher(ctx, gemini.Config{
+	geminiSearcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 		ProjectID:   cfg.GCP.ProjectID,
 		Location:    cfg.GCP.Location,
 		ModelName:   cfg.GCP.GeminiModel,

@@ -83,19 +83,19 @@ type EventsResponse struct {
 	Events []ScrapedEvent `json:"events"`
 }
 
-// GeminiConcertSearcher implements entity.ConcertSearcher using Vertex AI Gemini.
+// ConcertSearcher implements entity.ConcertSearcher using Vertex AI Gemini.
 // It leverages Gemini's reasoning capabilities combined with Google Search Grounding
 // to discover and extract structured concert information from the web.
-type GeminiConcertSearcher struct {
+type ConcertSearcher struct {
 	client *genai.Client
 	config Config
 	logger *logging.Logger
 }
 
-// NewGeminiConcertSearcher creates a new GeminiConcertSearcher.
+// NewConcertSearcher creates a new ConcertSearcher.
 // The httpClient parameter allows for custom transport configuration, which is
 // particularly useful for unit testing with httptest. If nil, the default transport is used.
-func NewGeminiConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client, logger *logging.Logger) (*GeminiConcertSearcher, error) {
+func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client, logger *logging.Logger) (*ConcertSearcher, error) {
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		Project:    cfg.ProjectID,
 		Location:   cfg.Location,
@@ -106,7 +106,7 @@ func NewGeminiConcertSearcher(ctx context.Context, cfg Config, httpClient *http.
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
-	return &GeminiConcertSearcher{
+	return &ConcertSearcher{
 		client: client,
 		config: cfg,
 		logger: logger,
@@ -117,7 +117,7 @@ func NewGeminiConcertSearcher(ctx context.Context, cfg Config, httpClient *http.
 // It sends a prompt to the model requesting a JSON list of upcoming events.
 // Invalid dates are skipped, but invalid/null start times are preserved as nil pointers
 // in the returned ScrapedConcert objects.
-func (s *GeminiConcertSearcher) Search(
+func (s *ConcertSearcher) Search(
 	ctx context.Context,
 	artist *entity.Artist,
 	officialSite *entity.OfficialSite,
@@ -214,7 +214,7 @@ func (s *GeminiConcertSearcher) Search(
 	return s.parseEvents(ctx, parts[0].Text, from, attrs...)
 }
 
-func (s *GeminiConcertSearcher) parseEvents(
+func (s *ConcertSearcher) parseEvents(
 	ctx context.Context,
 	rawText string,
 	from time.Time,
