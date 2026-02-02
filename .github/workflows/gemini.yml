@@ -2,7 +2,14 @@ name: '🔎 Gemini Review'
 
 on:
   pull_request:
-    types: ['opened', 'synchronize']
+    types: [opened, synchronize]
+    paths:
+      - '**/*.go'
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'internal/**'
+      - 'pkg/**'
+      - 'cmd/**'
   workflow_dispatch:
 
 permissions:

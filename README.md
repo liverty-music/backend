@@ -101,6 +101,27 @@ The HTTP server will start on port 8080.
 
 The gRPC server is configured to run on port 9090 with reflection enabled for development tools like `grpcurl`.
 
+### Gemini Integration Testing
+
+To verify the Gemini-based concert extraction with real GCP resources:
+
+1. **Set Environment Variables**:
+
+```bash
+export GCP_PROJECT_ID="liverty-music-dev"
+export GCP_LOCATION="global"
+export GCP_GEMINI_MODEL="gemini-3-flash-preview"
+export GCP_VERTEX_AI_SEARCH_DATA_STORE="projects/liverty-music-dev/locations/global/collections/default_collection/dataStores/official-artist-site"
+```
+
+2. **Run Test**:
+
+```bash
+# Run the integration test for UVERworld
+# Requires Google Application Default Credentials (ADC)
+go test -v -count=1 -run TestGeminiConcertSearcher_Search_Real ./internal/infrastructure/gcp/gemini/...
+```
+
 ### Testing the API with buf curl
 
 You can test your Connect API endpoints using [buf curl](https://docs.buf.build/reference/curl), which allows you to invoke RPCs using your protobuf schema.

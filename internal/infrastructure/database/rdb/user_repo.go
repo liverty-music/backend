@@ -16,18 +16,16 @@ type UserRepository struct {
 }
 
 const (
-	insertUserQuery = `
-		INSERT INTO users (
-			email, name, preferred_language, country, time_zone, is_active, created_at, updated_at
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-		RETURNING id, created_at, updated_at
-	`
 	getUserQuery = `
-		SELECT
-			id, email, name, preferred_language, country, time_zone, is_active, created_at, updated_at
+		SELECT id, email, name, preferred_language, country, time_zone, is_active, created_at, updated_at
 		FROM users
 		WHERE id = $1
+	`
+
+	insertUserQuery = `
+		INSERT INTO users (email, name, preferred_language, country, time_zone, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, created_at, updated_at
 	`
 	deleteUserQuery = `
 		DELETE FROM users WHERE id = $1
@@ -56,7 +54,7 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 
 	err := r.db.Pool.QueryRow(ctx, insertUserQuery,
 		user.Email, user.Name, user.PreferredLanguage, user.Country, user.TimeZone, user.IsActive,
-	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.CreateTime, &user.UpdateTime)
 	if err != nil {
 		return nil, toAppErr(err, "failed to create user", slog.String("email", user.Email))
 	}
@@ -72,8 +70,7 @@ func (r *UserRepository) Get(ctx context.Context, id string) (*entity.User, erro
 
 	user := &entity.User{}
 	err := r.db.Pool.QueryRow(ctx, getUserQuery, id).Scan(
-		&user.ID, &user.Email, &user.Name, &user.PreferredLanguage,
-		&user.Country, &user.TimeZone, &user.IsActive, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.IsActive, &user.CreateTime, &user.UpdateTime,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user", slog.String("user_id", id))

@@ -95,6 +95,9 @@ type Config struct {
 	// Telemetry configuration
 	Telemetry TelemetryConfig `envconfig:"TELEMETRY"`
 
+	// GCP configuration
+	GCP GCPConfig `envconfig:"GCP"`
+
 	// Environment
 	Environment string `envconfig:"ENVIRONMENT" default:"development"`
 
@@ -177,6 +180,22 @@ type TelemetryConfig struct {
 
 	// Service version for tracing
 	ServiceVersion string `envconfig:"SERVICE_VERSION" default:"1.0.0"`
+}
+
+// GCPConfig represents Google Cloud specific configuration.
+type GCPConfig struct {
+	// GCP Project ID
+	ProjectID string `envconfig:"PROJECT_ID" required:"true"`
+
+	// GCP Location (e.g., us-central1)
+	Location string `envconfig:"LOCATION" default:"us-central1"`
+
+	// Gemini Model Name
+	GeminiModel string `envconfig:"GEMINI_MODEL" default:"gemini-3-flash-preview"`
+
+	// Vertex AI Search Data Store ID (full resource name)
+	// Format: projects/{project}/locations/global/collections/default_collection/dataStores/{data_store_id}
+	VertexAISearchDataStore string `envconfig:"VERTEX_AI_SEARCH_DATA_STORE"`
 }
 
 // Load loads configuration from environment variables.

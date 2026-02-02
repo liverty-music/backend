@@ -5,7 +5,6 @@ go 1.25.5
 tool (
 	github.com/bufbuild/buf/cmd/buf
 
-	github.com/google/wire/cmd/wire
 	github.com/vektra/mockery/v3
 	mvdan.cc/gofumpt
 )
@@ -25,7 +24,7 @@ require (
 	go.opentelemetry.io/otel v1.39.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.33.0
 	go.opentelemetry.io/otel/sdk v1.38.0
-	google.golang.org/genai v1.41.0
+	google.golang.org/genai v1.44.0
 	google.golang.org/genproto v0.0.0-20251202230838-ff82c1b0f217
 )
 
@@ -79,9 +78,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.20.6 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/google/subcommands v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/google/wire v0.7.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.9 // indirect
 	github.com/googleapis/gax-go/v2 v2.16.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect

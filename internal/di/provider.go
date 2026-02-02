@@ -11,6 +11,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
@@ -47,10 +48,21 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	venueRepo := rdb.NewVenueRepository(db)
 	_ = venueRepo // VenueRepo is not used by UseCases yet but registered in registry if needed
 
+	// Infrastructure - Gemini
+	geminiSearcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
+		ProjectID:   cfg.GCP.ProjectID,
+		Location:    cfg.GCP.Location,
+		ModelName:   cfg.GCP.GeminiModel,
+		DataStoreID: cfg.GCP.VertexAISearchDataStore,
+	}, nil, logger)
+	if err != nil {
+		return nil, err
+	}
+
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, logger)
-	concertUC := usecase.NewConcertUseCase(concertRepo, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, geminiSearcher, logger)
 
 	// Handlers
 	handlers := []server.RPCHandlerFunc{

@@ -12,10 +12,29 @@ import (
 
 // ArtistUseCase defines the interface for artist-related business logic.
 type ArtistUseCase interface {
+	// Create creates a new artist.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the artist name is empty.
 	Create(ctx context.Context, artist *entity.Artist) (*entity.Artist, error)
+
+	// List returns a list of all artists.
 	List(ctx context.Context) ([]*entity.Artist, error)
-	AddMedia(ctx context.Context, media *entity.Media) error
-	DeleteMedia(ctx context.Context, mediaID string) error
+
+	// CreateOfficialSite creates a new official site for an artist.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the URL is empty.
+	CreateOfficialSite(ctx context.Context, site *entity.OfficialSite) error
+
+	// GetOfficialSite retrieves the official site for an artist.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the official site does not exist.
+	GetOfficialSite(ctx context.Context, artistID string) (*entity.OfficialSite, error)
 }
 
 // artistUseCase implements the ArtistUseCase interface.
@@ -28,6 +47,7 @@ type artistUseCase struct {
 var _ ArtistUseCase = (*artistUseCase)(nil)
 
 // NewArtistUseCase creates a new artist use case.
+// It requires an artist repository for data persistence and a logger for operations logging.
 func NewArtistUseCase(artistRepo entity.ArtistRepository, logger *logging.Logger) ArtistUseCase {
 	return &artistUseCase{
 		artistRepo: artistRepo,
@@ -35,7 +55,7 @@ func NewArtistUseCase(artistRepo entity.ArtistRepository, logger *logging.Logger
 	}
 }
 
-// Create creates a new artist and its media.
+// Create creates a new artist.
 func (uc *artistUseCase) Create(ctx context.Context, artist *entity.Artist) (*entity.Artist, error) {
 	if artist.Name == "" {
 		return nil, apperr.New(codes.InvalidArgument, "artist name is required")
@@ -61,13 +81,13 @@ func (uc *artistUseCase) List(ctx context.Context) ([]*entity.Artist, error) {
 	return artists, nil
 }
 
-// AddMedia adds a media link to an artist.
-func (uc *artistUseCase) AddMedia(ctx context.Context, media *entity.Media) error {
-	if media.URL == "" {
-		return apperr.New(codes.InvalidArgument, "media URL is required")
+// CreateOfficialSite adds an official site for an artist.
+func (uc *artistUseCase) CreateOfficialSite(ctx context.Context, site *entity.OfficialSite) error {
+	if site.URL == "" {
+		return apperr.New(codes.InvalidArgument, "official site URL is required")
 	}
 
-	err := uc.artistRepo.AddMedia(ctx, media)
+	err := uc.artistRepo.CreateOfficialSite(ctx, site)
 	if err != nil {
 		return err
 	}
@@ -75,16 +95,16 @@ func (uc *artistUseCase) AddMedia(ctx context.Context, media *entity.Media) erro
 	return nil
 }
 
-// DeleteMedia removes a media link.
-func (uc *artistUseCase) DeleteMedia(ctx context.Context, mediaID string) error {
-	if mediaID == "" {
-		return apperr.New(codes.InvalidArgument, "media ID is required")
+// GetOfficialSite retrieves the official site for an artist.
+func (uc *artistUseCase) GetOfficialSite(ctx context.Context, artistID string) (*entity.OfficialSite, error) {
+	if artistID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "artist ID is required")
 	}
 
-	err := uc.artistRepo.DeleteMedia(ctx, mediaID)
+	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return site, nil
 }

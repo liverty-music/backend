@@ -11,17 +11,17 @@ func UserToProto(user *entity.User) *proto.User {
 		return nil
 	}
 
-	return &proto.User{
-		Id: &proto.UserId{
+	return proto.User_builder{
+		Id: proto.UserId_builder{
 			Value: user.ID,
-		},
-		Name: &proto.UserName{
+		}.Build(),
+		Name: proto.UserName_builder{
 			Value: user.Name,
-		},
-		Email: &proto.UserEmail{
+		}.Build(),
+		Email: proto.UserEmail_builder{
 			Value: user.Email,
-		},
-	}
+		}.Build(),
+	}.Build()
 }
 
 // NewUserFromProto converts protobuf User to domain NewUser for creation.
