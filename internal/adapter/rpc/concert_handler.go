@@ -96,10 +96,10 @@ func (h *ConcertHandler) DeleteArtistMedia(ctx context.Context, req *connect.Req
 
 // SearchNewConcerts triggers a discovery process for new concerts.
 func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[rpcv1.SearchNewConcertsRequest]) (*connect.Response[rpcv1.SearchNewConcertsResponse], error) {
-	if req.Msg.ArtistId == nil {
+	artistID := req.Msg.GetArtistId().GetValue()
+	if artistID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("artist_id cannot be empty"))
 	}
-	artistID := req.Msg.ArtistId.Value
 
 	concerts, err := h.concertUseCase.SearchNewConcerts(ctx, artistID)
 	if err != nil {

@@ -73,4 +73,20 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		assert.Nil(t, resp)
 		assert.Equal(t, expectedErr, err)
 	})
+
+	t.Run("invalid_argument", func(t *testing.T) {
+		artistUC := mocks.NewMockArtistUseCase(t)
+		concertUC := mocks.NewMockConcertUseCase(t)
+		h := rpc.NewConcertHandler(artistUC, concertUC, logger)
+
+		req := connect.NewRequest(&rpcv1.SearchNewConcertsRequest{
+			ArtistId: nil,
+		})
+
+		resp, err := h.SearchNewConcerts(context.Background(), req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
 }
