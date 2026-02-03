@@ -92,3 +92,17 @@ func (h *ConcertHandler) CreateArtistMedia(ctx context.Context, req *connect.Req
 func (h *ConcertHandler) DeleteArtistMedia(ctx context.Context, req *connect.Request[rpcv1.DeleteArtistMediaRequest]) (*connect.Response[rpcv1.DeleteArtistMediaResponse], error) {
 	return connect.NewResponse(&rpcv1.DeleteArtistMediaResponse{}), nil
 }
+
+// SearchNewConcerts triggers a discovery process for new concerts.
+func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[rpcv1.SearchNewConcertsRequest]) (*connect.Response[rpcv1.SearchNewConcertsResponse], error) {
+	artistID := req.Msg.ArtistId.Value
+
+	concerts, err := h.concertUseCase.SearchNewConcerts(ctx, artistID)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpcv1.SearchNewConcertsResponse{
+		Concerts: mapper.ConcertsToProto(concerts),
+	}), nil
+}
