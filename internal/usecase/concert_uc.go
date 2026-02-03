@@ -114,6 +114,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	}
 
 	for _, s := range scraped {
+		now := time.Now()
 		key := getUniqueKey(s.LocalEventDate, s.StartTime)
 		if seen[key] {
 			uc.logger.Debug(ctx, "filtered existing/duplicate event",
@@ -134,7 +135,6 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 			}
 
 			// Not found: create new venue
-			now := time.Now()
 			// Use UUIDv7 for time-ordered keys
 			venueID := newUUIDv7(ctx, "venue", uc.logger)
 			if venueID == "" {
@@ -165,7 +165,6 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		}
 
 		// Create Concert
-		now := time.Now()
 		concertID := newUUIDv7(ctx, "concert", uc.logger)
 		if concertID == "" {
 			continue
