@@ -1,4 +1,3 @@
-
 # Project Context & Architecture
 
 ## Core Architecture
@@ -26,6 +25,15 @@ This project follows **Clean Architecture** principles.
 For procedural commands (Build, Test, Migrate, Gen), **load the `backend-workflow` skill**.
 
 - Skill Path: `.agent/skills/backend-workflow/SKILL.md`
+
+### Protobuf Code Generation
+
+Local Protobuf code generation is FORBIDDEN. To generate/update Go code from schema changes:
+
+1.  **Specification Repo**: Create a Pull Request with your `.proto` changes.
+2.  **GitHub Release**: Once merged to `main`, create a GitHub Release in the `specification` repository.
+3.  **Remote Generation**: This triggers the BSR (Buf Schema Registry) remote generation.
+4.  **Local Consumption**: The `backend` repo consumes these types via `buf.build/gen/go/...`. You may need to run `go get -u` or similar if your local environment doesn't pick up the latest BSR build immediately.
 
 > [!TIP]
 > If the user asks "How do I run this?" or "Test the API", refer to the `backend-workflow` skill.
