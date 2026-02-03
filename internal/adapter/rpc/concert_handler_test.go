@@ -52,4 +52,25 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		assert.Equal(t, 1, len(resp.Msg.Concerts))
 		assert.Equal(t, "New Show", resp.Msg.Concerts[0].Title.Value)
 	})
+
+	t.Run("failure", func(t *testing.T) {
+		artistUC := mocks.NewMockArtistUseCase(t)
+		concertUC := mocks.NewMockConcertUseCase(t)
+		h := rpc.NewConcertHandler(artistUC, concertUC, logger)
+
+		artistID := "artist-123"
+		expectedErr := assert.AnError
+
+		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(nil, expectedErr)
+
+		req := connect.NewRequest(&rpcv1.SearchNewConcertsRequest{
+			ArtistId: &entityv1.ArtistId{Value: artistID},
+		})
+
+		resp, err := h.SearchNewConcerts(context.Background(), req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, expectedErr, err)
+	})
 }

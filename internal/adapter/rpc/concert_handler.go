@@ -3,6 +3,7 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpcv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/v1"
@@ -95,6 +96,9 @@ func (h *ConcertHandler) DeleteArtistMedia(ctx context.Context, req *connect.Req
 
 // SearchNewConcerts triggers a discovery process for new concerts.
 func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[rpcv1.SearchNewConcertsRequest]) (*connect.Response[rpcv1.SearchNewConcertsResponse], error) {
+	if req.Msg.ArtistId == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("artist_id cannot be empty"))
+	}
 	artistID := req.Msg.ArtistId.Value
 
 	concerts, err := h.concertUseCase.SearchNewConcerts(ctx, artistID)
