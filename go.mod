@@ -10,8 +10,8 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260127061833-f3beeffcb241.2
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260127061833-f3beeffcb241.1
+	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260203025201-26e705815af4.2
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260203025201-26e705815af4.1
 	connectrpc.com/connect v1.19.1
 	connectrpc.com/grpchealth v1.4.0
 	connectrpc.com/otelconnect v0.8.0
