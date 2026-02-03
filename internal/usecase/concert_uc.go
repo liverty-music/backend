@@ -136,7 +136,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 			// Not found: create new venue
 			now := time.Now()
 			// Use UUIDv7 for time-ordered keys
-			venueID := uc.generateID(ctx, "venue")
+			venueID := newUUIDv7(ctx, "venue", uc.logger)
 			if venueID == "" {
 				continue
 			}
@@ -150,22 +150,23 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				if errors.Is(err, apperr.ErrAlreadyExists) {
 					// Race condition: another request created it. Fetch again.
 					v, getErr := uc.venueRepo.GetByName(ctx, s.VenueName)
-					if getErr == nil {
-						venue = v
-						goto next // using goto here to avoid deep nesting or complex loop control
+					if getErr != nil {
+						uc.logger.Error(ctx, "failed to get venue after race", getErr, slog.String("name", s.VenueName))
+						continue
 					}
-					err = getErr
+					venue = v
+				} else {
+					uc.logger.Error(ctx, "failed to create venue", err, slog.String("name", s.VenueName))
+					continue
 				}
-				uc.logger.Error(ctx, "failed to create venue", err, slog.String("name", s.VenueName))
-				continue
+			} else {
+				venue = newVenue
 			}
-			venue = newVenue
-		next:
 		}
 
 		// Create Concert
 		now := time.Now()
-		concertID := uc.generateID(ctx, "concert")
+		concertID := newUUIDv7(ctx, "concert", uc.logger)
 		if concertID == "" {
 			continue
 		}
@@ -204,12 +205,12 @@ func getUniqueKey(date time.Time, startTime *time.Time) string {
 	return date.Format("2006-01-02") + "|" + stStr
 }
 
-// generateID generates a new UUIDv7.
+// newUUIDv7 generates a new UUIDv7.
 // If it fails (extremely rare), it logs the error and returns an empty string.
-func (uc *concertUseCase) generateID(ctx context.Context, kind string) string {
+func newUUIDv7(ctx context.Context, kind string, logger *logging.Logger) string {
 	id, err := uuid.NewV7()
 	if err != nil {
-		uc.logger.Error(ctx, "failed to generate ID", err, slog.String("kind", kind))
+		logger.Error(ctx, "failed to generate ID", err, slog.String("kind", kind))
 		return ""
 	}
 	return id.String()
