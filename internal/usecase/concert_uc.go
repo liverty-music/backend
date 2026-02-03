@@ -2,10 +2,13 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
+
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -33,6 +36,7 @@ type ConcertUseCase interface {
 type concertUseCase struct {
 	artistRepo      entity.ArtistRepository
 	concertRepo     entity.ConcertRepository
+	venueRepo       entity.VenueRepository
 	concertSearcher entity.ConcertSearcher
 	logger          *logging.Logger
 }
@@ -45,12 +49,14 @@ var _ ConcertUseCase = (*concertUseCase)(nil)
 func NewConcertUseCase(
 	artistRepo entity.ArtistRepository,
 	concertRepo entity.ConcertRepository,
+	venueRepo entity.VenueRepository,
 	concertSearcher entity.ConcertSearcher,
 	logger *logging.Logger,
 ) ConcertUseCase {
 	return &concertUseCase{
 		artistRepo:      artistRepo,
 		concertRepo:     concertRepo,
+		venueRepo:       venueRepo,
 		concertSearcher: concertSearcher,
 		logger:          logger,
 	}
@@ -120,14 +126,58 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		}
 		seen[key] = true
 
-		discovered = append(discovered, &entity.Concert{
+		venue, err := uc.venueRepo.GetByName(ctx, s.VenueName)
+		if err != nil {
+			if !errors.Is(err, apperr.ErrNotFound) {
+				uc.logger.Error(ctx, "failed to get venue by name", err, slog.String("name", s.VenueName))
+				continue
+			}
+
+			// Not found: create new venue
+			now := time.Now()
+			// Use UUIDv7 for time-ordered keys
+			venueID := uc.generateID(ctx, "venue")
+			if venueID == "" {
+				continue
+			}
+			newVenue := &entity.Venue{
+				ID:         venueID,
+				Name:       s.VenueName,
+				CreateTime: now,
+				UpdateTime: now,
+			}
+			if err := uc.venueRepo.Create(ctx, newVenue); err != nil {
+				uc.logger.Error(ctx, "failed to create venue", err, slog.String("name", s.VenueName))
+				continue
+			}
+			venue = newVenue
+		}
+
+		// Create Concert
+		now := time.Now()
+		concertID := uc.generateID(ctx, "concert")
+		if concertID == "" {
+			continue
+		}
+		concert := &entity.Concert{
+			ID:             concertID,
 			ArtistID:       artistID,
+			VenueID:        venue.ID,
 			Title:          s.Title,
 			LocalEventDate: s.LocalEventDate,
 			StartTime:      s.StartTime,
 			OpenTime:       s.OpenTime,
 			SourceURL:      s.SourceURL,
-		})
+			CreateTime:     now,
+			UpdateTime:     now,
+		}
+
+		if err := uc.concertRepo.Create(ctx, concert); err != nil {
+			uc.logger.Error(ctx, "failed to create concert", err, slog.String("title", s.Title))
+			continue
+		}
+
+		discovered = append(discovered, concert)
 	}
 
 	return discovered, nil
@@ -142,4 +192,15 @@ func getUniqueKey(date time.Time, startTime *time.Time) string {
 		stStr = startTime.Format(time.RFC3339)
 	}
 	return date.Format("2006-01-02") + "|" + stStr
+}
+
+// generateID generates a new UUIDv7.
+// If it fails (extremely rare), it logs the error and returns an empty string.
+func (uc *concertUseCase) generateID(ctx context.Context, kind string) string {
+	id, err := uuid.NewV7()
+	if err != nil {
+		uc.logger.Error(ctx, "failed to generate ID", err, slog.String("kind", kind))
+		return ""
+	}
+	return id.String()
 }
