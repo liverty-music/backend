@@ -22,6 +22,12 @@ const (
 		FROM venues
 		WHERE id = $1
 	`
+	getVenueByNameQuery = `
+		SELECT id, name, created_at, updated_at
+		FROM venues
+		WHERE name = $1
+	`
+
 )
 
 // NewVenueRepository creates a new venue repository instance.
@@ -44,6 +50,16 @@ func (r *VenueRepository) Get(ctx context.Context, id string) (*entity.Venue, er
 	err := r.db.Pool.QueryRow(ctx, getVenueQuery, id).Scan(&v.ID, &v.Name, &v.CreateTime, &v.UpdateTime)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get venue", slog.String("venue_id", id))
+	}
+	return &v, nil
+}
+
+// GetByName retrieves a venue by Name from the database.
+func (r *VenueRepository) GetByName(ctx context.Context, name string) (*entity.Venue, error) {
+	var v entity.Venue
+	err := r.db.Pool.QueryRow(ctx, getVenueByNameQuery, name).Scan(&v.ID, &v.Name, &v.CreateTime, &v.UpdateTime)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get venue by name", slog.String("name", name))
 	}
 	return &v, nil
 }

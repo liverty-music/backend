@@ -128,6 +128,65 @@ func (_c *MockVenueRepository_Get_Call) RunAndReturn(run func(context.Context, s
 	return _c
 }
 
+// GetByName provides a mock function with given fields: ctx, name
+func (_m *MockVenueRepository) GetByName(ctx context.Context, name string) (*entity.Venue, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByName")
+	}
+
+	var r0 *entity.Venue
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Venue, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Venue); ok {
+		r0 = rf(ctx, name)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Venue)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockVenueRepository_GetByName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByName'
+type MockVenueRepository_GetByName_Call struct {
+	*mock.Call
+}
+
+// GetByName is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *MockVenueRepository_Expecter) GetByName(ctx interface{}, name interface{}) *MockVenueRepository_GetByName_Call {
+	return &MockVenueRepository_GetByName_Call{Call: _e.mock.On("GetByName", ctx, name)}
+}
+
+func (_c *MockVenueRepository_GetByName_Call) Run(run func(ctx context.Context, name string)) *MockVenueRepository_GetByName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockVenueRepository_GetByName_Call) Return(_a0 *entity.Venue, _a1 error) *MockVenueRepository_GetByName_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockVenueRepository_GetByName_Call) RunAndReturn(run func(context.Context, string) (*entity.Venue, error)) *MockVenueRepository_GetByName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockVenueRepository creates a new instance of MockVenueRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockVenueRepository(t interface {
