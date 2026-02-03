@@ -40,4 +40,11 @@ type VenueRepository interface {
 	//
 	//  - NotFound: If the venue does not exist.
 	Get(ctx context.Context, id string) (*Venue, error)
+
+	// GetByName retrieves a venue by Name.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the venue does not exist.
+	GetByName(ctx context.Context, name string) (*Venue, error)
 }
