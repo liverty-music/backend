@@ -147,10 +147,20 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				UpdateTime: now,
 			}
 			if err := uc.venueRepo.Create(ctx, newVenue); err != nil {
+				if errors.Is(err, apperr.ErrAlreadyExists) {
+					// Race condition: another request created it. Fetch again.
+					v, getErr := uc.venueRepo.GetByName(ctx, s.VenueName)
+					if getErr == nil {
+						venue = v
+						goto next // using goto here to avoid deep nesting or complex loop control
+					}
+					err = getErr
+				}
 				uc.logger.Error(ctx, "failed to create venue", err, slog.String("name", s.VenueName))
 				continue
 			}
 			venue = newVenue
+		next:
 		}
 
 		// Create Concert

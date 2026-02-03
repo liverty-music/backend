@@ -103,4 +103,143 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 		assert.NotEmpty(t, result[0].ID)
 		assert.NotEmpty(t, result[0].VenueID)
 	})
+
+	t.Run("success - venue already exists", func(t *testing.T) {
+		artistRepo := mocks.NewMockArtistRepository(t)
+		concertRepo := mocks.NewMockConcertRepository(t)
+		venueRepo := mocks.NewMockVenueRepository(t)
+		searcher := mocks.NewMockConcertSearcher(t)
+		uc := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searcher, logger)
+
+		artistID := "artist-1"
+		artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+		site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
+
+		scraped := []*entity.ScrapedConcert{
+			{
+				Title:          "New Concert",
+				VenueName:      "Existing Venue",
+				LocalEventDate: time.Now().Add(24 * time.Hour),
+				SourceURL:      "https://example.com/concert",
+			},
+		}
+
+		existingVenue := &entity.Venue{ID: "v-existing", Name: "Existing Venue"}
+
+		artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+		artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
+		concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+		searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+
+		venueRepo.EXPECT().GetByName(ctx, "Existing Venue").Return(existingVenue, nil).Once()
+		// No venue creation expected
+
+		concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
+			return c.VenueID == "v-existing"
+		})).Return(nil).Once()
+
+		result, err := uc.SearchNewConcerts(ctx, artistID)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "v-existing", result[0].VenueID)
+	})
+
+	t.Run("success - venue creation race condition", func(t *testing.T) {
+		artistRepo := mocks.NewMockArtistRepository(t)
+		concertRepo := mocks.NewMockConcertRepository(t)
+		venueRepo := mocks.NewMockVenueRepository(t)
+		searcher := mocks.NewMockConcertSearcher(t)
+		uc := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searcher, logger)
+
+		artistID := "artist-1"
+		artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+		site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
+
+		scraped := []*entity.ScrapedConcert{
+			{
+				Title:          "New Concert",
+				VenueName:      "Race Venue",
+				LocalEventDate: time.Now().Add(24 * time.Hour),
+				SourceURL:      "https://example.com/concert",
+			},
+		}
+
+		existingVenue := &entity.Venue{ID: "v-race", Name: "Race Venue"}
+
+		artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+		artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
+		concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+		searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+
+		// GetByName says NotFound
+		venueRepo.EXPECT().GetByName(ctx, "Race Venue").Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+		// Create returns AlreadyExists (Race!)
+		venueRepo.EXPECT().Create(ctx, mock.Anything).Return(apperr.New(codes.AlreadyExists, "already exists")).Once()
+		// Fallback GetByName succeeds
+		venueRepo.EXPECT().GetByName(ctx, "Race Venue").Return(existingVenue, nil).Once()
+
+		concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
+			return c.VenueID == "v-race"
+		})).Return(nil).Once()
+
+		result, err := uc.SearchNewConcerts(ctx, artistID)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "v-race", result[0].VenueID)
+	})
+
+	t.Run("partial success - venue creation failure skips concert", func(t *testing.T) {
+		artistRepo := mocks.NewMockArtistRepository(t)
+		concertRepo := mocks.NewMockConcertRepository(t)
+		venueRepo := mocks.NewMockVenueRepository(t)
+		searcher := mocks.NewMockConcertSearcher(t)
+		uc := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searcher, logger)
+
+		artistID := "artist-1"
+		scraped := []*entity.ScrapedConcert{
+			{Title: "C1", VenueName: "V1", LocalEventDate: time.Now().Add(24 * time.Hour)},
+		}
+
+		artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
+		artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
+		concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+		searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(scraped, nil).Once()
+
+		venueRepo.EXPECT().GetByName(ctx, "V1").Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+		venueRepo.EXPECT().Create(ctx, mock.Anything).Return(assert.AnError).Once()
+		// concertRepo.Create should NOT be called
+
+		result, err := uc.SearchNewConcerts(ctx, artistID)
+
+		assert.NoError(t, err)
+		assert.Empty(t, result)
+	})
+
+	t.Run("partial success - concert creation failure", func(t *testing.T) {
+		artistRepo := mocks.NewMockArtistRepository(t)
+		concertRepo := mocks.NewMockConcertRepository(t)
+		venueRepo := mocks.NewMockVenueRepository(t)
+		searcher := mocks.NewMockConcertSearcher(t)
+		uc := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searcher, logger)
+
+		artistID := "artist-1"
+		scraped := []*entity.ScrapedConcert{
+			{Title: "C1", VenueName: "V1", LocalEventDate: time.Now().Add(24 * time.Hour)},
+		}
+
+		artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
+		artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
+		concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+		searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(scraped, nil).Once()
+
+		venueRepo.EXPECT().GetByName(ctx, "V1").Return(&entity.Venue{ID: "v1"}, nil).Once()
+		concertRepo.EXPECT().Create(ctx, mock.Anything).Return(assert.AnError).Once()
+
+		result, err := uc.SearchNewConcerts(ctx, artistID)
+
+		assert.NoError(t, err)
+		assert.Empty(t, result)
+	})
 }
