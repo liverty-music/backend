@@ -62,7 +62,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, logger)
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, geminiSearcher, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, geminiSearcher, logger)
 
 	// Handlers
 	handlers := []server.RPCHandlerFunc{
