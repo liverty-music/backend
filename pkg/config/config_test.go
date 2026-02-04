@@ -43,7 +43,6 @@ func TestLoad(t *testing.T) {
 					Port:            5432,
 					Name:            "defaultdb",
 					User:            "defaultuser",
-					Password:        "defaultpass",
 					SSLMode:         "disable",
 					MaxOpenConns:    25,
 					MaxIdleConns:    5,
@@ -107,7 +106,6 @@ func TestLoad(t *testing.T) {
 					Port:            5432,
 					Name:            "testdb",
 					User:            "testuser",
-					Password:        "testpass",
 					SSLMode:         "disable",
 					MaxOpenConns:    25,
 					MaxIdleConns:    5,
@@ -149,6 +147,65 @@ func TestLoad(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *Config
+		wantErr bool
+	}{
+		{
+			name: "valid development config",
+			config: &Config{
+				Environment: "development",
+				Server:      ServerConfig{Port: 8080},
+				Database: DatabaseConfig{
+					Port:                   5432,
+					InstanceConnectionName: "project:region:instance",
+				},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing connection name in development",
+			config: &Config{
+				Environment: "development",
+				Server:      ServerConfig{Port: 8080},
+				Database: DatabaseConfig{
+					Port: 5432,
+					// Missing InstanceConnectionName
+				},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid local config without connection name",
+			config: &Config{
+				Environment: "local",
+				Server:      ServerConfig{Port: 8080},
+				Database: DatabaseConfig{
+					Port: 5432,
+					// Missing InstanceConnectionName is OK for local
+				},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }

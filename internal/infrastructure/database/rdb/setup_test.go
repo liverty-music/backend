@@ -35,12 +35,12 @@ func TestMain(m *testing.M) {
 
 func setupTestDatabase() *rdb.Database {
 	cfg := &config.Config{
+		Environment: "local",
 		Database: config.DatabaseConfig{
 			Host:            "localhost",
 			Port:            5432,
 			Name:            "scaffold_test",
 			User:            "testuser",
-			Password:        "testpassword",
 			SSLMode:         "disable",
 			MaxOpenConns:    10,
 			MaxIdleConns:    5,

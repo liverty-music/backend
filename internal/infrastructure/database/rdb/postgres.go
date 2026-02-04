@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
+	"cloud.google.com/go/cloudsqlconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-logging/logging"
@@ -15,6 +17,7 @@ import (
 type Database struct {
 	Pool   *pgxpool.Pool
 	logger *logging.Logger
+	dialer *cloudsqlconn.Dialer
 }
 
 // New creates a new database instance with connection and ping verification.
@@ -29,17 +32,42 @@ func New(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Data
 	poolConfig.MaxConns = int32(cfg.Database.MaxOpenConns)
 	poolConfig.MinConns = int32(cfg.Database.MaxIdleConns)
 
+	var dialer *cloudsqlconn.Dialer
+	if !cfg.IsLocal() {
+		opts := []cloudsqlconn.Option{
+			cloudsqlconn.WithIAMAuthN(),
+			// Use Private Service Connect (PSC) for non-local environments (dev, stg, prod)
+			cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPSC()),
+		}
+
+		d, err := cloudsqlconn.NewDialer(ctx, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create cloud sql connector dialer: %w", err)
+		}
+		dialer = d
+
+		// Configure pgx to use the dialer
+		poolConfig.ConnConfig.DialFunc = func(dialCtx context.Context, _ string, _ string) (net.Conn, error) {
+			return d.Dial(dialCtx, cfg.Database.InstanceConnectionName)
+		}
+	}
+
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
+		if dialer != nil {
+			dialer.Close()
+		}
 		return nil, fmt.Errorf("failed to create pgxpool: %w", err)
 	}
 
 	database := &Database{
 		Pool:   pool,
 		logger: logger,
+		dialer: dialer,
 	}
 
 	if err := database.Ping(ctx); err != nil {
+		database.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -70,9 +98,15 @@ func (d *Database) Ping(ctx context.Context) error {
 
 // Close closes the database connection.
 func (d *Database) Close() error {
+	d.logger.Info(context.Background(), "Closing database connection")
 	if d.Pool != nil {
-		d.logger.Info(context.Background(), "Closing database connection")
 		d.Pool.Close()
+	}
+	if d.dialer != nil {
+		if err := d.dialer.Close(); err != nil {
+			d.logger.Error(context.Background(), "Failed to close database dialer", err)
+			return err
+		}
 	}
 
 	return nil

@@ -143,9 +143,6 @@ type DatabaseConfig struct {
 	// Database user
 	User string `envconfig:"USER" required:"true"`
 
-	// Database password
-	Password string `envconfig:"PASSWORD" required:"true"`
-
 	// Database SSL mode
 	SSLMode string `envconfig:"SSL_MODE" default:"disable"`
 
@@ -153,6 +150,10 @@ type DatabaseConfig struct {
 	MaxOpenConns    int `envconfig:"MAX_OPEN_CONNS" default:"25"`
 	MaxIdleConns    int `envconfig:"MAX_IDLE_CONNS" default:"5"`
 	ConnMaxLifetime int `envconfig:"CONN_MAX_LIFETIME" default:"300"`
+
+	// Instance Connection Name (e.g., project:region:instance)
+	// Required for Cloud SQL Connector (non-local environments)
+	InstanceConnectionName string `envconfig:"INSTANCE_CONNECTION_NAME"`
 }
 
 // LoggingConfig represents logging-specific configuration.
@@ -236,7 +237,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid database port: %d", c.Database.Port)
 	}
 
-	validEnvironments := []string{"development", "staging", "production"}
+	validEnvironments := []string{"local", "development", "staging", "production"}
 	valid := false
 
 	for _, env := range validEnvironments {
@@ -281,14 +282,17 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid log format: %s", c.Logging.Format)
 	}
 
+	if !c.IsLocal() && c.Database.InstanceConnectionName == "" {
+		return fmt.Errorf("database instance connection name is required for non-local environments")
+	}
+
 	return nil
 }
 
-// GetDSN returns the PostgreSQL database connection string in the format:
-// "postgres://user:password@host:port/dbname?sslmode=mode"
-func (c *DatabaseConfig) GetDSN() string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		c.User, c.Password, c.Host, c.Port, c.Name, c.SSLMode)
+// GetDSN returns the database connection string.
+func (c DatabaseConfig) GetDSN() string {
+	return fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=%s",
+		c.Host, c.Port, c.User, c.Name, c.SSLMode)
 }
 
 // IsDevelopment returns true if the environment is "development".
@@ -304,4 +308,9 @@ func (c *Config) IsProduction() bool {
 // IsStaging returns true if the environment is "staging".
 func (c *Config) IsStaging() bool {
 	return c.Environment == "staging"
+}
+
+// IsLocal returns true if the environment is "local".
+func (c *Config) IsLocal() bool {
+	return c.Environment == "local"
 }
