@@ -55,7 +55,7 @@ func New(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Data
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		if dialer != nil {
-			dialer.Close()
+			_ = dialer.Close()
 		}
 		return nil, fmt.Errorf("failed to create pgxpool: %w", err)
 	}
@@ -67,7 +67,7 @@ func New(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Data
 	}
 
 	if err := database.Ping(ctx); err != nil {
-		database.Close()
+		_ = database.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
