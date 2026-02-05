@@ -59,9 +59,15 @@ func NewConnectServer(
 
 	address := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 
+	// Enable h2c (HTTP/2 without TLS) for Kubernetes gRPC health probes
+	p := new(http.Protocols)
+	p.SetHTTP1(true)
+	p.SetUnencryptedHTTP2(true)
+
 	server := &http.Server{
 		Addr:              address,
 		Handler:           http.TimeoutHandler(mux, cfg.Server.HandlerTimeout, ""),
+		Protocols:         p,
 		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
 		ReadTimeout:       cfg.Server.ReadTimeout,
 		IdleTimeout:       cfg.Server.IdleTimeout,
