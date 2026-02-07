@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/artist/v1/artistv1connect"
-	concertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/concert/v1/concertv1connect"
-	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/user/v1/userv1connect"
+	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
+	concertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
+	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
