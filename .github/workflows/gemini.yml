@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
 
       - name: 'Run Gemini CLI'
-        uses: 'google-github-actions/run-gemini-cli@main'
+        uses: 'google-github-actions/run-gemini-cli@v0'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
