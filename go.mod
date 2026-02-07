@@ -12,6 +12,7 @@ tool (
 require (
 	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260203025201-26e705815af4.2
 	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260203025201-26e705815af4.1
+	cloud.google.com/go/cloudsqlconn v1.20.0
 	connectrpc.com/connect v1.19.1
 	connectrpc.com/grpchealth v1.4.0
 	connectrpc.com/otelconnect v0.8.0
@@ -46,7 +47,6 @@ require (
 	cloud.google.com/go v0.121.6 // indirect
 	cloud.google.com/go/auth v0.18.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
-	cloud.google.com/go/cloudsqlconn v1.20.0 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect

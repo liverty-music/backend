@@ -27,7 +27,10 @@ func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
 		uc := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searcher, logger)
 
 		concerts := []*entity.Concert{
-			{ID: "c1", ArtistID: "a1", Title: "Concert 1"},
+			{
+				Event:    entity.Event{ID: "c1", Title: "Concert 1"},
+				ArtistID: "a1",
+			},
 		}
 
 		concertRepo.EXPECT().ListByArtist(ctx, "a1", false).Return(concerts, nil).Once()

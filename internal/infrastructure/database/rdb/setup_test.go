@@ -76,6 +76,7 @@ func cleanTables(db *rdb.Database) {
 		"user_artist_subscriptions",
 		"artist_official_site",
 		"concerts",
+		"events",
 		"artists",
 		"venues",
 		"users",
