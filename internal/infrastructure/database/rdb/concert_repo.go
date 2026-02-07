@@ -14,18 +14,24 @@ type ConcertRepository struct {
 
 const (
 	listConcertsByArtistQuery = `
-		SELECT id, artist_id, venue_id, title, local_event_date, start_time, open_time, source_url, created_at, updated_at
-		FROM concerts
-		WHERE artist_id = $1
+		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.local_event_date, e.start_at, e.open_at, e.source_url, e.created_at, e.updated_at
+		FROM concerts c
+		JOIN events e ON c.event_id = e.id
+		WHERE c.artist_id = $1
 	`
 	listUpcomingConcertsByArtistQuery = `
-		SELECT id, artist_id, venue_id, title, local_event_date, start_time, open_time, source_url, created_at, updated_at
-		FROM concerts
-		WHERE artist_id = $1 AND local_event_date >= CURRENT_DATE
+		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.local_event_date, e.start_at, e.open_at, e.source_url, e.created_at, e.updated_at
+		FROM concerts c
+		JOIN events e ON c.event_id = e.id
+		WHERE c.artist_id = $1 AND e.local_event_date >= CURRENT_DATE
+	`
+	insertEventQuery = `
+		INSERT INTO events (id, venue_id, title, local_event_date, start_at, open_at, source_url, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 	insertConcertQuery = `
-		INSERT INTO concerts (id, artist_id, venue_id, title, local_event_date, start_time, open_time, source_url, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO concerts (event_id, artist_id)
+		VALUES ($1, $2)
 	`
 )
 
@@ -61,11 +67,27 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 
 // Create creates a new concert in the database.
 func (r *ConcertRepository) Create(ctx context.Context, concert *entity.Concert) error {
-	_, err := r.db.Pool.Exec(ctx, insertConcertQuery,
-		concert.ID, concert.ArtistID, concert.VenueID, concert.Title, concert.LocalEventDate, concert.StartTime, concert.OpenTime, concert.SourceURL, concert.CreateTime, concert.UpdateTime,
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin transaction")
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	_, err = tx.Exec(ctx, insertEventQuery,
+		concert.ID, concert.VenueID, concert.Title, concert.LocalEventDate, concert.StartTime, concert.OpenTime, concert.SourceURL, concert.CreateTime, concert.UpdateTime,
 	)
+	if err != nil {
+		return toAppErr(err, "failed to create event", slog.String("event_id", concert.ID))
+	}
+
+	_, err = tx.Exec(ctx, insertConcertQuery, concert.ID, concert.ArtistID)
 	if err != nil {
 		return toAppErr(err, "failed to create concert", slog.String("concert_id", concert.ID), slog.String("artist_id", concert.ArtistID))
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit transaction")
+	}
+
 	return nil
 }

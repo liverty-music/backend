@@ -170,16 +170,18 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 			continue
 		}
 		concert := &entity.Concert{
-			ID:             concertID,
-			ArtistID:       artistID,
-			VenueID:        venue.ID,
-			Title:          s.Title,
-			LocalEventDate: s.LocalEventDate,
-			StartTime:      s.StartTime,
-			OpenTime:       s.OpenTime,
-			SourceURL:      s.SourceURL,
-			CreateTime:     now,
-			UpdateTime:     now,
+			Event: entity.Event{
+				ID:             concertID,
+				VenueID:        venue.ID,
+				Title:          s.Title,
+				LocalEventDate: s.LocalEventDate,
+				StartTime:      s.StartTime,
+				OpenTime:       s.OpenTime,
+				SourceURL:      s.SourceURL,
+				CreateTime:     now,
+				UpdateTime:     now,
+			},
+			ArtistID: artistID,
 		}
 
 		if err := uc.concertRepo.Create(ctx, concert); err != nil {

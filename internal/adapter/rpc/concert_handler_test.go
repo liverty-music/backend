@@ -36,7 +36,10 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 
 		artistID := "artist-123"
 		mockConcerts := []*entity.Concert{
-			{ID: "concert-1", ArtistID: artistID, Title: "New Show"},
+			{
+				Event:    entity.Event{ID: "concert-1", Title: "New Show"},
+				ArtistID: artistID,
+			},
 		}
 
 		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(mockConcerts, nil)

@@ -9,32 +9,9 @@ import (
 //
 // Corresponds to liverty_music.entity.v1.Concert.
 type Concert struct {
-	// ID is the unique identifier for the concert (UUID).
-	ID             string
+	Event
 	// ArtistID is the ID of the artist performing.
-	ArtistID       string
-	// VenueID is the ID of the venue where the concert takes place.
-	VenueID        string
-	// Title is the descriptive title of the concert.
-	Title          string
-	// LocalEventDate represents the calendar date of the event in the local timezone.
-	//
-	// Specifications:
-	// - Location MUST be set to time.UTC.
-	// - Time components (Hour, Minute, Second, Nanosecond) MUST be zero (00:00:00).
-	// This ensures that the date remains consistent when saved to a Postgres DATE type.
-	// It avoids "date shifting" issues during timezone conversions.
-	LocalEventDate time.Time
-	// StartTime is the specific starting time of the concert (optional).
-	StartTime      *time.Time
-	// OpenTime is the time when doors open (optional).
-	OpenTime       *time.Time
-	// SourceURL is the URL where this information was found.
-	SourceURL      string
-	// CreateTime is the timestamp when the concert was created.
-	CreateTime     time.Time
-	// UpdateTime is the timestamp when the concert was last updated.
-	UpdateTime     time.Time
+	ArtistID string
 }
 
 // ScrapedConcert represents raw concert information rediscovered from external sources.

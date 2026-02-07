@@ -61,27 +61,39 @@ COMMENT ON COLUMN venues.created_at IS 'Timestamp when the venue was added to th
 COMMENT ON COLUMN venues.updated_at IS 'Timestamp when venue data was last updated';
 
 -- Concerts table
-CREATE TABLE IF NOT EXISTS concerts (
+-- Events table
+CREATE TABLE IF NOT EXISTS events (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
-    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     venue_id UUID NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
-    date DATE NOT NULL,
-    start_time TIME NOT NULL,
-    open_time TIME,
     title TEXT NOT NULL,
+    local_event_date DATE NOT NULL,
+    start_at TIMESTAMPTZ,
+    open_at TIMESTAMPTZ,
     source_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE concerts IS 'Scheduled live music events with artist, venue, and timing information';
-COMMENT ON COLUMN concerts.id IS 'Unique concert identifier (UUIDv7)';
+COMMENT ON TABLE events IS 'Generic event data including time, location, and metadata';
+COMMENT ON COLUMN events.id IS 'Unique event identifier (UUIDv7)';
+COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
+COMMENT ON COLUMN events.title IS 'Event title as displayed to users';
+COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
+COMMENT ON COLUMN events.start_at IS 'Event start time (absolute)';
+COMMENT ON COLUMN events.open_at IS 'Doors open time (absolute), if available';
+COMMENT ON COLUMN events.source_url IS 'URL where the event information was found';
+COMMENT ON COLUMN events.created_at IS 'Record creation timestamp';
+COMMENT ON COLUMN events.updated_at IS 'Last update timestamp';
+
+-- Concerts table
+CREATE TABLE IF NOT EXISTS concerts (
+    event_id UUID PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE
+);
+
+COMMENT ON TABLE concerts IS 'Music-specific event details, linked 1:1 with events table';
+COMMENT ON COLUMN concerts.event_id IS 'Reference to the generic event (PK/FK)';
 COMMENT ON COLUMN concerts.artist_id IS 'Reference to the performing artist';
-COMMENT ON COLUMN concerts.venue_id IS 'Reference to the venue hosting the concert';
-COMMENT ON COLUMN concerts.title IS 'Concert or tour title as displayed to users';
-COMMENT ON COLUMN concerts.date IS 'Date of the concert event';
-COMMENT ON COLUMN concerts.start_time IS 'Concert start time (local to venue)';
-COMMENT ON COLUMN concerts.open_time IS 'Doors open time (local to venue), if available';
 
 -- User artist follows
 CREATE TABLE IF NOT EXISTS followed_artists (
@@ -155,8 +167,11 @@ COMMENT ON INDEX idx_artist_official_site_artist_id IS 'Optimizes retrieval of o
 CREATE INDEX IF NOT EXISTS idx_concerts_artist_id ON concerts(artist_id);
 COMMENT ON INDEX idx_concerts_artist_id IS 'Optimizes listing concerts by artist';
 
-CREATE INDEX IF NOT EXISTS idx_concerts_date ON concerts(date);
-COMMENT ON INDEX idx_concerts_date IS 'Speeds up date-based concert searches and calendar views';
+CREATE INDEX IF NOT EXISTS idx_events_date ON events(local_event_date);
+COMMENT ON INDEX idx_events_date IS 'Speeds up date-based event searches and calendar views';
+
+CREATE INDEX IF NOT EXISTS idx_events_venue_id ON events(venue_id);
+COMMENT ON INDEX idx_events_venue_id IS 'Optimizes listing events by venue';
 
 CREATE INDEX IF NOT EXISTS idx_user_artist_subscriptions_composite ON user_artist_subscriptions(user_id, artist_id);
 COMMENT ON INDEX idx_user_artist_subscriptions_composite IS 'Optimizes subscription check for a user-artist pair';

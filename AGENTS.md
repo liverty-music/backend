@@ -20,6 +20,13 @@ This project follows **Clean Architecture** principles.
 - **Schema**: Managed via BSR (`buf.build/liverty-music/schema`).
 - **Pattern**: Handlers should strictly map Proto messages to Domain Entities and delegate logic to UseCases.
 
+### 2. Naming Conventions
+
+- **Timestamps**:
+    - **Database**: Use `_at` suffix (e.g., `start_at`, `created_at`). Type: `TIMESTAMPTZ`.
+    - **Go Entity**: Use `Time` suffix (e.g., `StartTime`, `CreateTime`). Type: `time.Time`.
+    - **Reasoning**: Adheres to SQL standards for columns and Google AIP/Protobuf standards for code. Mappings should be handled in the Repository layer.
+
 ## Development Workflows
 
 For procedural commands (Build, Test, Migrate, Gen), **load the `backend-workflow` skill**.
