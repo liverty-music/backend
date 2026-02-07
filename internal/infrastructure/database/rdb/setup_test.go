@@ -73,7 +73,7 @@ func cleanTables(db *rdb.Database) {
 	ctx := context.Background()
 	tables := []string{
 		"notifications",
-		"user_artist_subscriptions",
+		"followed_artists",
 		"artist_official_site",
 		"concerts",
 		"artists",
