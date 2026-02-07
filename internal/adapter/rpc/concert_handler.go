@@ -35,18 +35,15 @@ func NewConcertHandler(
 }
 
 // List returns a list of concerts, optionally filtered by artist.
-func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[rpcv1.ListRequest]) (*connect.Response[rpcv1.ListResponse], error) {
-	artistID := ""
-	if req.Msg.ArtistId != nil {
-		artistID = req.Msg.ArtistId.Value
-	}
+func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[rpcv1.ConcertServiceListRequest]) (*connect.Response[rpcv1.ConcertServiceListResponse], error) {
+	artistID := req.Msg.GetArtistId().GetValue()
 
 	concerts, err := h.concertUseCase.ListByArtist(ctx, artistID)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpcv1.ListResponse{
+	return connect.NewResponse(&rpcv1.ConcertServiceListResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
 	}), nil
 }
