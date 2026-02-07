@@ -67,6 +67,7 @@ debug_output.txt
 # gemini-cli settings
 .gemini/*
 !.gemini/GEMINI.md
+!.gemini/commands/
 # GitHub App credentials
 gha-creds-*.json
 

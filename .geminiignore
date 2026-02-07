@@ -1,0 +1,6 @@
+# Ignore generated files from specification
+internal/adapter/rpc/protocolbuffers/
+internal/adapter/rpc/connectrpc/
+*pb.go
+*connect.go
+mock_*.go
