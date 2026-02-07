@@ -83,23 +83,18 @@ COMMENT ON COLUMN concerts.date IS 'Date of the concert event';
 COMMENT ON COLUMN concerts.start_time IS 'Concert start time (local to venue)';
 COMMENT ON COLUMN concerts.open_time IS 'Doors open time (local to venue), if available';
 
--- User-Artist subscriptions
-CREATE TABLE IF NOT EXISTS user_artist_subscriptions (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+-- User artist follows
+CREATE TABLE IF NOT EXISTS followed_artists (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
-    is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    PRIMARY KEY (user_id, artist_id)
 );
 
-COMMENT ON TABLE user_artist_subscriptions IS 'User subscriptions to artists for automated concert notifications';
-COMMENT ON COLUMN user_artist_subscriptions.id IS 'Unique subscription identifier (UUIDv7)';
-COMMENT ON COLUMN user_artist_subscriptions.user_id IS 'Reference to the subscribing user';
-COMMENT ON COLUMN user_artist_subscriptions.artist_id IS 'Reference to the artist being followed';
-COMMENT ON COLUMN user_artist_subscriptions.is_active IS 'Whether the subscription is active and should trigger notifications';
-COMMENT ON COLUMN user_artist_subscriptions.created_at IS 'Timestamp when the subscription was created';
-COMMENT ON COLUMN user_artist_subscriptions.updated_at IS 'Timestamp when the subscription status was last modified';
+COMMENT ON TABLE followed_artists IS 'Tracks which artists a user is following for discovery and personalization';
+COMMENT ON COLUMN followed_artists.user_id IS 'Reference to the user who is following';
+COMMENT ON COLUMN followed_artists.artist_id IS 'Reference to the artist being followed';
+COMMENT ON COLUMN followed_artists.created_at IS 'Timestamp when the follow occurred';
 
 -- Notifications table
 CREATE TABLE IF NOT EXISTS notifications (
