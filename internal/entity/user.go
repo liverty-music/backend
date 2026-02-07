@@ -43,32 +43,6 @@ type NewUser struct {
 	TimeZone          string
 }
 
-// UserArtistSubscription represents a user's subscription to an artist.
-//
-// Corresponds to liverty_music.entity.v1.UserArtistSubscription.
-type UserArtistSubscription struct {
-	// ID is the unique identifier for the subscription.
-	ID         string
-	// UserID is the subscriber's ID.
-	UserID     string
-	// ArtistID is the subscribed artist's ID.
-	ArtistID   string
-	// IsActive indicates if the subscription is currently active.
-	IsActive   bool
-	// CreateTime is the timestamp when the subscription was created.
-	CreateTime time.Time
-	// UpdateTime is the timestamp when the subscription was last updated.
-	UpdateTime time.Time
-}
-
-// NewUserArtistSubscription represents data for creating a new subscription.
-type NewUserArtistSubscription struct {
-	// UserID is the subscriber's ID.
-	UserID   string
-	// ArtistID is the subscribed artist's ID.
-	ArtistID string
-}
-
 // UserRepository defines the interface for user data access.
 type UserRepository interface {
 	// Create creates a new user.
@@ -109,56 +83,4 @@ type UserRepository interface {
 
 	// List retrieves users with pagination.
 	List(ctx context.Context, limit, offset int) ([]*User, error)
-}
-
-// UserArtistSubscriptionRepository defines the interface for user-artist subscription data access.
-type UserArtistSubscriptionRepository interface {
-	// Create creates a new user-artist subscription.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: If inputs are invalid.
-	//  - AlreadyExists: If subscription already exists.
-	Create(ctx context.Context, params *NewUserArtistSubscription) (*UserArtistSubscription, error)
-
-	// Get retrieves a subscription by ID.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If not found.
-	Get(ctx context.Context, id string) (*UserArtistSubscription, error)
-
-	// GetByUserAndArtist retrieves a subscription for a specific user and artist.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If not found.
-	GetByUserAndArtist(ctx context.Context, userID, artistID string) (*UserArtistSubscription, error)
-
-	// GetByUser retrieves all subscriptions for a user with pagination.
-	GetByUser(ctx context.Context, userID string, limit, offset int) ([]*UserArtistSubscription, error)
-
-	// GetByArtist retrieves all subscriptions for an artist with pagination.
-	GetByArtist(ctx context.Context, artistID string, limit, offset int) ([]*UserArtistSubscription, error)
-
-	// Activate reactivates a subscription.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If not found.
-	Activate(ctx context.Context, id string) error
-
-	// Deactivate deactivates a subscription.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If not found.
-	Deactivate(ctx context.Context, id string) error
-
-	// Delete removes a subscription.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If not found.
-	Delete(ctx context.Context, id string) error
 }
