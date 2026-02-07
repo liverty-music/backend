@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	v1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/rpcv1connect"
+	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/artist/v1/artistv1connect"
+	concertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/concert/v1/concertv1connect"
+	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/user/v1/userv1connect"
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
@@ -98,14 +100,20 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return v1connect.NewUserServiceHandler(
+			return userv1connect.NewUserServiceHandler(
 				rpc.NewUserHandler(userUC, logger),
 				opts...,
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return v1connect.NewConcertServiceHandler(
-				rpc.NewConcertHandler(artistUC, concertUC, logger),
+			return concertv1connect.NewConcertServiceHandler(
+				rpc.NewConcertHandler(concertUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return artistv1connect.NewArtistServiceHandler(
+				rpc.NewArtistHandler(artistUC, logger),
 				opts...,
 			)
 		},
