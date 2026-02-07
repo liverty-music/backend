@@ -172,7 +172,7 @@ COMMENT ON INDEX idx_artist_official_site_artist_id IS 'Optimizes retrieval of o
 CREATE INDEX IF NOT EXISTS idx_concerts_artist_id ON concerts(artist_id);
 COMMENT ON INDEX idx_concerts_artist_id IS 'Optimizes listing concerts by artist';
 
-CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
+CREATE INDEX IF NOT EXISTS idx_events_date ON events(local_event_date);
 COMMENT ON INDEX idx_events_date IS 'Speeds up date-based event searches and calendar views';
 
 CREATE INDEX IF NOT EXISTS idx_events_venue_id ON events(venue_id);

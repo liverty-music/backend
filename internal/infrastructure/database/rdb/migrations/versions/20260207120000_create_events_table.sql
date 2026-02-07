@@ -17,9 +17,9 @@ SELECT
     id,
     venue_id,
     title,
-    date,
-    (date + start_time)::TIMESTAMPTZ,
-    CASE WHEN open_time IS NOT NULL THEN (date + open_time)::TIMESTAMPTZ ELSE NULL END,
+    local_event_date,
+    start_time,
+    open_time,
     source_url,
     created_at,
     updated_at
@@ -29,7 +29,7 @@ FROM concerts;
 ALTER TABLE concerts
     DROP COLUMN venue_id,
     DROP COLUMN title,
-    DROP COLUMN date,
+    DROP COLUMN local_event_date,
     DROP COLUMN start_time,
     DROP COLUMN open_time,
     DROP COLUMN source_url,

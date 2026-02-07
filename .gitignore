@@ -71,3 +71,4 @@ debug_output.txt
 gha-creds-*.json
 
 tmp/
+.pr_data/
