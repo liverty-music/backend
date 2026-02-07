@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	rpcv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/v1"
+	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/v1/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -19,10 +19,9 @@ func TestConcertHandler_List(t *testing.T) {
 	logger, _ := logging.New()
 
 	t.Run("success", func(t *testing.T) {
-		artistUC := mocks.NewMockArtistUseCase(t)
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(artistUC, concertUC, logger)
-		_ = h // Basic test to ensure handler can be created with mocked UseCases
+		h := rpc.NewConcertHandler(concertUC, logger)
+		_ = h // Basic test to ensure handler can be created
 	})
 }
 
@@ -30,9 +29,8 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 	logger, _ := logging.New()
 
 	t.Run("success", func(t *testing.T) {
-		artistUC := mocks.NewMockArtistUseCase(t)
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(artistUC, concertUC, logger)
+		h := rpc.NewConcertHandler(concertUC, logger)
 
 		artistID := "artist-123"
 		mockConcerts := []*entity.Concert{
@@ -44,7 +42,7 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 
 		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(mockConcerts, nil)
 
-		req := connect.NewRequest(&rpcv1.SearchNewConcertsRequest{
+		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
 			ArtistId: &entityv1.ArtistId{Value: artistID},
 		})
 
@@ -57,16 +55,15 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 	})
 
 	t.Run("failure", func(t *testing.T) {
-		artistUC := mocks.NewMockArtistUseCase(t)
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(artistUC, concertUC, logger)
+		h := rpc.NewConcertHandler(concertUC, logger)
 
 		artistID := "artist-123"
 		expectedErr := assert.AnError
 
 		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(nil, expectedErr)
 
-		req := connect.NewRequest(&rpcv1.SearchNewConcertsRequest{
+		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
 			ArtistId: &entityv1.ArtistId{Value: artistID},
 		})
 
@@ -78,11 +75,10 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 	})
 
 	t.Run("invalid_argument", func(t *testing.T) {
-		artistUC := mocks.NewMockArtistUseCase(t)
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(artistUC, concertUC, logger)
+		h := rpc.NewConcertHandler(concertUC, logger)
 
-		req := connect.NewRequest(&rpcv1.SearchNewConcertsRequest{
+		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
 			ArtistId: nil,
 		})
 
