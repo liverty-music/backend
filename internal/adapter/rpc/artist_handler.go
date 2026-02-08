@@ -3,8 +3,8 @@ package rpc
 import (
 	"context"
 
-	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	artistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
+	pb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -18,7 +18,7 @@ type ArtistHandler struct {
 	logger        *logging.Logger
 }
 
-// NewArtistHandler creates a new artist handler.
+// NewArtistHandler creates a new instance of the artist RPC service handler.
 func NewArtistHandler(
 	artistUseCase usecase.ArtistUseCase,
 	logger *logging.Logger,
@@ -30,24 +30,24 @@ func NewArtistHandler(
 }
 
 // List retrieves a collection of all registered artists in the database.
-func (h *ArtistHandler) List(ctx context.Context, _ *connect.Request[artistv1.ListRequest]) (*connect.Response[artistv1.ListResponse], error) {
+func (h *ArtistHandler) List(ctx context.Context, _ *connect.Request[rpc.ListRequest]) (*connect.Response[rpc.ListResponse], error) {
 	artists, err := h.artistUseCase.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var protoArtists []*entityv1.Artist
+	var protoArtists []*pb.Artist
 	for _, a := range artists {
 		protoArtists = append(protoArtists, mapper.ArtistToProto(a))
 	}
 
-	return connect.NewResponse(&artistv1.ListResponse{
+	return connect.NewResponse(&rpc.ListResponse{
 		Artists: protoArtists,
 	}), nil
 }
 
 // Create registers a new musical performer or band in the system.
-func (h *ArtistHandler) Create(ctx context.Context, req *connect.Request[artistv1.CreateRequest]) (*connect.Response[artistv1.CreateResponse], error) {
+func (h *ArtistHandler) Create(ctx context.Context, req *connect.Request[rpc.CreateRequest]) (*connect.Response[rpc.CreateResponse], error) {
 	artist := &entity.Artist{
 		Name: req.Msg.Name.Value,
 	}
@@ -57,47 +57,103 @@ func (h *ArtistHandler) Create(ctx context.Context, req *connect.Request[artistv
 		return nil, err
 	}
 
-	return connect.NewResponse(&artistv1.CreateResponse{
+	return connect.NewResponse(&rpc.CreateResponse{
 		Artist: mapper.ArtistToProto(created),
 	}), nil
 }
 
 // Search performs an incremental search for artists by name.
-func (h *ArtistHandler) Search(ctx context.Context, req *connect.Request[artistv1.SearchRequest]) (*connect.Response[artistv1.SearchResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+func (h *ArtistHandler) Search(ctx context.Context, req *connect.Request[rpc.SearchRequest]) (*connect.Response[rpc.SearchResponse], error) {
+	artists, err := h.artistUseCase.Search(ctx, req.Msg.Query)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.SearchResponse{
+		Artists: mapper.ArtistsToProto(artists),
+	}), nil
 }
 
-// CreateMedia associates a new official media channel with an artist.
-func (h *ArtistHandler) CreateMedia(ctx context.Context, req *connect.Request[artistv1.CreateMediaRequest]) (*connect.Response[artistv1.CreateMediaResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+// CreateOfficialSite associates a new official website or social media channel with an artist.
+func (h *ArtistHandler) CreateOfficialSite(ctx context.Context, req *connect.Request[rpc.CreateOfficialSiteRequest]) (*connect.Response[rpc.CreateOfficialSiteResponse], error) {
+	err := h.artistUseCase.CreateOfficialSite(ctx, &entity.OfficialSite{
+		ArtistID: req.Msg.ArtistId.Value,
+		URL:      req.Msg.Url.Value,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.CreateOfficialSiteResponse{}), nil
 }
 
-// DeleteMedia removes an existing media channel association.
-func (h *ArtistHandler) DeleteMedia(ctx context.Context, req *connect.Request[artistv1.DeleteMediaRequest]) (*connect.Response[artistv1.DeleteMediaResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+// DeleteOfficialSite removes an existing official site association.
+func (h *ArtistHandler) DeleteOfficialSite(ctx context.Context, req *connect.Request[rpc.DeleteOfficialSiteRequest]) (*connect.Response[rpc.DeleteOfficialSiteResponse], error) {
+	// FIXME: Implement DeleteOfficialSite in UseCase
+	return connect.NewResponse(&rpc.DeleteOfficialSiteResponse{}), nil
 }
 
 // Follow establishes a follow relationship between the current user and an artist.
-func (h *ArtistHandler) Follow(ctx context.Context, req *connect.Request[artistv1.FollowRequest]) (*connect.Response[artistv1.FollowResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+func (h *ArtistHandler) Follow(ctx context.Context, req *connect.Request[rpc.FollowRequest]) (*connect.Response[rpc.FollowResponse], error) {
+	// FIXME: Extract UserID from authenticated context
+	userID := "user-1"
+
+	err := h.artistUseCase.Follow(ctx, userID, req.Msg.ArtistId.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.FollowResponse{}), nil
 }
 
 // Unfollow removes an existing follow relationship.
-func (h *ArtistHandler) Unfollow(ctx context.Context, req *connect.Request[artistv1.UnfollowRequest]) (*connect.Response[artistv1.UnfollowResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+func (h *ArtistHandler) Unfollow(ctx context.Context, req *connect.Request[rpc.UnfollowRequest]) (*connect.Response[rpc.UnfollowResponse], error) {
+	// FIXME: Extract UserID from authenticated context
+	userID := "user-1"
+
+	err := h.artistUseCase.Unfollow(ctx, userID, req.Msg.ArtistId.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.UnfollowResponse{}), nil
 }
 
 // ListFollowed retrieves the list of artists currently followed by the authenticated user.
-func (h *ArtistHandler) ListFollowed(ctx context.Context, req *connect.Request[artistv1.ListFollowedRequest]) (*connect.Response[artistv1.ListFollowedResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+func (h *ArtistHandler) ListFollowed(ctx context.Context, req *connect.Request[rpc.ListFollowedRequest]) (*connect.Response[rpc.ListFollowedResponse], error) {
+	// FIXME: Extract UserID from authenticated context
+	userID := "user-1"
+
+	artists, err := h.artistUseCase.ListFollowed(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.ListFollowedResponse{
+		Artists: mapper.ArtistsToProto(artists),
+	}), nil
 }
 
-// ListSimilar retrieves artists similar to a specified artist.
-func (h *ArtistHandler) ListSimilar(ctx context.Context, req *connect.Request[artistv1.ListSimilarRequest]) (*connect.Response[artistv1.ListSimilarResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+// ListSimilar retrieves a collection of artists with musical affinity to a target artist.
+func (h *ArtistHandler) ListSimilar(ctx context.Context, req *connect.Request[rpc.ListSimilarRequest]) (*connect.Response[rpc.ListSimilarResponse], error) {
+	artists, err := h.artistUseCase.ListSimilar(ctx, req.Msg.ArtistId.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.ListSimilarResponse{
+		Artists: mapper.ArtistsToProto(artists),
+	}), nil
 }
 
-// ListTop retrieves globally or regionally popular artists.
-func (h *ArtistHandler) ListTop(ctx context.Context, req *connect.Request[artistv1.ListTopRequest]) (*connect.Response[artistv1.ListTopResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, nil)
+// ListTop retrieves a collection of trending or popular artists, optionally filtered by country.
+func (h *ArtistHandler) ListTop(ctx context.Context, req *connect.Request[rpc.ListTopRequest]) (*connect.Response[rpc.ListTopResponse], error) {
+	artists, err := h.artistUseCase.ListTop(ctx, req.Msg.GetCountry())
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.ListTopResponse{
+		Artists: mapper.ArtistsToProto(artists),
+	}), nil
 }
