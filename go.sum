@@ -8,8 +8,16 @@ buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.9-20250903170917-c4b
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.9-20250903170917-c4be0f57e197.1/go.mod h1:Y3m+VD8IH6JTgnFYggPHvFul/ry6dL3QDliy8xH7610=
 buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260203025201-26e705815af4.2 h1:7g9PCDrgzymiw21a44agReSTxDIVUkelqBIsXKdER2s=
 buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260203025201-26e705815af4.2/go.mod h1:sj7pvQfTW7NotuZjsMgT6r+aCAlFjJYJwinv4rKpVmU=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260207140533-1555a705dcac.2 h1:UtDv9L8uyffMwVfybWYvsJKNjTxljnwPoEhz+6kwMDU=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260207140533-1555a705dcac.2/go.mod h1:HkXUmOasAubJthMPRg52PJ+P+iPhBoHfM+zQfox5H5k=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260207160400-34dc4120b4bc.2 h1:U7saC5Y3pKC8ZQrDERq2l2FxGqNPCpV3eVvVKQ4xi8E=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260207160400-34dc4120b4bc.2/go.mod h1:IdTrVdI2UtqaopAhFgEwxWzky8VgPk8WBoXlAF4FMhI=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260203025201-26e705815af4.1 h1:LqeHHjtcJWeyiCfYQs+XGuVtNJcyb4jUOFdqtOc3wQE=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260203025201-26e705815af4.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260207140533-1555a705dcac.1 h1:oDlpJEs1rZx5nIRwHRNrDMMbhtCBZLYY8robqFTfMUo=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260207140533-1555a705dcac.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260207160400-34dc4120b4bc.1 h1:huIlS1a3wmWEy9do7igftERfInTQ9MH9xac06etLLuw=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260207160400-34dc4120b4bc.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1 h1:KuP+b+in6LGh2ukof5KgDCD8hPXotEq6EVOo13Wg1pE=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1/go.mod h1:dV1Kz6zdmyXt7QWm5OXby44OFpyLemllUDBUG5HMLio=
 buf.build/go/app v0.1.0 h1:nlqD/h0rhIN73ZoiDElprrPiO2N6JV+RmNK34K29Ihg=
