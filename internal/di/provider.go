@@ -13,6 +13,8 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
+	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
@@ -64,9 +66,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		geminiSearcher = searcher
 	}
 
+	// Infrastructure - Music
+	lastfmClient := lastfm.NewClient(cfg.LastFMAPIKey, nil)
+	musicbrainzClient := musicbrainz.NewClient(nil)
+
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, geminiSearcher, logger)
 
 	// Auth - JWT Validator and Interceptor
