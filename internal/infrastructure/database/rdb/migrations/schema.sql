@@ -7,8 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     email TEXT UNIQUE NOT NULL,
     nickname TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE users IS 'User profiles and authentication data';
@@ -16,49 +15,42 @@ COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7)';
 COMMENT ON COLUMN users.email IS 'Primary contact and login identifier';
 COMMENT ON COLUMN users.nickname IS 'User display name';
 COMMENT ON COLUMN users.created_at IS 'Timestamp when the user was created';
-COMMENT ON COLUMN users.updated_at IS 'Timestamp when the user was last updated';
 
 -- Artists table
 CREATE TABLE IF NOT EXISTS artists (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     name TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    mbid UUID NOT NULL UNIQUE
 );
+
+CREATE INDEX IF NOT EXISTS idx_artists_mbid ON artists(mbid);
 
 COMMENT ON TABLE artists IS 'Musical artists or groups that users can subscribe to for concert notifications';
 COMMENT ON COLUMN artists.id IS 'Unique artist identifier (UUIDv7)';
 COMMENT ON COLUMN artists.name IS 'Artist or band name as displayed to users';
+COMMENT ON COLUMN artists.mbid IS 'Canonical MusicBrainz Identifier (UUID)';
 
 -- Artist official site
 CREATE TABLE IF NOT EXISTS artist_official_site (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE UNIQUE,
-    url TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    url TEXT NOT NULL
 );
 
 COMMENT ON TABLE artist_official_site IS 'Stores the official website URL for each artist, used for concert search grounding.';
 COMMENT ON COLUMN artist_official_site.id IS 'Unique identifier (UUIDv7)';
 COMMENT ON COLUMN artist_official_site.artist_id IS 'Reference to the artist (1:1 relationship)';
 COMMENT ON COLUMN artist_official_site.url IS 'Official artist website URL';
-COMMENT ON COLUMN artist_official_site.created_at IS 'Timestamp when the record was created';
-COMMENT ON COLUMN artist_official_site.updated_at IS 'Timestamp when the record was last updated';
 
 -- Venues table
 CREATE TABLE IF NOT EXISTS venues (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
-    name TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    name TEXT NOT NULL
 );
 
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
 COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7)';
 COMMENT ON COLUMN venues.name IS 'Venue name as displayed to users';
-COMMENT ON COLUMN venues.created_at IS 'Timestamp when the venue was added to the system';
-COMMENT ON COLUMN venues.updated_at IS 'Timestamp when venue data was last updated';
 
 -- Concerts table
 -- Events table
@@ -69,9 +61,7 @@ CREATE TABLE IF NOT EXISTS events (
     local_event_date DATE NOT NULL,
     start_at TIMESTAMPTZ,
     open_at TIMESTAMPTZ,
-    source_url TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    source_url TEXT
 );
 
 COMMENT ON TABLE events IS 'Generic event data including time, location, and metadata';
@@ -82,8 +72,6 @@ COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
 COMMENT ON COLUMN events.start_at IS 'Event start time (absolute)';
 COMMENT ON COLUMN events.open_at IS 'Doors open time (absolute), if available';
 COMMENT ON COLUMN events.source_url IS 'URL where the event information was found';
-COMMENT ON COLUMN events.created_at IS 'Record creation timestamp';
-COMMENT ON COLUMN events.updated_at IS 'Last update timestamp';
 
 -- Concerts table
 CREATE TABLE IF NOT EXISTS concerts (
