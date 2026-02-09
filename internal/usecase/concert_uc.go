@@ -114,7 +114,6 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	}
 
 	for _, s := range scraped {
-		now := time.Now()
 		key := getUniqueKey(s.LocalEventDate, s.StartTime)
 		if seen[key] {
 			uc.logger.Debug(ctx, "filtered existing/duplicate event",
@@ -141,10 +140,8 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				continue
 			}
 			newVenue := &entity.Venue{
-				ID:         venueID,
-				Name:       s.VenueName,
-				CreateTime: now,
-				UpdateTime: now,
+				ID:   venueID,
+				Name: s.VenueName,
 			}
 			if err := uc.venueRepo.Create(ctx, newVenue); err != nil {
 				if errors.Is(err, apperr.ErrAlreadyExists) {
@@ -178,8 +175,6 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				StartTime:      s.StartTime,
 				OpenTime:       s.OpenTime,
 				SourceURL:      s.SourceURL,
-				CreateTime:     now,
-				UpdateTime:     now,
 			},
 			ArtistID: artistID,
 		}

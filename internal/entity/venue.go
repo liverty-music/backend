@@ -2,7 +2,6 @@ package entity
 
 import (
 	"context"
-	"time"
 )
 
 // Venue represents a physical location where events are hosted.
@@ -13,10 +12,6 @@ type Venue struct {
 	ID string
 	// Name is the name of the venue.
 	Name string
-	// CreateTime is the timestamp when the venue was created.
-	CreateTime time.Time
-	// UpdateTime is the timestamp when the venue was last updated.
-	UpdateTime time.Time
 }
 
 // NewVenue represents data for creating a new venue.
