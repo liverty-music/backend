@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
+	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -26,7 +26,7 @@ func NewUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger) *Us
 }
 
 // Get retrieves a user by ID.
-func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
+func (h *UserHandler) Get(ctx context.Context, req *connect.Request[rpc.GetRequest]) (*connect.Response[rpc.GetResponse], error) {
 	if req == nil || req.Msg == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
 	}
@@ -41,13 +41,13 @@ func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRe
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.GetResponse{
+	return connect.NewResponse(&rpc.GetResponse{
 		User: mapper.UserToProto(user),
 	}), nil
 }
 
 // Create creates a new user.
-func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.CreateRequest]) (*connect.Response[userv1.CreateResponse], error) {
+func (h *UserHandler) Create(ctx context.Context, req *connect.Request[rpc.CreateRequest]) (*connect.Response[rpc.CreateResponse], error) {
 	if req == nil || req.Msg == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
 	}
@@ -65,7 +65,7 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.CreateResponse{
+	return connect.NewResponse(&rpc.CreateResponse{
 		User: mapper.UserToProto(createdUser),
 	}), nil
 }

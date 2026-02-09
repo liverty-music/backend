@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
+	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -30,7 +30,7 @@ func NewConcertHandler(
 }
 
 // List returns a list of concerts, optionally filtered by artist.
-func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[concertv1.ListRequest]) (*connect.Response[concertv1.ListResponse], error) {
+func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[rpc.ListRequest]) (*connect.Response[rpc.ListResponse], error) {
 	artistID := req.Msg.GetArtistId().GetValue()
 
 	concerts, err := h.concertUseCase.ListByArtist(ctx, artistID)
@@ -38,13 +38,13 @@ func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[concertv
 		return nil, err
 	}
 
-	return connect.NewResponse(&concertv1.ListResponse{
+	return connect.NewResponse(&rpc.ListResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
 	}), nil
 }
 
 // SearchNewConcerts triggers a discovery process for new concerts.
-func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[concertv1.SearchNewConcertsRequest]) (*connect.Response[concertv1.SearchNewConcertsResponse], error) {
+func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[rpc.SearchNewConcertsRequest]) (*connect.Response[rpc.SearchNewConcertsResponse], error) {
 	artistID := req.Msg.GetArtistId().GetValue()
 	if artistID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("artist_id cannot be empty"))
@@ -55,7 +55,7 @@ func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Req
 		return nil, err
 	}
 
-	return connect.NewResponse(&concertv1.SearchNewConcertsResponse{
+	return connect.NewResponse(&rpc.SearchNewConcertsResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
 	}), nil
 }
