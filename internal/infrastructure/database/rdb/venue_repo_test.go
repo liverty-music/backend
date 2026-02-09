@@ -146,8 +146,7 @@ func TestVenueRepository_Get(t *testing.T) {
 			require.NotNil(t, got)
 			assert.Equal(t, tt.want.ID, got.ID)
 			assert.Equal(t, tt.want.Name, got.Name)
-			assert.False(t, got.CreateTime.IsZero())
-			assert.False(t, got.UpdateTime.IsZero())
+
 		})
 	}
 }

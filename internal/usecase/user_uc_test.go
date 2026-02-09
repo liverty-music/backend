@@ -3,7 +3,6 @@ package usecase_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -14,8 +13,6 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
-
-var fakeTime = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestUserUseCase_CreateUser(t *testing.T) {
 	ctx := context.Background()
@@ -31,11 +28,9 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		}
 
 		expectedUser := &entity.User{
-			ID:        "user-123",
-			Name:      "John Doe",
-			Email:     "john@example.com",
-			CreateTime: fakeTime,
-			UpdateTime: fakeTime,
+			ID:    "user-123",
+			Name:  "John Doe",
+			Email: "john@example.com",
 		}
 
 		mockRepo.EXPECT().Create(ctx, params).Return(expectedUser, nil).Once()
@@ -74,11 +69,9 @@ func TestUserUseCase_GetUser(t *testing.T) {
 		uc := usecase.NewUserUseCase(mockRepo, logger)
 
 		expectedUser := &entity.User{
-			ID:        "user-123",
-			Name:      "John Doe",
-			Email:     "john@example.com",
-			CreateTime: fakeTime,
-			UpdateTime: fakeTime,
+			ID:    "user-123",
+			Name:  "John Doe",
+			Email: "john@example.com",
 		}
 
 		mockRepo.EXPECT().Get(ctx, "user-123").Return(expectedUser, nil).Once()
