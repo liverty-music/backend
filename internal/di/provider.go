@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
@@ -19,6 +20,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -80,9 +82,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	lastfmClient := lastfm.NewClient(cfg.LastFMAPIKey, nil)
 	musicbrainzClient := musicbrainz.NewClient(nil)
 
+	// Cache - Artist discovery results with 1 hour TTL
+	artistCache := cache.NewMemoryCache(1 * time.Hour)
+
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, artistCache, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, geminiSearcher, logger)
 
 	// Auth - JWT Validator and Interceptor

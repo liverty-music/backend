@@ -2,10 +2,14 @@ package usecase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -98,6 +102,7 @@ type artistUseCase struct {
 	artistRepo     entity.ArtistRepository
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
+	cache          *cache.MemoryCache
 	logger         *logging.Logger
 }
 
@@ -109,12 +114,14 @@ func NewArtistUseCase(
 	artistRepo entity.ArtistRepository,
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
+	cache *cache.MemoryCache,
 	logger *logging.Logger,
 ) ArtistUseCase {
 	return &artistUseCase{
 		artistRepo:     artistRepo,
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
+		cache:          cache,
 		logger:         logger,
 	}
 }
@@ -195,11 +202,21 @@ func (uc *artistUseCase) GetOfficialSite(ctx context.Context, artistID string) (
 }
 
 // Search finds artists matching the query using the primary external discovery service.
+// Results are cached to reduce external API calls.
 func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Artist, error) {
 	if query == "" {
 		return nil, apperr.New(codes.InvalidArgument, "search query is required")
 	}
 
+	// Check cache first
+	cacheKey := fmt.Sprintf("search:%s", hashString(query))
+	if cached := uc.cache.Get(cacheKey); cached != nil {
+		if artists, ok := cached.([]*entity.Artist); ok {
+			return artists, nil
+		}
+	}
+
+	// Cache miss - fetch from external API
 	artists, err := uc.artistSearcher.Search(ctx, query)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to search artists")
@@ -208,6 +225,9 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 	if len(artists) == 0 {
 		return nil, apperr.New(codes.NotFound, "no artists found")
 	}
+
+	// Store in cache
+	uc.cache.Set(cacheKey, artists)
 
 	return artists, nil
 }
@@ -256,16 +276,59 @@ func (uc *artistUseCase) ListFollowed(ctx context.Context, userID string) ([]*en
 }
 
 // ListSimilar retrieves artists similar to a specified artist.
+// Results are cached to reduce external API calls.
 func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string) ([]*entity.Artist, error) {
+	// Check cache first
+	cacheKey := fmt.Sprintf("similar:%s", artistID)
+	if cached := uc.cache.Get(cacheKey); cached != nil {
+		if artists, ok := cached.([]*entity.Artist); ok {
+			return artists, nil
+		}
+	}
+
+	// Cache miss - fetch artist and get similar artists
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
 		return nil, err
 	}
 
-	return uc.artistSearcher.ListSimilar(ctx, artist)
+	artists, err := uc.artistSearcher.ListSimilar(ctx, artist)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache
+	uc.cache.Set(cacheKey, artists)
+
+	return artists, nil
 }
 
 // ListTop retrieves popular artists.
+// Results are cached to reduce external API calls.
 func (uc *artistUseCase) ListTop(ctx context.Context, country string) ([]*entity.Artist, error) {
-	return uc.artistSearcher.ListTop(ctx, country)
+	// Check cache first
+	cacheKey := fmt.Sprintf("top:%s", country)
+	if cached := uc.cache.Get(cacheKey); cached != nil {
+		if artists, ok := cached.([]*entity.Artist); ok {
+			return artists, nil
+		}
+	}
+
+	// Cache miss - fetch from external API
+	artists, err := uc.artistSearcher.ListTop(ctx, country)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache
+	uc.cache.Set(cacheKey, artists)
+
+	return artists, nil
+}
+
+// hashString creates a simple hash of a string for cache key consistency.
+func hashString(s string) string {
+	h := sha256.New()
+	h.Write([]byte(s))
+	return hex.EncodeToString(h.Sum(nil))
 }
