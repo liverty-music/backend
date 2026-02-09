@@ -154,6 +154,23 @@ export GCP_VERTEX_AI_SEARCH_DATA_STORE="projects/liverty-music-dev/locations/glo
 go test -v -count=1 -run TestGeminiConcertSearcher_Search_Real ./internal/infrastructure/gcp/gemini/...
 ```
 
+### Music API Integration Testing
+
+To verify the Last.fm and MusicBrainz client integrations against live APIs:
+
+1. **Set Last.fm API Key**:
+   Create a `testdata/.env.test` file in `internal/infrastructure/music/lastfm/` or set the environment variable:
+   ```bash
+   export LASTFM_API_KEY="your_real_key_here"
+   ```
+
+2. **Run Tests**:
+   MusicBrainz integration tests do not require an API key but are rate-limited (1 request per second).
+   ```bash
+   # Run all music integration tests
+   go test -v -tags=integration ./internal/infrastructure/music/...
+   ```
+
 ### Testing the API with buf curl
 
 You can test your Connect API endpoints using [buf curl](https://docs.buf.build/reference/curl), which allows you to invoke RPCs using your protobuf schema.
