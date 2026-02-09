@@ -62,6 +62,9 @@ jobs:
       - name: Run tests with race detection and coverage
         run: go test -race -v -timeout=5m -coverprofile=coverage.out -covermode=atomic ./...
 
+      - name: Run experimental synctest suite
+        run: GOEXPERIMENT=synctest go test -v -tags=synctest ./pkg/api/...
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4
         with:
