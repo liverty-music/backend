@@ -1,73 +1,95 @@
-# Project Context & Architecture
+# AI Agent Rules - Liverty Music Backend
 
-## Core Architecture
+**CRITICAL: Before ANY action (create file, run command, write code), check Workspace Structure below to determine the correct repository.**
 
-This project follows **Clean Architecture** principles.
+## Workspace Structure and Responsibilities
 
-| Layer              | Path                       | Responsibility                                                                  |
-| ------------------ | -------------------------- | ------------------------------------------------------------------------------- |
-| **Entity**         | `internal/entity/`         | Core business objects (User, Artist). Pure structs, no tags (unless necessary). |
-| **Use Case**       | `internal/usecase/`        | Business logic & Application rules. Interfaces defined here.                    |
-| **Adapter**        | `internal/adapter/`        | Interface adapters. RPC handlers (`ipc/`) convert Proto <-> Entity.             |
-| **Infrastructure** | `internal/infrastructure/` | Frameworks & Drivers. DB (`database/rdb`), Server (`server/`).                  |
-| **DI**             | `internal/di/`             | Dependency Injection wiring using Google Wire.                                  |
+```
+liverty-music/
+├── specification/
+│   ├── openspec/changes/ ← Ongoing changes (proposals, designs, specs, tasks)
+│   ├── openspec/specs/   ← The latest capability specs
+│   └── proto/            ← Protobuf entity / RPC schema (no `buf generate`, use BSR)
+├── backend/               ← Go implementation (Connect-RPC services)
+├── frontend/              ← Aurelia 2 PWA implementation
+└── cloud-provisioning/
+    ├── src/               ← Pulumi code (GCP, Cloudflare, GitHub resources)
+    └── k8s/               ← Kubernetes manifests (Kustomize base/overlays)
+```
 
-## Key Technical Decisions
+## Decision Process (Required Before Action)
 
-### 1. RPC & Communication
+**For every file creation, code generation, or command execution:**
 
-- **Framework**: Connect-RPC (`connectrpc.com/connect`).
-- **Schema**: Managed via BSR (`buf.build/liverty-music/schema`).
-- **Pattern**: Handlers should strictly map Proto messages to Domain Entities and delegate logic to UseCases.
+1. **Identify the artifact type** (OpenSpec change? Protobuf? Go code? Pulumi? K8s manifest?)
+2. **Check Workspace Structure** above to find the correct repository
+3. **Verify you're in the correct directory** before proceeding
+4. **If uncertain, ask** - never guess the repository location
 
-### 2. Naming Conventions
+---
 
-- **Timestamps**:
-    - **Database**: Use `_at` suffix (e.g., `start_at`, `created_at`). Type: `TIMESTAMPTZ`.
-    - **Go Entity**: Use `Time` suffix (e.g., `StartTime`, `CreateTime`). Type: `time.Time`.
-    - **Reasoning**: Adheres to SQL standards for columns and Google AIP/Protobuf standards for code. Mappings should be handled in the Repository layer.
+## What This Repository Is
 
-### 3. Testing & Mocking
+Go backend for **Liverty Music** — implements Connect-RPC services defined in `specification/proto`. Uses Clean Architecture with domain-driven design patterns, PostgreSQL with pgx, and deploys to GKE via ArgoCD GitOps.
 
-- **Mocking**: Configured via `.mockery.yml`. Run `mockery` to generate mocks from interfaces.
-- **Pattern**: Define interfaces where consumed. Accept interfaces, return concrete types.
+## Essential Commands
 
-## Development Workflows
+```bash
+mise install           # Install toolchain (go, golangci-lint, pre-commit)
+pre-commit install     # Install commit hooks
 
-**CRITICAL: Read This First**
+go mod tidy            # Update dependencies
+go generate ./...      # Generate mocks and code
+go test ./...          # Run all tests
+golangci-lint run      # Run linters
 
-This repository uses specialized skills for common tasks. **You MUST load the appropriate skill BEFORE attempting these operations.**
+make test              # Run tests with coverage
+make lint              # Run all linters
+make build             # Build binary
+```
 
-### Skill Routing Table
+## Architecture
 
-| Task Category | Trigger Keywords | Skill to Load | How to Load |
-|--------------|------------------|---------------|-------------|
-| **Build/Deploy** | docker, image, deploy, deployment, CI/CD, GAR, push, container | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
-| **Database** | migrate, migration, schema, atlas, SQL, database operations, setup database, initialize database | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
+### Clean Architecture Layers
 
-**Skill Path**: `.agent/skills/backend-workflow/SKILL.md`
+```
+cmd/
+  └── server/          # Application entry point
+internal/
+  ├── domain/          # Core business logic (entities, value objects, interfaces)
+  ├── usecase/         # Application logic (orchestrates domain)
+  ├── interface/       # Adapters (RPC handlers, repositories)
+  │   ├── rpc/         # Connect-RPC service implementations
+  │   └── repository/  # PostgreSQL repositories (pgx)
+  └── infrastructure/  # External concerns (config, logging, observability)
+```
 
-### When to Load Skills
+### Key Conventions
 
-**Before executing ANY command related to the above categories, you MUST:**
-1. Load the `backend-workflow` skill using the Skill tool
-2. Read the relevant section
-3. Follow the documented workflow
-4. Do NOT attempt manual commands without consulting the skill first
+- **Dependency Rule**: Dependencies point inward (infrastructure → interface → usecase → domain)
+- **Generated Code**: Proto services consumed via BSR (`buf.build/liverty-music/schema`)
+- **Database**: PostgreSQL with pgx (never use `database/sql` or ORMs)
+- **Testing**: Table-driven tests, mockery for mocks
+- **Error Handling**: Wrap errors with context, use connect.Error for RPC responses
 
-### Protobuf Code Generation
+## OpenSpec Workflow
 
-Local Protobuf code generation is FORBIDDEN. To generate/update Go code from schema changes:
+This repo uses OpenSpec for implementation tracking. Design artifacts live in `specification/openspec/changes/`. When implementing:
 
-1.  **Specification Repo**: Create a Pull Request with your `.proto` changes.
-2.  **GitHub Release**: Once merged to `main`, create a GitHub Release in the `specification` repository.
-3.  **Remote Generation**: This triggers the BSR (Buf Schema Registry) remote generation.
-4.  **Local Consumption**: The `backend` repo consumes these types via `buf.build/gen/go/...`. You may need to run `go get -u` or similar if your local environment doesn't pick up the latest BSR build immediately.
+1. Reference the change in `specification/openspec/changes/<change-name>/`
+2. Read `tasks.md` for implementation checklist
+3. Implement in this repo following Clean Architecture
+4. Mark tasks complete in `specification/openspec/changes/<change-name>/tasks.md`
 
-> [!IMPORTANT]
-> **Common User Questions Require Skill Loading:**
-> - "Build the image" → Load `backend-workflow` skill
-> - "Deploy changes" → Load `backend-workflow` skill
-> - "Run migrations" → Load `backend-workflow` skill
->
-> **For standard Go commands (run, test, lint):** Refer to README.md Development Commands section
+## Poly-repo Context
+
+- **Specification** (`liverty-music/specification`): Proto schemas, OpenSpec design
+- **This repo** (`backend`): Go service implementation
+- **Cloud Provisioning** (`liverty-music/cloud-provisioning`): Infrastructure as Code
+
+## Pre-implementation Checklist
+
+Before writing Go code, read:
+1. `specification/openspec/changes/<change-name>/` — design decisions
+2. `.claude/agents/go-backend-specialist.md` — Go coding standards
+3. `internal/domain/` — existing domain model
