@@ -59,6 +59,8 @@ func NewConnectServer(
 
 	address := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 
+	handler := NewCORSHandler(mux, &cfg.Server)
+
 	// Enable h2c (HTTP/2 without TLS) for Kubernetes gRPC health probes
 	p := new(http.Protocols)
 	p.SetHTTP1(true)
@@ -66,7 +68,7 @@ func NewConnectServer(
 
 	server := &http.Server{
 		Addr:              address,
-		Handler:           http.TimeoutHandler(mux, cfg.Server.HandlerTimeout, ""),
+		Handler:           http.TimeoutHandler(handler, cfg.Server.HandlerTimeout, ""),
 		Protocols:         p,
 		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
 		ReadTimeout:       cfg.Server.ReadTimeout,
