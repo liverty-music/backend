@@ -59,7 +59,7 @@ func NewConnectServer(
 
 	address := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 
-	handler := NewCORSHandler(mux, &cfg.Server)
+	handler := NewCORSHandler(mux, cfg.Server.AllowedOrigins)
 
 	// Enable h2c (HTTP/2 without TLS) for Kubernetes gRPC health probes
 	p := new(http.Protocols)

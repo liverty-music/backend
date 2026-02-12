@@ -1,0 +1,2 @@
+- [ ] ID: 2797257718 | Path: internal/infrastructure/server/cors.go | Line: 10 | ReplyTo: None | [Link](https://github.com/liverty-music/backend/pull/38#discussion_r2797257718)
+- [ ] ID: 3789203027 | Path: General | Line: N/A | ReplyTo: None | [Link](https://github.com/liverty-music/backend/pull/38#pullrequestreview-3789203027)
