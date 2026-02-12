@@ -37,6 +37,7 @@ func TestLoad(t *testing.T) {
 					ReadTimeout:       1 * time.Second,
 					HandlerTimeout:    5 * time.Second,
 					IdleTimeout:       3 * time.Second,
+					AllowedOrigins:    []string{"http://localhost:9000"},
 				},
 				Database: DatabaseConfig{
 					Host:            "localhost",
@@ -100,6 +101,7 @@ func TestLoad(t *testing.T) {
 					ReadTimeout:       2 * time.Second,
 					HandlerTimeout:    10 * time.Second,
 					IdleTimeout:       45 * time.Second,
+					AllowedOrigins:    []string{"http://localhost:9000"},
 				},
 				Database: DatabaseConfig{
 					Host:            "localhost",

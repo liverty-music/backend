@@ -14,6 +14,7 @@ require (
 	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260203025201-26e705815af4.1
 	cloud.google.com/go/cloudsqlconn v1.20.0
 	connectrpc.com/connect v1.19.1
+	connectrpc.com/cors v0.1.0
 	connectrpc.com/grpchealth v1.4.0
 	connectrpc.com/otelconnect v0.8.0
 	connectrpc.com/validate v0.6.0
@@ -22,6 +23,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/pannpers/go-apperr v1.0.2
 	github.com/pannpers/go-logging v1.1.0
+	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/otel v1.39.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.33.0
@@ -119,7 +121,6 @@ require (
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/quic-go/quic-go v0.54.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/rs/cors v1.11.1 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect

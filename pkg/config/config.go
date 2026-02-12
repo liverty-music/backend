@@ -127,6 +127,9 @@ type ServerConfig struct {
 
 	// Idle timeout in seconds
 	IdleTimeout time.Duration `envconfig:"IDLE_TIMEOUT" default:"3s"`
+
+	// Allowed CORS origins
+	AllowedOrigins []string `envconfig:"ALLOWED_ORIGINS" default:"http://localhost:9000"`
 }
 
 // DatabaseConfig represents database-specific configuration.
