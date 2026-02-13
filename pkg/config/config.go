@@ -99,10 +99,7 @@ type Config struct {
 	GCP GCPConfig `envconfig:"GCP"`
 
 	// Environment
-	Environment string `envconfig:"ENVIRONMENT" default:"development"`
-
-	// Debug mode
-	Debug bool `envconfig:"DEBUG" default:"false"`
+	Environment string `envconfig:"ENVIRONMENT" default:"local"`
 
 	// Shutdown timeout in seconds
 	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"30s"`
@@ -189,7 +186,7 @@ type TelemetryConfig struct {
 // GCPConfig represents Google Cloud specific configuration.
 type GCPConfig struct {
 	// GCP Project ID
-	ProjectID string `envconfig:"PROJECT_ID" required:"true"`
+	ProjectID string `envconfig:"PROJECT_ID"`
 
 	// GCP Location (e.g., us-central1)
 	Location string `envconfig:"LOCATION" default:"us-central1"`

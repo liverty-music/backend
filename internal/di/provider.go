@@ -48,15 +48,19 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	venueRepo := rdb.NewVenueRepository(db)
 	_ = venueRepo // VenueRepo is not used by UseCases yet but registered in registry if needed
 
-	// Infrastructure - Gemini
-	geminiSearcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID:   cfg.GCP.ProjectID,
-		Location:    cfg.GCP.Location,
-		ModelName:   cfg.GCP.GeminiModel,
-		DataStoreID: cfg.GCP.VertexAISearchDataStore,
-	}, nil, logger)
-	if err != nil {
-		return nil, err
+	// Infrastructure - Gemini (optional)
+	var geminiSearcher entity.ConcertSearcher
+	if cfg.GCP.ProjectID != "" {
+		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
+			ProjectID:   cfg.GCP.ProjectID,
+			Location:    cfg.GCP.Location,
+			ModelName:   cfg.GCP.GeminiModel,
+			DataStoreID: cfg.GCP.VertexAISearchDataStore,
+		}, nil, logger)
+		if err != nil {
+			return nil, err
+		}
+		geminiSearcher = searcher
 	}
 
 	// Use Cases
