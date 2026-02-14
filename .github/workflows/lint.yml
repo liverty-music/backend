@@ -9,9 +9,6 @@ on:
       - 'go.sum'
       - '.golangci.yml'
       - '.github/workflows/lint.yml'
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
   pull_request:
     paths:
       - '**/*.go'
@@ -19,9 +16,6 @@ on:
       - 'go.sum'
       - '.golangci.yml'
       - '.github/workflows/lint.yml'
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
 
 jobs:
   golangci:
