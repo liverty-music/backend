@@ -6,7 +6,7 @@
 //
 // Load configuration from environment variables:
 //
-//	cfg, err := config.Load("APP")
+//	cfg, err := config.Load()
 //	if err != nil {
 //		log.Fatalf("Failed to load configuration: %v", err)
 //	}
@@ -18,45 +18,50 @@
 //
 // # Environment Variables
 //
-// The following environment variables are supported (using "APP" prefix):
+// The following environment variables are supported:
 //
 // Basic configuration:
-//   - APP_ENVIRONMENT: Environment (development, staging, production)
-//   - APP_DEBUG: Debug mode (true/false)
+//   - ENVIRONMENT: Environment (development, staging, production)
 //
 // Server configuration:
-//   - APP_SERVER_PORT: Server port (default: 8080)
-//   - APP_SERVER_HOST: Server host (default: localhost)
-//   - APP_SERVER_READ_TIMEOUT: Read timeout in seconds (default: 30)
-//   - APP_SERVER_WRITE_TIMEOUT: Write timeout in seconds (default: 30)
-//   - APP_SERVER_IDLE_TIMEOUT: Idle timeout in seconds (default: 60)
-//   - APP_SERVER_SHUTDOWN_TIMEOUT: Shutdown timeout in seconds (default: 30)
+//   - SERVER_PORT: Server port (default: 8080)
+//   - SERVER_HOST: Server host (default: localhost)
+//   - SERVER_READ_TIMEOUT: Read timeout in milliseconds (default: 1000ms)
+//   - SERVER_HANDLER_TIMEOUT: Handler timeout in seconds (default: 5s)
+//   - SERVER_IDLE_TIMEOUT: Idle timeout in seconds (default: 3s)
+//   - CORS_ALLOWED_ORIGINS: Allowed CORS origins (default: http://localhost:9000)
 //
 // Database configuration:
-//   - APP_DATABASE_HOST: Database host (default: localhost)
-//   - APP_DATABASE_PORT: Database port (default: 5432)
-//   - APP_DATABASE_NAME: Database name (required)
-//   - APP_DATABASE_USER: Database user (required)
-//   - APP_DATABASE_PASSWORD: Database password (required)
-//   - APP_DATABASE_SSL_MODE: SSL mode (default: disable)
-//   - APP_DATABASE_MAX_OPEN_CONNS: Maximum open connections (default: 25)
-//   - APP_DATABASE_MAX_IDLE_CONNS: Maximum idle connections (default: 5)
-//   - APP_DATABASE_CONN_MAX_LIFETIME: Connection max lifetime in seconds (default: 300)
+//   - DATABASE_HOST: Database host (default: localhost)
+//   - DATABASE_PORT: Database port (default: 5432)
+//   - DATABASE_NAME: Database name (required)
+//   - DATABASE_USER: Database user (required)
+//   - DATABASE_SSL_MODE: SSL mode (default: disable)
+//   - DATABASE_MAX_OPEN_CONNS: Maximum open connections (default: 25)
+//   - DATABASE_MAX_IDLE_CONNS: Maximum idle connections (default: 5)
+//   - DATABASE_CONN_MAX_LIFETIME: Connection max lifetime in seconds (default: 300)
+//   - DATABASE_INSTANCE_CONNECTION_NAME: Cloud SQL instance connection name
 //
 // Logging configuration:
-//   - APP_LOGGING_LEVEL: Log level (debug, info, warn, error, default: info)
-//   - APP_LOGGING_FORMAT: Log format (json, text, default: json)
-//   - APP_LOGGING_STRUCTURED: Enable structured logging (default: true)
-//   - APP_LOGGING_INCLUDE_CALLER: Include caller information (default: false)
+//   - LOGGING_LEVEL: Log level (debug, info, warn, error, default: info)
+//   - LOGGING_FORMAT: Log format (json, text, default: json)
+//   - LOGGING_STRUCTURED: Enable structured logging (default: true)
+//   - LOGGING_INCLUDE_CALLER: Include caller information (default: false)
 //
 // Telemetry configuration:
-//   - APP_TELEMETRY_OTLP_ENDPOINT: OTLP exporter endpoint for sending traces
-//   - APP_TELEMETRY_SERVICE_NAME: Service name for tracing (default: go-backend-scaffold)
-//   - APP_TELEMETRY_SERVICE_VERSION: Service version for tracing (default: 1.0.0)
+//   - TELEMETRY_OTLP_ENDPOINT: OTLP exporter endpoint for sending traces
+//   - TELEMETRY_SERVICE_NAME: Service name for tracing (default: go-backend-scaffold)
+//   - TELEMETRY_SERVICE_VERSION: Service version for tracing (default: 1.0.0)
+//
+// GCP configuration:
+//   - GCP_PROJECT_ID: GCP Project ID
+//   - GCP_LOCATION: GCP Location (default: us-central1)
+//   - GCP_GEMINI_MODEL: Gemini Model Name (default: gemini-3-flash-preview)
+//   - GCP_VERTEX_AI_SEARCH_DATA_STORE: Vertex AI Search Data Store ID
 //
 // JWT configuration:
-//   - APP_JWT_ISSUER: JWT issuer URL (required)
-//   - APP_JWT_JWKS_REFRESH_INTERVAL: JWKS refresh interval (default: 15m)
+//   - JWT_ISSUER: JWT issuer URL (required)
+//   - JWT_JWKS_REFRESH_INTERVAL: JWKS refresh interval (default: 15m)
 //
 // # Environment Helpers
 //
@@ -88,22 +93,22 @@ import (
 // Config represents the application configuration loaded from environment variables.
 type Config struct {
 	// Server configuration
-	Server ServerConfig
+	Server ServerConfig `envconfig:""`
 
 	// Database configuration
-	Database DatabaseConfig
+	Database DatabaseConfig `envconfig:""`
 
 	// Logging configuration
-	Logging LoggingConfig
+	Logging LoggingConfig `envconfig:""`
 
 	// Telemetry configuration
-	Telemetry TelemetryConfig
+	Telemetry TelemetryConfig `envconfig:""`
 
 	// GCP configuration
-	GCP GCPConfig
+	GCP GCPConfig `envconfig:""`
 
 	// JWT configuration
-	JWT JWTConfig `envconfig:"JWT"`
+	JWT JWTConfig `envconfig:""`
 
 	// Environment
 	Environment string `envconfig:"ENVIRONMENT" default:"local"`
@@ -216,20 +221,18 @@ type JWTConfig struct {
 }
 
 // Load loads configuration from environment variables.
-// The prefix parameter is used to namespace environment variables.
-// For example, with prefix "APP", environment variables like APP_SERVER_PORT will be loaded.
 //
 // Example:
 //
-//	cfg, err := config.Load("APP")
+//	cfg, err := config.Load()
 //	if err != nil {
 //		return fmt.Errorf("failed to load config: %w", err)
 //	}
-func Load(prefix string) (*Config, error) {
+func Load() (*Config, error) {
 	var cfg Config
 
-	// Process environment variables with the given prefix
-	err := envconfig.Process(prefix, &cfg)
+	// Process environment variables
+	err := envconfig.Process("", &cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}

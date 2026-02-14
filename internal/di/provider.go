@@ -22,7 +22,7 @@ import (
 
 // InitializeApp creates a new App with all dependencies wired up manually.
 func InitializeApp(ctx context.Context) (*App, error) {
-	cfg, err := config.Load("")
+	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
