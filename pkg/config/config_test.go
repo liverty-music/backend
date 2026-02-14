@@ -29,7 +29,6 @@ func TestLoad(t *testing.T) {
 			},
 			want: &Config{
 				Environment:     "development",
-				Debug:           false,
 				ShutdownTimeout: 30 * time.Second,
 				Server: ServerConfig{
 					Port:              8080,
@@ -79,7 +78,6 @@ func TestLoad(t *testing.T) {
 			prefix: "APP",
 			envVars: map[string]string{
 				"APP_ENVIRONMENT":                     "production",
-				"APP_DEBUG":                           "true",
 				"APP_SHUTDOWN_TIMEOUT":                "15s",
 				"APP_SERVER_PORT":                     "9090",
 				"APP_SERVER_HOST":                     "0.0.0.0",
@@ -99,7 +97,6 @@ func TestLoad(t *testing.T) {
 			},
 			want: &Config{
 				Environment:     "production",
-				Debug:           true,
 				ShutdownTimeout: 15 * time.Second,
 				Server: ServerConfig{
 					Port:              9090,
