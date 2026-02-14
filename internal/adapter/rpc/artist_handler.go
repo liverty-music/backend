@@ -50,6 +50,10 @@ func (h *ArtistHandler) List(ctx context.Context, _ *connect.Request[rpc.ListReq
 
 // Create registers a new musical performer or band in the system.
 func (h *ArtistHandler) Create(ctx context.Context, req *connect.Request[rpc.CreateRequest]) (*connect.Response[rpc.CreateResponse], error) {
+	if req.Msg.Name == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("name is required"))
+	}
+
 	artist := &entity.Artist{
 		Name: req.Msg.Name.Value,
 	}
@@ -78,6 +82,13 @@ func (h *ArtistHandler) Search(ctx context.Context, req *connect.Request[rpc.Sea
 
 // CreateOfficialSite associates a new official website or social media channel with an artist.
 func (h *ArtistHandler) CreateOfficialSite(ctx context.Context, req *connect.Request[rpc.CreateOfficialSiteRequest]) (*connect.Response[rpc.CreateOfficialSiteResponse], error) {
+	if req.Msg.ArtistId == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
+	}
+	if req.Msg.Url == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("url is required"))
+	}
+
 	err := h.artistUseCase.CreateOfficialSite(ctx, &entity.OfficialSite{
 		ArtistID: req.Msg.ArtistId.Value,
 		URL:      req.Msg.Url.Value,
@@ -102,6 +113,10 @@ func (h *ArtistHandler) Follow(ctx context.Context, req *connect.Request[rpc.Fol
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
 	}
 
+	if req.Msg.ArtistId == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
+	}
+
 	err := h.artistUseCase.Follow(ctx, userID, req.Msg.ArtistId.Value)
 	if err != nil {
 		return nil, err
@@ -115,6 +130,10 @@ func (h *ArtistHandler) Unfollow(ctx context.Context, req *connect.Request[rpc.U
 	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
+	}
+
+	if req.Msg.ArtistId == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
 	}
 
 	err := h.artistUseCase.Unfollow(ctx, userID, req.Msg.ArtistId.Value)
@@ -144,6 +163,10 @@ func (h *ArtistHandler) ListFollowed(ctx context.Context, req *connect.Request[r
 
 // ListSimilar retrieves a collection of artists with musical affinity to a target artist.
 func (h *ArtistHandler) ListSimilar(ctx context.Context, req *connect.Request[rpc.ListSimilarRequest]) (*connect.Response[rpc.ListSimilarResponse], error) {
+	if req.Msg.ArtistId == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
+	}
+
 	artists, err := h.artistUseCase.ListSimilar(ctx, req.Msg.ArtistId.Value)
 	if err != nil {
 		return nil, err
