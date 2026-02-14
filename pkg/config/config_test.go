@@ -34,7 +34,7 @@ func TestLoad(t *testing.T) {
 					ReadTimeout:       1 * time.Second,
 					HandlerTimeout:    5 * time.Second,
 					IdleTimeout:       3 * time.Second,
-					AllowedOrigins:    []string{"http://localhost:9000"},
+					AllowedOrigins:    nil,
 				},
 				Database: DatabaseConfig{
 					Host:            "localhost",
@@ -100,7 +100,7 @@ func TestLoad(t *testing.T) {
 					ReadTimeout:       2 * time.Second,
 					HandlerTimeout:    10 * time.Second,
 					IdleTimeout:       45 * time.Second,
-					AllowedOrigins:    []string{"http://localhost:9000"},
+					AllowedOrigins:    nil,
 				},
 				Database: DatabaseConfig{
 					Host:            "localhost",
@@ -166,7 +166,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "valid development config",
 			config: &Config{
 				Environment: "development",
-				Server:      ServerConfig{Port: 8080},
+				Server:      ServerConfig{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
 				Database: DatabaseConfig{
 					Port:                   5432,
 					InstanceConnectionName: "project:region:instance",
@@ -193,6 +193,19 @@ func TestConfig_Validate(t *testing.T) {
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
 				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing allowed origins in development",
+			config: &Config{
+				Environment: "development",
+				Server:      ServerConfig{Port: 8080},
+				Database: DatabaseConfig{
+					Port:                   5432,
+					InstanceConnectionName: "project:region:instance",
+				},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
 			},
 			wantErr: true,
 		},
