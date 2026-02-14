@@ -1,17 +1,22 @@
-all: false
-dir: '{{.InterfaceDir}}'
-filename: mocks.go
-force-file-write: true
-formatter: gofmt
-include-auto-generated: false
-log-level: info
-structname: '{{.Mock}}{{.InterfaceName}}'
-pkgname: '{{.SrcPackageName}}'
-recursive: true
-require-template-schema-exists: true
-template: testify
-template-schema: '{{.Template}}.schema.json'
+with-expecter: true
+dir: "{{.InterfaceDir}}/mocks"
+mockname: "Mock{{.InterfaceName}}"
+outpkg: mocks
 packages:
+  github.com/liverty-music/backend/internal/usecase:
+    interfaces:
+      ArtistUseCase:
+      ConcertUseCase:
+      UserUseCase:
   github.com/liverty-music/backend/internal/entity:
-    config:
-      all: true
+    interfaces:
+      ArtistRepository:
+      ConcertRepository:
+      ConcertSearcher:
+      NotificationRepository:
+      UserRepository:
+      UserArtistSubscriptionRepository:
+      VenueRepository:
+  github.com/liverty-music/backend/internal/infrastructure/auth:
+    interfaces:
+      TokenValidator:

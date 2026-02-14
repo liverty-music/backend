@@ -54,6 +54,10 @@
 //   - APP_TELEMETRY_SERVICE_NAME: Service name for tracing (default: go-backend-scaffold)
 //   - APP_TELEMETRY_SERVICE_VERSION: Service version for tracing (default: 1.0.0)
 //
+// JWT configuration:
+//   - APP_JWT_ISSUER: JWT issuer URL (required)
+//   - APP_JWT_JWKS_REFRESH_INTERVAL: JWKS refresh interval (default: 15m)
+//
 // # Environment Helpers
 //
 // Use environment detection helpers:
@@ -97,6 +101,9 @@ type Config struct {
 
 	// GCP configuration
 	GCP GCPConfig
+
+	// JWT configuration
+	JWT JWTConfig `envconfig:"JWT"`
 
 	// Environment
 	Environment string `envconfig:"ENVIRONMENT" default:"local"`
@@ -199,6 +206,15 @@ type GCPConfig struct {
 	VertexAISearchDataStore string `envconfig:"GCP_VERTEX_AI_SEARCH_DATA_STORE"`
 }
 
+// JWTConfig represents JWT authentication configuration.
+type JWTConfig struct {
+	// JWT Issuer URL (e.g., https://your-zitadel-instance.com)
+	Issuer string `envconfig:"ISSUER" required:"true"`
+
+	// JWKS refresh interval for key rotation
+	JWKSRefreshInterval time.Duration `envconfig:"JWKS_REFRESH_INTERVAL" default:"15m"`
+}
+
 // Load loads configuration from environment variables.
 // The prefix parameter is used to namespace environment variables.
 // For example, with prefix "APP", environment variables like APP_SERVER_PORT will be loaded.
@@ -284,6 +300,14 @@ func (c *Config) Validate() error {
 
 	if !c.IsLocal() && c.Database.InstanceConnectionName == "" {
 		return fmt.Errorf("database instance connection name is required for non-local environments")
+	}
+
+	if c.JWT.Issuer == "" {
+		return fmt.Errorf("JWT issuer is required")
+	}
+
+	if c.JWT.JWKSRefreshInterval <= 0 {
+		return fmt.Errorf("JWT JWKS refresh interval must be positive")
 	}
 
 	return nil

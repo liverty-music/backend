@@ -25,6 +25,7 @@ func TestLoad(t *testing.T) {
 				"APP_DATABASE_PASSWORD":               "defaultpass",
 				"APP_GCP_PROJECT_ID":                  "test-project",
 				"APP_GCP_VERTEX_AI_SEARCH_DATA_STORE": "test-datastore",
+				"APP_JWT_ISSUER":                      "https://test-issuer.com",
 			},
 			want: &Config{
 				Environment:     "development",
@@ -66,6 +67,10 @@ func TestLoad(t *testing.T) {
 					GeminiModel:             "gemini-3-flash-preview",
 					VertexAISearchDataStore: "test-datastore",
 				},
+				JWT: JWTConfig{
+					Issuer:              "https://test-issuer.com",
+					JWKSRefreshInterval: 15 * time.Minute,
+				},
 			},
 			wantErr: nil,
 		},
@@ -89,6 +94,8 @@ func TestLoad(t *testing.T) {
 				"APP_LOGGING_FORMAT":                  "text",
 				"APP_GCP_PROJECT_ID":                  "custom-project",
 				"APP_GCP_VERTEX_AI_SEARCH_DATA_STORE": "custom-datastore",
+				"APP_JWT_ISSUER":                      "https://custom-issuer.com",
+				"APP_JWT_JWKS_REFRESH_INTERVAL":       "30m",
 			},
 			want: &Config{
 				Environment:     "production",
@@ -130,6 +137,10 @@ func TestLoad(t *testing.T) {
 					GeminiModel:             "gemini-3-flash-preview",
 					VertexAISearchDataStore: "custom-datastore",
 				},
+				JWT: JWTConfig{
+					Issuer:              "https://custom-issuer.com",
+					JWKSRefreshInterval: 30 * time.Minute,
+				},
 			},
 			wantErr: nil,
 		},
@@ -169,6 +180,10 @@ func TestConfig_Validate(t *testing.T) {
 					InstanceConnectionName: "project:region:instance",
 				},
 				Logging: LoggingConfig{Level: "info", Format: "json"},
+				JWT: JWTConfig{
+					Issuer:              "https://test-issuer.com",
+					JWKSRefreshInterval: 15 * time.Minute,
+				},
 			},
 			wantErr: false,
 		},
@@ -182,6 +197,10 @@ func TestConfig_Validate(t *testing.T) {
 					// Missing InstanceConnectionName
 				},
 				Logging: LoggingConfig{Level: "info", Format: "json"},
+				JWT: JWTConfig{
+					Issuer:              "https://test-issuer.com",
+					JWKSRefreshInterval: 15 * time.Minute,
+				},
 			},
 			wantErr: true,
 		},
@@ -195,6 +214,10 @@ func TestConfig_Validate(t *testing.T) {
 					// Missing InstanceConnectionName is OK for local
 				},
 				Logging: LoggingConfig{Level: "info", Format: "json"},
+				JWT: JWTConfig{
+					Issuer:              "https://test-issuer.com",
+					JWKSRefreshInterval: 15 * time.Minute,
+				},
 			},
 			wantErr: false,
 		},

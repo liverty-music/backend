@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 	"connectrpc.com/otelconnect"
 	"connectrpc.com/validate"
+	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/pkg/config"
 	apperr_connect "github.com/pannpers/go-apperr/apperr/connect"
@@ -35,6 +36,7 @@ func NewConnectServer(
 	cfg *config.Config,
 	logger *logging.Logger,
 	_ *rdb.Database,
+	authInterceptor *auth.AuthInterceptor,
 	handlerFuncs ...RPCHandlerFunc,
 ) *ConnectServer {
 	mux := http.NewServeMux()
@@ -51,6 +53,7 @@ func NewConnectServer(
 				apperr_connect.NewErrorHandlingInterceptor(logger),
 				tracingInterceptor,
 				accessLogInterceptor,
+				authInterceptor,
 				validationInterceptor,
 			),
 		)
