@@ -1,4 +1,4 @@
-h1:8D/U9AF/EP+IngZZTuNrmFZUSvai6pri2n9yhajQ5uo=
+h1:vkB+8kBQ63nT6Kjp2Yu5AlcKhzmSyBJHNn5kHdmmihM=
 20250726081442_initial_schema.sql h1:f98vPRiLIRql4U7yJNeuQQfgt2svbFOZ8ion7LMan7M=
 20250726101741_add_foreign_key_to_posts.sql h1:Uia//w3mht8p0x4x/su76IB6lClt6I66eX86XHlzs7c=
 20260127145500_concert_service_tables.sql h1:BQxgH25Fj8WIyhglwCai2U3RiSoSbBIsVsP+qe3wRGQ=
@@ -9,3 +9,5 @@ h1:8D/U9AF/EP+IngZZTuNrmFZUSvai6pri2n9yhajQ5uo=
 20260201203500_add_timestamps_to_artists_and_concerts.sql h1:97eclFvklfg+IAeDVM64C+OzVecfME42Szr++MYBwhY=
 20260202170000_update_concert_datetime_types.sql h1:M6DRQBMGCkOouFCL3QIhso8mK74OMxd9Biq5PyNg1Yk=
 20260207120000_create_events_table.sql h1:bvhWS2uOOrLwpfcVNde9xNEEGYDEIWU8Ze5FY+8hv2E=
+20260207161500_add_followed_artists_table.sql h1:E6Szpr9H3+4C6WuC2jTKn3m4RCK2FPiHW49fr6iJv80=
+20260207234500_add_mbid_to_artists.sql h1:Cf2mcyBq2vSNhpg3viV8HJxAyRoxAWc1SVIcRwgNywk=

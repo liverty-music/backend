@@ -10,22 +10,6 @@ import (
 	"google.golang.org/genproto/googleapis/type/timeofday"
 )
 
-// ArtistToProto converts domain Artist entity to protobuf.
-func ArtistToProto(a *entity.Artist) *entityv1.Artist {
-	if a == nil {
-		return nil
-	}
-
-	return &entityv1.Artist{
-		Id: &entityv1.ArtistId{
-			Value: a.ID,
-		},
-		Name: &entityv1.ArtistName{
-			Value: a.Name,
-		},
-	}
-}
-
 // ConcertToProto converts domain Concert entity to protobuf.
 func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 	if c == nil {
