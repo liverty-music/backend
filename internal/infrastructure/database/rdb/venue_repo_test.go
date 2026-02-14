@@ -3,7 +3,6 @@ package rdb_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -80,12 +79,9 @@ func TestVenueRepository_Get(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup: Create a test venue
-	now := time.Now()
 	testVenue := &entity.Venue{
-		ID:         "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
-		Name:       "Get Test Arena",
-		CreateTime: now,
-		UpdateTime: now,
+		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
+		Name: "Get Test Arena",
 	}
 	err := repo.Create(ctx, testVenue)
 	require.NoError(t, err)
