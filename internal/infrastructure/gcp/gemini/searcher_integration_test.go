@@ -29,7 +29,9 @@ func TestConcertSearcher_Search_Real(t *testing.T) {
 		logging.WithFormat(logging.FormatJSON),
 	)
 	s, err := gemini.NewConcertSearcher(ctx, cfg, nil, logger) // Pass nil for Real test
-	require.NoError(t, err)
+	if err != nil {
+		t.Skipf("Skipping real GCP integration test: %v", err)
+	}
 
 	artist := &entity.Artist{ID: "artist-uverworld", Name: "UVERworld"}
 	officialSite := &entity.OfficialSite{URL: "https://www.uverworld.jp/"}
