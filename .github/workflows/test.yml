@@ -55,10 +55,7 @@ jobs:
         uses: ariga/setup-atlas@v0
 
       - name: Apply database migrations
-        uses: ariga/atlas-action/migrate/apply@v1
-        with:
-          url: "postgres://test-user@localhost:5432/test-db?sslmode=disable"
-          dir: "file://internal/infrastructure/database/rdb/migrations"
+        run: atlas migrate apply --url "postgres://test-user@localhost:5432/test-db?sslmode=disable" --dir "file://internal/infrastructure/database/rdb/migrations"
 
       - name: Run tests with race detection and coverage
         run: go test -tags=integration -race -v -timeout=5m -coverprofile=coverage.out -covermode=atomic ./...
