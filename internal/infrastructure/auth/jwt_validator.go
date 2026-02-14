@@ -11,8 +11,9 @@ import (
 
 // JWTValidator validates JWT tokens using JWKS.
 type JWTValidator struct {
-	jwks   *jwk.Cache
-	issuer string
+	jwks    *jwk.Cache
+	issuer  string
+	jwksURL string
 }
 
 // NewJWTValidator creates a new JWT validator.
@@ -37,8 +38,9 @@ func NewJWTValidator(issuer, jwksURL string, refreshInterval time.Duration) (*JW
 	}
 
 	return &JWTValidator{
-		jwks:   cache,
-		issuer: issuer,
+		jwks:    cache,
+		issuer:  issuer,
+		jwksURL: jwksURL,
 	}, nil
 }
 
@@ -46,7 +48,7 @@ func NewJWTValidator(issuer, jwksURL string, refreshInterval time.Duration) (*JW
 func (v *JWTValidator) ValidateToken(tokenString string) (string, error) {
 	// Get the JWKS for validation
 	ctx := context.Background()
-	keySet, err := v.jwks.Get(ctx, v.issuer+"/.well-known/jwks.json")
+	keySet, err := v.jwks.Get(ctx, v.jwksURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to get JWKS: %w", err)
 	}
