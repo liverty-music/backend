@@ -34,11 +34,11 @@ const (
 	`
 	getOfficialSiteQuery = `
 		SELECT id, artist_id, url
-		FROM artist_official_sites
+		FROM artist_official_site
 		WHERE artist_id = $1
 	`
 	insertOfficialSiteQuery = `
-		INSERT INTO artist_official_sites (id, artist_id, url)
+		INSERT INTO artist_official_site (id, artist_id, url)
 		VALUES ($1, $2, $3)
 	`
 	insertFollowQuery = `
@@ -67,7 +67,7 @@ func NewArtistRepository(db *Database) *ArtistRepository {
 func (r *ArtistRepository) Create(ctx context.Context, a *entity.Artist) error {
 	_, err := r.db.Pool.Exec(ctx, insertArtistQuery, a.ID, a.Name, a.MBID, a.CreateTime)
 	if err != nil {
-		return toAppErr(err, "failed to create artist", slog.String("name", a.Name), slog.String("mbid", a.ID))
+		return toAppErr(err, "failed to create artist", slog.String("name", a.Name), slog.String("mbid", a.MBID))
 	}
 	return nil
 }
