@@ -20,7 +20,9 @@ COMMENT ON COLUMN users.created_at IS 'Timestamp when the user was created';
 CREATE TABLE IF NOT EXISTS artists (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     name TEXT NOT NULL,
-    mbid UUID NOT NULL UNIQUE
+    mbid VARCHAR(36),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_artists_mbid ON artists(mbid);
@@ -28,7 +30,9 @@ CREATE INDEX IF NOT EXISTS idx_artists_mbid ON artists(mbid);
 COMMENT ON TABLE artists IS 'Musical artists or groups that users can subscribe to for concert notifications';
 COMMENT ON COLUMN artists.id IS 'Unique artist identifier (UUIDv7)';
 COMMENT ON COLUMN artists.name IS 'Artist or band name as displayed to users';
-COMMENT ON COLUMN artists.mbid IS 'Canonical MusicBrainz Identifier (UUID)';
+COMMENT ON COLUMN artists.mbid IS 'Canonical MusicBrainz Identifier (MBID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)';
+COMMENT ON COLUMN artists.created_at IS 'Timestamp when the artist was created';
+COMMENT ON COLUMN artists.updated_at IS 'Timestamp when the artist was last updated';
 
 -- Artist official site
 CREATE TABLE IF NOT EXISTS artist_official_site (
@@ -76,12 +80,16 @@ COMMENT ON COLUMN events.source_url IS 'URL where the event information was foun
 -- Concerts table
 CREATE TABLE IF NOT EXISTS concerts (
     event_id UUID PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE
+    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE concerts IS 'Music-specific event details, linked 1:1 with events table';
 COMMENT ON COLUMN concerts.event_id IS 'Reference to the generic event (PK/FK)';
 COMMENT ON COLUMN concerts.artist_id IS 'Reference to the performing artist';
+COMMENT ON COLUMN concerts.created_at IS 'Timestamp when the concert was created';
+COMMENT ON COLUMN concerts.updated_at IS 'Timestamp when the concert was last updated';
 
 -- User artist follows
 CREATE TABLE IF NOT EXISTS followed_artists (

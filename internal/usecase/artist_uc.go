@@ -138,8 +138,8 @@ func (uc *artistUseCase) Create(ctx context.Context, artist *entity.Artist) (*en
 		if err != nil {
 			// Log warning but proceed with provided name if normalization fails
 			uc.logger.Warn(ctx, "failed to normalize artist name from MBID", slog.String("mbid", artist.MBID), slog.Any("error", err))
-		} else if artist.Name == "" || artist.Name != mbArtist.Name {
-			// Update name if it's missing or different from canonical name
+		} else if artist.Name != mbArtist.Name {
+			// Update name to canonical name from MusicBrainz
 			artist.Name = mbArtist.Name
 			artist.MBID = mbArtist.MBID // Ensure MBID is set from canonical source
 		}

@@ -2,12 +2,14 @@ package rpc
 
 import (
 	"context"
+	"errors"
 
 	pb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -89,14 +91,16 @@ func (h *ArtistHandler) CreateOfficialSite(ctx context.Context, req *connect.Req
 
 // DeleteOfficialSite removes an existing official site association.
 func (h *ArtistHandler) DeleteOfficialSite(ctx context.Context, req *connect.Request[rpc.DeleteOfficialSiteRequest]) (*connect.Response[rpc.DeleteOfficialSiteResponse], error) {
-	// FIXME: Implement DeleteOfficialSite in UseCase
-	return connect.NewResponse(&rpc.DeleteOfficialSiteResponse{}), nil
+	// TODO: Implement DeleteOfficialSite in UseCase
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("DeleteOfficialSite is not implemented"))
 }
 
 // Follow establishes a follow relationship between the current user and an artist.
 func (h *ArtistHandler) Follow(ctx context.Context, req *connect.Request[rpc.FollowRequest]) (*connect.Response[rpc.FollowResponse], error) {
-	// FIXME: Extract UserID from authenticated context
-	userID := "user-1"
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
+	}
 
 	err := h.artistUseCase.Follow(ctx, userID, req.Msg.ArtistId.Value)
 	if err != nil {
@@ -108,8 +112,10 @@ func (h *ArtistHandler) Follow(ctx context.Context, req *connect.Request[rpc.Fol
 
 // Unfollow removes an existing follow relationship.
 func (h *ArtistHandler) Unfollow(ctx context.Context, req *connect.Request[rpc.UnfollowRequest]) (*connect.Response[rpc.UnfollowResponse], error) {
-	// FIXME: Extract UserID from authenticated context
-	userID := "user-1"
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
+	}
 
 	err := h.artistUseCase.Unfollow(ctx, userID, req.Msg.ArtistId.Value)
 	if err != nil {
@@ -121,8 +127,10 @@ func (h *ArtistHandler) Unfollow(ctx context.Context, req *connect.Request[rpc.U
 
 // ListFollowed retrieves the list of artists currently followed by the authenticated user.
 func (h *ArtistHandler) ListFollowed(ctx context.Context, req *connect.Request[rpc.ListFollowedRequest]) (*connect.Response[rpc.ListFollowedResponse], error) {
-	// FIXME: Extract UserID from authenticated context
-	userID := "user-1"
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
+	}
 
 	artists, err := h.artistUseCase.ListFollowed(ctx, userID)
 	if err != nil {

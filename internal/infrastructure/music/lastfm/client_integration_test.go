@@ -16,6 +16,12 @@ import (
 
 func TestClient_Integration(t *testing.T) {
 	testutil.LoadTestEnv(t, "testdata/.env.test")
+
+	// Set required environment variables for config.Load()
+	t.Setenv("DATABASE_NAME", "test-db")
+	t.Setenv("DATABASE_USER", "test-user")
+	t.Setenv("ISSUER", "https://test-issuer.example.com")
+
 	cfg, err := config.Load()
 	require.NoError(t, err)
 
