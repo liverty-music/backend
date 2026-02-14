@@ -101,6 +101,31 @@ The HTTP server will start on port 8080.
 
 The gRPC server is configured to run on port 9090 with reflection enabled for development tools like `grpcurl`.
 
+### Development Commands
+
+#### Running Tests
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests for a specific package
+go test ./pkg/config
+
+# Run tests with coverage
+go test -cover ./...
+```
+
+#### Code Quality
+
+```bash
+# Run static analysis
+go vet ./...
+
+# Run linter (requires golangci-lint binary)
+golangci-lint run ./...
+```
+
 ### Gemini Integration Testing
 
 To verify the Gemini-based concert extraction with real GCP resources:

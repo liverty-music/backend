@@ -39,9 +39,6 @@ This repository uses specialized skills for common tasks. **You MUST load the ap
 |--------------|------------------|---------------|-------------|
 | **Build/Deploy** | docker, image, deploy, deployment, CI/CD, GAR, push, container | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
 | **Database** | migrate, migration, schema, atlas, SQL, database operations | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
-| **Testing** | test, testing, coverage, benchmark, go test | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
-| **Code Gen** | wire, buf, generate, proto, protobuf, codegen | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
-| **Go Build** | go build, compile, build binary | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
 
 **Skill Path**: `.agent/skills/backend-workflow/SKILL.md`
 
@@ -64,8 +61,8 @@ Local Protobuf code generation is FORBIDDEN. To generate/update Go code from sch
 
 > [!IMPORTANT]
 > **Common User Questions Require Skill Loading:**
-> - "How do I run this?" → Load `backend-workflow` skill
-> - "Test the API" → Load `backend-workflow` skill
 > - "Build the image" → Load `backend-workflow` skill
 > - "Deploy changes" → Load `backend-workflow` skill
 > - "Run migrations" → Load `backend-workflow` skill
+>
+> **For standard Go commands (run, test, lint):** Refer to README.md Development Commands section
