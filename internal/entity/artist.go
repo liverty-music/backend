@@ -4,70 +4,160 @@ package entity
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// Artist represents a musical artist or group.
+// Artist represents a musical artist or group recorded in the system.
 //
-// Corresponds to liverty_music.entity.v1.Artist.
+// Artist instances are tied to canonical MusicBrainz records via their [Artist.MBID].
+// See [ArtistProto] for the wire representation.
+//
+// [ArtistProto]: https://github.com/liverty-music/specification/blob/main/proto/liverty_music/entity/v1/artist.proto
 type Artist struct {
-	// ID is the unique identifier for the artist (UUID).
+	// ID is the unique internal identifier for the artist (UUIDv7).
 	ID string
-	// Name is the name of the artist.
+	// Name is the display name of the artist or band.
 	Name string
-	// CreateTime is the timestamp when the artist was created.
+	// MBID is the canonical MusicBrainz Identifier for identity normalization.
+	MBID string
+	// CreateTime is the timestamp when the artist record was first created.
 	CreateTime time.Time
-	// UpdateTime is the timestamp when the artist was last updated.
-	UpdateTime time.Time
 }
 
-// OfficialSite represents the official website for an artist.
+// NewID generates a new unique identifier for an artist (UUID v7).
+func NewID() string {
+	id, _ := uuid.NewV7()
+	return id.String()
+}
+
+// OfficialSite represents the verified official website or media link for an artist.
 //
-// Corresponds to liverty_music.entity.v1.OfficialSite.
+// Each artist is restricted to a single primary official site in the current version.
+// See [OfficialSiteProto] for the wire representation.
+//
+// [OfficialSiteProto]: https://github.com/liverty-music/specification/blob/main/proto/liverty_music/entity/v1/artist.proto
 type OfficialSite struct {
-	// ID is the unique identifier for the official site.
+	// ID is the unique identifier for the official site record.
 	ID string
-	// ArtistID is the ID of the artist this site belongs to.
+	// ArtistID is the foreign key reference to the [Artist].
 	ArtistID string
-	// URL is the URL of the official site.
+	// URL is the validated HTTPS address of the website.
 	URL string
-	// CreateTime is the timestamp when the site was created.
-	CreateTime time.Time
-	// UpdateTime is the timestamp when the site was last updated.
-	UpdateTime time.Time
 }
 
-// ArtistRepository defines the data access interface for Artists.
+// ArtistRepository defines the persistence layer operations for artist entities.
 type ArtistRepository interface {
-	// Create creates a new artist.
+	// Create persists a new artist record in the database.
 	//
-	// # Possible errors
+	// # Possible errors:
 	//
-	//  - InvalidArgument: If the artist name is empty.
+	//   - InvalidArgument: the artist name or MBID is empty.
+	//   - AlreadyExists: an artist with the same MBID already exists.
+	//   - Internal: database connection or execution failure.
 	Create(ctx context.Context, artist *Artist) error
 
-	// List returns a list of all artists.
+	// List retrieves all registered artists sorted by name.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
 	List(ctx context.Context) ([]*Artist, error)
 
-	// Get retrieves an artist by ID.
+	// Get retrieves a specific artist by their internal UUID.
 	//
-	// # Possible errors
+	// # Possible errors:
 	//
-	//  - NotFound: If the artist does not exist.
+	//   - NotFound: no artist exists with the provided ID.
+	//   - Internal: database query failure.
 	Get(ctx context.Context, id string) (*Artist, error)
+
+	// GetByMBID retrieves an artist using their canonical MusicBrainz ID.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no artist exists with the provided MBID.
+	//   - Internal: database query failure.
+	GetByMBID(ctx context.Context, mbid string) (*Artist, error)
 
 	// Official Site operations
 
-	// CreateOfficialSite creates a new official site for an artist.
+	// CreateOfficialSite registers a new website link for an artist.
 	//
-	// # Possible errors
+	// # Possible errors:
 	//
-	//  - InvalidArgument: If the URL is empty.
+	//   - InvalidArgument: the URL is malformed or empty.
+	//   - AlreadyExists: the artist already has an official site record.
+	//   - Internal: database execution failure.
 	CreateOfficialSite(ctx context.Context, site *OfficialSite) error
 
-	// GetOfficialSite retrieves the official site for an artist.
+	// GetOfficialSite retrieves the verified website for a specific artist.
 	//
-	// # Possible errors
+	// # Possible errors:
 	//
-	//  - NotFound: If the official site does not exist.
+	//   - NotFound: the artist exists but has no official site registered.
+	//   - Internal: database query failure.
 	GetOfficialSite(ctx context.Context, artistID string) (*OfficialSite, error)
+
+	// Follow records a user's interest in an artist for notification purposes.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: the artist or user does not exist.
+	//   - AlreadyExists: the user is already following this artist.
+	//   - Internal: database execution failure.
+	Follow(ctx context.Context, userID, artistID string) error
+
+	// Unfollow removes the subscription between a user and an artist.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: the follow relationship does not exist.
+	//   - Internal: database execution failure.
+	Unfollow(ctx context.Context, userID, artistID string) error
+
+	// ListFollowed retrieves all artists followed by a specific user.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListFollowed(ctx context.Context, userID string) ([]*Artist, error)
+}
+
+// ArtistSearcher defines discovery operations for finding artists in external catalogs.
+type ArtistSearcher interface {
+	// Search finds artists matching the provided name or keyword.
+	//
+	// # Possible errors:
+	//
+	//   - Unavailable: external search service is down or rate-limited.
+	//   - Internal: unexpected error during search processing.
+	Search(ctx context.Context, query string) ([]*Artist, error)
+
+	// ListSimilar retrieves artists with musical styles similar to the input artist.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: the artist record is not recognized by the external searcher.
+	//   - Unavailable: external service failure.
+	ListSimilar(ctx context.Context, artist *Artist) ([]*Artist, error)
+
+	// ListTop retrieves the most popular artists based on charts or geographic region.
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: the provided country code is invalid.
+	//   - Unavailable: external service failure.
+	ListTop(ctx context.Context, country string) ([]*Artist, error)
+}
+
+// ArtistIdentityManager handles canonical identity resolution for artists.
+type ArtistIdentityManager interface {
+	// GetArtist resolves an MBID into a complete, canonical Artist entity.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: the MBID does not correspond to a valid artist record.
+	//   - Unavailable: identity provider service is down.
+	GetArtist(ctx context.Context, mbid string) (*Artist, error)
 }

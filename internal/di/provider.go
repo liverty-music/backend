@@ -4,8 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
-	v1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/v1/rpcv1connect"
+	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
+	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
+	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
@@ -13,8 +16,11 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
+	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -72,9 +78,30 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		geminiSearcher = searcher
 	}
 
+	// Infrastructure - Music
+	lastfmClient := lastfm.NewClient(cfg.LastFMAPIKey, nil)
+	musicbrainzClient := musicbrainz.NewClient(nil)
+
+	// Cache - Artist discovery results with 1 hour TTL
+	artistCache := cache.NewMemoryCache(1 * time.Hour)
+
+	// Start background cleanup for cache to prevent memory leak
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				artistCache.Cleanup()
+			}
+		}
+	}()
+
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, artistCache, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, geminiSearcher, logger)
 
 	// Auth - JWT Validator and Interceptor
@@ -98,14 +125,20 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return v1connect.NewUserServiceHandler(
+			return userconnect.NewUserServiceHandler(
 				rpc.NewUserHandler(userUC, logger),
 				opts...,
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return v1connect.NewConcertServiceHandler(
-				rpc.NewConcertHandler(artistUC, concertUC, logger),
+			return artistconnect.NewArtistServiceHandler(
+				rpc.NewArtistHandler(artistUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return concertconnect.NewConcertServiceHandler(
+				rpc.NewConcertHandler(concertUC, logger),
 				opts...,
 			)
 		},
@@ -113,7 +146,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	srv := server.NewConnectServer(cfg, logger, db, authInterceptor, handlers...)
 
-	return newApp(srv, db, telemetryCloser), nil
+	return newApp(srv, db, telemetryCloser, lastfmClient, musicbrainzClient), nil
 }
 
 func provideLogger(cfg *config.Config) (*logging.Logger, error) {

@@ -8,14 +8,13 @@ import (
 	"io"
 	"log"
 
-	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 )
 
-func newApp(server *server.ConnectServer, db *rdb.Database, telemetryCloser io.Closer) *App {
+func newApp(server *server.ConnectServer, closers ...io.Closer) *App {
 	return &App{
 		Server:  server,
-		Closers: []io.Closer{db, telemetryCloser},
+		Closers: closers,
 	}
 }
 

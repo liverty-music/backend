@@ -26,8 +26,4 @@ type Event struct {
 	OpenTime *time.Time
 	// SourceURL is the URL where this information was found.
 	SourceURL string
-	// CreateTime is the timestamp when the event was created.
-	CreateTime time.Time
-	// UpdateTime is the timestamp when the event was last updated.
-	UpdateTime time.Time
 }
