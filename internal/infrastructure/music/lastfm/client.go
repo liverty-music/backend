@@ -89,7 +89,7 @@ type errorResponse struct {
 }
 
 const (
-	baseURL = "http://ws.audioscrobbler.com/2.0/"
+	baseURL = "https://ws.audioscrobbler.com/2.0/"
 	// Last.fm rate limit is 5 requests per second.
 	// We use 200ms interval to comply.
 	rateLimitInterval = 200 * time.Millisecond
@@ -224,7 +224,8 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	// Limit response body to 1MB to prevent OOM attacks
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return apperr.Wrap(err, codes.DataLoss, "failed to read lastfm response body")
 	}
@@ -261,4 +262,13 @@ func mapLastFMCode(code int) codes.Code {
 // primarily intended for tests to point the client at an httptest server.
 func (c *client) SetBaseURL(u string) {
 	c.baseURL = u
+}
+
+// Close stops the background throttler goroutine and releases resources.
+// It should be called when the client is no longer needed.
+func (c *client) Close() error {
+	if c.throttler != nil {
+		c.throttler.Close()
+	}
+	return nil
 }
