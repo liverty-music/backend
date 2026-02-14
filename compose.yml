@@ -1,30 +1,29 @@
-name: scaffold-dev
+name: liverty-music-backend
 
 services:
   postgres:
     image: postgres:18
     container_name: postgres
     environment:
-      POSTGRES_USER: testuser
-      POSTGRES_PASSWORD: testpassword
-      POSTGRES_DB: scaffold_test
+      POSTGRES_USER: test-user
+      POSTGRES_DB: test-db
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./internal/infrastructure/database/rdb/migrations/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U testuser -d scaffold_test"]
+      test: ["CMD-SHELL", "pg_isready -U test-user -d test-db"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
 
-  api:
+  server:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: api
+    container_name: server
     env_file:
       - .env.test
     ports:

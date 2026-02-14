@@ -32,11 +32,11 @@ jobs:
       postgres:
         image: postgres:18
         env:
-          POSTGRES_USER: testuser
-          POSTGRES_PASSWORD: testpassword
-          POSTGRES_DB: scaffold_test
+          POSTGRES_USER: test-user
+          POSTGRES_DB: test-db
+          POSTGRES_HOST_AUTH_METHOD: trust
         options: >-
-          --health-cmd "pg_isready -U testuser -d scaffold_test"
+          --health-cmd "pg_isready -U test-user -d test-db"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -61,7 +61,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
       - name: Apply schema
-        run: psql -h localhost -p 5432 -U testuser -d scaffold_test -f internal/infrastructure/database/rdb/migrations/schema.sql
+        run: psql -h localhost -p 5432 -U test-user -d test-db -f internal/infrastructure/database/rdb/migrations/schema.sql
         env:
           PGPASSWORD: testpassword
 
