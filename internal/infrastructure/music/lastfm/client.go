@@ -260,5 +260,5 @@ func mapLastFMCode(code int) codes.Code {
 // SetBaseURL allows overriding the base URL used by the client. This is
 // primarily intended for tests to point the client at an httptest server.
 func (c *client) SetBaseURL(u string) {
-    c.baseURL = u
+	c.baseURL = u
 }
