@@ -68,3 +68,4 @@ gha-creds-*.json
 
 tmp/
 .pr_data/
+pr*_inline.json
