@@ -14,6 +14,8 @@ type TokenValidator interface {
 }
 
 // AuthInterceptor is a Connect-RPC interceptor that validates JWT tokens.
+//
+//nolint:revive // AuthInterceptor is intentionally prefixed with "Auth" for clarity
 type AuthInterceptor struct {
 	validator TokenValidator
 }

@@ -52,7 +52,7 @@ func setupTestJWKS(t *testing.T) (*httptest.Server, *rsa.PrivateKey, jwk.Set) {
 	// Create test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(keySet)
+		_ = json.NewEncoder(w).Encode(keySet)
 	}))
 
 	return server, privateKey, keySet
