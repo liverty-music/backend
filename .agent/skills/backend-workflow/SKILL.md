@@ -24,24 +24,6 @@ Backend deployment is **fully automated via GitHub Actions**.
 - Push to `main` branch
 - Changes to `**.go`, `go.mod`, `go.sum`, `Dockerfile`, or workflow file
 
-### Manual Deployment (Development/Testing Only)
-
-For testing changes before merging to main:
-
-```bash
-# Build and push test image
-docker build -t asia-northeast2-docker.pkg.dev/liverty-music-dev/backend/server:test .
-gcloud auth configure-docker asia-northeast2-docker.pkg.dev
-docker push asia-northeast2-docker.pkg.dev/liverty-music-dev/backend/server:test
-
-# Update Kustomize in cloud-provisioning repo
-# k8s/namespaces/backend/overlays/dev/server/kustomization.yaml
-#   images:
-#   - name: server
-#     newTag: test
-```
-
-**Note**: Standard workflow is to merge to `main` and let CI/CD handle deployment.
 
 ## 2. Database Migrations (Atlas)
 
