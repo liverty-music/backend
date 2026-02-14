@@ -77,6 +77,20 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Cache - Artist discovery results with 1 hour TTL
 	artistCache := cache.NewMemoryCache(1 * time.Hour)
 
+	// Start background cleanup for cache to prevent memory leak
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				artistCache.Cleanup()
+			}
+		}
+	}()
+
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, artistCache, logger)
@@ -124,7 +138,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	srv := server.NewConnectServer(cfg, logger, db, authInterceptor, handlers...)
 
-	return newApp(srv, db, telemetryCloser), nil
+	return newApp(srv, db, telemetryCloser, lastfmClient, musicbrainzClient), nil
 }
 
 func provideLogger(cfg *config.Config) (*logging.Logger, error) {

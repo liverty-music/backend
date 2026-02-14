@@ -127,3 +127,12 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 func (c *client) SetBaseURL(u string) {
 	c.baseURL = u
 }
+
+// Close stops the background throttler goroutine and releases resources.
+// It should be called when the client is no longer needed.
+func (c *client) Close() error {
+	if c.throttler != nil {
+		c.throttler.Close()
+	}
+	return nil
+}
