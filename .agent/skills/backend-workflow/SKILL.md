@@ -29,15 +29,16 @@ Backend deployment is **fully automated via GitHub Actions**.
 
 Manage PostgreSQL schema migrations using Atlas.
 
+**Initial Setup**: After starting the database (`podman compose up -d postgres`), run `atlas migrate apply --env local` to initialize the schema.
+
 ```bash
 # Generate migration from schema definition (schema.sql -> DB state diff)
-# Note: Ensure local DB is running
 atlas migrate diff --env local <migration_name>
 
 # Validate migrations
 atlas migrate validate --env local
 
-# Apply migrations (Local development only)
+# Apply migrations (both initial setup and updates)
 atlas migrate apply --env local
 ```
 

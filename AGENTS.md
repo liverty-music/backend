@@ -38,7 +38,7 @@ This repository uses specialized skills for common tasks. **You MUST load the ap
 | Task Category | Trigger Keywords | Skill to Load | How to Load |
 |--------------|------------------|---------------|-------------|
 | **Build/Deploy** | docker, image, deploy, deployment, CI/CD, GAR, push, container | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
-| **Database** | migrate, migration, schema, atlas, SQL, database operations | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
+| **Database** | migrate, migration, schema, atlas, SQL, database operations, setup database, initialize database | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
 
 **Skill Path**: `.agent/skills/backend-workflow/SKILL.md`
 
