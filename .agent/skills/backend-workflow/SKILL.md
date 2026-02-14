@@ -1,77 +1,61 @@
 ---
 name: backend-workflow
-description: Standard development workflows for Liverty Music Backend (Build, Test, Migrate, Gen).
+description: Project-specific development workflows - Deployment via GitHub Actions to GAR to ArgoCD, Atlas database migrations. Use when deploying, building Docker images, or managing database schema.
 ---
 
-# Backend Development Workflows
+# Backend Workflows
 
-Reference guide for common development tasks in the `liverty-music/backend` repository.
+**Use this skill for**: Deployment, Docker builds, Database migrations
 
-## 1. Daily Development
+## 1. Deployment Workflow
 
-Standard commands for building and verifying code.
+Backend deployment is **fully automated via GitHub Actions**.
 
-```bash
-# Run the application (HTTP :8080, gRPC :9090)
-go run cmd/api/main.go
+### Standard Workflow
 
-# Run all tests
-go test ./...
+1. **Merge to `main`**: Changes merged to main trigger the deploy workflow
+2. **Auto-build**: GitHub Actions builds Docker image using Dockerfile
+3. **Auto-push**: Image pushed to GAR with tags: `latest`, `<commit-sha>`, `main`
+4. **Auto-deploy**: ArgoCD detects new image and deploys to GKE
 
-# Run tests for a specific package
-go test ./pkg/config
+**Workflow file**: `.github/workflows/deploy.yml`
 
-# Run static analysis (Linting & Vetting)
-go vet ./...
-golangci-lint run ./...
-```
+**Triggers**:
+- Push to `main` branch
+- Changes to `**.go`, `go.mod`, `go.sum`, `Dockerfile`, or workflow file
 
-## 2. Code Generation
 
-Run these commands when modifying source definitions.
-
-```bash
-# Generate Wire dependency injection code (Run when wire.go modified)
-wire internal/di/
-
-# Generate protobuf code (Run when .proto files in schema repo change)
-buf generate
-```
-
-## 3. Database Operations (Atlas)
+## 2. Database Migrations (Atlas)
 
 Manage PostgreSQL schema migrations using Atlas.
 
+**Initial Setup**: After starting the database (`podman compose up -d postgres`), run `atlas migrate apply --env local` to initialize the schema.
+
 ```bash
 # Generate migration from schema definition (schema.sql -> DB state diff)
-# Note: Ensure local DB is running.
 atlas migrate diff --env local <migration_name>
 
 # Validate migrations
 atlas migrate validate --env local
 
-# Apply migrations (Local development only)
+# Apply migrations (both initial setup and updates)
 atlas migrate apply --env local
 ```
 
-## 4. API Verification (buf curl)
+**Migration directory**: `internal/infrastructure/database/rdb/migrations/`
 
-Test Connect-RPC endpoints directly.
+## 3. API Health Check
+
+Test the server is running:
 
 ```bash
-# GetUser Example
-buf curl --schema buf.build/liverty-music/schema --protocol connect \
-  -d '{"user_id": {"value": "123"}}' \
-  http://localhost:9090/liverty.api.v1.UserService/GetUser
-
-# Health Check
 buf curl --schema buf.build/grpc/health --protocol connect \
   -d '{"service": ""}' \
   http://localhost:9090/grpc.health.v1.Health/Check
 ```
 
-## 5. Directory Reference
+## 4. Directory Reference
 
-- `migrations/`: `internal/infrastructure/database/rdb/migrations/`
-- `handlers/`: `internal/adapter/rpc/`
-- `di/`: `internal/di/`
+- **Migrations**: `internal/infrastructure/database/rdb/migrations/`
+- **Handlers**: `internal/adapter/rpc/`
+- **DI**: `internal/di/`

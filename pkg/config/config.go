@@ -84,25 +84,22 @@ import (
 // Config represents the application configuration loaded from environment variables.
 type Config struct {
 	// Server configuration
-	Server ServerConfig `envconfig:"SERVER"`
+	Server ServerConfig
 
 	// Database configuration
-	Database DatabaseConfig `envconfig:"DATABASE"`
+	Database DatabaseConfig
 
 	// Logging configuration
-	Logging LoggingConfig `envconfig:"LOGGING"`
+	Logging LoggingConfig
 
 	// Telemetry configuration
-	Telemetry TelemetryConfig `envconfig:"TELEMETRY"`
+	Telemetry TelemetryConfig
 
 	// GCP configuration
-	GCP GCPConfig `envconfig:"GCP"`
+	GCP GCPConfig
 
 	// Environment
-	Environment string `envconfig:"ENVIRONMENT" default:"development"`
-
-	// Debug mode
-	Debug bool `envconfig:"DEBUG" default:"false"`
+	Environment string `envconfig:"ENVIRONMENT" default:"local"`
 
 	// Shutdown timeout in seconds
 	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"30s"`
@@ -111,95 +108,95 @@ type Config struct {
 // ServerConfig represents server-specific configuration.
 type ServerConfig struct {
 	// Port to listen on
-	Port int `envconfig:"PORT" default:"8080"`
+	Port int `envconfig:"SERVER_PORT" default:"8080"`
 
 	// Host to bind to
-	Host string `envconfig:"HOST" default:"localhost"`
+	Host string `envconfig:"SERVER_HOST" default:"localhost"`
 
 	// Read header timeout in milliseconds
-	ReadHeaderTimeout time.Duration `envconfig:"READ_HEADER_TIMEOUT" default:"500ms"`
+	ReadHeaderTimeout time.Duration `envconfig:"SERVER_READ_HEADER_TIMEOUT" default:"500ms"`
 
 	// Read timeout in milliseconds
-	ReadTimeout time.Duration `envconfig:"READ_TIMEOUT" default:"1000ms"`
+	ReadTimeout time.Duration `envconfig:"SERVER_READ_TIMEOUT" default:"1000ms"`
 
 	// Handler timeout in seconds
-	HandlerTimeout time.Duration `envconfig:"HANDLER_TIMEOUT" default:"5s"`
+	HandlerTimeout time.Duration `envconfig:"SERVER_HANDLER_TIMEOUT" default:"5s"`
 
 	// Idle timeout in seconds
-	IdleTimeout time.Duration `envconfig:"IDLE_TIMEOUT" default:"3s"`
+	IdleTimeout time.Duration `envconfig:"SERVER_IDLE_TIMEOUT" default:"3s"`
 
 	// Allowed CORS origins
-	AllowedOrigins []string `envconfig:"ALLOWED_ORIGINS" default:"http://localhost:9000"`
+	AllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"http://localhost:9000"`
 }
 
 // DatabaseConfig represents database-specific configuration.
 type DatabaseConfig struct {
 	// Database host
-	Host string `envconfig:"HOST" default:"localhost"`
+	Host string `envconfig:"DATABASE_HOST" default:"localhost"`
 
 	// Database port
-	Port int `envconfig:"PORT" default:"5432"`
+	Port int `envconfig:"DATABASE_PORT" default:"5432"`
 
 	// Database name
-	Name string `envconfig:"NAME" required:"true"`
+	Name string `envconfig:"DATABASE_NAME" required:"true"`
 
 	// Database user
-	User string `envconfig:"USER" required:"true"`
+	User string `envconfig:"DATABASE_USER" required:"true"`
 
 	// Database SSL mode
-	SSLMode string `envconfig:"SSL_MODE" default:"disable"`
+	SSLMode string `envconfig:"DATABASE_SSL_MODE" default:"disable"`
 
 	// Connection pool settings
-	MaxOpenConns    int `envconfig:"MAX_OPEN_CONNS" default:"25"`
-	MaxIdleConns    int `envconfig:"MAX_IDLE_CONNS" default:"5"`
-	ConnMaxLifetime int `envconfig:"CONN_MAX_LIFETIME" default:"300"`
+	MaxOpenConns    int `envconfig:"DATABASE_MAX_OPEN_CONNS" default:"25"`
+	MaxIdleConns    int `envconfig:"DATABASE_MAX_IDLE_CONNS" default:"5"`
+	ConnMaxLifetime int `envconfig:"DATABASE_CONN_MAX_LIFETIME" default:"300"`
 
 	// Instance Connection Name (e.g., project:region:instance)
 	// Required for Cloud SQL Connector (non-local environments)
-	InstanceConnectionName string `envconfig:"INSTANCE_CONNECTION_NAME"`
+	InstanceConnectionName string `envconfig:"DATABASE_INSTANCE_CONNECTION_NAME"`
 }
 
 // LoggingConfig represents logging-specific configuration.
 type LoggingConfig struct {
 	// Log level (debug, info, warn, error)
-	Level string `envconfig:"LEVEL" default:"info"`
+	Level string `envconfig:"LOGGING_LEVEL" default:"info"`
 
 	// Log format (json, text)
-	Format string `envconfig:"FORMAT" default:"json"`
+	Format string `envconfig:"LOGGING_FORMAT" default:"json"`
 
 	// Enable structured logging
-	Structured bool `envconfig:"STRUCTURED" default:"true"`
+	Structured bool `envconfig:"LOGGING_STRUCTURED" default:"true"`
 
 	// Include caller information
-	IncludeCaller bool `envconfig:"INCLUDE_CALLER" default:"false"`
+	IncludeCaller bool `envconfig:"LOGGING_INCLUDE_CALLER" default:"false"`
 }
 
 // TelemetryConfig represents telemetry-specific configuration.
 type TelemetryConfig struct {
 	// OTLP exporter endpoint for sending traces
-	OTLPEndpoint string `envconfig:"OTLP_ENDPOINT"`
+	OTLPEndpoint string `envconfig:"TELEMETRY_OTLP_ENDPOINT"`
 
 	// Service name for tracing
-	ServiceName string `envconfig:"SERVICE_NAME" default:"go-backend-scaffold"`
+	ServiceName string `envconfig:"TELEMETRY_SERVICE_NAME" default:"go-backend-scaffold"`
 
 	// Service version for tracing
-	ServiceVersion string `envconfig:"SERVICE_VERSION" default:"1.0.0"`
+	ServiceVersion string `envconfig:"TELEMETRY_SERVICE_VERSION" default:"1.0.0"`
 }
 
 // GCPConfig represents Google Cloud specific configuration.
 type GCPConfig struct {
 	// GCP Project ID
-	ProjectID string `envconfig:"PROJECT_ID" required:"true"`
+	ProjectID string `envconfig:"GCP_PROJECT_ID"`
 
 	// GCP Location (e.g., us-central1)
-	Location string `envconfig:"LOCATION" default:"us-central1"`
+	Location string `envconfig:"GCP_LOCATION" default:"us-central1"`
 
 	// Gemini Model Name
-	GeminiModel string `envconfig:"GEMINI_MODEL" default:"gemini-3-flash-preview"`
+	GeminiModel string `envconfig:"GCP_GEMINI_MODEL" default:"gemini-3-flash-preview"`
 
 	// Vertex AI Search Data Store ID (full resource name)
 	// Format: projects/{project}/locations/global/collections/default_collection/dataStores/{data_store_id}
-	VertexAISearchDataStore string `envconfig:"VERTEX_AI_SEARCH_DATA_STORE"`
+	VertexAISearchDataStore string `envconfig:"GCP_VERTEX_AI_SEARCH_DATA_STORE"`
 }
 
 // Load loads configuration from environment variables.

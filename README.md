@@ -84,8 +84,15 @@ curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/insta
 4. Start the database (optional, for local development):
 
 ```bash
+# Start PostgreSQL container
 podman compose up -d postgres
+
+# Initialize database schema
+# This applies all migrations from internal/infrastructure/database/rdb/migrations/
+atlas migrate apply --env local
 ```
+
+**Note**: The database schema is managed by Atlas migrations. On first setup, you must manually apply migrations using the command above.
 
 ### Running the Application
 
@@ -100,6 +107,31 @@ The HTTP server will start on port 8080.
 #### gRPC Server
 
 The gRPC server is configured to run on port 9090 with reflection enabled for development tools like `grpcurl`.
+
+### Development Commands
+
+#### Running Tests
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests for a specific package
+go test ./pkg/config
+
+# Run tests with coverage
+go test -cover ./...
+```
+
+#### Code Quality
+
+```bash
+# Run static analysis
+go vet ./...
+
+# Run linter (requires golangci-lint binary)
+golangci-lint run ./...
+```
 
 ### Gemini Integration Testing
 

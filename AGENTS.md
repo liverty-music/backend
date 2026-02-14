@@ -29,9 +29,26 @@ This project follows **Clean Architecture** principles.
 
 ## Development Workflows
 
-For procedural commands (Build, Test, Migrate, Gen), **load the `backend-workflow` skill**.
+**CRITICAL: Read This First**
 
-- Skill Path: `.agent/skills/backend-workflow/SKILL.md`
+This repository uses specialized skills for common tasks. **You MUST load the appropriate skill BEFORE attempting these operations.**
+
+### Skill Routing Table
+
+| Task Category | Trigger Keywords | Skill to Load | How to Load |
+|--------------|------------------|---------------|-------------|
+| **Build/Deploy** | docker, image, deploy, deployment, CI/CD, GAR, push, container | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
+| **Database** | migrate, migration, schema, atlas, SQL, database operations, setup database, initialize database | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
+
+**Skill Path**: `.agent/skills/backend-workflow/SKILL.md`
+
+### When to Load Skills
+
+**Before executing ANY command related to the above categories, you MUST:**
+1. Load the `backend-workflow` skill using the Skill tool
+2. Read the relevant section
+3. Follow the documented workflow
+4. Do NOT attempt manual commands without consulting the skill first
 
 ### Protobuf Code Generation
 
@@ -42,5 +59,10 @@ Local Protobuf code generation is FORBIDDEN. To generate/update Go code from sch
 3.  **Remote Generation**: This triggers the BSR (Buf Schema Registry) remote generation.
 4.  **Local Consumption**: The `backend` repo consumes these types via `buf.build/gen/go/...`. You may need to run `go get -u` or similar if your local environment doesn't pick up the latest BSR build immediately.
 
-> [!TIP]
-> If the user asks "How do I run this?" or "Test the API", refer to the `backend-workflow` skill.
+> [!IMPORTANT]
+> **Common User Questions Require Skill Loading:**
+> - "Build the image" → Load `backend-workflow` skill
+> - "Deploy changes" → Load `backend-workflow` skill
+> - "Run migrations" → Load `backend-workflow` skill
+>
+> **For standard Go commands (run, test, lint):** Refer to README.md Development Commands section
