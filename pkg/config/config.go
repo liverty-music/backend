@@ -138,7 +138,7 @@ type ServerConfig struct {
 	IdleTimeout time.Duration `envconfig:"SERVER_IDLE_TIMEOUT" default:"3s"`
 
 	// Allowed CORS origins
-	AllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS" default:"http://localhost:9000"`
+	AllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS"`
 }
 
 // DatabaseConfig represents database-specific configuration.
@@ -299,6 +299,10 @@ func (c *Config) Validate() error {
 
 	if !valid {
 		return fmt.Errorf("invalid log format: %s", c.Logging.Format)
+	}
+
+	if !c.IsLocal() && len(c.Server.AllowedOrigins) == 0 {
+		return fmt.Errorf("CORS allowed origins are required for non-local environments")
 	}
 
 	if !c.IsLocal() && c.Database.InstanceConnectionName == "" {

@@ -27,9 +27,17 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	logger, err := provideLogger(cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(cfg.Server.AllowedOrigins) == 0 {
+		logger.Warn(ctx, "⚠️  CORS not configured, browser requests will fail")
 	}
 
 	db, err := rdb.New(ctx, cfg, logger)
