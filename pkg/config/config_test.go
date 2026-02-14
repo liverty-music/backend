@@ -11,24 +11,21 @@ import (
 func TestLoad(t *testing.T) {
 	tests := []struct {
 		name    string
-		prefix  string
 		envVars map[string]string
 		want    *Config
 		wantErr error
 	}{
 		{
-			name:   "load with default values",
-			prefix: "APP",
+			name: "load with default values",
 			envVars: map[string]string{
-				"APP_DATABASE_NAME":                   "defaultdb",
-				"APP_DATABASE_USER":                   "defaultuser",
-				"APP_DATABASE_PASSWORD":               "defaultpass",
-				"APP_GCP_PROJECT_ID":                  "test-project",
-				"APP_GCP_VERTEX_AI_SEARCH_DATA_STORE": "test-datastore",
+				"DATABASE_NAME":                   "defaultdb",
+				"DATABASE_USER":                   "defaultuser",
+				"GCP_PROJECT_ID":                  "test-project",
+				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "test-datastore",
+				"JWT_ISSUER":                      "https://test-issuer.com",
 			},
 			want: &Config{
-				Environment:     "development",
-				Debug:           false,
+				Environment:     "local",
 				ShutdownTimeout: 30 * time.Second,
 				Server: ServerConfig{
 					Port:              8080,
@@ -66,33 +63,35 @@ func TestLoad(t *testing.T) {
 					GeminiModel:             "gemini-3-flash-preview",
 					VertexAISearchDataStore: "test-datastore",
 				},
+				JWT: JWTConfig{
+					Issuer:              "https://test-issuer.com",
+					JWKSRefreshInterval: 15 * time.Minute,
+				},
 			},
 			wantErr: nil,
 		},
 		{
-			name:   "load with custom values",
-			prefix: "APP",
+			name: "load with custom values",
 			envVars: map[string]string{
-				"APP_ENVIRONMENT":                     "production",
-				"APP_DEBUG":                           "true",
-				"APP_SHUTDOWN_TIMEOUT":                "15s",
-				"APP_SERVER_PORT":                     "9090",
-				"APP_SERVER_HOST":                     "0.0.0.0",
-				"APP_SERVER_READ_HEADER_TIMEOUT":      "200ms",
-				"APP_SERVER_READ_TIMEOUT":             "2s",
-				"APP_SERVER_HANDLER_TIMEOUT":          "10s",
-				"APP_SERVER_IDLE_TIMEOUT":             "45s",
-				"APP_DATABASE_NAME":                   "testdb",
-				"APP_DATABASE_USER":                   "testuser",
-				"APP_DATABASE_PASSWORD":               "testpass",
-				"APP_LOGGING_LEVEL":                   "debug",
-				"APP_LOGGING_FORMAT":                  "text",
-				"APP_GCP_PROJECT_ID":                  "custom-project",
-				"APP_GCP_VERTEX_AI_SEARCH_DATA_STORE": "custom-datastore",
+				"ENVIRONMENT":                     "production",
+				"SHUTDOWN_TIMEOUT":                "15s",
+				"SERVER_PORT":                     "9090",
+				"SERVER_HOST":                     "0.0.0.0",
+				"SERVER_READ_HEADER_TIMEOUT":      "200ms",
+				"SERVER_READ_TIMEOUT":             "2s",
+				"SERVER_HANDLER_TIMEOUT":          "10s",
+				"SERVER_IDLE_TIMEOUT":             "45s",
+				"DATABASE_NAME":                   "testdb",
+				"DATABASE_USER":                   "testuser",
+				"LOGGING_LEVEL":                   "debug",
+				"LOGGING_FORMAT":                  "text",
+				"GCP_PROJECT_ID":                  "custom-project",
+				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "custom-datastore",
+				"JWT_ISSUER":                      "https://custom-issuer.com",
+				"JWT_JWKS_REFRESH_INTERVAL":       "30m",
 			},
 			want: &Config{
 				Environment:     "production",
-				Debug:           true,
 				ShutdownTimeout: 15 * time.Second,
 				Server: ServerConfig{
 					Port:              9090,
@@ -130,6 +129,10 @@ func TestLoad(t *testing.T) {
 					GeminiModel:             "gemini-3-flash-preview",
 					VertexAISearchDataStore: "custom-datastore",
 				},
+				JWT: JWTConfig{
+					Issuer:              "https://custom-issuer.com",
+					JWKSRefreshInterval: 30 * time.Minute,
+				},
 			},
 			wantErr: nil,
 		},
@@ -141,7 +144,7 @@ func TestLoad(t *testing.T) {
 				t.Setenv(key, value)
 			}
 
-			got, err := Load(tt.prefix)
+			got, err := Load()
 			if tt.wantErr != nil {
 				assert.Error(t, err)
 				return
@@ -169,6 +172,10 @@ func TestConfig_Validate(t *testing.T) {
 					InstanceConnectionName: "project:region:instance",
 				},
 				Logging: LoggingConfig{Level: "info", Format: "json"},
+				JWT: JWTConfig{
+					Issuer:              "https://test-issuer.com",
+					JWKSRefreshInterval: 15 * time.Minute,
+				},
 			},
 			wantErr: false,
 		},
@@ -182,6 +189,10 @@ func TestConfig_Validate(t *testing.T) {
 					// Missing InstanceConnectionName
 				},
 				Logging: LoggingConfig{Level: "info", Format: "json"},
+				JWT: JWTConfig{
+					Issuer:              "https://test-issuer.com",
+					JWKSRefreshInterval: 15 * time.Minute,
+				},
 			},
 			wantErr: true,
 		},
@@ -195,6 +206,10 @@ func TestConfig_Validate(t *testing.T) {
 					// Missing InstanceConnectionName is OK for local
 				},
 				Logging: LoggingConfig{Level: "info", Format: "json"},
+				JWT: JWTConfig{
+					Issuer:              "https://test-issuer.com",
+					JWKSRefreshInterval: 15 * time.Minute,
+				},
 			},
 			wantErr: false,
 		},

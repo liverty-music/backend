@@ -27,6 +27,11 @@ This project follows **Clean Architecture** principles.
     - **Go Entity**: Use `Time` suffix (e.g., `StartTime`, `CreateTime`). Type: `time.Time`.
     - **Reasoning**: Adheres to SQL standards for columns and Google AIP/Protobuf standards for code. Mappings should be handled in the Repository layer.
 
+### 3. Testing & Mocking
+
+- **Mocking**: Configured via `.mockery.yml`. Run `mockery` to generate mocks from interfaces.
+- **Pattern**: Define interfaces where consumed. Accept interfaces, return concrete types.
+
 ## Development Workflows
 
 **CRITICAL: Read This First**

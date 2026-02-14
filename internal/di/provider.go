@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/grpchealth"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
@@ -21,7 +22,7 @@ import (
 
 // InitializeApp creates a new App with all dependencies wired up manually.
 func InitializeApp(ctx context.Context) (*App, error) {
-	cfg, err := config.Load("")
+	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +69,18 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	artistUC := usecase.NewArtistUseCase(artistRepo, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, geminiSearcher, logger)
 
+	// Auth - JWT Validator and Interceptor
+	jwtValidator, err := auth.NewJWTValidator(
+		cfg.JWT.Issuer,
+		cfg.JWT.Issuer+"/.well-known/jwks.json",
+		cfg.JWT.JWKSRefreshInterval,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	authInterceptor := auth.NewAuthInterceptor(jwtValidator)
+
 	// Handlers
 	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
@@ -90,7 +103,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 	}
 
-	srv := server.NewConnectServer(cfg, logger, db, handlers...)
+	srv := server.NewConnectServer(cfg, logger, db, authInterceptor, handlers...)
 
 	return newApp(srv, db, telemetryCloser), nil
 }
