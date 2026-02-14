@@ -84,8 +84,15 @@ curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/insta
 4. Start the database (optional, for local development):
 
 ```bash
+# Start PostgreSQL container
 podman compose up -d postgres
+
+# Initialize database schema
+# This applies all migrations from internal/infrastructure/database/rdb/migrations/
+atlas migrate apply --env local
 ```
+
+**Note**: The database schema is managed by Atlas migrations. On first setup, you must manually apply migrations using the command above.
 
 ### Running the Application
 

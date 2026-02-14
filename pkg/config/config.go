@@ -108,7 +108,7 @@ type Config struct {
 // ServerConfig represents server-specific configuration.
 type ServerConfig struct {
 	// Port to listen on
-	Port int `envconfig:"CONNECT_SERVER_PORT" default:"8080"`
+	Port int `envconfig:"SERVER_PORT" default:"8080"`
 
 	// Host to bind to
 	Host string `envconfig:"SERVER_HOST" default:"localhost"`
