@@ -1,9 +1,11 @@
 ---
 name: backend-workflow
-description: Standard development workflows for Liverty Music Backend (Build, Test, Migrate, Gen).
+description: Development workflows for backend - Docker build/deploy, CI/CD (GitHub Actions to GAR to ArgoCD), Go build/test, database migrations (Atlas), code generation (Wire, Buf). MUST READ before any build/deploy/test/migration tasks. Keywords - docker, build, deploy, deployment, CI/CD, GAR, push, image, go build, go test, atlas, migrate, migration, wire, buf, generate, proto, protobuf.
 ---
 
 # Backend Development Workflows
+
+**IMPORTANT**: This guide covers all development workflows. Read the appropriate section before executing commands.
 
 Reference guide for common development tasks in the `liverty-music/backend` repository.
 
@@ -70,7 +72,50 @@ buf curl --schema buf.build/grpc/health --protocol connect \
   http://localhost:9090/grpc.health.v1.Health/Check
 ```
 
-## 5. Directory Reference
+## 5. Deployment Workflow
+
+Backend deployment is **fully automated via GitHub Actions**.
+
+### How It Works
+
+1. **Merge to `main`**: Changes merged to the main branch trigger the deploy workflow
+2. **Auto-build**: GitHub Actions builds a Docker image using the Dockerfile
+3. **Auto-push**: Image is pushed to Google Artifact Registry (GAR) with tags:
+   - `latest`
+   - `<commit-sha>`
+   - `main`
+4. **Auto-deploy**: ArgoCD detects the new image and deploys to GKE
+
+### Workflow File
+
+`.github/workflows/deploy.yml` triggers on:
+- Push to `main` branch
+- Changes to `**.go`, `go.mod`, `go.sum`, `Dockerfile`, or the workflow file itself
+
+### Manual Deployment (Development Only)
+
+For testing changes before merging to main:
+
+```bash
+# Build image locally
+docker build -t asia-northeast2-docker.pkg.dev/liverty-music-dev/backend/server:test .
+
+# Authenticate to GAR (if needed)
+gcloud auth configure-docker asia-northeast2-docker.pkg.dev
+
+# Push to GAR
+docker push asia-northeast2-docker.pkg.dev/liverty-music-dev/backend/server:test
+
+# Update Kustomize to use test tag (in cloud-provisioning repo)
+# k8s/namespaces/backend/overlays/dev/server/kustomization.yaml
+#   images:
+#   - name: server
+#     newTag: test
+```
+
+**Note**: Standard workflow is to merge to `main` and let CI/CD handle deployment automatically.
+
+## 6. Directory Reference
 
 - `migrations/`: `internal/infrastructure/database/rdb/migrations/`
 - `handlers/`: `internal/adapter/rpc/`
