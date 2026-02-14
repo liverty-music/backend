@@ -39,8 +39,8 @@ func setupTestDatabase() *rdb.Database {
 		Database: config.DatabaseConfig{
 			Host:            "localhost",
 			Port:            5432,
-			Name:            "scaffold_test",
-			User:            "testuser",
+			Name:            "test-db",
+			User:            "test-user",
 			SSLMode:         "disable",
 			MaxOpenConns:    10,
 			MaxIdleConns:    5,
@@ -72,7 +72,6 @@ func cleanDatabase() {
 func cleanTables(db *rdb.Database) {
 	ctx := context.Background()
 	tables := []string{
-		"notifications",
 		"followed_artists",
 		"artist_official_site",
 		"concerts",

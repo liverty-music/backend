@@ -108,38 +108,6 @@ COMMENT ON COLUMN followed_artists.user_id IS 'Reference to the user who is foll
 COMMENT ON COLUMN followed_artists.artist_id IS 'Reference to the artist being followed';
 COMMENT ON COLUMN followed_artists.created_at IS 'Timestamp when the follow occurred';
 
--- Notifications table
-CREATE TABLE IF NOT EXISTS notifications (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
-    concert_id UUID REFERENCES concerts(id) ON DELETE SET NULL,
-    type TEXT NOT NULL,
-    title TEXT NOT NULL,
-    message TEXT NOT NULL,
-    language TEXT NOT NULL DEFAULT 'en',
-    status TEXT NOT NULL DEFAULT 'pending',
-    scheduled_at TIMESTAMPTZ NOT NULL,
-    sent_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-COMMENT ON TABLE notifications IS 'User notification log for concert alerts and platform updates';
-COMMENT ON COLUMN notifications.id IS 'Unique notification identifier (UUIDv7)';
-COMMENT ON COLUMN notifications.user_id IS 'Target user for the notification';
-COMMENT ON COLUMN notifications.artist_id IS 'Related artist (if applicable)';
-COMMENT ON COLUMN notifications.concert_id IS 'Related concert (if applicable)';
-COMMENT ON COLUMN notifications.type IS 'Notification type (ALERT, FEATURE_UPDATE, SYSTEM)';
-COMMENT ON COLUMN notifications.title IS 'Short heading for the notification';
-COMMENT ON COLUMN notifications.message IS 'Detailed notification body text';
-COMMENT ON COLUMN notifications.language IS 'Content language (ISO 639-1)';
-COMMENT ON COLUMN notifications.status IS 'Delivery status (pending, sent, failed)';
-COMMENT ON COLUMN notifications.scheduled_at IS 'When the notification is planned to be sent';
-COMMENT ON COLUMN notifications.sent_at IS 'Actual delivery timestamp';
-COMMENT ON COLUMN notifications.created_at IS 'Record creation timestamp';
-COMMENT ON COLUMN notifications.updated_at IS 'Last update timestamp';
-
 -- Posts table
 CREATE TABLE IF NOT EXISTS posts (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -175,9 +143,3 @@ COMMENT ON INDEX idx_events_venue_id IS 'Optimizes listing events by venue';
 
 CREATE INDEX IF NOT EXISTS idx_user_artist_subscriptions_composite ON user_artist_subscriptions(user_id, artist_id);
 COMMENT ON INDEX idx_user_artist_subscriptions_composite IS 'Optimizes subscription check for a user-artist pair';
-
-CREATE INDEX IF NOT EXISTS idx_notifications_user_status ON notifications(user_id, status);
-COMMENT ON INDEX idx_notifications_user_status IS 'Optimizes notification inbox retrieval for users';
-
-CREATE INDEX IF NOT EXISTS idx_notifications_scheduled_at ON notifications(scheduled_at);
-COMMENT ON INDEX idx_notifications_scheduled_at IS 'Speeds up retrieval of notifications due for delivery';
