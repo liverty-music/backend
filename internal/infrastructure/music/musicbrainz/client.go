@@ -109,7 +109,7 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 	if err := api.FromHTTP(err, resp, "musicbrainz api request failed"); err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var data artistResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {

@@ -134,9 +134,9 @@ func TestClient_Search(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 
 				if tt.invalidJSON {
-					w.Write([]byte("invalid json{"))
+					_, _ = w.Write([]byte("invalid json{"))
 				} else {
-					json.NewEncoder(w).Encode(tt.responseBody)
+					_ = json.NewEncoder(w).Encode(tt.responseBody)
 				}
 			}))
 			defer server.Close()
@@ -232,7 +232,7 @@ func TestClient_ListSimilar(t *testing.T) {
 
 				w.WriteHeader(tt.statusCode)
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(tt.responseBody)
+				_ = json.NewEncoder(w).Encode(tt.responseBody)
 			}))
 			defer server.Close()
 
@@ -320,7 +320,7 @@ func TestClient_ListTop(t *testing.T) {
 
 				w.WriteHeader(tt.statusCode)
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(tt.responseBody)
+				_ = json.NewEncoder(w).Encode(tt.responseBody)
 			}))
 			defer server.Close()
 
@@ -349,7 +349,6 @@ func TestClient_ContextTimeout(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Simulate slow response
 			<-r.Context().Done()
-			return
 		}))
 		defer server.Close()
 

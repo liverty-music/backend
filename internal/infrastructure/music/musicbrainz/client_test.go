@@ -96,9 +96,9 @@ func TestClient_GetArtist(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 
 				if tt.invalidJSON {
-					w.Write([]byte("invalid json{"))
+					_, _ = w.Write([]byte("invalid json{"))
 				} else if tt.responseBody != nil {
-					json.NewEncoder(w).Encode(tt.responseBody)
+					_ = json.NewEncoder(w).Encode(tt.responseBody)
 				}
 			}))
 			defer server.Close()

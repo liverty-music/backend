@@ -17,7 +17,7 @@ func LoadTestEnv(t *testing.T, filePath string) {
 		t.Logf("Skip loading env file %s: %v", filePath, err)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

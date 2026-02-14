@@ -16,7 +16,7 @@ import (
 
 func TestClient_Integration(t *testing.T) {
 	testutil.LoadTestEnv(t, "testdata/.env.test")
-	cfg, err := config.Load("")
+	cfg, err := config.Load()
 	require.NoError(t, err)
 
 	if cfg.LastFMAPIKey == "" {

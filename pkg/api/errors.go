@@ -18,14 +18,11 @@ import (
 // If both are nil or resp is 2xx, it returns nil.
 func FromHTTP(err error, resp *http.Response, msg string, attrs ...slog.Attr) error {
 	if err != nil {
-		if ctxErr := context.Cause(context.Background()); ctxErr != nil {
-			// Check if the original error was caused by context cancellation
-		}
 		// Narrow down context errors
-		switch {
-		case err == context.Canceled:
+		switch err {
+		case context.Canceled:
 			return apperr.Wrap(err, codes.Canceled, msg, attrs...)
-		case err == context.DeadlineExceeded:
+		case context.DeadlineExceeded:
 			return apperr.Wrap(err, codes.DeadlineExceeded, msg, attrs...)
 		}
 		return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
