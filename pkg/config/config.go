@@ -216,8 +216,8 @@ type GCPConfig struct {
 
 // JWTConfig represents JWT authentication configuration.
 type JWTConfig struct {
-	// JWT Issuer URL (e.g., https://your-zitadel-instance.com)
-	Issuer string `envconfig:"ISSUER" required:"true"`
+	// OIDC Issuer URL (e.g., https://your-zitadel-instance.com)
+	Issuer string `envconfig:"OIDC_ISSUER_URL" required:"true"`
 
 	// JWKS refresh interval for key rotation
 	JWKSRefreshInterval time.Duration `envconfig:"JWKS_REFRESH_INTERVAL" default:"15m"`
