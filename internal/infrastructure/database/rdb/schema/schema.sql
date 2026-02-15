@@ -7,16 +7,26 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     external_id UUID UNIQUE NOT NULL,
     email TEXT UNIQUE NOT NULL,
-    nickname TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    name TEXT,
+    preferred_language TEXT,
+    country TEXT,
+    time_zone TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 COMMENT ON TABLE users IS 'User profiles and authentication data';
 COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7)';
 COMMENT ON COLUMN users.external_id IS 'Zitadel identity provider user ID (sub claim), used for account sync';
 COMMENT ON COLUMN users.email IS 'Primary contact and login identifier';
-COMMENT ON COLUMN users.nickname IS 'User display name';
+COMMENT ON COLUMN users.name IS 'User display name from identity provider';
+COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g., en, ja)';
+COMMENT ON COLUMN users.country IS 'User country code (ISO 3166-1 alpha-2)';
+COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
+COMMENT ON COLUMN users.is_active IS 'Whether the user account is active';
 COMMENT ON COLUMN users.created_at IS 'Timestamp when the user was created';
+COMMENT ON COLUMN users.updated_at IS 'Timestamp when the user was last updated';
 
 -- Artists table
 CREATE TABLE IF NOT EXISTS artists (
