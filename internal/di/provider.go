@@ -107,7 +107,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
 		cfg.JWT.Issuer,
-		cfg.JWT.Issuer+"/.well-known/jwks.json",
+		cfg.JWT.Issuer+"/oauth/v2/keys",
 		cfg.JWT.JWKSRefreshInterval,
 	)
 	if err != nil {
