@@ -5,6 +5,7 @@
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
+    external_id UUID UNIQUE NOT NULL,
     email TEXT UNIQUE NOT NULL,
     nickname TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -12,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 COMMENT ON TABLE users IS 'User profiles and authentication data';
 COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7)';
+COMMENT ON COLUMN users.external_id IS 'Zitadel identity provider user ID (sub claim), used for account sync';
 COMMENT ON COLUMN users.email IS 'Primary contact and login identifier';
 COMMENT ON COLUMN users.nickname IS 'User display name';
 COMMENT ON COLUMN users.created_at IS 'Timestamp when the user was created';
@@ -119,6 +121,9 @@ COMMENT ON COLUMN posts.artist_id IS 'Author artist identifier';
 COMMENT ON COLUMN posts.content IS 'Post content body';
 
 -- Indexes
+CREATE INDEX IF NOT EXISTS idx_users_external_id ON users(external_id);
+COMMENT ON INDEX idx_users_external_id IS 'Speeds up user lookup by Zitadel identity (sub claim)';
+
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 COMMENT ON INDEX idx_users_email IS 'Speeds up user lookup by email during authentication';
 

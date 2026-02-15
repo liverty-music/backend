@@ -192,6 +192,11 @@ func (m *MockUserRepository) GetByEmail(_ context.Context, _ string) (*entity.Us
 	return nil, nil
 }
 
+// GetByExternalID is a mock implementation that always returns nil.
+func (m *MockUserRepository) GetByExternalID(_ context.Context, _ string) (*entity.User, error) {
+	return nil, nil
+}
+
 // Update is a mock implementation that always returns nil.
 func (m *MockUserRepository) Update(_ context.Context, _ string, _ *entity.NewUser) (*entity.User, error) {
 	return nil, nil

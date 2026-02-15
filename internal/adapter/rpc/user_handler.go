@@ -52,12 +52,19 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
 	}
 
-	if req.Msg.User == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("user is required"))
+	if req.Msg.Email == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("email is required"))
 	}
 
-	// Convert protobuf to domain DTO
-	newUser := mapper.NewUserFromProto(req.Msg.User)
+	// Extract JWT claims from authenticated context (set by auth interceptor)
+	// This is critical for security - we never trust external_id or name from client
+	claims, err := mapper.GetClaimsFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert protobuf + JWT claims to domain DTO
+	newUser := mapper.NewUserFromCreateRequest(claims, req.Msg.Email)
 
 	// Use the use case layer for business logic
 	createdUser, err := h.userUseCase.Create(ctx, newUser)

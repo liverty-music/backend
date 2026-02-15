@@ -17,14 +17,20 @@ type UserRepository struct {
 
 const (
 	getUserQuery = `
-		SELECT id, email, name, preferred_language, country, time_zone, is_active, created_at, updated_at
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, is_active, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 
+	getUserByExternalIDQuery = `
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, is_active, created_at, updated_at
+		FROM users
+		WHERE external_id = $1
+	`
+
 	insertUserQuery = `
-		INSERT INTO users (email, name, preferred_language, country, time_zone, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO users (external_id, email, name, preferred_language, country, time_zone, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at
 	`
 	deleteUserQuery = `
@@ -44,6 +50,7 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	}
 
 	user := &entity.User{
+		ExternalID:        params.ExternalID,
 		Email:             params.Email,
 		Name:              params.Name,
 		PreferredLanguage: params.PreferredLanguage,
@@ -53,7 +60,7 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	}
 
 	err := r.db.Pool.QueryRow(ctx, insertUserQuery,
-		user.Email, user.Name, user.PreferredLanguage, user.Country, user.TimeZone, user.IsActive,
+		user.ExternalID, user.Email, user.Name, user.PreferredLanguage, user.Country, user.TimeZone, user.IsActive,
 	).Scan(&user.ID, &user.CreateTime, &user.UpdateTime)
 	if err != nil {
 		return nil, toAppErr(err, "failed to create user", slog.String("email", user.Email))
@@ -70,10 +77,27 @@ func (r *UserRepository) Get(ctx context.Context, id string) (*entity.User, erro
 
 	user := &entity.User{}
 	err := r.db.Pool.QueryRow(ctx, getUserQuery, id).Scan(
-		&user.ID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.IsActive, &user.CreateTime, &user.UpdateTime,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user", slog.String("user_id", id))
+	}
+
+	return user, nil
+}
+
+// GetByExternalID retrieves a user by identity provider ID from the database.
+func (r *UserRepository) GetByExternalID(ctx context.Context, externalID string) (*entity.User, error) {
+	if externalID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "external ID cannot be empty")
+	}
+
+	user := &entity.User{}
+	err := r.db.Pool.QueryRow(ctx, getUserByExternalIDQuery, externalID).Scan(
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+	)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get user by external ID", slog.String("external_id", externalID))
 	}
 
 	return user, nil

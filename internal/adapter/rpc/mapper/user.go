@@ -1,8 +1,13 @@
 package mapper
 
 import (
+	"context"
+	"errors"
+
 	proto "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/auth"
 )
 
 // UserToProto converts domain User entity to protobuf User.
@@ -18,20 +23,34 @@ func UserToProto(user *entity.User) *proto.User {
 		Email: &proto.UserEmail{
 			Value: user.Email,
 		},
+		ExternalId: &proto.UserExternalId{
+			Value: user.ExternalID,
+		},
+		Name: user.Name,
 	}
 }
 
-// NewUserFromProto converts protobuf User to domain NewUser for creation.
-func NewUserFromProto(protoUser *proto.User) *entity.NewUser {
-	if protoUser == nil {
+// GetClaimsFromContext extracts JWT claims from the authenticated context.
+// Returns an error if the context is not authenticated or claims are missing.
+func GetClaimsFromContext(ctx context.Context) (*auth.Claims, error) {
+	claims, ok := auth.GetClaims(ctx)
+	if !ok || claims == nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+	return claims, nil
+}
+
+// NewUserFromCreateRequest converts JWT claims and email from CreateRequest to domain NewUser.
+// Security note: external_id and name are extracted from JWT claims (not from client request)
+// to prevent client-side identity tampering.
+func NewUserFromCreateRequest(claims *auth.Claims, email *proto.UserEmail) *entity.NewUser {
+	if claims == nil || email == nil {
 		return nil
 	}
 
-	newUser := &entity.NewUser{}
-
-	if protoUser.Email != nil {
-		newUser.Email = protoUser.Email.Value
+	return &entity.NewUser{
+		ExternalID: claims.Sub,
+		Email:      email.Value,
+		Name:       claims.Name,
 	}
-
-	return newUser
 }

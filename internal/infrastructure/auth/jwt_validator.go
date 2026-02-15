@@ -44,13 +44,13 @@ func NewJWTValidator(issuer, jwksURL string, refreshInterval time.Duration) (*JW
 	}, nil
 }
 
-// ValidateToken validates a JWT token and returns the user ID (sub claim).
-func (v *JWTValidator) ValidateToken(tokenString string) (string, error) {
+// ValidateToken validates a JWT token and returns the claims.
+func (v *JWTValidator) ValidateToken(tokenString string) (*Claims, error) {
 	// Get the JWKS for validation
 	ctx := context.Background()
 	keySet, err := v.jwks.Get(ctx, v.jwksURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to get JWKS: %w", err)
+		return nil, fmt.Errorf("failed to get JWKS: %w", err)
 	}
 
 	// Parse and validate the token
@@ -61,14 +61,36 @@ func (v *JWTValidator) ValidateToken(tokenString string) (string, error) {
 		jwt.WithIssuer(v.issuer),
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to validate token: %w", err)
+		return nil, fmt.Errorf("failed to validate token: %w", err)
 	}
 
-	// Extract the subject (user ID) from the token
-	userID := token.Subject()
-	if userID == "" {
-		return "", fmt.Errorf("token missing subject claim")
+	// Extract claims from the token
+	sub := token.Subject()
+	if sub == "" {
+		return nil, fmt.Errorf("token missing subject claim")
 	}
 
-	return userID, nil
+	// Extract email from private claims
+	email, ok := token.Get("email")
+	if !ok {
+		return nil, fmt.Errorf("token missing email claim")
+	}
+	emailStr, ok := email.(string)
+	if !ok {
+		return nil, fmt.Errorf("email claim is not a string")
+	}
+
+	// Extract name from private claims (optional - may be empty)
+	name := ""
+	if nameVal, ok := token.Get("name"); ok {
+		if nameStr, ok := nameVal.(string); ok {
+			name = nameStr
+		}
+	}
+
+	return &Claims{
+		Sub:   sub,
+		Email: emailStr,
+		Name:  name,
+	}, nil
 }
