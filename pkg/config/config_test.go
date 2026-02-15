@@ -88,7 +88,7 @@ func TestLoad(t *testing.T) {
 				"GCP_PROJECT_ID":                  "custom-project",
 				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "custom-datastore",
 				"OIDC_ISSUER_URL": "https://custom-issuer.com",
-				"JWT_JWKS_REFRESH_INTERVAL":       "30m",
+				"JWKS_REFRESH_INTERVAL":       "30m",
 			},
 			want: &Config{
 				Environment:     "production",
