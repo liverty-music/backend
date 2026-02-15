@@ -31,6 +31,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.39.0
 	google.golang.org/genai v1.44.0
 	google.golang.org/genproto v0.0.0-20251202230838-ff82c1b0f217
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -173,7 +174,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251222181119-0a764e51fe1b // indirect
 	google.golang.org/grpc v1.78.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	mvdan.cc/gofumpt v0.9.1 // indirect
 	pluginrpc.com/pluginrpc v0.5.0 // indirect
