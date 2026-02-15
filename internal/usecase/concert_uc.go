@@ -109,25 +109,25 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		return nil, err
 	}
 
-	// 2. Get Official Site
+	// 3. Get Official Site
 	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Get existing upcoming concerts
+	// 4. Get existing upcoming concerts
 	existing, err := uc.concertRepo.ListByArtist(ctx, artistID, true)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Mark search as in-progress (prevents concurrent redundant API calls)
+	// 5. Mark search as in-progress (prevents concurrent redundant API calls)
 	if err := uc.searchLogRepo.Upsert(ctx, artistID); err != nil {
 		uc.logger.Error(ctx, "failed to upsert search log before Gemini call", err, slog.String("artist_id", artistID))
 		// Continue anyway - this is non-fatal
 	}
 
-	// 5. Search new concerts via external API
+	// 6. Search new concerts via external API
 	scraped, err := uc.concertSearcher.Search(ctx, artist, site, time.Now())
 	if err != nil {
 		// Clean up search log on failure to allow retry
