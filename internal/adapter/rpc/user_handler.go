@@ -52,10 +52,6 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
 	}
 
-	if req.Msg.Email == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("email is required"))
-	}
-
 	// Extract JWT claims from authenticated context (set by auth interceptor)
 	// This is critical for security - we extract all identity fields from validated JWT claims
 	// (external_id, email, name) and never trust client-provided identity data
