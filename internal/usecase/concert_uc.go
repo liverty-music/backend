@@ -37,9 +37,13 @@ type concertUseCase struct {
 	artistRepo      entity.ArtistRepository
 	concertRepo     entity.ConcertRepository
 	venueRepo       entity.VenueRepository
+	searchLogRepo   entity.SearchLogRepository
 	concertSearcher entity.ConcertSearcher
 	logger          *logging.Logger
 }
+
+// searchCacheTTL is the duration for which a search log is considered fresh.
+const searchCacheTTL = 24 * time.Hour
 
 // Compile-time interface compliance check
 var _ ConcertUseCase = (*concertUseCase)(nil)
@@ -50,6 +54,7 @@ func NewConcertUseCase(
 	artistRepo entity.ArtistRepository,
 	concertRepo entity.ConcertRepository,
 	venueRepo entity.VenueRepository,
+	searchLogRepo entity.SearchLogRepository,
 	concertSearcher entity.ConcertSearcher,
 	logger *logging.Logger,
 ) ConcertUseCase {
@@ -57,6 +62,7 @@ func NewConcertUseCase(
 		artistRepo:      artistRepo,
 		concertRepo:     concertRepo,
 		venueRepo:       venueRepo,
+		searchLogRepo:   searchLogRepo,
 		concertSearcher: concertSearcher,
 		logger:          logger,
 	}
@@ -77,12 +83,27 @@ func (uc *concertUseCase) ListByArtist(ctx context.Context, artistID string) ([]
 }
 
 // SearchNewConcerts discovers new concerts using external sources.
+// If the artist was searched within the last 24 hours, it skips the external
+// API call and returns an empty result.
 func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error) {
 	if artistID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "artist ID is required")
 	}
 
-	// 1. Get Artist
+	// 1. Check search log — skip external API if recently searched
+	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
+	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
+		return nil, err
+	}
+	if searchLog != nil && time.Since(searchLog.SearchTime) < searchCacheTTL {
+		uc.logger.Debug(ctx, "skipping external search, recently searched",
+			slog.String("artist_id", artistID),
+			slog.Time("search_time", searchLog.SearchTime),
+		)
+		return nil, nil
+	}
+
+	// 2. Get Artist
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
 		return nil, err
@@ -185,6 +206,11 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		}
 
 		discovered = append(discovered, concert)
+	}
+
+	// Record that this artist was searched
+	if err := uc.searchLogRepo.Upsert(ctx, artistID); err != nil {
+		uc.logger.Error(ctx, "failed to upsert search log", err, slog.String("artist_id", artistID))
 	}
 
 	return discovered, nil

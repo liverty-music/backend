@@ -61,7 +61,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	artistRepo := rdb.NewArtistRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
-	_ = venueRepo // VenueRepo is not used by UseCases yet but registered in registry if needed
+	searchLogRepo := rdb.NewSearchLogRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -102,7 +102,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, artistCache, logger)
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, geminiSearcher, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, logger)
 
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(

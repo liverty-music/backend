@@ -16,6 +16,7 @@ packages:
       NotificationRepository:
       UserRepository:
       UserArtistSubscriptionRepository:
+      SearchLogRepository:
       VenueRepository:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
