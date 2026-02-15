@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // UserToProto converts domain User entity to protobuf User.
@@ -26,7 +27,8 @@ func UserToProto(user *entity.User) *proto.User {
 		ExternalId: &proto.UserExternalId{
 			Value: user.ExternalID,
 		},
-		Name: user.Name,
+		Name:       user.Name,
+		CreateTime: timestamppb.New(user.CreateTime),
 	}
 }
 
@@ -40,17 +42,17 @@ func GetClaimsFromContext(ctx context.Context) (*auth.Claims, error) {
 	return claims, nil
 }
 
-// NewUserFromCreateRequest converts JWT claims and email from CreateRequest to domain NewUser.
-// Security note: external_id and name are extracted from JWT claims (not from client request)
-// to prevent client-side identity tampering.
-func NewUserFromCreateRequest(claims *auth.Claims, email *proto.UserEmail) *entity.NewUser {
-	if claims == nil || email == nil {
+// NewUserFromCreateRequest converts JWT claims to domain NewUser.
+// Security note: All identity fields (external_id, email, name) are extracted from
+// validated JWT claims to prevent client-side identity tampering.
+func NewUserFromCreateRequest(claims *auth.Claims) *entity.NewUser {
+	if claims == nil {
 		return nil
 	}
 
 	return &entity.NewUser{
 		ExternalID: claims.Sub,
-		Email:      email.Value,
+		Email:      claims.Email,
 		Name:       claims.Name,
 	}
 }

@@ -57,14 +57,15 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 	}
 
 	// Extract JWT claims from authenticated context (set by auth interceptor)
-	// This is critical for security - we never trust external_id or name from client
+	// This is critical for security - we extract all identity fields from validated JWT claims
+	// (external_id, email, name) and never trust client-provided identity data
 	claims, err := mapper.GetClaimsFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert protobuf + JWT claims to domain DTO
-	newUser := mapper.NewUserFromCreateRequest(claims, req.Msg.Email)
+	// Convert JWT claims to domain DTO
+	newUser := mapper.NewUserFromCreateRequest(claims)
 
 	// Use the use case layer for business logic
 	createdUser, err := h.userUseCase.Create(ctx, newUser)
