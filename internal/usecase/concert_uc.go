@@ -137,7 +137,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		return nil, err
 	}
 
-	// 6. Deduplicate and map to entities
+	// 7. Deduplicate and map to entities
 	var discovered []*entity.Concert
 	seen := make(map[string]bool)
 	for _, ex := range existing {
