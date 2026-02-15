@@ -139,7 +139,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					{Title: "New Concert", VenueName: "Test Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 				}
 
-				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -189,12 +189,12 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					{Title: "New Concert", VenueName: "New Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 				}
 
-				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
-				d.venueRepo.EXPECT().GetByName(ctx, "New Venue").Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+				d.venueRepo.EXPECT().GetByName(ctx, "New Venue").Return(nil, apperr.ErrNotFound).Once()
 				d.venueRepo.EXPECT().Create(ctx, mock.MatchedBy(func(v *entity.Venue) bool {
 					return v.Name == "New Venue" && v.ID != ""
 				})).Return(nil).Once()
@@ -224,7 +224,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					{Title: "New Concert", VenueName: "Existing Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 				}
 
-				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
@@ -254,12 +254,12 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					{Title: "New Concert", VenueName: "Race Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 				}
 
-				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
-				d.venueRepo.EXPECT().GetByName(ctx, "Race Venue").Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+				d.venueRepo.EXPECT().GetByName(ctx, "Race Venue").Return(nil, apperr.ErrNotFound).Once()
 				d.venueRepo.EXPECT().Create(ctx, mock.Anything).Return(apperr.New(codes.AlreadyExists, "already exists")).Once()
 				d.venueRepo.EXPECT().GetByName(ctx, "Race Venue").Return(&entity.Venue{ID: "v-race", Name: "Race Venue"}, nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
@@ -284,12 +284,12 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					{Title: "C1", VenueName: "V1", LocalEventDate: time.Now().Add(24 * time.Hour)},
 				}
 
-				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(scraped, nil).Once()
-				d.venueRepo.EXPECT().GetByName(ctx, "V1").Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+				d.venueRepo.EXPECT().GetByName(ctx, "V1").Return(nil, apperr.ErrNotFound).Once()
 				d.venueRepo.EXPECT().Create(ctx, mock.Anything).Return(assert.AnError).Once()
 				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 			},
@@ -306,7 +306,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					{Title: "C1", VenueName: "V1", LocalEventDate: time.Now().Add(24 * time.Hour)},
 				}
 
-				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.New(codes.NotFound, "not found")).Once()
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
