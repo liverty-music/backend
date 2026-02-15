@@ -22,6 +22,53 @@ func (_m *MockSearchLogRepository) EXPECT() *MockSearchLogRepository_Expecter {
 	return &MockSearchLogRepository_Expecter{mock: &_m.Mock}
 }
 
+// Delete provides a mock function with given fields: ctx, artistID
+func (_m *MockSearchLogRepository) Delete(ctx context.Context, artistID string) error {
+	ret := _m.Called(ctx, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, artistID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSearchLogRepository_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
+type MockSearchLogRepository_Delete_Call struct {
+	*mock.Call
+}
+
+// Delete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockSearchLogRepository_Expecter) Delete(ctx interface{}, artistID interface{}) *MockSearchLogRepository_Delete_Call {
+	return &MockSearchLogRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, artistID)}
+}
+
+func (_c *MockSearchLogRepository_Delete_Call) Run(run func(ctx context.Context, artistID string)) *MockSearchLogRepository_Delete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockSearchLogRepository_Delete_Call) Return(_a0 error) *MockSearchLogRepository_Delete_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSearchLogRepository_Delete_Call) RunAndReturn(run func(context.Context, string) error) *MockSearchLogRepository_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetByArtistID provides a mock function with given fields: ctx, artistID
 func (_m *MockSearchLogRepository) GetByArtistID(ctx context.Context, artistID string) (*entity.SearchLog, error) {
 	ret := _m.Called(ctx, artistID)

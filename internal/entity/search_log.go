@@ -29,4 +29,11 @@ type SearchLogRepository interface {
 	//
 	//  - Internal: If the upsert fails.
 	Upsert(ctx context.Context, artistID string) error
+
+	// Delete removes the search log for a specific artist.
+	//
+	// # Possible errors
+	//
+	//  - Internal: If the delete fails.
+	Delete(ctx context.Context, artistID string) error
 }

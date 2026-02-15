@@ -23,6 +23,10 @@ const (
 		VALUES ($1, NOW())
 		ON CONFLICT (artist_id) DO UPDATE SET searched_at = NOW()
 	`
+	deleteSearchLogQuery = `
+		DELETE FROM latest_search_logs
+		WHERE artist_id = $1
+	`
 )
 
 // NewSearchLogRepository creates a new search log repository instance.
@@ -45,6 +49,15 @@ func (r *SearchLogRepository) Upsert(ctx context.Context, artistID string) error
 	_, err := r.db.Pool.Exec(ctx, upsertSearchLogQuery, artistID)
 	if err != nil {
 		return toAppErr(err, "failed to upsert search log", slog.String("artist_id", artistID))
+	}
+	return nil
+}
+
+// Delete removes the search log for a specific artist.
+func (r *SearchLogRepository) Delete(ctx context.Context, artistID string) error {
+	_, err := r.db.Pool.Exec(ctx, deleteSearchLogQuery, artistID)
+	if err != nil {
+		return toAppErr(err, "failed to delete search log", slog.String("artist_id", artistID))
 	}
 	return nil
 }

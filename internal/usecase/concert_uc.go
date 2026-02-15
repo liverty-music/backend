@@ -121,13 +121,23 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		return nil, err
 	}
 
-	// 4. Search new concerts
+	// 4. Mark search as in-progress (prevents concurrent redundant API calls)
+	if err := uc.searchLogRepo.Upsert(ctx, artistID); err != nil {
+		uc.logger.Error(ctx, "failed to upsert search log before Gemini call", err, slog.String("artist_id", artistID))
+		// Continue anyway - this is non-fatal
+	}
+
+	// 5. Search new concerts via external API
 	scraped, err := uc.concertSearcher.Search(ctx, artist, site, time.Now())
 	if err != nil {
+		// Clean up search log on failure to allow retry
+		if delErr := uc.searchLogRepo.Delete(ctx, artistID); delErr != nil {
+			uc.logger.Error(ctx, "failed to delete search log after Gemini failure", delErr, slog.String("artist_id", artistID))
+		}
 		return nil, err
 	}
 
-	// 5. Deduplicate and map to entities
+	// 6. Deduplicate and map to entities
 	var discovered []*entity.Concert
 	seen := make(map[string]bool)
 	for _, ex := range existing {
@@ -206,11 +216,6 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		}
 
 		discovered = append(discovered, concert)
-	}
-
-	// Record that this artist was searched
-	if err := uc.searchLogRepo.Upsert(ctx, artistID); err != nil {
-		uc.logger.Error(ctx, "failed to upsert search log", err, slog.String("artist_id", artistID))
 	}
 
 	return discovered, nil

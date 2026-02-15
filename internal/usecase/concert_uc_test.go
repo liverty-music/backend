@@ -143,12 +143,12 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once() // Before Gemini call
 				d.searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 				d.venueRepo.EXPECT().GetByName(ctx, "Test Venue").Return(&entity.Venue{ID: "v1", Name: "Test Venue"}, nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
 					return c.ArtistID == artistID && c.Title == "New Concert"
 				})).Return(nil).Once()
-				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 			},
 			want:    1,
 			wantErr: nil,
@@ -288,10 +288,11 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(scraped, nil).Once()
 				d.venueRepo.EXPECT().GetByName(ctx, "V1").Return(nil, apperr.ErrNotFound).Once()
 				d.venueRepo.EXPECT().Create(ctx, mock.Anything).Return(assert.AnError).Once()
-				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
+
 			},
 			want:    0,
 			wantErr: nil,
@@ -310,13 +311,32 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(scraped, nil).Once()
 				d.venueRepo.EXPECT().GetByName(ctx, "V1").Return(&entity.Venue{ID: "v1"}, nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.Anything).Return(assert.AnError).Once()
-				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
+
 			},
 			want:    0,
 			wantErr: nil,
+		},
+		{
+			name: "failure - Gemini search fails, deletes search log",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				artistID := "artist-1"
+
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
+				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
+				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once() // Before Gemini
+				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError).Once()
+				d.searchLogRepo.EXPECT().Delete(ctx, artistID).Return(nil).Once() // Clean up on failure
+			},
+			want:    0,
+			wantErr: assert.AnError,
 		},
 	}
 
