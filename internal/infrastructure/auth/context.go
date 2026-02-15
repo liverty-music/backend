@@ -6,17 +6,28 @@ import "context"
 // contextKey is a type-safe key for storing values in context.
 type contextKey struct{}
 
-// userIDKey is the context key for storing the authenticated user ID.
-var userIDKey = contextKey{}
+// claimsKey is the context key for storing the authenticated user claims.
+var claimsKey = contextKey{}
 
-// WithUserID returns a new context with the given user ID.
-func WithUserID(ctx context.Context, userID string) context.Context {
-	return context.WithValue(ctx, userIDKey, userID)
+// WithClaims returns a new context with the given JWT claims.
+func WithClaims(ctx context.Context, claims *Claims) context.Context {
+	return context.WithValue(ctx, claimsKey, claims)
 }
 
-// GetUserID retrieves the user ID from the context.
+// GetClaims retrieves the JWT claims from the context.
+// Returns the claims and true if found, or nil and false if not found.
+func GetClaims(ctx context.Context) (*Claims, bool) {
+	claims, ok := ctx.Value(claimsKey).(*Claims)
+	return claims, ok
+}
+
+// GetUserID retrieves the user ID (sub claim) from the context.
 // Returns the user ID and true if found, or empty string and false if not found.
+// Deprecated: Use GetClaims instead for full claim access.
 func GetUserID(ctx context.Context) (string, bool) {
-	userID, ok := ctx.Value(userIDKey).(string)
-	return userID, ok
+	claims, ok := GetClaims(ctx)
+	if !ok || claims == nil {
+		return "", false
+	}
+	return claims.Sub, true
 }

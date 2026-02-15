@@ -246,6 +246,65 @@ func (_c *MockUserRepository_GetByEmail_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// GetByExternalID provides a mock function with given fields: ctx, externalID
+func (_m *MockUserRepository) GetByExternalID(ctx context.Context, externalID string) (*entity.User, error) {
+	ret := _m.Called(ctx, externalID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByExternalID")
+	}
+
+	var r0 *entity.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.User, error)); ok {
+		return rf(ctx, externalID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.User); ok {
+		r0 = rf(ctx, externalID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, externalID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserRepository_GetByExternalID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByExternalID'
+type MockUserRepository_GetByExternalID_Call struct {
+	*mock.Call
+}
+
+// GetByExternalID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - externalID string
+func (_e *MockUserRepository_Expecter) GetByExternalID(ctx interface{}, externalID interface{}) *MockUserRepository_GetByExternalID_Call {
+	return &MockUserRepository_GetByExternalID_Call{Call: _e.mock.On("GetByExternalID", ctx, externalID)}
+}
+
+func (_c *MockUserRepository_GetByExternalID_Call) Run(run func(ctx context.Context, externalID string)) *MockUserRepository_GetByExternalID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_GetByExternalID_Call) Return(_a0 *entity.User, _a1 error) *MockUserRepository_GetByExternalID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserRepository_GetByExternalID_Call) RunAndReturn(run func(context.Context, string) (*entity.User, error)) *MockUserRepository_GetByExternalID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // List provides a mock function with given fields: ctx, limit, offset
 func (_m *MockUserRepository) List(ctx context.Context, limit int, offset int) ([]*entity.User, error) {
 	ret := _m.Called(ctx, limit, offset)

@@ -9,6 +9,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 // testMsg is a simple type for testing
@@ -16,15 +17,20 @@ type testMsg struct{}
 
 func TestAuthInterceptor_WrapUnary_ValidToken(t *testing.T) {
 	mockValidator := mocks.NewMockTokenValidator(t)
-	mockValidator.On("ValidateToken", "valid-token").Return("user-123", nil)
+	expectedClaims := &auth.Claims{
+		Sub:   "user-123",
+		Email: "test@example.com",
+		Name:  "Test User",
+	}
+	mockValidator.On("ValidateToken", mock.Anything, "valid-token").Return(expectedClaims, nil)
 
 	interceptor := auth.NewAuthInterceptor(mockValidator)
 
-	var capturedUserID string
+	var capturedClaims *auth.Claims
 	handler := func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		userID, ok := auth.GetUserID(ctx)
+		claims, ok := auth.GetClaims(ctx)
 		if ok {
-			capturedUserID = userID
+			capturedClaims = claims
 		}
 		return connect.NewResponse(&testMsg{}), nil
 	}
@@ -37,7 +43,7 @@ func TestAuthInterceptor_WrapUnary_ValidToken(t *testing.T) {
 	_, err := wrapped(context.Background(), req)
 
 	assert.NoError(t, err)
-	assert.Equal(t, "user-123", capturedUserID)
+	assert.Equal(t, expectedClaims, capturedClaims)
 	mockValidator.AssertExpectations(t)
 }
 
@@ -70,7 +76,7 @@ func TestAuthInterceptor_WrapUnary_NoAuthHeader(t *testing.T) {
 
 func TestAuthInterceptor_WrapUnary_InvalidToken(t *testing.T) {
 	mockValidator := mocks.NewMockTokenValidator(t)
-	mockValidator.On("ValidateToken", "invalid-token").Return("", errors.New("invalid token"))
+	mockValidator.On("ValidateToken", mock.Anything, "invalid-token").Return((*auth.Claims)(nil), errors.New("invalid token"))
 
 	interceptor := auth.NewAuthInterceptor(mockValidator)
 

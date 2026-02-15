@@ -8,9 +8,19 @@ import (
 	"connectrpc.com/connect"
 )
 
-// TokenValidator validates JWT tokens and returns the user ID.
+// Claims represents JWT claims extracted from the token.
+type Claims struct {
+	// Sub is the subject claim (external_id/user ID from identity provider).
+	Sub string
+	// Email is the user's email address.
+	Email string
+	// Name is the user's display name.
+	Name string
+}
+
+// TokenValidator validates JWT tokens and returns the claims.
 type TokenValidator interface {
-	ValidateToken(tokenString string) (string, error)
+	ValidateToken(ctx context.Context, tokenString string) (*Claims, error)
 }
 
 // AuthInterceptor is a Connect-RPC interceptor that validates JWT tokens.
@@ -56,14 +66,14 @@ func (i *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 			)
 		}
 
-		// Validate token and extract user ID
-		userID, err := i.validator.ValidateToken(tokenString)
+		// Validate token and extract claims
+		claims, err := i.validator.ValidateToken(ctx, tokenString)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeUnauthenticated, err)
 		}
 
-		// Add user ID to context
-		ctx = WithUserID(ctx, userID)
+		// Add claims to context
+		ctx = WithClaims(ctx, claims)
 
 		// Call next handler with authenticated context
 		return next(ctx, req)
@@ -104,14 +114,14 @@ func (i *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc
 			)
 		}
 
-		// Validate token and extract user ID
-		userID, err := i.validator.ValidateToken(tokenString)
+		// Validate token and extract claims
+		claims, err := i.validator.ValidateToken(ctx, tokenString)
 		if err != nil {
 			return connect.NewError(connect.CodeUnauthenticated, err)
 		}
 
-		// Add user ID to context
-		ctx = WithUserID(ctx, userID)
+		// Add claims to context
+		ctx = WithClaims(ctx, claims)
 
 		// Call next handler with authenticated context
 		return next(ctx, conn)

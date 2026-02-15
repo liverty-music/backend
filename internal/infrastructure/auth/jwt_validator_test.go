@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
@@ -59,7 +60,7 @@ func setupTestJWKS(t *testing.T) (*httptest.Server, *rsa.PrivateKey, jwk.Set) {
 }
 
 // createTestToken creates a signed JWT token for testing.
-func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, issuer, subject string, expiry time.Duration) string {
+func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, issuer, subject, email, name string, expiry time.Duration) string {
 	t.Helper()
 
 	// Create token
@@ -72,6 +73,18 @@ func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, issuer, subject s
 	err = token.Set(jwt.SubjectKey, subject)
 	if err != nil {
 		t.Fatalf("failed to set subject: %v", err)
+	}
+
+	err = token.Set("email", email)
+	if err != nil {
+		t.Fatalf("failed to set email: %v", err)
+	}
+
+	if name != "" {
+		err = token.Set("name", name)
+		if err != nil {
+			t.Fatalf("failed to set name: %v", err)
+		}
 	}
 
 	err = token.Set(jwt.IssuedAtKey, time.Now())
@@ -144,7 +157,7 @@ func TestNewJWTValidator(t *testing.T) {
 func TestValidateToken(t *testing.T) {
 	t.Parallel()
 
-	t.Run("valid token", func(t *testing.T) {
+	t.Run("valid token with all claims", func(t *testing.T) {
 		t.Parallel()
 
 		server, privateKey, _ := setupTestJWKS(t)
@@ -155,15 +168,50 @@ func TestValidateToken(t *testing.T) {
 			t.Fatalf("NewJWTValidator failed: %v", err)
 		}
 
-		tokenString := createTestToken(t, privateKey, server.URL, "user-123", 1*time.Hour)
+		tokenString := createTestToken(t, privateKey, server.URL, "user-123", "test@example.com", "Test User", 1*time.Hour)
 
-		userID, err := validator.ValidateToken(tokenString)
+		claims, err := validator.ValidateToken(context.Background(), tokenString)
 		if err != nil {
 			t.Fatalf("ValidateToken failed: %v", err)
 		}
 
-		if userID != "user-123" {
-			t.Errorf("userID = %q, want %q", userID, "user-123")
+		if claims.Sub != "user-123" {
+			t.Errorf("claims.Sub = %q, want %q", claims.Sub, "user-123")
+		}
+		if claims.Email != "test@example.com" {
+			t.Errorf("claims.Email = %q, want %q", claims.Email, "test@example.com")
+		}
+		if claims.Name != "Test User" {
+			t.Errorf("claims.Name = %q, want %q", claims.Name, "Test User")
+		}
+	})
+
+	t.Run("valid token without name", func(t *testing.T) {
+		t.Parallel()
+
+		server, privateKey, _ := setupTestJWKS(t)
+		defer server.Close()
+
+		validator, err := NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+		if err != nil {
+			t.Fatalf("NewJWTValidator failed: %v", err)
+		}
+
+		tokenString := createTestToken(t, privateKey, server.URL, "user-456", "another@example.com", "", 1*time.Hour)
+
+		claims, err := validator.ValidateToken(context.Background(), tokenString)
+		if err != nil {
+			t.Fatalf("ValidateToken failed: %v", err)
+		}
+
+		if claims.Sub != "user-456" {
+			t.Errorf("claims.Sub = %q, want %q", claims.Sub, "user-456")
+		}
+		if claims.Email != "another@example.com" {
+			t.Errorf("claims.Email = %q, want %q", claims.Email, "another@example.com")
+		}
+		if claims.Name != "" {
+			t.Errorf("claims.Name = %q, want empty string", claims.Name)
 		}
 	})
 
@@ -178,9 +226,9 @@ func TestValidateToken(t *testing.T) {
 			t.Fatalf("NewJWTValidator failed: %v", err)
 		}
 
-		tokenString := createTestToken(t, privateKey, server.URL, "user-123", -1*time.Hour)
+		tokenString := createTestToken(t, privateKey, server.URL, "user-123", "test@example.com", "Test User", -1*time.Hour)
 
-		_, err = validator.ValidateToken(tokenString)
+		_, err = validator.ValidateToken(context.Background(), tokenString)
 		if err == nil {
 			t.Error("ValidateToken should fail with expired token")
 		}
@@ -197,9 +245,9 @@ func TestValidateToken(t *testing.T) {
 			t.Fatalf("NewJWTValidator failed: %v", err)
 		}
 
-		tokenString := createTestToken(t, privateKey, "https://wrong-issuer.com", "user-123", 1*time.Hour)
+		tokenString := createTestToken(t, privateKey, "https://wrong-issuer.com", "user-123", "test@example.com", "Test User", 1*time.Hour)
 
-		_, err = validator.ValidateToken(tokenString)
+		_, err = validator.ValidateToken(context.Background(), tokenString)
 		if err == nil {
 			t.Error("ValidateToken should fail with wrong issuer")
 		}
@@ -216,7 +264,7 @@ func TestValidateToken(t *testing.T) {
 			t.Fatalf("NewJWTValidator failed: %v", err)
 		}
 
-		_, err = validator.ValidateToken("invalid.token.here")
+		_, err = validator.ValidateToken(context.Background(), "invalid.token.here")
 		if err == nil {
 			t.Error("ValidateToken should fail with malformed token")
 		}

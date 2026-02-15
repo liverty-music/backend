@@ -11,6 +11,8 @@ import (
 type User struct {
 	// ID is the unique identifier for the user (UUID).
 	ID                string
+	// ExternalID is the identity provider's user identifier (Zitadel sub claim).
+	ExternalID        string
 	// Email is the user's email address.
 	Email             string
 	// Name is the user's display name.
@@ -31,6 +33,8 @@ type User struct {
 
 // NewUser represents data for creating a new user.
 type NewUser struct {
+	// ExternalID is the identity provider's user identifier (Zitadel sub claim).
+	ExternalID        string
 	// Email is the user's email address.
 	Email             string
 	// Name is the user's display name.
@@ -59,6 +63,13 @@ type UserRepository interface {
 	//
 	//  - NotFound: If the user does not exist.
 	Get(ctx context.Context, id string) (*User, error)
+
+	// GetByExternalID retrieves a user by identity provider ID.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
+	GetByExternalID(ctx context.Context, externalID string) (*User, error)
 
 	// GetByEmail retrieves a user by email address.
 	//
