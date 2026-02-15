@@ -45,9 +45,8 @@ func NewJWTValidator(issuer, jwksURL string, refreshInterval time.Duration) (*JW
 }
 
 // ValidateToken validates a JWT token and returns the claims.
-func (v *JWTValidator) ValidateToken(tokenString string) (*Claims, error) {
+func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*Claims, error) {
 	// Get the JWKS for validation
-	ctx := context.Background()
 	keySet, err := v.jwks.Get(ctx, v.jwksURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JWKS: %w", err)

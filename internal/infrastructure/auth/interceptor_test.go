@@ -9,6 +9,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 // testMsg is a simple type for testing
@@ -21,7 +22,7 @@ func TestAuthInterceptor_WrapUnary_ValidToken(t *testing.T) {
 		Email: "test@example.com",
 		Name:  "Test User",
 	}
-	mockValidator.On("ValidateToken", "valid-token").Return(expectedClaims, nil)
+	mockValidator.On("ValidateToken", mock.Anything, "valid-token").Return(expectedClaims, nil)
 
 	interceptor := auth.NewAuthInterceptor(mockValidator)
 
@@ -75,7 +76,7 @@ func TestAuthInterceptor_WrapUnary_NoAuthHeader(t *testing.T) {
 
 func TestAuthInterceptor_WrapUnary_InvalidToken(t *testing.T) {
 	mockValidator := mocks.NewMockTokenValidator(t)
-	mockValidator.On("ValidateToken", "invalid-token").Return((*auth.Claims)(nil), errors.New("invalid token"))
+	mockValidator.On("ValidateToken", mock.Anything, "invalid-token").Return((*auth.Claims)(nil), errors.New("invalid token"))
 
 	interceptor := auth.NewAuthInterceptor(mockValidator)
 

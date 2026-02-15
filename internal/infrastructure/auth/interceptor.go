@@ -20,7 +20,7 @@ type Claims struct {
 
 // TokenValidator validates JWT tokens and returns the claims.
 type TokenValidator interface {
-	ValidateToken(tokenString string) (*Claims, error)
+	ValidateToken(ctx context.Context, tokenString string) (*Claims, error)
 }
 
 // AuthInterceptor is a Connect-RPC interceptor that validates JWT tokens.
@@ -67,7 +67,7 @@ func (i *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 		}
 
 		// Validate token and extract claims
-		claims, err := i.validator.ValidateToken(tokenString)
+		claims, err := i.validator.ValidateToken(ctx, tokenString)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeUnauthenticated, err)
 		}
@@ -115,7 +115,7 @@ func (i *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc
 		}
 
 		// Validate token and extract claims
-		claims, err := i.validator.ValidateToken(tokenString)
+		claims, err := i.validator.ValidateToken(ctx, tokenString)
 		if err != nil {
 			return connect.NewError(connect.CodeUnauthenticated, err)
 		}

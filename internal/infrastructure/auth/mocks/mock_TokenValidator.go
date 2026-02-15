@@ -3,7 +3,10 @@
 package mocks
 
 import (
+	context "context"
+
 	auth "github.com/liverty-music/backend/internal/infrastructure/auth"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -20,9 +23,9 @@ func (_m *MockTokenValidator) EXPECT() *MockTokenValidator_Expecter {
 	return &MockTokenValidator_Expecter{mock: &_m.Mock}
 }
 
-// ValidateToken provides a mock function with given fields: tokenString
-func (_m *MockTokenValidator) ValidateToken(tokenString string) (*auth.Claims, error) {
-	ret := _m.Called(tokenString)
+// ValidateToken provides a mock function with given fields: ctx, tokenString
+func (_m *MockTokenValidator) ValidateToken(ctx context.Context, tokenString string) (*auth.Claims, error) {
+	ret := _m.Called(ctx, tokenString)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ValidateToken")
@@ -30,19 +33,19 @@ func (_m *MockTokenValidator) ValidateToken(tokenString string) (*auth.Claims, e
 
 	var r0 *auth.Claims
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (*auth.Claims, error)); ok {
-		return rf(tokenString)
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*auth.Claims, error)); ok {
+		return rf(ctx, tokenString)
 	}
-	if rf, ok := ret.Get(0).(func(string) *auth.Claims); ok {
-		r0 = rf(tokenString)
+	if rf, ok := ret.Get(0).(func(context.Context, string) *auth.Claims); ok {
+		r0 = rf(ctx, tokenString)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*auth.Claims)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(tokenString)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, tokenString)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -56,14 +59,15 @@ type MockTokenValidator_ValidateToken_Call struct {
 }
 
 // ValidateToken is a helper method to define mock.On call
+//   - ctx context.Context
 //   - tokenString string
-func (_e *MockTokenValidator_Expecter) ValidateToken(tokenString interface{}) *MockTokenValidator_ValidateToken_Call {
-	return &MockTokenValidator_ValidateToken_Call{Call: _e.mock.On("ValidateToken", tokenString)}
+func (_e *MockTokenValidator_Expecter) ValidateToken(ctx interface{}, tokenString interface{}) *MockTokenValidator_ValidateToken_Call {
+	return &MockTokenValidator_ValidateToken_Call{Call: _e.mock.On("ValidateToken", ctx, tokenString)}
 }
 
-func (_c *MockTokenValidator_ValidateToken_Call) Run(run func(tokenString string)) *MockTokenValidator_ValidateToken_Call {
+func (_c *MockTokenValidator_ValidateToken_Call) Run(run func(ctx context.Context, tokenString string)) *MockTokenValidator_ValidateToken_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -73,7 +77,7 @@ func (_c *MockTokenValidator_ValidateToken_Call) Return(_a0 *auth.Claims, _a1 er
 	return _c
 }
 
-func (_c *MockTokenValidator_ValidateToken_Call) RunAndReturn(run func(string) (*auth.Claims, error)) *MockTokenValidator_ValidateToken_Call {
+func (_c *MockTokenValidator_ValidateToken_Call) RunAndReturn(run func(context.Context, string) (*auth.Claims, error)) *MockTokenValidator_ValidateToken_Call {
 	_c.Call.Return(run)
 	return _c
 }

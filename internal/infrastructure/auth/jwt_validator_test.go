@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
@@ -169,7 +170,7 @@ func TestValidateToken(t *testing.T) {
 
 		tokenString := createTestToken(t, privateKey, server.URL, "user-123", "test@example.com", "Test User", 1*time.Hour)
 
-		claims, err := validator.ValidateToken(tokenString)
+		claims, err := validator.ValidateToken(context.Background(), tokenString)
 		if err != nil {
 			t.Fatalf("ValidateToken failed: %v", err)
 		}
@@ -198,7 +199,7 @@ func TestValidateToken(t *testing.T) {
 
 		tokenString := createTestToken(t, privateKey, server.URL, "user-456", "another@example.com", "", 1*time.Hour)
 
-		claims, err := validator.ValidateToken(tokenString)
+		claims, err := validator.ValidateToken(context.Background(), tokenString)
 		if err != nil {
 			t.Fatalf("ValidateToken failed: %v", err)
 		}
@@ -227,7 +228,7 @@ func TestValidateToken(t *testing.T) {
 
 		tokenString := createTestToken(t, privateKey, server.URL, "user-123", "test@example.com", "Test User", -1*time.Hour)
 
-		_, err = validator.ValidateToken(tokenString)
+		_, err = validator.ValidateToken(context.Background(), tokenString)
 		if err == nil {
 			t.Error("ValidateToken should fail with expired token")
 		}
@@ -246,7 +247,7 @@ func TestValidateToken(t *testing.T) {
 
 		tokenString := createTestToken(t, privateKey, "https://wrong-issuer.com", "user-123", "test@example.com", "Test User", 1*time.Hour)
 
-		_, err = validator.ValidateToken(tokenString)
+		_, err = validator.ValidateToken(context.Background(), tokenString)
 		if err == nil {
 			t.Error("ValidateToken should fail with wrong issuer")
 		}
@@ -263,7 +264,7 @@ func TestValidateToken(t *testing.T) {
 			t.Fatalf("NewJWTValidator failed: %v", err)
 		}
 
-		_, err = validator.ValidateToken("invalid.token.here")
+		_, err = validator.ValidateToken(context.Background(), "invalid.token.here")
 		if err == nil {
 			t.Error("ValidateToken should fail with malformed token")
 		}
