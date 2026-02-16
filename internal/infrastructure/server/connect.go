@@ -10,6 +10,7 @@ import (
 
 	"log/slog"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"connectrpc.com/otelconnect"
 	"connectrpc.com/validate"
@@ -31,38 +32,57 @@ type ConnectServer struct {
 // RPCHandlerFunc is a function that returns a path and a handler for a Connect RPC service.
 type RPCHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler)
 
+// HealthHandlerFunc is a function that returns a path and handler for the health check endpoint.
+type HealthHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler)
+
 // NewConnectServer creates a new Connect server instance.
 func NewConnectServer(
 	cfg *config.Config,
 	logger *logging.Logger,
 	_ *rdb.Database,
-	authInterceptor *auth.AuthInterceptor,
+	authFunc authn.AuthFunc,
+	healthHandler HealthHandlerFunc,
 	handlerFuncs ...RPCHandlerFunc,
 ) *ConnectServer {
-	mux := http.NewServeMux()
-
 	// Create interceptors
 	tracingInterceptor, _ := otelconnect.NewInterceptor()
 	accessLogInterceptor := logging.NewAccessLogInterceptor(logger)
 	validationInterceptor := validate.NewInterceptor()
 
-	for _, handlerFunc := range handlerFuncs {
-		path, handler := handlerFunc(
-			newRecoverHandler(logger),
-			connect.WithInterceptors(
-				apperr_connect.NewErrorHandlingInterceptor(logger),
-				tracingInterceptor,
-				accessLogInterceptor,
-				authInterceptor,
-				validationInterceptor,
-			),
-		)
-		mux.Handle(path, handler)
+	handlerOpts := []connect.HandlerOption{
+		newRecoverHandler(logger),
+		connect.WithInterceptors(
+			apperr_connect.NewErrorHandlingInterceptor(logger),
+			tracingInterceptor,
+			accessLogInterceptor,
+			auth.ClaimsBridgeInterceptor{},
+			validationInterceptor,
+		),
 	}
+
+	// Protected mux — all RPC services
+	protectedMux := http.NewServeMux()
+	for _, handlerFunc := range handlerFuncs {
+		path, handler := handlerFunc(handlerOpts...)
+		protectedMux.Handle(path, handler)
+	}
+
+	// Public mux — health check only (no auth required for K8s probes)
+	publicMux := http.NewServeMux()
+	healthPath, healthH := healthHandler(handlerOpts...)
+	publicMux.Handle(healthPath, healthH)
+
+	// Wrap protected mux with authn middleware (default-deny)
+	authMiddleware := authn.NewMiddleware(authFunc)
+
+	// Root mux: health check is public, everything else requires auth
+	rootMux := http.NewServeMux()
+	rootMux.Handle(healthPath, publicMux)
+	rootMux.Handle("/", authMiddleware.Wrap(protectedMux))
 
 	address := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 
-	handler := NewCORSHandler(mux, cfg.Server.AllowedOrigins)
+	handler := NewCORSHandler(rootMux, cfg.Server.AllowedOrigins)
 
 	// Enable h2c (HTTP/2 without TLS) for Kubernetes gRPC health probes
 	p := new(http.Protocols)

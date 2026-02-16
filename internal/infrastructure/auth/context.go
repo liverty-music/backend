@@ -3,6 +3,21 @@ package auth
 
 import "context"
 
+// Claims represents JWT claims extracted from the token.
+type Claims struct {
+	// Sub is the subject claim (external_id/user ID from identity provider).
+	Sub string
+	// Email is the user's email address.
+	Email string
+	// Name is the user's display name.
+	Name string
+}
+
+// TokenValidator validates JWT tokens and returns the claims.
+type TokenValidator interface {
+	ValidateToken(ctx context.Context, tokenString string) (*Claims, error)
+}
+
 // contextKey is a type-safe key for storing values in context.
 type contextKey struct{}
 
