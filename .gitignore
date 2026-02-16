@@ -63,6 +63,7 @@ debug_output.txt
 # GitHub App credentials
 gha-creds-*.json
 
-tmp/
+tmp/*
+!tmp/.gitkeep
 .pr_data/
 pr*_inline.json
