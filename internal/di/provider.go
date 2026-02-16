@@ -114,16 +114,18 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 
-	authInterceptor := auth.NewAuthInterceptor(jwtValidator)
+	authFunc := auth.NewAuthFunc(jwtValidator)
 
-	// Handlers
+	// Health check handler (public, outside authn middleware)
+	healthHandler := func(opts ...connect.HandlerOption) (string, http.Handler) {
+		return grpchealth.NewHandler(
+			rpc.NewHealthCheckHandler(db, logger),
+			opts...,
+		)
+	}
+
+	// RPC handlers (protected by authn middleware)
 	handlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return grpchealth.NewHandler(
-				rpc.NewHealthCheckHandler(db, logger),
-				opts...,
-			)
-		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return userconnect.NewUserServiceHandler(
 				rpc.NewUserHandler(userUC, logger),
@@ -144,7 +146,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 	}
 
-	srv := server.NewConnectServer(cfg, logger, db, authInterceptor, handlers...)
+	srv := server.NewConnectServer(cfg, logger, db, authFunc, healthHandler, handlers...)
 
 	return newApp(srv, db, telemetryCloser, lastfmClient, musicbrainzClient), nil
 }
