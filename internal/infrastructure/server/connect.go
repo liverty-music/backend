@@ -54,8 +54,8 @@ func NewConnectServer(
 		connect.WithInterceptors(
 			apperr_connect.NewErrorHandlingInterceptor(logger),
 			tracingInterceptor,
-			accessLogInterceptor,
 			auth.ClaimsBridgeInterceptor{},
+			accessLogInterceptor,
 			validationInterceptor,
 		),
 	}
@@ -67,17 +67,15 @@ func NewConnectServer(
 		protectedMux.Handle(path, handler)
 	}
 
-	// Public mux — health check only (no auth required for K8s probes)
-	publicMux := http.NewServeMux()
+	// Health check handler (no auth required for K8s probes)
 	healthPath, healthH := healthHandler(handlerOpts...)
-	publicMux.Handle(healthPath, healthH)
 
 	// Wrap protected mux with authn middleware (default-deny)
 	authMiddleware := authn.NewMiddleware(authFunc)
 
 	// Root mux: health check is public, everything else requires auth
 	rootMux := http.NewServeMux()
-	rootMux.Handle(healthPath, publicMux)
+	rootMux.Handle(healthPath, healthH)
 	rootMux.Handle("/", authMiddleware.Wrap(protectedMux))
 
 	address := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
