@@ -17,6 +17,9 @@ const maxConsecutiveErrors = 3
 func main() {
 	if err := run(); err != nil {
 		log.Printf("Concert discovery job failed: %v", err)
+		// Design spec requires exit 0 to prevent K8s CronJob from retrying
+		// on systemic failures (e.g., API rate limits) that would hit the same issue.
+		// Monitoring relies on structured logging at ERROR level.
 	}
 }
 
