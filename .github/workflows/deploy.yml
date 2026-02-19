@@ -56,6 +56,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          target: server
           push: true
           tags: ${{ env.IMAGE_URI }}:latest,${{ env.IMAGE_URI }}:${{ github.sha }},${{ env.IMAGE_URI }}:main
           cache-from: type=gha
