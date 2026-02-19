@@ -12,6 +12,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Printf("Server failed: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// Create a context that will be canceled when OS signals are received
 	ctx, stop := signal.NotifyContext(context.Background(),
 		os.Interrupt,    // SIGINT (Ctrl+C)
@@ -24,8 +31,13 @@ func main() {
 
 	app, err := di.InitializeApp(ctx)
 	if err != nil {
-		log.Fatalf("Failed to initialize API: %v", err)
+		return err
 	}
+	defer func() {
+		if err := app.Shutdown(context.Background()); err != nil {
+			log.Printf("error during shutdown: %v", err)
+		}
+	}()
 
 	// Start server in a goroutine
 	errChan := make(chan error, 1)
@@ -40,17 +52,10 @@ func main() {
 	select {
 	case <-ctx.Done():
 		log.Println("Received shutdown signal, stopping server gracefully...")
-		if err := app.Shutdown(context.Background()); err != nil {
-			log.Printf("error during shutdown: %v", err)
-		}
+		return nil
 
 	case err := <-errChan:
 		log.Printf("Server failed to start: %v", err)
-		if err := app.Shutdown(context.Background()); err != nil {
-			log.Printf("error during shutdown: %v", err)
-		}
-		os.Exit(1)
+		return err
 	}
-
-	log.Println("Server stopped")
 }

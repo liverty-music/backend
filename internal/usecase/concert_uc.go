@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -93,7 +94,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	// 1. Check search log — skip external API if recently searched
 	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		return nil, err
+		return nil, fmt.Errorf("failed to get search log: %w", err)
 	}
 	if searchLog != nil && time.Since(searchLog.SearchTime) < searchCacheTTL {
 		uc.logger.Debug(ctx, "skipping external search, recently searched",
@@ -106,19 +107,19 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	// 2. Get Artist
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
 	// 3. Get Official Site
 	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get official site: %w", err)
 	}
 
 	// 4. Get existing upcoming concerts
 	existing, err := uc.concertRepo.ListByArtist(ctx, artistID, true)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list existing concerts: %w", err)
 	}
 
 	// 5. Mark search as in-progress (prevents concurrent redundant API calls)
@@ -134,7 +135,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		if delErr := uc.searchLogRepo.Delete(ctx, artistID); delErr != nil {
 			uc.logger.Error(ctx, "failed to delete search log after Gemini failure", delErr, slog.String("artist_id", artistID))
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
 
 	// 7. Deduplicate and map to entities
@@ -192,12 +193,11 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 			}
 		}
 
-		// Create Concert
 		concertID := newUUIDv7(ctx, "concert", uc.logger)
 		if concertID == "" {
 			continue
 		}
-		concert := &entity.Concert{
+		discovered = append(discovered, &entity.Concert{
 			Event: entity.Event{
 				ID:             concertID,
 				VenueID:        venue.ID,
@@ -208,14 +208,14 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				SourceURL:      s.SourceURL,
 			},
 			ArtistID: artistID,
-		}
+		})
+	}
 
-		if err := uc.concertRepo.Create(ctx, concert); err != nil {
-			uc.logger.Error(ctx, "failed to create concert", err, slog.String("title", s.Title))
-			continue
+	// 8. Bulk insert all discovered concerts
+	if len(discovered) > 0 {
+		if err := uc.concertRepo.Create(ctx, discovered...); err != nil {
+			return nil, fmt.Errorf("failed to create concerts: %w", err)
 		}
-
-		discovered = append(discovered, concert)
 	}
 
 	return discovered, nil

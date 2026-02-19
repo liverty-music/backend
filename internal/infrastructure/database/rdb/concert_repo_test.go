@@ -39,7 +39,7 @@ func TestConcertRepository_Create(t *testing.T) {
 	openTime, _ := time.Parse("15:04", "18:00")
 
 	type args struct {
-		concert *entity.Concert
+		concerts []*entity.Concert
 	}
 
 	tests := []struct {
@@ -50,50 +50,127 @@ func TestConcertRepository_Create(t *testing.T) {
 		{
 			name: "create valid concert",
 			args: args{
-				concert: &entity.Concert{
-					Event: entity.Event{
-						ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
-						VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-						Title:          "New Year's Eve Concert",
-						LocalEventDate: concertDate,
-						StartTime:      &startTime,
-						OpenTime:       &openTime,
+				concerts: []*entity.Concert{
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "New Year's Eve Concert",
+							LocalEventDate: concertDate,
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
 					},
-					ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
 				},
 			},
 			wantErr: nil,
 		},
 		{
-			name: "duplicate concert ID",
+			name: "bulk create multiple concerts",
 			args: args{
-				concert: &entity.Concert{
-					Event: entity.Event{
-						ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
-						VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-						Title:          "Duplicate Concert",
-						LocalEventDate: concertDate,
-						StartTime:      &startTime,
-						OpenTime:       &openTime,
+				concerts: []*entity.Concert{
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49d1",
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "Bulk Concert 1",
+							LocalEventDate: concertDate,
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
 					},
-					ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49d2",
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "Bulk Concert 2",
+							LocalEventDate: concertDate.AddDate(0, 0, 1),
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					},
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49d3",
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "Bulk Concert 3",
+							LocalEventDate: concertDate.AddDate(0, 0, 2),
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					},
 				},
 			},
-			wantErr: apperr.ErrAlreadyExists,
+			wantErr: nil,
+		},
+		{
+			name: "duplicate concert ID silently skipped",
+			args: args{
+				concerts: []*entity.Concert{
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "Duplicate Concert",
+							LocalEventDate: concertDate,
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					},
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name: "batch with mix of new and duplicate concerts",
+			args: args{
+				concerts: []*entity.Concert{
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", // already exists
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "Existing Concert",
+							LocalEventDate: concertDate,
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					},
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49e1", // new
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "New Concert in Mixed Batch",
+							LocalEventDate: concertDate.AddDate(0, 0, 5),
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					},
+				},
+			},
+			wantErr: nil,
 		},
 		{
 			name: "foreign key violation - invalid artist",
 			args: args{
-				concert: &entity.Concert{
-					Event: entity.Event{
-						ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c2",
-						VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-						Title:          "Invalid Artist Concert",
-						LocalEventDate: concertDate,
-						StartTime:      &startTime,
-						OpenTime:       &openTime,
+				concerts: []*entity.Concert{
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c2",
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "Invalid Artist Concert",
+							LocalEventDate: concertDate,
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a0",
 					},
-					ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a0",
 				},
 			},
 			wantErr: apperr.ErrFailedPrecondition,
@@ -101,30 +178,48 @@ func TestConcertRepository_Create(t *testing.T) {
 		{
 			name: "foreign key violation - invalid venue",
 			args: args{
-				concert: &entity.Concert{
-					Event: entity.Event{
-						ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c3",
-						VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b0",
-						Title:          "Invalid Venue Concert",
-						LocalEventDate: concertDate,
-						StartTime:      &startTime,
-						OpenTime:       &openTime,
+				concerts: []*entity.Concert{
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c3",
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b0",
+							Title:          "Invalid Venue Concert",
+							LocalEventDate: concertDate,
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
 					},
-					ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
 				},
 			},
 			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			name: "empty slice - no-op",
+			args: args{
+				concerts: []*entity.Concert{},
+			},
+			wantErr: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := concertRepo.Create(ctx, tt.args.concert)
+			err := concertRepo.Create(ctx, tt.args.concerts...)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}
 			assert.NoError(t, err)
+
+			// Verify bulk insert actually created all concerts
+			if tt.name == "bulk create multiple concerts" {
+				for _, concert := range tt.args.concerts {
+					concerts, err := concertRepo.ListByArtist(ctx, concert.ArtistID, false)
+					require.NoError(t, err)
+					assert.GreaterOrEqual(t, len(concerts), 3)
+				}
+			}
 		})
 	}
 }
@@ -163,7 +258,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	startTime2, _ := time.Parse("15:04", "21:00")
 	openTime2, _ := time.Parse("15:04", "19:00")
 
-	// Create concerts
+	// Create concerts using bulk insert
 	concerts := []*entity.Concert{
 		{
 			Event: entity.Event{
@@ -200,10 +295,8 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		},
 	}
 
-	for _, c := range concerts {
-		err := concertRepo.Create(ctx, c)
-		require.NoError(t, err)
-	}
+	err = concertRepo.Create(ctx, concerts...)
+	require.NoError(t, err)
 
 	type args struct {
 		artistID     string

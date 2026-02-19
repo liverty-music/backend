@@ -22,17 +22,24 @@ func (_m *MockConcertRepository) EXPECT() *MockConcertRepository_Expecter {
 	return &MockConcertRepository_Expecter{mock: &_m.Mock}
 }
 
-// Create provides a mock function with given fields: ctx, concert
-func (_m *MockConcertRepository) Create(ctx context.Context, concert *entity.Concert) error {
-	ret := _m.Called(ctx, concert)
+// Create provides a mock function with given fields: ctx, concerts
+func (_m *MockConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) error {
+	_va := make([]interface{}, len(concerts))
+	for _i := range concerts {
+		_va[_i] = concerts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *entity.Concert) error); ok {
-		r0 = rf(ctx, concert)
+	if rf, ok := ret.Get(0).(func(context.Context, ...*entity.Concert) error); ok {
+		r0 = rf(ctx, concerts...)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -47,14 +54,20 @@ type MockConcertRepository_Create_Call struct {
 
 // Create is a helper method to define mock.On call
 //   - ctx context.Context
-//   - concert *entity.Concert
-func (_e *MockConcertRepository_Expecter) Create(ctx interface{}, concert interface{}) *MockConcertRepository_Create_Call {
-	return &MockConcertRepository_Create_Call{Call: _e.mock.On("Create", ctx, concert)}
+//   - concerts ...*entity.Concert
+func (_e *MockConcertRepository_Expecter) Create(ctx interface{}, concerts ...interface{}) *MockConcertRepository_Create_Call {
+	return &MockConcertRepository_Create_Call{Call: _e.mock.On("Create", append([]interface{}{ctx}, concerts...)...)}
 }
 
-func (_c *MockConcertRepository_Create_Call) Run(run func(ctx context.Context, concert *entity.Concert)) *MockConcertRepository_Create_Call {
+func (_c *MockConcertRepository_Create_Call) Run(run func(ctx context.Context, concerts ...*entity.Concert)) *MockConcertRepository_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*entity.Concert))
+		variadicArgs := make([]*entity.Concert, len(args)-1)
+		for i, a := range args[1:] {
+			if a != nil {
+				variadicArgs[i] = a.(*entity.Concert)
+			}
+		}
+		run(args[0].(context.Context), variadicArgs...)
 	})
 	return _c
 }
@@ -64,7 +77,7 @@ func (_c *MockConcertRepository_Create_Call) Return(_a0 error) *MockConcertRepos
 	return _c
 }
 
-func (_c *MockConcertRepository_Create_Call) RunAndReturn(run func(context.Context, *entity.Concert) error) *MockConcertRepository_Create_Call {
+func (_c *MockConcertRepository_Create_Call) RunAndReturn(run func(context.Context, ...*entity.Concert) error) *MockConcertRepository_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }
