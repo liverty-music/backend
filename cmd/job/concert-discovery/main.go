@@ -5,7 +5,6 @@ import (
 	"context"
 	"log"
 	"log/slog"
-	"os"
 	"os/signal"
 	"syscall"
 
@@ -16,15 +15,20 @@ import (
 const maxConsecutiveErrors = 3
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if err := run(); err != nil {
+		log.Printf("Concert discovery job failed: %v", err)
+	}
+}
+
+func run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	log.Println("Starting concert discovery job...")
 
 	app, err := di.InitializeJobApp(ctx)
 	if err != nil {
-		log.Printf("Failed to initialize job: %v", err)
-		return
+		return err
 	}
 	defer func() {
 		if err := app.Shutdown(ctx); err != nil {
@@ -34,8 +38,7 @@ func main() {
 
 	artists, err := app.ArtistRepo.ListAllFollowed(ctx)
 	if err != nil {
-		log.Printf("Failed to list followed artists: %v", err)
-		return
+		return err
 	}
 
 	log.Printf("Found %d followed artists to process", len(artists))
@@ -74,6 +77,8 @@ func main() {
 		}
 	}
 
-	log.Printf("Concert discovery job complete: %d artists processed, %d new concerts discovered, %d failures",
-		len(artists)-totalFailed, totalDiscovered, totalFailed)
+	log.Printf("Concert discovery job complete: %d artists attempted, %d succeeded, %d new concerts discovered, %d failures",
+		len(artists), len(artists)-totalFailed, totalDiscovered, totalFailed)
+
+	return nil
 }

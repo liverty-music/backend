@@ -88,7 +88,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	}
 
 	bulkEventQuery := fmt.Sprintf(
-		"INSERT INTO events (id, venue_id, title, local_event_date, start_at, open_at, source_url) VALUES %s",
+		"INSERT INTO events (id, venue_id, title, local_event_date, start_at, open_at, source_url) VALUES %s ON CONFLICT DO NOTHING",
 		strings.Join(eventPlaceholders, ", "),
 	)
 
@@ -108,7 +108,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	}
 
 	bulkConcertQuery := fmt.Sprintf(
-		"INSERT INTO concerts (event_id, artist_id) VALUES %s",
+		"INSERT INTO concerts (event_id, artist_id) VALUES %s ON CONFLICT DO NOTHING",
 		strings.Join(concertPlaceholders, ", "),
 	)
 

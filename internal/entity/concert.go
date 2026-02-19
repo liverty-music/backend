@@ -42,12 +42,13 @@ type ConcertRepository interface {
 	//
 	//  - InvalidArgument: If the artist ID is empty.
 	ListByArtist(ctx context.Context, artistID string, upcomingOnly bool) ([]*Concert, error)
-	// Create creates one or more concerts.
+	// Create creates one or more concerts using bulk insert.
+	// Duplicates are silently skipped via ON CONFLICT DO NOTHING.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If required fields are missing.
-	//  - AlreadyExists: If a concert with the same unique key already exists.
+	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid artist or venue).
 	Create(ctx context.Context, concerts ...*Concert) error
 }
 

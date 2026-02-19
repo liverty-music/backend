@@ -108,7 +108,7 @@ func TestConcertRepository_Create(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "duplicate concert ID",
+			name: "duplicate concert ID silently skipped",
 			args: args{
 				concerts: []*entity.Concert{
 					{
@@ -124,7 +124,37 @@ func TestConcertRepository_Create(t *testing.T) {
 					},
 				},
 			},
-			wantErr: apperr.ErrAlreadyExists,
+			wantErr: nil,
+		},
+		{
+			name: "batch with mix of new and duplicate concerts",
+			args: args{
+				concerts: []*entity.Concert{
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", // already exists
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "Existing Concert",
+							LocalEventDate: concertDate,
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					},
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49e1", // new
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "New Concert in Mixed Batch",
+							LocalEventDate: concertDate.AddDate(0, 0, 5),
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					},
+				},
+			},
+			wantErr: nil,
 		},
 		{
 			name: "foreign key violation - invalid artist",
