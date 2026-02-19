@@ -17,10 +17,18 @@ on:
       - '.golangci.yml'
       - '.github/workflows/lint.yml'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   golangci:
     name: golangci-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -32,3 +40,22 @@ jobs:
         with:
           version: latest
           args: --timeout=3m --build-tags=integration
+
+  gofmt:
+    name: gofmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.7"
+          cache: false
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi

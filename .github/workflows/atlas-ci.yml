@@ -9,16 +9,22 @@ on:
       - 'atlas.hcl'
       - '.github/workflows/atlas-ci.yml'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   DATABASE_URL: "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
-  ATLAS_CLOUD_TOKEN: ${{ secrets.ATLAS_CLOUD_TOKEN }}
 
 jobs:
   atlas-ci:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15
+        image: postgres:18
         env:
           POSTGRES_PASSWORD: password
           POSTGRES_DB: postgres
@@ -37,14 +43,10 @@ jobs:
 
       - name: Setup Atlas
         uses: ariga/setup-atlas@v0
-        # with:
-        #   cloud-token: ${{ secrets.ATLAS_CLOUD_TOKEN }}
 
-      # TODO: enable after Atlas Cloud is available
-      # - name: Atlas Migrate Lint
-      #   uses: ariga/atlas-action/migrate/lint@v1
-      #   with:
-      #     dir: file://internal/infrastructure/database/rdb/migrations/versions
-      #     dev-url: ${{ env.DATABASE_URL }}
-      #     dir-name: pannpers
-      #     env: ci
+      - name: Atlas Migrate Lint
+        run: |
+          atlas migrate lint \
+            --dev-url "${{ env.DATABASE_URL }}" \
+            --dir "file://internal/infrastructure/database/rdb/migrations/versions" \
+            --format "{{ json . }}"
