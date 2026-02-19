@@ -2,7 +2,9 @@ package rdb
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
 )
@@ -24,14 +26,6 @@ const (
 		FROM concerts c
 		JOIN events e ON c.event_id = e.id
 		WHERE c.artist_id = $1 AND e.local_event_date >= CURRENT_DATE
-	`
-	insertEventQuery = `
-		INSERT INTO events (id, venue_id, title, local_event_date, start_at, open_at, source_url)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-	insertConcertQuery = `
-		INSERT INTO concerts (event_id, artist_id)
-		VALUES ($1, $2)
 	`
 )
 
@@ -65,24 +59,61 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 	return concerts, nil
 }
 
-// Create creates a new concert in the database.
-func (r *ConcertRepository) Create(ctx context.Context, concert *entity.Concert) error {
+// Create creates one or more concerts in the database within a single transaction.
+func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) error {
+	if len(concerts) == 0 {
+		return nil
+	}
+
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return toAppErr(err, "failed to begin transaction")
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	_, err = tx.Exec(ctx, insertEventQuery,
-		concert.ID, concert.VenueID, concert.Title, concert.LocalEventDate, concert.StartTime, concert.OpenTime, concert.SourceURL,
-	)
-	if err != nil {
-		return toAppErr(err, "failed to create event", slog.String("event_id", concert.ID))
+	// Build bulk INSERT for events
+	eventValues := make([]any, 0, len(concerts)*7)
+	eventPlaceholders := make([]string, 0, len(concerts))
+
+	for i, concert := range concerts {
+		offset := i * 7
+		eventPlaceholders = append(eventPlaceholders,
+			fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+				offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7))
+
+		eventValues = append(eventValues,
+			concert.ID, concert.VenueID, concert.Title,
+			concert.LocalEventDate, concert.StartTime, concert.OpenTime, concert.SourceURL,
+		)
 	}
 
-	_, err = tx.Exec(ctx, insertConcertQuery, concert.ID, concert.ArtistID)
-	if err != nil {
-		return toAppErr(err, "failed to create concert", slog.String("concert_id", concert.ID), slog.String("artist_id", concert.ArtistID))
+	bulkEventQuery := fmt.Sprintf(
+		"INSERT INTO events (id, venue_id, title, local_event_date, start_at, open_at, source_url) VALUES %s",
+		strings.Join(eventPlaceholders, ", "),
+	)
+
+	if _, err := tx.Exec(ctx, bulkEventQuery, eventValues...); err != nil {
+		return toAppErr(err, "failed to bulk insert events")
+	}
+
+	// Build bulk INSERT for concerts
+	concertValues := make([]any, 0, len(concerts)*2)
+	concertPlaceholders := make([]string, 0, len(concerts))
+
+	for i, concert := range concerts {
+		offset := i * 2
+		concertPlaceholders = append(concertPlaceholders,
+			fmt.Sprintf("($%d, $%d)", offset+1, offset+2))
+		concertValues = append(concertValues, concert.ID, concert.ArtistID)
+	}
+
+	bulkConcertQuery := fmt.Sprintf(
+		"INSERT INTO concerts (event_id, artist_id) VALUES %s",
+		strings.Join(concertPlaceholders, ", "),
+	)
+
+	if _, err := tx.Exec(ctx, bulkConcertQuery, concertValues...); err != nil {
+		return toAppErr(err, "failed to bulk insert concerts")
 	}
 
 	if err := tx.Commit(ctx); err != nil {

@@ -458,6 +458,64 @@ func (_c *MockArtistRepository_ListFollowed_Call) RunAndReturn(run func(context.
 	return _c
 }
 
+// ListAllFollowed provides a mock function with given fields: ctx
+func (_m *MockArtistRepository) ListAllFollowed(ctx context.Context) ([]*entity.Artist, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListAllFollowed")
+	}
+
+	var r0 []*entity.Artist
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]*entity.Artist, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []*entity.Artist); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Artist)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockArtistRepository_ListAllFollowed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListAllFollowed'
+type MockArtistRepository_ListAllFollowed_Call struct {
+	*mock.Call
+}
+
+// ListAllFollowed is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockArtistRepository_Expecter) ListAllFollowed(ctx interface{}) *MockArtistRepository_ListAllFollowed_Call {
+	return &MockArtistRepository_ListAllFollowed_Call{Call: _e.mock.On("ListAllFollowed", ctx)}
+}
+
+func (_c *MockArtistRepository_ListAllFollowed_Call) Run(run func(ctx context.Context)) *MockArtistRepository_ListAllFollowed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_ListAllFollowed_Call) Return(_a0 []*entity.Artist, _a1 error) *MockArtistRepository_ListAllFollowed_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockArtistRepository_ListAllFollowed_Call) RunAndReturn(run func(context.Context) ([]*entity.Artist, error)) *MockArtistRepository_ListAllFollowed_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Unfollow provides a mock function with given fields: ctx, userID, artistID
 func (_m *MockArtistRepository) Unfollow(ctx context.Context, userID string, artistID string) error {
 	ret := _m.Called(ctx, userID, artistID)

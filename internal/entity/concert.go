@@ -42,13 +42,13 @@ type ConcertRepository interface {
 	//
 	//  - InvalidArgument: If the artist ID is empty.
 	ListByArtist(ctx context.Context, artistID string, upcomingOnly bool) ([]*Concert, error)
-	// Create creates a new concert.
+	// Create creates one or more concerts.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If required fields are missing.
 	//  - AlreadyExists: If a concert with the same unique key already exists.
-	Create(ctx context.Context, concert *Concert) error
+	Create(ctx context.Context, concerts ...*Concert) error
 }
 
 // ConcertSearcher defines the interface for searching concerts from external sources.

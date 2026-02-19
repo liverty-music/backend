@@ -56,6 +56,11 @@ const (
 		JOIN followed_artists fa ON a.id = fa.artist_id
 		WHERE fa.user_id = $1
 	`
+	listAllFollowedQuery = `
+		SELECT DISTINCT a.id, a.name, a.mbid, a.created_at
+		FROM artists a
+		JOIN followed_artists fa ON a.id = fa.artist_id
+	`
 )
 
 // NewArtistRepository creates a new artist repository instance.
@@ -155,6 +160,25 @@ func (r *ArtistRepository) ListFollowed(ctx context.Context, userID string) ([]*
 	rows, err := r.db.Pool.Query(ctx, listFollowedQuery, userID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list followed artists", slog.String("user_id", userID))
+	}
+	defer rows.Close()
+
+	var artists []*entity.Artist
+	for rows.Next() {
+		var a entity.Artist
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &a.CreateTime); err != nil {
+			return nil, toAppErr(err, "failed to scan followed artist")
+		}
+		artists = append(artists, &a)
+	}
+	return artists, nil
+}
+
+// ListAllFollowed retrieves all distinct artists followed by any user.
+func (r *ArtistRepository) ListAllFollowed(ctx context.Context) ([]*entity.Artist, error) {
+	rows, err := r.db.Pool.Query(ctx, listAllFollowedQuery)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list all followed artists")
 	}
 	defer rows.Close()
 

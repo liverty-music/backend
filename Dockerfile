@@ -1,32 +1,33 @@
-# Build stage
+# Build stage (shared)
 FROM golang:1.25.7-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy go mod files
 COPY go.mod go.sum ./
 
-# Download dependencies
 RUN go mod download
 
-# Copy source code
 COPY . .
 
-# Build the application
+# --- Server target ---
+FROM builder AS build-server
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags='-w -s' \
     -pgo=auto \
-    -o main ./cmd/api
+    -o /out ./cmd/api
 
-# Runtime stage
-FROM gcr.io/distroless/static:nonroot
-
-# Copy the binary
-COPY --from=builder /app/main /main
-
-# Expose port
+FROM gcr.io/distroless/static:nonroot AS server
+COPY --from=build-server /out /main
 EXPOSE 8080
-
-# Run the application
 ENTRYPOINT ["/main"]
+
+# --- Job target ---
+FROM builder AS build-concert-discovery
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s' \
+    -pgo=auto \
+    -o /out ./cmd/job/concert-discovery
+
+FROM gcr.io/distroless/static:nonroot AS concert-discovery
+COPY --from=build-concert-discovery /out /concert-discovery
+ENTRYPOINT ["/concert-discovery"]

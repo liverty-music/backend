@@ -148,7 +148,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.venueRepo.EXPECT().GetByName(ctx, "Test Venue").Return(&entity.Venue{ID: "v1", Name: "Test Venue"}, nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
 					return c.ArtistID == artistID && c.Title == "New Concert"
-				})).Return(nil).Once()
+				})).Return(nil).Once() // variadic: single concert bulk insert
 			},
 			want:    1,
 			wantErr: nil,
@@ -200,7 +200,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				})).Return(nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
 					return c.ArtistID == artistID && c.Title == "New Concert" && c.ID != ""
-				})).Return(nil).Once()
+				})).Return(nil).Once() // variadic: single concert bulk insert
 				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 			},
 			want:    1,
@@ -232,7 +232,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.venueRepo.EXPECT().GetByName(ctx, "Existing Venue").Return(&entity.Venue{ID: "v-existing", Name: "Existing Venue"}, nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
 					return c.VenueID == "v-existing"
-				})).Return(nil).Once()
+				})).Return(nil).Once() // variadic: single concert bulk insert
 				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 			},
 			want:    1,
@@ -264,7 +264,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.venueRepo.EXPECT().GetByName(ctx, "Race Venue").Return(&entity.Venue{ID: "v-race", Name: "Race Venue"}, nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
 					return c.VenueID == "v-race"
-				})).Return(nil).Once()
+				})).Return(nil).Once() // variadic: single concert bulk insert
 				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 			},
 			want:    1,
@@ -298,7 +298,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "partial success - concert creation failure",
+			name: "failure - bulk concert creation failure returns error",
 			args: args{artistID: "artist-1"},
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
@@ -315,10 +315,9 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(scraped, nil).Once()
 				d.venueRepo.EXPECT().GetByName(ctx, "V1").Return(&entity.Venue{ID: "v1"}, nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.Anything).Return(assert.AnError).Once()
-
 			},
 			want:    0,
-			wantErr: nil,
+			wantErr: assert.AnError,
 		},
 		{
 			name: "failure - Gemini search fails, deletes search log",

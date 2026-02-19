@@ -122,6 +122,13 @@ type ArtistRepository interface {
 	//
 	//   - Internal: database query failure.
 	ListFollowed(ctx context.Context, userID string) ([]*Artist, error)
+
+	// ListAllFollowed retrieves all distinct artists followed by any user.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListAllFollowed(ctx context.Context) ([]*Artist, error)
 }
 
 // ArtistSearcher defines discovery operations for finding artists in external catalogs.
