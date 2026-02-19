@@ -10,6 +10,13 @@ on:
       - '.github/workflows/benchmark.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   benchmark:
     name: Run Benchmarks
@@ -17,7 +24,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15
+        image: postgres:18
         env:
           POSTGRES_USER: testuser
           POSTGRES_PASSWORD: testpassword

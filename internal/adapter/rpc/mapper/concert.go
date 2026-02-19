@@ -75,4 +75,3 @@ func TimeToTimeOfDayProto(t *time.Time) *timeofday.TimeOfDay {
 		Seconds: int32(t.Second()),
 	}
 }
-

@@ -280,8 +280,8 @@ func TestConcertSearcher_Search(t *testing.T) {
 				w.WriteHeader(tt.statusCode)
 				if tt.statusCode != http.StatusOK {
 					if _, err := w.Write([]byte(tt.responseBody)); err != nil {
-				t.Errorf("failed to write response body: %v", err)
-			}
+						t.Errorf("failed to write response body: %v", err)
+					}
 					return
 				}
 
