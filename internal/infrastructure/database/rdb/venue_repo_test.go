@@ -17,8 +17,8 @@ func TestVenueRepository_Create(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name    string
-		args    struct {
+		name string
+		args struct {
 			venue *entity.Venue
 		}
 		wantErr error

@@ -27,7 +27,6 @@ const (
 		FROM venues
 		WHERE name = $1
 	`
-
 )
 
 // NewVenueRepository creates a new venue repository instance.

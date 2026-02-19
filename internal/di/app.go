@@ -24,7 +24,6 @@ type App struct {
 	Closers []io.Closer
 }
 
-
 // Shutdown gracefully shuts down the application and closes all resources.
 func (a *App) Shutdown(_ context.Context) error {
 	log.Println("Starting application shutdown...")

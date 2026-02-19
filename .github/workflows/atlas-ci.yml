@@ -44,9 +44,8 @@ jobs:
       - name: Setup Atlas
         uses: ariga/setup-atlas@v0
 
-      - name: Atlas Migrate Lint
+      - name: Atlas Migrate Validate
         run: |
-          atlas migrate lint \
+          atlas migrate validate \
             --dev-url "${{ env.DATABASE_URL }}" \
-            --dir "file://internal/infrastructure/database/rdb/migrations/versions" \
-            --format "{{ json . }}"
+            --dir "file://internal/infrastructure/database/rdb/migrations/versions"

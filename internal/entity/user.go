@@ -10,41 +10,41 @@ import (
 // Corresponds to liverty_music.entity.v1.User.
 type User struct {
 	// ID is the unique identifier for the user (UUID).
-	ID                string
+	ID string
 	// ExternalID is the identity provider's user identifier (Zitadel sub claim).
-	ExternalID        string
+	ExternalID string
 	// Email is the user's email address.
-	Email             string
+	Email string
 	// Name is the user's display name.
-	Name              string
+	Name string
 	// PreferredLanguage is the user's preferred language code (e.g., "en", "ja").
 	PreferredLanguage string
 	// Country is the user's country code.
-	Country           string
+	Country string
 	// TimeZone is the user's preferred time zone.
-	TimeZone          string
+	TimeZone string
 	// IsActive indicates if the user account is active.
-	IsActive          bool
+	IsActive bool
 	// CreateTime is the timestamp when the user was created.
-	CreateTime        time.Time
+	CreateTime time.Time
 	// UpdateTime is the timestamp when the user was last updated.
-	UpdateTime        time.Time
+	UpdateTime time.Time
 }
 
 // NewUser represents data for creating a new user.
 type NewUser struct {
 	// ExternalID is the identity provider's user identifier (Zitadel sub claim).
-	ExternalID        string
+	ExternalID string
 	// Email is the user's email address.
-	Email             string
+	Email string
 	// Name is the user's display name.
-	Name              string
+	Name string
 	// PreferredLanguage is the user's preferred language code.
 	PreferredLanguage string
 	// Country is the user's country code.
-	Country           string
+	Country string
 	// TimeZone is the user's preferred time zone.
-	TimeZone          string
+	TimeZone string
 }
 
 // UserRepository defines the interface for user data access.

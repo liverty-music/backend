@@ -18,20 +18,19 @@ type Concert struct {
 // It lacks system-specific identifiers like ID or ArtistID.
 type ScrapedConcert struct {
 	// Title is the descriptive title of the scraped event.
-	Title          string
+	Title string
 	// VenueName is the raw name of the venue from the source.
-	VenueName      string
+	VenueName string
 	// LocalEventDate represents the calendar date of the event.
 	// See entity.Concert.LocalEventDate for detailed specifications.
 	LocalEventDate time.Time
 	// StartTime is the specific starting time (optional).
-	StartTime      *time.Time
+	StartTime *time.Time
 	// OpenTime is the time when doors open (optional).
-	OpenTime       *time.Time
+	OpenTime *time.Time
 	// SourceURL is the URL where this information was found.
-	SourceURL      string
+	SourceURL string
 }
-
 
 // ConcertRepository defines the data access interface for Concerts.
 type ConcertRepository interface {

@@ -8,31 +8,31 @@ import (
 // Notification represents a notification sent to users about concerts.
 type Notification struct {
 	// ID is the unique identifier for the notification.
-	ID          string
+	ID string
 	// UserID is the ID of the user receiving the notification.
-	UserID      string
+	UserID string
 	// ArtistID is the ID of the artist related to the notification.
-	ArtistID    string
+	ArtistID string
 	// ConcertID is the ID of the concert related to the notification.
-	ConcertID   string
+	ConcertID string
 	// Type indicates the category of the notification.
-	Type        NotificationType
+	Type NotificationType
 	// Title is the brief summary of the notification.
-	Title       string
+	Title string
 	// Message is the detailed content of the notification.
-	Message     string
+	Message string
 	// Language is the language code for the notification content.
-	Language    string
+	Language string
 	// Status tracks the delivery state of the notification.
-	Status      NotificationStatus
+	Status NotificationStatus
 	// ScheduledAt is when the notification should be sent.
 	ScheduledAt time.Time
 	// SentAt is when the notification was actually sent.
-	SentAt      *time.Time
+	SentAt *time.Time
 	// CreateTime is the timestamp when the notification was created.
-	CreateTime  time.Time
+	CreateTime time.Time
 	// UpdateTime is the timestamp when the notification was last updated.
-	UpdateTime  time.Time
+	UpdateTime time.Time
 }
 
 // NotificationType represents the type of notification.
@@ -62,19 +62,19 @@ const (
 // NewNotification represents data for creating a new notification.
 type NewNotification struct {
 	// UserID is the target user's ID.
-	UserID      string
+	UserID string
 	// ArtistID is the related artist's ID.
-	ArtistID    string
+	ArtistID string
 	// ConcertID is the related concert's ID.
-	ConcertID   string
+	ConcertID string
 	// Type indicates the category of the notification.
-	Type        NotificationType
+	Type NotificationType
 	// Title is the brief summary.
-	Title       string
+	Title string
 	// Message is the detailed content.
-	Message     string
+	Message string
 	// Language is the language code.
-	Language    string
+	Language string
 	// ScheduledAt is when to send the notification.
 	ScheduledAt time.Time
 }

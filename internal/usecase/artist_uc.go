@@ -240,7 +240,7 @@ func (uc *artistUseCase) Follow(ctx context.Context, userID string, artistID str
 
 	err := uc.artistRepo.Follow(ctx, userID, artistID)
 	if err != nil {
-		// Treat "already following" as success  
+		// Treat "already following" as success
 		if errors.Is(err, apperr.ErrAlreadyExists) {
 			return nil
 		}

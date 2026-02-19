@@ -22,7 +22,7 @@ func TestLoad(t *testing.T) {
 				"DATABASE_USER":                   "defaultuser",
 				"GCP_PROJECT_ID":                  "test-project",
 				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "test-datastore",
-				"OIDC_ISSUER_URL": "https://test-issuer.com",
+				"OIDC_ISSUER_URL":                 "https://test-issuer.com",
 			},
 			want: &Config{
 				Environment:     "local",
@@ -87,8 +87,8 @@ func TestLoad(t *testing.T) {
 				"LOGGING_FORMAT":                  "text",
 				"GCP_PROJECT_ID":                  "custom-project",
 				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "custom-datastore",
-				"OIDC_ISSUER_URL": "https://custom-issuer.com",
-				"JWKS_REFRESH_INTERVAL":       "30m",
+				"OIDC_ISSUER_URL":                 "https://custom-issuer.com",
+				"JWKS_REFRESH_INTERVAL":           "30m",
 			},
 			want: &Config{
 				Environment:     "production",
