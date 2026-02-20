@@ -57,7 +57,7 @@ COMMENT ON COLUMN artist_official_site.url IS 'Official artist website URL';
 -- Venues table
 CREATE TABLE IF NOT EXISTS venues (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
-    name TEXT NOT NULL,
+    name TEXT NOT NULL CHECK (name <> ''),
     admin_area TEXT
 );
 

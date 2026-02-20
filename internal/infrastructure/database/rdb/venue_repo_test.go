@@ -72,7 +72,7 @@ func TestVenueRepository_Create(t *testing.T) {
 					Name: "",
 				},
 			},
-			wantErr: nil, // Database allows empty strings
+			wantErr: apperr.ErrInvalidArgument,
 		},
 	}
 
