@@ -61,12 +61,14 @@ COMMENT ON COLUMN artist_official_site.url IS 'Official artist website URL';
 -- Venues table
 CREATE TABLE IF NOT EXISTS venues (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    admin_area TEXT
 );
 
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
 COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7)';
 COMMENT ON COLUMN venues.name IS 'Venue name as displayed to users';
+COMMENT ON COLUMN venues.admin_area IS 'Administrative area (prefecture, state, province) where the venue is located; NULL when not determinable with confidence';
 
 -- Concerts table
 -- Events table
@@ -74,6 +76,7 @@ CREATE TABLE IF NOT EXISTS events (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     venue_id UUID NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
+    listed_venue_name TEXT,
     local_event_date DATE NOT NULL,
     start_at TIMESTAMPTZ,
     open_at TIMESTAMPTZ,
@@ -84,6 +87,7 @@ COMMENT ON TABLE events IS 'Generic event data including time, location, and met
 COMMENT ON COLUMN events.id IS 'Unique event identifier (UUIDv7)';
 COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
 COMMENT ON COLUMN events.title IS 'Event title as displayed to users';
+COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from the source, preserved separately from the normalized venue record';
 COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
 COMMENT ON COLUMN events.start_at IS 'Event start time (absolute)';
 COMMENT ON COLUMN events.open_at IS 'Doors open time (absolute), if available';
