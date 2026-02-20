@@ -31,14 +31,14 @@ const (
 	selectArtistsByMBIDsQuery = `
 		SELECT a.id, a.name, COALESCE(a.mbid, '')
 		FROM artists a
-		JOIN (SELECT unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord)) AS t ON a.mbid = t.mbid
+		JOIN unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord) ON a.mbid = t.mbid
 		ORDER BY t.ord
 	`
 	// Fetch back no-MBID artists preserving the input array order via WITH ORDINALITY.
 	selectArtistsByIDsQuery = `
 		SELECT a.id, a.name, COALESCE(a.mbid, '')
 		FROM artists a
-		JOIN (SELECT unnest($1::uuid[]) WITH ORDINALITY AS t(id, ord)) AS t ON a.id = t.id
+		JOIN unnest($1::uuid[]) WITH ORDINALITY AS t(id, ord) ON a.id = t.id
 		ORDER BY t.ord
 	`
 	listArtistsQuery = `
