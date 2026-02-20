@@ -201,6 +201,30 @@ func TestConcertRepository_Create(t *testing.T) {
 			},
 			wantErr: nil,
 		},
+		{
+			// Regression: nil elements must be compacted before building unnest arrays.
+			// A nil element left at index i results in an empty-string UUID in eventIDs[i],
+			// which PostgreSQL rejects as "invalid input syntax for type uuid: """.
+			name: "nil elements are skipped without DB error",
+			args: args{
+				concerts: []*entity.Concert{
+					nil,
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49f1",
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "Valid Concert Among Nils",
+							LocalEventDate: concertDate,
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					},
+					nil,
+				},
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tt := range tests {

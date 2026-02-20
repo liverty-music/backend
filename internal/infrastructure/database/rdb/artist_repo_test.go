@@ -82,6 +82,32 @@ func TestArtistRepository_Create(t *testing.T) {
 			args: args{artists: []*entity.Artist{entity.NewArtist("Different Name", "dedup-mbid-001")}},
 			want: []*entity.Artist{{Name: "Original Name", MBID: "dedup-mbid-001"}},
 		},
+		{
+			// Regression: nil elements in the variadic slice must be skipped without panicking.
+			name:  "nil elements are skipped",
+			setup: cleanDatabase,
+			args:  args{artists: []*entity.Artist{nil, entity.NewArtist("Non-nil Artist", ""), nil}},
+			want:  []*entity.Artist{{Name: "Non-nil Artist", MBID: ""}},
+		},
+		{
+			// Regression: interleaved MBID/no-MBID artists must be returned in original input order.
+			// Previously the two groups were returned as MBID-batch first, no-MBID-batch second,
+			// losing the relevance ranking from the external searcher.
+			name:  "interleaved MBID and no-MBID artists preserve input order",
+			setup: cleanDatabase,
+			args: args{artists: []*entity.Artist{
+				entity.NewArtist("First no-MBID", ""),
+				entity.NewArtist("Second with MBID", "order-mbid-001"),
+				entity.NewArtist("Third no-MBID", ""),
+				entity.NewArtist("Fourth with MBID", "order-mbid-002"),
+			}},
+			want: []*entity.Artist{
+				{Name: "First no-MBID", MBID: ""},
+				{Name: "Second with MBID", MBID: "order-mbid-001"},
+				{Name: "Third no-MBID", MBID: ""},
+				{Name: "Fourth with MBID", MBID: "order-mbid-002"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
