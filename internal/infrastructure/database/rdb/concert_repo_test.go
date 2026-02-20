@@ -224,6 +224,78 @@ func TestConcertRepository_Create(t *testing.T) {
 	}
 }
 
+// TestConcertRepository_ListedVenueName verifies that ListedVenueName is
+// correctly scanned from the database in both the NULL and non-NULL cases.
+// This is a regression test for the pre-migration NULL scan bug: rows inserted
+// before the listed_venue_name column was added have NULL in that column, and
+// scanning NULL into a non-pointer string would panic at runtime.
+func TestConcertRepository_ListedVenueName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	cleanDatabase()
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+
+	artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band"}
+	require.NoError(t, artistRepo.Create(ctx, artist))
+	venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
+	require.NoError(t, venueRepo.Create(ctx, venue))
+	concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
+
+	t.Run("NULL listed_venue_name (pre-migration row) is scanned to nil without error", func(t *testing.T) {
+		// Simulate a pre-migration row by inserting directly without listed_venue_name.
+		// This exercises the NULL → *string nil mapping that was broken before this fix.
+		_, err := testDB.Pool.Exec(ctx,
+			"INSERT INTO events (id, venue_id, title, local_event_date, source_url) VALUES ($1, $2, $3, $4, $5)",
+			"018b2f19-e591-7d12-bf9e-f0e74f1b4cc1", venue.ID, "Legacy Concert", concertDate, "https://example.com/legacy",
+		)
+		require.NoError(t, err)
+		_, err = testDB.Pool.Exec(ctx,
+			"INSERT INTO concerts (event_id, artist_id) VALUES ($1, $2)",
+			"018b2f19-e591-7d12-bf9e-f0e74f1b4cc1", artist.ID,
+		)
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artist.ID, false)
+		assert.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Nil(t, got[0].ListedVenueName, "expected nil for pre-migration NULL row")
+	})
+
+	t.Run("non-NULL listed_venue_name is persisted and retrieved correctly", func(t *testing.T) {
+		listedName := "Zepp Nagoya"
+		concert := &entity.Concert{
+			Event: entity.Event{
+				ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4cc2",
+				VenueID:         venue.ID,
+				Title:           "Modern Concert",
+				ListedVenueName: &listedName,
+				LocalEventDate:  concertDate,
+				SourceURL:       "https://example.com/modern",
+			},
+			ArtistID: artist.ID,
+		}
+		require.NoError(t, concertRepo.Create(ctx, concert))
+
+		got, err := concertRepo.ListByArtist(ctx, artist.ID, false)
+		assert.NoError(t, err)
+
+		var found *entity.Concert
+		for _, c := range got {
+			if c.ID == concert.ID {
+				found = c
+				break
+			}
+		}
+		require.NotNil(t, found)
+		require.NotNil(t, found.ListedVenueName, "expected non-nil for row with listed_venue_name set")
+		assert.Equal(t, listedName, *found.ListedVenueName)
+	})
+}
+
 func TestConcertRepository_ListByArtist(t *testing.T) {
 	cleanDatabase()
 	concertRepo := rdb.NewConcertRepository(testDB)
