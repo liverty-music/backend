@@ -129,10 +129,7 @@ jobs:
     needs: [test, test-skip, vulnerability-check, vulnerability-check-skip]
     if: always()
     steps:
-      - name: Check all jobs passed
-        run: |
-          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more CI jobs failed"
-            exit 1
-          fi
-          echo "All CI jobs passed"
+      - uses: re-actors/alls-green@release/v1
+        with:
+          allowed-skips: test, test-skip, vulnerability-check, vulnerability-check-skip
+          jobs: ${{ toJSON(needs) }}

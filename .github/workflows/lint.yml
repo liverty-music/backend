@@ -74,3 +74,14 @@ jobs:
             echo "$unformatted"
             exit 1
           fi
+
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [golangci, golangci-skip, gofmt]
+    if: always()
+    steps:
+      - uses: re-actors/alls-green@release/v1
+        with:
+          allowed-skips: golangci, golangci-skip
+          jobs: ${{ toJSON(needs) }}
