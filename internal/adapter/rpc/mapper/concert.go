@@ -54,7 +54,7 @@ func VenueToProto(v *entity.Venue) *entityv1.Venue {
 		return nil
 	}
 
-	return &entityv1.Venue{
+	result := &entityv1.Venue{
 		Id: &entityv1.VenueId{
 			Value: v.ID,
 		},
@@ -62,6 +62,10 @@ func VenueToProto(v *entity.Venue) *entityv1.Venue {
 			Value: v.Name,
 		},
 	}
+	if v.AdminArea != nil {
+		result.AdminArea = &entityv1.AdminArea{Value: *v.AdminArea}
+	}
+	return result
 }
 
 // TimeToTimeOfDayProto converts *time.Time to *timeofday.TimeOfDay.
