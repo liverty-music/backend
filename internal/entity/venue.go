@@ -46,6 +46,25 @@ type NewVenue struct {
 	Name string
 }
 
+// VenuePlace represents a resolved canonical venue from an external place search service.
+type VenuePlace struct {
+	// ExternalID is the provider-specific identifier (MBID or Google Place ID).
+	ExternalID string
+	// Name is the canonical name returned by the external service.
+	Name string
+}
+
+// VenuePlaceSearcher defines the interface for external place search services used in venue enrichment.
+type VenuePlaceSearcher interface {
+	// SearchPlace looks up a venue by name and optional administrative area.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If no matching place is found.
+	//  - Unavailable: If the external service is unreachable.
+	SearchPlace(ctx context.Context, name, adminArea string) (*VenuePlace, error)
+}
+
 // VenueEnrichmentRepository defines the data access interface for venue enrichment operations.
 type VenueEnrichmentRepository interface {
 	// ListPending returns all venues with enrichment_status = 'pending'.
