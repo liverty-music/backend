@@ -15,10 +15,16 @@ type ArtistRepository struct {
 }
 
 const (
-	insertArtistsUnnestQuery = `
+	// Artists with non-empty MBID: deduplicate via ON CONFLICT.
+	insertArtistsWithMBIDUnnestQuery = `
 		INSERT INTO artists (id, name, mbid)
 		SELECT * FROM unnest($1::uuid[], $2::text[], $3::varchar[])
-		ON CONFLICT (mbid) DO NOTHING WHERE mbid IS NOT NULL AND mbid != ''
+		ON CONFLICT (mbid) DO NOTHING
+	`
+	// Artists without MBID: no conflict target, always insert as new rows.
+	insertArtistsNoMBIDUnnestQuery = `
+		INSERT INTO artists (id, name)
+		SELECT * FROM unnest($1::uuid[], $2::text[])
 	`
 	selectArtistsByMBIDsQuery = `
 		SELECT id, name, mbid
@@ -87,34 +93,36 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 		return []*entity.Artist{}, nil
 	}
 
-	ids := make([]string, len(artists))
-	names := make([]string, len(artists))
-	mbids := make([]string, len(artists))
-
-	// Track which artists have MBIDs for the SELECT-back query,
-	// and which were inserted by generated ID (no MBID).
+	// Split artists into two groups: those with MBID (deduplicatable) and those without.
+	var withMBIDIDs, withMBIDNames, withMBIDs []string
+	var noMBIDIDs, noMBIDNames []string
 	var mbidList []string
-	var noMBIDIDs []string
 
-	for i, a := range artists {
+	for _, a := range artists {
 		if a.ID == "" {
 			id, _ := uuid.NewV7()
 			a.ID = id.String()
 		}
-		ids[i] = a.ID
-		names[i] = a.Name
-		mbids[i] = a.MBID
-
 		if a.MBID != "" {
+			withMBIDIDs = append(withMBIDIDs, a.ID)
+			withMBIDNames = append(withMBIDNames, a.Name)
+			withMBIDs = append(withMBIDs, a.MBID)
 			mbidList = append(mbidList, a.MBID)
 		} else {
 			noMBIDIDs = append(noMBIDIDs, a.ID)
+			noMBIDNames = append(noMBIDNames, a.Name)
 		}
 	}
 
-	_, err := r.db.Pool.Exec(ctx, insertArtistsUnnestQuery, ids, names, mbids)
-	if err != nil {
-		return nil, toAppErr(err, "failed to bulk insert artists", slog.Int("count", len(artists)))
+	if len(withMBIDIDs) > 0 {
+		if _, err := r.db.Pool.Exec(ctx, insertArtistsWithMBIDUnnestQuery, withMBIDIDs, withMBIDNames, withMBIDs); err != nil {
+			return nil, toAppErr(err, "failed to bulk insert artists with MBID", slog.Int("count", len(withMBIDIDs)))
+		}
+	}
+	if len(noMBIDIDs) > 0 {
+		if _, err := r.db.Pool.Exec(ctx, insertArtistsNoMBIDUnnestQuery, noMBIDIDs, noMBIDNames); err != nil {
+			return nil, toAppErr(err, "failed to bulk insert artists without MBID", slog.Int("count", len(noMBIDIDs)))
+		}
 	}
 
 	// Fetch back all persisted artists (both new and pre-existing) by MBID and ID.
