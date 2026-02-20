@@ -87,6 +87,9 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	artistIDs := make([]string, n)
 
 	for i, c := range concerts {
+		if c == nil {
+			continue
+		}
 		eventIDs[i] = c.ID
 		venueIDs[i] = c.VenueID
 		titles[i] = c.Title
