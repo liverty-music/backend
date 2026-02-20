@@ -3,19 +3,7 @@ name: Lint
 on:
   push:
     branches: [main]
-    paths:
-      - '**/*.go'
-      - 'go.mod'
-      - 'go.sum'
-      - '.golangci.yml'
-      - '.github/workflows/lint.yml'
   pull_request:
-    paths:
-      - '**/*.go'
-      - 'go.mod'
-      - 'go.sum'
-      - '.golangci.yml'
-      - '.github/workflows/lint.yml'
 
 permissions:
   contents: read
@@ -25,7 +13,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - '.golangci.yml'
+              - '.github/workflows/lint.yml'
+
   golangci:
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
     name: golangci-lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -40,6 +47,14 @@ jobs:
         with:
           version: latest
           args: --timeout=3m --build-tags=integration
+
+  golangci-skip:
+    needs: changes
+    if: needs.changes.outputs.src == 'false'
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "No relevant changes, skipping lint"
 
   gofmt:
     name: gofmt

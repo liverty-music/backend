@@ -3,11 +3,6 @@ name: Atlas CI
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'internal/infrastructure/database/rdb/migrations/**'
-      - 'internal/infrastructure/database/rdb/model.go'
-      - 'atlas.hcl'
-      - '.github/workflows/atlas-ci.yml'
 
 permissions:
   contents: read
@@ -20,7 +15,25 @@ env:
   DATABASE_URL: "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'internal/infrastructure/database/rdb/migrations/**'
+              - 'internal/infrastructure/database/rdb/model.go'
+              - 'atlas.hcl'
+              - '.github/workflows/atlas-ci.yml'
+
   atlas-ci:
+    needs: changes
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -49,3 +62,10 @@ jobs:
           atlas migrate validate \
             --dev-url "${{ env.DATABASE_URL }}" \
             --dir "file://internal/infrastructure/database/rdb/migrations/versions"
+
+  atlas-ci-skip:
+    needs: changes
+    if: needs.changes.outputs.src == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "No relevant changes, skipping Atlas CI"
