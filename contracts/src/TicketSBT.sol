@@ -8,7 +8,13 @@ import {IERC5192} from "./interfaces/IERC5192.sol";
 /// @title TicketSBT
 /// @notice ERC-721 Soulbound Token for Liverty Music event tickets.
 ///         Each token is permanently locked (non-transferable) per ERC-5192.
-///         Only accounts with MINTER_ROLE can mint; the backend service EOA holds this role.
+///
+///         Access control:
+///         - DEFAULT_ADMIN_ROLE: can grant/revoke roles. Held by the deployer EOA.
+///         - MINTER_ROLE: can call mint(). Held by the backend service EOA, which
+///           signs and submits mint transactions when a user purchases a ticket.
+///           In production, the private key is stored in GCP Secret Manager.
+///           In dev, the deployer EOA doubles as the minter.
 contract TicketSBT is ERC721, AccessControl, IERC5192 {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 

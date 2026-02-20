@@ -13,7 +13,9 @@ import {TicketSBT} from "../src/TicketSBT.sol";
 ///     --broadcast
 contract DeployTicketSBT is Script {
     function run() external {
-        address deployer = vm.envOr("DEPLOYER_ADDRESS", vm.addr(vm.envUint("PRIVATE_KEY")));
+        // When using --private-key flag, msg.sender is the deployer.
+        // Optionally override with DEPLOYER_ADDRESS env var.
+        address deployer = vm.envOr("DEPLOYER_ADDRESS", msg.sender);
 
         vm.startBroadcast();
 

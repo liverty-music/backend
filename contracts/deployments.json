@@ -1,0 +1,10 @@
+{
+  "base-sepolia": {
+    "TicketSBT": {
+      "address": "0x7C50bdF2E5d6B81F71868d5B6B59B5B3EC2F06fa",
+      "deployer": "0x02897C133CAc0eCFa012b86C706790397464a411",
+      "txHash": "0x2923f1f52eae597d9c999b48646496be4dce6454c10500d65dec77f07daaab03",
+      "deployedAt": "2026-02-21"
+    }
+  }
+}
