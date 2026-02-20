@@ -71,3 +71,19 @@ Local Protobuf code generation is FORBIDDEN. To generate/update Go code from sch
 > - "Run migrations" → Load `backend-workflow` skill
 >
 > **For standard Go commands (run, test, lint):** Refer to README.md Development Commands section
+
+### Integration Tests
+
+Integration tests under `internal/infrastructure/database/rdb/` require a local PostgreSQL instance.
+
+**Before running integration tests, you MUST ensure the database is running:**
+
+```bash
+docker compose up -d postgres
+```
+
+The schema is applied automatically via Atlas migrations on container startup. If the container was freshly created, also apply the schema manually:
+
+```bash
+docker compose exec postgres psql -U test-user -d test-db < internal/infrastructure/database/rdb/schema/schema.sql
+```
