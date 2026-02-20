@@ -24,6 +24,7 @@ func TestClient_Integration_GetArtist(t *testing.T) {
 	})
 
 	t.Run("UVERworld", func(t *testing.T) {
+		t.Skip("Skipping flaky integration test - MusicBrainz API connection unstable (see #51)")
 		artist, err := client.GetArtist(ctx, "a107bff6-58da-4302-83ad-317e86a1811c")
 		require.NoError(t, err)
 		assert.Equal(t, "UVERworld", artist.Name)
