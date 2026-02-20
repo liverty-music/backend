@@ -75,7 +75,20 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		return nil
 	}
 
-	n := len(concerts)
+	// Compact the slice first: skip nil elements so target arrays have no empty-value holes.
+	// A nil element with index i would leave an empty string at eventIDs[i], which PostgreSQL
+	// rejects as "invalid input syntax for type uuid: """.
+	var valid []*entity.Concert
+	for _, c := range concerts {
+		if c != nil {
+			valid = append(valid, c)
+		}
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+
+	n := len(valid)
 	eventIDs := make([]string, n)
 	venueIDs := make([]string, n)
 	titles := make([]string, n)
@@ -86,10 +99,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	sourceURLs := make([]string, n)
 	artistIDs := make([]string, n)
 
-	for i, c := range concerts {
-		if c == nil {
-			continue
-		}
+	for i, c := range valid {
 		eventIDs[i] = c.ID
 		venueIDs[i] = c.VenueID
 		titles[i] = c.Title

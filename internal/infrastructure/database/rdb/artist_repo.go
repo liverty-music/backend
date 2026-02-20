@@ -99,11 +99,16 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	}
 
 	// Split artists into two groups: those with MBID (deduplicatable) and those without.
+	// Track each artist's original input index so we can restore order in the result.
 	var withMBIDIDs, withMBIDNames, withMBIDs []string
 	var noMBIDIDs, noMBIDNames []string
 	var mbidList []string
+	// mbidInputIdx[i] = original index of the i-th MBID artist in the input slice.
+	var mbidInputIdx []int
+	// noMBIDInputIdx[i] = original index of the i-th no-MBID artist in the input slice.
+	var noMBIDInputIdx []int
 
-	for _, a := range artists {
+	for origIdx, a := range artists {
 		if a == nil {
 			continue
 		}
@@ -116,9 +121,11 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 			withMBIDNames = append(withMBIDNames, a.Name)
 			withMBIDs = append(withMBIDs, a.MBID)
 			mbidList = append(mbidList, a.MBID)
+			mbidInputIdx = append(mbidInputIdx, origIdx)
 		} else {
 			noMBIDIDs = append(noMBIDIDs, a.ID)
 			noMBIDNames = append(noMBIDNames, a.Name)
+			noMBIDInputIdx = append(noMBIDInputIdx, origIdx)
 		}
 	}
 
@@ -135,7 +142,9 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 
 	// Fetch back all persisted artists (both new and pre-existing) by MBID and ID,
 	// preserving the input order via WITH ORDINALITY.
-	var result []*entity.Artist
+	// resultByOrigIdx maps original input index → fetched artist, so we can merge
+	// the two groups (MBID and no-MBID) back into the caller's original order.
+	resultByOrigIdx := make(map[int]*entity.Artist)
 
 	if len(mbidList) > 0 {
 		rows, err := r.db.Pool.Query(ctx, selectArtistsByMBIDsQuery, mbidList)
@@ -144,12 +153,14 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 		}
 		defer rows.Close()
 
+		i := 0
 		for rows.Next() {
 			var a entity.Artist
 			if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
 				return nil, toAppErr(err, "failed to scan artist")
 			}
-			result = append(result, &a)
+			resultByOrigIdx[mbidInputIdx[i]] = &a
+			i++
 		}
 		if err := rows.Err(); err != nil {
 			return nil, toAppErr(err, "error iterating artist rows by mbids")
@@ -163,15 +174,25 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 		}
 		defer rows.Close()
 
+		i := 0
 		for rows.Next() {
 			var a entity.Artist
 			if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
 				return nil, toAppErr(err, "failed to scan artist")
 			}
-			result = append(result, &a)
+			resultByOrigIdx[noMBIDInputIdx[i]] = &a
+			i++
 		}
 		if err := rows.Err(); err != nil {
 			return nil, toAppErr(err, "error iterating artist rows by ids")
+		}
+	}
+
+	// Reassemble in original input order, skipping nil entries.
+	result := make([]*entity.Artist, 0, len(resultByOrigIdx))
+	for origIdx := range artists {
+		if a, ok := resultByOrigIdx[origIdx]; ok {
+			result = append(result, a)
 		}
 	}
 
