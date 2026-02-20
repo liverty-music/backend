@@ -24,7 +24,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
 		Name: "Concert Test Band",
 	}
-	err := artistRepo.Create(ctx, testArtist)
+	_, err := artistRepo.Create(ctx, testArtist)
 	require.NoError(t, err)
 
 	testVenue := &entity.Venue{
@@ -310,7 +310,8 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 			cleanDatabase()
 
 			artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band"}
-			require.NoError(t, artistRepo.Create(ctx, artist))
+			_, err := artistRepo.Create(ctx, artist)
+			require.NoError(t, err)
 			venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
 			require.NoError(t, venueRepo.Create(ctx, venue))
 
@@ -348,9 +349,9 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		Name: "List Test Arena",
 	}
 
-	err := artistRepo.Create(ctx, testArtist1)
+	_, err := artistRepo.Create(ctx, testArtist1)
 	require.NoError(t, err)
-	err = artistRepo.Create(ctx, testArtist2)
+	_, err = artistRepo.Create(ctx, testArtist2)
 	require.NoError(t, err)
 	err = venueRepo.Create(ctx, testVenue)
 	require.NoError(t, err)

@@ -23,7 +23,7 @@ func TestSearchLogRepository_Upsert(t *testing.T) {
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49d1",
 		Name: "Search Log Test Artist",
 	}
-	err := artistRepo.Create(ctx, testArtist)
+	_, err := artistRepo.Create(ctx, testArtist)
 	require.NoError(t, err)
 
 	t.Run("insert new search log", func(t *testing.T) {
