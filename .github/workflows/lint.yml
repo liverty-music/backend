@@ -28,7 +28,7 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - '.golangci.yml'
-              - '.github/workflows/lint.yml'
+              - '.github/workflows/**'
 
   golangci:
     needs: changes

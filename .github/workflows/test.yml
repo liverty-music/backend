@@ -28,7 +28,7 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - 'internal/infrastructure/database/rdb/migrations/**'
-              - '.github/workflows/test.yml'
+              - '.github/workflows/**'
 
   test:
     needs: changes
