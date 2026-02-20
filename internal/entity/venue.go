@@ -12,6 +12,9 @@ type Venue struct {
 	ID string
 	// Name is the name of the venue.
 	Name string
+	// AdminArea is the administrative area (prefecture, state, province) where the venue is located.
+	// It is nil when the area could not be determined with confidence.
+	AdminArea *string
 }
 
 // NewVenue represents data for creating a new venue.

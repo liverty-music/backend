@@ -151,17 +151,17 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 			uc.logger.Debug(ctx, "filtered existing/duplicate event",
 				slog.String("artistID", artistID),
 				slog.String("title", s.Title),
-				slog.String("venue", s.VenueName),
+				slog.String("venue", s.ListedVenueName),
 				slog.String("date", s.LocalEventDate.Format("2006-01-02")),
 			)
 			continue
 		}
 		seen[key] = true
 
-		venue, err := uc.venueRepo.GetByName(ctx, s.VenueName)
+		venue, err := uc.venueRepo.GetByName(ctx, s.ListedVenueName)
 		if err != nil {
 			if !errors.Is(err, apperr.ErrNotFound) {
-				uc.logger.Error(ctx, "failed to get venue by name", err, slog.String("name", s.VenueName))
+				uc.logger.Error(ctx, "failed to get venue by name", err, slog.String("name", s.ListedVenueName))
 				continue
 			}
 
@@ -172,20 +172,21 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				continue
 			}
 			newVenue := &entity.Venue{
-				ID:   venueID,
-				Name: s.VenueName,
+				ID:        venueID,
+				Name:      s.ListedVenueName,
+				AdminArea: s.AdminArea,
 			}
 			if err := uc.venueRepo.Create(ctx, newVenue); err != nil {
 				if errors.Is(err, apperr.ErrAlreadyExists) {
 					// Race condition: another request created it. Fetch again.
-					v, getErr := uc.venueRepo.GetByName(ctx, s.VenueName)
+					v, getErr := uc.venueRepo.GetByName(ctx, s.ListedVenueName)
 					if getErr != nil {
-						uc.logger.Error(ctx, "failed to get venue after race", getErr, slog.String("name", s.VenueName))
+						uc.logger.Error(ctx, "failed to get venue after race", getErr, slog.String("name", s.ListedVenueName))
 						continue
 					}
 					venue = v
 				} else {
-					uc.logger.Error(ctx, "failed to create venue", err, slog.String("name", s.VenueName))
+					uc.logger.Error(ctx, "failed to create venue", err, slog.String("name", s.ListedVenueName))
 					continue
 				}
 			} else {
@@ -199,13 +200,14 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		}
 		discovered = append(discovered, &entity.Concert{
 			Event: entity.Event{
-				ID:             concertID,
-				VenueID:        venue.ID,
-				Title:          s.Title,
-				LocalEventDate: s.LocalEventDate,
-				StartTime:      s.StartTime,
-				OpenTime:       s.OpenTime,
-				SourceURL:      s.SourceURL,
+				ID:              concertID,
+				VenueID:         venue.ID,
+				Title:           s.Title,
+				ListedVenueName: &s.ListedVenueName,
+				LocalEventDate:  s.LocalEventDate,
+				StartTime:       s.StartTime,
+				OpenTime:        s.OpenTime,
+				SourceURL:       s.SourceURL,
 			},
 			ArtistID: artistID,
 		})

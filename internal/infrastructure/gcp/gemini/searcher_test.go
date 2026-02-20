@@ -26,6 +26,10 @@ func ptr(t time.Time) *time.Time {
 	return &t
 }
 
+func ptrStr(s string) *string {
+	return &s
+}
+
 func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	u, _ := url.Parse(t.URL)
 	req.URL.Scheme = u.Scheme
@@ -64,11 +68,67 @@ func TestConcertSearcher_Search(t *testing.T) {
 			}`,
 			want: []*entity.ScrapedConcert{
 				{
-					Title:          "Test Tour 2026",
-					VenueName:      "Test Hall",
-					LocalEventDate: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:      ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
-					SourceURL:      "https://example.com/test",
+					Title:           "Test Tour 2026",
+					ListedVenueName: "Test Hall",
+					LocalEventDate:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+					StartTime:       ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
+					SourceURL:       "https://example.com/test",
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name:       "success - event with admin_area",
+			statusCode: http.StatusOK,
+			responseBody: `{
+				"events": [
+					{
+						"artist_name": "Test Artist",
+						"event_name": "Nagoya Concert",
+						"venue": "Zepp Nagoya",
+						"admin_area": "愛知県",
+						"local_date": "2026-03-15",
+						"start_time": "2026-03-15T18:00:00+09:00",
+						"source_url": "https://example.com/nagoya"
+					}
+				]
+			}`,
+			want: []*entity.ScrapedConcert{
+				{
+					Title:           "Nagoya Concert",
+					ListedVenueName: "Zepp Nagoya",
+					AdminArea:       ptrStr("愛知県"),
+					LocalEventDate:  time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
+					StartTime:       ptr(time.Date(2026, 3, 15, 18, 0, 0, 0, time.FixedZone("", 9*60*60))),
+					SourceURL:       "https://example.com/nagoya",
+				},
+			},
+			wantErr: nil,
+		},
+		{
+			name:       "success - event with empty admin_area returns nil",
+			statusCode: http.StatusOK,
+			responseBody: `{
+				"events": [
+					{
+						"artist_name": "Test Artist",
+						"event_name": "Unknown Venue Concert",
+						"venue": "Some Venue",
+						"admin_area": "",
+						"local_date": "2026-03-20",
+						"start_time": null,
+						"source_url": "https://example.com/unknown"
+					}
+				]
+			}`,
+			want: []*entity.ScrapedConcert{
+				{
+					Title:           "Unknown Venue Concert",
+					ListedVenueName: "Some Venue",
+					AdminArea:       nil,
+					LocalEventDate:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+					StartTime:       nil,
+					SourceURL:       "https://example.com/unknown",
 				},
 			},
 			wantErr: nil,
@@ -98,18 +158,18 @@ func TestConcertSearcher_Search(t *testing.T) {
 			}`,
 			want: []*entity.ScrapedConcert{
 				{
-					Title:          "Test Tour 2026",
-					VenueName:      "Test Hall",
-					LocalEventDate: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:      ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
-					SourceURL:      "https://example.com/test",
+					Title:           "Test Tour 2026",
+					ListedVenueName: "Test Hall",
+					LocalEventDate:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+					StartTime:       ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
+					SourceURL:       "https://example.com/test",
 				},
 				{
-					Title:          "Test Tour 2026",
-					VenueName:      "Test Hall",
-					LocalEventDate: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:      ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
-					SourceURL:      "https://example.com/test-dup",
+					Title:           "Test Tour 2026",
+					ListedVenueName: "Test Hall",
+					LocalEventDate:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+					StartTime:       ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
+					SourceURL:       "https://example.com/test-dup",
 				},
 			},
 			wantErr: nil,
@@ -131,11 +191,11 @@ func TestConcertSearcher_Search(t *testing.T) {
 			}`,
 			want: []*entity.ScrapedConcert{
 				{
-					Title:          "New Event",
-					VenueName:      "Test Hall",
-					LocalEventDate: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:      ptr(time.Date(2026, 4, 1, 19, 0, 0, 0, time.UTC)),
-					SourceURL:      "https://example.com/new",
+					Title:           "New Event",
+					ListedVenueName: "Test Hall",
+					LocalEventDate:  time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+					StartTime:       ptr(time.Date(2026, 4, 1, 19, 0, 0, 0, time.UTC)),
+					SourceURL:       "https://example.com/new",
 				},
 			},
 			wantErr: nil,
@@ -223,25 +283,25 @@ func TestConcertSearcher_Search(t *testing.T) {
 			}`,
 			want: []*entity.ScrapedConcert{
 				{
-					Title:          "HH:MM Format",
-					VenueName:      "Test Hall",
-					LocalEventDate: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:      nil, // Invalid HH:MM results in nil
-					SourceURL:      "https://example.com/hh-mm",
+					Title:           "HH:MM Format",
+					ListedVenueName: "Test Hall",
+					LocalEventDate:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+					StartTime:       nil, // Invalid HH:MM results in nil
+					SourceURL:       "https://example.com/hh-mm",
 				},
 				{
-					Title:          "Empty Start Time",
-					VenueName:      "Test Hall",
-					LocalEventDate: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC),
-					StartTime:      nil, // Empty results in nil
-					SourceURL:      "https://example.com/empty",
+					Title:           "Empty Start Time",
+					ListedVenueName: "Test Hall",
+					LocalEventDate:  time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC),
+					StartTime:       nil, // Empty results in nil
+					SourceURL:       "https://example.com/empty",
 				},
 				{
-					Title:          "Valid RFC3339",
-					VenueName:      "Test Hall",
-					LocalEventDate: time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC),
-					StartTime:      ptr(time.Date(2026, 3, 3, 19, 0, 0, 0, time.FixedZone("", 9*60*60))),
-					SourceURL:      "https://example.com/valid",
+					Title:           "Valid RFC3339",
+					ListedVenueName: "Test Hall",
+					LocalEventDate:  time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC),
+					StartTime:       ptr(time.Date(2026, 3, 3, 19, 0, 0, 0, time.FixedZone("", 9*60*60))),
+					SourceURL:       "https://example.com/valid",
 				},
 			},
 			wantErr: nil,
@@ -337,7 +397,13 @@ func TestConcertSearcher_Search(t *testing.T) {
 			require.Equal(t, len(tt.want), len(got))
 			for i := range tt.want {
 				assert.Equal(t, tt.want[i].Title, got[i].Title, "Title mismatch at index %d", i)
-				assert.Equal(t, tt.want[i].VenueName, got[i].VenueName, "VenueName mismatch at index %d", i)
+				assert.Equal(t, tt.want[i].ListedVenueName, got[i].ListedVenueName, "ListedVenueName mismatch at index %d", i)
+				if tt.want[i].AdminArea == nil {
+					assert.Nil(t, got[i].AdminArea, "AdminArea should be nil at index %d", i)
+				} else {
+					require.NotNil(t, got[i].AdminArea, "AdminArea should not be nil at index %d", i)
+					assert.Equal(t, *tt.want[i].AdminArea, *got[i].AdminArea, "AdminArea mismatch at index %d", i)
+				}
 				assert.True(t, tt.want[i].LocalEventDate.Equal(got[i].LocalEventDate), "LocalEventDate mismatch at index %d", i)
 				if tt.want[i].StartTime == nil {
 					assert.Nil(t, got[i].StartTime, "StartTime should be nil at index %d", i)

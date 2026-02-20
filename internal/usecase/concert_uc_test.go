@@ -136,7 +136,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
 				site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
 				scraped := []*entity.ScrapedConcert{
-					{Title: "New Concert", VenueName: "Test Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
+					{Title: "New Concert", ListedVenueName: "Test Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
@@ -186,7 +186,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
 				site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
 				scraped := []*entity.ScrapedConcert{
-					{Title: "New Concert", VenueName: "New Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
+					{Title: "New Concert", ListedVenueName: "New Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
@@ -196,7 +196,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 				d.venueRepo.EXPECT().GetByName(ctx, "New Venue").Return(nil, apperr.ErrNotFound).Once()
 				d.venueRepo.EXPECT().Create(ctx, mock.MatchedBy(func(v *entity.Venue) bool {
-					return v.Name == "New Venue" && v.ID != ""
+					return v.Name == "New Venue" && v.ID != "" && v.AdminArea == nil
 				})).Return(nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
 					return c.ArtistID == artistID && c.Title == "New Concert" && c.ID != ""
@@ -213,6 +213,47 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			},
 		},
 		{
+			name: "success - venue created with admin_area",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				artistID := "artist-1"
+				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+				site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
+				adminArea := "愛知県"
+				scraped := []*entity.ScrapedConcert{
+					{
+						Title:           "New Concert",
+						ListedVenueName: "Zepp Nagoya",
+						AdminArea:       &adminArea,
+						LocalEventDate:  time.Now().Add(24 * time.Hour),
+						SourceURL:       "https://example.com/concert",
+					},
+				}
+
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
+				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+				d.venueRepo.EXPECT().GetByName(ctx, "Zepp Nagoya").Return(nil, apperr.ErrNotFound).Once()
+				d.venueRepo.EXPECT().Create(ctx, mock.MatchedBy(func(v *entity.Venue) bool {
+					return v.Name == "Zepp Nagoya" && v.ID != "" && v.AdminArea != nil && *v.AdminArea == "愛知県"
+				})).Return(nil).Once()
+				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
+					return c.ArtistID == artistID && c.Title == "New Concert" && c.ListedVenueName != nil && *c.ListedVenueName == "Zepp Nagoya"
+				})).Return(nil).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
+			},
+			want:    1,
+			wantErr: nil,
+			validate: func(t *testing.T, result []*entity.Concert) {
+				t.Helper()
+				assert.Equal(t, "New Concert", result[0].Title)
+				assert.Equal(t, "Zepp Nagoya", *result[0].ListedVenueName)
+			},
+		},
+		{
 			name: "success - venue already exists",
 			args: args{artistID: "artist-1"},
 			setup: func(t *testing.T, d *concertTestDeps) {
@@ -221,7 +262,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
 				site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
 				scraped := []*entity.ScrapedConcert{
-					{Title: "New Concert", VenueName: "Existing Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
+					{Title: "New Concert", ListedVenueName: "Existing Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
@@ -251,7 +292,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
 				site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
 				scraped := []*entity.ScrapedConcert{
-					{Title: "New Concert", VenueName: "Race Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
+					{Title: "New Concert", ListedVenueName: "Race Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
@@ -281,7 +322,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				t.Helper()
 				artistID := "artist-1"
 				scraped := []*entity.ScrapedConcert{
-					{Title: "C1", VenueName: "V1", LocalEventDate: time.Now().Add(24 * time.Hour)},
+					{Title: "C1", ListedVenueName: "V1", LocalEventDate: time.Now().Add(24 * time.Hour)},
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
@@ -304,7 +345,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				t.Helper()
 				artistID := "artist-1"
 				scraped := []*entity.ScrapedConcert{
-					{Title: "C1", VenueName: "V1", LocalEventDate: time.Now().Add(24 * time.Hour)},
+					{Title: "C1", ListedVenueName: "V1", LocalEventDate: time.Now().Add(24 * time.Hour)},
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()

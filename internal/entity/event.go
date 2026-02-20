@@ -12,6 +12,10 @@ type Event struct {
 	VenueID string
 	// Title is the descriptive title of the event.
 	Title string
+	// ListedVenueName is the raw venue name as listed in the source data.
+	// It preserves the original scraped text separately from the normalized Venue.Name.
+	// Nullable: legacy rows inserted before this field was added will have NULL.
+	ListedVenueName *string
 	// LocalEventDate represents the calendar date of the event in the local timezone.
 	//
 	// Specifications:

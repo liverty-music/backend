@@ -17,18 +17,18 @@ type ConcertRepository struct {
 const (
 	// maxConcertsPerBatch limits the number of concerts inserted in a single SQL statement.
 	// PostgreSQL has a maximum of 65,535 parameters per statement.
-	// Each concert uses 7 parameters (events table) + 2 parameters (concerts table) = 9 total.
+	// Each concert uses 8 parameters (events table) + 2 parameters (concerts table) = 10 total.
 	// To stay well within limits and maintain readability, we batch at 500 concerts.
 	maxConcertsPerBatch = 500
 
 	listConcertsByArtistQuery = `
-		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.local_event_date, e.start_at, e.open_at, e.source_url
+		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url
 		FROM concerts c
 		JOIN events e ON c.event_id = e.id
 		WHERE c.artist_id = $1
 	`
 	listUpcomingConcertsByArtistQuery = `
-		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.local_event_date, e.start_at, e.open_at, e.source_url
+		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url
 		FROM concerts c
 		JOIN events e ON c.event_id = e.id
 		WHERE c.artist_id = $1 AND e.local_event_date >= CURRENT_DATE
@@ -56,7 +56,7 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 	var concerts []*entity.Concert
 	for rows.Next() {
 		var c entity.Concert
-		err := rows.Scan(&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.LocalEventDate, &c.StartTime, &c.OpenTime, &c.SourceURL)
+		err := rows.Scan(&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalEventDate, &c.StartTime, &c.OpenTime, &c.SourceURL)
 		if err != nil {
 			return nil, toAppErr(err, "failed to scan concert")
 		}
@@ -87,23 +87,24 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		batch := concerts[start:end]
 
 		// Build bulk INSERT for events
-		eventValues := make([]any, 0, len(batch)*7)
+		// Each concert uses 8 parameters: id, venue_id, title, listed_venue_name, local_event_date, start_at, open_at, source_url
+		eventValues := make([]any, 0, len(batch)*8)
 		eventPlaceholders := make([]string, 0, len(batch))
 
 		for i, concert := range batch {
-			offset := i * 7
+			offset := i * 8
 			eventPlaceholders = append(eventPlaceholders,
-				fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-					offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7))
+				fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+					offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8))
 
 			eventValues = append(eventValues,
-				concert.ID, concert.VenueID, concert.Title,
+				concert.ID, concert.VenueID, concert.Title, concert.ListedVenueName,
 				concert.LocalEventDate, concert.StartTime, concert.OpenTime, concert.SourceURL,
 			)
 		}
 
 		bulkEventQuery := fmt.Sprintf(
-			"INSERT INTO events (id, venue_id, title, local_event_date, start_at, open_at, source_url) VALUES %s ON CONFLICT DO NOTHING",
+			"INSERT INTO events (id, venue_id, title, listed_venue_name, local_event_date, start_at, open_at, source_url) VALUES %s ON CONFLICT DO NOTHING",
 			strings.Join(eventPlaceholders, ", "),
 		)
 

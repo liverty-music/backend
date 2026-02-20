@@ -38,8 +38,9 @@ Constraints:
 2. Do NOT infer dates or times if they are not explicitly stated.
 3. Infer the time zone of the event based on the venue location or context of the website.
 4. Extract ALL discovered events. De-duplication will be handled downstream.
-5. If no information is found conformant to the schema, return an empty list.
-6. Return the response in JSON format matching the schema: { "events": [ { "artist_name": "string", "event_name": "string", "venue": "string", "local_date": "YYYY-MM-DD", "start_time": "ISO8601 (e.g. 2026-02-14T18:30:00+09:00)", "open_time": "ISO8601", "source_url": "string" } ] }
+5. Extract the venue's administrative area (prefecture/state/province) into "admin_area". Populate ONLY when explicitly stated in the text or unambiguously inferable from the venue name (e.g., "Zepp Nagoya" → "愛知県"). Return empty string "" if uncertain. A wrong value is worse than an empty value.
+6. If no information is found conformant to the schema, return an empty list.
+7. Return the response in JSON format matching the schema: { "events": [ { "artist_name": "string", "event_name": "string", "venue": "string", "admin_area": "string (optional)", "local_date": "YYYY-MM-DD", "start_time": "ISO8601 (e.g. 2026-02-14T18:30:00+09:00)", "open_time": "ISO8601", "source_url": "string" } ] }
 `
 
 	// maxOutputTokens defines the maximum length of Gemini's response.
@@ -55,9 +56,13 @@ var (
 			"artist_name": {Type: genai.TypeString},
 			"event_name":  {Type: genai.TypeString, Description: "The exact title of the tour or event."},
 			"venue":       {Type: genai.TypeString},
-			"local_date":  {Type: genai.TypeString, Description: "The date of the concert in YYYY-MM-DD format (local time)."},
-			"start_time":  {Type: genai.TypeString, Description: "The start time in ISO 8601 format including time zone (e.g. 2026-02-14T18:30:00+09:00). If time zone is unambiguous from context, apply it. Return null if unknown."},
-			"open_time":   {Type: genai.TypeString, Description: "The door opening time in ISO 8601 format including time zone. Return null if unknown."},
+			"admin_area": {
+				Type:        genai.TypeString,
+				Description: "The administrative area (prefecture, state, province) where the venue is located. Populate only when explicitly stated or unambiguously inferable from the venue name or surrounding context. Return empty string if uncertain. Wrong values are strictly forbidden.",
+			},
+			"local_date": {Type: genai.TypeString, Description: "The date of the concert in YYYY-MM-DD format (local time)."},
+			"start_time": {Type: genai.TypeString, Description: "The start time in ISO 8601 format including time zone (e.g. 2026-02-14T18:30:00+09:00). If time zone is unambiguous from context, apply it. Return null if unknown."},
+			"open_time":  {Type: genai.TypeString, Description: "The door opening time in ISO 8601 format including time zone. Return null if unknown."},
 			"source_url": {
 				Type:        genai.TypeString,
 				Description: "The specific URL where this event information was found. Prefer direct links to event details.",
@@ -72,6 +77,7 @@ type ScrapedEvent struct {
 	ArtistName string  `json:"artist_name"`
 	EventName  string  `json:"event_name"`
 	Venue      string  `json:"venue"`
+	AdminArea  *string `json:"admin_area"`
 	LocalDate  string  `json:"local_date"`
 	StartTime  *string `json:"start_time"`
 	OpenTime   *string `json:"open_time"`
@@ -288,13 +294,19 @@ func (s *ConcertSearcher) parseEvents(
 			}
 		}
 
+		var adminArea *string
+		if ev.AdminArea != nil && *ev.AdminArea != "" {
+			adminArea = ev.AdminArea
+		}
+
 		discovered = append(discovered, &entity.ScrapedConcert{
-			Title:          ev.EventName,
-			VenueName:      ev.Venue,
-			LocalEventDate: date,
-			StartTime:      startTime,
-			OpenTime:       openTime,
-			SourceURL:      ev.SourceURL,
+			Title:           ev.EventName,
+			ListedVenueName: ev.Venue,
+			AdminArea:       adminArea,
+			LocalEventDate:  date,
+			StartTime:       startTime,
+			OpenTime:        openTime,
+			SourceURL:       ev.SourceURL,
 		})
 	}
 
