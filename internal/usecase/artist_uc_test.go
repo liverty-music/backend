@@ -117,6 +117,20 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		assert.Equal(t, "id-b", result[1].ID)
 	})
 
+	t.Run("error - searcher fails", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+
+		searcher.EXPECT().ListTop(ctx, "JP").Return(nil, apperr.ErrInternal).Once()
+
+		result, err := uc.ListTop(ctx, "JP")
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+		assert.Nil(t, result)
+	})
+
 	t.Run("returns cached results on second call", func(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		searcher := mocks.NewMockArtistSearcher(t)
@@ -144,6 +158,20 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 func TestArtistUseCase_ListSimilar(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := logging.New()
+
+	t.Run("error - seed artist not found", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+
+		repo.EXPECT().Get(ctx, "missing-id").Return(nil, apperr.ErrNotFound).Once()
+
+		result, err := uc.ListSimilar(ctx, "missing-id")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.Nil(t, result)
+	})
 
 	t.Run("returns persisted artists with valid IDs", func(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
