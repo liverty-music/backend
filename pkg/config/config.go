@@ -222,6 +222,12 @@ type JWTConfig struct {
 	// OIDC Issuer URL (e.g., https://your-zitadel-instance.com)
 	Issuer string `envconfig:"OIDC_ISSUER_URL" required:"true"`
 
+	// AcceptedIssuers is an optional comma-separated list of additional accepted JWT issuers.
+	// When set, tokens from any listed issuer are accepted in addition to Issuer.
+	// Use this during Option C migration to accept tokens from a second identity provider.
+	// If empty, only Issuer is accepted.
+	AcceptedIssuers []string `envconfig:"JWT_ACCEPTED_ISSUERS"`
+
 	// JWKS refresh interval for key rotation
 	JWKSRefreshInterval time.Duration `envconfig:"JWKS_REFRESH_INTERVAL" default:"15m"`
 }

@@ -114,6 +114,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 
+	// Apply additional accepted issuers for multi-provider support (Option C migration).
+	if len(cfg.JWT.AcceptedIssuers) > 0 {
+		all := append([]string{cfg.JWT.Issuer}, cfg.JWT.AcceptedIssuers...)
+		jwtValidator = jwtValidator.WithAcceptedIssuers(all)
+	}
+
 	authFunc := auth.NewAuthFunc(jwtValidator)
 
 	// Health check handler (public, outside authn middleware)
