@@ -149,18 +149,18 @@ func (uc *artistUseCase) Create(ctx context.Context, artist *entity.Artist) (*en
 		return nil, apperr.New(codes.InvalidArgument, "artist name is required")
 	}
 
-	if artist.ID == "" {
-		artist.ID = entity.NewID()
-	}
-
-	err := uc.artistRepo.Create(ctx, artist)
+	created, err := uc.artistRepo.Create(ctx, artist)
 	if err != nil {
 		return nil, err
 	}
 
-	uc.logger.Info(ctx, "Artist created successfully", slog.String("artist_id", artist.ID), slog.String("mbid", artist.MBID))
+	if len(created) == 0 {
+		return nil, apperr.New(codes.Internal, "artist creation returned no results")
+	}
 
-	return artist, nil
+	uc.logger.Info(ctx, "Artist created successfully", slog.String("artist_id", created[0].ID), slog.String("mbid", created[0].MBID))
+
+	return created[0], nil
 }
 
 // List returns all artists.
@@ -277,6 +277,7 @@ func (uc *artistUseCase) ListFollowed(ctx context.Context, userID string) ([]*en
 
 // ListSimilar retrieves artists similar to a specified artist.
 // Results are cached to reduce external API calls.
+// Fetched artists are auto-persisted to ensure valid database IDs.
 func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string) ([]*entity.Artist, error) {
 	// Check cache first
 	cacheKey := fmt.Sprintf("similar:%s", artistID)
@@ -297,14 +298,21 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string) ([]*e
 		return nil, err
 	}
 
-	// Store in cache
-	uc.cache.Set(cacheKey, artists)
+	// Auto-persist fetched artists to ensure valid database IDs
+	persisted, err := uc.artistRepo.Create(ctx, artists...)
+	if err != nil {
+		return nil, err
+	}
 
-	return artists, nil
+	// Store in cache
+	uc.cache.Set(cacheKey, persisted)
+
+	return persisted, nil
 }
 
 // ListTop retrieves popular artists.
 // Results are cached to reduce external API calls.
+// Fetched artists are auto-persisted to ensure valid database IDs.
 func (uc *artistUseCase) ListTop(ctx context.Context, country string) ([]*entity.Artist, error) {
 	// Check cache first
 	cacheKey := fmt.Sprintf("top:%s", country)
@@ -320,10 +328,16 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string) ([]*entity
 		return nil, err
 	}
 
-	// Store in cache
-	uc.cache.Set(cacheKey, artists)
+	// Auto-persist fetched artists to ensure valid database IDs
+	persisted, err := uc.artistRepo.Create(ctx, artists...)
+	if err != nil {
+		return nil, err
+	}
 
-	return artists, nil
+	// Store in cache
+	uc.cache.Set(cacheKey, persisted)
+
+	return persisted, nil
 }
 
 // hashString creates a simple hash of a string for cache key consistency.
