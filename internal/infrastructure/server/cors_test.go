@@ -14,6 +14,7 @@ func TestGetCorsOptions(t *testing.T) {
 	assert.Equal(t, allowedOrigins, options.AllowedOrigins)
 	assert.Contains(t, options.AllowedMethods, http.MethodPost)
 	assert.Contains(t, options.AllowedHeaders, "Connect-Protocol-Version")
+	assert.Contains(t, options.AllowedHeaders, "Authorization")
 	assert.Contains(t, options.ExposedHeaders, "Grpc-Status")
 }
 

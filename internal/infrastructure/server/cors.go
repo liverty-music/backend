@@ -14,10 +14,11 @@ func NewCORSHandler(mu http.Handler, allowedOrigins []string) http.Handler {
 
 // GetCorsOptions returns the rs/cors Options used by the handler.
 func GetCorsOptions(allowedOrigins []string) cors.Options {
+	allowedHeaders := append(connectcors.AllowedHeaders(), "Authorization")
 	return cors.Options{
 		AllowedOrigins: allowedOrigins,
 		AllowedMethods: connectcors.AllowedMethods(),
-		AllowedHeaders: connectcors.AllowedHeaders(),
+		AllowedHeaders: allowedHeaders,
 		ExposedHeaders: connectcors.ExposedHeaders(),
 	}
 }
