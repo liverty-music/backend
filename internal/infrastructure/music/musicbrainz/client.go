@@ -46,6 +46,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -63,11 +64,24 @@ const (
 )
 
 type artistResponse struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID        string        `json:"id"`
+	Name      string        `json:"name"`
+	Relations []urlRelation `json:"relations"`
 }
 
-// client implements entity.ArtistIdentityManager for specific MusicBrainz lookups.
+type urlRelation struct {
+	Type         string      `json:"type"`
+	SourceCredit string      `json:"source-credit"`
+	Ended        bool        `json:"ended"`
+	URL          urlResource `json:"url"`
+}
+
+type urlResource struct {
+	Resource string `json:"resource"`
+}
+
+// client implements entity.ArtistIdentityManager and entity.OfficialSiteResolver
+// for specific MusicBrainz lookups.
 type client struct {
 	httpClient *http.Client
 	baseURL    string
@@ -118,6 +132,80 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 
 	return entity.NewArtist(data.Name, data.ID), nil
 }
+
+// ResolveOfficialSiteURL returns the primary official homepage URL for the artist
+// identified by the given MBID using MusicBrainz url-rels.
+//
+// Selection priority (first match wins):
+//  1. ended=false AND source-credit matches artistName (case-insensitive)
+//  2. ended=false AND source-credit is empty
+//  3. ended=false (any active relation, fallback)
+//
+// Returns an empty string without error when no active official homepage is found.
+func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (string, error) {
+	url := fmt.Sprintf("%s%s?inc=url-rels&fmt=json", c.baseURL, mbid)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", apperr.Wrap(err, codes.Internal, "failed to create musicbrainz url-rels request")
+	}
+
+	req.Header.Set("User-Agent", userAgent)
+
+	var resp *http.Response
+	err = c.throttler.Do(ctx, func() error {
+		var err error
+		resp, err = c.httpClient.Do(req)
+		return err
+	})
+
+	if err := api.FromHTTP(err, resp, "musicbrainz url-rels request failed"); err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var data artistResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", apperr.Wrap(err, codes.DataLoss, "failed to decode musicbrainz url-rels response")
+	}
+
+	return selectOfficialSiteURL(data.Name, data.Relations), nil
+}
+
+// selectOfficialSiteURL picks the best official homepage URL from a list of url relations.
+// Priority: name-matched active > unattributed active > any active > empty string.
+func selectOfficialSiteURL(artistName string, relations []urlRelation) string {
+	const officialHomepage = "official homepage"
+
+	var fallbackEmpty, fallbackAny string
+
+	for _, r := range relations {
+		if r.Type != officialHomepage || r.Ended {
+			continue
+		}
+		url := r.URL.Resource
+		if strings.EqualFold(r.SourceCredit, artistName) {
+			return url
+		}
+		if r.SourceCredit == "" && fallbackEmpty == "" {
+			fallbackEmpty = url
+		}
+		if fallbackAny == "" {
+			fallbackAny = url
+		}
+	}
+
+	if fallbackEmpty != "" {
+		return fallbackEmpty
+	}
+	return fallbackAny
+}
+
+// Compile-time interface compliance checks.
+var (
+	_ entity.ArtistIdentityManager = (*client)(nil)
+	_ entity.OfficialSiteResolver  = (*client)(nil)
+)
 
 // SetBaseURL allows overriding the base URL used by the client. This is
 // primarily intended for tests to point the client at an httptest server.

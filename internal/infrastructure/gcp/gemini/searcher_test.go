@@ -387,6 +387,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 			require.NoError(t, err)
 
 			got, err := s.Search(ctx, artist, officialSite, from)
+
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -421,4 +422,74 @@ func TestConcertSearcher_Search(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
+	logger, _ := logging.New()
+	ctx := context.Background()
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{Name: "Test Artist"}
+
+	responseBody := `{
+		"events": [
+			{
+				"artist_name": "Test Artist",
+				"event_name": "Nameless Tour",
+				"venue": "Test Hall",
+				"local_date": "2026-03-01",
+				"start_time": "2026-03-01T18:00:00Z",
+				"source_url": "https://example.com/nameless"
+			}
+		]
+	}`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fullResponse := fmt.Sprintf(`{
+			"candidates": [
+				{
+					"content": {
+						"parts": [
+							{
+								"text": %s
+							}
+						]
+					},
+					"groundingMetadata": {
+						"webSearchQueries": ["test query"]
+					}
+				}
+			],
+			"usageMetadata": {
+				"promptTokenCount": 10,
+				"candidatesTokenCount": 10,
+				"totalTokenCount": 20
+			}
+		}`, strconv.Quote(responseBody))
+
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(fullResponse)); err != nil {
+			t.Errorf("failed to write response body: %v", err)
+		}
+	}))
+	defer ts.Close()
+
+	httpClient := &http.Client{
+		Transport: &rewriteTransport{URL: ts.URL},
+	}
+
+	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
+		ProjectID: "test",
+		Location:  "us-central1",
+		ModelName: "gemini-pro",
+	}, httpClient, logger)
+	require.NoError(t, err)
+
+	// Pass nil officialSite — should use the fallback prompt and still return concerts
+	got, err := s.Search(ctx, artist, nil, from)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Nameless Tour", got[0].Title)
+	assert.Equal(t, "Test Hall", got[0].ListedVenueName)
+	assert.Equal(t, "https://example.com/nameless", got[0].SourceURL)
 }

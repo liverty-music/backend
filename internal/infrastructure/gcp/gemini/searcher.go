@@ -28,9 +28,27 @@ const (
 	You must VALIDATE that every extracted event is a musical concert performance by the specified artist.
 	Answer purely based on the provided Search Tool results. DO NOT use internal knowledge.`
 
-	promptTemplate = `
+	// promptTemplateWithSite is used when the artist's official site URL is known.
+	promptTemplateWithSite = `
 You are an agent extracting concert information for the artist "%s".
 Focus on information related to the official site (%s) and the provided search results.
+Find ALL future concert events (tour dates, festival appearances, etc.) happening on or after today (%s).
+
+Constraints:
+1. Itemize specific performances. Do NOT output a single summary item for a tour; instead, output individual items for each performance date and venue.
+2. Do NOT infer dates or times if they are not explicitly stated.
+3. Infer the time zone of the event based on the venue location or context of the website.
+4. Extract ALL discovered events. De-duplication will be handled downstream.
+5. Extract the venue's administrative area (prefecture/state/province) into "admin_area". Populate ONLY when explicitly stated in the text or unambiguously inferable from the venue name (e.g., "Zepp Nagoya" → "愛知県"). Return empty string "" if uncertain. A wrong value is worse than an empty value.
+6. If no information is found conformant to the schema, return an empty list.
+7. Return the response in JSON format matching the schema: { "events": [ { "artist_name": "string", "event_name": "string", "venue": "string", "admin_area": "string (optional)", "local_date": "YYYY-MM-DD", "start_time": "ISO8601 (e.g. 2026-02-14T18:30:00+09:00)", "open_time": "ISO8601", "source_url": "string" } ] }
+`
+
+	// promptTemplateWithoutSite is used when no official site URL is available.
+	// The model is instructed to find the official site itself via Google Search grounding.
+	promptTemplateWithoutSite = `
+You are an agent extracting concert information for the artist "%s".
+Search the official website of "%s" and related sources to find concert information.
 Find ALL future concert events (tour dates, festival appearances, etc.) happening on or after today (%s).
 
 Constraints:
@@ -164,12 +182,19 @@ func (s *ConcertSearcher) Search(
 		ResponseSchema:   responseSchema,
 	}
 
-	prompt := fmt.Sprintf(promptTemplate, artist.Name, officialSite.URL, from.Format("2006-01-02"))
+	var prompt string
+	var officialSiteURL string
+	if officialSite != nil {
+		officialSiteURL = officialSite.URL
+		prompt = fmt.Sprintf(promptTemplateWithSite, artist.Name, officialSiteURL, from.Format("2006-01-02"))
+	} else {
+		prompt = fmt.Sprintf(promptTemplateWithoutSite, artist.Name, artist.Name, from.Format("2006-01-02"))
+	}
 
 	attrs := []slog.Attr{
 		slog.String("model_version", s.config.ModelName),
 		slog.String("artist", artist.Name),
-		slog.String("official_site", officialSite.URL),
+		slog.String("official_site", officialSiteURL),
 		slog.String("from", from.Format("2006-01-02")),
 	}
 
