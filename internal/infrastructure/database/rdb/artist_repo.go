@@ -27,26 +27,26 @@ const (
 		SELECT * FROM unnest($1::uuid[], $2::text[])
 	`
 	selectArtistsByMBIDsQuery = `
-		SELECT id, name, mbid
+		SELECT id, name, COALESCE(mbid, '')
 		FROM artists
 		WHERE mbid = ANY($1)
 	`
 	selectArtistsByIDsQuery = `
-		SELECT id, name, mbid
+		SELECT id, name, COALESCE(mbid, '')
 		FROM artists
 		WHERE id = ANY($1)
 	`
 	listArtistsQuery = `
-		SELECT id, name, mbid
+		SELECT id, name, COALESCE(mbid, '')
 		FROM artists
 	`
 	getArtistQuery = `
-		SELECT id, name, mbid
+		SELECT id, name, COALESCE(mbid, '')
 		FROM artists
 		WHERE id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT id, name, mbid
+		SELECT id, name, COALESCE(mbid, '')
 		FROM artists
 		WHERE mbid = $1
 	`
