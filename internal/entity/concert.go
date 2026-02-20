@@ -19,8 +19,11 @@ type Concert struct {
 type ScrapedConcert struct {
 	// Title is the descriptive title of the scraped event.
 	Title string
-	// VenueName is the raw name of the venue from the source.
-	VenueName string
+	// ListedVenueName is the raw venue name as listed in the source data.
+	ListedVenueName string
+	// AdminArea is the administrative area (prefecture, state, province) where the venue is located.
+	// It is nil when the area could not be determined with confidence.
+	AdminArea *string
 	// LocalEventDate represents the calendar date of the event.
 	// See entity.Concert.LocalEventDate for detailed specifications.
 	LocalEventDate time.Time
