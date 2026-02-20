@@ -241,7 +241,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					return v.Name == "Zepp Nagoya" && v.ID != "" && v.AdminArea != nil && *v.AdminArea == "愛知県"
 				})).Return(nil).Once()
 				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
-					return c.ArtistID == artistID && c.Title == "New Concert" && c.ListedVenueName == "Zepp Nagoya"
+					return c.ArtistID == artistID && c.Title == "New Concert" && c.ListedVenueName != nil && *c.ListedVenueName == "Zepp Nagoya"
 				})).Return(nil).Once()
 				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 			},
@@ -250,7 +250,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			validate: func(t *testing.T, result []*entity.Concert) {
 				t.Helper()
 				assert.Equal(t, "New Concert", result[0].Title)
-				assert.Equal(t, "Zepp Nagoya", result[0].ListedVenueName)
+				assert.Equal(t, "Zepp Nagoya", *result[0].ListedVenueName)
 			},
 		},
 		{
