@@ -22,22 +22,41 @@ func (_m *MockArtistRepository) EXPECT() *MockArtistRepository_Expecter {
 	return &MockArtistRepository_Expecter{mock: &_m.Mock}
 }
 
-// Create provides a mock function with given fields: ctx, artist
-func (_m *MockArtistRepository) Create(ctx context.Context, artist *entity.Artist) error {
-	ret := _m.Called(ctx, artist)
+// Create provides a mock function with given fields: ctx, artists
+func (_m *MockArtistRepository) Create(ctx context.Context, artists ...*entity.Artist) ([]*entity.Artist, error) {
+	_va := make([]interface{}, len(artists))
+	for _i := range artists {
+		_va[_i] = artists[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *entity.Artist) error); ok {
-		r0 = rf(ctx, artist)
+	var r0 []*entity.Artist
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, ...*entity.Artist) ([]*entity.Artist, error)); ok {
+		return rf(ctx, artists...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, ...*entity.Artist) []*entity.Artist); ok {
+		r0 = rf(ctx, artists...)
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Artist)
+		}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, ...*entity.Artist) error); ok {
+		r1 = rf(ctx, artists...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockArtistRepository_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
@@ -47,24 +66,30 @@ type MockArtistRepository_Create_Call struct {
 
 // Create is a helper method to define mock.On call
 //   - ctx context.Context
-//   - artist *entity.Artist
-func (_e *MockArtistRepository_Expecter) Create(ctx interface{}, artist interface{}) *MockArtistRepository_Create_Call {
-	return &MockArtistRepository_Create_Call{Call: _e.mock.On("Create", ctx, artist)}
+//   - artists ...*entity.Artist
+func (_e *MockArtistRepository_Expecter) Create(ctx interface{}, artists ...interface{}) *MockArtistRepository_Create_Call {
+	return &MockArtistRepository_Create_Call{Call: _e.mock.On("Create", append([]interface{}{ctx}, artists...)...)}
 }
 
-func (_c *MockArtistRepository_Create_Call) Run(run func(ctx context.Context, artist *entity.Artist)) *MockArtistRepository_Create_Call {
+func (_c *MockArtistRepository_Create_Call) Run(run func(ctx context.Context, artists ...*entity.Artist)) *MockArtistRepository_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*entity.Artist))
+		variadicArgs := make([]*entity.Artist, len(args)-1)
+		for i, a := range args[1:] {
+			if a != nil {
+				variadicArgs[i] = a.(*entity.Artist)
+			}
+		}
+		run(args[0].(context.Context), variadicArgs...)
 	})
 	return _c
 }
 
-func (_c *MockArtistRepository_Create_Call) Return(_a0 error) *MockArtistRepository_Create_Call {
-	_c.Call.Return(_a0)
+func (_c *MockArtistRepository_Create_Call) Return(_a0 []*entity.Artist, _a1 error) *MockArtistRepository_Create_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockArtistRepository_Create_Call) RunAndReturn(run func(context.Context, *entity.Artist) error) *MockArtistRepository_Create_Call {
+func (_c *MockArtistRepository_Create_Call) RunAndReturn(run func(context.Context, ...*entity.Artist) ([]*entity.Artist, error)) *MockArtistRepository_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }

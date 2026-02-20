@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 )
 
@@ -14,21 +15,43 @@ type ArtistRepository struct {
 }
 
 const (
-	insertArtistQuery = `
-		INSERT INTO artists (id, name, mbid, created_at)
-		VALUES ($1, $2, $3, $4)
+	// Artists with non-empty MBID: deduplicate via ON CONFLICT.
+	// The WHERE clause must match the partial unique index predicate on mbid.
+	insertArtistsWithMBIDUnnestQuery = `
+		INSERT INTO artists (id, name, mbid)
+		SELECT * FROM unnest($1::uuid[], $2::text[], $3::varchar[])
+		ON CONFLICT (mbid) WHERE mbid IS NOT NULL AND mbid != '' DO NOTHING
+	`
+	// Artists without MBID: no conflict target, always insert as new rows.
+	insertArtistsNoMBIDUnnestQuery = `
+		INSERT INTO artists (id, name)
+		SELECT * FROM unnest($1::uuid[], $2::text[])
+	`
+	// Fetch back MBID artists preserving the input array order via WITH ORDINALITY.
+	selectArtistsByMBIDsQuery = `
+		SELECT a.id, a.name, COALESCE(a.mbid, '')
+		FROM artists a
+		JOIN unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord) ON a.mbid = t.mbid
+		ORDER BY t.ord
+	`
+	// Fetch back no-MBID artists preserving the input array order via WITH ORDINALITY.
+	selectArtistsByIDsQuery = `
+		SELECT a.id, a.name, COALESCE(a.mbid, '')
+		FROM artists a
+		JOIN unnest($1::uuid[]) WITH ORDINALITY AS t(id, ord) ON a.id = t.id
+		ORDER BY t.ord
 	`
 	listArtistsQuery = `
-		SELECT id, name, mbid, created_at
+		SELECT id, name, COALESCE(mbid, '')
 		FROM artists
 	`
 	getArtistQuery = `
-		SELECT id, name, mbid, created_at
+		SELECT id, name, COALESCE(mbid, '')
 		FROM artists
 		WHERE id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT id, name, mbid, created_at
+		SELECT id, name, COALESCE(mbid, '')
 		FROM artists
 		WHERE mbid = $1
 	`
@@ -51,13 +74,13 @@ const (
 		WHERE user_id = $1 AND artist_id = $2
 	`
 	listFollowedQuery = `
-		SELECT a.id, a.name, a.mbid, a.created_at
+		SELECT a.id, a.name, COALESCE(a.mbid, '')
 		FROM artists a
 		JOIN followed_artists fa ON a.id = fa.artist_id
 		WHERE fa.user_id = $1
 	`
 	listAllFollowedQuery = `
-		SELECT DISTINCT a.id, a.name, a.mbid, a.created_at
+		SELECT DISTINCT a.id, a.name, COALESCE(a.mbid, '')
 		FROM artists a
 		JOIN followed_artists fa ON a.id = fa.artist_id
 	`
@@ -68,13 +91,112 @@ func NewArtistRepository(db *Database) *ArtistRepository {
 	return &ArtistRepository{db: db}
 }
 
-// Create creates a new artist.
-func (r *ArtistRepository) Create(ctx context.Context, a *entity.Artist) error {
-	_, err := r.db.Pool.Exec(ctx, insertArtistQuery, a.ID, a.Name, a.MBID, a.CreateTime)
-	if err != nil {
-		return toAppErr(err, "failed to create artist", slog.String("name", a.Name), slog.String("mbid", a.MBID))
+// Create persists one or more artists using unnest bulk upsert.
+// Artists with matching MBIDs are deduplicated. Returns all artists with valid database IDs.
+func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist) ([]*entity.Artist, error) {
+	if len(artists) == 0 {
+		return []*entity.Artist{}, nil
 	}
-	return nil
+
+	// Split artists into two groups: those with MBID (deduplicatable) and those without.
+	// Track each artist's original input index so we can restore order in the result.
+	var withMBIDIDs, withMBIDNames, withMBIDs []string
+	var noMBIDIDs, noMBIDNames []string
+	var mbidList []string
+	// mbidInputIdx[i] = original index of the i-th MBID artist in the input slice.
+	var mbidInputIdx []int
+	// noMBIDInputIdx[i] = original index of the i-th no-MBID artist in the input slice.
+	var noMBIDInputIdx []int
+
+	for origIdx, a := range artists {
+		if a == nil {
+			continue
+		}
+		if a.ID == "" {
+			id, _ := uuid.NewV7()
+			a.ID = id.String()
+		}
+		if a.MBID != "" {
+			withMBIDIDs = append(withMBIDIDs, a.ID)
+			withMBIDNames = append(withMBIDNames, a.Name)
+			withMBIDs = append(withMBIDs, a.MBID)
+			mbidList = append(mbidList, a.MBID)
+			mbidInputIdx = append(mbidInputIdx, origIdx)
+		} else {
+			noMBIDIDs = append(noMBIDIDs, a.ID)
+			noMBIDNames = append(noMBIDNames, a.Name)
+			noMBIDInputIdx = append(noMBIDInputIdx, origIdx)
+		}
+	}
+
+	if len(withMBIDIDs) > 0 {
+		if _, err := r.db.Pool.Exec(ctx, insertArtistsWithMBIDUnnestQuery, withMBIDIDs, withMBIDNames, withMBIDs); err != nil {
+			return nil, toAppErr(err, "failed to bulk insert artists with MBID", slog.Int("count", len(withMBIDIDs)))
+		}
+	}
+	if len(noMBIDIDs) > 0 {
+		if _, err := r.db.Pool.Exec(ctx, insertArtistsNoMBIDUnnestQuery, noMBIDIDs, noMBIDNames); err != nil {
+			return nil, toAppErr(err, "failed to bulk insert artists without MBID", slog.Int("count", len(noMBIDIDs)))
+		}
+	}
+
+	// Fetch back all persisted artists (both new and pre-existing) by MBID and ID,
+	// preserving the input order via WITH ORDINALITY.
+	// resultByOrigIdx maps original input index → fetched artist, so we can merge
+	// the two groups (MBID and no-MBID) back into the caller's original order.
+	resultByOrigIdx := make(map[int]*entity.Artist)
+
+	if len(mbidList) > 0 {
+		rows, err := r.db.Pool.Query(ctx, selectArtistsByMBIDsQuery, mbidList)
+		if err != nil {
+			return nil, toAppErr(err, "failed to select artists by mbids")
+		}
+		defer rows.Close()
+
+		i := 0
+		for rows.Next() {
+			var a entity.Artist
+			if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
+				return nil, toAppErr(err, "failed to scan artist")
+			}
+			resultByOrigIdx[mbidInputIdx[i]] = &a
+			i++
+		}
+		if err := rows.Err(); err != nil {
+			return nil, toAppErr(err, "error iterating artist rows by mbids")
+		}
+	}
+
+	if len(noMBIDIDs) > 0 {
+		rows, err := r.db.Pool.Query(ctx, selectArtistsByIDsQuery, noMBIDIDs)
+		if err != nil {
+			return nil, toAppErr(err, "failed to select artists by ids")
+		}
+		defer rows.Close()
+
+		i := 0
+		for rows.Next() {
+			var a entity.Artist
+			if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
+				return nil, toAppErr(err, "failed to scan artist")
+			}
+			resultByOrigIdx[noMBIDInputIdx[i]] = &a
+			i++
+		}
+		if err := rows.Err(); err != nil {
+			return nil, toAppErr(err, "error iterating artist rows by ids")
+		}
+	}
+
+	// Reassemble in original input order, skipping nil entries.
+	result := make([]*entity.Artist, 0, len(resultByOrigIdx))
+	for origIdx := range artists {
+		if a, ok := resultByOrigIdx[origIdx]; ok {
+			result = append(result, a)
+		}
+	}
+
+	return result, nil
 }
 
 // List retrieves all artists from the database.
@@ -88,10 +210,13 @@ func (r *ArtistRepository) List(ctx context.Context) ([]*entity.Artist, error) {
 	var artists []*entity.Artist
 	for rows.Next() {
 		var a entity.Artist
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &a.CreateTime); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
 			return nil, toAppErr(err, "failed to scan artist")
 		}
 		artists = append(artists, &a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating artist rows")
 	}
 	return artists, nil
 }
@@ -99,7 +224,7 @@ func (r *ArtistRepository) List(ctx context.Context) ([]*entity.Artist, error) {
 // Get retrieves an artist by ID.
 func (r *ArtistRepository) Get(ctx context.Context, id string) (*entity.Artist, error) {
 	var a entity.Artist
-	err := r.db.Pool.QueryRow(ctx, getArtistQuery, id).Scan(&a.ID, &a.Name, &a.MBID, &a.CreateTime)
+	err := r.db.Pool.QueryRow(ctx, getArtistQuery, id).Scan(&a.ID, &a.Name, &a.MBID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get artist", slog.String("id", id))
 	}
@@ -109,7 +234,7 @@ func (r *ArtistRepository) Get(ctx context.Context, id string) (*entity.Artist, 
 // GetByMBID retrieves an artist by MusicBrainz ID.
 func (r *ArtistRepository) GetByMBID(ctx context.Context, mbid string) (*entity.Artist, error) {
 	var a entity.Artist
-	err := r.db.Pool.QueryRow(ctx, getArtistByMBIDQuery, mbid).Scan(&a.ID, &a.Name, &a.MBID, &a.CreateTime)
+	err := r.db.Pool.QueryRow(ctx, getArtistByMBIDQuery, mbid).Scan(&a.ID, &a.Name, &a.MBID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get artist by mbid", slog.String("mbid", mbid))
 	}
@@ -166,10 +291,13 @@ func (r *ArtistRepository) ListFollowed(ctx context.Context, userID string) ([]*
 	var artists []*entity.Artist
 	for rows.Next() {
 		var a entity.Artist
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &a.CreateTime); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
 			return nil, toAppErr(err, "failed to scan followed artist")
 		}
 		artists = append(artists, &a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating followed artist rows")
 	}
 	return artists, nil
 }
@@ -185,10 +313,13 @@ func (r *ArtistRepository) ListAllFollowed(ctx context.Context) ([]*entity.Artis
 	var artists []*entity.Artist
 	for rows.Next() {
 		var a entity.Artist
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &a.CreateTime); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
 			return nil, toAppErr(err, "failed to scan followed artist")
 		}
 		artists = append(artists, &a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating all followed artist rows")
 	}
 	return artists, nil
 }

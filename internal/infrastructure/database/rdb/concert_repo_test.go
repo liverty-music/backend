@@ -24,7 +24,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
 		Name: "Concert Test Band",
 	}
-	err := artistRepo.Create(ctx, testArtist)
+	_, err := artistRepo.Create(ctx, testArtist)
 	require.NoError(t, err)
 
 	testVenue := &entity.Venue{
@@ -201,6 +201,30 @@ func TestConcertRepository_Create(t *testing.T) {
 			},
 			wantErr: nil,
 		},
+		{
+			// Regression: nil elements must be compacted before building unnest arrays.
+			// A nil element left at index i results in an empty-string UUID in eventIDs[i],
+			// which PostgreSQL rejects as "invalid input syntax for type uuid: """.
+			name: "nil elements are skipped without DB error",
+			args: args{
+				concerts: []*entity.Concert{
+					nil,
+					{
+						Event: entity.Event{
+							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49f1",
+							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
+							Title:          "Valid Concert Among Nils",
+							LocalEventDate: concertDate,
+							StartTime:      &startTime,
+							OpenTime:       &openTime,
+						},
+						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
+					},
+					nil,
+				},
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -310,7 +334,8 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 			cleanDatabase()
 
 			artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band"}
-			require.NoError(t, artistRepo.Create(ctx, artist))
+			_, err := artistRepo.Create(ctx, artist)
+			require.NoError(t, err)
 			venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
 			require.NoError(t, venueRepo.Create(ctx, venue))
 
@@ -348,9 +373,9 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		Name: "List Test Arena",
 	}
 
-	err := artistRepo.Create(ctx, testArtist1)
+	_, err := artistRepo.Create(ctx, testArtist1)
 	require.NoError(t, err)
-	err = artistRepo.Create(ctx, testArtist2)
+	_, err = artistRepo.Create(ctx, testArtist2)
 	require.NoError(t, err)
 	err = venueRepo.Create(ctx, testVenue)
 	require.NoError(t, err)

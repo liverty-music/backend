@@ -116,10 +116,7 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 		return nil, apperr.Wrap(err, codes.DataLoss, "failed to decode musicbrainz response")
 	}
 
-	return &entity.Artist{
-		MBID: data.ID,
-		Name: data.Name,
-	}, nil
+	return entity.NewArtist(data.Name, data.ID), nil
 }
 
 // SetBaseURL allows overriding the base URL used by the client. This is

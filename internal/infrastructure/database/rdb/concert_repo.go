@@ -2,9 +2,8 @@ package rdb
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"strings"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 )
@@ -15,12 +14,16 @@ type ConcertRepository struct {
 }
 
 const (
-	// maxConcertsPerBatch limits the number of concerts inserted in a single SQL statement.
-	// PostgreSQL has a maximum of 65,535 parameters per statement.
-	// Each concert uses 8 parameters (events table) + 2 parameters (concerts table) = 10 total.
-	// To stay well within limits and maintain readability, we batch at 500 concerts.
-	maxConcertsPerBatch = 500
-
+	insertEventsUnnestQuery = `
+		INSERT INTO events (id, venue_id, title, listed_venue_name, local_event_date, start_at, open_at, source_url)
+		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::date[], $6::timestamptz[], $7::timestamptz[], $8::text[])
+		ON CONFLICT DO NOTHING
+	`
+	insertConcertsUnnestQuery = `
+		INSERT INTO concerts (event_id, artist_id)
+		SELECT * FROM unnest($1::uuid[], $2::uuid[])
+		ON CONFLICT DO NOTHING
+	`
 	listConcertsByArtistQuery = `
 		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url
 		FROM concerts c
@@ -66,10 +69,46 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 }
 
 // Create creates one or more concerts in the database within a single transaction.
-// For large batches, concerts are inserted in chunks to avoid PostgreSQL's parameter limit.
+// Uses PostgreSQL unnest for bulk inserts — no parameter limit, single statement per table.
 func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) error {
 	if len(concerts) == 0 {
 		return nil
+	}
+
+	// Compact the slice first: skip nil elements so target arrays have no empty-value holes.
+	// A nil element with index i would leave an empty string at eventIDs[i], which PostgreSQL
+	// rejects as "invalid input syntax for type uuid: """.
+	var valid []*entity.Concert
+	for _, c := range concerts {
+		if c != nil {
+			valid = append(valid, c)
+		}
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+
+	n := len(valid)
+	eventIDs := make([]string, n)
+	venueIDs := make([]string, n)
+	titles := make([]string, n)
+	listedVenueNames := make([]*string, n)
+	eventDates := make([]time.Time, n)
+	startTimes := make([]*time.Time, n)
+	openTimes := make([]*time.Time, n)
+	sourceURLs := make([]string, n)
+	artistIDs := make([]string, n)
+
+	for i, c := range valid {
+		eventIDs[i] = c.ID
+		venueIDs[i] = c.VenueID
+		titles[i] = c.Title
+		listedVenueNames[i] = c.ListedVenueName
+		eventDates[i] = c.LocalEventDate
+		startTimes[i] = c.StartTime
+		openTimes[i] = c.OpenTime
+		sourceURLs[i] = c.SourceURL
+		artistIDs[i] = c.ArtistID
 	}
 
 	tx, err := r.db.Pool.Begin(ctx)
@@ -78,59 +117,12 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Process concerts in batches to avoid PostgreSQL's 65,535 parameter limit
-	for start := 0; start < len(concerts); start += maxConcertsPerBatch {
-		end := start + maxConcertsPerBatch
-		if end > len(concerts) {
-			end = len(concerts)
-		}
-		batch := concerts[start:end]
+	if _, err := tx.Exec(ctx, insertEventsUnnestQuery, eventIDs, venueIDs, titles, listedVenueNames, eventDates, startTimes, openTimes, sourceURLs); err != nil {
+		return toAppErr(err, "failed to bulk insert events", slog.Int("count", n))
+	}
 
-		// Build bulk INSERT for events
-		// Each concert uses 8 parameters: id, venue_id, title, listed_venue_name, local_event_date, start_at, open_at, source_url
-		eventValues := make([]any, 0, len(batch)*8)
-		eventPlaceholders := make([]string, 0, len(batch))
-
-		for i, concert := range batch {
-			offset := i * 8
-			eventPlaceholders = append(eventPlaceholders,
-				fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-					offset+1, offset+2, offset+3, offset+4, offset+5, offset+6, offset+7, offset+8))
-
-			eventValues = append(eventValues,
-				concert.ID, concert.VenueID, concert.Title, concert.ListedVenueName,
-				concert.LocalEventDate, concert.StartTime, concert.OpenTime, concert.SourceURL,
-			)
-		}
-
-		bulkEventQuery := fmt.Sprintf(
-			"INSERT INTO events (id, venue_id, title, listed_venue_name, local_event_date, start_at, open_at, source_url) VALUES %s ON CONFLICT DO NOTHING",
-			strings.Join(eventPlaceholders, ", "),
-		)
-
-		if _, err := tx.Exec(ctx, bulkEventQuery, eventValues...); err != nil {
-			return toAppErr(err, "failed to bulk insert events")
-		}
-
-		// Build bulk INSERT for concerts
-		concertValues := make([]any, 0, len(batch)*2)
-		concertPlaceholders := make([]string, 0, len(batch))
-
-		for i, concert := range batch {
-			offset := i * 2
-			concertPlaceholders = append(concertPlaceholders,
-				fmt.Sprintf("($%d, $%d)", offset+1, offset+2))
-			concertValues = append(concertValues, concert.ID, concert.ArtistID)
-		}
-
-		bulkConcertQuery := fmt.Sprintf(
-			"INSERT INTO concerts (event_id, artist_id) VALUES %s ON CONFLICT DO NOTHING",
-			strings.Join(concertPlaceholders, ", "),
-		)
-
-		if _, err := tx.Exec(ctx, bulkConcertQuery, concertValues...); err != nil {
-			return toAppErr(err, "failed to bulk insert concerts")
-		}
+	if _, err := tx.Exec(ctx, insertConcertsUnnestQuery, eventIDs, artistIDs); err != nil {
+		return toAppErr(err, "failed to bulk insert concerts", slog.Int("count", n))
 	}
 
 	if err := tx.Commit(ctx); err != nil {

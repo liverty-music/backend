@@ -3,7 +3,6 @@ package entity
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -21,12 +20,18 @@ type Artist struct {
 	Name string
 	// MBID is the canonical MusicBrainz Identifier for identity normalization.
 	MBID string
-	// CreateTime is the timestamp when the artist record was first created.
-	CreateTime time.Time
 }
 
-// NewID generates a new unique identifier for an artist (UUID v7).
-func NewID() string {
+// NewArtist creates a new Artist with an auto-generated UUIDv7 ID.
+func NewArtist(name, mbid string) *Artist {
+	return &Artist{
+		ID:   newID(),
+		Name: name,
+		MBID: mbid,
+	}
+}
+
+func newID() string {
 	id, _ := uuid.NewV7()
 	return id.String()
 }
@@ -48,14 +53,14 @@ type OfficialSite struct {
 
 // ArtistRepository defines the persistence layer operations for artist entities.
 type ArtistRepository interface {
-	// Create persists a new artist record in the database.
+	// Create persists one or more artist records in the database using bulk upsert.
+	// Artists with matching MBIDs are deduplicated (ON CONFLICT DO NOTHING).
+	// Returns all artists (both newly inserted and pre-existing) with valid database IDs.
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: the artist name or MBID is empty.
-	//   - AlreadyExists: an artist with the same MBID already exists.
 	//   - Internal: database connection or execution failure.
-	Create(ctx context.Context, artist *Artist) error
+	Create(ctx context.Context, artists ...*Artist) ([]*Artist, error)
 
 	// List retrieves all registered artists sorted by name.
 	//
