@@ -126,7 +126,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [test, test-skip, vulnerability-check, vulnerability-check-skip]
+    needs: [changes, test, test-skip, vulnerability-check, vulnerability-check-skip]
     if: always()
     steps:
       - uses: re-actors/alls-green@release/v1
