@@ -16,7 +16,7 @@ type ConcertRepository struct {
 const (
 	insertEventsUnnestQuery = `
 		INSERT INTO events (id, venue_id, title, listed_venue_name, local_event_date, start_at, open_at, source_url)
-		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::date[], $6::time[], $7::time[], $8::text[])
+		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::date[], $6::timestamptz[], $7::timestamptz[], $8::text[])
 		ON CONFLICT DO NOTHING
 	`
 	insertConcertsUnnestQuery = `

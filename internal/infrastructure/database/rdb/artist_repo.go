@@ -16,10 +16,11 @@ type ArtistRepository struct {
 
 const (
 	// Artists with non-empty MBID: deduplicate via ON CONFLICT.
+	// The WHERE clause must match the partial unique index predicate on mbid.
 	insertArtistsWithMBIDUnnestQuery = `
 		INSERT INTO artists (id, name, mbid)
 		SELECT * FROM unnest($1::uuid[], $2::text[], $3::varchar[])
-		ON CONFLICT (mbid) DO NOTHING
+		ON CONFLICT (mbid) WHERE mbid IS NOT NULL AND mbid != '' DO NOTHING
 	`
 	// Artists without MBID: no conflict target, always insert as new rows.
 	insertArtistsNoMBIDUnnestQuery = `
