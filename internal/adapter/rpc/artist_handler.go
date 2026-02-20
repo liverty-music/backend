@@ -54,9 +54,11 @@ func (h *ArtistHandler) Create(ctx context.Context, req *connect.Request[rpc.Cre
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("name is required"))
 	}
 
-	artist := &entity.Artist{
-		Name: req.Msg.Name.Value,
+	var mbid string
+	if req.Msg.Mbid != nil {
+		mbid = req.Msg.Mbid.Value
 	}
+	artist := entity.NewArtist(req.Msg.Name.Value, mbid)
 
 	created, err := h.artistUseCase.Create(ctx, artist)
 	if err != nil {

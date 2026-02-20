@@ -130,10 +130,7 @@ func (c *client) Search(ctx context.Context, query string) ([]*entity.Artist, er
 
 	artists := make([]*entity.Artist, 0, len(resp.Results.ArtistMatches.Artist))
 	for _, a := range resp.Results.ArtistMatches.Artist {
-		artists = append(artists, &entity.Artist{
-			Name: a.Name,
-			MBID: a.MBID,
-		})
+		artists = append(artists, entity.NewArtist(a.Name, a.MBID))
 	}
 
 	return artists, nil
@@ -157,10 +154,7 @@ func (c *client) ListSimilar(ctx context.Context, artist *entity.Artist) ([]*ent
 
 	artists := make([]*entity.Artist, 0, len(resp.SimilarArtists.Artist))
 	for _, a := range resp.SimilarArtists.Artist {
-		artists = append(artists, &entity.Artist{
-			Name: a.Name,
-			MBID: a.MBID,
-		})
+		artists = append(artists, entity.NewArtist(a.Name, a.MBID))
 	}
 
 	return artists, nil
@@ -191,10 +185,7 @@ func (c *client) ListTop(ctx context.Context, country string) ([]*entity.Artist,
 
 	artists := make([]*entity.Artist, 0, len(apiArtists))
 	for _, a := range apiArtists {
-		artists = append(artists, &entity.Artist{
-			Name: a.Name,
-			MBID: a.MBID,
-		})
+		artists = append(artists, entity.NewArtist(a.Name, a.MBID))
 	}
 
 	return artists, nil
