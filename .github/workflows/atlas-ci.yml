@@ -29,7 +29,7 @@ jobs:
               - 'internal/infrastructure/database/rdb/migrations/**'
               - 'internal/infrastructure/database/rdb/model.go'
               - 'atlas.hcl'
-              - '.github/workflows/atlas-ci.yml'
+              - '.github/workflows/**'
 
   atlas-ci:
     needs: changes
@@ -69,3 +69,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "No relevant changes, skipping Atlas CI"
+
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    needs: [changes, atlas-ci, atlas-ci-skip]
+    if: always()
+    steps:
+      - uses: re-actors/alls-green@release/v1
+        with:
+          allowed-skips: atlas-ci, atlas-ci-skip
+          jobs: ${{ toJSON(needs) }}
