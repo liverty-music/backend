@@ -174,12 +174,25 @@ func (r *VenueRepository) MergeVenues(ctx context.Context, canonicalID, duplicat
 			slog.String("canonical_id", canonicalID), slog.String("duplicate_id", duplicateID))
 	}
 
+	// Step 2.5: Null out unique fields on the duplicate before merging them onto
+	// the canonical. PostgreSQL checks unique partial indexes per-statement, so
+	// without this the COALESCE UPDATE in Step 3 would transiently produce two
+	// rows with the same non-NULL mbid or google_place_id and raise a constraint
+	// violation — even though Step 4 deletes the duplicate in the same transaction.
+	_, err = tx.Exec(ctx, `
+		UPDATE venues SET mbid = NULL, google_place_id = NULL WHERE id = $1
+	`, duplicateID)
+	if err != nil {
+		return toAppErr(err, "failed to clear unique fields on duplicate venue during merge",
+			slog.String("duplicate_id", duplicateID))
+	}
+
 	// Step 3: COALESCE canonical venue fields with duplicate's values
 	_, err = tx.Exec(ctx, `
 		UPDATE venues c
 		SET
-			admin_area     = COALESCE(c.admin_area,      d.admin_area),
-			mbid           = COALESCE(c.mbid,            d.mbid),
+			admin_area      = COALESCE(c.admin_area,      d.admin_area),
+			mbid            = COALESCE(c.mbid,            d.mbid),
 			google_place_id = COALESCE(c.google_place_id, d.google_place_id)
 		FROM venues d
 		WHERE c.id = $1 AND d.id = $2
