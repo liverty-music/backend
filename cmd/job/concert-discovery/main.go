@@ -83,5 +83,12 @@ func run() error {
 	log.Printf("Concert discovery job complete: %d artists attempted, %d succeeded, %d new concerts discovered, %d failures",
 		len(artists), len(artists)-totalFailed, totalDiscovered, totalFailed)
 
+	// Post-step: enrich pending venues via MusicBrainz / Google Maps.
+	// Per-venue errors are non-fatal and logged inside EnrichPendingVenues.
+	app.Logger.Info(ctx, "starting venue enrichment post-step")
+	if err := app.VenueEnrichUC.EnrichPendingVenues(ctx); err != nil {
+		app.Logger.Error(ctx, "venue enrichment post-step failed", err)
+	}
+
 	return nil
 }
