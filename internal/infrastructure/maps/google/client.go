@@ -74,10 +74,12 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 	}
 
 	resp, err := c.httpClient.Do(req)
+	if resp != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
 	if err := api.FromHTTP(err, resp, "google maps places search failed"); err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	var data textSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {

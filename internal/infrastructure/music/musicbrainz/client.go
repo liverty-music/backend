@@ -246,10 +246,12 @@ func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 		resp, err = c.httpClient.Do(req)
 		return err
 	})
+	if resp != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
 	if err := api.FromHTTP(err, resp, "musicbrainz place search failed"); err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	var data placeSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
