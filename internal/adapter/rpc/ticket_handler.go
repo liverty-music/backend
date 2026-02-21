@@ -10,8 +10,8 @@ import (
 	"context"
 	"errors"
 
-	ticketv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
+	ticketv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/usecase"
