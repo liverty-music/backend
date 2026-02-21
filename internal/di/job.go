@@ -20,11 +20,11 @@ import (
 
 // JobApp represents a lightweight application for batch jobs without an HTTP server.
 type JobApp struct {
-	ArtistRepo      entity.ArtistRepository
-	ConcertUC       usecase.ConcertUseCase
-	VenueEnrichUC   usecase.VenueEnrichmentUseCase
-	Logger          *logging.Logger
-	closers         []io.Closer
+	ArtistRepo    entity.ArtistRepository
+	ConcertUC     usecase.ConcertUseCase
+	VenueEnrichUC usecase.VenueEnrichmentUseCase
+	Logger        *logging.Logger
+	closers       []io.Closer
 }
 
 // Shutdown closes all resources held by the job application.

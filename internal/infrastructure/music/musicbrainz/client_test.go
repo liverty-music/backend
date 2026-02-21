@@ -141,9 +141,9 @@ func TestClient_SearchPlace(t *testing.T) {
 		invalidJSON  bool
 	}{
 		{
-			name:      "success - returns top place match",
-			venueName: "Zepp Nagoya",
-			adminArea: "Aichi",
+			name:       "success - returns top place match",
+			venueName:  "Zepp Nagoya",
+			adminArea:  "Aichi",
 			statusCode: http.StatusOK,
 			responseBody: placeSearchResponse{
 				Places: []struct {
@@ -157,9 +157,9 @@ func TestClient_SearchPlace(t *testing.T) {
 			wantName: "Zepp Nagoya",
 		},
 		{
-			name:      "success - no admin_area",
-			venueName: "Nippon Budokan",
-			adminArea: "",
+			name:       "success - no admin_area",
+			venueName:  "Nippon Budokan",
+			adminArea:  "",
 			statusCode: http.StatusOK,
 			responseBody: placeSearchResponse{
 				Places: []struct {
