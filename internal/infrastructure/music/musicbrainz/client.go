@@ -220,6 +220,13 @@ func selectOfficialSiteURL(artistName string, relations []urlRelation) string {
 	return fallbackAny
 }
 
+// escapeLucenePhrase escapes characters that are special inside a Lucene
+// double-quoted phrase (backslash and double-quote).
+func escapeLucenePhrase(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+	return r.Replace(s)
+}
+
 // SearchPlace searches for a venue by name (and optionally admin area) using
 // the MusicBrainz place search endpoint. It returns the top match or
 // apperr.ErrNotFound if no results are returned.
@@ -227,9 +234,10 @@ func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 	// Wrap terms in double quotes to force Lucene phrase matching.
 	// Without quotes, names with spaces (e.g. "Zepp Nagoya") are tokenised into
 	// separate terms and the query is misinterpreted.
-	lucene := fmt.Sprintf(`place:"%s"`, name)
+	// Escape backslash and double-quote inside phrase to prevent Lucene injection.
+	lucene := fmt.Sprintf(`place:"%s"`, escapeLucenePhrase(name))
 	if adminArea != "" {
-		lucene += fmt.Sprintf(` AND area:"%s"`, adminArea)
+		lucene += fmt.Sprintf(` AND area:"%s"`, escapeLucenePhrase(adminArea))
 	}
 	params := url.Values{}
 	params.Set("query", lucene)
