@@ -6,8 +6,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // VenueRepository implements entity.VenueRepository and entity.VenueEnrichmentRepository for PostgreSQL.
@@ -60,9 +58,6 @@ func NewVenueRepository(db *Database) *VenueRepository {
 
 // Create creates a new venue in the database.
 func (r *VenueRepository) Create(ctx context.Context, venue *entity.Venue) error {
-	if venue.Name == "" {
-		return apperr.New(codes.InvalidArgument, "venue name cannot be empty")
-	}
 	status := venue.EnrichmentStatus
 	if status == "" {
 		status = entity.EnrichmentStatusPending
