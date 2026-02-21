@@ -55,7 +55,7 @@ COMMENT ON COLUMN artist_official_site.artist_id IS 'Reference to the artist (1:
 COMMENT ON COLUMN artist_official_site.url IS 'Official artist website URL';
 
 -- Venue enrichment status enum
-CREATE TYPE IF NOT EXISTS venue_enrichment_status AS ENUM ('pending', 'enriched', 'failed');
+CREATE TYPE venue_enrichment_status AS ENUM ('pending', 'enriched', 'failed');
 
 -- Venues table
 CREATE TABLE IF NOT EXISTS venues (
