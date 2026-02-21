@@ -56,7 +56,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 							Title:          "New Year's Eve Concert",
-							LocalEventDate: concertDate,
+							LocalDate: concertDate,
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -75,7 +75,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49d1",
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 							Title:          "Bulk Concert 1",
-							LocalEventDate: concertDate,
+							LocalDate: concertDate,
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -86,7 +86,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49d2",
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 							Title:          "Bulk Concert 2",
-							LocalEventDate: concertDate.AddDate(0, 0, 1),
+							LocalDate: concertDate.AddDate(0, 0, 1),
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -97,7 +97,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49d3",
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 							Title:          "Bulk Concert 3",
-							LocalEventDate: concertDate.AddDate(0, 0, 2),
+							LocalDate: concertDate.AddDate(0, 0, 2),
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -116,7 +116,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 							Title:          "Duplicate Concert",
-							LocalEventDate: concertDate,
+							LocalDate: concertDate,
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -135,7 +135,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", // already exists
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 							Title:          "Existing Concert",
-							LocalEventDate: concertDate,
+							LocalDate: concertDate,
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -146,7 +146,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49e1", // new
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 							Title:          "New Concert in Mixed Batch",
-							LocalEventDate: concertDate.AddDate(0, 0, 5),
+							LocalDate: concertDate.AddDate(0, 0, 5),
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -165,7 +165,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c2",
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 							Title:          "Invalid Artist Concert",
-							LocalEventDate: concertDate,
+							LocalDate: concertDate,
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -184,7 +184,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c3",
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b0",
 							Title:          "Invalid Venue Concert",
-							LocalEventDate: concertDate,
+							LocalDate: concertDate,
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -214,7 +214,7 @@ func TestConcertRepository_Create(t *testing.T) {
 							ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49f1",
 							VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
 							Title:          "Valid Concert Among Nils",
-							LocalEventDate: concertDate,
+							LocalDate: concertDate,
 							StartTime:      &startTime,
 							OpenTime:       &openTime,
 						},
@@ -244,6 +244,110 @@ func TestConcertRepository_Create(t *testing.T) {
 					assert.GreaterOrEqual(t, len(concerts), 3)
 				}
 			}
+		})
+	}
+}
+
+// TestConcertRepository_ListedVenueName verifies that ListedVenueName is
+// correctly scanned from the database in both the NULL and non-NULL cases.
+// This is a regression test for the pre-migration NULL scan bug: rows inserted
+// before the listed_venue_name column was added have NULL in that column, and
+// scanning NULL into a non-pointer string would panic at runtime.
+func TestConcertRepository_ListedVenueName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+
+	concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
+	listedName := "Zepp Nagoya"
+
+	tests := []struct {
+		name     string
+		setup    func(t *testing.T, artistID, venueID string)
+		validate func(t *testing.T, got []*entity.Concert)
+		wantErr  error
+	}{
+		{
+			name: "NULL listed_venue_name (pre-migration row) is scanned to nil without error",
+			setup: func(t *testing.T, artistID, venueID string) {
+				t.Helper()
+				// Simulate a pre-migration row by inserting directly without listed_venue_name.
+				// This exercises the NULL → *string nil mapping that was broken before this fix.
+				_, err := testDB.Pool.Exec(ctx,
+					"INSERT INTO events (id, venue_id, title, local_event_date, source_url) VALUES ($1, $2, $3, $4, $5)",
+					"018b2f19-e591-7d12-bf9e-f0e74f1b4cc1", venueID, "Legacy Concert", concertDate, "https://example.com/legacy",
+				)
+				require.NoError(t, err)
+				_, err = testDB.Pool.Exec(ctx,
+					"INSERT INTO concerts (event_id, artist_id) VALUES ($1, $2)",
+					"018b2f19-e591-7d12-bf9e-f0e74f1b4cc1", artistID,
+				)
+				require.NoError(t, err)
+			},
+			validate: func(t *testing.T, got []*entity.Concert) {
+				t.Helper()
+				require.Len(t, got, 1)
+				assert.Nil(t, got[0].ListedVenueName, "expected nil for pre-migration NULL row")
+			},
+			wantErr: nil,
+		},
+		{
+			name: "non-NULL listed_venue_name is persisted and retrieved correctly",
+			setup: func(t *testing.T, artistID, venueID string) {
+				t.Helper()
+				err := concertRepo.Create(ctx, &entity.Concert{
+					Event: entity.Event{
+						ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4cc2",
+						VenueID:         venueID,
+						Title:           "Modern Concert",
+						ListedVenueName: &listedName,
+						LocalDate:       concertDate,
+						SourceURL:       "https://example.com/modern",
+					},
+					ArtistID: artistID,
+				})
+				require.NoError(t, err)
+			},
+			validate: func(t *testing.T, got []*entity.Concert) {
+				t.Helper()
+				var found *entity.Concert
+				for _, c := range got {
+					if c.ID == "018b2f19-e591-7d12-bf9e-f0e74f1b4cc2" {
+						found = c
+						break
+					}
+				}
+				require.NotNil(t, found)
+				require.NotNil(t, found.ListedVenueName, "expected non-nil for row with listed_venue_name set")
+				assert.Equal(t, listedName, *found.ListedVenueName)
+			},
+			wantErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleanDatabase()
+
+			artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band"}
+			_, err := artistRepo.Create(ctx, artist)
+			require.NoError(t, err)
+			venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
+			require.NoError(t, venueRepo.Create(ctx, venue))
+
+			tt.setup(t, artist.ID, venue.ID)
+
+			got, err := concertRepo.ListByArtist(ctx, artist.ID, false)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			tt.validate(t, got)
 		})
 	}
 }
@@ -292,7 +396,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 				ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c4",
 				VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 				Title:          "Concert 1 (future)",
-				LocalEventDate: futureDate,
+				LocalDate: futureDate,
 				StartTime:      &startTime,
 				OpenTime:       &openTime,
 			},
@@ -303,7 +407,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 				ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c5",
 				VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 				Title:          "Concert 2 (future)",
-				LocalEventDate: futureDate.AddDate(0, 1, 0),
+				LocalDate: futureDate.AddDate(0, 1, 0),
 				StartTime:      &startTime2,
 				OpenTime:       &openTime2,
 			},
@@ -314,7 +418,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 				ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c7",
 				VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 				Title:          "Concert Past (should be hidden)",
-				LocalEventDate: pastDate,
+				LocalDate: pastDate,
 				StartTime:      &startTime,
 				OpenTime:       &openTime,
 			},
@@ -325,7 +429,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 				ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c6",
 				VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 				Title:          "Concert 3",
-				LocalEventDate: futureDate,
+				LocalDate: futureDate,
 				StartTime:      &startTime,
 				OpenTime:       &openTime,
 			},
@@ -481,7 +585,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 				VenueID:         venue.ID,
 				Title:           "Modern Concert",
 				ListedVenueName: &listedName,
-				LocalEventDate:  concertDate,
+				LocalDate:       concertDate,
 				SourceURL:       "https://example.com/modern",
 			},
 			ArtistID: artist.ID,
