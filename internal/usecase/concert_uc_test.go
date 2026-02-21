@@ -226,7 +226,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 						Title:           "New Concert",
 						ListedVenueName: "Zepp Nagoya",
 						AdminArea:       &adminArea,
-						LocalDate:  time.Now().Add(24 * time.Hour),
+						LocalDate:       time.Now().Add(24 * time.Hour),
 						SourceURL:       "https://example.com/concert",
 					},
 				}

@@ -209,7 +209,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				VenueID:         venue.ID,
 				Title:           s.Title,
 				ListedVenueName: &s.ListedVenueName,
-				LocalDate:  s.LocalDate,
+				LocalDate:       s.LocalDate,
 				StartTime:       s.StartTime,
 				OpenTime:        s.OpenTime,
 				SourceURL:       s.SourceURL,

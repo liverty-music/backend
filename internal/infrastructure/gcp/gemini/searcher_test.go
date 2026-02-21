@@ -70,7 +70,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 				{
 					Title:           "Test Tour 2026",
 					ListedVenueName: "Test Hall",
-					LocalDate:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 					StartTime:       ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
 					SourceURL:       "https://example.com/test",
 				},
@@ -98,7 +98,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					Title:           "Nagoya Concert",
 					ListedVenueName: "Zepp Nagoya",
 					AdminArea:       ptrStr("愛知県"),
-					LocalDate:  time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
+					LocalDate:       time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
 					StartTime:       ptr(time.Date(2026, 3, 15, 18, 0, 0, 0, time.FixedZone("", 9*60*60))),
 					SourceURL:       "https://example.com/nagoya",
 				},
@@ -126,7 +126,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					Title:           "Unknown Venue Concert",
 					ListedVenueName: "Some Venue",
 					AdminArea:       nil,
-					LocalDate:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+					LocalDate:       time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
 					StartTime:       nil,
 					SourceURL:       "https://example.com/unknown",
 				},
@@ -160,14 +160,14 @@ func TestConcertSearcher_Search(t *testing.T) {
 				{
 					Title:           "Test Tour 2026",
 					ListedVenueName: "Test Hall",
-					LocalDate:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 					StartTime:       ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
 					SourceURL:       "https://example.com/test",
 				},
 				{
 					Title:           "Test Tour 2026",
 					ListedVenueName: "Test Hall",
-					LocalDate:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 					StartTime:       ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
 					SourceURL:       "https://example.com/test-dup",
 				},
@@ -193,7 +193,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 				{
 					Title:           "New Event",
 					ListedVenueName: "Test Hall",
-					LocalDate:  time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+					LocalDate:       time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 					StartTime:       ptr(time.Date(2026, 4, 1, 19, 0, 0, 0, time.UTC)),
 					SourceURL:       "https://example.com/new",
 				},
@@ -285,21 +285,21 @@ func TestConcertSearcher_Search(t *testing.T) {
 				{
 					Title:           "HH:MM Format",
 					ListedVenueName: "Test Hall",
-					LocalDate:  time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 					StartTime:       nil, // Invalid HH:MM results in nil
 					SourceURL:       "https://example.com/hh-mm",
 				},
 				{
 					Title:           "Empty Start Time",
 					ListedVenueName: "Test Hall",
-					LocalDate:  time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC),
+					LocalDate:       time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC),
 					StartTime:       nil, // Empty results in nil
 					SourceURL:       "https://example.com/empty",
 				},
 				{
 					Title:           "Valid RFC3339",
 					ListedVenueName: "Test Hall",
-					LocalDate:  time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC),
+					LocalDate:       time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC),
 					StartTime:       ptr(time.Date(2026, 3, 3, 19, 0, 0, 0, time.FixedZone("", 9*60*60))),
 					SourceURL:       "https://example.com/valid",
 				},
