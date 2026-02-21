@@ -67,3 +67,9 @@ tmp/*
 !tmp/.gitkeep
 .pr_data/
 pr*_inline.json
+pr*_reviews.json
+pr*_issue_comments.json
+project.md
+task.md
+*.png
+.playwright-mcp/
