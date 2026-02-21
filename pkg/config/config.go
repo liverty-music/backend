@@ -223,14 +223,14 @@ type GCPConfig struct {
 // BlockchainConfig holds configuration for Base Sepolia EVM interactions and the TicketSBT contract.
 type BlockchainConfig struct {
 	// RPCURL is the Base Sepolia JSON-RPC endpoint URL.
-	RPCURL string `envconfig:"BLOCKCHAIN_RPC_URL"`
+	RPCURL string `envconfig:"BASE_SEPOLIA_RPC_URL"`
 
 	// DeployerPrivateKey is the hex-encoded private key of the backend service EOA
 	// that holds MINTER_ROLE on the TicketSBT contract.
-	DeployerPrivateKey string `envconfig:"BLOCKCHAIN_DEPLOYER_PRIVATE_KEY"`
+	DeployerPrivateKey string `envconfig:"TICKET_SBT_DEPLOYER_KEY"`
 
 	// TicketSBTAddress is the deployed TicketSBT contract address on Base Sepolia.
-	TicketSBTAddress string `envconfig:"BLOCKCHAIN_TICKET_SBT_ADDRESS"`
+	TicketSBTAddress string `envconfig:"TICKET_SBT_ADDRESS"`
 }
 
 // JWTConfig represents JWT authentication configuration.
