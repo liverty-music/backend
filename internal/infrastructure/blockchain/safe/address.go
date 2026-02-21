@@ -17,9 +17,18 @@ import (
 // https://github.com/safe-global/safe-deployments
 const SafeProxyFactory = "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67"
 
-// safeProxyInitCodeHash is keccak256 of the SafeProxy creation bytecode (singleton proxy).
+// safeProxyInitCodeHash is keccak256(SafeProxy creation bytecode ++ abi.encode(Safe v1.4.1 singleton)).
+//
+// Computed as:
+//
+//	keccak256(proxyCreationCode ++ uint256(Safe_v1.4.1_singleton))
+//
+// where proxyCreationCode is the bytecode of the SafeProxy contract and
+// Safe v1.4.1 singleton address is 0x41675C099F32341bf84BFc5382aF534df5C7461a.
+//
 // This value is chain-agnostic for the canonical Safe v1.4.1 deployment.
-var safeProxyInitCodeHash = common.HexToHash("0xb63e800d0000000000000000000000000000000000000000000000000000000000000040")
+// Source: https://github.com/safe-global/safe-deployments/blob/main/src/assets/v1.4.1/
+var safeProxyInitCodeHash = common.HexToHash("0x52bede2892dc6ee239117844c91b0bdd458c318980592ab4152f5ea44af17f34")
 
 // PredictAddress computes the CREATE2 address for a user's Safe.
 //

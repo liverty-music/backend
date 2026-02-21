@@ -43,6 +43,9 @@ type TicketMinter interface {
 	Mint(ctx context.Context, recipient string, tokenID uint64) (txHash string, err error)
 	// IsTokenMinted returns true if the given tokenID has already been minted on-chain.
 	IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error)
+	// OwnerOf returns the owner address of the given tokenID as a lowercase hex string.
+	// Returns an error if the token does not exist or the RPC call fails.
+	OwnerOf(ctx context.Context, tokenID uint64) (address string, err error)
 }
 
 // TicketRepository defines the interface for ticket data access.

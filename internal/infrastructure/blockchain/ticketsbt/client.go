@@ -17,6 +17,11 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
+// erc721NonexistentTokenSelector is the 4-byte ABI selector for ERC721NonexistentToken(uint256).
+// keccak256("ERC721NonexistentToken(uint256)")[0:4] = 0x7e273289
+// Used to distinguish "token does not exist" reverts from other RPC failures.
+const erc721NonexistentTokenSelector = "7e273289"
+
 // Compile-time check that Client implements entity.TicketMinter.
 var _ entity.TicketMinter = (*Client)(nil)
 
@@ -118,9 +123,9 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 	return "", fmt.Errorf("ticketsbt: mint failed after %d attempts: %w", maxRetries, lastErr)
 }
 
-// OwnerOf returns the owner address of the given tokenID.
-// Returns the zero address and ERC721NonexistentToken error if the token has not been minted.
-func (c *Client) OwnerOf(ctx context.Context, tokenID uint64) (common.Address, error) {
+// OwnerOf returns the owner address of the given tokenID as a lowercase hex string.
+// Returns an error if the token does not exist or the RPC call fails.
+func (c *Client) OwnerOf(ctx context.Context, tokenID uint64) (string, error) {
 	callOpts := &bind.CallOpts{Context: ctx}
 	tokenIDBig := new(big.Int).SetUint64(tokenID)
 
@@ -130,7 +135,7 @@ func (c *Client) OwnerOf(ctx context.Context, tokenID uint64) (common.Address, e
 			delay := retryBaseDelay * time.Duration(1<<uint(attempt-1))
 			select {
 			case <-ctx.Done():
-				return common.Address{}, ctx.Err()
+				return "", ctx.Err()
 			case <-time.After(delay):
 			}
 		}
@@ -141,25 +146,26 @@ func (c *Client) OwnerOf(ctx context.Context, tokenID uint64) (common.Address, e
 			continue
 		}
 
-		return owner, nil
+		return strings.ToLower(owner.Hex()), nil
 	}
 
-	return common.Address{}, fmt.Errorf("ticketsbt: ownerOf failed after %d attempts: %w", maxRetries, lastErr)
+	return "", fmt.Errorf("ticketsbt: ownerOf failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 // IsTokenMinted returns true if the given tokenID has already been minted on-chain.
-// It distinguishes ERC721NonexistentToken reverts (unminted) from real RPC errors.
+// It distinguishes ERC721NonexistentToken reverts (unminted) from real RPC errors
+// by checking for the specific 4-byte ABI selector, not a broad string match.
 func (c *Client) IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error) {
-	owner, err := c.OwnerOf(ctx, tokenID)
+	_, err := c.OwnerOf(ctx, tokenID)
 	if err != nil {
-		// ERC721NonexistentToken revert contains this selector in the error message.
-		// Only treat this specific revert as "not minted"; propagate all other errors.
-		if strings.Contains(err.Error(), "ERC721NonexistentToken") ||
-			strings.Contains(err.Error(), "execution reverted") {
+		// Only treat the specific ERC721NonexistentToken revert as "not minted".
+		// All other errors (out-of-gas, wrong contract, network failure) are propagated.
+		if strings.Contains(err.Error(), erc721NonexistentTokenSelector) ||
+			strings.Contains(err.Error(), "ERC721NonexistentToken") {
 			return false, nil
 		}
 		return false, fmt.Errorf("ticketsbt: failed to check token ownership: %w", err)
 	}
 
-	return owner != (common.Address{}), nil
+	return true, nil
 }

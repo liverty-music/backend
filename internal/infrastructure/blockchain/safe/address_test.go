@@ -54,19 +54,16 @@ func TestPredictAddress_KnownVector(t *testing.T) {
 	t.Parallel()
 
 	// Regression guard: if the derivation formula changes, this test fails.
-	// Update this expected value only after intentional formula change + audit.
+	// Expected value computed from Safe v1.4.1 canonical deployment:
+	//   CREATE2(deployer=0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67,
+	//           salt=keccak256("00000000-0000-7000-8000-000000000001"),
+	//           initCodeHash=keccak256(safeProxyCreationCode++singleton_v1.4.1))
+	// Update this expected value only after an intentional formula change + audit.
 	userID := "00000000-0000-7000-8000-000000000001"
 	got := safe.AddressHex(userID)
 
-	// Generate expected value once: go test -run TestPredictAddress_KnownVector -v
-	// and record the output. Replace the placeholder below with the actual value.
-	const expected = "" // set after first run
-	if expected != "" && got != expected {
+	const expected = "0x0197d0bFbF831238B1b81C2166D2c79B419B3342"
+	if got != expected {
 		t.Errorf("PredictAddress(%q) = %s, want %s", userID, got, expected)
-	}
-
-	// Always ensure non-empty and correct format.
-	if len(got) != 42 {
-		t.Errorf("expected 42-char hex address, got %q", got)
 	}
 }
