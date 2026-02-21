@@ -14,6 +14,7 @@ import (
 	ticketv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -24,13 +25,15 @@ var _ ticketconnect.TicketServiceHandler = (*TicketHandler)(nil)
 // TicketHandler implements the TicketService Connect interface.
 type TicketHandler struct {
 	ticketUseCase usecase.TicketUseCase
+	userRepo      entity.UserRepository
 	logger        *logging.Logger
 }
 
 // NewTicketHandler creates a new ticket handler.
-func NewTicketHandler(ticketUseCase usecase.TicketUseCase, logger *logging.Logger) *TicketHandler {
+func NewTicketHandler(ticketUseCase usecase.TicketUseCase, userRepo entity.UserRepository, logger *logging.Logger) *TicketHandler {
 	return &TicketHandler{
 		ticketUseCase: ticketUseCase,
+		userRepo:      userRepo,
 		logger:        logger,
 	}
 }
@@ -54,15 +57,18 @@ func (h *TicketHandler) MintTicket(
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("event_id is required"))
 	}
 
-	if msg.GetTokenId() == nil || msg.GetTokenId().GetValue() == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("token_id must be greater than 0"))
+	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
+	// This is required because tickets.user_id references users.id (internal UUID),
+	// not the identity-provider-specific external_id.
+	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
+	if err != nil {
+		return nil, err
 	}
 
 	ticket, err := h.ticketUseCase.MintTicket(ctx, &usecase.MintTicketParams{
 		EventID:          msg.GetEventId().GetValue(),
-		UserID:           claims.Sub, // internal user ID from JWT
+		UserID:           user.ID,
 		RecipientAddress: msg.GetRecipientAddress(),
-		TokenID:          msg.GetTokenId().GetValue(),
 	})
 	if err != nil {
 		return nil, err
@@ -97,7 +103,7 @@ func (h *TicketHandler) GetTicket(
 }
 
 // ListTicketsForUser retrieves all tickets for the authenticated user.
-// The user ID is extracted from the JWT claims for authorization safety.
+// The user ID is resolved from the JWT claims for authorization safety.
 func (h *TicketHandler) ListTicketsForUser(
 	ctx context.Context,
 	req *connect.Request[ticketv1.ListTicketsForUserRequest],
@@ -111,9 +117,15 @@ func (h *TicketHandler) ListTicketsForUser(
 		return nil, err
 	}
 
-	// Use the authenticated user's ID from JWT claims, not the request body,
-	// to prevent users from listing other users' tickets.
-	tickets, err := h.ticketUseCase.ListTicketsForUser(ctx, claims.Sub)
+	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
+	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use the authenticated user's internal ID from the resolved user record,
+	// not the request body, to prevent users from listing other users' tickets.
+	tickets, err := h.ticketUseCase.ListTicketsForUser(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
