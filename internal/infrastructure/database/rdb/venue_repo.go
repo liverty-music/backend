@@ -39,8 +39,8 @@ const (
 		SET
 			name = $2,
 			raw_name = COALESCE(raw_name, $3),
-			mbid = $4,
-			google_place_id = $5,
+			mbid = COALESCE(mbid, $4),
+			google_place_id = COALESCE(google_place_id, $5),
 			enrichment_status = 'enriched'
 		WHERE id = $1
 	`

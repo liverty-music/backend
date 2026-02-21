@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS venues (
     mbid TEXT,
     google_place_id TEXT,
     enrichment_status venue_enrichment_status NOT NULL DEFAULT 'pending',
-    raw_name TEXT
+    raw_name TEXT NOT NULL
 );
 
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
