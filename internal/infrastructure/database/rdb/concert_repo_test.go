@@ -380,20 +380,23 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	err = venueRepo.Create(ctx, testVenue)
 	require.NoError(t, err)
 
-	concertDate, _ := time.Parse("2006-01-02", "2026-06-15")
+	futureDate, _ := time.Parse("2006-01-02", "2026-06-15")
+	pastDate, _ := time.Parse("2006-01-02", "2025-01-01")
 	startTime, _ := time.Parse("15:04", "20:00")
 	openTime, _ := time.Parse("15:04", "18:00")
 	startTime2, _ := time.Parse("15:04", "21:00")
 	openTime2, _ := time.Parse("15:04", "19:00")
 
-	// Create concerts using bulk insert
+	// Create concerts using bulk insert.
+	// testArtist1 has: 2 future concerts + 1 past concert (for upcomingOnly testing).
+	// testArtist2 has: 1 future concert.
 	concerts := []*entity.Concert{
 		{
 			Event: entity.Event{
 				ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c4",
 				VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
-				Title:          "Concert 1",
-				LocalEventDate: concertDate,
+				Title:          "Concert 1 (future)",
+				LocalEventDate: futureDate,
 				StartTime:      &startTime,
 				OpenTime:       &openTime,
 			},
@@ -403,10 +406,21 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 			Event: entity.Event{
 				ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c5",
 				VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
-				Title:          "Concert 2",
-				LocalEventDate: concertDate.AddDate(0, 1, 0),
+				Title:          "Concert 2 (future)",
+				LocalEventDate: futureDate.AddDate(0, 1, 0),
 				StartTime:      &startTime2,
 				OpenTime:       &openTime2,
+			},
+			ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+		},
+		{
+			Event: entity.Event{
+				ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c7",
+				VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
+				Title:          "Concert Past (should be hidden)",
+				LocalEventDate: pastDate,
+				StartTime:      &startTime,
+				OpenTime:       &openTime,
 			},
 			ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
 		},
@@ -415,7 +429,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 				ID:             "018b2f19-e591-7d12-bf9e-f0e74f1b49c6",
 				VenueID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 				Title:          "Concert 3",
-				LocalEventDate: concertDate,
+				LocalEventDate: futureDate,
 				StartTime:      &startTime,
 				OpenTime:       &openTime,
 			},
@@ -441,19 +455,38 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		validate func(t *testing.T, concerts []*entity.Concert)
 	}{
 		{
-			name: "list concerts for artist with 2 concerts",
+			name: "list all concerts for artist (upcomingOnly=false returns past and future)",
 			args: args{
-				artistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+				artistID:     "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+				upcomingOnly: false,
 			},
 			want: struct {
 				count int
 			}{
-				count: 2,
+				count: 3, // 2 future + 1 past
 			},
 			wantErr: nil,
 			validate: func(t *testing.T, concerts []*entity.Concert) {
 				for _, c := range concerts {
 					assert.Equal(t, "018b2f19-e591-7d12-bf9e-f0e74f1b49a2", c.ArtistID)
+				}
+			},
+		},
+		{
+			name: "list upcoming concerts only (upcomingOnly=true filters past concerts)",
+			args: args{
+				artistID:     "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
+				upcomingOnly: true,
+			},
+			want: struct {
+				count int
+			}{
+				count: 2, // only the 2 future concerts; past concert is excluded
+			},
+			wantErr: nil,
+			validate: func(t *testing.T, concerts []*entity.Concert) {
+				for _, c := range concerts {
+					assert.NotEqual(t, "Concert Past (should be hidden)", c.Title, "past concert must not appear when upcomingOnly=true")
 				}
 			},
 		},
