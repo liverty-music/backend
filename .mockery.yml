@@ -8,6 +8,7 @@ packages:
       ArtistUseCase:
       ConcertUseCase:
       UserUseCase:
+      TicketUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -18,6 +19,8 @@ packages:
       UserArtistSubscriptionRepository:
       SearchLogRepository:
       VenueRepository:
+      TicketMinter:
+      TicketRepository:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:
