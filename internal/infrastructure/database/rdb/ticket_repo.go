@@ -44,6 +44,8 @@ const (
 		WHERE user_id = $1
 		ORDER BY minted_at DESC
 	`
+
+	eventExistsQuery = `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)`
 )
 
 // Create persists a newly minted ticket record.
@@ -141,4 +143,19 @@ func (r *TicketRepository) ListByUser(ctx context.Context, userID string) ([]*en
 	}
 
 	return tickets, nil
+}
+
+// EventExists returns true if an event with the given ID exists in the database.
+func (r *TicketRepository) EventExists(ctx context.Context, eventID string) (bool, error) {
+	if eventID == "" {
+		return false, apperr.New(codes.InvalidArgument, "event ID cannot be empty")
+	}
+
+	var exists bool
+	err := r.db.Pool.QueryRow(ctx, eventExistsQuery, eventID).Scan(&exists)
+	if err != nil {
+		return false, toAppErr(err, "failed to check event existence", slog.String("event_id", eventID))
+	}
+
+	return exists, nil
 }

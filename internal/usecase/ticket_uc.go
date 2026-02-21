@@ -114,6 +114,15 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 		return nil, err
 	}
 
+	// Validate that the event exists before triggering an irreversible on-chain mint.
+	eventExists, err := uc.ticketRepo.EventExists(ctx, params.EventID)
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "failed to check event existence")
+	}
+	if !eventExists {
+		return nil, apperr.New(codes.NotFound, fmt.Sprintf("event %s does not exist", params.EventID))
+	}
+
 	// Generate a backend-controlled token ID from a UUIDv7.
 	// Using the high 64 bits (timestamp + random) gives a monotonically increasing,
 	// collision-resistant value without accepting client input.

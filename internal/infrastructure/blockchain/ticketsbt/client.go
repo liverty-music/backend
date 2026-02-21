@@ -100,6 +100,10 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 	recipient := common.HexToAddress(recipientAddr)
 	tokenIDBig := new(big.Int).SetUint64(tokenID)
 
+	// Copy the signer to set per-call context for cancellation/timeout propagation.
+	opts := *c.signer
+	opts.Context = ctx
+
 	var lastErr error
 	for attempt := range maxRetries {
 		if attempt > 0 {
@@ -111,7 +115,7 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 			}
 		}
 
-		tx, err := c.contract.Mint(c.signer, recipient, tokenIDBig)
+		tx, err := c.contract.Mint(&opts, recipient, tokenIDBig)
 		if err != nil {
 			lastErr = err
 			continue

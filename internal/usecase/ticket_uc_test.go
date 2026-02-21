@@ -81,6 +81,7 @@ func TestMintTicket_HappyPath(t *testing.T) {
 	created := &entity.Ticket{ID: "ticket-2", EventID: "event-1", UserID: "user-1", TokenID: 99}
 
 	repo.EXPECT().GetByEventAndUser(anyCtx, "event-1", "user-1").Return(nil, apperr.ErrNotFound)
+	repo.EXPECT().EventExists(anyCtx, "event-1").Return(true, nil)
 	minter.EXPECT().IsTokenMinted(anyCtx, mock.AnythingOfType("uint64")).Return(false, nil)
 	minter.EXPECT().Mint(anyCtx, "0xaAbBcCdDeEfF0011223344556677889900aAbBcC", mock.AnythingOfType("uint64")).Return("0xdeadbeef", nil)
 	repo.EXPECT().Create(anyCtx, mock.MatchedBy(func(p *entity.NewTicket) bool {
@@ -97,6 +98,29 @@ func TestMintTicket_HappyPath(t *testing.T) {
 	assert.Equal(t, created, got)
 }
 
+func TestMintTicket_EventNotFound(t *testing.T) {
+	t.Parallel()
+
+	// When the event does not exist, return NotFound before on-chain mint.
+	repo := mocks.NewMockTicketRepository(t)
+	minter := mocks.NewMockTicketMinter(t)
+	uc := newTestTicketUC(t, repo, minter)
+
+	repo.EXPECT().GetByEventAndUser(anyCtx, "event-999", "user-1").Return(nil, apperr.ErrNotFound)
+	repo.EXPECT().EventExists(anyCtx, "event-999").Return(false, nil)
+
+	_, err := uc.MintTicket(context.Background(), &usecase.MintTicketParams{
+		EventID:          "event-999",
+		UserID:           "user-1",
+		RecipientAddress: "0xaAbBcCdDeEfF0011223344556677889900aAbBcC",
+	})
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, apperr.ErrNotFound), "expected NotFound, got %v", err)
+	minter.AssertNotCalled(t, "Mint")
+	minter.AssertNotCalled(t, "IsTokenMinted")
+}
+
 func TestMintTicket_AlreadyMintedOwnerMatches(t *testing.T) {
 	t.Parallel()
 
@@ -109,6 +133,7 @@ func TestMintTicket_AlreadyMintedOwnerMatches(t *testing.T) {
 	created := &entity.Ticket{ID: "ticket-3", EventID: "event-1", UserID: "user-1"}
 
 	repo.EXPECT().GetByEventAndUser(anyCtx, "event-1", "user-1").Return(nil, apperr.ErrNotFound)
+	repo.EXPECT().EventExists(anyCtx, "event-1").Return(true, nil)
 	minter.EXPECT().IsTokenMinted(anyCtx, mock.AnythingOfType("uint64")).Return(true, nil)
 	// OwnerOf returns the same address as RecipientAddress (case-insensitive).
 	minter.EXPECT().OwnerOf(anyCtx, mock.AnythingOfType("uint64")).Return(recipient, nil)
@@ -136,6 +161,7 @@ func TestMintTicket_AlreadyMintedOwnerMismatch(t *testing.T) {
 	uc := newTestTicketUC(t, repo, minter)
 
 	repo.EXPECT().GetByEventAndUser(anyCtx, "event-1", "user-1").Return(nil, apperr.ErrNotFound)
+	repo.EXPECT().EventExists(anyCtx, "event-1").Return(true, nil)
 	minter.EXPECT().IsTokenMinted(anyCtx, mock.AnythingOfType("uint64")).Return(true, nil)
 	minter.EXPECT().OwnerOf(anyCtx, mock.AnythingOfType("uint64")).Return("0x0000000000000000000000000000000000000001", nil)
 
@@ -160,6 +186,7 @@ func TestMintTicket_ConcurrentMintIdempotency(t *testing.T) {
 	existing := &entity.Ticket{ID: "ticket-4", EventID: "event-1", UserID: "user-1"}
 
 	repo.EXPECT().GetByEventAndUser(anyCtx, "event-1", "user-1").Return(nil, apperr.ErrNotFound).Once()
+	repo.EXPECT().EventExists(anyCtx, "event-1").Return(true, nil)
 	minter.EXPECT().IsTokenMinted(anyCtx, mock.AnythingOfType("uint64")).Return(false, nil)
 	minter.EXPECT().Mint(anyCtx, mock.Anything, mock.AnythingOfType("uint64")).Return("0xdeadbeef", nil)
 	repo.EXPECT().Create(anyCtx, mock.Anything).Return(nil, apperr.ErrAlreadyExists)
@@ -184,6 +211,7 @@ func TestMintTicket_IsTokenMintedError(t *testing.T) {
 	uc := newTestTicketUC(t, repo, minter)
 
 	repo.EXPECT().GetByEventAndUser(anyCtx, "event-1", "user-1").Return(nil, apperr.ErrNotFound)
+	repo.EXPECT().EventExists(anyCtx, "event-1").Return(true, nil)
 	minter.EXPECT().IsTokenMinted(anyCtx, mock.AnythingOfType("uint64")).Return(false, errors.New("rpc error: node timeout"))
 
 	_, err := uc.MintTicket(context.Background(), &usecase.MintTicketParams{
