@@ -27,6 +27,7 @@ const (
 		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name
 		FROM venues
 		WHERE name = $1 OR raw_name = $1
+		ORDER BY id ASC
 		LIMIT 1
 	`
 	listPendingVenuesQuery = `
@@ -174,27 +175,25 @@ func (r *VenueRepository) MergeVenues(ctx context.Context, canonicalID, duplicat
 			slog.String("canonical_id", canonicalID), slog.String("duplicate_id", duplicateID))
 	}
 
-	// Step 3: COALESCE canonical venue fields with duplicate's values.
-	// Must run BEFORE Step 3.5 so that the duplicate's external IDs are still
-	// present when we read them here.
-	_, err = tx.Exec(ctx, `
-		UPDATE venues c
-		SET
-			admin_area      = COALESCE(c.admin_area,      d.admin_area),
-			mbid            = COALESCE(c.mbid,            d.mbid),
-			google_place_id = COALESCE(c.google_place_id, d.google_place_id)
-		FROM venues d
-		WHERE c.id = $1 AND d.id = $2
-	`, canonicalID, duplicateID)
+	// Step 3: Read the duplicate's external IDs and admin_area before nulling them.
+	// We capture these values explicitly so that Step 3.5 can pass them as
+	// parameters rather than reading from the (already-nulled) duplicate row.
+	var dupAdminArea *string
+	var dupMBID *string
+	var dupGooglePlaceID *string
+	err = tx.QueryRow(ctx, `
+		SELECT admin_area, mbid, google_place_id FROM venues WHERE id = $1
+	`, duplicateID).Scan(&dupAdminArea, &dupMBID, &dupGooglePlaceID)
 	if err != nil {
-		return toAppErr(err, "failed to update canonical venue fields during merge",
-			slog.String("canonical_id", canonicalID), slog.String("duplicate_id", duplicateID))
+		return toAppErr(err, "failed to read duplicate venue fields during merge",
+			slog.String("duplicate_id", duplicateID))
 	}
 
-	// Step 3.5: Null out unique fields on the duplicate now that they have been
-	// merged onto the canonical. PostgreSQL checks unique partial indexes
-	// per-statement, so without this Step 4 (DELETE) would still leave a window
-	// where both rows share the same non-NULL external ID within the transaction.
+	// Step 3.5: Null out the duplicate's unique fields BEFORE copying them to the
+	// canonical. PostgreSQL evaluates unique partial indexes at the end of each
+	// individual statement. If we ran the COALESCE UPDATE first, both rows would
+	// temporarily share the same non-NULL external ID within that statement, causing
+	// a unique constraint violation.
 	_, err = tx.Exec(ctx, `
 		UPDATE venues SET mbid = NULL, google_place_id = NULL WHERE id = $1
 	`, duplicateID)
@@ -203,7 +202,23 @@ func (r *VenueRepository) MergeVenues(ctx context.Context, canonicalID, duplicat
 			slog.String("duplicate_id", duplicateID))
 	}
 
-	// Step 4: Delete duplicate venue
+	// Step 4 (pre): COALESCE canonical venue fields using the values captured in
+	// Step 3. The duplicate's unique fields are now NULL, so we pass the desired
+	// values as explicit parameters to avoid a cross-statement race.
+	_, err = tx.Exec(ctx, `
+		UPDATE venues
+		SET
+			admin_area      = COALESCE(admin_area,      $2),
+			mbid            = COALESCE(mbid,            $3),
+			google_place_id = COALESCE(google_place_id, $4)
+		WHERE id = $1
+	`, canonicalID, dupAdminArea, dupMBID, dupGooglePlaceID)
+	if err != nil {
+		return toAppErr(err, "failed to update canonical venue fields during merge",
+			slog.String("canonical_id", canonicalID), slog.String("duplicate_id", duplicateID))
+	}
+
+	// Step 5: Delete duplicate venue
 	_, err = tx.Exec(ctx, `DELETE FROM venues WHERE id = $1`, duplicateID)
 	if err != nil {
 		return toAppErr(err, "failed to delete duplicate venue during merge",
