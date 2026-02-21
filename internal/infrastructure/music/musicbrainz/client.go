@@ -224,9 +224,12 @@ func selectOfficialSiteURL(artistName string, relations []urlRelation) string {
 // the MusicBrainz place search endpoint. It returns the top match or
 // apperr.ErrNotFound if no results are returned.
 func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Place, error) {
-	lucene := fmt.Sprintf("place:%s", name)
+	// Wrap terms in double quotes to force Lucene phrase matching.
+	// Without quotes, names with spaces (e.g. "Zepp Nagoya") are tokenised into
+	// separate terms and the query is misinterpreted.
+	lucene := fmt.Sprintf(`place:"%s"`, name)
 	if adminArea != "" {
-		lucene += fmt.Sprintf(" AND area:%s", adminArea)
+		lucene += fmt.Sprintf(` AND area:"%s"`, adminArea)
 	}
 	params := url.Values{}
 	params.Set("query", lucene)

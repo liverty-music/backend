@@ -174,20 +174,9 @@ func (r *VenueRepository) MergeVenues(ctx context.Context, canonicalID, duplicat
 			slog.String("canonical_id", canonicalID), slog.String("duplicate_id", duplicateID))
 	}
 
-	// Step 2.5: Null out unique fields on the duplicate before merging them onto
-	// the canonical. PostgreSQL checks unique partial indexes per-statement, so
-	// without this the COALESCE UPDATE in Step 3 would transiently produce two
-	// rows with the same non-NULL mbid or google_place_id and raise a constraint
-	// violation — even though Step 4 deletes the duplicate in the same transaction.
-	_, err = tx.Exec(ctx, `
-		UPDATE venues SET mbid = NULL, google_place_id = NULL WHERE id = $1
-	`, duplicateID)
-	if err != nil {
-		return toAppErr(err, "failed to clear unique fields on duplicate venue during merge",
-			slog.String("duplicate_id", duplicateID))
-	}
-
-	// Step 3: COALESCE canonical venue fields with duplicate's values
+	// Step 3: COALESCE canonical venue fields with duplicate's values.
+	// Must run BEFORE Step 3.5 so that the duplicate's external IDs are still
+	// present when we read them here.
 	_, err = tx.Exec(ctx, `
 		UPDATE venues c
 		SET
@@ -200,6 +189,18 @@ func (r *VenueRepository) MergeVenues(ctx context.Context, canonicalID, duplicat
 	if err != nil {
 		return toAppErr(err, "failed to update canonical venue fields during merge",
 			slog.String("canonical_id", canonicalID), slog.String("duplicate_id", duplicateID))
+	}
+
+	// Step 3.5: Null out unique fields on the duplicate now that they have been
+	// merged onto the canonical. PostgreSQL checks unique partial indexes
+	// per-statement, so without this Step 4 (DELETE) would still leave a window
+	// where both rows share the same non-NULL external ID within the transaction.
+	_, err = tx.Exec(ctx, `
+		UPDATE venues SET mbid = NULL, google_place_id = NULL WHERE id = $1
+	`, duplicateID)
+	if err != nil {
+		return toAppErr(err, "failed to clear unique fields on duplicate venue during merge",
+			slog.String("duplicate_id", duplicateID))
 	}
 
 	// Step 4: Delete duplicate venue
