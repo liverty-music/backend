@@ -97,6 +97,7 @@ func (h *TicketHandler) GetTicket(
 }
 
 // ListTicketsForUser retrieves all tickets for the authenticated user.
+// The user ID is extracted from the JWT claims for authorization safety.
 func (h *TicketHandler) ListTicketsForUser(
 	ctx context.Context,
 	req *connect.Request[ticketv1.ListTicketsForUserRequest],
@@ -105,12 +106,14 @@ func (h *TicketHandler) ListTicketsForUser(
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
 	}
 
-	userID := req.Msg.GetUserId().GetValue()
-	if userID == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("user_id is required"))
+	claims, err := mapper.GetClaimsFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	tickets, err := h.ticketUseCase.ListTicketsForUser(ctx, userID)
+	// Use the authenticated user's ID from JWT claims, not the request body,
+	// to prevent users from listing other users' tickets.
+	tickets, err := h.ticketUseCase.ListTicketsForUser(ctx, claims.Sub)
 	if err != nil {
 		return nil, err
 	}

@@ -35,6 +35,16 @@ type NewTicket struct {
 	TxHash string
 }
 
+// TicketMinter defines the interface for on-chain ticket minting operations.
+// This abstraction allows the use case layer to depend on an interface rather
+// than the concrete blockchain client, enabling unit testing with mocks.
+type TicketMinter interface {
+	// Mint submits a mint transaction for a soulbound token.
+	Mint(ctx context.Context, recipient string, tokenID uint64) (txHash string, err error)
+	// IsTokenMinted returns true if the given tokenID has already been minted on-chain.
+	IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error)
+}
+
 // TicketRepository defines the interface for ticket data access.
 type TicketRepository interface {
 	// Create persists a newly minted ticket record.

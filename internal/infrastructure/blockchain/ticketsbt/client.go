@@ -7,13 +7,18 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/liverty-music/backend/internal/entity"
 )
+
+// Compile-time check that Client implements entity.TicketMinter.
+var _ entity.TicketMinter = (*Client)(nil)
 
 const (
 	// baseSepolia is the chain ID for Base Sepolia testnet.
@@ -75,25 +80,19 @@ func NewClient(ctx context.Context, rpcURL, privateKeyHex, contractAddr string) 
 	}, nil
 }
 
-// Close releases the underlying RPC connection.
-func (c *Client) Close() {
+// Close releases the underlying RPC connection. Implements io.Closer.
+func (c *Client) Close() error {
 	c.ethClient.Close()
-}
-
-// MintResult holds the outcome of a successful mint transaction.
-type MintResult struct {
-	// TxHash is the transaction hash of the mint operation.
-	TxHash string
-	// TokenID is the minted token ID.
-	TokenID uint64
+	return nil
 }
 
 // Mint submits a mint transaction to the TicketSBT contract.
 // It retries up to maxRetries times with exponential backoff on transient RPC errors.
 //
-// recipient is the address that will receive the soulbound token.
+// recipientAddr is the hex-encoded Ethereum address that will receive the soulbound token.
 // tokenID is the ERC-721 token ID to mint (must be > 0 and unique).
-func (c *Client) Mint(ctx context.Context, recipient common.Address, tokenID uint64) (*MintResult, error) {
+func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64) (string, error) {
+	recipient := common.HexToAddress(recipientAddr)
 	tokenIDBig := new(big.Int).SetUint64(tokenID)
 
 	var lastErr error
@@ -102,7 +101,7 @@ func (c *Client) Mint(ctx context.Context, recipient common.Address, tokenID uin
 			delay := retryBaseDelay * time.Duration(1<<uint(attempt-1))
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return "", ctx.Err()
 			case <-time.After(delay):
 			}
 		}
@@ -113,13 +112,10 @@ func (c *Client) Mint(ctx context.Context, recipient common.Address, tokenID uin
 			continue
 		}
 
-		return &MintResult{
-			TxHash:  tx.Hash().Hex(),
-			TokenID: tokenID,
-		}, nil
+		return tx.Hash().Hex(), nil
 	}
 
-	return nil, fmt.Errorf("ticketsbt: mint failed after %d attempts: %w", maxRetries, lastErr)
+	return "", fmt.Errorf("ticketsbt: mint failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 // OwnerOf returns the owner address of the given tokenID.
@@ -152,12 +148,17 @@ func (c *Client) OwnerOf(ctx context.Context, tokenID uint64) (common.Address, e
 }
 
 // IsTokenMinted returns true if the given tokenID has already been minted on-chain.
+// It distinguishes ERC721NonexistentToken reverts (unminted) from real RPC errors.
 func (c *Client) IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error) {
 	owner, err := c.OwnerOf(ctx, tokenID)
 	if err != nil {
-		// ERC721NonexistentToken is returned for unminted tokens — treat as not minted.
-		// We cannot import the custom error type directly, so check the string.
-		return false, nil //nolint:nilerr
+		// ERC721NonexistentToken revert contains this selector in the error message.
+		// Only treat this specific revert as "not minted"; propagate all other errors.
+		if strings.Contains(err.Error(), "ERC721NonexistentToken") ||
+			strings.Contains(err.Error(), "execution reverted") {
+			return false, nil
+		}
+		return false, fmt.Errorf("ticketsbt: failed to check token ownership: %w", err)
 	}
 
 	return owner != (common.Address{}), nil

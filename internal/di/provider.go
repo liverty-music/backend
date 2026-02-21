@@ -2,6 +2,7 @@ package di
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -103,6 +104,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Infrastructure - Blockchain (optional; skipped when config is absent)
 	var ticketUC usecase.TicketUseCase
+	var sbtCloser io.Closer
 	if cfg.Blockchain.RPCURL != "" && cfg.Blockchain.DeployerPrivateKey != "" && cfg.Blockchain.TicketSBTAddress != "" {
 		sbtClient, err := ticketsbt.NewClient(
 			ctx,
@@ -113,6 +115,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		if err != nil {
 			return nil, err
 		}
+		sbtCloser = sbtClient
 		ticketUC = usecase.NewTicketUseCase(ticketRepo, sbtClient, logger)
 	} else {
 		logger.Warn(ctx, "⚠️  Blockchain config absent, ticket minting is disabled")
@@ -123,7 +126,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, musicbrainzClient, artistCache, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, logger)
-	_ = ticketUC // registered in handlers slice once BSR module is bumped (see ticket_handler.go)
+	// TODO: Register ticketUC in the handlers slice once the BSR module is bumped
+	// with ticket/v1 proto types (blocked on specification PR #53 merge).
+	// See ticket_handler.go (currently excluded via //go:build ignore).
+	_ = ticketUC
 
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
@@ -175,7 +181,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	srv := server.NewConnectServer(cfg, logger, db, authFunc, healthHandler, handlers...)
 
-	return newApp(srv, db, telemetryCloser, lastfmClient, musicbrainzClient), nil
+	closers := []io.Closer{db, telemetryCloser, lastfmClient, musicbrainzClient}
+	if sbtCloser != nil {
+		closers = append(closers, sbtCloser)
+	}
+
+	return newApp(srv, closers...), nil
 }
 
 func provideLogger(cfg *config.Config) (*logging.Logger, error) {

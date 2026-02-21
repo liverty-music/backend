@@ -4,14 +4,16 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
+
+// ethAddressRe matches a valid Ethereum address (0x-prefixed, 40 hex chars).
+var ethAddressRe = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
 
 // TicketUseCase defines the interface for ticket-related business logic.
 type TicketUseCase interface {
@@ -51,7 +53,7 @@ type MintTicketParams struct {
 // ticketUseCase implements the TicketUseCase interface.
 type ticketUseCase struct {
 	ticketRepo entity.TicketRepository
-	sbtClient  *ticketsbt.Client
+	minter     entity.TicketMinter
 	logger     *logging.Logger
 }
 
@@ -61,12 +63,12 @@ var _ TicketUseCase = (*ticketUseCase)(nil)
 // NewTicketUseCase creates a new ticket use case.
 func NewTicketUseCase(
 	ticketRepo entity.TicketRepository,
-	sbtClient *ticketsbt.Client,
+	minter entity.TicketMinter,
 	logger *logging.Logger,
 ) TicketUseCase {
 	return &ticketUseCase{
 		ticketRepo: ticketRepo,
-		sbtClient:  sbtClient,
+		minter:     minter,
 		logger:     logger,
 	}
 }
@@ -90,6 +92,10 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 		return nil, apperr.New(codes.InvalidArgument, "recipient_address is required")
 	}
 
+	if !ethAddressRe.MatchString(params.RecipientAddress) {
+		return nil, apperr.New(codes.InvalidArgument, "recipient_address must be a valid Ethereum address (0x followed by 40 hex characters)")
+	}
+
 	if params.TokenID == 0 {
 		return nil, apperr.New(codes.InvalidArgument, "token_id must be greater than 0")
 	}
@@ -110,14 +116,14 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 	}
 
 	// Idempotency check 2: check on-chain whether tokenID is already minted.
-	alreadyMinted, err := uc.sbtClient.IsTokenMinted(ctx, params.TokenID)
+	alreadyMinted, err := uc.minter.IsTokenMinted(ctx, params.TokenID)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to check on-chain token status",
 			slog.Uint64("token_id", params.TokenID),
 		)
 	}
 
-	var mintResult *ticketsbt.MintResult
+	var txHash string
 
 	if alreadyMinted {
 		// Token exists on-chain but no DB record — create the record to reconcile state.
@@ -127,15 +133,10 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 			slog.String("user_id", params.UserID),
 		)
 		// Use a zero-value tx hash as placeholder for reconciled records.
-		// The token exists on-chain but we have no tx hash — use the null hash.
-		mintResult = &ticketsbt.MintResult{
-			TxHash:  "0x0000000000000000000000000000000000000000000000000000000000000000",
-			TokenID: params.TokenID,
-		}
+		txHash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 	} else {
-		// Submit the mint transaction. Retry logic is inside Client.Mint.
-		recipient := common.HexToAddress(params.RecipientAddress)
-		mintResult, err = uc.sbtClient.Mint(ctx, recipient, params.TokenID)
+		// Submit the mint transaction. Retry logic is inside the minter implementation.
+		txHash, err = uc.minter.Mint(ctx, params.RecipientAddress, params.TokenID)
 		if err != nil {
 			return nil, apperr.Wrap(err, codes.Internal, "failed to mint ticket on-chain",
 				slog.String("event_id", params.EventID),
@@ -145,8 +146,8 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 		}
 
 		uc.logger.Info(ctx, "ticket minted on-chain",
-			slog.String("tx_hash", mintResult.TxHash),
-			slog.Uint64("token_id", mintResult.TokenID),
+			slog.String("tx_hash", txHash),
+			slog.Uint64("token_id", params.TokenID),
 		)
 	}
 
@@ -154,8 +155,8 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 	ticket, err := uc.ticketRepo.Create(ctx, &entity.NewTicket{
 		EventID: params.EventID,
 		UserID:  params.UserID,
-		TokenID: mintResult.TokenID,
-		TxHash:  mintResult.TxHash,
+		TokenID: params.TokenID,
+		TxHash:  txHash,
 	})
 	if err != nil {
 		// On unique constraint violation another concurrent mint succeeded — fetch and return it.
