@@ -439,12 +439,14 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		cleanDatabase()
 
 		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band"}
-		require.NoError(t, artistRepo.Create(ctx, artist))
+		_, err := artistRepo.Create(ctx, artist)
+		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
 		require.NoError(t, venueRepo.Create(ctx, venue))
 
+		concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
 		// Simulate a pre-migration row by inserting directly without listed_venue_name.
-		_, err := testDB.Pool.Exec(ctx,
+		_, err = testDB.Pool.Exec(ctx,
 			"INSERT INTO events (id, venue_id, title, local_event_date, source_url) VALUES ($1, $2, $3, $4, $5)",
 			"018b2f19-e591-7d12-bf9e-f0e74f1b4cc1", venue.ID, "Legacy Concert", concertDate, "https://example.com/legacy",
 		)
@@ -465,12 +467,15 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		cleanDatabase()
 
 		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band"}
-		require.NoError(t, artistRepo.Create(ctx, artist))
+		_, err := artistRepo.Create(ctx, artist)
+		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
 		require.NoError(t, venueRepo.Create(ctx, venue))
 
+		concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
+
 		listedName := "Zepp Nagoya"
-		err := concertRepo.Create(ctx, &entity.Concert{
+		err = concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4cc2",
 				VenueID:         venue.ID,
