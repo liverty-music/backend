@@ -298,11 +298,12 @@ func TestVenueRepository_UpdateEnriched(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, v))
 
+	mbid := "a2e6e2c0-1234-5678-abcd-000000000001"
 	enriched := &entity.Venue{
 		ID:      v.ID,
 		Name:    "Zepp Nagoya",
 		RawName: "zepp nagoya",
-		MBID:    "a2e6e2c0-1234-5678-abcd-000000000001",
+		MBID:    &mbid,
 	}
 	require.NoError(t, repo.UpdateEnriched(ctx, enriched))
 
@@ -310,7 +311,8 @@ func TestVenueRepository_UpdateEnriched(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Zepp Nagoya", got.Name)
 	assert.Equal(t, "zepp nagoya", got.RawName)
-	assert.Equal(t, "a2e6e2c0-1234-5678-abcd-000000000001", got.MBID)
+	require.NotNil(t, got.MBID)
+	assert.Equal(t, mbid, *got.MBID)
 	assert.Equal(t, entity.EnrichmentStatusEnriched, got.EnrichmentStatus)
 }
 

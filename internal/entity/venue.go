@@ -28,11 +28,11 @@ type Venue struct {
 	// It is nil when the area could not be determined with confidence.
 	AdminArea *string
 	// MBID is the MusicBrainz Place ID for the canonical venue record.
-	// Empty until the venue has been successfully enriched via MusicBrainz.
-	MBID string
+	// Nil until the venue has been successfully enriched via MusicBrainz.
+	MBID *string
 	// GooglePlaceID is the Google Maps Place ID for the canonical venue record.
-	// Empty until the venue has been successfully enriched via Google Maps.
-	GooglePlaceID string
+	// Nil until the venue has been successfully enriched via Google Maps.
+	GooglePlaceID *string
 	// EnrichmentStatus is the current state of the venue normalization pipeline.
 	EnrichmentStatus VenueEnrichmentStatus
 	// RawName is the original scraper-provided name before canonical renaming.

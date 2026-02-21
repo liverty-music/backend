@@ -121,7 +121,7 @@ func (r *VenueRepository) ListPending(ctx context.Context) ([]*entity.Venue, err
 // UpdateEnriched updates a venue to the enriched state.
 func (r *VenueRepository) UpdateEnriched(ctx context.Context, venue *entity.Venue) error {
 	_, err := r.db.Pool.Exec(ctx, updateEnrichedVenueQuery,
-		venue.ID, venue.Name, venue.RawName, nullableString(venue.MBID), nullableString(venue.GooglePlaceID),
+		venue.ID, venue.Name, venue.RawName, venue.MBID, venue.GooglePlaceID,
 	)
 	if err != nil {
 		return toAppErr(err, "failed to update enriched venue", slog.String("venue_id", venue.ID))
@@ -213,12 +213,4 @@ func (r *VenueRepository) MergeVenues(ctx context.Context, canonicalID, duplicat
 		return toAppErr(err, "failed to commit merge transaction")
 	}
 	return nil
-}
-
-// nullableString returns nil if s is empty, allowing pgx to insert NULL.
-func nullableString(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }

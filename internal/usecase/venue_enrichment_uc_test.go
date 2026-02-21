@@ -92,7 +92,8 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_Success(t *testing.T) {
 	enriched, ok := repo.enriched["venue-1"]
 	require.True(t, ok, "venue should have been enriched")
 	assert.Equal(t, "Zepp Nagoya", enriched.Name)
-	assert.Equal(t, "mbid-001", enriched.MBID)
+	require.NotNil(t, enriched.MBID)
+	assert.Equal(t, "mbid-001", *enriched.MBID)
 	assert.Equal(t, "zepp nagoya", enriched.RawName)
 	assert.Empty(t, repo.failed)
 }
@@ -116,8 +117,9 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_GooglePlaceID(t *testing.T) 
 
 	enriched, ok := repo.enriched["venue-2"]
 	require.True(t, ok)
-	assert.Equal(t, "ChIJplace001", enriched.GooglePlaceID)
-	assert.Empty(t, enriched.MBID)
+	require.NotNil(t, enriched.GooglePlaceID)
+	assert.Equal(t, "ChIJplace001", *enriched.GooglePlaceID)
+	assert.Nil(t, enriched.MBID)
 }
 
 func TestVenueEnrichmentUseCase_EnrichPendingVenues_FallsBackToSecondSearcher(t *testing.T) {
@@ -139,7 +141,8 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_FallsBackToSecondSearcher(t 
 
 	enriched, ok := repo.enriched["venue-3"]
 	require.True(t, ok)
-	assert.Equal(t, "ChIJfallback", enriched.GooglePlaceID)
+	require.NotNil(t, enriched.GooglePlaceID)
+	assert.Equal(t, "ChIJfallback", *enriched.GooglePlaceID)
 }
 
 func TestVenueEnrichmentUseCase_EnrichPendingVenues_NoMatchMarksFailed(t *testing.T) {
@@ -191,12 +194,14 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_DuplicateDetectionMerges(t *
 	assert.Empty(t, repo.enriched)
 }
 
-func TestVenueEnrichmentUseCase_EnrichPendingVenues_SearcherErrorMarksFailed(t *testing.T) {
+func TestVenueEnrichmentUseCase_EnrichPendingVenues_TransientErrorLeavesPending(t *testing.T) {
 	repo := &fakeVenueEnrichmentRepo{
 		pending: []*entity.Venue{
 			{ID: "venue-5", Name: "venue", RawName: "venue"},
 		},
 	}
+	// A transient (Unavailable) error from all searchers must NOT mark the venue as failed.
+	// The venue remains pending so the next run can retry.
 	searcher := &fakePlaceSearcher{err: apperr.New(codes.Unavailable, "service down")}
 
 	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, newTestLogger(t),
@@ -206,5 +211,6 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_SearcherErrorMarksFailed(t *
 	err := uc.EnrichPendingVenues(context.Background())
 	require.NoError(t, err) // non-fatal
 
-	assert.Contains(t, repo.failed, "venue-5")
+	assert.Empty(t, repo.failed, "transient errors must not permanently mark venue as failed")
+	assert.Empty(t, repo.enriched)
 }
