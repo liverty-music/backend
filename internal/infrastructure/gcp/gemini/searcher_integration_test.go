@@ -37,8 +37,20 @@ func TestConcertSearcher_Search_Real(t *testing.T) {
 
 	discovered, _ := s.Search(ctx, artist, officialSite, from)
 
-	t.Logf("Found %d concerts for %s", len(discovered), artist.Name)
+	t.Logf("Found %d concerts for %s (with official site)", len(discovered), artist.Name)
 	for _, c := range discovered {
+		st := "nil"
+		if c.StartTime != nil {
+			st = c.StartTime.Format(time.RFC3339)
+		}
+		t.Logf("  - %s (%s) @ %s [Source: %s]", c.Title, c.LocalEventDate.Format("2006-01-02"), st, c.SourceURL)
+	}
+
+	// Nil-site path: no known URL, Gemini searches by artist name only.
+	discoveredNoSite, _ := s.Search(ctx, artist, nil, from)
+
+	t.Logf("Found %d concerts for %s (no official site)", len(discoveredNoSite), artist.Name)
+	for _, c := range discoveredNoSite {
 		st := "nil"
 		if c.StartTime != nil {
 			st = c.StartTime.Format(time.RFC3339)

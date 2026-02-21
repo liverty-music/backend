@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-apperr/apperr"
@@ -102,6 +103,7 @@ type artistUseCase struct {
 	artistRepo     entity.ArtistRepository
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
+	siteResolver   entity.OfficialSiteResolver
 	cache          *cache.MemoryCache
 	logger         *logging.Logger
 }
@@ -114,6 +116,7 @@ func NewArtistUseCase(
 	artistRepo entity.ArtistRepository,
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
+	siteResolver entity.OfficialSiteResolver,
 	cache *cache.MemoryCache,
 	logger *logging.Logger,
 ) ArtistUseCase {
@@ -121,6 +124,7 @@ func NewArtistUseCase(
 		artistRepo:     artistRepo,
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
+		siteResolver:   siteResolver,
 		cache:          cache,
 		logger:         logger,
 	}
@@ -233,6 +237,8 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 }
 
 // Follow establishes a follow relationship between a user and an artist.
+// After the follow is persisted, it asynchronously resolves and stores the
+// artist's official site URL if one is not already recorded.
 func (uc *artistUseCase) Follow(ctx context.Context, userID string, artistID string) error {
 	if userID == "" || artistID == "" {
 		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
@@ -248,7 +254,59 @@ func (uc *artistUseCase) Follow(ctx context.Context, userID string, artistID str
 	}
 
 	uc.logger.Info(ctx, "User followed artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
+
+	bgCtx := context.WithoutCancel(ctx)
+	go uc.resolveAndPersistOfficialSite(bgCtx, artistID)
+
 	return nil
+}
+
+// resolveAndPersistOfficialSite fetches the official site URL from MusicBrainz
+// and persists it for the given artist. It is intended to run in a background
+// goroutine; all errors are logged and swallowed.
+func (uc *artistUseCase) resolveAndPersistOfficialSite(ctx context.Context, artistID string) {
+	// Skip if a record already exists.
+	_, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
+	if err == nil {
+		return
+	}
+	if !errors.Is(err, apperr.ErrNotFound) {
+		uc.logger.Warn(ctx, "failed to check official site before resolution", slog.String("artist_id", artistID), slog.Any("error", err))
+		return
+	}
+
+	artist, err := uc.artistRepo.Get(ctx, artistID)
+	if err != nil {
+		uc.logger.Warn(ctx, "failed to get artist for official site resolution", slog.String("artist_id", artistID), slog.Any("error", err))
+		return
+	}
+
+	if artist.MBID == "" {
+		return
+	}
+
+	url, err := uc.siteResolver.ResolveOfficialSiteURL(ctx, artist.MBID)
+	if err != nil {
+		uc.logger.Warn(ctx, "failed to resolve official site URL", slog.String("artist_id", artistID), slog.String("mbid", artist.MBID), slog.Any("error", err))
+		return
+	}
+	if url == "" {
+		return
+	}
+
+	site := &entity.OfficialSite{
+		ID:       func() string { id, _ := uuid.NewV7(); return id.String() }(),
+		ArtistID: artistID,
+		URL:      url,
+	}
+	if err := uc.artistRepo.CreateOfficialSite(ctx, site); err != nil {
+		if !errors.Is(err, apperr.ErrAlreadyExists) {
+			uc.logger.Warn(ctx, "failed to persist official site", slog.String("artist_id", artistID), slog.String("url", url), slog.Any("error", err))
+		}
+		return
+	}
+
+	uc.logger.Info(ctx, "official site resolved and persisted", slog.String("artist_id", artistID), slog.String("url", url))
 }
 
 // Unfollow removes a follow relationship.

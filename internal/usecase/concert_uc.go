@@ -110,10 +110,13 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
-	// 3. Get Official Site
+	// 3. Get Official Site — missing site is not an error; search continues with nil
 	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
-	if err != nil {
+	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 		return nil, fmt.Errorf("failed to get official site: %w", err)
+	}
+	if errors.Is(err, apperr.ErrNotFound) {
+		site = nil
 	}
 
 	// 4. Get existing upcoming concerts

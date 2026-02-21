@@ -378,6 +378,37 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			want:    0,
 			wantErr: assert.AnError,
 		},
+		{
+			name: "success - no official site record, search continues with nil site",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				artistID := "artist-1"
+				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+				scraped := []*entity.ScrapedConcert{
+					{Title: "No-Site Concert", ListedVenueName: "Test Venue", LocalEventDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
+				}
+
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+				// GetOfficialSite returns NotFound — should not cause an error
+				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
+				// Search is called with nil site
+				d.searcher.EXPECT().Search(ctx, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+				d.venueRepo.EXPECT().GetByName(ctx, "Test Venue").Return(&entity.Venue{ID: "v1", Name: "Test Venue"}, nil).Once()
+				d.concertRepo.EXPECT().Create(ctx, mock.MatchedBy(func(c *entity.Concert) bool {
+					return c.ArtistID == artistID && c.Title == "No-Site Concert"
+				})).Return(nil).Once()
+			},
+			want:    1,
+			wantErr: nil,
+			validate: func(t *testing.T, result []*entity.Concert) {
+				t.Helper()
+				assert.Equal(t, "No-Site Concert", result[0].Title)
+			},
+		},
 	}
 
 	for _, tt := range tests {

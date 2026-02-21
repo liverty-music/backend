@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -15,6 +16,14 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+// anyCtx matches any context.Context regardless of type (e.g. context.WithoutCancel).
+var anyCtx = mock.MatchedBy(func(context.Context) bool { return true })
+
+func newTestArtistUC(t *testing.T, repo *mocks.MockArtistRepository, searcher *mocks.MockArtistSearcher, idManager *mocks.MockArtistIdentityManager, siteResolver *mocks.MockOfficialSiteResolver, logger *logging.Logger) usecase.ArtistUseCase {
+	t.Helper()
+	return usecase.NewArtistUseCase(repo, searcher, idManager, siteResolver, cache.NewMemoryCache(1*time.Hour), logger)
+}
+
 func TestArtistUseCase_CreateArtist(t *testing.T) {
 	ctx := context.Background()
 	logger, _ := logging.New()
@@ -23,7 +32,8 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
 
 		artist := &entity.Artist{
 			ID:   "artist-1",
@@ -47,7 +57,8 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
 
 		artist := &entity.Artist{
 			ID:   "artist-1",
@@ -70,7 +81,8 @@ func TestArtistUseCase_ListArtists(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
 
 		artists := []*entity.Artist{
 			{ID: "1", Name: "Artist 1"},
@@ -95,7 +107,8 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
 
 		fetched := []*entity.Artist{
 			{Name: "Artist A", MBID: "mbid-a"},
@@ -135,7 +148,8 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
 
 		persisted := []*entity.Artist{
 			{ID: "id-a", Name: "Artist A", MBID: "mbid-a"},
@@ -177,7 +191,8 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
 
 		seedArtist := &entity.Artist{ID: "seed-id", Name: "Seed", MBID: "seed-mbid"}
 		fetched := []*entity.Artist{
@@ -199,5 +214,111 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 		assert.Len(t, result, 2)
 		assert.Equal(t, "id-sim-a", result[0].ID)
 		assert.Equal(t, "id-sim-b", result[1].ID)
+	})
+}
+
+func TestArtistUseCase_Follow(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := logging.New()
+
+	artist := &entity.Artist{ID: "artist-1", Name: "saji", MBID: "f71a9739-5d53-404f-a813-0925894c673b"}
+
+	t.Run("success - resolves and persists official site", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
+
+		repo.EXPECT().Follow(ctx, "user-1", artist.ID).Return(nil).Once()
+		// Goroutine uses context.WithoutCancel — match any context
+		repo.EXPECT().GetOfficialSite(anyCtx, artist.ID).Return(nil, apperr.ErrNotFound).Once()
+		repo.EXPECT().Get(anyCtx, artist.ID).Return(artist, nil).Once()
+		siteResolver.EXPECT().ResolveOfficialSiteURL(anyCtx, artist.MBID).Return("https://saji.tokyo/", nil).Once()
+		repo.EXPECT().CreateOfficialSite(anyCtx, mock.MatchedBy(func(site *entity.OfficialSite) bool {
+			return site.ArtistID == artist.ID && site.URL == "https://saji.tokyo/" && site.ID != ""
+		})).Return(nil).Once()
+
+		err := uc.Follow(ctx, "user-1", artist.ID)
+		assert.NoError(t, err)
+
+		// Give the goroutine time to complete
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("success - skips resolution when official site already exists", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
+
+		repo.EXPECT().Follow(ctx, "user-1", artist.ID).Return(nil).Once()
+		repo.EXPECT().GetOfficialSite(anyCtx, artist.ID).Return(&entity.OfficialSite{
+			ID: "site-1", ArtistID: artist.ID, URL: "https://saji.tokyo/",
+		}, nil).Once()
+
+		err := uc.Follow(ctx, "user-1", artist.ID)
+		assert.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("success - resolver returns empty URL, no site persisted", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
+
+		repo.EXPECT().Follow(ctx, "user-1", artist.ID).Return(nil).Once()
+		repo.EXPECT().GetOfficialSite(anyCtx, artist.ID).Return(nil, apperr.ErrNotFound).Once()
+		repo.EXPECT().Get(anyCtx, artist.ID).Return(artist, nil).Once()
+		siteResolver.EXPECT().ResolveOfficialSiteURL(anyCtx, artist.MBID).Return("", nil).Once()
+
+		err := uc.Follow(ctx, "user-1", artist.ID)
+		assert.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("success - resolver errors, follow still succeeds", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
+
+		repo.EXPECT().Follow(ctx, "user-1", artist.ID).Return(nil).Once()
+		repo.EXPECT().GetOfficialSite(anyCtx, artist.ID).Return(nil, apperr.ErrNotFound).Once()
+		repo.EXPECT().Get(anyCtx, artist.ID).Return(artist, nil).Once()
+		siteResolver.EXPECT().ResolveOfficialSiteURL(anyCtx, artist.MBID).Return("", errors.New("network error")).Once()
+
+		err := uc.Follow(ctx, "user-1", artist.ID)
+		assert.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("success - CreateOfficialSite race (AlreadyExists), follow still succeeds", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, searcher, idManager, siteResolver, logger)
+
+		repo.EXPECT().Follow(ctx, "user-1", artist.ID).Return(nil).Once()
+		repo.EXPECT().GetOfficialSite(anyCtx, artist.ID).Return(nil, apperr.ErrNotFound).Once()
+		repo.EXPECT().Get(anyCtx, artist.ID).Return(artist, nil).Once()
+		siteResolver.EXPECT().ResolveOfficialSiteURL(anyCtx, artist.MBID).Return("https://saji.tokyo/", nil).Once()
+		// Concurrent re-follow: another goroutine already inserted the record
+		repo.EXPECT().CreateOfficialSite(anyCtx, mock.MatchedBy(func(site *entity.OfficialSite) bool {
+			return site.ArtistID == artist.ID && site.URL == "https://saji.tokyo/" && site.ID != ""
+		})).Return(apperr.ErrAlreadyExists).Once()
+
+		err := uc.Follow(ctx, "user-1", artist.ID)
+		assert.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
 	})
 }
