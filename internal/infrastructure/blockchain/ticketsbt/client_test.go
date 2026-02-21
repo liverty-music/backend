@@ -165,7 +165,7 @@ func TestIsTokenMinted_NotMinted(t *testing.T) {
 
 	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
 	require.NoError(t, err)
-	defer client.Close()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
 	minted, err := client.IsTokenMinted(context.Background(), 42)
 	require.NoError(t, err)
@@ -187,7 +187,7 @@ func TestIsTokenMinted_AlreadyMinted(t *testing.T) {
 
 	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
 	require.NoError(t, err)
-	defer client.Close()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
 	minted, err := client.IsTokenMinted(context.Background(), 42)
 	require.NoError(t, err)
@@ -211,7 +211,7 @@ func TestIsTokenMinted_RPCError(t *testing.T) {
 
 	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
 	require.NoError(t, err)
-	defer client.Close()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
 	_, err = client.IsTokenMinted(context.Background(), 42)
 	require.Error(t, err)
@@ -233,7 +233,7 @@ func TestOwnerOf_Success(t *testing.T) {
 
 	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
 	require.NoError(t, err)
-	defer client.Close()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
 	owner, err := client.OwnerOf(context.Background(), 42)
 	require.NoError(t, err)
@@ -258,7 +258,7 @@ func TestOwnerOf_NonexistentToken(t *testing.T) {
 
 	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
 	require.NoError(t, err)
-	defer client.Close()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
 	_, err = client.OwnerOf(context.Background(), 999)
 	require.Error(t, err)
@@ -275,7 +275,7 @@ func TestMint_ContextCancelled(t *testing.T) {
 
 	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
 	require.NoError(t, err)
-	defer client.Close()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately.
