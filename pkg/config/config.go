@@ -110,6 +110,9 @@ type Config struct {
 	// JWT configuration
 	JWT JWTConfig `envconfig:""`
 
+	// Blockchain configuration
+	Blockchain BlockchainConfig `envconfig:""`
+
 	// Environment
 	Environment string `envconfig:"ENVIRONMENT" default:"local"`
 
@@ -215,6 +218,19 @@ type GCPConfig struct {
 	// Vertex AI Search Data Store ID (full resource name)
 	// Format: projects/{project}/locations/global/collections/default_collection/dataStores/{data_store_id}
 	VertexAISearchDataStore string `envconfig:"GCP_VERTEX_AI_SEARCH_DATA_STORE"`
+}
+
+// BlockchainConfig holds configuration for Base Sepolia EVM interactions and the TicketSBT contract.
+type BlockchainConfig struct {
+	// RPCURL is the Base Sepolia JSON-RPC endpoint URL.
+	RPCURL string `envconfig:"BLOCKCHAIN_RPC_URL"`
+
+	// DeployerPrivateKey is the hex-encoded private key of the backend service EOA
+	// that holds MINTER_ROLE on the TicketSBT contract.
+	DeployerPrivateKey string `envconfig:"BLOCKCHAIN_DEPLOYER_PRIVATE_KEY"`
+
+	// TicketSBTAddress is the deployed TicketSBT contract address on Base Sepolia.
+	TicketSBTAddress string `envconfig:"BLOCKCHAIN_TICKET_SBT_ADDRESS"`
 }
 
 // JWTConfig represents JWT authentication configuration.

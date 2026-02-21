@@ -14,6 +14,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
@@ -62,6 +63,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	searchLogRepo := rdb.NewSearchLogRepository(db)
+	ticketRepo := rdb.NewTicketRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -99,10 +101,29 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		}
 	}()
 
+	// Infrastructure - Blockchain (optional; skipped when config is absent)
+	var ticketUC usecase.TicketUseCase
+	if cfg.Blockchain.RPCURL != "" && cfg.Blockchain.DeployerPrivateKey != "" && cfg.Blockchain.TicketSBTAddress != "" {
+		sbtClient, err := ticketsbt.NewClient(
+			ctx,
+			cfg.Blockchain.RPCURL,
+			cfg.Blockchain.DeployerPrivateKey,
+			cfg.Blockchain.TicketSBTAddress,
+		)
+		if err != nil {
+			return nil, err
+		}
+		ticketUC = usecase.NewTicketUseCase(ticketRepo, sbtClient, logger)
+	} else {
+		logger.Warn(ctx, "⚠️  Blockchain config absent, ticket minting is disabled")
+		_ = ticketRepo // referenced when blockchain is enabled; suppress unused warning
+	}
+
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, musicbrainzClient, artistCache, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, logger)
+	_ = ticketUC // registered in handlers slice once BSR module is bumped (see ticket_handler.go)
 
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
