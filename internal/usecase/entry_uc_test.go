@@ -426,3 +426,187 @@ func TestBuildMerkleTree_StoreBatchWithRootError(t *testing.T) {
 	err := uc.BuildMerkleTree(context.Background(), "event-1")
 	assert.Error(t, err)
 }
+
+// --- Error propagation tests ---
+
+func TestVerifyEntry_GetMerkleRootError(t *testing.T) {
+	t.Parallel()
+
+	root := big.NewInt(42)
+	eventRepo := &stubEventRepo{merkleRootErr: assert.AnError}
+
+	uc := newTestEntryUC(&stubZKPVerifier{}, &stubNullifierRepo{}, nil, eventRepo, nil)
+
+	signals := makePublicSignals(root, big.NewInt(100))
+	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
+		EventID:           "event-1",
+		ProofJSON:         `{}`,
+		PublicSignalsJSON: signals,
+	})
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+func TestVerifyEntry_NullifierExistsError(t *testing.T) {
+	t.Parallel()
+
+	root := big.NewInt(42)
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	nullifiers := &stubNullifierRepo{existsErr: assert.AnError}
+
+	uc := newTestEntryUC(&stubZKPVerifier{}, nullifiers, nil, eventRepo, nil)
+
+	signals := makePublicSignals(root, big.NewInt(100))
+	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
+		EventID:           "event-1",
+		ProofJSON:         `{}`,
+		PublicSignalsJSON: signals,
+	})
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+func TestVerifyEntry_VerifierError(t *testing.T) {
+	t.Parallel()
+
+	root := big.NewInt(42)
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	nullifiers := &stubNullifierRepo{}
+	verifier := &stubZKPVerifier{err: assert.AnError}
+
+	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
+
+	signals := makePublicSignals(root, big.NewInt(100))
+	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
+		EventID:           "event-1",
+		ProofJSON:         `{}`,
+		PublicSignalsJSON: signals,
+	})
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+func TestVerifyEntry_InsertNullifierError(t *testing.T) {
+	t.Parallel()
+
+	root := big.NewInt(42)
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	nullifiers := &stubNullifierRepo{insertErr: assert.AnError}
+	verifier := &stubZKPVerifier{verified: true}
+
+	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
+
+	signals := makePublicSignals(root, big.NewInt(100))
+	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
+		EventID:           "event-1",
+		ProofJSON:         `{}`,
+		PublicSignalsJSON: signals,
+	})
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+func TestVerifyEntry_OversizedPublicSignal(t *testing.T) {
+	t.Parallel()
+
+	// A number exceeding 32 bytes should return an error, not panic.
+	huge := new(big.Int).Lsh(big.NewInt(1), 264) // 2^264 > 32 bytes
+	signals := makePublicSignals(huge, big.NewInt(1))
+
+	uc := newTestEntryUC(&stubZKPVerifier{}, &stubNullifierRepo{}, nil, &stubEventRepo{}, nil)
+
+	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
+		EventID:           "event-1",
+		ProofJSON:         `{}`,
+		PublicSignalsJSON: signals,
+	})
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds 32 bytes")
+}
+
+// --- GetMerklePath error propagation ---
+
+func TestGetMerklePath_LeafIndexError(t *testing.T) {
+	t.Parallel()
+
+	eventRepo := &stubEventRepo{leafIndexErr: assert.AnError}
+	uc := newTestEntryUC(nil, nil, nil, eventRepo, nil)
+
+	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+func TestGetMerklePath_GetRootError(t *testing.T) {
+	t.Parallel()
+
+	eventRepo := &stubEventRepo{leafIndex: 0, merkleRootErr: assert.AnError}
+	uc := newTestEntryUC(nil, nil, nil, eventRepo, nil)
+
+	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+func TestGetMerklePath_GetPathError(t *testing.T) {
+	t.Parallel()
+
+	eventRepo := &stubEventRepo{leafIndex: 0, merkleRoot: []byte{1}}
+	merkleTreeRepo := &stubMerkleTreeRepo{pathErr: assert.AnError}
+	uc := newTestEntryUC(nil, nil, merkleTreeRepo, eventRepo, nil)
+
+	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+func TestGetMerklePath_GetLeafError(t *testing.T) {
+	t.Parallel()
+
+	eventRepo := &stubEventRepo{leafIndex: 0, merkleRoot: []byte{1}}
+	merkleTreeRepo := &stubMerkleTreeRepo{
+		pathElements: [][]byte{{1}},
+		pathIndices:  []uint32{0},
+		leafErr:      assert.AnError,
+	}
+	uc := newTestEntryUC(nil, nil, merkleTreeRepo, eventRepo, nil)
+
+	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
+	assert.Nil(t, result)
+	assert.Error(t, err)
+}
+
+// --- BuildMerkleTree error propagation ---
+
+func TestBuildMerkleTree_ListByEventError(t *testing.T) {
+	t.Parallel()
+
+	ticketRepo := &mocks.MockTicketRepository{}
+	ticketRepo.On("ListByEvent", context.Background(), "event-1").Return(nil, assert.AnError)
+
+	uc := newTestEntryUC(nil, nil, nil, nil, ticketRepo)
+
+	err := uc.BuildMerkleTree(context.Background(), "event-1")
+	assert.Error(t, err)
+}
+
+func TestBuildMerkleTree_EmptyTickets(t *testing.T) {
+	t.Parallel()
+
+	ticketRepo := &mocks.MockTicketRepository{}
+	ticketRepo.On("ListByEvent", context.Background(), "event-1").Return([]*entity.Ticket{}, nil)
+
+	merkleTreeRepo := &stubMerkleTreeRepo{}
+	eventRepo := &stubEventRepo{}
+
+	uc := newTestEntryUC(nil, nil, merkleTreeRepo, eventRepo, ticketRepo)
+
+	err := uc.BuildMerkleTree(context.Background(), "event-1")
+	require.NoError(t, err)
+}
