@@ -6,6 +6,9 @@ namespace: atlas-operator
 resources:
 - atlas-migration.yaml
 
+generatorOptions:
+  disableNameSuffixHash: true
+
 configMapGenerator:
 - name: atlas-migration-dir
   files:
