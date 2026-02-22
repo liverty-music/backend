@@ -162,26 +162,32 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 			VAPIDPrivateKey: uc.vapidPrivate,
 			Subscriber:      uc.vapidContact,
 		})
+
+		// Always close the response body when present to prevent resource leaks.
+		// webpush-go may return both a non-nil resp and an error for non-2xx status codes.
+		if resp != nil {
+			statusCode := resp.StatusCode
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				uc.logger.Error(ctx, "failed to close push notification response body", closeErr,
+					slog.String("user_id", sub.UserID),
+				)
+			}
+
+			// A 410 Gone response means the subscription is no longer valid.
+			if statusCode == http.StatusGone {
+				if delErr := uc.pushSubRepo.DeleteByEndpoint(ctx, sub.Endpoint); delErr != nil {
+					uc.logger.Error(ctx, "failed to delete stale push subscription", delErr,
+						slog.String("endpoint", sub.Endpoint),
+					)
+				}
+			}
+		}
+
 		if err != nil {
 			uc.logger.Error(ctx, "failed to send push notification", err,
 				slog.String("user_id", sub.UserID),
 				slog.String("artist_id", artist.ID),
 			)
-			continue
-		}
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			uc.logger.Error(ctx, "failed to close push notification response body", closeErr,
-				slog.String("user_id", sub.UserID),
-			)
-		}
-
-		// A 410 Gone response means the subscription is no longer valid.
-		if resp.StatusCode == http.StatusGone {
-			if delErr := uc.pushSubRepo.DeleteByEndpoint(ctx, sub.Endpoint); delErr != nil {
-				uc.logger.Error(ctx, "failed to delete stale push subscription", delErr,
-					slog.String("endpoint", sub.Endpoint),
-				)
-			}
 		}
 	}
 
