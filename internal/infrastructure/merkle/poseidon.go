@@ -7,13 +7,24 @@ import (
 	"github.com/iden3/go-iden3-crypto/poseidon"
 )
 
+// bn254Prime is the BN254 scalar field prime.
+// All Poseidon inputs must be reduced modulo this value.
+var bn254Prime, _ = new(big.Int).SetString(
+	"21888242871839275222246405745257275088548364400416034343698204186575808495617", 10,
+)
+
+// toFieldElement reduces a big.Int modulo the BN254 field prime.
+func toFieldElement(v *big.Int) *big.Int {
+	return new(big.Int).Mod(v, bn254Prime)
+}
+
 // PoseidonHash computes the Poseidon hash of two field elements.
 // This is compatible with circomlib's Poseidon implementation used in the
 // TicketCheck circuit, ensuring the backend-built Merkle tree matches
 // the circuit's expectations.
 func PoseidonHash(left, right []byte) ([]byte, error) {
-	l := new(big.Int).SetBytes(left)
-	r := new(big.Int).SetBytes(right)
+	l := toFieldElement(new(big.Int).SetBytes(left))
+	r := toFieldElement(new(big.Int).SetBytes(right))
 
 	result, err := poseidon.Hash([]*big.Int{l, r})
 	if err != nil {
@@ -29,9 +40,11 @@ func PoseidonHash(left, right []byte) ([]byte, error) {
 
 // IdentityCommitment computes the Poseidon hash of a user ID (as bytes).
 // This serves as the leaf value in the Merkle tree.
-// Format: Poseidon(userIDAsFieldElement)
+// The input is reduced modulo the BN254 field prime to ensure it fits
+// within the field, since UUIDs (36 bytes) exceed the ~254-bit prime.
+// Format: Poseidon(userID mod p)
 func IdentityCommitment(userIDBytes []byte) ([]byte, error) {
-	input := new(big.Int).SetBytes(userIDBytes)
+	input := toFieldElement(new(big.Int).SetBytes(userIDBytes))
 
 	result, err := poseidon.Hash([]*big.Int{input})
 	if err != nil {
