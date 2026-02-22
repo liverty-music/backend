@@ -111,6 +111,24 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 		return nil, apperr.Wrap(err, codes.InvalidArgument, "failed to extract nullifier hash from public signals")
 	}
 
+	// Extract and validate the Merkle root from public signals.
+	merkleRoot, err := extractMerkleRoot(params.PublicSignalsJSON)
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.InvalidArgument, "failed to extract merkle root from public signals")
+	}
+
+	expectedRoot, err := uc.eventRepo.GetMerkleRoot(ctx, params.EventID)
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "failed to get expected merkle root")
+	}
+
+	if !bytesEqual(merkleRoot, expectedRoot) {
+		return &VerifyEntryResult{
+			Verified: false,
+			Message:  "merkle root mismatch: proof does not match event membership set",
+		}, nil
+	}
+
 	// Check for duplicate nullifier before expensive ZKP verification.
 	exists, err := uc.nullifiers.Exists(ctx, params.EventID, nullifierHash)
 	if err != nil {
@@ -181,6 +199,43 @@ func extractNullifierHash(publicSignalsJSON string) ([]byte, error) {
 	b := n.Bytes()
 	copy(buf[32-len(b):], b)
 	return buf, nil
+}
+
+// extractMerkleRoot extracts the Merkle root from the public signals JSON.
+// Expected format: ["<merkleRoot>", "<nullifierHash>"]
+func extractMerkleRoot(publicSignalsJSON string) ([]byte, error) {
+	var signals []string
+	if err := json.Unmarshal([]byte(publicSignalsJSON), &signals); err != nil {
+		return nil, fmt.Errorf("unmarshal public signals: %w", err)
+	}
+
+	if len(signals) < 2 {
+		return nil, fmt.Errorf("expected at least 2 public signals, got %d", len(signals))
+	}
+
+	// First signal is the Merkle root.
+	n := new(big.Int)
+	if _, ok := n.SetString(signals[0], 10); !ok {
+		return nil, fmt.Errorf("invalid merkle root: %s", signals[0])
+	}
+
+	buf := make([]byte, 32)
+	b := n.Bytes()
+	copy(buf[32-len(b):], b)
+	return buf, nil
+}
+
+// bytesEqual compares two byte slices for equality.
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // GetMerklePath returns the Merkle path for a user at an event.
@@ -260,14 +315,10 @@ func (uc *entryUseCase) BuildMerkleTree(ctx context.Context, eventID string) err
 		return apperr.Wrap(err, codes.Internal, "failed to build merkle tree")
 	}
 
-	// Store all nodes in the database.
-	if err := uc.merkleTree.StoreBatch(ctx, eventID, nodes); err != nil {
-		return apperr.Wrap(err, codes.Internal, "failed to store merkle tree")
-	}
-
-	// Update the event's merkle root.
-	if err := uc.eventRepo.UpdateMerkleRoot(ctx, eventID, root); err != nil {
-		return apperr.Wrap(err, codes.Internal, "failed to update merkle root")
+	// Atomically store all nodes and update the Merkle root in a single
+	// transaction to prevent race conditions between concurrent builds.
+	if err := uc.merkleTree.StoreBatchWithRoot(ctx, eventID, nodes, root); err != nil {
+		return apperr.Wrap(err, codes.Internal, "failed to store merkle tree and root")
 	}
 
 	uc.logger.Info(ctx, "merkle tree built",
