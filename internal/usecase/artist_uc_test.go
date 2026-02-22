@@ -119,10 +119,10 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 			{ID: "id-b", Name: "Artist B", MBID: "mbid-b"},
 		}
 
-		searcher.EXPECT().ListTop(ctx, "JP").Return(fetched, nil).Once()
+		searcher.EXPECT().ListTop(ctx, "JP", "").Return(fetched, nil).Once()
 		repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
-		result, err := uc.ListTop(ctx, "JP")
+		result, err := uc.ListTop(ctx, "JP", "")
 
 		assert.NoError(t, err)
 		assert.Len(t, result, 2)
@@ -137,9 +137,9 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		siteResolver := mocks.NewMockOfficialSiteResolver(t)
 		uc := usecase.NewArtistUseCase(repo, searcher, idManager, siteResolver, cache.NewMemoryCache(1*time.Hour), logger)
 
-		searcher.EXPECT().ListTop(ctx, "JP").Return(nil, apperr.ErrInternal).Once()
+		searcher.EXPECT().ListTop(ctx, "JP", "").Return(nil, apperr.ErrInternal).Once()
 
-		result, err := uc.ListTop(ctx, "JP")
+		result, err := uc.ListTop(ctx, "JP", "")
 
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 		assert.Nil(t, result)
@@ -156,15 +156,15 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 			{ID: "id-a", Name: "Artist A", MBID: "mbid-a"},
 		}
 
-		searcher.EXPECT().ListTop(ctx, "US").Return([]*entity.Artist{{Name: "Artist A", MBID: "mbid-a"}}, nil).Once()
+		searcher.EXPECT().ListTop(ctx, "US", "").Return([]*entity.Artist{{Name: "Artist A", MBID: "mbid-a"}}, nil).Once()
 		repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		// First call — cache miss
-		_, err := uc.ListTop(ctx, "US")
+		_, err := uc.ListTop(ctx, "US", "")
 		assert.NoError(t, err)
 
 		// Second call — cache hit (no additional mock calls expected)
-		result, err := uc.ListTop(ctx, "US")
+		result, err := uc.ListTop(ctx, "US", "")
 		assert.NoError(t, err)
 		assert.Len(t, result, 1)
 	})

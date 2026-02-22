@@ -160,10 +160,13 @@ func (c *client) ListSimilar(ctx context.Context, artist *entity.Artist) ([]*ent
 	return artists, nil
 }
 
-// ListTop identifies trending artists using Last.fm chart.gettopartists or geo.gettopartists methods.
-func (c *client) ListTop(ctx context.Context, country string) ([]*entity.Artist, error) {
+// ListTop identifies trending artists using Last.fm chart, geo, or tag methods.
+func (c *client) ListTop(ctx context.Context, country string, tag string) ([]*entity.Artist, error) {
 	params := url.Values{}
-	if country != "" {
+	if tag != "" {
+		params.Set("method", "tag.gettopartists")
+		params.Set("tag", tag)
+	} else if country != "" {
 		params.Set("method", "geo.gettopartists")
 		params.Set("country", country)
 	} else {

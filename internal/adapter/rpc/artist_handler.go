@@ -179,9 +179,10 @@ func (h *ArtistHandler) ListSimilar(ctx context.Context, req *connect.Request[rp
 	}), nil
 }
 
-// ListTop retrieves a collection of trending or popular artists, optionally filtered by country.
+// ListTop retrieves a collection of trending or popular artists, optionally filtered by country or genre tag.
 func (h *ArtistHandler) ListTop(ctx context.Context, req *connect.Request[rpc.ListTopRequest]) (*connect.Response[rpc.ListTopResponse], error) {
-	artists, err := h.artistUseCase.ListTop(ctx, req.Msg.GetCountry())
+	// NOTE: GetTag() requires regenerated proto code after the `tag` field is added to ListTopRequest.
+	artists, err := h.artistUseCase.ListTop(ctx, req.Msg.GetCountry(), req.Msg.GetTag())
 	if err != nil {
 		return nil, err
 	}
