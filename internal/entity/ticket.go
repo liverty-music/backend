@@ -75,6 +75,10 @@ type TicketRepository interface {
 	// ListByUser retrieves all tickets for a given user, ordered by mint time descending.
 	ListByUser(ctx context.Context, userID string) ([]*Ticket, error)
 
+	// ListByEvent retrieves all tickets for a given event, ordered by mint time ascending.
+	// Used for building the Merkle tree of ticket holders.
+	ListByEvent(ctx context.Context, eventID string) ([]*Ticket, error)
+
 	// EventExists returns true if an event with the given ID exists in the database.
 	// Used to validate the event before triggering an irreversible on-chain mint.
 	EventExists(ctx context.Context, eventID string) (bool, error)
