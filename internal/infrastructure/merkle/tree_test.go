@@ -1,6 +1,7 @@
 package merkle
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -122,4 +123,53 @@ func TestIdentityCommitment(t *testing.T) {
 	commitment3, err := IdentityCommitment([]byte("user-2"))
 	require.NoError(t, err)
 	assert.NotEqual(t, commitment1, commitment3)
+}
+
+func TestIdentityCommitment_UUID(t *testing.T) {
+	// A 36-byte UUID string exceeds the BN254 field prime (~254 bits).
+	// This test verifies that IdentityCommitment handles UUIDs correctly
+	// by reducing the input modulo the field prime.
+	uuid := []byte("550e8400-e29b-41d4-a716-446655440000") // 36 bytes
+	commitment, err := IdentityCommitment(uuid)
+	require.NoError(t, err)
+	assert.Len(t, commitment, 32)
+
+	// Same UUID should produce the same commitment.
+	commitment2, err := IdentityCommitment(uuid)
+	require.NoError(t, err)
+	assert.Equal(t, commitment, commitment2)
+
+	// Different UUID should produce a different commitment.
+	uuid2 := []byte("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+	commitment3, err := IdentityCommitment(uuid2)
+	require.NoError(t, err)
+	assert.NotEqual(t, commitment, commitment3)
+}
+
+func TestToFieldElement(t *testing.T) {
+	// Verify that values exceeding the BN254 prime are reduced.
+	large := new(big.Int).SetBytes([]byte("550e8400-e29b-41d4-a716-446655440000"))
+	reduced := toFieldElement(large)
+
+	// The reduced value must be less than the BN254 prime.
+	assert.True(t, reduced.Cmp(bn254Prime) < 0, "reduced value should be less than BN254 prime")
+
+	// A small value should remain unchanged.
+	small := big.NewInt(42)
+	assert.Equal(t, small, toFieldElement(small))
+}
+
+func TestPoseidonHash_LargeInputs(t *testing.T) {
+	// Inputs exceeding the BN254 field prime should be reduced and still work.
+	left := []byte("550e8400-e29b-41d4-a716-446655440000")  // 36 bytes
+	right := []byte("6ba7b810-9dad-11d1-80b4-00c04fd430c8") // 36 bytes
+
+	hash, err := PoseidonHash(left, right)
+	require.NoError(t, err)
+	assert.Len(t, hash, 32)
+
+	// Deterministic.
+	hash2, err := PoseidonHash(left, right)
+	require.NoError(t, err)
+	assert.Equal(t, hash, hash2)
 }
