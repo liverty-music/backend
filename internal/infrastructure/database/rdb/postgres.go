@@ -101,21 +101,24 @@ func (d *Database) Ping(ctx context.Context) error {
 
 // NewStdlibDB creates a *sql.DB using pgx/v5/stdlib with the same cloudsqlconn.Dialer
 // configuration as the main pool. This short-lived connection is used exclusively
-// for running goose migrations and should be closed by the caller after use.
-func NewStdlibDB(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*sql.DB, error) {
+// for running goose migrations. The returned cleanup function closes the database
+// connection and the underlying dialer (if any) and must be called by the caller.
+func NewStdlibDB(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*sql.DB, func(), error) {
 	connConfig, err := pgx.ParseConfig(cfg.Database.GetDSN())
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse pgx config for migrations: %w", err)
+		return nil, nil, fmt.Errorf("failed to parse pgx config for migrations: %w", err)
 	}
 
+	var dialer *cloudsqlconn.Dialer
 	if !cfg.IsLocal() {
 		d, err := cloudsqlconn.NewDialer(ctx,
 			cloudsqlconn.WithIAMAuthN(),
 			cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPSC()),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create cloud sql connector dialer for migrations: %w", err)
+			return nil, nil, fmt.Errorf("failed to create cloud sql connector dialer for migrations: %w", err)
 		}
+		dialer = d
 
 		connConfig.DialFunc = func(dialCtx context.Context, _ string, _ string) (net.Conn, error) {
 			return d.Dial(dialCtx, cfg.Database.InstanceConnectionName)
@@ -124,9 +127,16 @@ func NewStdlibDB(ctx context.Context, cfg *config.Config, logger *logging.Logger
 
 	db := stdlib.OpenDB(*connConfig)
 
-	if err := db.PingContext(ctx); err != nil {
+	cleanup := func() {
 		_ = db.Close()
-		return nil, fmt.Errorf("failed to ping database for migrations: %w", err)
+		if dialer != nil {
+			_ = dialer.Close()
+		}
+	}
+
+	if err := db.PingContext(ctx); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("failed to ping database for migrations: %w", err)
 	}
 
 	logger.Info(ctx, "Migration database connection established",
@@ -134,7 +144,7 @@ func NewStdlibDB(ctx context.Context, cfg *config.Config, logger *logging.Logger
 		slog.String("database", cfg.Database.Name),
 	)
 
-	return db, nil
+	return db, cleanup, nil
 }
 
 // Close closes the database connection.

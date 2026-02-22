@@ -23,11 +23,11 @@ var migrationFS embed.FS
 func RunMigrations(ctx context.Context, cfg *config.Config, logger *logging.Logger) error {
 	logger.Info(ctx, "Starting database migrations")
 
-	db, err := NewStdlibDB(ctx, cfg, logger)
+	db, cleanup, err := NewStdlibDB(ctx, cfg, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create migration database connection: %w", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer cleanup()
 
 	migrations, err := fs.Sub(migrationFS, "migrations/versions")
 	if err != nil {
