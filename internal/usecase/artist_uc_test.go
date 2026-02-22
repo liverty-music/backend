@@ -134,7 +134,8 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := usecase.NewArtistUseCase(repo, searcher, idManager, siteResolver, cache.NewMemoryCache(1*time.Hour), logger)
 
 		searcher.EXPECT().ListTop(ctx, "JP").Return(nil, apperr.ErrInternal).Once()
 
@@ -177,7 +178,8 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 		repo := mocks.NewMockArtistRepository(t)
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistUseCase(repo, searcher, idManager, cache.NewMemoryCache(1*time.Hour), logger)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := usecase.NewArtistUseCase(repo, searcher, idManager, siteResolver, cache.NewMemoryCache(1*time.Hour), logger)
 
 		repo.EXPECT().Get(ctx, "missing-id").Return(nil, apperr.ErrNotFound).Once()
 

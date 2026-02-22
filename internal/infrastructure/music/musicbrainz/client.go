@@ -46,6 +46,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -57,8 +58,9 @@ import (
 )
 
 const (
-	baseURL   = "https://musicbrainz.org/ws/2/artist/"
-	userAgent = "LivertyMusic/1.0.0 ( contact: pannpers@gmail.com )"
+	baseURL      = "https://musicbrainz.org/ws/2/artist/"
+	placeBaseURL = "https://musicbrainz.org/ws/2/place/"
+	userAgent    = "LivertyMusic/1.0.0 ( contact: pannpers@gmail.com )"
 	// MusicBrainz rate limit is 1 request per second.
 	rateLimitInterval = 1 * time.Second
 )
@@ -80,12 +82,28 @@ type urlResource struct {
 	Resource string `json:"resource"`
 }
 
+// Place represents a MusicBrainz place (venue) record.
+type Place struct {
+	// ID is the MusicBrainz Place identifier (MBID).
+	ID string
+	// Name is the canonical name of the place.
+	Name string
+}
+
+type placeSearchResponse struct {
+	Places []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"places"`
+}
+
 // client implements entity.ArtistIdentityManager and entity.OfficialSiteResolver
 // for specific MusicBrainz lookups.
 type client struct {
-	httpClient *http.Client
-	baseURL    string
-	throttler  *throttle.Throttler
+	httpClient   *http.Client
+	baseURL      string
+	placeBaseURL string
+	throttler    *throttle.Throttler
 }
 
 // NewClient creates a new MusicBrainz client instance.
@@ -96,9 +114,10 @@ func NewClient(httpClient *http.Client) *client {
 		}
 	}
 	return &client{
-		httpClient: httpClient,
-		baseURL:    baseURL,
-		throttler:  throttle.New(rateLimitInterval, 100), // Buffer up to 100 requests
+		httpClient:   httpClient,
+		baseURL:      baseURL,
+		placeBaseURL: placeBaseURL,
+		throttler:    throttle.New(rateLimitInterval, 100), // Buffer up to 100 requests
 	}
 }
 
@@ -201,6 +220,61 @@ func selectOfficialSiteURL(artistName string, relations []urlRelation) string {
 	return fallbackAny
 }
 
+// escapeLucenePhrase escapes characters that are special inside a Lucene
+// double-quoted phrase (backslash and double-quote).
+func escapeLucenePhrase(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+	return r.Replace(s)
+}
+
+// SearchPlace searches for a venue by name (and optionally admin area) using
+// the MusicBrainz place search endpoint. It returns the top match or
+// apperr.ErrNotFound if no results are returned.
+func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Place, error) {
+	// Wrap terms in double quotes to force Lucene phrase matching.
+	// Without quotes, names with spaces (e.g. "Zepp Nagoya") are tokenised into
+	// separate terms and the query is misinterpreted.
+	// Escape backslash and double-quote inside phrase to prevent Lucene injection.
+	lucene := fmt.Sprintf(`place:"%s"`, escapeLucenePhrase(name))
+	if adminArea != "" {
+		lucene += fmt.Sprintf(` AND area:"%s"`, escapeLucenePhrase(adminArea))
+	}
+	params := url.Values{}
+	params.Set("query", lucene)
+	params.Set("limit", "1")
+	params.Set("fmt", "json")
+	endpoint := fmt.Sprintf("%s?%s", c.placeBaseURL, params.Encode())
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.Internal, "failed to create musicbrainz place request")
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	var resp *http.Response
+	err = c.throttler.Do(ctx, func() error {
+		var err error
+		resp, err = c.httpClient.Do(req)
+		return err
+	})
+	if resp != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
+	if err := api.FromHTTP(err, resp, "musicbrainz place search failed"); err != nil {
+		return nil, err
+	}
+
+	var data placeSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, apperr.Wrap(err, codes.DataLoss, "failed to decode musicbrainz place response")
+	}
+	if len(data.Places) == 0 {
+		return nil, apperr.New(codes.NotFound, "no matching place found in musicbrainz")
+	}
+	p := data.Places[0]
+	return &Place{ID: p.ID, Name: p.Name}, nil
+}
+
 // Compile-time interface compliance checks.
 var (
 	_ entity.ArtistIdentityManager = (*client)(nil)
@@ -211,6 +285,12 @@ var (
 // primarily intended for tests to point the client at an httptest server.
 func (c *client) SetBaseURL(u string) {
 	c.baseURL = u
+}
+
+// SetPlaceBaseURL allows overriding the place search base URL used by the client.
+// This is primarily intended for tests to point the client at an httptest server.
+func (c *client) SetPlaceBaseURL(u string) {
+	c.placeBaseURL = u
 }
 
 // Close stops the background throttler goroutine and releases resources.

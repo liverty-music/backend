@@ -10,6 +10,8 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	googleMaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
+	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/telemetry"
@@ -18,10 +20,11 @@ import (
 
 // JobApp represents a lightweight application for batch jobs without an HTTP server.
 type JobApp struct {
-	ArtistRepo entity.ArtistRepository
-	ConcertUC  usecase.ConcertUseCase
-	Logger     *logging.Logger
-	closers    []io.Closer
+	ArtistRepo    entity.ArtistRepository
+	ConcertUC     usecase.ConcertUseCase
+	VenueEnrichUC usecase.VenueEnrichmentUseCase
+	Logger        *logging.Logger
+	closers       []io.Closer
 }
 
 // Shutdown closes all resources held by the job application.
@@ -93,10 +96,25 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	// Use Case
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, logger)
 
+	// Infrastructure - Venue enrichment place searchers
+	mbClient := musicbrainz.NewClient(nil)
+	mbSearcher := musicbrainz.NewPlaceSearcher(mbClient)
+
+	var searchers []usecase.VenueNamedSearcher
+	searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: mbSearcher, AssignToMBID: true})
+	if cfg.GoogleMapsAPIKey != "" {
+		gmClient := googleMaps.NewClient(cfg.GoogleMapsAPIKey, nil)
+		gmSearcher := googleMaps.NewPlaceSearcher(gmClient)
+		searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: gmSearcher, AssignToMBID: false})
+	}
+
+	venueEnrichUC := usecase.NewVenueEnrichmentUseCase(venueRepo, venueRepo, logger, searchers...)
+
 	return &JobApp{
-		ArtistRepo: artistRepo,
-		ConcertUC:  concertUC,
-		Logger:     logger,
-		closers:    []io.Closer{db, telemetryCloser},
+		ArtistRepo:    artistRepo,
+		ConcertUC:     concertUC,
+		VenueEnrichUC: venueEnrichUC,
+		Logger:        logger,
+		closers:       []io.Closer{db, telemetryCloser, mbClient},
 	}, nil
 }

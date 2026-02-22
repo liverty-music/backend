@@ -54,17 +54,28 @@ COMMENT ON COLUMN artist_official_site.id IS 'Unique identifier (UUIDv7)';
 COMMENT ON COLUMN artist_official_site.artist_id IS 'Reference to the artist (1:1 relationship)';
 COMMENT ON COLUMN artist_official_site.url IS 'Official artist website URL';
 
+-- Venue enrichment status enum
+CREATE TYPE venue_enrichment_status AS ENUM ('pending', 'enriched', 'failed');
+
 -- Venues table
 CREATE TABLE IF NOT EXISTS venues (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
-    name TEXT NOT NULL,
-    admin_area TEXT
+    name TEXT NOT NULL CHECK (name <> ''),
+    admin_area TEXT,
+    mbid TEXT,
+    google_place_id TEXT,
+    enrichment_status venue_enrichment_status NOT NULL DEFAULT 'pending',
+    raw_name TEXT NOT NULL
 );
 
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
 COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7)';
 COMMENT ON COLUMN venues.name IS 'Venue name as displayed to users';
 COMMENT ON COLUMN venues.admin_area IS 'Administrative area (prefecture, state, province) where the venue is located; NULL when not determinable with confidence';
+COMMENT ON COLUMN venues.mbid IS 'MusicBrainz Place ID (UUID format) for the canonical venue record; NULL until enriched';
+COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID for the canonical venue record; NULL until enriched';
+COMMENT ON COLUMN venues.enrichment_status IS 'Current state of the venue normalization pipeline: pending (default), enriched, or failed';
+COMMENT ON COLUMN venues.raw_name IS 'Original scraper-provided venue name before canonical renaming; backfilled from name on migration';
 
 -- Concerts table
 -- Events table
@@ -151,6 +162,15 @@ COMMENT ON INDEX idx_events_date IS 'Speeds up date-based event searches and cal
 
 CREATE INDEX IF NOT EXISTS idx_events_venue_id ON events(venue_id);
 COMMENT ON INDEX idx_events_venue_id IS 'Optimizes listing events by venue';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_venues_mbid ON venues (mbid) WHERE mbid IS NOT NULL;
+COMMENT ON INDEX idx_venues_mbid IS 'Ensures uniqueness of MusicBrainz Place ID across venue records';
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_venues_google_place_id ON venues (google_place_id) WHERE google_place_id IS NOT NULL;
+COMMENT ON INDEX idx_venues_google_place_id IS 'Ensures uniqueness of Google Maps Place ID across venue records';
+
+CREATE INDEX IF NOT EXISTS idx_venues_raw_name ON venues (raw_name);
+COMMENT ON INDEX idx_venues_raw_name IS 'Speeds up venue lookup by raw (pre-enrichment) name as fallback in GetByName';
 
 CREATE INDEX IF NOT EXISTS idx_user_artist_subscriptions_composite ON user_artist_subscriptions(user_id, artist_id);
 COMMENT ON INDEX idx_user_artist_subscriptions_composite IS 'Optimizes subscription check for a user-artist pair';

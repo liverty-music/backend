@@ -175,9 +175,11 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				continue
 			}
 			newVenue := &entity.Venue{
-				ID:        venueID,
-				Name:      s.ListedVenueName,
-				AdminArea: s.AdminArea,
+				ID:               venueID,
+				Name:             s.ListedVenueName,
+				AdminArea:        s.AdminArea,
+				EnrichmentStatus: entity.EnrichmentStatusPending,
+				RawName:          s.ListedVenueName,
 			}
 			if err := uc.venueRepo.Create(ctx, newVenue); err != nil {
 				if errors.Is(err, apperr.ErrAlreadyExists) {

@@ -21,6 +21,13 @@ type artistResponse struct {
 	Name string `json:"name"`
 }
 
+type placeSearchResponse struct {
+	Places []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"places"`
+}
+
 func TestClient_GetArtist(t *testing.T) {
 	type args struct {
 		mbid string
@@ -116,6 +123,111 @@ func TestClient_GetArtist(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.want.name, artist.Name)
 				assert.Equal(t, tt.want.mbid, artist.MBID)
+			}
+		})
+	}
+}
+
+func TestClient_SearchPlace(t *testing.T) {
+	tests := []struct {
+		name         string
+		venueName    string
+		adminArea    string
+		statusCode   int
+		responseBody interface{}
+		wantErr      error
+		wantID       string
+		wantName     string
+		invalidJSON  bool
+	}{
+		{
+			name:       "success - returns top place match",
+			venueName:  "Zepp Nagoya",
+			adminArea:  "Aichi",
+			statusCode: http.StatusOK,
+			responseBody: placeSearchResponse{
+				Places: []struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				}{
+					{ID: "a2e6e2c0-dead-beef-abcd-000000000001", Name: "Zepp Nagoya"},
+				},
+			},
+			wantID:   "a2e6e2c0-dead-beef-abcd-000000000001",
+			wantName: "Zepp Nagoya",
+		},
+		{
+			name:       "success - no admin_area",
+			venueName:  "Nippon Budokan",
+			adminArea:  "",
+			statusCode: http.StatusOK,
+			responseBody: placeSearchResponse{
+				Places: []struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				}{
+					{ID: "bbbbbbbb-0000-0000-0000-000000000001", Name: "Nippon Budokan"},
+				},
+			},
+			wantID:   "bbbbbbbb-0000-0000-0000-000000000001",
+			wantName: "Nippon Budokan",
+		},
+		{
+			name:         "not found - empty places list",
+			venueName:    "Unknown Venue",
+			adminArea:    "",
+			statusCode:   http.StatusOK,
+			responseBody: placeSearchResponse{},
+			wantErr:      apperr.New(codes.NotFound, "no matching place found in musicbrainz"),
+		},
+		{
+			name:       "error - service unavailable",
+			venueName:  "Test Venue",
+			adminArea:  "",
+			statusCode: http.StatusServiceUnavailable,
+			wantErr:    apperr.New(codes.ResourceExhausted, "musicbrainz place search failed"),
+		},
+		{
+			name:        "error - invalid JSON",
+			venueName:   "Test Venue",
+			adminArea:   "",
+			statusCode:  http.StatusOK,
+			invalidJSON: true,
+			wantErr:     apperr.New(codes.DataLoss, "failed to decode musicbrainz place response"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Contains(t, r.Header.Get("User-Agent"), "LivertyMusic")
+				assert.Equal(t, "json", r.URL.Query().Get("fmt"))
+
+				w.WriteHeader(tt.statusCode)
+				w.Header().Set("Content-Type", "application/json")
+
+				if tt.invalidJSON {
+					_, _ = w.Write([]byte("invalid json{"))
+				} else if tt.responseBody != nil {
+					_ = json.NewEncoder(w).Encode(tt.responseBody)
+				}
+			}))
+			defer server.Close()
+
+			client := musicbrainz.NewClient(server.Client())
+			client.SetPlaceBaseURL(server.URL + "/")
+
+			place, err := client.SearchPlace(context.Background(), tt.venueName, tt.adminArea)
+
+			if tt.wantErr != nil {
+				assert.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, place)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, place)
+				assert.Equal(t, tt.wantID, place.ID)
+				assert.Equal(t, tt.wantName, place.Name)
 			}
 		})
 	}

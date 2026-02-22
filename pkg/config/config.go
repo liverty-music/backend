@@ -116,6 +116,9 @@ type Config struct {
 	// LastFM API Key
 	LastFMAPIKey string `envconfig:"LASTFM_API_KEY"`
 
+	// Google Maps API Key
+	GoogleMapsAPIKey string `envconfig:"GOOGLE_MAPS_API_KEY"`
+
 	// Shutdown timeout in seconds
 	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"30s"`
 }

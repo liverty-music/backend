@@ -4,12 +4,11 @@ services:
   postgres:
     image: postgres:18
     container_name: postgres
+    network_mode: host
     environment:
       POSTGRES_USER: test-user
       POSTGRES_DB: test-db
       POSTGRES_HOST_AUTH_METHOD: trust
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
