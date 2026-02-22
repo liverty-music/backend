@@ -90,12 +90,12 @@ type ArtistUseCase interface {
 	//   - Internal: service failure.
 	ListSimilar(ctx context.Context, artistID string) ([]*entity.Artist, error)
 
-	// ListTop identifies trending or highly-rated artists, optionally filtered by country.
+	// ListTop identifies trending or highly-rated artists, optionally filtered by country or genre tag.
 	//
 	// # Possible errors:
 	//
 	//   - Unavailable: external chart service failure.
-	ListTop(ctx context.Context, country string) ([]*entity.Artist, error)
+	ListTop(ctx context.Context, country string, tag string) ([]*entity.Artist, error)
 }
 
 // artistUseCase implements the ArtistUseCase interface.
@@ -371,9 +371,9 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string) ([]*e
 // ListTop retrieves popular artists.
 // Results are cached to reduce external API calls.
 // Fetched artists are auto-persisted to ensure valid database IDs.
-func (uc *artistUseCase) ListTop(ctx context.Context, country string) ([]*entity.Artist, error) {
+func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string) ([]*entity.Artist, error) {
 	// Check cache first
-	cacheKey := fmt.Sprintf("top:%s", country)
+	cacheKey := fmt.Sprintf("top:%s:%s", country, tag)
 	if cached := uc.cache.Get(cacheKey); cached != nil {
 		if artists, ok := cached.([]*entity.Artist); ok {
 			return artists, nil
@@ -381,7 +381,7 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string) ([]*entity
 	}
 
 	// Cache miss - fetch from external API
-	artists, err := uc.artistSearcher.ListTop(ctx, country)
+	artists, err := uc.artistSearcher.ListTop(ctx, country, tag)
 	if err != nil {
 		return nil, err
 	}

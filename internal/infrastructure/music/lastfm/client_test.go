@@ -259,18 +259,20 @@ func TestClient_ListSimilar(t *testing.T) {
 func TestClient_ListTop(t *testing.T) {
 	type args struct {
 		country string
+		tag     string
 	}
 	type want struct {
 		len          int
 		expectedName string
 	}
 	tests := []struct {
-		name         string
-		args         args
-		statusCode   int
-		responseBody interface{}
-		wantErr      error
-		want         want
+		name           string
+		args           args
+		statusCode     int
+		responseBody   interface{}
+		wantErr        error
+		want           want
+		expectedMethod string
 	}{
 		{
 			name:       "success - returns top artists by country",
@@ -285,6 +287,21 @@ func TestClient_ListTop(t *testing.T) {
 				len:          2,
 				expectedName: "Top Artist JP 1",
 			},
+			expectedMethod: "geo.gettopartists",
+		},
+		{
+			name:       "success - returns top artists by tag",
+			args:       args{country: "JP", tag: "rock"},
+			statusCode: http.StatusOK,
+			responseBody: newTopArtistsResponse([]artist{
+				{Name: "Rock Artist 1", MBID: "rock-1"},
+			}),
+			wantErr: nil,
+			want: want{
+				len:          1,
+				expectedName: "Rock Artist 1",
+			},
+			expectedMethod: "tag.gettopartists",
 		},
 		{
 			name:       "success - returns global top artists when no country",
@@ -298,23 +315,27 @@ func TestClient_ListTop(t *testing.T) {
 				len:          1,
 				expectedName: "Global Top Artist",
 			},
+			expectedMethod: "chart.gettopartists",
 		},
 		{
-			name:       "error - server returns 500",
-			args:       args{country: "US"},
-			statusCode: http.StatusInternalServerError,
-			wantErr:    apperr.New(codes.Unavailable, "lastfm api returned non-ok status: 500"),
+			name:           "error - server returns 500",
+			args:           args{country: "US"},
+			statusCode:     http.StatusInternalServerError,
+			wantErr:        apperr.New(codes.Unavailable, "lastfm api returned non-ok status: 500"),
+			expectedMethod: "geo.gettopartists",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if tt.args.country != "" {
-					assert.Equal(t, "geo.gettopartists", r.URL.Query().Get("method"))
+				assert.Equal(t, tt.expectedMethod, r.URL.Query().Get("method"))
+				if tt.args.tag != "" {
+					assert.Equal(t, tt.args.tag, r.URL.Query().Get("tag"))
+					assert.Empty(t, r.URL.Query().Get("country"), "country must be absent when tag is provided")
+				} else if tt.args.country != "" {
 					assert.Equal(t, tt.args.country, r.URL.Query().Get("country"))
 				} else {
-					assert.Equal(t, "chart.gettopartists", r.URL.Query().Get("method"))
 					assert.Empty(t, r.URL.Query().Get("country"))
 				}
 
@@ -327,7 +348,7 @@ func TestClient_ListTop(t *testing.T) {
 			client := lastfm.NewClient("test-key", server.Client())
 			client.SetBaseURL(server.URL + "/")
 
-			artists, err := client.ListTop(context.Background(), tt.args.country)
+			artists, err := client.ListTop(context.Background(), tt.args.country, tt.args.tag)
 
 			if tt.wantErr != nil {
 				assert.Error(t, err)

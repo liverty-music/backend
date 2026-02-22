@@ -162,13 +162,13 @@ type ArtistSearcher interface {
 	//   - Unavailable: external service failure.
 	ListSimilar(ctx context.Context, artist *Artist) ([]*Artist, error)
 
-	// ListTop retrieves the most popular artists based on charts or geographic region.
+	// ListTop retrieves the most popular artists based on charts, geographic region, or genre tag.
 	//
 	// # Possible errors:
 	//
 	//   - InvalidArgument: the provided country code is invalid.
 	//   - Unavailable: external service failure.
-	ListTop(ctx context.Context, country string) ([]*Artist, error)
+	ListTop(ctx context.Context, country string, tag string) ([]*Artist, error)
 }
 
 // ArtistIdentityManager handles canonical identity resolution for artists.
