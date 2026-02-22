@@ -7,7 +7,7 @@ metadata:
 spec:
   credentials:
     scheme: postgres
-    host: "6ea7e9f2efe1.3saucev2x125n.asia-northeast2.sql.goog"
+    host: REPLACE_BY_OVERLAY
     port: 5432
     user: postgres
     passwordFrom:
