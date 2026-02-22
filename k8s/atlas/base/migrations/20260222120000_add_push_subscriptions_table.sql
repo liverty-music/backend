@@ -1,4 +1,3 @@
--- +goose Up
 CREATE TABLE IF NOT EXISTS push_subscriptions (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

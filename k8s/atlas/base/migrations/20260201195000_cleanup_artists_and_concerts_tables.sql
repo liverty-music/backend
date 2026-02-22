@@ -1,4 +1,3 @@
--- +goose Up
 -- Remove unused columns from artists table
 ALTER TABLE artists DROP COLUMN IF EXISTS spotify_id;
 ALTER TABLE artists DROP COLUMN IF EXISTS musicbrainz_id;
