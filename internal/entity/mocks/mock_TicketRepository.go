@@ -257,6 +257,65 @@ func (_c *MockTicketRepository_GetByEventAndUser_Call) RunAndReturn(run func(con
 	return _c
 }
 
+// ListByEvent provides a mock function with given fields: ctx, eventID
+func (_m *MockTicketRepository) ListByEvent(ctx context.Context, eventID string) ([]*entity.Ticket, error) {
+	ret := _m.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByEvent")
+	}
+
+	var r0 []*entity.Ticket
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Ticket, error)); ok {
+		return rf(ctx, eventID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Ticket); ok {
+		r0 = rf(ctx, eventID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Ticket)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, eventID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockTicketRepository_ListByEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByEvent'
+type MockTicketRepository_ListByEvent_Call struct {
+	*mock.Call
+}
+
+// ListByEvent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockTicketRepository_Expecter) ListByEvent(ctx interface{}, eventID interface{}) *MockTicketRepository_ListByEvent_Call {
+	return &MockTicketRepository_ListByEvent_Call{Call: _e.mock.On("ListByEvent", ctx, eventID)}
+}
+
+func (_c *MockTicketRepository_ListByEvent_Call) Run(run func(ctx context.Context, eventID string)) *MockTicketRepository_ListByEvent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockTicketRepository_ListByEvent_Call) Return(_a0 []*entity.Ticket, _a1 error) *MockTicketRepository_ListByEvent_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockTicketRepository_ListByEvent_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Ticket, error)) *MockTicketRepository_ListByEvent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByUser provides a mock function with given fields: ctx, userID
 func (_m *MockTicketRepository) ListByUser(ctx context.Context, userID string) ([]*entity.Ticket, error) {
 	ret := _m.Called(ctx, userID)

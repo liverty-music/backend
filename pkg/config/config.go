@@ -116,6 +116,9 @@ type Config struct {
 	// VAPID configuration for Web Push notifications
 	VAPID VAPIDConfig `envconfig:""`
 
+	// ZKP configuration
+	ZKP ZKPConfig `envconfig:""`
+
 	// Environment
 	Environment string `envconfig:"ENVIRONMENT" default:"local"`
 
@@ -249,7 +252,14 @@ type VAPIDConfig struct {
 	PrivateKey string `envconfig:"VAPID_PRIVATE_KEY"`
 
 	// Contact is the mailto: URI sent to push services for administrative contact.
-	Contact string `envconfig:"VAPID_CONTACT" default:"mailto:admin@liverty-music.com"`
+	Contact string `envconfig:"VAPID_CONTACT" default:"mailto:admin@liverty-music.app"`
+}
+
+// ZKPConfig holds configuration for zero-knowledge proof verification.
+type ZKPConfig struct {
+	// VerificationKeyPath is the file path to the snarkjs verification_key.json.
+	// When empty, ZKP-based entry verification is disabled.
+	VerificationKeyPath string `envconfig:"ZKP_VERIFICATION_KEY_PATH"`
 }
 
 // JWTConfig represents JWT authentication configuration.
