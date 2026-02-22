@@ -17,7 +17,7 @@ spec:
     database: liverty-music
     parameters:
       search_path: app,public
-      sslmode: disable
+      sslmode: require
   dir:
     configMapRef:
       name: atlas-migration-dir
