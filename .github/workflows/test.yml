@@ -143,7 +143,9 @@ jobs:
 
       - name: Install Solidity dependencies
         working-directory: contracts
-        run: forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts --no-commit
+        run: |
+          git clone --depth 1 https://github.com/foundry-rs/forge-std.git lib/forge-std
+          git clone --depth 1 --branch v5.5.0 https://github.com/OpenZeppelin/openzeppelin-contracts.git lib/openzeppelin-contracts
 
       - name: Run Forge tests
         working-directory: contracts
