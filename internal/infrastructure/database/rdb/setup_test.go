@@ -72,6 +72,8 @@ func cleanDatabase() {
 func cleanTables(db *rdb.Database) {
 	ctx := context.Background()
 	tables := []string{
+		"nullifiers",
+		"merkle_tree",
 		"tickets",
 		"latest_search_logs",
 		"followed_artists",

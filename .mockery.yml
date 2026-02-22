@@ -9,6 +9,7 @@ packages:
       ConcertUseCase:
       UserUseCase:
       TicketUseCase:
+      EntryUseCase:
       PushNotificationUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:

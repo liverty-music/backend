@@ -268,6 +268,37 @@ func TestOwnerOf_NonexistentToken(t *testing.T) {
 	assert.Contains(t, err.Error(), "ownerOf failed")
 }
 
+func TestMint_AllRetriesFail(t *testing.T) {
+	t.Parallel()
+
+	// The Mint() method calls contract.Mint() which internally makes several
+	// RPC calls (eth_getBlockByNumber, eth_estimateGas, etc.) before reaching
+	// eth_sendRawTransaction. We make ALL RPC calls (except eth_chainId needed
+	// for client creation) fail, so that contract.Mint() returns an error on
+	// every attempt, exercising the retry + error wrapping logic.
+	attemptCount := 0
+	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (interface{}, *jsonRPCError) {
+		switch method {
+		case "eth_chainId":
+			return fmt.Sprintf("0x%x", testChainID), nil
+		default:
+			attemptCount++
+			return nil, &jsonRPCError{Code: -32000, Message: "node unavailable"}
+		}
+	})
+	defer srv.Close()
+
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	_, err = client.Mint(context.Background(), "0xaAbBcCdDeEfF0011223344556677889900aAbBcC", 42)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mint failed after 3 attempts")
+	// Each attempt makes at least 1 RPC call before failing.
+	assert.GreaterOrEqual(t, attemptCount, 3, "should have made at least 3 RPC calls across retries")
+}
+
 func TestMint_ContextCancelled(t *testing.T) {
 	t.Parallel()
 
