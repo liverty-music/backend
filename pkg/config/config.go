@@ -174,7 +174,7 @@ type DatabaseConfig struct {
 	SSLMode string `envconfig:"DATABASE_SSL_MODE" default:"disable"`
 
 	// Database schema (sets search_path in DSN)
-	Schema string `envconfig:"DATABASE_SCHEMA" default:"public"`
+	Schema string `envconfig:"DATABASE_SCHEMA" default:"app"`
 
 	// Connection pool settings
 	MaxOpenConns    int `envconfig:"DATABASE_MAX_OPEN_CONNS" default:"25"`
