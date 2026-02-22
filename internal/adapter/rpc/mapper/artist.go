@@ -43,8 +43,8 @@ var passionLevelToProto = map[entity.PassionLevel]entityv1.PassionLevel{
 
 // PassionLevelFromProto maps a Protobuf PassionLevel enum to its domain value.
 var PassionLevelFromProto = map[entityv1.PassionLevel]entity.PassionLevel{
-	entityv1.PassionLevel_PASSION_LEVEL_MUST_GO:    entity.PassionLevelMustGo,
-	entityv1.PassionLevel_PASSION_LEVEL_LOCAL_ONLY: entity.PassionLevelLocalOnly,
+	entityv1.PassionLevel_PASSION_LEVEL_MUST_GO:     entity.PassionLevelMustGo,
+	entityv1.PassionLevel_PASSION_LEVEL_LOCAL_ONLY:  entity.PassionLevelLocalOnly,
 	entityv1.PassionLevel_PASSION_LEVEL_KEEP_AN_EYE: entity.PassionLevelKeepAnEye,
 }
 
