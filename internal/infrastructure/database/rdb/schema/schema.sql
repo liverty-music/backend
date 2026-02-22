@@ -2,6 +2,9 @@
 -- This schema follows Clean Architecture principles by separating
 -- user management, artist discovery, and concert notifications.
 
+CREATE SCHEMA IF NOT EXISTS app;
+SET search_path TO app, public;
+
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -223,7 +226,7 @@ COMMENT ON COLUMN nullifiers.nullifier_hash IS 'The nullifier hash from the ZK p
 
 -- Push subscriptions table
 CREATE TABLE IF NOT EXISTS push_subscriptions (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     endpoint TEXT NOT NULL UNIQUE,
     p256dh TEXT NOT NULL,

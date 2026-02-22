@@ -1,4 +1,4 @@
-h1:7laHC+m35k0k6keC844PBj2lrPTFGbt2ltUqy/veXWo=
+h1:K/AjzrodkKqX+EJIX448xNlR/yqT9s0NJS5yNlOMhcc=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -24,4 +24,4 @@ h1:7laHC+m35k0k6keC844PBj2lrPTFGbt2ltUqy/veXWo=
 20260221140000_add_check_constraints_non_empty_names.sql h1:plupue/Hyyn1zr3XIer/eMNZOQrXImbK7IadpB/wL2g=
 20260221150000_add_not_null_to_venues_raw_name.sql h1:BuWwP0BiKNSSQNGH9cuKTsj2c3KLimCRTtCx/nOfeYU=
 20260221160000_fix_ticket_system_schema.sql h1:q+LlQS+N+7GCfmiAQY9z0lkKXNE/eqp9KWT3HF76nSg=
-20260222120000_add_push_subscriptions_table.sql h1:MQ5T0Mo5IdfBP9H0ja2upYSfs15WZKBx34uhABMreSw=
+20260222120000_add_push_subscriptions_table.sql h1:+0CMQt8dkAom1vuBc3AwR5TzRFM8dusfrqI5c2A8nJI=
