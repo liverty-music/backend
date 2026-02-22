@@ -45,6 +45,13 @@ const (
 		ORDER BY minted_at DESC
 	`
 
+	listTicketsByEventQuery = `
+		SELECT id, event_id, user_id, token_id, tx_hash, minted_at
+		FROM tickets
+		WHERE event_id = $1
+		ORDER BY minted_at ASC, id ASC
+	`
+
 	eventExistsQuery = `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)`
 )
 
@@ -140,6 +147,36 @@ func (r *TicketRepository) ListByUser(ctx context.Context, userID string) ([]*en
 
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "failed to iterate ticket rows", slog.String("user_id", userID))
+	}
+
+	return tickets, nil
+}
+
+// ListByEvent retrieves all tickets for a given event, ordered by mint time ascending.
+func (r *TicketRepository) ListByEvent(ctx context.Context, eventID string) ([]*entity.Ticket, error) {
+	if eventID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "event ID cannot be empty")
+	}
+
+	rows, err := r.db.Pool.Query(ctx, listTicketsByEventQuery, eventID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list tickets for event", slog.String("event_id", eventID))
+	}
+	defer rows.Close()
+
+	var tickets []*entity.Ticket
+	for rows.Next() {
+		ticket := &entity.Ticket{}
+		if err := rows.Scan(
+			&ticket.ID, &ticket.EventID, &ticket.UserID, &ticket.TokenID, &ticket.TxHash, &ticket.MintTime,
+		); err != nil {
+			return nil, toAppErr(err, "failed to scan ticket row", slog.String("event_id", eventID))
+		}
+		tickets = append(tickets, ticket)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to iterate ticket rows", slog.String("event_id", eventID))
 	}
 
 	return tickets, nil
