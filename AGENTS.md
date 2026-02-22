@@ -34,26 +34,39 @@ This project follows **Clean Architecture** principles.
 
 ## Development Workflows
 
-**CRITICAL: Read This First**
+### Database Migrations
 
-This repository uses specialized skills for common tasks. **You MUST load the appropriate skill BEFORE attempting these operations.**
+Database migrations are managed by **Atlas** with two distinct workflows:
 
-### Skill Routing Table
+#### Local Development
 
-| Task Category | Trigger Keywords | Skill to Load | How to Load |
-|--------------|------------------|---------------|-------------|
-| **Build/Deploy** | docker, image, deploy, deployment, CI/CD, GAR, push, container | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
-| **Database** | migrate, migration, schema, atlas, SQL, database operations, setup database, initialize database | `backend-workflow` | Use Skill tool: `skill: "backend-workflow"` |
+```bash
+# Generate a new migration from schema changes
+atlas migrate diff --env local <migration_name>
 
-**Skill Path**: `.agent/skills/backend-workflow/SKILL.md`
+# Apply migrations locally
+atlas migrate apply --env local
 
-### When to Load Skills
+# Validate migration integrity
+atlas migrate validate --env local
+```
 
-**Before executing ANY command related to the above categories, you MUST:**
-1. Load the `backend-workflow` skill using the Skill tool
-2. Read the relevant section
-3. Follow the documented workflow
-4. Do NOT attempt manual commands without consulting the skill first
+Migration files live in `k8s/atlas/base/migrations/`. The desired-state schema is at `internal/infrastructure/database/rdb/schema/schema.sql`.
+
+#### Production (GKE)
+
+Production migrations are handled by the **Atlas Kubernetes Operator** — the backend application does NOT run migrations at startup.
+
+- **AtlasMigration CRD** + **ConfigMap** are defined in `k8s/atlas/base/`
+- ArgoCD syncs from `k8s/atlas/overlays/<env>` via a dedicated `backend-migrations` Application
+- The operator connects to Cloud SQL as the `postgres` user (password from K8s Secret synced by ESO)
+- All tables reside in the `app` schema (`search_path=app`)
+- Sync wave ordering ensures migrations complete before the backend Deployment starts
+
+When adding a new migration:
+1. Create the migration file with `atlas migrate diff --env local`
+2. Add the new file to `k8s/atlas/base/kustomization.yaml` under `configMapGenerator.files`
+3. Both changes go in the same PR
 
 ### Protobuf Code Generation
 
@@ -63,14 +76,6 @@ Local Protobuf code generation is FORBIDDEN. To generate/update Go code from sch
 2.  **GitHub Release**: Once merged to `main`, create a GitHub Release in the `specification` repository.
 3.  **Remote Generation**: This triggers the BSR (Buf Schema Registry) remote generation.
 4.  **Local Consumption**: The `backend` repo consumes these types via `buf.build/gen/go/...`. You may need to run `go get -u` or similar if your local environment doesn't pick up the latest BSR build immediately.
-
-> [!IMPORTANT]
-> **Common User Questions Require Skill Loading:**
-> - "Build the image" → Load `backend-workflow` skill
-> - "Deploy changes" → Load `backend-workflow` skill
-> - "Run migrations" → Load `backend-workflow` skill
->
-> **For standard Go commands (run, test, lint):** Refer to README.md Development Commands section
 
 ### Integration Tests
 
