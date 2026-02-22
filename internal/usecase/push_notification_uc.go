@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/liverty-music/backend/internal/entity"
@@ -138,8 +139,17 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 		return fmt.Errorf("failed to marshal push notification payload: %w", err)
 	}
 
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
 	// 4. Send a notification to each subscription.
 	for _, sub := range subs {
+		// Honour context cancellation before each outbound request.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		resp, err := webpush.SendNotification(payloadBytes, &webpush.Subscription{
 			Endpoint: sub.Endpoint,
 			Keys: webpush.Keys{
@@ -147,6 +157,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 				Auth:   sub.Auth,
 			},
 		}, &webpush.Options{
+			HTTPClient:      httpClient,
 			VAPIDPublicKey:  uc.vapidPublicKey,
 			VAPIDPrivateKey: uc.vapidPrivate,
 			Subscriber:      uc.vapidContact,
