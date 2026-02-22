@@ -10,18 +10,12 @@ DO $$
 DECLARE
   iam_role TEXT;
 BEGIN
-  -- Find the IAM SA role (Cloud SQL creates it as SA_NAME@PROJECT.iam)
-  SELECT rolname INTO iam_role
-    FROM pg_roles
-   WHERE rolname LIKE '%@%.iam';
-
-  IF iam_role IS NULL THEN
-    RAISE NOTICE 'No IAM SA role found, skipping grants';
-    RETURN;
-  END IF;
-
-  EXECUTE format('GRANT USAGE, CREATE ON SCHEMA app TO %I', iam_role);
-  EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT ALL ON TABLES TO %I', iam_role);
-  EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT ALL ON SEQUENCES TO %I', iam_role);
+  -- Grant schema-level permissions to all IAM SA roles.
+  -- Cloud SQL creates them as SA_NAME@PROJECT.iam
+  FOR iam_role IN SELECT rolname FROM pg_roles WHERE rolname LIKE '%@%.iam' LOOP
+    EXECUTE format('GRANT USAGE, CREATE ON SCHEMA app TO %I', iam_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT ALL ON TABLES TO %I', iam_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT ALL ON SEQUENCES TO %I', iam_role);
+  END LOOP;
 END
 $$;
