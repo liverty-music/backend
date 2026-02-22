@@ -2,6 +2,7 @@ package di
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
@@ -62,6 +64,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	searchLogRepo := rdb.NewSearchLogRepository(db)
+	ticketRepo := rdb.NewTicketRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -99,10 +102,35 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		}
 	}()
 
+	// Infrastructure - Blockchain (optional; skipped when config is absent)
+	var ticketUC usecase.TicketUseCase
+	var sbtCloser io.Closer
+	if cfg.Blockchain.RPCURL != "" && cfg.Blockchain.DeployerPrivateKey != "" && cfg.Blockchain.TicketSBTAddress != "" {
+		sbtClient, err := ticketsbt.NewClient(
+			ctx,
+			cfg.Blockchain.RPCURL,
+			cfg.Blockchain.DeployerPrivateKey,
+			cfg.Blockchain.TicketSBTAddress,
+			cfg.Blockchain.ChainID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		sbtCloser = sbtClient
+		ticketUC = usecase.NewTicketUseCase(ticketRepo, sbtClient, logger)
+	} else {
+		logger.Warn(ctx, "⚠️  Blockchain config absent, ticket minting is disabled")
+		_ = ticketRepo // referenced when blockchain is enabled; suppress unused warning
+	}
+
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, musicbrainzClient, artistCache, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, logger)
+	// TODO: Register ticketUC in the handlers slice once the BSR module is bumped
+	// with ticket/v1 proto types (blocked on specification PR #53 merge).
+	// See ticket_handler.go (currently excluded via //go:build ignore).
+	_ = ticketUC
 
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
@@ -112,6 +140,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply additional accepted issuers for multi-provider support (Option C migration).
+	if len(cfg.JWT.AcceptedIssuers) > 0 {
+		all := append([]string{cfg.JWT.Issuer}, cfg.JWT.AcceptedIssuers...)
+		jwtValidator = jwtValidator.WithAcceptedIssuers(all)
 	}
 
 	authFunc := auth.NewAuthFunc(jwtValidator)
@@ -148,7 +182,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	srv := server.NewConnectServer(cfg, logger, db, authFunc, healthHandler, handlers...)
 
-	return newApp(srv, db, telemetryCloser, lastfmClient, musicbrainzClient), nil
+	closers := []io.Closer{db, telemetryCloser, lastfmClient, musicbrainzClient}
+	if sbtCloser != nil {
+		closers = append(closers, sbtCloser)
+	}
+
+	return newApp(srv, closers...), nil
 }
 
 func provideLogger(cfg *config.Config) (*logging.Logger, error) {

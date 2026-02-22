@@ -110,6 +110,9 @@ type Config struct {
 	// JWT configuration
 	JWT JWTConfig `envconfig:""`
 
+	// Blockchain configuration
+	Blockchain BlockchainConfig `envconfig:""`
+
 	// Environment
 	Environment string `envconfig:"ENVIRONMENT" default:"local"`
 
@@ -217,10 +220,33 @@ type GCPConfig struct {
 	VertexAISearchDataStore string `envconfig:"GCP_VERTEX_AI_SEARCH_DATA_STORE"`
 }
 
+// BlockchainConfig holds configuration for EVM interactions and the TicketSBT contract.
+type BlockchainConfig struct {
+	// RPCURL is the JSON-RPC endpoint URL for the target EVM chain.
+	RPCURL string `envconfig:"BASE_SEPOLIA_RPC_URL"`
+
+	// ChainID is the EIP-155 chain ID used for transaction signing.
+	// Examples: 84532 (Base Sepolia), 8453 (Base Mainnet).
+	ChainID int64 `envconfig:"CHAIN_ID" default:"84532"`
+
+	// DeployerPrivateKey is the hex-encoded private key of the backend service EOA
+	// that holds MINTER_ROLE on the TicketSBT contract.
+	DeployerPrivateKey string `envconfig:"TICKET_SBT_DEPLOYER_KEY"`
+
+	// TicketSBTAddress is the deployed TicketSBT contract address.
+	TicketSBTAddress string `envconfig:"TICKET_SBT_ADDRESS"`
+}
+
 // JWTConfig represents JWT authentication configuration.
 type JWTConfig struct {
 	// OIDC Issuer URL (e.g., https://your-zitadel-instance.com)
 	Issuer string `envconfig:"OIDC_ISSUER_URL" required:"true"`
+
+	// AcceptedIssuers is an optional comma-separated list of additional accepted JWT issuers.
+	// When set, tokens from any listed issuer are accepted in addition to Issuer.
+	// Use this during Option C migration to accept tokens from a second identity provider.
+	// If empty, only Issuer is accepted.
+	AcceptedIssuers []string `envconfig:"JWT_ACCEPTED_ISSUERS"`
 
 	// JWKS refresh interval for key rotation
 	JWKSRefreshInterval time.Duration `envconfig:"JWKS_REFRESH_INTERVAL" default:"15m"`
