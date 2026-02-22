@@ -8,7 +8,7 @@ SET search_path TO app, public;
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
-    external_id UUID UNIQUE NOT NULL,
+    external_id TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     preferred_language TEXT DEFAULT 'en',
