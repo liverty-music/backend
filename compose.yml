@@ -22,6 +22,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: server
     container_name: server
     env_file:
       - .env.test
