@@ -252,7 +252,7 @@ type VAPIDConfig struct {
 	PrivateKey string `envconfig:"VAPID_PRIVATE_KEY"`
 
 	// Contact is the mailto: URI sent to push services for administrative contact.
-	Contact string `envconfig:"VAPID_CONTACT" default:"mailto:admin@liverty-music.app"`
+	Contact string `envconfig:"VAPID_CONTACT" default:"mailto:pepperoni9@gmail.com"`
 }
 
 // ZKPConfig holds configuration for zero-knowledge proof verification.

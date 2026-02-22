@@ -71,7 +71,7 @@ func TestLoad(t *testing.T) {
 					ChainID: 84532,
 				},
 				VAPID: VAPIDConfig{
-					Contact: "mailto:admin@liverty-music.com",
+					Contact: "mailto:pepperoni9@gmail.com",
 				},
 			},
 			wantErr: nil,
@@ -143,7 +143,7 @@ func TestLoad(t *testing.T) {
 					ChainID: 84532,
 				},
 				VAPID: VAPIDConfig{
-					Contact: "mailto:admin@liverty-music.com",
+					Contact: "mailto:pepperoni9@gmail.com",
 				},
 			},
 			wantErr: nil,
