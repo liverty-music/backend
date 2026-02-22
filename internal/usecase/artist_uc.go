@@ -110,6 +110,7 @@ type ArtistUseCase interface {
 // artistUseCase implements the ArtistUseCase interface.
 type artistUseCase struct {
 	artistRepo     entity.ArtistRepository
+	userRepo       entity.UserRepository
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
 	siteResolver   entity.OfficialSiteResolver
@@ -123,6 +124,7 @@ var _ ArtistUseCase = (*artistUseCase)(nil)
 // NewArtistUseCase creates a new instance of the artist business logic handler.
 func NewArtistUseCase(
 	artistRepo entity.ArtistRepository,
+	userRepo entity.UserRepository,
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
 	siteResolver entity.OfficialSiteResolver,
@@ -131,6 +133,7 @@ func NewArtistUseCase(
 ) ArtistUseCase {
 	return &artistUseCase{
 		artistRepo:     artistRepo,
+		userRepo:       userRepo,
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
 		siteResolver:   siteResolver,
@@ -245,6 +248,15 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 	return artists, nil
 }
 
+// resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.
+func (uc *artistUseCase) resolveUserID(ctx context.Context, externalID string) (string, error) {
+	user, err := uc.userRepo.GetByExternalID(ctx, externalID)
+	if err != nil {
+		return "", fmt.Errorf("resolve user by external ID: %w", err)
+	}
+	return user.ID, nil
+}
+
 // Follow establishes a follow relationship between a user and an artist.
 // After the follow is persisted, it asynchronously resolves and stores the
 // artist's official site URL if one is not already recorded.
@@ -253,7 +265,12 @@ func (uc *artistUseCase) Follow(ctx context.Context, userID string, artistID str
 		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
 	}
 
-	err := uc.artistRepo.Follow(ctx, userID, artistID)
+	internalUserID, err := uc.resolveUserID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	err = uc.artistRepo.Follow(ctx, internalUserID, artistID)
 	if err != nil {
 		// Treat "already following" as success
 		if errors.Is(err, apperr.ErrAlreadyExists) {
@@ -262,7 +279,7 @@ func (uc *artistUseCase) Follow(ctx context.Context, userID string, artistID str
 		return apperr.Wrap(err, codes.Internal, "failed to establish follow relationship")
 	}
 
-	uc.logger.Info(ctx, "User followed artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
+	uc.logger.Info(ctx, "User followed artist", slog.String("user_id", internalUserID), slog.String("artist_id", artistID))
 
 	bgCtx := context.WithoutCancel(ctx)
 	go uc.resolveAndPersistOfficialSite(bgCtx, artistID)
@@ -324,12 +341,17 @@ func (uc *artistUseCase) Unfollow(ctx context.Context, userID, artistID string) 
 		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
 	}
 
-	err := uc.artistRepo.Unfollow(ctx, userID, artistID)
+	internalUserID, err := uc.resolveUserID(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	uc.logger.Info(ctx, "Artist unfollowed", slog.String("user_id", userID), slog.String("artist_id", artistID))
+	err = uc.artistRepo.Unfollow(ctx, internalUserID, artistID)
+	if err != nil {
+		return err
+	}
+
+	uc.logger.Info(ctx, "Artist unfollowed", slog.String("user_id", internalUserID), slog.String("artist_id", artistID))
 	return nil
 }
 
@@ -358,7 +380,12 @@ func (uc *artistUseCase) ListFollowed(ctx context.Context, userID string) ([]*en
 		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
 	}
 
-	return uc.artistRepo.ListFollowed(ctx, userID)
+	internalUserID, err := uc.resolveUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return uc.artistRepo.ListFollowed(ctx, internalUserID)
 }
 
 // ListSimilar retrieves artists similar to a specified artist.
