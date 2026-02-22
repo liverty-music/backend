@@ -113,6 +113,9 @@ type Config struct {
 	// Blockchain configuration
 	Blockchain BlockchainConfig `envconfig:""`
 
+	// VAPID configuration for Web Push notifications
+	VAPID VAPIDConfig `envconfig:""`
+
 	// Environment
 	Environment string `envconfig:"ENVIRONMENT" default:"local"`
 
@@ -235,6 +238,18 @@ type BlockchainConfig struct {
 
 	// TicketSBTAddress is the deployed TicketSBT contract address.
 	TicketSBTAddress string `envconfig:"TICKET_SBT_ADDRESS"`
+}
+
+// VAPIDConfig holds the Web Push VAPID key pair and contact information.
+type VAPIDConfig struct {
+	// PublicKey is the VAPID public key used by the browser to identify the push service.
+	PublicKey string `envconfig:"VAPID_PUBLIC_KEY"`
+
+	// PrivateKey is the VAPID private key used to sign push notification requests.
+	PrivateKey string `envconfig:"VAPID_PRIVATE_KEY"`
+
+	// Contact is the mailto: URI sent to push services for administrative contact.
+	Contact string `envconfig:"VAPID_CONTACT" default:"mailto:admin@liverty-music.com"`
 }
 
 // JWTConfig represents JWT authentication configuration.

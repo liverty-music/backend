@@ -9,6 +9,7 @@ import (
 
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
+	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
@@ -71,6 +72,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	venueRepo := rdb.NewVenueRepository(db)
 	searchLogRepo := rdb.NewSearchLogRepository(db)
 	ticketRepo := rdb.NewTicketRepository(db)
+	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -133,6 +135,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, musicbrainzClient, artistCache, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, logger)
+	pushNotificationUC := usecase.NewPushNotificationUseCase(
+		artistRepo,
+		pushSubRepo,
+		logger,
+		cfg.VAPID.PublicKey,
+		cfg.VAPID.PrivateKey,
+		cfg.VAPID.Contact,
+	)
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
 		cfg.JWT.Issuer,
@@ -176,6 +186,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return concertconnect.NewConcertServiceHandler(
 				rpc.NewConcertHandler(concertUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return pushconnect.NewPushNotificationServiceHandler(
+				rpc.NewPushNotificationHandler(pushNotificationUC, logger),
 				opts...,
 			)
 		},
