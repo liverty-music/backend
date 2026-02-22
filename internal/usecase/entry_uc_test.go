@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -14,6 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testEventID is a consistent UUID used across tests.
+const testEventID = "550e8400-e29b-41d4-a716-446655440000"
 
 // --- Inline mocks for entry-specific interfaces ---
 
@@ -98,8 +102,14 @@ func (s *stubEventRepo) GetTicketLeafIndex(_ context.Context, _, _ string) (int,
 
 // --- Helper to build public signals JSON ---
 
-func makePublicSignals(merkleRoot, nullifierHash *big.Int) string {
-	signals := []string{merkleRoot.String(), nullifierHash.String()}
+func makePublicSignals(merkleRoot, nullifierHash *big.Int, eventUUID string) string {
+	// Public signals order: [merkleRoot, eventId, nullifierHash]
+	// Convert UUID to field element the same way the frontend does:
+	// BigInt("0x" + uuid.replace(/-/g, ""))
+	hex := strings.ReplaceAll(eventUUID, "-", "")
+	eventID := new(big.Int)
+	eventID.SetString(hex, 16)
+	signals := []string{merkleRoot.String(), eventID.String(), nullifierHash.String()}
 	b, _ := json.Marshal(signals)
 	return string(b)
 }
@@ -196,9 +206,9 @@ func TestVerifyEntry_MerkleRootMismatch(t *testing.T) {
 		nil,
 	)
 
-	signals := makePublicSignals(proofRoot, big.NewInt(1))
+	signals := makePublicSignals(proofRoot, big.NewInt(1), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})
@@ -226,9 +236,9 @@ func TestVerifyEntry_DuplicateNullifier(t *testing.T) {
 		nil,
 	)
 
-	signals := makePublicSignals(root, big.NewInt(100))
+	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})
@@ -249,9 +259,9 @@ func TestVerifyEntry_ProofFails(t *testing.T) {
 
 	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
 
-	signals := makePublicSignals(root, big.NewInt(100))
+	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})
@@ -272,9 +282,9 @@ func TestVerifyEntry_Success(t *testing.T) {
 
 	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
 
-	signals := makePublicSignals(root, big.NewInt(100))
+	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})
@@ -301,9 +311,9 @@ func TestVerifyEntry_ConcurrentNullifierInsert(t *testing.T) {
 
 	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
 
-	signals := makePublicSignals(root, big.NewInt(100))
+	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})
@@ -311,6 +321,31 @@ func TestVerifyEntry_ConcurrentNullifierInsert(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.Verified)
 	assert.Contains(t, result.Message, "already checked in")
+}
+
+// --- EventID mismatch test ---
+
+func TestVerifyEntry_EventIDMismatch(t *testing.T) {
+	t.Parallel()
+
+	root := big.NewInt(42)
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+
+	uc := newTestEntryUC(&stubZKPVerifier{verified: true}, &stubNullifierRepo{}, nil, eventRepo, nil)
+
+	// Build signals with a different event UUID than the request.
+	differentEventID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	signals := makePublicSignals(root, big.NewInt(100), differentEventID)
+	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
+		EventID:           testEventID,
+		ProofJSON:         `{}`,
+		PublicSignalsJSON: signals,
+	})
+
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.Contains(t, err.Error(), "event ID mismatch")
 }
 
 // --- GetMerklePath tests ---
@@ -437,9 +472,9 @@ func TestVerifyEntry_GetMerkleRootError(t *testing.T) {
 
 	uc := newTestEntryUC(&stubZKPVerifier{}, &stubNullifierRepo{}, nil, eventRepo, nil)
 
-	signals := makePublicSignals(root, big.NewInt(100))
+	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})
@@ -457,9 +492,9 @@ func TestVerifyEntry_NullifierExistsError(t *testing.T) {
 
 	uc := newTestEntryUC(&stubZKPVerifier{}, nullifiers, nil, eventRepo, nil)
 
-	signals := makePublicSignals(root, big.NewInt(100))
+	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})
@@ -478,9 +513,9 @@ func TestVerifyEntry_VerifierError(t *testing.T) {
 
 	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
 
-	signals := makePublicSignals(root, big.NewInt(100))
+	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})
@@ -499,9 +534,9 @@ func TestVerifyEntry_InsertNullifierError(t *testing.T) {
 
 	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
 
-	signals := makePublicSignals(root, big.NewInt(100))
+	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})
@@ -515,12 +550,12 @@ func TestVerifyEntry_OversizedPublicSignal(t *testing.T) {
 
 	// A number exceeding 32 bytes should return an error, not panic.
 	huge := new(big.Int).Lsh(big.NewInt(1), 264) // 2^264 > 32 bytes
-	signals := makePublicSignals(huge, big.NewInt(1))
+	signals := makePublicSignals(huge, big.NewInt(1), testEventID)
 
 	uc := newTestEntryUC(&stubZKPVerifier{}, &stubNullifierRepo{}, nil, &stubEventRepo{}, nil)
 
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
-		EventID:           "event-1",
+		EventID:           testEventID,
 		ProofJSON:         `{}`,
 		PublicSignalsJSON: signals,
 	})

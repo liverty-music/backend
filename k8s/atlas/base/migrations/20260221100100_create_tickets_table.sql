@@ -1,4 +1,3 @@
--- +goose Up
 -- Create tickets table for Soulbound Ticket (ERC-5192) ownership records
 CREATE TABLE tickets (
     id UUID PRIMARY KEY DEFAULT uuidv7(),

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/merkle"
@@ -104,18 +105,23 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 		return nil, apperr.New(codes.InvalidArgument, "public_signals_json is required")
 	}
 
-	// Extract nullifier hash from public signals before verification.
-	// Public signals order: [merkleRoot, nullifierHash]
-	nullifierHash, err := extractNullifierHash(params.PublicSignalsJSON)
+	// Parse public signals once and extract all fields.
+	// Public signals order: [merkleRoot, eventId, nullifierHash]
+	signals, err := parsePublicSignals(params.PublicSignalsJSON)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "failed to extract nullifier hash from public signals")
+		return nil, apperr.Wrap(err, codes.InvalidArgument, "failed to parse public signals")
 	}
 
-	// Extract and validate the Merkle root from public signals.
-	merkleRoot, err := extractMerkleRoot(params.PublicSignalsJSON)
-	if err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "failed to extract merkle root from public signals")
+	// Verify that the eventId in the proof matches the request's EventID.
+	// This prevents an attacker from submitting a proof generated for a
+	// different event, which would produce a different nullifier and bypass
+	// double-entry protection.
+	if err := signals.verifyEventID(params.EventID); err != nil {
+		return nil, apperr.Wrap(err, codes.InvalidArgument, "event ID mismatch in public signals")
 	}
+
+	nullifierHash := signals.nullifierHash
+	merkleRoot := signals.merkleRoot
 
 	expectedRoot, err := uc.eventRepo.GetMerkleRoot(ctx, params.EventID)
 	if err != nil {
@@ -177,46 +183,71 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 	}, nil
 }
 
-// extractNullifierHash extracts the nullifier hash from the public signals JSON.
-// Expected format: ["<merkleRoot>", "<nullifierHash>"]
-func extractNullifierHash(publicSignalsJSON string) ([]byte, error) {
-	var signals []string
-	if err := json.Unmarshal([]byte(publicSignalsJSON), &signals); err != nil {
-		return nil, fmt.Errorf("unmarshal public signals: %w", err)
-	}
-
-	if len(signals) < 2 {
-		return nil, fmt.Errorf("expected at least 2 public signals, got %d", len(signals))
-	}
-
-	// Second signal is the nullifier hash.
-	n := new(big.Int)
-	if _, ok := n.SetString(signals[1], 10); !ok {
-		return nil, fmt.Errorf("invalid nullifier hash: %s", signals[1])
-	}
-
-	return bigIntToBytes32(n, "nullifier hash")
+// publicSignals holds the parsed public signals from a ZK proof.
+// Expected JSON format: ["<merkleRoot>", "<eventId>", "<nullifierHash>"]
+type publicSignals struct {
+	merkleRoot    []byte
+	eventID       *big.Int
+	nullifierHash []byte
 }
 
-// extractMerkleRoot extracts the Merkle root from the public signals JSON.
-// Expected format: ["<merkleRoot>", "<nullifierHash>"]
-func extractMerkleRoot(publicSignalsJSON string) ([]byte, error) {
-	var signals []string
-	if err := json.Unmarshal([]byte(publicSignalsJSON), &signals); err != nil {
+// verifyEventID checks that the eventId in the proof matches the expected UUID.
+// The frontend encodes eventId as BigInt(hex(uuid_without_hyphens)).
+func (ps *publicSignals) verifyEventID(expectedUUID string) error {
+	hex := strings.ReplaceAll(expectedUUID, "-", "")
+	expected := new(big.Int)
+	if _, ok := expected.SetString(hex, 16); !ok {
+		return fmt.Errorf("invalid event UUID: %s", expectedUUID)
+	}
+	if ps.eventID.Cmp(expected) != 0 {
+		return fmt.Errorf("proof eventId %s does not match request event %s", ps.eventID.String(), expectedUUID)
+	}
+	return nil
+}
+
+// parsePublicSignals parses the public signals JSON array once and extracts
+// all fields: merkleRoot (index 0), eventId (index 1), nullifierHash (index 2).
+func parsePublicSignals(publicSignalsJSON string) (*publicSignals, error) {
+	var raw []string
+	if err := json.Unmarshal([]byte(publicSignalsJSON), &raw); err != nil {
 		return nil, fmt.Errorf("unmarshal public signals: %w", err)
 	}
 
-	if len(signals) < 2 {
-		return nil, fmt.Errorf("expected at least 2 public signals, got %d", len(signals))
+	if len(raw) < 3 {
+		return nil, fmt.Errorf("expected at least 3 public signals, got %d", len(raw))
 	}
 
-	// First signal is the Merkle root.
-	n := new(big.Int)
-	if _, ok := n.SetString(signals[0], 10); !ok {
-		return nil, fmt.Errorf("invalid merkle root: %s", signals[0])
+	// Index 0: merkleRoot
+	rootInt := new(big.Int)
+	if _, ok := rootInt.SetString(raw[0], 10); !ok {
+		return nil, fmt.Errorf("invalid merkle root: %s", raw[0])
+	}
+	merkleRoot, err := bigIntToBytes32(rootInt, "merkle root")
+	if err != nil {
+		return nil, err
 	}
 
-	return bigIntToBytes32(n, "merkle root")
+	// Index 1: eventId
+	eventID := new(big.Int)
+	if _, ok := eventID.SetString(raw[1], 10); !ok {
+		return nil, fmt.Errorf("invalid event ID: %s", raw[1])
+	}
+
+	// Index 2: nullifierHash
+	nullInt := new(big.Int)
+	if _, ok := nullInt.SetString(raw[2], 10); !ok {
+		return nil, fmt.Errorf("invalid nullifier hash: %s", raw[2])
+	}
+	nullifierHash, err := bigIntToBytes32(nullInt, "nullifier hash")
+	if err != nil {
+		return nil, err
+	}
+
+	return &publicSignals{
+		merkleRoot:    merkleRoot,
+		eventID:       eventID,
+		nullifierHash: nullifierHash,
+	}, nil
 }
 
 // bigIntToBytes32 converts a big.Int to a 32-byte big-endian slice.
