@@ -99,7 +99,10 @@ func (s *stubEventRepo) GetTicketLeafIndex(_ context.Context, _, _ string) (int,
 // --- Helper to build public signals JSON ---
 
 func makePublicSignals(merkleRoot, nullifierHash *big.Int) string {
-	signals := []string{merkleRoot.String(), nullifierHash.String()}
+	// Public signals order: [merkleRoot, eventId, nullifierHash]
+	// Use a dummy eventId for tests.
+	eventId := big.NewInt(42)
+	signals := []string{merkleRoot.String(), eventId.String(), nullifierHash.String()}
 	b, _ := json.Marshal(signals)
 	return string(b)
 }

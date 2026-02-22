@@ -105,7 +105,7 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 	}
 
 	// Extract nullifier hash from public signals before verification.
-	// Public signals order: [merkleRoot, nullifierHash]
+	// Public signals order: [merkleRoot, eventId, nullifierHash]
 	nullifierHash, err := extractNullifierHash(params.PublicSignalsJSON)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.InvalidArgument, "failed to extract nullifier hash from public signals")
@@ -178,39 +178,39 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 }
 
 // extractNullifierHash extracts the nullifier hash from the public signals JSON.
-// Expected format: ["<merkleRoot>", "<nullifierHash>"]
+// Expected format: ["<merkleRoot>", "<eventId>", "<nullifierHash>"]
 func extractNullifierHash(publicSignalsJSON string) ([]byte, error) {
 	var signals []string
 	if err := json.Unmarshal([]byte(publicSignalsJSON), &signals); err != nil {
 		return nil, fmt.Errorf("unmarshal public signals: %w", err)
 	}
 
-	if len(signals) < 2 {
-		return nil, fmt.Errorf("expected at least 2 public signals, got %d", len(signals))
+	if len(signals) < 3 {
+		return nil, fmt.Errorf("expected at least 3 public signals, got %d", len(signals))
 	}
 
-	// Second signal is the nullifier hash.
+	// Third signal is the nullifier hash (index 2).
 	n := new(big.Int)
-	if _, ok := n.SetString(signals[1], 10); !ok {
-		return nil, fmt.Errorf("invalid nullifier hash: %s", signals[1])
+	if _, ok := n.SetString(signals[2], 10); !ok {
+		return nil, fmt.Errorf("invalid nullifier hash: %s", signals[2])
 	}
 
 	return bigIntToBytes32(n, "nullifier hash")
 }
 
 // extractMerkleRoot extracts the Merkle root from the public signals JSON.
-// Expected format: ["<merkleRoot>", "<nullifierHash>"]
+// Expected format: ["<merkleRoot>", "<eventId>", "<nullifierHash>"]
 func extractMerkleRoot(publicSignalsJSON string) ([]byte, error) {
 	var signals []string
 	if err := json.Unmarshal([]byte(publicSignalsJSON), &signals); err != nil {
 		return nil, fmt.Errorf("unmarshal public signals: %w", err)
 	}
 
-	if len(signals) < 2 {
-		return nil, fmt.Errorf("expected at least 2 public signals, got %d", len(signals))
+	if len(signals) < 3 {
+		return nil, fmt.Errorf("expected at least 3 public signals, got %d", len(signals))
 	}
 
-	// First signal is the Merkle root.
+	// First signal is the Merkle root (index 0).
 	n := new(big.Int)
 	if _, ok := n.SetString(signals[0], 10); !ok {
 		return nil, fmt.Errorf("invalid merkle root: %s", signals[0])
