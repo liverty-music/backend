@@ -1,3 +1,4 @@
+-- +goose Up
 -- Create Merkle tree nodes table for ZKP identity set per event
 CREATE TABLE merkle_tree (
     event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -25,3 +26,9 @@ CREATE UNIQUE INDEX idx_nullifiers_event_hash ON nullifiers(event_id, nullifier_
 
 COMMENT ON TABLE nullifiers IS 'Used ZKP nullifier hashes for preventing double entry at events';
 COMMENT ON COLUMN nullifiers.nullifier_hash IS 'The nullifier hash from the ZK proof; unique per event to prevent reuse';
+
+-- +goose Down
+-- Drop nullifiers and merkle_tree tables (indexes dropped automatically with tables)
+-- Drop nullifiers first since it has no dependents; merkle_tree has none either
+DROP TABLE IF EXISTS nullifiers;
+DROP TABLE IF EXISTS merkle_tree;
