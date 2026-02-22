@@ -1,3 +1,4 @@
+-- +goose Up
 -- Fix ticket system schema issues identified in PR review
 
 -- 1. Change token_id from BIGINT to NUMERIC(78, 0) to support the full uint256 range

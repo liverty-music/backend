@@ -1,3 +1,4 @@
+-- +goose Up
 -- Add ticket system columns to existing tables
 
 -- Add Safe address column to users (predicted ERC-4337 Smart Account address)

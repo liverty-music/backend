@@ -1,3 +1,4 @@
+-- +goose Up
 -- Create Merkle tree nodes table for ZKP identity set per event
 CREATE TABLE merkle_tree (
     event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
