@@ -27,7 +27,7 @@ func RunMigrations(ctx context.Context, cfg *config.Config, logger *logging.Logg
 	if err != nil {
 		return fmt.Errorf("failed to create migration database connection: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	migrations, err := fs.Sub(migrationFS, "migrations/versions")
 	if err != nil {
