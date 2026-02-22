@@ -425,6 +425,54 @@ func (_c *MockUserRepository_Update_Call) RunAndReturn(run func(context.Context,
 	return _c
 }
 
+// UpdateSafeAddress provides a mock function with given fields: ctx, id, safeAddress
+func (_m *MockUserRepository) UpdateSafeAddress(ctx context.Context, id string, safeAddress string) error {
+	ret := _m.Called(ctx, id, safeAddress)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateSafeAddress")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, id, safeAddress)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockUserRepository_UpdateSafeAddress_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateSafeAddress'
+type MockUserRepository_UpdateSafeAddress_Call struct {
+	*mock.Call
+}
+
+// UpdateSafeAddress is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - safeAddress string
+func (_e *MockUserRepository_Expecter) UpdateSafeAddress(ctx interface{}, id interface{}, safeAddress interface{}) *MockUserRepository_UpdateSafeAddress_Call {
+	return &MockUserRepository_UpdateSafeAddress_Call{Call: _e.mock.On("UpdateSafeAddress", ctx, id, safeAddress)}
+}
+
+func (_c *MockUserRepository_UpdateSafeAddress_Call) Run(run func(ctx context.Context, id string, safeAddress string)) *MockUserRepository_UpdateSafeAddress_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_UpdateSafeAddress_Call) Return(_a0 error) *MockUserRepository_UpdateSafeAddress_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockUserRepository_UpdateSafeAddress_Call) RunAndReturn(run func(context.Context, string, string) error) *MockUserRepository_UpdateSafeAddress_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockUserRepository creates a new instance of MockUserRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockUserRepository(t interface {
