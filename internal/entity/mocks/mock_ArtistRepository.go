@@ -589,6 +589,65 @@ func (_c *MockArtistRepository_Unfollow_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// ListFollowers provides a mock function with given fields: ctx, artistID
+func (_m *MockArtistRepository) ListFollowers(ctx context.Context, artistID string) ([]*entity.User, error) {
+	ret := _m.Called(ctx, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListFollowers")
+	}
+
+	var r0 []*entity.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.User, error)); ok {
+		return rf(ctx, artistID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.User); ok {
+		r0 = rf(ctx, artistID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, artistID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockArtistRepository_ListFollowers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListFollowers'
+type MockArtistRepository_ListFollowers_Call struct {
+	*mock.Call
+}
+
+// ListFollowers is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockArtistRepository_Expecter) ListFollowers(ctx interface{}, artistID interface{}) *MockArtistRepository_ListFollowers_Call {
+	return &MockArtistRepository_ListFollowers_Call{Call: _e.mock.On("ListFollowers", ctx, artistID)}
+}
+
+func (_c *MockArtistRepository_ListFollowers_Call) Run(run func(ctx context.Context, artistID string)) *MockArtistRepository_ListFollowers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_ListFollowers_Call) Return(_a0 []*entity.User, _a1 error) *MockArtistRepository_ListFollowers_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockArtistRepository_ListFollowers_Call) RunAndReturn(run func(context.Context, string) ([]*entity.User, error)) *MockArtistRepository_ListFollowers_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockArtistRepository creates a new instance of MockArtistRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockArtistRepository(t interface {
