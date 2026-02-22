@@ -206,7 +206,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		entryUC := usecase.NewEntryUseCase(verifier, nullifierRepo, merkleTreeRepo, eventEntryRepo, ticketRepo, logger)
 		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return entryconnect.NewEntryServiceHandler(
-				rpc.NewEntryHandler(entryUC, logger),
+				rpc.NewEntryHandler(entryUC, userRepo, logger),
 				opts...,
 			)
 		})
