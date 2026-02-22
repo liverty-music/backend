@@ -1,3 +1,4 @@
+-- +goose Up
 -- Add admin_area to venues for location-based dashboard filtering.
 -- Add listed_venue_name to events to preserve the raw venue name as scraped.
 ALTER TABLE venues ADD COLUMN admin_area TEXT;

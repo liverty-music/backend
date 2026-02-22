@@ -1,3 +1,4 @@
+-- +goose Up
 -- Add external_id column to users table for Zitadel identity mapping
 ALTER TABLE users ADD COLUMN external_id UUID UNIQUE NOT NULL;
 

@@ -2,13 +2,16 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net"
 	"time"
 
 	"cloud.google.com/go/cloudsqlconn"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -94,6 +97,54 @@ func (d *Database) Ping(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// NewStdlibDB creates a *sql.DB using pgx/v5/stdlib with the same cloudsqlconn.Dialer
+// configuration as the main pool. This short-lived connection is used exclusively
+// for running goose migrations. The returned cleanup function closes the database
+// connection and the underlying dialer (if any) and must be called by the caller.
+func NewStdlibDB(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*sql.DB, func(), error) {
+	connConfig, err := pgx.ParseConfig(cfg.Database.GetDSN())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse pgx config for migrations: %w", err)
+	}
+
+	var dialer *cloudsqlconn.Dialer
+	if !cfg.IsLocal() {
+		d, err := cloudsqlconn.NewDialer(ctx,
+			cloudsqlconn.WithIAMAuthN(),
+			cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPSC()),
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create cloud sql connector dialer for migrations: %w", err)
+		}
+		dialer = d
+
+		connConfig.DialFunc = func(dialCtx context.Context, _ string, _ string) (net.Conn, error) {
+			return d.Dial(dialCtx, cfg.Database.InstanceConnectionName)
+		}
+	}
+
+	db := stdlib.OpenDB(*connConfig)
+
+	cleanup := func() {
+		_ = db.Close()
+		if dialer != nil {
+			_ = dialer.Close()
+		}
+	}
+
+	if err := db.PingContext(ctx); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("failed to ping database for migrations: %w", err)
+	}
+
+	logger.Info(ctx, "Migration database connection established",
+		slog.String("host", cfg.Database.Host),
+		slog.String("database", cfg.Database.Name),
+	)
+
+	return db, cleanup, nil
 }
 
 // Close closes the database connection.

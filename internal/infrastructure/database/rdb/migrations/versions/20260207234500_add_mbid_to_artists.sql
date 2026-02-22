@@ -1,3 +1,4 @@
+-- +goose Up
 -- Add mbid column to artists table
 -- This allows for canonical artist identification via MusicBrainz.
 
