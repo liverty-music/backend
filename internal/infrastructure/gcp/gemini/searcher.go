@@ -328,7 +328,7 @@ func (s *ConcertSearcher) parseEvents(
 			Title:           ev.EventName,
 			ListedVenueName: ev.Venue,
 			AdminArea:       adminArea,
-			LocalEventDate:  date,
+			LocalDate:       date,
 			StartTime:       startTime,
 			OpenTime:        openTime,
 			SourceURL:       ev.SourceURL,

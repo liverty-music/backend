@@ -145,17 +145,17 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	var discovered []*entity.Concert
 	seen := make(map[string]bool)
 	for _, ex := range existing {
-		seen[getUniqueKey(ex.LocalEventDate, ex.StartTime)] = true
+		seen[getUniqueKey(ex.LocalDate, ex.StartTime)] = true
 	}
 
 	for _, s := range scraped {
-		key := getUniqueKey(s.LocalEventDate, s.StartTime)
+		key := getUniqueKey(s.LocalDate, s.StartTime)
 		if seen[key] {
 			uc.logger.Debug(ctx, "filtered existing/duplicate event",
 				slog.String("artistID", artistID),
 				slog.String("title", s.Title),
 				slog.String("venue", s.ListedVenueName),
-				slog.String("date", s.LocalEventDate.Format("2006-01-02")),
+				slog.String("date", s.LocalDate.Format("2006-01-02")),
 			)
 			continue
 		}
@@ -209,7 +209,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				VenueID:         venue.ID,
 				Title:           s.Title,
 				ListedVenueName: &s.ListedVenueName,
-				LocalEventDate:  s.LocalEventDate,
+				LocalDate:       s.LocalDate,
 				StartTime:       s.StartTime,
 				OpenTime:        s.OpenTime,
 				SourceURL:       s.SourceURL,

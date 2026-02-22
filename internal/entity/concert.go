@@ -24,9 +24,9 @@ type ScrapedConcert struct {
 	// AdminArea is the administrative area (prefecture, state, province) where the venue is located.
 	// It is nil when the area could not be determined with confidence.
 	AdminArea *string
-	// LocalEventDate represents the calendar date of the event.
-	// See entity.Concert.LocalEventDate for detailed specifications.
-	LocalEventDate time.Time
+	// LocalDate represents the calendar date of the event.
+	// See entity.Concert.LocalDate for detailed specifications.
+	LocalDate time.Time
 	// StartTime is the specific starting time (optional).
 	StartTime *time.Time
 	// OpenTime is the time when doors open (optional).
@@ -38,7 +38,7 @@ type ScrapedConcert struct {
 // ConcertRepository defines the data access interface for Concerts.
 type ConcertRepository interface {
 	// ListByArtist retrieves all concerts for a specific artist.
-	// if upcomingOnly is true, it only returns concerts with LocalEventDate >= today.
+	// if upcomingOnly is true, it only returns concerts with LocalDate >= today.
 	//
 	// # Possible errors
 	//

@@ -43,7 +43,7 @@ func TestConcertSearcher_Search_Real(t *testing.T) {
 		if c.StartTime != nil {
 			st = c.StartTime.Format(time.RFC3339)
 		}
-		t.Logf("  - %s (%s) @ %s [Source: %s]", c.Title, c.LocalEventDate.Format("2006-01-02"), st, c.SourceURL)
+		t.Logf("  - %s (%s) @ %s [Source: %s]", c.Title, c.LocalDate.Format("2006-01-02"), st, c.SourceURL)
 	}
 
 	// Nil-site path: no known URL, Gemini searches by artist name only.
@@ -55,6 +55,6 @@ func TestConcertSearcher_Search_Real(t *testing.T) {
 		if c.StartTime != nil {
 			st = c.StartTime.Format(time.RFC3339)
 		}
-		t.Logf("  - %s (%s) @ %s [Source: %s]", c.Title, c.LocalEventDate.Format("2006-01-02"), st, c.SourceURL)
+		t.Logf("  - %s (%s) @ %s [Source: %s]", c.Title, c.LocalDate.Format("2006-01-02"), st, c.SourceURL)
 	}
 }

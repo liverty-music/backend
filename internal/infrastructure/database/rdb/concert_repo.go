@@ -25,15 +25,19 @@ const (
 		ON CONFLICT DO NOTHING
 	`
 	listConcertsByArtistQuery = `
-		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url
+		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
+		       v.id, v.name, v.admin_area
 		FROM concerts c
 		JOIN events e ON c.event_id = e.id
+		JOIN venues v ON e.venue_id = v.id
 		WHERE c.artist_id = $1
 	`
 	listUpcomingConcertsByArtistQuery = `
-		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url
+		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
+		       v.id, v.name, v.admin_area
 		FROM concerts c
 		JOIN events e ON c.event_id = e.id
+		JOIN venues v ON e.venue_id = v.id
 		WHERE c.artist_id = $1 AND e.local_event_date >= CURRENT_DATE
 	`
 )
@@ -59,10 +63,15 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 	var concerts []*entity.Concert
 	for rows.Next() {
 		var c entity.Concert
-		err := rows.Scan(&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalEventDate, &c.StartTime, &c.OpenTime, &c.SourceURL)
+		var venue entity.Venue
+		err := rows.Scan(
+			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
+			&venue.ID, &venue.Name, &venue.AdminArea,
+		)
 		if err != nil {
 			return nil, toAppErr(err, "failed to scan concert")
 		}
+		c.Venue = &venue
 		concerts = append(concerts, &c)
 	}
 	return concerts, nil
@@ -104,7 +113,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		venueIDs[i] = c.VenueID
 		titles[i] = c.Title
 		listedVenueNames[i] = c.ListedVenueName
-		eventDates[i] = c.LocalEventDate
+		eventDates[i] = c.LocalDate
 		startTimes[i] = c.StartTime
 		openTimes[i] = c.OpenTime
 		sourceURLs[i] = c.SourceURL
