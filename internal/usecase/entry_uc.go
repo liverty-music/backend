@@ -195,10 +195,7 @@ func extractNullifierHash(publicSignalsJSON string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid nullifier hash: %s", signals[1])
 	}
 
-	buf := make([]byte, 32)
-	b := n.Bytes()
-	copy(buf[32-len(b):], b)
-	return buf, nil
+	return bigIntToBytes32(n, "nullifier hash")
 }
 
 // extractMerkleRoot extracts the Merkle root from the public signals JSON.
@@ -219,8 +216,17 @@ func extractMerkleRoot(publicSignalsJSON string) ([]byte, error) {
 		return nil, fmt.Errorf("invalid merkle root: %s", signals[0])
 	}
 
-	buf := make([]byte, 32)
+	return bigIntToBytes32(n, "merkle root")
+}
+
+// bigIntToBytes32 converts a big.Int to a 32-byte big-endian slice.
+// Returns an error if the value exceeds 32 bytes (> 2^256-1).
+func bigIntToBytes32(n *big.Int, label string) ([]byte, error) {
 	b := n.Bytes()
+	if len(b) > 32 {
+		return nil, fmt.Errorf("%s exceeds 32 bytes (BN254 field element size): got %d bytes", label, len(b))
+	}
+	buf := make([]byte, 32)
 	copy(buf[32-len(b):], b)
 	return buf, nil
 }
