@@ -74,13 +74,22 @@ type ArtistUseCase interface {
 	//   - Internal: execution failure.
 	Unfollow(ctx context.Context, userID, artistID string) error
 
-	// ListFollowed retrieves all artists currently followed by the specified user.
+	// SetPassionLevel updates the enthusiasm tier for a followed artist.
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: missing user or artist identification, or invalid level.
+	//   - NotFound: the user is not following the specified artist.
+	SetPassionLevel(ctx context.Context, userID, artistID string, level entity.PassionLevel) error
+
+	// ListFollowed retrieves all artists currently followed by the specified user,
+	// enriched with per-user passion level metadata.
 	//
 	// # Possible errors:
 	//
 	//   - InvalidArgument: missing user identification.
 	//   - Internal: query failure.
-	ListFollowed(ctx context.Context, userID string) ([]*entity.Artist, error)
+	ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error)
 
 	// ListSimilar identifies artists with musical affinity to the target artist.
 	//
@@ -324,8 +333,27 @@ func (uc *artistUseCase) Unfollow(ctx context.Context, userID, artistID string) 
 	return nil
 }
 
-// ListFollowed retrieves the list of artists followed by a user.
-func (uc *artistUseCase) ListFollowed(ctx context.Context, userID string) ([]*entity.Artist, error) {
+// SetPassionLevel updates the enthusiasm tier for a followed artist.
+func (uc *artistUseCase) SetPassionLevel(ctx context.Context, userID, artistID string, level entity.PassionLevel) error {
+	if userID == "" || artistID == "" {
+		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
+	}
+
+	err := uc.artistRepo.SetPassionLevel(ctx, userID, artistID, level)
+	if err != nil {
+		return err
+	}
+
+	uc.logger.Info(ctx, "Passion level updated",
+		slog.String("user_id", userID),
+		slog.String("artist_id", artistID),
+		slog.String("level", string(level)),
+	)
+	return nil
+}
+
+// ListFollowed retrieves the list of artists followed by a user, including passion level.
+func (uc *artistUseCase) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
 	if userID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
 	}

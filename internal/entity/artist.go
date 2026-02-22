@@ -36,6 +36,26 @@ func newID() string {
 	return id.String()
 }
 
+// PassionLevel represents the user's enthusiasm tier for a followed artist.
+type PassionLevel string
+
+const (
+	// PassionLevelMustGo indicates the user will travel anywhere for this artist.
+	PassionLevelMustGo PassionLevel = "must_go"
+	// PassionLevelLocalOnly indicates interest in local events only (default).
+	PassionLevelLocalOnly PassionLevel = "local_only"
+	// PassionLevelKeepAnEye indicates dashboard-only display, no push notifications.
+	PassionLevelKeepAnEye PassionLevel = "keep_an_eye"
+)
+
+// FollowedArtist represents an artist with user-specific follow metadata.
+type FollowedArtist struct {
+	// Artist is the followed artist entity.
+	Artist *Artist
+	// PassionLevel is the user's enthusiasm tier for this artist.
+	PassionLevel PassionLevel
+}
+
 // OfficialSite represents the verified official website or media link for an artist.
 //
 // Each artist is restricted to a single primary official site in the current version.
@@ -121,12 +141,21 @@ type ArtistRepository interface {
 	//   - Internal: database execution failure.
 	Unfollow(ctx context.Context, userID, artistID string) error
 
-	// ListFollowed retrieves all artists followed by a specific user.
+	// SetPassionLevel updates the enthusiasm tier for a followed artist.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: the user is not following the specified artist.
+	//   - Internal: database execution failure.
+	SetPassionLevel(ctx context.Context, userID, artistID string, level PassionLevel) error
+
+	// ListFollowed retrieves all artists followed by a specific user,
+	// enriched with per-user passion level metadata.
 	//
 	// # Possible errors:
 	//
 	//   - Internal: database query failure.
-	ListFollowed(ctx context.Context, userID string) ([]*Artist, error)
+	ListFollowed(ctx context.Context, userID string) ([]*FollowedArtist, error)
 
 	// ListAllFollowed retrieves all distinct artists followed by any user.
 	//

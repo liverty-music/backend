@@ -133,13 +133,16 @@ COMMENT ON COLUMN concerts.artist_id IS 'Reference to the performing artist';
 CREATE TABLE IF NOT EXISTS followed_artists (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    passion_level TEXT NOT NULL DEFAULT 'local_only',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (user_id, artist_id)
+    PRIMARY KEY (user_id, artist_id),
+    CONSTRAINT chk_followed_artists_passion_level CHECK (passion_level IN ('must_go', 'local_only', 'keep_an_eye'))
 );
 
 COMMENT ON TABLE followed_artists IS 'Tracks which artists a user is following for discovery and personalization';
 COMMENT ON COLUMN followed_artists.user_id IS 'Reference to the user who is following';
 COMMENT ON COLUMN followed_artists.artist_id IS 'Reference to the artist being followed';
+COMMENT ON COLUMN followed_artists.passion_level IS 'User enthusiasm tier: must_go, local_only (default), or keep_an_eye';
 COMMENT ON COLUMN followed_artists.created_at IS 'Timestamp when the follow occurred';
 
 -- Notifications table

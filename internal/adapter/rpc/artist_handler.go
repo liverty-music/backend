@@ -153,14 +153,38 @@ func (h *ArtistHandler) ListFollowed(ctx context.Context, req *connect.Request[r
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
 	}
 
-	artists, err := h.artistUseCase.ListFollowed(ctx, userID)
+	followed, err := h.artistUseCase.ListFollowed(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	return connect.NewResponse(&rpc.ListFollowedResponse{
-		Artists: mapper.ArtistsToProto(artists),
+		Artists: mapper.FollowedArtistsToProto(followed),
 	}), nil
+}
+
+// SetPassionLevel updates the user's enthusiasm tier for a followed artist.
+func (h *ArtistHandler) SetPassionLevel(ctx context.Context, req *connect.Request[rpc.SetPassionLevelRequest]) (*connect.Response[rpc.SetPassionLevelResponse], error) {
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
+	}
+
+	if req.Msg.ArtistId == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
+	}
+
+	level, ok := mapper.PassionLevelFromProto[req.Msg.PassionLevel]
+	if !ok {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid passion level"))
+	}
+
+	err := h.artistUseCase.SetPassionLevel(ctx, userID, req.Msg.ArtistId.Value, level)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.SetPassionLevelResponse{}), nil
 }
 
 // ListSimilar retrieves a collection of artists with musical affinity to a target artist.

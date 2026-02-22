@@ -39,3 +39,4 @@ configMapGenerator:
   - migrations/20260221150000_add_not_null_to_venues_raw_name.sql
   - migrations/20260221160000_fix_ticket_system_schema.sql
   - migrations/20260222120000_add_push_subscriptions_table.sql
+  - migrations/20260222130000_add_passion_level_to_followed_artists.sql
