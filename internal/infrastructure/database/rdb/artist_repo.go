@@ -4,6 +4,7 @@ package rdb
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
@@ -83,6 +84,12 @@ const (
 		SELECT DISTINCT a.id, a.name, COALESCE(a.mbid, '')
 		FROM artists a
 		JOIN followed_artists fa ON a.id = fa.artist_id
+	`
+	listFollowersQuery = `
+		SELECT u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active, u.created_at, u.updated_at
+		FROM users u
+		JOIN followed_artists fa ON fa.user_id = u.id
+		WHERE fa.artist_id = $1
 	`
 )
 
@@ -322,4 +329,34 @@ func (r *ArtistRepository) ListAllFollowed(ctx context.Context) ([]*entity.Artis
 		return nil, toAppErr(err, "error iterating all followed artist rows")
 	}
 	return artists, nil
+}
+
+// ListFollowers retrieves all users who follow the given artist.
+func (r *ArtistRepository) ListFollowers(ctx context.Context, artistID string) ([]*entity.User, error) {
+	rows, err := r.db.Pool.Query(ctx, listFollowersQuery, artistID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list followers", slog.String("artist_id", artistID))
+	}
+	defer rows.Close()
+
+	var users []*entity.User
+	for rows.Next() {
+		var u entity.User
+		var createTime, updateTime time.Time
+		if err := rows.Scan(
+			&u.ID, &u.ExternalID, &u.Email, &u.Name,
+			&u.PreferredLanguage, &u.Country, &u.TimeZone,
+			&u.SafeAddress, &u.IsActive,
+			&createTime, &updateTime,
+		); err != nil {
+			return nil, toAppErr(err, "failed to scan follower row")
+		}
+		u.CreateTime = createTime
+		u.UpdateTime = updateTime
+		users = append(users, &u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating follower rows")
+	}
+	return users, nil
 }
