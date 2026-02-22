@@ -42,7 +42,7 @@ atlas migrate validate --env local
 atlas migrate apply --env local
 ```
 
-**Migration directory**: `internal/infrastructure/database/rdb/migrations/`
+**Migration directory**: `k8s/atlas/base/migrations/`
 
 ## 3. API Health Check
 
@@ -56,6 +56,6 @@ buf curl --schema buf.build/grpc/health --protocol connect \
 
 ## 4. Directory Reference
 
-- **Migrations**: `internal/infrastructure/database/rdb/migrations/`
+- **Migrations**: `k8s/atlas/base/migrations/`
 - **Handlers**: `internal/adapter/rpc/`
 - **DI**: `internal/di/`
