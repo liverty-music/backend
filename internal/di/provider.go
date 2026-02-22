@@ -9,6 +9,7 @@ import (
 
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
+	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
@@ -127,11 +128,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, musicbrainzClient, artistCache, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, logger)
-	// TODO: Register ticketUC in the handlers slice once the BSR module is bumped
-	// with ticket/v1 proto types (blocked on specification PR #53 merge).
-	// See ticket_handler.go (currently excluded via //go:build ignore).
-	_ = ticketUC
-
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
 		cfg.JWT.Issuer,
@@ -178,6 +174,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
+	}
+
+	if ticketUC != nil {
+		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return ticketconnect.NewTicketServiceHandler(
+				rpc.NewTicketHandler(ticketUC, userRepo, logger),
+				opts...,
+			)
+		})
 	}
 
 	srv := server.NewConnectServer(cfg, logger, db, authFunc, healthHandler, handlers...)
@@ -245,6 +250,11 @@ func (m *MockUserRepository) Update(_ context.Context, _ string, _ *entity.NewUs
 
 // Delete is a mock implementation that always returns nil.
 func (m *MockUserRepository) Delete(_ context.Context, _ string) error {
+	return nil
+}
+
+// UpdateSafeAddress is a mock implementation that always returns nil.
+func (m *MockUserRepository) UpdateSafeAddress(_ context.Context, _, _ string) error {
 	return nil
 }
 

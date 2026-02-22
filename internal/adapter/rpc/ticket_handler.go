@@ -1,20 +1,16 @@
-// NOTE: This file requires a BSR module bump after liverty-music/specification PR #53 is merged.
-// Remove the build tag below once go.mod is updated with the new BSR version that includes
-// ticket/v1 and entry/v1 generated packages.
-//
-//go:build ignore
-
 package rpc
 
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/blockchain/safe"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -68,10 +64,22 @@ func (h *TicketHandler) MintTicket(
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
 	}
 
+	// Lazily compute and persist the Safe address on first ticket mint.
+	if user.SafeAddress == "" {
+		addr := safe.AddressHex(user.ID)
+		if err := h.userRepo.UpdateSafeAddress(ctx, user.ID, addr); err != nil {
+			h.logger.Warn(ctx, "failed to persist safe address, continuing with computed value",
+				slog.String("user_id", user.ID),
+				slog.String("error", err.Error()),
+			)
+		}
+		user.SafeAddress = addr
+	}
+
 	ticket, err := h.ticketUseCase.MintTicket(ctx, &usecase.MintTicketParams{
 		EventID:          msg.GetEventId().GetValue(),
 		UserID:           user.ID,
-		RecipientAddress: msg.GetRecipientAddress(),
+		RecipientAddress: user.SafeAddress,
 	})
 	if err != nil {
 		return nil, err
@@ -105,12 +113,12 @@ func (h *TicketHandler) GetTicket(
 	}), nil
 }
 
-// ListTicketsForUser retrieves all tickets for the authenticated user.
+// ListTickets retrieves all tickets for the authenticated user.
 // The user ID is resolved from the JWT claims for authorization safety.
-func (h *TicketHandler) ListTicketsForUser(
+func (h *TicketHandler) ListTickets(
 	ctx context.Context,
-	req *connect.Request[ticketv1.ListTicketsForUserRequest],
-) (*connect.Response[ticketv1.ListTicketsForUserResponse], error) {
+	req *connect.Request[ticketv1.ListTicketsRequest],
+) (*connect.Response[ticketv1.ListTicketsResponse], error) {
 	if req == nil || req.Msg == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
 	}
@@ -136,7 +144,7 @@ func (h *TicketHandler) ListTicketsForUser(
 		return nil, err
 	}
 
-	return connect.NewResponse(&ticketv1.ListTicketsForUserResponse{
+	return connect.NewResponse(&ticketv1.ListTicketsResponse{
 		Tickets: mapper.TicketsToProto(tickets),
 	}), nil
 }

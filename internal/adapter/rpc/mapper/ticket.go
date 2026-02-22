@@ -1,9 +1,3 @@
-// NOTE: This file requires a BSR module bump after liverty-music/specification PR #53 is merged.
-// The types Ticket, TicketId, EventId, TokenId are defined in the new ticket.proto.
-// Until the BSR version is updated in go.mod, this file is excluded from the build.
-//
-//go:build ignore
-
 package mapper
 
 import (

@@ -17,15 +17,19 @@ type UserRepository struct {
 
 const (
 	getUserQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, is_active, created_at, updated_at
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 
 	getUserByExternalIDQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, is_active, created_at, updated_at
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
 		FROM users
 		WHERE external_id = $1
+	`
+
+	updateSafeAddressQuery = `
+		UPDATE users SET safe_address = $2, updated_at = NOW() WHERE id = $1
 	`
 
 	insertUserQuery = `
@@ -77,7 +81,7 @@ func (r *UserRepository) Get(ctx context.Context, id string) (*entity.User, erro
 
 	user := &entity.User{}
 	err := r.db.Pool.QueryRow(ctx, getUserQuery, id).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user", slog.String("user_id", id))
@@ -94,13 +98,31 @@ func (r *UserRepository) GetByExternalID(ctx context.Context, externalID string)
 
 	user := &entity.User{}
 	err := r.db.Pool.QueryRow(ctx, getUserByExternalIDQuery, externalID).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user by external ID", slog.String("external_id", externalID))
 	}
 
 	return user, nil
+}
+
+// UpdateSafeAddress sets the predicted Safe address for a user.
+func (r *UserRepository) UpdateSafeAddress(ctx context.Context, id, safeAddress string) error {
+	if id == "" {
+		return apperr.New(codes.InvalidArgument, "user ID cannot be empty")
+	}
+
+	result, err := r.db.Pool.Exec(ctx, updateSafeAddressQuery, id, safeAddress)
+	if err != nil {
+		return toAppErr(err, "failed to update safe address", slog.String("user_id", id))
+	}
+
+	if result.RowsAffected() == 0 {
+		return apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
+	}
+
+	return nil
 }
 
 // Delete removes a user from the database.

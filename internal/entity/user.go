@@ -23,6 +23,9 @@ type User struct {
 	Country string
 	// TimeZone is the user's preferred time zone.
 	TimeZone string
+	// SafeAddress is the predicted Safe (ERC-4337) address derived from the user's ID.
+	// Empty until lazily computed on first ticket mint.
+	SafeAddress string
 	// IsActive indicates if the user account is active.
 	IsActive bool
 	// CreateTime is the timestamp when the user was created.
@@ -91,6 +94,14 @@ type UserRepository interface {
 	//
 	//  - NotFound: If the user does not exist.
 	Delete(ctx context.Context, id string) error
+
+	// UpdateSafeAddress sets the predicted Safe address for a user.
+	// This is called lazily on first ticket mint.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
+	UpdateSafeAddress(ctx context.Context, id, safeAddress string) error
 
 	// List retrieves users with pagination.
 	List(ctx context.Context, limit, offset int) ([]*User, error)
