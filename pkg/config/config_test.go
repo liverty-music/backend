@@ -70,6 +70,9 @@ func TestLoad(t *testing.T) {
 				Blockchain: BlockchainConfig{
 					ChainID: 84532,
 				},
+				VAPID: VAPIDConfig{
+					Contact: "mailto:pepperoni9@gmail.com",
+				},
 			},
 			wantErr: nil,
 		},
@@ -138,6 +141,9 @@ func TestLoad(t *testing.T) {
 				},
 				Blockchain: BlockchainConfig{
 					ChainID: 84532,
+				},
+				VAPID: VAPIDConfig{
+					Contact: "mailto:pepperoni9@gmail.com",
 				},
 			},
 			wantErr: nil,

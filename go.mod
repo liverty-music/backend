@@ -11,8 +11,8 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260221234536-d71f29bb1273.2
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260221234536-d71f29bb1273.1
+	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-00000000000000-8d63a7699ae2.2
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-00000000000000-8d63a7699ae2.1
 	cloud.google.com/go/cloudsqlconn v1.20.0
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.19.1
@@ -61,6 +61,7 @@ require (
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
+	github.com/SherClockHolmes/webpush-go v1.4.0 // indirect
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.0 // indirect
@@ -107,6 +108,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.4 // indirect
 	github.com/gofrs/flock v0.12.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/cel-go v0.26.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect

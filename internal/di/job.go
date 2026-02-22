@@ -20,11 +20,12 @@ import (
 
 // JobApp represents a lightweight application for batch jobs without an HTTP server.
 type JobApp struct {
-	ArtistRepo    entity.ArtistRepository
-	ConcertUC     usecase.ConcertUseCase
-	VenueEnrichUC usecase.VenueEnrichmentUseCase
-	Logger        *logging.Logger
-	closers       []io.Closer
+	ArtistRepo         entity.ArtistRepository
+	ConcertUC          usecase.ConcertUseCase
+	VenueEnrichUC      usecase.VenueEnrichmentUseCase
+	PushNotificationUC usecase.PushNotificationUseCase
+	Logger             *logging.Logger
+	closers            []io.Closer
 }
 
 // Shutdown closes all resources held by the job application.
@@ -77,6 +78,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	searchLogRepo := rdb.NewSearchLogRepository(db)
+	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 
 	// Infrastructure - Gemini
 	var geminiSearcher entity.ConcertSearcher
@@ -93,8 +95,16 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 		geminiSearcher = searcher
 	}
 
-	// Use Case
+	// Use Cases
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, logger)
+	pushNotificationUC := usecase.NewPushNotificationUseCase(
+		artistRepo,
+		pushSubRepo,
+		logger,
+		cfg.VAPID.PublicKey,
+		cfg.VAPID.PrivateKey,
+		cfg.VAPID.Contact,
+	)
 
 	// Infrastructure - Venue enrichment place searchers
 	mbClient := musicbrainz.NewClient(nil)
@@ -111,10 +121,11 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	venueEnrichUC := usecase.NewVenueEnrichmentUseCase(venueRepo, venueRepo, logger, searchers...)
 
 	return &JobApp{
-		ArtistRepo:    artistRepo,
-		ConcertUC:     concertUC,
-		VenueEnrichUC: venueEnrichUC,
-		Logger:        logger,
-		closers:       []io.Closer{db, telemetryCloser, mbClient},
+		ArtistRepo:         artistRepo,
+		ConcertUC:          concertUC,
+		VenueEnrichUC:      venueEnrichUC,
+		PushNotificationUC: pushNotificationUC,
+		Logger:             logger,
+		closers:            []io.Closer{db, telemetryCloser, mbClient},
 	}, nil
 }

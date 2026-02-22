@@ -77,6 +77,12 @@ func run() error {
 				slog.String("artist_name", artist.Name),
 				slog.Int("count", len(concerts)),
 			)
+			if err := app.PushNotificationUC.NotifyNewConcerts(ctx, artist, concerts); err != nil {
+				app.Logger.Error(ctx, "failed to send push notifications", err,
+					slog.String("artist_id", artist.ID),
+				)
+				// non-fatal: don't increment circuit breaker
+			}
 		}
 	}
 

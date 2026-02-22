@@ -134,6 +134,14 @@ type ArtistRepository interface {
 	//
 	//   - Internal: database query failure.
 	ListAllFollowed(ctx context.Context) ([]*Artist, error)
+
+	// ListFollowers retrieves all users who are following the given artist.
+	// Returns an empty slice (no error) when no users follow the artist.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListFollowers(ctx context.Context, artistID string) ([]*User, error)
 }
 
 // ArtistSearcher defines discovery operations for finding artists in external catalogs.
