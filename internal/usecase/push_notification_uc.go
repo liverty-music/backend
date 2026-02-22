@@ -53,6 +53,7 @@ type pushNotificationUseCase struct {
 	artistRepo     entity.ArtistRepository
 	pushSubRepo    entity.PushSubscriptionRepository
 	logger         *logging.Logger
+	httpClient     *http.Client
 	vapidPublicKey string
 	vapidPrivate   string
 	vapidContact   string
@@ -73,6 +74,7 @@ func NewPushNotificationUseCase(
 		artistRepo:     artistRepo,
 		pushSubRepo:    pushSubRepo,
 		logger:         logger,
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
 		vapidPublicKey: vapidPublicKey,
 		vapidPrivate:   vapidPrivateKey,
 		vapidContact:   vapidContact,
@@ -139,8 +141,6 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 		return fmt.Errorf("failed to marshal push notification payload: %w", err)
 	}
 
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-
 	// 4. Send a notification to each subscription.
 	for _, sub := range subs {
 		// Honour context cancellation before each outbound request.
@@ -157,7 +157,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 				Auth:   sub.Auth,
 			},
 		}, &webpush.Options{
-			HTTPClient:      httpClient,
+			HTTPClient:      uc.httpClient,
 			VAPIDPublicKey:  uc.vapidPublicKey,
 			VAPIDPrivateKey: uc.vapidPrivate,
 			Subscriber:      uc.vapidContact,
