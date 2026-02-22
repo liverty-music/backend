@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // ArtistRepository implements entity.ArtistRepository interface for PostgreSQL.
@@ -74,8 +76,13 @@ const (
 		DELETE FROM followed_artists
 		WHERE user_id = $1 AND artist_id = $2
 	`
+	setPassionLevelQuery = `
+		UPDATE followed_artists
+		SET passion_level = $3
+		WHERE user_id = $1 AND artist_id = $2
+	`
 	listFollowedQuery = `
-		SELECT a.id, a.name, COALESCE(a.mbid, '')
+		SELECT a.id, a.name, COALESCE(a.mbid, ''), fa.passion_level
 		FROM artists a
 		JOIN followed_artists fa ON a.id = fa.artist_id
 		WHERE fa.user_id = $1
@@ -287,26 +294,42 @@ func (r *ArtistRepository) Unfollow(ctx context.Context, userID, artistID string
 	return nil
 }
 
-// ListFollowed retrieves the list of artists followed by a user.
-func (r *ArtistRepository) ListFollowed(ctx context.Context, userID string) ([]*entity.Artist, error) {
+// SetPassionLevel updates the enthusiasm tier for a followed artist.
+func (r *ArtistRepository) SetPassionLevel(ctx context.Context, userID, artistID string, level entity.PassionLevel) error {
+	tag, err := r.db.Pool.Exec(ctx, setPassionLevelQuery, userID, artistID, string(level))
+	if err != nil {
+		return toAppErr(err, "failed to set passion level", slog.String("user_id", userID), slog.String("artist_id", artistID))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "follow relationship not found")
+	}
+	return nil
+}
+
+// ListFollowed retrieves the list of artists followed by a user, including passion level.
+func (r *ArtistRepository) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
 	rows, err := r.db.Pool.Query(ctx, listFollowedQuery, userID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list followed artists", slog.String("user_id", userID))
 	}
 	defer rows.Close()
 
-	var artists []*entity.Artist
+	var followed []*entity.FollowedArtist
 	for rows.Next() {
 		var a entity.Artist
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
+		var level string
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &level); err != nil {
 			return nil, toAppErr(err, "failed to scan followed artist")
 		}
-		artists = append(artists, &a)
+		followed = append(followed, &entity.FollowedArtist{
+			Artist:       &a,
+			PassionLevel: entity.PassionLevel(level),
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "error iterating followed artist rows")
 	}
-	return artists, nil
+	return followed, nil
 }
 
 // ListAllFollowed retrieves all distinct artists followed by any user.
