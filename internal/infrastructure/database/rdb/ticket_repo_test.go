@@ -291,6 +291,48 @@ func TestTicketRepository_ListByUser(t *testing.T) {
 	}
 }
 
+func TestTicketRepository_ListByEvent(t *testing.T) {
+	cleanDatabase()
+	repo := rdb.NewTicketRepository(testDB)
+	ctx := context.Background()
+	eventID, userID := seedTicketTestData(t)
+
+	// Create a second user.
+	var userID2 string
+	err := testDB.Pool.QueryRow(ctx,
+		`INSERT INTO users (name, email, external_id) VALUES ($1, $2, $3) RETURNING id`,
+		"list-by-event-user2", "list-by-event2@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4910",
+	).Scan(&userID2)
+	require.NoError(t, err)
+
+	_, err = repo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID, TokenID: 10, TxHash: "0xa"})
+	require.NoError(t, err)
+	_, err = repo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID2, TokenID: 20, TxHash: "0xb"})
+	require.NoError(t, err)
+
+	t.Run("returns tickets ordered by minted_at ASC", func(t *testing.T) {
+		tickets, err := repo.ListByEvent(ctx, eventID)
+		require.NoError(t, err)
+		require.Len(t, tickets, 2)
+
+		// First minted should be first in the list (ASC order).
+		assert.Equal(t, userID, tickets[0].UserID)
+		assert.Equal(t, userID2, tickets[1].UserID)
+	})
+
+	t.Run("empty event returns empty list", func(t *testing.T) {
+		tickets, err := repo.ListByEvent(ctx, "018b2f19-e591-7d12-bf9e-000000000000")
+		require.NoError(t, err)
+		assert.Empty(t, tickets)
+	})
+
+	t.Run("empty event ID returns error", func(t *testing.T) {
+		_, err := repo.ListByEvent(ctx, "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}
+
 func TestTicketRepository_EventExists(t *testing.T) {
 	cleanDatabase()
 	repo := rdb.NewTicketRepository(testDB)
