@@ -332,6 +332,7 @@ func TestClient_ListTop(t *testing.T) {
 				assert.Equal(t, tt.expectedMethod, r.URL.Query().Get("method"))
 				if tt.args.tag != "" {
 					assert.Equal(t, tt.args.tag, r.URL.Query().Get("tag"))
+					assert.Empty(t, r.URL.Query().Get("country"), "country must be absent when tag is provided")
 				} else if tt.args.country != "" {
 					assert.Equal(t, tt.args.country, r.URL.Query().Get("country"))
 				} else {
