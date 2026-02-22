@@ -1,7 +1,7 @@
 // Define the "local" environment for development.
 env "local" {
   // The actual database to apply migrations to, matching compose.yml.
-  url = "postgres://test-user@localhost:5432/test-db?sslmode=disable&search_path=app,public"
+  url = "postgres://test-user@localhost:5432/test-db?sslmode=disable"
 
   // A temporary database for schema analysis (diffing, linting).
   // Use a temporary database container for schema analysis to ensure a clean environment.

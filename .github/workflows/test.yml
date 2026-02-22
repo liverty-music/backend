@@ -70,7 +70,7 @@ jobs:
         uses: ariga/setup-atlas@v0
 
       - name: Apply database migrations
-        run: atlas migrate apply --url "postgres://test-user@localhost:5432/test-db?sslmode=disable&search_path=app,public" --dir "file://k8s/atlas/base/migrations"
+        run: atlas migrate apply --url "postgres://test-user@localhost:5432/test-db?sslmode=disable" --dir "file://k8s/atlas/base/migrations"
 
       - name: Run tests with race detection and coverage
         run: go test -tags=integration -race -v -timeout=5m -coverprofile=coverage.out -covermode=atomic ./...
