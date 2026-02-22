@@ -115,13 +115,13 @@ func TestMerkleTreeRepository_StoreBatchWithRoot(t *testing.T) {
 		assert.Equal(t, rootHash, treeRoot)
 	})
 
-	t.Run("non-existent event returns NotFound", func(t *testing.T) {
+	t.Run("non-existent event returns FailedPrecondition", func(t *testing.T) {
 		nodes := []*entity.MerkleNode{
 			{EventID: "018b2f19-e591-7d12-bf9e-000000000000", Depth: 0, NodeIndex: 0, Hash: []byte("leaf")},
 		}
 		err := repo.StoreBatchWithRoot(ctx, "018b2f19-e591-7d12-bf9e-000000000000", nodes, []byte("root"))
 		require.Error(t, err)
-		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
