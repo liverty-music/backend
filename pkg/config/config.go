@@ -382,7 +382,7 @@ func (c *Config) Validate() error {
 
 // GetDSN returns the database connection string.
 func (c DatabaseConfig) GetDSN() string {
-	return fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=%s search_path=%s",
+	return fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=%s search_path=%s,public",
 		c.Host, c.Port, c.User, c.Name, c.SSLMode, c.Schema)
 }
 

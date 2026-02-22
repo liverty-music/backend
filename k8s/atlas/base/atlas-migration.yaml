@@ -16,6 +16,7 @@ spec:
         key: postgres-admin-password
     database: liverty-music
     parameters:
+      search_path: app
       sslmode: disable
   dir:
     configMapRef:
