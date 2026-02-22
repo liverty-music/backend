@@ -137,11 +137,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Solidity dependencies
+        working-directory: contracts
+        run: forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts --no-commit
 
       - name: Run Forge tests
         working-directory: contracts
