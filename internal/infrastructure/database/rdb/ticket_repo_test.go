@@ -26,8 +26,8 @@ func seedTicketTestData(t *testing.T) (string, string) {
 
 	var venueID string
 	err = testDB.Pool.QueryRow(ctx,
-		`INSERT INTO venues (name) VALUES ($1) RETURNING id`,
-		"ticket-test-venue",
+		`INSERT INTO venues (name, raw_name) VALUES ($1, $2) RETURNING id`,
+		"ticket-test-venue", "ticket-test-venue",
 	).Scan(&venueID)
 	require.NoError(t, err)
 
