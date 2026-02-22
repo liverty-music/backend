@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: atlas-operator
+
+resources:
+- atlas-migration.yaml
+
+configMapGenerator:
+- name: atlas-migration-dir
+  files:
+  - migrations/atlas.sum
+  - migrations/20250726000000_bootstrap_app_schema.sql
+  - migrations/20250726081442_initial_schema.sql
+  - migrations/20250726101741_add_foreign_key_to_posts.sql
+  - migrations/20260127145500_concert_service_tables.sql
+  - migrations/20260127145501_convert_varchar_to_text_and_adopt_uuidv7.sql
+  - migrations/20260201194500_replace_artist_media_with_official_site.sql
+  - migrations/20260201195000_cleanup_artists_and_concerts_tables.sql
+  - migrations/20260201203000_add_source_url_to_concerts.sql
+  - migrations/20260201203500_add_timestamps_to_artists_and_concerts.sql
+  - migrations/20260202170000_update_concert_datetime_types.sql
+  - migrations/20260207120000_create_events_table.sql
+  - migrations/20260207161500_add_followed_artists_table.sql
+  - migrations/20260207234500_add_mbid_to_artists.sql
+  - migrations/20260215120000_add_external_id_to_users.sql
+  - migrations/20260215130000_create_latest_search_logs_table.sql
+  - migrations/20260220120000_add_venue_admin_area_and_event_listed_venue_name.sql
+  - migrations/20260221000000_add_venue_enrichment_fields.sql
+  - migrations/20260221100000_add_ticket_system_columns.sql
+  - migrations/20260221100100_create_tickets_table.sql
+  - migrations/20260221100200_create_merkle_and_nullifiers.sql
+  - migrations/20260221120000_add_unique_index_on_artists_mbid.sql
+  - migrations/20260221130000_drop_artists_timestamps.sql
+  - migrations/20260221140000_add_check_constraints_non_empty_names.sql
+  - migrations/20260221150000_add_not_null_to_venues_raw_name.sql
+  - migrations/20260221160000_fix_ticket_system_schema.sql
+  - migrations/20260222120000_add_push_subscriptions_table.sql

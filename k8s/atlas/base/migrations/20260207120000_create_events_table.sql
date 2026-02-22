@@ -1,4 +1,3 @@
--- +goose Up
 -- Create events table
 CREATE TABLE events (
     id UUID PRIMARY KEY DEFAULT uuidv7(),

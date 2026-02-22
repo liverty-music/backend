@@ -88,7 +88,7 @@ curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/insta
 podman compose up -d postgres
 
 # Initialize database schema
-# This applies all migrations from internal/infrastructure/database/rdb/migrations/
+# This applies all migrations from k8s/atlas/base/migrations/
 atlas migrate apply --env local
 ```
 
@@ -235,9 +235,9 @@ atlas migrate apply --env local
 #### Migration Directory Structure
 
 ```
-internal/infrastructure/database/rdb/migrations/
-├── schema.sql           # Base schema file
-└── versions/            # Versioned migration files
+k8s/atlas/base/migrations/    # Versioned migration SQL files
+internal/infrastructure/database/rdb/schema/
+└── schema.sql                # Desired-state schema file
 ```
 
 ### Development

@@ -173,6 +173,9 @@ type DatabaseConfig struct {
 	// Database SSL mode
 	SSLMode string `envconfig:"DATABASE_SSL_MODE" default:"disable"`
 
+	// Database schema (sets search_path in DSN)
+	Schema string `envconfig:"DATABASE_SCHEMA" default:"app"`
+
 	// Connection pool settings
 	MaxOpenConns    int `envconfig:"DATABASE_MAX_OPEN_CONNS" default:"25"`
 	MaxIdleConns    int `envconfig:"DATABASE_MAX_IDLE_CONNS" default:"5"`
@@ -379,8 +382,12 @@ func (c *Config) Validate() error {
 
 // GetDSN returns the database connection string.
 func (c DatabaseConfig) GetDSN() string {
-	return fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=%s",
+	dsn := fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=%s",
 		c.Host, c.Port, c.User, c.Name, c.SSLMode)
+	if c.Schema != "" {
+		dsn += fmt.Sprintf(" search_path=%s,public", c.Schema)
+	}
+	return dsn
 }
 
 // IsDevelopment returns true if the environment is "development".

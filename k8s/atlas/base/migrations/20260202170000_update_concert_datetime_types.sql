@@ -1,4 +1,3 @@
--- +goose Up
 -- Rename 'date' column to 'local_event_date'
 ALTER TABLE concerts RENAME COLUMN date TO local_event_date;
 

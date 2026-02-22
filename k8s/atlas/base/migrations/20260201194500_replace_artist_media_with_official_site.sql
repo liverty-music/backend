@@ -1,4 +1,3 @@
--- +goose Up
 -- Drop artist_media table and its index
 DROP INDEX IF EXISTS idx_artist_media_artist_id;
 DROP TABLE IF EXISTS artist_media;

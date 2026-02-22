@@ -57,11 +57,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 
-	if err := rdb.RunMigrations(ctx, cfg, logger); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
 	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg)
 	if err != nil {
 		return nil, err

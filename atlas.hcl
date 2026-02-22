@@ -5,16 +5,16 @@ env "local" {
 
   // A temporary database for schema analysis (diffing, linting).
   // Use a temporary database container for schema analysis to ensure a clean environment.
-  dev = "docker://postgres/18/postgres?search_path=public"
+  dev = "docker://postgres/18/postgres?search_path=app,public"
 
   // This is the "desired state" of the database, generated from models.
   schema {
-    src = "file://internal/infrastructure/database/rdb/migrations/schema.sql"
+    src = "file://internal/infrastructure/database/rdb/schema/schema.sql"
   }
 
   // This represents the "current state" of the database, built from versioned files.
   migration {
-    dir = "file://internal/infrastructure/database/rdb/migrations/versions"
+    dir = "file://k8s/atlas/base/migrations"
   }
 }
 
@@ -25,6 +25,6 @@ env "ci" {
 
   // This is the "desired state" of the database, generated from models.
   schema {
-    src = "file://internal/infrastructure/database/rdb/migrations/schema.sql"
+    src = "file://internal/infrastructure/database/rdb/schema/schema.sql"
   }
 }

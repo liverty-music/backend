@@ -1,0 +1,23 @@
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  name: backend-migration
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  credentials:
+    scheme: postgres
+    host: REPLACE_BY_OVERLAY
+    port: 5432
+    user: postgres
+    passwordFrom:
+      secretKeyRef:
+        name: atlas-db-credentials
+        key: postgres-admin-password
+    database: liverty-music
+    parameters:
+      search_path: app,public
+      sslmode: disable
+  dir:
+    configMapRef:
+      name: atlas-migration-dir

@@ -26,7 +26,7 @@ jobs:
         with:
           filters: |
             src:
-              - 'internal/infrastructure/database/rdb/migrations/**'
+              - 'k8s/atlas/base/migrations/**'
               - 'internal/infrastructure/database/rdb/model.go'
               - 'atlas.hcl'
               - '.github/workflows/**'
@@ -61,7 +61,7 @@ jobs:
         run: |
           atlas migrate validate \
             --dev-url "${{ env.DATABASE_URL }}" \
-            --dir "file://internal/infrastructure/database/rdb/migrations/versions"
+            --dir "file://k8s/atlas/base/migrations"
 
   atlas-ci-skip:
     needs: changes

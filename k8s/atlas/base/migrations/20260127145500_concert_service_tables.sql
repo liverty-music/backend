@@ -1,4 +1,3 @@
--- +goose Up
 -- Create venues table
 CREATE TABLE venues (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
