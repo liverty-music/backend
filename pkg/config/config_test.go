@@ -67,6 +67,9 @@ func TestLoad(t *testing.T) {
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
 				},
+				Blockchain: BlockchainConfig{
+					ChainID: 84532,
+				},
 			},
 			wantErr: nil,
 		},
@@ -132,6 +135,9 @@ func TestLoad(t *testing.T) {
 				JWT: JWTConfig{
 					Issuer:              "https://custom-issuer.com",
 					JWKSRefreshInterval: 30 * time.Minute,
+				},
+				Blockchain: BlockchainConfig{
+					ChainID: 84532,
 				},
 			},
 			wantErr: nil,
