@@ -13,9 +13,9 @@ BEGIN
   -- Grant schema-level permissions to all IAM SA roles.
   -- Cloud SQL creates them as SA_NAME@PROJECT.iam
   FOR iam_role IN SELECT rolname FROM pg_roles WHERE rolname LIKE '%@%.iam' LOOP
-    EXECUTE format('GRANT USAGE, CREATE ON SCHEMA app TO %I', iam_role);
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT ALL ON TABLES TO %I', iam_role);
-    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT ALL ON SEQUENCES TO %I', iam_role);
+    EXECUTE format('GRANT USAGE ON SCHEMA app TO %I', iam_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', iam_role);
+    EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT USAGE, SELECT ON SEQUENCES TO %I', iam_role);
   END LOOP;
 END
 $$;
