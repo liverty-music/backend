@@ -85,6 +85,20 @@ func TestBuilder_Build(t *testing.T) {
 		builder := NewBuilder(25) // exceeds MaxDepth
 		assert.Equal(t, MaxDepth, builder.Depth())
 	})
+
+	t.Run("too many leaves", func(t *testing.T) {
+		builder := NewBuilder(2) // depth 2 → 4 leaves max
+		leaves := make([][]byte, 5)
+		for i := range leaves {
+			var err error
+			leaves[i], err = IdentityCommitment([]byte{byte(i + 1)})
+			require.NoError(t, err)
+		}
+
+		_, _, err := builder.Build("event-1", leaves)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "too many leaves")
+	})
 }
 
 func TestPoseidonHash(t *testing.T) {

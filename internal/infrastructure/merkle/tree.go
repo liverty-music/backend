@@ -29,6 +29,10 @@ func NewBuilder(depth int) *Builder {
 func (b *Builder) Build(eventID string, leaves [][]byte) ([]*entity.MerkleNode, []byte, error) {
 	numLeaves := 1 << b.depth
 
+	if len(leaves) > numLeaves {
+		return nil, nil, fmt.Errorf("too many leaves: got %d, tree depth %d supports at most %d", len(leaves), b.depth, numLeaves)
+	}
+
 	// Pad leaves with zero hashes if necessary.
 	paddedLeaves := make([][]byte, numLeaves)
 	zeroLeaf := make([]byte, 32)
