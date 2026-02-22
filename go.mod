@@ -22,6 +22,7 @@ require (
 	connectrpc.com/validate v0.6.0
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/google/uuid v1.6.0
+	github.com/iden3/go-iden3-crypto v0.0.17
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lestrrat-go/jwx/v2 v2.1.6
@@ -30,6 +31,7 @@ require (
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
+	github.com/vocdoni/circom2gnark v1.0.0
 	go.opentelemetry.io/otel v1.40.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.39.0
 	go.opentelemetry.io/otel/sdk v1.40.0
@@ -61,7 +63,8 @@ require (
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
-	github.com/bits-and-blooms/bitset v1.20.0 // indirect
+	github.com/bits-and-blooms/bitset v1.24.0 // indirect
+	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/brunoga/deep v1.2.4 // indirect
 	github.com/bufbuild/buf v1.57.2 // indirect
 	github.com/bufbuild/protocompile v0.14.1 // indirect
@@ -69,7 +72,8 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cilium/ebpf v0.11.0 // indirect
-	github.com/consensys/gnark-crypto v0.18.1 // indirect
+	github.com/consensys/gnark v0.14.0 // indirect
+	github.com/consensys/gnark-crypto v0.19.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.17.0 // indirect
@@ -93,6 +97,7 @@ require (
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-chi/chi/v5 v5.2.3 // indirect
 	github.com/go-delve/delve v1.26.0 // indirect
 	github.com/go-delve/liner v1.2.3-0.20231231155935-4726ab1d7f62 // indirect
@@ -107,6 +112,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.20.6 // indirect
 	github.com/google/go-dap v0.12.0 // indirect
+	github.com/google/pprof v0.0.0-20250820193118-f64d9cf942d6 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.9 // indirect
 	github.com/googleapis/gax-go/v2 v2.16.0 // indirect
@@ -115,6 +121,7 @@ require (
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/ingonyama-zk/icicle-gnark/v3 v3.2.2 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
@@ -152,6 +159,7 @@ require (
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/quic-go/quic-go v0.54.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/ronanh/intcomp v1.1.1 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
@@ -169,6 +177,7 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/vbatts/tar-split v0.12.1 // indirect
 	github.com/vektra/mockery/v3 v3.5.5 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
