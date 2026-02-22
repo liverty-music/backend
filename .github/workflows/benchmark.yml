@@ -52,7 +52,7 @@ jobs:
         uses: ariga/setup-atlas@v0
 
       - name: Apply database migrations
-        run: atlas migrate apply --url "postgres://testuser:testpassword@localhost:5432/scaffold_test?sslmode=disable" --dir "file://k8s/atlas/base/migrations"
+        run: atlas migrate apply --url "postgres://testuser:testpassword@localhost:5432/scaffold_test?sslmode=disable&search_path=app,public" --dir "file://k8s/atlas/base/migrations"
 
       - name: Run benchmarks
         run: go test -bench=. -benchmem -run=^$ ./...
