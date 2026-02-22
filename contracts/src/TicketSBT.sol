@@ -49,10 +49,6 @@ contract TicketSBT is ERC721, AccessControl, IERC5192 {
         revert("SBT: Ticket transfer is prohibited");
     }
 
-    function safeTransferFrom(address, address, uint256) public pure override {
-        revert("SBT: Ticket transfer is prohibited");
-    }
-
     function safeTransferFrom(address, address, uint256, bytes memory) public pure override {
         revert("SBT: Ticket transfer is prohibited");
     }
