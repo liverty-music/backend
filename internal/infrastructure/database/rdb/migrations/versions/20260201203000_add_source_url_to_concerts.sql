@@ -1,3 +1,4 @@
+-- +goose Up
 -- Add source_url to concerts table
 ALTER TABLE concerts ADD COLUMN IF NOT EXISTS source_url TEXT;
 

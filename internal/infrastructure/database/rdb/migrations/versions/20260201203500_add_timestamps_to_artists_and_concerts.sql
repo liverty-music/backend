@@ -1,3 +1,4 @@
+-- +goose Up
 -- Add created_at and updated_at to artists and concerts tables
 ALTER TABLE artists ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE artists ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();

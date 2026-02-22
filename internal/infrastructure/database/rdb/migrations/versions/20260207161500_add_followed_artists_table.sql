@@ -1,3 +1,4 @@
+-- +goose Up
 -- Drop the old user_artist_subscriptions table if it exists
 DROP TABLE IF EXISTS user_artist_subscriptions;
 

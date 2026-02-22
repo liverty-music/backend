@@ -1,3 +1,4 @@
+-- +goose Up
 -- Create latest_search_logs table for tracking when each artist was last searched
 -- via external sources (e.g., Gemini API). Used to skip redundant API calls.
 CREATE TABLE IF NOT EXISTS latest_search_logs (

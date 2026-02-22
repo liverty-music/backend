@@ -2,13 +2,16 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net"
 	"time"
 
 	"cloud.google.com/go/cloudsqlconn"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -94,6 +97,44 @@ func (d *Database) Ping(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// NewStdlibDB creates a *sql.DB using pgx/v5/stdlib with the same cloudsqlconn.Dialer
+// configuration as the main pool. This short-lived connection is used exclusively
+// for running goose migrations and should be closed by the caller after use.
+func NewStdlibDB(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*sql.DB, error) {
+	connConfig, err := pgx.ParseConfig(cfg.Database.GetDSN())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse pgx config for migrations: %w", err)
+	}
+
+	if !cfg.IsLocal() {
+		d, err := cloudsqlconn.NewDialer(ctx,
+			cloudsqlconn.WithIAMAuthN(),
+			cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPSC()),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create cloud sql connector dialer for migrations: %w", err)
+		}
+
+		connConfig.DialFunc = func(dialCtx context.Context, _ string, _ string) (net.Conn, error) {
+			return d.Dial(dialCtx, cfg.Database.InstanceConnectionName)
+		}
+	}
+
+	db := stdlib.OpenDB(*connConfig)
+
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to ping database for migrations: %w", err)
+	}
+
+	logger.Info(ctx, "Migration database connection established",
+		slog.String("host", cfg.Database.Host),
+		slog.String("database", cfg.Database.Name),
+	)
+
+	return db, nil
 }
 
 // Close closes the database connection.

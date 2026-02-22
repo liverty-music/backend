@@ -1,3 +1,4 @@
+-- +goose Up
 -- Add UNIQUE index on artists.mbid for ON CONFLICT deduplication.
 -- Replaces the existing non-unique index. Only indexes non-empty MBIDs
 -- since some external artists may lack a MusicBrainz ID.

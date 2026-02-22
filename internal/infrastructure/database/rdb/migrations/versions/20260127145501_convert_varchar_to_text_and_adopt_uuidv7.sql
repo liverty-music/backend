@@ -1,3 +1,4 @@
+-- +goose Up
 -- Modify "artist_media" table
 ALTER TABLE "artist_media" ALTER COLUMN "id" SET DEFAULT uuidv7(), ALTER COLUMN "created_at" SET NOT NULL, ALTER COLUMN "updated_at" SET NOT NULL;
 -- Set comment to table: "artist_media"
