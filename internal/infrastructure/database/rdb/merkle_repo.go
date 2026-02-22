@@ -91,6 +91,59 @@ func (r *MerkleTreeRepository) StoreBatch(ctx context.Context, eventID string, n
 	return nil
 }
 
+// StoreBatchWithRoot atomically stores all Merkle tree nodes and updates
+// the event's Merkle root in a single database transaction.
+func (r *MerkleTreeRepository) StoreBatchWithRoot(ctx context.Context, eventID string, nodes []*entity.MerkleNode, root []byte) error {
+	if eventID == "" {
+		return apperr.New(codes.InvalidArgument, "event ID cannot be empty")
+	}
+
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin transaction for merkle tree store with root")
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Delete existing nodes for this event.
+	if _, err := tx.Exec(ctx, deleteMerkleNodesQuery, eventID); err != nil {
+		return toAppErr(err, "failed to delete existing merkle nodes",
+			slog.String("event_id", eventID),
+		)
+	}
+
+	// Insert all new nodes.
+	for _, node := range nodes {
+		if _, err := tx.Exec(ctx, insertMerkleNodeQuery,
+			node.EventID, node.Depth, node.NodeIndex, node.Hash,
+		); err != nil {
+			return toAppErr(err, "failed to insert merkle node",
+				slog.String("event_id", eventID),
+				slog.Int("depth", node.Depth),
+				slog.Int("node_index", node.NodeIndex),
+			)
+		}
+	}
+
+	// Update the event's Merkle root within the same transaction.
+	tag, err := tx.Exec(ctx, updateMerkleRootQuery, eventID, root)
+	if err != nil {
+		return toAppErr(err, "failed to update merkle root",
+			slog.String("event_id", eventID),
+		)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "event not found")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit merkle tree store with root",
+			slog.String("event_id", eventID),
+		)
+	}
+
+	return nil
+}
+
 // GetPath retrieves the Merkle path for a leaf at the given index.
 // Returns path elements (sibling hashes) and path indices (0=left, 1=right).
 func (r *MerkleTreeRepository) GetPath(ctx context.Context, eventID string, leafIndex int, treeDepth int) ([][]byte, []uint32, error) {

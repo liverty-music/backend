@@ -46,6 +46,10 @@ type MerkleTreeRepository interface {
 	// This is called when the tree is (re)built.
 	StoreBatch(ctx context.Context, eventID string, nodes []*MerkleNode) error
 
+	// StoreBatchWithRoot atomically stores all Merkle tree nodes and updates
+	// the event's Merkle root in a single transaction.
+	StoreBatchWithRoot(ctx context.Context, eventID string, nodes []*MerkleNode, root []byte) error
+
 	// GetPath retrieves the Merkle path (sibling hashes and indices) for a
 	// leaf at the given index for the specified event.
 	GetPath(ctx context.Context, eventID string, leafIndex int, treeDepth int) (pathElements [][]byte, pathIndices []uint32, err error)
