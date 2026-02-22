@@ -5,7 +5,7 @@ env "local" {
 
   // A temporary database for schema analysis (diffing, linting).
   // Use a temporary database container for schema analysis to ensure a clean environment.
-  dev = "docker://postgres/18/postgres?search_path=app"
+  dev = "docker://postgres/18/postgres?search_path=app,public"
 
   // This is the "desired state" of the database, generated from models.
   schema {
