@@ -1,4 +1,4 @@
-h1:uR/j7/J3poJWjMnIcy/wbOB9qhxe3yo95hrWrvzRFsQ=
+h1:cL34lN8PFQ9QIKtLSQlHjHKSuGk43zcF6IENQSiU6AA=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -25,3 +25,4 @@ h1:uR/j7/J3poJWjMnIcy/wbOB9qhxe3yo95hrWrvzRFsQ=
 20260221150000_add_not_null_to_venues_raw_name.sql h1:Fg6FigJB/0Z0DGvMliXjK+Et+4likrUYM3BJsgBxMvU=
 20260221160000_fix_ticket_system_schema.sql h1:8Vq8uJ1FBElErQJG2mroZsADNGk7LKP86kblIkYzouc=
 20260222120000_add_push_subscriptions_table.sql h1:HkmeJARmOBgit6Kh7fX3WLu/whg4UW+VW5zwd9GHbwo=
+20260222130000_add_passion_level_to_followed_artists.sql h1:L+XH0J+h7VDT5IrypdpLc5abAgO6Bmzz3CufHGF7IN0=
