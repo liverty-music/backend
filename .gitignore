@@ -29,6 +29,7 @@ vendor/
 
 # Claude settings
 .claude/settings.local.json
+.claude/skills/backend-workflow
 
 # OS-generated files
 .DS_Store
