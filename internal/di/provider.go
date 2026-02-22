@@ -111,6 +111,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			cfg.Blockchain.RPCURL,
 			cfg.Blockchain.DeployerPrivateKey,
 			cfg.Blockchain.TicketSBTAddress,
+			cfg.Blockchain.ChainID,
 		)
 		if err != nil {
 			return nil, err

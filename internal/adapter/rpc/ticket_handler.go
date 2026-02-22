@@ -64,6 +64,9 @@ func (h *TicketHandler) MintTicket(
 	if err != nil {
 		return nil, err
 	}
+	if user == nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
+	}
 
 	ticket, err := h.ticketUseCase.MintTicket(ctx, &usecase.MintTicketParams{
 		EventID:          msg.GetEventId().GetValue(),
@@ -121,6 +124,9 @@ func (h *TicketHandler) ListTicketsForUser(
 	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
 	if err != nil {
 		return nil, err
+	}
+	if user == nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
 	}
 
 	// Use the authenticated user's internal ID from the resolved user record,

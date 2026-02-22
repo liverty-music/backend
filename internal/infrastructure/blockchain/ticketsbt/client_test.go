@@ -25,6 +25,9 @@ const testPrivateKey = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7b
 // testContractAddr is a dummy contract address for unit testing.
 const testContractAddr = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 
+// testChainID is the Base Sepolia chain ID used in tests.
+const testChainID int64 = 84532
+
 // jsonRPCRequest represents a JSON-RPC 2.0 request.
 type jsonRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -122,7 +125,7 @@ func TestNewClient_InvalidInputs(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := ticketsbt.NewClient(context.Background(), tc.rpcURL, tc.privateKey, tc.contract)
+			_, err := ticketsbt.NewClient(context.Background(), tc.rpcURL, tc.privateKey, tc.contract, testChainID)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
@@ -138,7 +141,7 @@ func TestNewClient_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 	require.NoError(t, client.Close())
@@ -163,7 +166,7 @@ func TestIsTokenMinted_NotMinted(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -185,7 +188,7 @@ func TestIsTokenMinted_AlreadyMinted(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -209,7 +212,7 @@ func TestIsTokenMinted_RPCError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -231,7 +234,7 @@ func TestOwnerOf_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -256,7 +259,7 @@ func TestOwnerOf_NonexistentToken(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -273,7 +276,7 @@ func TestMint_ContextCancelled(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 

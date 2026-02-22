@@ -1,5 +1,5 @@
 // Package ticketsbt provides a client for interacting with the TicketSBT ERC-5192
-// soulbound token contract deployed on Base Sepolia.
+// soulbound token contract.
 package ticketsbt
 
 import (
@@ -26,9 +26,6 @@ const erc721NonexistentTokenSelector = "7e273289"
 var _ entity.TicketMinter = (*Client)(nil)
 
 const (
-	// baseSepolia is the chain ID for Base Sepolia testnet.
-	baseSepolia = 84532
-
 	// maxRetries is the maximum number of RPC call attempts.
 	maxRetries = 3
 	// retryBaseDelay is the initial backoff delay between RPC retries.
@@ -46,12 +43,16 @@ type Client struct {
 
 // NewClient creates a new TicketSBT contract client.
 //
-// rpcURL is the Base Sepolia JSON-RPC endpoint.
+// rpcURL is the JSON-RPC endpoint for the target EVM chain.
 // privateKeyHex is the hex-encoded EOA private key that holds MINTER_ROLE.
 // contractAddr is the deployed TicketSBT contract address.
-func NewClient(ctx context.Context, rpcURL, privateKeyHex, contractAddr string) (*Client, error) {
+// chainID is the EIP-155 chain ID used for transaction signing (e.g., 84532 for Base Sepolia).
+func NewClient(ctx context.Context, rpcURL, privateKeyHex, contractAddr string, chainID int64) (*Client, error) {
 	if rpcURL == "" || privateKeyHex == "" || contractAddr == "" {
 		return nil, fmt.Errorf("ticketsbt: rpcURL, privateKeyHex, and contractAddr are required")
+	}
+	if chainID <= 0 {
+		return nil, fmt.Errorf("ticketsbt: chainID must be positive")
 	}
 
 	ethClient, err := ethclient.DialContext(ctx, rpcURL)
@@ -71,7 +72,7 @@ func NewClient(ctx context.Context, rpcURL, privateKeyHex, contractAddr string) 
 		return nil, fmt.Errorf("ticketsbt: failed to bind contract: %w", err)
 	}
 
-	signer, err := bind.NewKeyedTransactorWithChainID(privateKey, big.NewInt(baseSepolia))
+	signer, err := bind.NewKeyedTransactorWithChainID(privateKey, big.NewInt(chainID))
 	if err != nil {
 		return nil, fmt.Errorf("ticketsbt: failed to create transactor: %w", err)
 	}
