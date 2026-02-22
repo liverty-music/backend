@@ -235,10 +235,26 @@ atlas migrate apply --env local
 #### Migration Directory Structure
 
 ```
-k8s/atlas/base/migrations/    # Versioned migration SQL files
+k8s/atlas/base/
+├── kustomization.yaml        # configMapGenerator for migration files
+├── atlas-migration.yaml      # AtlasMigration CRD
+└── migrations/               # Versioned migration SQL files + atlas.sum
+k8s/atlas/overlays/dev/
+└── kustomization.yaml        # Patches Cloud SQL host for dev environment
 internal/infrastructure/database/rdb/schema/
 └── schema.sql                # Desired-state schema file
 ```
+
+#### Production Migrations (GKE)
+
+In production, migrations are executed by the **Atlas Kubernetes Operator** — the application does NOT run migrations at startup.
+
+- The operator connects to Cloud SQL as the `postgres` user via PSC with `sslmode=require`
+- All tables reside in the `app` schema (`search_path=app`)
+- ArgoCD syncs the `AtlasMigration` CRD and ConfigMap from this repo's `k8s/atlas/overlays/<env>`
+- Sync wave ordering ensures migrations complete before the backend Deployment starts
+
+When adding a new migration file, also add it to the `configMapGenerator.files` list in `k8s/atlas/base/kustomization.yaml`.
 
 ### Development
 
