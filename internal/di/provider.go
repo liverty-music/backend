@@ -9,6 +9,7 @@ import (
 
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
+	entryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/entry/v1/entryv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
@@ -18,6 +19,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/zkp"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -188,6 +190,28 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		})
+	}
+
+	// Infrastructure - ZKP Verification (optional; skipped when config is absent)
+	if cfg.ZKP.VerificationKeyPath != "" {
+		verifier, err := zkp.NewVerifier(cfg.ZKP.VerificationKeyPath)
+		if err != nil {
+			return nil, err
+		}
+
+		nullifierRepo := rdb.NewNullifierRepository(db)
+		merkleTreeRepo := rdb.NewMerkleTreeRepository(db)
+		eventEntryRepo := rdb.NewEventEntryRepository(db)
+
+		entryUC := usecase.NewEntryUseCase(verifier, nullifierRepo, merkleTreeRepo, eventEntryRepo, ticketRepo, logger)
+		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return entryconnect.NewEntryServiceHandler(
+				rpc.NewEntryHandler(entryUC, logger),
+				opts...,
+			)
+		})
+	} else {
+		logger.Warn(ctx, "⚠️  ZKP verification key not configured, entry verification is disabled")
 	}
 
 	srv := server.NewConnectServer(cfg, logger, db, authFunc, healthHandler, handlers...)

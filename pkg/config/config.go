@@ -113,6 +113,9 @@ type Config struct {
 	// Blockchain configuration
 	Blockchain BlockchainConfig `envconfig:""`
 
+	// ZKP configuration
+	ZKP ZKPConfig `envconfig:""`
+
 	// Environment
 	Environment string `envconfig:"ENVIRONMENT" default:"local"`
 
@@ -235,6 +238,13 @@ type BlockchainConfig struct {
 
 	// TicketSBTAddress is the deployed TicketSBT contract address.
 	TicketSBTAddress string `envconfig:"TICKET_SBT_ADDRESS"`
+}
+
+// ZKPConfig holds configuration for zero-knowledge proof verification.
+type ZKPConfig struct {
+	// VerificationKeyPath is the file path to the snarkjs verification_key.json.
+	// When empty, ZKP-based entry verification is disabled.
+	VerificationKeyPath string `envconfig:"ZKP_VERIFICATION_KEY_PATH"`
 }
 
 // JWTConfig represents JWT authentication configuration.
