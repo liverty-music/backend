@@ -158,7 +158,11 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 			)
 			continue
 		}
-		resp.Body.Close()
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			uc.logger.Error(ctx, "failed to close push notification response body", closeErr,
+				slog.String("user_id", sub.UserID),
+			)
+		}
 
 		// A 410 Gone response means the subscription is no longer valid.
 		if resp.StatusCode == http.StatusGone {
