@@ -10,10 +10,14 @@ buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260222131540-3918c
 buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260222131540-3918c694a0b3.2/go.mod h1:gJ8Feq0RH+QWZ6oYQGnAOA18iI8U3N1TZ18wwoN2EPo=
 buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260223014019-197931621823.2 h1:BJAux/xPwJLzudBdVtYOy5fsRt+H8ZO6bF4jPiNlGXY=
 buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260223014019-197931621823.2/go.mod h1:+3m2jwnrdx0mrhRpSWF5tedM91zkEtfNY4YjInimMMM=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260223085226-6cb7c6e7d0ba.2 h1:/wDLDt2ZZ3jymUkzCYsakhy97FxqnZCBwNgM+XHb0eI=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260223085226-6cb7c6e7d0ba.2/go.mod h1:nDYx0WsYqg0WlOxJfpI8bh3pg+vQTCiWC5qss7gzaDA=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260222131540-3918c694a0b3.1 h1:TztdCIIxNmPRxkNmoRLlicohhY9bRhLw8rUw4b3g74s=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260222131540-3918c694a0b3.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260223014019-197931621823.1 h1:Q+bvYWyfPOcovadfPJciWDZEWcZhwwMdgTxTbc6CKTE=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260223014019-197931621823.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260223085226-6cb7c6e7d0ba.1 h1:+6SZNOghmxWu3e5PiHY9cdA4VcK2/vSXMW7lAEyhE6E=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260223085226-6cb7c6e7d0ba.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1 h1:KuP+b+in6LGh2ukof5KgDCD8hPXotEq6EVOo13Wg1pE=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1/go.mod h1:dV1Kz6zdmyXt7QWm5OXby44OFpyLemllUDBUG5HMLio=
 buf.build/go/app v0.1.0 h1:nlqD/h0rhIN73ZoiDElprrPiO2N6JV+RmNK34K29Ihg=
