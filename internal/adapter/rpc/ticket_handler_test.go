@@ -12,6 +12,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/infrastructure/blockchain/safe"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -89,7 +90,7 @@ func TestTicketHandler_MintTicket(t *testing.T) {
 			userRepo := mocks.NewMockUserRepository(t)
 			tc.setup(ticketUC, userRepo)
 
-			h := handler.NewTicketHandler(ticketUC, userRepo, logger)
+			h := handler.NewTicketHandler(ticketUC, userRepo, safe.NewPredictor(safe.DefaultSafeProxyFactory, safe.DefaultSafeInitCodeHash), logger)
 
 			var req *connect.Request[ticketv1.MintTicketRequest]
 			if tc.req != nil {
@@ -158,7 +159,7 @@ func TestTicketHandler_GetTicket(t *testing.T) {
 			userRepo := mocks.NewMockUserRepository(t)
 			tc.setup(ticketUC)
 
-			h := handler.NewTicketHandler(ticketUC, userRepo, logger)
+			h := handler.NewTicketHandler(ticketUC, userRepo, safe.NewPredictor(safe.DefaultSafeProxyFactory, safe.DefaultSafeInitCodeHash), logger)
 
 			var req *connect.Request[ticketv1.GetTicketRequest]
 			if tc.req != nil {
@@ -232,7 +233,7 @@ func TestTicketHandler_ListTickets(t *testing.T) {
 			userRepo := mocks.NewMockUserRepository(t)
 			tc.setup(ticketUC, userRepo)
 
-			h := handler.NewTicketHandler(ticketUC, userRepo, logger)
+			h := handler.NewTicketHandler(ticketUC, userRepo, safe.NewPredictor(safe.DefaultSafeProxyFactory, safe.DefaultSafeInitCodeHash), logger)
 
 			var req *connect.Request[ticketv1.ListTicketsRequest]
 			if tc.req != nil {

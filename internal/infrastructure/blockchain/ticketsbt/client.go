@@ -5,16 +5,21 @@ package ticketsbt
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -36,6 +41,7 @@ const (
 
 // Client wraps the TicketSBT contract caller and transactor.
 type Client struct {
+	mu          sync.Mutex
 	ethClient   *ethclient.Client
 	contract    *TicketSBT
 	signer      *bind.TransactOpts
@@ -103,12 +109,39 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// Mint submits a mint transaction to the TicketSBT contract.
-// It retries up to maxRetries times with exponential backoff on transient RPC errors.
+// isTransientError reports whether err represents a transient (retryable) RPC failure.
+// Permanent errors such as execution reverts, insufficient funds, nonce conflicts, and
+// gas estimation failures are not retryable and return false.
+func isTransientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	permanentSubstrings := []string{
+		"execution reverted",
+		"insufficient funds",
+		"nonce too low",
+		"gas required exceeds allowance",
+	}
+	for _, s := range permanentSubstrings {
+		if strings.Contains(msg, s) {
+			return false
+		}
+	}
+	return true
+}
+
+// Mint submits a mint transaction to the TicketSBT contract and waits for on-chain
+// confirmation. It retries up to maxRetries times with exponential backoff on transient
+// RPC errors. Permanent errors (execution reverts, insufficient funds, etc.) are
+// returned immediately without retrying.
 //
 // recipientAddr is the hex-encoded Ethereum address that will receive the soulbound token.
 // tokenID is the ERC-721 token ID to mint (must be > 0 and unique).
 func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	recipient := common.HexToAddress(recipientAddr)
 	tokenIDBig := new(big.Int).SetUint64(tokenID)
 
@@ -133,10 +166,37 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 			}
 		}
 
+		// Fetch a fresh nonce on each attempt to avoid stale nonce after retries.
+		nonce, err := c.ethClient.PendingNonceAt(ctx, c.fromAddress)
+		if err != nil {
+			if !isTransientError(err) {
+				return "", fmt.Errorf("ticketsbt: permanent error fetching nonce: %w", err)
+			}
+			lastErr = fmt.Errorf("ticketsbt: failed to fetch pending nonce: %w", err)
+			continue
+		}
+		opts.Nonce = new(big.Int).SetUint64(nonce)
+
 		tx, err := c.contract.Mint(&opts, recipient, tokenIDBig)
 		if err != nil {
+			if !isTransientError(err) {
+				return "", fmt.Errorf("ticketsbt: permanent mint error: %w", err)
+			}
 			lastErr = err
 			continue
+		}
+
+		// Wait for the transaction to be mined and verify on-chain success.
+		receipt, err := bind.WaitMined(ctx, c.ethClient, tx)
+		if err != nil {
+			if !isTransientError(err) {
+				return "", fmt.Errorf("ticketsbt: permanent error waiting for receipt: %w", err)
+			}
+			lastErr = err
+			continue
+		}
+		if receipt.Status != types.ReceiptStatusSuccessful {
+			return "", fmt.Errorf("ticketsbt: mint transaction reverted on-chain (tx=%s)", tx.Hash().Hex())
 		}
 
 		txHash := tx.Hash().Hex()
@@ -198,15 +258,14 @@ func (c *Client) OwnerOf(ctx context.Context, tokenID uint64) (string, error) {
 }
 
 // IsTokenMinted returns true if the given tokenID has already been minted on-chain.
-// It distinguishes ERC721NonexistentToken reverts (unminted) from real RPC errors
-// by checking for the specific 4-byte ABI selector, not a broad string match.
+// It distinguishes ERC721NonexistentToken reverts (unminted) from real RPC errors by
+// extracting the 4-byte ABI error selector from the RPC error data, which is more
+// robust than string matching against error messages that may change across go-ethereum
+// versions.
 func (c *Client) IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error) {
 	_, err := c.OwnerOf(ctx, tokenID)
 	if err != nil {
-		// Only treat the specific ERC721NonexistentToken revert as "not minted".
-		// All other errors (out-of-gas, wrong contract, network failure) are propagated.
-		if strings.Contains(err.Error(), erc721NonexistentTokenSelector) ||
-			strings.Contains(err.Error(), "ERC721NonexistentToken") {
+		if isERC721NonexistentTokenError(err) {
 			return false, nil
 		}
 		c.logger.Warn(ctx, "unexpected error checking token existence",
@@ -217,4 +276,39 @@ func (c *Client) IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error
 	}
 
 	return true, nil
+}
+
+// isERC721NonexistentTokenError checks whether err is an ERC721NonexistentToken revert.
+// It first attempts to extract the 4-byte ABI error selector from the RPC error data
+// (via rpc.DataError interface), falling back to string matching as a last resort.
+func isERC721NonexistentTokenError(err error) bool {
+	// Try structured error data first (robust across go-ethereum versions).
+	var dataErr rpc.DataError
+	if errors.As(err, &dataErr) {
+		if data, ok := dataErr.ErrorData().(string); ok {
+			// RPC returns error data as a hex string (e.g., "0x7e273289...").
+			data = strings.TrimPrefix(data, "0x")
+			if len(data) >= 8 && data[:8] == erc721NonexistentTokenSelector {
+				return true
+			}
+		}
+	}
+
+	// Try extracting selector from raw hex in the error chain.
+	// Some wrapped errors embed the revert data as hex bytes in the message.
+	var rawErr interface{ ErrorData() interface{} }
+	if errors.As(err, &rawErr) {
+		if rawData, ok := rawErr.ErrorData().([]byte); ok && len(rawData) >= 4 {
+			selector := hex.EncodeToString(rawData[:4])
+			if selector == erc721NonexistentTokenSelector {
+				return true
+			}
+		}
+	}
+
+	// Fallback: string matching for compatibility with error formats that don't
+	// implement DataError (e.g., wrapped errors from middleware).
+	msg := err.Error()
+	return strings.Contains(msg, erc721NonexistentTokenSelector) ||
+		strings.Contains(msg, "ERC721NonexistentToken")
 }

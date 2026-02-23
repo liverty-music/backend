@@ -34,6 +34,10 @@ func (b *Builder) Build(eventID string, leaves [][]byte) ([]*entity.MerkleNode, 
 	}
 
 	// Pad leaves with zero hashes if necessary.
+	// The zero leaf is 32 bytes of 0x00, which must match the zero value used
+	// in the circom circuit for empty positions. Both the Go backend and the
+	// circom Poseidon implementation treat all-zeros as a valid field element
+	// (representing 0 in the BN254 scalar field).
 	paddedLeaves := make([][]byte, numLeaves)
 	zeroLeaf := make([]byte, 32)
 	for i := range paddedLeaves {

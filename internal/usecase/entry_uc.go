@@ -17,8 +17,10 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// DefaultTreeDepth is the default Merkle tree depth used for event entry.
-const DefaultTreeDepth = 10
+// DefaultTreeDepth is the default Merkle tree depth for event entry.
+// Must match the circom TicketCheck circuit depth (currently 20).
+// Supports up to 2^20 (~1M) ticket holders per event.
+const DefaultTreeDepth = 20
 
 // EntryUseCase defines the interface for entry verification business logic.
 type EntryUseCase interface {

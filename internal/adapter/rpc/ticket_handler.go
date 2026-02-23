@@ -22,14 +22,16 @@ var _ ticketconnect.TicketServiceHandler = (*TicketHandler)(nil)
 type TicketHandler struct {
 	ticketUseCase usecase.TicketUseCase
 	userRepo      entity.UserRepository
+	safePredictor *safe.Predictor
 	logger        *logging.Logger
 }
 
 // NewTicketHandler creates a new ticket handler.
-func NewTicketHandler(ticketUseCase usecase.TicketUseCase, userRepo entity.UserRepository, logger *logging.Logger) *TicketHandler {
+func NewTicketHandler(ticketUseCase usecase.TicketUseCase, userRepo entity.UserRepository, safePredictor *safe.Predictor, logger *logging.Logger) *TicketHandler {
 	return &TicketHandler{
 		ticketUseCase: ticketUseCase,
 		userRepo:      userRepo,
+		safePredictor: safePredictor,
 		logger:        logger,
 	}
 }
@@ -66,7 +68,7 @@ func (h *TicketHandler) MintTicket(
 
 	// Lazily compute and persist the Safe address on first ticket mint.
 	if user.SafeAddress == "" {
-		addr := safe.AddressHex(user.ID)
+		addr := h.safePredictor.AddressHex(user.ID)
 		if err := h.userRepo.UpdateSafeAddress(ctx, user.ID, addr); err != nil {
 			h.logger.Warn(ctx, "failed to persist safe address, continuing with computed value",
 				slog.String("user_id", user.ID),

@@ -244,6 +244,14 @@ type BlockchainConfig struct {
 
 	// TicketSBTAddress is the deployed TicketSBT contract address.
 	TicketSBTAddress string `envconfig:"TICKET_SBT_ADDRESS"`
+
+	// SafeProxyFactory is the canonical Safe{Wallet} ProxyFactory contract address.
+	// Default: Safe v1.4.1 canonical deployment on all EVM chains.
+	SafeProxyFactory string `envconfig:"SAFE_PROXY_FACTORY" default:"0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67"`
+
+	// SafeInitCodeHash is keccak256(SafeProxy creation bytecode ++ abi.encode(Safe singleton)).
+	// Default: Safe v1.4.1 canonical init code hash.
+	SafeInitCodeHash string `envconfig:"SAFE_INIT_CODE_HASH" default:"0x52bede2892dc6ee239117844c91b0bdd458c318980592ab4152f5ea44af17f34"`
 }
 
 // VAPIDConfig holds the Web Push VAPID key pair and contact information.

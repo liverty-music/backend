@@ -19,9 +19,15 @@ func toFieldElement(v *big.Int) *big.Int {
 }
 
 // PoseidonHash computes the Poseidon hash of two field elements.
-// This is compatible with circomlib's Poseidon implementation used in the
-// TicketCheck circuit, ensuring the backend-built Merkle tree matches
-// the circuit's expectations.
+//
+// Compatibility note: both iden3/go-iden3-crypto/poseidon (Go) and
+// circomlib/circuits/poseidon.circom (circuit) use the same Poseidon
+// parameters over the BN254 scalar field:
+//   - Field prime: 21888242871839275222246405745257275088548364400416034343698204186575808495617
+//   - t = nInputs + 1 (width), full/partial rounds per the Poseidon paper
+//   - Same MDS matrix and round constants from the iden3 reference implementation
+//
+// This ensures the backend-built Merkle tree matches the circuit's expectations.
 func PoseidonHash(left, right []byte) ([]byte, error) {
 	l := toFieldElement(new(big.Int).SetBytes(left))
 	r := toFieldElement(new(big.Int).SetBytes(right))
