@@ -28,6 +28,25 @@ const (
 		WHERE external_id = $1
 	`
 
+	getUserByEmailQuery = `
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
+		FROM users
+		WHERE email = $1
+	`
+
+	updateUserQuery = `
+		UPDATE users SET external_id = $2, email = $3, name = $4, preferred_language = $5, country = $6, time_zone = $7, updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
+	`
+
+	listUsersQuery = `
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
+		FROM users
+		ORDER BY created_at
+		LIMIT $1 OFFSET $2
+	`
+
 	updateSafeAddressQuery = `
 		UPDATE users SET safe_address = $2, updated_at = NOW() WHERE id = $1
 	`
@@ -116,6 +135,76 @@ func (r *UserRepository) GetByExternalID(ctx context.Context, externalID string)
 	}
 
 	return user, nil
+}
+
+// GetByEmail retrieves a user by email address from the database.
+func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
+	if email == "" {
+		return nil, apperr.New(codes.InvalidArgument, "email cannot be empty")
+	}
+
+	user := &entity.User{}
+	err := r.db.Pool.QueryRow(ctx, getUserByEmailQuery, email).Scan(
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+	)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get user by email", slog.String("email", email))
+	}
+
+	return user, nil
+}
+
+// Update updates user information in the database.
+func (r *UserRepository) Update(ctx context.Context, id string, params *entity.NewUser) (*entity.User, error) {
+	if id == "" {
+		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
+	}
+	if params == nil {
+		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
+	}
+
+	user := &entity.User{}
+	err := r.db.Pool.QueryRow(ctx, updateUserQuery,
+		id, params.ExternalID, params.Email, params.Name, params.PreferredLanguage, params.Country, params.TimeZone,
+	).Scan(
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+	)
+	if err != nil {
+		return nil, toAppErr(err, "failed to update user", slog.String("user_id", id))
+	}
+
+	r.db.logger.Info(ctx, "user updated",
+		slog.String("entityType", "user"),
+		slog.String("userID", user.ID),
+	)
+
+	return user, nil
+}
+
+// List retrieves users with pagination from the database.
+func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*entity.User, error) {
+	rows, err := r.db.Pool.Query(ctx, listUsersQuery, limit, offset)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list users")
+	}
+	defer rows.Close()
+
+	var users []*entity.User
+	for rows.Next() {
+		user := &entity.User{}
+		if err := rows.Scan(
+			&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+		); err != nil {
+			return nil, toAppErr(err, "failed to scan user row")
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to iterate user rows")
+	}
+
+	return users, nil
 }
 
 // UpdateSafeAddress sets the predicted Safe address for a user.
