@@ -63,7 +63,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Repositories
-	userRepo := provideUserRepository(db)
+	userRepo := rdb.NewUserRepository(db)
 	artistRepo := rdb.NewArtistRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
@@ -255,51 +255,4 @@ func provideLogger(cfg *config.Config) (*logging.Logger, error) {
 		opts = append(opts, logging.WithFormat(logging.FormatJSON))
 	}
 	return logging.New(opts...)
-}
-
-func provideUserRepository(_ *rdb.Database) entity.UserRepository {
-	return &MockUserRepository{}
-}
-
-// MockUserRepository is a simple mock implementation for development
-type MockUserRepository struct{}
-
-// Create is a mock implementation that always returns nil.
-func (m *MockUserRepository) Create(_ context.Context, _ *entity.NewUser) (*entity.User, error) {
-	return nil, nil
-}
-
-// Get is a mock implementation that always returns nil.
-func (m *MockUserRepository) Get(_ context.Context, _ string) (*entity.User, error) {
-	return nil, nil
-}
-
-// GetByEmail is a mock implementation that always returns nil.
-func (m *MockUserRepository) GetByEmail(_ context.Context, _ string) (*entity.User, error) {
-	return nil, nil
-}
-
-// GetByExternalID is a mock implementation that always returns nil.
-func (m *MockUserRepository) GetByExternalID(_ context.Context, _ string) (*entity.User, error) {
-	return nil, nil
-}
-
-// Update is a mock implementation that always returns nil.
-func (m *MockUserRepository) Update(_ context.Context, _ string, _ *entity.NewUser) (*entity.User, error) {
-	return nil, nil
-}
-
-// Delete is a mock implementation that always returns nil.
-func (m *MockUserRepository) Delete(_ context.Context, _ string) error {
-	return nil
-}
-
-// UpdateSafeAddress is a mock implementation that always returns nil.
-func (m *MockUserRepository) UpdateSafeAddress(_ context.Context, _, _ string) error {
-	return nil
-}
-
-// List is a mock implementation that always returns nil.
-func (m *MockUserRepository) List(_ context.Context, _, _ int) ([]*entity.User, error) {
-	return nil, nil
 }
