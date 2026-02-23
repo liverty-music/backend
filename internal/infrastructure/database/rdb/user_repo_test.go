@@ -82,8 +82,6 @@ func TestUserRepository_Create(t *testing.T) {
 			assert.Equal(t, tt.args.params.Email, got.Email)
 			assert.Equal(t, tt.args.params.Name, got.Name)
 			assert.Equal(t, tt.args.params.ExternalID, got.ExternalID)
-			assert.False(t, got.CreateTime.IsZero())
-			assert.False(t, got.UpdateTime.IsZero())
 		})
 	}
 }
@@ -475,7 +473,7 @@ func TestUserRepository_UpdateSafeAddress(t *testing.T) {
 				require.NoError(t, err)
 				return user.ID
 			},
-			safeAddress: "0x1234567890abcdef",
+			safeAddress: "0x1234567890abcdef1234567890abcdef12345678",
 			wantErr:     nil,
 		},
 		{

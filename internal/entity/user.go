@@ -1,9 +1,6 @@
 package entity
 
-import (
-	"context"
-	"time"
-)
+import "context"
 
 // User represents a user who registers for concert notifications.
 //
@@ -28,10 +25,6 @@ type User struct {
 	SafeAddress string
 	// IsActive indicates if the user account is active.
 	IsActive bool
-	// CreateTime is the timestamp when the user was created.
-	CreateTime time.Time
-	// UpdateTime is the timestamp when the user was last updated.
-	UpdateTime time.Time
 }
 
 // NewUser represents data for creating a new user.
