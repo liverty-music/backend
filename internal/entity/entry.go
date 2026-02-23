@@ -14,8 +14,8 @@ type Nullifier struct {
 	EventID string
 	// NullifierHash is the hash value derived from the ZKP circuit.
 	NullifierHash []byte
-	// UsedAt is the timestamp when this nullifier was recorded.
-	UsedAt time.Time
+	// UseTime is the timestamp when this nullifier was recorded.
+	UseTime time.Time
 }
 
 // MerkleNode represents a single node in the Merkle tree stored in the database.

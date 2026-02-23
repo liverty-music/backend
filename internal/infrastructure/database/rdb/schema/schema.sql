@@ -16,8 +16,6 @@ CREATE TABLE IF NOT EXISTS users (
     time_zone TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     safe_address TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT users_safe_address_unique UNIQUE (safe_address),
     CONSTRAINT chk_safe_address_format CHECK (safe_address IS NULL OR safe_address ~ '^0x[0-9a-fA-F]{40}$')
 );
@@ -32,8 +30,6 @@ COMMENT ON COLUMN users.country IS 'User country code (ISO 3166-1 alpha-2)';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
 COMMENT ON COLUMN users.is_active IS 'Whether the user account is active';
 COMMENT ON COLUMN users.safe_address IS 'Predicted Safe (ERC-4337) address derived deterministically from users.id via CREATE2';
-COMMENT ON COLUMN users.created_at IS 'Timestamp when the user was created';
-COMMENT ON COLUMN users.updated_at IS 'Timestamp when the user was last updated';
 
 -- Artists table
 CREATE TABLE IF NOT EXISTS artists (
@@ -53,9 +49,7 @@ COMMENT ON COLUMN artists.mbid IS 'Canonical MusicBrainz Identifier (MBID format
 CREATE TABLE IF NOT EXISTS artist_official_site (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE UNIQUE,
-    url TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    url TEXT NOT NULL
 );
 
 COMMENT ON TABLE artist_official_site IS 'Stores the official website URL for each artist, used for concert search grounding.';
@@ -75,8 +69,6 @@ CREATE TABLE IF NOT EXISTS venues (
     google_place_id TEXT,
     enrichment_status venue_enrichment_status NOT NULL DEFAULT 'pending',
     raw_name TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_venues_name_not_empty CHECK (name <> ''),
     CONSTRAINT chk_venues_raw_name_not_empty CHECK (raw_name <> '')
 );
@@ -89,8 +81,6 @@ COMMENT ON COLUMN venues.mbid IS 'MusicBrainz Place ID (UUID format) for the can
 COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID for the canonical venue record; NULL until enriched';
 COMMENT ON COLUMN venues.enrichment_status IS 'Current state of the venue normalization pipeline: pending (default), enriched, or failed';
 COMMENT ON COLUMN venues.raw_name IS 'Original scraper-provided venue name before canonical renaming; backfilled from name on migration';
-COMMENT ON COLUMN venues.created_at IS 'Timestamp when the venue was added to the system';
-COMMENT ON COLUMN venues.updated_at IS 'Timestamp when venue data was last updated';
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (
@@ -102,9 +92,7 @@ CREATE TABLE IF NOT EXISTS events (
     start_at TIMESTAMPTZ,
     open_at TIMESTAMPTZ,
     source_url TEXT,
-    merkle_root BYTEA,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    merkle_root BYTEA
 );
 
 COMMENT ON TABLE events IS 'Generic event data including time, location, and metadata';
@@ -117,8 +105,6 @@ COMMENT ON COLUMN events.start_at IS 'Event start time (absolute)';
 COMMENT ON COLUMN events.open_at IS 'Doors open time (absolute), if available';
 COMMENT ON COLUMN events.source_url IS 'URL where the event information was found';
 COMMENT ON COLUMN events.merkle_root IS 'Merkle tree root hash for ZKP identity set; NULL for non-ticket events';
-COMMENT ON COLUMN events.created_at IS 'Timestamp when the event was created';
-COMMENT ON COLUMN events.updated_at IS 'Timestamp when the event was last updated';
 
 -- Concerts table
 CREATE TABLE IF NOT EXISTS concerts (
@@ -135,7 +121,6 @@ CREATE TABLE IF NOT EXISTS followed_artists (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     passion_level TEXT NOT NULL DEFAULT 'local_only',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, artist_id),
     CONSTRAINT chk_followed_artists_passion_level CHECK (passion_level IN ('must_go', 'local_only', 'keep_an_eye'))
 );
@@ -144,7 +129,6 @@ COMMENT ON TABLE followed_artists IS 'Tracks which artists a user is following f
 COMMENT ON COLUMN followed_artists.user_id IS 'Reference to the user who is following';
 COMMENT ON COLUMN followed_artists.artist_id IS 'Reference to the artist being followed';
 COMMENT ON COLUMN followed_artists.passion_level IS 'User enthusiasm tier: must_go, local_only (default), or keep_an_eye';
-COMMENT ON COLUMN followed_artists.created_at IS 'Timestamp when the follow occurred';
 
 -- Notifications table
 CREATE TABLE IF NOT EXISTS notifications (
@@ -158,9 +142,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     language TEXT NOT NULL DEFAULT 'en',
     status TEXT NOT NULL DEFAULT 'pending',
     scheduled_at TIMESTAMPTZ NOT NULL,
-    sent_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    sent_at TIMESTAMPTZ
 );
 
 COMMENT ON TABLE notifications IS 'Scheduled and sent notifications about concerts and artist activities';
@@ -175,8 +157,6 @@ COMMENT ON COLUMN notifications.language IS 'ISO 639-1 language code for the not
 COMMENT ON COLUMN notifications.status IS 'Delivery status: pending, sent, failed, or cancelled';
 COMMENT ON COLUMN notifications.scheduled_at IS 'When the notification should be sent';
 COMMENT ON COLUMN notifications.sent_at IS 'Actual timestamp when the notification was sent (NULL if not sent)';
-COMMENT ON COLUMN notifications.created_at IS 'Timestamp when the notification was created';
-COMMENT ON COLUMN notifications.updated_at IS 'Timestamp when notification status was last updated';
 
 -- Latest search logs table
 CREATE TABLE IF NOT EXISTS latest_search_logs (

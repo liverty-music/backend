@@ -17,13 +17,13 @@ type UserRepository struct {
 
 const (
 	getUserQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
 		FROM users
 		WHERE id = $1
 	`
 
 	getUserByExternalIDQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
 		FROM users
 		WHERE external_id = $1
 	`
@@ -48,13 +48,13 @@ const (
 	`
 
 	updateSafeAddressQuery = `
-		UPDATE users SET safe_address = $2, updated_at = NOW() WHERE id = $1
+		UPDATE users SET safe_address = $2 WHERE id = $1
 	`
 
 	insertUserQuery = `
 		INSERT INTO users (external_id, email, name, preferred_language, country, time_zone, is_active)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, created_at, updated_at
+		RETURNING id
 	`
 	deleteUserQuery = `
 		DELETE FROM users WHERE id = $1
@@ -84,7 +84,7 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 
 	err := r.db.Pool.QueryRow(ctx, insertUserQuery,
 		user.ExternalID, user.Email, user.Name, user.PreferredLanguage, user.Country, user.TimeZone, user.IsActive,
-	).Scan(&user.ID, &user.CreateTime, &user.UpdateTime)
+	).Scan(&user.ID)
 	if err != nil {
 		if IsUniqueViolation(err) {
 			r.db.logger.Warn(ctx, "duplicate user",
@@ -111,7 +111,7 @@ func (r *UserRepository) Get(ctx context.Context, id string) (*entity.User, erro
 
 	user := &entity.User{}
 	err := r.db.Pool.QueryRow(ctx, getUserQuery, id).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user", slog.String("user_id", id))
@@ -128,7 +128,7 @@ func (r *UserRepository) GetByExternalID(ctx context.Context, externalID string)
 
 	user := &entity.User{}
 	err := r.db.Pool.QueryRow(ctx, getUserByExternalIDQuery, externalID).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user by external ID", slog.String("external_id", externalID))

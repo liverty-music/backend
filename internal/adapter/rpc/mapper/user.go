@@ -8,7 +8,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // UserToProto converts domain User entity to protobuf User.
@@ -27,8 +26,7 @@ func UserToProto(user *entity.User) *proto.User {
 		ExternalId: &proto.UserExternalId{
 			Value: user.ExternalID,
 		},
-		Name:       user.Name,
-		CreateTime: timestamppb.New(user.CreateTime),
+		Name: user.Name,
 	}
 }
 
