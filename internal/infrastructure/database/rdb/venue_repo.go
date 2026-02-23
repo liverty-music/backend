@@ -69,8 +69,21 @@ func (r *VenueRepository) Create(ctx context.Context, venue *entity.Venue) error
 	}
 	_, err := r.db.Pool.Exec(ctx, insertVenueQuery, venue.ID, venue.Name, venue.AdminArea, status, rawName)
 	if err != nil {
+		if IsUniqueViolation(err) {
+			r.db.logger.Warn(ctx, "duplicate venue",
+				slog.String("entityType", "venue"),
+				slog.String("venueID", venue.ID),
+				slog.String("name", venue.Name),
+			)
+		}
 		return toAppErr(err, "failed to create venue", slog.String("venue_id", venue.ID), slog.String("name", venue.Name))
 	}
+
+	r.db.logger.Info(ctx, "venue created",
+		slog.String("entityType", "venue"),
+		slog.String("venueID", venue.ID),
+		slog.String("name", venue.Name),
+	)
 	return nil
 }
 
@@ -127,6 +140,12 @@ func (r *VenueRepository) UpdateEnriched(ctx context.Context, venue *entity.Venu
 	if err != nil {
 		return toAppErr(err, "failed to update enriched venue", slog.String("venue_id", venue.ID))
 	}
+
+	r.db.logger.Info(ctx, "venue updated",
+		slog.String("entityType", "venue"),
+		slog.String("venueID", venue.ID),
+		slog.String("field", "enrichment"),
+	)
 	return nil
 }
 
@@ -136,6 +155,11 @@ func (r *VenueRepository) MarkFailed(ctx context.Context, id string) error {
 	if err != nil {
 		return toAppErr(err, "failed to mark venue as failed", slog.String("venue_id", id))
 	}
+
+	r.db.logger.Warn(ctx, "venue enrichment failed",
+		slog.String("entityType", "venue"),
+		slog.String("venueID", id),
+	)
 	return nil
 }
 
@@ -228,5 +252,11 @@ func (r *VenueRepository) MergeVenues(ctx context.Context, canonicalID, duplicat
 	if err := tx.Commit(ctx); err != nil {
 		return toAppErr(err, "failed to commit merge transaction")
 	}
+
+	r.db.logger.Info(ctx, "venues merged",
+		slog.String("entityType", "venue"),
+		slog.String("canonicalID", canonicalID),
+		slog.String("duplicateID", duplicateID),
+	)
 	return nil
 }

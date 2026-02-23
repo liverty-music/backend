@@ -29,7 +29,7 @@ func TestClient_Integration(t *testing.T) {
 		t.Skip("LASTFM_API_KEY not set, skipping integration test")
 	}
 
-	client := lastfm.NewClient(cfg.LastFMAPIKey, nil)
+	client := lastfm.NewClient(cfg.LastFMAPIKey, nil, testLogger(t))
 	ctx := context.Background()
 
 	t.Run("Search", func(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -29,8 +28,8 @@ type JobApp struct {
 }
 
 // Shutdown closes all resources held by the job application.
-func (a *JobApp) Shutdown(_ context.Context) error {
-	log.Println("Starting job shutdown...")
+func (a *JobApp) Shutdown(ctx context.Context) error {
+	a.Logger.Info(ctx, "starting job shutdown")
 
 	var errs error
 	for _, closer := range a.closers {
@@ -43,7 +42,7 @@ func (a *JobApp) Shutdown(_ context.Context) error {
 		return errs
 	}
 
-	log.Println("Job shutdown complete")
+	a.Logger.Info(ctx, "job shutdown complete")
 	return nil
 }
 
@@ -108,13 +107,13 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	)
 
 	// Infrastructure - Venue enrichment place searchers
-	mbClient := musicbrainz.NewClient(nil)
+	mbClient := musicbrainz.NewClient(nil, logger)
 	mbSearcher := musicbrainz.NewPlaceSearcher(mbClient)
 
 	var searchers []usecase.VenueNamedSearcher
 	searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: mbSearcher, AssignToMBID: true})
 	if cfg.GoogleMapsAPIKey != "" {
-		gmClient := googleMaps.NewClient(cfg.GoogleMapsAPIKey, nil)
+		gmClient := googleMaps.NewClient(cfg.GoogleMapsAPIKey, nil, logger)
 		gmSearcher := googleMaps.NewPlaceSearcher(gmClient)
 		searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: gmSearcher, AssignToMBID: false})
 	}

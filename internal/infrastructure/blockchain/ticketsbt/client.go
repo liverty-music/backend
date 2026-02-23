@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // erc721NonexistentTokenSelector is the 4-byte ABI selector for ERC721NonexistentToken(uint256).
@@ -39,6 +41,7 @@ type Client struct {
 	signer      *bind.TransactOpts
 	privateKey  *ecdsa.PrivateKey
 	fromAddress common.Address
+	logger      *logging.Logger
 }
 
 // NewClient creates a new TicketSBT contract client.
@@ -47,13 +50,15 @@ type Client struct {
 // privateKeyHex is the hex-encoded EOA private key that holds MINTER_ROLE.
 // contractAddr is the deployed TicketSBT contract address.
 // chainID is the EIP-155 chain ID used for transaction signing (e.g., 84532 for Base Sepolia).
-func NewClient(ctx context.Context, rpcURL, privateKeyHex, contractAddr string, chainID int64) (*Client, error) {
+func NewClient(ctx context.Context, rpcURL, privateKeyHex, contractAddr string, chainID int64, logger *logging.Logger) (*Client, error) {
 	if rpcURL == "" || privateKeyHex == "" || contractAddr == "" {
 		return nil, fmt.Errorf("ticketsbt: rpcURL, privateKeyHex, and contractAddr are required")
 	}
 	if chainID <= 0 {
 		return nil, fmt.Errorf("ticketsbt: chainID must be positive")
 	}
+
+	l := logger.With(slog.String("component", "ticketsbt"))
 
 	ethClient, err := ethclient.DialContext(ctx, rpcURL)
 	if err != nil {
@@ -77,12 +82,18 @@ func NewClient(ctx context.Context, rpcURL, privateKeyHex, contractAddr string, 
 		return nil, fmt.Errorf("ticketsbt: failed to create transactor: %w", err)
 	}
 
+	l.Info(ctx, "blockchain client initialized",
+		slog.String("contractAddr", contractAddr),
+		slog.Int64("chainID", chainID),
+	)
+
 	return &Client{
 		ethClient:   ethClient,
 		contract:    contract,
 		signer:      signer,
 		privateKey:  privateKey,
 		fromAddress: fromAddress,
+		logger:      l,
 	}, nil
 }
 
@@ -109,6 +120,12 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 	for attempt := range maxRetries {
 		if attempt > 0 {
 			delay := retryBaseDelay * time.Duration(1<<uint(attempt-1))
+			c.logger.Debug(ctx, "mint retry backoff",
+				slog.Uint64("tokenID", tokenID),
+				slog.Int("attempt", attempt+1),
+				slog.Int("maxAttempts", maxRetries),
+				slog.String("error", lastErr.Error()),
+			)
 			select {
 			case <-ctx.Done():
 				return "", ctx.Err()
@@ -122,9 +139,20 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 			continue
 		}
 
-		return tx.Hash().Hex(), nil
+		txHash := tx.Hash().Hex()
+		c.logger.Info(ctx, "ticket minted",
+			slog.Uint64("tokenID", tokenID),
+			slog.String("recipient", recipientAddr),
+			slog.String("txHash", txHash),
+		)
+		return txHash, nil
 	}
 
+	c.logger.Error(ctx, "mint failed after retries", lastErr,
+		slog.Uint64("tokenID", tokenID),
+		slog.String("recipient", recipientAddr),
+		slog.Int("attempts", maxRetries),
+	)
 	return "", fmt.Errorf("ticketsbt: mint failed after %d attempts: %w", maxRetries, lastErr)
 }
 
@@ -134,10 +162,18 @@ func (c *Client) OwnerOf(ctx context.Context, tokenID uint64) (string, error) {
 	callOpts := &bind.CallOpts{Context: ctx}
 	tokenIDBig := new(big.Int).SetUint64(tokenID)
 
+	c.logger.Debug(ctx, "querying token owner", slog.Uint64("tokenID", tokenID))
+
 	var lastErr error
 	for attempt := range maxRetries {
 		if attempt > 0 {
 			delay := retryBaseDelay * time.Duration(1<<uint(attempt-1))
+			c.logger.Debug(ctx, "ownerOf retry backoff",
+				slog.Uint64("tokenID", tokenID),
+				slog.Int("attempt", attempt+1),
+				slog.Int("maxAttempts", maxRetries),
+				slog.String("error", lastErr.Error()),
+			)
 			select {
 			case <-ctx.Done():
 				return "", ctx.Err()
@@ -154,6 +190,10 @@ func (c *Client) OwnerOf(ctx context.Context, tokenID uint64) (string, error) {
 		return strings.ToLower(owner.Hex()), nil
 	}
 
+	c.logger.Error(ctx, "ownerOf failed after retries", lastErr,
+		slog.Uint64("tokenID", tokenID),
+		slog.Int("attempts", maxRetries),
+	)
 	return "", fmt.Errorf("ticketsbt: ownerOf failed after %d attempts: %w", maxRetries, lastErr)
 }
 
@@ -169,6 +209,10 @@ func (c *Client) IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error
 			strings.Contains(err.Error(), "ERC721NonexistentToken") {
 			return false, nil
 		}
+		c.logger.Warn(ctx, "unexpected error checking token existence",
+			slog.Uint64("tokenID", tokenID),
+			slog.String("error", err.Error()),
+		)
 		return false, fmt.Errorf("ticketsbt: failed to check token ownership: %w", err)
 	}
 

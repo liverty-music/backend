@@ -116,8 +116,14 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 	// This prevents an attacker from submitting a proof generated for a
 	// different event, which would produce a different nullifier and bypass
 	// double-entry protection.
-	if err := signals.verifyEventID(params.EventID); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "event ID mismatch in public signals")
+	eventIDErr := signals.verifyEventID(params.EventID)
+	uc.logger.Info(ctx, "entry verification step",
+		slog.String("step", "eventID"),
+		slog.String("eventID", params.EventID),
+		slog.Bool("match", eventIDErr == nil),
+	)
+	if eventIDErr != nil {
+		return nil, apperr.Wrap(eventIDErr, codes.InvalidArgument, "event ID mismatch in public signals")
 	}
 
 	nullifierHash := signals.nullifierHash
@@ -128,7 +134,13 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 		return nil, apperr.Wrap(err, codes.Internal, "failed to get expected merkle root")
 	}
 
-	if !bytesEqual(merkleRoot, expectedRoot) {
+	rootMatch := bytesEqual(merkleRoot, expectedRoot)
+	uc.logger.Info(ctx, "entry verification step",
+		slog.String("step", "merkleRoot"),
+		slog.String("eventID", params.EventID),
+		slog.Bool("match", rootMatch),
+	)
+	if !rootMatch {
 		return &VerifyEntryResult{
 			Verified: false,
 			Message:  "merkle root mismatch: proof does not match event membership set",
@@ -140,7 +152,17 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to check nullifier")
 	}
+
+	uc.logger.Info(ctx, "entry verification step",
+		slog.String("step", "nullifier"),
+		slog.String("eventID", params.EventID),
+		slog.Bool("isDuplicate", exists),
+	)
 	if exists {
+		uc.logger.Warn(ctx, "duplicate entry attempt",
+			slog.String("eventID", params.EventID),
+			slog.String("nullifier", hex.EncodeToString(nullifierHash)),
+		)
 		return &VerifyEntryResult{
 			Verified: false,
 			Message:  "already checked in for this event",

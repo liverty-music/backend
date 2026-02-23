@@ -67,8 +67,19 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 		user.ExternalID, user.Email, user.Name, user.PreferredLanguage, user.Country, user.TimeZone, user.IsActive,
 	).Scan(&user.ID, &user.CreateTime, &user.UpdateTime)
 	if err != nil {
+		if IsUniqueViolation(err) {
+			r.db.logger.Warn(ctx, "duplicate user",
+				slog.String("entityType", "user"),
+				slog.String("email", user.Email),
+			)
+		}
 		return nil, toAppErr(err, "failed to create user", slog.String("email", user.Email))
 	}
+
+	r.db.logger.Info(ctx, "user created",
+		slog.String("entityType", "user"),
+		slog.String("userID", user.ID),
+	)
 
 	return user, nil
 }
@@ -121,6 +132,12 @@ func (r *UserRepository) UpdateSafeAddress(ctx context.Context, id, safeAddress 
 	if result.RowsAffected() == 0 {
 		return apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
 	}
+
+	r.db.logger.Info(ctx, "user updated",
+		slog.String("entityType", "user"),
+		slog.String("userID", id),
+		slog.String("field", "safeAddress"),
+	)
 
 	return nil
 }

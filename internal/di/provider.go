@@ -87,8 +87,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Infrastructure - Music
-	lastfmClient := lastfm.NewClient(cfg.LastFMAPIKey, nil)
-	musicbrainzClient := musicbrainz.NewClient(nil)
+	lastfmClient := lastfm.NewClient(cfg.LastFMAPIKey, nil, logger)
+	musicbrainzClient := musicbrainz.NewClient(nil, logger)
 
 	// Cache - Artist discovery results with 1 hour TTL
 	artistCache := cache.NewMemoryCache(1 * time.Hour)
@@ -117,6 +117,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			cfg.Blockchain.DeployerPrivateKey,
 			cfg.Blockchain.TicketSBTAddress,
 			cfg.Blockchain.ChainID,
+			logger,
 		)
 		if err != nil {
 			return nil, err
@@ -232,7 +233,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		closers = append(closers, sbtCloser)
 	}
 
-	return newApp(srv, closers...), nil
+	return newApp(srv, logger, closers...), nil
 }
 
 func provideLogger(cfg *config.Config) (*logging.Logger, error) {

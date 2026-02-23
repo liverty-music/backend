@@ -6,14 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 
 	"github.com/liverty-music/backend/internal/infrastructure/server"
+	"github.com/pannpers/go-logging/logging"
 )
 
-func newApp(server *server.ConnectServer, closers ...io.Closer) *App {
+func newApp(server *server.ConnectServer, logger *logging.Logger, closers ...io.Closer) *App {
 	return &App{
 		Server:  server,
+		Logger:  logger,
 		Closers: closers,
 	}
 }
@@ -21,12 +22,13 @@ func newApp(server *server.ConnectServer, closers ...io.Closer) *App {
 // App represents the application with all its dependencies and lifecycle management.
 type App struct {
 	Server  *server.ConnectServer
+	Logger  *logging.Logger
 	Closers []io.Closer
 }
 
 // Shutdown gracefully shuts down the application and closes all resources.
-func (a *App) Shutdown(_ context.Context) error {
-	log.Println("Starting application shutdown...")
+func (a *App) Shutdown(ctx context.Context) error {
+	a.Logger.Info(ctx, "starting application shutdown")
 
 	var errs error
 
@@ -46,7 +48,7 @@ func (a *App) Shutdown(_ context.Context) error {
 		return errs
 	}
 
-	log.Println("Application shutdown complete")
+	a.Logger.Info(ctx, "application shutdown complete")
 
 	return nil
 }

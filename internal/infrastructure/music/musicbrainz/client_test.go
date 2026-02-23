@@ -11,9 +11,16 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testLogger(t *testing.T) *logging.Logger {
+	t.Helper()
+	l, _ := logging.New()
+	return l
+}
 
 // Local types mirroring the unexported response types in the package under test.
 type artistResponse struct {
@@ -110,7 +117,7 @@ func TestClient_GetArtist(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := musicbrainz.NewClient(server.Client())
+			client := musicbrainz.NewClient(server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL + "/")
 
 			artist, err := client.GetArtist(context.Background(), tt.args.mbid)
@@ -214,7 +221,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := musicbrainz.NewClient(server.Client())
+			client := musicbrainz.NewClient(server.Client(), testLogger(t))
 			client.SetPlaceBaseURL(server.URL + "/")
 
 			place, err := client.SearchPlace(context.Background(), tt.venueName, tt.adminArea)
@@ -241,7 +248,7 @@ func TestClient_GetArtist_ContextTimeout(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := musicbrainz.NewClient(server.Client())
+		client := musicbrainz.NewClient(server.Client(), testLogger(t))
 		client.SetBaseURL(server.URL + "/")
 
 		ctx, cancel := context.WithCancel(context.Background())

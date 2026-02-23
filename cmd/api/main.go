@@ -3,17 +3,20 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/pannpers/go-logging/logging"
 )
 
 func main() {
 	if err := run(); err != nil {
-		log.Printf("Server failed: %v", err)
+		// Bootstrap logger for fatal error before exit.
+		logger, _ := logging.New()
+		logger.Error(context.Background(), "server failed", err)
 		os.Exit(1)
 	}
 }
@@ -27,7 +30,9 @@ func run() error {
 	)
 	defer stop()
 
-	log.Println("Starting server...")
+	// Bootstrap logger for pre-initialization messages.
+	bootLogger, _ := logging.New()
+	bootLogger.Info(ctx, "starting server")
 
 	app, err := di.InitializeApp(ctx)
 	if err != nil {
@@ -35,7 +40,7 @@ func run() error {
 	}
 	defer func() {
 		if err := app.Shutdown(context.Background()); err != nil {
-			log.Printf("error during shutdown: %v", err)
+			app.Logger.Error(context.Background(), "error during shutdown", err)
 		}
 	}()
 
@@ -51,11 +56,13 @@ func run() error {
 	// Wait for either context cancellation (signal) or server error
 	select {
 	case <-ctx.Done():
-		log.Println("Received shutdown signal, stopping server gracefully...")
+		app.Logger.Info(ctx, "received shutdown signal, stopping server gracefully",
+			slog.String("signal", ctx.Err().Error()),
+		)
 		return nil
 
 	case err := <-errChan:
-		log.Printf("Server failed to start: %v", err)
+		app.Logger.Error(ctx, "server failed to start", err)
 		return err
 	}
 }

@@ -11,9 +11,16 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testLogger(t *testing.T) *logging.Logger {
+	t.Helper()
+	l, _ := logging.New()
+	return l
+}
 
 // Local types mirroring the unexported response types in the package under test.
 // These are used so black-box tests can construct expected JSON responses.
@@ -141,7 +148,7 @@ func TestClient_Search(t *testing.T) {
 			}))
 			defer server.Close()
 
-			c := lastfm.NewClient("test-key", server.Client())
+			c := lastfm.NewClient("test-key", server.Client(), testLogger(t))
 			c.SetBaseURL(server.URL + "/")
 
 			artists, err := c.Search(context.Background(), tt.args.query)
@@ -236,7 +243,7 @@ func TestClient_ListSimilar(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := lastfm.NewClient("test-key", server.Client())
+			client := lastfm.NewClient("test-key", server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL + "/")
 
 			artists, err := client.ListSimilar(context.Background(), tt.args.artist)
@@ -345,7 +352,7 @@ func TestClient_ListTop(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := lastfm.NewClient("test-key", server.Client())
+			client := lastfm.NewClient("test-key", server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL + "/")
 
 			artists, err := client.ListTop(context.Background(), tt.args.country, tt.args.tag)
@@ -373,7 +380,7 @@ func TestClient_ContextTimeout(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := lastfm.NewClient("test-key", server.Client())
+		client := lastfm.NewClient("test-key", server.Client(), testLogger(t))
 		client.SetBaseURL(server.URL + "/")
 
 		ctx, cancel := context.WithCancel(context.Background())
