@@ -45,6 +45,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -55,6 +56,7 @@ import (
 	"github.com/liverty-music/backend/pkg/throttle"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 )
 
 const (
@@ -104,10 +106,11 @@ type client struct {
 	baseURL      string
 	placeBaseURL string
 	throttler    *throttle.Throttler
+	logger       *logging.Logger
 }
 
 // NewClient creates a new MusicBrainz client instance.
-func NewClient(httpClient *http.Client) *client {
+func NewClient(httpClient *http.Client, logger *logging.Logger) *client {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: 10 * time.Second,
@@ -118,11 +121,14 @@ func NewClient(httpClient *http.Client) *client {
 		baseURL:      baseURL,
 		placeBaseURL: placeBaseURL,
 		throttler:    throttle.New(rateLimitInterval, 100), // Buffer up to 100 requests
+		logger:       logger.With(slog.String("component", "musicbrainz")),
 	}
 }
 
 // GetArtist retrieves canonical artist data using an MBID.
 func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, error) {
+	c.logger.Info(ctx, "getting artist", slog.String("mbid", mbid))
+
 	url := fmt.Sprintf("%s%s?fmt=json", c.baseURL, mbid)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -132,6 +138,8 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 
 	req.Header.Set("User-Agent", userAgent)
 
+	c.logger.Debug(ctx, "rate limiter backoff", slog.String("mbid", mbid))
+
 	var resp *http.Response
 	err = c.throttler.Do(ctx, func() error {
 		var err error
@@ -140,6 +148,7 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 	})
 
 	if err := api.FromHTTP(err, resp, "musicbrainz api request failed"); err != nil {
+		c.logger.Error(ctx, "musicbrainz artist request failed", err, slog.String("mbid", mbid))
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -162,6 +171,8 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 //
 // Returns an empty string without error when no active official homepage is found.
 func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (string, error) {
+	c.logger.Info(ctx, "resolving official site URL", slog.String("mbid", mbid))
+
 	url := fmt.Sprintf("%s%s?inc=url-rels&fmt=json", c.baseURL, mbid)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -171,6 +182,8 @@ func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (strin
 
 	req.Header.Set("User-Agent", userAgent)
 
+	c.logger.Debug(ctx, "rate limiter backoff", slog.String("mbid", mbid))
+
 	var resp *http.Response
 	err = c.throttler.Do(ctx, func() error {
 		var err error
@@ -179,6 +192,7 @@ func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (strin
 	})
 
 	if err := api.FromHTTP(err, resp, "musicbrainz url-rels request failed"); err != nil {
+		c.logger.Error(ctx, "musicbrainz url-rels request failed", err, slog.String("mbid", mbid))
 		return "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -188,7 +202,11 @@ func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (strin
 		return "", apperr.Wrap(err, codes.DataLoss, "failed to decode musicbrainz url-rels response")
 	}
 
-	return selectOfficialSiteURL(data.Name, data.Relations), nil
+	selectedURL := selectOfficialSiteURL(data.Name, data.Relations)
+	if selectedURL == "" {
+		c.logger.Warn(ctx, "no official site URL found", slog.String("mbid", mbid), slog.String("artistName", data.Name))
+	}
+	return selectedURL, nil
 }
 
 // selectOfficialSiteURL picks the best official homepage URL from a list of url relations.
@@ -231,6 +249,7 @@ func escapeLucenePhrase(s string) string {
 // the MusicBrainz place search endpoint. It returns the top match or
 // apperr.ErrNotFound if no results are returned.
 func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Place, error) {
+	c.logger.Info(ctx, "searching place", slog.String("venueName", name), slog.String("adminArea", adminArea))
 	// Wrap terms in double quotes to force Lucene phrase matching.
 	// Without quotes, names with spaces (e.g. "Zepp Nagoya") are tokenised into
 	// separate terms and the query is misinterpreted.
@@ -251,6 +270,8 @@ func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 	}
 	req.Header.Set("User-Agent", userAgent)
 
+	c.logger.Debug(ctx, "rate limiter backoff", slog.String("venueName", name))
+
 	var resp *http.Response
 	err = c.throttler.Do(ctx, func() error {
 		var err error
@@ -261,6 +282,7 @@ func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 		defer func() { _ = resp.Body.Close() }()
 	}
 	if err := api.FromHTTP(err, resp, "musicbrainz place search failed"); err != nil {
+		c.logger.Error(ctx, "musicbrainz place search failed", err, slog.String("venueName", name))
 		return nil, err
 	}
 

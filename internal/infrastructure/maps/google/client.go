@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/liverty-music/backend/pkg/api"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 )
 
 const defaultBaseURL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
@@ -42,10 +44,11 @@ type Client struct {
 	httpClient *http.Client
 	apiKey     string
 	baseURL    string
+	logger     *logging.Logger
 }
 
 // NewClient creates a new Google Maps Places client using the provided API key.
-func NewClient(apiKey string, httpClient *http.Client) *Client {
+func NewClient(apiKey string, httpClient *http.Client, logger *logging.Logger) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: 10 * time.Second,
@@ -55,12 +58,15 @@ func NewClient(apiKey string, httpClient *http.Client) *Client {
 		httpClient: httpClient,
 		apiKey:     apiKey,
 		baseURL:    defaultBaseURL,
+		logger:     logger.With(slog.String("component", "googlemaps")),
 	}
 }
 
 // SearchPlace searches for a venue by name using the Google Maps Places Text Search API.
 // It returns the top match or apperr.ErrNotFound if no results are returned.
 func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Place, error) {
+	c.logger.Info(ctx, "searching place", slog.String("venueName", name), slog.String("adminArea", adminArea))
+
 	query := name
 	if adminArea != "" {
 		query = fmt.Sprintf("%s %s", name, adminArea)
@@ -78,6 +84,11 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 		defer func() { _ = resp.Body.Close() }()
 	}
 	if err := api.FromHTTP(err, resp, "google maps places search failed"); err != nil {
+		attrs := []slog.Attr{slog.String("venueName", name)}
+		if resp != nil {
+			attrs = append(attrs, slog.Int("statusCode", resp.StatusCode))
+		}
+		c.logger.Error(ctx, "google maps search failed", err, attrs...)
 		return nil, err
 	}
 
@@ -93,6 +104,10 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 	case "ZERO_RESULTS":
 		return nil, apperr.New(codes.NotFound, "no matching place found in google maps")
 	default:
+		c.logger.Error(ctx, "google maps API returned unexpected status", nil,
+			slog.String("venueName", name),
+			slog.String("statusCode", data.Status),
+		)
 		return nil, apperr.New(codes.Unavailable, fmt.Sprintf("google maps api returned status: %s", data.Status))
 	}
 

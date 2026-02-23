@@ -42,6 +42,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -51,6 +52,7 @@ import (
 	"github.com/liverty-music/backend/pkg/throttle"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // Response structures for Last.fm API
@@ -101,10 +103,11 @@ type client struct {
 	httpClient *http.Client
 	baseURL    string
 	throttler  *throttle.Throttler
+	logger     *logging.Logger
 }
 
 // NewClient creates a new Last.fm client.
-func NewClient(apiKey string, httpClient *http.Client) *client {
+func NewClient(apiKey string, httpClient *http.Client, logger *logging.Logger) *client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -113,11 +116,14 @@ func NewClient(apiKey string, httpClient *http.Client) *client {
 		httpClient: httpClient,
 		baseURL:    baseURL,
 		throttler:  throttle.New(rateLimitInterval, 100), // Buffer up to 100 requests
+		logger:     logger.With(slog.String("component", "lastfm")),
 	}
 }
 
 // Search finds artists by name using the Last.fm artist.search method.
 func (c *client) Search(ctx context.Context, query string) ([]*entity.Artist, error) {
+	c.logger.Info(ctx, "searching artists", slog.String("method", "artist.search"), slog.String("query", query))
+
 	params := url.Values{}
 	params.Set("method", "artist.search")
 	params.Set("artist", query)
@@ -138,6 +144,12 @@ func (c *client) Search(ctx context.Context, query string) ([]*entity.Artist, er
 
 // ListSimilar identifies artists with musical affinity using the Last.fm artist.getsimilar method.
 func (c *client) ListSimilar(ctx context.Context, artist *entity.Artist) ([]*entity.Artist, error) {
+	c.logger.Info(ctx, "listing similar artists",
+		slog.String("method", "artist.getsimilar"),
+		slog.String("artistName", artist.Name),
+		slog.String("mbid", artist.MBID),
+	)
+
 	params := url.Values{}
 	params.Set("method", "artist.getsimilar")
 	if artist.MBID != "" {
@@ -173,6 +185,12 @@ func (c *client) ListTop(ctx context.Context, country string, tag string) ([]*en
 		params.Set("method", "chart.gettopartists")
 	}
 
+	c.logger.Info(ctx, "listing top artists",
+		slog.String("method", params.Get("method")),
+		slog.String("country", country),
+		slog.String("tag", tag),
+	)
+
 	var resp topArtistsResponse
 
 	if err := c.get(ctx, params, &resp); err != nil {
@@ -206,6 +224,8 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 		return apperr.Wrap(err, codes.Internal, "failed to create lastfm request")
 	}
 
+	c.logger.Debug(ctx, "rate limiter backoff", slog.String("method", params.Get("method")))
+
 	var resp *http.Response
 	err = c.throttler.Do(ctx, func() error {
 		var err error
@@ -214,6 +234,11 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 	})
 
 	if err := api.FromHTTP(err, resp, "lastfm api request failed"); err != nil {
+		attrs := []slog.Attr{slog.String("method", params.Get("method"))}
+		if resp != nil {
+			attrs = append(attrs, slog.Int("statusCode", resp.StatusCode))
+		}
+		c.logger.Error(ctx, "lastfm HTTP request failed", err, attrs...)
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -227,6 +252,11 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 	// Last.fm can return HTTP 200 with an error object
 	var errResp errorResponse
 	if err := json.Unmarshal(body, &errResp); err == nil && errResp.ErrorCode != 0 {
+		c.logger.Error(ctx, "lastfm API returned error", nil,
+			slog.String("method", params.Get("method")),
+			slog.Int("errorCode", errResp.ErrorCode),
+			slog.String("errorMessage", errResp.Message),
+		)
 		return apperr.New(mapLastFMCode(errResp.ErrorCode), errResp.Message)
 	}
 

@@ -12,7 +12,7 @@ import (
 )
 
 func TestClient_Integration_GetArtist(t *testing.T) {
-	client := musicbrainz.NewClient(nil)
+	client := musicbrainz.NewClient(nil, testLogger(t))
 	ctx := context.Background()
 
 	t.Run("Radiohead", func(t *testing.T) {

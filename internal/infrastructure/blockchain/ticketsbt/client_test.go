@@ -15,9 +15,16 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testLogger creates a logger for use in tests.
+func testLogger() *logging.Logger {
+	l, _ := logging.New()
+	return l
+}
 
 // testPrivateKey is a throwaway private key for unit testing (never used on-chain).
 const testPrivateKey = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
@@ -125,7 +132,7 @@ func TestNewClient_InvalidInputs(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := ticketsbt.NewClient(context.Background(), tc.rpcURL, tc.privateKey, tc.contract, testChainID)
+			_, err := ticketsbt.NewClient(context.Background(), tc.rpcURL, tc.privateKey, tc.contract, testChainID, testLogger())
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
@@ -141,7 +148,7 @@ func TestNewClient_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID, testLogger())
 	require.NoError(t, err)
 	assert.NotNil(t, client)
 	require.NoError(t, client.Close())
@@ -166,7 +173,7 @@ func TestIsTokenMinted_NotMinted(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID, testLogger())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -188,7 +195,7 @@ func TestIsTokenMinted_AlreadyMinted(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID, testLogger())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -212,7 +219,7 @@ func TestIsTokenMinted_RPCError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID, testLogger())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -234,7 +241,7 @@ func TestOwnerOf_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID, testLogger())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -259,7 +266,7 @@ func TestOwnerOf_NonexistentToken(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID, testLogger())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -288,7 +295,7 @@ func TestMint_AllRetriesFail(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID, testLogger())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -307,7 +314,7 @@ func TestMint_ContextCancelled(t *testing.T) {
 	})
 	defer srv.Close()
 
-	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID)
+	client, err := ticketsbt.NewClient(context.Background(), srv.URL, testPrivateKey, testContractAddr, testChainID, testLogger())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 

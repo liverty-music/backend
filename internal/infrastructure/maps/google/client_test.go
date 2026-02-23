@@ -10,9 +10,16 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testLogger(t *testing.T) *logging.Logger {
+	t.Helper()
+	l, _ := logging.New()
+	return l
+}
 
 type textSearchResponse struct {
 	Results []struct {
@@ -121,7 +128,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := google.NewClient("test-api-key", server.Client())
+			client := google.NewClient("test-api-key", server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL)
 
 			place, err := client.SearchPlace(context.Background(), tt.venueName, tt.adminArea)

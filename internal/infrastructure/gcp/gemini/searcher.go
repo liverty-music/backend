@@ -192,6 +192,7 @@ func (s *ConcertSearcher) Search(
 	}
 
 	attrs := []slog.Attr{
+		slog.String("artistID", artist.ID),
 		slog.String("model_version", s.config.ModelName),
 		slog.String("artist", artist.Name),
 		slog.String("official_site", officialSiteURL),
@@ -202,6 +203,7 @@ func (s *ConcertSearcher) Search(
 
 	resp, err := s.client.Models.GenerateContent(ctx, s.config.ModelName, genai.Text(prompt), generateCfg)
 	if err != nil {
+		s.logger.Error(ctx, "gemini model call failed", err, attrs...)
 		return nil, toAppErr(err, "failed to call Gemini API", attrs...)
 	}
 
