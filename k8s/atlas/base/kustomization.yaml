@@ -40,4 +40,6 @@ configMapGenerator:
   - migrations/20260221160000_fix_ticket_system_schema.sql
   - migrations/20260222120000_add_push_subscriptions_table.sql
   - migrations/20260222130000_add_passion_level_to_followed_artists.sql
+  - migrations/20260223000000_change_external_id_to_text.sql
+  - migrations/20260223100000_add_ticket_system_checks.sql
   - migrations/20260223120000_grant_iam_users_app_schema.sql
