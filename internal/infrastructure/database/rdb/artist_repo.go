@@ -210,6 +210,11 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 		}
 	}
 
+	r.db.logger.Info(ctx, "artists created",
+		slog.String("entityType", "artist"),
+		slog.Int("count", len(result)),
+	)
+
 	return result, nil
 }
 
@@ -261,6 +266,11 @@ func (r *ArtistRepository) CreateOfficialSite(ctx context.Context, site *entity.
 	if err != nil {
 		return toAppErr(err, "failed to create official site", slog.String("artist_id", site.ArtistID))
 	}
+
+	r.db.logger.Info(ctx, "official site created",
+		slog.String("entityType", "artist_official_site"),
+		slog.String("artistID", site.ArtistID),
+	)
 	return nil
 }
 
@@ -282,6 +292,12 @@ func (r *ArtistRepository) Follow(ctx context.Context, userID, artistID string) 
 	if err != nil {
 		return toAppErr(err, "failed to follow artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	}
+
+	r.db.logger.Info(ctx, "artist followed",
+		slog.String("entityType", "followed_artists"),
+		slog.String("userID", userID),
+		slog.String("artistID", artistID),
+	)
 	return nil
 }
 
@@ -291,6 +307,12 @@ func (r *ArtistRepository) Unfollow(ctx context.Context, userID, artistID string
 	if err != nil {
 		return toAppErr(err, "failed to unfollow artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	}
+
+	r.db.logger.Info(ctx, "artist unfollowed",
+		slog.String("entityType", "followed_artists"),
+		slog.String("userID", userID),
+		slog.String("artistID", artistID),
+	)
 	return nil
 }
 
@@ -303,6 +325,13 @@ func (r *ArtistRepository) SetPassionLevel(ctx context.Context, userID, artistID
 	if tag.RowsAffected() == 0 {
 		return apperr.New(codes.NotFound, "follow relationship not found")
 	}
+
+	r.db.logger.Info(ctx, "passion level updated",
+		slog.String("entityType", "followed_artists"),
+		slog.String("userID", userID),
+		slog.String("artistID", artistID),
+		slog.String("level", string(level)),
+	)
 	return nil
 }
 

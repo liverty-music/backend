@@ -173,5 +173,10 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		return toAppErr(err, "failed to commit transaction")
 	}
 
+	r.db.logger.Info(ctx, "concerts created",
+		slog.String("entityType", "concert"),
+		slog.Int("count", n),
+	)
+
 	return nil
 }

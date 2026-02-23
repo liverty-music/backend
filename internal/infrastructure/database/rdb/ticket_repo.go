@@ -72,11 +72,25 @@ func (r *TicketRepository) Create(ctx context.Context, params *entity.NewTicket)
 		ticket.EventID, ticket.UserID, ticket.TokenID, ticket.TxHash,
 	).Scan(&ticket.ID, &ticket.MintTime)
 	if err != nil {
+		if IsUniqueViolation(err) {
+			r.db.logger.Warn(ctx, "duplicate ticket",
+				slog.String("entityType", "ticket"),
+				slog.String("eventID", ticket.EventID),
+				slog.String("userID", ticket.UserID),
+			)
+		}
 		return nil, toAppErr(err, "failed to create ticket",
 			slog.String("event_id", ticket.EventID),
 			slog.String("user_id", ticket.UserID),
 		)
 	}
+
+	r.db.logger.Info(ctx, "ticket created",
+		slog.String("entityType", "ticket"),
+		slog.String("ticketID", ticket.ID),
+		slog.String("userID", ticket.UserID),
+		slog.String("eventID", ticket.EventID),
+	)
 
 	return ticket, nil
 }
