@@ -29,21 +29,21 @@ const (
 	`
 
 	getUserByEmailQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
 		FROM users
 		WHERE email = $1
 	`
 
 	updateUserQuery = `
-		UPDATE users SET external_id = $2, email = $3, name = $4, preferred_language = $5, country = $6, time_zone = $7, updated_at = NOW()
+		UPDATE users SET external_id = $2, email = $3, name = $4, preferred_language = $5, country = $6, time_zone = $7
 		WHERE id = $1
-		RETURNING id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
+		RETURNING id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
 	`
 
 	listUsersQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active, created_at, updated_at
+		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
 		FROM users
-		ORDER BY created_at
+		ORDER BY id
 		LIMIT $1 OFFSET $2
 	`
 
@@ -145,7 +145,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*entity.
 
 	user := &entity.User{}
 	err := r.db.Pool.QueryRow(ctx, getUserByEmailQuery, email).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user by email", slog.String("email", email))
@@ -167,7 +167,7 @@ func (r *UserRepository) Update(ctx context.Context, id string, params *entity.N
 	err := r.db.Pool.QueryRow(ctx, updateUserQuery,
 		id, params.ExternalID, params.Email, params.Name, params.PreferredLanguage, params.Country, params.TimeZone,
 	).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to update user", slog.String("user_id", id))
@@ -193,7 +193,7 @@ func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*entity
 	for rows.Next() {
 		user := &entity.User{}
 		if err := rows.Scan(
-			&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive, &user.CreateTime, &user.UpdateTime,
+			&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan user row")
 		}
