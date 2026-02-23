@@ -599,3 +599,82 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		assert.Equal(t, listedName, *got[0].ListedVenueName)
 	})
 }
+
+func TestConcertRepository_ListByFollower(t *testing.T) {
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+
+	t.Run("returns concerts for followed artists", func(t *testing.T) {
+		cleanDatabase()
+
+		// Setup: user, 2 artists, venue, concerts, follow relationships
+		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5001"
+		_, err := testDB.Pool.Exec(ctx,
+			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			userID, "Test User", "follower@test.com", "ext-user-001",
+		)
+		require.NoError(t, err)
+
+		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5011", Name: "Followed Band 1"}
+		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5012", Name: "Unfollowed Band"}
+		_, err = artistRepo.Create(ctx, artist1)
+		require.NoError(t, err)
+		_, err = artistRepo.Create(ctx, artist2)
+		require.NoError(t, err)
+
+		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5021", Name: "Follower Test Venue"}
+		require.NoError(t, venueRepo.Create(ctx, venue))
+
+		concertDate, _ := time.Parse("2006-01-02", "2026-08-01")
+		startTime, _ := time.Parse("15:04", "19:00")
+
+		// Create concerts for both artists
+		require.NoError(t, concertRepo.Create(ctx,
+			&entity.Concert{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5031", VenueID: venue.ID,
+					Title: "Followed Concert 1", LocalDate: concertDate, StartTime: &startTime,
+				},
+				ArtistID: artist1.ID,
+			},
+			&entity.Concert{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5032", VenueID: venue.ID,
+					Title: "Unfollowed Concert", LocalDate: concertDate.AddDate(0, 0, 1), StartTime: &startTime,
+				},
+				ArtistID: artist2.ID,
+			},
+		))
+
+		// Follow only artist1
+		_, err = testDB.Pool.Exec(ctx,
+			"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",
+			userID, artist1.ID,
+		)
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByFollower(ctx, userID)
+		assert.NoError(t, err)
+		require.Len(t, got, 1, "should only return concerts for followed artists")
+		assert.Equal(t, "Followed Concert 1", got[0].Title)
+		assert.NotNil(t, got[0].Venue, "venue should be populated")
+		assert.Equal(t, "Follower Test Venue", got[0].Venue.Name)
+	})
+
+	t.Run("returns empty list when no followed artists", func(t *testing.T) {
+		cleanDatabase()
+
+		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5002"
+		_, err := testDB.Pool.Exec(ctx,
+			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			userID, "Lonely User", "lonely@test.com", "ext-user-002",
+		)
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByFollower(ctx, userID)
+		assert.NoError(t, err)
+		assert.Empty(t, got)
+	})
+}
