@@ -114,6 +114,8 @@ type artistUseCase struct {
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
 	siteResolver   entity.OfficialSiteResolver
+	concertUC      ConcertUseCase
+	searchLogRepo  entity.SearchLogRepository
 	cache          *cache.MemoryCache
 	logger         *logging.Logger
 }
@@ -128,6 +130,8 @@ func NewArtistUseCase(
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
 	siteResolver entity.OfficialSiteResolver,
+	concertUC ConcertUseCase,
+	searchLogRepo entity.SearchLogRepository,
 	cache *cache.MemoryCache,
 	logger *logging.Logger,
 ) ArtistUseCase {
@@ -137,6 +141,8 @@ func NewArtistUseCase(
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
 		siteResolver:   siteResolver,
+		concertUC:      concertUC,
+		searchLogRepo:  searchLogRepo,
 		cache:          cache,
 		logger:         logger,
 	}
@@ -283,8 +289,34 @@ func (uc *artistUseCase) Follow(ctx context.Context, userID string, artistID str
 
 	bgCtx := context.WithoutCancel(ctx)
 	go uc.resolveAndPersistOfficialSite(bgCtx, artistID)
+	go uc.triggerFirstFollowSearch(bgCtx, artistID)
 
 	return nil
+}
+
+// triggerFirstFollowSearch checks whether the artist has been searched before
+// and, if not, triggers a background concert search. All errors are logged and
+// swallowed so that the follow operation is never affected.
+func (uc *artistUseCase) triggerFirstFollowSearch(ctx context.Context, artistID string) {
+	_, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
+	if err == nil {
+		// Search log exists — artist has been searched before, skip.
+		return
+	}
+	if !errors.Is(err, apperr.ErrNotFound) {
+		uc.logger.Warn(ctx, "failed to check search log for first-follow search",
+			slog.String("artist_id", artistID), slog.Any("error", err))
+		return
+	}
+
+	// No search log — this is a first follow. Trigger concert discovery.
+	uc.logger.Info(ctx, "First follow detected, triggering concert search",
+		slog.String("artist_id", artistID))
+
+	if _, err := uc.concertUC.SearchNewConcerts(ctx, artistID); err != nil {
+		uc.logger.Warn(ctx, "background concert search failed after first follow",
+			slog.String("artist_id", artistID), slog.Any("error", err))
+	}
 }
 
 // resolveAndPersistOfficialSite fetches the official site URL from MusicBrainz

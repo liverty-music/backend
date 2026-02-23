@@ -132,8 +132,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, userRepo, lastfmClient, musicbrainzClient, musicbrainzClient, artistCache, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, userRepo, lastfmClient, musicbrainzClient, musicbrainzClient, concertUC, searchLogRepo, artistCache, logger)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		pushSubRepo,

@@ -9,6 +9,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -21,7 +22,12 @@ var anyCtx = mock.MatchedBy(func(context.Context) bool { return true })
 
 func newTestArtistUC(t *testing.T, repo *mocks.MockArtistRepository, userRepo *mocks.MockUserRepository, searcher *mocks.MockArtistSearcher, idManager *mocks.MockArtistIdentityManager, siteResolver *mocks.MockOfficialSiteResolver, logger *logging.Logger) usecase.ArtistUseCase {
 	t.Helper()
-	return usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, cache.NewMemoryCache(1*time.Hour), logger)
+	concertUC := ucmocks.NewMockConcertUseCase(t)
+	searchLogRepo := mocks.NewMockSearchLogRepository(t)
+	// Default: allow any background goroutine calls without strict expectations.
+	concertUC.EXPECT().SearchNewConcerts(anyCtx, mock.AnythingOfType("string")).Maybe().Return(nil, nil)
+	searchLogRepo.EXPECT().GetByArtistID(anyCtx, mock.AnythingOfType("string")).Maybe().Return(nil, apperr.ErrNotFound)
+	return usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
 }
 
 func TestArtistUseCase_CreateArtist(t *testing.T) {
@@ -140,7 +146,7 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
 		siteResolver := mocks.NewMockOfficialSiteResolver(t)
-		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, cache.NewMemoryCache(1*time.Hour), logger)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
 
 		searcher.EXPECT().ListTop(ctx, "JP", "").Return(nil, apperr.ErrInternal).Once()
 
@@ -186,7 +192,7 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 		searcher := mocks.NewMockArtistSearcher(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
 		siteResolver := mocks.NewMockOfficialSiteResolver(t)
-		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, cache.NewMemoryCache(1*time.Hour), logger)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
 
 		repo.EXPECT().Get(ctx, "missing-id").Return(nil, apperr.ErrNotFound).Once()
 
@@ -341,6 +347,114 @@ func TestArtistUseCase_Follow(t *testing.T) {
 		})).Return(apperr.ErrAlreadyExists).Once()
 
 		err := uc.Follow(ctx, externalUserID, artist.ID)
+		assert.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+	})
+}
+
+func TestArtistUseCase_Follow_FirstFollowSearch(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := logging.New()
+
+	artistID := "artist-1"
+	externalUserID := "360952429480515994"
+	internalUserID := "019505a0-0000-7000-8000-000000000001"
+	resolvedUser := &entity.User{ID: internalUserID, ExternalID: externalUserID}
+
+	t.Run("first follow triggers SearchNewConcerts", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		concertUC := ucmocks.NewMockConcertUseCase(t)
+		searchLogRepo := mocks.NewMockSearchLogRepository(t)
+
+		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
+
+		userRepo.EXPECT().GetByExternalID(ctx, externalUserID).Return(resolvedUser, nil).Once()
+		repo.EXPECT().Follow(ctx, internalUserID, artistID).Return(nil).Once()
+		// Official site goroutine
+		repo.EXPECT().GetOfficialSite(anyCtx, artistID).Return(nil, apperr.ErrNotFound).Maybe()
+		repo.EXPECT().Get(anyCtx, artistID).Maybe().Return(&entity.Artist{ID: artistID, Name: "saji"}, nil)
+		siteResolver.EXPECT().ResolveOfficialSiteURL(anyCtx, mock.Anything).Maybe().Return("", nil)
+		// First-follow search: no search log → triggers search
+		searchLogRepo.EXPECT().GetByArtistID(anyCtx, artistID).Return(nil, apperr.ErrNotFound).Once()
+		concertUC.EXPECT().SearchNewConcerts(anyCtx, artistID).Return(nil, nil).Once()
+
+		err := uc.Follow(ctx, externalUserID, artistID)
+		assert.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("subsequent follow does not trigger search", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		concertUC := ucmocks.NewMockConcertUseCase(t)
+		searchLogRepo := mocks.NewMockSearchLogRepository(t)
+
+		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
+
+		userRepo.EXPECT().GetByExternalID(ctx, externalUserID).Return(resolvedUser, nil).Once()
+		repo.EXPECT().Follow(ctx, internalUserID, artistID).Return(nil).Once()
+		// Official site goroutine
+		repo.EXPECT().GetOfficialSite(anyCtx, artistID).Maybe().Return(&entity.OfficialSite{ID: "site-1"}, nil)
+		// Search log exists → no search triggered
+		searchLogRepo.EXPECT().GetByArtistID(anyCtx, artistID).Return(&entity.SearchLog{ArtistID: artistID}, nil).Once()
+		// concertUC.SearchNewConcerts should NOT be called
+
+		err := uc.Follow(ctx, externalUserID, artistID)
+		assert.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("already-following skips search log check", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		concertUC := ucmocks.NewMockConcertUseCase(t)
+		searchLogRepo := mocks.NewMockSearchLogRepository(t)
+
+		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
+
+		userRepo.EXPECT().GetByExternalID(ctx, externalUserID).Return(resolvedUser, nil).Once()
+		repo.EXPECT().Follow(ctx, internalUserID, artistID).Return(apperr.ErrAlreadyExists).Once()
+		// No goroutines should be launched — searchLogRepo and concertUC should NOT be called
+
+		err := uc.Follow(ctx, externalUserID, artistID)
+		assert.NoError(t, err)
+
+		time.Sleep(50 * time.Millisecond)
+	})
+
+	t.Run("search log lookup error skips search", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		concertUC := ucmocks.NewMockConcertUseCase(t)
+		searchLogRepo := mocks.NewMockSearchLogRepository(t)
+
+		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
+
+		userRepo.EXPECT().GetByExternalID(ctx, externalUserID).Return(resolvedUser, nil).Once()
+		repo.EXPECT().Follow(ctx, internalUserID, artistID).Return(nil).Once()
+		// Official site goroutine
+		repo.EXPECT().GetOfficialSite(anyCtx, artistID).Maybe().Return(&entity.OfficialSite{ID: "site-1"}, nil)
+		// Search log lookup fails with unexpected error → skip search
+		searchLogRepo.EXPECT().GetByArtistID(anyCtx, artistID).Return(nil, errors.New("db connection error")).Once()
+		// concertUC.SearchNewConcerts should NOT be called
+
+		err := uc.Follow(ctx, externalUserID, artistID)
 		assert.NoError(t, err)
 
 		time.Sleep(50 * time.Millisecond)
