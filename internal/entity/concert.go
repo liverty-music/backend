@@ -44,6 +44,9 @@ type ConcertRepository interface {
 	//
 	//  - InvalidArgument: If the artist ID is empty.
 	ListByArtist(ctx context.Context, artistID string, upcomingOnly bool) ([]*Concert, error)
+	// ListByFollower retrieves all concerts for artists followed by the given user,
+	// ordered by local_event_date ascending.
+	ListByFollower(ctx context.Context, userID string) ([]*Concert, error)
 	// Create creates one or more concerts using bulk insert.
 	// Duplicates are silently skipped via ON CONFLICT DO NOTHING.
 	//

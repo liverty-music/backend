@@ -40,6 +40,16 @@ const (
 		JOIN venues v ON e.venue_id = v.id
 		WHERE c.artist_id = $1 AND e.local_event_date >= CURRENT_DATE
 	`
+	listConcertsByFollowerQuery = `
+		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
+		       v.id, v.name, v.admin_area
+		FROM concerts c
+		JOIN events e ON c.event_id = e.id
+		JOIN venues v ON e.venue_id = v.id
+		JOIN followed_artists fa ON c.artist_id = fa.artist_id
+		WHERE fa.user_id = $1
+		ORDER BY e.local_event_date ASC
+	`
 )
 
 // NewConcertRepository creates a new concert repository instance.
@@ -57,6 +67,31 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 	rows, err := r.db.Pool.Query(ctx, query, artistID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by artist", slog.String("artist_id", artistID))
+	}
+	defer rows.Close()
+
+	var concerts []*entity.Concert
+	for rows.Next() {
+		var c entity.Concert
+		var venue entity.Venue
+		err := rows.Scan(
+			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
+			&venue.ID, &venue.Name, &venue.AdminArea,
+		)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan concert")
+		}
+		c.Venue = &venue
+		concerts = append(concerts, &c)
+	}
+	return concerts, nil
+}
+
+// ListByFollower retrieves all concerts for artists followed by the given user.
+func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error) {
+	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list concerts by follower", slog.String("user_id", userID))
 	}
 	defer rows.Close()
 
