@@ -41,6 +41,24 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.Equal(t, expectedUser, result)
 	})
 
+	t.Run("error - repository returns nil user without error", func(t *testing.T) {
+		mockRepo := mocks.NewMockUserRepository(t)
+		uc := usecase.NewUserUseCase(mockRepo, logger)
+
+		params := &entity.NewUser{
+			Name:  "Jane Doe",
+			Email: "jane@example.com",
+		}
+
+		mockRepo.EXPECT().Create(ctx, params).Return(nil, nil).Once()
+
+		result, err := uc.Create(ctx, params)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+	})
+
 	t.Run("error - repository fails", func(t *testing.T) {
 		mockRepo := mocks.NewMockUserRepository(t)
 		uc := usecase.NewUserUseCase(mockRepo, logger)

@@ -61,6 +61,10 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 		return nil, err
 	}
 
+	if user == nil {
+		return nil, apperr.New(codes.Internal, "repository returned nil user without error")
+	}
+
 	uc.logger.Info(ctx, "User created successfully", slog.String("user_id", user.ID))
 
 	return user, nil
