@@ -3,12 +3,12 @@ package main
 
 import (
 	"context"
-	"log"
 	"log/slog"
 	"os/signal"
 	"syscall"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // maxConsecutiveErrors is the threshold for stopping the job due to systemic failures.
@@ -16,7 +16,9 @@ const maxConsecutiveErrors = 3
 
 func main() {
 	if err := run(); err != nil {
-		log.Printf("Concert discovery job failed: %v", err)
+		// Bootstrap logger for fatal error reporting.
+		logger, _ := logging.New()
+		logger.Error(context.Background(), "concert discovery job failed", err)
 		// Design spec requires exit 0 to prevent K8s CronJob from retrying
 		// on systemic failures (e.g., API rate limits) that would hit the same issue.
 		// Monitoring relies on structured logging at ERROR level.
@@ -27,7 +29,9 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log.Println("Starting concert discovery job...")
+	// Bootstrap logger for pre-initialization messages.
+	bootLogger, _ := logging.New()
+	bootLogger.Info(ctx, "starting concert discovery job")
 
 	app, err := di.InitializeJobApp(ctx)
 	if err != nil {
@@ -35,7 +39,7 @@ func run() error {
 	}
 	defer func() {
 		if err := app.Shutdown(ctx); err != nil {
-			log.Printf("Error during shutdown: %v", err)
+			app.Logger.Error(ctx, "error during shutdown", err)
 		}
 	}()
 
@@ -44,7 +48,9 @@ func run() error {
 		return err
 	}
 
-	log.Printf("Found %d followed artists to process", len(artists))
+	app.Logger.Info(ctx, "followed artists loaded for processing",
+		slog.Int("count", len(artists)),
+	)
 
 	var totalDiscovered int
 	var totalFailed int
@@ -86,8 +92,12 @@ func run() error {
 		}
 	}
 
-	log.Printf("Concert discovery job complete: %d artists attempted, %d succeeded, %d new concerts discovered, %d failures",
-		len(artists), len(artists)-totalFailed, totalDiscovered, totalFailed)
+	app.Logger.Info(ctx, "concert discovery job complete",
+		slog.Int("artists_attempted", len(artists)),
+		slog.Int("artists_succeeded", len(artists)-totalFailed),
+		slog.Int("concerts_discovered", totalDiscovered),
+		slog.Int("failures", totalFailed),
+	)
 
 	// Post-step: enrich pending venues via MusicBrainz / Google Maps.
 	// Per-venue errors are non-fatal and logged inside EnrichPendingVenues.
