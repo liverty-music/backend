@@ -18,7 +18,6 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 
 FROM gcr.io/distroless/static:nonroot AS server
 COPY --from=build-server /out /main
-COPY --from=builder /app/configs/zkp/verification_key.json /configs/zkp/verification_key.json
 EXPOSE 8080
 ENTRYPOINT ["/main"]
 
