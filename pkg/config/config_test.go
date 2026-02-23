@@ -69,7 +69,9 @@ func TestLoad(t *testing.T) {
 					JWKSRefreshInterval: 15 * time.Minute,
 				},
 				Blockchain: BlockchainConfig{
-					ChainID: 84532,
+					ChainID:          84532,
+					SafeProxyFactory: "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
+					SafeInitCodeHash: "0x52bede2892dc6ee239117844c91b0bdd458c318980592ab4152f5ea44af17f34",
 				},
 				VAPID: VAPIDConfig{
 					Contact: "mailto:pepperoni9@gmail.com",
@@ -142,7 +144,9 @@ func TestLoad(t *testing.T) {
 					JWKSRefreshInterval: 30 * time.Minute,
 				},
 				Blockchain: BlockchainConfig{
-					ChainID: 84532,
+					ChainID:          84532,
+					SafeProxyFactory: "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
+					SafeInitCodeHash: "0x52bede2892dc6ee239117844c91b0bdd458c318980592ab4152f5ea44af17f34",
 				},
 				VAPID: VAPIDConfig{
 					Contact: "mailto:pepperoni9@gmail.com",

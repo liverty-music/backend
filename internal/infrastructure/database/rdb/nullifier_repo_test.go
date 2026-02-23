@@ -17,12 +17,12 @@ func TestNullifierRepository_Insert(t *testing.T) {
 	eventID := seedMerkleTestData(t) // reuse: creates venue + event
 
 	t.Run("insert new nullifier", func(t *testing.T) {
-		err := repo.Insert(ctx, eventID, []byte("nullifier-hash-001"))
+		err := repo.Insert(ctx, eventID, testHash32("nullifier-hash-001"))
 		require.NoError(t, err)
 	})
 
 	t.Run("duplicate nullifier returns AlreadyExists", func(t *testing.T) {
-		hash := []byte("nullifier-hash-duplicate")
+		hash := testHash32("nullifier-hash-dup")
 
 		err := repo.Insert(ctx, eventID, hash)
 		require.NoError(t, err)
@@ -43,7 +43,7 @@ func TestNullifierRepository_Insert(t *testing.T) {
 		).Scan(&eventID2)
 		require.NoError(t, err)
 
-		hash := []byte("shared-nullifier-hash")
+		hash := testHash32("shared-null-hash")
 
 		err = repo.Insert(ctx, eventID, hash)
 		require.NoError(t, err)
@@ -73,13 +73,13 @@ func TestNullifierRepository_Exists(t *testing.T) {
 	eventID := seedMerkleTestData(t)
 
 	t.Run("returns false for non-existent nullifier", func(t *testing.T) {
-		exists, err := repo.Exists(ctx, eventID, []byte("non-existent-hash"))
+		exists, err := repo.Exists(ctx, eventID, testHash32("non-existent"))
 		require.NoError(t, err)
 		assert.False(t, exists)
 	})
 
 	t.Run("returns true for existing nullifier", func(t *testing.T) {
-		hash := []byte("existing-nullifier-hash")
+		hash := testHash32("existing-null")
 
 		err := repo.Insert(ctx, eventID, hash)
 		require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestNullifierRepository_Exists(t *testing.T) {
 	})
 
 	t.Run("returns false for same hash but different event", func(t *testing.T) {
-		hash := []byte("event-scoped-hash")
+		hash := testHash32("event-scoped")
 
 		err := repo.Insert(ctx, eventID, hash)
 		require.NoError(t, err)

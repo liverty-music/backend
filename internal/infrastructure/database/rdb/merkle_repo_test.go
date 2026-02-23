@@ -11,6 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testHash32 creates a 32-byte hash from a short label for test fixtures.
+// The label is left-padded with zeros to satisfy the chk_merkle_hash_size
+// and chk_nullifier_hash_size CHECK constraints (octet_length = 32).
+func testHash32(label string) []byte {
+	buf := make([]byte, 32)
+	copy(buf[32-len(label):], label)
+	return buf
+}
+
 // seedMerkleTestData inserts a user, venue, and event needed by the merkle tree FK constraints.
 // Returns eventID.
 func seedMerkleTestData(t *testing.T) string {
@@ -42,9 +51,9 @@ func TestMerkleTreeRepository_StoreBatch(t *testing.T) {
 
 	t.Run("store nodes successfully", func(t *testing.T) {
 		nodes := []*entity.MerkleNode{
-			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: []byte("leaf0")},
-			{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: []byte("leaf1")},
-			{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: []byte("root")},
+			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: testHash32("leaf0")},
+			{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: testHash32("leaf1")},
+			{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: testHash32("root")},
 		}
 
 		err := repo.StoreBatch(ctx, eventID, nodes)
@@ -53,30 +62,30 @@ func TestMerkleTreeRepository_StoreBatch(t *testing.T) {
 		// Verify nodes were stored by reading them back.
 		root, err := repo.GetRoot(ctx, eventID)
 		require.NoError(t, err)
-		assert.Equal(t, []byte("root"), root)
+		assert.Equal(t, testHash32("root"), root)
 	})
 
 	t.Run("replace existing nodes on second call", func(t *testing.T) {
 		// First store.
 		nodes1 := []*entity.MerkleNode{
-			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: []byte("old-leaf0")},
-			{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: []byte("old-root")},
+			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: testHash32("old-leaf0")},
+			{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: testHash32("old-root")},
 		}
 		err := repo.StoreBatch(ctx, eventID, nodes1)
 		require.NoError(t, err)
 
 		// Second store should replace.
 		nodes2 := []*entity.MerkleNode{
-			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: []byte("new-leaf0")},
-			{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: []byte("new-leaf1")},
-			{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: []byte("new-root")},
+			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: testHash32("new-leaf0")},
+			{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: testHash32("new-leaf1")},
+			{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: testHash32("new-root")},
 		}
 		err = repo.StoreBatch(ctx, eventID, nodes2)
 		require.NoError(t, err)
 
 		root, err := repo.GetRoot(ctx, eventID)
 		require.NoError(t, err)
-		assert.Equal(t, []byte("new-root"), root)
+		assert.Equal(t, testHash32("new-root"), root)
 	})
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
@@ -94,10 +103,10 @@ func TestMerkleTreeRepository_StoreBatchWithRoot(t *testing.T) {
 	eventID := seedMerkleTestData(t)
 
 	t.Run("store nodes and update merkle root atomically", func(t *testing.T) {
-		rootHash := []byte("atomic-root-hash-32-bytes-padded!")
+		rootHash := testHash32("atomic-root")
 		nodes := []*entity.MerkleNode{
-			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: []byte("leaf0")},
-			{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: []byte("leaf1")},
+			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: testHash32("leaf0")},
+			{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: testHash32("leaf1")},
 			{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: rootHash},
 		}
 
@@ -117,9 +126,9 @@ func TestMerkleTreeRepository_StoreBatchWithRoot(t *testing.T) {
 
 	t.Run("non-existent event returns FailedPrecondition", func(t *testing.T) {
 		nodes := []*entity.MerkleNode{
-			{EventID: "018b2f19-e591-7d12-bf9e-000000000000", Depth: 0, NodeIndex: 0, Hash: []byte("leaf")},
+			{EventID: "018b2f19-e591-7d12-bf9e-000000000000", Depth: 0, NodeIndex: 0, Hash: testHash32("leaf")},
 		}
-		err := repo.StoreBatchWithRoot(ctx, "018b2f19-e591-7d12-bf9e-000000000000", nodes, []byte("root"))
+		err := repo.StoreBatchWithRoot(ctx, "018b2f19-e591-7d12-bf9e-000000000000", nodes, testHash32("root"))
 		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -144,13 +153,13 @@ func TestMerkleTreeRepository_GetPath(t *testing.T) {
 	//  /   \     /   \
 	// L0   L1   L2   L3  (depth=0)
 	nodes := []*entity.MerkleNode{
-		{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: []byte("L0-hash")},
-		{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: []byte("L1-hash")},
-		{EventID: eventID, Depth: 0, NodeIndex: 2, Hash: []byte("L2-hash")},
-		{EventID: eventID, Depth: 0, NodeIndex: 3, Hash: []byte("L3-hash")},
-		{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: []byte("N10-hash")},
-		{EventID: eventID, Depth: 1, NodeIndex: 1, Hash: []byte("N11-hash")},
-		{EventID: eventID, Depth: 2, NodeIndex: 0, Hash: []byte("root-hash")},
+		{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: testHash32("L0-hash")},
+		{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: testHash32("L1-hash")},
+		{EventID: eventID, Depth: 0, NodeIndex: 2, Hash: testHash32("L2-hash")},
+		{EventID: eventID, Depth: 0, NodeIndex: 3, Hash: testHash32("L3-hash")},
+		{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: testHash32("N10-hash")},
+		{EventID: eventID, Depth: 1, NodeIndex: 1, Hash: testHash32("N11-hash")},
+		{EventID: eventID, Depth: 2, NodeIndex: 0, Hash: testHash32("root-hash")},
 	}
 	err := repo.StoreBatch(ctx, eventID, nodes)
 	require.NoError(t, err)
@@ -162,11 +171,11 @@ func TestMerkleTreeRepository_GetPath(t *testing.T) {
 		require.Len(t, pathIndices, 2)
 
 		// Leaf 0: sibling at depth 0 is index 0^1=1 (L1)
-		assert.Equal(t, []byte("L1-hash"), pathElements[0])
+		assert.Equal(t, testHash32("L1-hash"), pathElements[0])
 		assert.Equal(t, uint32(0), pathIndices[0]) // leaf 0 is left child (even index)
 
 		// Parent index = 0/2 = 0; sibling at depth 1 is index 0^1=1 (N11)
-		assert.Equal(t, []byte("N11-hash"), pathElements[1])
+		assert.Equal(t, testHash32("N11-hash"), pathElements[1])
 		assert.Equal(t, uint32(0), pathIndices[1]) // parent 0 is left child
 	})
 
@@ -176,11 +185,11 @@ func TestMerkleTreeRepository_GetPath(t *testing.T) {
 		require.Len(t, pathElements, 2)
 
 		// Leaf 3: sibling at depth 0 is index 3^1=2 (L2)
-		assert.Equal(t, []byte("L2-hash"), pathElements[0])
+		assert.Equal(t, testHash32("L2-hash"), pathElements[0])
 		assert.Equal(t, uint32(1), pathIndices[0]) // leaf 3 is right child (odd index)
 
 		// Parent index = 3/2 = 1; sibling at depth 1 is index 1^1=0 (N10)
-		assert.Equal(t, []byte("N10-hash"), pathElements[1])
+		assert.Equal(t, testHash32("N10-hash"), pathElements[1])
 		assert.Equal(t, uint32(1), pathIndices[1]) // parent 1 is right child
 	})
 
@@ -199,15 +208,15 @@ func TestMerkleTreeRepository_GetRoot(t *testing.T) {
 
 	t.Run("get root from stored tree", func(t *testing.T) {
 		nodes := []*entity.MerkleNode{
-			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: []byte("leaf")},
-			{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: []byte("the-root")},
+			{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: testHash32("leaf")},
+			{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: testHash32("the-root")},
 		}
 		err := repo.StoreBatch(ctx, eventID, nodes)
 		require.NoError(t, err)
 
 		root, err := repo.GetRoot(ctx, eventID)
 		require.NoError(t, err)
-		assert.Equal(t, []byte("the-root"), root)
+		assert.Equal(t, testHash32("the-root"), root)
 	})
 
 	t.Run("non-existent event returns NotFound", func(t *testing.T) {
@@ -230,9 +239,9 @@ func TestMerkleTreeRepository_GetLeaf(t *testing.T) {
 	eventID := seedMerkleTestData(t)
 
 	nodes := []*entity.MerkleNode{
-		{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: []byte("leaf-zero")},
-		{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: []byte("leaf-one")},
-		{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: []byte("root")},
+		{EventID: eventID, Depth: 0, NodeIndex: 0, Hash: testHash32("leaf-zero")},
+		{EventID: eventID, Depth: 0, NodeIndex: 1, Hash: testHash32("leaf-one")},
+		{EventID: eventID, Depth: 1, NodeIndex: 0, Hash: testHash32("root")},
 	}
 	err := repo.StoreBatch(ctx, eventID, nodes)
 	require.NoError(t, err)
@@ -240,11 +249,11 @@ func TestMerkleTreeRepository_GetLeaf(t *testing.T) {
 	t.Run("get existing leaf", func(t *testing.T) {
 		leaf, err := repo.GetLeaf(ctx, eventID, 0)
 		require.NoError(t, err)
-		assert.Equal(t, []byte("leaf-zero"), leaf)
+		assert.Equal(t, testHash32("leaf-zero"), leaf)
 
 		leaf, err = repo.GetLeaf(ctx, eventID, 1)
 		require.NoError(t, err)
-		assert.Equal(t, []byte("leaf-one"), leaf)
+		assert.Equal(t, testHash32("leaf-one"), leaf)
 	})
 
 	t.Run("non-existent leaf index returns NotFound", func(t *testing.T) {

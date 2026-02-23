@@ -18,6 +18,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/infrastructure/blockchain/safe"
 	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
@@ -196,9 +197,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	if ticketUC != nil {
+		safePredictor := safe.NewPredictor(cfg.Blockchain.SafeProxyFactory, cfg.Blockchain.SafeInitCodeHash)
 		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketconnect.NewTicketServiceHandler(
-				rpc.NewTicketHandler(ticketUC, userRepo, logger),
+				rpc.NewTicketHandler(ticketUC, userRepo, safePredictor, logger),
 				opts...,
 			)
 		})

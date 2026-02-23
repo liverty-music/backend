@@ -33,6 +33,14 @@ func NewEntryHandler(entryUseCase usecase.EntryUseCase, userRepo entity.UserRepo
 }
 
 // VerifyEntry verifies a ZKP for event entry.
+//
+// The QR code payload includes an `exp` (expiration) timestamp added by the frontend
+// to limit the replay window for photographed QR codes. Expiry validation is enforced
+// by the scanning client before calling this RPC, not server-side, because the `exp`
+// field is part of the outer QR wrapper and not included in the proof or public signals.
+// The server-side guard against replay is the nullifier uniqueness constraint: each
+// nullifier can only be used once per event, so even an unexpired replayed QR will fail
+// if the original has already been verified.
 func (h *EntryHandler) VerifyEntry(
 	ctx context.Context,
 	req *connect.Request[entryv1.VerifyEntryRequest],

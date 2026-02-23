@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
     safe_address TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT users_safe_address_unique UNIQUE (safe_address)
+    CONSTRAINT users_safe_address_unique UNIQUE (safe_address),
+    CONSTRAINT chk_safe_address_format CHECK (safe_address IS NULL OR safe_address ~ '^0x[0-9a-fA-F]{40}$')
 );
 
 COMMENT ON TABLE users IS 'User profiles and authentication data';
@@ -208,7 +209,10 @@ CREATE TABLE IF NOT EXISTS merkle_tree (
     depth INT NOT NULL,
     node_index INT NOT NULL,
     hash BYTEA NOT NULL,
-    PRIMARY KEY (event_id, depth, node_index)
+    PRIMARY KEY (event_id, depth, node_index),
+    CONSTRAINT chk_merkle_depth_positive CHECK (depth >= 0),
+    CONSTRAINT chk_merkle_index_positive CHECK (node_index >= 0),
+    CONSTRAINT chk_merkle_hash_size CHECK (octet_length(hash) = 32)
 );
 
 COMMENT ON TABLE merkle_tree IS 'Merkle tree nodes for ZKP identity set per event; canonical tree maintained by backend';
@@ -221,7 +225,8 @@ CREATE TABLE IF NOT EXISTS nullifiers (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     nullifier_hash BYTEA NOT NULL,
-    used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_nullifier_hash_size CHECK (octet_length(nullifier_hash) = 32)
 );
 
 COMMENT ON TABLE nullifiers IS 'Used ZKP nullifier hashes for preventing double entry at events';
