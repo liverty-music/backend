@@ -49,13 +49,43 @@ func NewConnectServer(
 	accessLogInterceptor := logging.NewAccessLogInterceptor(logger)
 	validationInterceptor := validate.NewInterceptor()
 
+	// Interceptor chain — execution order matters.
+	//
+	// Connect-RPC applies HandlerOptions in registration order. Within a single
+	// WithInterceptors() call, the first interceptor listed becomes the outermost
+	// layer. When multiple HandlerOptions are registered, each subsequent option's
+	// interceptors are appended inside the previous ones via chainWith().
+	//
+	// The enriched ctx created by an outer interceptor flows inward as a function
+	// argument to next(ctx, req), so all inner interceptors automatically receive
+	// context values (e.g., OTel span) set by outer ones.
+	//
+	// Execution order (outermost → innermost):
+	//
+	//   [1] tracingInterceptor        — Starts OTel span. ALL inner layers get trace_id/span_id.
+	//   [2] accessLogInterceptor      — Logs after next() returns. Sees *connect.Error (converted
+	//                                   by [3]) for correct status codes. Outside [4] so it is NOT
+	//                                   bypassed when a panic unwinds the stack.
+	//   [3] errorHandlingInterceptor  — Converts AppErr → *connect.Error. Has trace context from [1].
+	//   [4] recoverHandler            — defer recover(). Returns *connect.Error on panic. Has trace
+	//                                   context from [1]. Inside [2] so access log still fires.
+	//   [5] claimsBridgeInterceptor   — Reads authn.infoKey (set by HTTP-layer authn.Middleware)
+	//                                   and writes auth.claimsKey for handlers.
+	//   [6] validationInterceptor     — Validates request proto via protovalidate. Innermost layer.
+	//
+	// Response path (innermost → outermost):
+	//   handler error (AppErr) → [6] pass → [5] pass → [4] pass (or catch panic) →
+	//   [3] convert to *connect.Error → [2] log with correct status → [1] end span
+	//
 	handlerOpts := []connect.HandlerOption{
+		connect.WithInterceptors(
+			tracingInterceptor,
+			accessLogInterceptor,
+			apperr_connect.NewErrorHandlingInterceptor(logger),
+		),
 		newRecoverHandler(logger),
 		connect.WithInterceptors(
-			apperr_connect.NewErrorHandlingInterceptor(logger),
-			tracingInterceptor,
 			auth.ClaimsBridgeInterceptor{},
-			accessLogInterceptor,
 			validationInterceptor,
 		),
 	}
