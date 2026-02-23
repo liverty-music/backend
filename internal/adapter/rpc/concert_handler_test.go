@@ -89,3 +89,21 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 }
+
+func TestConcertHandler_ListByFollower(t *testing.T) {
+	logger, _ := logging.New()
+
+	t.Run("unauthenticated", func(t *testing.T) {
+		concertUC := mocks.NewMockConcertUseCase(t)
+		h := rpc.NewConcertHandler(concertUC, logger)
+
+		// No auth context → GetUserID returns false → UNAUTHENTICATED
+		req := connect.NewRequest(&concertv1.ListByFollowerRequest{})
+
+		resp, err := h.ListByFollower(context.Background(), req)
+
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+}

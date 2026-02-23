@@ -3,11 +3,13 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -42,6 +44,23 @@ func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[concertv
 	}
 
 	return connect.NewResponse(&concertv1.ListResponse{
+		Concerts: mapper.ConcertsToProto(concerts),
+	}), nil
+}
+
+// ListByFollower returns all concerts for artists followed by the authenticated user.
+func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[concertv1.ListByFollowerRequest]) (*connect.Response[concertv1.ListByFollowerResponse], error) {
+	userID, ok := auth.GetUserID(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
+	}
+
+	concerts, err := h.concertUseCase.ListByFollower(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&concertv1.ListByFollowerResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
 	}), nil
 }

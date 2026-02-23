@@ -77,6 +77,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	artistRepo := rdb.NewArtistRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
+	userRepo := provideUserRepository(db)
 	searchLogRepo := rdb.NewSearchLogRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 
@@ -96,7 +97,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	}
 
 	// Use Cases
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, logger)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		pushSubRepo,
