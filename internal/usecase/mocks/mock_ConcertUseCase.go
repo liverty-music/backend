@@ -140,6 +140,65 @@ func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(conte
 	return _c
 }
 
+// ListByFollower provides a mock function with given fields: ctx, externalUserID
+func (_m *MockConcertUseCase) ListByFollower(ctx context.Context, externalUserID string) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx, externalUserID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByFollower")
+	}
+
+	var r0 []*entity.Concert
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Concert, error)); ok {
+		return rf(ctx, externalUserID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Concert); ok {
+		r0 = rf(ctx, externalUserID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Concert)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, externalUserID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertUseCase_ListByFollower_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByFollower'
+type MockConcertUseCase_ListByFollower_Call struct {
+	*mock.Call
+}
+
+// ListByFollower is a helper method to define mock.On call
+//   - ctx context.Context
+//   - externalUserID string
+func (_e *MockConcertUseCase_Expecter) ListByFollower(ctx interface{}, externalUserID interface{}) *MockConcertUseCase_ListByFollower_Call {
+	return &MockConcertUseCase_ListByFollower_Call{Call: _e.mock.On("ListByFollower", ctx, externalUserID)}
+}
+
+func (_c *MockConcertUseCase_ListByFollower_Call) Run(run func(ctx context.Context, externalUserID string)) *MockConcertUseCase_ListByFollower_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListByFollower_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertUseCase_ListByFollower_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListByFollower_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Concert, error)) *MockConcertUseCase_ListByFollower_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockConcertUseCase creates a new instance of MockConcertUseCase. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockConcertUseCase(t interface {

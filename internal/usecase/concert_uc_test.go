@@ -20,6 +20,7 @@ type concertTestDeps struct {
 	artistRepo    *mocks.MockArtistRepository
 	concertRepo   *mocks.MockConcertRepository
 	venueRepo     *mocks.MockVenueRepository
+	userRepo      *mocks.MockUserRepository
 	searchLogRepo *mocks.MockSearchLogRepository
 	searcher      *mocks.MockConcertSearcher
 	uc            usecase.ConcertUseCase
@@ -32,10 +33,11 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		artistRepo:    mocks.NewMockArtistRepository(t),
 		concertRepo:   mocks.NewMockConcertRepository(t),
 		venueRepo:     mocks.NewMockVenueRepository(t),
+		userRepo:      mocks.NewMockUserRepository(t),
 		searchLogRepo: mocks.NewMockSearchLogRepository(t),
 		searcher:      mocks.NewMockConcertSearcher(t),
 	}
-	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.searchLogRepo, d.searcher, logger)
+	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.userRepo, d.searchLogRepo, d.searcher, logger)
 	return d
 }
 

@@ -24,6 +24,14 @@ type ConcertUseCase interface {
 	//  - InvalidArgument: If the artist ID is empty.
 	ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error)
 
+	// ListByFollower returns all concerts for artists followed by the given user.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the external user ID is empty.
+	//  - NotFound: If the user does not exist.
+	ListByFollower(ctx context.Context, externalUserID string) ([]*entity.Concert, error)
+
 	// SearchNewConcerts discovers new concerts using external sources.
 	//
 	// # Possible errors
@@ -38,6 +46,7 @@ type concertUseCase struct {
 	artistRepo      entity.ArtistRepository
 	concertRepo     entity.ConcertRepository
 	venueRepo       entity.VenueRepository
+	userRepo        entity.UserRepository
 	searchLogRepo   entity.SearchLogRepository
 	concertSearcher entity.ConcertSearcher
 	logger          *logging.Logger
@@ -55,6 +64,7 @@ func NewConcertUseCase(
 	artistRepo entity.ArtistRepository,
 	concertRepo entity.ConcertRepository,
 	venueRepo entity.VenueRepository,
+	userRepo entity.UserRepository,
 	searchLogRepo entity.SearchLogRepository,
 	concertSearcher entity.ConcertSearcher,
 	logger *logging.Logger,
@@ -63,6 +73,7 @@ func NewConcertUseCase(
 		artistRepo:      artistRepo,
 		concertRepo:     concertRepo,
 		venueRepo:       venueRepo,
+		userRepo:        userRepo,
 		searchLogRepo:   searchLogRepo,
 		concertSearcher: concertSearcher,
 		logger:          logger,
@@ -81,6 +92,29 @@ func (uc *concertUseCase) ListByArtist(ctx context.Context, artistID string) ([]
 	}
 
 	return concerts, nil
+}
+
+// ListByFollower returns all concerts for artists followed by the given user.
+func (uc *concertUseCase) ListByFollower(ctx context.Context, externalUserID string) ([]*entity.Concert, error) {
+	if externalUserID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
+	}
+
+	internalUserID, err := uc.resolveUserID(ctx, externalUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	return uc.concertRepo.ListByFollower(ctx, internalUserID)
+}
+
+// resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.
+func (uc *concertUseCase) resolveUserID(ctx context.Context, externalID string) (string, error) {
+	user, err := uc.userRepo.GetByExternalID(ctx, externalID)
+	if err != nil {
+		return "", fmt.Errorf("resolve user by external ID: %w", err)
+	}
+	return user.ID, nil
 }
 
 // SearchNewConcerts discovers new concerts using external sources.
