@@ -158,7 +158,17 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		jwtValidator = jwtValidator.WithAcceptedIssuers(all)
 	}
 
-	authFunc := auth.NewAuthFunc(jwtValidator)
+	// Public procedures accessible without authentication during onboarding.
+	// Read-only endpoints that return publicly available data (artist charts,
+	// concert schedules). Write endpoints remain fully authenticated.
+	publicProcedures := map[string]bool{
+		"/" + artistconnect.ArtistServiceName + "/ListTop":     true,
+		"/" + artistconnect.ArtistServiceName + "/ListSimilar": true,
+		"/" + artistconnect.ArtistServiceName + "/Search":      true,
+		"/" + concertconnect.ConcertServiceName + "/List":      true,
+	}
+
+	authFunc := auth.NewAuthFunc(jwtValidator, publicProcedures)
 
 	// Health check handler (public, outside authn middleware)
 	healthHandler := func(opts ...connect.HandlerOption) (string, http.Handler) {
