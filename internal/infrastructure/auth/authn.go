@@ -10,15 +10,29 @@ import (
 
 // NewAuthFunc creates an authn.AuthFunc that validates JWT bearer tokens
 // using the provided TokenValidator and returns *Claims on success.
-func NewAuthFunc(validator TokenValidator) authn.AuthFunc {
+//
+// Procedures listed in publicProcedures are accessible without authentication.
+// If a public procedure receives a valid bearer token, the claims are still
+// returned so that downstream handlers can identify the caller. If the token
+// is invalid or absent, the request passes through with nil info.
+func NewAuthFunc(validator TokenValidator, publicProcedures map[string]bool) authn.AuthFunc {
 	return func(ctx context.Context, req *http.Request) (any, error) {
-		token, ok := authn.BearerToken(req)
-		if !ok {
+		procedure, _ := authn.InferProcedure(req.URL)
+		isPublic := publicProcedures[procedure]
+
+		token, hasToken := authn.BearerToken(req)
+		if !hasToken {
+			if isPublic {
+				return nil, nil
+			}
 			return nil, authn.Errorf("missing bearer token")
 		}
 
 		claims, err := validator.ValidateToken(ctx, token)
 		if err != nil {
+			if isPublic {
+				return nil, nil
+			}
 			return nil, authn.Errorf("invalid token: %w", err)
 		}
 

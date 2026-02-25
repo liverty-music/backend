@@ -18,6 +18,14 @@ import (
 // testMsg is a simple type for testing.
 type testMsg struct{}
 
+// noPublicProcedures is an empty allowlist for tests that do not exercise public endpoints.
+var noPublicProcedures = map[string]bool{}
+
+// publicProcedures marks /test.Service/PublicMethod as a public procedure.
+var testPublicProcedures = map[string]bool{
+	"/test.Service/PublicMethod": true,
+}
+
 func TestNewAuthFunc_ValidToken(t *testing.T) {
 	mockValidator := mocks.NewMockTokenValidator(t)
 	expectedClaims := &auth.Claims{
@@ -27,7 +35,7 @@ func TestNewAuthFunc_ValidToken(t *testing.T) {
 	}
 	mockValidator.On("ValidateToken", mock.Anything, "valid-token").Return(expectedClaims, nil)
 
-	authFunc := auth.NewAuthFunc(mockValidator)
+	authFunc := auth.NewAuthFunc(mockValidator, noPublicProcedures)
 
 	req := httptest.NewRequest(http.MethodPost, "/test.Service/Method", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
@@ -44,7 +52,7 @@ func TestNewAuthFunc_ValidToken(t *testing.T) {
 func TestNewAuthFunc_MissingToken(t *testing.T) {
 	mockValidator := mocks.NewMockTokenValidator(t)
 
-	authFunc := auth.NewAuthFunc(mockValidator)
+	authFunc := auth.NewAuthFunc(mockValidator, noPublicProcedures)
 
 	req := httptest.NewRequest(http.MethodPost, "/test.Service/Method", nil)
 
@@ -60,7 +68,7 @@ func TestNewAuthFunc_InvalidToken(t *testing.T) {
 	mockValidator.On("ValidateToken", mock.Anything, "bad-token").
 		Return((*auth.Claims)(nil), errors.New("token expired"))
 
-	authFunc := auth.NewAuthFunc(mockValidator)
+	authFunc := auth.NewAuthFunc(mockValidator, noPublicProcedures)
 
 	req := httptest.NewRequest(http.MethodPost, "/test.Service/Method", nil)
 	req.Header.Set("Authorization", "Bearer bad-token")
@@ -75,7 +83,7 @@ func TestNewAuthFunc_InvalidToken(t *testing.T) {
 func TestNewAuthFunc_MalformedBearer(t *testing.T) {
 	mockValidator := mocks.NewMockTokenValidator(t)
 
-	authFunc := auth.NewAuthFunc(mockValidator)
+	authFunc := auth.NewAuthFunc(mockValidator, noPublicProcedures)
 
 	req := httptest.NewRequest(http.MethodPost, "/test.Service/Method", nil)
 	req.Header.Set("Authorization", "Basic sometoken")
@@ -85,6 +93,60 @@ func TestNewAuthFunc_MalformedBearer(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	mockValidator.AssertNotCalled(t, "ValidateToken")
+}
+
+func TestNewAuthFunc_PublicProcedure_NoToken(t *testing.T) {
+	mockValidator := mocks.NewMockTokenValidator(t)
+
+	authFunc := auth.NewAuthFunc(mockValidator, testPublicProcedures)
+
+	req := httptest.NewRequest(http.MethodPost, "/test.Service/PublicMethod", nil)
+
+	info, err := authFunc(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.Nil(t, info)
+	mockValidator.AssertNotCalled(t, "ValidateToken")
+}
+
+func TestNewAuthFunc_PublicProcedure_ValidToken(t *testing.T) {
+	mockValidator := mocks.NewMockTokenValidator(t)
+	expectedClaims := &auth.Claims{
+		Sub:   "user-789",
+		Email: "public@example.com",
+		Name:  "Public User",
+	}
+	mockValidator.On("ValidateToken", mock.Anything, "valid-token").Return(expectedClaims, nil)
+
+	authFunc := auth.NewAuthFunc(mockValidator, testPublicProcedures)
+
+	req := httptest.NewRequest(http.MethodPost, "/test.Service/PublicMethod", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+
+	info, err := authFunc(context.Background(), req)
+
+	assert.NoError(t, err)
+	claims, ok := info.(*auth.Claims)
+	assert.True(t, ok)
+	assert.Equal(t, expectedClaims, claims)
+	mockValidator.AssertExpectations(t)
+}
+
+func TestNewAuthFunc_PublicProcedure_InvalidToken(t *testing.T) {
+	mockValidator := mocks.NewMockTokenValidator(t)
+	mockValidator.On("ValidateToken", mock.Anything, "expired-token").
+		Return((*auth.Claims)(nil), errors.New("token expired"))
+
+	authFunc := auth.NewAuthFunc(mockValidator, testPublicProcedures)
+
+	req := httptest.NewRequest(http.MethodPost, "/test.Service/PublicMethod", nil)
+	req.Header.Set("Authorization", "Bearer expired-token")
+
+	info, err := authFunc(context.Background(), req)
+
+	assert.NoError(t, err)
+	assert.Nil(t, info)
+	mockValidator.AssertExpectations(t)
 }
 
 func TestClaimsBridgeInterceptor_WrapUnary_WithClaims(t *testing.T) {
