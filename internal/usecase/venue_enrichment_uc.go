@@ -8,7 +8,6 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -80,7 +79,7 @@ func NewVenueEnrichmentUseCase(
 
 // errNoExternalMatch is the sentinel returned by enrichOne when all searchers
 // report NotFound. It is the only condition that permanently marks a venue failed.
-var errNoExternalMatch = apperr.New(codes.NotFound, "no external match found for venue")
+var errNoExternalMatch = apperr.ErrNotFound
 
 // EnrichPendingVenues processes all pending venues through the enrichment pipeline.
 func (uc *venueEnrichmentUseCase) EnrichPendingVenues(ctx context.Context) error {
