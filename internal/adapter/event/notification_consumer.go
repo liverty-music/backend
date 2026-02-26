@@ -12,23 +12,23 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// NotificationHandler handles concert.created.v1 events by sending push
+// NotificationConsumer handles concert.created.v1 events by sending push
 // notifications to all followers of the artist.
-type NotificationHandler struct {
+type NotificationConsumer struct {
 	artistRepo         entity.ArtistRepository
 	concertRepo        entity.ConcertRepository
 	pushNotificationUC usecase.PushNotificationUseCase
 	logger             *logging.Logger
 }
 
-// NewNotificationHandler creates a new NotificationHandler.
-func NewNotificationHandler(
+// NewNotificationConsumer creates a new NotificationConsumer.
+func NewNotificationConsumer(
 	artistRepo entity.ArtistRepository,
 	concertRepo entity.ConcertRepository,
 	pushNotificationUC usecase.PushNotificationUseCase,
 	logger *logging.Logger,
-) *NotificationHandler {
-	return &NotificationHandler{
+) *NotificationConsumer {
+	return &NotificationConsumer{
 		artistRepo:         artistRepo,
 		concertRepo:        concertRepo,
 		pushNotificationUC: pushNotificationUC,
@@ -37,7 +37,7 @@ func NewNotificationHandler(
 }
 
 // Handle processes a concert.created.v1 event by notifying all followers of the artist.
-func (h *NotificationHandler) Handle(msg *message.Message) error {
+func (h *NotificationConsumer) Handle(msg *message.Message) error {
 	ctx := context.Background()
 
 	var data messaging.ConcertCreatedData

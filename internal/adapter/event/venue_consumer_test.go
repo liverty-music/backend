@@ -43,10 +43,10 @@ func makeVenueCreatedMsg(t *testing.T, data messaging.VenueCreatedData) *message
 
 // --- tests ---
 
-func TestVenueHandler_Handle(t *testing.T) {
+func TestVenueConsumer_Handle(t *testing.T) {
 	t.Run("enriches venue on venue.created event", func(t *testing.T) {
 		uc := &fakeVenueEnrichmentUC{}
-		handler := event.NewVenueHandler(uc, newTestLogger(t))
+		handler := event.NewVenueConsumer(uc, newTestLogger(t))
 
 		data := messaging.VenueCreatedData{
 			VenueID: "venue-1",
@@ -62,7 +62,7 @@ func TestVenueHandler_Handle(t *testing.T) {
 
 	t.Run("returns error when enrichment fails", func(t *testing.T) {
 		uc := &fakeVenueEnrichmentUC{err: fmt.Errorf("external service down")}
-		handler := event.NewVenueHandler(uc, newTestLogger(t))
+		handler := event.NewVenueConsumer(uc, newTestLogger(t))
 
 		data := messaging.VenueCreatedData{
 			VenueID: "venue-2",
@@ -76,7 +76,7 @@ func TestVenueHandler_Handle(t *testing.T) {
 
 	t.Run("returns error on invalid payload", func(t *testing.T) {
 		uc := &fakeVenueEnrichmentUC{}
-		handler := event.NewVenueHandler(uc, newTestLogger(t))
+		handler := event.NewVenueConsumer(uc, newTestLogger(t))
 
 		msg := message.NewMessage("bad-id", []byte("invalid json"))
 		err := handler.Handle(msg)

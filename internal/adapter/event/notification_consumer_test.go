@@ -102,16 +102,16 @@ func makeCreatedMsg(t *testing.T, data messaging.ConcertCreatedData) *message.Me
 
 // --- tests ---
 
-func TestNotificationHandler_Handle(t *testing.T) {
+func TestNotificationConsumer_Handle(t *testing.T) {
 	t.Run("sends notifications on concert.created event", func(t *testing.T) {
 		artistRepo := &fakeArtistRepo{
 			artists: map[string]*entity.Artist{
 				"artist-1": {ID: "artist-1", Name: "Test Artist"},
 			},
 		}
-		concertRepo := &fakeConcertRepo{} // from concert_handler_test.go
+		concertRepo := &fakeConcertRepo{} // from helpers_test.go
 		pushUC := &fakePushNotificationUC{}
-		handler := event.NewNotificationHandler(artistRepo, concertRepo, pushUC, newTestLogger(t))
+		handler := event.NewNotificationConsumer(artistRepo, concertRepo, pushUC, newTestLogger(t))
 
 		data := messaging.ConcertCreatedData{
 			ArtistID:     "artist-1",
@@ -130,7 +130,7 @@ func TestNotificationHandler_Handle(t *testing.T) {
 		artistRepo := &fakeArtistRepo{artists: map[string]*entity.Artist{}}
 		concertRepo := &fakeConcertRepo{}
 		pushUC := &fakePushNotificationUC{}
-		handler := event.NewNotificationHandler(artistRepo, concertRepo, pushUC, newTestLogger(t))
+		handler := event.NewNotificationConsumer(artistRepo, concertRepo, pushUC, newTestLogger(t))
 
 		data := messaging.ConcertCreatedData{
 			ArtistID:     "nonexistent",
@@ -151,7 +151,7 @@ func TestNotificationHandler_Handle(t *testing.T) {
 		}
 		concertRepo := &fakeConcertRepo{}
 		pushUC := &fakePushNotificationUC{err: fmt.Errorf("push service unavailable")}
-		handler := event.NewNotificationHandler(artistRepo, concertRepo, pushUC, newTestLogger(t))
+		handler := event.NewNotificationConsumer(artistRepo, concertRepo, pushUC, newTestLogger(t))
 
 		data := messaging.ConcertCreatedData{
 			ArtistID:     "artist-2",
@@ -168,7 +168,7 @@ func TestNotificationHandler_Handle(t *testing.T) {
 		artistRepo := &fakeArtistRepo{artists: map[string]*entity.Artist{}}
 		concertRepo := &fakeConcertRepo{}
 		pushUC := &fakePushNotificationUC{}
-		handler := event.NewNotificationHandler(artistRepo, concertRepo, pushUC, newTestLogger(t))
+		handler := event.NewNotificationConsumer(artistRepo, concertRepo, pushUC, newTestLogger(t))
 
 		msg := message.NewMessage("bad-id", []byte("not json"))
 		err := handler.Handle(msg)

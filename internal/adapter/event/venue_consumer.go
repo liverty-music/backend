@@ -11,18 +11,18 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// VenueHandler handles venue.created.v1 events by triggering venue enrichment.
-type VenueHandler struct {
+// VenueConsumer handles venue.created.v1 events by triggering venue enrichment.
+type VenueConsumer struct {
 	venueEnrichUC usecase.VenueEnrichmentUseCase
 	logger        *logging.Logger
 }
 
-// NewVenueHandler creates a new VenueHandler.
-func NewVenueHandler(
+// NewVenueConsumer creates a new VenueConsumer.
+func NewVenueConsumer(
 	venueEnrichUC usecase.VenueEnrichmentUseCase,
 	logger *logging.Logger,
-) *VenueHandler {
-	return &VenueHandler{
+) *VenueConsumer {
+	return &VenueConsumer{
 		venueEnrichUC: venueEnrichUC,
 		logger:        logger,
 	}
@@ -30,7 +30,7 @@ func NewVenueHandler(
 
 // Handle processes a venue.created.v1 event by enriching the venue via
 // external place services (MusicBrainz, Google Maps).
-func (h *VenueHandler) Handle(msg *message.Message) error {
+func (h *VenueConsumer) Handle(msg *message.Message) error {
 	ctx := context.Background()
 
 	var data messaging.VenueCreatedData
