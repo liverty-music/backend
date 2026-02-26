@@ -193,7 +193,8 @@ func (h *ArtistHandler) ListSimilar(ctx context.Context, req *connect.Request[rp
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
 	}
 
-	artists, err := h.artistUseCase.ListSimilar(ctx, req.Msg.ArtistId.Value)
+	// TODO(#126): pass req.Msg.GetLimit() once proto is regenerated from specification#116
+	artists, err := h.artistUseCase.ListSimilar(ctx, req.Msg.ArtistId.Value, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -205,8 +206,8 @@ func (h *ArtistHandler) ListSimilar(ctx context.Context, req *connect.Request[rp
 
 // ListTop retrieves a collection of trending or popular artists, optionally filtered by country or genre tag.
 func (h *ArtistHandler) ListTop(ctx context.Context, req *connect.Request[rpc.ListTopRequest]) (*connect.Response[rpc.ListTopResponse], error) {
-	// NOTE: GetTag() requires regenerated proto code after the `tag` field is added to ListTopRequest.
-	artists, err := h.artistUseCase.ListTop(ctx, req.Msg.GetCountry(), req.Msg.GetTag())
+	// TODO(#126): pass req.Msg.GetLimit() once proto is regenerated from specification#116
+	artists, err := h.artistUseCase.ListTop(ctx, req.Msg.GetCountry(), req.Msg.GetTag(), 0)
 	if err != nil {
 		return nil, err
 	}

@@ -92,19 +92,23 @@ type ArtistUseCase interface {
 	ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error)
 
 	// ListSimilar identifies artists with musical affinity to the target artist.
+	// When limit is greater than zero, the result is capped to that many entries;
+	// otherwise the external service's default is used.
 	//
 	// # Possible errors:
 	//
 	//   - NotFound: target artist not found in local or external catalogs.
 	//   - Internal: service failure.
-	ListSimilar(ctx context.Context, artistID string) ([]*entity.Artist, error)
+	ListSimilar(ctx context.Context, artistID string, limit int32) ([]*entity.Artist, error)
 
 	// ListTop identifies trending or highly-rated artists, optionally filtered by country or genre tag.
+	// When limit is greater than zero, the result is capped to that many entries;
+	// otherwise the external service's default is used.
 	//
 	// # Possible errors:
 	//
 	//   - Unavailable: external chart service failure.
-	ListTop(ctx context.Context, country string, tag string) ([]*entity.Artist, error)
+	ListTop(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error)
 }
 
 // artistUseCase implements the ArtistUseCase interface.
@@ -423,9 +427,9 @@ func (uc *artistUseCase) ListFollowed(ctx context.Context, userID string) ([]*en
 // ListSimilar retrieves artists similar to a specified artist.
 // Results are cached to reduce external API calls.
 // Fetched artists are auto-persisted to ensure valid database IDs.
-func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string) ([]*entity.Artist, error) {
+func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit int32) ([]*entity.Artist, error) {
 	// Check cache first
-	cacheKey := fmt.Sprintf("similar:%s", artistID)
+	cacheKey := fmt.Sprintf("similar:%s:%d", artistID, limit)
 	if cached := uc.cache.Get(cacheKey); cached != nil {
 		if artists, ok := cached.([]*entity.Artist); ok {
 			return artists, nil
@@ -438,7 +442,7 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string) ([]*e
 		return nil, err
 	}
 
-	artists, err := uc.artistSearcher.ListSimilar(ctx, artist)
+	artists, err := uc.artistSearcher.ListSimilar(ctx, artist, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -458,9 +462,9 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string) ([]*e
 // ListTop retrieves popular artists.
 // Results are cached to reduce external API calls.
 // Fetched artists are auto-persisted to ensure valid database IDs.
-func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string) ([]*entity.Artist, error) {
+func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error) {
 	// Check cache first
-	cacheKey := fmt.Sprintf("top:%s:%s", country, tag)
+	cacheKey := fmt.Sprintf("top:%s:%s:%d", country, tag, limit)
 	if cached := uc.cache.Get(cacheKey); cached != nil {
 		if artists, ok := cached.([]*entity.Artist); ok {
 			return artists, nil
@@ -468,7 +472,7 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string
 	}
 
 	// Cache miss - fetch from external API
-	artists, err := uc.artistSearcher.ListTop(ctx, country, tag)
+	artists, err := uc.artistSearcher.ListTop(ctx, country, tag, limit)
 	if err != nil {
 		return nil, err
 	}

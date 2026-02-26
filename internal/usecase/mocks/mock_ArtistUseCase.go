@@ -401,9 +401,9 @@ func (_c *MockArtistUseCase_SetPassionLevel_Call) RunAndReturn(run func(context.
 	return _c
 }
 
-// ListSimilar provides a mock function with given fields: ctx, artistID
-func (_m *MockArtistUseCase) ListSimilar(ctx context.Context, artistID string) ([]*entity.Artist, error) {
-	ret := _m.Called(ctx, artistID)
+// ListSimilar provides a mock function with given fields: ctx, artistID, limit
+func (_m *MockArtistUseCase) ListSimilar(ctx context.Context, artistID string, limit int32) ([]*entity.Artist, error) {
+	ret := _m.Called(ctx, artistID, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListSimilar")
@@ -411,19 +411,19 @@ func (_m *MockArtistUseCase) ListSimilar(ctx context.Context, artistID string) (
 
 	var r0 []*entity.Artist
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Artist, error)); ok {
-		return rf(ctx, artistID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, int32) ([]*entity.Artist, error)); ok {
+		return rf(ctx, artistID, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Artist); ok {
-		r0 = rf(ctx, artistID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, int32) []*entity.Artist); ok {
+		r0 = rf(ctx, artistID, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Artist)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, artistID)
+	if rf, ok := ret.Get(1).(func(context.Context, string, int32) error); ok {
+		r1 = rf(ctx, artistID, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -439,13 +439,14 @@ type MockArtistUseCase_ListSimilar_Call struct {
 // ListSimilar is a helper method to define mock.On call
 //   - ctx context.Context
 //   - artistID string
-func (_e *MockArtistUseCase_Expecter) ListSimilar(ctx interface{}, artistID interface{}) *MockArtistUseCase_ListSimilar_Call {
-	return &MockArtistUseCase_ListSimilar_Call{Call: _e.mock.On("ListSimilar", ctx, artistID)}
+//   - limit int32
+func (_e *MockArtistUseCase_Expecter) ListSimilar(ctx interface{}, artistID interface{}, limit interface{}) *MockArtistUseCase_ListSimilar_Call {
+	return &MockArtistUseCase_ListSimilar_Call{Call: _e.mock.On("ListSimilar", ctx, artistID, limit)}
 }
 
-func (_c *MockArtistUseCase_ListSimilar_Call) Run(run func(ctx context.Context, artistID string)) *MockArtistUseCase_ListSimilar_Call {
+func (_c *MockArtistUseCase_ListSimilar_Call) Run(run func(ctx context.Context, artistID string, limit int32)) *MockArtistUseCase_ListSimilar_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(int32))
 	})
 	return _c
 }
@@ -455,14 +456,14 @@ func (_c *MockArtistUseCase_ListSimilar_Call) Return(_a0 []*entity.Artist, _a1 e
 	return _c
 }
 
-func (_c *MockArtistUseCase_ListSimilar_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Artist, error)) *MockArtistUseCase_ListSimilar_Call {
+func (_c *MockArtistUseCase_ListSimilar_Call) RunAndReturn(run func(context.Context, string, int32) ([]*entity.Artist, error)) *MockArtistUseCase_ListSimilar_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ListTop provides a mock function with given fields: ctx, country, tag
-func (_m *MockArtistUseCase) ListTop(ctx context.Context, country string, tag string) ([]*entity.Artist, error) {
-	ret := _m.Called(ctx, country, tag)
+// ListTop provides a mock function with given fields: ctx, country, tag, limit
+func (_m *MockArtistUseCase) ListTop(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error) {
+	ret := _m.Called(ctx, country, tag, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListTop")
@@ -470,19 +471,19 @@ func (_m *MockArtistUseCase) ListTop(ctx context.Context, country string, tag st
 
 	var r0 []*entity.Artist
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) ([]*entity.Artist, error)); ok {
-		return rf(ctx, country, tag)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, int32) ([]*entity.Artist, error)); ok {
+		return rf(ctx, country, tag, limit)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) []*entity.Artist); ok {
-		r0 = rf(ctx, country, tag)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, int32) []*entity.Artist); ok {
+		r0 = rf(ctx, country, tag, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Artist)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = rf(ctx, country, tag)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, int32) error); ok {
+		r1 = rf(ctx, country, tag, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -499,13 +500,14 @@ type MockArtistUseCase_ListTop_Call struct {
 //   - ctx context.Context
 //   - country string
 //   - tag string
-func (_e *MockArtistUseCase_Expecter) ListTop(ctx interface{}, country interface{}, tag interface{}) *MockArtistUseCase_ListTop_Call {
-	return &MockArtistUseCase_ListTop_Call{Call: _e.mock.On("ListTop", ctx, country, tag)}
+//   - limit int32
+func (_e *MockArtistUseCase_Expecter) ListTop(ctx interface{}, country interface{}, tag interface{}, limit interface{}) *MockArtistUseCase_ListTop_Call {
+	return &MockArtistUseCase_ListTop_Call{Call: _e.mock.On("ListTop", ctx, country, tag, limit)}
 }
 
-func (_c *MockArtistUseCase_ListTop_Call) Run(run func(ctx context.Context, country string, tag string)) *MockArtistUseCase_ListTop_Call {
+func (_c *MockArtistUseCase_ListTop_Call) Run(run func(ctx context.Context, country string, tag string, limit int32)) *MockArtistUseCase_ListTop_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(int32))
 	})
 	return _c
 }
@@ -515,7 +517,7 @@ func (_c *MockArtistUseCase_ListTop_Call) Return(_a0 []*entity.Artist, _a1 error
 	return _c
 }
 
-func (_c *MockArtistUseCase_ListTop_Call) RunAndReturn(run func(context.Context, string, string) ([]*entity.Artist, error)) *MockArtistUseCase_ListTop_Call {
+func (_c *MockArtistUseCase_ListTop_Call) RunAndReturn(run func(context.Context, string, string, int32) ([]*entity.Artist, error)) *MockArtistUseCase_ListTop_Call {
 	_c.Call.Return(run)
 	return _c
 }
