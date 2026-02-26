@@ -35,6 +35,7 @@ require (
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
 	github.com/vocdoni/circom2gnark v1.0.0
+	github.com/voi-oss/watermill-opentelemetry v0.1.3
 	go.opentelemetry.io/otel v1.40.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.39.0
 	go.opentelemetry.io/otel/sdk v1.40.0

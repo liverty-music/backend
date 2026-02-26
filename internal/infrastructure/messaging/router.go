@@ -6,6 +6,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
+	wotel "github.com/voi-oss/watermill-opentelemetry/pkg/opentelemetry"
 )
 
 // NewRouter creates a Watermill Router with standard middleware.
@@ -34,6 +35,9 @@ func NewRouter(wmLogger watermill.LoggerAdapter, poisonQueuePub message.Publishe
 
 	// Recoverer: catch panics and nack the message.
 	router.AddMiddleware(middleware.Recoverer)
+
+	// OpenTelemetry: propagate trace context via message metadata.
+	router.AddMiddleware(wotel.Trace())
 
 	return router, nil
 }
