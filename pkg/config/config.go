@@ -119,6 +119,9 @@ type Config struct {
 	// ZKP configuration
 	ZKP ZKPConfig `envconfig:""`
 
+	// NATS configuration for event messaging
+	NATS NATSConfig `envconfig:""`
+
 	// Environment
 	Environment string `envconfig:"ENVIRONMENT" default:"local"`
 
@@ -273,6 +276,16 @@ type ZKPConfig struct {
 	VerificationKeyPath string `envconfig:"ZKP_VERIFICATION_KEY_PATH"`
 }
 
+// NATSConfig holds configuration for NATS JetStream event messaging.
+type NATSConfig struct {
+	// URL is the NATS server connection URL.
+	// For local development, leave empty to use Watermill GoChannel instead.
+	URL string `envconfig:"NATS_URL"`
+
+	// StreamName is the JetStream stream name for all domain events.
+	StreamName string `envconfig:"NATS_STREAM_NAME" default:"LIVERTY_MUSIC"`
+}
+
 // JWTConfig represents JWT authentication configuration.
 type JWTConfig struct {
 	// OIDC Issuer URL (e.g., https://your-zitadel-instance.com)
@@ -375,6 +388,10 @@ func (c *Config) Validate() error {
 
 	if !c.IsLocal() && c.Database.InstanceConnectionName == "" {
 		return fmt.Errorf("database instance connection name is required for non-local environments")
+	}
+
+	if !c.IsLocal() && c.NATS.URL == "" {
+		return fmt.Errorf("NATS URL is required for non-local environments")
 	}
 
 	if c.JWT.Issuer == "" {
