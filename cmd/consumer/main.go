@@ -48,7 +48,7 @@ func run() error {
 	// Router.Run blocks until ctx is cancelled or a fatal error occurs.
 	if err := app.Router.Run(ctx); err != nil {
 		app.Logger.Error(ctx, "consumer router stopped with error", err,
-			slog.String("signal", ctx.Err().Error()),
+			slog.Any("signal", ctx.Err()),
 		)
 		return err
 	}
