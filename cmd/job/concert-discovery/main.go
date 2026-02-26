@@ -52,13 +52,14 @@ func run() error {
 		slog.Int("count", len(artists)),
 	)
 
-	var totalDiscovered int
 	var totalFailed int
 	var consecutiveErrors int
 
 	for _, artist := range artists {
-		concerts, err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID)
-		if err != nil {
+		// SearchNewConcerts calls the external API, deduplicates, and publishes
+		// a concert.discovered.v1 event. Concert persistence, notification, and
+		// venue enrichment are handled asynchronously by event consumers.
+		if err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID); err != nil {
 			totalFailed++
 			consecutiveErrors++
 			app.Logger.Error(ctx, "failed to search concerts for artist", err,
@@ -76,35 +77,13 @@ func run() error {
 		}
 
 		consecutiveErrors = 0
-		totalDiscovered += len(concerts)
-
-		if len(concerts) > 0 {
-			app.Logger.Info(ctx, "discovered new concerts",
-				slog.String("artist_name", artist.Name),
-				slog.Int("count", len(concerts)),
-			)
-			if err := app.PushNotificationUC.NotifyNewConcerts(ctx, artist, concerts); err != nil {
-				app.Logger.Error(ctx, "failed to send push notifications", err,
-					slog.String("artist_id", artist.ID),
-				)
-				// non-fatal: don't increment circuit breaker
-			}
-		}
 	}
 
 	app.Logger.Info(ctx, "concert discovery job complete",
 		slog.Int("artists_attempted", len(artists)),
 		slog.Int("artists_succeeded", len(artists)-totalFailed),
-		slog.Int("concerts_discovered", totalDiscovered),
 		slog.Int("failures", totalFailed),
 	)
-
-	// Post-step: enrich pending venues via MusicBrainz / Google Maps.
-	// Per-venue errors are non-fatal and logged inside EnrichPendingVenues.
-	app.Logger.Info(ctx, "starting venue enrichment post-step")
-	if err := app.VenueEnrichUC.EnrichPendingVenues(ctx); err != nil {
-		app.Logger.Error(ctx, "venue enrichment post-step failed", err)
-	}
 
 	return nil
 }
