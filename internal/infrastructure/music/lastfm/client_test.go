@@ -246,7 +246,7 @@ func TestClient_ListSimilar(t *testing.T) {
 			client := lastfm.NewClient("test-key", server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL + "/")
 
-			artists, err := client.ListSimilar(context.Background(), tt.args.artist)
+			artists, err := client.ListSimilar(context.Background(), tt.args.artist, int32(0))
 
 			if tt.wantErr != nil {
 				assert.Error(t, err)
@@ -355,7 +355,7 @@ func TestClient_ListTop(t *testing.T) {
 			client := lastfm.NewClient("test-key", server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL + "/")
 
-			artists, err := client.ListTop(context.Background(), tt.args.country, tt.args.tag)
+			artists, err := client.ListTop(context.Background(), tt.args.country, tt.args.tag, int32(0))
 
 			if tt.wantErr != nil {
 				assert.Error(t, err)

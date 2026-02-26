@@ -45,6 +45,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -143,7 +144,9 @@ func (c *client) Search(ctx context.Context, query string) ([]*entity.Artist, er
 }
 
 // ListSimilar identifies artists with musical affinity using the Last.fm artist.getsimilar method.
-func (c *client) ListSimilar(ctx context.Context, artist *entity.Artist) ([]*entity.Artist, error) {
+// When limit is greater than zero it is forwarded as the Last.fm "limit" query parameter;
+// otherwise the API default is used.
+func (c *client) ListSimilar(ctx context.Context, artist *entity.Artist, limit int32) ([]*entity.Artist, error) {
 	c.logger.Info(ctx, "listing similar artists",
 		slog.String("method", "artist.getsimilar"),
 		slog.String("artistName", artist.Name),
@@ -156,6 +159,9 @@ func (c *client) ListSimilar(ctx context.Context, artist *entity.Artist) ([]*ent
 		params.Set("mbid", artist.MBID)
 	} else {
 		params.Set("artist", artist.Name)
+	}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(int(limit)))
 	}
 
 	var resp similarArtistsResponse
@@ -173,7 +179,9 @@ func (c *client) ListSimilar(ctx context.Context, artist *entity.Artist) ([]*ent
 }
 
 // ListTop identifies trending artists using Last.fm chart, geo, or tag methods.
-func (c *client) ListTop(ctx context.Context, country string, tag string) ([]*entity.Artist, error) {
+// When limit is greater than zero it is forwarded as the Last.fm "limit" query parameter;
+// otherwise the API default is used.
+func (c *client) ListTop(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error) {
 	params := url.Values{}
 	if tag != "" {
 		params.Set("method", "tag.gettopartists")
@@ -183,6 +191,9 @@ func (c *client) ListTop(ctx context.Context, country string, tag string) ([]*en
 		params.Set("country", country)
 	} else {
 		params.Set("method", "chart.gettopartists")
+	}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(int(limit)))
 	}
 
 	c.logger.Info(ctx, "listing top artists",

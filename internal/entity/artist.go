@@ -184,20 +184,24 @@ type ArtistSearcher interface {
 	Search(ctx context.Context, query string) ([]*Artist, error)
 
 	// ListSimilar retrieves artists with musical styles similar to the input artist.
+	// When limit is greater than zero, the result is capped to that many entries;
+	// otherwise the external service's default is used.
 	//
 	// # Possible errors:
 	//
 	//   - NotFound: the artist record is not recognized by the external searcher.
 	//   - Unavailable: external service failure.
-	ListSimilar(ctx context.Context, artist *Artist) ([]*Artist, error)
+	ListSimilar(ctx context.Context, artist *Artist, limit int32) ([]*Artist, error)
 
 	// ListTop retrieves the most popular artists based on charts, geographic region, or genre tag.
+	// When limit is greater than zero, the result is capped to that many entries;
+	// otherwise the external service's default is used.
 	//
 	// # Possible errors:
 	//
 	//   - InvalidArgument: the provided country code is invalid.
 	//   - Unavailable: external service failure.
-	ListTop(ctx context.Context, country string, tag string) ([]*Artist, error)
+	ListTop(ctx context.Context, country string, tag string, limit int32) ([]*Artist, error)
 }
 
 // ArtistIdentityManager handles canonical identity resolution for artists.

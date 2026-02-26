@@ -45,7 +45,7 @@ func TestClient_Integration(t *testing.T) {
 	t.Run("ListSimilar", func(t *testing.T) {
 		// Using the MusicBrainz MBID for Radiohead, which works on Last.fm
 		artist := &entity.Artist{MBID: "a74b1b7f-71a5-4011-9441-d0b5e4122711", Name: "Radiohead"}
-		artists, err := client.ListSimilar(ctx, artist)
+		artists, err := client.ListSimilar(ctx, artist, 0)
 		require.NoError(t, err)
 		assert.NotEmpty(t, artists)
 		t.Logf("Found %d similar artists for 'Radiohead'", len(artists))
@@ -59,7 +59,7 @@ func TestClient_Integration(t *testing.T) {
 
 	t.Run("ListTop", func(t *testing.T) {
 		t.Run("Japan", func(t *testing.T) {
-			artists, err := client.ListTop(ctx, "Japan", "")
+			artists, err := client.ListTop(ctx, "Japan", "", 0)
 			require.NoError(t, err)
 			assert.NotEmpty(t, artists)
 			t.Logf("Found %d top artists in Japan", len(artists))
@@ -72,7 +72,7 @@ func TestClient_Integration(t *testing.T) {
 		})
 
 		t.Run("Global", func(t *testing.T) {
-			artists, err := client.ListTop(ctx, "", "")
+			artists, err := client.ListTop(ctx, "", "", 0)
 			require.NoError(t, err)
 			assert.NotEmpty(t, artists)
 			t.Logf("Found %d global top artists", len(artists))

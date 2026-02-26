@@ -39,8 +39,8 @@ func (_m *MockArtistSearcher) EXPECT() *MockArtistSearcher_Expecter {
 }
 
 // ListSimilar provides a mock function for the type MockArtistSearcher
-func (_mock *MockArtistSearcher) ListSimilar(ctx context.Context, artist *entity.Artist) ([]*entity.Artist, error) {
-	ret := _mock.Called(ctx, artist)
+func (_mock *MockArtistSearcher) ListSimilar(ctx context.Context, artist *entity.Artist, limit int32) ([]*entity.Artist, error) {
+	ret := _mock.Called(ctx, artist, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListSimilar")
@@ -48,18 +48,18 @@ func (_mock *MockArtistSearcher) ListSimilar(ctx context.Context, artist *entity
 
 	var r0 []*entity.Artist
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.Artist) ([]*entity.Artist, error)); ok {
-		return returnFunc(ctx, artist)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.Artist, int32) ([]*entity.Artist, error)); ok {
+		return returnFunc(ctx, artist, limit)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.Artist) []*entity.Artist); ok {
-		r0 = returnFunc(ctx, artist)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *entity.Artist, int32) []*entity.Artist); ok {
+		r0 = returnFunc(ctx, artist, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Artist)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *entity.Artist) error); ok {
-		r1 = returnFunc(ctx, artist)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *entity.Artist, int32) error); ok {
+		r1 = returnFunc(ctx, artist, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -74,11 +74,12 @@ type MockArtistSearcher_ListSimilar_Call struct {
 // ListSimilar is a helper method to define mock.On call
 //   - ctx context.Context
 //   - artist *entity.Artist
-func (_e *MockArtistSearcher_Expecter) ListSimilar(ctx interface{}, artist interface{}) *MockArtistSearcher_ListSimilar_Call {
-	return &MockArtistSearcher_ListSimilar_Call{Call: _e.mock.On("ListSimilar", ctx, artist)}
+//   - limit int32
+func (_e *MockArtistSearcher_Expecter) ListSimilar(ctx interface{}, artist interface{}, limit interface{}) *MockArtistSearcher_ListSimilar_Call {
+	return &MockArtistSearcher_ListSimilar_Call{Call: _e.mock.On("ListSimilar", ctx, artist, limit)}
 }
 
-func (_c *MockArtistSearcher_ListSimilar_Call) Run(run func(ctx context.Context, artist *entity.Artist)) *MockArtistSearcher_ListSimilar_Call {
+func (_c *MockArtistSearcher_ListSimilar_Call) Run(run func(ctx context.Context, artist *entity.Artist, limit int32)) *MockArtistSearcher_ListSimilar_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -88,9 +89,14 @@ func (_c *MockArtistSearcher_ListSimilar_Call) Run(run func(ctx context.Context,
 		if args[1] != nil {
 			arg1 = args[1].(*entity.Artist)
 		}
+		var arg2 int32
+		if args[2] != nil {
+			arg2 = args[2].(int32)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -101,14 +107,14 @@ func (_c *MockArtistSearcher_ListSimilar_Call) Return(artists []*entity.Artist, 
 	return _c
 }
 
-func (_c *MockArtistSearcher_ListSimilar_Call) RunAndReturn(run func(ctx context.Context, artist *entity.Artist) ([]*entity.Artist, error)) *MockArtistSearcher_ListSimilar_Call {
+func (_c *MockArtistSearcher_ListSimilar_Call) RunAndReturn(run func(ctx context.Context, artist *entity.Artist, limit int32) ([]*entity.Artist, error)) *MockArtistSearcher_ListSimilar_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ListTop provides a mock function for the type MockArtistSearcher
-func (_mock *MockArtistSearcher) ListTop(ctx context.Context, country string, tag string) ([]*entity.Artist, error) {
-	ret := _mock.Called(ctx, country, tag)
+func (_mock *MockArtistSearcher) ListTop(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error) {
+	ret := _mock.Called(ctx, country, tag, limit)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListTop")
@@ -116,18 +122,18 @@ func (_mock *MockArtistSearcher) ListTop(ctx context.Context, country string, ta
 
 	var r0 []*entity.Artist
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) ([]*entity.Artist, error)); ok {
-		return returnFunc(ctx, country, tag)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int32) ([]*entity.Artist, error)); ok {
+		return returnFunc(ctx, country, tag, limit)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) []*entity.Artist); ok {
-		r0 = returnFunc(ctx, country, tag)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int32) []*entity.Artist); ok {
+		r0 = returnFunc(ctx, country, tag, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Artist)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = returnFunc(ctx, country, tag)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, int32) error); ok {
+		r1 = returnFunc(ctx, country, tag, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -143,11 +149,12 @@ type MockArtistSearcher_ListTop_Call struct {
 //   - ctx context.Context
 //   - country string
 //   - tag string
-func (_e *MockArtistSearcher_Expecter) ListTop(ctx interface{}, country interface{}, tag interface{}) *MockArtistSearcher_ListTop_Call {
-	return &MockArtistSearcher_ListTop_Call{Call: _e.mock.On("ListTop", ctx, country, tag)}
+//   - limit int32
+func (_e *MockArtistSearcher_Expecter) ListTop(ctx interface{}, country interface{}, tag interface{}, limit interface{}) *MockArtistSearcher_ListTop_Call {
+	return &MockArtistSearcher_ListTop_Call{Call: _e.mock.On("ListTop", ctx, country, tag, limit)}
 }
 
-func (_c *MockArtistSearcher_ListTop_Call) Run(run func(ctx context.Context, country string, tag string)) *MockArtistSearcher_ListTop_Call {
+func (_c *MockArtistSearcher_ListTop_Call) Run(run func(ctx context.Context, country string, tag string, limit int32)) *MockArtistSearcher_ListTop_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -161,10 +168,15 @@ func (_c *MockArtistSearcher_ListTop_Call) Run(run func(ctx context.Context, cou
 		if args[2] != nil {
 			arg2 = args[2].(string)
 		}
+		var arg3 int32
+		if args[3] != nil {
+			arg3 = args[3].(int32)
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
+			arg3,
 		)
 	})
 	return _c
@@ -175,7 +187,7 @@ func (_c *MockArtistSearcher_ListTop_Call) Return(artists []*entity.Artist, err 
 	return _c
 }
 
-func (_c *MockArtistSearcher_ListTop_Call) RunAndReturn(run func(ctx context.Context, country string, tag string) ([]*entity.Artist, error)) *MockArtistSearcher_ListTop_Call {
+func (_c *MockArtistSearcher_ListTop_Call) RunAndReturn(run func(ctx context.Context, country string, tag string, limit int32) ([]*entity.Artist, error)) *MockArtistSearcher_ListTop_Call {
 	_c.Call.Return(run)
 	return _c
 }
