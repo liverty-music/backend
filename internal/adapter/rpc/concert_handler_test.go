@@ -8,7 +8,6 @@ import (
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -33,14 +32,8 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		h := rpc.NewConcertHandler(concertUC, logger)
 
 		artistID := "artist-123"
-		mockConcerts := []*entity.Concert{
-			{
-				Event:    entity.Event{ID: "concert-1", Title: "New Show"},
-				ArtistID: artistID,
-			},
-		}
 
-		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(mockConcerts, nil)
+		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(nil)
 
 		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
 			ArtistId: &entityv1.ArtistId{Value: artistID},
@@ -50,8 +43,6 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
-		assert.Equal(t, 1, len(resp.Msg.Concerts))
-		assert.Equal(t, "New Show", resp.Msg.Concerts[0].Title.Value)
 	})
 
 	t.Run("failure", func(t *testing.T) {
@@ -61,7 +52,7 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		artistID := "artist-123"
 		expectedErr := assert.AnError
 
-		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(nil, expectedErr)
+		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(expectedErr)
 
 		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
 			ArtistId: &entityv1.ArtistId{Value: artistID},

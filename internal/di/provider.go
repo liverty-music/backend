@@ -2,6 +2,7 @@ package di
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -24,6 +27,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/infrastructure/zkp"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -130,9 +134,22 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		_ = ticketRepo // referenced when blockchain is enabled; suppress unused warning
 	}
 
+	// Infrastructure - Messaging Publisher
+	wmLogger := watermill.NewStdLogger(false, false)
+	var goChannel *gochannel.GoChannel
+	if cfg.NATS.URL == "" {
+		goChannel = gochannel.NewGoChannel(gochannel.Config{
+			OutputChannelBuffer: 256,
+		}, wmLogger)
+	}
+	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel)
+	if err != nil {
+		return nil, fmt.Errorf("create messaging publisher: %w", err)
+	}
+
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, publisher, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, userRepo, lastfmClient, musicbrainzClient, musicbrainzClient, concertUC, searchLogRepo, artistCache, logger)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
@@ -240,7 +257,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	srv := server.NewConnectServer(cfg, logger, db, authFunc, healthHandler, handlers...)
 
-	closers := []io.Closer{db, telemetryCloser, lastfmClient, musicbrainzClient}
+	closers := []io.Closer{db, telemetryCloser, lastfmClient, musicbrainzClient, publisher}
 	if sbtCloser != nil {
 		closers = append(closers, sbtCloser)
 	}
