@@ -16,10 +16,12 @@ const (
 	// CloudEvents source for all events emitted by this service.
 	source = "liverty-music/backend"
 
-	// Event type constants following the pattern: liverty-music.<aggregate>.<past-tense-verb>.v1
+	// EventTypeConcertDiscovered is emitted when new concert data is discovered from an external source.
 	EventTypeConcertDiscovered = "liverty-music.concert.discovered.v1"
-	EventTypeConcertCreated    = "liverty-music.concert.created.v1"
-	EventTypeVenueCreated      = "liverty-music.venue.created.v1"
+	// EventTypeConcertCreated is emitted when a concert entity is persisted to the database.
+	EventTypeConcertCreated = "liverty-music.concert.created.v1"
+	// EventTypeVenueCreated is emitted when a new venue entity is created and needs enrichment.
+	EventTypeVenueCreated = "liverty-music.venue.created.v1"
 )
 
 // NewCloudEvent creates a Watermill message with CloudEvents v1.0 metadata.

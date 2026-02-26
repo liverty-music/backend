@@ -132,22 +132,22 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	}
 
 	// create-concerts publishes to multiple topics (concert.created.v1, venue.created.v1)
-	// so it uses AddNoPublisherHandler and publishes manually via the injected publisher.
-	router.AddNoPublisherHandler(
+	// so it uses AddConsumerHandler and publishes manually via the injected publisher.
+	router.AddConsumerHandler(
 		"create-concerts",
 		messaging.EventTypeConcertDiscovered,
 		subscriber,
 		concertHandler.Handle,
 	)
 
-	router.AddNoPublisherHandler(
+	router.AddConsumerHandler(
 		"notify-fans",
 		messaging.EventTypeConcertCreated,
 		subscriber,
 		notificationHandler.Handle,
 	)
 
-	router.AddNoPublisherHandler(
+	router.AddConsumerHandler(
 		"enrich-venue",
 		messaging.EventTypeVenueCreated,
 		subscriber,

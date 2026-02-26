@@ -43,7 +43,7 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		publisher:     pub,
 	}
 	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.userRepo, d.searchLogRepo, d.searcher, pub, logger)
-	t.Cleanup(func() { pub.Close() })
+	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
 
