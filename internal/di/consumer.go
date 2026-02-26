@@ -119,11 +119,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		cfg.VAPID.Contact,
 	)
 	venueEnrichUC := usecase.NewVenueEnrichmentUseCase(venueRepo, venueRepo, venueRepo, logger, searchers...)
+	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, publisher, logger)
 
-	// Event Handlers
-	concertHandler := event.NewConcertHandler(venueRepo, concertRepo, publisher, logger)
-	notificationHandler := event.NewNotificationHandler(artistRepo, concertRepo, pushNotificationUC, logger)
-	venueHandler := event.NewVenueHandler(venueEnrichUC, logger)
+	// Event Consumers
+	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
+	notificationConsumer := event.NewNotificationConsumer(artistRepo, concertRepo, pushNotificationUC, logger)
+	venueConsumer := event.NewVenueConsumer(venueEnrichUC, logger)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, "poison-queue")
@@ -132,26 +133,26 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	}
 
 	// create-concerts publishes to multiple topics (concert.created.v1, venue.created.v1)
-	// so it uses AddConsumerHandler and publishes manually via the injected publisher.
+	// so it uses AddConsumerHandler and publishes manually via ConcertCreationUseCase.
 	router.AddConsumerHandler(
 		"create-concerts",
 		messaging.EventTypeConcertDiscovered,
 		subscriber,
-		concertHandler.Handle,
+		concertConsumer.Handle,
 	)
 
 	router.AddConsumerHandler(
 		"notify-fans",
 		messaging.EventTypeConcertCreated,
 		subscriber,
-		notificationHandler.Handle,
+		notificationConsumer.Handle,
 	)
 
 	router.AddConsumerHandler(
 		"enrich-venue",
 		messaging.EventTypeVenueCreated,
 		subscriber,
-		venueHandler.Handle,
+		venueConsumer.Handle,
 	)
 
 	closers := []io.Closer{db, telemetryCloser, publisher, musicbrainzClient}

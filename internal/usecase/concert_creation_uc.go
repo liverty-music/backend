@@ -1,5 +1,4 @@
-// Package event provides Watermill event handlers for the consumer process.
-package event
+package usecase
 
 import (
 	"context"
@@ -15,23 +14,34 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// ConcertHandler handles concert.discovered.v1 events by resolving venues,
-// persisting concerts, and publishing concert.created.v1 and venue.created.v1 events.
-type ConcertHandler struct {
+// ConcertCreationUseCase defines the interface for processing discovered concert
+// batches. It resolves venues, persists concerts, and publishes downstream events.
+type ConcertCreationUseCase interface {
+	// CreateFromDiscovered processes a batch of scraped concerts for a single artist.
+	// For each concert it resolves or creates a venue, builds concert entities,
+	// bulk-inserts them, and publishes concert.created.v1 and venue.created.v1 events.
+	CreateFromDiscovered(ctx context.Context, data messaging.ConcertDiscoveredData) error
+}
+
+// concertCreationUseCase implements ConcertCreationUseCase.
+type concertCreationUseCase struct {
 	venueRepo   entity.VenueRepository
 	concertRepo entity.ConcertRepository
 	publisher   message.Publisher
 	logger      *logging.Logger
 }
 
-// NewConcertHandler creates a new ConcertHandler.
-func NewConcertHandler(
+// Compile-time interface compliance check.
+var _ ConcertCreationUseCase = (*concertCreationUseCase)(nil)
+
+// NewConcertCreationUseCase creates a new ConcertCreationUseCase.
+func NewConcertCreationUseCase(
 	venueRepo entity.VenueRepository,
 	concertRepo entity.ConcertRepository,
 	publisher message.Publisher,
 	logger *logging.Logger,
-) *ConcertHandler {
-	return &ConcertHandler{
+) ConcertCreationUseCase {
+	return &concertCreationUseCase{
 		venueRepo:   venueRepo,
 		concertRepo: concertRepo,
 		publisher:   publisher,
@@ -39,33 +49,16 @@ func NewConcertHandler(
 	}
 }
 
-// Handle processes a concert.discovered.v1 event. It resolves or creates venues,
-// persists concert entities, and publishes downstream events.
-func (h *ConcertHandler) Handle(msg *message.Message) error {
-	ctx := context.Background()
-
-	var data messaging.ConcertDiscoveredData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		h.logger.Error(ctx, "failed to parse concert.discovered event", err)
-		return fmt.Errorf("parse concert.discovered event: %w", err)
-	}
-
-	h.logger.Info(ctx, "processing concert.discovered event",
-		slog.String("artist_id", data.ArtistID),
-		slog.String("artist_name", data.ArtistName),
-		slog.Int("concert_count", len(data.Concerts)),
-	)
-
+// CreateFromDiscovered processes a discovered concert batch: resolves venues,
+// persists concerts, and publishes downstream events.
+func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data messaging.ConcertDiscoveredData) error {
 	// Resolve or create venues for each scraped concert, then build Concert entities.
 	var concerts []*entity.Concert
 	newVenues := make(map[string]*entity.Venue) // track newly created venues by name
 
 	for _, sc := range data.Concerts {
-		venueID, venue, err := h.resolveVenue(ctx, sc.ListedVenueName, sc.AdminArea, newVenues)
+		venueID, venue, err := uc.resolveVenue(ctx, sc.ListedVenueName, sc.AdminArea, newVenues)
 		if err != nil {
-			h.logger.Error(ctx, "failed to resolve venue", err,
-				slog.String("venue_name", sc.ListedVenueName),
-			)
 			return fmt.Errorf("resolve venue %q: %w", sc.ListedVenueName, err)
 		}
 
@@ -96,12 +89,12 @@ func (h *ConcertHandler) Handle(msg *message.Message) error {
 
 	// Bulk insert concerts (ON CONFLICT DO NOTHING handles duplicates).
 	if len(concerts) > 0 {
-		if err := h.concertRepo.Create(ctx, concerts...); err != nil {
+		if err := uc.concertRepo.Create(ctx, concerts...); err != nil {
 			return fmt.Errorf("create concerts: %w", err)
 		}
 	}
 
-	h.logger.Info(ctx, "concerts persisted",
+	uc.logger.Info(ctx, "concerts persisted",
 		slog.String("artist_id", data.ArtistID),
 		slog.Int("count", len(concerts)),
 	)
@@ -112,8 +105,8 @@ func (h *ConcertHandler) Handle(msg *message.Message) error {
 		ArtistName:   data.ArtistName,
 		ConcertCount: len(concerts),
 	}
-	if err := h.publishEvent(ctx, messaging.EventTypeConcertCreated, createdData); err != nil {
-		h.logger.Error(ctx, "failed to publish concert.created event", err,
+	if err := uc.publishEvent(messaging.EventTypeConcertCreated, createdData); err != nil {
+		uc.logger.Error(ctx, "failed to publish concert.created event", err,
 			slog.String("artist_id", data.ArtistID),
 		)
 		// Non-fatal: concerts are already persisted.
@@ -126,8 +119,8 @@ func (h *ConcertHandler) Handle(msg *message.Message) error {
 			Name:      v.Name,
 			AdminArea: v.AdminArea,
 		}
-		if err := h.publishEvent(ctx, messaging.EventTypeVenueCreated, venueData); err != nil {
-			h.logger.Error(ctx, "failed to publish venue.created event", err,
+		if err := uc.publishEvent(messaging.EventTypeVenueCreated, venueData); err != nil {
+			uc.logger.Error(ctx, "failed to publish venue.created event", err,
 				slog.String("venue_id", v.ID),
 			)
 			// Non-fatal: venue enrichment will pick up pending venues on next batch.
@@ -140,7 +133,7 @@ func (h *ConcertHandler) Handle(msg *message.Message) error {
 // resolveVenue looks up an existing venue by name or creates a new one.
 // It returns the venue ID and a non-nil *Venue only when a new venue was created.
 // The newVenues map prevents creating duplicates within the same batch.
-func (h *ConcertHandler) resolveVenue(
+func (uc *concertCreationUseCase) resolveVenue(
 	ctx context.Context,
 	name string,
 	adminArea *string,
@@ -152,7 +145,7 @@ func (h *ConcertHandler) resolveVenue(
 	}
 
 	// Look up existing venue by name.
-	existing, err := h.venueRepo.GetByName(ctx, name)
+	existing, err := uc.venueRepo.GetByName(ctx, name)
 	if err == nil {
 		return existing.ID, nil, nil
 	}
@@ -174,11 +167,11 @@ func (h *ConcertHandler) resolveVenue(
 		RawName:          name,
 	}
 
-	if err := h.venueRepo.Create(ctx, venue); err != nil {
+	if err := uc.venueRepo.Create(ctx, venue); err != nil {
 		return "", nil, fmt.Errorf("create venue: %w", err)
 	}
 
-	h.logger.Info(ctx, "created new venue",
+	uc.logger.Info(ctx, "created new venue",
 		slog.String("venue_id", venue.ID),
 		slog.String("venue_name", name),
 	)
@@ -187,10 +180,10 @@ func (h *ConcertHandler) resolveVenue(
 }
 
 // publishEvent creates a CloudEvent message and publishes it to the given topic.
-func (h *ConcertHandler) publishEvent(ctx context.Context, eventType string, data any) error {
+func (uc *concertCreationUseCase) publishEvent(eventType string, data any) error {
 	msg, err := messaging.NewCloudEvent(eventType, data)
 	if err != nil {
 		return fmt.Errorf("create %s event: %w", eventType, err)
 	}
-	return h.publisher.Publish(eventType, msg)
+	return uc.publisher.Publish(eventType, msg)
 }

@@ -1,20 +1,17 @@
-package event_test
+package usecase_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
-	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,9 +19,8 @@ import (
 // --- test doubles ---
 
 type fakeVenueRepo struct {
-	venues    map[string]*entity.Venue
-	created   []*entity.Venue
-	createErr error
+	venues  map[string]*entity.Venue
+	created []*entity.Venue
 }
 
 func newFakeVenueRepo() *fakeVenueRepo {
@@ -32,9 +28,6 @@ func newFakeVenueRepo() *fakeVenueRepo {
 }
 
 func (r *fakeVenueRepo) Create(_ context.Context, v *entity.Venue) error {
-	if r.createErr != nil {
-		return r.createErr
-	}
 	r.venues[v.Name] = v
 	r.created = append(r.created, v)
 	return nil
@@ -75,36 +68,22 @@ func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert)
 
 // --- helpers ---
 
-func newTestLogger(t *testing.T) *logging.Logger {
-	t.Helper()
-	logger, err := logging.New()
-	require.NoError(t, err)
-	return logger
-}
-
 func newGoChannelPub(t *testing.T) *gochannel.GoChannel {
 	t.Helper()
 	return gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 256}, watermill.NopLogger{})
 }
 
-func makeDiscoveredMsg(t *testing.T, data messaging.ConcertDiscoveredData) *message.Message {
-	t.Helper()
-	payload, err := json.Marshal(data)
-	require.NoError(t, err)
-	return message.NewMessage("test-id", payload)
-}
-
 // --- tests ---
 
-func TestConcertHandler_Handle(t *testing.T) {
+func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 	startTime := time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC)
 
-	t.Run("creates venues and concerts from discovered event", func(t *testing.T) {
+	t.Run("creates venues and concerts", func(t *testing.T) {
 		venueRepo := newFakeVenueRepo()
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
-		handler := event.NewConcertHandler(venueRepo, concertRepo, pub, newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, pub, newTestLogger(t))
 
 		data := messaging.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
@@ -126,8 +105,7 @@ func TestConcertHandler_Handle(t *testing.T) {
 			},
 		}
 
-		msg := makeDiscoveredMsg(t, data)
-		err := handler.Handle(msg)
+		err := uc.CreateFromDiscovered(context.Background(), data)
 		require.NoError(t, err)
 
 		// Two new venues should be created.
@@ -144,7 +122,7 @@ func TestConcertHandler_Handle(t *testing.T) {
 		venueRepo.venues["Existing Venue"] = &entity.Venue{ID: "existing-venue-id", Name: "Existing Venue"}
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
-		handler := event.NewConcertHandler(venueRepo, concertRepo, pub, newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, pub, newTestLogger(t))
 
 		data := messaging.ConcertDiscoveredData{
 			ArtistID:   "artist-2",
@@ -159,8 +137,7 @@ func TestConcertHandler_Handle(t *testing.T) {
 			},
 		}
 
-		msg := makeDiscoveredMsg(t, data)
-		err := handler.Handle(msg)
+		err := uc.CreateFromDiscovered(context.Background(), data)
 		require.NoError(t, err)
 
 		// No new venues should be created.
@@ -175,7 +152,7 @@ func TestConcertHandler_Handle(t *testing.T) {
 		venueRepo := newFakeVenueRepo()
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
-		handler := event.NewConcertHandler(venueRepo, concertRepo, pub, newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, pub, newTestLogger(t))
 
 		data := messaging.ConcertDiscoveredData{
 			ArtistID:   "artist-3",
@@ -196,8 +173,7 @@ func TestConcertHandler_Handle(t *testing.T) {
 			},
 		}
 
-		msg := makeDiscoveredMsg(t, data)
-		err := handler.Handle(msg)
+		err := uc.CreateFromDiscovered(context.Background(), data)
 		require.NoError(t, err)
 
 		// Only one venue should be created for "Same Venue".
@@ -206,16 +182,5 @@ func TestConcertHandler_Handle(t *testing.T) {
 		// Both concerts should reference the same venue ID.
 		require.Len(t, concertRepo.created, 2)
 		assert.Equal(t, concertRepo.created[0].VenueID, concertRepo.created[1].VenueID)
-	})
-
-	t.Run("returns error on invalid payload", func(t *testing.T) {
-		venueRepo := newFakeVenueRepo()
-		concertRepo := &fakeConcertRepo{}
-		pub := newGoChannelPub(t)
-		handler := event.NewConcertHandler(venueRepo, concertRepo, pub, newTestLogger(t))
-
-		msg := message.NewMessage("bad-id", []byte("invalid json"))
-		err := handler.Handle(msg)
-		assert.Error(t, err)
 	})
 }
