@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -152,7 +153,8 @@ func (uc *venueEnrichmentUseCase) EnrichOne(ctx context.Context, venueID string)
 func (uc *venueEnrichmentUseCase) enrichOne(ctx context.Context, v *entity.Venue) error {
 	adminArea := ""
 	if v.AdminArea != nil {
-		adminArea = *v.AdminArea
+		// Convert ISO 3166-2 code to English display name for external search APIs.
+		adminArea = geo.DisplayName(*v.AdminArea, "en")
 	}
 
 	var lastTransientErr error

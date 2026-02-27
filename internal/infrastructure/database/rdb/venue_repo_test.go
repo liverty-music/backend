@@ -45,7 +45,7 @@ func TestVenueRepository_Create(t *testing.T) {
 				venue: &entity.Venue{
 					ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e5",
 					Name:      "Zepp Nagoya",
-					AdminArea: strPtr("愛知県"),
+					AdminArea: strPtr("JP-23"),
 				},
 			},
 			wantErr: nil,
@@ -116,7 +116,7 @@ func TestVenueRepository_Get(t *testing.T) {
 	testVenueWithAdminArea := &entity.Venue{
 		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 		Name:      "Zepp Tokyo",
-		AdminArea: strPtr("東京都"),
+		AdminArea: strPtr("JP-13"),
 	}
 	require.NoError(t, repo.Create(ctx, testVenueWithAdminArea))
 
@@ -143,7 +143,7 @@ func TestVenueRepository_Get(t *testing.T) {
 			want: &entity.Venue{
 				ID:               "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 				Name:             "Zepp Tokyo",
-				AdminArea:        strPtr("東京都"),
+				AdminArea:        strPtr("JP-13"),
 				EnrichmentStatus: entity.EnrichmentStatusPending,
 				RawName:          "Zepp Tokyo",
 			},
@@ -198,7 +198,7 @@ func TestVenueRepository_GetByName(t *testing.T) {
 	testVenueWithAdminArea := &entity.Venue{
 		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e8",
 		Name:      "Zepp Osaka Bayside",
-		AdminArea: strPtr("大阪府"),
+		AdminArea: strPtr("JP-27"),
 	}
 	require.NoError(t, repo.Create(ctx, testVenueWithAdminArea))
 
@@ -357,7 +357,7 @@ func TestVenueRepository_MergeVenues(t *testing.T) {
 		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b4911",
 		Name:      "zepp nagoya",
 		RawName:   "zepp nagoya",
-		AdminArea: strPtr("愛知県"),
+		AdminArea: strPtr("JP-23"),
 	}
 	require.NoError(t, venueRepo.Create(ctx, duplicate))
 
@@ -408,7 +408,7 @@ func TestVenueRepository_MergeVenues(t *testing.T) {
 	got, err := venueRepo.Get(ctx, canonical.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got.AdminArea)
-	assert.Equal(t, "愛知県", *got.AdminArea)
+	assert.Equal(t, "JP-23", *got.AdminArea)
 
 	// Duplicate-only event should now belong to canonical
 	var venueID string
