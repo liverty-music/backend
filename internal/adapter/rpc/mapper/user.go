@@ -16,7 +16,7 @@ func UserToProto(user *entity.User) *proto.User {
 		return nil
 	}
 
-	return &proto.User{
+	pb := &proto.User{
 		Id: &proto.UserId{
 			Value: user.ID,
 		},
@@ -28,6 +28,40 @@ func UserToProto(user *entity.User) *proto.User {
 		},
 		Name: user.Name,
 	}
+	if user.Home != nil {
+		pb.Home = HomeToProto(user.Home)
+	}
+	return pb
+}
+
+// HomeToProto converts domain Home entity to protobuf Home.
+func HomeToProto(home *entity.Home) *proto.Home {
+	if home == nil {
+		return nil
+	}
+	pb := &proto.Home{
+		CountryCode: home.CountryCode,
+		Level_1:     home.Level1,
+	}
+	if home.Level2 != nil {
+		pb.Level_2 = home.Level2
+	}
+	return pb
+}
+
+// ProtoHomeToEntity converts protobuf Home to domain Home entity.
+func ProtoHomeToEntity(pbHome *proto.Home) *entity.Home {
+	if pbHome == nil {
+		return nil
+	}
+	home := &entity.Home{
+		CountryCode: pbHome.CountryCode,
+		Level1:      pbHome.Level_1,
+	}
+	if pbHome.Level_2 != nil {
+		home.Level2 = pbHome.Level_2
+	}
+	return home
 }
 
 // GetClaimsFromContext extracts JWT claims from the authenticated context.
@@ -40,10 +74,11 @@ func GetClaimsFromContext(ctx context.Context) (*auth.Claims, error) {
 	return claims, nil
 }
 
-// NewUserFromCreateRequest converts JWT claims to domain NewUser.
+// NewUserFromCreateRequest converts JWT claims and optional home to domain NewUser.
 // Security note: All identity fields (external_id, email, name) are extracted from
 // validated JWT claims to prevent client-side identity tampering.
-func NewUserFromCreateRequest(claims *auth.Claims) *entity.NewUser {
+// The home field is the only client-provided data (selected during onboarding).
+func NewUserFromCreateRequest(claims *auth.Claims, home *proto.Home) *entity.NewUser {
 	if claims == nil {
 		return nil
 	}
@@ -52,5 +87,6 @@ func NewUserFromCreateRequest(claims *auth.Claims) *entity.NewUser {
 		ExternalID: claims.Sub,
 		Email:      claims.Email,
 		Name:       claims.Name,
+		Home:       ProtoHomeToEntity(home),
 	}
 }

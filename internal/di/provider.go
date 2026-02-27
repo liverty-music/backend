@@ -199,7 +199,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return userconnect.NewUserServiceHandler(
-				rpc.NewUserHandler(userUC, logger),
+				rpc.NewUserHandler(userUC, userRepo, logger),
 				opts...,
 			)
 		},
