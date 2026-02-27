@@ -2,6 +2,7 @@
 package cache
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -13,18 +14,55 @@ type entry struct {
 }
 
 // MemoryCache is a thread-safe in-memory cache with TTL support.
+// A background goroutine periodically removes expired entries.
+// Close stops the goroutine and blocks until it exits.
 type MemoryCache struct {
 	mu      sync.RWMutex
 	entries map[string]entry
 	ttl     time.Duration
+
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
-// NewMemoryCache creates a new in-memory cache with the specified TTL.
+// NewMemoryCache creates a new in-memory cache with the specified TTL and
+// starts a background goroutine that removes expired entries at an interval
+// derived from the TTL (ttl / 6). Call Close to stop the goroutine.
 func NewMemoryCache(ttl time.Duration) *MemoryCache {
-	return &MemoryCache{
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	c := &MemoryCache{
 		entries: make(map[string]entry),
 		ttl:     ttl,
+		cancel:  cancel,
+		done:    done,
 	}
+
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(ttl / 6)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				c.cleanup()
+			}
+		}
+	}()
+
+	return c
+}
+
+// Close stops the background cleanup goroutine and waits for it to exit.
+func (c *MemoryCache) Close() error {
+	if c.cancel != nil {
+		c.cancel()
+		<-c.done
+	}
+	return nil
 }
 
 // Get retrieves a value from the cache. Returns nil if not found or expired.
@@ -71,9 +109,8 @@ func (c *MemoryCache) Clear() {
 	c.entries = make(map[string]entry)
 }
 
-// Cleanup removes expired entries from the cache.
-// Should be called periodically via a background goroutine.
-func (c *MemoryCache) Cleanup() {
+// cleanup removes expired entries from the cache.
+func (c *MemoryCache) cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

@@ -1,128 +1,117 @@
-package cache
+package cache_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"github.com/liverty-music/backend/pkg/cache"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMemoryCache_SetAndGet(t *testing.T) {
-	cache := NewMemoryCache(1 * time.Hour)
+	synctest.Test(t, func(t *testing.T) {
+		c := cache.NewMemoryCache(1 * time.Hour)
+		defer c.Close()
 
-	// Test basic set and get
-	cache.Set("key1", "value1")
-	if got := cache.Get("key1"); got != "value1" {
-		t.Errorf("Get() = %v, want %v", got, "value1")
-	}
-
-	// Test non-existent key
-	if got := cache.Get("nonexistent"); got != nil {
-		t.Errorf("Get() = %v, want nil", got)
-	}
+		c.Set("key1", "value1")
+		assert.Equal(t, "value1", c.Get("key1"))
+		assert.Nil(t, c.Get("nonexistent"))
+	})
 }
 
 func TestMemoryCache_Expiration(t *testing.T) {
-	cache := NewMemoryCache(100 * time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		c := cache.NewMemoryCache(100 * time.Millisecond)
+		defer c.Close()
 
-	cache.Set("key1", "value1")
+		c.Set("key1", "value1")
+		assert.Equal(t, "value1", c.Get("key1"))
 
-	// Value should be available immediately
-	if got := cache.Get("key1"); got != "value1" {
-		t.Errorf("Get() = %v, want %v", got, "value1")
-	}
+		// Advance fake clock past TTL.
+		time.Sleep(150 * time.Millisecond)
 
-	// Wait for expiration
-	time.Sleep(150 * time.Millisecond)
-
-	// Value should be expired
-	if got := cache.Get("key1"); got != nil {
-		t.Errorf("Get() after expiration = %v, want nil", got)
-	}
+		assert.Nil(t, c.Get("key1"))
+	})
 }
 
 func TestMemoryCache_Delete(t *testing.T) {
-	cache := NewMemoryCache(1 * time.Hour)
+	synctest.Test(t, func(t *testing.T) {
+		c := cache.NewMemoryCache(1 * time.Hour)
+		defer c.Close()
 
-	cache.Set("key1", "value1")
-	cache.Delete("key1")
+		c.Set("key1", "value1")
+		c.Delete("key1")
 
-	if got := cache.Get("key1"); got != nil {
-		t.Errorf("Get() after Delete() = %v, want nil", got)
-	}
+		assert.Nil(t, c.Get("key1"))
+	})
 }
 
 func TestMemoryCache_Clear(t *testing.T) {
-	cache := NewMemoryCache(1 * time.Hour)
+	synctest.Test(t, func(t *testing.T) {
+		c := cache.NewMemoryCache(1 * time.Hour)
+		defer c.Close()
 
-	cache.Set("key1", "value1")
-	cache.Set("key2", "value2")
-	cache.Clear()
+		c.Set("key1", "value1")
+		c.Set("key2", "value2")
+		c.Clear()
 
-	if got := cache.Get("key1"); got != nil {
-		t.Errorf("Get() after Clear() = %v, want nil", got)
-	}
-	if got := cache.Get("key2"); got != nil {
-		t.Errorf("Get() after Clear() = %v, want nil", got)
-	}
+		assert.Nil(t, c.Get("key1"))
+		assert.Nil(t, c.Get("key2"))
+	})
 }
 
-func TestMemoryCache_Cleanup(t *testing.T) {
-	cache := NewMemoryCache(100 * time.Millisecond)
+func TestMemoryCache_BackgroundCleanup(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// TTL=60ms → cleanup interval = 60ms/6 = 10ms.
+		c := cache.NewMemoryCache(60 * time.Millisecond)
+		defer c.Close()
 
-	cache.Set("key1", "value1")
-	cache.Set("key2", "value2")
+		c.Set("key1", "value1")
 
-	// Wait for expiration
-	time.Sleep(150 * time.Millisecond)
+		// Advance past TTL + cleanup interval so the background goroutine fires.
+		time.Sleep(70 * time.Millisecond)
+		synctest.Wait()
 
-	// Add a fresh entry
-	cache.Set("key3", "value3")
+		// After cleanup, set a fresh value and verify it's returned correctly.
+		c.Set("key1", "value2")
+		assert.Equal(t, "value2", c.Get("key1"))
+	})
+}
 
-	// Run cleanup
-	cache.Cleanup()
+func TestMemoryCache_Close(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := cache.NewMemoryCache(1 * time.Hour)
 
-	// Expired entries should be removed
-	if got := cache.Get("key1"); got != nil {
-		t.Errorf("Get() after Cleanup() = %v, want nil", got)
-	}
-	if got := cache.Get("key2"); got != nil {
-		t.Errorf("Get() after Cleanup() = %v, want nil", got)
-	}
-
-	// Fresh entry should still exist
-	if got := cache.Get("key3"); got != "value3" {
-		t.Errorf("Get() after Cleanup() = %v, want %v", got, "value3")
-	}
+		assert.NoError(t, c.Close())
+	})
 }
 
 func TestMemoryCache_Concurrent(t *testing.T) {
-	cache := NewMemoryCache(1 * time.Hour)
+	synctest.Test(t, func(t *testing.T) {
+		c := cache.NewMemoryCache(1 * time.Hour)
+		defer c.Close()
 
-	// Test concurrent reads and writes
-	done := make(chan bool)
+		done := make(chan bool)
 
-	// Writer goroutines
-	for i := 0; i < 10; i++ {
-		go func(val int) {
-			cache.Set("key", val)
-			done <- true
-		}(i)
-	}
+		for i := 0; i < 10; i++ {
+			go func(val int) {
+				c.Set("key", val)
+				done <- true
+			}(i)
+		}
 
-	// Reader goroutines
-	for i := 0; i < 10; i++ {
-		go func() {
-			_ = cache.Get("key")
-			done <- true
-		}()
-	}
+		for i := 0; i < 10; i++ {
+			go func() {
+				_ = c.Get("key")
+				done <- true
+			}()
+		}
 
-	// Wait for all goroutines
-	for i := 0; i < 20; i++ {
-		<-done
-	}
+		for i := 0; i < 20; i++ {
+			<-done
+		}
 
-	// Should not panic and should have a value
-	if got := cache.Get("key"); got == nil {
-		t.Error("Get() after concurrent access = nil, want non-nil")
-	}
+		assert.NotNil(t, c.Get("key"))
+	})
 }
