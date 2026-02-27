@@ -352,55 +352,6 @@ func (_c *MockArtistUseCase_ListFollowed_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
-// SetPassionLevel provides a mock function with given fields: ctx, userID, artistID, level
-func (_m *MockArtistUseCase) SetPassionLevel(ctx context.Context, userID string, artistID string, level entity.PassionLevel) error {
-	ret := _m.Called(ctx, userID, artistID, level)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetPassionLevel")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.PassionLevel) error); ok {
-		r0 = rf(ctx, userID, artistID, level)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockArtistUseCase_SetPassionLevel_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPassionLevel'
-type MockArtistUseCase_SetPassionLevel_Call struct {
-	*mock.Call
-}
-
-// SetPassionLevel is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID string
-//   - artistID string
-//   - level entity.PassionLevel
-func (_e *MockArtistUseCase_Expecter) SetPassionLevel(ctx interface{}, userID interface{}, artistID interface{}, level interface{}) *MockArtistUseCase_SetPassionLevel_Call {
-	return &MockArtistUseCase_SetPassionLevel_Call{Call: _e.mock.On("SetPassionLevel", ctx, userID, artistID, level)}
-}
-
-func (_c *MockArtistUseCase_SetPassionLevel_Call) Run(run func(ctx context.Context, userID string, artistID string, level entity.PassionLevel)) *MockArtistUseCase_SetPassionLevel_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.PassionLevel))
-	})
-	return _c
-}
-
-func (_c *MockArtistUseCase_SetPassionLevel_Call) Return(_a0 error) *MockArtistUseCase_SetPassionLevel_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockArtistUseCase_SetPassionLevel_Call) RunAndReturn(run func(context.Context, string, string, entity.PassionLevel) error) *MockArtistUseCase_SetPassionLevel_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ListSimilar provides a mock function with given fields: ctx, artistID, limit
 func (_m *MockArtistUseCase) ListSimilar(ctx context.Context, artistID string, limit int32) ([]*entity.Artist, error) {
 	ret := _m.Called(ctx, artistID, limit)
@@ -577,6 +528,55 @@ func (_c *MockArtistUseCase_Search_Call) Return(_a0 []*entity.Artist, _a1 error)
 }
 
 func (_c *MockArtistUseCase_Search_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Artist, error)) *MockArtistUseCase_Search_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetPassionLevel provides a mock function with given fields: ctx, userID, artistID, level
+func (_m *MockArtistUseCase) SetPassionLevel(ctx context.Context, userID string, artistID string, level entity.PassionLevel) error {
+	ret := _m.Called(ctx, userID, artistID, level)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetPassionLevel")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.PassionLevel) error); ok {
+		r0 = rf(ctx, userID, artistID, level)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockArtistUseCase_SetPassionLevel_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPassionLevel'
+type MockArtistUseCase_SetPassionLevel_Call struct {
+	*mock.Call
+}
+
+// SetPassionLevel is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - artistID string
+//   - level entity.PassionLevel
+func (_e *MockArtistUseCase_Expecter) SetPassionLevel(ctx interface{}, userID interface{}, artistID interface{}, level interface{}) *MockArtistUseCase_SetPassionLevel_Call {
+	return &MockArtistUseCase_SetPassionLevel_Call{Call: _e.mock.On("SetPassionLevel", ctx, userID, artistID, level)}
+}
+
+func (_c *MockArtistUseCase_SetPassionLevel_Call) Run(run func(ctx context.Context, userID string, artistID string, level entity.PassionLevel)) *MockArtistUseCase_SetPassionLevel_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.PassionLevel))
+	})
+	return _c
+}
+
+func (_c *MockArtistUseCase_SetPassionLevel_Call) Return(_a0 error) *MockArtistUseCase_SetPassionLevel_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockArtistUseCase_SetPassionLevel_Call) RunAndReturn(run func(context.Context, string, string, entity.PassionLevel) error) *MockArtistUseCase_SetPassionLevel_Call {
 	_c.Call.Return(run)
 	return _c
 }

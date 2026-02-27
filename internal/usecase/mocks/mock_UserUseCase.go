@@ -187,6 +187,66 @@ func (_c *MockUserUseCase_Get_Call) RunAndReturn(run func(context.Context, strin
 	return _c
 }
 
+// UpdateHome provides a mock function with given fields: ctx, id, home
+func (_m *MockUserUseCase) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
+	ret := _m.Called(ctx, id, home)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateHome")
+	}
+
+	var r0 *entity.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) (*entity.User, error)); ok {
+		return rf(ctx, id, home)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) *entity.User); ok {
+		r0 = rf(ctx, id, home)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, *entity.Home) error); ok {
+		r1 = rf(ctx, id, home)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserUseCase_UpdateHome_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateHome'
+type MockUserUseCase_UpdateHome_Call struct {
+	*mock.Call
+}
+
+// UpdateHome is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - home *entity.Home
+func (_e *MockUserUseCase_Expecter) UpdateHome(ctx interface{}, id interface{}, home interface{}) *MockUserUseCase_UpdateHome_Call {
+	return &MockUserUseCase_UpdateHome_Call{Call: _e.mock.On("UpdateHome", ctx, id, home)}
+}
+
+func (_c *MockUserUseCase_UpdateHome_Call) Run(run func(ctx context.Context, id string, home *entity.Home)) *MockUserUseCase_UpdateHome_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*entity.Home))
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_UpdateHome_Call) Return(_a0 *entity.User, _a1 error) *MockUserUseCase_UpdateHome_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserUseCase_UpdateHome_Call) RunAndReturn(run func(context.Context, string, *entity.Home) (*entity.User, error)) *MockUserUseCase_UpdateHome_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockUserUseCase creates a new instance of MockUserUseCase. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockUserUseCase(t interface {
