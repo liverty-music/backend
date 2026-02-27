@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(atlas migrate diff --env local check_drift)",
+      "Bash(bash scripts/check-migration-drift.sh)"
+    ],
+    "additionalDirectories": [
+      "/home/pannpers/dev/src/github.com/liverty-music/backend",
+      "/home/pannpers/.claude/skills",
+      "/home/pannpers/.claude/skills/code-verifier",
+      "/home/pannpers/dev/src/github.com/pannpers/dotfiles/agent/skills/code-verifier",
+      "/home/pannpers/.claude/skills/db-migration",
+      "/home/pannpers/dev/src/github.com/pannpers/dotfiles/agent/skills/db-migration",
+      "/home/pannpers/.claude",
+      "/home/pannpers/dev/src/github.com/pannpers/dotfiles/.claude"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check if the file_path being written/edited is under 'k8s/atlas/base/migrations/'. If YES: this is a migration file being directly created or modified. Warn that Atlas best practice requires editing schema.sql first, then running 'atlas migrate diff'. Recommend using /db-migration skill. Return 'deny' with explanation UNLESS the tool input shows this is an atlas-generated file being amended with DML (data migration statements like INSERT/UPDATE). If the file is NOT under migrations/, return 'allow'."
+          }
+        ]
+      }
+    ]
+  }
+}
