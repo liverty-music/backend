@@ -31,3 +31,14 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 FROM gcr.io/distroless/static:nonroot AS concert-discovery
 COPY --from=build-concert-discovery /out /concert-discovery
 ENTRYPOINT ["/concert-discovery"]
+
+# --- Consumer target ---
+FROM builder AS build-consumer
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s' \
+    -pgo=auto \
+    -o /out ./cmd/consumer
+
+FROM gcr.io/distroless/static:nonroot AS consumer
+COPY --from=build-consumer /out /consumer
+ENTRYPOINT ["/consumer"]
