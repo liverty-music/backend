@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
     time_zone TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     safe_address TEXT,
+    home TEXT,
     CONSTRAINT users_safe_address_unique UNIQUE (safe_address),
     CONSTRAINT chk_safe_address_format CHECK (safe_address IS NULL OR safe_address ~ '^0x[0-9a-fA-F]{40}$')
 );
@@ -30,6 +31,7 @@ COMMENT ON COLUMN users.country IS 'User country code (ISO 3166-1 alpha-2)';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
 COMMENT ON COLUMN users.is_active IS 'Whether the user account is active';
 COMMENT ON COLUMN users.safe_address IS 'Predicted Safe (ERC-4337) address derived deterministically from users.id via CREATE2';
+COMMENT ON COLUMN users.home IS 'User home area as ISO 3166-2 subdivision code (e.g., JP-13 for Tokyo). Determines dashboard lane classification.';
 
 -- Artists table
 CREATE TABLE IF NOT EXISTS artists (
@@ -76,7 +78,7 @@ CREATE TABLE IF NOT EXISTS venues (
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
 COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7)';
 COMMENT ON COLUMN venues.name IS 'Venue name as displayed to users';
-COMMENT ON COLUMN venues.admin_area IS 'Administrative area (prefecture, state, province) where the venue is located; NULL when not determinable with confidence';
+COMMENT ON COLUMN venues.admin_area IS 'ISO 3166-2 subdivision code (e.g., JP-13) for the venue location; NULL when not determinable with confidence';
 COMMENT ON COLUMN venues.mbid IS 'MusicBrainz Place ID (UUID format) for the canonical venue record; NULL until enriched';
 COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID for the canonical venue record; NULL until enriched';
 COMMENT ON COLUMN venues.enrichment_status IS 'Current state of the venue normalization pipeline: pending (default), enriched, or failed';
