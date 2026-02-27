@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -37,9 +38,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Use a fresh context with a deadline aligned to the K8s termination budget,
+	// so that phases are skipped if shutdown runs too long.
 	defer func() {
-		if err := app.Shutdown(ctx); err != nil {
-			app.Logger.Error(ctx, "error during shutdown", err)
+		ctx, cancel := context.WithTimeout(context.Background(), app.ShutdownTimeout)
+		defer cancel()
+		if err := shutdown.Shutdown(ctx); err != nil {
+			app.Logger.Error(context.Background(), "error during shutdown", err)
 		}
 	}()
 
@@ -56,6 +61,12 @@ func run() error {
 	var consecutiveErrors int
 
 	for _, artist := range artists {
+		// Stop immediately on SIGTERM instead of waiting for the circuit
+		// breaker to trip after maxConsecutiveErrors cancelled API calls.
+		if ctx.Err() != nil {
+			break
+		}
+
 		// SearchNewConcerts calls the external API, deduplicates, and publishes
 		// a concert.discovered.v1 event. Concert persistence, notification, and
 		// venue enrichment are handled asynchronously by event consumers.
@@ -77,6 +88,13 @@ func run() error {
 		}
 
 		consecutiveErrors = 0
+	}
+
+	// Go 1.26: context.Cause returns the specific OS signal if shutdown was triggered.
+	if cause := context.Cause(ctx); cause != nil {
+		app.Logger.Info(ctx, "job interrupted by signal",
+			slog.String("cause", cause.Error()),
+		)
 	}
 
 	app.Logger.Info(ctx, "concert discovery job complete",

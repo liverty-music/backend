@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -38,8 +39,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Use a fresh context with a deadline aligned to the K8s termination budget,
+	// so that phases are skipped if shutdown runs too long.
 	defer func() {
-		if err := app.Shutdown(context.Background()); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), app.ShutdownTimeout)
+		defer cancel()
+		if err := shutdown.Shutdown(ctx); err != nil {
 			app.Logger.Error(context.Background(), "error during shutdown", err)
 		}
 	}()
@@ -56,8 +61,10 @@ func run() error {
 	// Wait for either context cancellation (signal) or server error
 	select {
 	case <-ctx.Done():
+		// Go 1.26: context.Cause returns the specific OS signal that triggered cancellation.
+		cause := context.Cause(ctx)
 		app.Logger.Info(ctx, "received shutdown signal, stopping server gracefully",
-			slog.String("signal", ctx.Err().Error()),
+			slog.String("cause", cause.Error()),
 		)
 		return nil
 
