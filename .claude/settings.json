@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(atlas migrate diff --env local check_drift)",
-      "Bash(bash scripts/check-migration-drift.sh)"
+      "Bash(bash scripts/check-migration-drift.sh)",
+      "Bash(atlas migrate diff --env local drop_notifications_table)",
+      "Bash(docker info)",
+      "Bash(podman port postgres)",
+      "Bash(PGPASSWORD=\"\" psql -U test-user -h localhost -d test-db -c \"SELECT 1\")",
+      "Bash(atlas migrate diff --dev-url \"postgres://test-user@localhost:5432/atlas_dev_temp?sslmode=disable&search_path=app,public\" --dir \"file://k8s/atlas/base/migrations\" --to \"file://internal/infrastructure/database/rdb/schema/schema.sql\" drop_notifications_table)",
+      "Bash(atlas migrate diff --dev-url \"postgres://test-user@localhost:5432/atlas_dev_temp?sslmode=disable&search_path=public\" --dir \"file://k8s/atlas/base/migrations\" --to \"file://internal/infrastructure/database/rdb/schema/schema.sql\" drop_notifications_table)",
+      "Bash(atlas migrate diff --dev-url \"postgres://test-user@localhost:5432/atlas_dev_temp?sslmode=disable&search_path=app\" --dir \"file://k8s/atlas/base/migrations\" --to \"file://internal/infrastructure/database/rdb/schema/schema.sql\" drop_notifications_table)"
     ],
     "additionalDirectories": [
       "/home/pannpers/dev/src/github.com/liverty-music/backend",

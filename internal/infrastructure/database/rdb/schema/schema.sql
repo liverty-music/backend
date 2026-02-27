@@ -130,34 +130,6 @@ COMMENT ON COLUMN followed_artists.user_id IS 'Reference to the user who is foll
 COMMENT ON COLUMN followed_artists.artist_id IS 'Reference to the artist being followed';
 COMMENT ON COLUMN followed_artists.passion_level IS 'User enthusiasm tier: must_go, local_only (default), or keep_an_eye';
 
--- Notifications table
-CREATE TABLE IF NOT EXISTS notifications (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
-    concert_id UUID REFERENCES concerts(event_id) ON DELETE SET NULL,
-    type TEXT NOT NULL,
-    title TEXT NOT NULL,
-    message TEXT NOT NULL,
-    language TEXT NOT NULL DEFAULT 'en',
-    status TEXT NOT NULL DEFAULT 'pending',
-    scheduled_at TIMESTAMPTZ NOT NULL,
-    sent_at TIMESTAMPTZ
-);
-
-COMMENT ON TABLE notifications IS 'Scheduled and sent notifications about concerts and artist activities';
-COMMENT ON COLUMN notifications.id IS 'Unique notification identifier (UUIDv7)';
-COMMENT ON COLUMN notifications.user_id IS 'Reference to the recipient user';
-COMMENT ON COLUMN notifications.artist_id IS 'Reference to the artist related to this notification';
-COMMENT ON COLUMN notifications.concert_id IS 'Reference to the specific concert (nullable for general artist announcements)';
-COMMENT ON COLUMN notifications.type IS 'Notification type: concert_announced, tickets_available, concert_reminder, concert_cancelled';
-COMMENT ON COLUMN notifications.title IS 'Notification subject or headline';
-COMMENT ON COLUMN notifications.message IS 'Full notification message body';
-COMMENT ON COLUMN notifications.language IS 'ISO 639-1 language code for the notification content';
-COMMENT ON COLUMN notifications.status IS 'Delivery status: pending, sent, failed, or cancelled';
-COMMENT ON COLUMN notifications.scheduled_at IS 'When the notification should be sent';
-COMMENT ON COLUMN notifications.sent_at IS 'Actual timestamp when the notification was sent (NULL if not sent)';
-
 -- Latest search logs table
 CREATE TABLE IF NOT EXISTS latest_search_logs (
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
@@ -274,16 +246,6 @@ COMMENT ON INDEX idx_followed_artists_user_id IS 'Optimizes retrieval of all fol
 
 CREATE INDEX IF NOT EXISTS idx_followed_artists_artist_id ON followed_artists(artist_id);
 COMMENT ON INDEX idx_followed_artists_artist_id IS 'Optimizes finding all followers of an artist';
-
--- Notifications indexes
-CREATE INDEX IF NOT EXISTS idx_notifications_scheduled_at ON notifications(scheduled_at);
-COMMENT ON INDEX idx_notifications_scheduled_at IS 'Optimizes time-based notification scheduling and batch sending queries';
-
-CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status);
-COMMENT ON INDEX idx_notifications_status IS 'Optimizes filtering notifications by delivery status (e.g., pending for batch processing)';
-
-CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
-COMMENT ON INDEX idx_notifications_user_id IS 'Optimizes retrieval of notification history for a user';
 
 -- Tickets indexes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_event_user ON tickets(event_id, user_id);
