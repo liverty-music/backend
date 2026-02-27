@@ -141,15 +141,17 @@ func (s *ConnectServer) Start() error {
 	return s.server.ListenAndServe()
 }
 
-// Stop gracefully stops the Connect server.
-func (s *ConnectServer) Stop() error {
+// Close gracefully stops the Connect server, draining in-flight requests.
+// It implements [io.Closer] so the server can be registered with the
+// shutdown package's Drain phase.
+func (s *ConnectServer) Close() error {
 	if s.server != nil {
 		timeout := s.Cfg.ShutdownTimeout
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 
-		s.logger.Info(ctx, "Shutting down Connect server gracefully...", slog.Duration("timeout", timeout))
+		s.logger.Info(ctx, "draining Connect server", slog.Duration("timeout", timeout))
 
 		return s.server.Shutdown(ctx)
 	}

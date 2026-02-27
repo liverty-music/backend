@@ -31,6 +31,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/infrastructure/zkp"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/telemetry"
@@ -98,19 +99,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Cache - Artist discovery results with 1 hour TTL
 	artistCache := cache.NewMemoryCache(1 * time.Hour)
 
-	// Start background cleanup for cache to prevent memory leak
-	go func() {
-		ticker := time.NewTicker(10 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				artistCache.Cleanup()
-			}
-		}
-	}()
+	// Initialize the shutdown package for phased resource teardown.
+	shutdown.Init(logger)
 
 	// Infrastructure - Blockchain (optional; skipped when config is absent)
 	var ticketUC usecase.TicketUseCase
@@ -187,12 +177,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	authFunc := auth.NewAuthFunc(jwtValidator, publicProcedures)
 
-	// Health check handler (public, outside authn middleware)
+	// Health check handler (public, outside authn middleware).
+	// Keep a reference so App.Shutdown can call SetShuttingDown.
+	healthChecker := rpc.NewHealthCheckHandler(db, logger)
 	healthHandler := func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return grpchealth.NewHandler(
-			rpc.NewHealthCheckHandler(db, logger),
-			opts...,
-		)
+		return grpchealth.NewHandler(healthChecker, opts...)
 	}
 
 	// RPC handlers (protected by authn middleware)
@@ -257,12 +246,24 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	srv := server.NewConnectServer(cfg, logger, db, authFunc, healthHandler, handlers...)
 
-	closers := []io.Closer{db, telemetryCloser, lastfmClient, musicbrainzClient, publisher}
+	// Register shutdown phases.
+	// Drain: health → NOT_SERVING, then server drains in-flight requests,
+	// then cache cleanup goroutine stops.
+	shutdown.AddDrainPhase(healthChecker, srv, artistCache)
+	shutdown.AddFlushPhase(publisher)
+	externalClosers := []io.Closer{lastfmClient, musicbrainzClient}
 	if sbtCloser != nil {
-		closers = append(closers, sbtCloser)
+		externalClosers = append(externalClosers, sbtCloser)
 	}
+	shutdown.AddExternalPhase(externalClosers...)
+	shutdown.AddObservePhase(telemetryCloser)
+	shutdown.AddDatastorePhase(db)
 
-	return newApp(srv, logger, closers...), nil
+	return &App{
+		Server:          srv,
+		Logger:          logger,
+		ShutdownTimeout: cfg.ShutdownTimeout,
+	}, nil
 }
 
 func provideLogger(cfg *config.Config) (*logging.Logger, error) {
