@@ -41,7 +41,7 @@ check_kustomization() {
       echo "  - $m" >&2
     done
     echo "  Add them to k8s/atlas/base/kustomization.yaml configMapGenerator.files" >&2
-    ((errors++))
+    errors=$((errors + 1))
   fi
 }
 
@@ -70,7 +70,7 @@ check_schema_in_sync() {
     echo "  Atlas best practice: edit schema.sql (desired state) FIRST," >&2
     echo "  then run 'atlas migrate diff --env local <name>' to generate migrations." >&2
     echo "  If this is a data-only migration, update schema.sql to match the final state." >&2
-    ((errors++))
+    errors=$((errors + 1))
   fi
 }
 
@@ -89,7 +89,7 @@ check_atlas_hash() {
     fi
     echo "FAIL: atlas migrate validate failed:" >&2
     echo "$output" >&2
-    ((errors++))
+    errors=$((errors + 1))
   fi
 }
 
