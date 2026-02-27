@@ -3,11 +3,11 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -18,6 +18,12 @@ type VenueEnrichmentUseCase interface {
 	// errors are logged and the venue remains pending for the next run; only when all
 	// searchers report NotFound is the venue permanently marked as failed.
 	EnrichPendingVenues(ctx context.Context) error
+
+	// EnrichOne enriches a single venue identified by its ID. It fetches the venue,
+	// runs it through the enrichment pipeline, and handles the result (update, merge,
+	// or mark as failed). Returns an error only on infrastructure failures; enrichment
+	// outcomes (not-found, merged, enriched) are handled internally.
+	EnrichOne(ctx context.Context, venueID string) error
 }
 
 // VenueNamedSearcher wraps a VenuePlaceSearcher with a label used to decide
@@ -33,8 +39,10 @@ type venueEnrichmentUseCase struct {
 	// venueByNameRepo is the subset of VenueRepository needed for duplicate detection.
 	// In practice, *rdb.VenueRepository implements both interfaces.
 	venueByNameRepo venueByNameRepository
-	searchers       []VenueNamedSearcher
-	logger          *logging.Logger
+	// venueGetRepo is the subset of VenueRepository needed to fetch a single venue by ID.
+	venueGetRepo venueGetRepository
+	searchers    []VenueNamedSearcher
+	logger       *logging.Logger
 }
 
 // venueByNameRepository is the minimal read interface needed for duplicate detection.
@@ -42,21 +50,28 @@ type venueByNameRepository interface {
 	GetByName(ctx context.Context, name string) (*entity.Venue, error)
 }
 
+// venueGetRepository is the minimal read interface needed to fetch a single venue by ID.
+type venueGetRepository interface {
+	Get(ctx context.Context, id string) (*entity.Venue, error)
+}
+
 // Compile-time interface compliance check.
 var _ VenueEnrichmentUseCase = (*venueEnrichmentUseCase)(nil)
 
 // NewVenueEnrichmentUseCase creates a new venue enrichment use case.
-// venueRepo must also implement venueByNameRepository (i.e., GetByName).
+// venueGetRepo provides single-venue lookups for EnrichOne.
 // searchers are tried in order; the first successful result wins.
 func NewVenueEnrichmentUseCase(
 	venueRepo entity.VenueEnrichmentRepository,
 	venueByNameRepo venueByNameRepository,
+	venueGetRepo venueGetRepository,
 	logger *logging.Logger,
 	searchers ...VenueNamedSearcher,
 ) VenueEnrichmentUseCase {
 	return &venueEnrichmentUseCase{
 		venueRepo:       venueRepo,
 		venueByNameRepo: venueByNameRepo,
+		venueGetRepo:    venueGetRepo,
 		searchers:       searchers,
 		logger:          logger,
 	}
@@ -64,7 +79,7 @@ func NewVenueEnrichmentUseCase(
 
 // errNoExternalMatch is the sentinel returned by enrichOne when all searchers
 // report NotFound. It is the only condition that permanently marks a venue failed.
-var errNoExternalMatch = apperr.New(codes.NotFound, "no external match found for venue")
+var errNoExternalMatch = apperr.ErrNotFound
 
 // EnrichPendingVenues processes all pending venues through the enrichment pipeline.
 func (uc *venueEnrichmentUseCase) EnrichPendingVenues(ctx context.Context) error {
@@ -97,6 +112,33 @@ func (uc *venueEnrichmentUseCase) EnrichPendingVenues(ctx context.Context) error
 				)
 			}
 		}
+	}
+
+	return nil
+}
+
+// EnrichOne enriches a single venue by ID. It fetches the venue, runs the enrichment
+// pipeline, and handles the outcome (enriched, merged, or marked as failed).
+func (uc *venueEnrichmentUseCase) EnrichOne(ctx context.Context, venueID string) error {
+	v, err := uc.venueGetRepo.Get(ctx, venueID)
+	if err != nil {
+		return fmt.Errorf("get venue %s: %w", venueID, err)
+	}
+
+	if err := uc.enrichOne(ctx, v); err != nil {
+		if errors.Is(err, errNoExternalMatch) {
+			uc.logger.Warn(ctx, "no external match found for venue, marking as failed",
+				slog.String("venue_id", v.ID),
+				slog.String("raw_name", v.RawName),
+			)
+			if markErr := uc.venueRepo.MarkFailed(ctx, v.ID); markErr != nil {
+				uc.logger.Error(ctx, "failed to mark venue as failed", markErr,
+					slog.String("venue_id", v.ID),
+				)
+			}
+			return nil
+		}
+		return err
 	}
 
 	return nil

@@ -76,6 +76,9 @@ func TestLoad(t *testing.T) {
 				VAPID: VAPIDConfig{
 					Contact: "mailto:pepperoni9@gmail.com",
 				},
+				NATS: NATSConfig{
+					StreamName: "LIVERTY_MUSIC",
+				},
 			},
 			wantErr: nil,
 		},
@@ -151,6 +154,9 @@ func TestLoad(t *testing.T) {
 				VAPID: VAPIDConfig{
 					Contact: "mailto:pepperoni9@gmail.com",
 				},
+				NATS: NATSConfig{
+					StreamName: "LIVERTY_MUSIC",
+				},
 			},
 			wantErr: nil,
 		},
@@ -190,6 +196,7 @@ func TestConfig_Validate(t *testing.T) {
 					InstanceConnectionName: "project:region:instance",
 				},
 				Logging: LoggingConfig{Level: "info", Format: "json"},
+				NATS:    NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
@@ -224,6 +231,23 @@ func TestConfig_Validate(t *testing.T) {
 					InstanceConnectionName: "project:region:instance",
 				},
 				Logging: LoggingConfig{Level: "info", Format: "json"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing NATS URL in development",
+			config: &Config{
+				Environment: "development",
+				Server:      ServerConfig{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
+				Database: DatabaseConfig{
+					Port:                   5432,
+					InstanceConnectionName: "project:region:instance",
+				},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
+				JWT: JWTConfig{
+					Issuer:              "https://test-issuer.com",
+					JWKSRefreshInterval: 15 * time.Minute,
+				},
 			},
 			wantErr: true,
 		},

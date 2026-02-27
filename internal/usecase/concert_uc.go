@@ -7,8 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -32,13 +33,15 @@ type ConcertUseCase interface {
 	//  - NotFound: If the user does not exist.
 	ListByFollower(ctx context.Context, externalUserID string) ([]*entity.Concert, error)
 
-	// SearchNewConcerts discovers new concerts using external sources.
+	// SearchNewConcerts discovers new concerts using external sources and publishes
+	// a concert.discovered.v1 event for downstream processing. Concert persistence,
+	// notifications, and venue enrichment are handled by event consumers.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If the artist ID is empty or artist/site not found.
 	//  - Unavailable: If the external search service is down.
-	SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error)
+	SearchNewConcerts(ctx context.Context, artistID string) error
 }
 
 // concertUseCase implements the ConcertUseCase interface.
@@ -49,6 +52,7 @@ type concertUseCase struct {
 	userRepo        entity.UserRepository
 	searchLogRepo   entity.SearchLogRepository
 	concertSearcher entity.ConcertSearcher
+	publisher       message.Publisher
 	logger          *logging.Logger
 }
 
@@ -59,7 +63,7 @@ const searchCacheTTL = 24 * time.Hour
 var _ ConcertUseCase = (*concertUseCase)(nil)
 
 // NewConcertUseCase creates a new concert use case.
-// It orchestrates concert searching, retrieval, and persistence.
+// It orchestrates concert searching, retrieval, and event publishing.
 func NewConcertUseCase(
 	artistRepo entity.ArtistRepository,
 	concertRepo entity.ConcertRepository,
@@ -67,6 +71,7 @@ func NewConcertUseCase(
 	userRepo entity.UserRepository,
 	searchLogRepo entity.SearchLogRepository,
 	concertSearcher entity.ConcertSearcher,
+	publisher message.Publisher,
 	logger *logging.Logger,
 ) ConcertUseCase {
 	return &concertUseCase{
@@ -76,6 +81,7 @@ func NewConcertUseCase(
 		userRepo:        userRepo,
 		searchLogRepo:   searchLogRepo,
 		concertSearcher: concertSearcher,
+		publisher:       publisher,
 		logger:          logger,
 	}
 }
@@ -117,46 +123,46 @@ func (uc *concertUseCase) resolveUserID(ctx context.Context, externalID string) 
 	return user.ID, nil
 }
 
-// SearchNewConcerts discovers new concerts using external sources.
-// If the artist was searched within the last 24 hours, it skips the external
-// API call and returns an empty result.
-func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+// SearchNewConcerts discovers new concerts using external sources and publishes
+// a concert.discovered.v1 event containing the deduplicated batch for downstream consumers.
+// If the artist was searched within the last 24 hours, it skips the external API call.
+func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string) error {
 	if artistID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "artist ID is required")
+		return apperr.New(codes.InvalidArgument, "artist ID is required")
 	}
 
 	// 1. Check search log — skip external API if recently searched
 	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		return nil, fmt.Errorf("failed to get search log: %w", err)
+		return fmt.Errorf("failed to get search log: %w", err)
 	}
 	if searchLog != nil && time.Since(searchLog.SearchTime) < searchCacheTTL {
 		uc.logger.Debug(ctx, "skipping external search, recently searched",
 			slog.String("artist_id", artistID),
 			slog.Time("search_time", searchLog.SearchTime),
 		)
-		return nil, nil
+		return nil
 	}
 
 	// 2. Get Artist
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get artist: %w", err)
+		return fmt.Errorf("failed to get artist: %w", err)
 	}
 
 	// 3. Get Official Site — missing site is not an error; search continues with nil
 	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		return nil, fmt.Errorf("failed to get official site: %w", err)
+		return fmt.Errorf("failed to get official site: %w", err)
 	}
 	if errors.Is(err, apperr.ErrNotFound) {
 		site = nil
 	}
 
-	// 4. Get existing upcoming concerts
+	// 4. Get existing upcoming concerts for deduplication
 	existing, err := uc.concertRepo.ListByArtist(ctx, artistID, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list existing concerts: %w", err)
+		return fmt.Errorf("failed to list existing concerts: %w", err)
 	}
 
 	// 5. Mark search as in-progress (prevents concurrent redundant API calls)
@@ -172,21 +178,21 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		if delErr := uc.searchLogRepo.Delete(ctx, artistID); delErr != nil {
 			uc.logger.Error(ctx, "failed to delete search log after Gemini failure", delErr, slog.String("artist_id", artistID))
 		}
-		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
+		return fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
 
-	// 7. Deduplicate and map to entities
-	var discovered []*entity.Concert
+	// 7. Deduplicate against existing concerts
 	seen := make(map[string]bool)
 	for _, ex := range existing {
 		seen[getUniqueKey(ex.LocalDate, ex.StartTime)] = true
 	}
 
+	var newConcerts []messaging.ScrapedConcertData
 	for _, s := range scraped {
 		key := getUniqueKey(s.LocalDate, s.StartTime)
 		if seen[key] {
 			uc.logger.Debug(ctx, "filtered existing/duplicate event",
-				slog.String("artistID", artistID),
+				slog.String("artist_id", artistID),
 				slog.String("title", s.Title),
 				slog.String("venue", s.ListedVenueName),
 				slog.String("date", s.LocalDate.Format("2006-01-02")),
@@ -195,71 +201,53 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		}
 		seen[key] = true
 
-		venue, err := uc.venueRepo.GetByName(ctx, s.ListedVenueName)
-		if err != nil {
-			if !errors.Is(err, apperr.ErrNotFound) {
-				uc.logger.Error(ctx, "failed to get venue by name", err, slog.String("name", s.ListedVenueName))
-				continue
-			}
-
-			// Not found: create new venue
-			// Use UUIDv7 for time-ordered keys
-			venueID := newUUIDv7(ctx, "venue", uc.logger)
-			if venueID == "" {
-				continue
-			}
-			newVenue := &entity.Venue{
-				ID:               venueID,
-				Name:             s.ListedVenueName,
-				AdminArea:        s.AdminArea,
-				EnrichmentStatus: entity.EnrichmentStatusPending,
-				RawName:          s.ListedVenueName,
-			}
-			if err := uc.venueRepo.Create(ctx, newVenue); err != nil {
-				if errors.Is(err, apperr.ErrAlreadyExists) {
-					// Race condition: another request created it. Fetch again.
-					v, getErr := uc.venueRepo.GetByName(ctx, s.ListedVenueName)
-					if getErr != nil {
-						uc.logger.Error(ctx, "failed to get venue after race", getErr, slog.String("name", s.ListedVenueName))
-						continue
-					}
-					venue = v
-				} else {
-					uc.logger.Error(ctx, "failed to create venue", err, slog.String("name", s.ListedVenueName))
-					continue
-				}
-			} else {
-				venue = newVenue
-			}
-		}
-
-		concertID := newUUIDv7(ctx, "concert", uc.logger)
-		if concertID == "" {
-			continue
-		}
-		discovered = append(discovered, &entity.Concert{
-			Event: entity.Event{
-				ID:              concertID,
-				VenueID:         venue.ID,
-				Title:           s.Title,
-				ListedVenueName: &s.ListedVenueName,
-				LocalDate:       s.LocalDate,
-				StartTime:       s.StartTime,
-				OpenTime:        s.OpenTime,
-				SourceURL:       s.SourceURL,
-			},
-			ArtistID: artistID,
+		newConcerts = append(newConcerts, messaging.ScrapedConcertData{
+			Title:           s.Title,
+			ListedVenueName: s.ListedVenueName,
+			AdminArea:       s.AdminArea,
+			LocalDate:       s.LocalDate,
+			StartTime:       s.StartTime,
+			OpenTime:        s.OpenTime,
+			SourceURL:       s.SourceURL,
 		})
 	}
 
-	// 8. Bulk insert all discovered concerts
-	if len(discovered) > 0 {
-		if err := uc.concertRepo.Create(ctx, discovered...); err != nil {
-			return nil, fmt.Errorf("failed to create concerts: %w", err)
-		}
+	// 8. Publish concert.discovered.v1 event (artist-level batch)
+	if len(newConcerts) == 0 {
+		uc.logger.Debug(ctx, "no new concerts after deduplication",
+			slog.String("artist_id", artistID),
+		)
+		return nil
 	}
 
-	return discovered, nil
+	eventData := messaging.ConcertDiscoveredData{
+		ArtistID:   artistID,
+		ArtistName: artist.Name,
+		Concerts:   newConcerts,
+	}
+
+	msg, err := messaging.NewCloudEvent(messaging.EventTypeConcertDiscovered, eventData)
+	if err != nil {
+		return fmt.Errorf("failed to create concert.discovered event: %w", err)
+	}
+
+	if err := uc.publisher.Publish(messaging.EventTypeConcertDiscovered, msg); err != nil {
+		uc.logger.Error(ctx, "failed to publish concert.discovered event", err,
+			slog.String("artist_id", artistID),
+			slog.Int("concert_count", len(newConcerts)),
+		)
+		// Non-fatal: CronJob will re-discover on next run.
+		// Search log is already updated, preventing immediate re-search.
+		return nil
+	}
+
+	uc.logger.Info(ctx, "published concert.discovered event",
+		slog.String("artist_id", artistID),
+		slog.String("artist_name", artist.Name),
+		slog.Int("concert_count", len(newConcerts)),
+	)
+
+	return nil
 }
 
 // getUniqueKey generates a unique identifier for a concert based on its date and start time.
@@ -271,15 +259,4 @@ func getUniqueKey(date time.Time, startTime *time.Time) string {
 		stStr = startTime.Format(time.RFC3339)
 	}
 	return date.Format("2006-01-02") + "|" + stStr
-}
-
-// newUUIDv7 generates a new UUIDv7.
-// If it fails (extremely rare), it logs the error and returns an empty string.
-func newUUIDv7(ctx context.Context, kind string, logger *logging.Logger) string {
-	id, err := uuid.NewV7()
-	if err != nil {
-		logger.Error(ctx, "failed to generate ID", err, slog.String("kind", kind))
-		return ""
-	}
-	return id.String()
 }

@@ -66,18 +66,16 @@ func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[
 }
 
 // SearchNewConcerts triggers a discovery process for new concerts.
+// Concerts are created asynchronously by event consumers; the response is empty.
 func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[concertv1.SearchNewConcertsRequest]) (*connect.Response[concertv1.SearchNewConcertsResponse], error) {
 	artistID := req.Msg.GetArtistId().GetValue()
 	if artistID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("artist_id cannot be empty"))
 	}
 
-	concerts, err := h.concertUseCase.SearchNewConcerts(ctx, artistID)
-	if err != nil {
+	if err := h.concertUseCase.SearchNewConcerts(ctx, artistID); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&concertv1.SearchNewConcertsResponse{
-		Concerts: mapper.ConcertsToProto(concerts),
-	}), nil
+	return connect.NewResponse(&concertv1.SearchNewConcertsResponse{}), nil
 }

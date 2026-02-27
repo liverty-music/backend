@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
-	googleMaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
-	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/telemetry"
@@ -18,13 +19,13 @@ import (
 )
 
 // JobApp represents a lightweight application for batch jobs without an HTTP server.
+// The CronJob searches for concerts and publishes events; concert persistence,
+// notifications, and venue enrichment are handled by event consumers.
 type JobApp struct {
-	ArtistRepo         entity.ArtistRepository
-	ConcertUC          usecase.ConcertUseCase
-	VenueEnrichUC      usecase.VenueEnrichmentUseCase
-	PushNotificationUC usecase.PushNotificationUseCase
-	Logger             *logging.Logger
-	closers            []io.Closer
+	ArtistRepo entity.ArtistRepository
+	ConcertUC  usecase.ConcertUseCase
+	Logger     *logging.Logger
+	closers    []io.Closer
 }
 
 // Shutdown closes all resources held by the job application.
@@ -78,7 +79,6 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	venueRepo := rdb.NewVenueRepository(db)
 	userRepo := rdb.NewUserRepository(db)
 	searchLogRepo := rdb.NewSearchLogRepository(db)
-	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 
 	// Infrastructure - Gemini
 	var geminiSearcher entity.ConcertSearcher
@@ -95,37 +95,26 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 		geminiSearcher = searcher
 	}
 
-	// Use Cases
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, logger)
-	pushNotificationUC := usecase.NewPushNotificationUseCase(
-		artistRepo,
-		pushSubRepo,
-		logger,
-		cfg.VAPID.PublicKey,
-		cfg.VAPID.PrivateKey,
-		cfg.VAPID.Contact,
-	)
-
-	// Infrastructure - Venue enrichment place searchers
-	mbClient := musicbrainz.NewClient(nil, logger)
-	mbSearcher := musicbrainz.NewPlaceSearcher(mbClient)
-
-	var searchers []usecase.VenueNamedSearcher
-	searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: mbSearcher, AssignToMBID: true})
-	if cfg.GoogleMapsAPIKey != "" {
-		gmClient := googleMaps.NewClient(cfg.GoogleMapsAPIKey, nil, logger)
-		gmSearcher := googleMaps.NewPlaceSearcher(gmClient)
-		searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: gmSearcher, AssignToMBID: false})
+	// Infrastructure - Messaging Publisher
+	wmLogger := watermill.NewStdLogger(false, false)
+	var goChannel *gochannel.GoChannel
+	if cfg.NATS.URL == "" {
+		goChannel = gochannel.NewGoChannel(gochannel.Config{
+			OutputChannelBuffer: 256,
+		}, wmLogger)
+	}
+	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel)
+	if err != nil {
+		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
 
-	venueEnrichUC := usecase.NewVenueEnrichmentUseCase(venueRepo, venueRepo, logger, searchers...)
+	// Use Cases
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, publisher, logger)
 
 	return &JobApp{
-		ArtistRepo:         artistRepo,
-		ConcertUC:          concertUC,
-		VenueEnrichUC:      venueEnrichUC,
-		PushNotificationUC: pushNotificationUC,
-		Logger:             logger,
-		closers:            []io.Closer{db, telemetryCloser, mbClient},
+		ArtistRepo: artistRepo,
+		ConcertUC:  concertUC,
+		Logger:     logger,
+		closers:    []io.Closer{db, telemetryCloser, publisher},
 	}, nil
 }

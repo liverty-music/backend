@@ -21,6 +21,7 @@ type fakeVenueEnrichmentRepo struct {
 	failed      []string
 	merged      [][2]string // [canonicalID, duplicateID]
 	getByNameFn func(name string) (*entity.Venue, error)
+	getFn       func(id string) (*entity.Venue, error)
 }
 
 func (r *fakeVenueEnrichmentRepo) ListPending(_ context.Context) ([]*entity.Venue, error) {
@@ -48,6 +49,18 @@ func (r *fakeVenueEnrichmentRepo) MergeVenues(_ context.Context, canonicalID, du
 func (r *fakeVenueEnrichmentRepo) GetByName(_ context.Context, name string) (*entity.Venue, error) {
 	if r.getByNameFn != nil {
 		return r.getByNameFn(name)
+	}
+	return nil, apperr.New(codes.NotFound, "not found")
+}
+
+func (r *fakeVenueEnrichmentRepo) Get(_ context.Context, id string) (*entity.Venue, error) {
+	if r.getFn != nil {
+		return r.getFn(id)
+	}
+	for _, v := range r.pending {
+		if v.ID == id {
+			return v, nil
+		}
 	}
 	return nil, apperr.New(codes.NotFound, "not found")
 }
@@ -82,7 +95,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_Success(t *testing.T) {
 		result: &entity.VenuePlace{ExternalID: "mbid-001", Name: "Zepp Nagoya"},
 	}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
 	)
 
@@ -108,7 +121,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_GooglePlaceID(t *testing.T) 
 		result: &entity.VenuePlace{ExternalID: "ChIJplace001", Name: "Nippon Budokan"},
 	}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: false},
 	)
 
@@ -131,7 +144,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_FallsBackToSecondSearcher(t 
 	first := &fakePlaceSearcher{err: apperr.New(codes.NotFound, "not found")}
 	second := &fakePlaceSearcher{result: &entity.VenuePlace{ExternalID: "ChIJfallback", Name: "Some Venue"}}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: first, AssignToMBID: true},
 		usecase.VenueNamedSearcher{Searcher: second, AssignToMBID: false},
 	)
@@ -153,7 +166,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_NoMatchMarksFailed(t *testin
 	}
 	searcher := &fakePlaceSearcher{err: apperr.New(codes.NotFound, "not found")}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
 	)
 
@@ -181,7 +194,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_DuplicateDetectionMerges(t *
 		result: &entity.VenuePlace{ExternalID: "mbid-001", Name: "Zepp Nagoya"},
 	}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
 	)
 
@@ -204,7 +217,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_TransientErrorLeavesPending(
 	// The venue remains pending so the next run can retry.
 	searcher := &fakePlaceSearcher{err: apperr.New(codes.Unavailable, "service down")}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
 	)
 

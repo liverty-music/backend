@@ -82,33 +82,21 @@ func (_c *MockConcertUseCase_ListByArtist_Call) RunAndReturn(run func(context.Co
 }
 
 // SearchNewConcerts provides a mock function with given fields: ctx, artistID
-func (_m *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+func (_m *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string) error {
 	ret := _m.Called(ctx, artistID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SearchNewConcerts")
 	}
 
-	var r0 []*entity.Concert
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Concert, error)); ok {
-		return rf(ctx, artistID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Concert); ok {
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
 		r0 = rf(ctx, artistID)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Concert)
-		}
+		r0 = ret.Error(0)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, artistID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
+	return r0
 }
 
 // MockConcertUseCase_SearchNewConcerts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SearchNewConcerts'
@@ -130,12 +118,12 @@ func (_c *MockConcertUseCase_SearchNewConcerts_Call) Run(run func(ctx context.Co
 	return _c
 }
 
-func (_c *MockConcertUseCase_SearchNewConcerts_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertUseCase_SearchNewConcerts_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) Return(_a0 error) *MockConcertUseCase_SearchNewConcerts_Call {
+	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Concert, error)) *MockConcertUseCase_SearchNewConcerts_Call {
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(context.Context, string) error) *MockConcertUseCase_SearchNewConcerts_Call {
 	_c.Call.Return(run)
 	return _c
 }
