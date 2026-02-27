@@ -32,6 +32,8 @@ jobs:
             target: server
           - name: consumer
             target: consumer
+          - name: concert-discovery
+            target: concert-discovery
     env:
       REGION: ${{ vars.REGION }}
       PROJECT_ID: ${{ vars.PROJECT_ID }}
