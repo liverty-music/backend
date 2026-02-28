@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"log/slog"
 
@@ -141,17 +142,21 @@ func (s *ConnectServer) Start() error {
 	return s.server.ListenAndServe()
 }
 
+// serverDrainTimeout is the maximum time the Connect server waits for
+// in-flight requests to complete. This must be smaller than the total
+// shutdown budget (ShutdownTimeout) so that subsequent phases (flush,
+// external, observe, datastore) still have time to run.
+const serverDrainTimeout = 15 * time.Second
+
 // Close gracefully stops the Connect server, draining in-flight requests.
 // It implements [io.Closer] so the server can be registered with the
 // shutdown package's Drain phase.
 func (s *ConnectServer) Close() error {
 	if s.server != nil {
-		timeout := s.Cfg.ShutdownTimeout
-
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), serverDrainTimeout)
 		defer cancel()
 
-		s.logger.Info(ctx, "draining Connect server", slog.Duration("timeout", timeout))
+		s.logger.Info(ctx, "draining Connect server", slog.Duration("timeout", serverDrainTimeout))
 
 		return s.server.Shutdown(ctx)
 	}
