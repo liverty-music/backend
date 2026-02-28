@@ -12,7 +12,7 @@ import (
 func TestMemoryCache_SetAndGet(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := cache.NewMemoryCache(1 * time.Hour)
-		defer c.Close()
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
 
 		c.Set("key1", "value1")
 		assert.Equal(t, "value1", c.Get("key1"))
@@ -23,7 +23,7 @@ func TestMemoryCache_SetAndGet(t *testing.T) {
 func TestMemoryCache_Expiration(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := cache.NewMemoryCache(100 * time.Millisecond)
-		defer c.Close()
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
 
 		c.Set("key1", "value1")
 		assert.Equal(t, "value1", c.Get("key1"))
@@ -38,7 +38,7 @@ func TestMemoryCache_Expiration(t *testing.T) {
 func TestMemoryCache_Delete(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := cache.NewMemoryCache(1 * time.Hour)
-		defer c.Close()
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
 
 		c.Set("key1", "value1")
 		c.Delete("key1")
@@ -50,7 +50,7 @@ func TestMemoryCache_Delete(t *testing.T) {
 func TestMemoryCache_Clear(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := cache.NewMemoryCache(1 * time.Hour)
-		defer c.Close()
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
 
 		c.Set("key1", "value1")
 		c.Set("key2", "value2")
@@ -65,7 +65,7 @@ func TestMemoryCache_BackgroundCleanup(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		// TTL=60ms → cleanup interval = 60ms/6 = 10ms.
 		c := cache.NewMemoryCache(60 * time.Millisecond)
-		defer c.Close()
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
 
 		c.Set("key1", "value1")
 
@@ -90,7 +90,7 @@ func TestMemoryCache_Close(t *testing.T) {
 func TestMemoryCache_Concurrent(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := cache.NewMemoryCache(1 * time.Hour)
-		defer c.Close()
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
 
 		done := make(chan bool)
 
