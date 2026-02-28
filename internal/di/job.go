@@ -2,9 +2,8 @@ package di
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
@@ -14,6 +13,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -22,29 +22,10 @@ import (
 // The CronJob searches for concerts and publishes events; concert persistence,
 // notifications, and venue enrichment are handled by event consumers.
 type JobApp struct {
-	ArtistRepo entity.ArtistRepository
-	ConcertUC  usecase.ConcertUseCase
-	Logger     *logging.Logger
-	closers    []io.Closer
-}
-
-// Shutdown closes all resources held by the job application.
-func (a *JobApp) Shutdown(ctx context.Context) error {
-	a.Logger.Info(ctx, "starting job shutdown")
-
-	var errs error
-	for _, closer := range a.closers {
-		if err := closer.Close(); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("failed to close resource: %w", err))
-		}
-	}
-
-	if errs != nil {
-		return errs
-	}
-
-	a.Logger.Info(ctx, "job shutdown complete")
-	return nil
+	ArtistRepo      entity.ArtistRepository
+	ConcertUC       usecase.ConcertUseCase
+	Logger          *logging.Logger
+	ShutdownTimeout time.Duration
 }
 
 // InitializeJobApp creates a JobApp with only the dependencies needed for batch processing.
@@ -111,10 +92,16 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	// Use Cases
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, publisher, logger)
 
+	// Register shutdown phases.
+	shutdown.Init(logger)
+	shutdown.AddFlushPhase(publisher)
+	shutdown.AddObservePhase(telemetryCloser)
+	shutdown.AddDatastorePhase(db)
+
 	return &JobApp{
-		ArtistRepo: artistRepo,
-		ConcertUC:  concertUC,
-		Logger:     logger,
-		closers:    []io.Closer{db, telemetryCloser, publisher},
+		ArtistRepo:      artistRepo,
+		ConcertUC:       concertUC,
+		Logger:          logger,
+		ShutdownTimeout: cfg.ShutdownTimeout,
 	}, nil
 }

@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -37,22 +38,52 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Use a fresh context with a deadline aligned to the K8s termination budget,
+	// so that phases are skipped if shutdown runs too long.
 	defer func() {
-		if err := app.Shutdown(ctx); err != nil {
-			app.Logger.Error(ctx, "error during shutdown", err)
+		ctx, cancel := context.WithTimeout(context.Background(), app.ShutdownTimeout)
+		defer cancel()
+		if err := shutdown.Shutdown(ctx); err != nil {
+			app.Logger.Error(context.Background(), "error during shutdown", err)
+		}
+	}()
+
+	// Start the health probe server in the background for K8s readiness/liveness.
+	go func() {
+		if err := app.HealthServer.Start(); err != nil {
+			app.Logger.Error(ctx, "health server failed", err)
 		}
 	}()
 
 	app.Logger.Info(ctx, "consumer router starting")
 
-	// Router.Run blocks until ctx is cancelled or a fatal error occurs.
-	if err := app.Router.Run(ctx); err != nil {
-		app.Logger.Error(ctx, "consumer router stopped with error", err,
-			slog.Any("signal", ctx.Err()),
-		)
-		return err
-	}
+	// Run the router in a goroutine so we can react to ctx cancellation.
+	// Router.Run(ctx) internally closes the router when ctx is cancelled.
+	errChan := make(chan error, 1)
+	go func() {
+		if err := app.Router.Run(ctx); err != nil {
+			errChan <- err
+		}
+		close(errChan)
+	}()
 
-	app.Logger.Info(ctx, "consumer router stopped gracefully")
-	return nil
+	select {
+	case <-ctx.Done():
+		// Go 1.26: context.Cause returns the specific OS signal.
+		cause := context.Cause(ctx)
+		app.Logger.Info(ctx, "received shutdown signal, stopping consumer gracefully",
+			slog.String("cause", cause.Error()),
+		)
+		return nil
+
+	case err := <-errChan:
+		if err != nil {
+			app.Logger.Error(ctx, "consumer router stopped with error", err,
+				slog.Any("signal", ctx.Err()),
+			)
+			return err
+		}
+		app.Logger.Info(ctx, "consumer router stopped gracefully")
+		return nil
+	}
 }
