@@ -2,9 +2,8 @@ package di
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -14,36 +13,20 @@ import (
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
 )
 
 // ConsumerApp represents the event consumer application with a Watermill Router.
 type ConsumerApp struct {
-	Router  *message.Router
-	Logger  *logging.Logger
-	closers []io.Closer
-}
-
-// Shutdown closes all resources held by the consumer application.
-func (a *ConsumerApp) Shutdown(ctx context.Context) error {
-	a.Logger.Info(ctx, "starting consumer shutdown")
-
-	var errs error
-	for _, closer := range a.closers {
-		if err := closer.Close(); err != nil {
-			errs = errors.Join(errs, fmt.Errorf("failed to close resource: %w", err))
-		}
-	}
-
-	if errs != nil {
-		return errs
-	}
-
-	a.Logger.Info(ctx, "consumer shutdown complete")
-	return nil
+	Router          *message.Router
+	HealthServer    *server.HealthServer
+	Logger          *logging.Logger
+	ShutdownTimeout time.Duration
 }
 
 // InitializeConsumerApp creates a ConsumerApp with all event handler dependencies wired.
@@ -155,11 +138,24 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		venueConsumer.Handle,
 	)
 
-	closers := []io.Closer{db, telemetryCloser, publisher, musicbrainzClient}
+	// Health probe server for Kubernetes readiness/liveness checks.
+	healthSrv := server.NewHealthServer(":8081")
+
+	// Register shutdown phases.
+	// Drain: health → 503. The Watermill Router is NOT registered here
+	// because Router.Run(ctx) internally closes the router when ctx is
+	// cancelled, making an explicit Drain-phase Close redundant (and noisy).
+	shutdown.Init(logger)
+	shutdown.AddDrainPhase(healthSrv)
+	shutdown.AddFlushPhase(publisher)
+	shutdown.AddExternalPhase(musicbrainzClient)
+	shutdown.AddObservePhase(telemetryCloser)
+	shutdown.AddDatastorePhase(db)
 
 	return &ConsumerApp{
-		Router:  router,
-		Logger:  logger,
-		closers: closers,
+		Router:          router,
+		HealthServer:    healthSrv,
+		Logger:          logger,
+		ShutdownTimeout: cfg.ShutdownTimeout,
 	}, nil
 }
