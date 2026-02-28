@@ -44,4 +44,6 @@ configMapGenerator:
   - migrations/20260223100000_add_ticket_system_checks.sql
   - migrations/20260223120000_grant_iam_users_app_schema.sql
   - migrations/20260223130000_drop_audit_timestamps.sql
+  - migrations/20260227000000_add_home_to_users.sql
+  - migrations/20260227000001_normalize_venue_admin_area.sql
   - migrations/20260227090313_drop_notifications_table.sql

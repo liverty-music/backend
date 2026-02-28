@@ -7,7 +7,6 @@ import (
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -15,15 +14,13 @@ import (
 // UserHandler implements the UserService Connect interface.
 type UserHandler struct {
 	userUseCase usecase.UserUseCase
-	userRepo    entity.UserRepository
 	logger      *logging.Logger
 }
 
 // NewUserHandler creates a new user handler.
-func NewUserHandler(userUseCase usecase.UserUseCase, userRepo entity.UserRepository, logger *logging.Logger) *UserHandler {
+func NewUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger) *UserHandler {
 	return &UserHandler{
 		userUseCase: userUseCase,
-		userRepo:    userRepo,
 		logger:      logger,
 	}
 }
@@ -96,7 +93,7 @@ func (h *UserHandler) UpdateHome(ctx context.Context, req *connect.Request[userv
 	}
 
 	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
-	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
+	user, err := h.userUseCase.GetByExternalID(ctx, claims.Sub)
 	if err != nil {
 		return nil, err
 	}

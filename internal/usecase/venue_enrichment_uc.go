@@ -7,7 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
+	"github.com/liverty-music/backend/internal/geo"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )

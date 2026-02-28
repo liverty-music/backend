@@ -26,5 +26,6 @@ ALTER TABLE users ADD COLUMN home_id UUID REFERENCES homes(id) ON DELETE SET NUL
 
 COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes table. NULL when home is not set.';
 
--- Grant access to IAM-authenticated application users
-GRANT SELECT, INSERT, UPDATE, DELETE ON homes TO PUBLIC;
+-- No explicit GRANT needed: the bootstrap migration's ALTER DEFAULT PRIVILEGES
+-- automatically grants SELECT, INSERT, UPDATE, DELETE on all new tables in the
+-- app schema to every IAM-authenticated service account role.

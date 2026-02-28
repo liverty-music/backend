@@ -37,6 +37,13 @@ type UserUseCase interface {
 	//  - NotFound: If the user does not exist.
 	Get(ctx context.Context, id string) (*entity.User, error)
 
+	// GetByExternalID retrieves a user by identity provider ID (Zitadel sub claim).
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
+	GetByExternalID(ctx context.Context, externalID string) (*entity.User, error)
+
 	// UpdateHome sets or changes the user's home area.
 	//
 	// # Possible errors
@@ -122,6 +129,22 @@ func (uc *userUseCase) Get(ctx context.Context, id string) (*entity.User, error)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.NotFound, "failed to get user",
 			slog.String("user_id", id),
+		)
+	}
+
+	return user, nil
+}
+
+// GetByExternalID retrieves a user by identity provider ID.
+func (uc *userUseCase) GetByExternalID(ctx context.Context, externalID string) (*entity.User, error) {
+	if externalID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "external ID cannot be empty")
+	}
+
+	user, err := uc.userRepo.GetByExternalID(ctx, externalID)
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.NotFound, "failed to get user by external ID",
+			slog.String("external_id", externalID),
 		)
 	}
 
