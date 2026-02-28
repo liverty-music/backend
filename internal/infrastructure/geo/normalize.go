@@ -32,10 +32,10 @@ var prefectureLookup = buildPrefectureLookup()
 // prefectureEntry defines a single prefecture with its ISO code, Japanese
 // names (with and without suffix), and English name.
 type prefectureEntry struct {
-	code     string
-	jaFull   string // e.g., "北海道"
-	jaShort  string // e.g., "北海道" (same for 道), "東京" (without 都)
-	english  string // e.g., "hokkaido"
+	code    string
+	jaFull  string // e.g., "北海道"
+	jaShort string // e.g., "北海道" (same for 道), "東京" (without 都)
+	english string // e.g., "hokkaido"
 }
 
 func buildPrefectureLookup() map[string]string {
