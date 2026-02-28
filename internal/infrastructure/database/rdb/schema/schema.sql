@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS users (
     time_zone TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     safe_address TEXT,
+    home_id UUID,
     CONSTRAINT users_safe_address_unique UNIQUE (safe_address),
     CONSTRAINT chk_safe_address_format CHECK (safe_address IS NULL OR safe_address ~ '^0x[0-9a-fA-F]{40}$')
 );
@@ -30,6 +31,27 @@ COMMENT ON COLUMN users.country IS 'User country code (ISO 3166-1 alpha-2)';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
 COMMENT ON COLUMN users.is_active IS 'Whether the user account is active';
 COMMENT ON COLUMN users.safe_address IS 'Predicted Safe (ERC-4337) address derived deterministically from users.id via CREATE2';
+COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes table. NULL when home is not set.';
+
+-- Homes table
+CREATE TABLE IF NOT EXISTS homes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    country_code VARCHAR(2) NOT NULL,
+    level_1 VARCHAR(6) NOT NULL,
+    level_2 VARCHAR(20),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE users ADD CONSTRAINT fk_users_home_id FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE SET NULL;
+
+COMMENT ON TABLE homes IS 'Structured geographic home area for users. Determines dashboard lane classification (home/nearby/away).';
+COMMENT ON COLUMN homes.id IS 'Unique home record identifier';
+COMMENT ON COLUMN homes.user_id IS 'Reference to the user who owns this home (1:1)';
+COMMENT ON COLUMN homes.country_code IS 'ISO 3166-1 alpha-2 country code (e.g., JP, US)';
+COMMENT ON COLUMN homes.level_1 IS 'ISO 3166-2 subdivision code (e.g., JP-13 for Tokyo, US-NY for New York)';
+COMMENT ON COLUMN homes.level_2 IS 'Optional finer-grained area code. Code system determined by country_code. NULL in Phase 1.';
 
 -- Artists table
 CREATE TABLE IF NOT EXISTS artists (
@@ -76,7 +98,7 @@ CREATE TABLE IF NOT EXISTS venues (
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
 COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7)';
 COMMENT ON COLUMN venues.name IS 'Venue name as displayed to users';
-COMMENT ON COLUMN venues.admin_area IS 'Administrative area (prefecture, state, province) where the venue is located; NULL when not determinable with confidence';
+COMMENT ON COLUMN venues.admin_area IS 'ISO 3166-2 subdivision code (e.g., JP-13) for the venue location; NULL when not determinable with confidence';
 COMMENT ON COLUMN venues.mbid IS 'MusicBrainz Place ID (UUID format) for the canonical venue record; NULL until enriched';
 COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID for the canonical venue record; NULL until enriched';
 COMMENT ON COLUMN venues.enrichment_status IS 'Current state of the venue normalization pipeline: pending (default), enriched, or failed';

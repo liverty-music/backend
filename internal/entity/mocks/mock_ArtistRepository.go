@@ -68,7 +68,8 @@ type MockArtistRepository_Create_Call struct {
 //   - ctx context.Context
 //   - artists ...*entity.Artist
 func (_e *MockArtistRepository_Expecter) Create(ctx interface{}, artists ...interface{}) *MockArtistRepository_Create_Call {
-	return &MockArtistRepository_Create_Call{Call: _e.mock.On("Create", append([]interface{}{ctx}, artists...)...)}
+	return &MockArtistRepository_Create_Call{Call: _e.mock.On("Create",
+		append([]interface{}{ctx}, artists...)...)}
 }
 
 func (_c *MockArtistRepository_Create_Call) Run(run func(ctx context.Context, artists ...*entity.Artist)) *MockArtistRepository_Create_Call {
@@ -424,6 +425,64 @@ func (_c *MockArtistRepository_List_Call) RunAndReturn(run func(context.Context)
 	return _c
 }
 
+// ListAllFollowed provides a mock function with given fields: ctx
+func (_m *MockArtistRepository) ListAllFollowed(ctx context.Context) ([]*entity.Artist, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListAllFollowed")
+	}
+
+	var r0 []*entity.Artist
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]*entity.Artist, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []*entity.Artist); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Artist)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockArtistRepository_ListAllFollowed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListAllFollowed'
+type MockArtistRepository_ListAllFollowed_Call struct {
+	*mock.Call
+}
+
+// ListAllFollowed is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockArtistRepository_Expecter) ListAllFollowed(ctx interface{}) *MockArtistRepository_ListAllFollowed_Call {
+	return &MockArtistRepository_ListAllFollowed_Call{Call: _e.mock.On("ListAllFollowed", ctx)}
+}
+
+func (_c *MockArtistRepository_ListAllFollowed_Call) Run(run func(ctx context.Context)) *MockArtistRepository_ListAllFollowed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_ListAllFollowed_Call) Return(_a0 []*entity.Artist, _a1 error) *MockArtistRepository_ListAllFollowed_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockArtistRepository_ListAllFollowed_Call) RunAndReturn(run func(context.Context) ([]*entity.Artist, error)) *MockArtistRepository_ListAllFollowed_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListFollowed provides a mock function with given fields: ctx, userID
 func (_m *MockArtistRepository) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
 	ret := _m.Called(ctx, userID)
@@ -483,161 +542,6 @@ func (_c *MockArtistRepository_ListFollowed_Call) RunAndReturn(run func(context.
 	return _c
 }
 
-// SetPassionLevel provides a mock function with given fields: ctx, userID, artistID, level
-func (_m *MockArtistRepository) SetPassionLevel(ctx context.Context, userID string, artistID string, level entity.PassionLevel) error {
-	ret := _m.Called(ctx, userID, artistID, level)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetPassionLevel")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.PassionLevel) error); ok {
-		r0 = rf(ctx, userID, artistID, level)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockArtistRepository_SetPassionLevel_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPassionLevel'
-type MockArtistRepository_SetPassionLevel_Call struct {
-	*mock.Call
-}
-
-// SetPassionLevel is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID string
-//   - artistID string
-//   - level entity.PassionLevel
-func (_e *MockArtistRepository_Expecter) SetPassionLevel(ctx interface{}, userID interface{}, artistID interface{}, level interface{}) *MockArtistRepository_SetPassionLevel_Call {
-	return &MockArtistRepository_SetPassionLevel_Call{Call: _e.mock.On("SetPassionLevel", ctx, userID, artistID, level)}
-}
-
-func (_c *MockArtistRepository_SetPassionLevel_Call) Run(run func(ctx context.Context, userID string, artistID string, level entity.PassionLevel)) *MockArtistRepository_SetPassionLevel_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.PassionLevel))
-	})
-	return _c
-}
-
-func (_c *MockArtistRepository_SetPassionLevel_Call) Return(_a0 error) *MockArtistRepository_SetPassionLevel_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockArtistRepository_SetPassionLevel_Call) RunAndReturn(run func(context.Context, string, string, entity.PassionLevel) error) *MockArtistRepository_SetPassionLevel_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListAllFollowed provides a mock function with given fields: ctx
-func (_m *MockArtistRepository) ListAllFollowed(ctx context.Context) ([]*entity.Artist, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListAllFollowed")
-	}
-
-	var r0 []*entity.Artist
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]*entity.Artist, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) []*entity.Artist); ok {
-		r0 = rf(ctx)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Artist)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockArtistRepository_ListAllFollowed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListAllFollowed'
-type MockArtistRepository_ListAllFollowed_Call struct {
-	*mock.Call
-}
-
-// ListAllFollowed is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockArtistRepository_Expecter) ListAllFollowed(ctx interface{}) *MockArtistRepository_ListAllFollowed_Call {
-	return &MockArtistRepository_ListAllFollowed_Call{Call: _e.mock.On("ListAllFollowed", ctx)}
-}
-
-func (_c *MockArtistRepository_ListAllFollowed_Call) Run(run func(ctx context.Context)) *MockArtistRepository_ListAllFollowed_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockArtistRepository_ListAllFollowed_Call) Return(_a0 []*entity.Artist, _a1 error) *MockArtistRepository_ListAllFollowed_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockArtistRepository_ListAllFollowed_Call) RunAndReturn(run func(context.Context) ([]*entity.Artist, error)) *MockArtistRepository_ListAllFollowed_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Unfollow provides a mock function with given fields: ctx, userID, artistID
-func (_m *MockArtistRepository) Unfollow(ctx context.Context, userID string, artistID string) error {
-	ret := _m.Called(ctx, userID, artistID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Unfollow")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, userID, artistID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockArtistRepository_Unfollow_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Unfollow'
-type MockArtistRepository_Unfollow_Call struct {
-	*mock.Call
-}
-
-// Unfollow is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID string
-//   - artistID string
-func (_e *MockArtistRepository_Expecter) Unfollow(ctx interface{}, userID interface{}, artistID interface{}) *MockArtistRepository_Unfollow_Call {
-	return &MockArtistRepository_Unfollow_Call{Call: _e.mock.On("Unfollow", ctx, userID, artistID)}
-}
-
-func (_c *MockArtistRepository_Unfollow_Call) Run(run func(ctx context.Context, userID string, artistID string)) *MockArtistRepository_Unfollow_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockArtistRepository_Unfollow_Call) Return(_a0 error) *MockArtistRepository_Unfollow_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockArtistRepository_Unfollow_Call) RunAndReturn(run func(context.Context, string, string) error) *MockArtistRepository_Unfollow_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ListFollowers provides a mock function with given fields: ctx, artistID
 func (_m *MockArtistRepository) ListFollowers(ctx context.Context, artistID string) ([]*entity.User, error) {
 	ret := _m.Called(ctx, artistID)
@@ -693,6 +597,103 @@ func (_c *MockArtistRepository_ListFollowers_Call) Return(_a0 []*entity.User, _a
 }
 
 func (_c *MockArtistRepository_ListFollowers_Call) RunAndReturn(run func(context.Context, string) ([]*entity.User, error)) *MockArtistRepository_ListFollowers_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetPassionLevel provides a mock function with given fields: ctx, userID, artistID, level
+func (_m *MockArtistRepository) SetPassionLevel(ctx context.Context, userID string, artistID string, level entity.PassionLevel) error {
+	ret := _m.Called(ctx, userID, artistID, level)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetPassionLevel")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.PassionLevel) error); ok {
+		r0 = rf(ctx, userID, artistID, level)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockArtistRepository_SetPassionLevel_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPassionLevel'
+type MockArtistRepository_SetPassionLevel_Call struct {
+	*mock.Call
+}
+
+// SetPassionLevel is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - artistID string
+//   - level entity.PassionLevel
+func (_e *MockArtistRepository_Expecter) SetPassionLevel(ctx interface{}, userID interface{}, artistID interface{}, level interface{}) *MockArtistRepository_SetPassionLevel_Call {
+	return &MockArtistRepository_SetPassionLevel_Call{Call: _e.mock.On("SetPassionLevel", ctx, userID, artistID, level)}
+}
+
+func (_c *MockArtistRepository_SetPassionLevel_Call) Run(run func(ctx context.Context, userID string, artistID string, level entity.PassionLevel)) *MockArtistRepository_SetPassionLevel_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.PassionLevel))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_SetPassionLevel_Call) Return(_a0 error) *MockArtistRepository_SetPassionLevel_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockArtistRepository_SetPassionLevel_Call) RunAndReturn(run func(context.Context, string, string, entity.PassionLevel) error) *MockArtistRepository_SetPassionLevel_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Unfollow provides a mock function with given fields: ctx, userID, artistID
+func (_m *MockArtistRepository) Unfollow(ctx context.Context, userID string, artistID string) error {
+	ret := _m.Called(ctx, userID, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Unfollow")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, userID, artistID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockArtistRepository_Unfollow_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Unfollow'
+type MockArtistRepository_Unfollow_Call struct {
+	*mock.Call
+}
+
+// Unfollow is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - artistID string
+func (_e *MockArtistRepository_Expecter) Unfollow(ctx interface{}, userID interface{}, artistID interface{}) *MockArtistRepository_Unfollow_Call {
+	return &MockArtistRepository_Unfollow_Call{Call: _e.mock.On("Unfollow", ctx, userID, artistID)}
+}
+
+func (_c *MockArtistRepository_Unfollow_Call) Run(run func(ctx context.Context, userID string, artistID string)) *MockArtistRepository_Unfollow_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_Unfollow_Call) Return(_a0 error) *MockArtistRepository_Unfollow_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockArtistRepository_Unfollow_Call) RunAndReturn(run func(context.Context, string, string) error) *MockArtistRepository_Unfollow_Call {
 	_c.Call.Return(run)
 	return _c
 }

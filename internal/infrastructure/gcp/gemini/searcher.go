@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/geo"
 	"github.com/pannpers/go-logging/logging"
 	"google.golang.org/genai"
 )
@@ -323,7 +324,7 @@ func (s *ConcertSearcher) parseEvents(
 
 		var adminArea *string
 		if ev.AdminArea != nil && *ev.AdminArea != "" {
-			adminArea = ev.AdminArea
+			adminArea = geo.NormalizeAdminArea(*ev.AdminArea)
 		}
 
 		discovered = append(discovered, &entity.ScrapedConcert{

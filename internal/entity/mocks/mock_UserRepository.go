@@ -425,6 +425,66 @@ func (_c *MockUserRepository_Update_Call) RunAndReturn(run func(context.Context,
 	return _c
 }
 
+// UpdateHome provides a mock function with given fields: ctx, id, home
+func (_m *MockUserRepository) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
+	ret := _m.Called(ctx, id, home)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateHome")
+	}
+
+	var r0 *entity.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) (*entity.User, error)); ok {
+		return rf(ctx, id, home)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) *entity.User); ok {
+		r0 = rf(ctx, id, home)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, *entity.Home) error); ok {
+		r1 = rf(ctx, id, home)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserRepository_UpdateHome_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateHome'
+type MockUserRepository_UpdateHome_Call struct {
+	*mock.Call
+}
+
+// UpdateHome is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - home *entity.Home
+func (_e *MockUserRepository_Expecter) UpdateHome(ctx interface{}, id interface{}, home interface{}) *MockUserRepository_UpdateHome_Call {
+	return &MockUserRepository_UpdateHome_Call{Call: _e.mock.On("UpdateHome", ctx, id, home)}
+}
+
+func (_c *MockUserRepository_UpdateHome_Call) Run(run func(ctx context.Context, id string, home *entity.Home)) *MockUserRepository_UpdateHome_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*entity.Home))
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_UpdateHome_Call) Return(_a0 *entity.User, _a1 error) *MockUserRepository_UpdateHome_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserRepository_UpdateHome_Call) RunAndReturn(run func(context.Context, string, *entity.Home) (*entity.User, error)) *MockUserRepository_UpdateHome_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateSafeAddress provides a mock function with given fields: ctx, id, safeAddress
 func (_m *MockUserRepository) UpdateSafeAddress(ctx context.Context, id string, safeAddress string) error {
 	ret := _m.Called(ctx, id, safeAddress)

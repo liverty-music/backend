@@ -56,7 +56,8 @@ type MockConcertRepository_Create_Call struct {
 //   - ctx context.Context
 //   - concerts ...*entity.Concert
 func (_e *MockConcertRepository_Expecter) Create(ctx interface{}, concerts ...interface{}) *MockConcertRepository_Create_Call {
-	return &MockConcertRepository_Create_Call{Call: _e.mock.On("Create", append([]interface{}{ctx}, concerts...)...)}
+	return &MockConcertRepository_Create_Call{Call: _e.mock.On("Create",
+		append([]interface{}{ctx}, concerts...)...)}
 }
 
 func (_c *MockConcertRepository_Create_Call) Run(run func(ctx context.Context, concerts ...*entity.Concert)) *MockConcertRepository_Create_Call {

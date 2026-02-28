@@ -40,12 +40,14 @@ func (_m *MockPushSubscriptionRepository) Create(ctx context.Context, sub *entit
 	return r0
 }
 
-// MockPushSubscriptionRepository_Create_Call is a *mock.Call that shadows Run/Return
+// MockPushSubscriptionRepository_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
 type MockPushSubscriptionRepository_Create_Call struct {
 	*mock.Call
 }
 
 // Create is a helper method to define mock.On call
+//   - ctx context.Context
+//   - sub *entity.PushSubscription
 func (_e *MockPushSubscriptionRepository_Expecter) Create(ctx interface{}, sub interface{}) *MockPushSubscriptionRepository_Create_Call {
 	return &MockPushSubscriptionRepository_Create_Call{Call: _e.mock.On("Create", ctx, sub)}
 }
@@ -85,12 +87,14 @@ func (_m *MockPushSubscriptionRepository) DeleteByEndpoint(ctx context.Context, 
 	return r0
 }
 
-// MockPushSubscriptionRepository_DeleteByEndpoint_Call is a *mock.Call that shadows Run/Return
+// MockPushSubscriptionRepository_DeleteByEndpoint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteByEndpoint'
 type MockPushSubscriptionRepository_DeleteByEndpoint_Call struct {
 	*mock.Call
 }
 
 // DeleteByEndpoint is a helper method to define mock.On call
+//   - ctx context.Context
+//   - endpoint string
 func (_e *MockPushSubscriptionRepository_Expecter) DeleteByEndpoint(ctx interface{}, endpoint interface{}) *MockPushSubscriptionRepository_DeleteByEndpoint_Call {
 	return &MockPushSubscriptionRepository_DeleteByEndpoint_Call{Call: _e.mock.On("DeleteByEndpoint", ctx, endpoint)}
 }
@@ -130,12 +134,14 @@ func (_m *MockPushSubscriptionRepository) DeleteByUserID(ctx context.Context, us
 	return r0
 }
 
-// MockPushSubscriptionRepository_DeleteByUserID_Call is a *mock.Call that shadows Run/Return
+// MockPushSubscriptionRepository_DeleteByUserID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteByUserID'
 type MockPushSubscriptionRepository_DeleteByUserID_Call struct {
 	*mock.Call
 }
 
 // DeleteByUserID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
 func (_e *MockPushSubscriptionRepository_Expecter) DeleteByUserID(ctx interface{}, userID interface{}) *MockPushSubscriptionRepository_DeleteByUserID_Call {
 	return &MockPushSubscriptionRepository_DeleteByUserID_Call{Call: _e.mock.On("DeleteByUserID", ctx, userID)}
 }
@@ -187,12 +193,14 @@ func (_m *MockPushSubscriptionRepository) ListByUserIDs(ctx context.Context, use
 	return r0, r1
 }
 
-// MockPushSubscriptionRepository_ListByUserIDs_Call is a *mock.Call that shadows Run/Return
+// MockPushSubscriptionRepository_ListByUserIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByUserIDs'
 type MockPushSubscriptionRepository_ListByUserIDs_Call struct {
 	*mock.Call
 }
 
 // ListByUserIDs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userIDs []string
 func (_e *MockPushSubscriptionRepository_Expecter) ListByUserIDs(ctx interface{}, userIDs interface{}) *MockPushSubscriptionRepository_ListByUserIDs_Call {
 	return &MockPushSubscriptionRepository_ListByUserIDs_Call{Call: _e.mock.On("ListByUserIDs", ctx, userIDs)}
 }

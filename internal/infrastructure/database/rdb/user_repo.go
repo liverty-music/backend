@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 
@@ -16,34 +17,47 @@ type UserRepository struct {
 }
 
 const (
+	userColumns = `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active`
+
+	homeColumns = `h.id, h.country_code, h.level_1, h.level_2`
+
 	getUserQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
-		FROM users
-		WHERE id = $1
+		SELECT ` + userColumns + `, ` + homeColumns + `
+		FROM users u
+		LEFT JOIN homes h ON h.user_id = u.id
+		WHERE u.id = $1
 	`
 
 	getUserByExternalIDQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
-		FROM users
-		WHERE external_id = $1
+		SELECT ` + userColumns + `, ` + homeColumns + `
+		FROM users u
+		LEFT JOIN homes h ON h.user_id = u.id
+		WHERE u.external_id = $1
 	`
 
 	getUserByEmailQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
-		FROM users
-		WHERE email = $1
+		SELECT ` + userColumns + `, ` + homeColumns + `
+		FROM users u
+		LEFT JOIN homes h ON h.user_id = u.id
+		WHERE u.email = $1
 	`
 
 	updateUserQuery = `
-		UPDATE users SET external_id = $2, email = $3, name = $4, preferred_language = $5, country = $6, time_zone = $7
-		WHERE id = $1
-		RETURNING id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
+		WITH updated AS (
+			UPDATE users SET external_id = $2, email = $3, name = $4, preferred_language = $5, country = $6, time_zone = $7
+			WHERE id = $1
+			RETURNING *
+		)
+		SELECT ` + `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active` + `, ` + homeColumns + `
+		FROM updated u
+		LEFT JOIN homes h ON h.user_id = u.id
 	`
 
 	listUsersQuery = `
-		SELECT id, external_id, email, name, preferred_language, country, time_zone, COALESCE(safe_address, ''), is_active
-		FROM users
-		ORDER BY id
+		SELECT ` + userColumns + `, ` + homeColumns + `
+		FROM users u
+		LEFT JOIN homes h ON h.user_id = u.id
+		ORDER BY u.id
 		LIMIT $1 OFFSET $2
 	`
 
@@ -51,11 +65,23 @@ const (
 		UPDATE users SET safe_address = $2 WHERE id = $1
 	`
 
+	upsertHomeQuery = `
+		INSERT INTO homes (user_id, country_code, level_1, level_2)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id) DO UPDATE SET
+			country_code = EXCLUDED.country_code,
+			level_1 = EXCLUDED.level_1,
+			level_2 = EXCLUDED.level_2,
+			updated_at = now()
+		RETURNING id
+	`
+
 	insertUserQuery = `
 		INSERT INTO users (external_id, email, name, preferred_language, country, time_zone, is_active)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
 	`
+
 	deleteUserQuery = `
 		DELETE FROM users WHERE id = $1
 	`
@@ -66,13 +92,91 @@ func NewUserRepository(db *Database) *UserRepository {
 	return &UserRepository{db: db}
 }
 
+// scanUser scans a user row with optional home columns from a LEFT JOIN.
+func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
+	user := &entity.User{}
+	var homeID, countryCode, level1, level2 sql.NullString
+
+	err := scanner.Scan(
+		&user.ID, &user.ExternalID, &user.Email, &user.Name,
+		&user.PreferredLanguage, &user.Country, &user.TimeZone,
+		&user.SafeAddress, &user.IsActive,
+		&homeID, &countryCode, &level1, &level2,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if homeID.Valid {
+		user.Home = &entity.Home{
+			ID:          homeID.String,
+			CountryCode: countryCode.String,
+			Level1:      level1.String,
+		}
+		if level2.Valid {
+			user.Home.Level2 = &level2.String
+		}
+	}
+
+	return user, nil
+}
+
 // Create creates a new user in the database.
+// If params.Home is non-nil, the home record is inserted atomically.
 func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
 	if params == nil {
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
-	user := &entity.User{
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, toAppErr(err, "failed to begin transaction")
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var userID string
+	err = tx.QueryRow(ctx, insertUserQuery,
+		params.ExternalID, params.Email, params.Name,
+		params.PreferredLanguage, params.Country, params.TimeZone, true,
+	).Scan(&userID)
+	if err != nil {
+		if IsUniqueViolation(err) {
+			r.db.logger.Warn(ctx, "duplicate user",
+				slog.String("entityType", "user"),
+				slog.String("email", params.Email),
+			)
+		}
+		return nil, toAppErr(err, "failed to create user", slog.String("email", params.Email))
+	}
+
+	var home *entity.Home
+	if params.Home != nil {
+		var homeID string
+		err = tx.QueryRow(ctx, upsertHomeQuery,
+			userID, params.Home.CountryCode, params.Home.Level1, params.Home.Level2,
+		).Scan(&homeID)
+		if err != nil {
+			return nil, toAppErr(err, "failed to create home", slog.String("user_id", userID))
+		}
+		home = &entity.Home{
+			ID:          homeID,
+			CountryCode: params.Home.CountryCode,
+			Level1:      params.Home.Level1,
+			Level2:      params.Home.Level2,
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, toAppErr(err, "failed to commit transaction")
+	}
+
+	r.db.logger.Info(ctx, "user created",
+		slog.String("entityType", "user"),
+		slog.String("userID", userID),
+	)
+
+	return &entity.User{
+		ID:                userID,
 		ExternalID:        params.ExternalID,
 		Email:             params.Email,
 		Name:              params.Name,
@@ -80,27 +184,8 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 		Country:           params.Country,
 		TimeZone:          params.TimeZone,
 		IsActive:          true,
-	}
-
-	err := r.db.Pool.QueryRow(ctx, insertUserQuery,
-		user.ExternalID, user.Email, user.Name, user.PreferredLanguage, user.Country, user.TimeZone, user.IsActive,
-	).Scan(&user.ID)
-	if err != nil {
-		if IsUniqueViolation(err) {
-			r.db.logger.Warn(ctx, "duplicate user",
-				slog.String("entityType", "user"),
-				slog.String("email", user.Email),
-			)
-		}
-		return nil, toAppErr(err, "failed to create user", slog.String("email", user.Email))
-	}
-
-	r.db.logger.Info(ctx, "user created",
-		slog.String("entityType", "user"),
-		slog.String("userID", user.ID),
-	)
-
-	return user, nil
+		Home:              home,
+	}, nil
 }
 
 // Get retrieves a user by ID from the database.
@@ -109,10 +194,7 @@ func (r *UserRepository) Get(ctx context.Context, id string) (*entity.User, erro
 		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
 	}
 
-	user := &entity.User{}
-	err := r.db.Pool.QueryRow(ctx, getUserQuery, id).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
-	)
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserQuery, id))
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user", slog.String("user_id", id))
 	}
@@ -126,10 +208,7 @@ func (r *UserRepository) GetByExternalID(ctx context.Context, externalID string)
 		return nil, apperr.New(codes.InvalidArgument, "external ID cannot be empty")
 	}
 
-	user := &entity.User{}
-	err := r.db.Pool.QueryRow(ctx, getUserByExternalIDQuery, externalID).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
-	)
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByExternalIDQuery, externalID))
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user by external ID", slog.String("external_id", externalID))
 	}
@@ -143,10 +222,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*entity.
 		return nil, apperr.New(codes.InvalidArgument, "email cannot be empty")
 	}
 
-	user := &entity.User{}
-	err := r.db.Pool.QueryRow(ctx, getUserByEmailQuery, email).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
-	)
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByEmailQuery, email))
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user by email", slog.String("email", email))
 	}
@@ -163,12 +239,10 @@ func (r *UserRepository) Update(ctx context.Context, id string, params *entity.N
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
-	user := &entity.User{}
-	err := r.db.Pool.QueryRow(ctx, updateUserQuery,
-		id, params.ExternalID, params.Email, params.Name, params.PreferredLanguage, params.Country, params.TimeZone,
-	).Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
-	)
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateUserQuery,
+		id, params.ExternalID, params.Email, params.Name,
+		params.PreferredLanguage, params.Country, params.TimeZone,
+	))
 	if err != nil {
 		return nil, toAppErr(err, "failed to update user", slog.String("user_id", id))
 	}
@@ -191,10 +265,8 @@ func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*entity
 
 	var users []*entity.User
 	for rows.Next() {
-		user := &entity.User{}
-		if err := rows.Scan(
-			&user.ID, &user.ExternalID, &user.Email, &user.Name, &user.PreferredLanguage, &user.Country, &user.TimeZone, &user.SafeAddress, &user.IsActive,
-		); err != nil {
+		user, err := scanUser(rows)
+		if err != nil {
 			return nil, toAppErr(err, "failed to scan user row")
 		}
 		users = append(users, user)
@@ -229,6 +301,35 @@ func (r *UserRepository) UpdateSafeAddress(ctx context.Context, id, safeAddress 
 	)
 
 	return nil
+}
+
+// UpdateHome sets or changes the user's home area.
+// Uses UPSERT on the homes table to create or update the home record.
+func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
+	if id == "" {
+		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
+	}
+
+	_, err := r.db.Pool.Exec(ctx, upsertHomeQuery,
+		id, home.CountryCode, home.Level1, home.Level2,
+	)
+	if err != nil {
+		return nil, toAppErr(err, "failed to upsert home", slog.String("user_id", id))
+	}
+
+	// Re-fetch the user with home JOIN to return the complete entity.
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserQuery, id))
+	if err != nil {
+		return nil, toAppErr(err, "failed to get user after home update", slog.String("user_id", id))
+	}
+
+	r.db.logger.Info(ctx, "user updated",
+		slog.String("entityType", "user"),
+		slog.String("userID", id),
+		slog.String("field", "home"),
+	)
+
+	return user, nil
 }
 
 // Delete removes a user from the database.

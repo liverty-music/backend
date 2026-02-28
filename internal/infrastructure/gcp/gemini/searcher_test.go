@@ -97,7 +97,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 				{
 					Title:           "Nagoya Concert",
 					ListedVenueName: "Zepp Nagoya",
-					AdminArea:       ptrStr("愛知県"),
+					AdminArea:       ptrStr("JP-23"),
 					LocalDate:       time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
 					StartTime:       ptr(time.Date(2026, 3, 15, 18, 0, 0, 0, time.FixedZone("", 9*60*60))),
 					SourceURL:       "https://example.com/nagoya",

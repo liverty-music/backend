@@ -82,6 +82,7 @@ func cleanTables(db *rdb.Database) {
 		"events",
 		"artists",
 		"venues",
+		"homes",
 		"users",
 	}
 

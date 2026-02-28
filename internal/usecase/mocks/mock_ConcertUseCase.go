@@ -81,53 +81,6 @@ func (_c *MockConcertUseCase_ListByArtist_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
-// SearchNewConcerts provides a mock function with given fields: ctx, artistID
-func (_m *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string) error {
-	ret := _m.Called(ctx, artistID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SearchNewConcerts")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, artistID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockConcertUseCase_SearchNewConcerts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SearchNewConcerts'
-type MockConcertUseCase_SearchNewConcerts_Call struct {
-	*mock.Call
-}
-
-// SearchNewConcerts is a helper method to define mock.On call
-//   - ctx context.Context
-//   - artistID string
-func (_e *MockConcertUseCase_Expecter) SearchNewConcerts(ctx interface{}, artistID interface{}) *MockConcertUseCase_SearchNewConcerts_Call {
-	return &MockConcertUseCase_SearchNewConcerts_Call{Call: _e.mock.On("SearchNewConcerts", ctx, artistID)}
-}
-
-func (_c *MockConcertUseCase_SearchNewConcerts_Call) Run(run func(ctx context.Context, artistID string)) *MockConcertUseCase_SearchNewConcerts_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockConcertUseCase_SearchNewConcerts_Call) Return(_a0 error) *MockConcertUseCase_SearchNewConcerts_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(context.Context, string) error) *MockConcertUseCase_SearchNewConcerts_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ListByFollower provides a mock function with given fields: ctx, externalUserID
 func (_m *MockConcertUseCase) ListByFollower(ctx context.Context, externalUserID string) ([]*entity.Concert, error) {
 	ret := _m.Called(ctx, externalUserID)
@@ -183,6 +136,53 @@ func (_c *MockConcertUseCase_ListByFollower_Call) Return(_a0 []*entity.Concert, 
 }
 
 func (_c *MockConcertUseCase_ListByFollower_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Concert, error)) *MockConcertUseCase_ListByFollower_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SearchNewConcerts provides a mock function with given fields: ctx, artistID
+func (_m *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string) error {
+	ret := _m.Called(ctx, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SearchNewConcerts")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, artistID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockConcertUseCase_SearchNewConcerts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SearchNewConcerts'
+type MockConcertUseCase_SearchNewConcerts_Call struct {
+	*mock.Call
+}
+
+// SearchNewConcerts is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockConcertUseCase_Expecter) SearchNewConcerts(ctx interface{}, artistID interface{}) *MockConcertUseCase_SearchNewConcerts_Call {
+	return &MockConcertUseCase_SearchNewConcerts_Call{Call: _e.mock.On("SearchNewConcerts", ctx, artistID)}
+}
+
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) Run(run func(ctx context.Context, artistID string)) *MockConcertUseCase_SearchNewConcerts_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) Return(_a0 error) *MockConcertUseCase_SearchNewConcerts_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(context.Context, string) error) *MockConcertUseCase_SearchNewConcerts_Call {
 	_c.Call.Return(run)
 	return _c
 }

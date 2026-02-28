@@ -47,6 +47,8 @@ func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRe
 }
 
 // Create creates a new user.
+// The optional home field allows persisting the user's home area atomically
+// with account creation (selected during onboarding before sign-up).
 func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.CreateRequest]) (*connect.Response[userv1.CreateResponse], error) {
 	if req == nil || req.Msg == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
@@ -60,8 +62,8 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 		return nil, err
 	}
 
-	// Convert JWT claims to domain DTO
-	newUser := mapper.NewUserFromCreateRequest(claims)
+	// Convert JWT claims and optional home to domain DTO
+	newUser := mapper.NewUserFromCreateRequest(claims, req.Msg.Home)
 
 	// Use the use case layer for business logic
 	createdUser, err := h.userUseCase.Create(ctx, newUser)
@@ -71,5 +73,41 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 
 	return connect.NewResponse(&userv1.CreateResponse{
 		User: mapper.UserToProto(createdUser),
+	}), nil
+}
+
+// UpdateHome sets or changes the authenticated user's home area.
+func (h *UserHandler) UpdateHome(ctx context.Context, req *connect.Request[userv1.UpdateHomeRequest]) (*connect.Response[userv1.UpdateHomeResponse], error) {
+	if req == nil || req.Msg == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
+	}
+
+	if req.Msg.Home == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("home is required"))
+	}
+
+	// Extract user identity from JWT context
+	claims, err := mapper.GetClaimsFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
+	user, err := h.userUseCase.GetByExternalID(ctx, claims.Sub)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
+	}
+
+	home := mapper.ProtoHomeToEntity(req.Msg.Home)
+	updatedUser, err := h.userUseCase.UpdateHome(ctx, user.ID, home)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&userv1.UpdateHomeResponse{
+		User: mapper.UserToProto(updatedUser),
 	}), nil
 }
