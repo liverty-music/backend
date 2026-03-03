@@ -185,7 +185,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError).Once()
-				d.searchLogRepo.EXPECT().Delete(ctx, artistID).Return(nil).Once()
+				d.searchLogRepo.EXPECT().Delete(mock.Anything, artistID).Return(nil).Once()
 			},
 			wantErr: assert.AnError,
 		},
