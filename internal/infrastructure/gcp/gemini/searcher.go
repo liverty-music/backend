@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -202,10 +203,41 @@ func (s *ConcertSearcher) Search(
 
 	s.logger.Info(ctx, "start calling Gemini API to search concerts", attrs...)
 
-	resp, err := s.client.Models.GenerateContent(ctx, s.config.ModelName, genai.Text(prompt), generateCfg)
+	const maxAttempts = 3
+
+	var (
+		resp *genai.GenerateContentResponse
+		err  error
+	)
+	for attempt := range maxAttempts {
+		resp, err = s.client.Models.GenerateContent(ctx, s.config.ModelName, genai.Text(prompt), generateCfg)
+		if err == nil {
+			break
+		}
+
+		s.logger.Error(ctx, "gemini model call failed",
+			err, append(attrs, slog.Int("attempt", attempt+1))...)
+
+		if !isRetryable(err) {
+			return nil, toAppErr(err, "failed to call Gemini API", attrs...)
+		}
+		if ctx.Err() != nil {
+			return nil, toAppErr(err, "failed to call Gemini API", attrs...)
+		}
+		if attempt < maxAttempts-1 {
+			backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
+			s.logger.Info(ctx, "retrying Gemini API call",
+				append(attrs, slog.Duration("backoff", backoff), slog.Int("attempt", attempt+1))...)
+
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return nil, toAppErr(err, "failed to call Gemini API", attrs...)
+			}
+		}
+	}
 	if err != nil {
-		s.logger.Error(ctx, "gemini model call failed", err, attrs...)
-		return nil, toAppErr(err, "failed to call Gemini API", attrs...)
+		return nil, toAppErr(err, "failed to call Gemini API (all retries exhausted)", attrs...)
 	}
 
 	usageMD := resp.UsageMetadata

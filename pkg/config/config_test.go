@@ -32,7 +32,7 @@ func TestLoad(t *testing.T) {
 					Host:              "localhost",
 					ReadHeaderTimeout: 500 * time.Millisecond,
 					ReadTimeout:       1 * time.Second,
-					HandlerTimeout:    5 * time.Second,
+					HandlerTimeout:    30 * time.Second,
 					IdleTimeout:       3 * time.Second,
 					AllowedOrigins:    nil,
 				},
