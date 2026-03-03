@@ -174,8 +174,11 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	// 6. Search new concerts via external API
 	scraped, err := uc.concertSearcher.Search(ctx, artist, site, time.Now())
 	if err != nil {
-		// Clean up search log on failure to allow retry
-		if delErr := uc.searchLogRepo.Delete(ctx, artistID); delErr != nil {
+		// Clean up search log on failure to allow retry.
+		// Use context.WithoutCancel so cleanup succeeds even if the RPC deadline expired.
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cleanupCancel()
+		if delErr := uc.searchLogRepo.Delete(cleanupCtx, artistID); delErr != nil {
 			uc.logger.Error(ctx, "failed to delete search log after Gemini failure", delErr, slog.String("artist_id", artistID))
 		}
 		return fmt.Errorf("failed to search concerts via external API: %w", err)
