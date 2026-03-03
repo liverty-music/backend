@@ -149,8 +149,9 @@ type ServerConfig struct {
 	// Read timeout in milliseconds
 	ReadTimeout time.Duration `envconfig:"SERVER_READ_TIMEOUT" default:"1000ms"`
 
-	// Handler timeout in seconds
-	HandlerTimeout time.Duration `envconfig:"SERVER_HANDLER_TIMEOUT" default:"5s"`
+	// Handler timeout is an insurance safety net for all RPCs.
+	// Individual RPC deadlines are controlled by client-side timeoutMs.
+	HandlerTimeout time.Duration `envconfig:"SERVER_HANDLER_TIMEOUT" default:"30s"`
 
 	// Idle timeout in seconds
 	IdleTimeout time.Duration `envconfig:"SERVER_IDLE_TIMEOUT" default:"3s"`
