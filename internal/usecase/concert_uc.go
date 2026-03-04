@@ -140,35 +140,11 @@ func (uc *concertUseCase) resolveUserID(ctx context.Context, externalID string) 
 
 // AsyncSearchNewConcerts is a thin async wrapper around SearchNewConcerts.
 // It spawns a background goroutine with a detached context so the RPC returns
-// immediately. Callers poll ListSearchStatuses for completion.
+// immediately. All guard logic lives in SearchNewConcerts.
+// Callers poll ListSearchStatuses for completion.
 func (uc *concertUseCase) AsyncSearchNewConcerts(ctx context.Context, artistID string) error {
-	if artistID == "" {
-		return apperr.New(codes.InvalidArgument, "artist ID is required")
-	}
-
-	// Pre-flight guard: skip if recently completed or currently pending.
-	// This avoids spawning a goroutine that would immediately return.
-	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
-	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		return fmt.Errorf("failed to get search log: %w", err)
-	}
-	if searchLog != nil {
-		if searchLog.Status == entity.SearchLogStatusCompleted && time.Since(searchLog.SearchTime) < searchCacheTTL {
-			uc.logger.Debug(ctx, "skipping external search, recently completed",
-				slog.String("artist_id", artistID),
-				slog.Time("search_time", searchLog.SearchTime),
-			)
-			return nil
-		}
-		if searchLog.Status == entity.SearchLogStatusPending && time.Since(searchLog.SearchTime) < pendingTimeout {
-			uc.logger.Debug(ctx, "skipping external search, already pending",
-				slog.String("artist_id", artistID),
-			)
-			return nil
-		}
-	}
-
 	// Spawn background goroutine with a detached context and 120s timeout.
+	// Validation and guard logic are handled by SearchNewConcerts.
 	bgCtx, bgCancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundSearchTimeout)
 	go func() {
 		defer bgCancel()

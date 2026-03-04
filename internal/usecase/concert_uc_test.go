@@ -105,39 +105,7 @@ func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
 	ctx := context.Background()
 	artistID := "artist-1"
 
-	t.Run("empty artist ID", func(t *testing.T) {
-		d := newConcertTestDeps(t)
-		err := d.uc.AsyncSearchNewConcerts(ctx, "")
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
-
-	t.Run("skip - recently completed search", func(t *testing.T) {
-		d := newConcertTestDeps(t)
-		recentLog := &entity.SearchLog{
-			ArtistID:   artistID,
-			SearchTime: time.Now().Add(-1 * time.Hour),
-			Status:     entity.SearchLogStatusCompleted,
-		}
-		d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(recentLog, nil).Once()
-
-		err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
-		assert.NoError(t, err)
-	})
-
-	t.Run("skip - already pending within 3 minutes", func(t *testing.T) {
-		d := newConcertTestDeps(t)
-		pendingLog := &entity.SearchLog{
-			ArtistID:   artistID,
-			SearchTime: time.Now().Add(-1 * time.Minute),
-			Status:     entity.SearchLogStatusPending,
-		}
-		d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(pendingLog, nil).Once()
-
-		err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
-		assert.NoError(t, err)
-	})
-
-	t.Run("enqueue - no search log exists", func(t *testing.T) {
+	t.Run("enqueue - delegates to SearchNewConcerts in background", func(t *testing.T) {
 		d := newConcertTestDeps(t)
 		artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
 		site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
@@ -148,9 +116,7 @@ func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
 		// Use a channel to signal background goroutine completion.
 		done := make(chan struct{})
 
-		// Pre-flight check in AsyncSearchNewConcerts.
-		d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-		// SearchNewConcerts (called in background goroutine) checks again.
+		// SearchNewConcerts (called in background goroutine) handles all guard logic.
 		d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
 		d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
 		d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
@@ -165,40 +131,6 @@ func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
 		assert.NoError(t, err) // Returns immediately.
 
 		// Wait for background goroutine to complete.
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatal("background goroutine did not complete in time")
-		}
-	})
-
-	t.Run("enqueue - stale pending entry triggers new search", func(t *testing.T) {
-		d := newConcertTestDeps(t)
-		artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
-		stalePendingLog := &entity.SearchLog{
-			ArtistID:   artistID,
-			SearchTime: time.Now().Add(-5 * time.Minute),
-			Status:     entity.SearchLogStatusPending,
-		}
-
-		done := make(chan struct{})
-
-		// Pre-flight check in AsyncSearchNewConcerts.
-		d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(stalePendingLog, nil).Once()
-		// SearchNewConcerts (called in background goroutine) checks again.
-		d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(stalePendingLog, nil).Once()
-		d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
-		d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
-		d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
-		d.concertRepo.EXPECT().ListByArtist(mock.Anything, artistID, true).Return(nil, nil).Once()
-		d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(nil, nil).Once()
-		d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).
-			Run(func(_ context.Context, _ string, _ entity.SearchLogStatus) { close(done) }).
-			Return(nil).Once()
-
-		err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
-		assert.NoError(t, err)
-
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
