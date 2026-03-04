@@ -221,14 +221,14 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 	// Get Artist
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
-		uc.markSearchFailed(ctx, artistID, err)
+		uc.markSearchFailed(ctx, artistID)
 		return fmt.Errorf("failed to get artist: %w", err)
 	}
 
 	// Get Official Site — missing site is not an error; search continues with nil
 	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		uc.markSearchFailed(ctx, artistID, err)
+		uc.markSearchFailed(ctx, artistID)
 		return fmt.Errorf("failed to get official site: %w", err)
 	}
 	if errors.Is(err, apperr.ErrNotFound) {
@@ -238,14 +238,14 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 	// Get existing upcoming concerts for deduplication
 	existing, err := uc.concertRepo.ListByArtist(ctx, artistID, true)
 	if err != nil {
-		uc.markSearchFailed(ctx, artistID, err)
+		uc.markSearchFailed(ctx, artistID)
 		return fmt.Errorf("failed to list existing concerts: %w", err)
 	}
 
 	// Search new concerts via external API
 	scraped, err := uc.concertSearcher.Search(ctx, artist, site, time.Now())
 	if err != nil {
-		uc.markSearchFailed(ctx, artistID, err)
+		uc.markSearchFailed(ctx, artistID)
 		return fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
 
@@ -297,7 +297,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 
 	msg, err := messaging.NewCloudEvent(messaging.EventTypeConcertDiscovered, eventData)
 	if err != nil {
-		uc.markSearchFailed(ctx, artistID, err)
+		uc.markSearchFailed(ctx, artistID)
 		return fmt.Errorf("failed to create concert.discovered event: %w", err)
 	}
 
@@ -327,7 +327,7 @@ func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID stri
 }
 
 // markSearchFailed updates the search log status to failed.
-func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string, searchErr error) {
+func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string) {
 	if err := uc.searchLogRepo.UpdateStatus(ctx, artistID, entity.SearchLogStatusFailed); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as failed", err, slog.String("artist_id", artistID))
 	}
