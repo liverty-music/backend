@@ -339,9 +339,9 @@ func TestConcertUseCase_ListSearchStatuses(t *testing.T) {
 		statuses, err := d.uc.ListSearchStatuses(ctx, []string{"a1", "a2", "a3"})
 		assert.NoError(t, err)
 		assert.Len(t, statuses, 3)
-		assert.Equal(t, entity.SearchStatusCompleted, statuses[0].Status)
-		assert.Equal(t, entity.SearchStatusPending, statuses[1].Status)
-		assert.Equal(t, entity.SearchStatusUnspecified, statuses[2].Status) // a3 not in DB
+		assert.Equal(t, usecase.SearchStatusCompleted, statuses[0].Status)
+		assert.Equal(t, usecase.SearchStatusPending, statuses[1].Status)
+		assert.Equal(t, usecase.SearchStatusUnspecified, statuses[2].Status) // a3 not in DB
 	})
 
 	t.Run("stale pending treated as failed", func(t *testing.T) {
@@ -354,7 +354,7 @@ func TestConcertUseCase_ListSearchStatuses(t *testing.T) {
 		statuses, err := d.uc.ListSearchStatuses(ctx, []string{"a1"})
 		assert.NoError(t, err)
 		assert.Len(t, statuses, 1)
-		assert.Equal(t, entity.SearchStatusFailed, statuses[0].Status) // stale pending → failed
+		assert.Equal(t, usecase.SearchStatusFailed, statuses[0].Status) // stale pending → failed
 	})
 
 	t.Run("failed status returned as-is", func(t *testing.T) {
@@ -367,6 +367,6 @@ func TestConcertUseCase_ListSearchStatuses(t *testing.T) {
 		statuses, err := d.uc.ListSearchStatuses(ctx, []string{"a1"})
 		assert.NoError(t, err)
 		assert.Len(t, statuses, 1)
-		assert.Equal(t, entity.SearchStatusFailed, statuses[0].Status)
+		assert.Equal(t, usecase.SearchStatusFailed, statuses[0].Status)
 	})
 }

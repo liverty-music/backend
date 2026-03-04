@@ -49,7 +49,7 @@ type ConcertUseCase interface {
 	// ListSearchStatuses returns the search status for the given artist IDs.
 	// Artists without a search log entry are returned with StatusUnspecified.
 	// Entries pending for more than 3 minutes are treated as failed (self-healing).
-	ListSearchStatuses(ctx context.Context, artistIDs []string) ([]*entity.SearchStatus, error)
+	ListSearchStatuses(ctx context.Context, artistIDs []string) ([]*SearchStatus, error)
 }
 
 // concertUseCase implements the ConcertUseCase interface.
@@ -317,7 +317,7 @@ func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string)
 }
 
 // ListSearchStatuses returns the search status for the given artist IDs.
-func (uc *concertUseCase) ListSearchStatuses(ctx context.Context, artistIDs []string) ([]*entity.SearchStatus, error) {
+func (uc *concertUseCase) ListSearchStatuses(ctx context.Context, artistIDs []string) ([]*SearchStatus, error) {
 	if len(artistIDs) == 0 {
 		return nil, apperr.New(codes.InvalidArgument, "at least one artist ID is required")
 	}
@@ -333,9 +333,9 @@ func (uc *concertUseCase) ListSearchStatuses(ctx context.Context, artistIDs []st
 		logMap[l.ArtistID] = l
 	}
 
-	statuses := make([]*entity.SearchStatus, 0, len(artistIDs))
+	statuses := make([]*SearchStatus, 0, len(artistIDs))
 	for _, id := range artistIDs {
-		s := &entity.SearchStatus{ArtistID: id, Status: entity.SearchStatusUnspecified}
+		s := &SearchStatus{ArtistID: id, Status: SearchStatusUnspecified}
 		if log, ok := logMap[id]; ok {
 			s.Status = toSearchStatusValue(log)
 		}
@@ -347,19 +347,19 @@ func (uc *concertUseCase) ListSearchStatuses(ctx context.Context, artistIDs []st
 
 // toSearchStatusValue converts a search log entity to a SearchStatusValue,
 // applying stale-pending detection.
-func toSearchStatusValue(log *entity.SearchLog) entity.SearchStatusValue {
+func toSearchStatusValue(log *entity.SearchLog) SearchStatusValue {
 	switch log.Status {
 	case entity.SearchLogStatusPending:
 		if time.Since(log.SearchTime) > pendingTimeout {
-			return entity.SearchStatusFailed
+			return SearchStatusFailed
 		}
-		return entity.SearchStatusPending
+		return SearchStatusPending
 	case entity.SearchLogStatusCompleted:
-		return entity.SearchStatusCompleted
+		return SearchStatusCompleted
 	case entity.SearchLogStatusFailed:
-		return entity.SearchStatusFailed
+		return SearchStatusFailed
 	default:
-		return entity.SearchStatusUnspecified
+		return SearchStatusUnspecified
 	}
 }
 

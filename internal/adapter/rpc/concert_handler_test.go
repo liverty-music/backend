@@ -8,7 +8,7 @@ import (
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
-	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -108,10 +108,10 @@ func TestConcertHandler_ListSearchStatuses(t *testing.T) {
 		h := rpc.NewConcertHandler(concertUC, logger)
 
 		concertUC.EXPECT().ListSearchStatuses(mock.Anything, []string{"a1", "a2", "a3"}).
-			Return([]*entity.SearchStatus{
-				{ArtistID: "a1", Status: entity.SearchStatusCompleted},
-				{ArtistID: "a2", Status: entity.SearchStatusPending},
-				{ArtistID: "a3", Status: entity.SearchStatusFailed},
+			Return([]*usecase.SearchStatus{
+				{ArtistID: "a1", Status: usecase.SearchStatusCompleted},
+				{ArtistID: "a2", Status: usecase.SearchStatusPending},
+				{ArtistID: "a3", Status: usecase.SearchStatusFailed},
 			}, nil)
 
 		req := connect.NewRequest(&concertv1.ListSearchStatusesRequest{
@@ -171,8 +171,8 @@ func TestConcertHandler_ListSearchStatuses(t *testing.T) {
 		h := rpc.NewConcertHandler(concertUC, logger)
 
 		concertUC.EXPECT().ListSearchStatuses(mock.Anything, []string{"unknown"}).
-			Return([]*entity.SearchStatus{
-				{ArtistID: "unknown", Status: entity.SearchStatusUnspecified},
+			Return([]*usecase.SearchStatus{
+				{ArtistID: "unknown", Status: usecase.SearchStatusUnspecified},
 			}, nil)
 
 		req := connect.NewRequest(&concertv1.ListSearchStatusesRequest{
