@@ -13,6 +13,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/stretchr/testify/require"
 )
 
 // setupTestJWKS creates a test JWKS server and returns the server, private key, and public key set.
@@ -127,13 +128,8 @@ func TestNewJWTValidator(t *testing.T) {
 		defer server.Close()
 
 		validator, err := NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
-		if err != nil {
-			t.Fatalf("NewJWTValidator failed: %v", err)
-		}
-
-		if validator == nil {
-			t.Fatal("validator should not be nil")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, validator)
 
 		if validator.issuer != server.URL {
 			t.Errorf("issuer = %q, want %q", validator.issuer, server.URL)
