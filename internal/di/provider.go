@@ -169,11 +169,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Read-only endpoints that return publicly available data (artist charts,
 	// concert schedules). Write endpoints remain fully authenticated.
 	publicProcedures := map[string]bool{
-		"/" + artistconnect.ArtistServiceName + "/ListTop":             true,
-		"/" + artistconnect.ArtistServiceName + "/ListSimilar":         true,
-		"/" + artistconnect.ArtistServiceName + "/Search":              true,
-		"/" + concertconnect.ConcertServiceName + "/List":              true,
-		"/" + concertconnect.ConcertServiceName + "/SearchNewConcerts": true,
+		"/" + artistconnect.ArtistServiceName + "/ListTop":              true,
+		"/" + artistconnect.ArtistServiceName + "/ListSimilar":          true,
+		"/" + artistconnect.ArtistServiceName + "/Search":               true,
+		"/" + concertconnect.ConcertServiceName + "/List":               true,
+		"/" + concertconnect.ConcertServiceName + "/SearchNewConcerts":  true,
 		"/" + concertconnect.ConcertServiceName + "/ListSearchStatuses": true,
 	}
 
