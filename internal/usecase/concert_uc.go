@@ -187,9 +187,10 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		}
 	}
 
-	// Mark as pending.
+	// Mark as pending. If this fails, abort — without a pending row,
+	// downstream UpdateStatus calls silently no-op (0 rows affected).
 	if err := uc.searchLogRepo.Upsert(ctx, artistID, entity.SearchLogStatusPending); err != nil {
-		uc.logger.Error(ctx, "failed to upsert search log before Gemini call", err, slog.String("artist_id", artistID))
+		return fmt.Errorf("failed to mark search as pending: %w", err)
 	}
 
 	return uc.executeSearch(ctx, artistID)
