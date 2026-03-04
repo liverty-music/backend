@@ -1,8 +1,17 @@
-# Project Context & Architecture
+<poly-repo-context repo="backend">
+  <responsibilities>Go API server following Clean Architecture. Connect-RPC services,
+  pgx for PostgreSQL, Google Wire for DI, Atlas for DB migrations.</responsibilities>
+  <essential-commands>
+    atlas migrate diff --env local &lt;name&gt;  # Generate DB migration
+    atlas migrate apply --env local            # Apply migrations locally
+    mockery                                    # Generate mocks from interfaces
+    docker compose up -d postgres              # Start local DB for integration tests
+  </essential-commands>
+</poly-repo-context>
+
+<agent-rules>
 
 ## Core Architecture
-
-This project follows **Clean Architecture** principles.
 
 | Layer              | Path                       | Responsibility                                                                  |
 | ------------------ | -------------------------- | ------------------------------------------------------------------------------- |
@@ -68,14 +77,6 @@ When adding a new migration:
 2. Add the new file to `k8s/atlas/base/kustomization.yaml` under `configMapGenerator.files`
 3. Both changes go in the same PR
 
-### Protobuf Code Generation
-
-Local Protobuf code generation is FORBIDDEN. To generate/update Go code from schema changes:
-
-1.  **Specification Repo**: Create a Pull Request with your `.proto` changes.
-2.  **GitHub Release**: Once merged to `main`, create a GitHub Release in the `specification` repository.
-3.  **Remote Generation**: This triggers the BSR (Buf Schema Registry) remote generation.
-4.  **Local Consumption**: The `backend` repo consumes these types via `buf.build/gen/go/...`. You may need to run `go get -u` or similar if your local environment doesn't pick up the latest BSR build immediately.
 
 ### Integration Tests
 
@@ -92,3 +93,5 @@ The schema is applied automatically via Atlas migrations on container startup. I
 ```bash
 docker compose exec postgres psql -U test-user -d test-db < internal/infrastructure/database/rdb/schema/schema.sql
 ```
+
+</agent-rules>
