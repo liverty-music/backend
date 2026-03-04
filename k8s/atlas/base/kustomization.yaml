@@ -47,3 +47,4 @@ configMapGenerator:
   - migrations/20260227000000_add_home_to_users.sql
   - migrations/20260227000001_normalize_venue_admin_area.sql
   - migrations/20260227090313_drop_notifications_table.sql
+  - migrations/20260304014801_add_search_log_status.sql
