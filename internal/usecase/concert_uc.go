@@ -138,15 +138,16 @@ func (uc *concertUseCase) resolveUserID(ctx context.Context, externalID string) 
 	return user.ID, nil
 }
 
-// AsyncSearchNewConcerts enqueues an asynchronous concert discovery job. It marks the
-// search log as pending and spawns a background goroutine to call Gemini. The RPC
-// returns immediately. Callers poll ListSearchStatuses for completion.
+// AsyncSearchNewConcerts is a thin async wrapper around SearchNewConcerts.
+// It spawns a background goroutine with a detached context so the RPC returns
+// immediately. Callers poll ListSearchStatuses for completion.
 func (uc *concertUseCase) AsyncSearchNewConcerts(ctx context.Context, artistID string) error {
 	if artistID == "" {
 		return apperr.New(codes.InvalidArgument, "artist ID is required")
 	}
 
-	// Check search log — skip if recently completed or currently pending.
+	// Pre-flight guard: skip if recently completed or currently pending.
+	// This avoids spawning a goroutine that would immediately return.
 	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 		return fmt.Errorf("failed to get search log: %w", err)
@@ -167,17 +168,11 @@ func (uc *concertUseCase) AsyncSearchNewConcerts(ctx context.Context, artistID s
 		}
 	}
 
-	// Mark search as pending (prevents concurrent redundant API calls).
-	if err := uc.searchLogRepo.Upsert(ctx, artistID, entity.SearchLogStatusPending); err != nil {
-		uc.logger.Error(ctx, "failed to upsert search log as pending", err, slog.String("artist_id", artistID))
-		// Continue anyway — the goroutine can still run.
-	}
-
 	// Spawn background goroutine with a detached context and 120s timeout.
 	bgCtx, bgCancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundSearchTimeout)
 	go func() {
 		defer bgCancel()
-		if err := uc.executeSearch(bgCtx, artistID); err != nil {
+		if err := uc.SearchNewConcerts(bgCtx, artistID); err != nil {
 			uc.logger.Error(bgCtx, "background concert search failed",
 				err, slog.String("artist_id", artistID),
 			)
@@ -187,24 +182,33 @@ func (uc *concertUseCase) AsyncSearchNewConcerts(ctx context.Context, artistID s
 	return nil
 }
 
-// SearchNewConcerts discovers new concerts synchronously. This is intended
-// for use by the CronJob, which manages its own timeout and circuit breaker.
+// SearchNewConcerts discovers new concerts synchronously. It is the single
+// entry point for concert search logic, used by both AsyncSearchNewConcerts
+// (via background goroutine) and the CronJob.
 func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string) error {
 	if artistID == "" {
 		return apperr.New(codes.InvalidArgument, "artist ID is required")
 	}
 
-	// Check search log — skip if recently completed.
+	// Check search log — skip if recently completed or currently pending.
 	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 		return fmt.Errorf("failed to get search log: %w", err)
 	}
-	if searchLog != nil && searchLog.Status == entity.SearchLogStatusCompleted && time.Since(searchLog.SearchTime) < searchCacheTTL {
-		uc.logger.Debug(ctx, "skipping external search, recently searched",
-			slog.String("artist_id", artistID),
-			slog.Time("search_time", searchLog.SearchTime),
-		)
-		return nil
+	if searchLog != nil {
+		if searchLog.Status == entity.SearchLogStatusCompleted && time.Since(searchLog.SearchTime) < searchCacheTTL {
+			uc.logger.Debug(ctx, "skipping external search, recently searched",
+				slog.String("artist_id", artistID),
+				slog.Time("search_time", searchLog.SearchTime),
+			)
+			return nil
+		}
+		if searchLog.Status == entity.SearchLogStatusPending && time.Since(searchLog.SearchTime) < pendingTimeout {
+			uc.logger.Debug(ctx, "skipping external search, already pending",
+				slog.String("artist_id", artistID),
+			)
+			return nil
+		}
 	}
 
 	// Mark as pending.
@@ -307,6 +311,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 			slog.Int("concert_count", len(newConcerts)),
 		)
 		// Non-fatal: CronJob will re-discover on next run.
+		uc.markSearchFailed(ctx, artistID)
 		return nil
 	}
 

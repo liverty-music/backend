@@ -148,9 +148,11 @@ func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
 		// Use a channel to signal background goroutine completion.
 		done := make(chan struct{})
 
+		// Pre-flight check in AsyncSearchNewConcerts.
 		d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+		// SearchNewConcerts (called in background goroutine) checks again.
+		d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
 		d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
-		// Background goroutine expectations (use mock.Anything for context since it's detached).
 		d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
 		d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artistID).Return(site, nil).Once()
 		d.concertRepo.EXPECT().ListByArtist(mock.Anything, artistID, true).Return(nil, nil).Once()
@@ -181,7 +183,10 @@ func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
 
 		done := make(chan struct{})
 
+		// Pre-flight check in AsyncSearchNewConcerts.
 		d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(stalePendingLog, nil).Once()
+		// SearchNewConcerts (called in background goroutine) checks again.
+		d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(stalePendingLog, nil).Once()
 		d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
 		d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
 		d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
@@ -231,6 +236,20 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 					Status:     entity.SearchLogStatusCompleted,
 				}
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, "artist-1").Return(recentLog, nil).Once()
+			},
+			wantErr: nil,
+		},
+		{
+			name: "skip - already pending within timeout",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				pendingLog := &entity.SearchLog{
+					ArtistID:   "artist-1",
+					SearchTime: time.Now().Add(-1 * time.Minute),
+					Status:     entity.SearchLogStatusPending,
+				}
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, "artist-1").Return(pendingLog, nil).Once()
 			},
 			wantErr: nil,
 		},
