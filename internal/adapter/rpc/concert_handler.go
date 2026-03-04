@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -65,17 +67,55 @@ func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[
 	}), nil
 }
 
-// SearchNewConcerts triggers a discovery process for new concerts.
-// Concerts are created asynchronously by event consumers; the response is empty.
+// SearchNewConcerts enqueues an asynchronous concert discovery job and returns immediately.
+// The actual search runs in a background goroutine. Use GetSearchStatus to poll for completion.
 func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[concertv1.SearchNewConcertsRequest]) (*connect.Response[concertv1.SearchNewConcertsResponse], error) {
 	artistID := req.Msg.GetArtistId().GetValue()
 	if artistID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("artist_id cannot be empty"))
 	}
 
-	if err := h.concertUseCase.SearchNewConcerts(ctx, artistID); err != nil {
+	if err := h.concertUseCase.AsyncSearchNewConcerts(ctx, artistID); err != nil {
 		return nil, err
 	}
 
 	return connect.NewResponse(&concertv1.SearchNewConcertsResponse{}), nil
+}
+
+// searchStatusProtoMap maps entity search status values to proto enum values.
+var searchStatusProtoMap = map[entity.SearchStatusValue]concertv1.SearchStatus{
+	entity.SearchStatusUnspecified: concertv1.SearchStatus_SEARCH_STATUS_UNSPECIFIED,
+	entity.SearchStatusPending:     concertv1.SearchStatus_SEARCH_STATUS_PENDING,
+	entity.SearchStatusCompleted:   concertv1.SearchStatus_SEARCH_STATUS_COMPLETED,
+	entity.SearchStatusFailed:      concertv1.SearchStatus_SEARCH_STATUS_FAILED,
+}
+
+// ListSearchStatuses returns the current search status for one or more artists.
+func (h *ConcertHandler) ListSearchStatuses(ctx context.Context, req *connect.Request[concertv1.ListSearchStatusesRequest]) (*connect.Response[concertv1.ListSearchStatusesResponse], error) {
+	ids := req.Msg.GetArtistIds()
+	if len(ids) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("artist_ids cannot be empty"))
+	}
+
+	artistIDs := make([]string, 0, len(ids))
+	for _, id := range ids {
+		artistIDs = append(artistIDs, id.GetValue())
+	}
+
+	statuses, err := h.concertUseCase.ListSearchStatuses(ctx, artistIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	protoStatuses := make([]*concertv1.ArtistSearchStatus, 0, len(statuses))
+	for _, s := range statuses {
+		protoStatuses = append(protoStatuses, &concertv1.ArtistSearchStatus{
+			ArtistId: &entityv1.ArtistId{Value: s.ArtistID},
+			Status:   searchStatusProtoMap[s.Status],
+		})
+	}
+
+	return connect.NewResponse(&concertv1.ListSearchStatusesResponse{
+		Statuses: protoStatuses,
+	}), nil
 }

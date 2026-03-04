@@ -101,6 +101,44 @@ func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
 	}
 }
 
+func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
+	ctx := context.Background()
+	artistID := "artist-1"
+
+	t.Run("enqueue - delegates to SearchNewConcerts in background", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+		artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+		site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
+		scraped := []*entity.ScrapedConcert{
+			{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
+		}
+
+		// Use a channel to signal background goroutine completion.
+		done := make(chan struct{})
+
+		// SearchNewConcerts (called in background goroutine) handles all guard logic.
+		d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
+		d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+		d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
+		d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artistID).Return(site, nil).Once()
+		d.concertRepo.EXPECT().ListByArtist(mock.Anything, artistID, true).Return(nil, nil).Once()
+		d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+		d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).
+			Run(func(_ context.Context, _ string, _ entity.SearchLogStatus) { close(done) }).
+			Return(nil).Once()
+
+		err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
+		assert.NoError(t, err) // Returns immediately.
+
+		// Wait for background goroutine to complete.
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("background goroutine did not complete in time")
+		}
+	})
+}
+
 func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 	ctx := context.Background()
 
@@ -120,15 +158,30 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
-			name: "cache hit - recently searched returns nil",
+			name: "cache hit - recently completed returns nil",
 			args: args{artistID: "artist-1"},
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				recentLog := &entity.SearchLog{
 					ArtistID:   "artist-1",
 					SearchTime: time.Now().Add(-1 * time.Hour),
+					Status:     entity.SearchLogStatusCompleted,
 				}
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, "artist-1").Return(recentLog, nil).Once()
+			},
+			wantErr: nil,
+		},
+		{
+			name: "skip - already pending within timeout",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				pendingLog := &entity.SearchLog{
+					ArtistID:   "artist-1",
+					SearchTime: time.Now().Add(-1 * time.Minute),
+					Status:     entity.SearchLogStatusPending,
+				}
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, "artist-1").Return(pendingLog, nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -145,11 +198,12 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
-				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -161,31 +215,36 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				artistID := "artist-1"
 				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
 				site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
-				expiredLog := &entity.SearchLog{ArtistID: artistID, SearchTime: time.Now().Add(-25 * time.Hour)}
+				expiredLog := &entity.SearchLog{
+					ArtistID:   artistID,
+					SearchTime: time.Now().Add(-25 * time.Hour),
+					Status:     entity.SearchLogStatusCompleted,
+				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(expiredLog, nil).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(nil, nil).Once()
-				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
 		{
-			name: "failure - Gemini search fails, deletes search log",
+			name: "failure - Gemini search fails, marks search as failed",
 			args: args{artistID: "artist-1"},
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				artistID := "artist-1"
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
-				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError).Once()
-				d.searchLogRepo.EXPECT().Delete(mock.Anything, artistID).Return(nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusFailed).Return(nil).Once()
 			},
 			wantErr: assert.AnError,
 		},
@@ -201,11 +260,12 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
-				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -225,11 +285,12 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(existing, nil).Once()
-				d.searchLogRepo.EXPECT().Upsert(ctx, artistID).Return(nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -256,4 +317,56 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestConcertUseCase_ListSearchStatuses(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty artist IDs", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+		_, err := d.uc.ListSearchStatuses(ctx, nil)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("returns status for multiple artists", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+		logs := []*entity.SearchLog{
+			{ArtistID: "a1", SearchTime: time.Now(), Status: entity.SearchLogStatusCompleted},
+			{ArtistID: "a2", SearchTime: time.Now().Add(-1 * time.Minute), Status: entity.SearchLogStatusPending},
+		}
+		d.searchLogRepo.EXPECT().ListByArtistIDs(ctx, []string{"a1", "a2", "a3"}).Return(logs, nil).Once()
+
+		statuses, err := d.uc.ListSearchStatuses(ctx, []string{"a1", "a2", "a3"})
+		assert.NoError(t, err)
+		assert.Len(t, statuses, 3)
+		assert.Equal(t, entity.SearchStatusCompleted, statuses[0].Status)
+		assert.Equal(t, entity.SearchStatusPending, statuses[1].Status)
+		assert.Equal(t, entity.SearchStatusUnspecified, statuses[2].Status) // a3 not in DB
+	})
+
+	t.Run("stale pending treated as failed", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+		logs := []*entity.SearchLog{
+			{ArtistID: "a1", SearchTime: time.Now().Add(-5 * time.Minute), Status: entity.SearchLogStatusPending},
+		}
+		d.searchLogRepo.EXPECT().ListByArtistIDs(ctx, []string{"a1"}).Return(logs, nil).Once()
+
+		statuses, err := d.uc.ListSearchStatuses(ctx, []string{"a1"})
+		assert.NoError(t, err)
+		assert.Len(t, statuses, 1)
+		assert.Equal(t, entity.SearchStatusFailed, statuses[0].Status) // stale pending → failed
+	})
+
+	t.Run("failed status returned as-is", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+		logs := []*entity.SearchLog{
+			{ArtistID: "a1", SearchTime: time.Now(), Status: entity.SearchLogStatusFailed},
+		}
+		d.searchLogRepo.EXPECT().ListByArtistIDs(ctx, []string{"a1"}).Return(logs, nil).Once()
+
+		statuses, err := d.uc.ListSearchStatuses(ctx, []string{"a1"})
+		assert.NoError(t, err)
+		assert.Len(t, statuses, 1)
+		assert.Equal(t, entity.SearchStatusFailed, statuses[0].Status)
+	})
 }
