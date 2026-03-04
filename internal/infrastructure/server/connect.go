@@ -91,14 +91,11 @@ func NewConnectServer(
 		),
 	}
 
-	// Health check opts — no access log, no auth bridge, no validation.
-	// Health checks are called frequently by Kubernetes probes; logging
-	// every call produces noise without operational value.
+	// Health check opts — minimal chain for Kubernetes probes.
+	// No access log, tracing, error-handling, auth bridge, or validation;
+	// health checks are called every few seconds and those layers add
+	// noise without operational value.
 	healthOpts := []connect.HandlerOption{
-		connect.WithInterceptors(
-			tracingInterceptor,
-			apperr_connect.NewErrorHandlingInterceptor(logger),
-		),
 		newRecoverHandler(logger),
 	}
 
