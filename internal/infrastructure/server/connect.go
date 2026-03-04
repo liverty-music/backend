@@ -91,6 +91,14 @@ func NewConnectServer(
 		),
 	}
 
+	// Health check opts — minimal chain for Kubernetes probes.
+	// No access log, tracing, error-handling, auth bridge, or validation;
+	// health checks are called every few seconds and those layers add
+	// noise without operational value.
+	healthOpts := []connect.HandlerOption{
+		newRecoverHandler(logger),
+	}
+
 	// Protected mux — all RPC services
 	protectedMux := http.NewServeMux()
 	for _, handlerFunc := range handlerFuncs {
@@ -99,7 +107,7 @@ func NewConnectServer(
 	}
 
 	// Health check handler (no auth required for K8s probes)
-	healthPath, healthH := healthHandler(handlerOpts...)
+	healthPath, healthH := healthHandler(healthOpts...)
 
 	// Wrap protected mux with authn middleware (default-deny)
 	authMiddleware := authn.NewMiddleware(authFunc)

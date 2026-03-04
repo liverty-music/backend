@@ -62,7 +62,5 @@ func (h *HealthCheckHandler) Check(ctx context.Context, req *grpchealth.CheckReq
 		return &grpchealth.CheckResponse{Status: grpchealth.StatusNotServing}, nil
 	}
 
-	h.logger.Debug(ctx, "health check passed", slog.String("service", service))
-
 	return &grpchealth.CheckResponse{Status: grpchealth.StatusServing}, nil
 }
