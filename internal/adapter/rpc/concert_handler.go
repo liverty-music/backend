@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -82,14 +80,6 @@ func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Req
 	return connect.NewResponse(&concertv1.SearchNewConcertsResponse{}), nil
 }
 
-// searchStatusProtoMap maps entity search status values to proto enum values.
-var searchStatusProtoMap = map[entity.SearchStatusValue]concertv1.SearchStatus{
-	entity.SearchStatusUnspecified: concertv1.SearchStatus_SEARCH_STATUS_UNSPECIFIED,
-	entity.SearchStatusPending:     concertv1.SearchStatus_SEARCH_STATUS_PENDING,
-	entity.SearchStatusCompleted:   concertv1.SearchStatus_SEARCH_STATUS_COMPLETED,
-	entity.SearchStatusFailed:      concertv1.SearchStatus_SEARCH_STATUS_FAILED,
-}
-
 // ListSearchStatuses returns the current search status for one or more artists.
 func (h *ConcertHandler) ListSearchStatuses(ctx context.Context, req *connect.Request[concertv1.ListSearchStatusesRequest]) (*connect.Response[concertv1.ListSearchStatusesResponse], error) {
 	ids := req.Msg.GetArtistIds()
@@ -107,15 +97,7 @@ func (h *ConcertHandler) ListSearchStatuses(ctx context.Context, req *connect.Re
 		return nil, err
 	}
 
-	protoStatuses := make([]*concertv1.ArtistSearchStatus, 0, len(statuses))
-	for _, s := range statuses {
-		protoStatuses = append(protoStatuses, &concertv1.ArtistSearchStatus{
-			ArtistId: &entityv1.ArtistId{Value: s.ArtistID},
-			Status:   searchStatusProtoMap[s.Status],
-		})
-	}
-
 	return connect.NewResponse(&concertv1.ListSearchStatusesResponse{
-		Statuses: protoStatuses,
+		Statuses: mapper.SearchStatusesToProto(statuses),
 	}), nil
 }
