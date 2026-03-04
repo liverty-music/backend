@@ -307,6 +307,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 			slog.Int("concert_count", len(newConcerts)),
 		)
 		// Non-fatal: CronJob will re-discover on next run.
+		return nil
 	}
 
 	uc.logger.Info(ctx, "published concert.discovered event",
