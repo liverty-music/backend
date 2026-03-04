@@ -1,8 +1,17 @@
-# Project Context & Architecture
+<poly-repo-context repo="backend">
+  <responsibilities>Go API server following Clean Architecture. Connect-RPC services,
+  pgx for PostgreSQL, Google Wire for DI, Atlas for DB migrations.</responsibilities>
+  <essential-commands>
+    atlas migrate diff --env local &lt;name&gt;  # Generate DB migration
+    atlas migrate apply --env local            # Apply migrations locally
+    mockery                                    # Generate mocks from interfaces
+    docker compose up -d postgres              # Start local DB for integration tests
+  </essential-commands>
+</poly-repo-context>
+
+<agent-rules>
 
 ## Core Architecture
-
-This project follows **Clean Architecture** principles.
 
 | Layer              | Path                       | Responsibility                                                                  |
 | ------------------ | -------------------------- | ------------------------------------------------------------------------------- |
@@ -68,27 +77,21 @@ When adding a new migration:
 2. Add the new file to `k8s/atlas/base/kustomization.yaml` under `configMapGenerator.files`
 3. Both changes go in the same PR
 
-### Protobuf Code Generation
 
-Local Protobuf code generation is FORBIDDEN. To generate/update Go code from schema changes:
+### Development Commands
 
-1.  **Specification Repo**: Create a Pull Request with your `.proto` changes.
-2.  **GitHub Release**: Once merged to `main`, create a GitHub Release in the `specification` repository.
-3.  **Remote Generation**: This triggers the BSR (Buf Schema Registry) remote generation.
-4.  **Local Consumption**: The `backend` repo consumes these types via `buf.build/gen/go/...`. You may need to run `go get -u` or similar if your local environment doesn't pick up the latest BSR build immediately.
+```bash
+make lint              # Format check + golangci-lint (matches CI)
+make fix               # Auto-fix formatting (gofmt -w)
+make test              # Unit tests with local DB (docker compose + atlas migrate)
+make test-integration  # Integration tests (DB must already be running, used by CI)
+make check             # Full pre-commit check (lint + test)
+```
+
+`make check` is automatically enforced before `git commit` by the Claude Code PreToolUse hook in `.claude/settings.json`.
 
 ### Integration Tests
 
-Integration tests under `internal/infrastructure/database/rdb/` require a local PostgreSQL instance.
+Integration tests under `internal/infrastructure/database/rdb/` require a local PostgreSQL instance. `make test` handles DB startup automatically via `docker compose up -d postgres --wait`.
 
-**Before running integration tests, you MUST ensure the database is running:**
-
-```bash
-docker compose up -d postgres
-```
-
-The schema is applied automatically via Atlas migrations on container startup. If the container was freshly created, also apply the schema manually:
-
-```bash
-docker compose exec postgres psql -U test-user -d test-db < internal/infrastructure/database/rdb/schema/schema.sql
-```
+</agent-rules>
