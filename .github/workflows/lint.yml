@@ -28,12 +28,13 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - '.golangci.yml'
+              - 'Makefile'
               - '.github/workflows/**'
 
-  golangci:
+  lint:
     needs: changes
     if: needs.changes.outputs.src == 'true'
-    name: golangci-lint
+    name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -42,46 +43,29 @@ jobs:
         with:
           go-version: "1.25.7"
           cache: false
-      - name: Run golangci-lint
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
-          args: --timeout=3m --build-tags=integration
+          install-only: true
+      - name: Run make lint
+        run: make lint
 
-  golangci-skip:
+  lint-skip:
     needs: changes
     if: needs.changes.outputs.src == 'false'
-    name: golangci-lint
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - run: echo "No relevant changes, skipping lint"
 
-  gofmt:
-    name: gofmt
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.25.7"
-          cache: false
-      - name: Check gofmt
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "The following files are not formatted with gofmt:"
-            echo "$unformatted"
-            exit 1
-          fi
-
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [changes, golangci, golangci-skip, gofmt]
+    needs: [changes, lint, lint-skip]
     if: always()
     steps:
       - uses: re-actors/alls-green@release/v1
         with:
-          allowed-skips: golangci, golangci-skip
+          allowed-skips: lint, lint-skip
           jobs: ${{ toJSON(needs) }}

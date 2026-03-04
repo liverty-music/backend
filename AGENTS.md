@@ -78,20 +78,20 @@ When adding a new migration:
 3. Both changes go in the same PR
 
 
+### Development Commands
+
+```bash
+make lint              # Format check + golangci-lint (matches CI)
+make fix               # Auto-fix formatting (gofmt -w)
+make test              # Unit tests with local DB (docker compose + atlas migrate)
+make test-integration  # Integration tests (DB must already be running, used by CI)
+make check             # Full pre-commit check (lint + test)
+```
+
+`make check` is automatically enforced before `git commit` by the Claude Code PreToolUse hook in `.claude/settings.json`.
+
 ### Integration Tests
 
-Integration tests under `internal/infrastructure/database/rdb/` require a local PostgreSQL instance.
-
-**Before running integration tests, you MUST ensure the database is running:**
-
-```bash
-docker compose up -d postgres
-```
-
-The schema is applied automatically via Atlas migrations on container startup. If the container was freshly created, also apply the schema manually:
-
-```bash
-docker compose exec postgres psql -U test-user -d test-db < internal/infrastructure/database/rdb/schema/schema.sql
-```
+Integration tests under `internal/infrastructure/database/rdb/` require a local PostgreSQL instance. `make test` handles DB startup automatically via `docker compose up -d postgres --wait`.
 
 </agent-rules>
