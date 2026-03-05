@@ -179,6 +179,7 @@ fix_migration_ordering() {
 
   echo "Fixing out-of-order migration timestamps..." >&2
 
+  local seen_versions=()
   while true; do
     # Re-scan for out-of-order files (filenames change after each rebase)
     local added_files
@@ -224,6 +225,17 @@ fix_migration_ordering() {
     if ! $found_out_of_order; then
       break
     fi
+
+    # Guard: if we already attempted this version, atlas rebase was a no-op
+    local v
+    for v in "${seen_versions[@]}"; do
+      if [ "$v" = "$target_version" ]; then
+        echo "FAIL: atlas migrate rebase $target_version did not advance; aborting to prevent infinite loop." >&2
+        errors=$((errors + 1))
+        return
+      fi
+    done
+    seen_versions+=("$target_version")
 
     echo "  Rebasing: $target_file (version $target_version)" >&2
     local rebase_output
