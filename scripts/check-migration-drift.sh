@@ -179,48 +179,47 @@ fix_migration_ordering() {
 
   echo "Fixing out-of-order migration timestamps..." >&2
 
+  # Build set of filenames known on origin/main (stable across iterations)
+  local -A main_files=()
+  local main_latest=""
+  local main_file
+  while IFS= read -r main_file; do
+    [ -n "$main_file" ] || continue
+    local basename
+    basename="$(basename "$main_file")"
+    main_files["$basename"]=1
+    local ts="${basename%%_*}"
+    if [ -z "$main_latest" ] || [ "$ts" \> "$main_latest" ]; then
+      main_latest="$ts"
+    fi
+  done < <(cd "$REPO_ROOT" && git ls-tree --name-only origin/main -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
+
+  if [ -z "$main_latest" ]; then
+    echo "Migration ordering fixed." >&2
+    return
+  fi
+
   local seen_versions=()
   while true; do
-    # Re-scan for out-of-order files (filenames change after each rebase)
-    local added_files
-    added_files=$(cd "$REPO_ROOT" && git diff --name-only --diff-filter=A origin/main HEAD -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
-
-    if [ -z "$added_files" ]; then
-      break
-    fi
-
-    local main_latest=""
-    local main_file
-    while IFS= read -r main_file; do
-      [ -n "$main_file" ] || continue
-      local basename
-      basename="$(basename "$main_file")"
-      local ts="${basename%%_*}"
-      if [ -z "$main_latest" ] || [ "$ts" \> "$main_latest" ]; then
-        main_latest="$ts"
-      fi
-    done < <(cd "$REPO_ROOT" && git ls-tree --name-only origin/main -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
-
-    if [ -z "$main_latest" ]; then
-      break
-    fi
-
+    # Scan filesystem directly (reflects post-rebase renames immediately)
     local found_out_of_order=false
     local target_file=""
     local target_version=""
-    local file
-    while IFS= read -r file; do
-      [ -n "$file" ] || continue
-      local basename
-      basename="$(basename "$file")"
-      local ts="${basename%%_*}"
+    local sql_file
+    for sql_file in "$MIGRATIONS_DIR"/*.sql; do
+      [ -f "$sql_file" ] || continue
+      local sql_basename
+      sql_basename="$(basename "$sql_file")"
+      # Skip files that exist on origin/main (not branch-added)
+      [ -z "${main_files[$sql_basename]+x}" ] || continue
+      local ts="${sql_basename%%_*}"
       if [ "$ts" \< "$main_latest" ]; then
         found_out_of_order=true
-        target_file="$basename"
+        target_file="$sql_basename"
         target_version="$ts"
         break
       fi
-    done <<< "$added_files"
+    done
 
     if ! $found_out_of_order; then
       break
