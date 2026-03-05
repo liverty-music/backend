@@ -115,7 +115,7 @@ check_migration_ordering() {
 
   # Find migration files added on this branch (not on origin/main)
   local added_files
-  added_files=$(cd "$REPO_ROOT" && git diff --name-only --diff-filter=A origin/main HEAD -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
+  added_files=$(cd "$REPO_ROOT" && git diff --name-only --diff-filter=A origin/main HEAD -- 'k8s/atlas/base/migrations/*.sql' 2>/dev/null || true)
 
   if [ -z "$added_files" ]; then
     return 0
@@ -132,7 +132,7 @@ check_migration_ordering() {
     if [ -z "$main_latest" ] || [ "$ts" \> "$main_latest" ]; then
       main_latest="$ts"
     fi
-  done < <(cd "$REPO_ROOT" && git ls-tree --name-only origin/main -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
+  done < <(cd "$REPO_ROOT" && git ls-tree --name-only origin/main -- 'k8s/atlas/base/migrations/*.sql' 2>/dev/null || true)
 
   if [ -z "$main_latest" ]; then
     return 0
@@ -192,7 +192,7 @@ fix_migration_ordering() {
     if [ -z "$main_latest" ] || [ "$ts" \> "$main_latest" ]; then
       main_latest="$ts"
     fi
-  done < <(cd "$REPO_ROOT" && git ls-tree --name-only origin/main -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
+  done < <(cd "$REPO_ROOT" && git ls-tree --name-only origin/main -- 'k8s/atlas/base/migrations/*.sql' 2>/dev/null || true)
 
   if [ -z "$main_latest" ]; then
     echo "Migration ordering fixed." >&2
