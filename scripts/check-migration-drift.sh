@@ -14,7 +14,8 @@
 # Usage:
 #   scripts/check-migration-drift.sh            # check staged + unstaged
 #   scripts/check-migration-drift.sh --staged    # only staged changes (pre-commit)
-#   scripts/check-migration-drift.sh --fix       # detect and auto-fix out-of-order migrations
+#   scripts/check-migration-drift.sh --fix              # detect and auto-fix out-of-order migrations
+#   scripts/check-migration-drift.sh --check-ordering  # only run kustomization sync + ordering checks (CI)
 
 set -euo pipefail
 
@@ -261,11 +262,13 @@ fix_migration_ordering() {
   echo "Migration ordering fixed." >&2
 }
 
-# ── Run all checks ───────────────────────────────────────────────────
+# ── Run checks ────────────────────────────────────────────────────────
 check_kustomization
-check_schema_in_sync
-check_atlas_hash
 check_migration_ordering
+if [ "$MODE" != "--check-ordering" ]; then
+  check_schema_in_sync
+  check_atlas_hash
+fi
 
 if [ "$errors" -gt 0 ]; then
   echo "" >&2

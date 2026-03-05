@@ -60,7 +60,7 @@ jobs:
         uses: ariga/setup-atlas@v0
 
       - name: Check Migration Ordering
-        run: bash scripts/check-migration-drift.sh
+        run: bash scripts/check-migration-drift.sh --check-ordering
 
       - name: Atlas Migrate Validate
         run: |
