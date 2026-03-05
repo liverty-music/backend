@@ -27,6 +27,8 @@ jobs:
           filters: |
             src:
               - 'k8s/atlas/base/migrations/**'
+              - 'k8s/atlas/base/kustomization.yaml'
+              - 'scripts/check-migration-drift.sh'
               - 'internal/infrastructure/database/rdb/model.go'
               - 'atlas.hcl'
               - '.github/workflows/**'
@@ -56,6 +58,9 @@ jobs:
 
       - name: Setup Atlas
         uses: ariga/setup-atlas@v0
+
+      - name: Check Migration Ordering
+        run: bash scripts/check-migration-drift.sh
 
       - name: Atlas Migrate Validate
         run: |
