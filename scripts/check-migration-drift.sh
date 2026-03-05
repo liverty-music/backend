@@ -115,7 +115,7 @@ check_migration_ordering() {
 
   # Find migration files added on this branch (not on origin/main)
   local added_files
-  added_files=$(cd "$REPO_ROOT" && git diff --name-only --diff-filter=A origin/main -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
+  added_files=$(cd "$REPO_ROOT" && git diff --name-only --diff-filter=A origin/main HEAD -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
 
   if [ -z "$added_files" ]; then
     return 0
@@ -182,7 +182,7 @@ fix_migration_ordering() {
   while true; do
     # Re-scan for out-of-order files (filenames change after each rebase)
     local added_files
-    added_files=$(cd "$REPO_ROOT" && git diff --name-only --diff-filter=A origin/main -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
+    added_files=$(cd "$REPO_ROOT" && git diff --name-only --diff-filter=A origin/main HEAD -- k8s/atlas/base/migrations/*.sql 2>/dev/null || true)
 
     if [ -z "$added_files" ]; then
       break
