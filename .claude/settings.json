@@ -41,6 +41,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash(git rebase origin)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/check-migration-drift.sh --fix",
+            "timeout": 60
+          }
+        ]
+      }
     ]
   }
 }
