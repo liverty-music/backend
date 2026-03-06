@@ -40,7 +40,7 @@ import (
 
 // InitializeApp creates a new App with all dependencies wired up manually.
 func InitializeApp(ctx context.Context) (*App, error) {
-	cfg, err := config.Load()
+	cfg, err := config.Load[config.ServerConfig]()
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 
-	logger, err := provideLogger(cfg)
+	logger, err := provideLogger(cfg.Logging)
 	if err != nil {
 		return nil, err
 	}
@@ -58,12 +58,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger.Warn(ctx, "⚠️  CORS not configured, browser requests will fail")
 	}
 
-	db, err := rdb.New(ctx, cfg, logger)
+	db, err := rdb.New(ctx, cfg.Database, cfg.IsLocal(), logger)
 	if err != nil {
 		return nil, err
 	}
 
-	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg)
+	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.ShutdownTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +246,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger.Warn(ctx, "⚠️  ZKP verification key not configured, entry verification is disabled")
 	}
 
-	srv := server.NewConnectServer(cfg, logger, db, authFunc, healthHandler, handlers...)
+	srv := server.NewConnectServer(cfg.Server, logger, authFunc, healthHandler, handlers...)
 
 	// Register shutdown phases.
 	// Drain: health → NOT_SERVING, then server drains in-flight requests,
@@ -268,9 +268,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}, nil
 }
 
-func provideLogger(cfg *config.Config) (*logging.Logger, error) {
+func provideLogger(logCfg config.LoggingConfig) (*logging.Logger, error) {
 	var opts []logging.Option
-	switch cfg.Logging.Level {
+	switch logCfg.Level {
 	case "debug":
 		opts = append(opts, logging.WithLevel(slog.LevelDebug))
 	case "info":
@@ -280,7 +280,7 @@ func provideLogger(cfg *config.Config) (*logging.Logger, error) {
 	case "error":
 		opts = append(opts, logging.WithLevel(slog.LevelError))
 	}
-	switch cfg.Logging.Format {
+	switch logCfg.Format {
 	case "text":
 		opts = append(opts, logging.WithFormat(logging.FormatText))
 	case "json":

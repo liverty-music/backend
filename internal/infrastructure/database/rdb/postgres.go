@@ -21,19 +21,19 @@ type Database struct {
 }
 
 // New creates a new database instance with connection and ping verification.
-func New(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Database, error) {
-	dsn := cfg.Database.GetDSN()
+func New(ctx context.Context, dbCfg config.DatabaseConfig, isLocal bool, logger *logging.Logger) (*Database, error) {
+	dsn := dbCfg.GetDSN()
 
 	// Create pgxpool for direct pgx usage
 	poolConfig, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pgxpool config: %w", err)
 	}
-	poolConfig.MaxConns = int32(cfg.Database.MaxOpenConns)
-	poolConfig.MinConns = int32(cfg.Database.MaxIdleConns)
+	poolConfig.MaxConns = int32(dbCfg.MaxOpenConns)
+	poolConfig.MinConns = int32(dbCfg.MaxIdleConns)
 
 	var dialer *cloudsqlconn.Dialer
-	if !cfg.IsLocal() {
+	if !isLocal {
 		opts := []cloudsqlconn.Option{
 			cloudsqlconn.WithIAMAuthN(),
 			// Use Private Service Connect (PSC) for non-local environments (dev, stg, prod)
@@ -48,7 +48,7 @@ func New(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Data
 
 		// Configure pgx to use the dialer
 		poolConfig.ConnConfig.DialFunc = func(dialCtx context.Context, _ string, _ string) (net.Conn, error) {
-			return d.Dial(dialCtx, cfg.Database.InstanceConnectionName)
+			return d.Dial(dialCtx, dbCfg.InstanceConnectionName)
 		}
 	}
 
@@ -72,11 +72,11 @@ func New(ctx context.Context, cfg *config.Config, logger *logging.Logger) (*Data
 	}
 
 	logger.Info(ctx, "Database connection established successfully",
-		slog.String("host", cfg.Database.Host),
-		slog.Int("port", cfg.Database.Port),
-		slog.String("database", cfg.Database.Name),
-		slog.Int("max_open_conns", cfg.Database.MaxOpenConns),
-		slog.Int("max_idle_conns", cfg.Database.MaxIdleConns),
+		slog.String("host", dbCfg.Host),
+		slog.Int("port", dbCfg.Port),
+		slog.String("database", dbCfg.Name),
+		slog.Int("max_open_conns", dbCfg.MaxOpenConns),
+		slog.Int("max_idle_conns", dbCfg.MaxIdleConns),
 	)
 
 	return database, nil

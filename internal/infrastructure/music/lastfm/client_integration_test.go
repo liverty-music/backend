@@ -22,7 +22,7 @@ func TestClient_Integration(t *testing.T) {
 	t.Setenv("DATABASE_USER", "test-user")
 	t.Setenv("OIDC_ISSUER_URL", "https://test-issuer.example.com")
 
-	cfg, err := config.Load()
+	cfg, err := config.Load[config.ServerConfig]()
 	require.NoError(t, err)
 
 	if cfg.LastFMAPIKey == "" {

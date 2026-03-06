@@ -30,7 +30,7 @@ type JobApp struct {
 
 // InitializeJobApp creates a JobApp with only the dependencies needed for batch processing.
 func InitializeJobApp(ctx context.Context) (*JobApp, error) {
-	cfg, err := config.Load()
+	cfg, err := config.Load[config.JobConfig]()
 	if err != nil {
 		return nil, err
 	}
@@ -39,17 +39,17 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 		return nil, err
 	}
 
-	logger, err := provideLogger(cfg)
+	logger, err := provideLogger(cfg.Logging)
 	if err != nil {
 		return nil, err
 	}
 
-	db, err := rdb.New(ctx, cfg, logger)
+	db, err := rdb.New(ctx, cfg.Database, cfg.IsLocal(), logger)
 	if err != nil {
 		return nil, err
 	}
 
-	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg)
+	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.ShutdownTimeout)
 	if err != nil {
 		return nil, err
 	}

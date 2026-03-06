@@ -34,25 +34,22 @@ func TestMain(m *testing.M) {
 }
 
 func setupTestDatabase() *rdb.Database {
-	cfg := &config.Config{
-		Environment: "local",
-		Database: config.DatabaseConfig{
-			Host:            "localhost",
-			Port:            5432,
-			Name:            "test-db",
-			User:            "test-user",
-			SSLMode:         "disable",
-			MaxOpenConns:    10,
-			MaxIdleConns:    5,
-			ConnMaxLifetime: 300,
-		},
+	dbCfg := config.DatabaseConfig{
+		Host:            "localhost",
+		Port:            5432,
+		Name:            "test-db",
+		User:            "test-user",
+		SSLMode:         "disable",
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: 300,
 	}
 
 	logger, _ := logging.New()
 	ctx := context.Background()
 
 	// Create database connection using rdb.New()
-	db, err := rdb.New(ctx, cfg, logger)
+	db, err := rdb.New(ctx, dbCfg, true, logger)
 	if err != nil {
 		panic("Failed to connect to test database: " + err.Error())
 	}

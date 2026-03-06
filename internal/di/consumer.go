@@ -31,7 +31,7 @@ type ConsumerApp struct {
 
 // InitializeConsumerApp creates a ConsumerApp with all event handler dependencies wired.
 func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
-	cfg, err := config.Load()
+	cfg, err := config.Load[config.ConsumerConfig]()
 	if err != nil {
 		return nil, err
 	}
@@ -40,17 +40,17 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		return nil, err
 	}
 
-	logger, err := provideLogger(cfg)
+	logger, err := provideLogger(cfg.Logging)
 	if err != nil {
 		return nil, err
 	}
 
-	db, err := rdb.New(ctx, cfg, logger)
+	db, err := rdb.New(ctx, cfg.Database, cfg.IsLocal(), logger)
 	if err != nil {
 		return nil, err
 	}
 
-	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg)
+	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.ShutdownTimeout)
 	if err != nil {
 		return nil, err
 	}
