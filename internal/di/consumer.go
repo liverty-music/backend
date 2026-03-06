@@ -62,6 +62,10 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 
 	// Infrastructure - Messaging
+	if err := messaging.EnsureStreams(cfg.NATS); err != nil {
+		return nil, fmt.Errorf("ensure NATS streams: %w", err)
+	}
+
 	wmLogger := watermill.NewStdLogger(false, false)
 	var goChannel *gochannel.GoChannel
 	if cfg.NATS.URL == "" {
@@ -110,30 +114,30 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	venueConsumer := event.NewVenueConsumer(venueEnrichUC, logger)
 
 	// Router
-	router, err := messaging.NewRouter(wmLogger, publisher, "poison-queue")
+	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
 	if err != nil {
 		return nil, fmt.Errorf("create messaging router: %w", err)
 	}
 
-	// create-concerts publishes to multiple topics (concert.created.v1, venue.created.v1)
+	// create-concerts publishes to multiple topics (CONCERT.created, VENUE.created)
 	// so it uses AddConsumerHandler and publishes manually via ConcertCreationUseCase.
 	router.AddConsumerHandler(
 		"create-concerts",
-		messaging.EventTypeConcertDiscovered,
+		messaging.SubjectConcertDiscovered,
 		subscriber,
 		concertConsumer.Handle,
 	)
 
 	router.AddConsumerHandler(
 		"notify-fans",
-		messaging.EventTypeConcertCreated,
+		messaging.SubjectConcertCreated,
 		subscriber,
 		notificationConsumer.Handle,
 	)
 
 	router.AddConsumerHandler(
 		"enrich-venue",
-		messaging.EventTypeVenueCreated,
+		messaging.SubjectVenueCreated,
 		subscriber,
 		venueConsumer.Handle,
 	)

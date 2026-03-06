@@ -36,8 +36,7 @@ func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCha
 			nats.ReconnectWait(time.Second),
 		},
 		JetStream: watermillnats.JetStreamConfig{
-			AutoProvision: true,
-			TrackMsgId:    true,
+			TrackMsgId: true,
 		},
 	}, wmLogger)
 	if err != nil {

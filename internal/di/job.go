@@ -77,6 +77,10 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	}
 
 	// Infrastructure - Messaging Publisher
+	if err := messaging.EnsureStreams(cfg.NATS); err != nil {
+		return nil, fmt.Errorf("ensure NATS streams: %w", err)
+	}
+
 	wmLogger := watermill.NewStdLogger(false, false)
 	var goChannel *gochannel.GoChannel
 	if cfg.NATS.URL == "" {
