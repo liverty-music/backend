@@ -37,9 +37,8 @@ func NewSubscriber(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCh
 		CloseTimeout:     30 * time.Second,
 		AckWaitTimeout:   30 * time.Second,
 		JetStream: watermillnats.JetStreamConfig{
-			DurablePrefix: "consumer",
-			DurableCalculator: func(prefix, topic string) string {
-				return prefix + "_" + strings.ReplaceAll(topic, ".", "_")
+			DurableCalculator: func(_, topic string) string {
+				return strings.ReplaceAll(topic, ".", "_")
 			},
 		},
 	}, wmLogger)
