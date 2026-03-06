@@ -64,9 +64,9 @@ Constraints:
 `
 
 	// maxOutputTokens defines the maximum length of Gemini's response.
-	// 8192 tokens provides sufficient headroom for large batches of concert data
+	// 16384 tokens provides sufficient headroom for large batches of concert data
 	// (e.g., a tour list with 30+ dates) in detailed JSON format.
-	maxOutputTokens = int32(8192)
+	maxOutputTokens = int32(16384)
 )
 
 var (
@@ -81,8 +81,8 @@ var (
 				Description: "The administrative area (prefecture, state, province) where the venue is located. Populate only when explicitly stated or unambiguously inferable from the venue name or surrounding context. Return empty string if uncertain. Wrong values are strictly forbidden.",
 			},
 			"local_date": {Type: genai.TypeString, Description: "The date of the concert in YYYY-MM-DD format (local time)."},
-			"start_time": {Type: genai.TypeString, Description: "The start time in ISO 8601 format including time zone (e.g. 2026-02-14T18:30:00+09:00). If time zone is unambiguous from context, apply it. Return null if unknown."},
-			"open_time":  {Type: genai.TypeString, Description: "The door opening time in ISO 8601 format including time zone. Return null if unknown."},
+			"start_time": {Type: genai.TypeString, Description: "The start time in ISO 8601 format including time zone (e.g. 2026-02-14T18:30:00+09:00). If time zone is unambiguous from context, apply it. Return empty string if unknown."},
+			"open_time":  {Type: genai.TypeString, Description: "The door opening time in ISO 8601 format including time zone. Return empty string if unknown."},
 			"source_url": {
 				Type:        genai.TypeString,
 				Description: "The specific URL where this event information was found. Prefer direct links to event details.",
@@ -277,6 +277,14 @@ func (s *ConcertSearcher) Search(
 
 	s.logger.Info(ctx, "successfully found concert candidates", append(attrs, candidateAttrs...)...)
 
+	if candidate.FinishReason == genai.FinishReasonMaxTokens {
+		return nil, toAppErr(
+			fmt.Errorf("response truncated at %d candidate tokens", usageMD.CandidatesTokenCount),
+			"gemini response truncated due to max output tokens",
+			attrs...,
+		)
+	}
+
 	return s.parseEvents(ctx, parts[0].Text, from, attrs...)
 }
 
@@ -335,7 +343,7 @@ func (s *ConcertSearcher) parseEvents(
 		}
 
 		var startTime *time.Time
-		if ev.StartTime != nil && *ev.StartTime != "" {
+		if ev.StartTime != nil && *ev.StartTime != "" && *ev.StartTime != "null" {
 			st, err := time.Parse(time.RFC3339, *ev.StartTime)
 			if err != nil {
 				startTimeStr := *ev.StartTime
@@ -348,7 +356,7 @@ func (s *ConcertSearcher) parseEvents(
 		}
 
 		var openTime *time.Time
-		if ev.OpenTime != nil {
+		if ev.OpenTime != nil && *ev.OpenTime != "" && *ev.OpenTime != "null" {
 			if ot, err := time.Parse(time.RFC3339, *ev.OpenTime); err == nil {
 				openTime = &ot
 			}

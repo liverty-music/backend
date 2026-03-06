@@ -48,6 +48,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 		name         string
 		responseBody string
 		statusCode   int
+		finishReason string
 		want         []*entity.ScrapedConcert
 		wantErr      error
 	}{
@@ -307,6 +308,34 @@ func TestConcertSearcher_Search(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name:       "success - literal null string start_time treated as nil",
+			statusCode: http.StatusOK,
+			responseBody: `{
+				"events": [
+					{
+						"artist_name": "Test Artist",
+						"event_name": "Null Start Time Concert",
+						"venue": "Test Hall",
+						"local_date": "2026-03-10",
+						"start_time": "null",
+						"open_time": "null",
+						"source_url": "https://example.com/null-time"
+					}
+				]
+			}`,
+			want: []*entity.ScrapedConcert{
+				{
+					Title:           "Null Start Time Concert",
+					ListedVenueName: "Test Hall",
+					LocalDate:       time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC),
+					StartTime:       nil,
+					OpenTime:        nil,
+					SourceURL:       "https://example.com/null-time",
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name:       "api error - 500",
 			statusCode: http.StatusInternalServerError,
 			responseBody: `{
@@ -332,6 +361,14 @@ func TestConcertSearcher_Search(t *testing.T) {
 			want:    nil,
 			wantErr: apperr.ErrInvalidArgument, // 400 -> InvalidArgument
 		},
+		{
+			name:         "error - MAX_TOKENS truncated response",
+			statusCode:   http.StatusOK,
+			finishReason: "MAX_TOKENS",
+			responseBody: `{"events": [{"artist_name": "Test Artist", "event_name": "Trunca`,
+			want:         nil,
+			wantErr:      apperr.ErrUnknown,
+		},
 	}
 
 	for _, tt := range tests {
@@ -346,6 +383,10 @@ func TestConcertSearcher_Search(t *testing.T) {
 				}
 
 				// Construct mock Gemini response for success 200
+				finishReason := tt.finishReason
+				if finishReason == "" {
+					finishReason = "STOP"
+				}
 				fullResponse := fmt.Sprintf(`{
 					"candidates": [
 						{
@@ -356,6 +397,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 									}
 								]
 							},
+							"finishReason": %q,
 							"groundingMetadata": {
 								"webSearchQueries": ["test query"]
 							}
@@ -366,7 +408,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 						"candidatesTokenCount": 10,
 						"totalTokenCount": 20
 					}
-				}`, strconv.Quote(tt.responseBody))
+				}`, strconv.Quote(tt.responseBody), finishReason)
 
 				w.Header().Set("Content-Type", "application/json")
 				if _, err := w.Write([]byte(fullResponse)); err != nil {
