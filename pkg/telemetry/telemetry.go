@@ -38,6 +38,7 @@ func SetupTelemetry(ctx context.Context, telCfg config.TelemetryConfig, shutdown
 	if telCfg.OTLPEndpoint != "" {
 		exporter, err := otlptracehttp.New(ctx,
 			otlptracehttp.WithEndpoint(telCfg.OTLPEndpoint),
+			otlptracehttp.WithInsecure(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
