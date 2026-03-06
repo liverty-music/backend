@@ -16,17 +16,17 @@ const (
 	// CloudEvents source for all events emitted by this service.
 	source = "liverty-music/backend"
 
-	// EventTypeConcertDiscovered is emitted when new concert data is discovered from an external source.
-	EventTypeConcertDiscovered = "liverty-music.concert.discovered.v1"
-	// EventTypeConcertCreated is emitted when a concert entity is persisted to the database.
-	EventTypeConcertCreated = "liverty-music.concert.created.v1"
-	// EventTypeVenueCreated is emitted when a new venue entity is created and needs enrichment.
-	EventTypeVenueCreated = "liverty-music.venue.created.v1"
+	// SubjectConcertDiscovered is the NATS subject for newly discovered concert data.
+	SubjectConcertDiscovered = "CONCERT.discovered"
+	// SubjectConcertCreated is the NATS subject for persisted concert entities.
+	SubjectConcertCreated = "CONCERT.created"
+	// SubjectVenueCreated is the NATS subject for newly created venue entities that need enrichment.
+	SubjectVenueCreated = "VENUE.created"
 )
 
-// NewCloudEvent creates a Watermill message with CloudEvents v1.0 metadata.
+// NewEvent creates a Watermill message with structured metadata.
 // The data payload is JSON-encoded into the message body.
-func NewCloudEvent(eventType string, data any) (*message.Message, error) {
+func NewEvent(data any) (*message.Message, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, fmt.Errorf("generate event ID: %w", err)
@@ -39,14 +39,10 @@ func NewCloudEvent(eventType string, data any) (*message.Message, error) {
 
 	msg := message.NewMessage(id.String(), payload)
 
-	// CloudEvents required attributes
 	msg.Metadata.Set("ce_specversion", specVersion)
-	msg.Metadata.Set("ce_type", eventType)
 	msg.Metadata.Set("ce_source", source)
 	msg.Metadata.Set("ce_id", id.String())
 	msg.Metadata.Set("ce_time", time.Now().UTC().Format(time.RFC3339))
-
-	// CloudEvents optional attributes
 	msg.Metadata.Set("ce_datacontenttype", "application/json")
 
 	return msg, nil

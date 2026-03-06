@@ -259,9 +259,6 @@ type NATSConfig struct {
 	// URL is the NATS server connection URL.
 	// For local development, leave empty to use Watermill GoChannel instead.
 	URL string `envconfig:"NATS_URL"`
-
-	// StreamName is the JetStream stream name for all domain events.
-	StreamName string `envconfig:"NATS_STREAM_NAME" default:"LIVERTY_MUSIC"`
 }
 
 // JWTConfig represents JWT authentication configuration.

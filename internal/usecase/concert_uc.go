@@ -276,13 +276,13 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 		Concerts:   newConcerts,
 	}
 
-	msg, err := messaging.NewCloudEvent(messaging.EventTypeConcertDiscovered, eventData)
+	msg, err := messaging.NewEvent(eventData)
 	if err != nil {
 		uc.markSearchFailed(ctx, artistID)
 		return fmt.Errorf("failed to create concert.discovered event: %w", err)
 	}
 
-	if err := uc.publisher.Publish(messaging.EventTypeConcertDiscovered, msg); err != nil {
+	if err := uc.publisher.Publish(messaging.SubjectConcertDiscovered, msg); err != nil {
 		uc.logger.Error(ctx, "failed to publish concert.discovered event", err,
 			slog.String("artist_id", artistID),
 			slog.Int("concert_count", len(newConcerts)),

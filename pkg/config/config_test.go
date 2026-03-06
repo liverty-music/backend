@@ -78,9 +78,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 				VAPID: VAPIDConfig{
 					Contact: "mailto:pepperoni9@gmail.com",
 				},
-				NATS: NATSConfig{
-					StreamName: "LIVERTY_MUSIC",
-				},
+				NATS: NATSConfig{},
 			},
 		},
 		{
@@ -157,9 +155,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 				VAPID: VAPIDConfig{
 					Contact: "mailto:pepperoni9@gmail.com",
 				},
-				NATS: NATSConfig{
-					StreamName: "LIVERTY_MUSIC",
-				},
+				NATS: NATSConfig{},
 			},
 		},
 	}
