@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -37,6 +38,9 @@ func NewSubscriber(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCh
 		AckWaitTimeout:   30 * time.Second,
 		JetStream: watermillnats.JetStreamConfig{
 			DurablePrefix: "consumer",
+			DurableCalculator: func(prefix, topic string) string {
+				return prefix + "_" + strings.ReplaceAll(topic, ".", "_")
+			},
 		},
 	}, wmLogger)
 	if err != nil {
