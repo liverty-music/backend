@@ -217,6 +217,33 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 	return result, nil
 }
 
+// ListByMBIDs retrieves artists matching the provided MusicBrainz IDs.
+// The result order matches the input mbids order. Unknown MBIDs are silently skipped.
+func (r *ArtistRepository) ListByMBIDs(ctx context.Context, mbids []string) ([]*entity.Artist, error) {
+	if len(mbids) == 0 {
+		return []*entity.Artist{}, nil
+	}
+
+	rows, err := r.db.Pool.Query(ctx, selectArtistsByMBIDsQuery, mbids)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list artists by mbids", slog.Int("count", len(mbids)))
+	}
+	defer rows.Close()
+
+	var artists []*entity.Artist
+	for rows.Next() {
+		var a entity.Artist
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
+			return nil, toAppErr(err, "failed to scan artist")
+		}
+		artists = append(artists, &a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating artist rows by mbids")
+	}
+	return artists, nil
+}
+
 // List retrieves all artists from the database.
 func (r *ArtistRepository) List(ctx context.Context) ([]*entity.Artist, error) {
 	rows, err := r.db.Pool.Query(ctx, listArtistsQuery)
