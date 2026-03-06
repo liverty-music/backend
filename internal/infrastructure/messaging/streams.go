@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -70,7 +71,10 @@ func EnsureStreams(cfg config.NATSConfig) error {
 
 	for _, s := range streams {
 		_, err := js.StreamInfo(s.Name)
-		if err != nil {
+		if err != nil && !errors.Is(err, nats.ErrStreamNotFound) {
+			return fmt.Errorf("check stream %s: %w", s.Name, err)
+		}
+		if errors.Is(err, nats.ErrStreamNotFound) {
 			// Stream does not exist, create it.
 			if _, err := js.AddStream(&s); err != nil {
 				return fmt.Errorf("create stream %s: %w", s.Name, err)
