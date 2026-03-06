@@ -18,11 +18,11 @@ import (
 // SetupTelemetry initializes OpenTelemetry tracing and returns a closer for shutdown.
 // If telemetry OTLP endpoint is not configured, tracer is initialized without exporter
 // to disable sending trace info to OTEL collector.
-func SetupTelemetry(ctx context.Context, cfg *config.Config) (io.Closer, error) {
+func SetupTelemetry(ctx context.Context, telCfg config.TelemetryConfig, shutdownTimeout time.Duration) (io.Closer, error) {
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceNameKey.String(cfg.Telemetry.ServiceName),
-			semconv.ServiceVersionKey.String(cfg.Telemetry.ServiceVersion),
+			semconv.ServiceNameKey.String(telCfg.ServiceName),
+			semconv.ServiceVersionKey.String(telCfg.ServiceVersion),
 		),
 	)
 	if err != nil {
@@ -35,9 +35,9 @@ func SetupTelemetry(ctx context.Context, cfg *config.Config) (io.Closer, error) 
 	}
 
 	// disable to export traces to OTEL collector for local development
-	if cfg.Telemetry.OTLPEndpoint != "" {
+	if telCfg.OTLPEndpoint != "" {
 		exporter, err := otlptracehttp.New(ctx,
-			otlptracehttp.WithEndpoint(cfg.Telemetry.OTLPEndpoint),
+			otlptracehttp.WithEndpoint(telCfg.OTLPEndpoint),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
@@ -51,7 +51,7 @@ func SetupTelemetry(ctx context.Context, cfg *config.Config) (io.Closer, error) 
 	// Set the global tracer provider
 	otel.SetTracerProvider(tracerProvider)
 
-	return &tracerCloser{provider: tracerProvider, shutdownTimeout: cfg.ShutdownTimeout}, nil
+	return &tracerCloser{provider: tracerProvider, shutdownTimeout: shutdownTimeout}, nil
 }
 
 // tracerCloser implements io.Closer for shutting down the tracer provider

@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoad(t *testing.T) {
+func TestLoad_ServerConfig(t *testing.T) {
 	tests := []struct {
 		name    string
 		envVars map[string]string
-		want    *Config
-		wantErr error
+		want    *ServerConfig
+		wantErr bool
 	}{
 		{
 			name: "load with default values",
@@ -24,10 +24,34 @@ func TestLoad(t *testing.T) {
 				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "test-datastore",
 				"OIDC_ISSUER_URL":                 "https://test-issuer.com",
 			},
-			want: &Config{
-				Environment:     "local",
-				ShutdownTimeout: 30 * time.Second,
-				Server: ServerConfig{
+			want: &ServerConfig{
+				BaseConfig: BaseConfig{
+					Environment:     "local",
+					ShutdownTimeout: 30 * time.Second,
+					Database: DatabaseConfig{
+						Host:            "localhost",
+						Port:            5432,
+						Name:            "defaultdb",
+						User:            "defaultuser",
+						SSLMode:         "disable",
+						Schema:          "app",
+						MaxOpenConns:    25,
+						MaxIdleConns:    5,
+						ConnMaxLifetime: 300,
+					},
+					Logging: LoggingConfig{
+						Level:         "info",
+						Format:        "json",
+						Structured:    true,
+						IncludeCaller: false,
+					},
+					Telemetry: TelemetryConfig{
+						OTLPEndpoint:   "",
+						ServiceName:    "go-backend-scaffold",
+						ServiceVersion: "1.0.0",
+					},
+				},
+				Server: ServerSettings{
 					Port:              8080,
 					Host:              "localhost",
 					ReadHeaderTimeout: 500 * time.Millisecond,
@@ -35,28 +59,6 @@ func TestLoad(t *testing.T) {
 					HandlerTimeout:    30 * time.Second,
 					IdleTimeout:       3 * time.Second,
 					AllowedOrigins:    nil,
-				},
-				Database: DatabaseConfig{
-					Host:            "localhost",
-					Port:            5432,
-					Name:            "defaultdb",
-					User:            "defaultuser",
-					SSLMode:         "disable",
-					Schema:          "app",
-					MaxOpenConns:    25,
-					MaxIdleConns:    5,
-					ConnMaxLifetime: 300,
-				},
-				Logging: LoggingConfig{
-					Level:         "info",
-					Format:        "json",
-					Structured:    true,
-					IncludeCaller: false,
-				},
-				Telemetry: TelemetryConfig{
-					OTLPEndpoint:   "",
-					ServiceName:    "go-backend-scaffold",
-					ServiceVersion: "1.0.0",
 				},
 				GCP: GCPConfig{
 					ProjectID:               "test-project",
@@ -80,7 +82,6 @@ func TestLoad(t *testing.T) {
 					StreamName: "LIVERTY_MUSIC",
 				},
 			},
-			wantErr: nil,
 		},
 		{
 			name: "load with custom values",
@@ -102,10 +103,34 @@ func TestLoad(t *testing.T) {
 				"OIDC_ISSUER_URL":                 "https://custom-issuer.com",
 				"JWKS_REFRESH_INTERVAL":           "30m",
 			},
-			want: &Config{
-				Environment:     "production",
-				ShutdownTimeout: 15 * time.Second,
-				Server: ServerConfig{
+			want: &ServerConfig{
+				BaseConfig: BaseConfig{
+					Environment:     "production",
+					ShutdownTimeout: 15 * time.Second,
+					Database: DatabaseConfig{
+						Host:            "localhost",
+						Port:            5432,
+						Name:            "testdb",
+						User:            "testuser",
+						SSLMode:         "disable",
+						Schema:          "app",
+						MaxOpenConns:    25,
+						MaxIdleConns:    5,
+						ConnMaxLifetime: 300,
+					},
+					Logging: LoggingConfig{
+						Level:         "debug",
+						Format:        "text",
+						Structured:    true,
+						IncludeCaller: false,
+					},
+					Telemetry: TelemetryConfig{
+						OTLPEndpoint:   "",
+						ServiceName:    "go-backend-scaffold",
+						ServiceVersion: "1.0.0",
+					},
+				},
+				Server: ServerSettings{
 					Port:              9090,
 					Host:              "0.0.0.0",
 					ReadHeaderTimeout: 200 * time.Millisecond,
@@ -113,28 +138,6 @@ func TestLoad(t *testing.T) {
 					HandlerTimeout:    10 * time.Second,
 					IdleTimeout:       45 * time.Second,
 					AllowedOrigins:    nil,
-				},
-				Database: DatabaseConfig{
-					Host:            "localhost",
-					Port:            5432,
-					Name:            "testdb",
-					User:            "testuser",
-					SSLMode:         "disable",
-					Schema:          "app",
-					MaxOpenConns:    25,
-					MaxIdleConns:    5,
-					ConnMaxLifetime: 300,
-				},
-				Logging: LoggingConfig{
-					Level:         "debug",
-					Format:        "text",
-					Structured:    true,
-					IncludeCaller: false,
-				},
-				Telemetry: TelemetryConfig{
-					OTLPEndpoint:   "",
-					ServiceName:    "go-backend-scaffold",
-					ServiceVersion: "1.0.0",
 				},
 				GCP: GCPConfig{
 					ProjectID:               "custom-project",
@@ -158,7 +161,6 @@ func TestLoad(t *testing.T) {
 					StreamName: "LIVERTY_MUSIC",
 				},
 			},
-			wantErr: nil,
 		},
 	}
 
@@ -168,8 +170,8 @@ func TestLoad(t *testing.T) {
 				t.Setenv(key, value)
 			}
 
-			got, err := Load()
-			if tt.wantErr != nil {
+			got, err := Load[ServerConfig]()
+			if tt.wantErr {
 				assert.Error(t, err)
 				return
 			}
@@ -180,23 +182,49 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestConfig_Validate(t *testing.T) {
+func TestLoad_JobConfig(t *testing.T) {
+	t.Run("loads without OIDC_ISSUER_URL", func(t *testing.T) {
+		t.Setenv("DATABASE_NAME", "testdb")
+		t.Setenv("DATABASE_USER", "testuser")
+
+		got, err := Load[JobConfig]()
+		require.NoError(t, err)
+		assert.Equal(t, "testdb", got.Database.Name)
+		assert.Equal(t, "local", got.Environment)
+	})
+}
+
+func TestLoad_ConsumerConfig(t *testing.T) {
+	t.Run("loads without OIDC_ISSUER_URL", func(t *testing.T) {
+		t.Setenv("DATABASE_NAME", "testdb")
+		t.Setenv("DATABASE_USER", "testuser")
+		t.Setenv("NATS_URL", "nats://localhost:4222")
+
+		got, err := Load[ConsumerConfig]()
+		require.NoError(t, err)
+		assert.Equal(t, "nats://localhost:4222", got.NATS.URL)
+	})
+}
+
+func TestServerConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  *Config
+		config  *ServerConfig
 		wantErr bool
 	}{
 		{
 			name: "valid development config",
-			config: &Config{
-				Environment: "development",
-				Server:      ServerConfig{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
-				Database: DatabaseConfig{
-					Port:                   5432,
-					InstanceConnectionName: "project:region:instance",
+			config: &ServerConfig{
+				BaseConfig: BaseConfig{
+					Environment: "development",
+					Database: DatabaseConfig{
+						Port:                   5432,
+						InstanceConnectionName: "project:region:instance",
+					},
+					Logging: LoggingConfig{Level: "info", Format: "json"},
 				},
-				Logging: LoggingConfig{Level: "info", Format: "json"},
-				NATS:    NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
+				Server: ServerSettings{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
+				NATS:   NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
@@ -206,14 +234,13 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing connection name in development",
-			config: &Config{
-				Environment: "development",
-				Server:      ServerConfig{Port: 8080},
-				Database: DatabaseConfig{
-					Port: 5432,
-					// Missing InstanceConnectionName
+			config: &ServerConfig{
+				BaseConfig: BaseConfig{
+					Environment: "development",
+					Database:    DatabaseConfig{Port: 5432},
+					Logging:     LoggingConfig{Level: "info", Format: "json"},
 				},
-				Logging: LoggingConfig{Level: "info", Format: "json"},
+				Server: ServerSettings{Port: 8080},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
@@ -223,27 +250,31 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing allowed origins in development",
-			config: &Config{
-				Environment: "development",
-				Server:      ServerConfig{Port: 8080},
-				Database: DatabaseConfig{
-					Port:                   5432,
-					InstanceConnectionName: "project:region:instance",
+			config: &ServerConfig{
+				BaseConfig: BaseConfig{
+					Environment: "development",
+					Database: DatabaseConfig{
+						Port:                   5432,
+						InstanceConnectionName: "project:region:instance",
+					},
+					Logging: LoggingConfig{Level: "info", Format: "json"},
 				},
-				Logging: LoggingConfig{Level: "info", Format: "json"},
+				Server: ServerSettings{Port: 8080},
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing NATS URL in development",
-			config: &Config{
-				Environment: "development",
-				Server:      ServerConfig{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
-				Database: DatabaseConfig{
-					Port:                   5432,
-					InstanceConnectionName: "project:region:instance",
+			config: &ServerConfig{
+				BaseConfig: BaseConfig{
+					Environment: "development",
+					Database: DatabaseConfig{
+						Port:                   5432,
+						InstanceConnectionName: "project:region:instance",
+					},
+					Logging: LoggingConfig{Level: "info", Format: "json"},
 				},
-				Logging: LoggingConfig{Level: "info", Format: "json"},
+				Server: ServerSettings{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
@@ -253,14 +284,13 @@ func TestConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "valid local config without connection name",
-			config: &Config{
-				Environment: "local",
-				Server:      ServerConfig{Port: 8080},
-				Database: DatabaseConfig{
-					Port: 5432,
-					// Missing InstanceConnectionName is OK for local
+			config: &ServerConfig{
+				BaseConfig: BaseConfig{
+					Environment: "local",
+					Database:    DatabaseConfig{Port: 5432},
+					Logging:     LoggingConfig{Level: "info", Format: "json"},
 				},
-				Logging: LoggingConfig{Level: "info", Format: "json"},
+				Server: ServerSettings{Port: 8080},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
@@ -280,4 +310,73 @@ func TestConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestJobConfig_Validate(t *testing.T) {
+	t.Run("valid local without NATS", func(t *testing.T) {
+		cfg := &JobConfig{
+			BaseConfig: BaseConfig{
+				Environment: "local",
+				Database:    DatabaseConfig{Port: 5432},
+				Logging:     LoggingConfig{Level: "info", Format: "json"},
+			},
+		}
+		assert.NoError(t, cfg.Validate())
+	})
+
+	t.Run("missing NATS URL in development", func(t *testing.T) {
+		cfg := &JobConfig{
+			BaseConfig: BaseConfig{
+				Environment: "development",
+				Database: DatabaseConfig{
+					Port:                   5432,
+					InstanceConnectionName: "project:region:instance",
+				},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
+			},
+		}
+		assert.Error(t, cfg.Validate())
+	})
+
+	t.Run("valid development with NATS", func(t *testing.T) {
+		cfg := &JobConfig{
+			BaseConfig: BaseConfig{
+				Environment: "development",
+				Database: DatabaseConfig{
+					Port:                   5432,
+					InstanceConnectionName: "project:region:instance",
+				},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
+			},
+			NATS: NATSConfig{URL: "nats://nats:4222"},
+		}
+		assert.NoError(t, cfg.Validate())
+	})
+}
+
+func TestConsumerConfig_Validate(t *testing.T) {
+	t.Run("valid local without NATS", func(t *testing.T) {
+		cfg := &ConsumerConfig{
+			BaseConfig: BaseConfig{
+				Environment: "local",
+				Database:    DatabaseConfig{Port: 5432},
+				Logging:     LoggingConfig{Level: "info", Format: "json"},
+			},
+		}
+		assert.NoError(t, cfg.Validate())
+	})
+
+	t.Run("missing NATS URL in development", func(t *testing.T) {
+		cfg := &ConsumerConfig{
+			BaseConfig: BaseConfig{
+				Environment: "development",
+				Database: DatabaseConfig{
+					Port:                   5432,
+					InstanceConnectionName: "project:region:instance",
+				},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
+			},
+		}
+		assert.Error(t, cfg.Validate())
+	})
 }

@@ -2,85 +2,35 @@
 // It uses github.com/kelseyhightower/envconfig for loading configuration from environment variables
 // with support for validation, default values, and environment-specific helpers.
 //
-// # Basic Usage
+// # Workload-Specific Configuration
 //
-// Load configuration from environment variables:
+// Each backend workload loads only the environment variables it needs:
 //
-//	cfg, err := config.Load()
-//	if err != nil {
-//		log.Fatalf("Failed to load configuration: %v", err)
-//	}
+//	// API server — loads all fields including JWT, Blockchain, ZKP
+//	cfg, err := config.Load[config.ServerConfig]()
 //
-//	// Validate configuration
+//	// CronJob — loads base fields plus GCP and NATS
+//	cfg, err := config.Load[config.JobConfig]()
+//
+//	// Event consumer — loads base fields plus NATS, VAPID, Google Maps
+//	cfg, err := config.Load[config.ConsumerConfig]()
+//
+// # BaseConfig
+//
+// All workload configs embed BaseConfig which provides:
+//   - ENVIRONMENT: Environment (local, development, staging, production)
+//   - SHUTDOWN_TIMEOUT: Graceful shutdown timeout (default: 30s)
+//   - DATABASE_*: Database connection settings
+//   - LOGGING_*: Log level and format
+//   - TELEMETRY_*: OpenTelemetry tracing
+//
+// # Validation
+//
+// Each config type implements Validate() with workload-appropriate checks:
+//
 //	if err := cfg.Validate(); err != nil {
 //		log.Fatalf("Invalid configuration: %v", err)
 //	}
-//
-// # Environment Variables
-//
-// The following environment variables are supported:
-//
-// Basic configuration:
-//   - ENVIRONMENT: Environment (development, staging, production)
-//
-// Server configuration:
-//   - SERVER_PORT: Server port (default: 8080)
-//   - SERVER_HOST: Server host (default: localhost)
-//   - SERVER_READ_TIMEOUT: Read timeout in milliseconds (default: 1000ms)
-//   - SERVER_HANDLER_TIMEOUT: Handler timeout in seconds (default: 5s)
-//   - SERVER_IDLE_TIMEOUT: Idle timeout in seconds (default: 3s)
-//   - CORS_ALLOWED_ORIGINS: Allowed CORS origins (default: http://localhost:9000)
-//
-// Database configuration:
-//   - DATABASE_HOST: Database host (default: localhost)
-//   - DATABASE_PORT: Database port (default: 5432)
-//   - DATABASE_NAME: Database name (required)
-//   - DATABASE_USER: Database user (required)
-//   - DATABASE_SSL_MODE: SSL mode (default: disable)
-//   - DATABASE_MAX_OPEN_CONNS: Maximum open connections (default: 25)
-//   - DATABASE_MAX_IDLE_CONNS: Maximum idle connections (default: 5)
-//   - DATABASE_CONN_MAX_LIFETIME: Connection max lifetime in seconds (default: 300)
-//   - DATABASE_INSTANCE_CONNECTION_NAME: Cloud SQL instance connection name
-//
-// Logging configuration:
-//   - LOGGING_LEVEL: Log level (debug, info, warn, error, default: info)
-//   - LOGGING_FORMAT: Log format (json, text, default: json)
-//   - LOGGING_STRUCTURED: Enable structured logging (default: true)
-//   - LOGGING_INCLUDE_CALLER: Include caller information (default: false)
-//
-// Telemetry configuration:
-//   - TELEMETRY_OTLP_ENDPOINT: OTLP exporter endpoint for sending traces
-//   - TELEMETRY_SERVICE_NAME: Service name for tracing (default: go-backend-scaffold)
-//   - TELEMETRY_SERVICE_VERSION: Service version for tracing (default: 1.0.0)
-//
-// GCP configuration:
-//   - GCP_PROJECT_ID: GCP Project ID
-//   - GCP_LOCATION: GCP Location (default: us-central1)
-//   - GCP_GEMINI_MODEL: Gemini Model Name (default: gemini-3-flash-preview)
-//   - GCP_VERTEX_AI_SEARCH_DATA_STORE: Vertex AI Search Data Store ID
-//
-// JWT configuration:
-//   - JWT_ISSUER: JWT issuer URL (required)
-//   - JWT_JWKS_REFRESH_INTERVAL: JWKS refresh interval (default: 15m)
-//
-// # Environment Helpers
-//
-// Use environment detection helpers:
-//
-//	if cfg.IsDevelopment() {
-//		// Development-specific logic
-//	}
-//
-//	if cfg.IsProduction() {
-//		// Production-specific logic
-//	}
-//
-// # Database Connection
-//
-// Get database connection string:
-//
-//	dsn := cfg.Database.GetDSN()
-//	// Returns: "postgres://user:pass@host:port/dbname?sslmode=disable"
 package config
 
 import (
@@ -90,53 +40,80 @@ import (
 	"github.com/kelseyhightower/envconfig"
 )
 
-// Config represents the application configuration loaded from environment variables.
-type Config struct {
-	// Server configuration
-	Server ServerConfig `envconfig:""`
+// BaseConfig contains fields shared by all backend workloads.
+type BaseConfig struct {
+	// Environment
+	Environment string `envconfig:"ENVIRONMENT" default:"local"`
 
-	// Database configuration
-	Database DatabaseConfig `envconfig:""`
+	// Shutdown timeout
+	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"30s"`
 
 	// Logging configuration
 	Logging LoggingConfig `envconfig:""`
 
+	// Database configuration
+	Database DatabaseConfig `envconfig:""`
+
 	// Telemetry configuration
 	Telemetry TelemetryConfig `envconfig:""`
+}
 
-	// GCP configuration
-	GCP GCPConfig `envconfig:""`
+// ServerConfig is the configuration for the API server workload.
+type ServerConfig struct {
+	BaseConfig
+
+	// Server settings (port, host, timeouts, CORS)
+	Server ServerSettings `envconfig:""`
 
 	// JWT configuration
 	JWT JWTConfig `envconfig:""`
 
-	// Blockchain configuration
-	Blockchain BlockchainConfig `envconfig:""`
-
-	// VAPID configuration for Web Push notifications
-	VAPID VAPIDConfig `envconfig:""`
-
-	// ZKP configuration
-	ZKP ZKPConfig `envconfig:""`
+	// GCP configuration
+	GCP GCPConfig `envconfig:""`
 
 	// NATS configuration for event messaging
 	NATS NATSConfig `envconfig:""`
 
-	// Environment
-	Environment string `envconfig:"ENVIRONMENT" default:"local"`
+	// VAPID configuration for Web Push notifications
+	VAPID VAPIDConfig `envconfig:""`
+
+	// Blockchain configuration
+	Blockchain BlockchainConfig `envconfig:""`
+
+	// ZKP configuration
+	ZKP ZKPConfig `envconfig:""`
 
 	// LastFM API Key
 	LastFMAPIKey string `envconfig:"LASTFM_API_KEY"`
+}
+
+// JobConfig is the configuration for batch job workloads (e.g., concert-discovery CronJob).
+type JobConfig struct {
+	BaseConfig
+
+	// GCP configuration
+	GCP GCPConfig `envconfig:""`
+
+	// NATS configuration for event messaging
+	NATS NATSConfig `envconfig:""`
+}
+
+// ConsumerConfig is the configuration for the event consumer workload.
+type ConsumerConfig struct {
+	BaseConfig
+
+	// NATS configuration for event messaging
+	NATS NATSConfig `envconfig:""`
+
+	// VAPID configuration for Web Push notifications
+	VAPID VAPIDConfig `envconfig:""`
 
 	// Google Maps API Key
 	GoogleMapsAPIKey string `envconfig:"GOOGLE_MAPS_API_KEY"`
-
-	// Shutdown timeout in seconds
-	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"30s"`
 }
 
-// ServerConfig represents server-specific configuration.
-type ServerConfig struct {
+// ServerSettings represents HTTP server settings (port, host, timeouts, CORS).
+type ServerSettings struct {
 	// Port to listen on
 	Port int `envconfig:"SERVER_PORT" default:"8080"`
 
@@ -302,38 +279,29 @@ type JWTConfig struct {
 	JWKSRefreshInterval time.Duration `envconfig:"JWKS_REFRESH_INTERVAL" default:"15m"`
 }
 
-// Load loads configuration from environment variables.
-//
-// Example:
-//
-//	cfg, err := config.Load()
-//	if err != nil {
-//		return fmt.Errorf("failed to load config: %w", err)
-//	}
-func Load() (*Config, error) {
-	var cfg Config
+// Loadable constrains the config types that can be loaded from environment variables.
+type Loadable interface {
+	ServerConfig | JobConfig | ConsumerConfig
+}
 
-	// Process environment variables
-	err := envconfig.Process("", &cfg)
-	if err != nil {
+// Load loads configuration from environment variables into the specified workload config type.
+func Load[T Loadable]() (*T, error) {
+	var cfg T
+
+	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	return &cfg, nil
 }
 
-// Validate validates the configuration according to the following rules:
-//   - Server port: 1-65535 range
+// Validate validates BaseConfig fields shared by all workloads:
 //   - Database port: 1-65535 range
-//   - Environment: development, staging, or production
+//   - Environment: local, development, staging, or production
 //   - Log level: debug, info, warn, or error
 //   - Log format: json or text
-//   - Required fields: Database name, user, and password
-func (c *Config) Validate() error {
-	if c.Server.Port <= 0 || c.Server.Port > 65535 {
-		return fmt.Errorf("invalid server port: %d", c.Server.Port)
-	}
-
+//   - Database instance connection name: required for non-local environments
+func (c *BaseConfig) Validate() error {
 	if c.Database.Port <= 0 || c.Database.Port > 65535 {
 		return fmt.Errorf("invalid database port: %d", c.Database.Port)
 	}
@@ -383,12 +351,30 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid log format: %s", c.Logging.Format)
 	}
 
-	if !c.IsLocal() && len(c.Server.AllowedOrigins) == 0 {
-		return fmt.Errorf("CORS allowed origins are required for non-local environments")
-	}
-
 	if !c.IsLocal() && c.Database.InstanceConnectionName == "" {
 		return fmt.Errorf("database instance connection name is required for non-local environments")
+	}
+
+	return nil
+}
+
+// Validate validates ServerConfig including base checks plus server-specific rules:
+//   - Server port: 1-65535 range
+//   - CORS allowed origins: required for non-local environments
+//   - NATS URL: required for non-local environments
+//   - JWT issuer: required
+//   - JWKS refresh interval: must be positive
+func (c *ServerConfig) Validate() error {
+	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+
+	if c.Server.Port <= 0 || c.Server.Port > 65535 {
+		return fmt.Errorf("invalid server port: %d", c.Server.Port)
+	}
+
+	if !c.IsLocal() && len(c.Server.AllowedOrigins) == 0 {
+		return fmt.Errorf("CORS allowed origins are required for non-local environments")
 	}
 
 	if !c.IsLocal() && c.NATS.URL == "" {
@@ -406,6 +392,32 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// Validate validates JobConfig including base checks plus NATS URL for non-local environments.
+func (c *JobConfig) Validate() error {
+	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+
+	if !c.IsLocal() && c.NATS.URL == "" {
+		return fmt.Errorf("NATS URL is required for non-local environments")
+	}
+
+	return nil
+}
+
+// Validate validates ConsumerConfig including base checks plus NATS URL for non-local environments.
+func (c *ConsumerConfig) Validate() error {
+	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+
+	if !c.IsLocal() && c.NATS.URL == "" {
+		return fmt.Errorf("NATS URL is required for non-local environments")
+	}
+
+	return nil
+}
+
 // GetDSN returns the database connection string.
 func (c DatabaseConfig) GetDSN() string {
 	dsn := fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=%s",
@@ -417,21 +429,21 @@ func (c DatabaseConfig) GetDSN() string {
 }
 
 // IsDevelopment returns true if the environment is "development".
-func (c *Config) IsDevelopment() bool {
+func (c *BaseConfig) IsDevelopment() bool {
 	return c.Environment == "development"
 }
 
 // IsProduction returns true if the environment is "production".
-func (c *Config) IsProduction() bool {
+func (c *BaseConfig) IsProduction() bool {
 	return c.Environment == "production"
 }
 
 // IsStaging returns true if the environment is "staging".
-func (c *Config) IsStaging() bool {
+func (c *BaseConfig) IsStaging() bool {
 	return c.Environment == "staging"
 }
 
 // IsLocal returns true if the environment is "local".
-func (c *Config) IsLocal() bool {
+func (c *BaseConfig) IsLocal() bool {
 	return c.Environment == "local"
 }

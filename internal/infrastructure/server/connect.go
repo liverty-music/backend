@@ -16,7 +16,6 @@ import (
 	"connectrpc.com/otelconnect"
 	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
-	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/pkg/config"
 	apperr_connect "github.com/pannpers/go-apperr/apperr/connect"
 	"github.com/pannpers/go-logging/logging"
@@ -26,7 +25,6 @@ import (
 type ConnectServer struct {
 	server  *http.Server
 	logger  *logging.Logger
-	Cfg     *config.Config
 	address string
 }
 
@@ -38,9 +36,8 @@ type HealthHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler
 
 // NewConnectServer creates a new Connect server instance.
 func NewConnectServer(
-	cfg *config.Config,
+	serverCfg config.ServerSettings,
 	logger *logging.Logger,
-	_ *rdb.Database,
 	authFunc authn.AuthFunc,
 	healthHandler HealthHandlerFunc,
 	handlerFuncs ...RPCHandlerFunc,
@@ -117,9 +114,9 @@ func NewConnectServer(
 	rootMux.Handle(healthPath, healthH)
 	rootMux.Handle("/", authMiddleware.Wrap(protectedMux))
 
-	address := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
+	address := net.JoinHostPort(serverCfg.Host, strconv.Itoa(serverCfg.Port))
 
-	handler := NewCORSHandler(rootMux, cfg.Server.AllowedOrigins)
+	handler := NewCORSHandler(rootMux, serverCfg.AllowedOrigins)
 
 	// Enable h2c (HTTP/2 without TLS) for Kubernetes gRPC health probes
 	p := new(http.Protocols)
@@ -128,17 +125,16 @@ func NewConnectServer(
 
 	server := &http.Server{
 		Addr:              address,
-		Handler:           http.TimeoutHandler(handler, cfg.Server.HandlerTimeout, ""),
+		Handler:           http.TimeoutHandler(handler, serverCfg.HandlerTimeout, ""),
 		Protocols:         p,
-		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
-		ReadTimeout:       cfg.Server.ReadTimeout,
-		IdleTimeout:       cfg.Server.IdleTimeout,
+		ReadHeaderTimeout: serverCfg.ReadHeaderTimeout,
+		ReadTimeout:       serverCfg.ReadTimeout,
+		IdleTimeout:       serverCfg.IdleTimeout,
 	}
 
 	return &ConnectServer{
 		server:  server,
 		logger:  logger,
-		Cfg:     cfg,
 		address: address,
 	}
 }
