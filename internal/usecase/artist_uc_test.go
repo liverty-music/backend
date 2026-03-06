@@ -130,6 +130,7 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		}
 
 		searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return(fetched, nil).Once()
+		repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-a", "mbid-b"}).Return([]*entity.Artist{}, nil).Once()
 		repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		result, err := uc.ListTop(ctx, "JP", "", int32(0))
@@ -138,6 +139,33 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		assert.Len(t, result, 2)
 		assert.Equal(t, "id-a", result[0].ID)
 		assert.Equal(t, "id-b", result[1].ID)
+	})
+
+	t.Run("filters out empty MBID entries", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
+
+		fetched := []*entity.Artist{
+			{Name: "With MBID", MBID: "mbid-x"},
+			{Name: "No MBID", MBID: ""},
+		}
+		persisted := []*entity.Artist{
+			{ID: "id-x", Name: "With MBID", MBID: "mbid-x"},
+		}
+
+		searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return(fetched, nil).Once()
+		repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-x"}).Return([]*entity.Artist{}, nil).Once()
+		repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+
+		result, err := uc.ListTop(ctx, "JP", "", int32(0))
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "mbid-x", result[0].MBID)
 	})
 
 	t.Run("error - searcher fails", func(t *testing.T) {
@@ -169,6 +197,7 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		}
 
 		searcher.EXPECT().ListTop(ctx, "US", "", int32(0)).Return([]*entity.Artist{{Name: "Artist A", MBID: "mbid-a"}}, nil).Once()
+		repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-a"}).Return([]*entity.Artist{}, nil).Once()
 		repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		// First call — cache miss
@@ -222,6 +251,7 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 
 		repo.EXPECT().Get(ctx, "seed-id").Return(seedArtist, nil).Once()
 		searcher.EXPECT().ListSimilar(ctx, seedArtist, int32(0)).Return(fetched, nil).Once()
+		repo.EXPECT().ListByMBIDs(ctx, []string{"sim-a", "sim-b"}).Return([]*entity.Artist{}, nil).Once()
 		repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		result, err := uc.ListSimilar(ctx, "seed-id", int32(0))
@@ -230,6 +260,35 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 		assert.Len(t, result, 2)
 		assert.Equal(t, "id-sim-a", result[0].ID)
 		assert.Equal(t, "id-sim-b", result[1].ID)
+	})
+
+	t.Run("filters out empty MBID entries", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
+
+		seedArtist := &entity.Artist{ID: "seed-id", Name: "Seed", MBID: "seed-mbid"}
+		fetched := []*entity.Artist{
+			{Name: "With MBID", MBID: "sim-x"},
+			{Name: "No MBID", MBID: ""},
+		}
+		persisted := []*entity.Artist{
+			{ID: "id-sim-x", Name: "With MBID", MBID: "sim-x"},
+		}
+
+		repo.EXPECT().Get(ctx, "seed-id").Return(seedArtist, nil).Once()
+		searcher.EXPECT().ListSimilar(ctx, seedArtist, int32(0)).Return(fetched, nil).Once()
+		repo.EXPECT().ListByMBIDs(ctx, []string{"sim-x"}).Return([]*entity.Artist{}, nil).Once()
+		repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+
+		result, err := uc.ListSimilar(ctx, "seed-id", int32(0))
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+		assert.Equal(t, "sim-x", result[0].MBID)
 	})
 }
 
@@ -458,5 +517,159 @@ func TestArtistUseCase_Follow_FirstFollowSearch(t *testing.T) {
 		assert.NoError(t, err)
 
 		time.Sleep(50 * time.Millisecond)
+	})
+}
+
+func TestArtistUseCase_Search(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := logging.New()
+
+	t.Run("filters empty MBID and deduplicates by MBID", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
+
+		fetched := []*entity.Artist{
+			{Name: "ヨルシカ", MBID: "abc"},
+			{Name: "ヨルシカ Live", MBID: "abc"},
+			{Name: "User Page", MBID: ""},
+			{Name: "suis from ヨルシカ", MBID: "def"},
+		}
+		persisted := []*entity.Artist{
+			{ID: "id-1", Name: "ヨルシカ", MBID: "abc"},
+			{ID: "id-2", Name: "suis from ヨルシカ", MBID: "def"},
+		}
+
+		searcher.EXPECT().Search(ctx, "ヨルシカ").Return(fetched, nil).Once()
+		repo.EXPECT().ListByMBIDs(ctx, []string{"abc", "def"}).Return([]*entity.Artist{}, nil).Once()
+		repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+
+		result, err := uc.Search(ctx, "ヨルシカ")
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 2)
+		assert.Equal(t, "id-1", result[0].ID)
+		assert.Equal(t, "id-2", result[1].ID)
+	})
+
+	t.Run("returns NotFound when all entries filtered out", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
+
+		searcher.EXPECT().Search(ctx, "test").Return([]*entity.Artist{
+			{Name: "No MBID 1", MBID: ""},
+			{Name: "No MBID 2", MBID: ""},
+		}, nil).Once()
+
+		result, err := uc.Search(ctx, "test")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.Nil(t, result)
+	})
+
+	t.Run("error - empty query", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
+
+		result, err := uc.Search(ctx, "")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Nil(t, result)
+	})
+
+	t.Run("returns cached results on second call", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
+
+		persisted := []*entity.Artist{
+			{ID: "id-1", Name: "Artist", MBID: "mbid-1"},
+		}
+
+		searcher.EXPECT().Search(ctx, "cached").Return([]*entity.Artist{{Name: "Artist", MBID: "mbid-1"}}, nil).Once()
+		repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-1"}).Return([]*entity.Artist{}, nil).Once()
+		repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+
+		// First call — cache miss
+		_, err := uc.Search(ctx, "cached")
+		assert.NoError(t, err)
+
+		// Second call — cache hit
+		result, err := uc.Search(ctx, "cached")
+		assert.NoError(t, err)
+		assert.Len(t, result, 1)
+	})
+
+	t.Run("persistArtists reuses existing artists from DB", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
+
+		fetched := []*entity.Artist{
+			{Name: "Existing", MBID: "mbid-existing"},
+			{Name: "New", MBID: "mbid-new"},
+		}
+		existingFromDB := []*entity.Artist{
+			{ID: "db-id-1", Name: "Existing", MBID: "mbid-existing"},
+		}
+		createdNew := []*entity.Artist{
+			{ID: "db-id-2", Name: "New", MBID: "mbid-new"},
+		}
+
+		searcher.EXPECT().Search(ctx, "mixed").Return(fetched, nil).Once()
+		repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-existing", "mbid-new"}).Return(existingFromDB, nil).Once()
+		repo.EXPECT().Create(ctx, mock.MatchedBy(func(a *entity.Artist) bool {
+			return a.MBID == "mbid-new"
+		})).Return(createdNew, nil).Once()
+
+		result, err := uc.Search(ctx, "mixed")
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 2)
+		assert.Equal(t, "db-id-1", result[0].ID)
+		assert.Equal(t, "db-id-2", result[1].ID)
+	})
+
+	t.Run("persistArtists skips Create when all exist", func(t *testing.T) {
+		repo := mocks.NewMockArtistRepository(t)
+		userRepo := mocks.NewMockUserRepository(t)
+		searcher := mocks.NewMockArtistSearcher(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		siteResolver := mocks.NewMockOfficialSiteResolver(t)
+		uc := newTestArtistUC(t, repo, userRepo, searcher, idManager, siteResolver, logger)
+
+		searcher.EXPECT().Search(ctx, "all-exist").Return([]*entity.Artist{
+			{Name: "A", MBID: "mbid-a"},
+			{Name: "B", MBID: "mbid-b"},
+		}, nil).Once()
+		repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-a", "mbid-b"}).Return([]*entity.Artist{
+			{ID: "db-a", Name: "A", MBID: "mbid-a"},
+			{ID: "db-b", Name: "B", MBID: "mbid-b"},
+		}, nil).Once()
+		// No Create call expected
+
+		result, err := uc.Search(ctx, "all-exist")
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 2)
+		assert.Equal(t, "db-a", result[0].ID)
+		assert.Equal(t, "db-b", result[1].ID)
 	})
 }

@@ -248,14 +248,23 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 		return nil, apperr.Wrap(err, codes.Internal, "failed to search artists")
 	}
 
-	if len(artists) == 0 {
+	// Filter out entries with empty MBID and dedup by MBID keeping first occurrence.
+	filtered := filterAndDedupByMBID(artists)
+
+	if len(filtered) == 0 {
 		return nil, apperr.New(codes.NotFound, "no artists found")
 	}
 
-	// Store in cache
-	uc.cache.Set(cacheKey, artists)
+	// Persist artists to ensure stable database IDs.
+	persisted, err := uc.persistArtists(ctx, filtered)
+	if err != nil {
+		return nil, err
+	}
 
-	return artists, nil
+	// Store in cache
+	uc.cache.Set(cacheKey, persisted)
+
+	return persisted, nil
 }
 
 // resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.
@@ -447,8 +456,11 @@ func (uc *artistUseCase) ListSimilar(ctx context.Context, artistID string, limit
 		return nil, err
 	}
 
-	// Auto-persist fetched artists to ensure valid database IDs
-	persisted, err := uc.artistRepo.Create(ctx, artists...)
+	// Filter out entries with empty MBID.
+	filtered := filterAndDedupByMBID(artists)
+
+	// Persist via read-then-write helper.
+	persisted, err := uc.persistArtists(ctx, filtered)
 	if err != nil {
 		return nil, err
 	}
@@ -477,8 +489,11 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string
 		return nil, err
 	}
 
-	// Auto-persist fetched artists to ensure valid database IDs
-	persisted, err := uc.artistRepo.Create(ctx, artists...)
+	// Filter out entries with empty MBID.
+	filtered := filterAndDedupByMBID(artists)
+
+	// Persist via read-then-write helper.
+	persisted, err := uc.persistArtists(ctx, filtered)
 	if err != nil {
 		return nil, err
 	}
@@ -487,6 +502,79 @@ func (uc *artistUseCase) ListTop(ctx context.Context, country string, tag string
 	uc.cache.Set(cacheKey, persisted)
 
 	return persisted, nil
+}
+
+// filterAndDedupByMBID removes entries with empty MBID and deduplicates by MBID
+// keeping the first occurrence.
+func filterAndDedupByMBID(artists []*entity.Artist) []*entity.Artist {
+	seen := make(map[string]struct{})
+	result := make([]*entity.Artist, 0, len(artists))
+	for _, a := range artists {
+		if a.MBID == "" {
+			continue
+		}
+		if _, ok := seen[a.MBID]; ok {
+			continue
+		}
+		seen[a.MBID] = struct{}{}
+		result = append(result, a)
+	}
+	return result
+}
+
+// persistArtists looks up existing artists by MBID, creates only missing ones,
+// and returns all artists in the original input order. All input artists must
+// have a non-empty MBID (caller responsibility).
+func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.Artist) ([]*entity.Artist, error) {
+	if len(artists) == 0 {
+		return []*entity.Artist{}, nil
+	}
+
+	// Step 1: Collect MBIDs.
+	mbids := make([]string, len(artists))
+	for i, a := range artists {
+		mbids[i] = a.MBID
+	}
+
+	// Step 2: Read existing.
+	existing, err := uc.artistRepo.ListByMBIDs(ctx, mbids)
+	if err != nil {
+		return nil, err
+	}
+
+	existingSet := make(map[string]*entity.Artist, len(existing))
+	for _, a := range existing {
+		existingSet[a.MBID] = a
+	}
+
+	// Step 3: Determine missing.
+	var missing []*entity.Artist
+	for _, a := range artists {
+		if _, ok := existingSet[a.MBID]; !ok {
+			missing = append(missing, a)
+		}
+	}
+
+	// Step 4: Create missing.
+	if len(missing) > 0 {
+		created, err := uc.artistRepo.Create(ctx, missing...)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range created {
+			existingSet[a.MBID] = a
+		}
+	}
+
+	// Step 5: Merge preserving input order.
+	result := make([]*entity.Artist, 0, len(artists))
+	for _, a := range artists {
+		if persisted, ok := existingSet[a.MBID]; ok {
+			result = append(result, persisted)
+		}
+	}
+
+	return result, nil
 }
 
 // hashString creates a simple hash of a string for cache key consistency.
