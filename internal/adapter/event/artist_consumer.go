@@ -6,34 +6,31 @@ import (
 	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
 
-// ArtistNameConsumer handles artist.created events by resolving the canonical
-// artist name from MusicBrainz and updating it in the database if it differs.
+// ArtistNameConsumer handles artist.created events by delegating canonical
+// name resolution to the ArtistNameResolutionUseCase.
 type ArtistNameConsumer struct {
-	artistRepo entity.ArtistRepository
-	idManager  entity.ArtistIdentityManager
-	logger     *logging.Logger
+	nameResolutionUC usecase.ArtistNameResolutionUseCase
+	logger           *logging.Logger
 }
 
 // NewArtistNameConsumer creates a new ArtistNameConsumer.
 func NewArtistNameConsumer(
-	artistRepo entity.ArtistRepository,
-	idManager entity.ArtistIdentityManager,
+	nameResolutionUC usecase.ArtistNameResolutionUseCase,
 	logger *logging.Logger,
 ) *ArtistNameConsumer {
 	return &ArtistNameConsumer{
-		artistRepo: artistRepo,
-		idManager:  idManager,
-		logger:     logger,
+		nameResolutionUC: nameResolutionUC,
+		logger:           logger,
 	}
 }
 
-// Handle processes an artist.created event by resolving the canonical name
-// from MusicBrainz and updating the artist record if the name differs.
+// Handle processes an artist.created event by parsing the payload and
+// delegating canonical name resolution to the use case layer.
 func (h *ArtistNameConsumer) Handle(msg *message.Message) error {
 	ctx := context.Background()
 
@@ -48,24 +45,9 @@ func (h *ArtistNameConsumer) Handle(msg *message.Message) error {
 		slog.String("mbid", data.MBID),
 	)
 
-	canonical, err := h.idManager.GetArtist(ctx, data.MBID)
-	if err != nil {
+	if err := h.nameResolutionUC.ResolveCanonicalName(ctx, data.ArtistID, data.MBID, data.ArtistName); err != nil {
 		return fmt.Errorf("resolve canonical name: %w", err)
 	}
-
-	if canonical.Name == data.ArtistName {
-		return nil
-	}
-
-	if err := h.artistRepo.UpdateName(ctx, data.ArtistID, canonical.Name); err != nil {
-		return fmt.Errorf("update artist name: %w", err)
-	}
-
-	h.logger.Info(ctx, "artist name updated to canonical",
-		slog.String("artist_id", data.ArtistID),
-		slog.String("old_name", data.ArtistName),
-		slog.String("new_name", canonical.Name),
-	)
 
 	return nil
 }

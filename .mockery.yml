@@ -6,6 +6,7 @@ packages:
   github.com/liverty-music/backend/internal/usecase:
     interfaces:
       ArtistUseCase:
+      ArtistNameResolutionUseCase:
       ConcertUseCase:
       UserUseCase:
       TicketUseCase:
