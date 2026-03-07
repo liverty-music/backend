@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -20,6 +22,10 @@ import (
 // anyCtx matches any context.Context regardless of type (e.g. context.WithoutCancel).
 var anyCtx = mock.MatchedBy(func(context.Context) bool { return true })
 
+func newTestPublisher() *gochannel.GoChannel {
+	return gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 64}, watermill.NopLogger{})
+}
+
 func newTestArtistUC(t *testing.T, repo *mocks.MockArtistRepository, userRepo *mocks.MockUserRepository, searcher *mocks.MockArtistSearcher, idManager *mocks.MockArtistIdentityManager, siteResolver *mocks.MockOfficialSiteResolver, logger *logging.Logger) usecase.ArtistUseCase {
 	t.Helper()
 	concertUC := ucmocks.NewMockConcertUseCase(t)
@@ -27,7 +33,7 @@ func newTestArtistUC(t *testing.T, repo *mocks.MockArtistRepository, userRepo *m
 	// Default: allow any background goroutine calls without strict expectations.
 	concertUC.EXPECT().SearchNewConcerts(anyCtx, mock.AnythingOfType("string")).Maybe().Return(nil)
 	searchLogRepo.EXPECT().GetByArtistID(anyCtx, mock.AnythingOfType("string")).Maybe().Return(nil, apperr.ErrNotFound)
-	return usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
+	return usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, newTestPublisher(), cache.NewMemoryCache(1*time.Hour), logger)
 }
 
 func TestArtistUseCase_CreateArtist(t *testing.T) {
@@ -430,7 +436,7 @@ func TestArtistUseCase_Follow_FirstFollowSearch(t *testing.T) {
 		concertUC := ucmocks.NewMockConcertUseCase(t)
 		searchLogRepo := mocks.NewMockSearchLogRepository(t)
 
-		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
+		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, newTestPublisher(), cache.NewMemoryCache(1*time.Hour), logger)
 
 		userRepo.EXPECT().GetByExternalID(ctx, externalUserID).Return(resolvedUser, nil).Once()
 		repo.EXPECT().Follow(ctx, internalUserID, artistID).Return(nil).Once()
@@ -457,7 +463,7 @@ func TestArtistUseCase_Follow_FirstFollowSearch(t *testing.T) {
 		concertUC := ucmocks.NewMockConcertUseCase(t)
 		searchLogRepo := mocks.NewMockSearchLogRepository(t)
 
-		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
+		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, newTestPublisher(), cache.NewMemoryCache(1*time.Hour), logger)
 
 		userRepo.EXPECT().GetByExternalID(ctx, externalUserID).Return(resolvedUser, nil).Once()
 		repo.EXPECT().Follow(ctx, internalUserID, artistID).Return(nil).Once()
@@ -482,7 +488,7 @@ func TestArtistUseCase_Follow_FirstFollowSearch(t *testing.T) {
 		concertUC := ucmocks.NewMockConcertUseCase(t)
 		searchLogRepo := mocks.NewMockSearchLogRepository(t)
 
-		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
+		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, newTestPublisher(), cache.NewMemoryCache(1*time.Hour), logger)
 
 		userRepo.EXPECT().GetByExternalID(ctx, externalUserID).Return(resolvedUser, nil).Once()
 		repo.EXPECT().Follow(ctx, internalUserID, artistID).Return(apperr.ErrAlreadyExists).Once()
@@ -503,7 +509,7 @@ func TestArtistUseCase_Follow_FirstFollowSearch(t *testing.T) {
 		concertUC := ucmocks.NewMockConcertUseCase(t)
 		searchLogRepo := mocks.NewMockSearchLogRepository(t)
 
-		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, cache.NewMemoryCache(1*time.Hour), logger)
+		uc := usecase.NewArtistUseCase(repo, userRepo, searcher, idManager, siteResolver, concertUC, searchLogRepo, newTestPublisher(), cache.NewMemoryCache(1*time.Hour), logger)
 
 		userRepo.EXPECT().GetByExternalID(ctx, externalUserID).Return(resolvedUser, nil).Once()
 		repo.EXPECT().Follow(ctx, internalUserID, artistID).Return(nil).Once()

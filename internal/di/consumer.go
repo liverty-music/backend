@@ -107,11 +107,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 	venueEnrichUC := usecase.NewVenueEnrichmentUseCase(venueRepo, venueRepo, venueRepo, logger, searchers...)
 	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, publisher, logger)
+	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(artistRepo, concertRepo, pushNotificationUC, logger)
 	venueConsumer := event.NewVenueConsumer(venueEnrichUC, logger)
+	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -140,6 +142,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		messaging.SubjectVenueCreated,
 		subscriber,
 		venueConsumer.Handle,
+	)
+
+	router.AddConsumerHandler(
+		"resolve-artist-name",
+		messaging.SubjectArtistCreated,
+		subscriber,
+		artistNameConsumer.Handle,
 	)
 
 	// Health probe server for Kubernetes readiness/liveness checks.

@@ -91,6 +91,9 @@ const (
 		FROM artists a
 		JOIN followed_artists fa ON a.id = fa.artist_id
 	`
+	updateArtistNameQuery = `
+		UPDATE artists SET name = $2 WHERE id = $1
+	`
 	listFollowersQuery = `
 		SELECT u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active
 		FROM users u
@@ -284,6 +287,24 @@ func (r *ArtistRepository) GetByMBID(ctx context.Context, mbid string) (*entity.
 		return nil, toAppErr(err, "failed to get artist by mbid", slog.String("mbid", mbid))
 	}
 	return &a, nil
+}
+
+// UpdateName updates the display name of an artist.
+func (r *ArtistRepository) UpdateName(ctx context.Context, id string, name string) error {
+	tag, err := r.db.Pool.Exec(ctx, updateArtistNameQuery, id, name)
+	if err != nil {
+		return toAppErr(err, "failed to update artist name", slog.String("id", id))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "artist not found")
+	}
+
+	r.db.logger.Info(ctx, "artist name updated",
+		slog.String("entityType", "artist"),
+		slog.String("id", id),
+		slog.String("name", name),
+	)
+	return nil
 }
 
 // CreateOfficialSite saves the official site for an artist.

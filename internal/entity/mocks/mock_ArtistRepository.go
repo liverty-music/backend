@@ -757,6 +757,54 @@ func (_c *MockArtistRepository_Unfollow_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// UpdateName provides a mock function with given fields: ctx, id, name
+func (_m *MockArtistRepository) UpdateName(ctx context.Context, id string, name string) error {
+	ret := _m.Called(ctx, id, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateName")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, id, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockArtistRepository_UpdateName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateName'
+type MockArtistRepository_UpdateName_Call struct {
+	*mock.Call
+}
+
+// UpdateName is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - name string
+func (_e *MockArtistRepository_Expecter) UpdateName(ctx interface{}, id interface{}, name interface{}) *MockArtistRepository_UpdateName_Call {
+	return &MockArtistRepository_UpdateName_Call{Call: _e.mock.On("UpdateName", ctx, id, name)}
+}
+
+func (_c *MockArtistRepository_UpdateName_Call) Run(run func(ctx context.Context, id string, name string)) *MockArtistRepository_UpdateName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_UpdateName_Call) Return(_a0 error) *MockArtistRepository_UpdateName_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockArtistRepository_UpdateName_Call) RunAndReturn(run func(context.Context, string, string) error) *MockArtistRepository_UpdateName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockArtistRepository creates a new instance of MockArtistRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockArtistRepository(t interface {
