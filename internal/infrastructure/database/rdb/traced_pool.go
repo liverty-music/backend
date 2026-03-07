@@ -121,8 +121,8 @@ func (r *tracedRow) Scan(dest ...any) error {
 	if err != nil {
 		recordError(r.span, err)
 	}
+	runtime.SetFinalizer(r, nil)
 	r.span.End()
-	runtime.KeepAlive(r)
 	return err
 }
 
