@@ -51,7 +51,7 @@ func TestArtistNameConsumer_Handle(t *testing.T) {
 
 		err := handler.Handle(msg)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "resolve canonical name")
+		assert.Contains(t, err.Error(), "handle ARTIST.created event")
 	})
 
 	t.Run("returns error on invalid payload", func(t *testing.T) {

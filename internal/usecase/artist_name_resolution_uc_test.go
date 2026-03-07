@@ -30,6 +30,20 @@ func TestArtistNameResolutionUseCase_ResolveCanonicalName(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	t.Run("no-op when canonical name is empty", func(t *testing.T) {
+		artistRepo := mocks.NewMockArtistRepository(t)
+		idManager := mocks.NewMockArtistIdentityManager(t)
+		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, logger)
+
+		idManager.EXPECT().GetArtist(ctx, "mbid-empty").Return(&entity.Artist{
+			Name: "",
+			MBID: "mbid-empty",
+		}, nil).Once()
+
+		err := uc.ResolveCanonicalName(t.Context(), "artist-x", "mbid-empty", "Has Name")
+		assert.NoError(t, err)
+	})
+
 	t.Run("no-op when name already matches", func(t *testing.T) {
 		artistRepo := mocks.NewMockArtistRepository(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)

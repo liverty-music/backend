@@ -48,6 +48,14 @@ func (uc *artistNameResolutionUseCase) ResolveCanonicalName(ctx context.Context,
 		return fmt.Errorf("resolve canonical name: %w", err)
 	}
 
+	if canonical.Name == "" {
+		uc.logger.Warn(ctx, "MusicBrainz returned empty name, skipping update",
+			slog.String("artist_id", artistID),
+			slog.String("mbid", mbid),
+		)
+		return nil
+	}
+
 	if canonical.Name == currentName {
 		return nil
 	}

@@ -46,7 +46,7 @@ func (h *ArtistNameConsumer) Handle(msg *message.Message) error {
 	)
 
 	if err := h.nameResolutionUC.ResolveCanonicalName(ctx, data.ArtistID, data.MBID, data.ArtistName); err != nil {
-		return fmt.Errorf("resolve canonical name: %w", err)
+		return fmt.Errorf("handle ARTIST.created event: %w", err)
 	}
 
 	return nil
