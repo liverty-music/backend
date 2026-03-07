@@ -15,7 +15,7 @@ import (
 
 // Database represents the database instance.
 type Database struct {
-	Pool   *pgxpool.Pool
+	Pool   *TracedPool
 	logger *logging.Logger
 	dialer *cloudsqlconn.Dialer
 }
@@ -61,7 +61,7 @@ func New(ctx context.Context, dbCfg config.DatabaseConfig, isLocal bool, logger 
 	}
 
 	database := &Database{
-		Pool:   pool,
+		Pool:   NewTracedPool(pool),
 		logger: logger,
 		dialer: dialer,
 	}
