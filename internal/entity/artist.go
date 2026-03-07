@@ -114,6 +114,14 @@ type ArtistRepository interface {
 	//   - Internal: database query failure.
 	ListByMBIDs(ctx context.Context, mbids []string) ([]*Artist, error)
 
+	// UpdateName updates the display name of an artist identified by ID.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no artist exists with the provided ID.
+	//   - Internal: database execution failure.
+	UpdateName(ctx context.Context, id string, name string) error
+
 	// Official Site operations
 
 	// CreateOfficialSite registers a new website link for an artist.
