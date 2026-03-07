@@ -4,6 +4,7 @@ package rdb
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -34,23 +35,28 @@ func NewTracedPool(pool *pgxpool.Pool) *TracedPool {
 }
 
 // Query executes a query that returns rows, with tracing and traceparent injection.
+// The span is ended when the returned Rows is closed, covering the full row iteration.
 func (tp *TracedPool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	ctx, span := tp.startSpan(ctx, sql)
-	defer span.End()
 
 	rows, err := tp.inner.Query(ctx, InjectTraceparent(ctx, sql), args...)
 	if err != nil {
 		recordError(span, err)
+		span.End()
+		return nil, err
 	}
-	return rows, err
+	return &tracedRows{Rows: rows, span: span}, nil
 }
 
 // QueryRow executes a query that returns at most one row, with tracing and traceparent injection.
+// A runtime finalizer ensures the span is eventually ended even if Scan is never called.
 func (tp *TracedPool) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	ctx, span := tp.startSpan(ctx, sql)
 
 	row := tp.inner.QueryRow(ctx, InjectTraceparent(ctx, sql), args...)
-	return &tracedRow{Row: row, span: span}
+	r := &tracedRow{Row: row, span: span}
+	runtime.SetFinalizer(r, func(r *tracedRow) { r.span.End() })
+	return r
 }
 
 // Exec executes a query that doesn't return rows, with tracing and traceparent injection.
@@ -116,7 +122,21 @@ func (r *tracedRow) Scan(dest ...any) error {
 		recordError(r.span, err)
 	}
 	r.span.End()
+	runtime.KeepAlive(r)
 	return err
+}
+
+// tracedRows wraps pgx.Rows to end the span when the rows are closed,
+// ensuring the span covers the full row iteration lifecycle.
+type tracedRows struct {
+	pgx.Rows
+	span trace.Span
+}
+
+// Close closes the underlying Rows and ends the span.
+func (r *tracedRows) Close() {
+	r.Rows.Close()
+	r.span.End()
 }
 
 func recordError(span trace.Span, err error) {

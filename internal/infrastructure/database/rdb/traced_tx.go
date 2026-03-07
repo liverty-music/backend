@@ -3,6 +3,7 @@ package rdb
 import (
 	"context"
 	"errors"
+	"runtime"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -21,23 +22,28 @@ type TracedTx struct {
 }
 
 // Query executes a query within the transaction, with tracing and traceparent injection.
+// The span is ended when the returned Rows is closed, covering the full row iteration.
 func (t *TracedTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	ctx, span := t.startSpan(ctx, sql)
-	defer span.End()
 
 	rows, err := t.inner.Query(ctx, InjectTraceparent(ctx, sql), args...)
 	if err != nil {
 		recordError(span, err)
+		span.End()
+		return nil, err
 	}
-	return rows, err
+	return &tracedRows{Rows: rows, span: span}, nil
 }
 
 // QueryRow executes a query that returns at most one row within the transaction.
+// A runtime finalizer ensures the span is eventually ended even if Scan is never called.
 func (t *TracedTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	ctx, span := t.startSpan(ctx, sql)
 
 	row := t.inner.QueryRow(ctx, InjectTraceparent(ctx, sql), args...)
-	return &tracedRow{Row: row, span: span}
+	r := &tracedRow{Row: row, span: span}
+	runtime.SetFinalizer(r, func(r *tracedRow) { r.span.End() })
+	return r
 }
 
 // Exec executes a query that doesn't return rows within the transaction.
