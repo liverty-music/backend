@@ -22,6 +22,8 @@ const (
 	SubjectConcertCreated = "CONCERT.created"
 	// SubjectVenueCreated is the NATS subject for newly created venue entities that need enrichment.
 	SubjectVenueCreated = "VENUE.created"
+	// SubjectArtistCreated is the NATS subject for newly persisted artist entities.
+	SubjectArtistCreated = "ARTIST.created"
 )
 
 // NewEvent creates a Watermill message with structured metadata.

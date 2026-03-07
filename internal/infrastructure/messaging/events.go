@@ -36,6 +36,17 @@ type ConcertCreatedData struct {
 	ConcertCount int `json:"concert_count"`
 }
 
+// ArtistCreatedData is the payload for artist.created events.
+// Published by persistArtists when new artists are inserted into the database.
+type ArtistCreatedData struct {
+	// ArtistID is the internal UUID of the artist.
+	ArtistID string `json:"artist_id"`
+	// ArtistName is the display name of the artist.
+	ArtistName string `json:"artist_name"`
+	// MBID is the MusicBrainz identifier for canonical identity.
+	MBID string `json:"mbid"`
+}
+
 // VenueCreatedData is the payload for venue.created.v1 events.
 // Published by the create-concerts consumer when a new venue is created.
 type VenueCreatedData struct {
