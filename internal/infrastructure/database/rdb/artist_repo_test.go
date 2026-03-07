@@ -6,6 +6,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -214,6 +215,58 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 				assert.Equal(t, w.Name, got[i].Name)
 				assert.Equal(t, w.MBID, got[i].MBID)
 			}
+		})
+	}
+}
+
+func TestArtistRepository_UpdateName(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB)
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		setup   func() string // returns artist ID
+		newName string
+		wantErr error
+	}{
+		{
+			name: "updates name successfully",
+			setup: func() string {
+				cleanDatabase()
+				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "update-mbid-001"))
+				require.NoError(t, err)
+				return created[0].ID
+			},
+			newName: "New Name",
+		},
+		{
+			name: "returns NotFound for unknown ID",
+			setup: func() string {
+				cleanDatabase()
+				return "00000000-0000-0000-0000-000000000000"
+			},
+			newName: "Anything",
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			artistID := tt.setup()
+
+			err := repo.UpdateName(ctx, artistID, tt.newName)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify the name was actually updated.
+			got, err := repo.Get(ctx, artistID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.newName, got.Name)
 		})
 	}
 }
