@@ -105,6 +105,15 @@ type ArtistRepository interface {
 	//   - Internal: database query failure.
 	GetByMBID(ctx context.Context, mbid string) (*Artist, error)
 
+	// ListByMBIDs retrieves artists matching the provided MusicBrainz IDs.
+	// Returns only artists that exist in the database. The result order
+	// matches the input mbids order. Unknown MBIDs are silently skipped.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListByMBIDs(ctx context.Context, mbids []string) ([]*Artist, error)
+
 	// Official Site operations
 
 	// CreateOfficialSite registers a new website link for an artist.

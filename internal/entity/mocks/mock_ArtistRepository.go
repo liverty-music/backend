@@ -483,6 +483,65 @@ func (_c *MockArtistRepository_ListAllFollowed_Call) RunAndReturn(run func(conte
 	return _c
 }
 
+// ListByMBIDs provides a mock function with given fields: ctx, mbids
+func (_m *MockArtistRepository) ListByMBIDs(ctx context.Context, mbids []string) ([]*entity.Artist, error) {
+	ret := _m.Called(ctx, mbids)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByMBIDs")
+	}
+
+	var r0 []*entity.Artist
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []string) ([]*entity.Artist, error)); ok {
+		return rf(ctx, mbids)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []string) []*entity.Artist); ok {
+		r0 = rf(ctx, mbids)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Artist)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []string) error); ok {
+		r1 = rf(ctx, mbids)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockArtistRepository_ListByMBIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByMBIDs'
+type MockArtistRepository_ListByMBIDs_Call struct {
+	*mock.Call
+}
+
+// ListByMBIDs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - mbids []string
+func (_e *MockArtistRepository_Expecter) ListByMBIDs(ctx interface{}, mbids interface{}) *MockArtistRepository_ListByMBIDs_Call {
+	return &MockArtistRepository_ListByMBIDs_Call{Call: _e.mock.On("ListByMBIDs", ctx, mbids)}
+}
+
+func (_c *MockArtistRepository_ListByMBIDs_Call) Run(run func(ctx context.Context, mbids []string)) *MockArtistRepository_ListByMBIDs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]string))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_ListByMBIDs_Call) Return(_a0 []*entity.Artist, _a1 error) *MockArtistRepository_ListByMBIDs_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockArtistRepository_ListByMBIDs_Call) RunAndReturn(run func(context.Context, []string) ([]*entity.Artist, error)) *MockArtistRepository_ListByMBIDs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListFollowed provides a mock function with given fields: ctx, userID
 func (_m *MockArtistRepository) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
 	ret := _m.Called(ctx, userID)

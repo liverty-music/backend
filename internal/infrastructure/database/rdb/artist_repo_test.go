@@ -137,3 +137,83 @@ func TestArtistRepository_Create(t *testing.T) {
 		})
 	}
 }
+
+func TestArtistRepository_ListByMBIDs(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB)
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		setup   func()
+		mbids   []string
+		want    []*entity.Artist
+		wantErr error
+	}{
+		{
+			name: "returns matching artists in input order",
+			setup: func() {
+				cleanDatabase()
+				_, err := repo.Create(ctx,
+					entity.NewArtist("Artist A", "mbid-aaa"),
+					entity.NewArtist("Artist B", "mbid-bbb"),
+					entity.NewArtist("Artist C", "mbid-ccc"),
+				)
+				require.NoError(t, err)
+			},
+			mbids: []string{"mbid-ccc", "mbid-aaa"},
+			want: []*entity.Artist{
+				{Name: "Artist C", MBID: "mbid-ccc"},
+				{Name: "Artist A", MBID: "mbid-aaa"},
+			},
+		},
+		{
+			name: "unknown MBIDs are silently skipped",
+			setup: func() {
+				cleanDatabase()
+				_, err := repo.Create(ctx, entity.NewArtist("Known", "mbid-known"))
+				require.NoError(t, err)
+			},
+			mbids: []string{"mbid-known", "mbid-unknown"},
+			want: []*entity.Artist{
+				{Name: "Known", MBID: "mbid-known"},
+			},
+		},
+		{
+			name:  "empty input returns empty slice",
+			setup: cleanDatabase,
+			mbids: nil,
+			want:  []*entity.Artist{},
+		},
+		{
+			name: "all MBIDs unknown returns empty slice",
+			setup: func() {
+				cleanDatabase()
+			},
+			mbids: []string{"mbid-nonexistent"},
+			want:  []*entity.Artist{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setup != nil {
+				tt.setup()
+			}
+
+			got, err := repo.ListByMBIDs(ctx, tt.mbids)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, got, len(tt.want))
+			for i, w := range tt.want {
+				assert.NotEmpty(t, got[i].ID)
+				assert.Equal(t, w.Name, got[i].Name)
+				assert.Equal(t, w.MBID, got[i].MBID)
+			}
+		})
+	}
+}
