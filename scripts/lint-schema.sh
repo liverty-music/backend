@@ -24,13 +24,10 @@ if [ ! -f "$SCHEMA" ]; then
   exit 1
 fi
 
-# Strip SQL comment lines (-- ...) for pattern checks
-stripped=$(grep -v '^\s*--' "$SCHEMA")
-
 # ── Check 1: SERIAL / BIGSERIAL ───────────────────────────────────────
 check_serial() {
   local hits
-  hits=$(echo "$stripped" | grep -nE '\bSERIAL\b|\bBIGSERIAL\b' || true)
+  hits=$(grep -nE '\bSERIAL\b|\bBIGSERIAL\b' "$SCHEMA" || true)
   if [ -n "$hits" ]; then
     echo "FAIL: SERIAL/BIGSERIAL detected (use UUIDv7 instead):" >&2
     echo "$hits" >&2
@@ -41,7 +38,7 @@ check_serial() {
 # ── Check 2: bare TIMESTAMP (not TIMESTAMPTZ) ─────────────────────────
 check_timestamp() {
   local hits
-  hits=$(echo "$stripped" | grep -nE '\bTIMESTAMP\b' || true)
+  hits=$(grep -nE '\bTIMESTAMP\b' "$SCHEMA" || true)
   if [ -n "$hits" ]; then
     echo "FAIL: bare TIMESTAMP detected (use TIMESTAMPTZ instead):" >&2
     echo "$hits" >&2
@@ -52,7 +49,7 @@ check_timestamp() {
 # ── Check 3: audit columns ────────────────────────────────────────────
 check_audit_columns() {
   local hits
-  hits=$(echo "$stripped" | grep -nE '\b(created_at|updated_at|deleted_at)\b' || true)
+  hits=$(grep -nE '\b(created_at|updated_at|deleted_at)\b' "$SCHEMA" || true)
   if [ -n "$hits" ]; then
     echo "FAIL: Prohibited audit columns detected:" >&2
     echo "$hits" >&2
@@ -63,7 +60,7 @@ check_audit_columns() {
 # ── Check 4: VARCHAR ──────────────────────────────────────────────────
 check_varchar() {
   local hits
-  hits=$(echo "$stripped" | grep -nE 'VARCHAR\(' || true)
+  hits=$(grep -nE '\bVARCHAR\b' "$SCHEMA" || true)
   if [ -n "$hits" ]; then
     echo "FAIL: VARCHAR detected (use TEXT + CHECK constraint instead):" >&2
     echo "$hits" >&2
@@ -74,7 +71,7 @@ check_varchar() {
 # ── Check 5: COMMENT ON TABLE coverage ────────────────────────────────
 check_table_comments() {
   local tables
-  tables=$(echo "$stripped" | grep -oP 'CREATE TABLE IF NOT EXISTS \K\w+' || true)
+  tables=$(grep -oP 'CREATE TABLE IF NOT EXISTS \K\w+' "$SCHEMA" || true)
 
   for table in $tables; do
     if ! grep -qP "COMMENT ON TABLE ${table}\b" "$SCHEMA"; then
