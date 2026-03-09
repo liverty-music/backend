@@ -233,7 +233,7 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 			name: "updates name successfully",
 			setup: func() string {
 				cleanDatabase()
-				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "77777777-7777-7777-7777-777update0001"))
+				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "77777777-7777-7777-7777-77update0001"))
 				require.NoError(t, err)
 				return created[0].ID
 			},
