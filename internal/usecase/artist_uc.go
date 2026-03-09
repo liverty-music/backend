@@ -76,16 +76,16 @@ type ArtistUseCase interface {
 	//   - Internal: execution failure.
 	Unfollow(ctx context.Context, userID, artistID string) error
 
-	// SetPassionLevel updates the enthusiasm tier for a followed artist.
+	// SetHype updates the enthusiasm tier for a followed artist.
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: missing user or artist identification, or invalid level.
+	//   - InvalidArgument: missing user or artist identification, or invalid hype.
 	//   - NotFound: the user is not following the specified artist.
-	SetPassionLevel(ctx context.Context, userID, artistID string, level entity.PassionLevel) error
+	SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error
 
 	// ListFollowed retrieves all artists currently followed by the specified user,
-	// enriched with per-user passion level metadata.
+	// enriched with per-user hype metadata.
 	//
 	// # Possible errors:
 	//
@@ -405,26 +405,26 @@ func (uc *artistUseCase) Unfollow(ctx context.Context, userID, artistID string) 
 	return nil
 }
 
-// SetPassionLevel updates the enthusiasm tier for a followed artist.
-func (uc *artistUseCase) SetPassionLevel(ctx context.Context, userID, artistID string, level entity.PassionLevel) error {
+// SetHype updates the enthusiasm tier for a followed artist.
+func (uc *artistUseCase) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
 	if userID == "" || artistID == "" {
 		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
 	}
 
-	err := uc.artistRepo.SetPassionLevel(ctx, userID, artistID, level)
+	err := uc.artistRepo.SetHype(ctx, userID, artistID, hype)
 	if err != nil {
 		return err
 	}
 
-	uc.logger.Info(ctx, "Passion level updated",
+	uc.logger.Info(ctx, "Hype updated",
 		slog.String("user_id", userID),
 		slog.String("artist_id", artistID),
-		slog.String("level", string(level)),
+		slog.String("hype", string(hype)),
 	)
 	return nil
 }
 
-// ListFollowed retrieves the list of artists followed by a user, including passion level.
+// ListFollowed retrieves the list of artists followed by a user, including hype level.
 func (uc *artistUseCase) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
 	if userID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "user ID is required")

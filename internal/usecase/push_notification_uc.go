@@ -29,10 +29,12 @@ type PushNotificationUseCase interface {
 	//   - Internal: subscription deletion failure.
 	Unsubscribe(ctx context.Context, userID string) error
 
-	// NotifyNewConcerts sends a Web Push notification to all followers of the given
-	// artist, announcing the newly discovered concerts. Per-subscription delivery
-	// errors (including 410 Gone responses) are handled internally and do not cause
-	// the method to return an error.
+	// NotifyNewConcerts sends Web Push notifications to followers of the given
+	// artist, filtered by each follower's hype level. WATCH followers are skipped,
+	// HOME followers receive notifications only when a concert venue matches their
+	// home area, and ANYWHERE (and NEARBY in Phase 1) followers always receive them.
+	// Per-subscription delivery errors (including 410 Gone responses) are handled
+	// internally and do not cause the method to return an error.
 	//
 	// # Possible errors
 	//
@@ -103,11 +105,19 @@ func (uc *pushNotificationUseCase) Unsubscribe(ctx context.Context, userID strin
 	return nil
 }
 
-// NotifyNewConcerts sends Web Push notifications to all followers of the artist.
+// NotifyNewConcerts sends Web Push notifications to followers of the artist,
+// filtered by each follower's hype level.
+//
+// Filtering rules:
+//   - WATCH: no notification.
+//   - HOME: notify only when at least one concert venue adminArea matches the follower's home.
+//   - NEARBY: treated as ANYWHERE in Phase 1 (proximity logic undefined).
+//   - ANYWHERE: always notify.
+//
 // Individual delivery failures are logged but do not cause the method to return an error.
 func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist *entity.Artist, concerts []*entity.Concert) error {
-	// 1. Retrieve all followers of the artist.
-	followers, err := uc.artistRepo.ListFollowers(ctx, artist.ID)
+	// 1. Retrieve all followers with their hype level and home area.
+	followers, err := uc.artistRepo.ListFollowersWithHype(ctx, artist.ID)
 	if err != nil {
 		return fmt.Errorf("failed to list followers for artist %s: %w", artist.ID, err)
 	}
@@ -115,10 +125,46 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 		return nil
 	}
 
-	// 2. Collect user IDs and fetch their push subscriptions.
-	userIDs := make([]string, len(followers))
-	for i, f := range followers {
-		userIDs[i] = f.ID
+	// 2. Collect unique venue admin areas from concerts for HOME filtering.
+	venueAreas := make(map[string]struct{})
+	for _, c := range concerts {
+		if c.Venue != nil && c.Venue.AdminArea != nil {
+			venueAreas[*c.Venue.AdminArea] = struct{}{}
+		}
+	}
+
+	// 3. Filter followers by hype level and collect eligible user IDs.
+	var userIDs []string
+	for _, f := range followers {
+		switch f.Hype {
+		case entity.HypeWatch:
+			// No notification for WATCH followers.
+			continue
+		case entity.HypeHome:
+			// Notify only if any concert venue matches the follower's home area.
+			if f.HomeLevel1 == "" {
+				// No home area set: skip notification.
+				continue
+			}
+			if _, ok := venueAreas[f.HomeLevel1]; !ok {
+				continue
+			}
+		case entity.HypeNearby:
+			// Phase 1 fallback: treat NEARBY as ANYWHERE.
+		case entity.HypeAnywhere:
+			// Always notify.
+		default:
+			// Unknown hype level: skip to be safe.
+			uc.logger.Warn(ctx, "unknown hype level, skipping notification",
+				slog.String("user_id", f.UserID),
+				slog.String("hype", string(f.Hype)),
+			)
+			continue
+		}
+		userIDs = append(userIDs, f.UserID)
+	}
+	if len(userIDs) == 0 {
+		return nil
 	}
 
 	subs, err := uc.pushSubRepo.ListByUserIDs(ctx, userIDs)
@@ -129,7 +175,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 		return nil
 	}
 
-	// 3. Build the JSON notification payload.
+	// 4. Build the JSON notification payload.
 	payload := pushNotificationPayload{
 		Title: artist.Name,
 		Body:  fmt.Sprintf("%d new concerts found", len(concerts)),
@@ -141,7 +187,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 		return fmt.Errorf("failed to marshal push notification payload: %w", err)
 	}
 
-	// 4. Send a notification to each subscription.
+	// 5. Send a notification to each subscription.
 	for _, sub := range subs {
 		// Honour context cancellation before each outbound request.
 		select {
