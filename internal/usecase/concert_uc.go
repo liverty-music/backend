@@ -198,6 +198,15 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 
 // executeSearch performs the actual Gemini search, deduplication, and event publishing.
 // It updates the search log status to completed or failed on exit.
+//
+// Deduplication uses the natural key (local_event_date, listed_venue_name, start_at_utc)
+// with two lookup sets:
+//   - seen: full key for exact UTC-normalized match (handles TZ mismatch).
+//   - seenDateVenue: date+venue only, for nil start_at wildcard matching.
+//
+// Nil start_at semantics:
+//   - Scraped nil: "time unknown" — matches any existing concert at the same date+venue.
+//   - Existing nil + scraped non-nil: "new info discovered" — published for UPSERT update.
 func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) error {
 	// Get Artist
 	artist, err := uc.artistRepo.Get(ctx, artistID)
@@ -230,25 +239,61 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 		return fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
 
-	// Deduplicate against existing concerts
+	// Deduplicate against existing concerts using dual lookup sets.
+	// - seen: full key (date|venue|start_at_utc) for exact match
+	// - seenDateVenue: (date|venue) for nil-match and "existing has nil" detection
 	seen := make(map[string]bool)
+	seenDateVenue := make(map[string]bool)
+	existingHasNilStart := make(map[string]bool) // date|venue keys where existing start_at is nil
+
 	for _, ex := range existing {
-		seen[getUniqueKey(ex.LocalDate, ex.StartTime)] = true
+		if ex.Event.ListedVenueName == nil {
+			// Legacy rows without listed_venue_name cannot participate in dedup.
+			continue
+		}
+		venue := *ex.Event.ListedVenueName
+		dvKey := dateVenueKey(ex.LocalDate, venue)
+		seenDateVenue[dvKey] = true
+		if ex.StartTime == nil {
+			existingHasNilStart[dvKey] = true
+		} else {
+			seen[concertKey(ex.LocalDate, venue, ex.StartTime)] = true
+		}
 	}
 
 	var newConcerts []messaging.ScrapedConcertData
 	for _, s := range scraped {
-		key := getUniqueKey(s.LocalDate, s.StartTime)
-		if seen[key] {
-			uc.logger.Debug(ctx, "filtered existing/duplicate event",
-				slog.String("artist_id", artistID),
-				slog.String("title", s.Title),
-				slog.String("venue", s.ListedVenueName),
-				slog.String("date", s.LocalDate.Format("2006-01-02")),
-			)
-			continue
+		dvKey := dateVenueKey(s.LocalDate, s.ListedVenueName)
+
+		if s.StartTime == nil {
+			// Scraped nil start_at → "I don't know the time".
+			// Match any existing or already-seen concert at same date+venue.
+			if seenDateVenue[dvKey] {
+				uc.logger.Debug(ctx, "filtered existing/duplicate event (nil start_at wildcard)",
+					slog.String("artist_id", artistID),
+					slog.String("title", s.Title),
+					slog.String("venue", s.ListedVenueName),
+					slog.String("date", s.LocalDate.Format("2006-01-02")),
+				)
+				continue
+			}
+			seenDateVenue[dvKey] = true
+		} else {
+			// Scraped non-nil start_at.
+			fullKey := concertKey(s.LocalDate, s.ListedVenueName, s.StartTime)
+			if seen[fullKey] {
+				// Exact match — same instant after UTC normalization (handles TZ mismatch).
+				uc.logger.Debug(ctx, "filtered existing/duplicate event (exact key match)",
+					slog.String("artist_id", artistID),
+					slog.String("title", s.Title),
+					slog.String("venue", s.ListedVenueName),
+					slog.String("date", s.LocalDate.Format("2006-01-02")),
+				)
+				continue
+			}
+			seen[fullKey] = true
+			seenDateVenue[dvKey] = true
 		}
-		seen[key] = true
 
 		newConcerts = append(newConcerts, messaging.ScrapedConcertData{
 			Title:           s.Title,
@@ -363,13 +408,17 @@ func toSearchStatusValue(log *entity.SearchLog) SearchStatusValue {
 	}
 }
 
-// getUniqueKey generates a unique identifier for a concert based on its date and start time.
-// This is used for deduplicating events discovered from multiple sources.
-// Format: "YYYY-MM-DD|StartTime" (or "unknown" if start time is nil).
-func getUniqueKey(date time.Time, startTime *time.Time) string {
-	stStr := "unknown"
-	if startTime != nil {
-		stStr = startTime.Format(time.RFC3339)
+// concertKey returns the full dedup key "(date|venue|start_at_utc)" for a concert.
+// When startTime is nil the key omits the time segment, producing a dateVenueKey.
+func concertKey(date time.Time, venue string, startTime *time.Time) string {
+	base := dateVenueKey(date, venue)
+	if startTime == nil {
+		return base
 	}
-	return date.Format("2006-01-02") + "|" + stStr
+	return base + "|" + startTime.UTC().Format("15:04:05Z")
+}
+
+// dateVenueKey returns the "(date|venue)" portion of the dedup key.
+func dateVenueKey(date time.Time, venue string) string {
+	return date.Format("2006-01-02") + "|" + venue
 }

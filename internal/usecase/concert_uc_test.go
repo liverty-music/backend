@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
@@ -315,6 +316,181 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
+		})
+	}
+}
+
+// strPtr returns a pointer to the given string. Test helper.
+func strPtr(s string) *string { return &s }
+
+// timePtr returns a pointer to the given time. Test helper.
+func timePtr(t time.Time) *time.Time { return &t }
+
+// receivePublishedConcerts subscribes to the concert.discovered topic and
+// returns the number of new concerts in the published event, or 0 if nothing
+// was published within the timeout.
+func receivePublishedConcerts(t *testing.T, ctx context.Context, sub <-chan *message.Message) int {
+	t.Helper()
+	select {
+	case msg := <-sub:
+		msg.Ack()
+		var data messaging.ConcertDiscoveredData
+		err := messaging.ParseCloudEventData(msg, &data)
+		assert.NoError(t, err)
+		return len(data.Concerts)
+	case <-time.After(200 * time.Millisecond):
+		return 0
+	}
+}
+
+// TestSearchNewConcerts_Deduplication verifies that executeSearch correctly
+// deduplicates scraped concerts against existing DB records. The dedup key
+// should be (local_event_date, listed_venue_name) so that timezone differences,
+// nil/non-nil start_at fluctuations, and other Gemini API non-determinism
+// do not cause duplicate inserts.
+func TestSearchNewConcerts_Deduplication(t *testing.T) {
+	ctx := context.Background()
+
+	jst := time.FixedZone("JST", 9*60*60)
+	concertDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	// Same instant expressed in different timezones.
+	startUTC := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	startJST := time.Date(2026, 6, 1, 18, 0, 0, 0, jst)
+
+	// Slightly shifted start time — Gemini is not deterministic.
+	startShifted := time.Date(2026, 6, 1, 9, 30, 0, 0, time.UTC)
+
+	type testCase struct {
+		name            string
+		existing        []*entity.Concert
+		scraped         []*entity.ScrapedConcert
+		wantNewConcerts int // 0 = all deduped (no publish), >0 = event published with N concerts
+	}
+
+	tests := []testCase{
+		// ── Cases where dedup SHOULD filter (wantNewConcerts = 0) ──
+
+		{
+			name: "TZ mismatch: repo returns UTC, Gemini returns JST for same instant — same venue",
+			existing: []*entity.Concert{
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+			},
+			scraped: []*entity.ScrapedConcert{
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startJST, SourceURL: "https://example.com"},
+			},
+			wantNewConcerts: 0,
+		},
+		{
+			name: "Gemini returns nil start_at, repo has start_at — same date and venue",
+			existing: []*entity.Concert{
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+			},
+			scraped: []*entity.ScrapedConcert{
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com"},
+			},
+			wantNewConcerts: 0,
+		},
+		{
+			name: "Gemini returns start_at, repo has nil — publish for UPSERT update",
+			existing: []*entity.Concert{
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+			},
+			scraped: []*entity.ScrapedConcert{
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startUTC, SourceURL: "https://example.com"},
+			},
+			wantNewConcerts: 1, // new start_at info → publish so UPSERT updates existing row
+		},
+		{
+			name: "same venue and date but different start_at — two shows (matinee/evening)",
+			existing: []*entity.Concert{
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+			},
+			scraped: []*entity.ScrapedConcert{
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startShifted, SourceURL: "https://example.com"},
+			},
+			wantNewConcerts: 1, // genuinely different start time → distinct show
+		},
+		{
+			name: "both nil start_at, same date and venue",
+			existing: []*entity.Concert{
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+			},
+			scraped: []*entity.ScrapedConcert{
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com"},
+			},
+			wantNewConcerts: 0,
+		},
+		{
+			name:     "within-batch dedup: two scraped concerts with same date+venue",
+			existing: nil,
+			scraped: []*entity.ScrapedConcert{
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startUTC, SourceURL: "https://example.com/a"},
+				{Title: "Concert A (dup)", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startJST, SourceURL: "https://example.com/b"},
+			},
+			wantNewConcerts: 1, // second is intra-batch duplicate
+		},
+
+		// ── Cases where dedup should NOT filter (wantNewConcerts > 0) ──
+
+		{
+			name: "same date, different venue — distinct concerts",
+			existing: []*entity.Concert{
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+			},
+			scraped: []*entity.ScrapedConcert{
+				{Title: "Festival B", ListedVenueName: "Tokyo Dome", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com"},
+			},
+			wantNewConcerts: 1,
+		},
+		{
+			name: "different date, same venue — distinct concerts",
+			existing: []*entity.Concert{
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+			},
+			scraped: []*entity.ScrapedConcert{
+				{Title: "Concert Day 2", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate.AddDate(0, 0, 1), StartTime: &startUTC, SourceURL: "https://example.com"},
+			},
+			wantNewConcerts: 1,
+		},
+		{
+			name: "mixed batch: one matches existing venue+date, one is genuinely new",
+			existing: []*entity.Concert{
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+			},
+			scraped: []*entity.ScrapedConcert{
+				{Title: "Existing Concert", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startJST, SourceURL: "https://example.com/old"},
+				{Title: "New Concert", ListedVenueName: "Tokyo Dome", LocalDate: concertDate.AddDate(0, 0, 7), StartTime: nil, SourceURL: "https://example.com/new"},
+			},
+			wantNewConcerts: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := newConcertTestDeps(t)
+			artistID := "artist-1"
+			artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+
+			// Subscribe BEFORE calling SearchNewConcerts so the GoChannel buffers the message.
+			sub, err := d.publisher.Subscribe(ctx, messaging.SubjectConcertDiscovered)
+			assert.NoError(t, err)
+
+			// Common mock setup: no cache, artist found, no official site.
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(tt.existing, nil).Once()
+			d.searcher.EXPECT().Search(ctx, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(tt.scraped, nil).Once()
+			d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+
+			err = d.uc.SearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err)
+
+			got := receivePublishedConcerts(t, ctx, sub)
+			assert.Equal(t, tt.wantNewConcerts, got,
+				"expected %d new concerts after dedup, got %d", tt.wantNewConcerts, got)
 		})
 	}
 }
