@@ -16,24 +16,29 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      src: ${{ steps.filter.outputs.src }}
+      go: ${{ steps.filter.outputs.go }}
+      schema: ${{ steps.filter.outputs.schema }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
-            src:
+            go:
               - '**/*.go'
               - 'go.mod'
               - 'go.sum'
               - '.golangci.yml'
               - 'Makefile'
               - '.github/workflows/**'
+            schema:
+              - 'internal/infrastructure/database/rdb/schema/schema.sql'
+              - 'scripts/lint-schema.sh'
+              - '.github/workflows/**'
 
   lint:
     needs: changes
-    if: needs.changes.outputs.src == 'true'
+    if: needs.changes.outputs.go == 'true'
     name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -53,19 +58,38 @@ jobs:
 
   lint-skip:
     needs: changes
-    if: needs.changes.outputs.src == 'false'
+    if: needs.changes.outputs.go == 'false'
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - run: echo "No relevant changes, skipping lint"
 
+  schema-lint:
+    needs: changes
+    if: needs.changes.outputs.schema == 'true'
+    name: Schema Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run make lint-schema
+        run: make lint-schema
+
+  schema-lint-skip:
+    needs: changes
+    if: needs.changes.outputs.schema == 'false'
+    name: Schema Lint
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "No relevant changes, skipping schema lint"
+
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [changes, lint, lint-skip]
+    needs: [changes, lint, lint-skip, schema-lint, schema-lint-skip]
     if: always()
     steps:
       - uses: re-actors/alls-green@release/v1
         with:
-          allowed-skips: lint, lint-skip
+          allowed-skips: lint, lint-skip, schema-lint, schema-lint-skip
           jobs: ${{ toJSON(needs) }}

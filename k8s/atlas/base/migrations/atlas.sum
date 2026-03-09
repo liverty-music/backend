@@ -1,4 +1,4 @@
-h1:pq1ikkztPc6eG1yvQdQWsS719pJG+REzw93GNZ/8Dfc=
+h1:cOJhGpYJWrLLPsP2touaniy7alYY/WCKtHg1EECGTHs=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -34,3 +34,4 @@ h1:pq1ikkztPc6eG1yvQdQWsS719pJG+REzw93GNZ/8Dfc=
 20260304014801_add_search_log_status.sql h1:DBbGCjP6nD3kmR7MNJoLhzo46bkf1wb3Ekbc4km7PS4=
 20260304014802_add_home_to_users.sql h1:p55SP+Ii7pHaLM7Z40khyjv7O3gQCaykwODUtzTfkNE=
 20260304014803_normalize_venue_admin_area.sql h1:nrROPKZvS9tSof9c8hwsbonwFY0eCkr7EBJSSrabyWU=
+20260309034346_fix_homes_table_schema.sql h1:eDbXv2xka7YVqNEqkH9MRLYtTDux6IEkGZg002JKYUU=

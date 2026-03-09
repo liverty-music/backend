@@ -71,8 +71,7 @@ const (
 		ON CONFLICT (user_id) DO UPDATE SET
 			country_code = EXCLUDED.country_code,
 			level_1 = EXCLUDED.level_1,
-			level_2 = EXCLUDED.level_2,
-			updated_at = now()
+			level_2 = EXCLUDED.level_2
 		RETURNING id
 	`
 

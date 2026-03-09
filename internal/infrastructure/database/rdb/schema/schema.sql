@@ -37,11 +37,12 @@ COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes
 CREATE TABLE IF NOT EXISTS homes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    country_code VARCHAR(2) NOT NULL,
-    level_1 VARCHAR(6) NOT NULL,
-    level_2 VARCHAR(20),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    country_code TEXT NOT NULL,
+    level_1 TEXT NOT NULL,
+    level_2 TEXT,
+    CONSTRAINT chk_homes_country_code_length CHECK (char_length(country_code) = 2),
+    CONSTRAINT chk_homes_level_1_length CHECK (char_length(level_1) BETWEEN 2 AND 6),
+    CONSTRAINT chk_homes_level_2_length CHECK (level_2 IS NULL OR char_length(level_2) <= 20)
 );
 
 ALTER TABLE users ADD CONSTRAINT fk_users_home_id FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE SET NULL;
@@ -57,7 +58,8 @@ COMMENT ON COLUMN homes.level_2 IS 'Optional finer-grained area code. Code syste
 CREATE TABLE IF NOT EXISTS artists (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     name TEXT NOT NULL,
-    mbid VARCHAR(36)
+    mbid TEXT,
+    CONSTRAINT chk_artists_mbid_format CHECK (mbid IS NULL OR char_length(mbid) = 36)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_artists_mbid ON artists(mbid) WHERE mbid IS NOT NULL AND mbid != '';
@@ -176,8 +178,12 @@ CREATE TABLE IF NOT EXISTS tickets (
 );
 
 COMMENT ON TABLE tickets IS 'Soulbound Ticket (ERC-5192) ownership records linking users to event tokens on-chain';
+COMMENT ON COLUMN tickets.id IS 'Unique ticket identifier (UUIDv7)';
+COMMENT ON COLUMN tickets.event_id IS 'Reference to the event this ticket grants entry to';
+COMMENT ON COLUMN tickets.user_id IS 'Reference to the ticket holder';
 COMMENT ON COLUMN tickets.token_id IS 'On-chain ERC-721 token ID minted on Base Sepolia';
 COMMENT ON COLUMN tickets.tx_hash IS 'Blockchain transaction hash of the mint operation';
+COMMENT ON COLUMN tickets.minted_at IS 'Timestamp when the ticket was minted on-chain';
 
 -- Merkle tree nodes table for ZKP identity set per event
 CREATE TABLE IF NOT EXISTS merkle_tree (
@@ -192,6 +198,7 @@ CREATE TABLE IF NOT EXISTS merkle_tree (
 );
 
 COMMENT ON TABLE merkle_tree IS 'Merkle tree nodes for ZKP identity set per event; canonical tree maintained by backend';
+COMMENT ON COLUMN merkle_tree.event_id IS 'Reference to the event this Merkle tree belongs to';
 COMMENT ON COLUMN merkle_tree.depth IS 'Tree depth level (0 = leaves, max = root)';
 COMMENT ON COLUMN merkle_tree.node_index IS 'Node position at the given depth level';
 COMMENT ON COLUMN merkle_tree.hash IS 'Poseidon hash value of the node';
@@ -206,7 +213,10 @@ CREATE TABLE IF NOT EXISTS nullifiers (
 );
 
 COMMENT ON TABLE nullifiers IS 'Used ZKP nullifier hashes for preventing double entry at events';
+COMMENT ON COLUMN nullifiers.id IS 'Unique nullifier record identifier (UUIDv7)';
+COMMENT ON COLUMN nullifiers.event_id IS 'Reference to the event this nullifier was used at';
 COMMENT ON COLUMN nullifiers.nullifier_hash IS 'The nullifier hash from the ZK proof; unique per event to prevent reuse';
+COMMENT ON COLUMN nullifiers.used_at IS 'Timestamp when the nullifier was consumed for event entry';
 
 -- Push subscriptions table
 CREATE TABLE IF NOT EXISTS push_subscriptions (
