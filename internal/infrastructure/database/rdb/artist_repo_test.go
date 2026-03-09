@@ -18,10 +18,10 @@ func TestArtistRepository_Create(t *testing.T) {
 	// Pre-build reusable inputs so we can reference their generated IDs in want.
 	beatles := entity.NewArtist("The Beatles", "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d")
 	unknown := entity.NewArtist("Unknown Artist", "")
-	bulkA := entity.NewArtist("Artist A", "aaaa-1111")
-	bulkB := entity.NewArtist("Artist B", "bbbb-2222")
-	bulkC := entity.NewArtist("Artist C", "cccc-3333")
-	withMBID := entity.NewArtist("With MBID", "mixed-mbid-001")
+	bulkA := entity.NewArtist("Artist A", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaa111")
+	bulkB := entity.NewArtist("Artist B", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb222")
+	bulkC := entity.NewArtist("Artist C", "cccccccc-cccc-cccc-cccc-ccccccccc333")
+	withMBID := entity.NewArtist("With MBID", "dddddddd-dddd-dddd-dddd-ddddddddd001")
 	noMBID1 := entity.NewArtist("Without MBID 1", "")
 	noMBID2 := entity.NewArtist("Without MBID 2", "")
 	presetID := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4900", Name: "Pre-set ID Artist"}
@@ -77,11 +77,11 @@ func TestArtistRepository_Create(t *testing.T) {
 			name: "duplicate MBID returns original artist",
 			setup: func() {
 				cleanDatabase()
-				_, err := repo.Create(ctx, entity.NewArtist("Original Name", "dedup-mbid-001"))
+				_, err := repo.Create(ctx, entity.NewArtist("Original Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001"))
 				require.NoError(t, err)
 			},
-			args: args{artists: []*entity.Artist{entity.NewArtist("Different Name", "dedup-mbid-001")}},
-			want: []*entity.Artist{{Name: "Original Name", MBID: "dedup-mbid-001"}},
+			args: args{artists: []*entity.Artist{entity.NewArtist("Different Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001")}},
+			want: []*entity.Artist{{Name: "Original Name", MBID: "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001"}},
 		},
 		{
 			// Regression: nil elements in the variadic slice must be skipped without panicking.
@@ -98,15 +98,15 @@ func TestArtistRepository_Create(t *testing.T) {
 			setup: cleanDatabase,
 			args: args{artists: []*entity.Artist{
 				entity.NewArtist("First no-MBID", ""),
-				entity.NewArtist("Second with MBID", "order-mbid-001"),
+				entity.NewArtist("Second with MBID", "ffffffff-ffff-ffff-ffff-fffffford001"),
 				entity.NewArtist("Third no-MBID", ""),
-				entity.NewArtist("Fourth with MBID", "order-mbid-002"),
+				entity.NewArtist("Fourth with MBID", "ffffffff-ffff-ffff-ffff-fffffford002"),
 			}},
 			want: []*entity.Artist{
 				{Name: "First no-MBID", MBID: ""},
-				{Name: "Second with MBID", MBID: "order-mbid-001"},
+				{Name: "Second with MBID", MBID: "ffffffff-ffff-ffff-ffff-fffffford001"},
 				{Name: "Third no-MBID", MBID: ""},
-				{Name: "Fourth with MBID", MBID: "order-mbid-002"},
+				{Name: "Fourth with MBID", MBID: "ffffffff-ffff-ffff-ffff-fffffford002"},
 			},
 		},
 	}
@@ -155,28 +155,28 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 			setup: func() {
 				cleanDatabase()
 				_, err := repo.Create(ctx,
-					entity.NewArtist("Artist A", "mbid-aaa"),
-					entity.NewArtist("Artist B", "mbid-bbb"),
-					entity.NewArtist("Artist C", "mbid-ccc"),
+					entity.NewArtist("Artist A", "11111111-1111-1111-1111-11111111a001"),
+					entity.NewArtist("Artist B", "22222222-2222-2222-2222-22222222b002"),
+					entity.NewArtist("Artist C", "33333333-3333-3333-3333-33333333c003"),
 				)
 				require.NoError(t, err)
 			},
-			mbids: []string{"mbid-ccc", "mbid-aaa"},
+			mbids: []string{"33333333-3333-3333-3333-33333333c003", "11111111-1111-1111-1111-11111111a001"},
 			want: []*entity.Artist{
-				{Name: "Artist C", MBID: "mbid-ccc"},
-				{Name: "Artist A", MBID: "mbid-aaa"},
+				{Name: "Artist C", MBID: "33333333-3333-3333-3333-33333333c003"},
+				{Name: "Artist A", MBID: "11111111-1111-1111-1111-11111111a001"},
 			},
 		},
 		{
 			name: "unknown MBIDs are silently skipped",
 			setup: func() {
 				cleanDatabase()
-				_, err := repo.Create(ctx, entity.NewArtist("Known", "mbid-known"))
+				_, err := repo.Create(ctx, entity.NewArtist("Known", "44444444-4444-4444-4444-444444known1"))
 				require.NoError(t, err)
 			},
-			mbids: []string{"mbid-known", "mbid-unknown"},
+			mbids: []string{"44444444-4444-4444-4444-444444known1", "55555555-5555-5555-5555-5555unknown1"},
 			want: []*entity.Artist{
-				{Name: "Known", MBID: "mbid-known"},
+				{Name: "Known", MBID: "44444444-4444-4444-4444-444444known1"},
 			},
 		},
 		{
@@ -190,7 +190,7 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 			setup: func() {
 				cleanDatabase()
 			},
-			mbids: []string{"mbid-nonexistent"},
+			mbids: []string{"66666666-6666-6666-6666-666nonexist1"},
 			want:  []*entity.Artist{},
 		},
 	}
@@ -233,7 +233,7 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 			name: "updates name successfully",
 			setup: func() string {
 				cleanDatabase()
-				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "update-mbid-001"))
+				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "77777777-7777-7777-7777-77update0001"))
 				require.NoError(t, err)
 				return created[0].ID
 			},

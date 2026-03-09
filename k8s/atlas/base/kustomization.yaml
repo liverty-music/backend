@@ -48,3 +48,4 @@ configMapGenerator:
   - migrations/20260304014801_add_search_log_status.sql
   - migrations/20260304014802_add_home_to_users.sql
   - migrations/20260304014803_normalize_venue_admin_area.sql
+  - migrations/20260309034346_fix_homes_table_schema.sql
