@@ -36,24 +36,39 @@ func newID() string {
 	return id.String()
 }
 
-// PassionLevel represents the user's enthusiasm tier for a followed artist.
-type PassionLevel string
+// Hype represents the user's enthusiasm tier for a followed artist.
+// Values are ordered by ascending enthusiasm: Watch (lowest) to Anywhere (highest).
+type Hype string
 
 const (
-	// PassionLevelMustGo indicates the user will travel anywhere for this artist.
-	PassionLevelMustGo PassionLevel = "must_go"
-	// PassionLevelLocalOnly indicates interest in local events only (default).
-	PassionLevelLocalOnly PassionLevel = "local_only"
-	// PassionLevelKeepAnEye indicates dashboard-only display, no push notifications.
-	PassionLevelKeepAnEye PassionLevel = "keep_an_eye"
+	// HypeWatch indicates dashboard-only display, no push notifications.
+	HypeWatch Hype = "watch"
+	// HypeHome indicates notifications only for concerts in the user's home area.
+	HypeHome Hype = "home"
+	// HypeNearby is reserved for Phase 2 (physical distance based proximity).
+	HypeNearby Hype = "nearby"
+	// HypeAnywhere indicates notifications for all concerts nationwide (default).
+	HypeAnywhere Hype = "anywhere"
 )
 
 // FollowedArtist represents an artist with user-specific follow metadata.
 type FollowedArtist struct {
 	// Artist is the followed artist entity.
 	Artist *Artist
-	// PassionLevel is the user's enthusiasm tier for this artist.
-	PassionLevel PassionLevel
+	// Hype is the user's enthusiasm tier for this artist.
+	Hype Hype
+}
+
+// FollowerWithHype represents a follower's user ID, hype level, and home area
+// for notification filtering decisions.
+type FollowerWithHype struct {
+	// UserID is the internal UUID of the follower.
+	UserID string
+	// Hype is the follower's enthusiasm tier for the artist.
+	Hype Hype
+	// HomeLevel1 is the ISO 3166-2 subdivision code of the user's home area.
+	// Empty when the user has not set a home area.
+	HomeLevel1 string
 }
 
 // OfficialSite represents the verified official website or media link for an artist.
@@ -158,16 +173,16 @@ type ArtistRepository interface {
 	//   - Internal: database execution failure.
 	Unfollow(ctx context.Context, userID, artistID string) error
 
-	// SetPassionLevel updates the enthusiasm tier for a followed artist.
+	// SetHype updates the enthusiasm tier for a followed artist.
 	//
 	// # Possible errors:
 	//
 	//   - NotFound: the user is not following the specified artist.
 	//   - Internal: database execution failure.
-	SetPassionLevel(ctx context.Context, userID, artistID string, level PassionLevel) error
+	SetHype(ctx context.Context, userID, artistID string, hype Hype) error
 
 	// ListFollowed retrieves all artists followed by a specific user,
-	// enriched with per-user passion level metadata.
+	// enriched with per-user hype metadata.
 	//
 	// # Possible errors:
 	//
@@ -188,6 +203,15 @@ type ArtistRepository interface {
 	//
 	//   - Internal: database query failure.
 	ListFollowers(ctx context.Context, artistID string) ([]*User, error)
+
+	// ListFollowersWithHype retrieves all followers of an artist along with their
+	// hype level and home area for notification filtering decisions.
+	// Returns an empty slice (no error) when no users follow the artist.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListFollowersWithHype(ctx context.Context, artistID string) ([]*FollowerWithHype, error)
 }
 
 // ArtistSearcher defines discovery operations for finding artists in external catalogs.
