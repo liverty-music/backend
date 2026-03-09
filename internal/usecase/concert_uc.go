@@ -247,11 +247,11 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 	existingHasNilStart := make(map[string]bool) // date|venue keys where existing start_at is nil
 
 	for _, ex := range existing {
-		if ex.Event.ListedVenueName == nil {
+		if ex.ListedVenueName == nil {
 			// Legacy rows without listed_venue_name cannot participate in dedup.
 			continue
 		}
-		venue := *ex.Event.ListedVenueName
+		venue := *ex.ListedVenueName
 		dvKey := dateVenueKey(ex.LocalDate, venue)
 		seenDateVenue[dvKey] = true
 		if ex.StartTime == nil {

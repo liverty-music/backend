@@ -323,9 +323,6 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 // strPtr returns a pointer to the given string. Test helper.
 func strPtr(s string) *string { return &s }
 
-// timePtr returns a pointer to the given time. Test helper.
-func timePtr(t time.Time) *time.Time { return &t }
-
 // receivePublishedConcerts subscribes to the concert.discovered topic and
 // returns the number of new concerts in the published event, or 0 if nothing
 // was published within the timeout.
