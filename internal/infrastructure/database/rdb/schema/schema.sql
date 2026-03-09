@@ -116,10 +116,12 @@ CREATE TABLE IF NOT EXISTS events (
     start_at TIMESTAMPTZ,
     open_at TIMESTAMPTZ,
     source_url TEXT,
-    merkle_root BYTEA
+    merkle_root BYTEA,
+    CONSTRAINT uq_events_natural_key UNIQUE NULLS NOT DISTINCT (venue_id, local_event_date, start_at)
 );
 
 COMMENT ON TABLE events IS 'Generic event data including time, location, and metadata';
+COMMENT ON CONSTRAINT uq_events_natural_key ON events IS 'Prevents duplicate events at the same venue, date, and start time. NULLS NOT DISTINCT treats two NULL start_at values as equal.';
 COMMENT ON COLUMN events.id IS 'Unique event identifier (UUIDv7)';
 COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
 COMMENT ON COLUMN events.title IS 'Event title as displayed to users';
