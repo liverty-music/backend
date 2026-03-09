@@ -38,7 +38,7 @@ check_serial() {
 # ── Check 2: bare TIMESTAMP (not TIMESTAMPTZ) ─────────────────────────
 check_timestamp() {
   local hits
-  hits=$(grep -nE '\bTIMESTAMP\b' "$SCHEMA" || true)
+  hits=$(grep -nP '\bTIMESTAMP\b(?!\s+WITH\s+TIME\s+ZONE)' "$SCHEMA" || true)
   if [ -n "$hits" ]; then
     echo "FAIL: bare TIMESTAMP detected (use TIMESTAMPTZ instead):" >&2
     echo "$hits" >&2
