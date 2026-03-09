@@ -14,14 +14,22 @@ type ConcertRepository struct {
 }
 
 const (
-	insertEventsUnnestQuery = `
+	upsertEventsQuery = `
 		INSERT INTO events (id, venue_id, title, listed_venue_name, local_event_date, start_at, open_at, source_url)
 		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::date[], $6::timestamptz[], $7::timestamptz[], $8::text[])
-		ON CONFLICT DO NOTHING
+		ON CONFLICT ON CONSTRAINT uq_events_natural_key DO UPDATE SET
+			start_at = COALESCE(EXCLUDED.start_at, events.start_at),
+			open_at  = COALESCE(EXCLUDED.open_at, events.open_at)
 	`
-	insertConcertsUnnestQuery = `
+	// insertConcertsQuery inserts concert rows only for events that were actually
+	// inserted (not UPSERTed). The WHERE EXISTS check filters out input UUIDs that
+	// don't exist in the events table — this happens when a natural-key conflict
+	// caused the UPSERT to update an existing row whose id differs from the input.
+	insertConcertsQuery = `
 		INSERT INTO concerts (event_id, artist_id)
-		SELECT * FROM unnest($1::uuid[], $2::uuid[])
+		SELECT a.input_id, a.artist_id
+		FROM unnest($1::uuid[], $2::uuid[]) AS a(input_id, artist_id)
+		WHERE EXISTS (SELECT 1 FROM events e WHERE e.id = a.input_id)
 		ON CONFLICT DO NOTHING
 	`
 	listConcertsByArtistQuery = `
@@ -114,6 +122,11 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) (
 
 // Create creates one or more concerts in the database within a single transaction.
 // Uses PostgreSQL unnest for bulk inserts — no parameter limit, single statement per table.
+//
+// The events INSERT uses UPSERT on the natural key (venue_id, local_event_date, start_at).
+// On conflict, only NULL time fields are filled via COALESCE — existing non-NULL values
+// are preserved. The concerts INSERT uses WHERE EXISTS to skip rows whose input UUID
+// was not inserted into events (i.e., the event already existed with a different id).
 func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) error {
 	if len(concerts) == 0 {
 		return nil
@@ -161,12 +174,12 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, insertEventsUnnestQuery, eventIDs, venueIDs, titles, listedVenueNames, eventDates, startTimes, openTimes, sourceURLs); err != nil {
-		return toAppErr(err, "failed to bulk insert events", slog.Int("count", n))
+	if _, err := tx.Exec(ctx, upsertEventsQuery, eventIDs, venueIDs, titles, listedVenueNames, eventDates, startTimes, openTimes, sourceURLs); err != nil {
+		return toAppErr(err, "failed to upsert events", slog.Int("count", n))
 	}
 
-	if _, err := tx.Exec(ctx, insertConcertsUnnestQuery, eventIDs, artistIDs); err != nil {
-		return toAppErr(err, "failed to bulk insert concerts", slog.Int("count", n))
+	if _, err := tx.Exec(ctx, insertConcertsQuery, eventIDs, artistIDs); err != nil {
+		return toAppErr(err, "failed to insert concerts", slog.Int("count", n))
 	}
 
 	if err := tx.Commit(ctx); err != nil {
