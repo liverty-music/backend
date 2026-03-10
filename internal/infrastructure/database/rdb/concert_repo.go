@@ -50,7 +50,7 @@ const (
 	`
 	listConcertsByFollowerQuery = `
 		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
-		       v.id, v.name, v.admin_area
+		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM concerts c
 		JOIN events e ON c.event_id = e.id
 		JOIN venues v ON e.venue_id = v.id
@@ -96,6 +96,7 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 }
 
 // ListByFollower retrieves all concerts for artists followed by the given user.
+// Venue latitude and longitude are included for proximity classification.
 func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error) {
 	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID)
 	if err != nil {
@@ -109,7 +110,7 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) (
 		var venue entity.Venue
 		err := rows.Scan(
 			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
-			&venue.ID, &venue.Name, &venue.AdminArea,
+			&venue.ID, &venue.Name, &venue.AdminArea, &venue.Latitude, &venue.Longitude,
 		)
 		if err != nil {
 			return nil, toAppErr(err, "failed to scan concert")
