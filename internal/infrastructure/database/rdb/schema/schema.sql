@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS venues (
     google_place_id TEXT,
     enrichment_status venue_enrichment_status NOT NULL DEFAULT 'pending',
     raw_name TEXT NOT NULL,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
     CONSTRAINT chk_venues_name_not_empty CHECK (name <> ''),
     CONSTRAINT chk_venues_raw_name_not_empty CHECK (raw_name <> '')
 );
@@ -105,6 +107,8 @@ COMMENT ON COLUMN venues.mbid IS 'MusicBrainz Place ID (UUID format) for the can
 COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID for the canonical venue record; NULL until enriched';
 COMMENT ON COLUMN venues.enrichment_status IS 'Current state of the venue normalization pipeline: pending (default), enriched, or failed';
 COMMENT ON COLUMN venues.raw_name IS 'Original scraper-provided venue name before canonical renaming; backfilled from name on migration';
+COMMENT ON COLUMN venues.latitude IS 'WGS 84 latitude of the venue, populated during enrichment from MusicBrainz or Google Places; NULL until enriched';
+COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude of the venue, populated during enrichment from MusicBrainz or Google Places; NULL until enriched';
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (

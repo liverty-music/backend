@@ -51,3 +51,4 @@ configMapGenerator:
   - migrations/20260309034346_fix_homes_table_schema.sql
   - migrations/20260309171009_fix_concert_dedup.sql
   - migrations/20260310000000_rename_passion_level_to_hype.sql
+  - migrations/20260310151949_add_venue_coordinates.sql
