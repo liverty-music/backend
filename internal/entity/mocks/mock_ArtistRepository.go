@@ -660,17 +660,76 @@ func (_c *MockArtistRepository_ListFollowers_Call) RunAndReturn(run func(context
 	return _c
 }
 
-// SetPassionLevel provides a mock function with given fields: ctx, userID, artistID, level
-func (_m *MockArtistRepository) SetPassionLevel(ctx context.Context, userID string, artistID string, level entity.PassionLevel) error {
-	ret := _m.Called(ctx, userID, artistID, level)
+// ListFollowersWithHype provides a mock function with given fields: ctx, artistID
+func (_m *MockArtistRepository) ListFollowersWithHype(ctx context.Context, artistID string) ([]*entity.FollowerWithHype, error) {
+	ret := _m.Called(ctx, artistID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SetPassionLevel")
+		panic("no return value specified for ListFollowersWithHype")
+	}
+
+	var r0 []*entity.FollowerWithHype
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.FollowerWithHype, error)); ok {
+		return rf(ctx, artistID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.FollowerWithHype); ok {
+		r0 = rf(ctx, artistID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.FollowerWithHype)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, artistID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockArtistRepository_ListFollowersWithHype_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListFollowersWithHype'
+type MockArtistRepository_ListFollowersWithHype_Call struct {
+	*mock.Call
+}
+
+// ListFollowersWithHype is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockArtistRepository_Expecter) ListFollowersWithHype(ctx interface{}, artistID interface{}) *MockArtistRepository_ListFollowersWithHype_Call {
+	return &MockArtistRepository_ListFollowersWithHype_Call{Call: _e.mock.On("ListFollowersWithHype", ctx, artistID)}
+}
+
+func (_c *MockArtistRepository_ListFollowersWithHype_Call) Run(run func(ctx context.Context, artistID string)) *MockArtistRepository_ListFollowersWithHype_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_ListFollowersWithHype_Call) Return(_a0 []*entity.FollowerWithHype, _a1 error) *MockArtistRepository_ListFollowersWithHype_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockArtistRepository_ListFollowersWithHype_Call) RunAndReturn(run func(context.Context, string) ([]*entity.FollowerWithHype, error)) *MockArtistRepository_ListFollowersWithHype_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetHype provides a mock function with given fields: ctx, userID, artistID, hype
+func (_m *MockArtistRepository) SetHype(ctx context.Context, userID string, artistID string, hype entity.Hype) error {
+	ret := _m.Called(ctx, userID, artistID, hype)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetHype")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.PassionLevel) error); ok {
-		r0 = rf(ctx, userID, artistID, level)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.Hype) error); ok {
+		r0 = rf(ctx, userID, artistID, hype)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -678,33 +737,33 @@ func (_m *MockArtistRepository) SetPassionLevel(ctx context.Context, userID stri
 	return r0
 }
 
-// MockArtistRepository_SetPassionLevel_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPassionLevel'
-type MockArtistRepository_SetPassionLevel_Call struct {
+// MockArtistRepository_SetHype_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetHype'
+type MockArtistRepository_SetHype_Call struct {
 	*mock.Call
 }
 
-// SetPassionLevel is a helper method to define mock.On call
+// SetHype is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID string
 //   - artistID string
-//   - level entity.PassionLevel
-func (_e *MockArtistRepository_Expecter) SetPassionLevel(ctx interface{}, userID interface{}, artistID interface{}, level interface{}) *MockArtistRepository_SetPassionLevel_Call {
-	return &MockArtistRepository_SetPassionLevel_Call{Call: _e.mock.On("SetPassionLevel", ctx, userID, artistID, level)}
+//   - hype entity.Hype
+func (_e *MockArtistRepository_Expecter) SetHype(ctx interface{}, userID interface{}, artistID interface{}, hype interface{}) *MockArtistRepository_SetHype_Call {
+	return &MockArtistRepository_SetHype_Call{Call: _e.mock.On("SetHype", ctx, userID, artistID, hype)}
 }
 
-func (_c *MockArtistRepository_SetPassionLevel_Call) Run(run func(ctx context.Context, userID string, artistID string, level entity.PassionLevel)) *MockArtistRepository_SetPassionLevel_Call {
+func (_c *MockArtistRepository_SetHype_Call) Run(run func(ctx context.Context, userID string, artistID string, hype entity.Hype)) *MockArtistRepository_SetHype_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.PassionLevel))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.Hype))
 	})
 	return _c
 }
 
-func (_c *MockArtistRepository_SetPassionLevel_Call) Return(_a0 error) *MockArtistRepository_SetPassionLevel_Call {
+func (_c *MockArtistRepository_SetHype_Call) Return(_a0 error) *MockArtistRepository_SetHype_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockArtistRepository_SetPassionLevel_Call) RunAndReturn(run func(context.Context, string, string, entity.PassionLevel) error) *MockArtistRepository_SetPassionLevel_Call {
+func (_c *MockArtistRepository_SetHype_Call) RunAndReturn(run func(context.Context, string, string, entity.Hype) error) *MockArtistRepository_SetHype_Call {
 	_c.Call.Return(run)
 	return _c
 }

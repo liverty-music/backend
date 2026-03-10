@@ -163,8 +163,8 @@ func (h *ArtistHandler) ListFollowed(ctx context.Context, req *connect.Request[r
 	}), nil
 }
 
-// SetPassionLevel updates the user's enthusiasm tier for a followed artist.
-func (h *ArtistHandler) SetPassionLevel(ctx context.Context, req *connect.Request[rpc.SetPassionLevelRequest]) (*connect.Response[rpc.SetPassionLevelResponse], error) {
+// SetHype updates the user's enthusiasm tier for a followed artist.
+func (h *ArtistHandler) SetHype(ctx context.Context, req *connect.Request[rpc.SetHypeRequest]) (*connect.Response[rpc.SetHypeResponse], error) {
 	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
@@ -174,17 +174,17 @@ func (h *ArtistHandler) SetPassionLevel(ctx context.Context, req *connect.Reques
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
 	}
 
-	level, ok := mapper.PassionLevelFromProto[req.Msg.PassionLevel]
+	hype, ok := mapper.HypeFromProto[req.Msg.Hype]
 	if !ok {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid passion level"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid hype level"))
 	}
 
-	err := h.artistUseCase.SetPassionLevel(ctx, userID, req.Msg.ArtistId.Value, level)
+	err := h.artistUseCase.SetHype(ctx, userID, req.Msg.ArtistId.Value, hype)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.SetPassionLevelResponse{}), nil
+	return connect.NewResponse(&rpc.SetHypeResponse{}), nil
 }
 
 // ListSimilar retrieves a collection of artists with musical affinity to a target artist.

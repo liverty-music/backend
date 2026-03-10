@@ -177,8 +177,15 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 	ctx := context.Background()
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
-	concerts := []*entity.Concert{
-		{Event: entity.Event{ID: "c1", Title: "Concert 1"}, ArtistID: "artist-1"},
+	tokyoArea := "JP-13"
+	osakaArea := "JP-27"
+	concertsWithVenue := func(adminArea *string) []*entity.Concert {
+		return []*entity.Concert{
+			{
+				Event:    entity.Event{ID: "c1", Title: "Concert 1", Venue: &entity.Venue{AdminArea: adminArea}},
+				ArtistID: "artist-1",
+			},
+		}
 	}
 
 	type args struct {
@@ -194,20 +201,22 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 	}{
 		{
 			name: "return nil when no followers",
-			args: args{artist: artist, concerts: concerts},
+			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				d.artistRepo.EXPECT().ListFollowers(ctx, "artist-1").Return([]*entity.User{}, nil).Once()
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return([]*entity.FollowerWithHype{}, nil).Once()
 			},
 			wantErr: nil,
 		},
 		{
-			name: "return nil when followers have no subscriptions",
-			args: args{artist: artist, concerts: concerts},
+			name: "ANYWHERE follower receives notification",
+			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.User{{ID: "user-1"}}
-				d.artistRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+				followers := []*entity.FollowerWithHype{
+					{UserID: "user-1", Hype: entity.HypeAnywhere},
+				}
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
 					ListByUserIDs(ctx, []string{"user-1"}).
 					Return([]*entity.PushSubscription{}, nil).
@@ -216,21 +225,113 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "return error when ListFollowers fails",
-			args: args{artist: artist, concerts: concerts},
+			name: "WATCH follower is skipped",
+			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				d.artistRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(nil, assert.AnError).Once()
+				followers := []*entity.FollowerWithHype{
+					{UserID: "user-watch", Hype: entity.HypeWatch},
+				}
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				// No ListByUserIDs call expected — all followers filtered out.
+			},
+			wantErr: nil,
+		},
+		{
+			name: "HOME follower receives notification when venue matches home area",
+			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				followers := []*entity.FollowerWithHype{
+					{UserID: "user-home", Hype: entity.HypeHome, HomeLevel1: "JP-13"},
+				}
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.pushSubRepo.EXPECT().
+					ListByUserIDs(ctx, []string{"user-home"}).
+					Return([]*entity.PushSubscription{}, nil).
+					Once()
+			},
+			wantErr: nil,
+		},
+		{
+			name: "HOME follower is skipped when venue does not match home area",
+			args: args{artist: artist, concerts: concertsWithVenue(&osakaArea)},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				followers := []*entity.FollowerWithHype{
+					{UserID: "user-home", Hype: entity.HypeHome, HomeLevel1: "JP-13"},
+				}
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				// No ListByUserIDs call expected — HOME follower filtered out.
+			},
+			wantErr: nil,
+		},
+		{
+			name: "HOME follower is skipped when no home area set",
+			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				followers := []*entity.FollowerWithHype{
+					{UserID: "user-home", Hype: entity.HypeHome, HomeLevel1: ""},
+				}
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				// No ListByUserIDs call expected — no home area set.
+			},
+			wantErr: nil,
+		},
+		{
+			name: "NEARBY follower is treated as ANYWHERE in Phase 1",
+			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				followers := []*entity.FollowerWithHype{
+					{UserID: "user-nearby", Hype: entity.HypeNearby},
+				}
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.pushSubRepo.EXPECT().
+					ListByUserIDs(ctx, []string{"user-nearby"}).
+					Return([]*entity.PushSubscription{}, nil).
+					Once()
+			},
+			wantErr: nil,
+		},
+		{
+			name: "mixed hype levels filter correctly",
+			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				followers := []*entity.FollowerWithHype{
+					{UserID: "user-watch", Hype: entity.HypeWatch},
+					{UserID: "user-home-match", Hype: entity.HypeHome, HomeLevel1: "JP-13"},
+					{UserID: "user-home-nomatch", Hype: entity.HypeHome, HomeLevel1: "JP-27"},
+					{UserID: "user-anywhere", Hype: entity.HypeAnywhere},
+				}
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.pushSubRepo.EXPECT().
+					ListByUserIDs(ctx, []string{"user-home-match", "user-anywhere"}).
+					Return([]*entity.PushSubscription{}, nil).
+					Once()
+			},
+			wantErr: nil,
+		},
+		{
+			name: "return error when ListFollowersWithHype fails",
+			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(nil, assert.AnError).Once()
 			},
 			wantErr: assert.AnError,
 		},
 		{
 			name: "return error when ListByUserIDs fails",
-			args: args{artist: artist, concerts: concerts},
+			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.User{{ID: "user-1"}}
-				d.artistRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+				followers := []*entity.FollowerWithHype{
+					{UserID: "user-1", Hype: entity.HypeAnywhere},
+				}
+				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
 					ListByUserIDs(ctx, []string{"user-1"}).
 					Return(nil, assert.AnError).

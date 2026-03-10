@@ -532,17 +532,17 @@ func (_c *MockArtistUseCase_Search_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
-// SetPassionLevel provides a mock function with given fields: ctx, userID, artistID, level
-func (_m *MockArtistUseCase) SetPassionLevel(ctx context.Context, userID string, artistID string, level entity.PassionLevel) error {
-	ret := _m.Called(ctx, userID, artistID, level)
+// SetHype provides a mock function with given fields: ctx, userID, artistID, hype
+func (_m *MockArtistUseCase) SetHype(ctx context.Context, userID string, artistID string, hype entity.Hype) error {
+	ret := _m.Called(ctx, userID, artistID, hype)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SetPassionLevel")
+		panic("no return value specified for SetHype")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.PassionLevel) error); ok {
-		r0 = rf(ctx, userID, artistID, level)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.Hype) error); ok {
+		r0 = rf(ctx, userID, artistID, hype)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -550,33 +550,33 @@ func (_m *MockArtistUseCase) SetPassionLevel(ctx context.Context, userID string,
 	return r0
 }
 
-// MockArtistUseCase_SetPassionLevel_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPassionLevel'
-type MockArtistUseCase_SetPassionLevel_Call struct {
+// MockArtistUseCase_SetHype_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetHype'
+type MockArtistUseCase_SetHype_Call struct {
 	*mock.Call
 }
 
-// SetPassionLevel is a helper method to define mock.On call
+// SetHype is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID string
 //   - artistID string
-//   - level entity.PassionLevel
-func (_e *MockArtistUseCase_Expecter) SetPassionLevel(ctx interface{}, userID interface{}, artistID interface{}, level interface{}) *MockArtistUseCase_SetPassionLevel_Call {
-	return &MockArtistUseCase_SetPassionLevel_Call{Call: _e.mock.On("SetPassionLevel", ctx, userID, artistID, level)}
+//   - hype entity.Hype
+func (_e *MockArtistUseCase_Expecter) SetHype(ctx interface{}, userID interface{}, artistID interface{}, hype interface{}) *MockArtistUseCase_SetHype_Call {
+	return &MockArtistUseCase_SetHype_Call{Call: _e.mock.On("SetHype", ctx, userID, artistID, hype)}
 }
 
-func (_c *MockArtistUseCase_SetPassionLevel_Call) Run(run func(ctx context.Context, userID string, artistID string, level entity.PassionLevel)) *MockArtistUseCase_SetPassionLevel_Call {
+func (_c *MockArtistUseCase_SetHype_Call) Run(run func(ctx context.Context, userID string, artistID string, hype entity.Hype)) *MockArtistUseCase_SetHype_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.PassionLevel))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.Hype))
 	})
 	return _c
 }
 
-func (_c *MockArtistUseCase_SetPassionLevel_Call) Return(_a0 error) *MockArtistUseCase_SetPassionLevel_Call {
+func (_c *MockArtistUseCase_SetHype_Call) Return(_a0 error) *MockArtistUseCase_SetHype_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockArtistUseCase_SetPassionLevel_Call) RunAndReturn(run func(context.Context, string, string, entity.PassionLevel) error) *MockArtistUseCase_SetPassionLevel_Call {
+func (_c *MockArtistUseCase_SetHype_Call) RunAndReturn(run func(context.Context, string, string, entity.Hype) error) *MockArtistUseCase_SetHype_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -34,18 +34,20 @@ func ArtistsToProto(artists []*entity.Artist) []*entityv1.Artist {
 	return protoArtists
 }
 
-// passionLevelToProto maps a domain PassionLevel to its Protobuf enum value.
-var passionLevelToProto = map[entity.PassionLevel]entityv1.PassionLevel{
-	entity.PassionLevelMustGo:    entityv1.PassionLevel_PASSION_LEVEL_MUST_GO,
-	entity.PassionLevelLocalOnly: entityv1.PassionLevel_PASSION_LEVEL_LOCAL_ONLY,
-	entity.PassionLevelKeepAnEye: entityv1.PassionLevel_PASSION_LEVEL_KEEP_AN_EYE,
+// hypeToProto maps a domain Hype value to its Protobuf HypeType enum value.
+var hypeToProto = map[entity.Hype]entityv1.HypeType{
+	entity.HypeWatch:    entityv1.HypeType_HYPE_TYPE_WATCH,
+	entity.HypeHome:     entityv1.HypeType_HYPE_TYPE_HOME,
+	entity.HypeNearby:   entityv1.HypeType_HYPE_TYPE_NEARBY,
+	entity.HypeAnywhere: entityv1.HypeType_HYPE_TYPE_ANYWHERE,
 }
 
-// PassionLevelFromProto maps a Protobuf PassionLevel enum to its domain value.
-var PassionLevelFromProto = map[entityv1.PassionLevel]entity.PassionLevel{
-	entityv1.PassionLevel_PASSION_LEVEL_MUST_GO:     entity.PassionLevelMustGo,
-	entityv1.PassionLevel_PASSION_LEVEL_LOCAL_ONLY:  entity.PassionLevelLocalOnly,
-	entityv1.PassionLevel_PASSION_LEVEL_KEEP_AN_EYE: entity.PassionLevelKeepAnEye,
+// HypeFromProto maps a Protobuf HypeType enum to its domain Hype value.
+var HypeFromProto = map[entityv1.HypeType]entity.Hype{
+	entityv1.HypeType_HYPE_TYPE_WATCH:    entity.HypeWatch,
+	entityv1.HypeType_HYPE_TYPE_HOME:     entity.HypeHome,
+	entityv1.HypeType_HYPE_TYPE_NEARBY:   entity.HypeNearby,
+	entityv1.HypeType_HYPE_TYPE_ANYWHERE: entity.HypeAnywhere,
 }
 
 // FollowedArtistToProto maps a domain FollowedArtist to its Protobuf wire representation.
@@ -54,8 +56,8 @@ func FollowedArtistToProto(fa *entity.FollowedArtist) *rpcv1.FollowedArtist {
 		return nil
 	}
 	return &rpcv1.FollowedArtist{
-		Artist:       ArtistToProto(fa.Artist),
-		PassionLevel: passionLevelToProto[fa.PassionLevel],
+		Artist: ArtistToProto(fa.Artist),
+		Hype:   hypeToProto[fa.Hype],
 	}
 }
 

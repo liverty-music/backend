@@ -75,13 +75,13 @@ const (
 		DELETE FROM followed_artists
 		WHERE user_id = $1 AND artist_id = $2
 	`
-	setPassionLevelQuery = `
+	setHypeQuery = `
 		UPDATE followed_artists
-		SET passion_level = $3
+		SET hype = $3
 		WHERE user_id = $1 AND artist_id = $2
 	`
 	listFollowedQuery = `
-		SELECT a.id, a.name, COALESCE(a.mbid, ''), fa.passion_level
+		SELECT a.id, a.name, COALESCE(a.mbid, ''), fa.hype
 		FROM artists a
 		JOIN followed_artists fa ON a.id = fa.artist_id
 		WHERE fa.user_id = $1
@@ -98,6 +98,13 @@ const (
 		SELECT u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active
 		FROM users u
 		JOIN followed_artists fa ON fa.user_id = u.id
+		WHERE fa.artist_id = $1
+	`
+	listFollowersWithHypeQuery = `
+		SELECT fa.user_id, fa.hype, COALESCE(h.level_1, '')
+		FROM followed_artists fa
+		JOIN users u ON u.id = fa.user_id
+		LEFT JOIN homes h ON h.id = u.home_id
 		WHERE fa.artist_id = $1
 	`
 )
@@ -363,26 +370,26 @@ func (r *ArtistRepository) Unfollow(ctx context.Context, userID, artistID string
 	return nil
 }
 
-// SetPassionLevel updates the enthusiasm tier for a followed artist.
-func (r *ArtistRepository) SetPassionLevel(ctx context.Context, userID, artistID string, level entity.PassionLevel) error {
-	tag, err := r.db.Pool.Exec(ctx, setPassionLevelQuery, userID, artistID, string(level))
+// SetHype updates the enthusiasm tier for a followed artist.
+func (r *ArtistRepository) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
+	tag, err := r.db.Pool.Exec(ctx, setHypeQuery, userID, artistID, string(hype))
 	if err != nil {
-		return toAppErr(err, "failed to set passion level", slog.String("user_id", userID), slog.String("artist_id", artistID))
+		return toAppErr(err, "failed to set hype", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	}
 	if tag.RowsAffected() == 0 {
 		return apperr.New(codes.NotFound, "follow relationship not found")
 	}
 
-	r.db.logger.Info(ctx, "passion level updated",
+	r.db.logger.Info(ctx, "hype updated",
 		slog.String("entityType", "followed_artists"),
 		slog.String("userID", userID),
 		slog.String("artistID", artistID),
-		slog.String("level", string(level)),
+		slog.String("hype", string(hype)),
 	)
 	return nil
 }
 
-// ListFollowed retrieves the list of artists followed by a user, including passion level.
+// ListFollowed retrieves the list of artists followed by a user, including hype level.
 func (r *ArtistRepository) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
 	rows, err := r.db.Pool.Query(ctx, listFollowedQuery, userID)
 	if err != nil {
@@ -393,13 +400,13 @@ func (r *ArtistRepository) ListFollowed(ctx context.Context, userID string) ([]*
 	var followed []*entity.FollowedArtist
 	for rows.Next() {
 		var a entity.Artist
-		var level string
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &level); err != nil {
+		var hype string
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &hype); err != nil {
 			return nil, toAppErr(err, "failed to scan followed artist")
 		}
 		followed = append(followed, &entity.FollowedArtist{
-			Artist:       &a,
-			PassionLevel: entity.PassionLevel(level),
+			Artist: &a,
+			Hype:   entity.Hype(hype),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -454,4 +461,28 @@ func (r *ArtistRepository) ListFollowers(ctx context.Context, artistID string) (
 		return nil, toAppErr(err, "error iterating follower rows")
 	}
 	return users, nil
+}
+
+// ListFollowersWithHype retrieves all followers of an artist with their hype level and home area.
+func (r *ArtistRepository) ListFollowersWithHype(ctx context.Context, artistID string) ([]*entity.FollowerWithHype, error) {
+	rows, err := r.db.Pool.Query(ctx, listFollowersWithHypeQuery, artistID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list followers with hype", slog.String("artist_id", artistID))
+	}
+	defer rows.Close()
+
+	var followers []*entity.FollowerWithHype
+	for rows.Next() {
+		var f entity.FollowerWithHype
+		var hype string
+		if err := rows.Scan(&f.UserID, &hype, &f.HomeLevel1); err != nil {
+			return nil, toAppErr(err, "failed to scan follower with hype row")
+		}
+		f.Hype = entity.Hype(hype)
+		followers = append(followers, &f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating follower with hype rows")
+	}
+	return followers, nil
 }
