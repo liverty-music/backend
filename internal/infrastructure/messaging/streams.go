@@ -154,6 +154,9 @@ func connectWithRetry(ctx context.Context, url string) (*nats.Conn, error) {
 	}
 
 	// Final attempt after exhausting backoff schedule.
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w (after %d attempts, last: %w)", context.Cause(ctx), len(connectBackoff), lastErr)
+	}
 	nc, err := nats.Connect(url,
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(time.Second),
