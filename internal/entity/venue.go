@@ -33,6 +33,12 @@ type Venue struct {
 	// GooglePlaceID is the Google Maps Place ID for the canonical venue record.
 	// Nil until the venue has been successfully enriched via Google Maps.
 	GooglePlaceID *string
+	// Latitude is the WGS 84 latitude of the venue.
+	// Nil until the venue has been successfully enriched with geographic coordinates.
+	Latitude *float64
+	// Longitude is the WGS 84 longitude of the venue.
+	// Nil until the venue has been successfully enriched with geographic coordinates.
+	Longitude *float64
 	// EnrichmentStatus is the current state of the venue normalization pipeline.
 	EnrichmentStatus VenueEnrichmentStatus
 	// RawName is the original scraper-provided name before canonical renaming.
@@ -52,6 +58,10 @@ type VenuePlace struct {
 	ExternalID string
 	// Name is the canonical name returned by the external service.
 	Name string
+	// Latitude is the WGS 84 latitude returned by the external service.
+	Latitude *float64
+	// Longitude is the WGS 84 longitude returned by the external service.
+	Longitude *float64
 }
 
 // VenuePlaceSearcher defines the interface for external place search services used in venue enrichment.
