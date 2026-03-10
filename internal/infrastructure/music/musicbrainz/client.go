@@ -99,8 +99,8 @@ type Place struct {
 
 type placeSearchResponse struct {
 	Places []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		ID          string `json:"id"`
+		Name        string `json:"name"`
 		Coordinates struct {
 			Latitude  string `json:"latitude"`
 			Longitude string `json:"longitude"`

@@ -246,10 +246,10 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 	ptrFloat := func(v float64) *float64 { return &v }
 
 	tests := []struct {
-		name      string
-		response  placeSearchResponse
-		wantLat   *float64
-		wantLng   *float64
+		name     string
+		response placeSearchResponse
+		wantLat  *float64
+		wantLng  *float64
 	}{
 		{
 			name: "extracts valid coordinates",

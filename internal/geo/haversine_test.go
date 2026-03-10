@@ -8,39 +8,39 @@ import (
 func TestHaversine(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name     string
-		lat1     float64
-		lng1     float64
-		lat2     float64
-		lng2     float64
-		wantKm   float64
+		name      string
+		lat1      float64
+		lng1      float64
+		lat2      float64
+		lng2      float64
+		wantKm    float64
 		tolerance float64
 	}{
 		{
-			name:      "Tokyo to Saitama (short distance)",
-			lat1:      35.6894, lng1: 139.6917, // Tokyo
-			lat2:      35.8569, lng2: 139.6489, // Saitama
+			name: "Tokyo to Saitama (short distance)",
+			lat1: 35.6894, lng1: 139.6917, // Tokyo
+			lat2: 35.8569, lng2: 139.6489, // Saitama
 			wantKm:    19.0,
 			tolerance: 2.0,
 		},
 		{
-			name:      "Tokyo to Osaka (medium distance)",
-			lat1:      35.6894, lng1: 139.6917, // Tokyo
-			lat2:      34.6863, lng2: 135.5200, // Osaka
+			name: "Tokyo to Osaka (medium distance)",
+			lat1: 35.6894, lng1: 139.6917, // Tokyo
+			lat2: 34.6863, lng2: 135.5200, // Osaka
 			wantKm:    397.0,
 			tolerance: 10.0,
 		},
 		{
-			name:      "Tokyo to Sapporo (long distance)",
-			lat1:      35.6894, lng1: 139.6917, // Tokyo
-			lat2:      43.0642, lng2: 141.3469, // Sapporo
+			name: "Tokyo to Sapporo (long distance)",
+			lat1: 35.6894, lng1: 139.6917, // Tokyo
+			lat2: 43.0642, lng2: 141.3469, // Sapporo
 			wantKm:    831.0,
 			tolerance: 20.0,
 		},
 		{
-			name:      "same point returns zero",
-			lat1:      35.6894, lng1: 139.6917,
-			lat2:      35.6894, lng2: 139.6917,
+			name: "same point returns zero",
+			lat1: 35.6894, lng1: 139.6917,
+			lat2: 35.6894, lng2: 139.6917,
 			wantKm:    0.0,
 			tolerance: 0.001,
 		},
