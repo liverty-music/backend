@@ -13,7 +13,6 @@ import (
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
-	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
@@ -24,7 +23,6 @@ import (
 // ConsumerApp represents the event consumer application with a Watermill Router.
 type ConsumerApp struct {
 	Router          *message.Router
-	HealthServer    *server.HealthServer
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
 }
@@ -62,7 +60,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 
 	// Infrastructure - Messaging
-	if err := messaging.EnsureStreams(cfg.NATS); err != nil {
+	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
 		return nil, fmt.Errorf("ensure NATS streams: %w", err)
 	}
 
@@ -151,15 +149,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		artistNameConsumer.Handle,
 	)
 
-	// Health probe server for Kubernetes readiness/liveness checks.
-	healthSrv := server.NewHealthServer(":8081")
-
 	// Register shutdown phases.
-	// Drain: health → 503. The Watermill Router is NOT registered here
-	// because Router.Run(ctx) internally closes the router when ctx is
-	// cancelled, making an explicit Drain-phase Close redundant (and noisy).
+	// Drain: the health server is registered by the caller (cmd/consumer)
+	// because it is started before DI to enable early K8s probe responses.
+	// The Watermill Router is NOT registered here because Router.Run(ctx)
+	// internally closes the router when ctx is cancelled, making an
+	// explicit Drain-phase Close redundant (and noisy).
 	shutdown.Init(logger)
-	shutdown.AddDrainPhase(healthSrv)
 	shutdown.AddFlushPhase(publisher)
 	shutdown.AddExternalPhase(musicbrainzClient)
 	shutdown.AddObservePhase(telemetryCloser)
@@ -167,7 +163,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	return &ConsumerApp{
 		Router:          router,
-		HealthServer:    healthSrv,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,
 	}, nil

@@ -10,8 +10,11 @@ import (
 
 // HealthServer provides a lightweight HTTP server for Kubernetes health probes.
 // It exposes /healthz (liveness) and /readyz (readiness) endpoints.
+// The server starts in a "not ready" state; call SetReady after the
+// application has finished initialization.
 type HealthServer struct {
 	srv          *http.Server
+	ready        atomic.Bool
 	shuttingDown atomic.Bool
 }
 
@@ -28,6 +31,11 @@ func NewHealthServer(addr string) *HealthServer {
 		if h.shuttingDown.Load() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("shutting down"))
+			return
+		}
+		if !h.ready.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("not ready"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -49,6 +57,12 @@ func (h *HealthServer) Start() error {
 		return err
 	}
 	return h.srv.Serve(ln)
+}
+
+// SetReady transitions the readiness endpoint from 503 to 200,
+// indicating that application initialization is complete.
+func (h *HealthServer) SetReady() {
+	h.ready.Store(true)
 }
 
 // SetShuttingDown transitions the readiness endpoint to return 503.

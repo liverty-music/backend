@@ -77,7 +77,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	}
 
 	// Infrastructure - Messaging Publisher
-	if err := messaging.EnsureStreams(cfg.NATS); err != nil {
+	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
 		return nil, fmt.Errorf("ensure NATS streams: %w", err)
 	}
 
