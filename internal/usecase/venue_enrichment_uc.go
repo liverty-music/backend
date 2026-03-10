@@ -194,9 +194,11 @@ func (uc *venueEnrichmentUseCase) enrichOne(ctx context.Context, v *entity.Venue
 		default:
 			// No duplicate — update this venue as enriched.
 			enriched := &entity.Venue{
-				ID:      v.ID,
-				Name:    place.Name,
-				RawName: v.RawName,
+				ID:        v.ID,
+				Name:      place.Name,
+				RawName:   v.RawName,
+				Latitude:  place.Latitude,
+				Longitude: place.Longitude,
 			}
 			id := place.ExternalID
 			if ns.AssignToMBID {

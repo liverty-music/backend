@@ -189,6 +189,65 @@ func (_c *MockConcertUseCase_ListByFollower_Call) RunAndReturn(run func(context.
 	return _c
 }
 
+// ListByFollowerGrouped provides a mock function with given fields: ctx, externalUserID
+func (_m *MockConcertUseCase) ListByFollowerGrouped(ctx context.Context, externalUserID string) ([]*entity.DateLaneGroup, error) {
+	ret := _m.Called(ctx, externalUserID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByFollowerGrouped")
+	}
+
+	var r0 []*entity.DateLaneGroup
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.DateLaneGroup, error)); ok {
+		return rf(ctx, externalUserID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.DateLaneGroup); ok {
+		r0 = rf(ctx, externalUserID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.DateLaneGroup)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, externalUserID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertUseCase_ListByFollowerGrouped_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByFollowerGrouped'
+type MockConcertUseCase_ListByFollowerGrouped_Call struct {
+	*mock.Call
+}
+
+// ListByFollowerGrouped is a helper method to define mock.On call
+//   - ctx context.Context
+//   - externalUserID string
+func (_e *MockConcertUseCase_Expecter) ListByFollowerGrouped(ctx interface{}, externalUserID interface{}) *MockConcertUseCase_ListByFollowerGrouped_Call {
+	return &MockConcertUseCase_ListByFollowerGrouped_Call{Call: _e.mock.On("ListByFollowerGrouped", ctx, externalUserID)}
+}
+
+func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Run(run func(ctx context.Context, externalUserID string)) *MockConcertUseCase_ListByFollowerGrouped_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Return(_a0 []*entity.DateLaneGroup, _a1 error) *MockConcertUseCase_ListByFollowerGrouped_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) RunAndReturn(run func(context.Context, string) ([]*entity.DateLaneGroup, error)) *MockConcertUseCase_ListByFollowerGrouped_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListSearchStatuses provides a mock function with given fields: ctx, artistIDs
 func (_m *MockConcertUseCase) ListSearchStatuses(ctx context.Context, artistIDs []string) ([]*usecase.SearchStatus, error) {
 	ret := _m.Called(ctx, artistIDs)

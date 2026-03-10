@@ -102,6 +102,113 @@ func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
 	}
 }
 
+func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
+	ctx := context.Background()
+
+	date1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	date2 := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
+
+	tokyoLat := 35.6894
+	tokyoLng := 139.6917
+	saitamaLat := 35.8569
+	saitamaLng := 139.6489
+	osakaLat := 34.6863
+	osakaLng := 135.5200
+
+	t.Run("empty external user ID returns error", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+		_, err := d.uc.ListByFollowerGrouped(ctx, "")
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("classifies concerts into home/nearby/away by date", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+
+		user := &entity.User{
+			ID:         "user-1",
+			ExternalID: "ext-1",
+			Home:       &entity.Home{Level1: "JP-13"}, // Tokyo
+		}
+		d.userRepo.EXPECT().GetByExternalID(ctx, "ext-1").Return(user, nil).Once()
+
+		concerts := []*entity.Concert{
+			// Date 1: Tokyo venue (HOME), Saitama venue (NEARBY), Osaka venue (AWAY)
+			{
+				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: strPtr("JP-13"), Latitude: &tokyoLat, Longitude: &tokyoLng}},
+				ArtistID: "a1",
+			},
+			{
+				Event:    entity.Event{ID: "c2", LocalDate: date1, Venue: &entity.Venue{ID: "v2", AdminArea: strPtr("JP-11"), Latitude: &saitamaLat, Longitude: &saitamaLng}},
+				ArtistID: "a1",
+			},
+			{
+				Event:    entity.Event{ID: "c3", LocalDate: date1, Venue: &entity.Venue{ID: "v3", AdminArea: strPtr("JP-27"), Latitude: &osakaLat, Longitude: &osakaLng}},
+				ArtistID: "a1",
+			},
+			// Date 2: No venue coordinates (AWAY)
+			{
+				Event:    entity.Event{ID: "c4", LocalDate: date2, Venue: &entity.Venue{ID: "v4", AdminArea: strPtr("JP-40")}},
+				ArtistID: "a2",
+			},
+		}
+		d.concertRepo.EXPECT().ListByFollower(ctx, "user-1").Return(concerts, nil).Once()
+
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "ext-1")
+		assert.NoError(t, err)
+		assert.Len(t, groups, 2)
+
+		// Date 1
+		assert.Equal(t, date1, groups[0].Date)
+		assert.Len(t, groups[0].Home, 1)
+		assert.Equal(t, "c1", groups[0].Home[0].ID)
+		assert.Len(t, groups[0].Nearby, 1)
+		assert.Equal(t, "c2", groups[0].Nearby[0].ID)
+		assert.Len(t, groups[0].Away, 1)
+		assert.Equal(t, "c3", groups[0].Away[0].ID)
+
+		// Date 2
+		assert.Equal(t, date2, groups[1].Date)
+		assert.Len(t, groups[1].Home, 0)
+		assert.Len(t, groups[1].Nearby, 0)
+		assert.Len(t, groups[1].Away, 1)
+		assert.Equal(t, "c4", groups[1].Away[0].ID)
+	})
+
+	t.Run("no home set puts everything in away", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+
+		user := &entity.User{ID: "user-2", ExternalID: "ext-2", Home: nil}
+		d.userRepo.EXPECT().GetByExternalID(ctx, "ext-2").Return(user, nil).Once()
+
+		concerts := []*entity.Concert{
+			{
+				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: strPtr("JP-13"), Latitude: &tokyoLat, Longitude: &tokyoLng}},
+				ArtistID: "a1",
+			},
+		}
+		d.concertRepo.EXPECT().ListByFollower(ctx, "user-2").Return(concerts, nil).Once()
+
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "ext-2")
+		assert.NoError(t, err)
+		assert.Len(t, groups, 1)
+		assert.Len(t, groups[0].Home, 0)
+		assert.Len(t, groups[0].Nearby, 0)
+		assert.Len(t, groups[0].Away, 1)
+	})
+
+	t.Run("empty concerts returns nil groups", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+
+		user := &entity.User{ID: "user-3", ExternalID: "ext-3", Home: &entity.Home{Level1: "JP-13"}}
+		d.userRepo.EXPECT().GetByExternalID(ctx, "ext-3").Return(user, nil).Once()
+		d.concertRepo.EXPECT().ListByFollower(ctx, "user-3").Return(nil, nil).Once()
+
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "ext-3")
+		assert.NoError(t, err)
+		assert.Nil(t, groups)
+	})
+}
+
 func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
 	ctx := context.Background()
 	artistID := "artist-1"

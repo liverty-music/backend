@@ -10,6 +10,7 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/geo"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -32,7 +33,8 @@ type PushNotificationUseCase interface {
 	// NotifyNewConcerts sends Web Push notifications to followers of the given
 	// artist, filtered by each follower's hype level. WATCH followers are skipped,
 	// HOME followers receive notifications only when a concert venue matches their
-	// home area, and ANYWHERE (and NEARBY in Phase 1) followers always receive them.
+	// home area, NEARBY followers receive notifications when a venue is within 200km,
+	// and ANYWHERE followers always receive them.
 	// Per-subscription delivery errors (including 410 Gone responses) are handled
 	// internally and do not cause the method to return an error.
 	//
@@ -111,7 +113,7 @@ func (uc *pushNotificationUseCase) Unsubscribe(ctx context.Context, userID strin
 // Filtering rules:
 //   - WATCH: no notification.
 //   - HOME: notify only when at least one concert venue adminArea matches the follower's home.
-//   - NEARBY: treated as ANYWHERE in Phase 1 (proximity logic undefined).
+//   - NEARBY: notify only when at least one concert venue is within 200km of the follower's home centroid.
 //   - ANYWHERE: always notify.
 //
 // Individual delivery failures are logged but do not cause the method to return an error.
@@ -150,7 +152,13 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 				continue
 			}
 		case entity.HypeNearby:
-			// Phase 1 fallback: treat NEARBY as ANYWHERE.
+			// Notify only if any concert venue is within the nearby threshold.
+			if f.HomeLevel1 == "" {
+				continue
+			}
+			if !hasNearbyConcert(f.HomeLevel1, concerts) {
+				continue
+			}
 		case entity.HypeAnywhere:
 			// Always notify.
 		default:
@@ -238,4 +246,19 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 	}
 
 	return nil
+}
+
+// hasNearbyConcert returns true if at least one concert venue is classified as
+// HOME or NEARBY relative to the given home prefecture.
+func hasNearbyConcert(homeLevel1 string, concerts []*entity.Concert) bool {
+	for _, c := range concerts {
+		if c.Venue == nil {
+			continue
+		}
+		lane := geo.ClassifyLane(homeLevel1, c.Venue.Latitude, c.Venue.Longitude, c.Venue.AdminArea)
+		if lane == geo.LaneHome || lane == geo.LaneNearby {
+			return true
+		}
+	}
+	return false
 }

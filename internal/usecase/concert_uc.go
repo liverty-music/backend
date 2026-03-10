@@ -9,6 +9,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/geo"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -32,6 +33,15 @@ type ConcertUseCase interface {
 	//  - InvalidArgument: If the external user ID is empty.
 	//  - NotFound: If the user does not exist.
 	ListByFollower(ctx context.Context, externalUserID string) ([]*entity.Concert, error)
+
+	// ListByFollowerGrouped returns concerts for followed artists, grouped by date
+	// and classified into home/nearby/away lanes based on proximity to the user's home.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the external user ID is empty.
+	//  - NotFound: If the user does not exist.
+	ListByFollowerGrouped(ctx context.Context, externalUserID string) ([]*entity.DateLaneGroup, error)
 
 	// AsyncSearchNewConcerts enqueues an asynchronous concert discovery job for the
 	// given artist. It returns immediately after marking the search log as pending.
@@ -127,6 +137,82 @@ func (uc *concertUseCase) ListByFollower(ctx context.Context, externalUserID str
 	}
 
 	return uc.concertRepo.ListByFollower(ctx, internalUserID)
+}
+
+// ListByFollowerGrouped returns concerts for followed artists, grouped by date
+// and classified into home/nearby/away lanes based on proximity to the user's home.
+func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, externalUserID string) ([]*entity.DateLaneGroup, error) {
+	if externalUserID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
+	}
+
+	user, err := uc.userRepo.GetByExternalID(ctx, externalUserID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve user by external ID: %w", err)
+	}
+
+	concerts, err := uc.concertRepo.ListByFollower(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return groupByDateAndLane(concerts, user.Home), nil
+}
+
+// groupByDateAndLane classifies concerts into home/nearby/away lanes and groups
+// them by date. Concerts are expected to be ordered by local_event_date ascending.
+func groupByDateAndLane(concerts []*entity.Concert, home *entity.Home) []*entity.DateLaneGroup {
+	if len(concerts) == 0 {
+		return nil
+	}
+
+	homeLevel1 := ""
+	if home != nil {
+		homeLevel1 = home.Level1
+	}
+
+	groups := make(map[string]*entity.DateLaneGroup)
+	var order []string // preserve date ordering
+
+	for _, c := range concerts {
+		dateKey := c.LocalDate.Format("2006-01-02")
+		g, ok := groups[dateKey]
+		if !ok {
+			g = &entity.DateLaneGroup{Date: c.LocalDate}
+			groups[dateKey] = g
+			order = append(order, dateKey)
+		}
+
+		if homeLevel1 == "" {
+			// No home set — everything goes to away.
+			g.Away = append(g.Away, c)
+			continue
+		}
+
+		var venueLat, venueLng *float64
+		var venueAdminArea *string
+		if c.Venue != nil {
+			venueLat = c.Venue.Latitude
+			venueLng = c.Venue.Longitude
+			venueAdminArea = c.Venue.AdminArea
+		}
+
+		lane := geo.ClassifyLane(homeLevel1, venueLat, venueLng, venueAdminArea)
+		switch lane {
+		case geo.LaneHome:
+			g.Home = append(g.Home, c)
+		case geo.LaneNearby:
+			g.Nearby = append(g.Nearby, c)
+		default:
+			g.Away = append(g.Away, c)
+		}
+	}
+
+	result := make([]*entity.DateLaneGroup, 0, len(order))
+	for _, key := range order {
+		result = append(result, groups[key])
+	}
+	return result
 }
 
 // resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.
