@@ -35,14 +35,16 @@ func TestMain(m *testing.M) {
 
 func setupTestDatabase() *rdb.Database {
 	dbCfg := config.DatabaseConfig{
-		Host:            "localhost",
-		Port:            5432,
-		Name:            "test-db",
-		User:            "test-user",
-		SSLMode:         "disable",
-		MaxOpenConns:    10,
-		MaxIdleConns:    5,
-		ConnMaxLifetime: 300,
+		Host:              "localhost",
+		Port:              5432,
+		Name:              "test-db",
+		User:              "test-user",
+		SSLMode:           "disable",
+		MaxOpenConns:      10,
+		MaxIdleConns:      2,
+		ConnMaxLifetime:   1800,
+		MaxConnIdleTime:   600,
+		HealthCheckPeriod: 60,
 	}
 
 	logger, _ := logging.New()
