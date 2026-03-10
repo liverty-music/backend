@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -34,10 +35,23 @@ func run() error {
 	bootLogger, _ := logging.New()
 	bootLogger.Info(ctx, "starting event consumer")
 
+	// Start the health probe server before DI so K8s can observe the pod
+	// during initialization (healthz=200, readyz=503 until ready).
+	healthSrv := server.NewHealthServer(":8081")
+	go func() {
+		if err := healthSrv.Start(); err != nil {
+			bootLogger.Error(ctx, "health server failed", err)
+		}
+	}()
+
 	app, err := di.InitializeConsumerApp(ctx)
 	if err != nil {
 		return err
 	}
+
+	healthSrv.SetReady()
+	shutdown.AddDrainPhase(healthSrv)
+
 	// Use a fresh context with a deadline aligned to the K8s termination budget,
 	// so that phases are skipped if shutdown runs too long.
 	defer func() {
@@ -45,13 +59,6 @@ func run() error {
 		defer cancel()
 		if err := shutdown.Shutdown(ctx); err != nil {
 			app.Logger.Error(context.Background(), "error during shutdown", err)
-		}
-	}()
-
-	// Start the health probe server in the background for K8s readiness/liveness.
-	go func() {
-		if err := app.HealthServer.Start(); err != nil {
-			app.Logger.Error(ctx, "health server failed", err)
 		}
 	}()
 

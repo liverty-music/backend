@@ -125,7 +125,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Infrastructure - Messaging Publisher
-	if err := messaging.EnsureStreams(cfg.NATS); err != nil {
+	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
 		return nil, fmt.Errorf("ensure NATS streams: %w", err)
 	}
 
