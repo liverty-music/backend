@@ -29,12 +29,22 @@ type Place struct {
 	PlaceID string
 	// Name is the name of the place as returned by Google Maps.
 	Name string
+	// Latitude is the WGS 84 latitude of the place.
+	Latitude *float64
+	// Longitude is the WGS 84 longitude of the place.
+	Longitude *float64
 }
 
 type textSearchResponse struct {
 	Results []struct {
-		PlaceID string `json:"place_id"`
-		Name    string `json:"name"`
+		PlaceID  string `json:"place_id"`
+		Name     string `json:"name"`
+		Geometry struct {
+			Location struct {
+				Lat float64 `json:"lat"`
+				Lng float64 `json:"lng"`
+			} `json:"location"`
+		} `json:"geometry"`
 	} `json:"results"`
 	Status string `json:"status"`
 }
@@ -116,7 +126,14 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 	}
 
 	r := data.Results[0]
-	return &Place{PlaceID: r.PlaceID, Name: r.Name}, nil
+	place := &Place{PlaceID: r.PlaceID, Name: r.Name}
+	if r.Geometry.Location.Lat != 0 || r.Geometry.Location.Lng != 0 {
+		lat := r.Geometry.Location.Lat
+		lng := r.Geometry.Location.Lng
+		place.Latitude = &lat
+		place.Longitude = &lng
+	}
+	return place, nil
 }
 
 // SetBaseURL overrides the API base URL. Intended for tests.

@@ -28,11 +28,19 @@ type artistResponse struct {
 	Name string `json:"name"`
 }
 
+type placeCoordinates struct {
+	Latitude  string `json:"latitude"`
+	Longitude string `json:"longitude"`
+}
+
+type placeEntry struct {
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Coordinates placeCoordinates `json:"coordinates"`
+}
+
 type placeSearchResponse struct {
-	Places []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	} `json:"places"`
+	Places []placeEntry `json:"places"`
 }
 
 func TestClient_GetArtist(t *testing.T) {
@@ -153,10 +161,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			adminArea:  "Aichi",
 			statusCode: http.StatusOK,
 			responseBody: placeSearchResponse{
-				Places: []struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
-				}{
+				Places: []placeEntry{
 					{ID: "a2e6e2c0-dead-beef-abcd-000000000001", Name: "Zepp Nagoya"},
 				},
 			},
@@ -169,10 +174,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			adminArea:  "",
 			statusCode: http.StatusOK,
 			responseBody: placeSearchResponse{
-				Places: []struct {
-					ID   string `json:"id"`
-					Name string `json:"name"`
-				}{
+				Places: []placeEntry{
 					{ID: "bbbbbbbb-0000-0000-0000-000000000001", Name: "Nippon Budokan"},
 				},
 			},
@@ -235,6 +237,90 @@ func TestClient_SearchPlace(t *testing.T) {
 				require.NotNil(t, place)
 				assert.Equal(t, tt.wantID, place.ID)
 				assert.Equal(t, tt.wantName, place.Name)
+			}
+		})
+	}
+}
+
+func TestClient_SearchPlace_Coordinates(t *testing.T) {
+	ptrFloat := func(v float64) *float64 { return &v }
+
+	tests := []struct {
+		name      string
+		response  placeSearchResponse
+		wantLat   *float64
+		wantLng   *float64
+	}{
+		{
+			name: "extracts valid coordinates",
+			response: placeSearchResponse{
+				Places: []placeEntry{
+					{ID: "p1", Name: "Zepp Tokyo", Coordinates: placeCoordinates{Latitude: "35.6250", Longitude: "139.7756"}},
+				},
+			},
+			wantLat: ptrFloat(35.6250),
+			wantLng: ptrFloat(139.7756),
+		},
+		{
+			name: "nil coordinates when both strings are empty",
+			response: placeSearchResponse{
+				Places: []placeEntry{
+					{ID: "p2", Name: "Unknown", Coordinates: placeCoordinates{Latitude: "", Longitude: ""}},
+				},
+			},
+			wantLat: nil,
+			wantLng: nil,
+		},
+		{
+			name: "nil coordinates when only latitude is present",
+			response: placeSearchResponse{
+				Places: []placeEntry{
+					{ID: "p3", Name: "Partial", Coordinates: placeCoordinates{Latitude: "35.0", Longitude: ""}},
+				},
+			},
+			wantLat: nil,
+			wantLng: nil,
+		},
+		{
+			name: "nil coordinates when zero-value struct",
+			response: placeSearchResponse{
+				Places: []placeEntry{
+					{ID: "p4", Name: "NoCoords"},
+				},
+			},
+			wantLat: nil,
+			wantLng: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(tt.response)
+			}))
+			defer server.Close()
+
+			c := musicbrainz.NewClient(server.Client(), testLogger(t))
+			c.SetPlaceBaseURL(server.URL + "/")
+
+			place, err := c.SearchPlace(context.Background(), "test", "")
+
+			require.NoError(t, err)
+			require.NotNil(t, place)
+
+			if tt.wantLat != nil {
+				require.NotNil(t, place.Latitude)
+				assert.InDelta(t, *tt.wantLat, *place.Latitude, 0.0001)
+			} else {
+				assert.Nil(t, place.Latitude)
+			}
+
+			if tt.wantLng != nil {
+				require.NotNil(t, place.Longitude)
+				assert.InDelta(t, *tt.wantLng, *place.Longitude, 0.0001)
+			} else {
+				assert.Nil(t, place.Longitude)
 			}
 		})
 	}
