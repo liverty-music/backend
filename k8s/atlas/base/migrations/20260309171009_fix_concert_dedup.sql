@@ -5,7 +5,7 @@ DELETE FROM "events" e
 USING (
     SELECT id,
            ROW_NUMBER() OVER (
-               PARTITION BY venue_id, local_event_date, COALESCE(start_at, 'epoch'::timestamptz)
+               PARTITION BY venue_id, local_event_date, start_at
                ORDER BY
                    CASE WHEN start_at IS NOT NULL THEN 0 ELSE 1 END,
                    id
