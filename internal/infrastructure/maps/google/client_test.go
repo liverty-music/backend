@@ -21,12 +21,24 @@ func testLogger(t *testing.T) *logging.Logger {
 	return l
 }
 
+type placeLocation struct {
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+}
+
+type placeGeometry struct {
+	Location placeLocation `json:"location"`
+}
+
+type placeResult struct {
+	PlaceID  string        `json:"place_id"`
+	Name     string        `json:"name"`
+	Geometry placeGeometry `json:"geometry"`
+}
+
 type textSearchResponse struct {
-	Results []struct {
-		PlaceID string `json:"place_id"`
-		Name    string `json:"name"`
-	} `json:"results"`
-	Status string `json:"status"`
+	Results []placeResult `json:"results"`
+	Status  string        `json:"status"`
 }
 
 func TestClient_SearchPlace(t *testing.T) {
@@ -48,10 +60,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			statusCode: http.StatusOK,
 			responseBody: textSearchResponse{
 				Status: "OK",
-				Results: []struct {
-					PlaceID string `json:"place_id"`
-					Name    string `json:"name"`
-				}{
+				Results: []placeResult{
 					{PlaceID: "ChIJexamplePlaceID001", Name: "Zepp Nagoya"},
 				},
 			},
@@ -65,10 +74,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			statusCode: http.StatusOK,
 			responseBody: textSearchResponse{
 				Status: "OK",
-				Results: []struct {
-					PlaceID string `json:"place_id"`
-					Name    string `json:"name"`
-				}{
+				Results: []placeResult{
 					{PlaceID: "ChIJexamplePlaceID002", Name: "Nippon Budokan"},
 				},
 			},
@@ -142,6 +148,93 @@ func TestClient_SearchPlace(t *testing.T) {
 				require.NotNil(t, place)
 				assert.Equal(t, tt.wantPlaceID, place.PlaceID)
 				assert.Equal(t, tt.wantName, place.Name)
+			}
+		})
+	}
+}
+
+func TestClient_SearchPlace_Coordinates(t *testing.T) {
+	ptrFloat := func(v float64) *float64 { return &v }
+
+	tests := []struct {
+		name    string
+		result  placeResult
+		wantLat *float64
+		wantLng *float64
+	}{
+		{
+			name: "extracts valid coordinates",
+			result: placeResult{
+				PlaceID:  "p1",
+				Name:     "Zepp Tokyo",
+				Geometry: placeGeometry{Location: placeLocation{Lat: 35.6250, Lng: 139.7756}},
+			},
+			wantLat: ptrFloat(35.6250),
+			wantLng: ptrFloat(139.7756),
+		},
+		{
+			name: "nil coordinates when both lat and lng are zero",
+			result: placeResult{
+				PlaceID:  "p2",
+				Name:     "Unknown",
+				Geometry: placeGeometry{Location: placeLocation{Lat: 0, Lng: 0}},
+			},
+			wantLat: nil,
+			wantLng: nil,
+		},
+		{
+			name: "sets coordinates when only latitude is non-zero",
+			result: placeResult{
+				PlaceID:  "p3",
+				Name:     "Equator Venue",
+				Geometry: placeGeometry{Location: placeLocation{Lat: 35.0, Lng: 0}},
+			},
+			wantLat: ptrFloat(35.0),
+			wantLng: ptrFloat(0),
+		},
+		{
+			name: "sets coordinates when only longitude is non-zero",
+			result: placeResult{
+				PlaceID:  "p4",
+				Name:     "Meridian Venue",
+				Geometry: placeGeometry{Location: placeLocation{Lat: 0, Lng: 139.0}},
+			},
+			wantLat: ptrFloat(0),
+			wantLng: ptrFloat(139.0),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(textSearchResponse{
+					Status:  "OK",
+					Results: []placeResult{tt.result},
+				})
+			}))
+			defer server.Close()
+
+			c := google.NewClient("test-key", server.Client(), testLogger(t))
+			c.SetBaseURL(server.URL)
+
+			place, err := c.SearchPlace(context.Background(), "test", "")
+
+			require.NoError(t, err)
+			require.NotNil(t, place)
+
+			if tt.wantLat != nil {
+				require.NotNil(t, place.Latitude)
+				assert.InDelta(t, *tt.wantLat, *place.Latitude, 0.0001)
+			} else {
+				assert.Nil(t, place.Latitude)
+			}
+
+			if tt.wantLng != nil {
+				require.NotNil(t, place.Longitude)
+				assert.InDelta(t, *tt.wantLng, *place.Longitude, 0.0001)
+			} else {
+				assert.Nil(t, place.Longitude)
 			}
 		})
 	}

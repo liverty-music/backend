@@ -42,6 +42,8 @@ const (
 			raw_name = COALESCE(raw_name, $3),
 			mbid = COALESCE(mbid, $4),
 			google_place_id = COALESCE(google_place_id, $5),
+			latitude = $6,
+			longitude = $7,
 			enrichment_status = 'enriched'
 		WHERE id = $1
 	`
@@ -136,6 +138,7 @@ func (r *VenueRepository) ListPending(ctx context.Context) ([]*entity.Venue, err
 func (r *VenueRepository) UpdateEnriched(ctx context.Context, venue *entity.Venue) error {
 	_, err := r.db.Pool.Exec(ctx, updateEnrichedVenueQuery,
 		venue.ID, venue.Name, venue.RawName, venue.MBID, venue.GooglePlaceID,
+		venue.Latitude, venue.Longitude,
 	)
 	if err != nil {
 		return toAppErr(err, "failed to update enriched venue", slog.String("venue_id", venue.ID))

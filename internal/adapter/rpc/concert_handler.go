@@ -48,20 +48,21 @@ func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[concertv
 	}), nil
 }
 
-// ListByFollower returns all concerts for artists followed by the authenticated user.
+// ListByFollower returns all concerts for artists followed by the authenticated user,
+// grouped by date and classified into geographic proximity lanes.
 func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[concertv1.ListByFollowerRequest]) (*connect.Response[concertv1.ListByFollowerResponse], error) {
 	userID, ok := auth.GetUserID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
 	}
 
-	concerts, err := h.concertUseCase.ListByFollower(ctx, userID)
+	groups, err := h.concertUseCase.ListByFollowerGrouped(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
 	return connect.NewResponse(&concertv1.ListByFollowerResponse{
-		Concerts: mapper.ConcertsToProto(concerts),
+		Groups: mapper.DateLaneGroupsToProto(groups),
 	}), nil
 }
 

@@ -35,6 +35,19 @@ type ScrapedConcert struct {
 	SourceURL string
 }
 
+// DateLaneGroup contains concerts for a single calendar date, classified into
+// three geographic proximity lanes relative to the user's home area.
+type DateLaneGroup struct {
+	// Date is the calendar date for this group.
+	Date time.Time
+	// Home contains concerts at venues within the user's home admin_area.
+	Home []*Concert
+	// Nearby contains concerts at venues within 200km of the user's home centroid.
+	Nearby []*Concert
+	// Away contains concerts beyond 200km, with unknown location, or when the user has no home set.
+	Away []*Concert
+}
+
 // ConcertRepository defines the data access interface for Concerts.
 type ConcertRepository interface {
 	// ListByArtist retrieves all concerts for a specific artist.

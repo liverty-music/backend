@@ -48,6 +48,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,12 +91,20 @@ type Place struct {
 	ID string
 	// Name is the canonical name of the place.
 	Name string
+	// Latitude is the WGS 84 latitude of the place.
+	Latitude *float64
+	// Longitude is the WGS 84 longitude of the place.
+	Longitude *float64
 }
 
 type placeSearchResponse struct {
 	Places []struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Coordinates struct {
+			Latitude  string `json:"latitude"`
+			Longitude string `json:"longitude"`
+		} `json:"coordinates"`
 	} `json:"places"`
 }
 
@@ -293,8 +302,17 @@ func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 	if len(data.Places) == 0 {
 		return nil, apperr.New(codes.NotFound, "no matching place found in musicbrainz")
 	}
-	p := data.Places[0]
-	return &Place{ID: p.ID, Name: p.Name}, nil
+	r := data.Places[0]
+	place := &Place{ID: r.ID, Name: r.Name}
+	if r.Coordinates.Latitude != "" && r.Coordinates.Longitude != "" {
+		if lat, err := strconv.ParseFloat(r.Coordinates.Latitude, 64); err == nil {
+			place.Latitude = &lat
+		}
+		if lng, err := strconv.ParseFloat(r.Coordinates.Longitude, 64); err == nil {
+			place.Longitude = &lng
+		}
+	}
+	return place, nil
 }
 
 // Compile-time interface compliance checks.

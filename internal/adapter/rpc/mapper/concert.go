@@ -5,6 +5,7 @@ import (
 	"time"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	"google.golang.org/genproto/googleapis/type/date"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -66,6 +67,22 @@ func ConcertsToProto(concerts []*entity.Concert) []*entityv1.Concert {
 		protoConcerts = append(protoConcerts, ConcertToProto(c))
 	}
 	return protoConcerts
+}
+
+// DateLaneGroupsToProto converts a slice of domain DateLaneGroup entities to protobuf.
+func DateLaneGroupsToProto(groups []*entity.DateLaneGroup) []*concertv1.DateLaneGroup {
+	result := make([]*concertv1.DateLaneGroup, 0, len(groups))
+	for _, g := range groups {
+		result = append(result, &concertv1.DateLaneGroup{
+			Date: &entityv1.LocalDate{
+				Value: TimeToDate(g.Date),
+			},
+			Home:   ConcertsToProto(g.Home),
+			Nearby: ConcertsToProto(g.Nearby),
+			Away:   ConcertsToProto(g.Away),
+		})
+	}
+	return result
 }
 
 // VenueToProto converts domain Venue entity to protobuf.
