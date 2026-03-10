@@ -13,239 +13,348 @@ import (
 )
 
 func TestConcertRepository_Create(t *testing.T) {
-	cleanDatabase()
+	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	ctx := context.Background()
 
-	// Setup: Create test artist and venue
-	testArtist := &entity.Artist{
-		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-		Name: "Concert Test Band",
-	}
-	_, err := artistRepo.Create(ctx, testArtist)
-	require.NoError(t, err)
-
-	testVenue := &entity.Venue{
-		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-		Name: "Concert Test Arena",
-	}
-	err = venueRepo.Create(ctx, testVenue)
-	require.NoError(t, err)
+	artistID := "018b2f19-e591-7d12-bf9e-f0e74f1b49a1"
+	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1b49b1"
 
 	concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
 	startTime, _ := time.Parse("15:04", "20:00")
 	openTime, _ := time.Parse("15:04", "18:00")
 
-	type args struct {
-		concerts []*entity.Concert
+	setupFixtures := func(t *testing.T) {
+		t.Helper()
+		cleanDatabase()
+		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Concert Test Band"})
+		require.NoError(t, err)
+		require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Concert Test Arena"}))
 	}
 
-	tests := []struct {
-		name    string
-		args    args
-		wantErr error
-	}{
-		{
-			name: "create valid concert",
-			args: args{
-				concerts: []*entity.Concert{
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-							Title:     "New Year's Eve Concert",
-							LocalDate: concertDate,
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-					},
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "bulk create multiple concerts",
-			args: args{
-				concerts: []*entity.Concert{
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49d1",
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-							Title:     "Bulk Concert 1",
-							LocalDate: concertDate,
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-					},
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49d2",
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-							Title:     "Bulk Concert 2",
-							LocalDate: concertDate.AddDate(0, 0, 1),
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-					},
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49d3",
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-							Title:     "Bulk Concert 3",
-							LocalDate: concertDate.AddDate(0, 0, 2),
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-					},
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "duplicate concert ID silently skipped",
-			args: args{
-				concerts: []*entity.Concert{
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c1",
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-							Title:     "Duplicate Concert",
-							LocalDate: concertDate,
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-					},
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "batch with mix of new and duplicate concerts",
-			args: args{
-				concerts: []*entity.Concert{
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", // already exists
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-							Title:     "Existing Concert",
-							LocalDate: concertDate,
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-					},
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e1", // new
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-							Title:     "New Concert in Mixed Batch",
-							LocalDate: concertDate.AddDate(0, 0, 5),
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-					},
-				},
-			},
-			wantErr: nil,
-		},
-		{
-			name: "foreign key violation - invalid artist",
-			args: args{
-				concerts: []*entity.Concert{
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c2",
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-							Title:     "Invalid Artist Concert",
-							LocalDate: concertDate,
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a0",
-					},
-				},
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name: "foreign key violation - invalid venue",
-			args: args{
-				concerts: []*entity.Concert{
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c3",
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b0",
-							Title:     "Invalid Venue Concert",
-							LocalDate: concertDate,
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-					},
-				},
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name: "empty slice - no-op",
-			args: args{
-				concerts: []*entity.Concert{},
-			},
-			wantErr: nil,
-		},
-		{
-			// Regression: nil elements must be compacted before building unnest arrays.
-			// A nil element left at index i results in an empty-string UUID in eventIDs[i],
-			// which PostgreSQL rejects as "invalid input syntax for type uuid: """.
-			name: "nil elements are skipped without DB error",
-			args: args{
-				concerts: []*entity.Concert{
-					nil,
-					{
-						Event: entity.Event{
-							ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49f1",
-							VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b1",
-							Title:     "Valid Concert Among Nils",
-							LocalDate: concertDate,
-							StartTime: &startTime,
-							OpenTime:  &openTime,
-						},
-						ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a1",
-					},
-					nil,
-				},
-			},
-			wantErr: nil,
-		},
-	}
+	t.Run("create valid concert", func(t *testing.T) {
+		setupFixtures(t)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := concertRepo.Create(ctx, tt.args.concerts...)
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-			assert.NoError(t, err)
-
-			// Verify bulk insert actually created all concerts
-			if tt.name == "bulk create multiple concerts" {
-				for _, concert := range tt.args.concerts {
-					concerts, err := concertRepo.ListByArtist(ctx, concert.ArtistID, false)
-					require.NoError(t, err)
-					assert.GreaterOrEqual(t, len(concerts), 3)
-				}
-			}
+		err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
+				Title: "New Year's Eve Concert", LocalDate: concertDate,
+				StartTime: &startTime, OpenTime: &openTime,
+			},
+			ArtistID: artistID,
 		})
-	}
+		assert.NoError(t, err)
+	})
+
+	t.Run("bulk create multiple concerts", func(t *testing.T) {
+		setupFixtures(t)
+
+		concerts := []*entity.Concert{
+			{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49d1", VenueID: venueID,
+					Title: "Bulk Concert 1", LocalDate: concertDate,
+					StartTime: &startTime, OpenTime: &openTime,
+				},
+				ArtistID: artistID,
+			},
+			{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49d2", VenueID: venueID,
+					Title: "Bulk Concert 2", LocalDate: concertDate.AddDate(0, 0, 1),
+					StartTime: &startTime, OpenTime: &openTime,
+				},
+				ArtistID: artistID,
+			},
+			{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49d3", VenueID: venueID,
+					Title: "Bulk Concert 3", LocalDate: concertDate.AddDate(0, 0, 2),
+					StartTime: &startTime, OpenTime: &openTime,
+				},
+				ArtistID: artistID,
+			},
+		}
+		err := concertRepo.Create(ctx, concerts...)
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		assert.Len(t, got, 3)
+	})
+
+	t.Run("duplicate concert ID silently skipped", func(t *testing.T) {
+		setupFixtures(t)
+
+		concert := &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
+				Title: "Original", LocalDate: concertDate,
+				StartTime: &startTime, OpenTime: &openTime,
+			},
+			ArtistID: artistID,
+		}
+		require.NoError(t, concertRepo.Create(ctx, concert))
+
+		// Same ID again — UPSERT on natural key, concerts ON CONFLICT DO NOTHING.
+		err := concertRepo.Create(ctx, concert)
+		assert.NoError(t, err)
+	})
+
+	t.Run("batch with mix of new and duplicate concerts", func(t *testing.T) {
+		setupFixtures(t)
+
+		// Seed one concert first.
+		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
+				Title: "Existing Concert", LocalDate: concertDate,
+				StartTime: &startTime, OpenTime: &openTime,
+			},
+			ArtistID: artistID,
+		}))
+
+		// Batch: one existing (same ID) + one new.
+		err := concertRepo.Create(ctx,
+			&entity.Concert{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
+					Title: "Existing Concert", LocalDate: concertDate,
+					StartTime: &startTime, OpenTime: &openTime,
+				},
+				ArtistID: artistID,
+			},
+			&entity.Concert{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49e1", VenueID: venueID,
+					Title: "New Concert in Mixed Batch", LocalDate: concertDate.AddDate(0, 0, 5),
+					StartTime: &startTime, OpenTime: &openTime,
+				},
+				ArtistID: artistID,
+			},
+		)
+		assert.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		assert.Len(t, got, 2)
+	})
+
+	t.Run("foreign key violation - invalid artist", func(t *testing.T) {
+		setupFixtures(t)
+
+		err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c2", VenueID: venueID,
+				Title: "Invalid Artist Concert", LocalDate: concertDate,
+				StartTime: &startTime, OpenTime: &openTime,
+			},
+			ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a0", // does not exist
+		})
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("foreign key violation - invalid venue", func(t *testing.T) {
+		setupFixtures(t)
+
+		err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID:      "018b2f19-e591-7d12-bf9e-f0e74f1b49c3",
+				VenueID: "018b2f19-e591-7d12-bf9e-f0e74f1b49b0", // does not exist
+				Title:   "Invalid Venue Concert", LocalDate: concertDate,
+				StartTime: &startTime, OpenTime: &openTime,
+			},
+			ArtistID: artistID,
+		})
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("empty slice - no-op", func(t *testing.T) {
+		setupFixtures(t)
+
+		err := concertRepo.Create(ctx, []*entity.Concert{}...)
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil elements are skipped without DB error", func(t *testing.T) {
+		setupFixtures(t)
+
+		// Regression: nil elements must be compacted before building unnest arrays.
+		// A nil element left at index i results in an empty-string UUID in eventIDs[i],
+		// which PostgreSQL rejects as "invalid input syntax for type uuid: """.
+		err := concertRepo.Create(ctx,
+			nil,
+			&entity.Concert{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49f1", VenueID: venueID,
+					Title: "Valid Concert Among Nils", LocalDate: concertDate,
+					StartTime: &startTime, OpenTime: &openTime,
+				},
+				ArtistID: artistID,
+			},
+			nil,
+		)
+		assert.NoError(t, err)
+	})
+
+	// --- UPSERT behaviour ---
+
+	t.Run("natural key conflict — concerts row skipped via WHERE EXISTS", func(t *testing.T) {
+		setupFixtures(t)
+
+		listedVenue := "Zepp DiverCity"
+		// First insert: event + concert created normally.
+		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c01", VenueID: venueID,
+				Title: "Original", ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime, SourceURL: "https://example.com/1",
+			},
+			ArtistID: artistID,
+		}))
+
+		// Second insert: same natural key (venue_id, date, start_at) but different UUID.
+		// UPSERT updates the existing event row; the input UUID does NOT exist in events,
+		// so WHERE EXISTS filters it out and no duplicate concerts row is created.
+		err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c02", VenueID: venueID,
+				Title: "Duplicate Attempt", ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime, SourceURL: "https://example.com/2",
+			},
+			ArtistID: artistID,
+		})
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		assert.Len(t, got, 1, "should have exactly 1 concert — duplicate must be skipped")
+		assert.Equal(t, "Original", got[0].Title, "original title should be preserved")
+	})
+
+	t.Run("natural key conflict — open_at updated from NULL to non-NULL", func(t *testing.T) {
+		setupFixtures(t)
+
+		listedVenue := "Zepp DiverCity"
+		// First insert: event with open_at = NULL.
+		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c03", VenueID: venueID,
+				Title: "No OpenTime", ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime, SourceURL: "https://example.com/3",
+			},
+			ArtistID: artistID,
+		}))
+
+		// Second insert: same natural key but open_at is now non-NULL.
+		// COALESCE(EXCLUDED.open_at, events.open_at) → fills the NULL.
+		err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c04", VenueID: venueID,
+				Title: "With OpenTime", ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime, OpenTime: &openTime,
+				SourceURL: "https://example.com/4",
+			},
+			ArtistID: artistID,
+		})
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].OpenTime, "open_at should be updated from NULL to non-NULL")
+	})
+
+	t.Run("natural key conflict — existing non-NULL open_at preserved", func(t *testing.T) {
+		setupFixtures(t)
+
+		listedVenue := "Zepp DiverCity"
+		// First insert: event with open_at = non-NULL.
+		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c05", VenueID: venueID,
+				Title: "Has OpenTime", ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime, OpenTime: &openTime,
+				SourceURL: "https://example.com/5",
+			},
+			ArtistID: artistID,
+		}))
+
+		// Second insert: same natural key but open_at = NULL.
+		// COALESCE(NULL, events.open_at) → preserves existing value.
+		err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c06", VenueID: venueID,
+				Title: "Missing OpenTime", ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime,
+				SourceURL: "https://example.com/6",
+			},
+			ArtistID: artistID,
+		})
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].OpenTime, "existing non-NULL open_at must not be overwritten by NULL")
+	})
+
+	t.Run("NULL start_at conflict — NULLS NOT DISTINCT triggers UPSERT", func(t *testing.T) {
+		setupFixtures(t)
+
+		listedVenue := "Zepp DiverCity"
+		// First insert: event with start_at = NULL.
+		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c07", VenueID: venueID,
+				Title: "First NULL start", ListedVenueName: &listedVenue,
+				LocalDate: concertDate, SourceURL: "https://example.com/7",
+			},
+			ArtistID: artistID,
+		}))
+
+		// Second insert: same venue+date, also start_at = NULL.
+		// NULLS NOT DISTINCT means (venue, date, NULL) == (venue, date, NULL) → conflict.
+		err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c08", VenueID: venueID,
+				Title: "Second NULL start", ListedVenueName: &listedVenue,
+				LocalDate: concertDate, SourceURL: "https://example.com/8",
+			},
+			ArtistID: artistID,
+		})
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		assert.Len(t, got, 1, "two NULL start_at events with same venue+date must conflict")
+	})
+
+	t.Run("same artist re-inserted for same event — concerts ON CONFLICT DO NOTHING", func(t *testing.T) {
+		setupFixtures(t)
+
+		listedVenue := "Zepp DiverCity"
+		concert := &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c09", VenueID: venueID,
+				Title: "Shared Event", ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime, SourceURL: "https://example.com/9",
+			},
+			ArtistID: artistID,
+		}
+		require.NoError(t, concertRepo.Create(ctx, concert))
+
+		// Same event UUID and same artist again.
+		// Events UPSERT is a no-op (same id, same natural key).
+		// Concerts INSERT hits PK conflict → ON CONFLICT DO NOTHING.
+		err := concertRepo.Create(ctx, concert)
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		assert.Len(t, got, 1, "should still have exactly 1 concert — no duplicate")
+	})
 }
 
 // TestConcertRepository_ListedVenueName verifies that ListedVenueName is
@@ -353,11 +462,12 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 }
 
 func TestConcertRepository_ListByArtist(t *testing.T) {
-	cleanDatabase()
+	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB)
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
-	ctx := context.Background()
+
+	cleanDatabase()
 
 	// Setup: Create test data
 	testArtist1 := &entity.Artist{
@@ -430,8 +540,8 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 				VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
 				Title:     "Concert 3",
 				LocalDate: futureDate,
-				StartTime: &startTime,
-				OpenTime:  &openTime,
+				StartTime: &startTime2, // different start_time to avoid UPSERT conflict with c4
+				OpenTime:  &openTime2,
 			},
 			ArtistID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a3",
 		},

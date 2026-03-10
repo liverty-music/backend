@@ -1,4 +1,4 @@
-h1:cOJhGpYJWrLLPsP2touaniy7alYY/WCKtHg1EECGTHs=
+h1:ToYmtx/RcY5Bq9iRL5He6GbARFz7yj5iZvITGaMTIuc=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -35,3 +35,4 @@ h1:cOJhGpYJWrLLPsP2touaniy7alYY/WCKtHg1EECGTHs=
 20260304014802_add_home_to_users.sql h1:p55SP+Ii7pHaLM7Z40khyjv7O3gQCaykwODUtzTfkNE=
 20260304014803_normalize_venue_admin_area.sql h1:nrROPKZvS9tSof9c8hwsbonwFY0eCkr7EBJSSrabyWU=
 20260309034346_fix_homes_table_schema.sql h1:eDbXv2xka7YVqNEqkH9MRLYtTDux6IEkGZg002JKYUU=
+20260309171009_fix_concert_dedup.sql h1:5R8ifC4HTpJYMTaPsXxPm6CNU1mo9E4UglFAMAK4Fng=

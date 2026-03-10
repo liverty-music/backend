@@ -47,12 +47,22 @@ type ConcertRepository interface {
 	// ListByFollower retrieves all concerts for artists followed by the given user,
 	// ordered by local_event_date ascending.
 	ListByFollower(ctx context.Context, userID string) ([]*Concert, error)
-	// Create creates one or more concerts using bulk insert.
-	// Duplicates are silently skipped via ON CONFLICT DO NOTHING.
+	// Create creates one or more concerts using bulk insert with UPSERT semantics.
+	//
+	// Events are inserted with ON CONFLICT on the natural key
+	// (venue_id, local_event_date, start_at). When a conflict is detected:
+	//   - start_at is updated only if the existing value is NULL (COALESCE).
+	//   - open_at is updated only if the existing value is NULL (COALESCE).
+	//   - The existing row's non-NULL values are never overwritten.
+	//
+	// Concert rows are only inserted for genuinely new events. If the event
+	// already existed (UPSERT conflict), the corresponding concert row is
+	// skipped because the input UUID does not exist in the events table.
+	//
+	// Nil elements in the input slice are silently skipped.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If required fields are missing.
 	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid artist or venue).
 	Create(ctx context.Context, concerts ...*Concert) error
 }
