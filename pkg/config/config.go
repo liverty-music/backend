@@ -157,10 +157,34 @@ type DatabaseConfig struct {
 	// Database schema (sets search_path in DSN)
 	Schema string `envconfig:"DATABASE_SCHEMA" default:"app"`
 
-	// Connection pool settings
-	MaxOpenConns    int `envconfig:"DATABASE_MAX_OPEN_CONNS" default:"25"`
-	MaxIdleConns    int `envconfig:"DATABASE_MAX_IDLE_CONNS" default:"5"`
-	ConnMaxLifetime int `envconfig:"DATABASE_CONN_MAX_LIFETIME" default:"300"`
+	// Maximum number of open connections to the database.
+	// Default 10 is conservative enough for multi-pod deployments against
+	// small instances (e.g., Cloud SQL db-f1-micro with max_connections=25).
+	// Override per environment via DATABASE_MAX_OPEN_CONNS.
+	MaxOpenConns int `envconfig:"DATABASE_MAX_OPEN_CONNS" default:"10"`
+
+	// Minimum number of idle connections maintained in the pool.
+	// Keeps a small warm pool to avoid connection setup latency on first queries
+	// after idle periods. Maps to pgxpool MinConns.
+	MaxIdleConns int `envconfig:"DATABASE_MAX_IDLE_CONNS" default:"2"`
+
+	// Maximum lifetime of a connection in seconds before it is closed and replaced.
+	// Set to 30 minutes (1800s) to ensure periodic recycling for server-side resource
+	// hygiene and graceful handling of Cloud SQL maintenance events.
+	// Note: With Cloud SQL IAM auth, the connector auto-refreshes tokens for new
+	// connections, so this does not need to be shorter than the 60-minute token lifetime.
+	ConnMaxLifetime int `envconfig:"DATABASE_CONN_MAX_LIFETIME" default:"1800"`
+
+	// Maximum time in seconds a connection can be idle before it is closed.
+	// Connections beyond MinConns are released after this duration, freeing DB
+	// connection slots for other workloads. Set to 10 minutes (600s) to balance
+	// slot efficiency with avoiding excessive reconnection churn.
+	MaxConnIdleTime int `envconfig:"DATABASE_MAX_CONN_IDLE_TIME" default:"600"`
+
+	// Interval in seconds between health checks on idle connections.
+	// Detects and removes stale connections caused by Cloud SQL restarts or
+	// network interruptions. Matches pgxpool default of 1 minute.
+	HealthCheckPeriod int `envconfig:"DATABASE_HEALTH_CHECK_PERIOD" default:"60"`
 
 	// Instance Connection Name (e.g., project:region:instance)
 	// Required for Cloud SQL Connector (non-local environments)
