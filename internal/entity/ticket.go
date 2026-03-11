@@ -2,7 +2,11 @@ package entity
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Ticket represents a soulbound ticket (ERC-5192) issued to a user for an event.
@@ -33,6 +37,18 @@ type NewTicket struct {
 	TokenID uint64
 	// TxHash is the mint transaction hash.
 	TxHash string
+}
+
+// GenerateTokenID produces a backend-controlled ERC-721 token ID from a UUIDv7.
+// The high 64 bits of the UUID (48-bit ms timestamp + 12-bit sequence + 4 version
+// bits) form a monotonically increasing, collision-resistant uint64 that is safe
+// to use as a token ID without any client input.
+func GenerateTokenID() (uint64, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return 0, fmt.Errorf("failed to generate UUIDv7: %w", err)
+	}
+	return binary.BigEndian.Uint64(id[:8]), nil
 }
 
 // TicketMinter defines the interface for on-chain ticket minting operations.

@@ -51,6 +51,34 @@ type OfficialSite struct {
 	URL string
 }
 
+// FilterArtistsByMBID removes artists with an empty MBID and deduplicates the
+// remaining entries by MBID, keeping the first occurrence of each.
+func FilterArtistsByMBID(artists []*Artist) []*Artist {
+	seen := make(map[string]struct{})
+	result := make([]*Artist, 0, len(artists))
+	for _, a := range artists {
+		if a.MBID == "" {
+			continue
+		}
+		if _, ok := seen[a.MBID]; ok {
+			continue
+		}
+		seen[a.MBID] = struct{}{}
+		result = append(result, a)
+	}
+	return result
+}
+
+// NewOfficialSite creates a new OfficialSite for the given artist with an
+// auto-generated UUIDv7 ID.
+func NewOfficialSite(artistID, url string) *OfficialSite {
+	return &OfficialSite{
+		ID:       newID(),
+		ArtistID: artistID,
+		URL:      url,
+	}
+}
+
 // ArtistRepository defines the persistence layer operations for artist entities.
 type ArtistRepository interface {
 	// Create persists one or more artist records in the database using bulk upsert.

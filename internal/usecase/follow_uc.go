@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -182,11 +181,7 @@ func (uc *followUseCase) resolveAndPersistOfficialSite(ctx context.Context, arti
 		return
 	}
 
-	site := &entity.OfficialSite{
-		ID:       func() string { id, _ := uuid.NewV7(); return id.String() }(),
-		ArtistID: artistID,
-		URL:      url,
-	}
+	site := entity.NewOfficialSite(artistID, url)
 	if err := uc.artistRepo.CreateOfficialSite(ctx, site); err != nil {
 		if !errors.Is(err, apperr.ErrAlreadyExists) {
 			uc.logger.Warn(ctx, "failed to persist official site", slog.String("artist_id", artistID), slog.String("url", url), slog.Any("error", err))

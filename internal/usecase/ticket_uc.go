@@ -2,14 +2,12 @@ package usecase
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -126,7 +124,7 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 	// Generate a backend-controlled token ID from a UUIDv7.
 	// Using the high 64 bits (timestamp + random) gives a monotonically increasing,
 	// collision-resistant value without accepting client input.
-	tokenID, err := generateTokenID()
+	tokenID, err := entity.GenerateTokenID()
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to generate token ID")
 	}
@@ -202,20 +200,6 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 	)
 
 	return ticket, nil
-}
-
-// generateTokenID produces a backend-controlled ERC-721 token ID from a UUIDv7.
-// The high 64 bits of the UUID (48-bit ms timestamp + 12-bit sequence + 4 version bits)
-// form a monotonically increasing, collision-resistant uint64 that is safe to use as a
-// token ID without any client input.
-func generateTokenID() (uint64, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return 0, fmt.Errorf("failed to generate UUIDv7: %w", err)
-	}
-	b := id[:]
-	// Use the high 8 bytes of the UUID for the token ID.
-	return binary.BigEndian.Uint64(b[:8]), nil
 }
 
 // GetTicket retrieves a ticket by ID.

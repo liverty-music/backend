@@ -1,6 +1,36 @@
 package entity
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"regexp"
+)
+
+// countryCodeRe validates ISO 3166-1 alpha-2 country codes (e.g., "JP", "US").
+var countryCodeRe = regexp.MustCompile(`^[A-Z]{2}$`)
+
+// iso31662Re validates ISO 3166-2 subdivision codes (e.g., "JP-13", "US-CA").
+var iso31662Re = regexp.MustCompile(`^[A-Z]{2}-[A-Z0-9]{1,3}$`)
+
+// Validate checks that the Home has a valid CountryCode, Level1, and optional Level2.
+// It returns a non-nil error describing the first validation failure.
+// The entity layer returns stdlib errors; callers in the usecase layer are responsible
+// for wrapping them with the appropriate apperr code.
+func (h *Home) Validate() error {
+	if !countryCodeRe.MatchString(h.CountryCode) {
+		return fmt.Errorf("country_code must be a valid ISO 3166-1 alpha-2 code (e.g., JP), got %q", h.CountryCode)
+	}
+	if !iso31662Re.MatchString(h.Level1) {
+		return fmt.Errorf("level_1 must be a valid ISO 3166-2 code (e.g., JP-13), got %q", h.Level1)
+	}
+	if h.Level1[:2] != h.CountryCode {
+		return fmt.Errorf("level_1 prefix %q does not match country_code %q", h.Level1[:2], h.CountryCode)
+	}
+	if h.Level2 != nil && (len(*h.Level2) == 0 || len(*h.Level2) > 20) {
+		return fmt.Errorf("level_2 must be between 1 and 20 characters when provided, got length %d", len(*h.Level2))
+	}
+	return nil
+}
 
 // Home represents the user's home area as a structured geographic location.
 //

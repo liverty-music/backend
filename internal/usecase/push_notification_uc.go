@@ -129,39 +129,11 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 	// 3. Filter followers by hype level and collect eligible user IDs.
 	var userIDs []string
 	for _, f := range followers {
-		switch f.Hype {
-		case entity.HypeWatch:
-			// No notification for WATCH followers.
-			continue
-		case entity.HypeHome:
-			// Notify only if any concert venue matches the follower's home area.
-			homeLevel1 := ""
-			if f.User != nil && f.User.Home != nil {
-				homeLevel1 = f.User.Home.Level1
-			}
-			if homeLevel1 == "" {
-				// No home area set: skip notification.
-				continue
-			}
-			if _, ok := venueAreas[homeLevel1]; !ok {
-				continue
-			}
-		case entity.HypeNearby:
-			// Notify only if any concert venue is within the nearby threshold.
-			if f.User == nil || f.User.Home == nil {
-				continue
-			}
-			if !hasNearbyConcert(f.User.Home, concerts) {
-				continue
-			}
-		case entity.HypeAway:
-			// Always notify.
-		default:
-			// Unknown hype level: skip to be safe.
-			uc.logger.Warn(ctx, "unknown hype level, skipping notification",
-				slog.String("user_id", f.User.ID),
-				slog.String("hype", string(f.Hype)),
-			)
+		var home *entity.Home
+		if f.User != nil && f.User.Home != nil {
+			home = f.User.Home
+		}
+		if !f.Hype.ShouldNotify(home, venueAreas, concerts) {
 			continue
 		}
 		userIDs = append(userIDs, f.User.ID)
@@ -216,16 +188,4 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 	}
 
 	return nil
-}
-
-// hasNearbyConcert returns true if at least one concert venue is classified as
-// HOME or NEARBY relative to the given home area.
-func hasNearbyConcert(home *entity.Home, concerts []*entity.Concert) bool {
-	for _, c := range concerts {
-		p := c.ProximityTo(home)
-		if p == entity.ProximityHome || p == entity.ProximityNearby {
-			return true
-		}
-	}
-	return false
 }

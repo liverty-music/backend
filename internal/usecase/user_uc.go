@@ -3,21 +3,13 @@ package usecase
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"regexp"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
-
-// countryCodeRe validates ISO 3166-1 alpha-2 country codes (e.g., "JP", "US").
-var countryCodeRe = regexp.MustCompile(`^[A-Z]{2}$`)
-
-// iso31662Re validates ISO 3166-2 subdivision codes (e.g., "JP-13", "US-CA").
-var iso31662Re = regexp.MustCompile(`^[A-Z]{2}-[A-Z0-9]{1,3}$`)
 
 // UserUseCase defines the interface for user-related business logic.
 type UserUseCase interface {
@@ -78,30 +70,11 @@ func NewUserUseCase(userRepo entity.UserRepository, logger *logging.Logger) User
 	}
 }
 
-// validateHome checks that a Home value has valid country_code, level_1, and optional level_2.
-func validateHome(home *entity.Home) error {
-	if !countryCodeRe.MatchString(home.CountryCode) {
-		return apperr.New(codes.InvalidArgument, "country_code must be a valid ISO 3166-1 alpha-2 code (e.g., JP)")
-	}
-	if !iso31662Re.MatchString(home.Level1) {
-		return apperr.New(codes.InvalidArgument, "level_1 must be a valid ISO 3166-2 code (e.g., JP-13)")
-	}
-	// Ensure level_1 prefix matches country_code.
-	if home.Level1[:2] != home.CountryCode {
-		return apperr.New(codes.InvalidArgument,
-			fmt.Sprintf("level_1 prefix %q does not match country_code %q", home.Level1[:2], home.CountryCode))
-	}
-	if home.Level2 != nil && (len(*home.Level2) == 0 || len(*home.Level2) > 20) {
-		return apperr.New(codes.InvalidArgument, "level_2 must be between 1 and 20 characters when provided")
-	}
-	return nil
-}
-
 // Create creates a new user.
 func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
 	if params.Home != nil {
-		if err := validateHome(params.Home); err != nil {
-			return nil, err
+		if err := params.Home.Validate(); err != nil {
+			return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
 		}
 	}
 
@@ -159,8 +132,8 @@ func (uc *userUseCase) UpdateHome(ctx context.Context, id string, home *entity.H
 	if home == nil {
 		return nil, apperr.New(codes.InvalidArgument, "home cannot be nil")
 	}
-	if err := validateHome(home); err != nil {
-		return nil, err
+	if err := home.Validate(); err != nil {
+		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
 	}
 
 	user, err := uc.userRepo.UpdateHome(ctx, id, home)

@@ -155,43 +155,7 @@ func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, externalUse
 		return nil, err
 	}
 
-	return groupByDateAndProximity(concerts, user.Home), nil
-}
-
-// groupByDateAndProximity classifies concerts into home/nearby/distant buckets
-// and groups them by date. Concerts are expected to be ordered by local_event_date ascending.
-func groupByDateAndProximity(concerts []*entity.Concert, home *entity.Home) []*entity.ProximityGroup {
-	if len(concerts) == 0 {
-		return nil
-	}
-
-	groups := make(map[string]*entity.ProximityGroup)
-	var order []string // preserve date ordering
-
-	for _, c := range concerts {
-		dateKey := c.LocalDate.Format("2006-01-02")
-		g, ok := groups[dateKey]
-		if !ok {
-			g = &entity.ProximityGroup{Date: c.LocalDate}
-			groups[dateKey] = g
-			order = append(order, dateKey)
-		}
-
-		switch c.ProximityTo(home) {
-		case entity.ProximityHome:
-			g.Home = append(g.Home, c)
-		case entity.ProximityNearby:
-			g.Nearby = append(g.Nearby, c)
-		default:
-			g.Distant = append(g.Distant, c)
-		}
-	}
-
-	result := make([]*entity.ProximityGroup, 0, len(order))
-	for _, key := range order {
-		result = append(result, groups[key])
-	}
-	return result
+	return entity.GroupByDateAndProximity(concerts, user.Home), nil
 }
 
 // resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.
@@ -317,18 +281,18 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 			continue
 		}
 		venue := *ex.ListedVenueName
-		dvKey := dateVenueKey(ex.LocalDate, venue)
+		dvKey := ex.LocalDate.Format("2006-01-02") + "|" + venue
 		seenDateVenue[dvKey] = true
 		if ex.StartTime == nil {
 			existingHasNilStart[dvKey] = true
 		} else {
-			seen[concertKey(ex.LocalDate, venue, ex.StartTime)] = true
+			seen[dvKey+"|"+ex.StartTime.UTC().Format("15:04:05Z")] = true
 		}
 	}
 
 	var newConcerts []entity.ScrapedConcertData
 	for _, s := range scraped {
-		dvKey := dateVenueKey(s.LocalDate, s.ListedVenueName)
+		dvKey := s.DateVenueKey()
 
 		if s.StartTime == nil {
 			// Scraped nil start_at → "I don't know the time".
@@ -345,7 +309,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 			seenDateVenue[dvKey] = true
 		} else {
 			// Scraped non-nil start_at.
-			fullKey := concertKey(s.LocalDate, s.ListedVenueName, s.StartTime)
+			fullKey := s.DedupeKey()
 			if seen[fullKey] {
 				// Exact match — same instant after UTC normalization (handles TZ mismatch).
 				uc.logger.Debug(ctx, "filtered existing/duplicate event (exact key match)",
@@ -471,19 +435,4 @@ func toSearchStatusValue(log *entity.SearchLog) SearchStatusValue {
 	default:
 		return SearchStatusUnspecified
 	}
-}
-
-// concertKey returns the full dedup key "(date|venue|start_at_utc)" for a concert.
-// When startTime is nil the key omits the time segment, producing a dateVenueKey.
-func concertKey(date time.Time, venue string, startTime *time.Time) string {
-	base := dateVenueKey(date, venue)
-	if startTime == nil {
-		return base
-	}
-	return base + "|" + startTime.UTC().Format("15:04:05Z")
-}
-
-// dateVenueKey returns the "(date|venue)" portion of the dedup key.
-func dateVenueKey(date time.Time, venue string) string {
-	return date.Format("2006-01-02") + "|" + venue
 }

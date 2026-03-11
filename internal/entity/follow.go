@@ -17,6 +17,60 @@ const (
 	HypeAway Hype = "away"
 )
 
+// IsValid reports whether h is a recognized Hype value.
+func (h Hype) IsValid() bool {
+	switch h {
+	case HypeWatch, HypeHome, HypeNearby, HypeAway:
+		return true
+	default:
+		return false
+	}
+}
+
+// ShouldNotify reports whether a follower with hype level h should receive a
+// push notification for a newly discovered concert, given the follower's home
+// area, the venue's admin areas, and the list of concerts.
+//
+// Decision rules (evaluated in order):
+//  1. HypeWatch → false (dashboard-only, no push).
+//  2. HypeHome → true only when home is non-nil, home.Level1 is non-empty, and
+//     home.Level1 exists in venueAreas.
+//  3. HypeNearby → true only when home is non-nil and at least one concert in
+//     concerts has proximity ProximityHome or ProximityNearby relative to home.
+//  4. HypeAway → true (all concerts nationwide).
+//  5. Anything else → false.
+func (h Hype) ShouldNotify(home *Home, venueAreas map[string]struct{}, concerts []*Concert) bool {
+	switch h {
+	case HypeWatch:
+		return false
+
+	case HypeHome:
+		if home == nil || home.Level1 == "" {
+			return false
+		}
+		_, ok := venueAreas[home.Level1]
+		return ok
+
+	case HypeNearby:
+		if home == nil {
+			return false
+		}
+		for _, c := range concerts {
+			p := c.ProximityTo(home)
+			if p == ProximityHome || p == ProximityNearby {
+				return true
+			}
+		}
+		return false
+
+	case HypeAway:
+		return true
+
+	default:
+		return false
+	}
+}
+
 // Follow represents the write model for a user-artist follow relationship.
 type Follow struct {
 	// UserID is the internal UUID of the follower.
