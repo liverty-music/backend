@@ -39,6 +39,17 @@ type NewTicket struct {
 	TxHash string
 }
 
+// CreateTicket creates a new Ticket with an auto-generated UUIDv7 ID from the given parameters.
+func CreateTicket(params *NewTicket) *Ticket {
+	return &Ticket{
+		ID:      newID(),
+		EventID: params.EventID,
+		UserID:  params.UserID,
+		TokenID: params.TokenID,
+		TxHash:  params.TxHash,
+	}
+}
+
 // GenerateTokenID produces a backend-controlled ERC-721 token ID from a UUIDv7.
 // The high 64 bits of the UUID (48-bit ms timestamp + 12-bit sequence + 4 version
 // bits) form a monotonically increasing, collision-resistant uint64 that is safe

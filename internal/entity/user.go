@@ -107,6 +107,30 @@ type NewUser struct {
 	Home *Home
 }
 
+// CreateUser creates a new User with an auto-generated UUIDv7 ID from the given parameters.
+func CreateUser(params *NewUser) *User {
+	return &User{
+		ID:                newID(),
+		ExternalID:        params.ExternalID,
+		Email:             params.Email,
+		Name:              params.Name,
+		PreferredLanguage: params.PreferredLanguage,
+		Country:           params.Country,
+		TimeZone:          params.TimeZone,
+		IsActive:          true,
+	}
+}
+
+// NewHome creates a new Home with an auto-generated UUIDv7 ID.
+func NewHome(countryCode, level1 string, level2 *string) *Home {
+	return &Home{
+		ID:          newID(),
+		CountryCode: countryCode,
+		Level1:      level1,
+		Level2:      level2,
+	}
+}
+
 // UserRepository defines the interface for user data access.
 type UserRepository interface {
 	// Create creates a new user.

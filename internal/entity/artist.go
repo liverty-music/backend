@@ -1,11 +1,7 @@
 // Package entity defines core domain entities and business logic interfaces.
 package entity
 
-import (
-	"context"
-
-	"github.com/google/uuid"
-)
+import "context"
 
 // Artist represents a musical artist or group recorded in the system.
 //
@@ -29,11 +25,6 @@ func NewArtist(name, mbid string) *Artist {
 		Name: name,
 		MBID: mbid,
 	}
-}
-
-func newID() string {
-	id, _ := uuid.NewV7()
-	return id.String()
 }
 
 // OfficialSite represents the verified official website or media link for an artist.
