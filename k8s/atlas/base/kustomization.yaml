@@ -53,3 +53,4 @@ configMapGenerator:
   - migrations/20260310000000_rename_passion_level_to_hype.sql
   - migrations/20260310151949_add_venue_coordinates.sql
   - migrations/20260311000000_rename_hype_anywhere_to_away.sql
+  - migrations/20260311051910_add_home_centroid_columns.sql
