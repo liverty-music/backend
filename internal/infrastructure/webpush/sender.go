@@ -50,7 +50,7 @@ func (s *Sender) Send(_ context.Context, payload []byte, sub *entity.PushSubscri
 	})
 
 	if resp != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode == http.StatusGone {
 			return apperr.New(codes.NotFound, "push subscription is no longer valid")
 		}
