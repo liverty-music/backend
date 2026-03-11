@@ -3,14 +3,12 @@ package usecase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"time"
 
-	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/geo"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -54,34 +52,27 @@ type pushNotificationPayload struct {
 
 // pushNotificationUseCase implements PushNotificationUseCase.
 type pushNotificationUseCase struct {
-	followRepo     entity.FollowRepository
-	pushSubRepo    entity.PushSubscriptionRepository
-	logger         *logging.Logger
-	httpClient     *http.Client
-	vapidPublicKey string
-	vapidPrivate   string
-	vapidContact   string
+	followRepo  entity.FollowRepository
+	pushSubRepo entity.PushSubscriptionRepository
+	sender      entity.PushNotificationSender
+	logger      *logging.Logger
 }
 
 // Compile-time interface compliance check.
 var _ PushNotificationUseCase = (*pushNotificationUseCase)(nil)
 
 // NewPushNotificationUseCase creates a new PushNotificationUseCase.
-// vapidContact must be a mailto: URI (e.g., "mailto:admin@example.com").
 func NewPushNotificationUseCase(
 	followRepo entity.FollowRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
+	sender entity.PushNotificationSender,
 	logger *logging.Logger,
-	vapidPublicKey, vapidPrivateKey, vapidContact string,
 ) PushNotificationUseCase {
 	return &pushNotificationUseCase{
-		followRepo:     followRepo,
-		pushSubRepo:    pushSubRepo,
-		logger:         logger,
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
-		vapidPublicKey: vapidPublicKey,
-		vapidPrivate:   vapidPrivateKey,
-		vapidContact:   vapidContact,
+		followRepo:  followRepo,
+		pushSubRepo: pushSubRepo,
+		sender:      sender,
+		logger:      logger,
 	}
 }
 
@@ -157,14 +148,10 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 			}
 		case entity.HypeNearby:
 			// Notify only if any concert venue is within the nearby threshold.
-			homeLevel1 := ""
-			if f.User != nil && f.User.Home != nil {
-				homeLevel1 = f.User.Home.Level1
-			}
-			if homeLevel1 == "" {
+			if f.User == nil || f.User.Home == nil {
 				continue
 			}
-			if !hasNearbyConcert(homeLevel1, concerts) {
+			if !hasNearbyConcert(f.User.Home, concerts) {
 				continue
 			}
 		case entity.HypeAway:
@@ -212,44 +199,19 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 		default:
 		}
 
-		resp, err := webpush.SendNotification(payloadBytes, &webpush.Subscription{
-			Endpoint: sub.Endpoint,
-			Keys: webpush.Keys{
-				P256dh: sub.P256dh,
-				Auth:   sub.Auth,
-			},
-		}, &webpush.Options{
-			HTTPClient:      uc.httpClient,
-			VAPIDPublicKey:  uc.vapidPublicKey,
-			VAPIDPrivateKey: uc.vapidPrivate,
-			Subscriber:      uc.vapidContact,
-		})
-
-		// Always close the response body when present to prevent resource leaks.
-		// webpush-go may return both a non-nil resp and an error for non-2xx status codes.
-		if resp != nil {
-			statusCode := resp.StatusCode
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				uc.logger.Error(ctx, "failed to close push notification response body", closeErr,
-					slog.String("user_id", sub.UserID),
-				)
-			}
-
-			// A 410 Gone response means the subscription is no longer valid.
-			if statusCode == http.StatusGone {
+		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {
+			if errors.Is(err, apperr.ErrNotFound) {
 				if delErr := uc.pushSubRepo.DeleteByEndpoint(ctx, sub.Endpoint); delErr != nil {
 					uc.logger.Error(ctx, "failed to delete stale push subscription", delErr,
 						slog.String("endpoint", sub.Endpoint),
 					)
 				}
+			} else {
+				uc.logger.Error(ctx, "failed to send push notification", err,
+					slog.String("user_id", sub.UserID),
+					slog.String("artist_id", artist.ID),
+				)
 			}
-		}
-
-		if err != nil {
-			uc.logger.Error(ctx, "failed to send push notification", err,
-				slog.String("user_id", sub.UserID),
-				slog.String("artist_id", artist.ID),
-			)
 		}
 	}
 
@@ -257,14 +219,11 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 }
 
 // hasNearbyConcert returns true if at least one concert venue is classified as
-// HOME or NEARBY relative to the given home prefecture.
-func hasNearbyConcert(homeLevel1 string, concerts []*entity.Concert) bool {
+// HOME or NEARBY relative to the given home area.
+func hasNearbyConcert(home *entity.Home, concerts []*entity.Concert) bool {
 	for _, c := range concerts {
-		if c.Venue == nil {
-			continue
-		}
-		lane := geo.ClassifyLane(homeLevel1, c.Venue.Latitude, c.Venue.Longitude, c.Venue.AdminArea)
-		if lane == geo.LaneHome || lane == geo.LaneNearby {
+		p := c.ProximityTo(home)
+		if p == entity.ProximityHome || p == entity.ProximityNearby {
 			return true
 		}
 	}

@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/merkle"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -59,12 +58,13 @@ type MerklePathResult struct {
 
 // entryUseCase implements the EntryUseCase interface.
 type entryUseCase struct {
-	verifier   entity.ZKPVerifier
-	nullifiers entity.NullifierRepository
-	merkleTree entity.MerkleTreeRepository
-	eventRepo  entity.EventRepository
-	ticketRepo entity.TicketRepository
-	logger     *logging.Logger
+	verifier      entity.ZKPVerifier
+	nullifiers    entity.NullifierRepository
+	merkleTree    entity.MerkleTreeRepository
+	merkleBuilder entity.MerkleTreeBuilder
+	eventRepo     entity.EventRepository
+	ticketRepo    entity.TicketRepository
+	logger        *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -75,17 +75,19 @@ func NewEntryUseCase(
 	verifier entity.ZKPVerifier,
 	nullifiers entity.NullifierRepository,
 	merkleTree entity.MerkleTreeRepository,
+	merkleBuilder entity.MerkleTreeBuilder,
 	eventRepo entity.EventRepository,
 	ticketRepo entity.TicketRepository,
 	logger *logging.Logger,
 ) EntryUseCase {
 	return &entryUseCase{
-		verifier:   verifier,
-		nullifiers: nullifiers,
-		merkleTree: merkleTree,
-		eventRepo:  eventRepo,
-		ticketRepo: ticketRepo,
-		logger:     logger,
+		verifier:      verifier,
+		nullifiers:    nullifiers,
+		merkleTree:    merkleTree,
+		merkleBuilder: merkleBuilder,
+		eventRepo:     eventRepo,
+		ticketRepo:    ticketRepo,
+		logger:        logger,
 	}
 }
 
@@ -360,7 +362,7 @@ func (uc *entryUseCase) BuildMerkleTree(ctx context.Context, eventID string) err
 	// Compute identity commitments for each ticket holder.
 	leaves := make([][]byte, len(tickets))
 	for i, ticket := range tickets {
-		commitment, err := merkle.IdentityCommitment([]byte(ticket.UserID))
+		commitment, err := uc.merkleBuilder.IdentityCommitment([]byte(ticket.UserID))
 		if err != nil {
 			return apperr.Wrap(err, codes.Internal, "failed to compute identity commitment",
 				slog.String("user_id", ticket.UserID),
@@ -370,8 +372,7 @@ func (uc *entryUseCase) BuildMerkleTree(ctx context.Context, eventID string) err
 	}
 
 	// Build the Merkle tree.
-	builder := merkle.NewBuilder(DefaultTreeDepth)
-	nodes, root, err := builder.Build(eventID, leaves)
+	nodes, root, err := uc.merkleBuilder.Build(eventID, leaves)
 	if err != nil {
 		return apperr.Wrap(err, codes.Internal, "failed to build merkle tree")
 	}

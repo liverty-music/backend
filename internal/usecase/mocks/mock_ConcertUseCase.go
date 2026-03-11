@@ -190,23 +190,23 @@ func (_c *MockConcertUseCase_ListByFollower_Call) RunAndReturn(run func(context.
 }
 
 // ListByFollowerGrouped provides a mock function with given fields: ctx, externalUserID
-func (_m *MockConcertUseCase) ListByFollowerGrouped(ctx context.Context, externalUserID string) ([]*entity.DateLaneGroup, error) {
+func (_m *MockConcertUseCase) ListByFollowerGrouped(ctx context.Context, externalUserID string) ([]*entity.ProximityGroup, error) {
 	ret := _m.Called(ctx, externalUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByFollowerGrouped")
 	}
 
-	var r0 []*entity.DateLaneGroup
+	var r0 []*entity.ProximityGroup
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.DateLaneGroup, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.ProximityGroup, error)); ok {
 		return rf(ctx, externalUserID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.DateLaneGroup); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.ProximityGroup); ok {
 		r0 = rf(ctx, externalUserID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.DateLaneGroup)
+			r0 = ret.Get(0).([]*entity.ProximityGroup)
 		}
 	}
 
@@ -238,12 +238,12 @@ func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Run(run func(ctx contex
 	return _c
 }
 
-func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Return(_a0 []*entity.DateLaneGroup, _a1 error) *MockConcertUseCase_ListByFollowerGrouped_Call {
+func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Return(_a0 []*entity.ProximityGroup, _a1 error) *MockConcertUseCase_ListByFollowerGrouped_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) RunAndReturn(run func(context.Context, string) ([]*entity.DateLaneGroup, error)) *MockConcertUseCase_ListByFollowerGrouped_Call {
+func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) RunAndReturn(run func(context.Context, string) ([]*entity.ProximityGroup, error)) *MockConcertUseCase_ListByFollowerGrouped_Call {
 	_c.Call.Return(run)
 	return _c
 }
