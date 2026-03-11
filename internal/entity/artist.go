@@ -36,41 +36,6 @@ func newID() string {
 	return id.String()
 }
 
-// Hype represents the user's enthusiasm tier for a followed artist.
-// Values are ordered by ascending enthusiasm: Watch (lowest) to Anywhere (highest).
-type Hype string
-
-const (
-	// HypeWatch indicates dashboard-only display, no push notifications.
-	HypeWatch Hype = "watch"
-	// HypeHome indicates notifications only for concerts in the user's home area.
-	HypeHome Hype = "home"
-	// HypeNearby is reserved for Phase 2 (physical distance based proximity).
-	HypeNearby Hype = "nearby"
-	// HypeAnywhere indicates notifications for all concerts nationwide (default).
-	HypeAnywhere Hype = "anywhere"
-)
-
-// FollowedArtist represents an artist with user-specific follow metadata.
-type FollowedArtist struct {
-	// Artist is the followed artist entity.
-	Artist *Artist
-	// Hype is the user's enthusiasm tier for this artist.
-	Hype Hype
-}
-
-// FollowerWithHype represents a follower's user ID, hype level, and home area
-// for notification filtering decisions.
-type FollowerWithHype struct {
-	// UserID is the internal UUID of the follower.
-	UserID string
-	// Hype is the follower's enthusiasm tier for the artist.
-	Hype Hype
-	// HomeLevel1 is the ISO 3166-2 subdivision code of the user's home area.
-	// Empty when the user has not set a home area.
-	HomeLevel1 string
-}
-
 // OfficialSite represents the verified official website or media link for an artist.
 //
 // Each artist is restricted to a single primary official site in the current version.
@@ -155,63 +120,6 @@ type ArtistRepository interface {
 	//   - NotFound: the artist exists but has no official site registered.
 	//   - Internal: database query failure.
 	GetOfficialSite(ctx context.Context, artistID string) (*OfficialSite, error)
-
-	// Follow records a user's interest in an artist for notification purposes.
-	//
-	// # Possible errors:
-	//
-	//   - NotFound: the artist or user does not exist.
-	//   - AlreadyExists: the user is already following this artist.
-	//   - Internal: database execution failure.
-	Follow(ctx context.Context, userID, artistID string) error
-
-	// Unfollow removes the subscription between a user and an artist.
-	//
-	// # Possible errors:
-	//
-	//   - NotFound: the follow relationship does not exist.
-	//   - Internal: database execution failure.
-	Unfollow(ctx context.Context, userID, artistID string) error
-
-	// SetHype updates the enthusiasm tier for a followed artist.
-	//
-	// # Possible errors:
-	//
-	//   - NotFound: the user is not following the specified artist.
-	//   - Internal: database execution failure.
-	SetHype(ctx context.Context, userID, artistID string, hype Hype) error
-
-	// ListFollowed retrieves all artists followed by a specific user,
-	// enriched with per-user hype metadata.
-	//
-	// # Possible errors:
-	//
-	//   - Internal: database query failure.
-	ListFollowed(ctx context.Context, userID string) ([]*FollowedArtist, error)
-
-	// ListAllFollowed retrieves all distinct artists followed by any user.
-	//
-	// # Possible errors:
-	//
-	//   - Internal: database query failure.
-	ListAllFollowed(ctx context.Context) ([]*Artist, error)
-
-	// ListFollowers retrieves all users who are following the given artist.
-	// Returns an empty slice (no error) when no users follow the artist.
-	//
-	// # Possible errors:
-	//
-	//   - Internal: database query failure.
-	ListFollowers(ctx context.Context, artistID string) ([]*User, error)
-
-	// ListFollowersWithHype retrieves all followers of an artist along with their
-	// hype level and home area for notification filtering decisions.
-	// Returns an empty slice (no error) when no users follow the artist.
-	//
-	// # Possible errors:
-	//
-	//   - Internal: database query failure.
-	ListFollowersWithHype(ctx context.Context, artistID string) ([]*FollowerWithHype, error)
 }
 
 // ArtistSearcher defines discovery operations for finding artists in external catalogs.

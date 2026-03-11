@@ -48,7 +48,7 @@ func run() error {
 		}
 	}()
 
-	artists, err := app.ArtistRepo.ListAllFollowed(ctx)
+	artists, err := app.FollowRepo.ListAll(ctx)
 	if err != nil {
 		return err
 	}

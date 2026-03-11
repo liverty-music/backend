@@ -9,7 +9,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -106,85 +105,6 @@ func (h *ArtistHandler) CreateOfficialSite(ctx context.Context, req *connect.Req
 func (h *ArtistHandler) DeleteOfficialSite(ctx context.Context, req *connect.Request[rpc.DeleteOfficialSiteRequest]) (*connect.Response[rpc.DeleteOfficialSiteResponse], error) {
 	// TODO: Implement DeleteOfficialSite in UseCase
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("DeleteOfficialSite is not implemented"))
-}
-
-// Follow establishes a follow relationship between the current user and an artist.
-func (h *ArtistHandler) Follow(ctx context.Context, req *connect.Request[rpc.FollowRequest]) (*connect.Response[rpc.FollowResponse], error) {
-	userID, ok := auth.GetUserID(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
-	}
-
-	if req.Msg.ArtistId == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
-	}
-
-	err := h.artistUseCase.Follow(ctx, userID, req.Msg.ArtistId.Value)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&rpc.FollowResponse{}), nil
-}
-
-// Unfollow removes an existing follow relationship.
-func (h *ArtistHandler) Unfollow(ctx context.Context, req *connect.Request[rpc.UnfollowRequest]) (*connect.Response[rpc.UnfollowResponse], error) {
-	userID, ok := auth.GetUserID(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
-	}
-
-	if req.Msg.ArtistId == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
-	}
-
-	err := h.artistUseCase.Unfollow(ctx, userID, req.Msg.ArtistId.Value)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&rpc.UnfollowResponse{}), nil
-}
-
-// ListFollowed retrieves the list of artists currently followed by the authenticated user.
-func (h *ArtistHandler) ListFollowed(ctx context.Context, req *connect.Request[rpc.ListFollowedRequest]) (*connect.Response[rpc.ListFollowedResponse], error) {
-	userID, ok := auth.GetUserID(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
-	}
-
-	followed, err := h.artistUseCase.ListFollowed(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&rpc.ListFollowedResponse{
-		Artists: mapper.FollowedArtistsToProto(followed),
-	}), nil
-}
-
-// SetHype updates the user's enthusiasm tier for a followed artist.
-func (h *ArtistHandler) SetHype(ctx context.Context, req *connect.Request[rpc.SetHypeRequest]) (*connect.Response[rpc.SetHypeResponse], error) {
-	userID, ok := auth.GetUserID(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
-	}
-
-	if req.Msg.ArtistId == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
-	}
-
-	hype, ok := mapper.HypeFromProto[req.Msg.Hype]
-	if !ok {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid hype level"))
-	}
-
-	err := h.artistUseCase.SetHype(ctx, userID, req.Msg.ArtistId.Value, hype)
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&rpc.SetHypeResponse{}), nil
 }
 
 // ListSimilar retrieves a collection of artists with musical affinity to a target artist.

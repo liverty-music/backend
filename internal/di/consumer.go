@@ -58,6 +58,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
+	followRepo := rdb.NewFollowRepository(db)
 
 	// Infrastructure - Messaging
 	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
@@ -96,7 +97,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Use Cases
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
-		artistRepo,
+		followRepo,
 		pushSubRepo,
 		logger,
 		cfg.VAPID.PublicKey,

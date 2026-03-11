@@ -11,6 +11,7 @@ import (
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	entryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/entry/v1/entryv1connect"
+	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
@@ -71,6 +72,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Repositories
 	userRepo := rdb.NewUserRepository(db)
 	artistRepo := rdb.NewArtistRepository(db)
+	followRepo := rdb.NewFollowRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	searchLogRepo := rdb.NewSearchLogRepository(db)
@@ -144,9 +146,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Use Cases
 	userUC := usecase.NewUserUseCase(userRepo, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, publisher, logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, userRepo, lastfmClient, musicbrainzClient, musicbrainzClient, concertUC, searchLogRepo, publisher, artistCache, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, publisher, artistCache, logger)
+	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, userRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
-		artistRepo,
+		followRepo,
 		pushSubRepo,
 		logger,
 		cfg.VAPID.PublicKey,
@@ -201,6 +204,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return artistconnect.NewArtistServiceHandler(
 				rpc.NewArtistHandler(artistUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return followconnect.NewFollowServiceHandler(
+				rpc.NewFollowHandler(followUC, logger),
 				opts...,
 			)
 		},

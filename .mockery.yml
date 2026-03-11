@@ -11,14 +11,15 @@ packages:
       UserUseCase:
       TicketUseCase:
       EntryUseCase:
+      FollowUseCase:
       PushNotificationUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
+      FollowRepository:
       ConcertRepository:
       ConcertSearcher:
       UserRepository:
-      UserArtistSubscriptionRepository:
       SearchLogRepository:
       VenueRepository:
       TicketMinter:
