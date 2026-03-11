@@ -54,7 +54,7 @@ type pushNotificationPayload struct {
 
 // pushNotificationUseCase implements PushNotificationUseCase.
 type pushNotificationUseCase struct {
-	artistRepo     entity.ArtistRepository
+	followRepo     entity.FollowRepository
 	pushSubRepo    entity.PushSubscriptionRepository
 	logger         *logging.Logger
 	httpClient     *http.Client
@@ -69,13 +69,13 @@ var _ PushNotificationUseCase = (*pushNotificationUseCase)(nil)
 // NewPushNotificationUseCase creates a new PushNotificationUseCase.
 // vapidContact must be a mailto: URI (e.g., "mailto:admin@example.com").
 func NewPushNotificationUseCase(
-	artistRepo entity.ArtistRepository,
+	followRepo entity.FollowRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	logger *logging.Logger,
 	vapidPublicKey, vapidPrivateKey, vapidContact string,
 ) PushNotificationUseCase {
 	return &pushNotificationUseCase{
-		artistRepo:     artistRepo,
+		followRepo:     followRepo,
 		pushSubRepo:    pushSubRepo,
 		logger:         logger,
 		httpClient:     &http.Client{Timeout: 10 * time.Second},
@@ -119,7 +119,7 @@ func (uc *pushNotificationUseCase) Unsubscribe(ctx context.Context, userID strin
 // Individual delivery failures are logged but do not cause the method to return an error.
 func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist *entity.Artist, concerts []*entity.Concert) error {
 	// 1. Retrieve all followers with their hype level and home area.
-	followers, err := uc.artistRepo.ListFollowersWithHype(ctx, artist.ID)
+	followers, err := uc.followRepo.ListFollowers(ctx, artist.ID)
 	if err != nil {
 		return fmt.Errorf("failed to list followers for artist %s: %w", artist.ID, err)
 	}
@@ -144,11 +144,15 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 			continue
 		case entity.HypeHome:
 			// Notify only if any concert venue matches the follower's home area.
-			if f.HomeLevel1 == "" {
+			homeLevel1 := ""
+			if f.User != nil && f.User.Home != nil {
+				homeLevel1 = f.User.Home.Level1
+			}
+			if homeLevel1 == "" {
 				// No home area set: skip notification.
 				continue
 			}
-			if _, ok := venueAreas[f.HomeLevel1]; !ok {
+			if _, ok := venueAreas[homeLevel1]; !ok {
 				continue
 			}
 		case entity.HypeNearby:
@@ -164,12 +168,12 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 		default:
 			// Unknown hype level: skip to be safe.
 			uc.logger.Warn(ctx, "unknown hype level, skipping notification",
-				slog.String("user_id", f.UserID),
+				slog.String("user_id", f.User.ID),
 				slog.String("hype", string(f.Hype)),
 			)
 			continue
 		}
-		userIDs = append(userIDs, f.UserID)
+		userIDs = append(userIDs, f.User.ID)
 	}
 	if len(userIDs) == 0 {
 		return nil

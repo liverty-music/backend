@@ -4,12 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/pkg/cache"
@@ -59,40 +57,6 @@ type ArtistUseCase interface {
 	//   - NotFound: no matching artists found.
 	Search(ctx context.Context, query string) ([]*entity.Artist, error)
 
-	// Follow establishes a subscription between a user and an artist.
-	//
-	// # Possible errors:
-	//
-	//   - InvalidArgument: required identification (ID) or user context is missing.
-	//   - NotFound: the artist does not exist.
-	//   - Internal: unexpected failure during relationship establishment.
-	Follow(ctx context.Context, userID string, artistID string) error
-
-	// Unfollow terminates a subscription between a user and an artist.
-	//
-	// # Possible errors:
-	//
-	//   - InvalidArgument: missing user or artist identification.
-	//   - Internal: execution failure.
-	Unfollow(ctx context.Context, userID, artistID string) error
-
-	// SetHype updates the enthusiasm tier for a followed artist.
-	//
-	// # Possible errors:
-	//
-	//   - InvalidArgument: missing user or artist identification, or invalid hype.
-	//   - NotFound: the user is not following the specified artist.
-	SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error
-
-	// ListFollowed retrieves all artists currently followed by the specified user,
-	// enriched with per-user hype metadata.
-	//
-	// # Possible errors:
-	//
-	//   - InvalidArgument: missing user identification.
-	//   - Internal: query failure.
-	ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error)
-
 	// ListSimilar identifies artists with musical affinity to the target artist.
 	// When limit is greater than zero, the result is capped to that many entries;
 	// otherwise the external service's default is used.
@@ -116,12 +80,8 @@ type ArtistUseCase interface {
 // artistUseCase implements the ArtistUseCase interface.
 type artistUseCase struct {
 	artistRepo     entity.ArtistRepository
-	userRepo       entity.UserRepository
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
-	siteResolver   entity.OfficialSiteResolver
-	concertUC      ConcertUseCase
-	searchLogRepo  entity.SearchLogRepository
 	publisher      message.Publisher
 	cache          *cache.MemoryCache
 	logger         *logging.Logger
@@ -133,24 +93,16 @@ var _ ArtistUseCase = (*artistUseCase)(nil)
 // NewArtistUseCase creates a new instance of the artist business logic handler.
 func NewArtistUseCase(
 	artistRepo entity.ArtistRepository,
-	userRepo entity.UserRepository,
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
-	siteResolver entity.OfficialSiteResolver,
-	concertUC ConcertUseCase,
-	searchLogRepo entity.SearchLogRepository,
 	publisher message.Publisher,
 	cache *cache.MemoryCache,
 	logger *logging.Logger,
 ) ArtistUseCase {
 	return &artistUseCase{
 		artistRepo:     artistRepo,
-		userRepo:       userRepo,
 		artistSearcher: artistSearcher,
 		idManager:      idManager,
-		siteResolver:   siteResolver,
-		concertUC:      concertUC,
-		searchLogRepo:  searchLogRepo,
 		publisher:      publisher,
 		cache:          cache,
 		logger:         logger,
@@ -270,172 +222,6 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 	uc.cache.Set(cacheKey, persisted)
 
 	return persisted, nil
-}
-
-// resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.
-func (uc *artistUseCase) resolveUserID(ctx context.Context, externalID string) (string, error) {
-	user, err := uc.userRepo.GetByExternalID(ctx, externalID)
-	if err != nil {
-		return "", fmt.Errorf("resolve user by external ID: %w", err)
-	}
-	return user.ID, nil
-}
-
-// Follow establishes a follow relationship between a user and an artist.
-// After the follow is persisted, it asynchronously resolves and stores the
-// artist's official site URL if one is not already recorded.
-func (uc *artistUseCase) Follow(ctx context.Context, userID string, artistID string) error {
-	if userID == "" || artistID == "" {
-		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
-	}
-
-	internalUserID, err := uc.resolveUserID(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	err = uc.artistRepo.Follow(ctx, internalUserID, artistID)
-	if err != nil {
-		// Treat "already following" as success
-		if errors.Is(err, apperr.ErrAlreadyExists) {
-			return nil
-		}
-		return apperr.Wrap(err, codes.Internal, "failed to establish follow relationship")
-	}
-
-	uc.logger.Info(ctx, "User followed artist", slog.String("user_id", internalUserID), slog.String("artist_id", artistID))
-
-	bgCtx := context.WithoutCancel(ctx)
-	go uc.resolveAndPersistOfficialSite(bgCtx, artistID)
-	go uc.triggerFirstFollowSearch(bgCtx, artistID)
-
-	return nil
-}
-
-// triggerFirstFollowSearch checks whether the artist has been searched before
-// and, if not, triggers a background concert search. All errors are logged and
-// swallowed so that the follow operation is never affected.
-func (uc *artistUseCase) triggerFirstFollowSearch(ctx context.Context, artistID string) {
-	_, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
-	if err == nil {
-		// Search log exists — artist has been searched before, skip.
-		return
-	}
-	if !errors.Is(err, apperr.ErrNotFound) {
-		uc.logger.Warn(ctx, "failed to check search log for first-follow search",
-			slog.String("artist_id", artistID), slog.Any("error", err))
-		return
-	}
-
-	// No search log — this is a first follow. Trigger concert discovery.
-	uc.logger.Info(ctx, "First follow detected, triggering concert search",
-		slog.String("artist_id", artistID))
-
-	if err := uc.concertUC.SearchNewConcerts(ctx, artistID); err != nil {
-		uc.logger.Warn(ctx, "background concert search failed after first follow",
-			slog.String("artist_id", artistID), slog.Any("error", err))
-	}
-}
-
-// resolveAndPersistOfficialSite fetches the official site URL from MusicBrainz
-// and persists it for the given artist. It is intended to run in a background
-// goroutine; all errors are logged and swallowed.
-func (uc *artistUseCase) resolveAndPersistOfficialSite(ctx context.Context, artistID string) {
-	// Skip if a record already exists.
-	_, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
-	if err == nil {
-		return
-	}
-	if !errors.Is(err, apperr.ErrNotFound) {
-		uc.logger.Warn(ctx, "failed to check official site before resolution", slog.String("artist_id", artistID), slog.Any("error", err))
-		return
-	}
-
-	artist, err := uc.artistRepo.Get(ctx, artistID)
-	if err != nil {
-		uc.logger.Warn(ctx, "failed to get artist for official site resolution", slog.String("artist_id", artistID), slog.Any("error", err))
-		return
-	}
-
-	if artist.MBID == "" {
-		return
-	}
-
-	url, err := uc.siteResolver.ResolveOfficialSiteURL(ctx, artist.MBID)
-	if err != nil {
-		uc.logger.Warn(ctx, "failed to resolve official site URL", slog.String("artist_id", artistID), slog.String("mbid", artist.MBID), slog.Any("error", err))
-		return
-	}
-	if url == "" {
-		return
-	}
-
-	site := &entity.OfficialSite{
-		ID:       func() string { id, _ := uuid.NewV7(); return id.String() }(),
-		ArtistID: artistID,
-		URL:      url,
-	}
-	if err := uc.artistRepo.CreateOfficialSite(ctx, site); err != nil {
-		if !errors.Is(err, apperr.ErrAlreadyExists) {
-			uc.logger.Warn(ctx, "failed to persist official site", slog.String("artist_id", artistID), slog.String("url", url), slog.Any("error", err))
-		}
-		return
-	}
-
-	uc.logger.Info(ctx, "official site resolved and persisted", slog.String("artist_id", artistID), slog.String("url", url))
-}
-
-// Unfollow removes a follow relationship.
-func (uc *artistUseCase) Unfollow(ctx context.Context, userID, artistID string) error {
-	if userID == "" || artistID == "" {
-		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
-	}
-
-	internalUserID, err := uc.resolveUserID(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	err = uc.artistRepo.Unfollow(ctx, internalUserID, artistID)
-	if err != nil {
-		return err
-	}
-
-	uc.logger.Info(ctx, "Artist unfollowed", slog.String("user_id", internalUserID), slog.String("artist_id", artistID))
-	return nil
-}
-
-// SetHype updates the enthusiasm tier for a followed artist.
-func (uc *artistUseCase) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
-	if userID == "" || artistID == "" {
-		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
-	}
-
-	err := uc.artistRepo.SetHype(ctx, userID, artistID, hype)
-	if err != nil {
-		return err
-	}
-
-	uc.logger.Info(ctx, "Hype updated",
-		slog.String("user_id", userID),
-		slog.String("artist_id", artistID),
-		slog.String("hype", string(hype)),
-	)
-	return nil
-}
-
-// ListFollowed retrieves the list of artists followed by a user, including hype level.
-func (uc *artistUseCase) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
-	if userID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
-	}
-
-	internalUserID, err := uc.resolveUserID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	return uc.artistRepo.ListFollowed(ctx, internalUserID)
 }
 
 // ListSimilar retrieves artists similar to a specified artist.

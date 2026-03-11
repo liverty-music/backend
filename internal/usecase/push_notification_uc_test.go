@@ -13,7 +13,7 @@ import (
 
 // pushNotificationTestDeps holds all dependencies for PushNotificationUseCase tests.
 type pushNotificationTestDeps struct {
-	artistRepo  *mocks.MockArtistRepository
+	followRepo  *mocks.MockFollowRepository
 	pushSubRepo *mocks.MockPushSubscriptionRepository
 	uc          usecase.PushNotificationUseCase
 }
@@ -22,11 +22,11 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 	t.Helper()
 	logger, _ := logging.New()
 	d := &pushNotificationTestDeps{
-		artistRepo:  mocks.NewMockArtistRepository(t),
+		followRepo:  mocks.NewMockFollowRepository(t),
 		pushSubRepo: mocks.NewMockPushSubscriptionRepository(t),
 	}
 	d.uc = usecase.NewPushNotificationUseCase(
-		d.artistRepo,
+		d.followRepo,
 		d.pushSubRepo,
 		logger,
 		"vapid-pub", "vapid-priv", "mailto:test@example.com",
@@ -206,7 +206,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return([]*entity.FollowerWithHype{}, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return([]*entity.Follower{}, nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -215,10 +215,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-1", Hype: entity.HypeAnywhere},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAnywhere},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
 					ListByUserIDs(ctx, []string{"user-1"}).
 					Return([]*entity.PushSubscription{}, nil).
@@ -231,10 +231,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-watch", Hype: entity.HypeWatch},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-watch"}, Hype: entity.HypeWatch},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				// No ListByUserIDs call expected — all followers filtered out.
 			},
 			wantErr: nil,
@@ -244,10 +244,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-home", Hype: entity.HypeHome, HomeLevel1: "JP-13"},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-home", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeHome},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
 					ListByUserIDs(ctx, []string{"user-home"}).
 					Return([]*entity.PushSubscription{}, nil).
@@ -260,10 +260,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&osakaArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-home", Hype: entity.HypeHome, HomeLevel1: "JP-13"},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-home", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeHome},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				// No ListByUserIDs call expected — HOME follower filtered out.
 			},
 			wantErr: nil,
@@ -273,10 +273,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-home", Hype: entity.HypeHome, HomeLevel1: ""},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-home"}, Hype: entity.HypeHome},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				// No ListByUserIDs call expected — no home area set.
 			},
 			wantErr: nil,
@@ -302,10 +302,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-nearby", Hype: entity.HypeNearby, HomeLevel1: "JP-13"},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeNearby},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
 					ListByUserIDs(ctx, []string{"user-nearby"}).
 					Return([]*entity.PushSubscription{}, nil).
@@ -334,10 +334,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-nearby", Hype: entity.HypeNearby, HomeLevel1: "JP-13"},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeNearby},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				// No ListByUserIDs — NEARBY follower filtered out.
 			},
 			wantErr: nil,
@@ -347,10 +347,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-nearby", Hype: entity.HypeNearby, HomeLevel1: ""},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby"}, Hype: entity.HypeNearby},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				// No ListByUserIDs — no home area set.
 			},
 			wantErr: nil,
@@ -360,13 +360,13 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-watch", Hype: entity.HypeWatch},
-					{UserID: "user-home-match", Hype: entity.HypeHome, HomeLevel1: "JP-13"},
-					{UserID: "user-home-nomatch", Hype: entity.HypeHome, HomeLevel1: "JP-27"},
-					{UserID: "user-anywhere", Hype: entity.HypeAnywhere},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-watch"}, Hype: entity.HypeWatch},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-home-match", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeHome},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-home-nomatch", Home: &entity.Home{Level1: "JP-27"}}, Hype: entity.HypeHome},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-anywhere"}, Hype: entity.HypeAnywhere},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
 					ListByUserIDs(ctx, []string{"user-home-match", "user-anywhere"}).
 					Return([]*entity.PushSubscription{}, nil).
@@ -375,11 +375,11 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "return error when ListFollowersWithHype fails",
+			name: "return error when ListFollowers fails",
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(nil, assert.AnError).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(nil, assert.AnError).Once()
 			},
 			wantErr: assert.AnError,
 		},
@@ -388,10 +388,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				followers := []*entity.FollowerWithHype{
-					{UserID: "user-1", Hype: entity.HypeAnywhere},
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAnywhere},
 				}
-				d.artistRepo.EXPECT().ListFollowersWithHype(ctx, "artist-1").Return(followers, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
 					ListByUserIDs(ctx, []string{"user-1"}).
 					Return(nil, assert.AnError).
