@@ -223,13 +223,18 @@ func (uc *followUseCase) SetHype(ctx context.Context, userID, artistID string, h
 		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
 	}
 
-	err := uc.followRepo.SetHype(ctx, userID, artistID, hype)
+	internalUserID, err := uc.resolveUserID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	err = uc.followRepo.SetHype(ctx, internalUserID, artistID, hype)
 	if err != nil {
 		return err
 	}
 
 	uc.logger.Info(ctx, "Hype updated",
-		slog.String("user_id", userID),
+		slog.String("user_id", internalUserID),
 		slog.String("artist_id", artistID),
 		slog.String("hype", string(hype)),
 	)
