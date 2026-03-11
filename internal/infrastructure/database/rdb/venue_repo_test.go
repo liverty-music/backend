@@ -395,7 +395,7 @@ func TestVenueRepository_MergeVenues(t *testing.T) {
 
 	// Create an artist
 	artistID := "018b2f19-e591-7d12-bf9e-000000000001"
-	_, err := testDB.Pool.Exec(ctx, `INSERT INTO artists (id, name) VALUES ($1, $2)`, artistID, "Test Artist")
+	_, err := testDB.Pool.Exec(ctx, `INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`, artistID, "Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-000000000001")
 	require.NoError(t, err)
 
 	// Canonical venue (older)
@@ -417,7 +417,7 @@ func TestVenueRepository_MergeVenues(t *testing.T) {
 
 	// Create a concert on the duplicate that shares (artist, date, start_at) with a canonical concert
 	// → should be deleted
-	dupEvent1ID, dupConcert1ID := "018b2f19-0000-0000-0000-000000000011", "018b2f19-0000-0000-0001-000000000011"
+	dupEvent1ID, dupConcert1ID := "018b2f19-0000-7000-0000-000000000011", "018b2f19-0000-7000-0001-000000000011"
 	_, err = testDB.Pool.Exec(ctx,
 		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, 'Show', '2026-03-01')`,
 		dupEvent1ID, duplicate.ID)
@@ -429,7 +429,7 @@ func TestVenueRepository_MergeVenues(t *testing.T) {
 	_ = dupConcert1ID
 
 	// Also create the same concert on canonical → dupEvent1 should be deleted
-	canEvent1ID := "018b2f19-0000-0000-0000-000000000010"
+	canEvent1ID := "018b2f19-0000-7000-0000-000000000010"
 	_, err = testDB.Pool.Exec(ctx,
 		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, 'Show', '2026-03-01')`,
 		canEvent1ID, canonical.ID)
@@ -440,7 +440,7 @@ func TestVenueRepository_MergeVenues(t *testing.T) {
 	require.NoError(t, err)
 
 	// A unique concert only on duplicate → should be re-pointed to canonical
-	dupEvent2ID := "018b2f19-0000-0000-0000-000000000012"
+	dupEvent2ID := "018b2f19-0000-7000-0000-000000000012"
 	_, err = testDB.Pool.Exec(ctx,
 		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, 'Unique Show', '2026-04-01')`,
 		dupEvent2ID, duplicate.ID)

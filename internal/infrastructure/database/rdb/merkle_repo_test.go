@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
@@ -20,24 +21,24 @@ func testHash32(label string) []byte {
 	return buf
 }
 
-// seedMerkleTestData inserts a user, venue, and event needed by the merkle tree FK constraints.
+// seedMerkleTestData inserts a venue and event needed by the merkle tree FK constraints.
 // Returns eventID.
 func seedMerkleTestData(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 
-	var venueID string
-	err := testDB.Pool.QueryRow(ctx,
-		`INSERT INTO venues (name, raw_name) VALUES ($1, $2) RETURNING id`,
-		"merkle-test-venue", "merkle-test-venue",
-	).Scan(&venueID)
+	venueID := uuid.Must(uuid.NewV7()).String()
+	_, err := testDB.Pool.Exec(ctx,
+		`INSERT INTO venues (id, name, raw_name) VALUES ($1, $2, $3)`,
+		venueID, "merkle-test-venue", "merkle-test-venue",
+	)
 	require.NoError(t, err)
 
-	var eventID string
-	err = testDB.Pool.QueryRow(ctx,
-		`INSERT INTO events (venue_id, title, local_event_date) VALUES ($1, $2, $3) RETURNING id`,
-		venueID, "merkle-test-event", "2026-03-01",
-	).Scan(&eventID)
+	eventID := uuid.Must(uuid.NewV7()).String()
+	_, err = testDB.Pool.Exec(ctx,
+		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, $3, $4)`,
+		eventID, venueID, "merkle-test-event", "2026-03-01",
+	)
 	require.NoError(t, err)
 
 	return eventID

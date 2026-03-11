@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
@@ -17,25 +18,25 @@ func seedTicketTestData(t *testing.T) (string, string) {
 	t.Helper()
 	ctx := context.Background()
 
-	var userID string
-	err := testDB.Pool.QueryRow(ctx,
-		`INSERT INTO users (name, email, external_id) VALUES ($1, $2, $3) RETURNING id`,
-		"ticket-test-user", "ticket-test@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4900",
-	).Scan(&userID)
+	userID := uuid.Must(uuid.NewV7()).String()
+	_, err := testDB.Pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
+		userID, "ticket-test-user", "ticket-test@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4900",
+	)
 	require.NoError(t, err)
 
-	var venueID string
-	err = testDB.Pool.QueryRow(ctx,
-		`INSERT INTO venues (name, raw_name) VALUES ($1, $2) RETURNING id`,
-		"ticket-test-venue", "ticket-test-venue",
-	).Scan(&venueID)
+	venueID := uuid.Must(uuid.NewV7()).String()
+	_, err = testDB.Pool.Exec(ctx,
+		`INSERT INTO venues (id, name, raw_name) VALUES ($1, $2, $3)`,
+		venueID, "ticket-test-venue", "ticket-test-venue",
+	)
 	require.NoError(t, err)
 
-	var eventID string
-	err = testDB.Pool.QueryRow(ctx,
-		`INSERT INTO events (venue_id, title, local_event_date) VALUES ($1, $2, $3) RETURNING id`,
-		venueID, "ticket-test-event", "2026-03-01",
-	).Scan(&eventID)
+	eventID := uuid.Must(uuid.NewV7()).String()
+	_, err = testDB.Pool.Exec(ctx,
+		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, $3, $4)`,
+		eventID, venueID, "ticket-test-event", "2026-03-01",
+	)
 	require.NoError(t, err)
 
 	return eventID, userID
@@ -237,12 +238,19 @@ func TestTicketRepository_ListByUser(t *testing.T) {
 	eventID, userID := seedTicketTestData(t)
 
 	// Create a second event for the same venue.
-	var eventID2 string
+	// First retrieve the venue_id from the existing event, then insert a new event with a generated ID.
+	var venueID string
 	err := testDB.Pool.QueryRow(ctx,
-		`INSERT INTO events (venue_id, title, local_event_date)
-		 SELECT venue_id, 'second event', '2026-04-01' FROM events WHERE id = $1 RETURNING id`,
+		`SELECT venue_id FROM events WHERE id = $1`,
 		eventID,
-	).Scan(&eventID2)
+	).Scan(&venueID)
+	require.NoError(t, err)
+
+	eventID2 := uuid.Must(uuid.NewV7()).String()
+	_, err = testDB.Pool.Exec(ctx,
+		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, $3, $4)`,
+		eventID2, venueID, "second event", "2026-04-01",
+	)
 	require.NoError(t, err)
 
 	_, err = repo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID, TokenID: 1, TxHash: "0x1"})
@@ -298,11 +306,11 @@ func TestTicketRepository_ListByEvent(t *testing.T) {
 	eventID, userID := seedTicketTestData(t)
 
 	// Create a second user.
-	var userID2 string
-	err := testDB.Pool.QueryRow(ctx,
-		`INSERT INTO users (name, email, external_id) VALUES ($1, $2, $3) RETURNING id`,
-		"list-by-event-user2", "list-by-event2@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4910",
-	).Scan(&userID2)
+	userID2 := uuid.Must(uuid.NewV7()).String()
+	_, err := testDB.Pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
+		userID2, "list-by-event-user2", "list-by-event2@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4910",
+	)
 	require.NoError(t, err)
 
 	_, err = repo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID, TokenID: 10, TxHash: "0xa"})

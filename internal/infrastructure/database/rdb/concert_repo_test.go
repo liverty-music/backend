@@ -28,7 +28,7 @@ func TestConcertRepository_Create(t *testing.T) {
 	setupFixtures := func(t *testing.T) {
 		t.Helper()
 		cleanDatabase()
-		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Concert Test Band"})
+		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Concert Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a1"})
 		require.NoError(t, err)
 		require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Concert Test Arena"}))
 	}
@@ -442,7 +442,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cleanDatabase()
 
-			artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band"}
+			artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 			_, err := artistRepo.Create(ctx, artist)
 			require.NoError(t, err)
 			venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
@@ -473,10 +473,12 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	testArtist1 := &entity.Artist{
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49a2",
 		Name: "List Test Band 1",
+		MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a2",
 	}
 	testArtist2 := &entity.Artist{
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49a3",
 		Name: "List Test Band 2",
+		MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a3",
 	}
 	testVenue := &entity.Venue{
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
@@ -652,7 +654,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	t.Run("NULL listed_venue_name (pre-migration row) is scanned to nil without error", func(t *testing.T) {
 		cleanDatabase()
 
-		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band"}
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
@@ -680,7 +682,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	t.Run("non-NULL listed_venue_name is persisted and retrieved correctly", func(t *testing.T) {
 		cleanDatabase()
 
-		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band"}
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
@@ -727,8 +729,8 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5011", Name: "Followed Band 1"}
-		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5012", Name: "Unfollowed Band"}
+		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5011", Name: "Followed Band 1", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5011"}
+		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5012", Name: "Unfollowed Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5012"}
 		_, err = artistRepo.Create(ctx, artist1)
 		require.NoError(t, err)
 		_, err = artistRepo.Create(ctx, artist2)
@@ -784,7 +786,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5013", Name: "Coord Band"}
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5013", Name: "Coord Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5013"}
 		_, err = artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 
