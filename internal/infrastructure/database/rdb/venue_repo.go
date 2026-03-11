@@ -19,7 +19,7 @@ const (
 		VALUES ($1, $2, $3, $4, $5)
 	`
 	getVenueQuery = `
-		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name
+		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name, latitude, longitude
 		FROM venues
 		WHERE id = $1
 	`
@@ -92,11 +92,16 @@ func (r *VenueRepository) Create(ctx context.Context, venue *entity.Venue) error
 // Get retrieves a venue by ID from the database.
 func (r *VenueRepository) Get(ctx context.Context, id string) (*entity.Venue, error) {
 	var v entity.Venue
+	var lat, lng *float64
 	err := r.db.Pool.QueryRow(ctx, getVenueQuery, id).Scan(
 		&v.ID, &v.Name, &v.AdminArea, &v.MBID, &v.GooglePlaceID, &v.EnrichmentStatus, &v.RawName,
+		&lat, &lng,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get venue", slog.String("venue_id", id))
+	}
+	if lat != nil && lng != nil {
+		v.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
 	}
 	return &v, nil
 }
@@ -136,9 +141,14 @@ func (r *VenueRepository) ListPending(ctx context.Context) ([]*entity.Venue, err
 
 // UpdateEnriched updates a venue to the enriched state.
 func (r *VenueRepository) UpdateEnriched(ctx context.Context, venue *entity.Venue) error {
+	var lat, lng *float64
+	if venue.Coordinates != nil {
+		lat = &venue.Coordinates.Latitude
+		lng = &venue.Coordinates.Longitude
+	}
 	_, err := r.db.Pool.Exec(ctx, updateEnrichedVenueQuery,
 		venue.ID, venue.Name, venue.RawName, venue.MBID, venue.GooglePlaceID,
-		venue.Latitude, venue.Longitude,
+		lat, lng,
 	)
 	if err != nil {
 		return toAppErr(err, "failed to update enriched venue", slog.String("venue_id", venue.ID))
