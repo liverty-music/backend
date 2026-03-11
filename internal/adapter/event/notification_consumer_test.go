@@ -9,7 +9,6 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
@@ -20,7 +19,7 @@ import (
 // anyCtx matches any context.Context argument.
 var anyCtx = mock.MatchedBy(func(interface{}) bool { return true })
 
-func makeCreatedMsg(t *testing.T, data messaging.ConcertCreatedData) *message.Message {
+func makeCreatedMsg(t *testing.T, data entity.ConcertCreatedData) *message.Message {
 	t.Helper()
 	payload, err := json.Marshal(data)
 	require.NoError(t, err)
@@ -41,7 +40,7 @@ func TestNotificationConsumer_Handle(t *testing.T) {
 		concertRepo.EXPECT().ListByArtist(anyCtx, "artist-1", true).Return(concerts, nil).Once()
 		pushUC.EXPECT().NotifyNewConcerts(anyCtx, artist, concerts).Return(nil).Once()
 
-		data := messaging.ConcertCreatedData{
+		data := entity.ConcertCreatedData{
 			ArtistID:     "artist-1",
 			ArtistName:   "Test Artist",
 			ConcertCount: 3,
@@ -60,7 +59,7 @@ func TestNotificationConsumer_Handle(t *testing.T) {
 
 		artistRepo.EXPECT().Get(anyCtx, "nonexistent").Return(nil, apperr.ErrNotFound).Once()
 
-		data := messaging.ConcertCreatedData{
+		data := entity.ConcertCreatedData{
 			ArtistID:     "nonexistent",
 			ArtistName:   "Unknown",
 			ConcertCount: 1,
@@ -84,7 +83,7 @@ func TestNotificationConsumer_Handle(t *testing.T) {
 		concertRepo.EXPECT().ListByArtist(anyCtx, "artist-2", true).Return(concerts, nil).Once()
 		pushUC.EXPECT().NotifyNewConcerts(anyCtx, artist, concerts).Return(fmt.Errorf("push service unavailable")).Once()
 
-		data := messaging.ConcertCreatedData{
+		data := entity.ConcertCreatedData{
 			ArtistID:     "artist-2",
 			ArtistName:   "Another Artist",
 			ConcertCount: 1,

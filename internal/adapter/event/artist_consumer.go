@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -34,7 +35,7 @@ func NewArtistNameConsumer(
 func (h *ArtistNameConsumer) Handle(msg *message.Message) error {
 	ctx := context.Background()
 
-	var data messaging.ArtistCreatedData
+	var data entity.ArtistCreatedData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
 		return fmt.Errorf("parse artist.created event: %w", err)
 	}

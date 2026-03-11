@@ -40,7 +40,7 @@ func NewNotificationConsumer(
 func (h *NotificationConsumer) Handle(msg *message.Message) error {
 	ctx := context.Background()
 
-	var data messaging.ConcertCreatedData
+	var data entity.ConcertCreatedData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
 		h.logger.Error(ctx, "failed to parse concert.created event", err)
 		return fmt.Errorf("parse concert.created event: %w", err)

@@ -62,7 +62,7 @@ func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[
 	}
 
 	return connect.NewResponse(&concertv1.ListByFollowerResponse{
-		Groups: mapper.DateLaneGroupsToProto(groups),
+		Groups: mapper.ProximityGroupsToProto(groups),
 	}), nil
 }
 

@@ -7,13 +7,13 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/entity"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func makeArtistCreatedMsg(t *testing.T, data messaging.ArtistCreatedData) *message.Message {
+func makeArtistCreatedMsg(t *testing.T, data entity.ArtistCreatedData) *message.Message {
 	t.Helper()
 	payload, err := json.Marshal(data)
 	require.NoError(t, err)
@@ -27,7 +27,7 @@ func TestArtistNameConsumer_Handle(t *testing.T) {
 
 		nameResolutionUC.EXPECT().ResolveCanonicalName(anyCtx, "artist-1", "mbid-001", "Original Name").Return(nil).Once()
 
-		msg := makeArtistCreatedMsg(t, messaging.ArtistCreatedData{
+		msg := makeArtistCreatedMsg(t, entity.ArtistCreatedData{
 			ArtistID:   "artist-1",
 			ArtistName: "Original Name",
 			MBID:       "mbid-001",
@@ -43,7 +43,7 @@ func TestArtistNameConsumer_Handle(t *testing.T) {
 
 		nameResolutionUC.EXPECT().ResolveCanonicalName(anyCtx, "artist-2", "mbid-fail", "Some Artist").Return(fmt.Errorf("rate limited")).Once()
 
-		msg := makeArtistCreatedMsg(t, messaging.ArtistCreatedData{
+		msg := makeArtistCreatedMsg(t, entity.ArtistCreatedData{
 			ArtistID:   "artist-2",
 			ArtistName: "Some Artist",
 			MBID:       "mbid-fail",

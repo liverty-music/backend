@@ -9,7 +9,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,11 +17,11 @@ import (
 // --- test doubles ---
 
 type fakeConcertCreationUC struct {
-	called []messaging.ConcertDiscoveredData
+	called []entity.ConcertDiscoveredData
 	err    error
 }
 
-func (uc *fakeConcertCreationUC) CreateFromDiscovered(_ context.Context, data messaging.ConcertDiscoveredData) error {
+func (uc *fakeConcertCreationUC) CreateFromDiscovered(_ context.Context, data entity.ConcertDiscoveredData) error {
 	if uc.err != nil {
 		return uc.err
 	}
@@ -31,7 +31,7 @@ func (uc *fakeConcertCreationUC) CreateFromDiscovered(_ context.Context, data me
 
 // --- helpers ---
 
-func makeDiscoveredMsg(t *testing.T, data messaging.ConcertDiscoveredData) *message.Message {
+func makeDiscoveredMsg(t *testing.T, data entity.ConcertDiscoveredData) *message.Message {
 	t.Helper()
 	payload, err := json.Marshal(data)
 	require.NoError(t, err)
@@ -47,10 +47,10 @@ func TestConcertConsumer_Handle(t *testing.T) {
 		uc := &fakeConcertCreationUC{}
 		handler := event.NewConcertConsumer(uc, newTestLogger(t))
 
-		data := messaging.ConcertDiscoveredData{
+		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
 			ArtistName: "Test Artist",
-			Concerts: []messaging.ScrapedConcertData{
+			Concerts: []entity.ScrapedConcertData{
 				{
 					Title:           "Concert A",
 					ListedVenueName: "Venue X",
@@ -73,10 +73,10 @@ func TestConcertConsumer_Handle(t *testing.T) {
 		uc := &fakeConcertCreationUC{err: fmt.Errorf("db connection lost")}
 		handler := event.NewConcertConsumer(uc, newTestLogger(t))
 
-		data := messaging.ConcertDiscoveredData{
+		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
 			ArtistName: "Test Artist",
-			Concerts:   []messaging.ScrapedConcertData{},
+			Concerts:   []entity.ScrapedConcertData{},
 		}
 
 		msg := makeDiscoveredMsg(t, data)

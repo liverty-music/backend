@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -33,7 +34,7 @@ func NewVenueConsumer(
 func (h *VenueConsumer) Handle(msg *message.Message) error {
 	ctx := context.Background()
 
-	var data messaging.VenueCreatedData
+	var data entity.VenueCreatedData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
 		h.logger.Error(ctx, "failed to parse venue.created event", err)
 		return fmt.Errorf("parse venue.created event: %w", err)
