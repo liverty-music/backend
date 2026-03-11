@@ -34,7 +34,7 @@ type PushNotificationUseCase interface {
 	// artist, filtered by each follower's hype level. WATCH followers are skipped,
 	// HOME followers receive notifications only when a concert venue matches their
 	// home area, NEARBY followers receive notifications when a venue is within 200km,
-	// and ANYWHERE followers always receive them.
+	// and AWAY followers always receive them.
 	// Per-subscription delivery errors (including 410 Gone responses) are handled
 	// internally and do not cause the method to return an error.
 	//
@@ -114,7 +114,7 @@ func (uc *pushNotificationUseCase) Unsubscribe(ctx context.Context, userID strin
 //   - WATCH: no notification.
 //   - HOME: notify only when at least one concert venue adminArea matches the follower's home.
 //   - NEARBY: notify only when at least one concert venue is within 200km of the follower's home centroid.
-//   - ANYWHERE: always notify.
+//   - AWAY: always notify.
 //
 // Individual delivery failures are logged but do not cause the method to return an error.
 func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist *entity.Artist, concerts []*entity.Concert) error {
@@ -167,7 +167,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 			if !hasNearbyConcert(homeLevel1, concerts) {
 				continue
 			}
-		case entity.HypeAnywhere:
+		case entity.HypeAway:
 			// Always notify.
 		default:
 			// Unknown hype level: skip to be safe.
