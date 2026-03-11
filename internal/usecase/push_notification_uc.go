@@ -157,10 +157,14 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 			}
 		case entity.HypeNearby:
 			// Notify only if any concert venue is within the nearby threshold.
-			if f.HomeLevel1 == "" {
+			homeLevel1 := ""
+			if f.User != nil && f.User.Home != nil {
+				homeLevel1 = f.User.Home.Level1
+			}
+			if homeLevel1 == "" {
 				continue
 			}
-			if !hasNearbyConcert(f.HomeLevel1, concerts) {
+			if !hasNearbyConcert(homeLevel1, concerts) {
 				continue
 			}
 		case entity.HypeAnywhere:
