@@ -22,7 +22,7 @@ import (
 // The CronJob searches for concerts and publishes events; concert persistence,
 // notifications, and venue enrichment are handled by event consumers.
 type JobApp struct {
-	ArtistRepo      entity.ArtistRepository
+	FollowRepo      entity.FollowRepository
 	ConcertUC       usecase.ConcertUseCase
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
@@ -56,6 +56,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 
 	// Repositories
 	artistRepo := rdb.NewArtistRepository(db)
+	followRepo := rdb.NewFollowRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	userRepo := rdb.NewUserRepository(db)
@@ -103,7 +104,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	shutdown.AddDatastorePhase(db)
 
 	return &JobApp{
-		ArtistRepo:      artistRepo,
+		FollowRepo:      followRepo,
 		ConcertUC:       concertUC,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,
