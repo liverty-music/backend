@@ -3,7 +3,7 @@ package entity
 import "context"
 
 // Hype represents the user's enthusiasm tier for a followed artist.
-// Values are ordered by ascending enthusiasm: Watch (lowest) to Anywhere (highest).
+// Values are ordered by ascending enthusiasm: Watch (lowest) to Away (highest).
 type Hype string
 
 const (
@@ -13,8 +13,8 @@ const (
 	HypeHome Hype = "home"
 	// HypeNearby is reserved for Phase 2 (physical distance based proximity).
 	HypeNearby Hype = "nearby"
-	// HypeAnywhere indicates notifications for all concerts nationwide (default).
-	HypeAnywhere Hype = "anywhere"
+	// HypeAway indicates notifications for all concerts nationwide (default).
+	HypeAway Hype = "away"
 )
 
 // Follow represents the write model for a user-artist follow relationship.
