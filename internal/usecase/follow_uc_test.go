@@ -1,0 +1,162 @@
+package usecase_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-logging/logging"
+	"github.com/stretchr/testify/assert"
+)
+
+// followTestDeps holds all dependencies for FollowUseCase tests.
+type followTestDeps struct {
+	followRepo    *mocks.MockFollowRepository
+	artistRepo    *mocks.MockArtistRepository
+	userRepo      *mocks.MockUserRepository
+	siteResolver  *mocks.MockOfficialSiteResolver
+	concertUC     *ucmocks.MockConcertUseCase
+	searchLogRepo *mocks.MockSearchLogRepository
+	uc            usecase.FollowUseCase
+}
+
+func newFollowTestDeps(t *testing.T) *followTestDeps {
+	t.Helper()
+	logger, _ := logging.New()
+	d := &followTestDeps{
+		followRepo:    mocks.NewMockFollowRepository(t),
+		artistRepo:    mocks.NewMockArtistRepository(t),
+		userRepo:      mocks.NewMockUserRepository(t),
+		siteResolver:  mocks.NewMockOfficialSiteResolver(t),
+		concertUC:     ucmocks.NewMockConcertUseCase(t),
+		searchLogRepo: mocks.NewMockSearchLogRepository(t),
+	}
+	d.uc = usecase.NewFollowUseCase(
+		d.followRepo,
+		d.artistRepo,
+		d.userRepo,
+		d.siteResolver,
+		d.concertUC,
+		d.searchLogRepo,
+		logger,
+	)
+	return d
+}
+
+func TestFollowUseCase_SetHype(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	type args struct {
+		userID   string
+		artistID string
+		hype     entity.Hype
+	}
+
+	tests := []struct {
+		name    string
+		args    args
+		setup   func(t *testing.T, d *followTestDeps)
+		wantErr error
+	}{
+		{
+			name: "resolves external user ID and updates hype",
+			args: args{
+				userID:   "external-zitadel-sub",
+				artistID: "artist-1",
+				hype:     entity.HypeAnywhere,
+			},
+			setup: func(t *testing.T, d *followTestDeps) {
+				t.Helper()
+				d.userRepo.EXPECT().
+					GetByExternalID(ctx, "external-zitadel-sub").
+					Return(&entity.User{ID: "internal-uuid-1"}, nil).
+					Once()
+				d.followRepo.EXPECT().
+					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAnywhere).
+					Return(nil).
+					Once()
+			},
+			wantErr: nil,
+		},
+		{
+			name: "return error when user ID is empty",
+			args: args{
+				userID:   "",
+				artistID: "artist-1",
+				hype:     entity.HypeHome,
+			},
+			setup:   nil,
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			name: "return error when artist ID is empty",
+			args: args{
+				userID:   "external-zitadel-sub",
+				artistID: "",
+				hype:     entity.HypeHome,
+			},
+			setup:   nil,
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			name: "return error when resolveUserID fails",
+			args: args{
+				userID:   "unknown-external-id",
+				artistID: "artist-1",
+				hype:     entity.HypeHome,
+			},
+			setup: func(t *testing.T, d *followTestDeps) {
+				t.Helper()
+				d.userRepo.EXPECT().
+					GetByExternalID(ctx, "unknown-external-id").
+					Return(nil, apperr.ErrNotFound).
+					Once()
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+		{
+			name: "return error when repository SetHype fails",
+			args: args{
+				userID:   "external-zitadel-sub",
+				artistID: "artist-1",
+				hype:     entity.HypeAnywhere,
+			},
+			setup: func(t *testing.T, d *followTestDeps) {
+				t.Helper()
+				d.userRepo.EXPECT().
+					GetByExternalID(ctx, "external-zitadel-sub").
+					Return(&entity.User{ID: "internal-uuid-1"}, nil).
+					Once()
+				d.followRepo.EXPECT().
+					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAnywhere).
+					Return(assert.AnError).
+					Once()
+			},
+			wantErr: assert.AnError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newFollowTestDeps(t)
+			if tt.setup != nil {
+				tt.setup(t, d)
+			}
+
+			err := d.uc.SetHype(ctx, tt.args.userID, tt.args.artistID, tt.args.hype)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
