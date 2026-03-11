@@ -211,12 +211,12 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "ANYWHERE follower receives notification",
+			name: "AWAY follower receives notification",
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
 				followers := []*entity.Follower{
-					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAnywhere},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
@@ -364,11 +364,11 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 					{ArtistID: "artist-1", User: &entity.User{ID: "user-watch"}, Hype: entity.HypeWatch},
 					{ArtistID: "artist-1", User: &entity.User{ID: "user-home-match", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeHome},
 					{ArtistID: "artist-1", User: &entity.User{ID: "user-home-nomatch", Home: &entity.Home{Level1: "JP-27"}}, Hype: entity.HypeHome},
-					{ArtistID: "artist-1", User: &entity.User{ID: "user-anywhere"}, Hype: entity.HypeAnywhere},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-away"}, Hype: entity.HypeAway},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
-					ListByUserIDs(ctx, []string{"user-home-match", "user-anywhere"}).
+					ListByUserIDs(ctx, []string{"user-home-match", "user-away"}).
 					Return([]*entity.PushSubscription{}, nil).
 					Once()
 			},
@@ -389,7 +389,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
 				followers := []*entity.Follower{
-					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAnywhere},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().

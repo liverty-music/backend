@@ -69,7 +69,7 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 			args: args{
 				userID:   "external-zitadel-sub",
 				artistID: "artist-1",
-				hype:     entity.HypeAnywhere,
+				hype:     entity.HypeAway,
 			},
 			setup: func(t *testing.T, d *followTestDeps) {
 				t.Helper()
@@ -78,7 +78,7 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 					Return(&entity.User{ID: "internal-uuid-1"}, nil).
 					Once()
 				d.followRepo.EXPECT().
-					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAnywhere).
+					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
 					Return(nil).
 					Once()
 			},
@@ -125,7 +125,7 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 			args: args{
 				userID:   "external-zitadel-sub",
 				artistID: "artist-1",
-				hype:     entity.HypeAnywhere,
+				hype:     entity.HypeAway,
 			},
 			setup: func(t *testing.T, d *followTestDeps) {
 				t.Helper()
@@ -134,7 +134,7 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 					Return(&entity.User{ID: "internal-uuid-1"}, nil).
 					Once()
 				d.followRepo.EXPECT().
-					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAnywhere).
+					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
 					Return(assert.AnError).
 					Once()
 			},
