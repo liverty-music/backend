@@ -84,6 +84,59 @@ type ProximityGroup struct {
 	Distant []*Concert
 }
 
+// GroupByDateAndProximity classifies concerts into home/nearby/distant buckets
+// and groups them by calendar date. Concerts are expected to be ordered by
+// local_event_date ascending, which is preserved in the returned slice.
+func GroupByDateAndProximity(concerts []*Concert, home *Home) []*ProximityGroup {
+	if len(concerts) == 0 {
+		return nil
+	}
+
+	groups := make(map[string]*ProximityGroup)
+	var order []string // preserve date ordering
+
+	for _, c := range concerts {
+		dateKey := c.LocalDate.Format("2006-01-02")
+		g, ok := groups[dateKey]
+		if !ok {
+			g = &ProximityGroup{Date: c.LocalDate}
+			groups[dateKey] = g
+			order = append(order, dateKey)
+		}
+
+		switch c.ProximityTo(home) {
+		case ProximityHome:
+			g.Home = append(g.Home, c)
+		case ProximityNearby:
+			g.Nearby = append(g.Nearby, c)
+		default:
+			g.Distant = append(g.Distant, c)
+		}
+	}
+
+	result := make([]*ProximityGroup, 0, len(order))
+	for _, key := range order {
+		result = append(result, groups[key])
+	}
+	return result
+}
+
+// DateVenueKey returns the "(date|venue)" deduplication key for a ScrapedConcert.
+func (s *ScrapedConcert) DateVenueKey() string {
+	return s.LocalDate.Format("2006-01-02") + "|" + s.ListedVenueName
+}
+
+// DedupeKey returns the full deduplication key for a ScrapedConcert.
+// When StartTime is non-nil, the UTC-normalized time is appended to the DateVenueKey
+// to form "(date|venue|start_at_utc)". When StartTime is nil, DateVenueKey is returned.
+func (s *ScrapedConcert) DedupeKey() string {
+	base := s.DateVenueKey()
+	if s.StartTime == nil {
+		return base
+	}
+	return base + "|" + s.StartTime.UTC().Format("15:04:05Z")
+}
+
 // ConcertRepository defines the data access interface for Concerts.
 type ConcertRepository interface {
 	// ListByArtist retrieves all concerts for a specific artist.

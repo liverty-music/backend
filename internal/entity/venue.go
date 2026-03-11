@@ -43,6 +43,19 @@ type Venue struct {
 	RawName string
 }
 
+// NewVenueFromScraped creates a minimal Venue from a scraper-provided name.
+// The ID is auto-generated via UUIDv7. Name and RawName are both set to name,
+// and EnrichmentStatus is set to EnrichmentStatusPending. All other fields are
+// zero values and must be populated by the enrichment pipeline.
+func NewVenueFromScraped(name string) *Venue {
+	return &Venue{
+		ID:               newID(),
+		Name:             name,
+		RawName:          name,
+		EnrichmentStatus: EnrichmentStatusPending,
+	}
+}
+
 // NewVenue represents data for creating a new venue.
 type NewVenue struct {
 	// Name is the name of the venue to create.
