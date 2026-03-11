@@ -3,6 +3,8 @@ package entity
 import (
 	"context"
 	"time"
+
+	"github.com/liverty-music/backend/pkg/geo"
 )
 
 // Concert represents a specific music live event.
@@ -35,17 +37,51 @@ type ScrapedConcert struct {
 	SourceURL string
 }
 
-// DateLaneGroup contains concerts for a single calendar date, classified into
-// three geographic proximity lanes relative to the user's home area.
-type DateLaneGroup struct {
+// ProximityTo determines the geographic proximity of this concert's venue
+// relative to the given user home area.
+//
+// Classification rules (evaluated in order):
+//  1. AWAY — if home is nil or venue is nil.
+//  2. HOME — venue admin_area matches the user's home Level1 (ISO 3166-2 code).
+//  3. NEARBY — venue has Coordinates and home has Centroid, and the Haversine distance <= NearbyThresholdKm.
+//  4. AWAY — everything else.
+func (c *Concert) ProximityTo(home *Home) Proximity {
+	if home == nil {
+		return ProximityAway
+	}
+	venue := c.Venue
+	if venue == nil {
+		return ProximityAway
+	}
+
+	// HOME: admin_area match takes priority.
+	if venue.AdminArea != nil && *venue.AdminArea == home.Level1 {
+		return ProximityHome
+	}
+
+	// NEARBY: requires venue coordinates and home centroid.
+	if venue.Coordinates == nil || home.Centroid == nil {
+		return ProximityAway
+	}
+
+	dist := geo.Haversine(home.Centroid.Latitude, home.Centroid.Longitude, venue.Coordinates.Latitude, venue.Coordinates.Longitude)
+	if dist <= NearbyThresholdKm {
+		return ProximityNearby
+	}
+	return ProximityAway
+}
+
+// ProximityGroup contains concerts for a single calendar date, classified into
+// three geographic proximity buckets relative to the user's home area.
+type ProximityGroup struct {
 	// Date is the calendar date for this group.
 	Date time.Time
 	// Home contains concerts at venues within the user's home admin_area.
 	Home []*Concert
 	// Nearby contains concerts at venues within 200km of the user's home centroid.
 	Nearby []*Concert
-	// Away contains concerts beyond 200km, with unknown location, or when the user has no home set.
-	Away []*Concert
+	// Distant contains concerts beyond 200km, with unknown location, or when the user has no home set.
+	Distant []*Concert
 }
 
 // ConcertRepository defines the data access interface for Concerts.

@@ -1,14 +1,23 @@
+// Package geo provides infrastructure implementations for geographic operations.
 package geo
 
+import "github.com/liverty-music/backend/internal/entity"
+
+// AdminAreaResolver implements entity.AdminAreaResolver using a static lookup table
+// of ISO 3166-2 subdivision codes to localized display names.
+type AdminAreaResolver struct{}
+
+// Compile-time interface compliance check.
+var _ entity.AdminAreaResolver = (*AdminAreaResolver)(nil)
+
+// NewAdminAreaResolver creates a new AdminAreaResolver.
+func NewAdminAreaResolver() *AdminAreaResolver {
+	return &AdminAreaResolver{}
+}
+
 // DisplayName converts an ISO 3166-2 code to a human-readable name in the
-// requested language. It is used to produce search-friendly text when
-// querying external services (MusicBrainz, Google Maps) with a venue's
-// admin_area code.
-//
-// Supported lang values: "ja" (Japanese with suffix), "en" (English).
-// Returns the code unchanged if the code is unknown or the language is
-// unsupported.
-func DisplayName(code, lang string) string {
+// requested language. Returns the code unchanged if unknown.
+func (r *AdminAreaResolver) DisplayName(code, lang string) string {
 	names, ok := displayNames[code]
 	if !ok {
 		return code

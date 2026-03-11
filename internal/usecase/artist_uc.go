@@ -10,7 +10,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
-	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -83,7 +82,7 @@ type artistUseCase struct {
 	artistSearcher entity.ArtistSearcher
 	idManager      entity.ArtistIdentityManager
 	publisher      message.Publisher
-	cache          *cache.MemoryCache
+	cache          entity.Cache
 	logger         *logging.Logger
 }
 
@@ -96,7 +95,7 @@ func NewArtistUseCase(
 	artistSearcher entity.ArtistSearcher,
 	idManager entity.ArtistIdentityManager,
 	publisher message.Publisher,
-	cache *cache.MemoryCache,
+	cache entity.Cache,
 	logger *logging.Logger,
 ) ArtistUseCase {
 	return &artistUseCase{
@@ -355,7 +354,7 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 		for _, a := range created {
 			existingSet[a.MBID] = a
 
-			msg, err := messaging.NewEvent(messaging.ArtistCreatedData{
+			msg, err := messaging.NewEvent(entity.ArtistCreatedData{
 				ArtistID:   a.ID,
 				ArtistName: a.Name,
 				MBID:       a.MBID,
@@ -365,7 +364,7 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 					slog.String("artist_id", a.ID), slog.Any("error", err))
 				continue
 			}
-			if err := uc.publisher.Publish(messaging.SubjectArtistCreated, msg); err != nil {
+			if err := uc.publisher.Publish(entity.SubjectArtistCreated, msg); err != nil {
 				uc.logger.Warn(ctx, "failed to publish artist.created event",
 					slog.String("artist_id", a.ID), slog.Any("error", err))
 			}

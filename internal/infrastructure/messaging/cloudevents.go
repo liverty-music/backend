@@ -15,15 +15,6 @@ const (
 
 	// CloudEvents source for all events emitted by this service.
 	source = "liverty-music/backend"
-
-	// SubjectConcertDiscovered is the NATS subject for newly discovered concert data.
-	SubjectConcertDiscovered = "CONCERT.discovered"
-	// SubjectConcertCreated is the NATS subject for persisted concert entities.
-	SubjectConcertCreated = "CONCERT.created"
-	// SubjectVenueCreated is the NATS subject for newly created venue entities that need enrichment.
-	SubjectVenueCreated = "VENUE.created"
-	// SubjectArtistCreated is the NATS subject for newly persisted artist entities.
-	SubjectArtistCreated = "ARTIST.created"
 )
 
 // NewEvent creates a Watermill message with structured metadata.

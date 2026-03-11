@@ -771,6 +771,58 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Equal(t, "Followed Concert 1", got[0].Title)
 		assert.NotNil(t, got[0].Venue, "venue should be populated")
 		assert.Equal(t, "Follower Test Venue", got[0].Venue.Name)
+		assert.Nil(t, got[0].Venue.Coordinates, "venue without lat/lng should have nil Coordinates")
+	})
+
+	t.Run("returns venue Coordinates when DB has lat/lng", func(t *testing.T) {
+		cleanDatabase()
+
+		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5003"
+		_, err := testDB.Pool.Exec(ctx,
+			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			userID, "Coord User", "coord@test.com", "ext-user-003",
+		)
+		require.NoError(t, err)
+
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5013", Name: "Coord Band"}
+		_, err = artistRepo.Create(ctx, artist)
+		require.NoError(t, err)
+
+		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5023", Name: "Enriched Venue"}
+		require.NoError(t, venueRepo.Create(ctx, venue))
+
+		// Enrich the venue with coordinates
+		mbid := "a2e6e2c0-0000-0000-0000-000000000099"
+		require.NoError(t, venueRepo.UpdateEnriched(ctx, &entity.Venue{
+			ID:          venue.ID,
+			Name:        "Enriched Venue",
+			RawName:     "Enriched Venue",
+			MBID:        &mbid,
+			Coordinates: &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917},
+		}))
+
+		concertDate, _ := time.Parse("2006-01-02", "2026-09-01")
+		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5041", VenueID: venue.ID,
+				Title: "Coord Concert", LocalDate: concertDate,
+			},
+			ArtistID: artist.ID,
+		}))
+
+		_, err = testDB.Pool.Exec(ctx,
+			"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",
+			userID, artist.ID,
+		)
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByFollower(ctx, userID)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].Venue)
+		require.NotNil(t, got[0].Venue.Coordinates, "venue with lat/lng should have non-nil Coordinates")
+		assert.InDelta(t, 35.6894, got[0].Venue.Coordinates.Latitude, 0.0001)
+		assert.InDelta(t, 139.6917, got[0].Venue.Coordinates.Longitude, 0.0001)
 	})
 
 	t.Run("returns empty list when no followed artists", func(t *testing.T) {

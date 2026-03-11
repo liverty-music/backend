@@ -1,5 +1,3 @@
-// Package geo provides functions for normalizing and displaying
-// ISO 3166-2 administrative area codes.
 package geo
 
 import "strings"

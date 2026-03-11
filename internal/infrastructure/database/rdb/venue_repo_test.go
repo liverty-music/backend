@@ -316,6 +316,60 @@ func TestVenueRepository_UpdateEnriched(t *testing.T) {
 	assert.Equal(t, entity.EnrichmentStatusEnriched, got.EnrichmentStatus)
 }
 
+func TestVenueRepository_UpdateEnriched_CoordinatesRoundTrip(t *testing.T) {
+	cleanDatabase()
+	repo := rdb.NewVenueRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("non-nil coordinates persist and are returned by Get", func(t *testing.T) {
+		v := &entity.Venue{
+			ID:      "018b2f19-e591-7d12-bf9e-f0e74f1b4905",
+			Name:    "venue with coords",
+			RawName: "venue with coords",
+		}
+		require.NoError(t, repo.Create(ctx, v))
+
+		mbid := "a2e6e2c0-0000-0000-0000-000000000001"
+		enriched := &entity.Venue{
+			ID:          v.ID,
+			Name:        "Venue With Coords",
+			RawName:     "venue with coords",
+			MBID:        &mbid,
+			Coordinates: &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917},
+		}
+		require.NoError(t, repo.UpdateEnriched(ctx, enriched))
+
+		got, err := repo.Get(ctx, v.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got.Coordinates, "Coordinates should be non-nil after enrichment with coords")
+		assert.InDelta(t, 35.6894, got.Coordinates.Latitude, 0.0001)
+		assert.InDelta(t, 139.6917, got.Coordinates.Longitude, 0.0001)
+	})
+
+	t.Run("nil coordinates persist as NULL and are returned as nil", func(t *testing.T) {
+		v := &entity.Venue{
+			ID:      "018b2f19-e591-7d12-bf9e-f0e74f1b4906",
+			Name:    "venue without coords",
+			RawName: "venue without coords",
+		}
+		require.NoError(t, repo.Create(ctx, v))
+
+		mbid := "a2e6e2c0-0000-0000-0000-000000000002"
+		enriched := &entity.Venue{
+			ID:          v.ID,
+			Name:        "Venue Without Coords",
+			RawName:     "venue without coords",
+			MBID:        &mbid,
+			Coordinates: nil,
+		}
+		require.NoError(t, repo.UpdateEnriched(ctx, enriched))
+
+		got, err := repo.Get(ctx, v.ID)
+		require.NoError(t, err)
+		assert.Nil(t, got.Coordinates, "Coordinates should be nil when no coords were provided")
+	})
+}
+
 func TestVenueRepository_MarkFailed(t *testing.T) {
 	cleanDatabase()
 	repo := rdb.NewVenueRepository(testDB)

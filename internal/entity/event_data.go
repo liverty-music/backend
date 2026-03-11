@@ -1,10 +1,18 @@
-package messaging
+package entity
 
 import "time"
 
+// Event subject constants for domain events published via messaging.
+const (
+	SubjectConcertDiscovered = "CONCERT.discovered"
+	SubjectConcertCreated    = "CONCERT.created"
+	SubjectVenueCreated      = "VENUE.created"
+	SubjectArtistCreated     = "ARTIST.created"
+)
+
 // ConcertDiscoveredData is the payload for concert.discovered.v1 events.
 // It carries the full batch of scraped concerts for one artist (post-deduplication).
-// Published by SearchNewConcerts after Gemini API call and dedup.
+// Published by SearchNewConcerts after external API call and dedup.
 type ConcertDiscoveredData struct {
 	// ArtistID is the internal UUID of the artist.
 	ArtistID string `json:"artist_id"`

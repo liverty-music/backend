@@ -616,3 +616,61 @@ func TestUserRepository_UpdateHome(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
+
+func TestUserRepository_CentroidRoundTrip(t *testing.T) {
+	repo := rdb.NewUserRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("supported JP code resolves centroid on Create and persists through Get", func(t *testing.T) {
+		cleanDatabase()
+		user, err := repo.Create(ctx, newTestUserWithHome("ext-crt-1", "crt1@example.com", "CRT1"))
+		require.NoError(t, err)
+		require.NotNil(t, user.Home)
+		require.NotNil(t, user.Home.Centroid, "Centroid should be resolved for JP-13")
+		assert.InDelta(t, 35.6894, user.Home.Centroid.Latitude, 0.01)
+		assert.InDelta(t, 139.6917, user.Home.Centroid.Longitude, 0.01)
+
+		// Verify round-trip through Get
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got.Home)
+		require.NotNil(t, got.Home.Centroid, "Centroid should persist through Get")
+		assert.InDelta(t, 35.6894, got.Home.Centroid.Latitude, 0.01)
+		assert.InDelta(t, 139.6917, got.Home.Centroid.Longitude, 0.01)
+	})
+
+	t.Run("supported JP code resolves centroid on UpdateHome", func(t *testing.T) {
+		cleanDatabase()
+		user, err := repo.Create(ctx, newTestUser("ext-crt-2", "crt2@example.com", "CRT2"))
+		require.NoError(t, err)
+
+		updated, err := repo.UpdateHome(ctx, user.ID, &entity.Home{
+			CountryCode: "JP",
+			Level1:      "JP-27", // Osaka
+		})
+		require.NoError(t, err)
+		require.NotNil(t, updated.Home)
+		require.NotNil(t, updated.Home.Centroid, "Centroid should be resolved for JP-27")
+		assert.InDelta(t, 34.6863, updated.Home.Centroid.Latitude, 0.01)
+		assert.InDelta(t, 135.5200, updated.Home.Centroid.Longitude, 0.01)
+	})
+
+	t.Run("unsupported country code results in nil Centroid", func(t *testing.T) {
+		cleanDatabase()
+		u := newTestUser("ext-crt-3", "crt3@example.com", "CRT3")
+		u.Home = &entity.Home{
+			CountryCode: "US",
+			Level1:      "US-NY",
+		}
+		user, err := repo.Create(ctx, u)
+		require.NoError(t, err)
+		require.NotNil(t, user.Home)
+		assert.Nil(t, user.Home.Centroid, "Centroid should be nil for unsupported country")
+
+		// Verify nil Centroid persists through Get
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got.Home)
+		assert.Nil(t, got.Home.Centroid, "Centroid should remain nil through Get")
+	})
+}

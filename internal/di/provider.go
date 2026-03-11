@@ -26,10 +26,12 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	inframerkle "github.com/liverty-music/backend/internal/infrastructure/merkle"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
+	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	"github.com/liverty-music/backend/internal/infrastructure/zkp"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/cache"
@@ -148,13 +150,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, publisher, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, publisher, artistCache, logger)
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, userRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
+	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		followRepo,
 		pushSubRepo,
+		webpushSender,
 		logger,
-		cfg.VAPID.PublicKey,
-		cfg.VAPID.PrivateKey,
-		cfg.VAPID.Contact,
 	)
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
@@ -247,8 +248,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		nullifierRepo := rdb.NewNullifierRepository(db)
 		merkleTreeRepo := rdb.NewMerkleTreeRepository(db)
 		eventEntryRepo := rdb.NewEventEntryRepository(db)
+		merkleBuilder := inframerkle.NewBuilder(usecase.DefaultTreeDepth)
 
-		entryUC := usecase.NewEntryUseCase(verifier, nullifierRepo, merkleTreeRepo, eventEntryRepo, ticketRepo, logger)
+		entryUC := usecase.NewEntryUseCase(verifier, nullifierRepo, merkleTreeRepo, merkleBuilder, eventEntryRepo, ticketRepo, logger)
 		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return entryconnect.NewEntryServiceHandler(
 				rpc.NewEntryHandler(entryUC, userRepo, logger),

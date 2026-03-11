@@ -20,7 +20,7 @@ type ConcertCreationUseCase interface {
 	// CreateFromDiscovered processes a batch of scraped concerts for a single artist.
 	// For each concert it resolves or creates a venue, builds concert entities,
 	// bulk-inserts them, and publishes concert.created.v1 and venue.created.v1 events.
-	CreateFromDiscovered(ctx context.Context, data messaging.ConcertDiscoveredData) error
+	CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error
 }
 
 // concertCreationUseCase implements ConcertCreationUseCase.
@@ -51,7 +51,7 @@ func NewConcertCreationUseCase(
 
 // CreateFromDiscovered processes a discovered concert batch: resolves venues,
 // persists concerts, and publishes downstream events.
-func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data messaging.ConcertDiscoveredData) error {
+func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error {
 	// Resolve or create venues for each scraped concert, then build Concert entities.
 	var concerts []*entity.Concert
 	newVenues := make(map[string]*entity.Venue) // track newly created venues by name
@@ -100,12 +100,12 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	)
 
 	// Publish concert.created.v1 for downstream notification handler.
-	createdData := messaging.ConcertCreatedData{
+	createdData := entity.ConcertCreatedData{
 		ArtistID:     data.ArtistID,
 		ArtistName:   data.ArtistName,
 		ConcertCount: len(concerts),
 	}
-	if err := uc.publishEvent(messaging.SubjectConcertCreated, createdData); err != nil {
+	if err := uc.publishEvent(entity.SubjectConcertCreated, createdData); err != nil {
 		uc.logger.Error(ctx, "failed to publish concert.created event", err,
 			slog.String("artist_id", data.ArtistID),
 		)
@@ -114,12 +114,12 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 
 	// Publish venue.created.v1 for each newly created venue.
 	for _, v := range newVenues {
-		venueData := messaging.VenueCreatedData{
+		venueData := entity.VenueCreatedData{
 			VenueID:   v.ID,
 			Name:      v.Name,
 			AdminArea: v.AdminArea,
 		}
-		if err := uc.publishEvent(messaging.SubjectVenueCreated, venueData); err != nil {
+		if err := uc.publishEvent(entity.SubjectVenueCreated, venueData); err != nil {
 			uc.logger.Error(ctx, "failed to publish venue.created event", err,
 				slog.String("venue_id", v.ID),
 			)

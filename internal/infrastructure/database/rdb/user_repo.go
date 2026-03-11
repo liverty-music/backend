@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
+	infrageo "github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -19,7 +20,7 @@ type UserRepository struct {
 const (
 	userColumns = `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active`
 
-	homeColumns = `h.id, h.country_code, h.level_1, h.level_2`
+	homeColumns = `h.id, h.country_code, h.level_1, h.level_2, h.centroid_latitude, h.centroid_longitude`
 
 	getUserQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
@@ -66,12 +67,14 @@ const (
 	`
 
 	upsertHomeQuery = `
-		INSERT INTO homes (user_id, country_code, level_1, level_2)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO homes (user_id, country_code, level_1, level_2, centroid_latitude, centroid_longitude)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (user_id) DO UPDATE SET
 			country_code = EXCLUDED.country_code,
 			level_1 = EXCLUDED.level_1,
-			level_2 = EXCLUDED.level_2
+			level_2 = EXCLUDED.level_2,
+			centroid_latitude = EXCLUDED.centroid_latitude,
+			centroid_longitude = EXCLUDED.centroid_longitude
 		RETURNING id
 	`
 
@@ -95,12 +98,13 @@ func NewUserRepository(db *Database) *UserRepository {
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
 	var homeID, countryCode, level1, level2 sql.NullString
+	var centroidLat, centroidLng sql.NullFloat64
 
 	err := scanner.Scan(
 		&user.ID, &user.ExternalID, &user.Email, &user.Name,
 		&user.PreferredLanguage, &user.Country, &user.TimeZone,
 		&user.SafeAddress, &user.IsActive,
-		&homeID, &countryCode, &level1, &level2,
+		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
 	if err != nil {
 		return nil, err
@@ -111,6 +115,12 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 			ID:          homeID.String,
 			CountryCode: countryCode.String,
 			Level1:      level1.String,
+		}
+		if centroidLat.Valid && centroidLng.Valid {
+			user.Home.Centroid = &entity.Coordinates{
+				Latitude:  centroidLat.Float64,
+				Longitude: centroidLng.Float64,
+			}
 		}
 		if level2.Valid {
 			user.Home.Level2 = &level2.String
@@ -150,9 +160,15 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 
 	var home *entity.Home
 	if params.Home != nil {
+		var centroidLat, centroidLng *float64
+		if c, ok := infrageo.ResolveCentroid(params.Home.Level1); ok {
+			centroidLat = &c.Latitude
+			centroidLng = &c.Longitude
+		}
 		var homeID string
 		err = tx.QueryRow(ctx, upsertHomeQuery,
 			userID, params.Home.CountryCode, params.Home.Level1, params.Home.Level2,
+			centroidLat, centroidLng,
 		).Scan(&homeID)
 		if err != nil {
 			return nil, toAppErr(err, "failed to create home", slog.String("user_id", userID))
@@ -162,6 +178,12 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 			CountryCode: params.Home.CountryCode,
 			Level1:      params.Home.Level1,
 			Level2:      params.Home.Level2,
+		}
+		if centroidLat != nil {
+			home.Centroid = &entity.Coordinates{
+				Latitude:  *centroidLat,
+				Longitude: *centroidLng,
+			}
 		}
 	}
 
@@ -309,8 +331,14 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
 	}
 
+	var centroidLat, centroidLng *float64
+	if c, ok := infrageo.ResolveCentroid(home.Level1); ok {
+		centroidLat = &c.Latitude
+		centroidLng = &c.Longitude
+	}
 	_, err := r.db.Pool.Exec(ctx, upsertHomeQuery,
 		id, home.CountryCode, home.Level1, home.Level2,
+		centroidLat, centroidLng,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to upsert home", slog.String("user_id", id))

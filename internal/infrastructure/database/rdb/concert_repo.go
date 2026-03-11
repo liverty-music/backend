@@ -108,12 +108,16 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) (
 	for rows.Next() {
 		var c entity.Concert
 		var venue entity.Venue
+		var lat, lng *float64
 		err := rows.Scan(
 			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
-			&venue.ID, &venue.Name, &venue.AdminArea, &venue.Latitude, &venue.Longitude,
+			&venue.ID, &venue.Name, &venue.AdminArea, &lat, &lng,
 		)
 		if err != nil {
 			return nil, toAppErr(err, "failed to scan concert")
+		}
+		if lat != nil && lng != nil {
+			venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
 		}
 		c.Venue = &venue
 		concerts = append(concerts, &c)

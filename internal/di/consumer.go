@@ -9,10 +9,13 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/adapter/event"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	infrageo "github.com/liverty-music/backend/internal/infrastructure/geo"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
@@ -96,15 +99,15 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	}
 
 	// Use Cases
+	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		followRepo,
 		pushSubRepo,
+		webpushSender,
 		logger,
-		cfg.VAPID.PublicKey,
-		cfg.VAPID.PrivateKey,
-		cfg.VAPID.Contact,
 	)
-	venueEnrichUC := usecase.NewVenueEnrichmentUseCase(venueRepo, venueRepo, venueRepo, logger, searchers...)
+	adminAreaResolver := infrageo.NewAdminAreaResolver()
+	venueEnrichUC := usecase.NewVenueEnrichmentUseCase(venueRepo, venueRepo, venueRepo, adminAreaResolver, logger, searchers...)
 	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, publisher, logger)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 
@@ -124,28 +127,28 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// so it uses AddConsumerHandler and publishes manually via ConcertCreationUseCase.
 	router.AddConsumerHandler(
 		"create-concerts",
-		messaging.SubjectConcertDiscovered,
+		entity.SubjectConcertDiscovered,
 		subscriber,
 		concertConsumer.Handle,
 	)
 
 	router.AddConsumerHandler(
 		"notify-fans",
-		messaging.SubjectConcertCreated,
+		entity.SubjectConcertCreated,
 		subscriber,
 		notificationConsumer.Handle,
 	)
 
 	router.AddConsumerHandler(
 		"enrich-venue",
-		messaging.SubjectVenueCreated,
+		entity.SubjectVenueCreated,
 		subscriber,
 		venueConsumer.Handle,
 	)
 
 	router.AddConsumerHandler(
 		"resolve-artist-name",
-		messaging.SubjectArtistCreated,
+		entity.SubjectArtistCreated,
 		subscriber,
 		artistNameConsumer.Handle,
 	)

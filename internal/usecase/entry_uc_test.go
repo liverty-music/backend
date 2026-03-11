@@ -121,6 +121,34 @@ func bigIntToBytes32(n *big.Int) []byte {
 	return buf
 }
 
+// stubMerkleBuilder implements entity.MerkleTreeBuilder for tests.
+type stubMerkleBuilder struct {
+	identityCommitmentErr error
+	buildErr              error
+}
+
+func (s *stubMerkleBuilder) IdentityCommitment(userID []byte) ([]byte, error) {
+	if s.identityCommitmentErr != nil {
+		return nil, s.identityCommitmentErr
+	}
+	buf := make([]byte, 32)
+	copy(buf, userID)
+	return buf, nil
+}
+
+func (s *stubMerkleBuilder) Build(_ string, leaves [][]byte) ([]*entity.MerkleNode, []byte, error) {
+	if s.buildErr != nil {
+		return nil, nil, s.buildErr
+	}
+	root := make([]byte, 32)
+	root[0] = byte(len(leaves))
+	var nodes []*entity.MerkleNode
+	for i, leaf := range leaves {
+		nodes = append(nodes, &entity.MerkleNode{NodeIndex: i, Hash: leaf})
+	}
+	return nodes, root, nil
+}
+
 func newTestEntryUC(
 	verifier entity.ZKPVerifier,
 	nullifiers entity.NullifierRepository,
@@ -129,7 +157,17 @@ func newTestEntryUC(
 	ticketRepo entity.TicketRepository,
 ) usecase.EntryUseCase {
 	logger, _ := logging.New()
-	return usecase.NewEntryUseCase(verifier, nullifiers, merkleTree, eventRepo, ticketRepo, logger)
+	return usecase.NewEntryUseCase(verifier, nullifiers, merkleTree, &stubMerkleBuilder{}, eventRepo, ticketRepo, logger)
+}
+
+func newTestEntryUCWithBuilder(
+	builder *stubMerkleBuilder,
+	merkleTree entity.MerkleTreeRepository,
+	eventRepo entity.EventRepository,
+	ticketRepo entity.TicketRepository,
+) usecase.EntryUseCase {
+	logger, _ := logging.New()
+	return usecase.NewEntryUseCase(nil, nil, merkleTree, builder, eventRepo, ticketRepo, logger)
 }
 
 // --- VerifyEntry tests ---
@@ -644,4 +682,36 @@ func TestBuildMerkleTree_EmptyTickets(t *testing.T) {
 
 	err := uc.BuildMerkleTree(context.Background(), "event-1")
 	require.NoError(t, err)
+}
+
+func TestBuildMerkleTree_IdentityCommitmentError(t *testing.T) {
+	t.Parallel()
+
+	ticketRepo := &mocks.MockTicketRepository{}
+	ticketRepo.On("ListByEvent", context.Background(), "event-1").Return([]*entity.Ticket{
+		{UserID: "user-1"},
+	}, nil)
+
+	builder := &stubMerkleBuilder{identityCommitmentErr: assert.AnError}
+	uc := newTestEntryUCWithBuilder(builder, &stubMerkleTreeRepo{}, &stubEventRepo{}, ticketRepo)
+
+	err := uc.BuildMerkleTree(context.Background(), "event-1")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, assert.AnError)
+}
+
+func TestBuildMerkleTree_BuildError(t *testing.T) {
+	t.Parallel()
+
+	ticketRepo := &mocks.MockTicketRepository{}
+	ticketRepo.On("ListByEvent", context.Background(), "event-1").Return([]*entity.Ticket{
+		{UserID: "user-1"},
+	}, nil)
+
+	builder := &stubMerkleBuilder{buildErr: assert.AnError}
+	uc := newTestEntryUCWithBuilder(builder, &stubMerkleTreeRepo{}, &stubEventRepo{}, ticketRepo)
+
+	err := uc.BuildMerkleTree(context.Background(), "event-1")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, assert.AnError)
 }

@@ -16,12 +16,14 @@ import (
 // --- test doubles ---
 
 type fakeVenueEnrichmentRepo struct {
-	pending     []*entity.Venue
-	enriched    map[string]*entity.Venue
-	failed      []string
-	merged      [][2]string // [canonicalID, duplicateID]
-	getByNameFn func(name string) (*entity.Venue, error)
-	getFn       func(id string) (*entity.Venue, error)
+	pending           []*entity.Venue
+	enriched          map[string]*entity.Venue
+	failed            []string
+	merged            [][2]string // [canonicalID, duplicateID]
+	getByNameFn       func(name string) (*entity.Venue, error)
+	getFn             func(id string) (*entity.Venue, error)
+	updateEnrichedErr error
+	mergeVenuesErr    error
 }
 
 func (r *fakeVenueEnrichmentRepo) ListPending(_ context.Context) ([]*entity.Venue, error) {
@@ -29,6 +31,9 @@ func (r *fakeVenueEnrichmentRepo) ListPending(_ context.Context) ([]*entity.Venu
 }
 
 func (r *fakeVenueEnrichmentRepo) UpdateEnriched(_ context.Context, v *entity.Venue) error {
+	if r.updateEnrichedErr != nil {
+		return r.updateEnrichedErr
+	}
 	if r.enriched == nil {
 		r.enriched = make(map[string]*entity.Venue)
 	}
@@ -42,6 +47,9 @@ func (r *fakeVenueEnrichmentRepo) MarkFailed(_ context.Context, id string) error
 }
 
 func (r *fakeVenueEnrichmentRepo) MergeVenues(_ context.Context, canonicalID, duplicateID string) error {
+	if r.mergeVenuesErr != nil {
+		return r.mergeVenuesErr
+	}
 	r.merged = append(r.merged, [2]string{canonicalID, duplicateID})
 	return nil
 }
@@ -64,6 +72,10 @@ func (r *fakeVenueEnrichmentRepo) Get(_ context.Context, id string) (*entity.Ven
 	}
 	return nil, apperr.New(codes.NotFound, "not found")
 }
+
+type fakeAdminAreaResolver struct{}
+
+func (r *fakeAdminAreaResolver) DisplayName(code, _ string) string { return code }
 
 type fakePlaceSearcher struct {
 	result *entity.VenuePlace
@@ -95,7 +107,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_Success(t *testing.T) {
 		result: &entity.VenuePlace{ExternalID: "mbid-001", Name: "Zepp Nagoya"},
 	}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
 	)
 
@@ -121,7 +133,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_GooglePlaceID(t *testing.T) 
 		result: &entity.VenuePlace{ExternalID: "ChIJplace001", Name: "Nippon Budokan"},
 	}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: false},
 	)
 
@@ -144,7 +156,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_FallsBackToSecondSearcher(t 
 	first := &fakePlaceSearcher{err: apperr.New(codes.NotFound, "not found")}
 	second := &fakePlaceSearcher{result: &entity.VenuePlace{ExternalID: "ChIJfallback", Name: "Some Venue"}}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: first, AssignToMBID: true},
 		usecase.VenueNamedSearcher{Searcher: second, AssignToMBID: false},
 	)
@@ -166,7 +178,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_NoMatchMarksFailed(t *testin
 	}
 	searcher := &fakePlaceSearcher{err: apperr.New(codes.NotFound, "not found")}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
 	)
 
@@ -194,7 +206,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_DuplicateDetectionMerges(t *
 		result: &entity.VenuePlace{ExternalID: "mbid-001", Name: "Zepp Nagoya"},
 	}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
 	)
 
@@ -217,7 +229,7 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_TransientErrorLeavesPending(
 	// The venue remains pending so the next run can retry.
 	searcher := &fakePlaceSearcher{err: apperr.New(codes.Unavailable, "service down")}
 
-	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, newTestLogger(t),
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
 		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
 	)
 
@@ -226,4 +238,108 @@ func TestVenueEnrichmentUseCase_EnrichPendingVenues_TransientErrorLeavesPending(
 
 	assert.Empty(t, repo.failed, "transient errors must not permanently mark venue as failed")
 	assert.Empty(t, repo.enriched)
+}
+
+func TestVenueEnrichmentUseCase_EnrichPendingVenues_UpdateEnrichedError(t *testing.T) {
+	repo := &fakeVenueEnrichmentRepo{
+		pending: []*entity.Venue{
+			{ID: "venue-6", Name: "zepp osaka", RawName: "zepp osaka"},
+		},
+		updateEnrichedErr: assert.AnError,
+	}
+	searcher := &fakePlaceSearcher{
+		result: &entity.VenuePlace{ExternalID: "mbid-002", Name: "Zepp Osaka"},
+	}
+
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
+		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
+	)
+
+	// enrichOne returns the UpdateEnriched error, which EnrichPendingVenues treats as
+	// transient (not errNoExternalMatch), so the venue remains pending.
+	err := uc.EnrichPendingVenues(context.Background())
+	require.NoError(t, err) // per-venue errors are non-fatal at the batch level
+
+	assert.Empty(t, repo.enriched, "venue should not be enriched when repo fails")
+	assert.Empty(t, repo.failed, "repo error should not mark venue as failed")
+}
+
+func TestVenueEnrichmentUseCase_EnrichPendingVenues_MergeVenuesError(t *testing.T) {
+	canonicalVenue := &entity.Venue{ID: "canonical-id", Name: "Zepp Nagoya"}
+	repo := &fakeVenueEnrichmentRepo{
+		pending: []*entity.Venue{
+			{ID: "duplicate-id", Name: "zepp nagoya", RawName: "zepp nagoya"},
+		},
+		getByNameFn: func(name string) (*entity.Venue, error) {
+			if name == "Zepp Nagoya" {
+				return canonicalVenue, nil
+			}
+			return nil, apperr.New(codes.NotFound, "not found")
+		},
+		mergeVenuesErr: assert.AnError,
+	}
+	searcher := &fakePlaceSearcher{
+		result: &entity.VenuePlace{ExternalID: "mbid-001", Name: "Zepp Nagoya"},
+	}
+
+	uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
+		usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
+	)
+
+	// MergeVenues error propagates from enrichOne; EnrichPendingVenues treats it as
+	// transient, so the venue remains pending for retry.
+	err := uc.EnrichPendingVenues(context.Background())
+	require.NoError(t, err) // per-venue errors are non-fatal at the batch level
+
+	assert.Empty(t, repo.merged, "merge should not succeed when repo fails")
+	assert.Empty(t, repo.failed, "merge error should not mark venue as failed")
+}
+
+func TestVenueEnrichmentUseCase_EnrichPendingVenues_CoordinatesPassthrough(t *testing.T) {
+	t.Run("non-nil Coordinates from PlaceSearcher are passed to UpdateEnriched", func(t *testing.T) {
+		repo := &fakeVenueEnrichmentRepo{
+			pending: []*entity.Venue{
+				{ID: "venue-coords-1", Name: "venue", RawName: "venue"},
+			},
+		}
+		coords := &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917}
+		searcher := &fakePlaceSearcher{
+			result: &entity.VenuePlace{ExternalID: "mbid-c1", Name: "Venue", Coordinates: coords},
+		}
+
+		uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
+			usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
+		)
+
+		err := uc.EnrichPendingVenues(context.Background())
+		require.NoError(t, err)
+
+		enriched, ok := repo.enriched["venue-coords-1"]
+		require.True(t, ok, "venue should have been enriched")
+		require.NotNil(t, enriched.Coordinates, "Coordinates should be passed through from PlaceSearcher")
+		assert.InDelta(t, 35.6894, enriched.Coordinates.Latitude, 0.0001)
+		assert.InDelta(t, 139.6917, enriched.Coordinates.Longitude, 0.0001)
+	})
+
+	t.Run("nil Coordinates from PlaceSearcher result in nil on enriched venue", func(t *testing.T) {
+		repo := &fakeVenueEnrichmentRepo{
+			pending: []*entity.Venue{
+				{ID: "venue-coords-2", Name: "venue", RawName: "venue"},
+			},
+		}
+		searcher := &fakePlaceSearcher{
+			result: &entity.VenuePlace{ExternalID: "mbid-c2", Name: "Venue", Coordinates: nil},
+		}
+
+		uc := usecase.NewVenueEnrichmentUseCase(repo, repo, repo, &fakeAdminAreaResolver{}, newTestLogger(t),
+			usecase.VenueNamedSearcher{Searcher: searcher, AssignToMBID: true},
+		)
+
+		err := uc.EnrichPendingVenues(context.Background())
+		require.NoError(t, err)
+
+		enriched, ok := repo.enriched["venue-coords-2"]
+		require.True(t, ok, "venue should have been enriched")
+		assert.Nil(t, enriched.Coordinates, "Coordinates should be nil when PlaceSearcher returns nil")
+	})
 }

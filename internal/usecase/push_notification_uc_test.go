@@ -7,14 +7,29 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 )
+
+// fakeSender is a configurable PushNotificationSender for tests.
+// By default it succeeds. Set sendFn to control per-subscription behavior.
+type fakeSender struct {
+	sendFn func(ctx context.Context, payload []byte, sub *entity.PushSubscription) error
+}
+
+func (s *fakeSender) Send(ctx context.Context, payload []byte, sub *entity.PushSubscription) error {
+	if s.sendFn != nil {
+		return s.sendFn(ctx, payload, sub)
+	}
+	return nil
+}
 
 // pushNotificationTestDeps holds all dependencies for PushNotificationUseCase tests.
 type pushNotificationTestDeps struct {
 	followRepo  *mocks.MockFollowRepository
 	pushSubRepo *mocks.MockPushSubscriptionRepository
+	sender      *fakeSender
 	uc          usecase.PushNotificationUseCase
 }
 
@@ -24,12 +39,13 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 	d := &pushNotificationTestDeps{
 		followRepo:  mocks.NewMockFollowRepository(t),
 		pushSubRepo: mocks.NewMockPushSubscriptionRepository(t),
+		sender:      &fakeSender{},
 	}
 	d.uc = usecase.NewPushNotificationUseCase(
 		d.followRepo,
 		d.pushSubRepo,
+		d.sender,
 		logger,
-		"vapid-pub", "vapid-priv", "mailto:test@example.com",
 	)
 	return d
 }
@@ -180,7 +196,6 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 	tokyoArea := "JP-13"
 	osakaArea := "JP-27"
 	saitamaArea := "JP-11"
-	float64Ptr := func(v float64) *float64 { return &v }
 	concertsWithVenue := func(adminArea *string) []*entity.Concert {
 		return []*entity.Concert{
 			{
@@ -291,9 +306,8 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 							ID:    "c1",
 							Title: "Concert 1",
 							Venue: &entity.Venue{
-								AdminArea: &saitamaArea,
-								Latitude:  float64Ptr(35.8569),
-								Longitude: float64Ptr(139.6489),
+								AdminArea:   &saitamaArea,
+								Coordinates: &entity.Coordinates{Latitude: 35.8569, Longitude: 139.6489},
 							},
 						},
 						ArtistID: "artist-1",
@@ -303,7 +317,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
 				followers := []*entity.Follower{
-					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeNearby},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
@@ -323,9 +337,8 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 							ID:    "c1",
 							Title: "Concert 1",
 							Venue: &entity.Venue{
-								AdminArea: &osakaArea,
-								Latitude:  float64Ptr(34.6863),
-								Longitude: float64Ptr(135.5200),
+								AdminArea:   &osakaArea,
+								Coordinates: &entity.Coordinates{Latitude: 34.6863, Longitude: 135.5200},
 							},
 						},
 						ArtistID: "artist-1",
@@ -335,7 +348,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
 				followers := []*entity.Follower{
-					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeNearby},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				// No ListByUserIDs — NEARBY follower filtered out.
@@ -418,4 +431,118 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+// notifySenderTestDeps creates deps with an ANYWHERE follower and the given subscriptions,
+// reducing boilerplate for sender error-path tests.
+func notifySenderTestDeps(t *testing.T, subs []*entity.PushSubscription) *pushNotificationTestDeps {
+	t.Helper()
+	d := newPushNotificationTestDeps(t)
+	ctx := context.Background()
+	followers := []*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
+	}
+	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+	d.pushSubRepo.EXPECT().ListByUserIDs(ctx, []string{"user-1"}).Return(subs, nil).Once()
+	return d
+}
+
+func TestNotifyNewConcerts_SenderGone_DeletesSubscription(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	sub := &entity.PushSubscription{UserID: "user-1", Endpoint: "https://push.example.com/gone"}
+	d := notifySenderTestDeps(t, []*entity.PushSubscription{sub})
+	d.sender.sendFn = func(_ context.Context, _ []byte, _ *entity.PushSubscription) error {
+		return apperr.ErrNotFound
+	}
+	d.pushSubRepo.EXPECT().DeleteByEndpoint(ctx, "https://push.example.com/gone").Return(nil).Once()
+
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	tokyoArea := "JP-13"
+	concerts := []*entity.Concert{
+		{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}, ArtistID: "artist-1"},
+	}
+
+	err := d.uc.NotifyNewConcerts(ctx, artist, concerts)
+	assert.NoError(t, err)
+}
+
+func TestNotifyNewConcerts_SenderGone_DeleteFails_ContinuesProcessing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	sub := &entity.PushSubscription{UserID: "user-1", Endpoint: "https://push.example.com/gone"}
+	d := notifySenderTestDeps(t, []*entity.PushSubscription{sub})
+	d.sender.sendFn = func(_ context.Context, _ []byte, _ *entity.PushSubscription) error {
+		return apperr.ErrNotFound
+	}
+	d.pushSubRepo.EXPECT().DeleteByEndpoint(ctx, "https://push.example.com/gone").Return(assert.AnError).Once()
+
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	tokyoArea := "JP-13"
+	concerts := []*entity.Concert{
+		{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}, ArtistID: "artist-1"},
+	}
+
+	err := d.uc.NotifyNewConcerts(ctx, artist, concerts)
+	assert.NoError(t, err, "delete failure should be logged but not returned")
+}
+
+func TestNotifyNewConcerts_SenderTransientError_LogsAndContinues(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	sub := &entity.PushSubscription{UserID: "user-1", Endpoint: "https://push.example.com/flaky"}
+	d := notifySenderTestDeps(t, []*entity.PushSubscription{sub})
+	d.sender.sendFn = func(_ context.Context, _ []byte, _ *entity.PushSubscription) error {
+		return assert.AnError
+	}
+	// No DeleteByEndpoint expected — transient errors don't trigger cleanup.
+
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	tokyoArea := "JP-13"
+	concerts := []*entity.Concert{
+		{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}, ArtistID: "artist-1"},
+	}
+
+	err := d.uc.NotifyNewConcerts(ctx, artist, concerts)
+	assert.NoError(t, err, "transient sender error should be logged but not returned")
+}
+
+func TestNotifyNewConcerts_MixedSenderResults(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	subs := []*entity.PushSubscription{
+		{UserID: "user-1", Endpoint: "https://push.example.com/ok"},
+		{UserID: "user-1", Endpoint: "https://push.example.com/gone"},
+		{UserID: "user-1", Endpoint: "https://push.example.com/fail"},
+	}
+	d := notifySenderTestDeps(t, subs)
+
+	d.sender.sendFn = func(_ context.Context, _ []byte, sub *entity.PushSubscription) error {
+		switch sub.Endpoint {
+		case "https://push.example.com/ok":
+			return nil
+		case "https://push.example.com/gone":
+			return apperr.ErrNotFound
+		case "https://push.example.com/fail":
+			return assert.AnError
+		}
+		return nil
+	}
+	d.pushSubRepo.EXPECT().
+		DeleteByEndpoint(ctx, "https://push.example.com/gone").
+		Return(nil).
+		Once()
+
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	tokyoArea := "JP-13"
+	concerts := []*entity.Concert{
+		{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}, ArtistID: "artist-1"},
+	}
+
+	err := d.uc.NotifyNewConcerts(ctx, artist, concerts)
+	assert.NoError(t, err)
 }

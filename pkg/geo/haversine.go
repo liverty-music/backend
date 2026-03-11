@@ -1,3 +1,4 @@
+// Package geo provides geographic utility functions.
 package geo
 
 import "math"

@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS homes (
     country_code TEXT NOT NULL,
     level_1 TEXT NOT NULL,
     level_2 TEXT,
+    centroid_latitude DOUBLE PRECISION,
+    centroid_longitude DOUBLE PRECISION,
     CONSTRAINT chk_homes_country_code_length CHECK (char_length(country_code) = 2),
     CONSTRAINT chk_homes_level_1_length CHECK (char_length(level_1) BETWEEN 2 AND 6),
     CONSTRAINT chk_homes_level_2_length CHECK (level_2 IS NULL OR char_length(level_2) <= 20)
@@ -47,12 +49,14 @@ CREATE TABLE IF NOT EXISTS homes (
 
 ALTER TABLE users ADD CONSTRAINT fk_users_home_id FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE SET NULL;
 
-COMMENT ON TABLE homes IS 'Structured geographic home area for users. Determines dashboard lane classification (home/nearby/away).';
+COMMENT ON TABLE homes IS 'Structured geographic home area for users. Determines proximity classification (home/nearby/away).';
 COMMENT ON COLUMN homes.id IS 'Unique home record identifier';
 COMMENT ON COLUMN homes.user_id IS 'Reference to the user who owns this home (1:1)';
 COMMENT ON COLUMN homes.country_code IS 'ISO 3166-1 alpha-2 country code (e.g., JP, US)';
 COMMENT ON COLUMN homes.level_1 IS 'ISO 3166-2 subdivision code (e.g., JP-13 for Tokyo, US-NY for New York)';
 COMMENT ON COLUMN homes.level_2 IS 'Optional finer-grained area code. Code system determined by country_code. NULL in Phase 1.';
+COMMENT ON COLUMN homes.centroid_latitude IS 'Approximate latitude of the home area centroid, resolved at write time from level_1. Used for proximity calculations.';
+COMMENT ON COLUMN homes.centroid_longitude IS 'Approximate longitude of the home area centroid, resolved at write time from level_1. Used for proximity calculations.';
 
 -- Artists table
 CREATE TABLE IF NOT EXISTS artists (

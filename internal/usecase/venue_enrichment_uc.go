@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/geo"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -39,11 +38,11 @@ type venueEnrichmentUseCase struct {
 	venueRepo entity.VenueEnrichmentRepository
 	// venueByNameRepo is the subset of VenueRepository needed for duplicate detection.
 	// In practice, *rdb.VenueRepository implements both interfaces.
-	venueByNameRepo venueByNameRepository
-	// venueGetRepo is the subset of VenueRepository needed to fetch a single venue by ID.
-	venueGetRepo venueGetRepository
-	searchers    []VenueNamedSearcher
-	logger       *logging.Logger
+	venueByNameRepo   venueByNameRepository
+	venueGetRepo      venueGetRepository
+	adminAreaResolver entity.AdminAreaResolver
+	searchers         []VenueNamedSearcher
+	logger            *logging.Logger
 }
 
 // venueByNameRepository is the minimal read interface needed for duplicate detection.
@@ -66,15 +65,17 @@ func NewVenueEnrichmentUseCase(
 	venueRepo entity.VenueEnrichmentRepository,
 	venueByNameRepo venueByNameRepository,
 	venueGetRepo venueGetRepository,
+	adminAreaResolver entity.AdminAreaResolver,
 	logger *logging.Logger,
 	searchers ...VenueNamedSearcher,
 ) VenueEnrichmentUseCase {
 	return &venueEnrichmentUseCase{
-		venueRepo:       venueRepo,
-		venueByNameRepo: venueByNameRepo,
-		venueGetRepo:    venueGetRepo,
-		searchers:       searchers,
-		logger:          logger,
+		venueRepo:         venueRepo,
+		venueByNameRepo:   venueByNameRepo,
+		venueGetRepo:      venueGetRepo,
+		adminAreaResolver: adminAreaResolver,
+		searchers:         searchers,
+		logger:            logger,
 	}
 }
 
@@ -154,7 +155,7 @@ func (uc *venueEnrichmentUseCase) enrichOne(ctx context.Context, v *entity.Venue
 	adminArea := ""
 	if v.AdminArea != nil {
 		// Convert ISO 3166-2 code to English display name for external search APIs.
-		adminArea = geo.DisplayName(*v.AdminArea, "en")
+		adminArea = uc.adminAreaResolver.DisplayName(*v.AdminArea, "en")
 	}
 
 	var lastTransientErr error
@@ -194,11 +195,10 @@ func (uc *venueEnrichmentUseCase) enrichOne(ctx context.Context, v *entity.Venue
 		default:
 			// No duplicate — update this venue as enriched.
 			enriched := &entity.Venue{
-				ID:        v.ID,
-				Name:      place.Name,
-				RawName:   v.RawName,
-				Latitude:  place.Latitude,
-				Longitude: place.Longitude,
+				ID:          v.ID,
+				Name:        place.Name,
+				RawName:     v.RawName,
+				Coordinates: place.Coordinates,
 			}
 			id := place.ExternalID
 			if ns.AssignToMBID {

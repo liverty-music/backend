@@ -84,6 +84,15 @@ func (b *Builder) Build(eventID string, leaves [][]byte) ([]*entity.MerkleNode, 
 	return nodes, root, nil
 }
 
+// Compile-time interface compliance check.
+var _ entity.MerkleTreeBuilder = (*Builder)(nil)
+
+// IdentityCommitment computes the identity commitment for a user ID.
+// Delegates to the package-level IdentityCommitment function.
+func (b *Builder) IdentityCommitment(userID []byte) ([]byte, error) {
+	return IdentityCommitment(userID)
+}
+
 // Depth returns the depth of the tree.
 func (b *Builder) Depth() int {
 	return b.depth

@@ -127,22 +127,22 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		user := &entity.User{
 			ID:         "user-1",
 			ExternalID: "ext-1",
-			Home:       &entity.Home{Level1: "JP-13"}, // Tokyo
+			Home:       &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}, // Tokyo
 		}
 		d.userRepo.EXPECT().GetByExternalID(ctx, "ext-1").Return(user, nil).Once()
 
 		concerts := []*entity.Concert{
 			// Date 1: Tokyo venue (HOME), Saitama venue (NEARBY), Osaka venue (AWAY)
 			{
-				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: strPtr("JP-13"), Latitude: &tokyoLat, Longitude: &tokyoLng}},
+				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: strPtr("JP-13"), Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng}}},
 				ArtistID: "a1",
 			},
 			{
-				Event:    entity.Event{ID: "c2", LocalDate: date1, Venue: &entity.Venue{ID: "v2", AdminArea: strPtr("JP-11"), Latitude: &saitamaLat, Longitude: &saitamaLng}},
+				Event:    entity.Event{ID: "c2", LocalDate: date1, Venue: &entity.Venue{ID: "v2", AdminArea: strPtr("JP-11"), Coordinates: &entity.Coordinates{Latitude: saitamaLat, Longitude: saitamaLng}}},
 				ArtistID: "a1",
 			},
 			{
-				Event:    entity.Event{ID: "c3", LocalDate: date1, Venue: &entity.Venue{ID: "v3", AdminArea: strPtr("JP-27"), Latitude: &osakaLat, Longitude: &osakaLng}},
+				Event:    entity.Event{ID: "c3", LocalDate: date1, Venue: &entity.Venue{ID: "v3", AdminArea: strPtr("JP-27"), Coordinates: &entity.Coordinates{Latitude: osakaLat, Longitude: osakaLng}}},
 				ArtistID: "a1",
 			},
 			// Date 2: No venue coordinates (AWAY)
@@ -163,15 +163,15 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		assert.Equal(t, "c1", groups[0].Home[0].ID)
 		assert.Len(t, groups[0].Nearby, 1)
 		assert.Equal(t, "c2", groups[0].Nearby[0].ID)
-		assert.Len(t, groups[0].Away, 1)
-		assert.Equal(t, "c3", groups[0].Away[0].ID)
+		assert.Len(t, groups[0].Distant, 1)
+		assert.Equal(t, "c3", groups[0].Distant[0].ID)
 
 		// Date 2
 		assert.Equal(t, date2, groups[1].Date)
 		assert.Len(t, groups[1].Home, 0)
 		assert.Len(t, groups[1].Nearby, 0)
-		assert.Len(t, groups[1].Away, 1)
-		assert.Equal(t, "c4", groups[1].Away[0].ID)
+		assert.Len(t, groups[1].Distant, 1)
+		assert.Equal(t, "c4", groups[1].Distant[0].ID)
 	})
 
 	t.Run("no home set puts everything in away", func(t *testing.T) {
@@ -182,7 +182,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 
 		concerts := []*entity.Concert{
 			{
-				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: strPtr("JP-13"), Latitude: &tokyoLat, Longitude: &tokyoLng}},
+				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: strPtr("JP-13"), Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng}}},
 				ArtistID: "a1",
 			},
 		}
@@ -193,7 +193,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		assert.Len(t, groups, 1)
 		assert.Len(t, groups[0].Home, 0)
 		assert.Len(t, groups[0].Nearby, 0)
-		assert.Len(t, groups[0].Away, 1)
+		assert.Len(t, groups[0].Distant, 1)
 	})
 
 	t.Run("empty concerts returns nil groups", func(t *testing.T) {
@@ -412,7 +412,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			}
 
 			// Subscribe to verify event publishing for non-error cases
-			var msgs <-chan *messaging.ConcertDiscoveredData
+			var msgs <-chan *entity.ConcertDiscoveredData
 			_ = msgs // event verification is optional; main assertion is on error
 
 			err := d.uc.SearchNewConcerts(ctx, tt.args.artistID)
@@ -438,7 +438,7 @@ func receivePublishedConcerts(t *testing.T, ctx context.Context, sub <-chan *mes
 	select {
 	case msg := <-sub:
 		msg.Ack()
-		var data messaging.ConcertDiscoveredData
+		var data entity.ConcertDiscoveredData
 		err := messaging.ParseCloudEventData(msg, &data)
 		assert.NoError(t, err)
 		return len(data.Concerts)
@@ -577,7 +577,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
 
 			// Subscribe BEFORE calling SearchNewConcerts so the GoChannel buffers the message.
-			sub, err := d.publisher.Subscribe(ctx, messaging.SubjectConcertDiscovered)
+			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
 			assert.NoError(t, err)
 
 			// Common mock setup: no cache, artist found, no official site.

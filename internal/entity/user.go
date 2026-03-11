@@ -6,10 +6,10 @@ import "context"
 //
 // Corresponds to liverty_music.entity.v1.Home.
 //
-// The home area determines dashboard lane classification:
-//   - "Home" lane: event venue matches the user's home at the applicable level.
-//   - "Nearby" lane: event has a known area that differs from the user's home.
-//   - "Away" lane: event has no known area or the user has no home set.
+// The home area determines proximity classification:
+//   - HOME: event venue matches the user's home at the applicable level.
+//   - NEARBY: event is within 200km of the user's home centroid.
+//   - AWAY: event is beyond 200km, has no known area, or the user has no home set.
 //
 // Code system contract:
 //   - Level1 is always an ISO 3166-2 subdivision code, worldwide.
@@ -25,6 +25,10 @@ type Home struct {
 	// Level2 is an optional finer-grained area code within the Level1 subdivision.
 	// The code system depends on CountryCode. Nil in Phase 1 (Japan-only).
 	Level2 *string
+	// Centroid is the approximate geographic center of the home area.
+	// Resolved at write time from the Level1 code.
+	// Nil when the country is unsupported and no centroid could be resolved.
+	Centroid *Coordinates
 }
 
 // User represents a user who registers for concert notifications.
@@ -51,7 +55,7 @@ type User struct {
 	// IsActive indicates if the user account is active.
 	IsActive bool
 	// Home is the user's home area. Nil when not set.
-	// Determines dashboard lane classification (home/nearby/away).
+	// Determines proximity classification (home/nearby/away).
 	Home *Home
 }
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +34,7 @@ func (uc *fakeVenueEnrichmentUC) EnrichOne(_ context.Context, venueID string) er
 
 // --- helpers ---
 
-func makeVenueCreatedMsg(t *testing.T, data messaging.VenueCreatedData) *message.Message {
+func makeVenueCreatedMsg(t *testing.T, data entity.VenueCreatedData) *message.Message {
 	t.Helper()
 	payload, err := json.Marshal(data)
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestVenueConsumer_Handle(t *testing.T) {
 		uc := &fakeVenueEnrichmentUC{}
 		handler := event.NewVenueConsumer(uc, newTestLogger(t))
 
-		data := messaging.VenueCreatedData{
+		data := entity.VenueCreatedData{
 			VenueID: "venue-1",
 			Name:    "Zepp Nagoya",
 		}
@@ -64,7 +64,7 @@ func TestVenueConsumer_Handle(t *testing.T) {
 		uc := &fakeVenueEnrichmentUC{err: fmt.Errorf("external service down")}
 		handler := event.NewVenueConsumer(uc, newTestLogger(t))
 
-		data := messaging.VenueCreatedData{
+		data := entity.VenueCreatedData{
 			VenueID: "venue-2",
 			Name:    "Unknown Venue",
 		}
