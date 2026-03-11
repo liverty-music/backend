@@ -82,7 +82,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 		return nil, fmt.Errorf("ensure NATS streams: %w", err)
 	}
 
-	wmLogger := watermill.NewStdLogger(false, false)
+	wmLogger := watermill.NewSlogLogger(logger.Slog())
 	var goChannel *gochannel.GoChannel
 	if cfg.NATS.URL == "" {
 		goChannel = gochannel.NewGoChannel(gochannel.Config{
