@@ -8,7 +8,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -85,10 +84,10 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		pub := newGoChannelPub(t)
 		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, pub, newTestLogger(t))
 
-		data := messaging.ConcertDiscoveredData{
+		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
 			ArtistName: "Test Artist",
-			Concerts: []messaging.ScrapedConcertData{
+			Concerts: []entity.ScrapedConcertData{
 				{
 					Title:           "Concert A",
 					ListedVenueName: "Venue X",
@@ -124,10 +123,10 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		pub := newGoChannelPub(t)
 		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, pub, newTestLogger(t))
 
-		data := messaging.ConcertDiscoveredData{
+		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-2",
 			ArtistName: "Another Artist",
-			Concerts: []messaging.ScrapedConcertData{
+			Concerts: []entity.ScrapedConcertData{
 				{
 					Title:           "Concert C",
 					ListedVenueName: "Existing Venue",
@@ -154,10 +153,10 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		pub := newGoChannelPub(t)
 		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, pub, newTestLogger(t))
 
-		data := messaging.ConcertDiscoveredData{
+		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-3",
 			ArtistName: "Third Artist",
-			Concerts: []messaging.ScrapedConcertData{
+			Concerts: []entity.ScrapedConcertData{
 				{
 					Title:           "Show 1",
 					ListedVenueName: "Same Venue",
