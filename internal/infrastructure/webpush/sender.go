@@ -50,9 +50,7 @@ func (s *Sender) Send(_ context.Context, payload []byte, sub *entity.PushSubscri
 	})
 
 	if resp != nil {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			return apperr.Wrap(closeErr, codes.Internal, "close response body")
-		}
+		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusGone {
 			return apperr.New(codes.NotFound, "push subscription is no longer valid")
 		}

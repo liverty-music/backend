@@ -116,7 +116,7 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 			CountryCode: countryCode.String,
 			Level1:      level1.String,
 		}
-		if centroidLat.Valid {
+		if centroidLat.Valid && centroidLng.Valid {
 			user.Home.Centroid = &entity.Coordinates{
 				Latitude:  centroidLat.Float64,
 				Longitude: centroidLng.Float64,
