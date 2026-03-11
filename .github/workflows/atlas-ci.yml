@@ -68,6 +68,13 @@ jobs:
             --dev-url "${{ env.DATABASE_URL }}" \
             --dir "file://k8s/atlas/base/migrations"
 
+      - name: Atlas Migrate Lint
+        run: |
+          atlas migrate lint \
+            --dev-url "${{ env.DATABASE_URL }}" \
+            --dir "file://k8s/atlas/base/migrations" \
+            --git-base "origin/main"
+
   atlas-ci-skip:
     needs: changes
     if: needs.changes.outputs.src == 'false'
