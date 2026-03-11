@@ -7,18 +7,18 @@ import (
 
 // hypeToProto maps a domain Hype value to its Protobuf HypeType enum value.
 var hypeToProto = map[entity.Hype]entityv1.HypeType{
-	entity.HypeWatch:    entityv1.HypeType_HYPE_TYPE_WATCH,
-	entity.HypeHome:     entityv1.HypeType_HYPE_TYPE_HOME,
-	entity.HypeNearby:   entityv1.HypeType_HYPE_TYPE_NEARBY,
-	entity.HypeAway: entityv1.HypeType_HYPE_TYPE_AWAY,
+	entity.HypeWatch:  entityv1.HypeType_HYPE_TYPE_WATCH,
+	entity.HypeHome:   entityv1.HypeType_HYPE_TYPE_HOME,
+	entity.HypeNearby: entityv1.HypeType_HYPE_TYPE_NEARBY,
+	entity.HypeAway:   entityv1.HypeType_HYPE_TYPE_AWAY,
 }
 
 // HypeFromProto maps a Protobuf HypeType enum to its domain Hype value.
 var HypeFromProto = map[entityv1.HypeType]entity.Hype{
-	entityv1.HypeType_HYPE_TYPE_WATCH:    entity.HypeWatch,
-	entityv1.HypeType_HYPE_TYPE_HOME:     entity.HypeHome,
-	entityv1.HypeType_HYPE_TYPE_NEARBY:   entity.HypeNearby,
-	entityv1.HypeType_HYPE_TYPE_AWAY: entity.HypeAway,
+	entityv1.HypeType_HYPE_TYPE_WATCH:  entity.HypeWatch,
+	entityv1.HypeType_HYPE_TYPE_HOME:   entity.HypeHome,
+	entityv1.HypeType_HYPE_TYPE_NEARBY: entity.HypeNearby,
+	entityv1.HypeType_HYPE_TYPE_AWAY:   entity.HypeAway,
 }
 
 // FollowedArtistToProto maps a domain FollowedArtist to its Protobuf wire representation.
