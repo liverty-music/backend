@@ -48,8 +48,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/api"
+	"github.com/liverty-music/backend/pkg/httpx"
 	"github.com/liverty-music/backend/pkg/throttle"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -235,24 +238,54 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 		return apperr.Wrap(err, codes.Internal, "failed to create lastfm request")
 	}
 
-	c.logger.Debug(ctx, "rate limiter backoff", slog.String("method", params.Get("method")))
+	method := params.Get("method")
 
-	var resp *http.Response
-	err = c.throttler.Do(ctx, func() error {
-		var err error
-		resp, err = c.httpClient.Do(req)
-		return err
-	})
+	// Retry wraps the throttle call (Pattern A) so that backoff waits
+	// do not block the throttle slot for other callers.
+	resp, err := backoff.Retry(ctx, func() (*http.Response, error) {
+		c.logger.Debug(ctx, "rate limiter backoff", slog.String("method", method))
 
-	if err := api.FromHTTP(err, resp, "lastfm api request failed"); err != nil {
-		attrs := []slog.Attr{slog.String("method", params.Get("method"))}
+		var resp *http.Response
+		tErr := c.throttler.Do(ctx, func() error {
+			var err error
+			resp, err = c.httpClient.Do(req)
+			return err
+		})
+		if tErr != nil {
+			return nil, backoff.Permanent(tErr)
+		}
+
+		if httpx.IsRetryableStatus(resp.StatusCode) {
+			c.logger.Warn(ctx, "lastfm returned retryable status",
+				slog.String("method", method), slog.Int("statusCode", resp.StatusCode))
+			_ = resp.Body.Close()
+			return nil, httpx.RetryAfterFromResponse(resp)
+		}
+
+		return resp, nil
+	},
+		backoff.WithBackOff(&backoff.ExponentialBackOff{
+			InitialInterval:     1 * time.Second,
+			RandomizationFactor: 0.5,
+			Multiplier:          2.0,
+			MaxInterval:         10 * time.Second,
+		}),
+		backoff.WithMaxTries(4),
+		backoff.WithMaxElapsedTime(0),
+	)
+	if err != nil {
+		return api.FromHTTP(err, nil, "lastfm api request failed")
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if err := api.FromHTTP(nil, resp, "lastfm api request failed"); err != nil {
+		attrs := []slog.Attr{slog.String("method", method)}
 		if resp != nil {
 			attrs = append(attrs, slog.Int("statusCode", resp.StatusCode))
 		}
 		c.logger.Error(ctx, "lastfm HTTP request failed", err, attrs...)
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	// Limit response body to 1MB to prevent OOM attacks
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -264,7 +297,7 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 	var errResp errorResponse
 	if err := json.Unmarshal(body, &errResp); err == nil && errResp.ErrorCode != 0 {
 		c.logger.Error(ctx, "lastfm API returned error", nil,
-			slog.String("method", params.Get("method")),
+			slog.String("method", method),
 			slog.Int("errorCode", errResp.ErrorCode),
 			slog.String("errorMessage", errResp.Message),
 		)

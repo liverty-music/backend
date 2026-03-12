@@ -3,6 +3,7 @@ package di
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -20,6 +21,7 @@ import (
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/httpx"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
@@ -103,7 +105,11 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		if err != nil {
 			return nil, fmt.Errorf("obtain google maps token source: %w", err)
 		}
-		gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, nil, logger)
+		gmHTTPClient := &http.Client{
+			Transport: httpx.NewRetryTransport(nil),
+			Timeout:   10 * time.Second,
+		}
+		gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, gmHTTPClient, logger)
 		gmSearcher := googlemaps.NewPlaceSearcher(gmClient)
 		searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: gmSearcher, AssignToMBID: false})
 	} else {

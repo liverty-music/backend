@@ -52,8 +52,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cenkalti/backoff/v5"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/pkg/api"
+	"github.com/liverty-music/backend/pkg/httpx"
 	"github.com/liverty-music/backend/pkg/throttle"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -134,6 +137,41 @@ func NewClient(httpClient *http.Client, logger *logging.Logger) *client {
 	}
 }
 
+// doWithRetry executes an HTTP request through the throttler with retry on
+// transient errors (429, 503, 504). Retry wraps the throttle call (Pattern A)
+// so that backoff waits do not block the throttle slot for other callers.
+func (c *client) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
+	return backoff.Retry(ctx, func() (*http.Response, error) {
+		var resp *http.Response
+		tErr := c.throttler.Do(ctx, func() error {
+			var err error
+			resp, err = c.httpClient.Do(req)
+			return err
+		})
+		if tErr != nil {
+			return nil, backoff.Permanent(tErr)
+		}
+
+		if httpx.IsRetryableStatus(resp.StatusCode) {
+			c.logger.Warn(ctx, "musicbrainz returned retryable status",
+				slog.Int("statusCode", resp.StatusCode))
+			_ = resp.Body.Close()
+			return nil, httpx.RetryAfterFromResponse(resp)
+		}
+
+		return resp, nil
+	},
+		backoff.WithBackOff(&backoff.ExponentialBackOff{
+			InitialInterval:     1 * time.Second,
+			RandomizationFactor: 0.5,
+			Multiplier:          2.0,
+			MaxInterval:         10 * time.Second,
+		}),
+		backoff.WithMaxTries(4),
+		backoff.WithMaxElapsedTime(0),
+	)
+}
+
 // GetArtist retrieves canonical artist data using an MBID.
 func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, error) {
 	c.logger.Info(ctx, "getting artist", slog.String("mbid", mbid))
@@ -147,20 +185,16 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 
 	req.Header.Set("User-Agent", userAgent)
 
-	c.logger.Debug(ctx, "rate limiter backoff", slog.String("mbid", mbid))
+	resp, err := c.doWithRetry(ctx, req)
+	if err != nil {
+		return nil, api.FromHTTP(err, nil, "musicbrainz api request failed")
+	}
+	defer func() { _ = resp.Body.Close() }()
 
-	var resp *http.Response
-	err = c.throttler.Do(ctx, func() error {
-		var err error
-		resp, err = c.httpClient.Do(req)
-		return err
-	})
-
-	if err := api.FromHTTP(err, resp, "musicbrainz api request failed"); err != nil {
+	if err := api.FromHTTP(nil, resp, "musicbrainz api request failed"); err != nil {
 		c.logger.Error(ctx, "musicbrainz artist request failed", err, slog.String("mbid", mbid))
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	var data artistResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -191,20 +225,16 @@ func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (strin
 
 	req.Header.Set("User-Agent", userAgent)
 
-	c.logger.Debug(ctx, "rate limiter backoff", slog.String("mbid", mbid))
+	resp, err := c.doWithRetry(ctx, req)
+	if err != nil {
+		return "", api.FromHTTP(err, nil, "musicbrainz url-rels request failed")
+	}
+	defer func() { _ = resp.Body.Close() }()
 
-	var resp *http.Response
-	err = c.throttler.Do(ctx, func() error {
-		var err error
-		resp, err = c.httpClient.Do(req)
-		return err
-	})
-
-	if err := api.FromHTTP(err, resp, "musicbrainz url-rels request failed"); err != nil {
+	if err := api.FromHTTP(nil, resp, "musicbrainz url-rels request failed"); err != nil {
 		c.logger.Error(ctx, "musicbrainz url-rels request failed", err, slog.String("mbid", mbid))
 		return "", err
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	var data artistResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -279,18 +309,13 @@ func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 	}
 	req.Header.Set("User-Agent", userAgent)
 
-	c.logger.Debug(ctx, "rate limiter backoff", slog.String("venueName", name))
-
-	var resp *http.Response
-	err = c.throttler.Do(ctx, func() error {
-		var err error
-		resp, err = c.httpClient.Do(req)
-		return err
-	})
-	if resp != nil {
-		defer func() { _ = resp.Body.Close() }()
+	resp, err := c.doWithRetry(ctx, req)
+	if err != nil {
+		return nil, api.FromHTTP(err, nil, "musicbrainz place search failed")
 	}
-	if err := api.FromHTTP(err, resp, "musicbrainz place search failed"); err != nil {
+	defer func() { _ = resp.Body.Close() }()
+
+	if err := api.FromHTTP(nil, resp, "musicbrainz place search failed"); err != nil {
 		c.logger.Error(ctx, "musicbrainz place search failed", err, slog.String("venueName", name))
 		return nil, err
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -81,16 +82,16 @@ func TestClient_GetArtist(t *testing.T) {
 			wantErr:    apperr.New(codes.NotFound, "musicbrainz api returned non-ok status: 404"),
 		},
 		{
-			name:       "error - service unavailable (rate limit 503)",
+			name:       "error - service unavailable (rate limit 503, retries exhausted)",
 			args:       args{mbid: "test-mbid"},
 			statusCode: http.StatusServiceUnavailable,
-			wantErr:    apperr.New(codes.ResourceExhausted, "musicbrainz api returned non-ok status: 503"),
+			wantErr:    apperr.New(codes.Unavailable, "musicbrainz api request failed"),
 		},
 		{
-			name:       "error - too many requests (rate limit 429)",
+			name:       "error - too many requests (rate limit 429, retries exhausted)",
 			args:       args{mbid: "test-mbid"},
 			statusCode: http.StatusTooManyRequests,
-			wantErr:    apperr.New(codes.ResourceExhausted, "musicbrainz api returned non-ok status: 429"),
+			wantErr:    apperr.New(codes.Unavailable, "musicbrainz api request failed"),
 		},
 		{
 			name:       "error - internal server error",
@@ -190,11 +191,11 @@ func TestClient_SearchPlace(t *testing.T) {
 			wantErr:      apperr.New(codes.NotFound, "no matching place found in musicbrainz"),
 		},
 		{
-			name:       "error - service unavailable",
+			name:       "error - service unavailable (retries exhausted)",
 			venueName:  "Test Venue",
 			adminArea:  "",
 			statusCode: http.StatusServiceUnavailable,
-			wantErr:    apperr.New(codes.ResourceExhausted, "musicbrainz place search failed"),
+			wantErr:    apperr.New(codes.Unavailable, "musicbrainz place search failed"),
 		},
 		{
 			name:        "error - invalid JSON",
@@ -344,5 +345,32 @@ func TestClient_GetArtist_ContextTimeout(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Nil(t, artist)
+	})
+}
+
+func TestClient_GetArtist_RetryOnServiceUnavailable(t *testing.T) {
+	t.Run("retries on 503 and succeeds", func(t *testing.T) {
+		var calls atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if calls.Add(1) == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(artistResponse{
+				ID:   "a74b1b7f",
+				Name: "Radiohead",
+			})
+		}))
+		defer server.Close()
+
+		client := musicbrainz.NewClient(server.Client(), testLogger(t))
+		client.SetBaseURL(server.URL + "/")
+
+		artist, err := client.GetArtist(context.Background(), "a74b1b7f")
+
+		require.NoError(t, err)
+		assert.Equal(t, "Radiohead", artist.Name)
+		assert.Equal(t, int32(2), calls.Load())
 	})
 }
