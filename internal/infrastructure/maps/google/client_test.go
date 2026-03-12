@@ -29,23 +29,22 @@ func staticTokenSource() oauth2.TokenSource {
 }
 
 type placeLocation struct {
-	Lat float64 `json:"lat"`
-	Lng float64 `json:"lng"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }
 
-type placeGeometry struct {
-	Location placeLocation `json:"location"`
+type placeDisplayName struct {
+	Text string `json:"text"`
 }
 
 type placeResult struct {
-	PlaceID  string        `json:"place_id"`
-	Name     string        `json:"name"`
-	Geometry placeGeometry `json:"geometry"`
+	ID          string           `json:"id"`
+	DisplayName placeDisplayName `json:"displayName"`
+	Location    placeLocation    `json:"location"`
 }
 
 type textSearchResponse struct {
-	Results []placeResult `json:"results"`
-	Status  string        `json:"status"`
+	Places []placeResult `json:"places"`
 }
 
 func TestClient_SearchPlace(t *testing.T) {
@@ -66,9 +65,8 @@ func TestClient_SearchPlace(t *testing.T) {
 			adminArea:  "Aichi",
 			statusCode: http.StatusOK,
 			responseBody: textSearchResponse{
-				Status: "OK",
-				Results: []placeResult{
-					{PlaceID: "ChIJexamplePlaceID001", Name: "Zepp Nagoya"},
+				Places: []placeResult{
+					{ID: "ChIJexamplePlaceID001", DisplayName: placeDisplayName{Text: "Zepp Nagoya"}},
 				},
 			},
 			wantPlaceID: "ChIJexamplePlaceID001",
@@ -80,33 +78,20 @@ func TestClient_SearchPlace(t *testing.T) {
 			adminArea:  "",
 			statusCode: http.StatusOK,
 			responseBody: textSearchResponse{
-				Status: "OK",
-				Results: []placeResult{
-					{PlaceID: "ChIJexamplePlaceID002", Name: "Nippon Budokan"},
+				Places: []placeResult{
+					{ID: "ChIJexamplePlaceID002", DisplayName: placeDisplayName{Text: "Nippon Budokan"}},
 				},
 			},
 			wantPlaceID: "ChIJexamplePlaceID002",
 			wantName:    "Nippon Budokan",
 		},
 		{
-			name:       "not found - ZERO_RESULTS status",
-			venueName:  "Unknown Venue",
-			adminArea:  "",
-			statusCode: http.StatusOK,
-			responseBody: textSearchResponse{
-				Status: "ZERO_RESULTS",
-			},
-			wantErr: apperr.New(codes.NotFound, "no matching place found in google maps"),
-		},
-		{
-			name:       "error - application-level error status",
-			venueName:  "Test Venue",
-			adminArea:  "",
-			statusCode: http.StatusOK,
-			responseBody: textSearchResponse{
-				Status: "REQUEST_DENIED",
-			},
-			wantErr: apperr.New(codes.Unavailable, "google maps api returned status: REQUEST_DENIED"),
+			name:         "not found - empty places array",
+			venueName:    "Unknown Venue",
+			adminArea:    "",
+			statusCode:   http.StatusOK,
+			responseBody: textSearchResponse{},
+			wantErr:      apperr.New(codes.NotFound, "no matching place found in google maps"),
 		},
 		{
 			name:       "error - HTTP 500",
@@ -173,9 +158,9 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 		{
 			name: "extracts valid coordinates",
 			result: placeResult{
-				PlaceID:  "p1",
-				Name:     "Zepp Tokyo",
-				Geometry: placeGeometry{Location: placeLocation{Lat: 35.6250, Lng: 139.7756}},
+				ID:          "p1",
+				DisplayName: placeDisplayName{Text: "Zepp Tokyo"},
+				Location:    placeLocation{Latitude: 35.6250, Longitude: 139.7756},
 			},
 			wantLat: ptrFloat(35.6250),
 			wantLng: ptrFloat(139.7756),
@@ -183,9 +168,9 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 		{
 			name: "nil coordinates when both lat and lng are zero",
 			result: placeResult{
-				PlaceID:  "p2",
-				Name:     "Unknown",
-				Geometry: placeGeometry{Location: placeLocation{Lat: 0, Lng: 0}},
+				ID:          "p2",
+				DisplayName: placeDisplayName{Text: "Unknown"},
+				Location:    placeLocation{Latitude: 0, Longitude: 0},
 			},
 			wantLat: nil,
 			wantLng: nil,
@@ -193,9 +178,9 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 		{
 			name: "sets coordinates when only latitude is non-zero",
 			result: placeResult{
-				PlaceID:  "p3",
-				Name:     "Equator Venue",
-				Geometry: placeGeometry{Location: placeLocation{Lat: 35.0, Lng: 0}},
+				ID:          "p3",
+				DisplayName: placeDisplayName{Text: "Equator Venue"},
+				Location:    placeLocation{Latitude: 35.0, Longitude: 0},
 			},
 			wantLat: ptrFloat(35.0),
 			wantLng: ptrFloat(0),
@@ -203,9 +188,9 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 		{
 			name: "sets coordinates when only longitude is non-zero",
 			result: placeResult{
-				PlaceID:  "p4",
-				Name:     "Meridian Venue",
-				Geometry: placeGeometry{Location: placeLocation{Lat: 0, Lng: 139.0}},
+				ID:          "p4",
+				DisplayName: placeDisplayName{Text: "Meridian Venue"},
+				Location:    placeLocation{Latitude: 0, Longitude: 139.0},
 			},
 			wantLat: ptrFloat(0),
 			wantLng: ptrFloat(139.0),
@@ -217,8 +202,7 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(textSearchResponse{
-					Status:  "OK",
-					Results: []placeResult{tt.result},
+					Places: []placeResult{tt.result},
 				})
 			}))
 			defer server.Close()
