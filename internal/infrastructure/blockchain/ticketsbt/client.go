@@ -71,7 +71,7 @@ func NewClient(ctx context.Context, rpcURL, privateKeyHex, contractAddr string, 
 		return nil, fmt.Errorf("ticketsbt: failed to connect to RPC: %w", err)
 	}
 
-	privateKey, err := crypto.HexToECDSA(privateKeyHex)
+	privateKey, err := crypto.HexToECDSA(strings.TrimPrefix(privateKeyHex, "0x"))
 	if err != nil {
 		return nil, fmt.Errorf("ticketsbt: invalid deployer private key: %w", err)
 	}
