@@ -6,12 +6,8 @@ buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250903170917-c4be0f57
 buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250903170917-c4be0f57e197.1/go.mod h1:eGjb9P6sl1irS46NKyXnxkyozT2aWs3BF4tbYWQuCsw=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.9-20250903170917-c4be0f57e197.1 h1:q+tABqEH2Cpcp8fO9TBZlvKok7zorHGy+/UyywXaAKo=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.9-20250903170917-c4be0f57e197.1/go.mod h1:Y3m+VD8IH6JTgnFYggPHvFul/ry6dL3QDliy8xH7610=
-buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260311045553-1f8021df2ae2.2 h1:w7kzkpxDqzDoJGY5TiDvOEQ8rb7hfIo764mYEnxe06k=
-buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260311045553-1f8021df2ae2.2/go.mod h1:1gp5elGtxg4nzOoDEMCc192DrtgD21O8Omk9RhTwFqo=
 buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260312074833-163690671e3f.2 h1:SuIAqL/YF4UMPNiG6jt5/HWre1RkGLZoaO15OM6JyZw=
 buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260312074833-163690671e3f.2/go.mod h1:ciVGW2LKVs+9R3w1mM1XkWVqRdQ+qVV7+A6lNei2HZc=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260311045553-1f8021df2ae2.1 h1:LXp9clsdHXQdDdO+JeZjLJ9gz+RTqa3s1Q3M1gXA9AM=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260311045553-1f8021df2ae2.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260312074833-163690671e3f.1 h1:r6Heexf/0FJxPD/xC/ylqOPcDmO0TKbNp1eMwuEqwbI=
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260312074833-163690671e3f.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1 h1:KuP+b+in6LGh2ukof5KgDCD8hPXotEq6EVOo13Wg1pE=
