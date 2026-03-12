@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"golang.org/x/oauth2"
+
 	"github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -19,6 +21,11 @@ func testLogger(t *testing.T) *logging.Logger {
 	t.Helper()
 	l, _ := logging.New()
 	return l
+}
+
+// staticTokenSource returns a fixed token for testing.
+func staticTokenSource() oauth2.TokenSource {
+	return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "test-token"})
 }
 
 type placeLocation struct {
@@ -121,7 +128,8 @@ func TestClient_SearchPlace(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "test-api-key", r.URL.Query().Get("key"))
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "test-project", r.Header.Get("X-Goog-User-Project"))
 
 				w.WriteHeader(tt.statusCode)
 				w.Header().Set("Content-Type", "application/json")
@@ -134,7 +142,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := google.NewClient("test-api-key", server.Client(), testLogger(t))
+			client := google.NewClient(staticTokenSource(), "test-project", server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL)
 
 			place, err := client.SearchPlace(context.Background(), tt.venueName, tt.adminArea)
@@ -215,7 +223,7 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 			}))
 			defer server.Close()
 
-			c := google.NewClient("test-key", server.Client(), testLogger(t))
+			c := google.NewClient(staticTokenSource(), "test-project", server.Client(), testLogger(t))
 			c.SetBaseURL(server.URL)
 
 			place, err := c.SearchPlace(context.Background(), "test", "")

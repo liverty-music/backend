@@ -64,7 +64,7 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := google.NewClient("test-key", server.Client(), testLogger(t))
+			client := google.NewClient(staticTokenSource(), "test-project", server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL)
 			searcher := google.NewPlaceSearcher(client)
 

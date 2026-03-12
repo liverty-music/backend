@@ -102,14 +102,14 @@ type JobConfig struct {
 type ConsumerConfig struct {
 	BaseConfig
 
+	// GCP configuration
+	GCP GCPConfig `envconfig:""`
+
 	// NATS configuration for event messaging
 	NATS NATSConfig `envconfig:""`
 
 	// VAPID configuration for Web Push notifications
 	VAPID VAPIDConfig `envconfig:""`
-
-	// Google Maps API Key
-	GoogleMapsAPIKey string `envconfig:"GOOGLE_MAPS_API_KEY"`
 }
 
 // ServerSettings represents HTTP server settings (port, host, timeouts, CORS).

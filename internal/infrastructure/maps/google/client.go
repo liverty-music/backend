@@ -1,7 +1,8 @@
 // Package google provides a client for the Google Maps Places API.
 //
-// This client uses the Places Text Search API (New) to search for venues by name.
-// An API key with the Places API enabled must be provided.
+// This client uses the Places Text Search API to search for venues by name.
+// It authenticates via OAuth 2.0 using Application Default Credentials (ADC),
+// which integrates with GKE Workload Identity for automatic token management.
 //
 // For more details, refer to: https://developers.google.com/maps/documentation/places/web-service/text-search
 package google
@@ -14,6 +15,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"golang.org/x/oauth2"
 
 	"github.com/liverty-music/backend/pkg/api"
 	"github.com/pannpers/go-apperr/apperr"
@@ -51,24 +54,28 @@ type textSearchResponse struct {
 
 // Client is a Google Maps Places Text Search client.
 type Client struct {
-	httpClient *http.Client
-	apiKey     string
-	baseURL    string
-	logger     *logging.Logger
+	httpClient  *http.Client
+	tokenSource oauth2.TokenSource
+	projectID   string
+	baseURL     string
+	logger      *logging.Logger
 }
 
-// NewClient creates a new Google Maps Places client using the provided API key.
-func NewClient(apiKey string, httpClient *http.Client, logger *logging.Logger) *Client {
+// NewClient creates a new Google Maps Places client using the provided OAuth2
+// TokenSource for authentication. The projectID is sent in the X-Goog-User-Project
+// header for billing attribution.
+func NewClient(ts oauth2.TokenSource, projectID string, httpClient *http.Client, logger *logging.Logger) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: 10 * time.Second,
 		}
 	}
 	return &Client{
-		httpClient: httpClient,
-		apiKey:     apiKey,
-		baseURL:    defaultBaseURL,
-		logger:     logger.With(slog.String("component", "googlemaps")),
+		httpClient:  httpClient,
+		tokenSource: ts,
+		projectID:   projectID,
+		baseURL:     defaultBaseURL,
+		logger:      logger.With(slog.String("component", "googlemaps")),
 	}
 }
 
@@ -82,12 +89,19 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 		query = fmt.Sprintf("%s %s", name, adminArea)
 	}
 
-	endpoint := fmt.Sprintf("%s?query=%s&key=%s", c.baseURL, url.QueryEscape(query), c.apiKey)
+	endpoint := fmt.Sprintf("%s?query=%s", c.baseURL, url.QueryEscape(query))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to create google maps request")
 	}
+
+	token, err := c.tokenSource.Token()
+	if err != nil {
+		return nil, apperr.Wrap(err, codes.Unavailable, "failed to obtain oauth2 token for google maps")
+	}
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("X-Goog-User-Project", c.projectID)
 
 	resp, err := c.httpClient.Do(req)
 	if resp != nil {

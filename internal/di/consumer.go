@@ -8,6 +8,8 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
+	"golang.org/x/oauth2/google"
+
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -89,13 +91,18 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// Infrastructure - Venue Enrichment
 	musicbrainzClient := musicbrainz.NewClient(nil, logger)
 	mbSearcher := musicbrainz.NewPlaceSearcher(musicbrainzClient)
-	var searchers []usecase.VenueNamedSearcher
-	searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: mbSearcher, AssignToMBID: true})
 
-	if cfg.GoogleMapsAPIKey != "" {
-		gmClient := googlemaps.NewClient(cfg.GoogleMapsAPIKey, nil, logger)
-		gmSearcher := googlemaps.NewPlaceSearcher(gmClient)
-		searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: gmSearcher, AssignToMBID: false})
+	// Google Maps Places API uses OAuth via ADC (Workload Identity in GKE).
+	gmTokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		return nil, fmt.Errorf("obtain google maps token source: %w", err)
+	}
+	gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, nil, logger)
+	gmSearcher := googlemaps.NewPlaceSearcher(gmClient)
+
+	searchers := []usecase.VenueNamedSearcher{
+		{Searcher: mbSearcher, AssignToMBID: true},
+		{Searcher: gmSearcher, AssignToMBID: false},
 	}
 
 	// Use Cases
