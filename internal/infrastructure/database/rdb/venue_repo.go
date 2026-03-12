@@ -168,11 +168,6 @@ func (r *VenueRepository) MarkFailed(ctx context.Context, id string) error {
 	if err != nil {
 		return toAppErr(err, "failed to mark venue as failed", slog.String("venue_id", id))
 	}
-
-	r.db.logger.Warn(ctx, "venue enrichment failed",
-		slog.String("entityType", "venue"),
-		slog.String("venueID", id),
-	)
 	return nil
 }
 

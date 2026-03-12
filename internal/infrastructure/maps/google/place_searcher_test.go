@@ -23,9 +23,9 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 		{
 			name: "both lat and lng present returns non-nil Coordinates",
 			result: placeResult{
-				PlaceID:  "ChIJ001",
-				Name:     "Zepp Tokyo",
-				Geometry: placeGeometry{Location: placeLocation{Lat: 35.6250, Lng: 139.7756}},
+				ID:          "ChIJ001",
+				DisplayName: placeDisplayName{Text: "Zepp Tokyo"},
+				Location:    placeLocation{Latitude: 35.6250, Longitude: 139.7756},
 			},
 			wantCoords: true,
 			wantLat:    35.6250,
@@ -34,18 +34,18 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 		{
 			name: "both lat and lng zero returns nil Coordinates",
 			result: placeResult{
-				PlaceID:  "ChIJ002",
-				Name:     "Unknown Place",
-				Geometry: placeGeometry{Location: placeLocation{Lat: 0, Lng: 0}},
+				ID:          "ChIJ002",
+				DisplayName: placeDisplayName{Text: "Unknown Place"},
+				Location:    placeLocation{Latitude: 0, Longitude: 0},
 			},
 			wantCoords: false,
 		},
 		{
 			name: "only lat non-zero returns non-nil Coordinates",
 			result: placeResult{
-				PlaceID:  "ChIJ003",
-				Name:     "Equator Venue",
-				Geometry: placeGeometry{Location: placeLocation{Lat: 35.0, Lng: 0}},
+				ID:          "ChIJ003",
+				DisplayName: placeDisplayName{Text: "Equator Venue"},
+				Location:    placeLocation{Latitude: 35.0, Longitude: 0},
 			},
 			wantCoords: true,
 			wantLat:    35.0,
@@ -58,13 +58,12 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(textSearchResponse{
-					Status:  "OK",
-					Results: []placeResult{tt.result},
+					Places: []placeResult{tt.result},
 				})
 			}))
 			defer server.Close()
 
-			client := google.NewClient("test-key", server.Client(), testLogger(t))
+			client := google.NewClient(staticTokenSource(), "test-project", server.Client(), testLogger(t))
 			client.SetBaseURL(server.URL)
 			searcher := google.NewPlaceSearcher(client)
 
@@ -72,8 +71,8 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, vp)
 
-			assert.Equal(t, tt.result.PlaceID, vp.ExternalID)
-			assert.Equal(t, tt.result.Name, vp.Name)
+			assert.Equal(t, tt.result.ID, vp.ExternalID)
+			assert.Equal(t, tt.result.DisplayName.Text, vp.Name)
 
 			if tt.wantCoords {
 				require.NotNil(t, vp.Coordinates, "expected non-nil Coordinates")
