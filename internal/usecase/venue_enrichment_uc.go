@@ -183,6 +183,13 @@ func (uc *venueEnrichmentUseCase) enrichOne(ctx context.Context, v *entity.Venue
 			continue
 		}
 
+		if lastTransientErr != nil {
+			uc.logger.Warn(ctx, "enrichment succeeded via fallback; some searchers had transient errors",
+				slog.String("venue_id", v.ID),
+				slog.Any("transient_error", lastTransientErr),
+			)
+		}
+
 		// Check for an existing venue with the same canonical name to detect duplicates.
 		existing, err := uc.venueByNameRepo.GetByName(ctx, place.Name)
 		switch {
