@@ -163,15 +163,15 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		assert.Equal(t, "c1", groups[0].Home[0].ID)
 		assert.Len(t, groups[0].Nearby, 1)
 		assert.Equal(t, "c2", groups[0].Nearby[0].ID)
-		assert.Len(t, groups[0].Distant, 1)
-		assert.Equal(t, "c3", groups[0].Distant[0].ID)
+		assert.Len(t, groups[0].Away, 1)
+		assert.Equal(t, "c3", groups[0].Away[0].ID)
 
 		// Date 2
 		assert.Equal(t, date2, groups[1].Date)
 		assert.Len(t, groups[1].Home, 0)
 		assert.Len(t, groups[1].Nearby, 0)
-		assert.Len(t, groups[1].Distant, 1)
-		assert.Equal(t, "c4", groups[1].Distant[0].ID)
+		assert.Len(t, groups[1].Away, 1)
+		assert.Equal(t, "c4", groups[1].Away[0].ID)
 	})
 
 	t.Run("no home set puts everything in away", func(t *testing.T) {
@@ -193,7 +193,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		assert.Len(t, groups, 1)
 		assert.Len(t, groups[0].Home, 0)
 		assert.Len(t, groups[0].Nearby, 0)
-		assert.Len(t, groups[0].Distant, 1)
+		assert.Len(t, groups[0].Away, 1)
 	})
 
 	t.Run("empty concerts returns nil groups", func(t *testing.T) {

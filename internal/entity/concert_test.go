@@ -213,7 +213,7 @@ func TestGroupByDateAndProximity(t *testing.T) {
 		name         string
 		args         args
 		wantLen      int
-		wantDate1Len [3]int // [home, nearby, distant]
+		wantDate1Len [3]int // [home, nearby, away]
 	}{
 		{
 			name: "return nil for empty concert list",
@@ -248,7 +248,7 @@ func TestGroupByDateAndProximity(t *testing.T) {
 			wantLen: 2,
 		},
 		{
-			name: "classify all concerts as distant when home is nil",
+			name: "classify all concerts as away when home is nil",
 			args: args{
 				concerts: []*entity.Concert{
 					{Event: entity.Event{LocalDate: date1, Venue: &entity.Venue{AdminArea: &tokyoLevel1, Coordinates: tokyoCoords}}},
@@ -278,7 +278,7 @@ func TestGroupByDateAndProximity(t *testing.T) {
 				g := got[0]
 				assert.Len(t, g.Home, tt.wantDate1Len[0])
 				assert.Len(t, g.Nearby, tt.wantDate1Len[1])
-				assert.Len(t, g.Distant, tt.wantDate1Len[2])
+				assert.Len(t, g.Away, tt.wantDate1Len[2])
 			}
 		})
 	}

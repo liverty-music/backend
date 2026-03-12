@@ -80,11 +80,11 @@ type ProximityGroup struct {
 	Home []*Concert
 	// Nearby contains concerts at venues within 200km of the user's home centroid.
 	Nearby []*Concert
-	// Distant contains concerts beyond 200km, with unknown location, or when the user has no home set.
-	Distant []*Concert
+	// Away contains concerts beyond 200km, with unknown location, or when the user has no home set.
+	Away []*Concert
 }
 
-// GroupByDateAndProximity classifies concerts into home/nearby/distant buckets
+// GroupByDateAndProximity classifies concerts into home/nearby/away buckets
 // and groups them by calendar date. Concerts are expected to be ordered by
 // local_event_date ascending, which is preserved in the returned slice.
 func GroupByDateAndProximity(concerts []*Concert, home *Home) []*ProximityGroup {
@@ -110,7 +110,7 @@ func GroupByDateAndProximity(concerts []*Concert, home *Home) []*ProximityGroup 
 		case ProximityNearby:
 			g.Nearby = append(g.Nearby, c)
 		default:
-			g.Distant = append(g.Distant, c)
+			g.Away = append(g.Away, c)
 		}
 	}
 
