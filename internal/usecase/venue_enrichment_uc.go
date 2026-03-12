@@ -96,9 +96,11 @@ func (uc *venueEnrichmentUseCase) EnrichPendingVenues(ctx context.Context) error
 		if err := uc.enrichOne(ctx, v); err != nil {
 			if errors.Is(err, errNoExternalMatch) {
 				// All searchers returned NotFound — permanently mark as failed.
-				uc.logger.Warn(ctx, "no external match found for venue, marking as failed",
+				uc.logger.Warn(ctx, "venue enrichment failed",
 					slog.String("venue_id", v.ID),
 					slog.String("raw_name", v.RawName),
+					slog.String("outcome", "failed"),
+					slog.Any("error", err),
 				)
 				if markErr := uc.venueRepo.MarkFailed(ctx, v.ID); markErr != nil {
 					uc.logger.Error(ctx, "failed to mark venue as failed", markErr,
@@ -107,9 +109,10 @@ func (uc *venueEnrichmentUseCase) EnrichPendingVenues(ctx context.Context) error
 				}
 			} else {
 				// Transient error (network, rate-limit, etc.) — leave pending for retry.
-				uc.logger.Warn(ctx, "transient error during venue enrichment, will retry next run",
+				uc.logger.Warn(ctx, "venue enrichment failed",
 					slog.String("venue_id", v.ID),
 					slog.String("raw_name", v.RawName),
+					slog.String("outcome", "transient"),
 					slog.Any("error", err),
 				)
 			}
@@ -129,9 +132,11 @@ func (uc *venueEnrichmentUseCase) EnrichOne(ctx context.Context, venueID string)
 
 	if err := uc.enrichOne(ctx, v); err != nil {
 		if errors.Is(err, errNoExternalMatch) {
-			uc.logger.Warn(ctx, "no external match found for venue, marking as failed",
+			uc.logger.Warn(ctx, "venue enrichment failed",
 				slog.String("venue_id", v.ID),
 				slog.String("raw_name", v.RawName),
+				slog.String("outcome", "failed"),
+				slog.Any("error", err),
 			)
 			if markErr := uc.venueRepo.MarkFailed(ctx, v.ID); markErr != nil {
 				uc.logger.Error(ctx, "failed to mark venue as failed", markErr,
@@ -140,6 +145,11 @@ func (uc *venueEnrichmentUseCase) EnrichOne(ctx context.Context, venueID string)
 			}
 			return nil
 		}
+		uc.logger.Error(ctx, "venue enrichment failed", err,
+			slog.String("venue_id", v.ID),
+			slog.String("raw_name", v.RawName),
+			slog.String("outcome", "transient"),
+		)
 		return err
 	}
 
@@ -169,10 +179,6 @@ func (uc *venueEnrichmentUseCase) enrichOne(ctx context.Context, v *entity.Venue
 			}
 			// Transient error (Unavailable, DeadlineExceeded, etc.) — skip this
 			// searcher but continue to the next so that a fallback can still succeed.
-			uc.logger.Warn(ctx, "searcher returned transient error, trying next searcher",
-				slog.String("venue_id", v.ID),
-				slog.Any("error", err),
-			)
 			lastTransientErr = err
 			continue
 		}
@@ -189,6 +195,7 @@ func (uc *venueEnrichmentUseCase) enrichOne(ctx context.Context, v *entity.Venue
 				slog.String("canonical_id", existing.ID),
 				slog.String("duplicate_id", v.ID),
 				slog.String("canonical_name", place.Name),
+				slog.String("raw_name", v.RawName),
 			)
 			return uc.venueRepo.MergeVenues(ctx, existing.ID, v.ID)
 

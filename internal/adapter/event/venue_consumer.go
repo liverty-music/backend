@@ -46,6 +46,10 @@ func (h *VenueConsumer) Handle(msg *message.Message) error {
 	)
 
 	if err := h.venueEnrichUC.EnrichOne(ctx, data.VenueID); err != nil {
+		h.logger.Error(ctx, "venue enrichment failed", err,
+			slog.String("venue_id", data.VenueID),
+			slog.String("venue_name", data.Name),
+		)
 		return fmt.Errorf("enrich venue %s: %w", data.VenueID, err)
 	}
 
