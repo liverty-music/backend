@@ -6,6 +6,5 @@ import "github.com/google/uuid"
 // It panics only if the underlying entropy source fails, which is treated
 // as a non-recoverable runtime error.
 func newID() string {
-	id, _ := uuid.NewV7()
-	return id.String()
+	return uuid.Must(uuid.NewV7()).String()
 }

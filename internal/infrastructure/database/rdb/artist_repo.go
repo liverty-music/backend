@@ -5,7 +5,6 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -83,8 +82,7 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 			return nil, apperr.New(codes.InvalidArgument, "all artists must have a non-empty MBID")
 		}
 		if a.ID == "" {
-			id, _ := uuid.NewV7()
-			a.ID = id.String()
+			a.ID = entity.NewArtist(a.Name, a.MBID).ID
 		}
 		ids = append(ids, a.ID)
 		names = append(names, a.Name)
