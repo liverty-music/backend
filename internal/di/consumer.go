@@ -92,17 +92,22 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	musicbrainzClient := musicbrainz.NewClient(nil, logger)
 	mbSearcher := musicbrainz.NewPlaceSearcher(musicbrainzClient)
 
-	// Google Maps Places API uses OAuth via ADC (Workload Identity in GKE).
-	gmTokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
-	if err != nil {
-		return nil, fmt.Errorf("obtain google maps token source: %w", err)
-	}
-	gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, nil, logger)
-	gmSearcher := googlemaps.NewPlaceSearcher(gmClient)
-
 	searchers := []usecase.VenueNamedSearcher{
 		{Searcher: mbSearcher, AssignToMBID: true},
-		{Searcher: gmSearcher, AssignToMBID: false},
+	}
+
+	// Google Maps Places API uses OAuth via ADC (Workload Identity in GKE).
+	// Skip registration when no GCP project is configured (e.g. local dev).
+	if cfg.GCP.ProjectID != "" {
+		gmTokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+		if err != nil {
+			return nil, fmt.Errorf("obtain google maps token source: %w", err)
+		}
+		gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, nil, logger)
+		gmSearcher := googlemaps.NewPlaceSearcher(gmClient)
+		searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: gmSearcher, AssignToMBID: false})
+	} else {
+		logger.Warn(ctx, "skipping Google Maps searcher: GCP project ID not configured")
 	}
 
 	// Use Cases
