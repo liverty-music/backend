@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
@@ -99,19 +100,19 @@ func TestEventEntryRepository_GetTicketLeafIndex(t *testing.T) {
 	eventID, userID := seedTicketTestData(t)
 
 	// Create a second user.
-	var userID2 string
-	err := testDB.Pool.QueryRow(ctx,
-		`INSERT INTO users (name, email, external_id) VALUES ($1, $2, $3) RETURNING id`,
-		"leaf-index-user2", "leaf-index2@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4901",
-	).Scan(&userID2)
+	userID2 := uuid.Must(uuid.NewV7()).String()
+	_, err := testDB.Pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
+		userID2, "leaf-index-user2", "leaf-index2@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4901",
+	)
 	require.NoError(t, err)
 
 	// Create a third user.
-	var userID3 string
-	err = testDB.Pool.QueryRow(ctx,
-		`INSERT INTO users (name, email, external_id) VALUES ($1, $2, $3) RETURNING id`,
-		"leaf-index-user3", "leaf-index3@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4902",
-	).Scan(&userID3)
+	userID3 := uuid.Must(uuid.NewV7()).String()
+	_, err = testDB.Pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
+		userID3, "leaf-index-user3", "leaf-index3@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4902",
+	)
 	require.NoError(t, err)
 
 	// Mint tickets in a specific order: user1 first, then user2, then user3.

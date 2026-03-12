@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
@@ -34,13 +35,20 @@ func TestNullifierRepository_Insert(t *testing.T) {
 	})
 
 	t.Run("same nullifier hash for different events succeeds", func(t *testing.T) {
-		// Create a second event.
-		var eventID2 string
+		// Create a second event. First retrieve the venue_id from the existing event,
+		// then insert a new event with a generated ID.
+		var venueID string
 		err := testDB.Pool.QueryRow(ctx,
-			`INSERT INTO events (venue_id, title, local_event_date)
-			 SELECT venue_id, 'second event', '2026-04-01' FROM events WHERE id = $1 RETURNING id`,
+			`SELECT venue_id FROM events WHERE id = $1`,
 			eventID,
-		).Scan(&eventID2)
+		).Scan(&venueID)
+		require.NoError(t, err)
+
+		eventID2 := uuid.Must(uuid.NewV7()).String()
+		_, err = testDB.Pool.Exec(ctx,
+			`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, $3, $4)`,
+			eventID2, venueID, "second event", "2026-04-01",
+		)
 		require.NoError(t, err)
 
 		hash := testHash32("shared-null-hash")

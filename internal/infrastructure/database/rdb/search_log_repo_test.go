@@ -22,6 +22,7 @@ func TestSearchLogRepository_Upsert(t *testing.T) {
 	testArtist := &entity.Artist{
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49d1",
 		Name: "Search Log Test Artist",
+		MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1",
 	}
 	_, err := artistRepo.Create(ctx, testArtist)
 	require.NoError(t, err)
@@ -83,6 +84,7 @@ func TestSearchLogRepository_GetByArtistID(t *testing.T) {
 		testArtist := &entity.Artist{
 			ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49d2",
 			Name: "GetByArtistID Test Artist",
+			MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d2",
 		}
 		_, err := artistRepo.Create(ctx, testArtist)
 		require.NoError(t, err)
@@ -107,9 +109,9 @@ func TestSearchLogRepository_ListByArtistIDs(t *testing.T) {
 
 	// Setup: Create test artists
 	artists := []*entity.Artist{
-		{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4a01", Name: "List Artist 1"},
-		{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4a02", Name: "List Artist 2"},
-		{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4a03", Name: "List Artist 3"},
+		{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4a01", Name: "List Artist 1", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4a01"},
+		{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4a02", Name: "List Artist 2", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4a02"},
+		{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4a03", Name: "List Artist 3", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4a03"},
 	}
 	for _, a := range artists {
 		_, err := artistRepo.Create(ctx, a)
@@ -155,6 +157,7 @@ func TestSearchLogRepository_UpdateStatus(t *testing.T) {
 	testArtist := &entity.Artist{
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b4b01",
 		Name: "UpdateStatus Test Artist",
+		MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01",
 	}
 	_, err := artistRepo.Create(ctx, testArtist)
 	require.NoError(t, err)

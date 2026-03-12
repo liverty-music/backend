@@ -110,11 +110,11 @@ func NewArtistUseCase(
 
 // Create creates a new artist.
 func (uc *artistUseCase) Create(ctx context.Context, artist *entity.Artist) (*entity.Artist, error) {
-	if artist.Name == "" && artist.MBID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "artist name or MBID is required")
+	if artist.MBID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "artist MBID is required")
 	}
 
-	// Normalize artist name using MBID if provided
+	// Normalize artist name using MBID
 	if artist.MBID != "" {
 		mbArtist, err := uc.idManager.GetArtist(ctx, artist.MBID)
 		if err != nil {

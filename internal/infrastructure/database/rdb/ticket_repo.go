@@ -21,9 +21,9 @@ func NewTicketRepository(db *Database) *TicketRepository {
 
 const (
 	insertTicketQuery = `
-		INSERT INTO tickets (event_id, user_id, token_id, tx_hash)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, minted_at
+		INSERT INTO tickets (id, event_id, user_id, token_id, tx_hash)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING minted_at
 	`
 
 	getTicketQuery = `
@@ -61,16 +61,11 @@ func (r *TicketRepository) Create(ctx context.Context, params *entity.NewTicket)
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
-	ticket := &entity.Ticket{
-		EventID: params.EventID,
-		UserID:  params.UserID,
-		TokenID: params.TokenID,
-		TxHash:  params.TxHash,
-	}
+	ticket := entity.CreateTicket(params)
 
 	err := r.db.Pool.QueryRow(ctx, insertTicketQuery,
-		ticket.EventID, ticket.UserID, ticket.TokenID, ticket.TxHash,
-	).Scan(&ticket.ID, &ticket.MintTime)
+		ticket.ID, ticket.EventID, ticket.UserID, ticket.TokenID, ticket.TxHash,
+	).Scan(&ticket.MintTime)
 	if err != nil {
 		if IsUniqueViolation(err) {
 			r.db.logger.Warn(ctx, "duplicate ticket",

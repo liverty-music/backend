@@ -67,21 +67,19 @@ const (
 	`
 
 	upsertHomeQuery = `
-		INSERT INTO homes (user_id, country_code, level_1, level_2, centroid_latitude, centroid_longitude)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO homes (id, user_id, country_code, level_1, level_2, centroid_latitude, centroid_longitude)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (user_id) DO UPDATE SET
 			country_code = EXCLUDED.country_code,
 			level_1 = EXCLUDED.level_1,
 			level_2 = EXCLUDED.level_2,
 			centroid_latitude = EXCLUDED.centroid_latitude,
 			centroid_longitude = EXCLUDED.centroid_longitude
-		RETURNING id
 	`
 
 	insertUserQuery = `
-		INSERT INTO users (external_id, email, name, preferred_language, country, time_zone, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id
+		INSERT INTO users (id, external_id, email, name, preferred_language, country, time_zone, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
 	deleteUserQuery = `
@@ -137,17 +135,18 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
+	user := entity.CreateUser(params)
+
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, toAppErr(err, "failed to begin transaction")
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	var userID string
-	err = tx.QueryRow(ctx, insertUserQuery,
-		params.ExternalID, params.Email, params.Name,
+	_, err = tx.Exec(ctx, insertUserQuery,
+		user.ID, params.ExternalID, params.Email, params.Name,
 		params.PreferredLanguage, params.Country, params.TimeZone, true,
-	).Scan(&userID)
+	)
 	if err != nil {
 		if IsUniqueViolation(err) {
 			r.db.logger.Warn(ctx, "duplicate user",
@@ -160,30 +159,22 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 
 	var home *entity.Home
 	if params.Home != nil {
+		home = entity.NewHome(params.Home.CountryCode, params.Home.Level1, params.Home.Level2)
 		var centroidLat, centroidLng *float64
 		if c, ok := infrageo.ResolveCentroid(params.Home.Level1); ok {
 			centroidLat = &c.Latitude
 			centroidLng = &c.Longitude
-		}
-		var homeID string
-		err = tx.QueryRow(ctx, upsertHomeQuery,
-			userID, params.Home.CountryCode, params.Home.Level1, params.Home.Level2,
-			centroidLat, centroidLng,
-		).Scan(&homeID)
-		if err != nil {
-			return nil, toAppErr(err, "failed to create home", slog.String("user_id", userID))
-		}
-		home = &entity.Home{
-			ID:          homeID,
-			CountryCode: params.Home.CountryCode,
-			Level1:      params.Home.Level1,
-			Level2:      params.Home.Level2,
-		}
-		if centroidLat != nil {
 			home.Centroid = &entity.Coordinates{
 				Latitude:  *centroidLat,
 				Longitude: *centroidLng,
 			}
+		}
+		_, err = tx.Exec(ctx, upsertHomeQuery,
+			home.ID, user.ID, home.CountryCode, home.Level1, home.Level2,
+			centroidLat, centroidLng,
+		)
+		if err != nil {
+			return nil, toAppErr(err, "failed to create home", slog.String("user_id", user.ID))
 		}
 	}
 
@@ -193,20 +184,11 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 
 	r.db.logger.Info(ctx, "user created",
 		slog.String("entityType", "user"),
-		slog.String("userID", userID),
+		slog.String("userID", user.ID),
 	)
 
-	return &entity.User{
-		ID:                userID,
-		ExternalID:        params.ExternalID,
-		Email:             params.Email,
-		Name:              params.Name,
-		PreferredLanguage: params.PreferredLanguage,
-		Country:           params.Country,
-		TimeZone:          params.TimeZone,
-		IsActive:          true,
-		Home:              home,
-	}, nil
+	user.Home = home
+	return user, nil
 }
 
 // Get retrieves a user by ID from the database.
@@ -331,13 +313,14 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
 	}
 
+	h := entity.NewHome(home.CountryCode, home.Level1, home.Level2)
 	var centroidLat, centroidLng *float64
 	if c, ok := infrageo.ResolveCentroid(home.Level1); ok {
 		centroidLat = &c.Latitude
 		centroidLng = &c.Longitude
 	}
 	_, err := r.db.Pool.Exec(ctx, upsertHomeQuery,
-		id, home.CountryCode, home.Level1, home.Level2,
+		h.ID, id, h.CountryCode, h.Level1, h.Level2,
 		centroidLat, centroidLng,
 	)
 	if err != nil {

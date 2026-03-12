@@ -7,7 +7,7 @@ SET search_path TO app, public;
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY,
     external_id TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
@@ -18,11 +18,12 @@ CREATE TABLE IF NOT EXISTS users (
     safe_address TEXT,
     home_id UUID,
     CONSTRAINT users_safe_address_unique UNIQUE (safe_address),
-    CONSTRAINT chk_safe_address_format CHECK (safe_address IS NULL OR safe_address ~ '^0x[0-9a-fA-F]{40}$')
+    CONSTRAINT chk_safe_address_format CHECK (safe_address IS NULL OR safe_address ~ '^0x[0-9a-fA-F]{40}$'),
+    CONSTRAINT chk_users_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE users IS 'User profiles and authentication data';
-COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7)';
+COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN users.external_id IS 'Zitadel identity provider user ID (sub claim), used for account sync';
 COMMENT ON COLUMN users.email IS 'Primary contact and login identifier';
 COMMENT ON COLUMN users.name IS 'User display name from identity provider';
@@ -35,7 +36,7 @@ COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes
 
 -- Homes table
 CREATE TABLE IF NOT EXISTS homes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id UUID PRIMARY KEY,
     user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     country_code TEXT NOT NULL,
     level_1 TEXT NOT NULL,
@@ -44,13 +45,14 @@ CREATE TABLE IF NOT EXISTS homes (
     centroid_longitude DOUBLE PRECISION,
     CONSTRAINT chk_homes_country_code_length CHECK (char_length(country_code) = 2),
     CONSTRAINT chk_homes_level_1_length CHECK (char_length(level_1) BETWEEN 2 AND 6),
-    CONSTRAINT chk_homes_level_2_length CHECK (level_2 IS NULL OR char_length(level_2) <= 20)
+    CONSTRAINT chk_homes_level_2_length CHECK (level_2 IS NULL OR char_length(level_2) <= 20),
+    CONSTRAINT chk_homes_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 ALTER TABLE users ADD CONSTRAINT fk_users_home_id FOREIGN KEY (home_id) REFERENCES homes(id) ON DELETE SET NULL;
 
 COMMENT ON TABLE homes IS 'Structured geographic home area for users. Determines proximity classification (home/nearby/away).';
-COMMENT ON COLUMN homes.id IS 'Unique home record identifier';
+COMMENT ON COLUMN homes.id IS 'Unique home record identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN homes.user_id IS 'Reference to the user who owns this home (1:1)';
 COMMENT ON COLUMN homes.country_code IS 'ISO 3166-1 alpha-2 country code (e.g., JP, US)';
 COMMENT ON COLUMN homes.level_1 IS 'ISO 3166-2 subdivision code (e.g., JP-13 for Tokyo, US-NY for New York)';
@@ -60,28 +62,30 @@ COMMENT ON COLUMN homes.centroid_longitude IS 'Approximate longitude of the home
 
 -- Artists table
 CREATE TABLE IF NOT EXISTS artists (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY,
     name TEXT NOT NULL,
-    mbid TEXT,
-    CONSTRAINT chk_artists_mbid_format CHECK (mbid IS NULL OR char_length(mbid) = 36)
+    mbid TEXT NOT NULL,
+    CONSTRAINT chk_artists_mbid_format CHECK (char_length(mbid) = 36),
+    CONSTRAINT chk_artists_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_artists_mbid ON artists(mbid) WHERE mbid IS NOT NULL AND mbid != '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_artists_mbid ON artists(mbid);
 
 COMMENT ON TABLE artists IS 'Musical artists or groups that users can subscribe to for concert notifications';
-COMMENT ON COLUMN artists.id IS 'Unique artist identifier (UUIDv7)';
+COMMENT ON COLUMN artists.id IS 'Unique artist identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN artists.name IS 'Artist or band name as displayed to users';
 COMMENT ON COLUMN artists.mbid IS 'Canonical MusicBrainz Identifier (MBID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)';
 
 -- Artist official site
 CREATE TABLE IF NOT EXISTS artist_official_site (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE UNIQUE,
-    url TEXT NOT NULL
+    url TEXT NOT NULL,
+    CONSTRAINT chk_artist_official_site_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE artist_official_site IS 'Stores the official website URL for each artist, used for concert search grounding.';
-COMMENT ON COLUMN artist_official_site.id IS 'Unique identifier (UUIDv7)';
+COMMENT ON COLUMN artist_official_site.id IS 'Unique identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN artist_official_site.artist_id IS 'Reference to the artist (1:1 relationship)';
 COMMENT ON COLUMN artist_official_site.url IS 'Official artist website URL';
 
@@ -90,7 +94,7 @@ CREATE TYPE venue_enrichment_status AS ENUM ('pending', 'enriched', 'failed');
 
 -- Venues table
 CREATE TABLE IF NOT EXISTS venues (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY,
     name TEXT NOT NULL,
     admin_area TEXT,
     mbid TEXT,
@@ -100,11 +104,12 @@ CREATE TABLE IF NOT EXISTS venues (
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
     CONSTRAINT chk_venues_name_not_empty CHECK (name <> ''),
-    CONSTRAINT chk_venues_raw_name_not_empty CHECK (raw_name <> '')
+    CONSTRAINT chk_venues_raw_name_not_empty CHECK (raw_name <> ''),
+    CONSTRAINT chk_venues_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
-COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7)';
+COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN venues.name IS 'Venue name as displayed to users';
 COMMENT ON COLUMN venues.admin_area IS 'ISO 3166-2 subdivision code (e.g., JP-13) for the venue location; NULL when not determinable with confidence';
 COMMENT ON COLUMN venues.mbid IS 'MusicBrainz Place ID (UUID format) for the canonical venue record; NULL until enriched';
@@ -116,7 +121,7 @@ COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude of the venue, populated 
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY,
     venue_id UUID NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     listed_venue_name TEXT,
@@ -125,12 +130,13 @@ CREATE TABLE IF NOT EXISTS events (
     open_at TIMESTAMPTZ,
     source_url TEXT,
     merkle_root BYTEA,
-    CONSTRAINT uq_events_natural_key UNIQUE NULLS NOT DISTINCT (venue_id, local_event_date, start_at)
+    CONSTRAINT uq_events_natural_key UNIQUE NULLS NOT DISTINCT (venue_id, local_event_date, start_at),
+    CONSTRAINT chk_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE events IS 'Generic event data including time, location, and metadata';
 COMMENT ON CONSTRAINT uq_events_natural_key ON events IS 'Prevents duplicate events at the same venue, date, and start time. NULLS NOT DISTINCT treats two NULL start_at values as equal.';
-COMMENT ON COLUMN events.id IS 'Unique event identifier (UUIDv7)';
+COMMENT ON COLUMN events.id IS 'Unique event identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
 COMMENT ON COLUMN events.title IS 'Event title as displayed to users';
 COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from the source, preserved separately from the normalized venue record';
@@ -179,16 +185,17 @@ COMMENT ON COLUMN latest_search_logs.status IS 'Search job status: pending, comp
 
 -- Tickets table (Soulbound Ticket ERC-5192)
 CREATE TABLE IF NOT EXISTS tickets (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY,
     event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_id NUMERIC(78, 0) NOT NULL,
     tx_hash TEXT NOT NULL,
-    minted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    minted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_tickets_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE tickets IS 'Soulbound Ticket (ERC-5192) ownership records linking users to event tokens on-chain';
-COMMENT ON COLUMN tickets.id IS 'Unique ticket identifier (UUIDv7)';
+COMMENT ON COLUMN tickets.id IS 'Unique ticket identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN tickets.event_id IS 'Reference to the event this ticket grants entry to';
 COMMENT ON COLUMN tickets.user_id IS 'Reference to the ticket holder';
 COMMENT ON COLUMN tickets.token_id IS 'On-chain ERC-721 token ID minted on Base Sepolia';
@@ -215,30 +222,30 @@ COMMENT ON COLUMN merkle_tree.hash IS 'Poseidon hash value of the node';
 
 -- Nullifiers table for double-entry prevention
 CREATE TABLE IF NOT EXISTS nullifiers (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
     event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     nullifier_hash BYTEA NOT NULL,
     used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (event_id, nullifier_hash),
     CONSTRAINT chk_nullifier_hash_size CHECK (octet_length(nullifier_hash) = 32)
 );
 
 COMMENT ON TABLE nullifiers IS 'Used ZKP nullifier hashes for preventing double entry at events';
-COMMENT ON COLUMN nullifiers.id IS 'Unique nullifier record identifier (UUIDv7)';
 COMMENT ON COLUMN nullifiers.event_id IS 'Reference to the event this nullifier was used at';
 COMMENT ON COLUMN nullifiers.nullifier_hash IS 'The nullifier hash from the ZK proof; unique per event to prevent reuse';
 COMMENT ON COLUMN nullifiers.used_at IS 'Timestamp when the nullifier was consumed for event entry';
 
 -- Push subscriptions table
 CREATE TABLE IF NOT EXISTS push_subscriptions (
-    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     endpoint TEXT NOT NULL UNIQUE,
     p256dh TEXT NOT NULL,
-    auth TEXT NOT NULL
+    auth TEXT NOT NULL,
+    CONSTRAINT chk_push_subscriptions_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE push_subscriptions IS 'Browser Web Push subscription data for delivering notifications';
-COMMENT ON COLUMN push_subscriptions.id IS 'Unique identifier (UUIDv7)';
+COMMENT ON COLUMN push_subscriptions.id IS 'Unique identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN push_subscriptions.user_id IS 'Reference to the user who owns this subscription';
 COMMENT ON COLUMN push_subscriptions.endpoint IS 'Push service endpoint URL provided by the browser';
 COMMENT ON COLUMN push_subscriptions.p256dh IS 'ECDH public key for payload encryption (Base64url-encoded)';
@@ -295,9 +302,6 @@ COMMENT ON INDEX idx_followed_artists_artist_id IS 'Optimizes finding all follow
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_event_user ON tickets(event_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_token_id ON tickets(token_id);
-
--- Nullifiers indexes
-CREATE UNIQUE INDEX IF NOT EXISTS idx_nullifiers_event_hash ON nullifiers(event_id, nullifier_hash);
 
 -- Push subscriptions indexes
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);

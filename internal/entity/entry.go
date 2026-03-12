@@ -8,8 +8,6 @@ import (
 // Nullifier represents a spent nullifier hash for an event entry.
 // Each nullifier can only be used once per event (double-entry guard).
 type Nullifier struct {
-	// ID is the unique identifier for the nullifier record.
-	ID string
 	// EventID is the event for which this nullifier was spent.
 	EventID string
 	// NullifierHash is the hash value derived from the ZKP circuit.
