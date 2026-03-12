@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -390,5 +391,32 @@ func TestClient_ContextTimeout(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Nil(t, artists)
+	})
+}
+
+func TestClient_RetryOnRateLimit(t *testing.T) {
+	t.Run("retries on 429 and succeeds", func(t *testing.T) {
+		var calls atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if calls.Add(1) == 1 {
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(newArtistSearchResponse([]artist{
+				{Name: "The Beatles", MBID: "074612c4"},
+			}))
+		}))
+		defer server.Close()
+
+		client := lastfm.NewClient("test-key", server.Client(), testLogger(t))
+		client.SetBaseURL(server.URL + "/")
+
+		artists, err := client.Search(context.Background(), "The Beatles")
+
+		require.NoError(t, err)
+		require.Len(t, artists, 1)
+		assert.Equal(t, "The Beatles", artists[0].Name)
+		assert.Equal(t, int32(2), calls.Load())
 	})
 }
