@@ -189,12 +189,12 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 	if err != nil {
 		return nil, api.FromHTTP(err, nil, "musicbrainz api request failed")
 	}
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := api.FromHTTP(nil, resp, "musicbrainz api request failed"); err != nil {
 		c.logger.Error(ctx, "musicbrainz artist request failed", err, slog.String("mbid", mbid))
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	var data artistResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -229,12 +229,12 @@ func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (strin
 	if err != nil {
 		return "", api.FromHTTP(err, nil, "musicbrainz url-rels request failed")
 	}
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := api.FromHTTP(nil, resp, "musicbrainz url-rels request failed"); err != nil {
 		c.logger.Error(ctx, "musicbrainz url-rels request failed", err, slog.String("mbid", mbid))
 		return "", err
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	var data artistResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {

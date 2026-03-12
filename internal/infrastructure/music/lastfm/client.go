@@ -276,6 +276,7 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 	if err != nil {
 		return api.FromHTTP(err, nil, "lastfm api request failed")
 	}
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := api.FromHTTP(nil, resp, "lastfm api request failed"); err != nil {
 		attrs := []slog.Attr{slog.String("method", method)}
@@ -285,7 +286,6 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 		c.logger.Error(ctx, "lastfm HTTP request failed", err, attrs...)
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
 
 	// Limit response body to 1MB to prevent OOM attacks
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
