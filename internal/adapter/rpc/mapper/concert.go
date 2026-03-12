@@ -70,18 +70,16 @@ func ConcertsToProto(concerts []*entity.Concert) []*entityv1.Concert {
 }
 
 // ProximityGroupsToProto converts a slice of domain ProximityGroup entities to protobuf.
-// NOTE: The proto type is still DateLaneGroup until the specification release publishes
-// ProximityGroup to BSR. The Distant domain field maps to the Away proto field.
-func ProximityGroupsToProto(groups []*entity.ProximityGroup) []*concertv1.DateLaneGroup {
-	result := make([]*concertv1.DateLaneGroup, 0, len(groups))
+func ProximityGroupsToProto(groups []*entity.ProximityGroup) []*concertv1.ProximityGroup {
+	result := make([]*concertv1.ProximityGroup, 0, len(groups))
 	for _, g := range groups {
-		result = append(result, &concertv1.DateLaneGroup{
+		result = append(result, &concertv1.ProximityGroup{
 			Date: &entityv1.LocalDate{
 				Value: TimeToDate(g.Date),
 			},
 			Home:   ConcertsToProto(g.Home),
 			Nearby: ConcertsToProto(g.Nearby),
-			Away:   ConcertsToProto(g.Distant),
+			Away:   ConcertsToProto(g.Away),
 		})
 	}
 	return result

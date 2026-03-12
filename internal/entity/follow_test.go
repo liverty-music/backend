@@ -193,7 +193,7 @@ func TestHype_ShouldNotify(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "return false for HypeNearby when all concerts are distant",
+			name: "return false for HypeNearby when all concerts are away",
 			args: args{
 				hype:       entity.HypeNearby,
 				home:       tokyoHome,
