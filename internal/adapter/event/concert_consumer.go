@@ -2,7 +2,6 @@
 package event
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 
@@ -34,7 +33,7 @@ func NewConcertConsumer(
 
 // Handle processes a concert.discovered.v1 event.
 func (h *ConcertConsumer) Handle(msg *message.Message) error {
-	ctx := context.Background()
+	ctx := msg.Context()
 
 	var data entity.ConcertDiscoveredData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {

@@ -1,7 +1,6 @@
 package event
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 
@@ -38,7 +37,7 @@ func NewNotificationConsumer(
 
 // Handle processes a concert.created.v1 event by notifying all followers of the artist.
 func (h *NotificationConsumer) Handle(msg *message.Message) error {
-	ctx := context.Background()
+	ctx := msg.Context()
 
 	var data entity.ConcertCreatedData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {

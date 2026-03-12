@@ -336,7 +336,7 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 		for _, a := range created {
 			existingSet[a.MBID] = a
 
-			msg, err := messaging.NewEvent(entity.ArtistCreatedData{
+			msg, err := messaging.NewEvent(ctx, entity.ArtistCreatedData{
 				ArtistID:   a.ID,
 				ArtistName: a.Name,
 				MBID:       a.MBID,

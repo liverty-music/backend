@@ -1,7 +1,6 @@
 package event
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 
@@ -33,7 +32,7 @@ func NewArtistNameConsumer(
 // Handle processes an artist.created event by parsing the payload and
 // delegating canonical name resolution to the use case layer.
 func (h *ArtistNameConsumer) Handle(msg *message.Message) error {
-	ctx := context.Background()
+	ctx := msg.Context()
 
 	var data entity.ArtistCreatedData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {

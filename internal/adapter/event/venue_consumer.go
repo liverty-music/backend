@@ -1,7 +1,6 @@
 package event
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 
@@ -32,7 +31,7 @@ func NewVenueConsumer(
 // Handle processes a venue.created.v1 event by enriching the venue via
 // external place services (MusicBrainz, Google Maps).
 func (h *VenueConsumer) Handle(msg *message.Message) error {
-	ctx := context.Background()
+	ctx := msg.Context()
 
 	var data entity.VenueCreatedData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {

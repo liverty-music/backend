@@ -11,6 +11,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/nats-io/nats.go"
+	wotel "github.com/voi-oss/watermill-opentelemetry/pkg/opentelemetry"
 
 	watermillnats "github.com/ThreeDotsLabs/watermill-nats/v2/pkg/nats"
 
@@ -26,7 +27,7 @@ func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCha
 		if goChannel == nil {
 			return nil, fmt.Errorf("GoChannel is required when NATS_URL is not set")
 		}
-		return goChannel, nil
+		return wotel.NewPublisherDecorator(goChannel), nil
 	}
 
 	pub, err := watermillnats.NewPublisher(watermillnats.PublisherConfig{
@@ -43,5 +44,5 @@ func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCha
 		return nil, fmt.Errorf("create NATS publisher: %w", err)
 	}
 
-	return pub, nil
+	return wotel.NewPublisherDecorator(pub), nil
 }

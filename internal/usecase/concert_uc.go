@@ -350,7 +350,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 		Concerts:   newConcerts,
 	}
 
-	msg, err := messaging.NewEvent(eventData)
+	msg, err := messaging.NewEvent(ctx, eventData)
 	if err != nil {
 		uc.markSearchFailed(ctx, artistID)
 		return fmt.Errorf("failed to create concert.discovered event: %w", err)
