@@ -105,7 +105,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		ArtistName:   data.ArtistName,
 		ConcertCount: len(concerts),
 	}
-	if err := uc.publishEvent(entity.SubjectConcertCreated, createdData); err != nil {
+	if err := uc.publishEvent(ctx, entity.SubjectConcertCreated, createdData); err != nil {
 		uc.logger.Error(ctx, "failed to publish concert.created event", err,
 			slog.String("artist_id", data.ArtistID),
 		)
@@ -119,7 +119,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			Name:      v.Name,
 			AdminArea: v.AdminArea,
 		}
-		if err := uc.publishEvent(entity.SubjectVenueCreated, venueData); err != nil {
+		if err := uc.publishEvent(ctx, entity.SubjectVenueCreated, venueData); err != nil {
 			uc.logger.Error(ctx, "failed to publish venue.created event", err,
 				slog.String("venue_id", v.ID),
 			)
@@ -180,8 +180,8 @@ func (uc *concertCreationUseCase) resolveVenue(
 }
 
 // publishEvent creates an event message and publishes it to the given subject.
-func (uc *concertCreationUseCase) publishEvent(subject string, data any) error {
-	msg, err := messaging.NewEvent(data)
+func (uc *concertCreationUseCase) publishEvent(ctx context.Context, subject string, data any) error {
+	msg, err := messaging.NewEvent(ctx, data)
 	if err != nil {
 		return fmt.Errorf("create %s event: %w", subject, err)
 	}

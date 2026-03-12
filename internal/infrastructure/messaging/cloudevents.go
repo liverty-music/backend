@@ -1,6 +1,7 @@
 package messaging
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -18,8 +19,10 @@ const (
 )
 
 // NewEvent creates a Watermill message with structured metadata.
+// The caller's trace context is attached to the message so that
+// downstream consumers can continue the same distributed trace.
 // The data payload is JSON-encoded into the message body.
-func NewEvent(data any) (*message.Message, error) {
+func NewEvent(ctx context.Context, data any) (*message.Message, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, fmt.Errorf("generate event ID: %w", err)
@@ -31,6 +34,7 @@ func NewEvent(data any) (*message.Message, error) {
 	}
 
 	msg := message.NewMessage(id.String(), payload)
+	msg.SetContext(ctx)
 
 	msg.Metadata.Set("ce_specversion", specVersion)
 	msg.Metadata.Set("ce_source", source)
