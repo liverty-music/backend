@@ -126,4 +126,11 @@ type VenueRepository interface {
 	//
 	//  - NotFound: If the venue does not exist.
 	GetByName(ctx context.Context, name string) (*Venue, error)
+
+	// GetByPlaceID retrieves a venue by Google Maps Place ID.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If no venue with that place ID exists.
+	GetByPlaceID(ctx context.Context, placeID string) (*Venue, error)
 }

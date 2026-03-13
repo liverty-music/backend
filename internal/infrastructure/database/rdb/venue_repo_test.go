@@ -415,35 +415,24 @@ func TestVenueRepository_MergeVenues(t *testing.T) {
 	}
 	require.NoError(t, venueRepo.Create(ctx, duplicate))
 
-	// Create a concert on the duplicate that shares (artist, date, start_at) with a canonical concert
-	// → should be deleted
-	dupEvent1ID, dupConcert1ID := "018b2f19-0000-7000-0000-000000000011", "018b2f19-0000-7000-0001-000000000011"
+	// Create events on the duplicate venue. With the new natural key (artist_id, date, start_at),
+	// two events for the same artist/date/time cannot coexist regardless of venue. The merge
+	// now primarily re-points events from the duplicate venue to the canonical venue.
+	dupEvent1ID := "018b2f19-0000-7000-0000-000000000011"
 	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, 'Show', '2026-03-01')`,
-		dupEvent1ID, duplicate.ID)
+		`INSERT INTO events (id, venue_id, title, local_event_date, start_at, artist_id) VALUES ($1, $2, 'Show on Dup', '2026-03-01', '2026-03-01 19:00:00+00', $3)`,
+		dupEvent1ID, duplicate.ID, artistID)
 	require.NoError(t, err)
 	_, err = testDB.Pool.Exec(ctx,
 		`INSERT INTO concerts (event_id, artist_id) VALUES ($1, $2)`,
 		dupEvent1ID, artistID)
 	require.NoError(t, err)
-	_ = dupConcert1ID
 
-	// Also create the same concert on canonical → dupEvent1 should be deleted
-	canEvent1ID := "018b2f19-0000-7000-0000-000000000010"
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, 'Show', '2026-03-01')`,
-		canEvent1ID, canonical.ID)
-	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO concerts (event_id, artist_id) VALUES ($1, $2)`,
-		canEvent1ID, artistID)
-	require.NoError(t, err)
-
-	// A unique concert only on duplicate → should be re-pointed to canonical
+	// A second event only on duplicate with a different date
 	dupEvent2ID := "018b2f19-0000-7000-0000-000000000012"
 	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, 'Unique Show', '2026-04-01')`,
-		dupEvent2ID, duplicate.ID)
+		`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, 'Unique Show', '2026-04-01', $3)`,
+		dupEvent2ID, duplicate.ID, artistID)
 	require.NoError(t, err)
 	_, err = testDB.Pool.Exec(ctx,
 		`INSERT INTO concerts (event_id, artist_id) VALUES ($1, $2)`,
@@ -464,15 +453,13 @@ func TestVenueRepository_MergeVenues(t *testing.T) {
 	require.NotNil(t, got.AdminArea)
 	assert.Equal(t, "JP-23", *got.AdminArea)
 
-	// Duplicate-only event should now belong to canonical
+	// Both events should now belong to canonical venue
 	var venueID string
-	err = testDB.Pool.QueryRow(ctx, `SELECT venue_id FROM events WHERE id = $1`, dupEvent2ID).Scan(&venueID)
+	err = testDB.Pool.QueryRow(ctx, `SELECT venue_id FROM events WHERE id = $1`, dupEvent1ID).Scan(&venueID)
 	require.NoError(t, err)
 	assert.Equal(t, canonical.ID, venueID)
 
-	// The duplicate event that shared (artist, date, start_at) with canonical should be deleted
-	var count int
-	err = testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM events WHERE id = $1`, dupEvent1ID).Scan(&count)
+	err = testDB.Pool.QueryRow(ctx, `SELECT venue_id FROM events WHERE id = $1`, dupEvent2ID).Scan(&venueID)
 	require.NoError(t, err)
-	assert.Equal(t, 0, count)
+	assert.Equal(t, canonical.ID, venueID)
 }

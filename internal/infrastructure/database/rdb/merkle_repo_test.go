@@ -21,14 +21,21 @@ func testHash32(label string) []byte {
 	return buf
 }
 
-// seedMerkleTestData inserts a venue and event needed by the merkle tree FK constraints.
+// seedMerkleTestData inserts an artist, venue, and event needed by the merkle tree FK constraints.
 // Returns eventID.
 func seedMerkleTestData(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 
-	venueID := uuid.Must(uuid.NewV7()).String()
+	artistID := uuid.Must(uuid.NewV7()).String()
 	_, err := testDB.Pool.Exec(ctx,
+		`INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`,
+		artistID, "merkle-test-artist", uuid.Must(uuid.NewV7()).String(),
+	)
+	require.NoError(t, err)
+
+	venueID := uuid.Must(uuid.NewV7()).String()
+	_, err = testDB.Pool.Exec(ctx,
 		`INSERT INTO venues (id, name, raw_name) VALUES ($1, $2, $3)`,
 		venueID, "merkle-test-venue", "merkle-test-venue",
 	)
@@ -36,8 +43,8 @@ func seedMerkleTestData(t *testing.T) string {
 
 	eventID := uuid.Must(uuid.NewV7()).String()
 	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, $3, $4)`,
-		eventID, venueID, "merkle-test-event", "2026-03-01",
+		`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, $3, $4, $5)`,
+		eventID, venueID, "merkle-test-event", "2026-03-01", artistID,
 	)
 	require.NoError(t, err)
 

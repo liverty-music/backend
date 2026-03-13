@@ -284,7 +284,7 @@ func TestGroupByDateAndProximity(t *testing.T) {
 	}
 }
 
-func TestScrapedConcert_DateVenueKey(t *testing.T) {
+func TestScrapedConcert_DateKey(t *testing.T) {
 	t.Parallel()
 
 	date := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -298,24 +298,14 @@ func TestScrapedConcert_DateVenueKey(t *testing.T) {
 		want string
 	}{
 		{
-			name: "return date and venue joined by pipe",
+			name: "return formatted date",
 			args: args{
 				concert: &entity.ScrapedConcert{
 					LocalDate:       date,
 					ListedVenueName: "Budokan",
 				},
 			},
-			want: "2025-06-01|Budokan",
-		},
-		{
-			name: "return date and empty venue name when venue is empty",
-			args: args{
-				concert: &entity.ScrapedConcert{
-					LocalDate:       date,
-					ListedVenueName: "",
-				},
-			},
-			want: "2025-06-01|",
+			want: "2025-06-01",
 		},
 	}
 
@@ -323,7 +313,7 @@ func TestScrapedConcert_DateVenueKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.args.concert.DateVenueKey()
+			got := tt.args.concert.DateKey()
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -347,7 +337,7 @@ func TestScrapedConcert_DedupeKey(t *testing.T) {
 		want string
 	}{
 		{
-			name: "return DateVenueKey when start time is nil",
+			name: "return DateKey when start time is nil",
 			args: args{
 				concert: &entity.ScrapedConcert{
 					LocalDate:       date,
@@ -355,7 +345,7 @@ func TestScrapedConcert_DedupeKey(t *testing.T) {
 					StartTime:       nil,
 				},
 			},
-			want: "2025-06-01|Budokan",
+			want: "2025-06-01",
 		},
 		{
 			name: "return full key with UTC-normalized start time when start time is set",
@@ -366,7 +356,7 @@ func TestScrapedConcert_DedupeKey(t *testing.T) {
 					StartTime:       &startTime,
 				},
 			},
-			want: "2025-06-01|Budokan|19:00:00Z",
+			want: "2025-06-01|19:00:00Z",
 		},
 		{
 			name: "produce same key for equal instant in different timezone",
@@ -377,7 +367,7 @@ func TestScrapedConcert_DedupeKey(t *testing.T) {
 					StartTime:       &startTimeJST,
 				},
 			},
-			want: "2025-06-01|Budokan|19:00:00Z",
+			want: "2025-06-01|19:00:00Z",
 		},
 	}
 

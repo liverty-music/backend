@@ -48,6 +48,15 @@ func (r *fakeVenueRepo) GetByName(_ context.Context, name string) (*entity.Venue
 	return nil, apperr.New(codes.NotFound, "venue not found")
 }
 
+func (r *fakeVenueRepo) GetByPlaceID(_ context.Context, placeID string) (*entity.Venue, error) {
+	for _, v := range r.venues {
+		if v.GooglePlaceID != nil && *v.GooglePlaceID == placeID {
+			return v, nil
+		}
+	}
+	return nil, apperr.New(codes.NotFound, "venue not found")
+}
+
 type fakeConcertRepo struct {
 	created []*entity.Concert
 }
@@ -82,7 +91,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		venueRepo := newFakeVenueRepo()
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, pub, newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, nil, pub, newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
@@ -121,7 +130,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		venueRepo.venues["Existing Venue"] = &entity.Venue{ID: "existing-venue-id", Name: "Existing Venue"}
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, pub, newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, nil, pub, newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-2",
@@ -151,7 +160,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		venueRepo := newFakeVenueRepo()
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, pub, newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, nil, pub, newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-3",

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// seedTicketTestData inserts a user, venue, and event needed by the tickets table FK constraints.
+// seedTicketTestData inserts a user, artist, venue, and event needed by the tickets table FK constraints.
 // Returns (eventID, userID).
 func seedTicketTestData(t *testing.T) (string, string) {
 	t.Helper()
@@ -25,6 +25,13 @@ func seedTicketTestData(t *testing.T) (string, string) {
 	)
 	require.NoError(t, err)
 
+	artistID := uuid.Must(uuid.NewV7()).String()
+	_, err = testDB.Pool.Exec(ctx,
+		`INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`,
+		artistID, "ticket-test-artist", uuid.Must(uuid.NewV7()).String(),
+	)
+	require.NoError(t, err)
+
 	venueID := uuid.Must(uuid.NewV7()).String()
 	_, err = testDB.Pool.Exec(ctx,
 		`INSERT INTO venues (id, name, raw_name) VALUES ($1, $2, $3)`,
@@ -34,8 +41,8 @@ func seedTicketTestData(t *testing.T) (string, string) {
 
 	eventID := uuid.Must(uuid.NewV7()).String()
 	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, $3, $4)`,
-		eventID, venueID, "ticket-test-event", "2026-03-01",
+		`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, $3, $4, $5)`,
+		eventID, venueID, "ticket-test-event", "2026-03-01", artistID,
 	)
 	require.NoError(t, err)
 
@@ -238,18 +245,18 @@ func TestTicketRepository_ListByUser(t *testing.T) {
 	eventID, userID := seedTicketTestData(t)
 
 	// Create a second event for the same venue.
-	// First retrieve the venue_id from the existing event, then insert a new event with a generated ID.
-	var venueID string
+	// Retrieve venue_id and artist_id from the existing event, then insert a new event.
+	var venueID, artistID string
 	err := testDB.Pool.QueryRow(ctx,
-		`SELECT venue_id FROM events WHERE id = $1`,
+		`SELECT venue_id, artist_id FROM events WHERE id = $1`,
 		eventID,
-	).Scan(&venueID)
+	).Scan(&venueID, &artistID)
 	require.NoError(t, err)
 
 	eventID2 := uuid.Must(uuid.NewV7()).String()
 	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date) VALUES ($1, $2, $3, $4)`,
-		eventID2, venueID, "second event", "2026-04-01",
+		`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, $3, $4, $5)`,
+		eventID2, venueID, "second event", "2026-04-01", artistID,
 	)
 	require.NoError(t, err)
 

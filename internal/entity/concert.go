@@ -121,16 +121,17 @@ func GroupByDateAndProximity(concerts []*Concert, home *Home) []*ProximityGroup 
 	return result
 }
 
-// DateVenueKey returns the "(date|venue)" deduplication key for a ScrapedConcert.
-func (s *ScrapedConcert) DateVenueKey() string {
-	return s.LocalDate.Format("2006-01-02") + "|" + s.ListedVenueName
+// DateKey returns the date-only deduplication key for a ScrapedConcert.
+func (s *ScrapedConcert) DateKey() string {
+	return s.LocalDate.Format("2006-01-02")
 }
 
 // DedupeKey returns the full deduplication key for a ScrapedConcert.
-// When StartTime is non-nil, the UTC-normalized time is appended to the DateVenueKey
-// to form "(date|venue|start_at_utc)". When StartTime is nil, DateVenueKey is returned.
+// The key is "(date|start_at_utc)" when StartTime is non-nil, or just "(date)"
+// when StartTime is nil. Venue is excluded because an artist cannot perform at
+// two different venues simultaneously on the same day.
 func (s *ScrapedConcert) DedupeKey() string {
-	base := s.DateVenueKey()
+	base := s.DateKey()
 	if s.StartTime == nil {
 		return base
 	}
@@ -152,8 +153,7 @@ type ConcertRepository interface {
 	// Create creates one or more concerts using bulk insert with UPSERT semantics.
 	//
 	// Events are inserted with ON CONFLICT on the natural key
-	// (venue_id, local_event_date, start_at). When a conflict is detected:
-	//   - start_at is updated only if the existing value is NULL (COALESCE).
+	// (artist_id, local_event_date, start_at). When a conflict is detected:
 	//   - open_at is updated only if the existing value is NULL (COALESCE).
 	//   - The existing row's non-NULL values are never overwritten.
 	//
