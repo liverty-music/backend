@@ -55,3 +55,4 @@ configMapGenerator:
   - migrations/20260311000000_rename_hype_anywhere_to_away.sql
   - migrations/20260311051910_add_home_centroid_columns.sql
   - migrations/20260311171822_enforce_uuidv7_and_cleanup.sql
+  - migrations/20260313084554_drop_homes_user_id.sql

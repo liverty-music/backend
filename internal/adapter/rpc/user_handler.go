@@ -25,18 +25,20 @@ func NewUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger) *Us
 	}
 }
 
-// Get retrieves a user by ID.
+// Get retrieves the authenticated user's profile using their JWT identity.
 func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
 	if req == nil || req.Msg == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
 	}
 
-	if req.Msg.UserId == nil || req.Msg.UserId.GetValue() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("user_id is required"))
+	// Extract user identity from JWT context.
+	claims, err := mapper.GetClaimsFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	// Use the use case layer for business logic
-	user, err := h.userUseCase.Get(ctx, req.Msg.UserId.GetValue())
+	// Resolve the user by their external identity provider ID (JWT sub claim).
+	user, err := h.userUseCase.GetByExternalID(ctx, claims.Sub)
 	if err != nil {
 		return nil, err
 	}

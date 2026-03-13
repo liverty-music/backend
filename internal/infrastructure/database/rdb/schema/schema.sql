@@ -37,7 +37,6 @@ COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes
 -- Homes table
 CREATE TABLE IF NOT EXISTS homes (
     id UUID PRIMARY KEY,
-    user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     country_code TEXT NOT NULL,
     level_1 TEXT NOT NULL,
     level_2 TEXT,
@@ -53,7 +52,6 @@ ALTER TABLE users ADD CONSTRAINT fk_users_home_id FOREIGN KEY (home_id) REFERENC
 
 COMMENT ON TABLE homes IS 'Structured geographic home area for users. Determines proximity classification (home/nearby/away).';
 COMMENT ON COLUMN homes.id IS 'Unique home record identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN homes.user_id IS 'Reference to the user who owns this home (1:1)';
 COMMENT ON COLUMN homes.country_code IS 'ISO 3166-1 alpha-2 country code (e.g., JP, US)';
 COMMENT ON COLUMN homes.level_1 IS 'ISO 3166-2 subdivision code (e.g., JP-13 for Tokyo, US-NY for New York)';
 COMMENT ON COLUMN homes.level_2 IS 'Optional finer-grained area code. Code system determined by country_code. NULL in Phase 1.';
