@@ -7,13 +7,13 @@ import "context"
 type Hype string
 
 const (
-	// HypeWatch indicates dashboard-only display, no push notifications.
+	// HypeWatch indicates dashboard-only display, no push notifications (default).
 	HypeWatch Hype = "watch"
 	// HypeHome indicates notifications only for concerts in the user's home area.
 	HypeHome Hype = "home"
 	// HypeNearby is reserved for Phase 2 (physical distance based proximity).
 	HypeNearby Hype = "nearby"
-	// HypeAway indicates notifications for all concerts nationwide (default).
+	// HypeAway indicates notifications for all concerts nationwide.
 	HypeAway Hype = "away"
 )
 
