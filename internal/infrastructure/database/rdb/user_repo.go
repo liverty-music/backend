@@ -67,8 +67,8 @@ const (
 	`
 
 	insertHomeQuery = `
-		INSERT INTO homes (id, country_code, level_1, level_2)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO homes (id, country_code, level_1, level_2, centroid_latitude, centroid_longitude)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
 	`
 
@@ -77,7 +77,8 @@ const (
 			country_code = $2,
 			level_1 = $3,
 			level_2 = $4,
-			updated_at = now()
+			centroid_latitude = $5,
+			centroid_longitude = $6
 		WHERE id = $1
 		RETURNING id
 	`
@@ -169,7 +170,10 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	var home *entity.Home
 	if params.Home != nil {
 		home = entity.NewHome(params.Home.CountryCode, params.Home.Level1, params.Home.Level2)
+		var centroidLat, centroidLng *float64
 		if c, ok := infrageo.ResolveCentroid(params.Home.Level1); ok {
+			centroidLat = &c.Latitude
+			centroidLng = &c.Longitude
 			home.Centroid = &entity.Coordinates{
 				Latitude:  c.Latitude,
 				Longitude: c.Longitude,
@@ -179,6 +183,7 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 		var homeID string
 		err = tx.QueryRow(ctx, insertHomeQuery,
 			home.ID, home.CountryCode, home.Level1, home.Level2,
+			centroidLat, centroidLng,
 		).Scan(&homeID)
 		if err != nil {
 			return nil, toAppErr(err, "failed to create home", slog.String("user_id", user.ID))
@@ -333,10 +338,17 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 		return nil, toAppErr(err, "failed to get user for home update", slog.String("user_id", id))
 	}
 
+	var centroidLat, centroidLng *float64
+	if c, ok := infrageo.ResolveCentroid(home.Level1); ok {
+		centroidLat = &c.Latitude
+		centroidLng = &c.Longitude
+	}
+
 	if current.Home != nil {
 		// Update the existing home record.
 		_, err = r.db.Pool.Exec(ctx, updateHomeQuery,
 			current.Home.ID, home.CountryCode, home.Level1, home.Level2,
+			centroidLat, centroidLng,
 		)
 		if err != nil {
 			return nil, toAppErr(err, "failed to update home", slog.String("user_id", id))
@@ -347,6 +359,7 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 		var homeID string
 		err = r.db.Pool.QueryRow(ctx, insertHomeQuery,
 			newHome.ID, newHome.CountryCode, newHome.Level1, newHome.Level2,
+			centroidLat, centroidLng,
 		).Scan(&homeID)
 		if err != nil {
 			return nil, toAppErr(err, "failed to insert home", slog.String("user_id", id))

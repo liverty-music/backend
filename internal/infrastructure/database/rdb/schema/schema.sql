@@ -42,8 +42,6 @@ CREATE TABLE IF NOT EXISTS homes (
     level_2 TEXT,
     centroid_latitude DOUBLE PRECISION,
     centroid_longitude DOUBLE PRECISION,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_homes_country_code_length CHECK (char_length(country_code) = 2),
     CONSTRAINT chk_homes_level_1_length CHECK (char_length(level_1) BETWEEN 2 AND 6),
     CONSTRAINT chk_homes_level_2_length CHECK (level_2 IS NULL OR char_length(level_2) <= 20),
