@@ -25,21 +25,21 @@ const (
 	getUserQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
-		LEFT JOIN homes h ON h.user_id = u.id
+		LEFT JOIN homes h ON u.home_id = h.id
 		WHERE u.id = $1
 	`
 
 	getUserByExternalIDQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
-		LEFT JOIN homes h ON h.user_id = u.id
+		LEFT JOIN homes h ON u.home_id = h.id
 		WHERE u.external_id = $1
 	`
 
 	getUserByEmailQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
-		LEFT JOIN homes h ON h.user_id = u.id
+		LEFT JOIN homes h ON u.home_id = h.id
 		WHERE u.email = $1
 	`
 
@@ -51,13 +51,13 @@ const (
 		)
 		SELECT ` + `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active` + `, ` + homeColumns + `
 		FROM updated u
-		LEFT JOIN homes h ON h.user_id = u.id
+		LEFT JOIN homes h ON u.home_id = h.id
 	`
 
 	listUsersQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
-		LEFT JOIN homes h ON h.user_id = u.id
+		LEFT JOIN homes h ON u.home_id = h.id
 		ORDER BY u.id
 		LIMIT $1 OFFSET $2
 	`
@@ -66,15 +66,24 @@ const (
 		UPDATE users SET safe_address = $2 WHERE id = $1
 	`
 
-	upsertHomeQuery = `
-		INSERT INTO homes (id, user_id, country_code, level_1, level_2, centroid_latitude, centroid_longitude)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (user_id) DO UPDATE SET
-			country_code = EXCLUDED.country_code,
-			level_1 = EXCLUDED.level_1,
-			level_2 = EXCLUDED.level_2,
-			centroid_latitude = EXCLUDED.centroid_latitude,
-			centroid_longitude = EXCLUDED.centroid_longitude
+	insertHomeQuery = `
+		INSERT INTO homes (id, country_code, level_1, level_2)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`
+
+	updateHomeQuery = `
+		UPDATE homes SET
+			country_code = $2,
+			level_1 = $3,
+			level_2 = $4,
+			updated_at = now()
+		WHERE id = $1
+		RETURNING id
+	`
+
+	setUserHomeIDQuery = `
+		UPDATE users SET home_id = $2 WHERE id = $1
 	`
 
 	insertUserQuery = `
@@ -160,21 +169,25 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	var home *entity.Home
 	if params.Home != nil {
 		home = entity.NewHome(params.Home.CountryCode, params.Home.Level1, params.Home.Level2)
-		var centroidLat, centroidLng *float64
 		if c, ok := infrageo.ResolveCentroid(params.Home.Level1); ok {
-			centroidLat = &c.Latitude
-			centroidLng = &c.Longitude
 			home.Centroid = &entity.Coordinates{
-				Latitude:  *centroidLat,
-				Longitude: *centroidLng,
+				Latitude:  c.Latitude,
+				Longitude: c.Longitude,
 			}
 		}
-		_, err = tx.Exec(ctx, upsertHomeQuery,
-			home.ID, user.ID, home.CountryCode, home.Level1, home.Level2,
-			centroidLat, centroidLng,
-		)
+
+		var homeID string
+		err = tx.QueryRow(ctx, insertHomeQuery,
+			home.ID, home.CountryCode, home.Level1, home.Level2,
+		).Scan(&homeID)
 		if err != nil {
 			return nil, toAppErr(err, "failed to create home", slog.String("user_id", user.ID))
+		}
+		home.ID = homeID
+
+		_, err = tx.Exec(ctx, setUserHomeIDQuery, user.ID, homeID)
+		if err != nil {
+			return nil, toAppErr(err, "failed to set user home_id", slog.String("user_id", user.ID))
 		}
 	}
 
@@ -307,24 +320,42 @@ func (r *UserRepository) UpdateSafeAddress(ctx context.Context, id, safeAddress 
 }
 
 // UpdateHome sets or changes the user's home area.
-// Uses UPSERT on the homes table to create or update the home record.
+// If the user already has a home record it is updated in place; otherwise a new
+// home record is inserted and linked to the user via users.home_id.
 func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
 	if id == "" {
 		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
 	}
 
-	h := entity.NewHome(home.CountryCode, home.Level1, home.Level2)
-	var centroidLat, centroidLng *float64
-	if c, ok := infrageo.ResolveCentroid(home.Level1); ok {
-		centroidLat = &c.Latitude
-		centroidLng = &c.Longitude
-	}
-	_, err := r.db.Pool.Exec(ctx, upsertHomeQuery,
-		h.ID, id, h.CountryCode, h.Level1, h.Level2,
-		centroidLat, centroidLng,
-	)
+	// Fetch current user to determine whether a home record already exists.
+	current, err := scanUser(r.db.Pool.QueryRow(ctx, getUserQuery, id))
 	if err != nil {
-		return nil, toAppErr(err, "failed to upsert home", slog.String("user_id", id))
+		return nil, toAppErr(err, "failed to get user for home update", slog.String("user_id", id))
+	}
+
+	if current.Home != nil {
+		// Update the existing home record.
+		_, err = r.db.Pool.Exec(ctx, updateHomeQuery,
+			current.Home.ID, home.CountryCode, home.Level1, home.Level2,
+		)
+		if err != nil {
+			return nil, toAppErr(err, "failed to update home", slog.String("user_id", id))
+		}
+	} else {
+		// Insert a new home record and link it to the user.
+		newHome := entity.NewHome(home.CountryCode, home.Level1, home.Level2)
+		var homeID string
+		err = r.db.Pool.QueryRow(ctx, insertHomeQuery,
+			newHome.ID, newHome.CountryCode, newHome.Level1, newHome.Level2,
+		).Scan(&homeID)
+		if err != nil {
+			return nil, toAppErr(err, "failed to insert home", slog.String("user_id", id))
+		}
+
+		_, err = r.db.Pool.Exec(ctx, setUserHomeIDQuery, id, homeID)
+		if err != nil {
+			return nil, toAppErr(err, "failed to set user home_id", slog.String("user_id", id))
+		}
 	}
 
 	// Re-fetch the user with home JOIN to return the complete entity.
