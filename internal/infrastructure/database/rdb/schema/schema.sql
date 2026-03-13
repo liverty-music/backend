@@ -158,7 +158,7 @@ COMMENT ON COLUMN concerts.artist_id IS 'Reference to the performing artist';
 CREATE TABLE IF NOT EXISTS followed_artists (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
-    hype TEXT NOT NULL DEFAULT 'away',
+    hype TEXT NOT NULL DEFAULT 'watch',
     PRIMARY KEY (user_id, artist_id),
     CONSTRAINT chk_followed_artists_hype CHECK (hype IN ('watch', 'home', 'nearby', 'away'))
 );
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS followed_artists (
 COMMENT ON TABLE followed_artists IS 'Tracks which artists a user is following for discovery and personalization';
 COMMENT ON COLUMN followed_artists.user_id IS 'Reference to the user who is following';
 COMMENT ON COLUMN followed_artists.artist_id IS 'Reference to the artist being followed';
-COMMENT ON COLUMN followed_artists.hype IS 'User enthusiasm tier: watch (no notifications), home (home area only), nearby (reserved), or away (all concerts, default)';
+COMMENT ON COLUMN followed_artists.hype IS 'User enthusiasm tier: watch (no notifications, default), home (home area only), nearby (reserved), or away (all concerts)';
 
 -- Latest search logs table
 CREATE TABLE IF NOT EXISTS latest_search_logs (
