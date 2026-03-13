@@ -332,8 +332,14 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
 	}
 
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, toAppErr(err, "failed to begin transaction")
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
 	// Fetch current user to determine whether a home record already exists.
-	current, err := scanUser(r.db.Pool.QueryRow(ctx, getUserQuery, id))
+	current, err := scanUser(tx.QueryRow(ctx, getUserQuery, id))
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user for home update", slog.String("user_id", id))
 	}
@@ -346,7 +352,7 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 
 	if current.Home != nil {
 		// Update the existing home record.
-		_, err = r.db.Pool.Exec(ctx, updateHomeQuery,
+		_, err = tx.Exec(ctx, updateHomeQuery,
 			current.Home.ID, home.CountryCode, home.Level1, home.Level2,
 			centroidLat, centroidLng,
 		)
@@ -357,7 +363,7 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 		// Insert a new home record and link it to the user.
 		newHome := entity.NewHome(home.CountryCode, home.Level1, home.Level2)
 		var homeID string
-		err = r.db.Pool.QueryRow(ctx, insertHomeQuery,
+		err = tx.QueryRow(ctx, insertHomeQuery,
 			newHome.ID, newHome.CountryCode, newHome.Level1, newHome.Level2,
 			centroidLat, centroidLng,
 		).Scan(&homeID)
@@ -365,10 +371,14 @@ func (r *UserRepository) UpdateHome(ctx context.Context, id string, home *entity
 			return nil, toAppErr(err, "failed to insert home", slog.String("user_id", id))
 		}
 
-		_, err = r.db.Pool.Exec(ctx, setUserHomeIDQuery, id, homeID)
+		_, err = tx.Exec(ctx, setUserHomeIDQuery, id, homeID)
 		if err != nil {
 			return nil, toAppErr(err, "failed to set user home_id", slog.String("user_id", id))
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, toAppErr(err, "failed to commit transaction")
 	}
 
 	// Re-fetch the user with home JOIN to return the complete entity.
