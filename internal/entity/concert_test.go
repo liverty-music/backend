@@ -284,7 +284,7 @@ func TestGroupByDateAndProximity(t *testing.T) {
 	}
 }
 
-func TestScrapedConcert_DateVenueKey(t *testing.T) {
+func TestScrapedConcert_DateKey(t *testing.T) {
 	t.Parallel()
 
 	date := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -298,24 +298,14 @@ func TestScrapedConcert_DateVenueKey(t *testing.T) {
 		want string
 	}{
 		{
-			name: "return date and venue joined by pipe",
+			name: "return formatted date",
 			args: args{
 				concert: &entity.ScrapedConcert{
 					LocalDate:       date,
 					ListedVenueName: "Budokan",
 				},
 			},
-			want: "2025-06-01|Budokan",
-		},
-		{
-			name: "return date and empty venue name when venue is empty",
-			args: args{
-				concert: &entity.ScrapedConcert{
-					LocalDate:       date,
-					ListedVenueName: "",
-				},
-			},
-			want: "2025-06-01|",
+			want: "2025-06-01",
 		},
 	}
 
@@ -323,69 +313,7 @@ func TestScrapedConcert_DateVenueKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.args.concert.DateVenueKey()
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestScrapedConcert_DedupeKey(t *testing.T) {
-	t.Parallel()
-
-	date := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	startTime := time.Date(2025, 6, 1, 19, 0, 0, 0, time.UTC)
-	// Same instant in a different timezone to verify UTC normalization.
-	jst := time.FixedZone("JST", 9*60*60)
-	startTimeJST := time.Date(2025, 6, 2, 4, 0, 0, 0, jst) // same UTC instant
-
-	type args struct {
-		concert *entity.ScrapedConcert
-	}
-	tests := []struct {
-		name string
-		args args
-		want string
-	}{
-		{
-			name: "return DateVenueKey when start time is nil",
-			args: args{
-				concert: &entity.ScrapedConcert{
-					LocalDate:       date,
-					ListedVenueName: "Budokan",
-					StartTime:       nil,
-				},
-			},
-			want: "2025-06-01|Budokan",
-		},
-		{
-			name: "return full key with UTC-normalized start time when start time is set",
-			args: args{
-				concert: &entity.ScrapedConcert{
-					LocalDate:       date,
-					ListedVenueName: "Budokan",
-					StartTime:       &startTime,
-				},
-			},
-			want: "2025-06-01|Budokan|19:00:00Z",
-		},
-		{
-			name: "produce same key for equal instant in different timezone",
-			args: args{
-				concert: &entity.ScrapedConcert{
-					LocalDate:       date,
-					ListedVenueName: "Budokan",
-					StartTime:       &startTimeJST,
-				},
-			},
-			want: "2025-06-01|Budokan|19:00:00Z",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := tt.args.concert.DedupeKey()
+			got := tt.args.concert.DateKey()
 			assert.Equal(t, tt.want, got)
 		})
 	}

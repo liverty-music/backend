@@ -15,8 +15,8 @@ type VenueRepository struct {
 
 const (
 	insertVenueQuery = `
-		INSERT INTO venues (id, name, admin_area, enrichment_status, raw_name)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO venues (id, name, admin_area, enrichment_status, raw_name, google_place_id, latitude, longitude)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	getVenueQuery = `
 		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name, latitude, longitude
@@ -29,6 +29,11 @@ const (
 		WHERE name = $1 OR raw_name = $1
 		ORDER BY id ASC
 		LIMIT 1
+	`
+	getVenueByPlaceIDQuery = `
+		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name, latitude, longitude
+		FROM venues
+		WHERE google_place_id = $1
 	`
 	listPendingVenuesQuery = `
 		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name
@@ -69,7 +74,12 @@ func (r *VenueRepository) Create(ctx context.Context, venue *entity.Venue) error
 	if rawName == "" {
 		rawName = venue.Name
 	}
-	_, err := r.db.Pool.Exec(ctx, insertVenueQuery, venue.ID, venue.Name, venue.AdminArea, status, rawName)
+	var lat, lng *float64
+	if venue.Coordinates != nil {
+		lat = &venue.Coordinates.Latitude
+		lng = &venue.Coordinates.Longitude
+	}
+	_, err := r.db.Pool.Exec(ctx, insertVenueQuery, venue.ID, venue.Name, venue.AdminArea, status, rawName, venue.GooglePlaceID, lat, lng)
 	if err != nil {
 		if IsUniqueViolation(err) {
 			r.db.logger.Warn(ctx, "duplicate venue",
@@ -114,6 +124,23 @@ func (r *VenueRepository) GetByName(ctx context.Context, name string) (*entity.V
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get venue by name", slog.String("name", name))
+	}
+	return &v, nil
+}
+
+// GetByPlaceID retrieves a venue by Google Maps Place ID from the database.
+func (r *VenueRepository) GetByPlaceID(ctx context.Context, placeID string) (*entity.Venue, error) {
+	var v entity.Venue
+	var lat, lng *float64
+	err := r.db.Pool.QueryRow(ctx, getVenueByPlaceIDQuery, placeID).Scan(
+		&v.ID, &v.Name, &v.AdminArea, &v.MBID, &v.GooglePlaceID, &v.EnrichmentStatus, &v.RawName,
+		&lat, &lng,
+	)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get venue by place ID", slog.String("place_id", placeID))
+	}
+	if lat != nil && lng != nil {
+		v.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
 	}
 	return &v, nil
 }

@@ -100,6 +100,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Google Maps Places API uses OAuth via ADC (Workload Identity in GKE).
 	// Skip registration when no GCP project is configured (e.g. local dev).
+	var gmPlaceSearcher entity.VenuePlaceSearcher
 	if cfg.GCP.ProjectID != "" {
 		gmTokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
 		if err != nil {
@@ -111,6 +112,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		}
 		gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, gmHTTPClient, logger)
 		gmSearcher := googlemaps.NewPlaceSearcher(gmClient)
+		gmPlaceSearcher = gmSearcher
 		searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: gmSearcher, AssignToMBID: false})
 	} else {
 		logger.Warn(ctx, "skipping Google Maps searcher: GCP project ID not configured")
@@ -126,7 +128,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 	adminAreaResolver := infrageo.NewAdminAreaResolver()
 	venueEnrichUC := usecase.NewVenueEnrichmentUseCase(venueRepo, venueRepo, venueRepo, adminAreaResolver, logger, searchers...)
-	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, publisher, logger)
+	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, gmPlaceSearcher, publisher, logger)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 
 	// Event Consumers

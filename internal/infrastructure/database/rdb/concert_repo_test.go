@@ -214,7 +214,7 @@ func TestConcertRepository_Create(t *testing.T) {
 			ArtistID: artistID,
 		}))
 
-		// Second insert: same natural key (venue_id, date, start_at) but different UUID.
+		// Second insert: same natural key (artist_id, date) but different UUID.
 		// UPSERT updates the existing event row; the input UUID does NOT exist in events,
 		// so WHERE EXISTS filters it out and no duplicate concerts row is created.
 		err := concertRepo.Create(ctx, &entity.Concert{
@@ -314,8 +314,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ArtistID: artistID,
 		}))
 
-		// Second insert: same venue+date, also start_at = NULL.
-		// NULLS NOT DISTINCT means (venue, date, NULL) == (venue, date, NULL) → conflict.
+		// Second insert: same artist+date, also start_at = NULL.
+		// NULLS NOT DISTINCT means (artist, date, NULL) == (artist, date, NULL) → conflict.
 		err := concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c08", VenueID: venueID,
@@ -328,7 +328,7 @@ func TestConcertRepository_Create(t *testing.T) {
 
 		got, err := concertRepo.ListByArtist(ctx, artistID, false)
 		require.NoError(t, err)
-		assert.Len(t, got, 1, "two NULL start_at events with same venue+date must conflict")
+		assert.Len(t, got, 1, "two NULL start_at events with same artist+date must conflict")
 	})
 
 	t.Run("same artist re-inserted for same event — concerts ON CONFLICT DO NOTHING", func(t *testing.T) {
@@ -381,14 +381,13 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 		wantErr  error
 	}{
 		{
-			name: "NULL listed_venue_name (pre-migration row) is scanned to nil without error",
+			name: "NULL listed_venue_name is scanned to nil without error",
 			setup: func(t *testing.T, artistID, venueID string) {
 				t.Helper()
-				// Simulate a pre-migration row by inserting directly without listed_venue_name.
-				// This exercises the NULL → *string nil mapping that was broken before this fix.
+				// Insert directly without listed_venue_name to exercise NULL → *string nil mapping.
 				_, err := testDB.Pool.Exec(ctx,
-					"INSERT INTO events (id, venue_id, title, local_event_date, source_url) VALUES ($1, $2, $3, $4, $5)",
-					"018b2f19-e591-7d12-bf9e-f0e74f1b4cc1", venueID, "Legacy Concert", concertDate, "https://example.com/legacy",
+					"INSERT INTO events (id, venue_id, title, local_event_date, source_url, artist_id) VALUES ($1, $2, $3, $4, $5, $6)",
+					"018b2f19-e591-7d12-bf9e-f0e74f1b4cc1", venueID, "Legacy Concert", concertDate, "https://example.com/legacy", artistID,
 				)
 				require.NoError(t, err)
 				_, err = testDB.Pool.Exec(ctx,
@@ -651,7 +650,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	// Regression tests for ListedVenueName scanning.
 	// Pre-migration rows have NULL in listed_venue_name; scanning NULL into a
 	// non-pointer string would panic at runtime.
-	t.Run("NULL listed_venue_name (pre-migration row) is scanned to nil without error", func(t *testing.T) {
+	t.Run("NULL listed_venue_name is scanned to nil without error", func(t *testing.T) {
 		cleanDatabase()
 
 		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
@@ -661,10 +660,10 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		require.NoError(t, venueRepo.Create(ctx, venue))
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
-		// Simulate a pre-migration row by inserting directly without listed_venue_name.
+		// Insert directly without listed_venue_name to exercise NULL → *string nil mapping.
 		_, err = testDB.Pool.Exec(ctx,
-			"INSERT INTO events (id, venue_id, title, local_event_date, source_url) VALUES ($1, $2, $3, $4, $5)",
-			"018b2f19-e591-7d12-bf9e-f0e74f1b4cc1", venue.ID, "Legacy Concert", concertDate, "https://example.com/legacy",
+			"INSERT INTO events (id, venue_id, title, local_event_date, source_url, artist_id) VALUES ($1, $2, $3, $4, $5, $6)",
+			"018b2f19-e591-7d12-bf9e-f0e74f1b4cc1", venue.ID, "Legacy Concert", concertDate, "https://example.com/legacy", artist.ID,
 		)
 		require.NoError(t, err)
 		_, err = testDB.Pool.Exec(ctx,

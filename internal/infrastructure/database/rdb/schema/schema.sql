@@ -121,6 +121,7 @@ COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude of the venue, populated 
 CREATE TABLE IF NOT EXISTS events (
     id UUID PRIMARY KEY,
     venue_id UUID NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     listed_venue_name TEXT,
     local_event_date DATE NOT NULL,
@@ -128,14 +129,15 @@ CREATE TABLE IF NOT EXISTS events (
     open_at TIMESTAMPTZ,
     source_url TEXT,
     merkle_root BYTEA,
-    CONSTRAINT uq_events_natural_key UNIQUE NULLS NOT DISTINCT (venue_id, local_event_date, start_at),
+    CONSTRAINT uq_events_natural_key UNIQUE (artist_id, local_event_date),
     CONSTRAINT chk_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE events IS 'Generic event data including time, location, and metadata';
-COMMENT ON CONSTRAINT uq_events_natural_key ON events IS 'Prevents duplicate events at the same venue, date, and start time. NULLS NOT DISTINCT treats two NULL start_at values as equal.';
+COMMENT ON CONSTRAINT uq_events_natural_key ON events IS 'Prevents duplicate events for the same artist and date. An artist cannot perform at two venues simultaneously.';
 COMMENT ON COLUMN events.id IS 'Unique event identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
+COMMENT ON COLUMN events.artist_id IS 'Reference to the performing artist; denormalized from concerts for natural key deduplication';
 COMMENT ON COLUMN events.title IS 'Event title as displayed to users';
 COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from the source, preserved separately from the normalized venue record';
 COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
