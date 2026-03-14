@@ -214,7 +214,7 @@ func TestConcertRepository_Create(t *testing.T) {
 			ArtistID: artistID,
 		}))
 
-		// Second insert: same natural key (artist_id, date, start_at) but different UUID.
+		// Second insert: same natural key (artist_id, date) but different UUID.
 		// UPSERT updates the existing event row; the input UUID does NOT exist in events,
 		// so WHERE EXISTS filters it out and no duplicate concerts row is created.
 		err := concertRepo.Create(ctx, &entity.Concert{

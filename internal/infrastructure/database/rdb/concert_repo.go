@@ -18,7 +18,8 @@ const (
 		INSERT INTO events (id, venue_id, title, listed_venue_name, local_event_date, start_at, open_at, source_url, artist_id)
 		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::date[], $6::timestamptz[], $7::timestamptz[], $8::text[], $9::uuid[])
 		ON CONFLICT ON CONSTRAINT uq_events_natural_key DO UPDATE SET
-			open_at = COALESCE(EXCLUDED.open_at, events.open_at)
+			start_at = COALESCE(EXCLUDED.start_at, events.start_at),
+			open_at  = COALESCE(EXCLUDED.open_at, events.open_at)
 	`
 	// insertConcertsQuery inserts concert rows only for events that were actually
 	// inserted (not UPSERTed). The WHERE EXISTS check filters out input UUIDs that

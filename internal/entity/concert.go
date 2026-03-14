@@ -126,18 +126,6 @@ func (s *ScrapedConcert) DateKey() string {
 	return s.LocalDate.Format("2006-01-02")
 }
 
-// DedupeKey returns the full deduplication key for a ScrapedConcert.
-// The key is "(date|start_at_utc)" when StartTime is non-nil, or just "(date)"
-// when StartTime is nil. Venue is excluded because an artist cannot perform at
-// two different venues simultaneously on the same day.
-func (s *ScrapedConcert) DedupeKey() string {
-	base := s.DateKey()
-	if s.StartTime == nil {
-		return base
-	}
-	return base + "|" + s.StartTime.UTC().Format("15:04:05Z")
-}
-
 // ConcertRepository defines the data access interface for Concerts.
 type ConcertRepository interface {
 	// ListByArtist retrieves all concerts for a specific artist.

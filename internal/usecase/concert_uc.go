@@ -228,17 +228,14 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 // executeSearch performs the actual Gemini search, deduplication, and event publishing.
 // It updates the search log status to completed or failed on exit.
 //
-// Deduplication uses the natural key (local_event_date, start_at_utc) with two
-// lookup sets:
-//   - seen: full key (date|start_at_utc) for exact UTC-normalized match.
-//   - seenDate: date only, for nil start_at wildcard matching.
+// Deduplication uses date-only matching: one event per artist per date.
+// An artist cannot perform at two venues simultaneously on the same day.
 //
-// Venue is excluded from the dedup key because an artist cannot perform at two
-// different venues simultaneously on the same day.
-//
-// Nil start_at semantics:
-//   - Scraped nil: "time unknown" — matches any existing concert at the same date.
-//   - Existing nil + scraped non-nil: "new info discovered" — published for UPSERT update.
+// The seenDate set tracks dates already occupied by existing or earlier-scraped
+// concerts. Any scraped concert whose date is already seen is filtered out,
+// regardless of start_at value. The DB constraint (artist_id, local_event_date)
+// provides the same guarantee; this application-level check avoids unnecessary
+// publish/UPSERT round-trips.
 func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) error {
 	// Get Artist
 	artist, err := uc.artistRepo.Get(ctx, artistID)
@@ -271,53 +268,25 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 		return fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
 
-	// Deduplicate against existing concerts using dual lookup sets.
-	// - seen: full key (date|start_at_utc) for exact match
-	// - seenDate: date only, for nil-match and "existing has nil" detection
-	seen := make(map[string]bool)
+	// Deduplicate: one event per artist per date.
 	seenDate := make(map[string]bool)
-
 	for _, ex := range existing {
-		dateKey := ex.LocalDate.Format("2006-01-02")
-		seenDate[dateKey] = true
-		if ex.StartTime != nil {
-			seen[dateKey+"|"+ex.StartTime.UTC().Format("15:04:05Z")] = true
-		}
+		seenDate[ex.LocalDate.Format("2006-01-02")] = true
 	}
 
 	var newConcerts []entity.ScrapedConcertData
 	for _, s := range scraped {
 		dateKey := s.DateKey()
-
-		if s.StartTime == nil {
-			// Scraped nil start_at → "I don't know the time".
-			// Match any existing or already-seen concert at same date.
-			if seenDate[dateKey] {
-				uc.logger.Debug(ctx, "filtered existing/duplicate event (nil start_at wildcard)",
-					slog.String("artist_id", artistID),
-					slog.String("title", s.Title),
-					slog.String("venue", s.ListedVenueName),
-					slog.String("date", s.LocalDate.Format("2006-01-02")),
-				)
-				continue
-			}
-			seenDate[dateKey] = true
-		} else {
-			// Scraped non-nil start_at.
-			fullKey := s.DedupeKey()
-			if seen[fullKey] {
-				// Exact match — same instant after UTC normalization (handles TZ mismatch).
-				uc.logger.Debug(ctx, "filtered existing/duplicate event (exact key match)",
-					slog.String("artist_id", artistID),
-					slog.String("title", s.Title),
-					slog.String("venue", s.ListedVenueName),
-					slog.String("date", s.LocalDate.Format("2006-01-02")),
-				)
-				continue
-			}
-			seen[fullKey] = true
-			seenDate[dateKey] = true
+		if seenDate[dateKey] {
+			uc.logger.Debug(ctx, "filtered existing/duplicate event (same date)",
+				slog.String("artist_id", artistID),
+				slog.String("title", s.Title),
+				slog.String("venue", s.ListedVenueName),
+				slog.String("date", s.LocalDate.Format("2006-01-02")),
+			)
+			continue
 		}
+		seenDate[dateKey] = true
 
 		newConcerts = append(newConcerts, entity.ScrapedConcertData{
 			Title:           s.Title,

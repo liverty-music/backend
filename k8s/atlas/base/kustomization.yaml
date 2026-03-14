@@ -58,3 +58,4 @@ configMapGenerator:
   - migrations/20260313084554_drop_homes_user_id.sql
   - migrations/20260313092028_change_default_hype_to_watch.sql
   - migrations/20260313163404_fix_venue_dedup.sql
+  - migrations/20260314051257_simplify_event_natural_key.sql

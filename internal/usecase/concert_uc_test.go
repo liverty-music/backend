@@ -449,20 +449,14 @@ func receivePublishedConcerts(t *testing.T, ctx context.Context, sub <-chan *mes
 
 // TestSearchNewConcerts_Deduplication verifies that executeSearch correctly
 // deduplicates scraped concerts against existing DB records. The dedup key
-// is (local_event_date, start_at_utc) — venue is excluded because an artist
-// cannot perform at two different venues simultaneously on the same day.
+// is date-only (local_event_date) — an artist cannot perform at two venues
+// simultaneously on the same day.
 func TestSearchNewConcerts_Deduplication(t *testing.T) {
 	ctx := context.Background()
 
-	jst := time.FixedZone("JST", 9*60*60)
 	concertDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 
-	// Same instant expressed in different timezones.
 	startUTC := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
-	startJST := time.Date(2026, 6, 1, 18, 0, 0, 0, jst)
-
-	// Slightly shifted start time — Gemini is not deterministic.
-	startShifted := time.Date(2026, 6, 1, 9, 30, 0, 0, time.UTC)
 
 	type testCase struct {
 		name            string
@@ -475,17 +469,17 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 		// ── Cases where dedup SHOULD filter (wantNewConcerts = 0) ──
 
 		{
-			name: "TZ mismatch: repo returns UTC, Gemini returns JST for same instant",
+			name: "same date, same start_at — deduped",
 			existing: []*entity.Concert{
 				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startJST, SourceURL: "https://example.com"},
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startUTC, SourceURL: "https://example.com"},
 			},
 			wantNewConcerts: 0,
 		},
 		{
-			name: "Gemini returns nil start_at, repo has start_at — same date",
+			name: "same date, scraped nil start_at — deduped",
 			existing: []*entity.Concert{
 				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
@@ -495,27 +489,17 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			wantNewConcerts: 0,
 		},
 		{
-			name: "Gemini returns start_at, repo has nil — publish for UPSERT update",
+			name: "same date, existing nil start_at, scraped has start_at — deduped",
 			existing: []*entity.Concert{
 				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
 				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startUTC, SourceURL: "https://example.com"},
 			},
-			wantNewConcerts: 1, // new start_at info → publish so UPSERT updates existing row
+			wantNewConcerts: 0,
 		},
 		{
-			name: "same date but different start_at — two shows (matinee/evening)",
-			existing: []*entity.Concert{
-				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
-			},
-			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startShifted, SourceURL: "https://example.com"},
-			},
-			wantNewConcerts: 1, // genuinely different start time → distinct show
-		},
-		{
-			name: "both nil start_at, same date",
+			name: "both nil start_at, same date — deduped",
 			existing: []*entity.Concert{
 				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
@@ -525,23 +509,23 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			wantNewConcerts: 0,
 		},
 		{
-			name:     "within-batch dedup: two scraped concerts with same date and start_at (TZ diff)",
+			name:     "within-batch dedup: two scraped concerts with same date",
 			existing: nil,
 			scraped: []*entity.ScrapedConcert{
 				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startUTC, SourceURL: "https://example.com/a"},
-				{Title: "Concert A (dup)", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startJST, SourceURL: "https://example.com/b"},
+				{Title: "Concert A (dup)", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com/b"},
 			},
 			wantNewConcerts: 1, // second is intra-batch duplicate
 		},
 		{
-			name: "same date, different venue but nil start_at — deduped (venue not in key)",
+			name: "same date, different venue — deduped (venue not in key)",
 			existing: []*entity.Concert{
 				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
 				{Title: "Festival B", ListedVenueName: "Tokyo Dome", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com"},
 			},
-			wantNewConcerts: 0, // same date + both nil start_at → duplicate regardless of venue
+			wantNewConcerts: 0,
 		},
 
 		// ── Cases where dedup should NOT filter (wantNewConcerts > 0) ──
@@ -557,12 +541,12 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			wantNewConcerts: 1,
 		},
 		{
-			name: "mixed batch: one matches existing date+time, one is genuinely new date",
+			name: "mixed batch: one matches existing date, one is genuinely new date",
 			existing: []*entity.Concert{
 				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Existing Concert", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startJST, SourceURL: "https://example.com/old"},
+				{Title: "Existing Concert", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com/old"},
 				{Title: "New Concert", ListedVenueName: "Tokyo Dome", LocalDate: concertDate.AddDate(0, 0, 7), StartTime: nil, SourceURL: "https://example.com/new"},
 			},
 			wantNewConcerts: 1,
