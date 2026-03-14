@@ -789,18 +789,12 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		_, err = artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 
-		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5023", Name: "Enriched Venue"}
-		require.NoError(t, venueRepo.Create(ctx, venue))
-
-		// Enrich the venue with coordinates
-		mbid := "a2e6e2c0-0000-0000-0000-000000000099"
-		require.NoError(t, venueRepo.UpdateEnriched(ctx, &entity.Venue{
-			ID:          venue.ID,
+		venue := &entity.Venue{
+			ID:          "018b2f19-e591-7d12-bf9e-f0e74f1b5023",
 			Name:        "Enriched Venue",
-			RawName:     "Enriched Venue",
-			MBID:        &mbid,
 			Coordinates: &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917},
-		}))
+		}
+		require.NoError(t, venueRepo.Create(ctx, venue))
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-09-01")
 		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{

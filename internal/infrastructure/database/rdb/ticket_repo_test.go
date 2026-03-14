@@ -34,8 +34,8 @@ func seedTicketTestData(t *testing.T) (string, string) {
 
 	venueID := uuid.Must(uuid.NewV7()).String()
 	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO venues (id, name, raw_name) VALUES ($1, $2, $3)`,
-		venueID, "ticket-test-venue", "ticket-test-venue",
+		`INSERT INTO venues (id, name) VALUES ($1, $2)`,
+		venueID, "ticket-test-venue",
 	)
 	require.NoError(t, err)
 

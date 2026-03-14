@@ -27,7 +27,6 @@ packages:
       PushSubscriptionRepository:
       PushNotificationSender:
       MerkleTreeBuilder:
-      AdminAreaResolver:
       Cache:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:

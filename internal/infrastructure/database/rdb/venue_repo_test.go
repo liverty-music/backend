@@ -51,15 +51,15 @@ func TestVenueRepository_Create(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "create venue with explicit enrichment fields",
+			name: "create venue with google_place_id and coordinates",
 			args: struct {
 				venue *entity.Venue
 			}{
 				venue: &entity.Venue{
-					ID:               "018b2f19-e591-7d12-bf9e-f0e74f1b49ea",
-					Name:             "Zepp Sapporo",
-					EnrichmentStatus: entity.EnrichmentStatusPending,
-					RawName:          "Zepp Sapporo",
+					ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49ea",
+					Name:          "Zepp Sapporo",
+					GooglePlaceID: strPtr("ChIJtest123"),
+					Coordinates:   &entity.Coordinates{Latitude: 43.0618, Longitude: 141.3545},
 				},
 			},
 			wantErr: nil,
@@ -130,22 +130,17 @@ func TestVenueRepository_Get(t *testing.T) {
 			name: "get existing venue",
 			id:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
 			want: &entity.Venue{
-				ID:               "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
-				Name:             "Get Test Arena",
-				AdminArea:        nil,
-				EnrichmentStatus: entity.EnrichmentStatusPending,
-				RawName:          "Get Test Arena",
+				ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
+				Name: "Get Test Arena",
 			},
 		},
 		{
 			name: "get venue with admin_area",
 			id:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 			want: &entity.Venue{
-				ID:               "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
-				Name:             "Zepp Tokyo",
-				AdminArea:        strPtr("JP-13"),
-				EnrichmentStatus: entity.EnrichmentStatusPending,
-				RawName:          "Zepp Tokyo",
+				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
+				Name:      "Zepp Tokyo",
+				AdminArea: strPtr("JP-13"),
 			},
 		},
 		{
@@ -172,8 +167,6 @@ func TestVenueRepository_Get(t *testing.T) {
 			require.NotNil(t, got)
 			assert.Equal(t, tt.want.ID, got.ID)
 			assert.Equal(t, tt.want.Name, got.Name)
-			assert.Equal(t, tt.want.EnrichmentStatus, got.EnrichmentStatus)
-			assert.Equal(t, tt.want.RawName, got.RawName)
 			if tt.want.AdminArea == nil {
 				assert.Nil(t, got.AdminArea)
 			} else {
@@ -182,284 +175,4 @@ func TestVenueRepository_Get(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestVenueRepository_GetByName(t *testing.T) {
-	cleanDatabase()
-	repo := rdb.NewVenueRepository(testDB)
-	ctx := context.Background()
-
-	testVenue := &entity.Venue{
-		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e7",
-		Name: "GetByName Test Arena",
-	}
-	require.NoError(t, repo.Create(ctx, testVenue))
-
-	testVenueWithAdminArea := &entity.Venue{
-		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e8",
-		Name:      "Zepp Osaka Bayside",
-		AdminArea: strPtr("JP-27"),
-	}
-	require.NoError(t, repo.Create(ctx, testVenueWithAdminArea))
-
-	tests := []struct {
-		name      string
-		queryName string
-		wantID    string
-		wantErr   error
-	}{
-		{
-			name:      "get existing venue by name",
-			queryName: "GetByName Test Arena",
-			wantID:    "018b2f19-e591-7d12-bf9e-f0e74f1b49e7",
-		},
-		{
-			name:      "get venue with admin_area by name",
-			queryName: "Zepp Osaka Bayside",
-			wantID:    "018b2f19-e591-7d12-bf9e-f0e74f1b49e8",
-		},
-		{
-			name:      "get non-existent venue by name",
-			queryName: "Does Not Exist",
-			wantErr:   apperr.ErrNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := repo.GetByName(ctx, tt.queryName)
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, got)
-				return
-			}
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.Equal(t, tt.wantID, got.ID)
-		})
-	}
-}
-
-func TestVenueRepository_GetByName_RawNameFallback(t *testing.T) {
-	cleanDatabase()
-	repo := rdb.NewVenueRepository(testDB)
-	ctx := context.Background()
-
-	// Simulate an enriched venue: raw_name = original scraper name, name = canonical
-	original := &entity.Venue{
-		ID:      "018b2f19-e591-7d12-bf9e-f0e74f1b49eb",
-		Name:    "NIPPON BUDOKAN",
-		RawName: "日本武道館",
-	}
-	require.NoError(t, repo.Create(ctx, original))
-
-	t.Run("lookup by canonical name", func(t *testing.T) {
-		got, err := repo.GetByName(ctx, "NIPPON BUDOKAN")
-		require.NoError(t, err)
-		assert.Equal(t, original.ID, got.ID)
-	})
-
-	t.Run("lookup by raw name falls back correctly", func(t *testing.T) {
-		got, err := repo.GetByName(ctx, "日本武道館")
-		require.NoError(t, err)
-		assert.Equal(t, original.ID, got.ID)
-	})
-}
-
-func TestVenueRepository_ListPending(t *testing.T) {
-	cleanDatabase()
-	repo := rdb.NewVenueRepository(testDB)
-	ctx := context.Background()
-
-	pending1 := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4901", Name: "Pending Venue 1"}
-	pending2 := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4902", Name: "Pending Venue 2"}
-	require.NoError(t, repo.Create(ctx, pending1))
-	require.NoError(t, repo.Create(ctx, pending2))
-
-	// Mark one as failed so it won't appear in ListPending
-	require.NoError(t, repo.MarkFailed(ctx, pending2.ID))
-
-	got, err := repo.ListPending(ctx)
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, pending1.ID, got[0].ID)
-	assert.Equal(t, entity.EnrichmentStatusPending, got[0].EnrichmentStatus)
-}
-
-func TestVenueRepository_UpdateEnriched(t *testing.T) {
-	cleanDatabase()
-	repo := rdb.NewVenueRepository(testDB)
-	ctx := context.Background()
-
-	v := &entity.Venue{
-		ID:      "018b2f19-e591-7d12-bf9e-f0e74f1b4903",
-		Name:    "zepp nagoya",
-		RawName: "zepp nagoya",
-	}
-	require.NoError(t, repo.Create(ctx, v))
-
-	mbid := "a2e6e2c0-1234-5678-abcd-000000000001"
-	enriched := &entity.Venue{
-		ID:      v.ID,
-		Name:    "Zepp Nagoya",
-		RawName: "zepp nagoya",
-		MBID:    &mbid,
-	}
-	require.NoError(t, repo.UpdateEnriched(ctx, enriched))
-
-	got, err := repo.Get(ctx, v.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "Zepp Nagoya", got.Name)
-	assert.Equal(t, "zepp nagoya", got.RawName)
-	require.NotNil(t, got.MBID)
-	assert.Equal(t, mbid, *got.MBID)
-	assert.Equal(t, entity.EnrichmentStatusEnriched, got.EnrichmentStatus)
-}
-
-func TestVenueRepository_UpdateEnriched_CoordinatesRoundTrip(t *testing.T) {
-	cleanDatabase()
-	repo := rdb.NewVenueRepository(testDB)
-	ctx := context.Background()
-
-	t.Run("non-nil coordinates persist and are returned by Get", func(t *testing.T) {
-		v := &entity.Venue{
-			ID:      "018b2f19-e591-7d12-bf9e-f0e74f1b4905",
-			Name:    "venue with coords",
-			RawName: "venue with coords",
-		}
-		require.NoError(t, repo.Create(ctx, v))
-
-		mbid := "a2e6e2c0-0000-0000-0000-000000000001"
-		enriched := &entity.Venue{
-			ID:          v.ID,
-			Name:        "Venue With Coords",
-			RawName:     "venue with coords",
-			MBID:        &mbid,
-			Coordinates: &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917},
-		}
-		require.NoError(t, repo.UpdateEnriched(ctx, enriched))
-
-		got, err := repo.Get(ctx, v.ID)
-		require.NoError(t, err)
-		require.NotNil(t, got.Coordinates, "Coordinates should be non-nil after enrichment with coords")
-		assert.InDelta(t, 35.6894, got.Coordinates.Latitude, 0.0001)
-		assert.InDelta(t, 139.6917, got.Coordinates.Longitude, 0.0001)
-	})
-
-	t.Run("nil coordinates persist as NULL and are returned as nil", func(t *testing.T) {
-		v := &entity.Venue{
-			ID:      "018b2f19-e591-7d12-bf9e-f0e74f1b4906",
-			Name:    "venue without coords",
-			RawName: "venue without coords",
-		}
-		require.NoError(t, repo.Create(ctx, v))
-
-		mbid := "a2e6e2c0-0000-0000-0000-000000000002"
-		enriched := &entity.Venue{
-			ID:          v.ID,
-			Name:        "Venue Without Coords",
-			RawName:     "venue without coords",
-			MBID:        &mbid,
-			Coordinates: nil,
-		}
-		require.NoError(t, repo.UpdateEnriched(ctx, enriched))
-
-		got, err := repo.Get(ctx, v.ID)
-		require.NoError(t, err)
-		assert.Nil(t, got.Coordinates, "Coordinates should be nil when no coords were provided")
-	})
-}
-
-func TestVenueRepository_MarkFailed(t *testing.T) {
-	cleanDatabase()
-	repo := rdb.NewVenueRepository(testDB)
-	ctx := context.Background()
-
-	v := &entity.Venue{
-		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b4904",
-		Name: "Unknown Venue",
-	}
-	require.NoError(t, repo.Create(ctx, v))
-	require.NoError(t, repo.MarkFailed(ctx, v.ID))
-
-	got, err := repo.Get(ctx, v.ID)
-	require.NoError(t, err)
-	assert.Equal(t, entity.EnrichmentStatusFailed, got.EnrichmentStatus)
-}
-
-func TestVenueRepository_MergeVenues(t *testing.T) {
-	cleanDatabase()
-	venueRepo := rdb.NewVenueRepository(testDB)
-	concertRepo := rdb.NewConcertRepository(testDB)
-	ctx := context.Background()
-
-	// Create an artist
-	artistID := "018b2f19-e591-7d12-bf9e-000000000001"
-	_, err := testDB.Pool.Exec(ctx, `INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`, artistID, "Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-000000000001")
-	require.NoError(t, err)
-
-	// Canonical venue (older)
-	canonical := &entity.Venue{
-		ID:      "018b2f19-e591-7d12-bf9e-f0e74f1b4910",
-		Name:    "Zepp Nagoya",
-		RawName: "Zepp Nagoya",
-	}
-	require.NoError(t, venueRepo.Create(ctx, canonical))
-
-	// Duplicate venue
-	duplicate := &entity.Venue{
-		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b4911",
-		Name:      "zepp nagoya",
-		RawName:   "zepp nagoya",
-		AdminArea: strPtr("JP-23"),
-	}
-	require.NoError(t, venueRepo.Create(ctx, duplicate))
-
-	// Create events on the duplicate venue. With the new natural key (artist_id, date, start_at),
-	// two events for the same artist/date/time cannot coexist regardless of venue. The merge
-	// now primarily re-points events from the duplicate venue to the canonical venue.
-	dupEvent1ID := "018b2f19-0000-7000-0000-000000000011"
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date, start_at, artist_id) VALUES ($1, $2, 'Show on Dup', '2026-03-01', '2026-03-01 19:00:00+00', $3)`,
-		dupEvent1ID, duplicate.ID, artistID)
-	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO concerts (event_id, artist_id) VALUES ($1, $2)`,
-		dupEvent1ID, artistID)
-	require.NoError(t, err)
-
-	// A second event only on duplicate with a different date
-	dupEvent2ID := "018b2f19-0000-7000-0000-000000000012"
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, 'Unique Show', '2026-04-01', $3)`,
-		dupEvent2ID, duplicate.ID, artistID)
-	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO concerts (event_id, artist_id) VALUES ($1, $2)`,
-		dupEvent2ID, artistID)
-	require.NoError(t, err)
-
-	_ = concertRepo
-
-	require.NoError(t, venueRepo.MergeVenues(ctx, canonical.ID, duplicate.ID))
-
-	// Duplicate venue should be gone
-	_, err = venueRepo.Get(ctx, duplicate.ID)
-	assert.ErrorIs(t, err, apperr.ErrNotFound)
-
-	// Canonical venue should have admin_area COALESCEd from duplicate
-	got, err := venueRepo.Get(ctx, canonical.ID)
-	require.NoError(t, err)
-	require.NotNil(t, got.AdminArea)
-	assert.Equal(t, "JP-23", *got.AdminArea)
-
-	// Both events should now belong to canonical venue
-	var venueID string
-	err = testDB.Pool.QueryRow(ctx, `SELECT venue_id FROM events WHERE id = $1`, dupEvent1ID).Scan(&venueID)
-	require.NoError(t, err)
-	assert.Equal(t, canonical.ID, venueID)
-
-	err = testDB.Pool.QueryRow(ctx, `SELECT venue_id FROM events WHERE id = $1`, dupEvent2ID).Scan(&venueID)
-	require.NoError(t, err)
-	assert.Equal(t, canonical.ID, venueID)
 }

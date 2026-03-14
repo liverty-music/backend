@@ -87,35 +87,25 @@ COMMENT ON COLUMN artist_official_site.id IS 'Unique identifier (UUIDv7, applica
 COMMENT ON COLUMN artist_official_site.artist_id IS 'Reference to the artist (1:1 relationship)';
 COMMENT ON COLUMN artist_official_site.url IS 'Official artist website URL';
 
--- Venue enrichment status enum
-CREATE TYPE venue_enrichment_status AS ENUM ('pending', 'enriched', 'failed');
-
 -- Venues table
 CREATE TABLE IF NOT EXISTS venues (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
     admin_area TEXT,
-    mbid TEXT,
     google_place_id TEXT,
-    enrichment_status venue_enrichment_status NOT NULL DEFAULT 'pending',
-    raw_name TEXT NOT NULL,
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
     CONSTRAINT chk_venues_name_not_empty CHECK (name <> ''),
-    CONSTRAINT chk_venues_raw_name_not_empty CHECK (raw_name <> ''),
     CONSTRAINT chk_venues_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE venues IS 'Physical locations where concerts and live events are hosted';
 COMMENT ON COLUMN venues.id IS 'Unique venue identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN venues.name IS 'Venue name as displayed to users';
+COMMENT ON COLUMN venues.name IS 'Canonical venue name from Google Places API';
 COMMENT ON COLUMN venues.admin_area IS 'ISO 3166-2 subdivision code (e.g., JP-13) for the venue location; NULL when not determinable with confidence';
-COMMENT ON COLUMN venues.mbid IS 'MusicBrainz Place ID (UUID format) for the canonical venue record; NULL until enriched';
-COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID for the canonical venue record; NULL until enriched';
-COMMENT ON COLUMN venues.enrichment_status IS 'Current state of the venue normalization pipeline: pending (default), enriched, or failed';
-COMMENT ON COLUMN venues.raw_name IS 'Original scraper-provided venue name before canonical renaming; backfilled from name on migration';
-COMMENT ON COLUMN venues.latitude IS 'WGS 84 latitude of the venue, populated during enrichment from MusicBrainz or Google Places; NULL until enriched';
-COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude of the venue, populated during enrichment from MusicBrainz or Google Places; NULL until enriched';
+COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID for the canonical venue record';
+COMMENT ON COLUMN venues.latitude IS 'WGS 84 latitude of the venue from Google Places API';
+COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude of the venue from Google Places API';
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (
@@ -271,14 +261,8 @@ CREATE INDEX IF NOT EXISTS idx_artist_official_site_artist_id ON artist_official
 COMMENT ON INDEX idx_artist_official_site_artist_id IS 'Optimizes retrieval of official site for an artist';
 
 -- Venues indexes
-CREATE UNIQUE INDEX IF NOT EXISTS idx_venues_mbid ON venues (mbid) WHERE mbid IS NOT NULL;
-COMMENT ON INDEX idx_venues_mbid IS 'Ensures uniqueness of MusicBrainz Place ID across venue records';
-
 CREATE UNIQUE INDEX IF NOT EXISTS idx_venues_google_place_id ON venues (google_place_id) WHERE google_place_id IS NOT NULL;
 COMMENT ON INDEX idx_venues_google_place_id IS 'Ensures uniqueness of Google Maps Place ID across venue records';
-
-CREATE INDEX IF NOT EXISTS idx_venues_raw_name ON venues (raw_name);
-COMMENT ON INDEX idx_venues_raw_name IS 'Speeds up venue lookup by raw (pre-enrichment) name as fallback in GetByName';
 
 -- Events indexes
 CREATE INDEX IF NOT EXISTS idx_events_local_event_date ON events(local_event_date);

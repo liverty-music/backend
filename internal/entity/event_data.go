@@ -6,7 +6,6 @@ import "time"
 const (
 	SubjectConcertDiscovered = "CONCERT.discovered"
 	SubjectConcertCreated    = "CONCERT.created"
-	SubjectVenueCreated      = "VENUE.created"
 	SubjectArtistCreated     = "ARTIST.created"
 )
 
@@ -53,15 +52,4 @@ type ArtistCreatedData struct {
 	ArtistName string `json:"artist_name"`
 	// MBID is the MusicBrainz identifier for canonical identity.
 	MBID string `json:"mbid"`
-}
-
-// VenueCreatedData is the payload for venue.created.v1 events.
-// Published by the create-concerts consumer when a new venue is created.
-type VenueCreatedData struct {
-	// VenueID is the internal UUID of the newly created venue.
-	VenueID string `json:"venue_id"`
-	// Name is the venue name.
-	Name string `json:"name"`
-	// AdminArea is the administrative area, if known.
-	AdminArea *string `json:"admin_area,omitempty"`
 }

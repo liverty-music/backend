@@ -4,58 +4,28 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// VenueRepository implements entity.VenueRepository and entity.VenueEnrichmentRepository for PostgreSQL.
+// VenueRepository implements entity.VenueRepository for PostgreSQL.
 type VenueRepository struct {
 	db *Database
 }
 
 const (
 	insertVenueQuery = `
-		INSERT INTO venues (id, name, admin_area, enrichment_status, raw_name, google_place_id, latitude, longitude)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO venues (id, name, admin_area, google_place_id, latitude, longitude)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	getVenueQuery = `
-		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name, latitude, longitude
+		SELECT id, name, admin_area, google_place_id, latitude, longitude
 		FROM venues
 		WHERE id = $1
-	`
-	getVenueByNameQuery = `
-		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name
-		FROM venues
-		WHERE name = $1 OR raw_name = $1
-		ORDER BY id ASC
-		LIMIT 1
 	`
 	getVenueByPlaceIDQuery = `
-		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name, latitude, longitude
+		SELECT id, name, admin_area, google_place_id, latitude, longitude
 		FROM venues
 		WHERE google_place_id = $1
-	`
-	listPendingVenuesQuery = `
-		SELECT id, name, admin_area, mbid, google_place_id, enrichment_status, raw_name
-		FROM venues
-		WHERE enrichment_status = 'pending'
-	`
-	updateEnrichedVenueQuery = `
-		UPDATE venues
-		SET
-			name = $2,
-			raw_name = COALESCE(raw_name, $3),
-			mbid = COALESCE(mbid, $4),
-			google_place_id = COALESCE(google_place_id, $5),
-			latitude = $6,
-			longitude = $7,
-			enrichment_status = 'enriched'
-		WHERE id = $1
-	`
-	markVenueFailedQuery = `
-		UPDATE venues
-		SET enrichment_status = 'failed'
-		WHERE id = $1
 	`
 )
 
@@ -66,20 +36,12 @@ func NewVenueRepository(db *Database) *VenueRepository {
 
 // Create creates a new venue in the database.
 func (r *VenueRepository) Create(ctx context.Context, venue *entity.Venue) error {
-	status := venue.EnrichmentStatus
-	if status == "" {
-		status = entity.EnrichmentStatusPending
-	}
-	rawName := venue.RawName
-	if rawName == "" {
-		rawName = venue.Name
-	}
 	var lat, lng *float64
 	if venue.Coordinates != nil {
 		lat = &venue.Coordinates.Latitude
 		lng = &venue.Coordinates.Longitude
 	}
-	_, err := r.db.Pool.Exec(ctx, insertVenueQuery, venue.ID, venue.Name, venue.AdminArea, status, rawName, venue.GooglePlaceID, lat, lng)
+	_, err := r.db.Pool.Exec(ctx, insertVenueQuery, venue.ID, venue.Name, venue.AdminArea, venue.GooglePlaceID, lat, lng)
 	if err != nil {
 		if IsUniqueViolation(err) {
 			r.db.logger.Warn(ctx, "duplicate venue",
@@ -104,7 +66,7 @@ func (r *VenueRepository) Get(ctx context.Context, id string) (*entity.Venue, er
 	var v entity.Venue
 	var lat, lng *float64
 	err := r.db.Pool.QueryRow(ctx, getVenueQuery, id).Scan(
-		&v.ID, &v.Name, &v.AdminArea, &v.MBID, &v.GooglePlaceID, &v.EnrichmentStatus, &v.RawName,
+		&v.ID, &v.Name, &v.AdminArea, &v.GooglePlaceID,
 		&lat, &lng,
 	)
 	if err != nil {
@@ -116,24 +78,12 @@ func (r *VenueRepository) Get(ctx context.Context, id string) (*entity.Venue, er
 	return &v, nil
 }
 
-// GetByName retrieves a venue by Name (or raw_name fallback) from the database.
-func (r *VenueRepository) GetByName(ctx context.Context, name string) (*entity.Venue, error) {
-	var v entity.Venue
-	err := r.db.Pool.QueryRow(ctx, getVenueByNameQuery, name).Scan(
-		&v.ID, &v.Name, &v.AdminArea, &v.MBID, &v.GooglePlaceID, &v.EnrichmentStatus, &v.RawName,
-	)
-	if err != nil {
-		return nil, toAppErr(err, "failed to get venue by name", slog.String("name", name))
-	}
-	return &v, nil
-}
-
 // GetByPlaceID retrieves a venue by Google Maps Place ID from the database.
 func (r *VenueRepository) GetByPlaceID(ctx context.Context, placeID string) (*entity.Venue, error) {
 	var v entity.Venue
 	var lat, lng *float64
 	err := r.db.Pool.QueryRow(ctx, getVenueByPlaceIDQuery, placeID).Scan(
-		&v.ID, &v.Name, &v.AdminArea, &v.MBID, &v.GooglePlaceID, &v.EnrichmentStatus, &v.RawName,
+		&v.ID, &v.Name, &v.AdminArea, &v.GooglePlaceID,
 		&lat, &lng,
 	)
 	if err != nil {
@@ -143,155 +93,4 @@ func (r *VenueRepository) GetByPlaceID(ctx context.Context, placeID string) (*en
 		v.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
 	}
 	return &v, nil
-}
-
-// ListPending returns all venues with enrichment_status = 'pending'.
-func (r *VenueRepository) ListPending(ctx context.Context) ([]*entity.Venue, error) {
-	rows, err := r.db.Pool.Query(ctx, listPendingVenuesQuery)
-	if err != nil {
-		return nil, toAppErr(err, "failed to list pending venues")
-	}
-	defer rows.Close()
-
-	venues, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*entity.Venue, error) {
-		var v entity.Venue
-		if err := row.Scan(&v.ID, &v.Name, &v.AdminArea, &v.MBID, &v.GooglePlaceID, &v.EnrichmentStatus, &v.RawName); err != nil {
-			return nil, err
-		}
-		return &v, nil
-	})
-	if err != nil {
-		return nil, toAppErr(err, "failed to scan pending venues")
-	}
-	return venues, nil
-}
-
-// UpdateEnriched updates a venue to the enriched state.
-func (r *VenueRepository) UpdateEnriched(ctx context.Context, venue *entity.Venue) error {
-	var lat, lng *float64
-	if venue.Coordinates != nil {
-		lat = &venue.Coordinates.Latitude
-		lng = &venue.Coordinates.Longitude
-	}
-	_, err := r.db.Pool.Exec(ctx, updateEnrichedVenueQuery,
-		venue.ID, venue.Name, venue.RawName, venue.MBID, venue.GooglePlaceID,
-		lat, lng,
-	)
-	if err != nil {
-		return toAppErr(err, "failed to update enriched venue", slog.String("venue_id", venue.ID))
-	}
-
-	r.db.logger.Info(ctx, "venue updated",
-		slog.String("entityType", "venue"),
-		slog.String("venueID", venue.ID),
-		slog.String("field", "enrichment"),
-	)
-	return nil
-}
-
-// MarkFailed sets enrichment_status = 'failed' for the given venue ID.
-func (r *VenueRepository) MarkFailed(ctx context.Context, id string) error {
-	_, err := r.db.Pool.Exec(ctx, markVenueFailedQuery, id)
-	if err != nil {
-		return toAppErr(err, "failed to mark venue as failed", slog.String("venue_id", id))
-	}
-	return nil
-}
-
-// MergeVenues merges a duplicate venue into a canonical venue atomically.
-func (r *VenueRepository) MergeVenues(ctx context.Context, canonicalID, duplicateID string) error {
-	tx, err := r.db.Pool.Begin(ctx)
-	if err != nil {
-		return toAppErr(err, "failed to begin merge transaction")
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Step 1: DELETE duplicate events that share (artist_id, local_event_date, start_at) with canonical
-	_, err = tx.Exec(ctx, `
-		DELETE FROM events e
-		WHERE e.venue_id = $1
-		  AND EXISTS (
-			SELECT 1 FROM events c
-			JOIN concerts cc ON cc.event_id = c.id
-			JOIN concerts dc ON dc.event_id = e.id
-			WHERE c.venue_id = $2
-			  AND cc.artist_id = dc.artist_id
-			  AND c.local_event_date = e.local_event_date
-			  AND c.start_at IS NOT DISTINCT FROM e.start_at
-		  )
-	`, duplicateID, canonicalID)
-	if err != nil {
-		return toAppErr(err, "failed to delete duplicate events during merge",
-			slog.String("canonical_id", canonicalID), slog.String("duplicate_id", duplicateID))
-	}
-
-	// Step 2: Re-point remaining events to canonical venue
-	_, err = tx.Exec(ctx, `
-		UPDATE events SET venue_id = $1 WHERE venue_id = $2
-	`, canonicalID, duplicateID)
-	if err != nil {
-		return toAppErr(err, "failed to re-point events during merge",
-			slog.String("canonical_id", canonicalID), slog.String("duplicate_id", duplicateID))
-	}
-
-	// Step 3: Read the duplicate's external IDs and admin_area before nulling them.
-	// We capture these values explicitly so that Step 3.5 can pass them as
-	// parameters rather than reading from the (already-nulled) duplicate row.
-	var dupAdminArea *string
-	var dupMBID *string
-	var dupGooglePlaceID *string
-	err = tx.QueryRow(ctx, `
-		SELECT admin_area, mbid, google_place_id FROM venues WHERE id = $1
-	`, duplicateID).Scan(&dupAdminArea, &dupMBID, &dupGooglePlaceID)
-	if err != nil {
-		return toAppErr(err, "failed to read duplicate venue fields during merge",
-			slog.String("duplicate_id", duplicateID))
-	}
-
-	// Step 3.5: Null out the duplicate's unique fields BEFORE copying them to the
-	// canonical. PostgreSQL evaluates unique partial indexes at the end of each
-	// individual statement. If we ran the COALESCE UPDATE first, both rows would
-	// temporarily share the same non-NULL external ID within that statement, causing
-	// a unique constraint violation.
-	_, err = tx.Exec(ctx, `
-		UPDATE venues SET mbid = NULL, google_place_id = NULL WHERE id = $1
-	`, duplicateID)
-	if err != nil {
-		return toAppErr(err, "failed to clear unique fields on duplicate venue during merge",
-			slog.String("duplicate_id", duplicateID))
-	}
-
-	// Step 4 (pre): COALESCE canonical venue fields using the values captured in
-	// Step 3. The duplicate's unique fields are now NULL, so we pass the desired
-	// values as explicit parameters to avoid a cross-statement race.
-	_, err = tx.Exec(ctx, `
-		UPDATE venues
-		SET
-			admin_area      = COALESCE(admin_area,      $2),
-			mbid            = COALESCE(mbid,            $3),
-			google_place_id = COALESCE(google_place_id, $4)
-		WHERE id = $1
-	`, canonicalID, dupAdminArea, dupMBID, dupGooglePlaceID)
-	if err != nil {
-		return toAppErr(err, "failed to update canonical venue fields during merge",
-			slog.String("canonical_id", canonicalID), slog.String("duplicate_id", duplicateID))
-	}
-
-	// Step 5: Delete duplicate venue
-	_, err = tx.Exec(ctx, `DELETE FROM venues WHERE id = $1`, duplicateID)
-	if err != nil {
-		return toAppErr(err, "failed to delete duplicate venue during merge",
-			slog.String("duplicate_id", duplicateID))
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit merge transaction")
-	}
-
-	r.db.logger.Info(ctx, "venues merged",
-		slog.String("entityType", "venue"),
-		slog.String("canonicalID", canonicalID),
-		slog.String("duplicateID", duplicateID),
-	)
-	return nil
 }
