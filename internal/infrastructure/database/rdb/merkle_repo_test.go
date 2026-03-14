@@ -36,8 +36,8 @@ func seedMerkleTestData(t *testing.T) string {
 
 	venueID := uuid.Must(uuid.NewV7()).String()
 	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO venues (id, name, raw_name) VALUES ($1, $2, $3)`,
-		venueID, "merkle-test-venue", "merkle-test-venue",
+		`INSERT INTO venues (id, name) VALUES ($1, $2)`,
+		venueID, "merkle-test-venue",
 	)
 	require.NoError(t, err)
 

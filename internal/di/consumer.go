@@ -14,7 +14,6 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
-	infrageo "github.com/liverty-music/backend/internal/infrastructure/geo"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -90,33 +89,24 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		return nil, fmt.Errorf("create messaging subscriber: %w", err)
 	}
 
-	// Infrastructure - Venue Enrichment
+	// Infrastructure - Google Maps Places API (required for venue resolution).
+	// Uses OAuth via ADC (Workload Identity in GKE).
+	if cfg.GCP.ProjectID == "" {
+		return nil, fmt.Errorf("GCP project ID is required for Google Maps Places API")
+	}
+	gmTokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		return nil, fmt.Errorf("obtain google maps token source: %w", err)
+	}
+	gmHTTPClient := &http.Client{
+		Transport: httpx.NewRetryTransport(nil),
+		Timeout:   10 * time.Second,
+	}
+	gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, gmHTTPClient, logger)
+	placeSearcher := googlemaps.NewPlaceSearcher(gmClient)
+
+	// Infrastructure - MusicBrainz (for artist name resolution)
 	musicbrainzClient := musicbrainz.NewClient(nil, logger)
-	mbSearcher := musicbrainz.NewPlaceSearcher(musicbrainzClient)
-
-	searchers := []usecase.VenueNamedSearcher{
-		{Searcher: mbSearcher, AssignToMBID: true},
-	}
-
-	// Google Maps Places API uses OAuth via ADC (Workload Identity in GKE).
-	// Skip registration when no GCP project is configured (e.g. local dev).
-	var gmPlaceSearcher entity.VenuePlaceSearcher
-	if cfg.GCP.ProjectID != "" {
-		gmTokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
-		if err != nil {
-			return nil, fmt.Errorf("obtain google maps token source: %w", err)
-		}
-		gmHTTPClient := &http.Client{
-			Transport: httpx.NewRetryTransport(nil),
-			Timeout:   10 * time.Second,
-		}
-		gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, gmHTTPClient, logger)
-		gmSearcher := googlemaps.NewPlaceSearcher(gmClient)
-		gmPlaceSearcher = gmSearcher
-		searchers = append(searchers, usecase.VenueNamedSearcher{Searcher: gmSearcher, AssignToMBID: false})
-	} else {
-		logger.Warn(ctx, "skipping Google Maps searcher: GCP project ID not configured")
-	}
 
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
@@ -126,15 +116,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		webpushSender,
 		logger,
 	)
-	adminAreaResolver := infrageo.NewAdminAreaResolver()
-	venueEnrichUC := usecase.NewVenueEnrichmentUseCase(venueRepo, venueRepo, venueRepo, adminAreaResolver, logger, searchers...)
-	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, gmPlaceSearcher, publisher, logger)
+	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, placeSearcher, publisher, logger)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(artistRepo, concertRepo, pushNotificationUC, logger)
-	venueConsumer := event.NewVenueConsumer(venueEnrichUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 
 	// Router
@@ -143,8 +130,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		return nil, fmt.Errorf("create messaging router: %w", err)
 	}
 
-	// create-concerts publishes to multiple topics (CONCERT.created, VENUE.created)
-	// so it uses AddConsumerHandler and publishes manually via ConcertCreationUseCase.
 	router.AddConsumerHandler(
 		"create-concerts",
 		entity.SubjectConcertDiscovered,
@@ -160,13 +145,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	router.AddConsumerHandler(
-		"enrich-venue",
-		entity.SubjectVenueCreated,
-		subscriber,
-		venueConsumer.Handle,
-	)
-
-	router.AddConsumerHandler(
 		"resolve-artist-name",
 		entity.SubjectArtistCreated,
 		subscriber,
@@ -174,11 +152,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	// Register shutdown phases.
-	// Drain: the health server is registered by the caller (cmd/consumer)
-	// because it is started before DI to enable early K8s probe responses.
-	// The Watermill Router is NOT registered here because Router.Run(ctx)
-	// internally closes the router when ctx is cancelled, making an
-	// explicit Drain-phase Close redundant (and noisy).
 	shutdown.Init(logger)
 	shutdown.AddFlushPhase(publisher)
 	shutdown.AddExternalPhase(musicbrainzClient)

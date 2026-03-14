@@ -18,8 +18,9 @@ import (
 // batches. It resolves venues, persists concerts, and publishes downstream events.
 type ConcertCreationUseCase interface {
 	// CreateFromDiscovered processes a batch of scraped concerts for a single artist.
-	// For each concert it resolves or creates a venue, builds concert entities,
-	// bulk-inserts them, and publishes concert.created.v1 and venue.created.v1 events.
+	// For each concert it resolves a venue via Google Places API, builds concert
+	// entities, bulk-inserts them, and publishes a concert.created.v1 event.
+	// Concerts whose venues cannot be resolved are skipped with a structured log.
 	CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error
 }
 
@@ -36,7 +37,7 @@ type concertCreationUseCase struct {
 var _ ConcertCreationUseCase = (*concertCreationUseCase)(nil)
 
 // NewConcertCreationUseCase creates a new ConcertCreationUseCase.
-// placeSearcher may be nil when Google Places API is not configured (e.g., local dev).
+// placeSearcher must not be nil; panics if not provided.
 func NewConcertCreationUseCase(
 	venueRepo entity.VenueRepository,
 	concertRepo entity.ConcertRepository,
@@ -44,6 +45,9 @@ func NewConcertCreationUseCase(
 	publisher message.Publisher,
 	logger *logging.Logger,
 ) ConcertCreationUseCase {
+	if placeSearcher == nil {
+		panic("placeSearcher is required")
+	}
 	return &concertCreationUseCase{
 		venueRepo:     venueRepo,
 		concertRepo:   concertRepo,
@@ -61,18 +65,26 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	newVenues := make(map[string]*entity.Venue) // track newly created venues by cache key
 
 	for _, sc := range data.Concerts {
-		venueID, venue, err := uc.resolveVenue(ctx, sc.ListedVenueName, sc.AdminArea, newVenues)
+		venueID, venue, skip, err := uc.resolveVenue(ctx, sc.ListedVenueName, sc.AdminArea, newVenues)
 		if err != nil {
 			return fmt.Errorf("resolve venue %q: %w", sc.ListedVenueName, err)
 		}
+		if skip {
+			uc.logger.Warn(ctx, "skipping concert: venue not found in Google Places",
+				slog.String("artist_id", data.ArtistID),
+				slog.String("title", sc.Title),
+				slog.String("listed_venue_name", sc.ListedVenueName),
+				slog.Any("admin_area", sc.AdminArea),
+				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
+				slog.Any("start_time", sc.StartTime),
+				slog.Any("open_time", sc.OpenTime),
+				slog.String("source_url", sc.SourceURL),
+			)
+			continue
+		}
 
 		if venue != nil {
-			// Cache by place_id if available, otherwise by listed name.
-			cacheKey := sc.ListedVenueName
-			if venue.GooglePlaceID != nil {
-				cacheKey = *venue.GooglePlaceID
-			}
-			newVenues[cacheKey] = venue
+			newVenues[*venue.GooglePlaceID] = venue
 		}
 
 		id, err := uuid.NewV7()
@@ -121,102 +133,64 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		// Non-fatal: concerts are already persisted.
 	}
 
-	// Publish venue.created.v1 for each newly created venue that needs enrichment.
-	for _, v := range newVenues {
-		if v.EnrichmentStatus == entity.EnrichmentStatusEnriched {
-			continue // Already enriched via Google Places at creation time.
-		}
-		venueData := entity.VenueCreatedData{
-			VenueID:   v.ID,
-			Name:      v.Name,
-			AdminArea: v.AdminArea,
-		}
-		if err := uc.publishEvent(ctx, entity.SubjectVenueCreated, venueData); err != nil {
-			uc.logger.Error(ctx, "failed to publish venue.created event", err,
-				slog.String("venue_id", v.ID),
-			)
-			// Non-fatal: venue enrichment will pick up pending venues on next batch.
-		}
-	}
-
 	return nil
 }
 
-// resolveVenue resolves a venue for a scraped concert.
+// resolveVenue resolves a venue for a scraped concert via Google Places API.
 //
 // Resolution strategy:
-//  1. Check batch-local cache (by place_id or name).
-//  2. Call Google Places API to get canonical place_id (if configured).
-//  3. If Places API returns a result, look up venue by google_place_id.
-//  4. If not found by place_id, create a new enriched venue from the Places result.
-//  5. On Places API failure/not-found, fall back to GetByName lookup.
-//  6. If no venue found at all, create a new venue with pending enrichment.
+//  1. Call Google Places API to get canonical place_id.
+//  2. Check batch-local cache by place_id.
+//  3. Look up existing venue by google_place_id in the database.
+//  4. If not found, create a new venue from the Places result.
 //
-// Returns the venue ID and a non-nil *Venue only when a new venue was created.
+// Returns skip=true when Places API returns NotFound, signalling the caller
+// to skip the concert. Non-nil *Venue is returned only when a new venue was created.
 func (uc *concertCreationUseCase) resolveVenue(
 	ctx context.Context,
 	name string,
 	adminArea *string,
 	newVenues map[string]*entity.Venue,
-) (string, *entity.Venue, error) {
-	// Try Google Places API first (if configured).
-	if uc.placeSearcher != nil {
-		area := ""
-		if adminArea != nil {
-			area = *adminArea
-		}
-
-		place, err := uc.placeSearcher.SearchPlace(ctx, name, area)
-		if err == nil {
-			// Check batch-local cache by place_id.
-			if v, ok := newVenues[place.ExternalID]; ok {
-				return v.ID, nil, nil
-			}
-
-			// Look up existing venue by google_place_id.
-			existing, err := uc.venueRepo.GetByPlaceID(ctx, place.ExternalID)
-			if err == nil {
-				return existing.ID, nil, nil
-			}
-			if !errors.Is(err, apperr.ErrNotFound) {
-				return "", nil, fmt.Errorf("get venue by place ID: %w", err)
-			}
-
-			// Create new venue from Places API result (already enriched).
-			return uc.createVenueFromPlace(ctx, name, adminArea, place)
-		}
-
-		// Log and fall through to name-based lookup on failure.
-		if !errors.Is(err, apperr.ErrNotFound) {
-			uc.logger.Warn(ctx, "Google Places API error, falling back to name lookup",
-				slog.String("venue_name", name),
-				slog.Any("error", err),
-			)
-		}
+) (string, *entity.Venue, bool, error) {
+	area := ""
+	if adminArea != nil {
+		area = *adminArea
 	}
 
-	// Fallback: check batch-local cache by name.
-	if v, ok := newVenues[name]; ok {
-		return v.ID, nil, nil
+	place, err := uc.placeSearcher.SearchPlace(ctx, name, area)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			return "", nil, true, nil
+		}
+		return "", nil, false, fmt.Errorf("search place %q: %w", name, err)
 	}
 
-	// Fallback: look up existing venue by name.
-	existing, err := uc.venueRepo.GetByName(ctx, name)
+	// Check batch-local cache by place_id.
+	if v, ok := newVenues[place.ExternalID]; ok {
+		return v.ID, nil, false, nil
+	}
+
+	// Look up existing venue by google_place_id.
+	existing, err := uc.venueRepo.GetByPlaceID(ctx, place.ExternalID)
 	if err == nil {
-		return existing.ID, nil, nil
+		return existing.ID, nil, false, nil
 	}
 	if !errors.Is(err, apperr.ErrNotFound) {
-		return "", nil, fmt.Errorf("get venue by name: %w", err)
+		return "", nil, false, fmt.Errorf("get venue by place ID: %w", err)
 	}
 
-	// Create a new venue with pending enrichment status.
-	return uc.createVenuePending(ctx, name, adminArea)
+	// Create new venue from Places API result.
+	id, venue, err := uc.createVenueFromPlace(ctx, name, adminArea, place)
+	if err != nil {
+		return "", nil, false, err
+	}
+	return id, venue, false, nil
 }
 
 // createVenueFromPlace creates a new venue using canonical data from the Google Places API.
 func (uc *concertCreationUseCase) createVenueFromPlace(
 	ctx context.Context,
-	rawName string,
+	listedName string,
 	adminArea *string,
 	place *entity.VenuePlace,
 ) (string, *entity.Venue, error) {
@@ -226,13 +200,11 @@ func (uc *concertCreationUseCase) createVenueFromPlace(
 	}
 
 	venue := &entity.Venue{
-		ID:               id.String(),
-		Name:             place.Name,
-		AdminArea:        adminArea,
-		GooglePlaceID:    &place.ExternalID,
-		Coordinates:      place.Coordinates,
-		EnrichmentStatus: entity.EnrichmentStatusEnriched,
-		RawName:          rawName,
+		ID:            id.String(),
+		Name:          place.Name,
+		AdminArea:     adminArea,
+		GooglePlaceID: &place.ExternalID,
+		Coordinates:   place.Coordinates,
 	}
 
 	if err := uc.venueRepo.Create(ctx, venue); err != nil {
@@ -242,39 +214,8 @@ func (uc *concertCreationUseCase) createVenueFromPlace(
 	uc.logger.Info(ctx, "created new venue from Google Places",
 		slog.String("venue_id", venue.ID),
 		slog.String("venue_name", place.Name),
-		slog.String("raw_name", rawName),
+		slog.String("raw_name", listedName),
 		slog.String("place_id", place.ExternalID),
-	)
-
-	return venue.ID, venue, nil
-}
-
-// createVenuePending creates a new venue with pending enrichment status.
-func (uc *concertCreationUseCase) createVenuePending(
-	ctx context.Context,
-	name string,
-	adminArea *string,
-) (string, *entity.Venue, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return "", nil, fmt.Errorf("generate venue ID: %w", err)
-	}
-
-	venue := &entity.Venue{
-		ID:               id.String(),
-		Name:             name,
-		AdminArea:        adminArea,
-		EnrichmentStatus: entity.EnrichmentStatusPending,
-		RawName:          name,
-	}
-
-	if err := uc.venueRepo.Create(ctx, venue); err != nil {
-		return "", nil, fmt.Errorf("create venue: %w", err)
-	}
-
-	uc.logger.Info(ctx, "created new venue (pending enrichment)",
-		slog.String("venue_id", venue.ID),
-		slog.String("venue_name", name),
 	)
 
 	return venue.ID, venue, nil
