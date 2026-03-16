@@ -1,7 +1,10 @@
 // Package entity defines core domain entities and business logic interfaces.
 package entity
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Artist represents a musical artist or group recorded in the system.
 //
@@ -16,6 +19,12 @@ type Artist struct {
 	Name string
 	// MBID is the canonical MusicBrainz Identifier for identity normalization.
 	MBID string
+	// Fanart holds cached community-curated images from fanart.tv.
+	// nil when image data has not been fetched yet.
+	Fanart *Fanart
+	// FanartSyncTime is the timestamp of the last successful fanart.tv sync.
+	// nil when no sync has occurred.
+	FanartSyncTime *time.Time
 }
 
 // NewArtist creates a new Artist with an auto-generated UUIDv7 ID.
@@ -139,6 +148,28 @@ type ArtistRepository interface {
 	//   - NotFound: the artist exists but has no official site registered.
 	//   - Internal: database query failure.
 	GetOfficialSite(ctx context.Context, artistID string) (*OfficialSite, error)
+
+	// Fanart operations
+
+	// UpdateFanart replaces the cached fanart.tv data for an artist.
+	// When fanart is nil, only fanart_synced_at is updated (marking
+	// the artist as synced with no images available).
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no artist exists with the provided ID.
+	//   - Internal: database execution failure.
+	UpdateFanart(ctx context.Context, id string, fanart *Fanart, syncTime time.Time) error
+
+	// ListStaleOrMissingFanart returns artists that need a fanart.tv sync,
+	// prioritizing artists with no fanart data (NULL) over stale entries.
+	// staleDuration defines how old fanart_synced_at must be to qualify.
+	// limit caps the number of returned artists.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListStaleOrMissingFanart(ctx context.Context, staleDuration time.Duration, limit int) ([]*Artist, error)
 }
 
 // ArtistSearcher defines discovery operations for finding artists in external catalogs.

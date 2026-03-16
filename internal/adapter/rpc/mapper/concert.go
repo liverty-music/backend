@@ -47,7 +47,7 @@ func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 		}
 	}
 	if c.SourceURL != "" {
-		proto.SourceUrl = &entityv1.SourceUrl{
+		proto.SourceUrl = &entityv1.Url{
 			Value: c.SourceURL,
 		}
 	}

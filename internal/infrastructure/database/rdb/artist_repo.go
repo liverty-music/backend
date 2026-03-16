@@ -3,7 +3,9 @@ package rdb
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -24,24 +26,34 @@ const (
 	`
 	// Fetch back MBID artists preserving the input array order via WITH ORDINALITY.
 	selectArtistsByMBIDsQuery = `
-		SELECT a.id, a.name, a.mbid
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at
 		FROM artists a
 		JOIN unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord) ON a.mbid = t.mbid
 		ORDER BY t.ord
 	`
 	listArtistsQuery = `
-		SELECT id, name, mbid
+		SELECT id, name, mbid, fanart, fanart_synced_at
 		FROM artists
 	`
 	getArtistQuery = `
-		SELECT id, name, mbid
+		SELECT id, name, mbid, fanart, fanart_synced_at
 		FROM artists
 		WHERE id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT id, name, mbid
+		SELECT id, name, mbid, fanart, fanart_synced_at
 		FROM artists
 		WHERE mbid = $1
+	`
+	updateFanartQuery = `
+		UPDATE artists SET fanart = $2, fanart_synced_at = $3 WHERE id = $1
+	`
+	listStaleOrMissingFanartQuery = `
+		SELECT id, name, mbid, fanart, fanart_synced_at
+		FROM artists
+		WHERE fanart IS NULL OR fanart_synced_at < $1
+		ORDER BY fanart_synced_at ASC NULLS FIRST
+		LIMIT $2
 	`
 	getOfficialSiteQuery = `
 		SELECT id, artist_id, url
@@ -60,6 +72,28 @@ const (
 // NewArtistRepository creates a new artist repository instance.
 func NewArtistRepository(db *Database) *ArtistRepository {
 	return &ArtistRepository{db: db}
+}
+
+// scanArtist scans a row into an Artist entity including nullable fanart columns.
+func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
+	var a entity.Artist
+	var fanartJSON []byte
+	var syncedAt *time.Time
+
+	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt); err != nil {
+		return nil, err
+	}
+
+	if len(fanartJSON) > 0 {
+		var f entity.Fanart
+		if err := json.Unmarshal(fanartJSON, &f); err != nil {
+			return nil, err
+		}
+		a.Fanart = &f
+	}
+	a.FanartSyncTime = syncedAt
+
+	return &a, nil
 }
 
 // Create persists one or more artists using unnest bulk upsert.
@@ -108,11 +142,11 @@ func (r *ArtistRepository) Create(ctx context.Context, artists ...*entity.Artist
 
 	i := 0
 	for rows.Next() {
-		var a entity.Artist
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
+		a, err := scanArtist(rows.Scan)
+		if err != nil {
 			return nil, toAppErr(err, "failed to scan artist")
 		}
-		resultByOrigIdx[inputIdx[i]] = &a
+		resultByOrigIdx[inputIdx[i]] = a
 		i++
 	}
 	if err := rows.Err(); err != nil {
@@ -150,11 +184,11 @@ func (r *ArtistRepository) ListByMBIDs(ctx context.Context, mbids []string) ([]*
 
 	var artists []*entity.Artist
 	for rows.Next() {
-		var a entity.Artist
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
+		a, err := scanArtist(rows.Scan)
+		if err != nil {
 			return nil, toAppErr(err, "failed to scan artist")
 		}
-		artists = append(artists, &a)
+		artists = append(artists, a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "error iterating artist rows by mbids")
@@ -172,11 +206,11 @@ func (r *ArtistRepository) List(ctx context.Context) ([]*entity.Artist, error) {
 
 	var artists []*entity.Artist
 	for rows.Next() {
-		var a entity.Artist
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID); err != nil {
+		a, err := scanArtist(rows.Scan)
+		if err != nil {
 			return nil, toAppErr(err, "failed to scan artist")
 		}
-		artists = append(artists, &a)
+		artists = append(artists, a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "error iterating artist rows")
@@ -186,22 +220,22 @@ func (r *ArtistRepository) List(ctx context.Context) ([]*entity.Artist, error) {
 
 // Get retrieves an artist by ID.
 func (r *ArtistRepository) Get(ctx context.Context, id string) (*entity.Artist, error) {
-	var a entity.Artist
-	err := r.db.Pool.QueryRow(ctx, getArtistQuery, id).Scan(&a.ID, &a.Name, &a.MBID)
+	row := r.db.Pool.QueryRow(ctx, getArtistQuery, id)
+	a, err := scanArtist(row.Scan)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get artist", slog.String("id", id))
 	}
-	return &a, nil
+	return a, nil
 }
 
 // GetByMBID retrieves an artist by MusicBrainz ID.
 func (r *ArtistRepository) GetByMBID(ctx context.Context, mbid string) (*entity.Artist, error) {
-	var a entity.Artist
-	err := r.db.Pool.QueryRow(ctx, getArtistByMBIDQuery, mbid).Scan(&a.ID, &a.Name, &a.MBID)
+	row := r.db.Pool.QueryRow(ctx, getArtistByMBIDQuery, mbid)
+	a, err := scanArtist(row.Scan)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get artist by mbid", slog.String("mbid", mbid))
 	}
-	return &a, nil
+	return a, nil
 }
 
 // UpdateName updates the display name of an artist.
@@ -246,4 +280,56 @@ func (r *ArtistRepository) GetOfficialSite(ctx context.Context, artistID string)
 		return nil, toAppErr(err, "failed to get official site", slog.String("artist_id", artistID))
 	}
 	return &s, nil
+}
+
+// UpdateFanart replaces the cached fanart.tv data for an artist.
+func (r *ArtistRepository) UpdateFanart(ctx context.Context, id string, fanart *entity.Fanart, syncTime time.Time) error {
+	var fanartJSON []byte
+	if fanart != nil {
+		var err error
+		fanartJSON, err = json.Marshal(fanart)
+		if err != nil {
+			return apperr.Wrap(err, codes.Internal, "failed to marshal fanart data")
+		}
+	}
+
+	tag, err := r.db.Pool.Exec(ctx, updateFanartQuery, id, fanartJSON, syncTime)
+	if err != nil {
+		return toAppErr(err, "failed to update fanart", slog.String("id", id))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "artist not found")
+	}
+
+	r.db.logger.Info(ctx, "artist fanart updated",
+		slog.String("entityType", "artist"),
+		slog.String("id", id),
+	)
+	return nil
+}
+
+// ListStaleOrMissingFanart returns artists needing a fanart.tv sync.
+// Artists with no fanart data (NULL) are returned first, followed by those
+// with stale data older than staleDuration.
+func (r *ArtistRepository) ListStaleOrMissingFanart(ctx context.Context, staleDuration time.Duration, limit int) ([]*entity.Artist, error) {
+	staleThreshold := time.Now().Add(-staleDuration)
+
+	rows, err := r.db.Pool.Query(ctx, listStaleOrMissingFanartQuery, staleThreshold, limit)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list stale or missing fanart")
+	}
+	defer rows.Close()
+
+	var artists []*entity.Artist
+	for rows.Next() {
+		a, err := scanArtist(rows.Scan)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan artist")
+		}
+		artists = append(artists, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating stale fanart rows")
+	}
+	return artists, nil
 }

@@ -11,7 +11,7 @@ func ArtistToProto(a *entity.Artist) *entityv1.Artist {
 		return nil
 	}
 
-	return &entityv1.Artist{
+	proto := &entityv1.Artist{
 		Id: &entityv1.ArtistId{
 			Value: a.ID,
 		},
@@ -22,6 +22,40 @@ func ArtistToProto(a *entity.Artist) *entityv1.Artist {
 			Value: a.MBID,
 		},
 	}
+
+	if a.Fanart != nil {
+		proto.Fanart = fanartToProto(a.Fanart)
+	}
+
+	return proto
+}
+
+// fanartToProto maps a domain Fanart entity to its Protobuf wire representation,
+// selecting the best image (highest likes) for each image type.
+func fanartToProto(f *entity.Fanart) *entityv1.Fanart {
+	if f == nil {
+		return nil
+	}
+
+	proto := &entityv1.Fanart{}
+
+	if url := entity.BestByLikes(f.ArtistThumb); url != "" {
+		proto.ArtistThumb = &entityv1.Url{Value: url}
+	}
+	if url := entity.BestByLikes(f.ArtistBackground); url != "" {
+		proto.ArtistBackground = &entityv1.Url{Value: url}
+	}
+	if url := entity.BestByLikes(f.HDMusicLogo); url != "" {
+		proto.HdMusicLogo = &entityv1.Url{Value: url}
+	}
+	if url := entity.BestByLikes(f.MusicLogo); url != "" {
+		proto.MusicLogo = &entityv1.Url{Value: url}
+	}
+	if url := entity.BestByLikes(f.MusicBanner); url != "" {
+		proto.MusicBanner = &entityv1.Url{Value: url}
+	}
+
+	return proto
 }
 
 // ArtistsToProto maps a collection of domain Artist entities to a collection of Protobuf messages.

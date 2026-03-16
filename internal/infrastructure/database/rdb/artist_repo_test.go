@@ -3,6 +3,7 @@ package rdb_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -183,6 +184,150 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 	}
 }
 
+func TestArtistRepository_UpdateFanart(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("stores and retrieves fanart data", func(t *testing.T) {
+		cleanDatabase()
+		created, err := repo.Create(ctx, entity.NewArtist("Fanart Artist", "fa000000-0000-0000-0000-00000000dd01"))
+		require.NoError(t, err)
+		artistID := created[0].ID
+
+		fanart := &entity.Fanart{
+			ArtistThumb: []entity.FanartImage{
+				{ID: "100", URL: "https://assets.fanart.tv/thumb.jpg", Likes: 5, Lang: "en"},
+			},
+			HDMusicLogo: []entity.FanartImage{
+				{ID: "200", URL: "https://assets.fanart.tv/logo.png", Likes: 10, Lang: "ja"},
+			},
+		}
+		syncTime := time.Date(2026, 3, 16, 10, 0, 0, 0, time.UTC)
+
+		err = repo.UpdateFanart(ctx, artistID, fanart, syncTime)
+		require.NoError(t, err)
+
+		got, err := repo.Get(ctx, artistID)
+		require.NoError(t, err)
+		require.NotNil(t, got.Fanart)
+		assert.Len(t, got.Fanart.ArtistThumb, 1)
+		assert.Equal(t, "https://assets.fanart.tv/thumb.jpg", got.Fanart.ArtistThumb[0].URL)
+		assert.Equal(t, 5, got.Fanart.ArtistThumb[0].Likes)
+		assert.Len(t, got.Fanart.HDMusicLogo, 1)
+		assert.Equal(t, "https://assets.fanart.tv/logo.png", got.Fanart.HDMusicLogo[0].URL)
+		require.NotNil(t, got.FanartSyncTime)
+		assert.True(t, syncTime.Equal(*got.FanartSyncTime))
+	})
+
+	t.Run("stores nil fanart with sync time", func(t *testing.T) {
+		cleanDatabase()
+		created, err := repo.Create(ctx, entity.NewArtist("No Fanart", "fa000000-0000-0000-0000-00000000dd02"))
+		require.NoError(t, err)
+		artistID := created[0].ID
+
+		syncTime := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+		err = repo.UpdateFanart(ctx, artistID, nil, syncTime)
+		require.NoError(t, err)
+
+		got, err := repo.Get(ctx, artistID)
+		require.NoError(t, err)
+		assert.Nil(t, got.Fanart)
+		require.NotNil(t, got.FanartSyncTime)
+		assert.True(t, syncTime.Equal(*got.FanartSyncTime))
+	})
+
+	t.Run("returns NotFound for unknown ID", func(t *testing.T) {
+		cleanDatabase()
+		err := repo.UpdateFanart(ctx, "00000000-0000-0000-0000-000000000000", nil, time.Now())
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}
+
+func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("returns artists with no fanart first then stale", func(t *testing.T) {
+		cleanDatabase()
+
+		// Create three artists.
+		created, err := repo.Create(ctx,
+			entity.NewArtist("No Fanart", "50000000-0000-0000-0000-00000000aa01"),
+			entity.NewArtist("Stale Fanart", "50000000-0000-0000-0000-00000000aa02"),
+			entity.NewArtist("Fresh Fanart", "50000000-0000-0000-0000-00000000aa03"),
+		)
+		require.NoError(t, err)
+
+		staleFanart := &entity.Fanart{
+			ArtistThumb: []entity.FanartImage{
+				{ID: "1", URL: "https://example.com/old.jpg", Likes: 1, Lang: "en"},
+			},
+		}
+
+		freshFanart := &entity.Fanart{
+			ArtistThumb: []entity.FanartImage{
+				{ID: "2", URL: "https://example.com/new.jpg", Likes: 2, Lang: "en"},
+			},
+		}
+
+		// Stale: synced 10 days ago.
+		staleTime := time.Now().Add(-10 * 24 * time.Hour)
+		err = repo.UpdateFanart(ctx, created[1].ID, staleFanart, staleTime)
+		require.NoError(t, err)
+
+		// Fresh: synced 1 day ago.
+		freshTime := time.Now().Add(-1 * 24 * time.Hour)
+		err = repo.UpdateFanart(ctx, created[2].ID, freshFanart, freshTime)
+		require.NoError(t, err)
+
+		// Query with 7-day stale threshold.
+		got, err := repo.ListStaleOrMissingFanart(ctx, 7*24*time.Hour, 10)
+		require.NoError(t, err)
+
+		// Should return "No Fanart" (NULL) and "Stale Fanart" (10 days old).
+		// "Fresh Fanart" (1 day old) should not appear.
+		require.Len(t, got, 2)
+		assert.Equal(t, "No Fanart", got[0].Name)
+		assert.Equal(t, "Stale Fanart", got[1].Name)
+	})
+
+	t.Run("respects limit", func(t *testing.T) {
+		cleanDatabase()
+
+		_, err := repo.Create(ctx,
+			entity.NewArtist("A", "11000000-0000-0000-0000-00000000bb01"),
+			entity.NewArtist("B", "11000000-0000-0000-0000-00000000bb02"),
+			entity.NewArtist("C", "11000000-0000-0000-0000-00000000bb03"),
+		)
+		require.NoError(t, err)
+
+		got, err := repo.ListStaleOrMissingFanart(ctx, 7*24*time.Hour, 2)
+		require.NoError(t, err)
+		assert.Len(t, got, 2)
+	})
+
+	t.Run("returns empty when all are fresh", func(t *testing.T) {
+		cleanDatabase()
+
+		created, err := repo.Create(ctx,
+			entity.NewArtist("Fresh", "f0000000-0000-0000-0000-00000000cc01"),
+		)
+		require.NoError(t, err)
+
+		freshFanart := &entity.Fanart{
+			ArtistThumb: []entity.FanartImage{
+				{ID: "1", URL: "https://example.com/fresh.jpg", Likes: 1, Lang: "en"},
+			},
+		}
+		err = repo.UpdateFanart(ctx, created[0].ID, freshFanart, time.Now())
+		require.NoError(t, err)
+
+		got, err := repo.ListStaleOrMissingFanart(ctx, 7*24*time.Hour, 10)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+}
+
 func TestArtistRepository_UpdateName(t *testing.T) {
 	repo := rdb.NewArtistRepository(testDB)
 	ctx := context.Background()
@@ -197,7 +342,7 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 			name: "updates name successfully",
 			setup: func() string {
 				cleanDatabase()
-				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "77777777-7777-7777-7777-77update0001"))
+				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "77777777-7777-7777-7777-00000000ee01"))
 				require.NoError(t, err)
 				return created[0].ID
 			},

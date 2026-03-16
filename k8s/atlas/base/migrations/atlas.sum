@@ -1,4 +1,4 @@
-h1:UUwN3LC8u1lLxeHlRlIjL5Av85SIiWsDFCwhZ81KKPo=
+h1:wd5mTI/tSJAStcMQG3/eZedvm9YhGekgRH1rbTaUzwM=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -46,3 +46,4 @@ h1:UUwN3LC8u1lLxeHlRlIjL5Av85SIiWsDFCwhZ81KKPo=
 20260313163404_fix_venue_dedup.sql h1:+z/xsTr0kUnqpx9rfM885Aqt3OqgooqB61vQGvdLgBg=
 20260314051257_simplify_event_natural_key.sql h1:7EH2wuC2ZfiK5R8gUYtuAqECiymDDm2WwL1+FD1mmOQ=
 20260314160000_remove_venue_enrichment.sql h1:+WKJZisJIFTdij4xvKCCP/mRCipR+XaFoEXTi8wQq3k=
+20260316120000_add_artist_fanart.sql h1:mQawD5hAndDfpqdPYSNYTQNBCOcty6BAUv8LU24ko0A=
