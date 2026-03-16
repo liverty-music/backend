@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -30,7 +31,7 @@ const (
 		WHERE user_id = $1 AND artist_id = $2
 	`
 	followListByUserQuery = `
-		SELECT a.id, a.name, COALESCE(a.mbid, ''), fa.hype
+		SELECT a.id, a.name, COALESCE(a.mbid, ''), a.fanart, fa.hype
 		FROM artists a
 		JOIN followed_artists fa ON a.id = fa.artist_id
 		WHERE fa.user_id = $1
@@ -114,9 +115,17 @@ func (r *FollowRepository) ListByUser(ctx context.Context, userID string) ([]*en
 	var followed []*entity.FollowedArtist
 	for rows.Next() {
 		var a entity.Artist
+		var fanartJSON []byte
 		var hype string
-		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &hype); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &hype); err != nil {
 			return nil, toAppErr(err, "failed to scan followed artist")
+		}
+		if len(fanartJSON) > 0 {
+			var f entity.Fanart
+			if err := json.Unmarshal(fanartJSON, &f); err != nil {
+				return nil, toAppErr(err, "failed to unmarshal fanart JSON")
+			}
+			a.Fanart = &f
 		}
 		followed = append(followed, &entity.FollowedArtist{
 			UserID: userID,
