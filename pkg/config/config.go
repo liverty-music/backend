@@ -419,17 +419,11 @@ func (c *ServerConfig) Validate() error {
 	return nil
 }
 
-// Validate validates JobConfig including base checks plus NATS URL for non-local environments.
+// Validate validates JobConfig including base checks.
+// NATS URL is optional because not all jobs require event messaging
+// (e.g., artist-image-sync only needs database access).
 func (c *JobConfig) Validate() error {
-	if err := c.BaseConfig.Validate(); err != nil {
-		return err
-	}
-
-	if !c.IsLocal() && c.NATS.URL == "" {
-		return fmt.Errorf("NATS URL is required for non-local environments")
-	}
-
-	return nil
+	return c.BaseConfig.Validate()
 }
 
 // Validate validates ConsumerConfig including base checks plus NATS URL for non-local environments.

@@ -324,7 +324,7 @@ func TestJobConfig_Validate(t *testing.T) {
 		assert.NoError(t, cfg.Validate())
 	})
 
-	t.Run("missing NATS URL in development", func(t *testing.T) {
+	t.Run("valid development without NATS", func(t *testing.T) {
 		cfg := &JobConfig{
 			BaseConfig: BaseConfig{
 				Environment: "development",
@@ -334,21 +334,6 @@ func TestJobConfig_Validate(t *testing.T) {
 				},
 				Logging: LoggingConfig{Level: "info", Format: "json"},
 			},
-		}
-		assert.Error(t, cfg.Validate())
-	})
-
-	t.Run("valid development with NATS", func(t *testing.T) {
-		cfg := &JobConfig{
-			BaseConfig: BaseConfig{
-				Environment: "development",
-				Database: DatabaseConfig{
-					Port:                   5432,
-					InstanceConnectionName: "project:region:instance",
-				},
-				Logging: LoggingConfig{Level: "info", Format: "json"},
-			},
-			NATS: NATSConfig{URL: "nats://nats:4222"},
 		}
 		assert.NoError(t, cfg.Validate())
 	})
