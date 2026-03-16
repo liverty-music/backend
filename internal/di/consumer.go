@@ -16,6 +16,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -108,6 +109,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// Infrastructure - MusicBrainz (for artist name resolution)
 	musicbrainzClient := musicbrainz.NewClient(nil, logger)
 
+	// Infrastructure - fanart.tv (for artist image resolution)
+	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, nil, logger)
+
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
@@ -118,11 +122,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, placeSearcher, publisher, logger)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
+	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logger)
 
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(artistRepo, concertRepo, pushNotificationUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
+	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -151,10 +157,18 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		artistNameConsumer.Handle,
 	)
 
+	router.AddConsumerHandler(
+		"resolve-artist-image",
+		entity.SubjectArtistCreated,
+		subscriber,
+		artistImageConsumer.Handle,
+	)
+
 	// Register shutdown phases.
 	shutdown.Init(logger)
 	shutdown.AddFlushPhase(publisher)
 	shutdown.AddExternalPhase(musicbrainzClient)
+	shutdown.AddExternalPhase(fanarttvClient)
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 

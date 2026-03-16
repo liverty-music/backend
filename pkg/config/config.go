@@ -96,6 +96,9 @@ type JobConfig struct {
 
 	// NATS configuration for event messaging
 	NATS NATSConfig `envconfig:""`
+
+	// FanartTV API Key for artist image sync job
+	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
 }
 
 // ConsumerConfig is the configuration for the event consumer workload.
@@ -110,6 +113,9 @@ type ConsumerConfig struct {
 
 	// VAPID configuration for Web Push notifications
 	VAPID VAPIDConfig `envconfig:""`
+
+	// FanartTV API Key for artist image resolution
+	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
 }
 
 // ServerSettings represents HTTP server settings (port, host, timeouts, CORS).
