@@ -98,12 +98,13 @@ func NewClient(apiKey string, httpClient *http.Client, logger *logging.Logger) *
 func (c *client) ResolveImages(ctx context.Context, mbid string) (*entity.Fanart, error) {
 	c.logger.Info(ctx, "resolving artist images", slog.String("mbid", mbid))
 
-	u := fmt.Sprintf("%s%s?api_key=%s", c.baseURL, mbid, c.apiKey)
+	u := fmt.Sprintf("%s%s", c.baseURL, mbid)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to create fanarttv request")
 	}
+	req.Header.Set("api-key", c.apiKey)
 
 	resp, err := backoff.Retry(ctx, func() (*http.Response, error) {
 		c.logger.Debug(ctx, "rate limiter backoff", slog.String("mbid", mbid))

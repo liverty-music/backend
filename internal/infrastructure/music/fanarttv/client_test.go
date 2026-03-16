@@ -24,7 +24,7 @@ func newTestLogger(t *testing.T) *logging.Logger {
 func TestClient_ResolveImages(t *testing.T) {
 	t.Run("parses successful response", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Contains(t, r.URL.RawQuery, "api_key="+testAPIKey)
+			assert.Equal(t, testAPIKey, r.Header.Get("api-key"))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{

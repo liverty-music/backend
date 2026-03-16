@@ -51,7 +51,7 @@ const (
 	listStaleOrMissingFanartQuery = `
 		SELECT id, name, mbid, fanart, fanart_synced_at
 		FROM artists
-		WHERE fanart IS NULL OR fanart_synced_at < $1
+		WHERE fanart_synced_at IS NULL OR fanart_synced_at < $1
 		ORDER BY fanart_synced_at ASC NULLS FIRST
 		LIMIT $2
 	`

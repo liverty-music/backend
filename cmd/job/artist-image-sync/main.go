@@ -59,6 +59,7 @@ func run() error {
 		slog.Int("count", len(artists)),
 	)
 
+	var totalAttempted int
 	var totalFailed int
 	var consecutiveErrors int
 
@@ -66,6 +67,8 @@ func run() error {
 		if ctx.Err() != nil {
 			break
 		}
+
+		totalAttempted++
 
 		if err := app.ImageSyncUC.SyncArtistImage(ctx, artist.ID, artist.MBID); err != nil {
 			totalFailed++
@@ -94,8 +97,8 @@ func run() error {
 	}
 
 	app.Logger.Info(ctx, "artist image sync job complete",
-		slog.Int("artists_attempted", len(artists)),
-		slog.Int("artists_succeeded", len(artists)-totalFailed),
+		slog.Int("artists_attempted", totalAttempted),
+		slog.Int("artists_succeeded", totalAttempted-totalFailed),
 		slog.Int("failures", totalFailed),
 	)
 
