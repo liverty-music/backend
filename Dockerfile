@@ -32,6 +32,17 @@ FROM gcr.io/distroless/static:nonroot AS concert-discovery
 COPY --from=build-concert-discovery /out /concert-discovery
 ENTRYPOINT ["/concert-discovery"]
 
+# --- Artist Image Sync Job target ---
+FROM builder AS build-artist-image-sync
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s' \
+    -pgo=auto \
+    -o /out ./cmd/job/artist-image-sync
+
+FROM gcr.io/distroless/static:nonroot AS artist-image-sync
+COPY --from=build-artist-image-sync /out /artist-image-sync
+ENTRYPOINT ["/artist-image-sync"]
+
 # --- Consumer target ---
 FROM builder AS build-consumer
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
