@@ -53,9 +53,10 @@ func InitializeImageSyncJobApp(ctx context.Context) (*ImageSyncJobApp, error) {
 
 	// Infrastructure - fanart.tv
 	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, nil, logger)
+	logoFetcher := fanarttv.NewLogoFetcher(nil)
 
 	// Use Cases
-	imageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logger)
+	imageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)
