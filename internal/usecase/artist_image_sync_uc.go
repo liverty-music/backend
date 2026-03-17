@@ -23,6 +23,7 @@ type ArtistImageSyncUseCase interface {
 type artistImageSyncUseCase struct {
 	artistRepo    entity.ArtistRepository
 	imageResolver entity.ArtistImageResolver
+	logoFetcher   entity.LogoImageFetcher
 	logger        *logging.Logger
 }
 
@@ -33,22 +34,29 @@ var _ ArtistImageSyncUseCase = (*artistImageSyncUseCase)(nil)
 func NewArtistImageSyncUseCase(
 	artistRepo entity.ArtistRepository,
 	imageResolver entity.ArtistImageResolver,
+	logoFetcher entity.LogoImageFetcher,
 	logger *logging.Logger,
 ) ArtistImageSyncUseCase {
 	return &artistImageSyncUseCase{
 		artistRepo:    artistRepo,
 		imageResolver: imageResolver,
+		logoFetcher:   logoFetcher,
 		logger:        logger,
 	}
 }
 
-// SyncArtistImage resolves images from the external provider and updates
-// the artist record. When ResolveImages returns nil (no images found),
-// fanart_synced_at is still updated to record that the artist was checked.
+// SyncArtistImage resolves images from the external provider, analyzes the
+// best logo for color profiling, and updates the artist record.
+// When ResolveImages returns nil (no images found), fanart_synced_at is still
+// updated to record that the artist was checked.
 func (uc *artistImageSyncUseCase) SyncArtistImage(ctx context.Context, artistID, mbid string) error {
 	fanart, err := uc.imageResolver.ResolveImages(ctx, mbid)
 	if err != nil {
 		return fmt.Errorf("resolve images for artist %s: %w", artistID, err)
+	}
+
+	if fanart != nil {
+		uc.profileLogoColor(ctx, fanart, artistID)
 	}
 
 	now := time.Now()
@@ -67,8 +75,40 @@ func (uc *artistImageSyncUseCase) SyncArtistImage(ctx context.Context, artistID,
 			slog.String("mbid", mbid),
 			slog.Int("thumbs", len(fanart.ArtistThumb)),
 			slog.Int("logos", len(fanart.HDMusicLogo)),
+			slog.Bool("has_color_profile", fanart.LogoColorProfile != nil),
 		)
 	}
 
 	return nil
+}
+
+// profileLogoColor downloads the best logo image and analyzes its color.
+// Failures are non-fatal: a warning is logged and LogoColorProfile remains nil.
+func (uc *artistImageSyncUseCase) profileLogoColor(ctx context.Context, fanart *entity.Fanart, artistID string) {
+	logoURL := entity.BestLogoURL(fanart)
+	if logoURL == "" {
+		uc.logger.Info(ctx, "no logo available for color profiling",
+			slog.String("artist_id", artistID),
+		)
+		return
+	}
+
+	img, err := uc.logoFetcher.FetchImage(ctx, logoURL)
+	if err != nil {
+		uc.logger.Warn(ctx, "failed to fetch logo image for color profiling",
+			slog.String("artist_id", artistID),
+			slog.String("logo_url", logoURL),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+	if img == nil {
+		uc.logger.Warn(ctx, "logo image not found at URL",
+			slog.String("artist_id", artistID),
+			slog.String("logo_url", logoURL),
+		)
+		return
+	}
+
+	fanart.LogoColorProfile = entity.AnalyzeLogo(img)
 }

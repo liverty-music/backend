@@ -55,7 +55,30 @@ func fanartToProto(f *entity.Fanart) *entityv1.Fanart {
 		proto.MusicBanner = &entityv1.Url{Value: url}
 	}
 
+	if f.LogoColorProfile != nil {
+		proto.LogoColorProfile = logoColorProfileToProto(f.LogoColorProfile)
+	}
+
 	return proto
+}
+
+// logoColorProfileToProto maps a domain LogoColorProfile to its Protobuf
+// wire representation.
+func logoColorProfileToProto(p *entity.LogoColorProfile) *entityv1.LogoColorProfile {
+	if p == nil {
+		return nil
+	}
+
+	pb := &entityv1.LogoColorProfile{
+		DominantLightness: float32(p.DominantLightness),
+		IsChromatic:       p.IsChromatic,
+	}
+
+	if p.DominantHue != nil {
+		pb.SetDominantHue(float32(*p.DominantHue))
+	}
+
+	return pb
 }
 
 // ArtistsToProto maps a collection of domain Artist entities to a collection of Protobuf messages.

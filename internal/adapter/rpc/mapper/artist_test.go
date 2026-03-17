@@ -87,6 +87,85 @@ func TestArtistToProto(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "fanart with chromatic logo color profile",
+			args: &entity.Artist{
+				ID:   "artist-id",
+				Name: "Suchmos",
+				MBID: "mbid-789",
+				Fanart: &entity.Fanart{
+					HDMusicLogo: []entity.FanartImage{{ID: "1", URL: "https://fanart.tv/logo.png", Likes: 5}},
+					LogoColorProfile: &entity.LogoColorProfile{
+						DominantHue:       floatPtr(210.0),
+						DominantLightness: 0.45,
+						IsChromatic:       true,
+					},
+				},
+			},
+			want: func() *entityv1.Artist {
+				p := &entityv1.Artist{
+					Id:   &entityv1.ArtistId{Value: "artist-id"},
+					Name: &entityv1.ArtistName{Value: "Suchmos"},
+					Mbid: &entityv1.Mbid{Value: "mbid-789"},
+					Fanart: &entityv1.Fanart{
+						HdMusicLogo: &entityv1.Url{Value: "https://fanart.tv/logo.png"},
+						LogoColorProfile: &entityv1.LogoColorProfile{
+							DominantLightness: 0.45,
+							IsChromatic:       true,
+						},
+					},
+				}
+				p.GetFanart().GetLogoColorProfile().SetDominantHue(210.0)
+				return p
+			}(),
+		},
+		{
+			name: "fanart with achromatic logo color profile has no hue",
+			args: &entity.Artist{
+				ID:   "artist-id",
+				Name: "SPYAIR",
+				MBID: "mbid-000",
+				Fanart: &entity.Fanart{
+					HDMusicLogo: []entity.FanartImage{{ID: "1", URL: "https://fanart.tv/logo.png", Likes: 3}},
+					LogoColorProfile: &entity.LogoColorProfile{
+						DominantHue:       nil,
+						DominantLightness: 0.15,
+						IsChromatic:       false,
+					},
+				},
+			},
+			want: &entityv1.Artist{
+				Id:   &entityv1.ArtistId{Value: "artist-id"},
+				Name: &entityv1.ArtistName{Value: "SPYAIR"},
+				Mbid: &entityv1.Mbid{Value: "mbid-000"},
+				Fanart: &entityv1.Fanart{
+					HdMusicLogo: &entityv1.Url{Value: "https://fanart.tv/logo.png"},
+					LogoColorProfile: &entityv1.LogoColorProfile{
+						DominantLightness: 0.15,
+						IsChromatic:       false,
+					},
+				},
+			},
+		},
+		{
+			name: "fanart without logo color profile omits field",
+			args: &entity.Artist{
+				ID:   "artist-id",
+				Name: "UVERworld",
+				MBID: "mbid-111",
+				Fanart: &entity.Fanart{
+					HDMusicLogo: []entity.FanartImage{{ID: "1", URL: "https://fanart.tv/logo.png", Likes: 1}},
+				},
+			},
+			want: &entityv1.Artist{
+				Id:   &entityv1.ArtistId{Value: "artist-id"},
+				Name: &entityv1.ArtistName{Value: "UVERworld"},
+				Mbid: &entityv1.Mbid{Value: "mbid-111"},
+				Fanart: &entityv1.Fanart{
+					HdMusicLogo: &entityv1.Url{Value: "https://fanart.tv/logo.png"},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -96,6 +175,8 @@ func TestArtistToProto(t *testing.T) {
 		})
 	}
 }
+
+func floatPtr(v float64) *float64 { return &v }
 
 func TestArtistsToProto(t *testing.T) {
 	artists := []*entity.Artist{
