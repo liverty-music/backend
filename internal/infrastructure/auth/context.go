@@ -11,6 +11,10 @@ type Claims struct {
 	Email string
 	// Name is the user's display name.
 	Name string
+	// EmailVerified indicates whether the user's email address has been verified.
+	// This is extracted from the email_verified private claim set by a Zitadel Action.
+	// Defaults to false when the claim is absent (fail-closed).
+	EmailVerified bool
 }
 
 // TokenValidator validates JWT tokens and returns the claims.

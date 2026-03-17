@@ -60,8 +60,20 @@ func setupTestJWKS(t *testing.T) (*httptest.Server, *rsa.PrivateKey, jwk.Set) {
 	return server, privateKey, keySet
 }
 
+// testTokenOptions holds optional claims for createTestToken.
+type testTokenOptions struct {
+	// emailVerified, when non-nil, sets the email_verified private claim.
+	// When nil the claim is omitted entirely (tests the missing-claim case).
+	emailVerified *bool
+}
+
+// withEmailVerified returns a testTokenOptions with EmailVerified set to v.
+func withEmailVerified(v bool) testTokenOptions {
+	return testTokenOptions{emailVerified: &v}
+}
+
 // createTestToken creates a signed JWT token for testing.
-func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, issuer, subject, email, name string, expiry time.Duration) string {
+func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, issuer, subject, email, name string, expiry time.Duration, opts ...testTokenOptions) string {
 	t.Helper()
 
 	// Create token
@@ -85,6 +97,16 @@ func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, issuer, subject, 
 		err = token.Set("name", name)
 		if err != nil {
 			t.Fatalf("failed to set name: %v", err)
+		}
+	}
+
+	// Apply optional claims.
+	for _, opt := range opts {
+		if opt.emailVerified != nil {
+			err = token.Set("email_verified", *opt.emailVerified)
+			if err != nil {
+				t.Fatalf("failed to set email_verified: %v", err)
+			}
 		}
 	}
 
@@ -180,6 +202,9 @@ func TestValidateToken(t *testing.T) {
 		if claims.Name != "Test User" {
 			t.Errorf("claims.Name = %q, want %q", claims.Name, "Test User")
 		}
+		if claims.EmailVerified {
+			t.Error("claims.EmailVerified should be false when claim is absent")
+		}
 	})
 
 	t.Run("valid token without name", func(t *testing.T) {
@@ -208,6 +233,76 @@ func TestValidateToken(t *testing.T) {
 		}
 		if claims.Name != "" {
 			t.Errorf("claims.Name = %q, want empty string", claims.Name)
+		}
+	})
+
+	t.Run("email_verified true", func(t *testing.T) {
+		t.Parallel()
+
+		server, privateKey, _ := setupTestJWKS(t)
+		defer server.Close()
+
+		validator, err := NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+		if err != nil {
+			t.Fatalf("NewJWTValidator failed: %v", err)
+		}
+
+		tokenString := createTestToken(t, privateKey, server.URL, "user-123", "verified@example.com", "Verified User", 1*time.Hour, withEmailVerified(true))
+
+		claims, err := validator.ValidateToken(context.Background(), tokenString)
+		if err != nil {
+			t.Fatalf("ValidateToken failed: %v", err)
+		}
+
+		if !claims.EmailVerified {
+			t.Error("claims.EmailVerified should be true when email_verified=true")
+		}
+	})
+
+	t.Run("email_verified false", func(t *testing.T) {
+		t.Parallel()
+
+		server, privateKey, _ := setupTestJWKS(t)
+		defer server.Close()
+
+		validator, err := NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+		if err != nil {
+			t.Fatalf("NewJWTValidator failed: %v", err)
+		}
+
+		tokenString := createTestToken(t, privateKey, server.URL, "user-123", "unverified@example.com", "Unverified User", 1*time.Hour, withEmailVerified(false))
+
+		claims, err := validator.ValidateToken(context.Background(), tokenString)
+		if err != nil {
+			t.Fatalf("ValidateToken failed: %v", err)
+		}
+
+		if claims.EmailVerified {
+			t.Error("claims.EmailVerified should be false when email_verified=false")
+		}
+	})
+
+	t.Run("email_verified missing defaults to false", func(t *testing.T) {
+		t.Parallel()
+
+		server, privateKey, _ := setupTestJWKS(t)
+		defer server.Close()
+
+		validator, err := NewJWTValidator(server.URL, server.URL+"/.well-known/jwks.json", 15*time.Minute)
+		if err != nil {
+			t.Fatalf("NewJWTValidator failed: %v", err)
+		}
+
+		// No withEmailVerified option — claim is absent.
+		tokenString := createTestToken(t, privateKey, server.URL, "user-123", "noverify@example.com", "No Verify User", 1*time.Hour)
+
+		claims, err := validator.ValidateToken(context.Background(), tokenString)
+		if err != nil {
+			t.Fatalf("ValidateToken failed: %v", err)
+		}
+
+		if claims.EmailVerified {
+			t.Error("claims.EmailVerified should default to false when claim is absent")
 		}
 	})
 
