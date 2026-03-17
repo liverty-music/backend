@@ -115,9 +115,19 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 		}
 	}
 
+	// Extract email_verified from private claims (set by a Zitadel Action).
+	// Defaults to false when the claim is absent (fail-closed).
+	emailVerified := false
+	if evVal, ok := token.Get("email_verified"); ok {
+		if evBool, ok := evVal.(bool); ok {
+			emailVerified = evBool
+		}
+	}
+
 	return &Claims{
-		Sub:   sub,
-		Email: emailStr,
-		Name:  name,
+		Sub:           sub,
+		Email:         emailStr,
+		Name:          name,
+		EmailVerified: emailVerified,
 	}, nil
 }
