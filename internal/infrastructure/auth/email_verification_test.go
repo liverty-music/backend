@@ -15,25 +15,25 @@ import (
 // connect.StreamingHandlerConn used in streaming interceptor tests.
 type stubStreamingHandlerConn struct{}
 
-func (stubStreamingHandlerConn) Spec() connect.Spec             { return connect.Spec{} }
-func (stubStreamingHandlerConn) Peer() connect.Peer             { return connect.Peer{} }
-func (stubStreamingHandlerConn) Receive(any) error              { return nil }
-func (stubStreamingHandlerConn) RequestHeader() http.Header     { return http.Header{} }
-func (stubStreamingHandlerConn) Send(any) error                 { return nil }
-func (stubStreamingHandlerConn) ResponseHeader() http.Header    { return http.Header{} }
-func (stubStreamingHandlerConn) ResponseTrailer() http.Header   { return http.Header{} }
+func (stubStreamingHandlerConn) Spec() connect.Spec           { return connect.Spec{} }
+func (stubStreamingHandlerConn) Peer() connect.Peer           { return connect.Peer{} }
+func (stubStreamingHandlerConn) Receive(any) error            { return nil }
+func (stubStreamingHandlerConn) RequestHeader() http.Header   { return http.Header{} }
+func (stubStreamingHandlerConn) Send(any) error               { return nil }
+func (stubStreamingHandlerConn) ResponseHeader() http.Header  { return http.Header{} }
+func (stubStreamingHandlerConn) ResponseTrailer() http.Header { return http.Header{} }
 
 func TestEmailVerificationInterceptor_WrapUnary(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		claims  *auth.Claims
-		wantErr bool
+		name     string
+		claims   *auth.Claims
+		wantErr  bool
 		wantCode connect.Code
 	}{
 		{
-			name: "pass through when claims are nil (public endpoint)",
+			name:    "pass through when claims are nil (public endpoint)",
 			claims:  nil,
 			wantErr: false,
 		},
@@ -105,9 +105,9 @@ func TestEmailVerificationInterceptor_WrapStreamingHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		claims  *auth.Claims
-		wantErr bool
+		name     string
+		claims   *auth.Claims
+		wantErr  bool
 		wantCode connect.Code
 	}{
 		{
