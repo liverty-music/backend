@@ -48,6 +48,15 @@ const (
 		JOIN venues v ON e.venue_id = v.id
 		WHERE c.artist_id = $1 AND e.local_event_date >= CURRENT_DATE
 	`
+	listConcertsByArtistsQuery = `
+		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
+		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		FROM concerts c
+		JOIN events e ON c.event_id = e.id
+		JOIN venues v ON e.venue_id = v.id
+		WHERE c.artist_id = ANY($1)
+		ORDER BY e.local_event_date ASC
+	`
 	listConcertsByFollowerQuery = `
 		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
@@ -101,6 +110,36 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) (
 	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by follower", slog.String("user_id", userID))
+	}
+	defer rows.Close()
+
+	var concerts []*entity.Concert
+	for rows.Next() {
+		var c entity.Concert
+		var venue entity.Venue
+		var lat, lng *float64
+		err := rows.Scan(
+			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
+			&venue.ID, &venue.Name, &venue.AdminArea, &lat, &lng,
+		)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan concert")
+		}
+		if lat != nil && lng != nil {
+			venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
+		}
+		c.Venue = &venue
+		concerts = append(concerts, &c)
+	}
+	return concerts, nil
+}
+
+// ListByArtists retrieves concerts for multiple artists in a single query.
+// Venue coordinates are included for proximity classification.
+func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []string) ([]*entity.Concert, error) {
+	rows, err := r.db.Pool.Query(ctx, listConcertsByArtistsQuery, artistIDs)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list concerts by artists")
 	}
 	defer rows.Close()
 
