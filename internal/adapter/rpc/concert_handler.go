@@ -9,9 +9,7 @@ import (
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -79,11 +77,6 @@ func (h *ConcertHandler) ListWithProximity(ctx context.Context, req *connect.Req
 	}
 
 	home := mapper.ProtoHomeToEntity(req.Msg.GetHome())
-	if home != nil && home.Centroid == nil {
-		if c, ok := geo.ResolveCentroid(home.Level1); ok {
-			home.Centroid = &entity.Coordinates{Latitude: c.Latitude, Longitude: c.Longitude}
-		}
-	}
 
 	groups, err := h.concertUseCase.ListWithProximity(ctx, artistIDs, home)
 	if err != nil {

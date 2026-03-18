@@ -9,6 +9,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -171,6 +172,12 @@ func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, externalUse
 func (uc *concertUseCase) ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error) {
 	if len(artistIDs) == 0 {
 		return nil, apperr.New(codes.InvalidArgument, "at least one artist ID is required")
+	}
+
+	if home != nil && home.Centroid == nil {
+		if c, ok := geo.ResolveCentroid(home.Level1); ok {
+			home.Centroid = &entity.Coordinates{Latitude: c.Latitude, Longitude: c.Longitude}
+		}
 	}
 
 	concerts, err := uc.concertRepo.ListByArtists(ctx, artistIDs)
