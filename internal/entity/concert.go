@@ -138,6 +138,10 @@ type ConcertRepository interface {
 	// ListByFollower retrieves all concerts for artists followed by the given user,
 	// ordered by local_event_date ascending.
 	ListByFollower(ctx context.Context, userID string) ([]*Concert, error)
+	// ListByArtists retrieves concerts for multiple artists in a single query.
+	// Venue coordinates are included for proximity classification.
+	// Results are ordered by local_event_date ascending.
+	ListByArtists(ctx context.Context, artistIDs []string) ([]*Concert, error)
 	// Create creates one or more concerts using bulk insert with UPSERT semantics.
 	//
 	// Events are inserted with ON CONFLICT on the natural key
