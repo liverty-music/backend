@@ -14,6 +14,7 @@ packages:
       FollowUseCase:
       PushNotificationUseCase:
       ArtistImageSyncUseCase:
+      TicketJourneyUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -30,6 +31,7 @@ packages:
       MerkleTreeBuilder:
       Cache:
       ArtistImageResolver:
+      TicketJourneyRepository:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:

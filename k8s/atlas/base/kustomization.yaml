@@ -61,3 +61,4 @@ configMapGenerator:
   - migrations/20260314051257_simplify_event_natural_key.sql
   - migrations/20260314160000_remove_venue_enrichment.sql
   - migrations/20260316120000_add_artist_fanart.sql
+  - migrations/20260318120000_create_ticket_journeys.sql

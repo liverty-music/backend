@@ -14,6 +14,7 @@ import (
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
+	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
@@ -80,6 +81,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	searchLogRepo := rdb.NewSearchLogRepository(db)
 	ticketRepo := rdb.NewTicketRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
+	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -150,6 +152,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, publisher, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, publisher, artistCache, logger)
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, userRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
+	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		followRepo,
@@ -223,6 +226,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return pushconnect.NewPushNotificationServiceHandler(
 				rpc.NewPushNotificationHandler(pushNotificationUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return ticketjourneyconnect.NewTicketJourneyServiceHandler(
+				rpc.NewTicketJourneyHandler(ticketJourneyUC, logger),
 				opts...,
 			)
 		},
