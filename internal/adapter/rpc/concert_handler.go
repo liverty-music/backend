@@ -66,6 +66,28 @@ func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[
 	}), nil
 }
 
+// ListWithProximity returns concerts for the specified artists, grouped by date
+// and classified by geographic proximity to the caller's home area.
+// Authentication is not required.
+func (h *ConcertHandler) ListWithProximity(ctx context.Context, req *connect.Request[concertv1.ListWithProximityRequest]) (*connect.Response[concertv1.ListWithProximityResponse], error) {
+	ids := req.Msg.GetArtistIds()
+	artistIDs := make([]string, 0, len(ids))
+	for _, id := range ids {
+		artistIDs = append(artistIDs, id.GetValue())
+	}
+
+	home := mapper.ProtoHomeToEntity(req.Msg.GetHome())
+
+	groups, err := h.concertUseCase.ListWithProximity(ctx, artistIDs, home)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&concertv1.ListWithProximityResponse{
+		Groups: mapper.ProximityGroupsToProto(groups),
+	}), nil
+}
+
 // SearchNewConcerts enqueues an asynchronous concert discovery job and returns immediately.
 // The actual search runs in a background goroutine. Use GetSearchStatus to poll for completion.
 func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[concertv1.SearchNewConcertsRequest]) (*connect.Response[concertv1.SearchNewConcertsResponse], error) {

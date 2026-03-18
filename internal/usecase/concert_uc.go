@@ -9,6 +9,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -41,6 +42,14 @@ type ConcertUseCase interface {
 	//  - InvalidArgument: If the external user ID is empty.
 	//  - NotFound: If the user does not exist.
 	ListByFollowerGrouped(ctx context.Context, externalUserID string) ([]*entity.ProximityGroup, error)
+
+	// ListWithProximity returns concerts for the specified artists, grouped by date
+	// and classified by proximity to the given home.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the artist IDs slice is empty.
+	ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error)
 
 	// AsyncSearchNewConcerts enqueues an asynchronous concert discovery job for the
 	// given artist. It returns immediately after marking the search log as pending.
@@ -156,6 +165,27 @@ func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, externalUse
 	}
 
 	return entity.GroupByDateAndProximity(concerts, user.Home), nil
+}
+
+// ListWithProximity returns concerts for the specified artists, grouped by date
+// and classified by proximity to the given home.
+func (uc *concertUseCase) ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error) {
+	if len(artistIDs) == 0 {
+		return nil, apperr.New(codes.InvalidArgument, "at least one artist ID is required")
+	}
+
+	if home != nil && home.Centroid == nil {
+		if c, ok := geo.ResolveCentroid(home.Level1); ok {
+			home.Centroid = &entity.Coordinates{Latitude: c.Latitude, Longitude: c.Longitude}
+		}
+	}
+
+	concerts, err := uc.concertRepo.ListByArtists(ctx, artistIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list concerts by artists: %w", err)
+	}
+
+	return entity.GroupByDateAndProximity(concerts, home), nil
 }
 
 // resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.

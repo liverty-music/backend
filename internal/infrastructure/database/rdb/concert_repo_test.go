@@ -711,6 +711,101 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	})
 }
 
+func TestConcertRepository_ListByArtists(t *testing.T) {
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+
+	t.Run("returns concerts for multiple artists with coordinates", func(t *testing.T) {
+		cleanDatabase()
+
+		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6001", Name: "Multi Band 1", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6001"}
+		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6002", Name: "Multi Band 2", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6002"}
+		_, err := artistRepo.Create(ctx, artist1)
+		require.NoError(t, err)
+		_, err = artistRepo.Create(ctx, artist2)
+		require.NoError(t, err)
+
+		venue := &entity.Venue{
+			ID:          "018b2f19-e591-7d12-bf9e-f0e74f1b6011",
+			Name:        "Multi Venue",
+			Coordinates: &entity.Coordinates{Latitude: 33.5904, Longitude: 130.4017},
+		}
+		require.NoError(t, venueRepo.Create(ctx, venue))
+
+		concertDate, _ := time.Parse("2006-01-02", "2026-10-01")
+		startTime, _ := time.Parse("15:04", "19:00")
+
+		require.NoError(t, concertRepo.Create(ctx,
+			&entity.Concert{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6021", VenueID: venue.ID,
+					Title: "Multi Concert 1", LocalDate: concertDate, StartTime: &startTime,
+				},
+				ArtistID: artist1.ID,
+			},
+			&entity.Concert{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6022", VenueID: venue.ID,
+					Title: "Multi Concert 2", LocalDate: concertDate.AddDate(0, 0, 1), StartTime: &startTime,
+				},
+				ArtistID: artist2.ID,
+			},
+		))
+
+		got, err := concertRepo.ListByArtists(ctx, []string{artist1.ID, artist2.ID})
+		require.NoError(t, err)
+		assert.Len(t, got, 2)
+
+		// Verify date ordering (ASC)
+		assert.Equal(t, "Multi Concert 1", got[0].Title)
+		assert.Equal(t, "Multi Concert 2", got[1].Title)
+
+		// Verify venue coordinates are populated
+		for _, c := range got {
+			require.NotNil(t, c.Venue)
+			require.NotNil(t, c.Venue.Coordinates, "ListByArtists must include venue coordinates")
+			assert.InDelta(t, 33.5904, c.Venue.Coordinates.Latitude, 0.0001)
+			assert.InDelta(t, 130.4017, c.Venue.Coordinates.Longitude, 0.0001)
+		}
+	})
+
+	t.Run("returns empty list for unknown artist IDs", func(t *testing.T) {
+		cleanDatabase()
+
+		got, err := concertRepo.ListByArtists(ctx, []string{"018b2f19-e591-7d12-bf9e-f0e74f1b6099"})
+		assert.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("venue without coordinates returns nil Coordinates", func(t *testing.T) {
+		cleanDatabase()
+
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6003", Name: "No Coord Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6003"}
+		_, err := artistRepo.Create(ctx, artist)
+		require.NoError(t, err)
+
+		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6012", Name: "No Coord Venue"}
+		require.NoError(t, venueRepo.Create(ctx, venue))
+
+		concertDate, _ := time.Parse("2006-01-02", "2026-11-01")
+		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6023", VenueID: venue.ID,
+				Title: "No Coord Concert", LocalDate: concertDate,
+			},
+			ArtistID: artist.ID,
+		}))
+
+		got, err := concertRepo.ListByArtists(ctx, []string{artist.ID})
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].Venue)
+		assert.Nil(t, got[0].Venue.Coordinates, "venue without lat/lng should have nil Coordinates")
+	})
+}
+
 func TestConcertRepository_ListByFollower(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB)
