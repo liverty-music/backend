@@ -429,8 +429,8 @@ github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJw
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
 github.com/opentracing/opentracing-go v1.1.0 h1:pWlfV3Bxv7k65HYwkikxat0+s3pV4bsqf19k25Ur8rU=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
-github.com/pannpers/go-apperr v1.0.2 h1:AUAOvysjFsrJmdlRdZGD5T/ltAPOHL1njRKMeNjWFbw=
-github.com/pannpers/go-apperr v1.0.2/go.mod h1:UoPq74pC57RDDvkCw2YwskY9A/7i7wmOfiGqHKpg4/Q=
+github.com/pannpers/go-apperr v1.1.0 h1:u8y0t0RQPJD8waJ8Rt3Qh34/a0wR7qbEYZSc9acXSrg=
+github.com/pannpers/go-apperr v1.1.0/go.mod h1:UoPq74pC57RDDvkCw2YwskY9A/7i7wmOfiGqHKpg4/Q=
 github.com/pannpers/go-logging v1.2.0 h1:qs3keEnz7L2da0QyZtDi/1sHEVXpmdxwYHC2bGsowbU=
 github.com/pannpers/go-logging v1.2.0/go.mod h1:C3AO5d+CfzsNdmuhX0gjS56hWEq2WZhj2fXGO+Ksj5Y=
 github.com/peterh/liner v1.1.1-0.20190123174540-a2c9a5303de7 h1:oYW+YCJ1pachXTQmzR3rNLYGGz4g/UgFcjb28p/viDM=
