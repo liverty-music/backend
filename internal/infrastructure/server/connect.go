@@ -69,11 +69,10 @@ func NewConnectServer(
 	//                                   context from [1]. Inside [2] so access log still fires.
 	//   [5] claimsBridgeInterceptor        — Reads authn.infoKey (set by HTTP-layer authn.Middleware)
 	//                                        and writes auth.claimsKey for handlers.
-	//   [6] emailVerificationInterceptor   — Rejects human users whose email is not verified.
-	//   [7] validationInterceptor          — Validates request proto via protovalidate. Innermost layer.
+	//   [6] validationInterceptor          — Validates request proto via protovalidate. Innermost layer.
 	//
 	// Response path (innermost → outermost):
-	//   handler error (AppErr) → [7] pass → [6] pass → [5] pass → [4] pass (or catch panic) →
+	//   handler error (AppErr) → [6] pass → [5] pass → [4] pass (or catch panic) →
 	//   [3] convert to *connect.Error → [2] log with correct status → [1] end span
 	//
 	handlerOpts := []connect.HandlerOption{
@@ -85,7 +84,6 @@ func NewConnectServer(
 		newRecoverHandler(logger),
 		connect.WithInterceptors(
 			auth.ClaimsBridgeInterceptor{},
-			auth.EmailVerificationInterceptor{},
 			validationInterceptor,
 		),
 	}
