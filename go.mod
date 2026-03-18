@@ -31,7 +31,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/nats-io/nats.go v1.49.0
-	github.com/pannpers/go-apperr v1.0.2
+	github.com/pannpers/go-apperr v1.1.0
 	github.com/pannpers/go-logging v1.2.0
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
