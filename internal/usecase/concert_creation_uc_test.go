@@ -63,6 +63,10 @@ func (r *fakeConcertRepo) ListByFollower(_ context.Context, _ string) ([]*entity
 	return nil, nil
 }
 
+func (r *fakeConcertRepo) ListByArtists(_ context.Context, _ []string) ([]*entity.Concert, error) {
+	return nil, nil
+}
+
 func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert) error {
 	r.created = append(r.created, concerts...)
 	return nil

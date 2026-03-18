@@ -42,6 +42,14 @@ type ConcertUseCase interface {
 	//  - NotFound: If the user does not exist.
 	ListByFollowerGrouped(ctx context.Context, externalUserID string) ([]*entity.ProximityGroup, error)
 
+	// ListWithProximity returns concerts for the specified artists, grouped by date
+	// and classified by proximity to the given home.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the artist IDs slice is empty.
+	ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error)
+
 	// AsyncSearchNewConcerts enqueues an asynchronous concert discovery job for the
 	// given artist. It returns immediately after marking the search log as pending.
 	// The actual Gemini API call runs in a background goroutine.
@@ -156,6 +164,21 @@ func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, externalUse
 	}
 
 	return entity.GroupByDateAndProximity(concerts, user.Home), nil
+}
+
+// ListWithProximity returns concerts for the specified artists, grouped by date
+// and classified by proximity to the given home.
+func (uc *concertUseCase) ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error) {
+	if len(artistIDs) == 0 {
+		return nil, apperr.New(codes.InvalidArgument, "at least one artist ID is required")
+	}
+
+	concerts, err := uc.concertRepo.ListByArtists(ctx, artistIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list concerts by artists: %w", err)
+	}
+
+	return entity.GroupByDateAndProximity(concerts, home), nil
 }
 
 // resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.

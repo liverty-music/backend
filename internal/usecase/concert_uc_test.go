@@ -633,3 +633,72 @@ func TestConcertUseCase_ListSearchStatuses(t *testing.T) {
 		assert.Equal(t, usecase.SearchStatusFailed, statuses[0].Status)
 	})
 }
+
+func TestConcertUseCase_ListWithProximity(t *testing.T) {
+	ctx := context.Background()
+
+	date1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	t.Run("empty artist IDs returns error", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+
+		_, err := d.uc.ListWithProximity(ctx, []string{}, nil)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("returns grouped concerts by proximity", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+
+		home := &entity.Home{
+			CountryCode: "JP",
+			Level1:      "JP-40",
+			Centroid:    &entity.Coordinates{Latitude: 33.5904, Longitude: 130.4017},
+		}
+
+		concerts := []*entity.Concert{
+			{
+				Event: entity.Event{
+					ID: "c1", Title: "Fukuoka Concert", LocalDate: date1,
+					Venue: &entity.Venue{AdminArea: strPtr("JP-40")},
+				},
+				ArtistID: "a1",
+			},
+			{
+				Event: entity.Event{
+					ID: "c2", Title: "Tokyo Concert", LocalDate: date1,
+					Venue: &entity.Venue{
+						Coordinates: &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917},
+					},
+				},
+				ArtistID: "a2",
+			},
+		}
+
+		d.concertRepo.EXPECT().ListByArtists(ctx, []string{"a1", "a2"}).Return(concerts, nil).Once()
+
+		groups, err := d.uc.ListWithProximity(ctx, []string{"a1", "a2"}, home)
+		assert.NoError(t, err)
+		assert.Len(t, groups, 1, "same date should produce 1 group")
+		assert.Len(t, groups[0].Home, 1, "JP-40 venue should be HOME")
+		assert.Len(t, groups[0].Away, 1, "Tokyo venue should be AWAY from Fukuoka")
+	})
+
+	t.Run("nil home classifies all as away", func(t *testing.T) {
+		d := newConcertTestDeps(t)
+
+		concerts := []*entity.Concert{
+			{
+				Event:    entity.Event{ID: "c1", Title: "Concert", LocalDate: date1, Venue: &entity.Venue{}},
+				ArtistID: "a1",
+			},
+		}
+		d.concertRepo.EXPECT().ListByArtists(ctx, []string{"a1"}).Return(concerts, nil).Once()
+
+		groups, err := d.uc.ListWithProximity(ctx, []string{"a1"}, nil)
+		assert.NoError(t, err)
+		assert.Len(t, groups, 1)
+		assert.Len(t, groups[0].Away, 1)
+		assert.Empty(t, groups[0].Home)
+		assert.Empty(t, groups[0].Nearby)
+	})
+}

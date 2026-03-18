@@ -307,6 +307,66 @@ func (_c *MockConcertUseCase_ListSearchStatuses_Call) RunAndReturn(run func(cont
 	return _c
 }
 
+// ListWithProximity provides a mock function with given fields: ctx, artistIDs, home
+func (_m *MockConcertUseCase) ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error) {
+	ret := _m.Called(ctx, artistIDs, home)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListWithProximity")
+	}
+
+	var r0 []*entity.ProximityGroup
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []string, *entity.Home) ([]*entity.ProximityGroup, error)); ok {
+		return rf(ctx, artistIDs, home)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []string, *entity.Home) []*entity.ProximityGroup); ok {
+		r0 = rf(ctx, artistIDs, home)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.ProximityGroup)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []string, *entity.Home) error); ok {
+		r1 = rf(ctx, artistIDs, home)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertUseCase_ListWithProximity_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListWithProximity'
+type MockConcertUseCase_ListWithProximity_Call struct {
+	*mock.Call
+}
+
+// ListWithProximity is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistIDs []string
+//   - home *entity.Home
+func (_e *MockConcertUseCase_Expecter) ListWithProximity(ctx interface{}, artistIDs interface{}, home interface{}) *MockConcertUseCase_ListWithProximity_Call {
+	return &MockConcertUseCase_ListWithProximity_Call{Call: _e.mock.On("ListWithProximity", ctx, artistIDs, home)}
+}
+
+func (_c *MockConcertUseCase_ListWithProximity_Call) Run(run func(ctx context.Context, artistIDs []string, home *entity.Home)) *MockConcertUseCase_ListWithProximity_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]string), args[2].(*entity.Home))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListWithProximity_Call) Return(_a0 []*entity.ProximityGroup, _a1 error) *MockConcertUseCase_ListWithProximity_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListWithProximity_Call) RunAndReturn(run func(context.Context, []string, *entity.Home) ([]*entity.ProximityGroup, error)) *MockConcertUseCase_ListWithProximity_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SearchNewConcerts provides a mock function with given fields: ctx, artistID
 func (_m *MockConcertUseCase) SearchNewConcerts(ctx context.Context, artistID string) error {
 	ret := _m.Called(ctx, artistID)

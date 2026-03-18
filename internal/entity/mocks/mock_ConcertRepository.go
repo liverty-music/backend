@@ -143,6 +143,65 @@ func (_c *MockConcertRepository_ListByArtist_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// ListByArtists provides a mock function with given fields: ctx, artistIDs
+func (_m *MockConcertRepository) ListByArtists(ctx context.Context, artistIDs []string) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx, artistIDs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByArtists")
+	}
+
+	var r0 []*entity.Concert
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []string) ([]*entity.Concert, error)); ok {
+		return rf(ctx, artistIDs)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []string) []*entity.Concert); ok {
+		r0 = rf(ctx, artistIDs)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Concert)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []string) error); ok {
+		r1 = rf(ctx, artistIDs)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertRepository_ListByArtists_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByArtists'
+type MockConcertRepository_ListByArtists_Call struct {
+	*mock.Call
+}
+
+// ListByArtists is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistIDs []string
+func (_e *MockConcertRepository_Expecter) ListByArtists(ctx interface{}, artistIDs interface{}) *MockConcertRepository_ListByArtists_Call {
+	return &MockConcertRepository_ListByArtists_Call{Call: _e.mock.On("ListByArtists", ctx, artistIDs)}
+}
+
+func (_c *MockConcertRepository_ListByArtists_Call) Run(run func(ctx context.Context, artistIDs []string)) *MockConcertRepository_ListByArtists_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]string))
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_ListByArtists_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertRepository_ListByArtists_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertRepository_ListByArtists_Call) RunAndReturn(run func(context.Context, []string) ([]*entity.Concert, error)) *MockConcertRepository_ListByArtists_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByFollower provides a mock function with given fields: ctx, userID
 func (_m *MockConcertRepository) ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error) {
 	ret := _m.Called(ctx, userID)
