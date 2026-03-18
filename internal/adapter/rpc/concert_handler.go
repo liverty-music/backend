@@ -9,7 +9,9 @@ import (
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -62,6 +64,33 @@ func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[
 	}
 
 	return connect.NewResponse(&concertv1.ListByFollowerResponse{
+		Groups: mapper.ProximityGroupsToProto(groups),
+	}), nil
+}
+
+// ListWithProximity returns concerts for the specified artists, grouped by date
+// and classified by geographic proximity to the caller's home area.
+// Authentication is not required.
+func (h *ConcertHandler) ListWithProximity(ctx context.Context, req *connect.Request[concertv1.ListWithProximityRequest]) (*connect.Response[concertv1.ListWithProximityResponse], error) {
+	ids := req.Msg.GetArtistIds()
+	artistIDs := make([]string, 0, len(ids))
+	for _, id := range ids {
+		artistIDs = append(artistIDs, id.GetValue())
+	}
+
+	home := mapper.ProtoHomeToEntity(req.Msg.GetHome())
+	if home != nil && home.Centroid == nil {
+		if c, ok := geo.ResolveCentroid(home.Level1); ok {
+			home.Centroid = &entity.Coordinates{Latitude: c.Latitude, Longitude: c.Longitude}
+		}
+	}
+
+	groups, err := h.concertUseCase.ListWithProximity(ctx, artistIDs, home)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&concertv1.ListWithProximityResponse{
 		Groups: mapper.ProximityGroupsToProto(groups),
 	}), nil
 }
