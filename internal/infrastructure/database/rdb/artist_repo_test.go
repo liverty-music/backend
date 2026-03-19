@@ -379,3 +379,281 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 		})
 	}
 }
+
+func TestArtistRepository_Get(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB)
+	ctx := context.Background()
+
+	type args struct {
+		id string
+	}
+
+	tests := []struct {
+		name    string
+		setup   func() string // returns artistID
+		args    args
+		wantErr error
+	}{
+		{
+			name: "returns existing artist",
+			setup: func() string {
+				cleanDatabase()
+				created, err := repo.Create(ctx, entity.NewArtist("Get Test Artist", "aa000000-0000-0000-0000-000000get001"))
+				require.NoError(t, err)
+				return created[0].ID
+			},
+			wantErr: nil,
+		},
+		{
+			name: "returns NotFound for non-existent ID",
+			setup: func() string {
+				cleanDatabase()
+				return "00000000-0000-0000-0000-000000000000"
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			artistID := tt.setup()
+			tt.args = args{id: artistID}
+
+			got, err := repo.Get(ctx, tt.args.id)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, artistID, got.ID)
+			assert.Equal(t, "Get Test Artist", got.Name)
+		})
+	}
+}
+
+func TestArtistRepository_GetByMBID(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB)
+	ctx := context.Background()
+
+	const knownMBID = "bb000000-0000-0000-0000-0000getmbid1"
+
+	type args struct {
+		mbid string
+	}
+
+	tests := []struct {
+		name    string
+		setup   func()
+		args    args
+		wantErr error
+	}{
+		{
+			name: "returns artist by known MBID",
+			setup: func() {
+				cleanDatabase()
+				_, err := repo.Create(ctx, entity.NewArtist("MBID Test Artist", knownMBID))
+				require.NoError(t, err)
+			},
+			args:    args{mbid: knownMBID},
+			wantErr: nil,
+		},
+		{
+			name: "returns NotFound for unknown MBID",
+			setup: func() {
+				cleanDatabase()
+			},
+			args:    args{mbid: "00000000-0000-0000-0000-000000000000"},
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup()
+
+			got, err := repo.GetByMBID(ctx, tt.args.mbid)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, knownMBID, got.MBID)
+			assert.Equal(t, "MBID Test Artist", got.Name)
+		})
+	}
+}
+
+func TestArtistRepository_List(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB)
+	ctx := context.Background()
+
+	tests := []struct {
+		name      string
+		setup     func()
+		wantLen   int
+		wantEmpty bool
+		wantErr   error
+	}{
+		{
+			name: "empty database returns empty slice",
+			setup: func() {
+				cleanDatabase()
+			},
+			wantEmpty: true,
+		},
+		{
+			name: "returns all artists",
+			setup: func() {
+				cleanDatabase()
+				_, err := repo.Create(ctx,
+					entity.NewArtist("List Artist A", "cc000000-0000-0000-0000-00000list001"),
+					entity.NewArtist("List Artist B", "cc000000-0000-0000-0000-00000list002"),
+					entity.NewArtist("List Artist C", "cc000000-0000-0000-0000-00000list003"),
+				)
+				require.NoError(t, err)
+			},
+			wantLen: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.setup()
+
+			got, err := repo.List(ctx)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			if tt.wantEmpty {
+				assert.Empty(t, got)
+			} else {
+				assert.Len(t, got, tt.wantLen)
+			}
+		})
+	}
+}
+
+func TestArtistRepository_CreateOfficialSite(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB)
+	ctx := context.Background()
+
+	type args struct {
+		site *entity.OfficialSite
+	}
+
+	tests := []struct {
+		name    string
+		setup   func() string // returns artistID
+		args    args
+		wantErr error
+	}{
+		{
+			name: "creates site for existing artist",
+			setup: func() string {
+				cleanDatabase()
+				created, err := repo.Create(ctx, entity.NewArtist("Site Artist", "dd000000-0000-0000-0000-00000site001"))
+				require.NoError(t, err)
+				return created[0].ID
+			},
+			wantErr: nil,
+		},
+		{
+			name: "returns AlreadyExists when creating second site for same artist",
+			setup: func() string {
+				cleanDatabase()
+				created, err := repo.Create(ctx, entity.NewArtist("Site Artist Dup", "dd000000-0000-0000-0000-00000site002"))
+				require.NoError(t, err)
+				artistID := created[0].ID
+				err = repo.CreateOfficialSite(ctx, entity.NewOfficialSite(artistID, "https://first.example.com"))
+				require.NoError(t, err)
+				return artistID
+			},
+			wantErr: apperr.ErrAlreadyExists,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			artistID := tt.setup()
+			tt.args = args{site: entity.NewOfficialSite(artistID, "https://example.com")}
+
+			err := repo.CreateOfficialSite(ctx, tt.args.site)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestArtistRepository_GetOfficialSite(t *testing.T) {
+	repo := rdb.NewArtistRepository(testDB)
+	ctx := context.Background()
+
+	type args struct {
+		artistID string
+	}
+
+	tests := []struct {
+		name    string
+		setup   func() string // returns artistID
+		args    args
+		wantURL string
+		wantErr error
+	}{
+		{
+			name: "returns site after creating one",
+			setup: func() string {
+				cleanDatabase()
+				created, err := repo.Create(ctx, entity.NewArtist("Get Site Artist", "ee000000-0000-0000-0000-0000getsite1"))
+				require.NoError(t, err)
+				artistID := created[0].ID
+				err = repo.CreateOfficialSite(ctx, entity.NewOfficialSite(artistID, "https://getsite.example.com"))
+				require.NoError(t, err)
+				return artistID
+			},
+			wantURL: "https://getsite.example.com",
+			wantErr: nil,
+		},
+		{
+			name: "returns NotFound when artist has no official site",
+			setup: func() string {
+				cleanDatabase()
+				created, err := repo.Create(ctx, entity.NewArtist("No Site Artist", "ee000000-0000-0000-0000-0000getsite2"))
+				require.NoError(t, err)
+				return created[0].ID
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			artistID := tt.setup()
+			tt.args = args{artistID: artistID}
+
+			got, err := repo.GetOfficialSite(ctx, tt.args.artistID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, artistID, got.ArtistID)
+			assert.Equal(t, tt.wantURL, got.URL)
+			assert.NotEmpty(t, got.ID)
+		})
+	}
+}
