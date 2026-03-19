@@ -21,9 +21,9 @@ const (
 		INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (endpoint) DO UPDATE SET
-			user_id = $2,
-			p256dh  = $3,
-			auth    = $4
+			user_id = EXCLUDED.user_id,
+			p256dh  = EXCLUDED.p256dh,
+			auth    = EXCLUDED.auth
 	`
 	deletePushSubscriptionByEndpointQuery = `
 		DELETE FROM push_subscriptions
