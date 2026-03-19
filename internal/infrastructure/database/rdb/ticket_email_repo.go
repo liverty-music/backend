@@ -17,8 +17,8 @@ type TicketEmailRepository struct {
 
 const (
 	ticketEmailCreateQuery = `
-		INSERT INTO ticket_emails (id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, lottery_result, payment_status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO ticket_emails (id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, journey_status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id
 	`
 	ticketEmailUpdateQuery = `
@@ -27,18 +27,17 @@ const (
 		    lottery_start_at = COALESCE($3, lottery_start_at),
 		    lottery_end_at = COALESCE($4, lottery_end_at),
 		    application_url = COALESCE($5, application_url),
-		    lottery_result = COALESCE($6, lottery_result),
-		    payment_status = COALESCE($7, payment_status)
+		    journey_status = COALESCE($6, journey_status)
 		WHERE id = $1
-		RETURNING id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, lottery_result, payment_status
+		RETURNING id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, journey_status
 	`
 	ticketEmailGetByIDQuery = `
-		SELECT id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, lottery_result, payment_status
+		SELECT id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, journey_status
 		FROM ticket_emails
 		WHERE id = $1
 	`
 	ticketEmailListByUserAndEventQuery = `
-		SELECT id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, lottery_result, payment_status
+		SELECT id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, journey_status
 		FROM ticket_emails
 		WHERE user_id = $1 AND event_id = $2
 	`
@@ -72,8 +71,7 @@ func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTi
 		params.LotteryStartTime,
 		params.LotteryEndTime,
 		appURL,
-		params.LotteryResult,
-		params.PaymentStatus,
+		params.JourneyStatus,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to create ticket email",
@@ -101,8 +99,7 @@ func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTi
 		LotteryStartTime:    params.LotteryStartTime,
 		LotteryEndTime:      params.LotteryEndTime,
 		ApplicationURL:      params.ApplicationURL,
-		LotteryResult:       params.LotteryResult,
-		PaymentStatus:       params.PaymentStatus,
+		JourneyStatus:       params.JourneyStatus,
 	}, nil
 }
 
@@ -114,8 +111,7 @@ func (r *TicketEmailRepository) Update(ctx context.Context, id string, params *e
 		params.LotteryStartTime,
 		params.LotteryEndTime,
 		params.ApplicationURL,
-		params.LotteryResult,
-		params.PaymentStatus,
+		params.JourneyStatus,
 	)
 
 	te, err := scanTicketEmail(row)
@@ -184,14 +180,13 @@ func scanTicketEmail(row scannable) (*entity.TicketEmail, error) {
 		lotteryStart    *time.Time
 		lotteryEnd      *time.Time
 		applicationURL  *string
-		lotteryResult   *int16
-		paymentStatus   *int16
+		journeyStatus   *int16
 	)
 
 	err := row.Scan(
 		&id, &userID, &eventID, &emailType, &rawBody, &parsedData,
 		&paymentDeadline, &lotteryStart, &lotteryEnd, &applicationURL,
-		&lotteryResult, &paymentStatus,
+		&journeyStatus,
 	)
 	if err != nil {
 		return nil, err
@@ -211,13 +206,9 @@ func scanTicketEmail(row scannable) (*entity.TicketEmail, error) {
 	if applicationURL != nil {
 		te.ApplicationURL = *applicationURL
 	}
-	if lotteryResult != nil {
-		r := entity.LotteryResult(*lotteryResult)
-		te.LotteryResult = &r
-	}
-	if paymentStatus != nil {
-		s := entity.PaymentStatus(*paymentStatus)
-		te.PaymentStatus = &s
+	if journeyStatus != nil {
+		s := entity.TicketJourneyStatus(*journeyStatus)
+		te.JourneyStatus = &s
 	}
 	return te, nil
 }

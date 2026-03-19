@@ -21,36 +21,6 @@ func (t TicketEmailType) IsValid() bool {
 	return t >= TicketEmailTypeLotteryInfo && t <= TicketEmailTypeLotteryResult
 }
 
-// LotteryResult indicates whether the user won or lost a ticket lottery.
-type LotteryResult int16
-
-const (
-	// LotteryResultWon indicates the user won the lottery.
-	LotteryResultWon LotteryResult = 1
-	// LotteryResultLost indicates the user lost the lottery.
-	LotteryResultLost LotteryResult = 2
-)
-
-// IsValid reports whether r is a recognized LotteryResult value.
-func (r LotteryResult) IsValid() bool {
-	return r >= LotteryResultWon && r <= LotteryResultLost
-}
-
-// PaymentStatus indicates the payment state for a won lottery ticket.
-type PaymentStatus int16
-
-const (
-	// PaymentStatusUnpaid indicates payment is pending.
-	PaymentStatusUnpaid PaymentStatus = 1
-	// PaymentStatusPaid indicates payment has been completed.
-	PaymentStatusPaid PaymentStatus = 2
-)
-
-// IsValid reports whether s is a recognized PaymentStatus value.
-func (s PaymentStatus) IsValid() bool {
-	return s >= PaymentStatusUnpaid && s <= PaymentStatusPaid
-}
-
 // TicketEmail represents an imported ticket-related email parsed by Gemini Flash.
 type TicketEmail struct {
 	// ID is the unique identifier (UUIDv7).
@@ -73,10 +43,8 @@ type TicketEmail struct {
 	LotteryEndTime *time.Time
 	// ApplicationURL is the URL for lottery application. Empty if not applicable.
 	ApplicationURL string
-	// LotteryResult indicates win or loss. Nil if not applicable.
-	LotteryResult *LotteryResult
-	// PaymentStatus indicates whether payment has been completed. Nil if not applicable.
-	PaymentStatus *PaymentStatus
+	// JourneyStatus is the TicketJourney status derived from the email content. Nil if not applicable.
+	JourneyStatus *TicketJourneyStatus
 }
 
 // NewTicketEmail contains the fields required to create a new TicketEmail record.
@@ -90,8 +58,7 @@ type NewTicketEmail struct {
 	LotteryStartTime    *time.Time
 	LotteryEndTime      *time.Time
 	ApplicationURL      string
-	LotteryResult       *LotteryResult
-	PaymentStatus       *PaymentStatus
+	JourneyStatus       *TicketJourneyStatus
 }
 
 // UpdateTicketEmail contains the fields that can be corrected by the user.
@@ -100,8 +67,7 @@ type UpdateTicketEmail struct {
 	LotteryStartTime    *time.Time
 	LotteryEndTime      *time.Time
 	ApplicationURL      *string
-	LotteryResult       *LotteryResult
-	PaymentStatus       *PaymentStatus
+	JourneyStatus       *TicketJourneyStatus
 }
 
 // TicketEmailRepository defines the persistence layer operations for ticket emails.

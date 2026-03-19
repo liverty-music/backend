@@ -88,14 +88,9 @@ func (h *TicketEmailHandler) UpdateTicketEmail(ctx context.Context, req *connect
 	if req.Msg.ApplicationUrl != nil {
 		params.ApplicationURL = req.Msg.ApplicationUrl
 	}
-	if req.Msg.LotteryResult != nil {
-		if r, ok := mapper.LotteryResultFromProto[*req.Msg.LotteryResult]; ok {
-			params.LotteryResult = &r
-		}
-	}
-	if req.Msg.PaymentStatus != nil {
-		if s, ok := mapper.PaymentStatusFromProto[*req.Msg.PaymentStatus]; ok {
-			params.PaymentStatus = &s
+	if req.Msg.JourneyStatus != nil {
+		if s, ok := mapper.JourneyStatusFromProto[*req.Msg.JourneyStatus]; ok {
+			params.JourneyStatus = &s
 		}
 	}
 

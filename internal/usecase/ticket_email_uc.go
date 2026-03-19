@@ -126,22 +126,12 @@ func (uc *ticketEmailUseCase) Update(ctx context.Context, userID, ticketEmailID 
 	return updated, nil
 }
 
-// determineJourneyStatus maps email data to a TicketJourney status.
+// determineJourneyStatus returns the TicketJourney status stored in the email,
+// falling back to TRACKING for lottery info emails or when no status is set.
 func (uc *ticketEmailUseCase) determineJourneyStatus(te *entity.TicketEmail) entity.TicketJourneyStatus {
-	switch te.EmailType {
-	case entity.TicketEmailTypeLotteryInfo:
-		return entity.TicketJourneyStatusTracking
-
-	case entity.TicketEmailTypeLotteryResult:
-		if te.LotteryResult != nil && *te.LotteryResult == entity.LotteryResultLost {
-			return entity.TicketJourneyStatusLost
-		}
-		if te.PaymentStatus != nil && *te.PaymentStatus == entity.PaymentStatusPaid {
-			return entity.TicketJourneyStatusPaid
-		}
-		return entity.TicketJourneyStatusUnpaid
+	if te.JourneyStatus != nil {
+		return *te.JourneyStatus
 	}
-
 	return entity.TicketJourneyStatusTracking
 }
 
@@ -172,26 +162,31 @@ func (uc *ticketEmailUseCase) buildNewTicketEmail(userID string, emailType entit
 			ne.PaymentDeadlineTime = &t
 		}
 	}
-	if parsed.LotteryResult != nil {
-		switch *parsed.LotteryResult {
-		case "won":
-			r := entity.LotteryResultWon
-			ne.LotteryResult = &r
-		case "lost":
-			r := entity.LotteryResultLost
-			ne.LotteryResult = &r
-		}
-	}
-	if parsed.PaymentStatus != nil {
-		switch *parsed.PaymentStatus {
-		case "unpaid":
-			s := entity.PaymentStatusUnpaid
-			ne.PaymentStatus = &s
-		case "paid":
-			s := entity.PaymentStatusPaid
-			ne.PaymentStatus = &s
-		}
-	}
+	// Map raw Gemini output to a single JourneyStatus.
+	ne.JourneyStatus = mapParsedToJourneyStatus(emailType, parsed)
 
 	return ne
+}
+
+// mapParsedToJourneyStatus converts raw Gemini parsed strings to a TicketJourneyStatus.
+func mapParsedToJourneyStatus(emailType entity.TicketEmailType, parsed *entity.ParsedEmailData) *entity.TicketJourneyStatus {
+	switch emailType {
+	case entity.TicketEmailTypeLotteryInfo:
+		s := entity.TicketJourneyStatusTracking
+		return &s
+
+	case entity.TicketEmailTypeLotteryResult:
+		if parsed.LotteryResult != nil && *parsed.LotteryResult == "lost" {
+			s := entity.TicketJourneyStatusLost
+			return &s
+		}
+		if parsed.PaymentStatus != nil && *parsed.PaymentStatus == "paid" {
+			s := entity.TicketJourneyStatusPaid
+			return &s
+		}
+		s := entity.TicketJourneyStatusUnpaid
+		return &s
+	}
+
+	return nil
 }
