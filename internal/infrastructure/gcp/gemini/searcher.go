@@ -290,15 +290,17 @@ func (s *ConcertSearcher) Search(
 		return parsed, nil
 	}, backoff.WithBackOff(bo), backoff.WithMaxTries(3))
 	if err != nil {
+		// Structural mismatch errors are already wrapped by toAppErr in parseEvents — return as-is.
+		// Check permanent errors first: they indicate genuine bugs and must not be swallowed
+		// by a transient error from a prior retry attempt.
+		if lastPermanentErr != nil {
+			return nil, lastPermanentErr
+		}
 		// If all retries exhausted for transient issues, log WARN and return nil (graceful degradation).
 		if lastTransientErr != nil {
 			s.logger.Warn(ctx, "gemini concert search failed after retries, returning empty results",
 				append(attrs, slog.String("last_error", lastTransientErr.Error()))...)
 			return nil, nil
-		}
-		// Structural mismatch errors are already wrapped by toAppErr in parseEvents — return as-is.
-		if lastPermanentErr != nil {
-			return nil, lastPermanentErr
 		}
 		return nil, toAppErr(err, "failed to call Gemini API", attrs...)
 	}
