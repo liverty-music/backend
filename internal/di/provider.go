@@ -14,6 +14,7 @@ import (
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
+	ticketemailconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_email/v1/ticket_emailv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
@@ -82,9 +83,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketRepo := rdb.NewTicketRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
+	ticketEmailRepo := rdb.NewTicketEmailRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
+	var emailParser entity.TicketEmailParser
 	if cfg.GCP.ProjectID != "" {
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 			ProjectID:   cfg.GCP.ProjectID,
@@ -96,6 +99,16 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			return nil, err
 		}
 		geminiSearcher = searcher
+
+		parser, err := gemini.NewEmailParser(ctx, gemini.EmailParserConfig{
+			ProjectID: cfg.GCP.ProjectID,
+			Location:  cfg.GCP.Location,
+			ModelName: cfg.GCP.GeminiModel,
+		}, nil, logger)
+		if err != nil {
+			return nil, err
+		}
+		emailParser = parser
 	}
 
 	// Infrastructure - Music
@@ -153,6 +166,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, publisher, artistCache, logger)
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, userRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
+	var ticketEmailUC usecase.TicketEmailUseCase
+	if emailParser != nil {
+		ticketEmailUC = usecase.NewTicketEmailUseCase(ticketEmailRepo, ticketJourneyRepo, emailParser, logger)
+	} else {
+		_ = ticketEmailRepo // referenced when email parser is enabled; suppress unused warning
+	}
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		followRepo,
@@ -242,6 +261,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketconnect.NewTicketServiceHandler(
 				rpc.NewTicketHandler(ticketUC, userRepo, safePredictor, logger),
+				opts...,
+			)
+		})
+	}
+
+	if ticketEmailUC != nil {
+		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return ticketemailconnect.NewTicketEmailServiceHandler(
+				rpc.NewTicketEmailHandler(ticketEmailUC, logger),
 				opts...,
 			)
 		})
