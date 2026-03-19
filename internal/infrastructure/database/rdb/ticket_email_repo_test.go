@@ -18,40 +18,12 @@ import (
 // ticket_emails FK constraints. It returns (userID, eventID).
 func seedTicketEmailTestData(t *testing.T) (userID, eventID string) {
 	t.Helper()
-	ctx := context.Background()
-
-	userID = uuid.Must(uuid.NewV7()).String()
-	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
-		userID, "ticket-email-user", "ticket-email@example.com", uuid.Must(uuid.NewV7()).String(),
-	)
-	require.NoError(t, err)
-
-	artistID := uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`,
-		artistID, "ticket-email-artist", uuid.Must(uuid.NewV7()).String(),
-	)
-	require.NoError(t, err)
-
-	venueID := uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO venues (id, name) VALUES ($1, $2)`,
-		venueID, "ticket-email-venue",
-	)
-	require.NoError(t, err)
-
-	eventID = uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, $3, $4, $5)`,
-		eventID, venueID, "ticket-email-event", "2026-06-01", artistID,
-	)
-	require.NoError(t, err)
-
+	userID = seedUser(t, "ticket-email-user", "ticket-email@example.com", uuid.Must(uuid.NewV7()).String())
+	artistID := seedArtist(t, "ticket-email-artist", uuid.Must(uuid.NewV7()).String())
+	venueID := seedVenue(t, "ticket-email-venue")
+	eventID = seedEvent(t, venueID, artistID, "ticket-email-event", "2026-06-01")
 	return userID, eventID
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func TestTicketEmailRepository_Create(t *testing.T) {
 	repo := rdb.NewTicketEmailRepository(testDB)

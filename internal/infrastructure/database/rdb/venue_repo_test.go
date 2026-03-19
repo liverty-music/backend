@@ -11,25 +11,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func strPtr(s string) *string { return &s }
-
 func TestVenueRepository_Create(t *testing.T) {
 	cleanDatabase()
 	repo := rdb.NewVenueRepository(testDB)
 	ctx := context.Background()
 
+	type args struct {
+		venue *entity.Venue
+	}
+
 	tests := []struct {
-		name string
-		args struct {
-			venue *entity.Venue
-		}
+		name    string
+		args    args
 		wantErr error
 	}{
 		{
 			name: "create valid venue",
-			args: struct {
-				venue *entity.Venue
-			}{
+			args: args{
 				venue: &entity.Venue{
 					ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e1",
 					Name: "Test Arena",
@@ -39,26 +37,22 @@ func TestVenueRepository_Create(t *testing.T) {
 		},
 		{
 			name: "create venue with admin_area",
-			args: struct {
-				venue *entity.Venue
-			}{
+			args: args{
 				venue: &entity.Venue{
 					ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e5",
 					Name:      "Zepp Nagoya",
-					AdminArea: strPtr("JP-23"),
+					AdminArea: ptr("JP-23"),
 				},
 			},
 			wantErr: nil,
 		},
 		{
 			name: "create venue with google_place_id and coordinates",
-			args: struct {
-				venue *entity.Venue
-			}{
+			args: args{
 				venue: &entity.Venue{
 					ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49ea",
 					Name:          "Zepp Sapporo",
-					GooglePlaceID: strPtr("ChIJtest123"),
+					GooglePlaceID: ptr("ChIJtest123"),
 					Coordinates:   &entity.Coordinates{Latitude: 43.0618, Longitude: 141.3545},
 				},
 			},
@@ -66,9 +60,7 @@ func TestVenueRepository_Create(t *testing.T) {
 		},
 		{
 			name: "duplicate venue ID",
-			args: struct {
-				venue *entity.Venue
-			}{
+			args: args{
 				venue: &entity.Venue{
 					ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e1",
 					Name: "Duplicate Arena",
@@ -78,9 +70,7 @@ func TestVenueRepository_Create(t *testing.T) {
 		},
 		{
 			name: "empty venue name",
-			args: struct {
-				venue *entity.Venue
-			}{
+			args: args{
 				venue: &entity.Venue{
 					ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e2",
 					Name: "",
@@ -116,7 +106,7 @@ func TestVenueRepository_Get(t *testing.T) {
 	testVenueWithAdminArea := &entity.Venue{
 		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 		Name:      "Zepp Tokyo",
-		AdminArea: strPtr("JP-13"),
+		AdminArea: ptr("JP-13"),
 	}
 	require.NoError(t, repo.Create(ctx, testVenueWithAdminArea))
 
@@ -140,7 +130,7 @@ func TestVenueRepository_Get(t *testing.T) {
 			want: &entity.Venue{
 				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 				Name:      "Zepp Tokyo",
-				AdminArea: strPtr("JP-13"),
+				AdminArea: ptr("JP-13"),
 			},
 		},
 		{
@@ -173,6 +163,60 @@ func TestVenueRepository_Get(t *testing.T) {
 				require.NotNil(t, got.AdminArea)
 				assert.Equal(t, *tt.want.AdminArea, *got.AdminArea)
 			}
+		})
+	}
+}
+
+func TestVenueRepository_GetByPlaceID(t *testing.T) {
+	cleanDatabase()
+	repo := rdb.NewVenueRepository(testDB)
+	ctx := context.Background()
+
+	// Seed a venue with a known GooglePlaceID so the happy-path test can find it.
+	seededVenue := &entity.Venue{
+		ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49eb",
+		Name:          "Place ID Test Arena",
+		GooglePlaceID: ptr("ChIJtest456"),
+	}
+	require.NoError(t, repo.Create(ctx, seededVenue))
+
+	type args struct {
+		placeID string
+	}
+
+	tests := []struct {
+		name    string
+		args    args
+		want    *entity.Venue
+		wantErr error
+	}{
+		{
+			name:    "returns venue by place ID",
+			args:    args{placeID: "ChIJtest456"},
+			want:    seededVenue,
+			wantErr: nil,
+		},
+		{
+			name:    "returns NotFound for unknown place ID",
+			args:    args{placeID: "ChIJunknown999"},
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := repo.GetByPlaceID(ctx, tt.args.placeID)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tt.want.ID, got.ID)
+			assert.Equal(t, tt.want.Name, got.Name)
+			require.NotNil(t, got.GooglePlaceID)
+			assert.Equal(t, *tt.want.GooglePlaceID, *got.GooglePlaceID)
 		})
 	}
 }

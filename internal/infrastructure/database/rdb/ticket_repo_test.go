@@ -16,36 +16,10 @@ import (
 // Returns (eventID, userID).
 func seedTicketTestData(t *testing.T) (string, string) {
 	t.Helper()
-	ctx := context.Background()
-
-	userID := uuid.Must(uuid.NewV7()).String()
-	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
-		userID, "ticket-test-user", "ticket-test@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4900",
-	)
-	require.NoError(t, err)
-
-	artistID := uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`,
-		artistID, "ticket-test-artist", uuid.Must(uuid.NewV7()).String(),
-	)
-	require.NoError(t, err)
-
-	venueID := uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO venues (id, name) VALUES ($1, $2)`,
-		venueID, "ticket-test-venue",
-	)
-	require.NoError(t, err)
-
-	eventID := uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, $3, $4, $5)`,
-		eventID, venueID, "ticket-test-event", "2026-03-01", artistID,
-	)
-	require.NoError(t, err)
-
+	userID := seedUser(t, "ticket-test-user", "ticket-test@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4900")
+	artistID := seedArtist(t, "ticket-test-artist", uuid.Must(uuid.NewV7()).String())
+	venueID := seedVenue(t, "ticket-test-venue")
+	eventID := seedEvent(t, venueID, artistID, "ticket-test-event", "2026-03-01")
 	return eventID, userID
 }
 
@@ -77,21 +51,20 @@ func TestTicketRepository_Create(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ticket, err := repo.Create(ctx, tc.args)
-			if tc.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tc.wantErr)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ticket, err := repo.Create(ctx, tt.args)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, ticket.ID)
-			assert.Equal(t, tc.args.EventID, ticket.EventID)
-			assert.Equal(t, tc.args.UserID, ticket.UserID)
-			assert.Equal(t, tc.args.TokenID, ticket.TokenID)
-			assert.Equal(t, tc.args.TxHash, ticket.TxHash)
+			assert.Equal(t, tt.args.EventID, ticket.EventID)
+			assert.Equal(t, tt.args.UserID, ticket.UserID)
+			assert.Equal(t, tt.args.TokenID, ticket.TokenID)
+			assert.Equal(t, tt.args.TxHash, ticket.TxHash)
 			assert.False(t, ticket.MintTime.IsZero())
 		})
 	}
@@ -118,7 +91,6 @@ func TestTicketRepository_Create_DuplicateEventUser(t *testing.T) {
 		TokenID: 200,
 		TxHash:  "0xsecond",
 	})
-	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 }
 
@@ -158,12 +130,11 @@ func TestTicketRepository_Get(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ticket, err := repo.Get(ctx, tc.args)
-			if tc.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tc.wantErr)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ticket, err := repo.Get(ctx, tt.args)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}
 
@@ -222,12 +193,11 @@ func TestTicketRepository_GetByEventAndUser(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ticket, err := repo.GetByEventAndUser(ctx, tc.eventID, tc.userID)
-			if tc.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tc.wantErr)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ticket, err := repo.GetByEventAndUser(ctx, tt.eventID, tt.userID)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}
 
@@ -244,23 +214,12 @@ func TestTicketRepository_ListByUser(t *testing.T) {
 	ctx := context.Background()
 	eventID, userID := seedTicketTestData(t)
 
-	// Create a second event for the same venue.
-	// Retrieve venue_id and artist_id from the existing event, then insert a new event.
-	var venueID, artistID string
-	err := testDB.Pool.QueryRow(ctx,
-		`SELECT venue_id, artist_id FROM events WHERE id = $1`,
-		eventID,
-	).Scan(&venueID, &artistID)
-	require.NoError(t, err)
+	// Create a second event using shared seed helpers.
+	artistID2 := seedArtist(t, "list-user-artist-2", uuid.Must(uuid.NewV7()).String())
+	venueID2 := seedVenue(t, "list-user-venue-2")
+	eventID2 := seedEvent(t, venueID2, artistID2, "second event", "2026-04-01")
 
-	eventID2 := uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, $3, $4, $5)`,
-		eventID2, venueID, "second event", "2026-04-01", artistID,
-	)
-	require.NoError(t, err)
-
-	_, err = repo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID, TokenID: 1, TxHash: "0x1"})
+	_, err := repo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID, TokenID: 1, TxHash: "0x1"})
 	require.NoError(t, err)
 	_, err = repo.Create(ctx, &entity.NewTicket{EventID: eventID2, UserID: userID, TokenID: 2, TxHash: "0x2"})
 	require.NoError(t, err)
@@ -291,17 +250,16 @@ func TestTicketRepository_ListByUser(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			tickets, err := repo.ListByUser(ctx, tc.userID)
-			if tc.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tc.wantErr)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tickets, err := repo.ListByUser(ctx, tt.userID)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}
 
 			require.NoError(t, err)
-			assert.Len(t, tickets, tc.wantCount)
+			assert.Len(t, tickets, tt.wantCount)
 		})
 	}
 }
@@ -313,14 +271,9 @@ func TestTicketRepository_ListByEvent(t *testing.T) {
 	eventID, userID := seedTicketTestData(t)
 
 	// Create a second user.
-	userID2 := uuid.Must(uuid.NewV7()).String()
-	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
-		userID2, "list-by-event-user2", "list-by-event2@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4910",
-	)
-	require.NoError(t, err)
+	userID2 := seedUser(t, "list-by-event-user2", "list-by-event2@example.com", "ext-list-by-event-02")
 
-	_, err = repo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID, TokenID: 10, TxHash: "0xa"})
+	_, err := repo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID, TokenID: 10, TxHash: "0xa"})
 	require.NoError(t, err)
 	_, err = repo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID2, TokenID: 20, TxHash: "0xb"})
 	require.NoError(t, err)
@@ -343,7 +296,6 @@ func TestTicketRepository_ListByEvent(t *testing.T) {
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		_, err := repo.ListByEvent(ctx, "")
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
@@ -380,17 +332,16 @@ func TestTicketRepository_EventExists(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			exists, err := repo.EventExists(ctx, tc.eventID)
-			if tc.wantErr != nil {
-				require.Error(t, err)
-				assert.ErrorIs(t, err, tc.wantErr)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exists, err := repo.EventExists(ctx, tt.eventID)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, exists)
+			assert.Equal(t, tt.want, exists)
 		})
 	}
 }
