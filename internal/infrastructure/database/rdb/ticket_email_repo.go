@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // TicketEmailRepository implements entity.TicketEmailRepository for PostgreSQL.
@@ -50,6 +52,10 @@ func NewTicketEmailRepository(db *Database) *TicketEmailRepository {
 
 // Create persists a new ticket email record and returns it with the generated ID.
 func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTicketEmail) (*entity.TicketEmail, error) {
+	if params == nil {
+		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
+	}
+
 	id, err := uuid.NewV7()
 	if err != nil {
 		return nil, toAppErr(err, "failed to generate UUIDv7 for ticket email")
@@ -105,6 +111,10 @@ func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTi
 
 // Update applies user corrections to an existing ticket email record.
 func (r *TicketEmailRepository) Update(ctx context.Context, id string, params *entity.UpdateTicketEmail) (*entity.TicketEmail, error) {
+	if params == nil {
+		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
+	}
+
 	row := r.db.Pool.QueryRow(ctx, ticketEmailUpdateQuery,
 		id,
 		params.PaymentDeadlineTime,

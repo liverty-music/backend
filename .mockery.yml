@@ -15,6 +15,7 @@ packages:
       PushNotificationUseCase:
       ArtistImageSyncUseCase:
       TicketJourneyUseCase:
+      TicketEmailUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
