@@ -74,6 +74,8 @@ func cleanTables(db *rdb.Database) {
 		"nullifiers",
 		"merkle_tree",
 		"tickets",
+		"ticket_emails",
+		"ticket_journeys",
 		"latest_search_logs",
 		"followed_artists",
 		"artist_official_site",
