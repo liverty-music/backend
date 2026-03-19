@@ -18,7 +18,7 @@ func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 	}
 
 	proto := &entityv1.Concert{
-		Id: &entityv1.ConcertId{
+		Id: &entityv1.EventId{
 			Value: c.ID,
 		},
 		ArtistId: &entityv1.ArtistId{

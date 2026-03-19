@@ -6,10 +6,10 @@ buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250903170917-c4be0f57
 buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250903170917-c4be0f57e197.1/go.mod h1:eGjb9P6sl1irS46NKyXnxkyozT2aWs3BF4tbYWQuCsw=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.9-20250903170917-c4be0f57e197.1 h1:q+tABqEH2Cpcp8fO9TBZlvKok7zorHGy+/UyywXaAKo=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.9-20250903170917-c4be0f57e197.1/go.mod h1:Y3m+VD8IH6JTgnFYggPHvFul/ry6dL3QDliy8xH7610=
-buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260318135917-019227fea01d.2 h1:A4zt0Q63KG1IHT66zsZSGoyd7JHNX/5XHuxg/ctvWAo=
-buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260318135917-019227fea01d.2/go.mod h1:3guChvDKvXp9twIJzuMqnySXokE7sQ8CrhUqeWB/Moc=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260318135917-019227fea01d.1 h1:YuSsHQbwVYOvsNmkXL71Znk8gBy3MF35lIoqgmNmzrU=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260318135917-019227fea01d.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260319023557-82170e4a4aa3.2 h1:srG2ILwp1f2MqS7nLmiexXS1zoVUB694ytYh6YNtUHQ=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.19.1-20260319023557-82170e4a4aa3.2/go.mod h1:PNm1VQLIcIUVvBdtNG1FVjUmvTIbYpEhCbk1ae4VijE=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260319023557-82170e4a4aa3.1 h1:9WCQ6TIC+4ZV5F4bubOx3CeAEi7vE1vYrCN+kwiUaY4=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260319023557-82170e4a4aa3.1/go.mod h1:PQHl79fcweITJ6a9TldAMvhSrJT0S5KNeSAHBdqCbUM=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1 h1:KuP+b+in6LGh2ukof5KgDCD8hPXotEq6EVOo13Wg1pE=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1/go.mod h1:dV1Kz6zdmyXt7QWm5OXby44OFpyLemllUDBUG5HMLio=
 buf.build/go/app v0.1.0 h1:nlqD/h0rhIN73ZoiDElprrPiO2N6JV+RmNK34K29Ihg=
