@@ -205,6 +205,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		"/" + concertconnect.ConcertServiceName + "/List":               true,
 		"/" + concertconnect.ConcertServiceName + "/SearchNewConcerts":  true,
 		"/" + concertconnect.ConcertServiceName + "/ListSearchStatuses": true,
+		"/" + concertconnect.ConcertServiceName + "/ListWithProximity":  true,
 	}
 
 	authFunc := auth.NewAuthFunc(jwtValidator, publicProcedures)
