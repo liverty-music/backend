@@ -42,7 +42,7 @@ contract TicketSBT is ERC721, AccessControl, IERC5192 {
     }
 
     // -------------------------------------------------------------------------
-    // ERC-721 transfer overrides — revert unconditionally
+    // ERC-721 transfer & approval overrides — revert unconditionally
     // -------------------------------------------------------------------------
 
     function transferFrom(address, address, uint256) public pure override {
@@ -50,6 +50,14 @@ contract TicketSBT is ERC721, AccessControl, IERC5192 {
     }
 
     function safeTransferFrom(address, address, uint256, bytes memory) public pure override {
+        revert("SBT: Ticket transfer is prohibited");
+    }
+
+    function approve(address, uint256) public pure override {
+        revert("SBT: Ticket transfer is prohibited");
+    }
+
+    function setApprovalForAll(address, bool) public pure override {
         revert("SBT: Ticket transfer is prohibited");
     }
 
