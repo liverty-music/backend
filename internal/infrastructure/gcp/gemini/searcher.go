@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,10 @@ import (
 	"github.com/pannpers/go-logging/logging"
 	"google.golang.org/genai"
 )
+
+// errInvalidJSON is a sentinel error returned by parseEvents when the Gemini response
+// contains invalid JSON. This is treated as a transient (retryable) error.
+var errInvalidJSON = errors.New("gemini returned invalid JSON")
 
 // Config holds the configuration for Gemini searcher.
 type Config struct {
@@ -68,6 +73,10 @@ Constraints:
 	// 16384 tokens provides sufficient headroom for large batches of concert data
 	// (e.g., a tour list with 30+ dates) in detailed JSON format.
 	maxOutputTokens = int32(16384)
+
+	// maxRawTextLogLen is the maximum number of characters of Gemini's raw response
+	// text to include in WARN logs. Truncated to stay within Cloud Logging limits.
+	maxRawTextLogLen = 1000
 )
 
 var (
@@ -210,7 +219,9 @@ func (s *ConcertSearcher) Search(
 		MaxInterval:     10 * time.Second,
 	}
 
-	resp, err := backoff.Retry(ctx, func() (*genai.GenerateContentResponse, error) {
+	var lastTransientErr error
+	var lastPermanentErr error
+	results, err := backoff.Retry(ctx, func() ([]*entity.ScrapedConcert, error) {
 		resp, err := s.client.Models.GenerateContent(ctx, s.config.ModelName, genai.Text(prompt), generateCfg)
 		if err != nil {
 			s.logger.Error(ctx, "gemini model call failed", err, attrs...)
@@ -219,58 +230,80 @@ func (s *ConcertSearcher) Search(
 			}
 			return nil, err
 		}
-		return resp, nil
+
+		usageMD := resp.UsageMetadata
+		respAttrs := []slog.Attr{
+			slog.String("response_id", resp.ResponseID),
+			slog.Group("usage_metadata",
+				slog.Int("prompt", int(usageMD.PromptTokenCount)),
+				slog.Int("candidates", int(usageMD.CandidatesTokenCount)),
+				slog.Int("total", int(usageMD.TotalTokenCount)),
+				slog.Int("tool_use", int(usageMD.ToolUsePromptTokenCount)),
+			),
+		}
+
+		if len(resp.Candidates) == 0 {
+			s.logger.Info(ctx, "Gemini returned no concert candidates", append(attrs, respAttrs...)...)
+			return nil, nil
+		}
+
+		candidate := resp.Candidates[0]
+		groundingMD := candidate.GroundingMetadata
+		var webSearchQueries []string
+		if groundingMD != nil {
+			webSearchQueries = groundingMD.WebSearchQueries
+		}
+		candidateAttrs := append(respAttrs,
+			slog.String("finish_reason", string(candidate.FinishReason)),
+			slog.Group("grounding_metadata",
+				slog.Any("web_search_queries", webSearchQueries),
+			),
+		)
+
+		parts := candidate.Content.Parts
+		if len(parts) == 0 || parts[0].Text == "" {
+			s.logger.Debug(ctx, "concert candidate has no parts", append(attrs, candidateAttrs...)...)
+			return nil, nil
+		}
+
+		s.logger.Info(ctx, "successfully found concert candidates", append(attrs, candidateAttrs...)...)
+
+		// FinishReason whitelist: only STOP and "" (streaming in-progress) are considered complete.
+		if candidate.FinishReason != genai.FinishReasonStop && candidate.FinishReason != "" {
+			lastTransientErr = fmt.Errorf("gemini response not completed normally: finish_reason=%s", candidate.FinishReason)
+			s.logger.Warn(ctx, "gemini response not completed normally, retrying",
+				append(attrs, candidateAttrs...)...)
+			return nil, lastTransientErr
+		}
+
+		parsed, err := s.parseEvents(ctx, parts[0].Text, from, attrs...)
+		if err != nil {
+			// parseEvents returns errInvalidJSON for invalid JSON (retryable)
+			// and backoff.Permanent for structural mismatches (not retryable).
+			if errors.Is(err, errInvalidJSON) {
+				lastTransientErr = err
+			} else {
+				lastPermanentErr = err
+			}
+			return nil, err
+		}
+		return parsed, nil
 	}, backoff.WithBackOff(bo), backoff.WithMaxTries(3))
 	if err != nil {
+		// If all retries exhausted for transient issues, log WARN and return nil (graceful degradation).
+		if lastTransientErr != nil {
+			s.logger.Warn(ctx, "gemini concert search failed after retries, returning empty results",
+				append(attrs, slog.String("last_error", lastTransientErr.Error()))...)
+			return nil, nil
+		}
+		// Structural mismatch errors are already wrapped by toAppErr in parseEvents — return as-is.
+		if lastPermanentErr != nil {
+			return nil, lastPermanentErr
+		}
 		return nil, toAppErr(err, "failed to call Gemini API", attrs...)
 	}
 
-	usageMD := resp.UsageMetadata
-	respAttrs := []slog.Attr{
-		slog.String("response_id", resp.ResponseID),
-		slog.Group("usage_metadata",
-			slog.Int("prompt", int(usageMD.PromptTokenCount)),
-			slog.Int("candidates", int(usageMD.CandidatesTokenCount)),
-			slog.Int("total", int(usageMD.TotalTokenCount)),
-			slog.Int("tool_use", int(usageMD.ToolUsePromptTokenCount)),
-		),
-	}
-
-	if len(resp.Candidates) == 0 {
-		s.logger.Info(ctx, "Gemini returned no concert candidates", append(attrs, respAttrs...)...)
-		return nil, nil
-	}
-
-	candidate := resp.Candidates[0]
-	groundingMD := candidate.GroundingMetadata
-	var webSearchQueries []string
-	if groundingMD != nil {
-		webSearchQueries = groundingMD.WebSearchQueries
-	}
-	candidateAttrs := append(respAttrs,
-		slog.String("finish_reason", string(candidate.FinishReason)),
-		slog.Group("grounding_metadata",
-			slog.Any("web_search_queries", webSearchQueries),
-		),
-	)
-
-	parts := candidate.Content.Parts
-	if len(parts) == 0 || parts[0].Text == "" {
-		s.logger.Debug(ctx, "concert candidate has no parts", append(attrs, candidateAttrs...)...)
-		return nil, nil
-	}
-
-	s.logger.Info(ctx, "successfully found concert candidates", append(attrs, candidateAttrs...)...)
-
-	if candidate.FinishReason == genai.FinishReasonMaxTokens {
-		return nil, toAppErr(
-			fmt.Errorf("response truncated at %d candidate tokens", usageMD.CandidatesTokenCount),
-			"gemini response truncated due to max output tokens",
-			attrs...,
-		)
-	}
-
-	return s.parseEvents(ctx, parts[0].Text, from, attrs...)
+	return results, nil
 }
 
 func (s *ConcertSearcher) parseEvents(
@@ -304,11 +337,27 @@ func (s *ConcertSearcher) parseEvents(
 		return nil, nil
 	}
 
+	// Pre-check JSON validity. Invalid JSON indicates a truncated or malformed Gemini
+	// response (transient), which is retryable. Log WARN with truncated raw text for diagnosis.
+	if !json.Valid([]byte(text)) {
+		truncated := rawText
+		if len(truncated) > maxRawTextLogLen {
+			truncated = truncated[:maxRawTextLogLen]
+		}
+		s.logger.Warn(ctx, "gemini returned invalid JSON, retrying",
+			append(attrs,
+				slog.String("raw_text_truncated", truncated),
+				slog.Int("raw_text_len", len(rawText)),
+			)...)
+		return nil, errInvalidJSON
+	}
+
 	var eventsResp EventsResponse
 	if err := json.Unmarshal([]byte(text), &eventsResp); err != nil {
-		return nil, toAppErr(err, "failed to unmarshal gemini response",
-			append(attrs, slog.String("text", text), slog.String("raw_text", rawText))...,
-		)
+		// Valid JSON but wrong structure — this is a permanent error (likely a code bug or schema change).
+		return nil, backoff.Permanent(toAppErr(err, "failed to unmarshal gemini response",
+			append(attrs, slog.String("text", text))...,
+		))
 	}
 
 	// Convert to DTOs

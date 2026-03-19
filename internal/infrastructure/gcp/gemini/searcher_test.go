@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -222,11 +223,11 @@ func TestConcertSearcher_Search(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:         "error - invalid json in response content",
+			name:         "resilience - invalid json returns nil after retries",
 			statusCode:   http.StatusOK,
 			responseBody: `invalid json`,
 			want:         nil,
-			wantErr:      apperr.ErrInternal, // Unmarshal error is mapped to Internal in errors.go
+			wantErr:      nil, // graceful degradation: invalid JSON retried then returns empty
 		},
 		{
 			name:         "error - empty response",
@@ -364,12 +365,20 @@ func TestConcertSearcher_Search(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument, // 400 -> InvalidArgument
 		},
 		{
-			name:         "error - MAX_TOKENS truncated response",
+			name:         "resilience - MAX_TOKENS returns nil after retries",
 			statusCode:   http.StatusOK,
 			finishReason: "MAX_TOKENS",
 			responseBody: `{"events": [{"artist_name": "Test Artist", "event_name": "Trunca`,
 			want:         nil,
-			wantErr:      apperr.ErrUnknown,
+			wantErr:      nil, // non-STOP finish reason retried then returns empty
+		},
+		{
+			name:         "resilience - SAFETY finish reason returns nil",
+			statusCode:   http.StatusOK,
+			finishReason: "SAFETY",
+			responseBody: `{}`,
+			want:         nil,
+			wantErr:      nil, // non-STOP finish reason retried then returns empty
 		},
 	}
 
@@ -538,4 +547,94 @@ func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
 	assert.Equal(t, "Nameless Tour", got[0].Title)
 	assert.Equal(t, "Test Hall", got[0].ListedVenueName)
 	assert.Equal(t, "https://example.com/nameless", got[0].SourceURL)
+}
+
+// geminiResponse builds a mock Gemini API JSON response with the given body text and finish reason.
+func geminiResponse(bodyText, finishReason string) string {
+	if finishReason == "" {
+		finishReason = "STOP"
+	}
+	return fmt.Sprintf(`{
+		"candidates": [{
+			"content": {"parts": [{"text": %s}]},
+			"finishReason": %q,
+			"groundingMetadata": {"webSearchQueries": ["test"]}
+		}],
+		"usageMetadata": {
+			"promptTokenCount": 10,
+			"candidatesTokenCount": 10,
+			"totalTokenCount": 20
+		}
+	}`, strconv.Quote(bodyText), finishReason)
+}
+
+func TestConcertSearcher_Search_RetryThenSuccess(t *testing.T) {
+	logger, _ := logging.New()
+	ctx := context.Background()
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{Name: "Test Artist"}
+	officialSite := &entity.OfficialSite{URL: "https://example.com"}
+
+	validBody := `{"events": [{"artist_name": "Test Artist", "event_name": "Retry Tour", "venue": "Hall", "local_date": "2026-03-01", "source_url": "https://example.com/retry"}]}`
+
+	var callCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := callCount.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if n == 1 {
+			// First call: return truncated JSON with STOP (simulates the production bug)
+			_, _ = w.Write([]byte(geminiResponse(`{"events": [{"artist_name": "Test`, "STOP")))
+		} else {
+			// Second call: return valid response
+			_, _ = w.Write([]byte(geminiResponse(validBody, "STOP")))
+		}
+	}))
+	defer ts.Close()
+
+	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
+		ProjectID: "test",
+		Location:  "us-central1",
+		ModelName: "gemini-pro",
+	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, logger)
+	require.NoError(t, err)
+
+	got, err := s.Search(ctx, artist, officialSite, from)
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "Retry Tour", got[0].Title)
+	assert.Equal(t, int32(2), callCount.Load(), "expected exactly 2 API calls (1 retry)")
+}
+
+func TestConcertSearcher_Search_StructuralMismatch(t *testing.T) {
+	logger, _ := logging.New()
+	ctx := context.Background()
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{Name: "Test Artist"}
+	officialSite := &entity.OfficialSite{URL: "https://example.com"}
+
+	// Valid JSON but wrong structure: "events" is a string instead of an array.
+	wrongStructure := `{"events": "not an array"}`
+
+	var callCount atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(geminiResponse(wrongStructure, "STOP")))
+	}))
+	defer ts.Close()
+
+	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
+		ProjectID: "test",
+		Location:  "us-central1",
+		ModelName: "gemini-pro",
+	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, logger)
+	require.NoError(t, err)
+
+	got, err := s.Search(ctx, artist, officialSite, from)
+
+	assert.Nil(t, got)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperr.ErrInternal)
+	assert.Equal(t, int32(1), callCount.Load(), "structural mismatch should not retry")
 }
