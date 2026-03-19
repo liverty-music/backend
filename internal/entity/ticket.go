@@ -67,11 +67,24 @@ func GenerateTokenID() (uint64, error) {
 // than the concrete blockchain client, enabling unit testing with mocks.
 type TicketMinter interface {
 	// Mint submits a mint transaction for a soulbound token.
+	//
+	// # Possible errors
+	//
+	//   - Internal: RPC failure, transaction submission or on-chain revert.
 	Mint(ctx context.Context, recipient string, tokenID uint64) (txHash string, err error)
+
 	// IsTokenMinted returns true if the given tokenID has already been minted on-chain.
+	//
+	// # Possible errors
+	//
+	//   - Internal: RPC call failure.
 	IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error)
+
 	// OwnerOf returns the owner address of the given tokenID as a lowercase hex string.
-	// Returns an error if the token does not exist or the RPC call fails.
+	//
+	// # Possible errors
+	//
+	//   - Internal: RPC call failure or token does not exist.
 	OwnerOf(ctx context.Context, tokenID uint64) (address string, err error)
 }
 
@@ -100,13 +113,28 @@ type TicketRepository interface {
 	GetByEventAndUser(ctx context.Context, eventID, userID string) (*Ticket, error)
 
 	// ListByUser retrieves all tickets for a given user, ordered by mint time descending.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If userID is empty.
+	//  - Internal: Database query or scan failure.
 	ListByUser(ctx context.Context, userID string) ([]*Ticket, error)
 
 	// ListByEvent retrieves all tickets for a given event, ordered by mint time ascending.
 	// Used for building the Merkle tree of ticket holders.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If eventID is empty.
+	//  - Internal: Database query or scan failure.
 	ListByEvent(ctx context.Context, eventID string) ([]*Ticket, error)
 
 	// EventExists returns true if an event with the given ID exists in the database.
 	// Used to validate the event before triggering an irreversible on-chain mint.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If eventID is empty.
+	//  - Internal: Database query failure.
 	EventExists(ctx context.Context, eventID string) (bool, error)
 }

@@ -208,7 +208,6 @@ func TestEmailParser_Parse(t *testing.T) {
 			got, err := parser.Parse(ctx, "テストメール本文", tt.args.emailType)
 
 			if tt.wantErr != nil {
-				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}

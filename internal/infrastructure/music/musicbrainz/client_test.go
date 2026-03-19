@@ -45,6 +45,8 @@ type placeSearchResponse struct {
 }
 
 func TestClient_GetArtist(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		mbid string
 	}
@@ -104,7 +106,7 @@ func TestClient_GetArtist(t *testing.T) {
 			args:        args{mbid: "test-mbid"},
 			statusCode:  http.StatusOK,
 			invalidJSON: true,
-			wantErr:     apperr.New(codes.DataLoss, "failed to decode musicbrainz response"),
+			wantErr:     apperr.New(codes.Internal, "failed to decode musicbrainz response"),
 		},
 	}
 
@@ -132,7 +134,6 @@ func TestClient_GetArtist(t *testing.T) {
 			artist, err := client.GetArtist(context.Background(), tt.args.mbid)
 
 			if tt.wantErr != nil {
-				assert.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, artist)
 			} else {
@@ -145,6 +146,8 @@ func TestClient_GetArtist(t *testing.T) {
 }
 
 func TestClient_SearchPlace(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name         string
 		venueName    string
@@ -203,7 +206,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			adminArea:   "",
 			statusCode:  http.StatusOK,
 			invalidJSON: true,
-			wantErr:     apperr.New(codes.DataLoss, "failed to decode musicbrainz place response"),
+			wantErr:     apperr.New(codes.Internal, "failed to decode musicbrainz place response"),
 		},
 	}
 
@@ -230,7 +233,6 @@ func TestClient_SearchPlace(t *testing.T) {
 			place, err := client.SearchPlace(context.Background(), tt.venueName, tt.adminArea)
 
 			if tt.wantErr != nil {
-				assert.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, place)
 			} else {
@@ -244,6 +246,8 @@ func TestClient_SearchPlace(t *testing.T) {
 }
 
 func TestClient_SearchPlace_Coordinates(t *testing.T) {
+	t.Parallel()
+
 	ptrFloat := func(v float64) *float64 { return &v }
 
 	tests := []struct {
@@ -328,6 +332,8 @@ func TestClient_SearchPlace_Coordinates(t *testing.T) {
 }
 
 func TestClient_GetArtist_ContextTimeout(t *testing.T) {
+	t.Parallel()
+
 	t.Run("context cancelled - returns deadline exceeded error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Wait for context cancellation
@@ -348,7 +354,116 @@ func TestClient_GetArtist_ContextTimeout(t *testing.T) {
 	})
 }
 
+func TestClient_ResolveOfficialSiteURL(t *testing.T) {
+	// Local types that mirror the unexported url-rels response shapes.
+	type urlResource struct {
+		Resource string `json:"resource"`
+	}
+	type urlRelation struct {
+		Type         string      `json:"type"`
+		SourceCredit string      `json:"source-credit"`
+		Ended        bool        `json:"ended"`
+		URL          urlResource `json:"url"`
+	}
+	type urlRelsResponse struct {
+		ID        string        `json:"id"`
+		Name      string        `json:"name"`
+		Relations []urlRelation `json:"relations"`
+	}
+
+	type args struct {
+		mbid string
+	}
+	tests := []struct {
+		name         string
+		args         args
+		statusCode   int
+		responseBody interface{}
+		invalidJSON  bool
+		wantErr      error
+		wantURL      string
+	}{
+		{
+			name:       "success - returns official homepage URL",
+			args:       args{mbid: "a74b1b7f-71a5-4011-9441-d0b5e4122711"},
+			statusCode: http.StatusOK,
+			responseBody: urlRelsResponse{
+				ID:   "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+				Name: "Radiohead",
+				Relations: []urlRelation{
+					{
+						Type:         "official homepage",
+						SourceCredit: "",
+						Ended:        false,
+						URL:          urlResource{Resource: "https://www.radiohead.com"},
+					},
+				},
+			},
+			wantURL: "https://www.radiohead.com",
+		},
+		{
+			name:       "no official site - returns empty string without error",
+			args:       args{mbid: "a74b1b7f-71a5-4011-9441-d0b5e4122711"},
+			statusCode: http.StatusOK,
+			responseBody: urlRelsResponse{
+				ID:        "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+				Name:      "Unknown Band",
+				Relations: []urlRelation{},
+			},
+			wantURL: "",
+		},
+		{
+			name:       "error - HTTP 503 service unavailable",
+			args:       args{mbid: "test-mbid"},
+			statusCode: http.StatusServiceUnavailable,
+			wantErr:    apperr.New(codes.Unavailable, "musicbrainz url-rels request failed"),
+		},
+		{
+			name:        "error - invalid JSON response",
+			args:        args{mbid: "test-mbid"},
+			statusCode:  http.StatusOK,
+			invalidJSON: true,
+			wantErr:     apperr.New(codes.Internal, "failed to decode musicbrainz url-rels response"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Contains(t, r.URL.Query().Get("inc"), "url-rels")
+				assert.Equal(t, "json", r.URL.Query().Get("fmt"))
+				assert.Contains(t, r.Header.Get("User-Agent"), "LivertyMusic")
+
+				w.WriteHeader(tt.statusCode)
+				w.Header().Set("Content-Type", "application/json")
+
+				if tt.invalidJSON {
+					_, _ = w.Write([]byte("invalid json{"))
+				} else if tt.responseBody != nil {
+					_ = json.NewEncoder(w).Encode(tt.responseBody)
+				}
+			}))
+			defer server.Close()
+
+			client := musicbrainz.NewClient(server.Client(), testLogger(t))
+			client.SetBaseURL(server.URL + "/")
+
+			gotURL, err := client.ResolveOfficialSiteURL(context.Background(), tt.args.mbid)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Empty(t, gotURL)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantURL, gotURL)
+			}
+		})
+	}
+}
+
 func TestClient_GetArtist_RetryOnServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
 	t.Run("retries on 503 and succeeds", func(t *testing.T) {
 		var calls atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

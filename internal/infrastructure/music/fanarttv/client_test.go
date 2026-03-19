@@ -22,12 +22,34 @@ func newTestLogger(t *testing.T) *logging.Logger {
 }
 
 func TestClient_ResolveImages(t *testing.T) {
-	t.Run("parses successful response", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, testAPIKey, r.Header.Get("api-key"))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{
+	t.Parallel()
+
+	type wantImages struct {
+		thumbCount  int
+		thumb0URL   string
+		thumb0Likes int
+		thumb1URL   string
+		thumb1Likes int
+		logoCount   int
+		logo0URL    string
+	}
+
+	tests := []struct {
+		name         string
+		mbid         string
+		statusCode   int
+		responseBody string
+		contentType  string
+		cancelCtx    bool
+		wantErr      error
+		want         *wantImages
+	}{
+		{
+			name:        "parses successful response",
+			mbid:        "mbid-123",
+			statusCode:  http.StatusOK,
+			contentType: "application/json",
+			responseBody: `{
 				"artistthumb": [
 					{"id": "100", "url": "https://assets.fanart.tv/thumb1.jpg", "likes": "5", "lang": "en"},
 					{"id": "101", "url": "https://assets.fanart.tv/thumb2.jpg", "likes": "12", "lang": "ja"}
@@ -36,88 +58,105 @@ func TestClient_ResolveImages(t *testing.T) {
 					{"id": "200", "url": "https://assets.fanart.tv/logo.png", "likes": "8", "lang": "en"}
 				],
 				"musicbanner": []
-			}`))
-		}))
-		defer srv.Close()
+			}`,
+			want: &wantImages{
+				thumbCount:  2,
+				thumb0URL:   "https://assets.fanart.tv/thumb1.jpg",
+				thumb0Likes: 5,
+				thumb1URL:   "https://assets.fanart.tv/thumb2.jpg",
+				thumb1Likes: 12,
+				logoCount:   1,
+				logo0URL:    "https://assets.fanart.tv/logo.png",
+			},
+		},
+		{
+			name:         "returns nil for 404 not found",
+			mbid:         "mbid-unknown",
+			statusCode:   http.StatusNotFound,
+			responseBody: "",
+			want:         nil,
+		},
+		{
+			name:         "returns error for server error",
+			mbid:         "mbid-error",
+			statusCode:   http.StatusInternalServerError,
+			responseBody: "",
+			wantErr:      assert.AnError,
+		},
+		{
+			name:         "returns error for invalid JSON",
+			mbid:         "mbid-bad-json",
+			statusCode:   http.StatusOK,
+			contentType:  "application/json",
+			responseBody: `{not valid json`,
+			wantErr:      assert.AnError,
+		},
+		{
+			name:         "returns error when context is cancelled",
+			mbid:         "mbid-cancelled",
+			statusCode:   http.StatusOK,
+			responseBody: `{}`,
+			cancelCtx:    true,
+			wantErr:      assert.AnError,
+		},
+	}
 
-		c := fanarttv.NewClient(testAPIKey, srv.Client(), newTestLogger(t))
-		c.SetBaseURL(srv.URL + "/")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		result, err := c.ResolveImages(context.Background(), "mbid-123")
-		require.NoError(t, err)
-		require.NotNil(t, result)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, testAPIKey, r.Header.Get("api-key"))
+				if tt.contentType != "" {
+					w.Header().Set("Content-Type", tt.contentType)
+				}
+				w.WriteHeader(tt.statusCode)
+				if tt.responseBody != "" {
+					_, _ = w.Write([]byte(tt.responseBody))
+				}
+			}))
+			defer srv.Close()
 
-		assert.Len(t, result.ArtistThumb, 2)
-		assert.Equal(t, "https://assets.fanart.tv/thumb1.jpg", result.ArtistThumb[0].URL)
-		assert.Equal(t, 5, result.ArtistThumb[0].Likes)
-		assert.Equal(t, "https://assets.fanart.tv/thumb2.jpg", result.ArtistThumb[1].URL)
-		assert.Equal(t, 12, result.ArtistThumb[1].Likes)
+			c := fanarttv.NewClient(testAPIKey, srv.Client(), newTestLogger(t))
+			c.SetBaseURL(srv.URL + "/")
 
-		assert.Len(t, result.HDMusicLogo, 1)
-		assert.Equal(t, "https://assets.fanart.tv/logo.png", result.HDMusicLogo[0].URL)
+			ctx := context.Background()
+			if tt.cancelCtx {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
 
-		assert.Empty(t, result.MusicBanner)
-	})
+			result, err := c.ResolveImages(ctx, tt.mbid)
 
-	t.Run("returns nil for 404 not found", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusNotFound)
-		}))
-		defer srv.Close()
+			if tt.wantErr != nil {
+				assert.Error(t, err)
+				assert.Nil(t, result)
+				return
+			}
 
-		c := fanarttv.NewClient(testAPIKey, srv.Client(), newTestLogger(t))
-		c.SetBaseURL(srv.URL + "/")
+			require.NoError(t, err)
 
-		result, err := c.ResolveImages(context.Background(), "mbid-unknown")
-		assert.NoError(t, err)
-		assert.Nil(t, result)
-	})
+			if tt.want == nil {
+				assert.Nil(t, result)
+				return
+			}
 
-	t.Run("returns error for server error", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}))
-		defer srv.Close()
-
-		c := fanarttv.NewClient(testAPIKey, srv.Client(), newTestLogger(t))
-		c.SetBaseURL(srv.URL + "/")
-
-		result, err := c.ResolveImages(context.Background(), "mbid-error")
-		assert.Error(t, err)
-		assert.Nil(t, result)
-	})
-
-	t.Run("returns error for invalid JSON", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{not valid json`))
-		}))
-		defer srv.Close()
-
-		c := fanarttv.NewClient(testAPIKey, srv.Client(), newTestLogger(t))
-		c.SetBaseURL(srv.URL + "/")
-
-		result, err := c.ResolveImages(context.Background(), "mbid-bad-json")
-		assert.Error(t, err)
-		assert.Nil(t, result)
-	})
-
-	t.Run("returns error when context is cancelled", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{}`))
-		}))
-		defer srv.Close()
-
-		c := fanarttv.NewClient(testAPIKey, srv.Client(), newTestLogger(t))
-		c.SetBaseURL(srv.URL + "/")
-
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-
-		result, err := c.ResolveImages(ctx, "mbid-cancelled")
-		assert.Error(t, err)
-		assert.Nil(t, result)
-	})
+			require.NotNil(t, result)
+			assert.Len(t, result.ArtistThumb, tt.want.thumbCount)
+			if tt.want.thumbCount >= 1 {
+				assert.Equal(t, tt.want.thumb0URL, result.ArtistThumb[0].URL)
+				assert.Equal(t, tt.want.thumb0Likes, result.ArtistThumb[0].Likes)
+			}
+			if tt.want.thumbCount >= 2 {
+				assert.Equal(t, tt.want.thumb1URL, result.ArtistThumb[1].URL)
+				assert.Equal(t, tt.want.thumb1Likes, result.ArtistThumb[1].Likes)
+			}
+			assert.Len(t, result.HDMusicLogo, tt.want.logoCount)
+			if tt.want.logoCount >= 1 {
+				assert.Equal(t, tt.want.logo0URL, result.HDMusicLogo[0].URL)
+			}
+			assert.Empty(t, result.MusicBanner)
+		})
+	}
 }

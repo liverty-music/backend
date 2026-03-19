@@ -77,6 +77,8 @@ func newTopArtistsResponse(artists []artist) topArtistsResponse {
 }
 
 func TestClient_Search(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		query string
 	}
@@ -128,7 +130,7 @@ func TestClient_Search(t *testing.T) {
 			args:        args{query: "Test"},
 			statusCode:  http.StatusOK,
 			invalidJSON: true,
-			wantErr:     apperr.New(codes.DataLoss, "failed to decode lastfm response"),
+			wantErr:     apperr.New(codes.Internal, "failed to decode lastfm response"),
 		},
 	}
 
@@ -155,7 +157,6 @@ func TestClient_Search(t *testing.T) {
 			artists, err := c.Search(context.Background(), tt.args.query)
 
 			if tt.wantErr != nil {
-				assert.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, artists)
 			} else {
@@ -171,6 +172,8 @@ func TestClient_Search(t *testing.T) {
 }
 
 func TestClient_ListSimilar(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		artist *entity.Artist
 	}
@@ -250,7 +253,6 @@ func TestClient_ListSimilar(t *testing.T) {
 			artists, err := client.ListSimilar(context.Background(), tt.args.artist, int32(0))
 
 			if tt.wantErr != nil {
-				assert.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, artists)
 			} else {
@@ -265,6 +267,8 @@ func TestClient_ListSimilar(t *testing.T) {
 }
 
 func TestClient_ListTop(t *testing.T) {
+	t.Parallel()
+
 	type args struct {
 		country string
 		tag     string
@@ -359,7 +363,6 @@ func TestClient_ListTop(t *testing.T) {
 			artists, err := client.ListTop(context.Background(), tt.args.country, tt.args.tag, int32(0))
 
 			if tt.wantErr != nil {
-				assert.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, artists)
 			} else {
@@ -374,6 +377,8 @@ func TestClient_ListTop(t *testing.T) {
 }
 
 func TestClient_ContextTimeout(t *testing.T) {
+	t.Parallel()
+
 	t.Run("context cancelled - returns deadline exceeded error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Simulate slow response
@@ -395,6 +400,8 @@ func TestClient_ContextTimeout(t *testing.T) {
 }
 
 func TestClient_RetryOnRateLimit(t *testing.T) {
+	t.Parallel()
+
 	t.Run("retries on 429 and succeeds", func(t *testing.T) {
 		var calls atomic.Int32
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

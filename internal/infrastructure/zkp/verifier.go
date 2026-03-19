@@ -1,10 +1,11 @@
 package zkp
 
 import (
-	"fmt"
 	"os"
 	"sync"
 
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/vocdoni/circom2gnark/parser"
 )
 
@@ -21,7 +22,7 @@ type Verifier struct {
 func NewVerifier(vkPath string) (*Verifier, error) {
 	data, err := os.ReadFile(vkPath)
 	if err != nil {
-		return nil, fmt.Errorf("read verification key: %w", err)
+		return nil, apperr.Wrap(err, codes.Internal, "read verification key")
 	}
 
 	return NewVerifierFromBytes(data)
@@ -31,7 +32,7 @@ func NewVerifier(vkPath string) (*Verifier, error) {
 func NewVerifierFromBytes(vkJSON []byte) (*Verifier, error) {
 	vk, err := parser.UnmarshalCircomVerificationKeyJSON(vkJSON)
 	if err != nil {
-		return nil, fmt.Errorf("unmarshal verification key: %w", err)
+		return nil, apperr.Wrap(err, codes.Internal, "unmarshal verification key")
 	}
 
 	return &Verifier{vk: vk}, nil
@@ -47,17 +48,17 @@ func (v *Verifier) Verify(proofJSON string, publicSignalsJSON string) (bool, err
 
 	proof, err := parser.UnmarshalCircomProofJSON([]byte(proofJSON))
 	if err != nil {
-		return false, fmt.Errorf("unmarshal proof: %w", err)
+		return false, apperr.Wrap(err, codes.Internal, "unmarshal proof")
 	}
 
 	signals, err := parser.UnmarshalCircomPublicSignalsJSON([]byte(publicSignalsJSON))
 	if err != nil {
-		return false, fmt.Errorf("unmarshal public signals: %w", err)
+		return false, apperr.Wrap(err, codes.Internal, "unmarshal public signals")
 	}
 
 	gnarkProof, err := parser.ConvertCircomToGnark(proof, vk, signals)
 	if err != nil {
-		return false, fmt.Errorf("convert to gnark format: %w", err)
+		return false, apperr.Wrap(err, codes.Internal, "convert to gnark format")
 	}
 
 	verified, err := parser.VerifyProof(gnarkProof)

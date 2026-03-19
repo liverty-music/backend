@@ -156,12 +156,12 @@ func (c *client) ResolveImages(ctx context.Context, mbid string) (*entity.Fanart
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.DataLoss, "failed to read fanarttv response body")
+		return nil, apperr.Wrap(err, codes.Internal, "failed to read fanarttv response body")
 	}
 
 	var fanart entity.Fanart
 	if err := json.Unmarshal(body, &fanart); err != nil {
-		return nil, apperr.Wrap(err, codes.DataLoss, "failed to decode fanarttv response")
+		return nil, apperr.Wrap(err, codes.Internal, "failed to decode fanarttv response")
 	}
 
 	c.logger.Info(ctx, "resolved artist images",

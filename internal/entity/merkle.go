@@ -5,10 +5,19 @@ package entity
 type MerkleTreeBuilder interface {
 	// IdentityCommitment computes the identity commitment for a user ID.
 	// The commitment is a 32-byte hash used as a Merkle tree leaf.
+	//
+	// # Possible errors
+	//
+	//   - Internal: hash computation failure.
 	IdentityCommitment(userID []byte) ([]byte, error)
 
 	// Build constructs a full Merkle tree from the given leaves.
 	// Empty positions are filled with a zero hash. Returns all nodes
 	// (including leaves) and the root hash.
+	//
+	// # Possible errors
+	//
+	//   - InvalidArgument: number of leaves exceeds tree capacity.
+	//   - Internal: hash computation failure.
 	Build(eventID string, leaves [][]byte) ([]*MerkleNode, []byte, error)
 }

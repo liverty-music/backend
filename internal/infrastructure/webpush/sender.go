@@ -3,6 +3,7 @@ package webpush
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -53,6 +54,9 @@ func (s *Sender) Send(_ context.Context, payload []byte, sub *entity.PushSubscri
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode == http.StatusGone {
 			return apperr.New(codes.NotFound, "push subscription is no longer valid")
+		}
+		if resp.StatusCode >= http.StatusBadRequest {
+			return apperr.New(codes.Internal, fmt.Sprintf("push service returned status %d", resp.StatusCode))
 		}
 	}
 

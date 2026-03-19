@@ -24,6 +24,7 @@ type TicketEmailParser interface {
 	//
 	// # Possible errors:
 	//
+	//   - InvalidArgument: unsupported email type for parsing.
 	//   - Internal: API call failure or unparseable response.
 	Parse(ctx context.Context, emailBody string, emailType TicketEmailType) (*ParsedEmailData, error)
 }

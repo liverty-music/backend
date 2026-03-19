@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,44 +98,49 @@ func TestNewClient_InvalidInputs(t *testing.T) {
 		rpcURL     string
 		privateKey string
 		contract   string
-		wantErr    string
+		wantErr    error
 	}{
 		{
 			name:       "empty rpcURL",
 			rpcURL:     "",
 			privateKey: testPrivateKey,
 			contract:   testContractAddr,
-			wantErr:    "rpcURL, privateKeyHex, and contractAddr are required",
+			wantErr:    apperr.ErrInvalidArgument,
 		},
 		{
 			name:       "empty privateKey",
 			rpcURL:     "http://localhost:8545",
 			privateKey: "",
 			contract:   testContractAddr,
-			wantErr:    "rpcURL, privateKeyHex, and contractAddr are required",
+			wantErr:    apperr.ErrInvalidArgument,
 		},
 		{
 			name:       "empty contractAddr",
 			rpcURL:     "http://localhost:8545",
 			privateKey: testPrivateKey,
 			contract:   "",
-			wantErr:    "rpcURL, privateKeyHex, and contractAddr are required",
+			wantErr:    apperr.ErrInvalidArgument,
 		},
 		{
 			name:       "invalid private key hex",
 			rpcURL:     "http://localhost:8545",
 			privateKey: "not-hex",
 			contract:   testContractAddr,
-			wantErr:    "invalid deployer private key",
+			wantErr:    apperr.ErrInvalidArgument,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := ticketsbt.NewClient(context.Background(), tc.rpcURL, tc.privateKey, tc.contract, testChainID, testLogger())
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tc.wantErr)
+			_, err := ticketsbt.NewClient(context.Background(), tt.rpcURL, tt.privateKey, tt.contract, testChainID, testLogger())
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			assert.NoError(t, err)
 		})
 	}
 }

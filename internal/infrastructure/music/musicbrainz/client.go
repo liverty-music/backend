@@ -198,7 +198,7 @@ func (c *client) GetArtist(ctx context.Context, mbid string) (*entity.Artist, er
 
 	var data artistResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, apperr.Wrap(err, codes.DataLoss, "failed to decode musicbrainz response")
+		return nil, apperr.Wrap(err, codes.Internal, "failed to decode musicbrainz response")
 	}
 
 	return entity.NewArtist(data.Name, data.ID), nil
@@ -238,7 +238,7 @@ func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (strin
 
 	var data artistResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return "", apperr.Wrap(err, codes.DataLoss, "failed to decode musicbrainz url-rels response")
+		return "", apperr.Wrap(err, codes.Internal, "failed to decode musicbrainz url-rels response")
 	}
 
 	selectedURL := selectOfficialSiteURL(data.Name, data.Relations)
@@ -322,7 +322,7 @@ func (c *client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 
 	var data placeSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, apperr.Wrap(err, codes.DataLoss, "failed to decode musicbrainz place response")
+		return nil, apperr.Wrap(err, codes.Internal, "failed to decode musicbrainz place response")
 	}
 	if len(data.Places) == 0 {
 		return nil, apperr.New(codes.NotFound, "no matching place found in musicbrainz")

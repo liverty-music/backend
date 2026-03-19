@@ -21,202 +21,262 @@ type testMsg struct{}
 // noPublicProcedures is an empty allowlist for tests that do not exercise public endpoints.
 var noPublicProcedures = map[string]bool{}
 
-// publicProcedures marks /test.Service/PublicMethod as a public procedure.
+// testPublicProcedures marks /test.Service/PublicMethod as a public procedure.
 var testPublicProcedures = map[string]bool{
 	"/test.Service/PublicMethod": true,
 }
 
-func TestNewAuthFunc_ValidToken(t *testing.T) {
-	mockValidator := mocks.NewMockTokenValidator(t)
-	expectedClaims := &auth.Claims{
-		Sub:   "user-123",
-		Email: "test@example.com",
-		Name:  "Test User",
+func TestNewAuthFunc(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		authorizationHeader string
+		url                 string
+		publicProcedures    map[string]bool
 	}
-	mockValidator.On("ValidateToken", mock.Anything, "valid-token").Return(expectedClaims, nil)
-
-	authFunc := auth.NewAuthFunc(mockValidator, noPublicProcedures)
-
-	req := httptest.NewRequest(http.MethodPost, "/test.Service/Method", nil)
-	req.Header.Set("Authorization", "Bearer valid-token")
-
-	info, err := authFunc(context.Background(), req)
-
-	assert.NoError(t, err)
-	claims, ok := info.(*auth.Claims)
-	assert.True(t, ok)
-	assert.Equal(t, expectedClaims, claims)
-	mockValidator.AssertExpectations(t)
-}
-
-func TestNewAuthFunc_MissingToken(t *testing.T) {
-	mockValidator := mocks.NewMockTokenValidator(t)
-
-	authFunc := auth.NewAuthFunc(mockValidator, noPublicProcedures)
-
-	req := httptest.NewRequest(http.MethodPost, "/test.Service/Method", nil)
-
-	_, err := authFunc(context.Background(), req)
-
-	assert.Error(t, err)
-	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
-	mockValidator.AssertNotCalled(t, "ValidateToken")
-}
-
-func TestNewAuthFunc_InvalidToken(t *testing.T) {
-	mockValidator := mocks.NewMockTokenValidator(t)
-	mockValidator.On("ValidateToken", mock.Anything, "bad-token").
-		Return((*auth.Claims)(nil), errors.New("token expired"))
-
-	authFunc := auth.NewAuthFunc(mockValidator, noPublicProcedures)
-
-	req := httptest.NewRequest(http.MethodPost, "/test.Service/Method", nil)
-	req.Header.Set("Authorization", "Bearer bad-token")
-
-	_, err := authFunc(context.Background(), req)
-
-	assert.Error(t, err)
-	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
-	mockValidator.AssertExpectations(t)
-}
-
-func TestNewAuthFunc_MalformedBearer(t *testing.T) {
-	mockValidator := mocks.NewMockTokenValidator(t)
-
-	authFunc := auth.NewAuthFunc(mockValidator, noPublicProcedures)
-
-	req := httptest.NewRequest(http.MethodPost, "/test.Service/Method", nil)
-	req.Header.Set("Authorization", "Basic sometoken")
-
-	_, err := authFunc(context.Background(), req)
-
-	assert.Error(t, err)
-	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
-	mockValidator.AssertNotCalled(t, "ValidateToken")
-}
-
-func TestNewAuthFunc_PublicProcedure_NoToken(t *testing.T) {
-	mockValidator := mocks.NewMockTokenValidator(t)
-
-	authFunc := auth.NewAuthFunc(mockValidator, testPublicProcedures)
-
-	req := httptest.NewRequest(http.MethodPost, "/test.Service/PublicMethod", nil)
-
-	info, err := authFunc(context.Background(), req)
-
-	assert.NoError(t, err)
-	assert.Nil(t, info)
-	mockValidator.AssertNotCalled(t, "ValidateToken")
-}
-
-func TestNewAuthFunc_PublicProcedure_ValidToken(t *testing.T) {
-	mockValidator := mocks.NewMockTokenValidator(t)
-	expectedClaims := &auth.Claims{
-		Sub:   "user-789",
-		Email: "public@example.com",
-		Name:  "Public User",
+	type want struct {
+		claimsEqual *auth.Claims
+		claimsNil   bool
+		connectCode connect.Code
 	}
-	mockValidator.On("ValidateToken", mock.Anything, "valid-token").Return(expectedClaims, nil)
-
-	authFunc := auth.NewAuthFunc(mockValidator, testPublicProcedures)
-
-	req := httptest.NewRequest(http.MethodPost, "/test.Service/PublicMethod", nil)
-	req.Header.Set("Authorization", "Bearer valid-token")
-
-	info, err := authFunc(context.Background(), req)
-
-	assert.NoError(t, err)
-	claims, ok := info.(*auth.Claims)
-	assert.True(t, ok)
-	assert.Equal(t, expectedClaims, claims)
-	mockValidator.AssertExpectations(t)
-}
-
-func TestNewAuthFunc_PublicProcedure_InvalidToken(t *testing.T) {
-	mockValidator := mocks.NewMockTokenValidator(t)
-	mockValidator.On("ValidateToken", mock.Anything, "expired-token").
-		Return((*auth.Claims)(nil), errors.New("token expired"))
-
-	authFunc := auth.NewAuthFunc(mockValidator, testPublicProcedures)
-
-	req := httptest.NewRequest(http.MethodPost, "/test.Service/PublicMethod", nil)
-	req.Header.Set("Authorization", "Bearer expired-token")
-
-	info, err := authFunc(context.Background(), req)
-
-	assert.NoError(t, err)
-	assert.Nil(t, info)
-	mockValidator.AssertExpectations(t)
-}
-
-func TestClaimsBridgeInterceptor_WrapUnary_WithClaims(t *testing.T) {
-	expectedClaims := &auth.Claims{
-		Sub:   "user-456",
-		Email: "bridge@example.com",
-		Name:  "Bridge User",
-	}
-
-	bridge := auth.ClaimsBridgeInterceptor{}
-
-	var capturedClaims *auth.Claims
-	handler := func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		claims, ok := auth.GetClaims(ctx)
-		if ok {
-			capturedClaims = claims
-		}
-		return connect.NewResponse(&testMsg{}), nil
-	}
-
-	wrapped := bridge.WrapUnary(handler)
-
-	// Simulate authn middleware having set info on context
-	ctx := authn.SetInfo(context.Background(), expectedClaims)
-	req := connect.NewRequest(&testMsg{})
-
-	_, err := wrapped(ctx, req)
-
-	assert.NoError(t, err)
-	assert.Equal(t, expectedClaims, capturedClaims)
-}
-
-func TestClaimsBridgeInterceptor_WrapUnary_NilInfo(t *testing.T) {
-	bridge := auth.ClaimsBridgeInterceptor{}
-
-	var capturedContext context.Context
-	handler := func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		capturedContext = ctx
-		return connect.NewResponse(&testMsg{}), nil
+	tests := []struct {
+		name      string
+		args      args
+		setupMock func(t *testing.T) *mocks.MockTokenValidator
+		want      want
+		wantErr   error
+	}{
+		{
+			name: "return claims when token is valid",
+			args: args{
+				authorizationHeader: "Bearer valid-token",
+				url:                 "/test.Service/Method",
+				publicProcedures:    noPublicProcedures,
+			},
+			setupMock: func(t *testing.T) *mocks.MockTokenValidator {
+				t.Helper()
+				m := mocks.NewMockTokenValidator(t)
+				m.On("ValidateToken", mock.Anything, "valid-token").Return(&auth.Claims{
+					Sub:   "user-123",
+					Email: "test@example.com",
+					Name:  "Test User",
+				}, nil)
+				return m
+			},
+			want: want{
+				claimsEqual: &auth.Claims{
+					Sub:   "user-123",
+					Email: "test@example.com",
+					Name:  "Test User",
+				},
+			},
+		},
+		{
+			name: "return unauthenticated error when Authorization header is missing",
+			args: args{
+				url:              "/test.Service/Method",
+				publicProcedures: noPublicProcedures,
+			},
+			setupMock: func(t *testing.T) *mocks.MockTokenValidator {
+				t.Helper()
+				return mocks.NewMockTokenValidator(t)
+			},
+			want:    want{connectCode: connect.CodeUnauthenticated},
+			wantErr: errors.New("unauthenticated"),
+		},
+		{
+			name: "return unauthenticated error when token validation fails",
+			args: args{
+				authorizationHeader: "Bearer bad-token",
+				url:                 "/test.Service/Method",
+				publicProcedures:    noPublicProcedures,
+			},
+			setupMock: func(t *testing.T) *mocks.MockTokenValidator {
+				t.Helper()
+				m := mocks.NewMockTokenValidator(t)
+				m.On("ValidateToken", mock.Anything, "bad-token").
+					Return((*auth.Claims)(nil), errors.New("token expired"))
+				return m
+			},
+			want:    want{connectCode: connect.CodeUnauthenticated},
+			wantErr: errors.New("unauthenticated"),
+		},
+		{
+			name: "return unauthenticated error when Authorization scheme is not Bearer",
+			args: args{
+				authorizationHeader: "Basic sometoken",
+				url:                 "/test.Service/Method",
+				publicProcedures:    noPublicProcedures,
+			},
+			setupMock: func(t *testing.T) *mocks.MockTokenValidator {
+				t.Helper()
+				return mocks.NewMockTokenValidator(t)
+			},
+			want:    want{connectCode: connect.CodeUnauthenticated},
+			wantErr: errors.New("unauthenticated"),
+		},
+		{
+			name: "return nil claims when public procedure is called without token",
+			args: args{
+				url:              "/test.Service/PublicMethod",
+				publicProcedures: testPublicProcedures,
+			},
+			setupMock: func(t *testing.T) *mocks.MockTokenValidator {
+				t.Helper()
+				return mocks.NewMockTokenValidator(t)
+			},
+			want: want{claimsNil: true},
+		},
+		{
+			name: "return claims when public procedure is called with valid token",
+			args: args{
+				authorizationHeader: "Bearer valid-token",
+				url:                 "/test.Service/PublicMethod",
+				publicProcedures:    testPublicProcedures,
+			},
+			setupMock: func(t *testing.T) *mocks.MockTokenValidator {
+				t.Helper()
+				m := mocks.NewMockTokenValidator(t)
+				m.On("ValidateToken", mock.Anything, "valid-token").Return(&auth.Claims{
+					Sub:   "user-789",
+					Email: "public@example.com",
+					Name:  "Public User",
+				}, nil)
+				return m
+			},
+			want: want{
+				claimsEqual: &auth.Claims{
+					Sub:   "user-789",
+					Email: "public@example.com",
+					Name:  "Public User",
+				},
+			},
+		},
+		{
+			name: "return nil claims when public procedure is called with invalid token",
+			args: args{
+				authorizationHeader: "Bearer expired-token",
+				url:                 "/test.Service/PublicMethod",
+				publicProcedures:    testPublicProcedures,
+			},
+			setupMock: func(t *testing.T) *mocks.MockTokenValidator {
+				t.Helper()
+				m := mocks.NewMockTokenValidator(t)
+				m.On("ValidateToken", mock.Anything, "expired-token").
+					Return((*auth.Claims)(nil), errors.New("token expired"))
+				return m
+			},
+			want: want{claimsNil: true},
+		},
 	}
 
-	wrapped := bridge.WrapUnary(handler)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	req := connect.NewRequest(&testMsg{})
+			mockValidator := tt.setupMock(t)
+			authFunc := auth.NewAuthFunc(mockValidator, tt.args.publicProcedures)
 
-	_, err := wrapped(context.Background(), req)
+			req := httptest.NewRequest(http.MethodPost, tt.args.url, nil)
+			if tt.args.authorizationHeader != "" {
+				req.Header.Set("Authorization", tt.args.authorizationHeader)
+			}
 
-	assert.NoError(t, err)
-	_, ok := auth.GetClaims(capturedContext)
-	assert.False(t, ok)
+			info, err := authFunc(context.Background(), req)
+
+			if tt.wantErr != nil {
+				assert.Error(t, err)
+				assert.Equal(t, tt.want.connectCode, connect.CodeOf(err))
+				mockValidator.AssertExpectations(t)
+				return
+			}
+
+			assert.NoError(t, err)
+			if tt.want.claimsNil {
+				assert.Nil(t, info)
+			} else {
+				claims, ok := info.(*auth.Claims)
+				assert.True(t, ok)
+				assert.Equal(t, tt.want.claimsEqual, claims)
+			}
+			mockValidator.AssertExpectations(t)
+		})
+	}
 }
 
-func TestClaimsBridgeInterceptor_WrapUnary_WrongInfoType(t *testing.T) {
-	bridge := auth.ClaimsBridgeInterceptor{}
+func TestClaimsBridgeInterceptor_WrapUnary(t *testing.T) {
+	t.Parallel()
 
-	var capturedContext context.Context
-	handler := func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		capturedContext = ctx
-		return connect.NewResponse(&testMsg{}), nil
+	type want struct {
+		claimsFound bool
+		claims      *auth.Claims
+	}
+	tests := []struct {
+		name     string
+		setupCtx func() context.Context
+		want     want
+		wantErr  error
+	}{
+		{
+			name: "propagate claims to handler context when info is set",
+			setupCtx: func() context.Context {
+				return authn.SetInfo(context.Background(), &auth.Claims{
+					Sub:   "user-456",
+					Email: "bridge@example.com",
+					Name:  "Bridge User",
+				})
+			},
+			want: want{
+				claimsFound: true,
+				claims: &auth.Claims{
+					Sub:   "user-456",
+					Email: "bridge@example.com",
+					Name:  "Bridge User",
+				},
+			},
+		},
+		{
+			name: "not propagate claims to handler context when info is nil",
+			setupCtx: func() context.Context {
+				return context.Background()
+			},
+			want: want{claimsFound: false},
+		},
+		{
+			name: "not propagate claims to handler context when info is wrong type",
+			setupCtx: func() context.Context {
+				return authn.SetInfo(context.Background(), "not-claims")
+			},
+			want: want{claimsFound: false},
+		},
 	}
 
-	wrapped := bridge.WrapUnary(handler)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Set info with wrong type
-	ctx := authn.SetInfo(context.Background(), "not-claims")
-	req := connect.NewRequest(&testMsg{})
+			bridge := auth.ClaimsBridgeInterceptor{}
 
-	_, err := wrapped(ctx, req)
+			var capturedCtx context.Context
+			handler := func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+				capturedCtx = ctx
+				return connect.NewResponse(&testMsg{}), nil
+			}
 
-	assert.NoError(t, err)
-	_, ok := auth.GetClaims(capturedContext)
-	assert.False(t, ok)
+			wrapped := bridge.WrapUnary(handler)
+			_, err := wrapped(tt.setupCtx(), connect.NewRequest(&testMsg{}))
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			assert.NoError(t, err)
+			claims, ok := auth.GetClaims(capturedCtx)
+			assert.Equal(t, tt.want.claimsFound, ok)
+			if tt.want.claimsFound {
+				assert.Equal(t, tt.want.claims, claims)
+			}
+		})
+	}
 }

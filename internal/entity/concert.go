@@ -170,5 +170,6 @@ type ConcertSearcher interface {
 	//
 	//  - InvalidArgument: If the artist or official site is invalid.
 	//  - Unavailable: If the external service is down.
+	//  - Internal: unexpected failure during search processing.
 	Search(ctx context.Context, artist *Artist, officialSite *OfficialSite, from time.Time) ([]*ScrapedConcert, error)
 }

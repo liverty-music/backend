@@ -85,6 +85,7 @@ type LogoImageFetcher interface {
 	//
 	// # Possible errors:
 	//
+	//   - InvalidArgument: logo URL is malformed, non-HTTPS, or not on the allowed host list.
 	//   - Unavailable: the remote server is unreachable or returned an error.
 	//   - Internal: unexpected failure during download or decoding.
 	FetchImage(ctx context.Context, url string) (image.Image, error)

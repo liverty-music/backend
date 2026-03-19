@@ -128,7 +128,7 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 
 	var data textSearchResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, apperr.Wrap(err, codes.DataLoss, "failed to decode google maps response")
+		return nil, apperr.Wrap(err, codes.Internal, "failed to decode google maps response")
 	}
 
 	if len(data.Places) == 0 {
