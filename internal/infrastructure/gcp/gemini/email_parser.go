@@ -88,33 +88,29 @@ func (p *EmailParser) Parse(ctx context.Context, emailBody string, emailType ent
 		return nil, apperr.New(codes.InvalidArgument, "unsupported email type for parsing")
 	}
 
-	resp, err := p.client.Models.GenerateContent(ctx, p.model, genai.NewContentFromText(prompt), &genai.GenerateContentConfig{
-		SystemInstruction: genai.NewContentFromText(emailParserSystemInstruction),
-		ResponseMIMEType:  "application/json",
-		Temperature:       genai.Ptr(float32(0.0)),
+	resp, err := p.client.Models.GenerateContent(ctx, p.model, genai.Text(prompt), &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{
+			Parts: []*genai.Part{{Text: emailParserSystemInstruction}},
+		},
+		ResponseMIMEType: "application/json",
+		Temperature:      genai.Ptr(float32(0.0)),
 	})
 	if err != nil {
-		p.logger.Error(ctx, "gemini email parse failed",
-			slog.String("error", err.Error()),
+		p.logger.Error(ctx, "gemini email parse failed", err,
 			slog.Int("emailType", int(emailType)),
 		)
 		return nil, apperr.New(codes.Internal, "failed to parse ticket email with Gemini")
 	}
 
-	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
+	text := resp.Text()
+	if text == "" {
 		return nil, apperr.New(codes.Internal, "empty response from Gemini")
-	}
-
-	text, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
-	if !ok {
-		return nil, apperr.New(codes.Internal, "unexpected response format from Gemini")
 	}
 
 	var parsed entity.ParsedEmailData
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
-		p.logger.Error(ctx, "failed to unmarshal gemini response",
-			slog.String("error", err.Error()),
-			slog.String("response", string(text)),
+		p.logger.Error(ctx, "failed to unmarshal gemini response", err,
+			slog.String("response", text),
 		)
 		return nil, apperr.New(codes.Internal, "failed to parse Gemini response as JSON")
 	}

@@ -81,17 +81,17 @@ type TicketEmail struct {
 
 // NewTicketEmail contains the fields required to create a new TicketEmail record.
 type NewTicketEmail struct {
-	UserID         string
-	EventID        string
-	EmailType      TicketEmailType
-	RawBody        string
-	ParsedData     json.RawMessage
+	UserID          string
+	EventID         string
+	EmailType       TicketEmailType
+	RawBody         string
+	ParsedData      json.RawMessage
 	PaymentDeadline *time.Time
-	LotteryStart   *time.Time
-	LotteryEnd     *time.Time
-	ApplicationURL string
-	LotteryResult  *LotteryResult
-	PaymentStatus  *PaymentStatus
+	LotteryStart    *time.Time
+	LotteryEnd      *time.Time
+	ApplicationURL  string
+	LotteryResult   *LotteryResult
+	PaymentStatus   *PaymentStatus
 }
 
 // UpdateTicketEmail contains the fields that can be corrected by the user.
