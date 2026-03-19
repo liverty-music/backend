@@ -111,6 +111,10 @@ func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTi
 
 // Update applies user corrections to an existing ticket email record.
 func (r *TicketEmailRepository) Update(ctx context.Context, id string, params *entity.UpdateTicketEmail) (*entity.TicketEmail, error) {
+	if params == nil {
+		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
+	}
+
 	row := r.db.Pool.QueryRow(ctx, ticketEmailUpdateQuery,
 		id,
 		params.PaymentDeadlineTime,

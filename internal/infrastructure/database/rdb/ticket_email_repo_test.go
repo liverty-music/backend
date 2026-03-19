@@ -1,5 +1,3 @@
-//go:build integration
-
 package rdb_test
 
 import (
@@ -231,6 +229,14 @@ func TestTicketEmailRepository_Update(t *testing.T) {
 				PaymentDeadlineTime: ptr(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)),
 			},
 			wantErr: nil,
+		},
+		{
+			name: "nil params returns invalid argument",
+			setup: func() string {
+				return uuid.Must(uuid.NewV7()).String()
+			},
+			params:  nil,
+			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
 			name: "update non-existent ID returns not found",
