@@ -166,7 +166,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, publisher, artistCache, logger)
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, userRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
-	ticketEmailUC := usecase.NewTicketEmailUseCase(ticketEmailRepo, ticketJourneyRepo, emailParser, logger)
+	var ticketEmailUC usecase.TicketEmailUseCase
+	if emailParser != nil {
+		ticketEmailUC = usecase.NewTicketEmailUseCase(ticketEmailRepo, ticketJourneyRepo, emailParser, logger)
+	} else {
+		_ = ticketEmailRepo // referenced when email parser is enabled; suppress unused warning
+	}
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		followRepo,
@@ -249,12 +254,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return ticketemailconnect.NewTicketEmailServiceHandler(
-				rpc.NewTicketEmailHandler(ticketEmailUC, logger),
-				opts...,
-			)
-		},
 	}
 
 	if ticketUC != nil {
@@ -262,6 +261,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketconnect.NewTicketServiceHandler(
 				rpc.NewTicketHandler(ticketUC, userRepo, safePredictor, logger),
+				opts...,
+			)
+		})
+	}
+
+	if ticketEmailUC != nil {
+		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return ticketemailconnect.NewTicketEmailServiceHandler(
+				rpc.NewTicketEmailHandler(ticketEmailUC, logger),
 				opts...,
 			)
 		})
