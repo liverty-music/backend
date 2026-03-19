@@ -178,6 +178,7 @@ type ArtistSearcher interface {
 	//
 	// # Possible errors:
 	//
+	//   - NotFound: the external catalog has no matching artist record.
 	//   - Unavailable: external search service is down or rate-limited.
 	//   - Internal: unexpected error during search processing.
 	Search(ctx context.Context, query string) ([]*Artist, error)
@@ -199,6 +200,7 @@ type ArtistSearcher interface {
 	// # Possible errors:
 	//
 	//   - InvalidArgument: the provided country code is invalid.
+	//   - NotFound: the external catalog returns no results for the given parameters.
 	//   - Unavailable: external service failure.
 	ListTop(ctx context.Context, country string, tag string, limit int32) ([]*Artist, error)
 }
