@@ -104,7 +104,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			ProjectID: cfg.GCP.ProjectID,
 			Location:  cfg.GCP.Location,
 			ModelName: cfg.GCP.GeminiModel,
-		}, logger)
+		}, nil, logger)
 		if err != nil {
 			return nil, err
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -59,11 +60,14 @@ type EmailParser struct {
 }
 
 // NewEmailParser creates a new Gemini-based ticket email parser.
-func NewEmailParser(ctx context.Context, cfg EmailParserConfig, logger *logging.Logger) (*EmailParser, error) {
+// The httpClient parameter allows for custom transport configuration, which is
+// particularly useful for unit testing with httptest. If nil, the default transport is used.
+func NewEmailParser(ctx context.Context, cfg EmailParserConfig, httpClient *http.Client, logger *logging.Logger) (*EmailParser, error) {
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		Project:  cfg.ProjectID,
-		Location: cfg.Location,
-		Backend:  genai.BackendVertexAI,
+		Project:    cfg.ProjectID,
+		Location:   cfg.Location,
+		Backend:    genai.BackendVertexAI,
+		HTTPClient: httpClient,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create genai client: %w", err)
