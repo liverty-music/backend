@@ -250,9 +250,9 @@ CREATE TABLE IF NOT EXISTS ticket_emails (
     email_type SMALLINT NOT NULL,
     raw_body TEXT NOT NULL,
     parsed_data JSONB,
-    payment_deadline TIMESTAMPTZ,
-    lottery_start TIMESTAMPTZ,
-    lottery_end TIMESTAMPTZ,
+    payment_deadline_at TIMESTAMPTZ,
+    lottery_start_at TIMESTAMPTZ,
+    lottery_end_at TIMESTAMPTZ,
     application_url TEXT,
     lottery_result SMALLINT,
     payment_status SMALLINT,
@@ -269,9 +269,9 @@ COMMENT ON COLUMN ticket_emails.event_id IS 'Reference to the event this email i
 COMMENT ON COLUMN ticket_emails.email_type IS 'Email type: 1=LOTTERY_INFO, 2=LOTTERY_RESULT';
 COMMENT ON COLUMN ticket_emails.raw_body IS 'Email text as provided by the user (optionally redacted for PII)';
 COMMENT ON COLUMN ticket_emails.parsed_data IS 'Structured JSON output from Gemini Flash parsing';
-COMMENT ON COLUMN ticket_emails.payment_deadline IS 'Payment due date extracted from lottery result emails';
-COMMENT ON COLUMN ticket_emails.lottery_start IS 'Lottery application period start from lottery info emails';
-COMMENT ON COLUMN ticket_emails.lottery_end IS 'Lottery application period end from lottery info emails';
+COMMENT ON COLUMN ticket_emails.payment_deadline_at IS 'Payment due date extracted from lottery result emails';
+COMMENT ON COLUMN ticket_emails.lottery_start_at IS 'Lottery application period start from lottery info emails';
+COMMENT ON COLUMN ticket_emails.lottery_end_at IS 'Lottery application period end from lottery info emails';
 COMMENT ON COLUMN ticket_emails.application_url IS 'URL for lottery application from lottery info emails';
 COMMENT ON COLUMN ticket_emails.lottery_result IS 'Lottery outcome: 1=WON, 2=LOST. Present only for LOTTERY_RESULT emails.';
 COMMENT ON COLUMN ticket_emails.payment_status IS 'Payment state: 1=UNPAID, 2=PAID. Present only for LOTTERY_RESULT emails where lottery_result=WON.';

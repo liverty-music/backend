@@ -67,14 +67,14 @@ func TicketEmailToProto(te *entity.TicketEmail) *entityv1.TicketEmail {
 	}
 
 	// optional timestamps
-	if te.PaymentDeadline != nil {
-		pb.PaymentDeadline = timestamppb.New(*te.PaymentDeadline)
+	if te.PaymentDeadlineTime != nil {
+		pb.PaymentDeadline = timestamppb.New(*te.PaymentDeadlineTime)
 	}
-	if te.LotteryStart != nil {
-		pb.LotteryStart = timestamppb.New(*te.LotteryStart)
+	if te.LotteryStartTime != nil {
+		pb.LotteryStart = timestamppb.New(*te.LotteryStartTime)
 	}
-	if te.LotteryEnd != nil {
-		pb.LotteryEnd = timestamppb.New(*te.LotteryEnd)
+	if te.LotteryEndTime != nil {
+		pb.LotteryEnd = timestamppb.New(*te.LotteryEndTime)
 	}
 	if te.ApplicationURL != "" {
 		pb.ApplicationUrl = &te.ApplicationURL

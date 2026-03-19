@@ -65,12 +65,12 @@ type TicketEmail struct {
 	RawBody string
 	// ParsedData stores the structured output from Gemini Flash parsing.
 	ParsedData json.RawMessage
-	// PaymentDeadline is the date by which payment must be completed. Nil if not applicable.
-	PaymentDeadline *time.Time
-	// LotteryStart is the start of the lottery application period. Nil if not applicable.
-	LotteryStart *time.Time
-	// LotteryEnd is the end of the lottery application period. Nil if not applicable.
-	LotteryEnd *time.Time
+	// PaymentDeadlineTime is the date by which payment must be completed. Nil if not applicable.
+	PaymentDeadlineTime *time.Time
+	// LotteryStartTime is the start of the lottery application period. Nil if not applicable.
+	LotteryStartTime *time.Time
+	// LotteryEndTime is the end of the lottery application period. Nil if not applicable.
+	LotteryEndTime *time.Time
 	// ApplicationURL is the URL for lottery application. Empty if not applicable.
 	ApplicationURL string
 	// LotteryResult indicates win or loss. Nil if not applicable.
@@ -81,27 +81,27 @@ type TicketEmail struct {
 
 // NewTicketEmail contains the fields required to create a new TicketEmail record.
 type NewTicketEmail struct {
-	UserID          string
-	EventID         string
-	EmailType       TicketEmailType
-	RawBody         string
-	ParsedData      json.RawMessage
-	PaymentDeadline *time.Time
-	LotteryStart    *time.Time
-	LotteryEnd      *time.Time
-	ApplicationURL  string
-	LotteryResult   *LotteryResult
-	PaymentStatus   *PaymentStatus
+	UserID              string
+	EventID             string
+	EmailType           TicketEmailType
+	RawBody             string
+	ParsedData          json.RawMessage
+	PaymentDeadlineTime *time.Time
+	LotteryStartTime    *time.Time
+	LotteryEndTime      *time.Time
+	ApplicationURL      string
+	LotteryResult       *LotteryResult
+	PaymentStatus       *PaymentStatus
 }
 
 // UpdateTicketEmail contains the fields that can be corrected by the user.
 type UpdateTicketEmail struct {
-	PaymentDeadline *time.Time
-	LotteryStart    *time.Time
-	LotteryEnd      *time.Time
-	ApplicationURL  *string
-	LotteryResult   *LotteryResult
-	PaymentStatus   *PaymentStatus
+	PaymentDeadlineTime *time.Time
+	LotteryStartTime    *time.Time
+	LotteryEndTime      *time.Time
+	ApplicationURL      *string
+	LotteryResult       *LotteryResult
+	PaymentStatus       *PaymentStatus
 }
 
 // TicketEmailRepository defines the persistence layer operations for ticket emails.

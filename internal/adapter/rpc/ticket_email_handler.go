@@ -75,15 +75,15 @@ func (h *TicketEmailHandler) UpdateTicketEmail(ctx context.Context, req *connect
 
 	if req.Msg.PaymentDeadline != nil {
 		t := req.Msg.PaymentDeadline.AsTime()
-		params.PaymentDeadline = &t
+		params.PaymentDeadlineTime = &t
 	}
 	if req.Msg.LotteryStart != nil {
 		t := req.Msg.LotteryStart.AsTime()
-		params.LotteryStart = &t
+		params.LotteryStartTime = &t
 	}
 	if req.Msg.LotteryEnd != nil {
 		t := req.Msg.LotteryEnd.AsTime()
-		params.LotteryEnd = &t
+		params.LotteryEndTime = &t
 	}
 	if req.Msg.ApplicationUrl != nil {
 		params.ApplicationURL = req.Msg.ApplicationUrl

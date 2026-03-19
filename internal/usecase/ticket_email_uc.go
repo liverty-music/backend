@@ -159,17 +159,17 @@ func (uc *ticketEmailUseCase) buildNewTicketEmail(userID string, emailType entit
 	}
 	if parsed.LotteryStart != nil {
 		if t, err := time.Parse(time.RFC3339, *parsed.LotteryStart); err == nil {
-			ne.LotteryStart = &t
+			ne.LotteryStartTime = &t
 		}
 	}
 	if parsed.LotteryEnd != nil {
 		if t, err := time.Parse(time.RFC3339, *parsed.LotteryEnd); err == nil {
-			ne.LotteryEnd = &t
+			ne.LotteryEndTime = &t
 		}
 	}
 	if parsed.PaymentDeadline != nil {
 		if t, err := time.Parse(time.RFC3339, *parsed.PaymentDeadline); err == nil {
-			ne.PaymentDeadline = &t
+			ne.PaymentDeadlineTime = &t
 		}
 	}
 	if parsed.LotteryResult != nil {

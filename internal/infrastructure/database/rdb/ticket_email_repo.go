@@ -17,28 +17,28 @@ type TicketEmailRepository struct {
 
 const (
 	ticketEmailCreateQuery = `
-		INSERT INTO ticket_emails (id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline, lottery_start, lottery_end, application_url, lottery_result, payment_status)
+		INSERT INTO ticket_emails (id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, lottery_result, payment_status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id
 	`
 	ticketEmailUpdateQuery = `
 		UPDATE ticket_emails
-		SET payment_deadline = COALESCE($2, payment_deadline),
-		    lottery_start = COALESCE($3, lottery_start),
-		    lottery_end = COALESCE($4, lottery_end),
+		SET payment_deadline_at = COALESCE($2, payment_deadline_at),
+		    lottery_start_at = COALESCE($3, lottery_start_at),
+		    lottery_end_at = COALESCE($4, lottery_end_at),
 		    application_url = COALESCE($5, application_url),
 		    lottery_result = COALESCE($6, lottery_result),
 		    payment_status = COALESCE($7, payment_status)
 		WHERE id = $1
-		RETURNING id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline, lottery_start, lottery_end, application_url, lottery_result, payment_status
+		RETURNING id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, lottery_result, payment_status
 	`
 	ticketEmailGetByIDQuery = `
-		SELECT id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline, lottery_start, lottery_end, application_url, lottery_result, payment_status
+		SELECT id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, lottery_result, payment_status
 		FROM ticket_emails
 		WHERE id = $1
 	`
 	ticketEmailListByUserAndEventQuery = `
-		SELECT id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline, lottery_start, lottery_end, application_url, lottery_result, payment_status
+		SELECT id, user_id, event_id, email_type, raw_body, parsed_data, payment_deadline_at, lottery_start_at, lottery_end_at, application_url, lottery_result, payment_status
 		FROM ticket_emails
 		WHERE user_id = $1 AND event_id = $2
 	`
@@ -68,9 +68,9 @@ func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTi
 		params.EmailType,
 		params.RawBody,
 		params.ParsedData,
-		params.PaymentDeadline,
-		params.LotteryStart,
-		params.LotteryEnd,
+		params.PaymentDeadlineTime,
+		params.LotteryStartTime,
+		params.LotteryEndTime,
 		appURL,
 		params.LotteryResult,
 		params.PaymentStatus,
@@ -91,18 +91,18 @@ func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTi
 	)
 
 	return &entity.TicketEmail{
-		ID:              id.String(),
-		UserID:          params.UserID,
-		EventID:         params.EventID,
-		EmailType:       params.EmailType,
-		RawBody:         params.RawBody,
-		ParsedData:      params.ParsedData,
-		PaymentDeadline: params.PaymentDeadline,
-		LotteryStart:    params.LotteryStart,
-		LotteryEnd:      params.LotteryEnd,
-		ApplicationURL:  params.ApplicationURL,
-		LotteryResult:   params.LotteryResult,
-		PaymentStatus:   params.PaymentStatus,
+		ID:                  id.String(),
+		UserID:              params.UserID,
+		EventID:             params.EventID,
+		EmailType:           params.EmailType,
+		RawBody:             params.RawBody,
+		ParsedData:          params.ParsedData,
+		PaymentDeadlineTime: params.PaymentDeadlineTime,
+		LotteryStartTime:    params.LotteryStartTime,
+		LotteryEndTime:      params.LotteryEndTime,
+		ApplicationURL:      params.ApplicationURL,
+		LotteryResult:       params.LotteryResult,
+		PaymentStatus:       params.PaymentStatus,
 	}, nil
 }
 
@@ -110,9 +110,9 @@ func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTi
 func (r *TicketEmailRepository) Update(ctx context.Context, id string, params *entity.UpdateTicketEmail) (*entity.TicketEmail, error) {
 	row := r.db.Pool.QueryRow(ctx, ticketEmailUpdateQuery,
 		id,
-		params.PaymentDeadline,
-		params.LotteryStart,
-		params.LotteryEnd,
+		params.PaymentDeadlineTime,
+		params.LotteryStartTime,
+		params.LotteryEndTime,
 		params.ApplicationURL,
 		params.LotteryResult,
 		params.PaymentStatus,
@@ -198,15 +198,15 @@ func scanTicketEmail(row scannable) (*entity.TicketEmail, error) {
 	}
 
 	te := &entity.TicketEmail{
-		ID:              id,
-		UserID:          userID,
-		EventID:         eventID,
-		EmailType:       entity.TicketEmailType(emailType),
-		RawBody:         rawBody,
-		ParsedData:      parsedData,
-		PaymentDeadline: paymentDeadline,
-		LotteryStart:    lotteryStart,
-		LotteryEnd:      lotteryEnd,
+		ID:                  id,
+		UserID:              userID,
+		EventID:             eventID,
+		EmailType:           entity.TicketEmailType(emailType),
+		RawBody:             rawBody,
+		ParsedData:          parsedData,
+		PaymentDeadlineTime: paymentDeadline,
+		LotteryStartTime:    lotteryStart,
+		LotteryEndTime:      lotteryEnd,
 	}
 	if applicationURL != nil {
 		te.ApplicationURL = *applicationURL
