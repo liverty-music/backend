@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/liverty-music/backend/internal/infrastructure/zkp"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -91,22 +92,36 @@ func TestVerifier_MalformedInput(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name      string
-		proof     string
-		signals   string
-		expectErr bool
+		name    string
+		proof   string
+		signals string
+		wantErr error
 	}{
-		{"invalid proof JSON", "not-json", `["1","2","3"]`, true},
-		{"invalid signals JSON", `{"pi_a":["1","2","1"],"pi_b":[["3","4"],["5","6"],["1","0"]],"pi_c":["7","8","1"],"protocol":"groth16","curve":"bn128"}`, "not-json", true},
+		{
+			name:    "invalid proof JSON",
+			proof:   "not-json",
+			signals: `["1","2","3"]`,
+			wantErr: apperr.ErrInternal,
+		},
+		{
+			name:    "invalid signals JSON",
+			proof:   `{"pi_a":["1","2","1"],"pi_b":[["3","4"],["5","6"],["1","0"]],"pi_c":["7","8","1"],"protocol":"groth16","curve":"bn128"}`,
+			signals: "not-json",
+			wantErr: apperr.ErrInternal,
+		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := verifier.Verify(tc.proof, tc.signals)
-			if tc.expectErr {
-				assert.Error(t, err)
+			_, err := verifier.Verify(tt.proof, tt.signals)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
 			}
+
+			assert.NoError(t, err)
 		})
 	}
 }

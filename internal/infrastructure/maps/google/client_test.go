@@ -48,6 +48,8 @@ type textSearchResponse struct {
 }
 
 func TestClient_SearchPlace(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name         string
 		venueName    string
@@ -106,7 +108,7 @@ func TestClient_SearchPlace(t *testing.T) {
 			adminArea:   "",
 			statusCode:  http.StatusOK,
 			invalidJSON: true,
-			wantErr:     apperr.New(codes.DataLoss, "failed to decode google maps response"),
+			wantErr:     apperr.New(codes.Internal, "failed to decode google maps response"),
 		},
 	}
 
@@ -147,6 +149,8 @@ func TestClient_SearchPlace(t *testing.T) {
 }
 
 func TestClient_SearchPlace_Coordinates(t *testing.T) {
+	t.Parallel()
+
 	ptrFloat := func(v float64) *float64 { return &v }
 
 	tests := []struct {

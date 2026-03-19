@@ -1,8 +1,12 @@
-package auth
+package auth_test
 
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/liverty-music/backend/internal/infrastructure/auth"
 )
 
 func TestWithClaims(t *testing.T) {
@@ -10,11 +14,11 @@ func TestWithClaims(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		claims *Claims
+		claims *auth.Claims
 	}{
 		{
 			name: "set full claims",
-			claims: &Claims{
+			claims: &auth.Claims{
 				Sub:   "user-123",
 				Email: "test@example.com",
 				Name:  "Test User",
@@ -22,7 +26,7 @@ func TestWithClaims(t *testing.T) {
 		},
 		{
 			name: "set claims without name",
-			claims: &Claims{
+			claims: &auth.Claims{
 				Sub:   "user-456",
 				Email: "another@example.com",
 				Name:  "",
@@ -35,26 +39,15 @@ func TestWithClaims(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			newCtx := WithClaims(ctx, tt.claims)
+			newCtx := auth.WithClaims(ctx, tt.claims)
 
-			if newCtx == ctx {
-				t.Error("WithClaims should return a new context")
-			}
+			assert.NotEqual(t, ctx, newCtx, "WithClaims should return a new context")
 
-			claims, ok := GetClaims(newCtx)
-			if !ok {
-				t.Error("GetClaims should return true when claims are set")
-			}
-
-			if claims.Sub != tt.claims.Sub {
-				t.Errorf("GetClaims().Sub = %q, want %q", claims.Sub, tt.claims.Sub)
-			}
-			if claims.Email != tt.claims.Email {
-				t.Errorf("GetClaims().Email = %q, want %q", claims.Email, tt.claims.Email)
-			}
-			if claims.Name != tt.claims.Name {
-				t.Errorf("GetClaims().Name = %q, want %q", claims.Name, tt.claims.Name)
-			}
+			claims, ok := auth.GetClaims(newCtx)
+			assert.True(t, ok, "GetClaims should return true when claims are set")
+			assert.Equal(t, tt.claims.Sub, claims.Sub)
+			assert.Equal(t, tt.claims.Email, claims.Email)
+			assert.Equal(t, tt.claims.Name, claims.Name)
 		})
 	}
 }
@@ -81,25 +74,14 @@ func TestWithUserID(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			// WithUserID is deprecated, but we still test backward compatibility
-			claims := &Claims{Sub: tt.userID, Email: "test@example.com"}
-			newCtx := WithClaims(ctx, claims)
+			// WithUserID is deprecated, but we still test backward compatibility.
+			claims := &auth.Claims{Sub: tt.userID, Email: "test@example.com"}
+			newCtx := auth.WithClaims(ctx, claims)
 
-			userID, ok := GetUserID(newCtx)
-			if tt.userID == "" {
-				// Empty userID case - claims exist but Sub is empty
-				if !ok {
-					t.Error("GetUserID should return true when claims are set, even if Sub is empty")
-				}
-			} else {
-				if !ok {
-					t.Error("GetUserID should return true when user ID is set")
-				}
-			}
-
-			if userID != tt.userID {
-				t.Errorf("GetUserID() = %q, want %q", userID, tt.userID)
-			}
+			userID, ok := auth.GetUserID(newCtx)
+			// Claims are always set, so ok must be true regardless of whether Sub is empty.
+			assert.True(t, ok, "GetUserID should return true when claims are set")
+			assert.Equal(t, tt.userID, userID)
 		})
 	}
 }
@@ -111,58 +93,39 @@ func TestGetClaims(t *testing.T) {
 		t.Parallel()
 
 		ctx := context.Background()
-		claims, ok := GetClaims(ctx)
+		claims, ok := auth.GetClaims(ctx)
 
-		if ok {
-			t.Error("GetClaims should return false when claims are not set")
-		}
-
-		if claims != nil {
-			t.Error("GetClaims should return nil when claims are not set")
-		}
+		assert.False(t, ok, "GetClaims should return false when claims are not set")
+		assert.Nil(t, claims)
 	})
 
 	t.Run("claims set", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := context.Background()
-		expectedClaims := &Claims{
+		expectedClaims := &auth.Claims{
 			Sub:   "user-456",
 			Email: "test@example.com",
 			Name:  "Test User",
 		}
-		ctx = WithClaims(ctx, expectedClaims)
+		ctx = auth.WithClaims(ctx, expectedClaims)
 
-		claims, ok := GetClaims(ctx)
-		if !ok {
-			t.Error("GetClaims should return true when claims are set")
-		}
-
-		if claims.Sub != expectedClaims.Sub {
-			t.Errorf("GetClaims().Sub = %q, want %q", claims.Sub, expectedClaims.Sub)
-		}
-		if claims.Email != expectedClaims.Email {
-			t.Errorf("GetClaims().Email = %q, want %q", claims.Email, expectedClaims.Email)
-		}
-		if claims.Name != expectedClaims.Name {
-			t.Errorf("GetClaims().Name = %q, want %q", claims.Name, expectedClaims.Name)
-		}
+		claims, ok := auth.GetClaims(ctx)
+		assert.True(t, ok, "GetClaims should return true when claims are set")
+		assert.Equal(t, expectedClaims.Sub, claims.Sub)
+		assert.Equal(t, expectedClaims.Email, claims.Email)
+		assert.Equal(t, expectedClaims.Name, claims.Name)
 	})
 
 	t.Run("wrong type in context", func(t *testing.T) {
 		t.Parallel()
 
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, claimsKey, "not-a-claims-object")
+		ctx = context.WithValue(ctx, auth.ClaimsKey, "not-a-claims-object")
 
-		claims, ok := GetClaims(ctx)
-		if ok {
-			t.Error("GetClaims should return false when value is wrong type")
-		}
-
-		if claims != nil {
-			t.Error("GetClaims should return nil when value is wrong type")
-		}
+		claims, ok := auth.GetClaims(ctx)
+		assert.False(t, ok, "GetClaims should return false when value is wrong type")
+		assert.Nil(t, claims)
 	})
 }
 
@@ -173,15 +136,10 @@ func TestGetUserID(t *testing.T) {
 		t.Parallel()
 
 		ctx := context.Background()
-		userID, ok := GetUserID(ctx)
+		userID, ok := auth.GetUserID(ctx)
 
-		if ok {
-			t.Error("GetUserID should return false when claims are not set")
-		}
-
-		if userID != "" {
-			t.Errorf("GetUserID() = %q, want empty string", userID)
-		}
+		assert.False(t, ok, "GetUserID should return false when claims are not set")
+		assert.Empty(t, userID)
 	})
 
 	t.Run("claims set with sub", func(t *testing.T) {
@@ -189,19 +147,14 @@ func TestGetUserID(t *testing.T) {
 
 		ctx := context.Background()
 		expectedUserID := "user-456"
-		ctx = WithClaims(ctx, &Claims{
+		ctx = auth.WithClaims(ctx, &auth.Claims{
 			Sub:   expectedUserID,
 			Email: "test@example.com",
 			Name:  "Test User",
 		})
 
-		userID, ok := GetUserID(ctx)
-		if !ok {
-			t.Error("GetUserID should return true when claims are set")
-		}
-
-		if userID != expectedUserID {
-			t.Errorf("GetUserID() = %q, want %q", userID, expectedUserID)
-		}
+		userID, ok := auth.GetUserID(ctx)
+		assert.True(t, ok, "GetUserID should return true when claims are set")
+		assert.Equal(t, expectedUserID, userID)
 	})
 }

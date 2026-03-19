@@ -13,6 +13,8 @@ import (
 )
 
 func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		response   placeSearchResponse

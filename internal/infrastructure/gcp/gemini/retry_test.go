@@ -19,6 +19,8 @@ import (
 )
 
 func TestSearch_RetryOnTransientError(t *testing.T) {
+	t.Parallel()
+
 	logger, _ := logging.New()
 	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
@@ -80,6 +82,8 @@ func TestSearch_RetryOnTransientError(t *testing.T) {
 }
 
 func TestSearch_AllRetriesExhausted(t *testing.T) {
+	t.Parallel()
+
 	logger, _ := logging.New()
 	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
@@ -112,6 +116,8 @@ func TestSearch_AllRetriesExhausted(t *testing.T) {
 }
 
 func TestSearch_NonRetryableErrorStopsImmediately(t *testing.T) {
+	t.Parallel()
+
 	logger, _ := logging.New()
 	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
@@ -144,6 +150,8 @@ func TestSearch_NonRetryableErrorStopsImmediately(t *testing.T) {
 }
 
 func TestSearch_ContextCancellationStopsRetry(t *testing.T) {
+	t.Parallel()
+
 	logger, _ := logging.New()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}

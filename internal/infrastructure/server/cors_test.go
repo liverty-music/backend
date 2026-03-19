@@ -1,15 +1,16 @@
-package server
+package server_test
 
 import (
 	"net/http"
 	"testing"
 
+	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetCorsOptions(t *testing.T) {
 	allowedOrigins := []string{"http://localhost:9000", "https://liverty.music"}
-	options := GetCorsOptions(allowedOrigins)
+	options := server.GetCorsOptions(allowedOrigins)
 
 	assert.Equal(t, allowedOrigins, options.AllowedOrigins)
 	assert.Contains(t, options.AllowedMethods, http.MethodPost)
@@ -26,6 +27,6 @@ func TestNewCORSHandler(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	corsHandler := NewCORSHandler(handler, allowedOrigins)
+	corsHandler := server.NewCORSHandler(handler, allowedOrigins)
 	assert.NotNil(t, corsHandler)
 }

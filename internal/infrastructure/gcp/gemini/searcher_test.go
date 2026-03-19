@@ -38,6 +38,8 @@ func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 }
 
 func TestConcertSearcher_Search(t *testing.T) {
+	t.Parallel()
+
 	logger, _ := logging.New()
 	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
@@ -467,6 +469,8 @@ func TestConcertSearcher_Search(t *testing.T) {
 }
 
 func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
+	t.Parallel()
+
 	logger, _ := logging.New()
 	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
