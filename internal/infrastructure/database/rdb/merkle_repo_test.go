@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
@@ -25,30 +24,10 @@ func testHash32(label string) []byte {
 // Returns eventID.
 func seedMerkleTestData(t *testing.T) string {
 	t.Helper()
-	ctx := context.Background()
 
-	artistID := uuid.Must(uuid.NewV7()).String()
-	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`,
-		artistID, "merkle-test-artist", uuid.Must(uuid.NewV7()).String(),
-	)
-	require.NoError(t, err)
-
-	venueID := uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO venues (id, name) VALUES ($1, $2)`,
-		venueID, "merkle-test-venue",
-	)
-	require.NoError(t, err)
-
-	eventID := uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, $3, $4, $5)`,
-		eventID, venueID, "merkle-test-event", "2026-03-01", artistID,
-	)
-	require.NoError(t, err)
-
-	return eventID
+	artistID := seedArtist(t, "merkle-test-artist", "aa000000-0000-0000-0000-000000merkle")
+	venueID := seedVenue(t, "merkle-test-venue")
+	return seedEvent(t, venueID, artistID, "merkle-test-event", "2026-03-01")
 }
 
 func TestMerkleTreeRepository_StoreBatch(t *testing.T) {
@@ -98,7 +77,6 @@ func TestMerkleTreeRepository_StoreBatch(t *testing.T) {
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		err := repo.StoreBatch(ctx, "", nil)
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
@@ -137,13 +115,11 @@ func TestMerkleTreeRepository_StoreBatchWithRoot(t *testing.T) {
 			{EventID: "018b2f19-e591-7d12-bf9e-000000000000", Depth: 0, NodeIndex: 0, Hash: testHash32("leaf")},
 		}
 		err := repo.StoreBatchWithRoot(ctx, "018b2f19-e591-7d12-bf9e-000000000000", nodes, testHash32("root"))
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		err := repo.StoreBatchWithRoot(ctx, "", nil, nil)
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
@@ -203,7 +179,6 @@ func TestMerkleTreeRepository_GetPath(t *testing.T) {
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		_, _, err := repo.GetPath(ctx, "", 0, 2)
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
@@ -229,13 +204,11 @@ func TestMerkleTreeRepository_GetRoot(t *testing.T) {
 
 	t.Run("non-existent event returns NotFound", func(t *testing.T) {
 		_, err := repo.GetRoot(ctx, "018b2f19-e591-7d12-bf9e-000000000000")
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		_, err := repo.GetRoot(ctx, "")
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
@@ -266,13 +239,11 @@ func TestMerkleTreeRepository_GetLeaf(t *testing.T) {
 
 	t.Run("non-existent leaf index returns NotFound", func(t *testing.T) {
 		_, err := repo.GetLeaf(ctx, eventID, 99)
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		_, err := repo.GetLeaf(ctx, "", 0)
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }

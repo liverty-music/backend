@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
@@ -21,7 +20,6 @@ func TestEventEntryRepository_GetMerkleRoot(t *testing.T) {
 	t.Run("returns NotFound when merkle root is NULL", func(t *testing.T) {
 		// Event was just created with NULL merkle_root.
 		_, err := repo.GetMerkleRoot(ctx, eventID)
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
@@ -38,13 +36,11 @@ func TestEventEntryRepository_GetMerkleRoot(t *testing.T) {
 
 	t.Run("non-existent event returns NotFound", func(t *testing.T) {
 		_, err := repo.GetMerkleRoot(ctx, "018b2f19-e591-7d12-bf9e-000000000000")
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		_, err := repo.GetMerkleRoot(ctx, "")
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
@@ -81,13 +77,11 @@ func TestEventEntryRepository_UpdateMerkleRoot(t *testing.T) {
 
 	t.Run("non-existent event returns NotFound", func(t *testing.T) {
 		err := repo.UpdateMerkleRoot(ctx, "018b2f19-e591-7d12-bf9e-000000000000", []byte("root"))
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		err := repo.UpdateMerkleRoot(ctx, "", []byte("root"))
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
@@ -100,23 +94,13 @@ func TestEventEntryRepository_GetTicketLeafIndex(t *testing.T) {
 	eventID, userID := seedTicketTestData(t)
 
 	// Create a second user.
-	userID2 := uuid.Must(uuid.NewV7()).String()
-	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
-		userID2, "leaf-index-user2", "leaf-index2@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4901",
-	)
-	require.NoError(t, err)
+	userID2 := seedUser(t, "leaf-index-user2", "leaf-index2@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4901")
 
 	// Create a third user.
-	userID3 := uuid.Must(uuid.NewV7()).String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
-		userID3, "leaf-index-user3", "leaf-index3@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4902",
-	)
-	require.NoError(t, err)
+	userID3 := seedUser(t, "leaf-index-user3", "leaf-index3@example.com", "018b2f19-e591-7d12-bf9e-f0e74f1b4902")
 
 	// Mint tickets in a specific order: user1 first, then user2, then user3.
-	_, err = ticketRepo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID, TokenID: 1, TxHash: "0x1"})
+	_, err := ticketRepo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID, TokenID: 1, TxHash: "0x1"})
 	require.NoError(t, err)
 	_, err = ticketRepo.Create(ctx, &entity.NewTicket{EventID: eventID, UserID: userID2, TokenID: 2, TxHash: "0x2"})
 	require.NoError(t, err)
@@ -139,19 +123,16 @@ func TestEventEntryRepository_GetTicketLeafIndex(t *testing.T) {
 
 	t.Run("user with no ticket returns NotFound", func(t *testing.T) {
 		_, err := repo.GetTicketLeafIndex(ctx, eventID, "018b2f19-e591-7d12-bf9e-000000000000")
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		_, err := repo.GetTicketLeafIndex(ctx, "", userID)
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("empty user ID returns error", func(t *testing.T) {
 		_, err := repo.GetTicketLeafIndex(ctx, eventID, "")
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +29,6 @@ func TestNullifierRepository_Insert(t *testing.T) {
 
 		// Second insert with same event + nullifier should fail.
 		err = repo.Insert(ctx, eventID, hash)
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 	})
 
@@ -43,12 +41,7 @@ func TestNullifierRepository_Insert(t *testing.T) {
 		).Scan(&venueID, &artistID)
 		require.NoError(t, err)
 
-		eventID2 := uuid.Must(uuid.NewV7()).String()
-		_, err = testDB.Pool.Exec(ctx,
-			`INSERT INTO events (id, venue_id, title, local_event_date, artist_id) VALUES ($1, $2, $3, $4, $5)`,
-			eventID2, venueID, "second event", "2026-04-01", artistID,
-		)
-		require.NoError(t, err)
+		eventID2 := seedEvent(t, venueID, artistID, "second event", "2026-04-01")
 
 		hash := testHash32("shared-null-hash")
 
@@ -62,13 +55,11 @@ func TestNullifierRepository_Insert(t *testing.T) {
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		err := repo.Insert(ctx, "", []byte("hash"))
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("empty nullifier hash returns error", func(t *testing.T) {
 		err := repo.Insert(ctx, eventID, []byte{})
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
@@ -110,13 +101,11 @@ func TestNullifierRepository_Exists(t *testing.T) {
 
 	t.Run("empty event ID returns error", func(t *testing.T) {
 		_, err := repo.Exists(ctx, "", []byte("hash"))
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("empty nullifier hash returns error", func(t *testing.T) {
 		_, err := repo.Exists(ctx, eventID, []byte{})
-		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
