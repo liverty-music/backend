@@ -148,10 +148,10 @@ func TestValidateToken(t *testing.T) {
 		emailVerified bool
 	}
 	tests := []struct {
-		name       string
-		setup      func(t *testing.T) (tokenString string, validator *auth.JWTValidator)
-		want       want
-		wantErr    error
+		name    string
+		setup   func(t *testing.T) (tokenString string, validator *auth.JWTValidator)
+		want    want
+		wantErr error
 	}{
 		{
 			name: "return claims when token is valid with all fields",

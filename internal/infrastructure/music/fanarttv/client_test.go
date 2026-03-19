@@ -84,12 +84,12 @@ func TestClient_ResolveImages(t *testing.T) {
 			wantErr:      assert.AnError,
 		},
 		{
-			name:        "returns error for invalid JSON",
-			mbid:        "mbid-bad-json",
-			statusCode:  http.StatusOK,
-			contentType: "application/json",
+			name:         "returns error for invalid JSON",
+			mbid:         "mbid-bad-json",
+			statusCode:   http.StatusOK,
+			contentType:  "application/json",
 			responseBody: `{not valid json`,
-			wantErr:     assert.AnError,
+			wantErr:      assert.AnError,
 		},
 		{
 			name:         "returns error when context is cancelled",

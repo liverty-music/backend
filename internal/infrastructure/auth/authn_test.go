@@ -40,11 +40,11 @@ func TestNewAuthFunc(t *testing.T) {
 		connectCode connect.Code
 	}
 	tests := []struct {
-		name        string
-		args        args
-		setupMock   func(t *testing.T) *mocks.MockTokenValidator
-		want        want
-		wantErr     error
+		name      string
+		args      args
+		setupMock func(t *testing.T) *mocks.MockTokenValidator
+		want      want
+		wantErr   error
 	}{
 		{
 			name: "return claims when token is valid",
@@ -212,10 +212,10 @@ func TestClaimsBridgeInterceptor_WrapUnary(t *testing.T) {
 		claims      *auth.Claims
 	}
 	tests := []struct {
-		name      string
-		setupCtx  func() context.Context
-		want      want
-		wantErr   error
+		name     string
+		setupCtx func() context.Context
+		want     want
+		wantErr  error
 	}{
 		{
 			name: "propagate claims to handler context when info is set",
