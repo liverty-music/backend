@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // MaxDepth is the maximum supported tree depth.
@@ -30,7 +32,7 @@ func (b *Builder) Build(eventID string, leaves [][]byte) ([]*entity.MerkleNode, 
 	numLeaves := 1 << b.depth
 
 	if len(leaves) > numLeaves {
-		return nil, nil, fmt.Errorf("too many leaves: got %d, tree depth %d supports at most %d", len(leaves), b.depth, numLeaves)
+		return nil, nil, apperr.New(codes.InvalidArgument, fmt.Sprintf("too many leaves: got %d, tree depth %d supports at most %d", len(leaves), b.depth, numLeaves))
 	}
 
 	// Pad leaves with zero hashes if necessary.
@@ -67,7 +69,7 @@ func (b *Builder) Build(eventID string, leaves [][]byte) ([]*entity.MerkleNode, 
 		for i := 0; i < len(currentLevel); i += 2 {
 			hash, err := PoseidonHash(currentLevel[i], currentLevel[i+1])
 			if err != nil {
-				return nil, nil, fmt.Errorf("hash at depth %d, index %d: %w", depth, i/2, err)
+				return nil, nil, apperr.Wrap(err, codes.Internal, fmt.Sprintf("hash at depth %d, index %d", depth, i/2))
 			}
 			nextLevel[i/2] = hash
 			nodes = append(nodes, &entity.MerkleNode{

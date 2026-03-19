@@ -290,7 +290,7 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 	// Limit response body to 1MB to prevent OOM attacks
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return apperr.Wrap(err, codes.DataLoss, "failed to read lastfm response body")
+		return apperr.Wrap(err, codes.Internal, "failed to read lastfm response body")
 	}
 
 	// Last.fm can return HTTP 200 with an error object
@@ -305,7 +305,7 @@ func (c *client) get(ctx context.Context, params url.Values, result interface{})
 	}
 
 	if err := json.Unmarshal(body, result); err != nil {
-		return apperr.Wrap(err, codes.DataLoss, "failed to decode lastfm response")
+		return apperr.Wrap(err, codes.Internal, "failed to decode lastfm response")
 	}
 
 	return nil

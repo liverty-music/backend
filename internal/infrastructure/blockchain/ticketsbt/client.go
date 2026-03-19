@@ -21,6 +21,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -58,34 +60,34 @@ type Client struct {
 // chainID is the EIP-155 chain ID used for transaction signing (e.g., 84532 for Base Sepolia).
 func NewClient(ctx context.Context, rpcURL, privateKeyHex, contractAddr string, chainID int64, logger *logging.Logger) (*Client, error) {
 	if rpcURL == "" || privateKeyHex == "" || contractAddr == "" {
-		return nil, fmt.Errorf("ticketsbt: rpcURL, privateKeyHex, and contractAddr are required")
+		return nil, apperr.New(codes.InvalidArgument, "ticketsbt: rpcURL, privateKeyHex, and contractAddr are required")
 	}
 	if chainID <= 0 {
-		return nil, fmt.Errorf("ticketsbt: chainID must be positive")
+		return nil, apperr.New(codes.InvalidArgument, "ticketsbt: chainID must be positive")
 	}
 
 	l := logger.With(slog.String("component", "ticketsbt"))
 
 	ethClient, err := ethclient.DialContext(ctx, rpcURL)
 	if err != nil {
-		return nil, fmt.Errorf("ticketsbt: failed to connect to RPC: %w", err)
+		return nil, apperr.Wrap(err, codes.Internal, "ticketsbt: failed to connect to RPC")
 	}
 
 	privateKey, err := crypto.HexToECDSA(strings.TrimPrefix(privateKeyHex, "0x"))
 	if err != nil {
-		return nil, fmt.Errorf("ticketsbt: invalid deployer private key: %w", err)
+		return nil, apperr.Wrap(err, codes.InvalidArgument, "ticketsbt: invalid deployer private key")
 	}
 
 	fromAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
 
 	contract, err := NewTicketSBT(common.HexToAddress(contractAddr), ethClient)
 	if err != nil {
-		return nil, fmt.Errorf("ticketsbt: failed to bind contract: %w", err)
+		return nil, apperr.Wrap(err, codes.Internal, "ticketsbt: failed to bind contract")
 	}
 
 	signer, err := bind.NewKeyedTransactorWithChainID(privateKey, big.NewInt(chainID))
 	if err != nil {
-		return nil, fmt.Errorf("ticketsbt: failed to create transactor: %w", err)
+		return nil, apperr.Wrap(err, codes.Internal, "ticketsbt: failed to create transactor")
 	}
 
 	l.Info(ctx, "blockchain client initialized",
@@ -170,9 +172,9 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 		nonce, err := c.ethClient.PendingNonceAt(ctx, c.fromAddress)
 		if err != nil {
 			if !isTransientError(err) {
-				return "", fmt.Errorf("ticketsbt: permanent error fetching nonce: %w", err)
+				return "", apperr.Wrap(err, codes.Internal, "ticketsbt: permanent error fetching nonce")
 			}
-			lastErr = fmt.Errorf("ticketsbt: failed to fetch pending nonce: %w", err)
+			lastErr = apperr.Wrap(err, codes.Internal, "ticketsbt: failed to fetch pending nonce")
 			continue
 		}
 		opts.Nonce = new(big.Int).SetUint64(nonce)
@@ -180,7 +182,7 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 		tx, err := c.contract.Mint(&opts, recipient, tokenIDBig)
 		if err != nil {
 			if !isTransientError(err) {
-				return "", fmt.Errorf("ticketsbt: permanent mint error: %w", err)
+				return "", apperr.Wrap(err, codes.Internal, "ticketsbt: permanent mint error")
 			}
 			lastErr = err
 			continue
@@ -190,13 +192,13 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 		receipt, err := bind.WaitMined(ctx, c.ethClient, tx)
 		if err != nil {
 			if !isTransientError(err) {
-				return "", fmt.Errorf("ticketsbt: permanent error waiting for receipt: %w", err)
+				return "", apperr.Wrap(err, codes.Internal, "ticketsbt: permanent error waiting for receipt")
 			}
 			lastErr = err
 			continue
 		}
 		if receipt.Status != types.ReceiptStatusSuccessful {
-			return "", fmt.Errorf("ticketsbt: mint transaction reverted on-chain (tx=%s)", tx.Hash().Hex())
+			return "", apperr.New(codes.Internal, fmt.Sprintf("ticketsbt: mint transaction reverted on-chain (tx=%s)", tx.Hash().Hex()))
 		}
 
 		txHash := tx.Hash().Hex()
@@ -213,7 +215,7 @@ func (c *Client) Mint(ctx context.Context, recipientAddr string, tokenID uint64)
 		slog.String("recipient", recipientAddr),
 		slog.Int("attempts", maxRetries),
 	)
-	return "", fmt.Errorf("ticketsbt: mint failed after %d attempts: %w", maxRetries, lastErr)
+	return "", apperr.Wrap(lastErr, codes.Internal, fmt.Sprintf("ticketsbt: mint failed after %d attempts", maxRetries))
 }
 
 // OwnerOf returns the owner address of the given tokenID as a lowercase hex string.
@@ -254,7 +256,7 @@ func (c *Client) OwnerOf(ctx context.Context, tokenID uint64) (string, error) {
 		slog.Uint64("tokenID", tokenID),
 		slog.Int("attempts", maxRetries),
 	)
-	return "", fmt.Errorf("ticketsbt: ownerOf failed after %d attempts: %w", maxRetries, lastErr)
+	return "", apperr.Wrap(lastErr, codes.Internal, fmt.Sprintf("ticketsbt: ownerOf failed after %d attempts", maxRetries))
 }
 
 // IsTokenMinted returns true if the given tokenID has already been minted on-chain.
@@ -272,7 +274,7 @@ func (c *Client) IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error
 			slog.Uint64("tokenID", tokenID),
 			slog.String("error", err.Error()),
 		)
-		return false, fmt.Errorf("ticketsbt: failed to check token ownership: %w", err)
+		return false, apperr.Wrap(err, codes.Internal, "ticketsbt: failed to check token ownership")
 	}
 
 	return true, nil

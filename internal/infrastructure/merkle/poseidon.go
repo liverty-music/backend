@@ -1,10 +1,11 @@
 package merkle
 
 import (
-	"fmt"
 	"math/big"
 
 	"github.com/iden3/go-iden3-crypto/poseidon"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // bn254Prime is the BN254 scalar field prime.
@@ -34,7 +35,7 @@ func PoseidonHash(left, right []byte) ([]byte, error) {
 
 	result, err := poseidon.Hash([]*big.Int{l, r})
 	if err != nil {
-		return nil, fmt.Errorf("poseidon hash: %w", err)
+		return nil, apperr.Wrap(err, codes.Internal, "poseidon hash")
 	}
 
 	// Pad to 32 bytes (BN254 field element size).
@@ -54,7 +55,7 @@ func IdentityCommitment(userIDBytes []byte) ([]byte, error) {
 
 	result, err := poseidon.Hash([]*big.Int{input})
 	if err != nil {
-		return nil, fmt.Errorf("identity commitment: %w", err)
+		return nil, apperr.Wrap(err, codes.Internal, "identity commitment")
 	}
 
 	buf := make([]byte, 32)
