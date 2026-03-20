@@ -231,6 +231,9 @@ func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
 				{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 			}
 
+			// Use a channel to signal background goroutine completion.
+			done := make(chan struct{})
+
 			// SearchNewConcerts (called in background goroutine) handles all guard logic.
 			d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
@@ -239,12 +242,18 @@ func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
 			d.concertRepo.EXPECT().ListByArtist(mock.Anything, artistID, true).Return(nil, nil).Once()
 			d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).
+				Run(func(_ context.Context, _ string, _ entity.SearchLogStatus) { close(done) }).
 				Return(nil).Once()
 
 			err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
 			assert.NoError(t, err) // Returns immediately.
 
-			// synctest.Test waits for all goroutines in the bubble to complete.
+			// Wait for background goroutine — time.After uses virtual time inside synctest.
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("background goroutine did not complete in time")
+			}
 		})
 	})
 }
