@@ -8,7 +8,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -20,11 +19,10 @@ type ticketJourneyTestDeps struct {
 
 func newTicketJourneyTestDeps(t *testing.T) *ticketJourneyTestDeps {
 	t.Helper()
-	logger, _ := logging.New()
 	d := &ticketJourneyTestDeps{
 		repo: mocks.NewMockTicketJourneyRepository(t),
 	}
-	d.uc = usecase.NewTicketJourneyUseCase(d.repo, logger)
+	d.uc = usecase.NewTicketJourneyUseCase(d.repo, newTestLogger(t))
 	return d
 }
 

@@ -9,7 +9,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -17,14 +16,14 @@ import (
 
 func newTestTicketUC(t *testing.T, repo *mocks.MockTicketRepository, minter *mocks.MockTicketMinter) usecase.TicketUseCase {
 	t.Helper()
-	logger, _ := logging.New()
+	logger := newTestLogger(t)
 	return usecase.NewTicketUseCase(repo, minter, logger)
 }
 
 func TestMintTicket_Validation(t *testing.T) {
 	t.Parallel()
 
-	logger, _ := logging.New()
+	logger := newTestLogger(t)
 
 	tests := []struct {
 		name   string
@@ -226,7 +225,7 @@ func TestMintTicket_IsTokenMintedError(t *testing.T) {
 
 func TestGetTicket_EmptyID(t *testing.T) {
 	t.Parallel()
-	logger, _ := logging.New()
+	logger := newTestLogger(t)
 	uc := usecase.NewTicketUseCase(nil, nil, logger)
 	_, err := uc.GetTicket(context.Background(), "")
 	assert.Error(t, err)
@@ -235,7 +234,7 @@ func TestGetTicket_EmptyID(t *testing.T) {
 
 func TestListTicketsForUser_EmptyID(t *testing.T) {
 	t.Parallel()
-	logger, _ := logging.New()
+	logger := newTestLogger(t)
 	uc := usecase.NewTicketUseCase(nil, nil, logger)
 	_, err := uc.ListTicketsForUser(context.Background(), "")
 	assert.Error(t, err)

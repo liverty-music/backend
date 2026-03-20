@@ -11,7 +11,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -150,24 +149,26 @@ func (s *stubMerkleBuilder) Build(_ string, leaves [][]byte) ([]*entity.MerkleNo
 }
 
 func newTestEntryUC(
+	t *testing.T,
 	verifier entity.ZKPVerifier,
 	nullifiers entity.NullifierRepository,
 	merkleTree entity.MerkleTreeRepository,
 	eventRepo entity.EventRepository,
 	ticketRepo entity.TicketRepository,
 ) usecase.EntryUseCase {
-	logger, _ := logging.New()
-	return usecase.NewEntryUseCase(verifier, nullifiers, merkleTree, &stubMerkleBuilder{}, eventRepo, ticketRepo, logger)
+	t.Helper()
+	return usecase.NewEntryUseCase(verifier, nullifiers, merkleTree, &stubMerkleBuilder{}, eventRepo, ticketRepo, newTestLogger(t))
 }
 
 func newTestEntryUCWithBuilder(
+	t *testing.T,
 	builder *stubMerkleBuilder,
 	merkleTree entity.MerkleTreeRepository,
 	eventRepo entity.EventRepository,
 	ticketRepo entity.TicketRepository,
 ) usecase.EntryUseCase {
-	logger, _ := logging.New()
-	return usecase.NewEntryUseCase(nil, nil, merkleTree, builder, eventRepo, ticketRepo, logger)
+	t.Helper()
+	return usecase.NewEntryUseCase(nil, nil, merkleTree, builder, eventRepo, ticketRepo, newTestLogger(t))
 }
 
 // --- VerifyEntry tests ---
@@ -175,7 +176,7 @@ func newTestEntryUCWithBuilder(
 func TestVerifyEntry_Validation(t *testing.T) {
 	t.Parallel()
 
-	uc := newTestEntryUC(nil, nil, nil, nil, nil)
+	uc := newTestEntryUC(t, nil, nil, nil, nil, nil)
 
 	tests := []struct {
 		name   string
@@ -201,7 +202,7 @@ func TestVerifyEntry_Validation(t *testing.T) {
 func TestVerifyEntry_InvalidPublicSignals(t *testing.T) {
 	t.Parallel()
 
-	uc := newTestEntryUC(&stubZKPVerifier{}, &stubNullifierRepo{}, nil, &stubEventRepo{}, nil)
+	uc := newTestEntryUC(t, &stubZKPVerifier{}, &stubNullifierRepo{}, nil, &stubEventRepo{}, nil)
 
 	tests := []struct {
 		name          string
@@ -236,7 +237,7 @@ func TestVerifyEntry_MerkleRootMismatch(t *testing.T) {
 	eventRepo := &stubEventRepo{
 		merkleRoot: bigIntToBytes32(expectedRoot),
 	}
-	uc := newTestEntryUC(
+	uc := newTestEntryUC(t,
 		&stubZKPVerifier{verified: true},
 		&stubNullifierRepo{},
 		nil,
@@ -266,7 +267,7 @@ func TestVerifyEntry_DuplicateNullifier(t *testing.T) {
 	}
 	nullifiers := &stubNullifierRepo{existsResult: true}
 
-	uc := newTestEntryUC(
+	uc := newTestEntryUC(t,
 		&stubZKPVerifier{verified: true},
 		nullifiers,
 		nil,
@@ -295,7 +296,7 @@ func TestVerifyEntry_ProofFails(t *testing.T) {
 	nullifiers := &stubNullifierRepo{existsResult: false}
 	verifier := &stubZKPVerifier{verified: false}
 
-	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, verifier, nullifiers, nil, eventRepo, nil)
 
 	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
@@ -318,7 +319,7 @@ func TestVerifyEntry_Success(t *testing.T) {
 	nullifiers := &stubNullifierRepo{existsResult: false}
 	verifier := &stubZKPVerifier{verified: true}
 
-	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, verifier, nullifiers, nil, eventRepo, nil)
 
 	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
@@ -347,7 +348,7 @@ func TestVerifyEntry_ConcurrentNullifierInsert(t *testing.T) {
 	}
 	verifier := &stubZKPVerifier{verified: true}
 
-	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, verifier, nullifiers, nil, eventRepo, nil)
 
 	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
@@ -369,7 +370,7 @@ func TestVerifyEntry_EventIDMismatch(t *testing.T) {
 	root := big.NewInt(42)
 	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
 
-	uc := newTestEntryUC(&stubZKPVerifier{verified: true}, &stubNullifierRepo{}, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, &stubZKPVerifier{verified: true}, &stubNullifierRepo{}, nil, eventRepo, nil)
 
 	// Build signals with a different event UUID than the request.
 	differentEventID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -391,7 +392,7 @@ func TestVerifyEntry_EventIDMismatch(t *testing.T) {
 func TestGetMerklePath_Validation(t *testing.T) {
 	t.Parallel()
 
-	uc := newTestEntryUC(nil, nil, nil, nil, nil)
+	uc := newTestEntryUC(t, nil, nil, nil, nil, nil)
 
 	tests := []struct {
 		name    string
@@ -416,7 +417,7 @@ func TestGetMerklePath_NoTicket(t *testing.T) {
 	t.Parallel()
 
 	eventRepo := &stubEventRepo{leafIndex: -1}
-	uc := newTestEntryUC(nil, nil, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, nil, nil, nil, eventRepo, nil)
 
 	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
 	assert.Nil(t, result)
@@ -441,7 +442,7 @@ func TestGetMerklePath_Success(t *testing.T) {
 		leaf:         leaf,
 	}
 
-	uc := newTestEntryUC(nil, nil, merkleTreeRepo, eventRepo, nil)
+	uc := newTestEntryUC(t, nil, nil, merkleTreeRepo, eventRepo, nil)
 
 	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
 	require.NoError(t, err)
@@ -456,7 +457,7 @@ func TestGetMerklePath_Success(t *testing.T) {
 func TestBuildMerkleTree_Validation(t *testing.T) {
 	t.Parallel()
 
-	uc := newTestEntryUC(nil, nil, nil, nil, nil)
+	uc := newTestEntryUC(t, nil, nil, nil, nil, nil)
 
 	err := uc.BuildMerkleTree(context.Background(), "")
 	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
@@ -474,7 +475,7 @@ func TestBuildMerkleTree_Success(t *testing.T) {
 	merkleTreeRepo := &stubMerkleTreeRepo{}
 	eventRepo := &stubEventRepo{}
 
-	uc := newTestEntryUC(nil, nil, merkleTreeRepo, eventRepo, ticketRepo)
+	uc := newTestEntryUC(t, nil, nil, merkleTreeRepo, eventRepo, ticketRepo)
 
 	err := uc.BuildMerkleTree(context.Background(), "event-1")
 	require.NoError(t, err)
@@ -490,11 +491,11 @@ func TestBuildMerkleTree_StoreBatchWithRootError(t *testing.T) {
 	}, nil)
 
 	merkleTreeRepo := &stubMerkleTreeRepo{
-		storeBatchWithRootErr: assert.AnError,
+		storeBatchWithRootErr: apperr.ErrInternal,
 	}
 	eventRepo := &stubEventRepo{}
 
-	uc := newTestEntryUC(nil, nil, merkleTreeRepo, eventRepo, ticketRepo)
+	uc := newTestEntryUC(t, nil, nil, merkleTreeRepo, eventRepo, ticketRepo)
 
 	err := uc.BuildMerkleTree(context.Background(), "event-1")
 	assert.Error(t, err)
@@ -506,9 +507,9 @@ func TestVerifyEntry_GetMerkleRootError(t *testing.T) {
 	t.Parallel()
 
 	root := big.NewInt(42)
-	eventRepo := &stubEventRepo{merkleRootErr: assert.AnError}
+	eventRepo := &stubEventRepo{merkleRootErr: apperr.ErrInternal}
 
-	uc := newTestEntryUC(&stubZKPVerifier{}, &stubNullifierRepo{}, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, &stubZKPVerifier{}, &stubNullifierRepo{}, nil, eventRepo, nil)
 
 	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
@@ -526,9 +527,9 @@ func TestVerifyEntry_NullifierExistsError(t *testing.T) {
 
 	root := big.NewInt(42)
 	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
-	nullifiers := &stubNullifierRepo{existsErr: assert.AnError}
+	nullifiers := &stubNullifierRepo{existsErr: apperr.ErrInternal}
 
-	uc := newTestEntryUC(&stubZKPVerifier{}, nullifiers, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, &stubZKPVerifier{}, nullifiers, nil, eventRepo, nil)
 
 	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
@@ -547,9 +548,9 @@ func TestVerifyEntry_VerifierError(t *testing.T) {
 	root := big.NewInt(42)
 	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
 	nullifiers := &stubNullifierRepo{}
-	verifier := &stubZKPVerifier{err: assert.AnError}
+	verifier := &stubZKPVerifier{err: apperr.ErrInternal}
 
-	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, verifier, nullifiers, nil, eventRepo, nil)
 
 	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
@@ -567,10 +568,10 @@ func TestVerifyEntry_InsertNullifierError(t *testing.T) {
 
 	root := big.NewInt(42)
 	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
-	nullifiers := &stubNullifierRepo{insertErr: assert.AnError}
+	nullifiers := &stubNullifierRepo{insertErr: apperr.ErrInternal}
 	verifier := &stubZKPVerifier{verified: true}
 
-	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, verifier, nullifiers, nil, eventRepo, nil)
 
 	signals := makePublicSignals(root, big.NewInt(100), testEventID)
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
@@ -590,7 +591,7 @@ func TestVerifyEntry_OversizedPublicSignal(t *testing.T) {
 	huge := new(big.Int).Lsh(big.NewInt(1), 264) // 2^264 > 32 bytes
 	signals := makePublicSignals(huge, big.NewInt(1), testEventID)
 
-	uc := newTestEntryUC(&stubZKPVerifier{}, &stubNullifierRepo{}, nil, &stubEventRepo{}, nil)
+	uc := newTestEntryUC(t, &stubZKPVerifier{}, &stubNullifierRepo{}, nil, &stubEventRepo{}, nil)
 
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
 		EventID:           testEventID,
@@ -608,8 +609,8 @@ func TestVerifyEntry_OversizedPublicSignal(t *testing.T) {
 func TestGetMerklePath_LeafIndexError(t *testing.T) {
 	t.Parallel()
 
-	eventRepo := &stubEventRepo{leafIndexErr: assert.AnError}
-	uc := newTestEntryUC(nil, nil, nil, eventRepo, nil)
+	eventRepo := &stubEventRepo{leafIndexErr: apperr.ErrInternal}
+	uc := newTestEntryUC(t, nil, nil, nil, eventRepo, nil)
 
 	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
 	assert.Nil(t, result)
@@ -619,8 +620,8 @@ func TestGetMerklePath_LeafIndexError(t *testing.T) {
 func TestGetMerklePath_GetRootError(t *testing.T) {
 	t.Parallel()
 
-	eventRepo := &stubEventRepo{leafIndex: 0, merkleRootErr: assert.AnError}
-	uc := newTestEntryUC(nil, nil, nil, eventRepo, nil)
+	eventRepo := &stubEventRepo{leafIndex: 0, merkleRootErr: apperr.ErrInternal}
+	uc := newTestEntryUC(t, nil, nil, nil, eventRepo, nil)
 
 	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
 	assert.Nil(t, result)
@@ -631,8 +632,8 @@ func TestGetMerklePath_GetPathError(t *testing.T) {
 	t.Parallel()
 
 	eventRepo := &stubEventRepo{leafIndex: 0, merkleRoot: []byte{1}}
-	merkleTreeRepo := &stubMerkleTreeRepo{pathErr: assert.AnError}
-	uc := newTestEntryUC(nil, nil, merkleTreeRepo, eventRepo, nil)
+	merkleTreeRepo := &stubMerkleTreeRepo{pathErr: apperr.ErrInternal}
+	uc := newTestEntryUC(t, nil, nil, merkleTreeRepo, eventRepo, nil)
 
 	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
 	assert.Nil(t, result)
@@ -646,9 +647,9 @@ func TestGetMerklePath_GetLeafError(t *testing.T) {
 	merkleTreeRepo := &stubMerkleTreeRepo{
 		pathElements: [][]byte{{1}},
 		pathIndices:  []uint32{0},
-		leafErr:      assert.AnError,
+		leafErr:      apperr.ErrInternal,
 	}
-	uc := newTestEntryUC(nil, nil, merkleTreeRepo, eventRepo, nil)
+	uc := newTestEntryUC(t, nil, nil, merkleTreeRepo, eventRepo, nil)
 
 	result, err := uc.GetMerklePath(context.Background(), "event-1", "user-1")
 	assert.Nil(t, result)
@@ -661,9 +662,9 @@ func TestBuildMerkleTree_ListByEventError(t *testing.T) {
 	t.Parallel()
 
 	ticketRepo := &mocks.MockTicketRepository{}
-	ticketRepo.On("ListByEvent", context.Background(), "event-1").Return(nil, assert.AnError)
+	ticketRepo.On("ListByEvent", context.Background(), "event-1").Return(nil, apperr.ErrInternal)
 
-	uc := newTestEntryUC(nil, nil, nil, nil, ticketRepo)
+	uc := newTestEntryUC(t, nil, nil, nil, nil, ticketRepo)
 
 	err := uc.BuildMerkleTree(context.Background(), "event-1")
 	assert.Error(t, err)
@@ -678,7 +679,7 @@ func TestBuildMerkleTree_EmptyTickets(t *testing.T) {
 	merkleTreeRepo := &stubMerkleTreeRepo{}
 	eventRepo := &stubEventRepo{}
 
-	uc := newTestEntryUC(nil, nil, merkleTreeRepo, eventRepo, ticketRepo)
+	uc := newTestEntryUC(t, nil, nil, merkleTreeRepo, eventRepo, ticketRepo)
 
 	err := uc.BuildMerkleTree(context.Background(), "event-1")
 	require.NoError(t, err)
@@ -692,12 +693,12 @@ func TestBuildMerkleTree_IdentityCommitmentError(t *testing.T) {
 		{UserID: "user-1"},
 	}, nil)
 
-	builder := &stubMerkleBuilder{identityCommitmentErr: assert.AnError}
-	uc := newTestEntryUCWithBuilder(builder, &stubMerkleTreeRepo{}, &stubEventRepo{}, ticketRepo)
+	builder := &stubMerkleBuilder{identityCommitmentErr: apperr.ErrInternal}
+	uc := newTestEntryUCWithBuilder(t, builder, &stubMerkleTreeRepo{}, &stubEventRepo{}, ticketRepo)
 
 	err := uc.BuildMerkleTree(context.Background(), "event-1")
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, assert.AnError)
+	assert.ErrorIs(t, err, apperr.ErrInternal)
 }
 
 func TestBuildMerkleTree_BuildError(t *testing.T) {
@@ -708,10 +709,10 @@ func TestBuildMerkleTree_BuildError(t *testing.T) {
 		{UserID: "user-1"},
 	}, nil)
 
-	builder := &stubMerkleBuilder{buildErr: assert.AnError}
-	uc := newTestEntryUCWithBuilder(builder, &stubMerkleTreeRepo{}, &stubEventRepo{}, ticketRepo)
+	builder := &stubMerkleBuilder{buildErr: apperr.ErrInternal}
+	uc := newTestEntryUCWithBuilder(t, builder, &stubMerkleTreeRepo{}, &stubEventRepo{}, ticketRepo)
 
 	err := uc.BuildMerkleTree(context.Background(), "event-1")
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, assert.AnError)
+	assert.ErrorIs(t, err, apperr.ErrInternal)
 }

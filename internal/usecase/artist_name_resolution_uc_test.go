@@ -7,18 +7,19 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestArtistNameResolutionUseCase_ResolveCanonicalName(t *testing.T) {
+	t.Parallel()
+
 	ctx := anyCtx
-	logger, _ := logging.New()
 
 	t.Run("updates name when canonical differs", func(t *testing.T) {
+		t.Parallel()
 		artistRepo := mocks.NewMockArtistRepository(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, logger)
+		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, newTestLogger(t))
 
 		idManager.EXPECT().GetArtist(ctx, "mbid-001").Return(&entity.Artist{
 			Name: "Canonical Name",
@@ -31,9 +32,10 @@ func TestArtistNameResolutionUseCase_ResolveCanonicalName(t *testing.T) {
 	})
 
 	t.Run("no-op when canonical name is empty", func(t *testing.T) {
+		t.Parallel()
 		artistRepo := mocks.NewMockArtistRepository(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, logger)
+		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, newTestLogger(t))
 
 		idManager.EXPECT().GetArtist(ctx, "mbid-empty").Return(&entity.Artist{
 			Name: "",
@@ -45,9 +47,10 @@ func TestArtistNameResolutionUseCase_ResolveCanonicalName(t *testing.T) {
 	})
 
 	t.Run("no-op when name already matches", func(t *testing.T) {
+		t.Parallel()
 		artistRepo := mocks.NewMockArtistRepository(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, logger)
+		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, newTestLogger(t))
 
 		idManager.EXPECT().GetArtist(ctx, "mbid-002").Return(&entity.Artist{
 			Name: "Same Name",
@@ -59,9 +62,10 @@ func TestArtistNameResolutionUseCase_ResolveCanonicalName(t *testing.T) {
 	})
 
 	t.Run("returns error when MusicBrainz lookup fails", func(t *testing.T) {
+		t.Parallel()
 		artistRepo := mocks.NewMockArtistRepository(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, logger)
+		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, newTestLogger(t))
 
 		idManager.EXPECT().GetArtist(ctx, "mbid-fail").Return(nil, fmt.Errorf("rate limited")).Once()
 
@@ -71,9 +75,10 @@ func TestArtistNameResolutionUseCase_ResolveCanonicalName(t *testing.T) {
 	})
 
 	t.Run("returns error when UpdateName fails", func(t *testing.T) {
+		t.Parallel()
 		artistRepo := mocks.NewMockArtistRepository(t)
 		idManager := mocks.NewMockArtistIdentityManager(t)
-		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, logger)
+		uc := usecase.NewArtistNameResolutionUseCase(artistRepo, idManager, newTestLogger(t))
 
 		idManager.EXPECT().GetArtist(ctx, "mbid-003").Return(&entity.Artist{
 			Name: "New Name",
