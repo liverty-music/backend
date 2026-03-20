@@ -223,11 +223,11 @@ func TestConcertSearcher_Search(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:         "resilience - invalid json returns nil after retries",
+			name:         "error - invalid json is permanent (not retried)",
 			statusCode:   http.StatusOK,
 			responseBody: `invalid json`,
 			want:         nil,
-			wantErr:      nil, // graceful degradation: invalid JSON retried then returns empty
+			wantErr:      gemini.ErrInvalidJSON, // permanent: truncated output from maxOutputTokens exhaustion
 		},
 		{
 			name:         "error - empty response",
@@ -568,26 +568,19 @@ func geminiResponse(bodyText, finishReason string) string {
 	}`, strconv.Quote(bodyText), finishReason)
 }
 
-func TestConcertSearcher_Search_RetryThenSuccess(t *testing.T) {
+func TestConcertSearcher_Search_InvalidJSON_Permanent(t *testing.T) {
 	logger, _ := logging.New()
 	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
-	validBody := `{"events": [{"artist_name": "Test Artist", "event_name": "Retry Tour", "venue": "Hall", "local_date": "2026-03-01", "source_url": "https://example.com/retry"}]}`
-
 	var callCount atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := callCount.Add(1)
+		callCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		if n == 1 {
-			// First call: return truncated JSON with STOP (simulates the production bug)
-			_, _ = w.Write([]byte(geminiResponse(`{"events": [{"artist_name": "Test`, "STOP")))
-		} else {
-			// Second call: return valid response
-			_, _ = w.Write([]byte(geminiResponse(validBody, "STOP")))
-		}
+		// Return truncated JSON — permanent error, should not be retried.
+		_, _ = w.Write([]byte(geminiResponse(`{"events": [{"artist_name": "Test`, "STOP")))
 	}))
 	defer ts.Close()
 
@@ -600,10 +593,10 @@ func TestConcertSearcher_Search_RetryThenSuccess(t *testing.T) {
 
 	got, err := s.Search(ctx, artist, officialSite, from)
 
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "Retry Tour", got[0].Title)
-	assert.Equal(t, int32(2), callCount.Load(), "expected exactly 2 API calls (1 retry)")
+	assert.Nil(t, got)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, gemini.ErrInvalidJSON)
+	assert.Equal(t, int32(1), callCount.Load(), "invalid JSON should not retry (permanent error)")
 }
 
 func TestConcertSearcher_Search_StructuralMismatch(t *testing.T) {

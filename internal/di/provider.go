@@ -94,7 +94,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			Location:    cfg.GCP.Location,
 			ModelName:   cfg.GCP.GeminiModel,
 			DataStoreID: cfg.GCP.VertexAISearchDataStore,
-		}, nil, logger)
+		}, &http.Client{Timeout: 60 * time.Second}, logger)
 		if err != nil {
 			return nil, err
 		}
