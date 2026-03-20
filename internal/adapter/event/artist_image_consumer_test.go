@@ -12,7 +12,11 @@ import (
 )
 
 func TestArtistImageConsumer_Handle(t *testing.T) {
+	t.Parallel()
+
 	t.Run("delegates to use case", func(t *testing.T) {
+		t.Parallel()
+
 		imageSyncUC := ucmocks.NewMockArtistImageSyncUseCase(t)
 		handler := event.NewArtistImageConsumer(imageSyncUC, newTestLogger(t))
 
@@ -29,6 +33,8 @@ func TestArtistImageConsumer_Handle(t *testing.T) {
 	})
 
 	t.Run("returns error when use case fails", func(t *testing.T) {
+		t.Parallel()
+
 		imageSyncUC := ucmocks.NewMockArtistImageSyncUseCase(t)
 		handler := event.NewArtistImageConsumer(imageSyncUC, newTestLogger(t))
 
@@ -46,6 +52,8 @@ func TestArtistImageConsumer_Handle(t *testing.T) {
 	})
 
 	t.Run("returns error on invalid payload", func(t *testing.T) {
+		t.Parallel()
+
 		imageSyncUC := ucmocks.NewMockArtistImageSyncUseCase(t)
 		handler := event.NewArtistImageConsumer(imageSyncUC, newTestLogger(t))
 

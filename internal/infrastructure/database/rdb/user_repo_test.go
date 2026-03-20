@@ -47,7 +47,7 @@ func TestUserRepository_Create(t *testing.T) {
 	}{
 		{
 			name:  "creates a user successfully",
-			setup: cleanDatabase,
+			setup: func() { cleanDatabase(t) },
 			args: args{
 				params: newTestUser("ext-001", "alice@example.com", "Alice"),
 			},
@@ -55,7 +55,7 @@ func TestUserRepository_Create(t *testing.T) {
 		},
 		{
 			name:  "creates a user with home",
-			setup: cleanDatabase,
+			setup: func() { cleanDatabase(t) },
 			args: args{
 				params: newTestUserWithHome("ext-home-1", "withhome@example.com", "WithHome"),
 			},
@@ -63,7 +63,7 @@ func TestUserRepository_Create(t *testing.T) {
 		},
 		{
 			name:  "nil params returns error",
-			setup: cleanDatabase,
+			setup: func() { cleanDatabase(t) },
 			args: args{
 				params: nil,
 			},
@@ -72,7 +72,7 @@ func TestUserRepository_Create(t *testing.T) {
 		{
 			name: "duplicate email returns already exists",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx, newTestUser("ext-dup-1", "dup@example.com", "First"))
 				require.NoError(t, err)
 			},
@@ -125,7 +125,7 @@ func TestUserRepository_Get(t *testing.T) {
 		{
 			name: "retrieves existing user",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				user, err := repo.Create(ctx, newTestUser("ext-get-1", "get@example.com", "GetUser"))
 				require.NoError(t, err)
 				return user.ID
@@ -135,7 +135,7 @@ func TestUserRepository_Get(t *testing.T) {
 		{
 			name: "retrieves user with home",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				user, err := repo.Create(ctx, newTestUserWithHome("ext-get-home", "gethome@example.com", "GetHome"))
 				require.NoError(t, err)
 				return user.ID
@@ -153,7 +153,7 @@ func TestUserRepository_Get(t *testing.T) {
 		{
 			name: "non-existent user returns not found",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return "00000000-0000-0000-0000-000000000000"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -196,7 +196,7 @@ func TestUserRepository_GetByExternalID(t *testing.T) {
 		{
 			name: "retrieves user by external ID",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx, newTestUser("ext-by-ext-1", "byext@example.com", "ByExt"))
 				require.NoError(t, err)
 				return "ext-by-ext-1"
@@ -213,7 +213,7 @@ func TestUserRepository_GetByExternalID(t *testing.T) {
 		{
 			name: "non-existent external ID returns not found",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return "non-existent-ext-id"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -249,7 +249,7 @@ func TestUserRepository_GetByEmail(t *testing.T) {
 		{
 			name: "retrieves user by email",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx, newTestUser("ext-email-1", "byemail@example.com", "ByEmail"))
 				require.NoError(t, err)
 				return "byemail@example.com"
@@ -266,7 +266,7 @@ func TestUserRepository_GetByEmail(t *testing.T) {
 		{
 			name: "non-existent email returns not found",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return "no-such-email@example.com"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -303,7 +303,7 @@ func TestUserRepository_Update(t *testing.T) {
 		{
 			name: "updates user successfully",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				user, err := repo.Create(ctx, newTestUser("ext-upd-1", "update@example.com", "BeforeUpdate"))
 				require.NoError(t, err)
 				return user.ID
@@ -322,7 +322,7 @@ func TestUserRepository_Update(t *testing.T) {
 		{
 			name: "nil params returns error",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				user, err := repo.Create(ctx, newTestUser("ext-upd-3", "nilparams@example.com", "NilParams"))
 				require.NoError(t, err)
 				return user.ID
@@ -333,7 +333,7 @@ func TestUserRepository_Update(t *testing.T) {
 		{
 			name: "non-existent user returns not found",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return "00000000-0000-0000-0000-000000000000"
 			},
 			params:  newTestUser("ext-upd-4", "ghost@example.com", "Ghost"),
@@ -379,7 +379,7 @@ func TestUserRepository_List(t *testing.T) {
 		{
 			name: "lists all users",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx, newTestUser("ext-list-1", "list1@example.com", "List1"))
 				require.NoError(t, err)
 				_, err = repo.Create(ctx, newTestUser("ext-list-2", "list2@example.com", "List2"))
@@ -394,7 +394,7 @@ func TestUserRepository_List(t *testing.T) {
 		{
 			name: "respects limit",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx, newTestUser("ext-lim-1", "lim1@example.com", "Lim1"))
 				require.NoError(t, err)
 				_, err = repo.Create(ctx, newTestUser("ext-lim-2", "lim2@example.com", "Lim2"))
@@ -407,7 +407,7 @@ func TestUserRepository_List(t *testing.T) {
 		{
 			name: "respects offset",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx, newTestUser("ext-off-1", "off1@example.com", "Off1"))
 				require.NoError(t, err)
 				_, err = repo.Create(ctx, newTestUser("ext-off-2", "off2@example.com", "Off2"))
@@ -419,7 +419,7 @@ func TestUserRepository_List(t *testing.T) {
 		},
 		{
 			name:      "empty table returns empty slice",
-			setup:     cleanDatabase,
+			setup:     func() { cleanDatabase(t) },
 			args:      args{limit: 10, offset: 0},
 			wantCount: 0,
 			wantErr:   nil,
@@ -455,7 +455,7 @@ func TestUserRepository_Delete(t *testing.T) {
 		{
 			name: "deletes existing user",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				user, err := repo.Create(ctx, newTestUser("ext-del-1", "del@example.com", "Delete"))
 				require.NoError(t, err)
 				return user.ID
@@ -472,7 +472,7 @@ func TestUserRepository_Delete(t *testing.T) {
 		{
 			name: "non-existent user returns not found",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return "00000000-0000-0000-0000-000000000000"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -512,7 +512,7 @@ func TestUserRepository_UpdateSafeAddress(t *testing.T) {
 		{
 			name: "updates safe address",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				user, err := repo.Create(ctx, newTestUser("ext-safe-1", "safe@example.com", "SafeAddr"))
 				require.NoError(t, err)
 				return user.ID
@@ -531,7 +531,7 @@ func TestUserRepository_UpdateSafeAddress(t *testing.T) {
 		{
 			name: "non-existent user returns not found",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return "00000000-0000-0000-0000-000000000000"
 			},
 			safeAddress: "0xabc",
@@ -565,7 +565,7 @@ func TestUserRepository_UpdateHome(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("creates home for user without one", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 		user, err := repo.Create(ctx, newTestUser("ext-uh-1", "uh1@example.com", "UH1"))
 		require.NoError(t, err)
 		assert.Nil(t, user.Home)
@@ -586,7 +586,7 @@ func TestUserRepository_UpdateHome(t *testing.T) {
 	})
 
 	t.Run("updates existing home", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 		user, err := repo.Create(ctx, newTestUserWithHome("ext-uh-2", "uh2@example.com", "UH2"))
 		require.NoError(t, err)
 		require.NotNil(t, user.Home)
@@ -622,7 +622,7 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("supported JP code resolves centroid on Create and persists through Get", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 		user, err := repo.Create(ctx, newTestUserWithHome("ext-crt-1", "crt1@example.com", "CRT1"))
 		require.NoError(t, err)
 		require.NotNil(t, user.Home)
@@ -640,7 +640,7 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 	})
 
 	t.Run("supported JP code resolves centroid on UpdateHome", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 		user, err := repo.Create(ctx, newTestUser("ext-crt-2", "crt2@example.com", "CRT2"))
 		require.NoError(t, err)
 
@@ -656,7 +656,7 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 	})
 
 	t.Run("unsupported country code results in nil Centroid", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 		u := newTestUser("ext-crt-3", "crt3@example.com", "CRT3")
 		u.Home = &entity.Home{
 			CountryCode: "US",

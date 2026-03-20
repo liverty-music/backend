@@ -42,7 +42,7 @@ func TestTicketEmailRepository_Create(t *testing.T) {
 		{
 			name: "creates ticket email with all fields populated",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				return seedTicketEmailTestData(t)
 			},
 			args: func(userID, eventID string) args {
@@ -70,7 +70,7 @@ func TestTicketEmailRepository_Create(t *testing.T) {
 		{
 			name: "creates ticket email with minimal fields",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				return seedTicketEmailTestData(t)
 			},
 			args: func(userID, eventID string) args {
@@ -122,7 +122,7 @@ func TestTicketEmailRepository_Create(t *testing.T) {
 }
 
 func TestTicketEmailRepository_Create_UUIDGenerated(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewTicketEmailRepository(testDB)
 	ctx := context.Background()
 
@@ -160,7 +160,7 @@ func TestTicketEmailRepository_Update(t *testing.T) {
 		{
 			name: "updates application_url and journey_status",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID := seedTicketEmailTestData(t)
 				created, err := repo.Create(ctx, &entity.NewTicketEmail{
 					UserID:     userID,
@@ -181,7 +181,7 @@ func TestTicketEmailRepository_Update(t *testing.T) {
 		{
 			name: "partial update — only deadline, other fields remain unchanged",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID := seedTicketEmailTestData(t)
 				existingURL := "https://example.com/existing"
 				existingStatus := entity.TicketJourneyStatusTracking
@@ -213,7 +213,7 @@ func TestTicketEmailRepository_Update(t *testing.T) {
 		{
 			name: "update non-existent ID returns not found",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return uuid.Must(uuid.NewV7()).String()
 			},
 			params: &entity.UpdateTicketEmail{
@@ -241,7 +241,7 @@ func TestTicketEmailRepository_Update(t *testing.T) {
 }
 
 func TestTicketEmailRepository_Update_PartialFieldsUnchanged(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewTicketEmailRepository(testDB)
 	ctx := context.Background()
 
@@ -286,7 +286,7 @@ func TestTicketEmailRepository_GetByID(t *testing.T) {
 		{
 			name: "returns existing ticket email",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID := seedTicketEmailTestData(t)
 				created, err := repo.Create(ctx, &entity.NewTicketEmail{
 					UserID:     userID,
@@ -303,7 +303,7 @@ func TestTicketEmailRepository_GetByID(t *testing.T) {
 		{
 			name: "non-existent ID returns not found",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return uuid.Must(uuid.NewV7()).String()
 			},
 			wantErr: apperr.ErrNotFound,
@@ -340,7 +340,7 @@ func TestTicketEmailRepository_ListByUserAndEvent(t *testing.T) {
 		{
 			name: "returns matching records for user and event",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID := seedTicketEmailTestData(t)
 				_, err := repo.Create(ctx, &entity.NewTicketEmail{
 					UserID:     userID,
@@ -358,7 +358,7 @@ func TestTicketEmailRepository_ListByUserAndEvent(t *testing.T) {
 		{
 			name: "returns empty slice when no records match",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID := seedTicketEmailTestData(t)
 				// Do not insert any ticket emails.
 				return userID, eventID
@@ -369,7 +369,7 @@ func TestTicketEmailRepository_ListByUserAndEvent(t *testing.T) {
 		{
 			name: "returns all records when multiple emails exist for same user and event",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID := seedTicketEmailTestData(t)
 				_, err := repo.Create(ctx, &entity.NewTicketEmail{
 					UserID:     userID,

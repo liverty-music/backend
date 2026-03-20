@@ -41,9 +41,13 @@ func makeDiscoveredMsg(t *testing.T, data entity.ConcertDiscoveredData) *message
 // --- tests ---
 
 func TestConcertConsumer_Handle(t *testing.T) {
+	t.Parallel()
+
 	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 
 	t.Run("delegates to use case", func(t *testing.T) {
+		t.Parallel()
+
 		uc := &fakeConcertCreationUC{}
 		handler := event.NewConcertConsumer(uc, newTestLogger(t))
 
@@ -70,6 +74,8 @@ func TestConcertConsumer_Handle(t *testing.T) {
 	})
 
 	t.Run("returns error when use case fails", func(t *testing.T) {
+		t.Parallel()
+
 		uc := &fakeConcertCreationUC{err: fmt.Errorf("db connection lost")}
 		handler := event.NewConcertConsumer(uc, newTestLogger(t))
 
@@ -85,6 +91,8 @@ func TestConcertConsumer_Handle(t *testing.T) {
 	})
 
 	t.Run("returns error on invalid payload", func(t *testing.T) {
+		t.Parallel()
+
 		uc := &fakeConcertCreationUC{}
 		handler := event.NewConcertConsumer(uc, newTestLogger(t))
 

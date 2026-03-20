@@ -25,7 +25,7 @@ func ticketAuthedCtx(sub string) context.Context {
 }
 
 func TestTicketHandler_MintTicket(t *testing.T) {
-	logger, _ := logging.New()
+	t.Parallel()
 
 	tests := []struct {
 		name     string
@@ -86,6 +86,11 @@ func TestTicketHandler_MintTicket(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
+
 			ticketUC := ucmocks.NewMockTicketUseCase(t)
 			userRepo := mocks.NewMockUserRepository(t)
 			tc.setup(ticketUC, userRepo)
@@ -113,7 +118,7 @@ func TestTicketHandler_MintTicket(t *testing.T) {
 }
 
 func TestTicketHandler_GetTicket(t *testing.T) {
-	logger, _ := logging.New()
+	t.Parallel()
 
 	tests := []struct {
 		name     string
@@ -155,6 +160,11 @@ func TestTicketHandler_GetTicket(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
+
 			ticketUC := ucmocks.NewMockTicketUseCase(t)
 			userRepo := mocks.NewMockUserRepository(t)
 			tc.setup(ticketUC)
@@ -181,7 +191,7 @@ func TestTicketHandler_GetTicket(t *testing.T) {
 }
 
 func TestTicketHandler_ListTickets(t *testing.T) {
-	logger, _ := logging.New()
+	t.Parallel()
 
 	tests := []struct {
 		name     string
@@ -229,6 +239,11 @@ func TestTicketHandler_ListTickets(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
+
 			ticketUC := ucmocks.NewMockTicketUseCase(t)
 			userRepo := mocks.NewMockUserRepository(t)
 			tc.setup(ticketUC, userRepo)

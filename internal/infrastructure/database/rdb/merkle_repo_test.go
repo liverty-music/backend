@@ -31,7 +31,7 @@ func seedMerkleTestData(t *testing.T) string {
 }
 
 func TestMerkleTreeRepository_StoreBatch(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewMerkleTreeRepository(testDB)
 	ctx := context.Background()
 	eventID := seedMerkleTestData(t)
@@ -82,7 +82,7 @@ func TestMerkleTreeRepository_StoreBatch(t *testing.T) {
 }
 
 func TestMerkleTreeRepository_StoreBatchWithRoot(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewMerkleTreeRepository(testDB)
 	eventRepo := rdb.NewEventEntryRepository(testDB)
 	ctx := context.Background()
@@ -125,7 +125,7 @@ func TestMerkleTreeRepository_StoreBatchWithRoot(t *testing.T) {
 }
 
 func TestMerkleTreeRepository_GetPath(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewMerkleTreeRepository(testDB)
 	ctx := context.Background()
 	eventID := seedMerkleTestData(t)
@@ -184,7 +184,7 @@ func TestMerkleTreeRepository_GetPath(t *testing.T) {
 }
 
 func TestMerkleTreeRepository_GetRoot(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewMerkleTreeRepository(testDB)
 	ctx := context.Background()
 	eventID := seedMerkleTestData(t)
@@ -214,7 +214,7 @@ func TestMerkleTreeRepository_GetRoot(t *testing.T) {
 }
 
 func TestMerkleTreeRepository_GetLeaf(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewMerkleTreeRepository(testDB)
 	ctx := context.Background()
 	eventID := seedMerkleTestData(t)

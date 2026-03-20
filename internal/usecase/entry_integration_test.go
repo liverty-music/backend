@@ -63,7 +63,7 @@ func TestVerifyEntry_Integration_DuplicateNullifier(t *testing.T) {
 	eventRepo := &stubEventRepo{merkleRoot: merkleRootBytes}
 	nullifiers := &stubNullifierRepo{existsResult: false}
 
-	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, verifier, nullifiers, nil, eventRepo, nil)
 
 	params := &usecase.VerifyEntryParams{
 		EventID:           fixtureEventID,
@@ -110,7 +110,7 @@ func TestVerifyEntry_Integration_ConcurrentNullifierRace(t *testing.T) {
 		insertErr:    apperr.ErrAlreadyExists,
 	}
 
-	uc := newTestEntryUC(verifier, nullifiers, nil, eventRepo, nil)
+	uc := newTestEntryUC(t, verifier, nullifiers, nil, eventRepo, nil)
 
 	result, err := uc.VerifyEntry(context.Background(), &usecase.VerifyEntryParams{
 		EventID:           fixtureEventID,

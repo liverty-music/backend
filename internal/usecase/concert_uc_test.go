@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -13,7 +14,6 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -32,7 +32,7 @@ type concertTestDeps struct {
 
 func newConcertTestDeps(t *testing.T) *concertTestDeps {
 	t.Helper()
-	logger, _ := logging.New()
+	logger := newTestLogger(t)
 	pub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 64}, watermill.NopLogger{})
 	d := &concertTestDeps{
 		artistRepo:    mocks.NewMockArtistRepository(t),
@@ -49,6 +49,7 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 }
 
 func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	type args struct {
@@ -84,6 +85,7 @@ func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := newConcertTestDeps(t)
 			if tt.setup != nil {
 				tt.setup(t, d)
@@ -103,6 +105,7 @@ func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
 }
 
 func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	date1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -116,12 +119,14 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 	osakaLng := 135.5200
 
 	t.Run("empty external user ID returns error", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 		_, err := d.uc.ListByFollowerGrouped(ctx, "")
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("classifies concerts into home/nearby/away by date", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 
 		user := &entity.User{
@@ -175,6 +180,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 	})
 
 	t.Run("no home set puts everything in away", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 
 		user := &entity.User{ID: "user-2", ExternalID: "ext-2", Home: nil}
@@ -197,6 +203,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 	})
 
 	t.Run("empty concerts returns nil groups", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 
 		user := &entity.User{ID: "user-3", ExternalID: "ext-3", Home: &entity.Home{Level1: "JP-13"}}
@@ -210,44 +217,49 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 }
 
 func TestConcertUseCase_AsyncSearchNewConcerts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	artistID := "artist-1"
 
 	t.Run("enqueue - delegates to SearchNewConcerts in background", func(t *testing.T) {
-		d := newConcertTestDeps(t)
-		artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
-		site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
-		scraped := []*entity.ScrapedConcert{
-			{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
-		}
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			d := newConcertTestDeps(t)
+			artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+			site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
+			scraped := []*entity.ScrapedConcert{
+				{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
+			}
 
-		// Use a channel to signal background goroutine completion.
-		done := make(chan struct{})
+			// Use a channel to signal background goroutine completion.
+			done := make(chan struct{})
 
-		// SearchNewConcerts (called in background goroutine) handles all guard logic.
-		d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
-		d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
-		d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
-		d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artistID).Return(site, nil).Once()
-		d.concertRepo.EXPECT().ListByArtist(mock.Anything, artistID, true).Return(nil, nil).Once()
-		d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
-		d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).
-			Run(func(_ context.Context, _ string, _ entity.SearchLogStatus) { close(done) }).
-			Return(nil).Once()
+			// SearchNewConcerts (called in background goroutine) handles all guard logic.
+			d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artistID).Return(site, nil).Once()
+			d.concertRepo.EXPECT().ListByArtist(mock.Anything, artistID, true).Return(nil, nil).Once()
+			d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).
+				Run(func(_ context.Context, _ string, _ entity.SearchLogStatus) { close(done) }).
+				Return(nil).Once()
 
-		err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
-		assert.NoError(t, err) // Returns immediately.
+			err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err) // Returns immediately.
 
-		// Wait for background goroutine to complete.
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatal("background goroutine did not complete in time")
-		}
+			// Wait for background goroutine — time.After uses virtual time inside synctest.
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("background goroutine did not complete in time")
+			}
+		})
 	})
 }
 
 func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	type args struct {
@@ -351,10 +363,10 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
-				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, assert.AnError).Once()
+				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, apperr.ErrInternal).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusFailed).Return(nil).Once()
 			},
-			wantErr: assert.AnError,
+			wantErr: apperr.ErrInternal,
 		},
 		{
 			name: "success - no official site record, search continues with nil site",
@@ -406,6 +418,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := newConcertTestDeps(t)
 			if tt.setup != nil {
 				tt.setup(t, d)
@@ -430,9 +443,10 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 // strPtr returns a pointer to the given string. Test helper.
 func strPtr(s string) *string { return &s }
 
-// receivePublishedConcerts subscribes to the concert.discovered topic and
+// receivePublishedConcerts reads from a concert.discovered subscription and
 // returns the number of new concerts in the published event, or 0 if nothing
-// was published within the timeout.
+// was published within the timeout. Must be called inside a synctest.Test
+// bubble so that time.After uses virtual time and resolves instantly.
 func receivePublishedConcerts(t *testing.T, ctx context.Context, sub <-chan *message.Message) int {
 	t.Helper()
 	select {
@@ -452,6 +466,7 @@ func receivePublishedConcerts(t *testing.T, ctx context.Context, sub <-chan *mes
 // is date-only (local_event_date) — an artist cannot perform at two venues
 // simultaneously on the same day.
 func TestSearchNewConcerts_Deduplication(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	concertDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -555,43 +570,49 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := newConcertTestDeps(t)
-			artistID := "artist-1"
-			artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				d := newConcertTestDeps(t)
+				artistID := "artist-1"
+				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
 
-			// Subscribe BEFORE calling SearchNewConcerts so the GoChannel buffers the message.
-			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
-			assert.NoError(t, err)
+				// Subscribe BEFORE calling SearchNewConcerts so the GoChannel buffers the message.
+				sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
+				assert.NoError(t, err)
 
-			// Common mock setup: no cache, artist found, no official site.
-			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-			d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
-			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
-			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
-			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(tt.existing, nil).Once()
-			d.searcher.EXPECT().Search(ctx, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(tt.scraped, nil).Once()
-			d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				// Common mock setup: no cache, artist found, no official site.
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(tt.existing, nil).Once()
+				d.searcher.EXPECT().Search(ctx, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(tt.scraped, nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 
-			err = d.uc.SearchNewConcerts(ctx, artistID)
-			assert.NoError(t, err)
+				err = d.uc.SearchNewConcerts(ctx, artistID)
+				assert.NoError(t, err)
 
-			got := receivePublishedConcerts(t, ctx, sub)
-			assert.Equal(t, tt.wantNewConcerts, got,
-				"expected %d new concerts after dedup, got %d", tt.wantNewConcerts, got)
+				got := receivePublishedConcerts(t, ctx, sub)
+				assert.Equal(t, tt.wantNewConcerts, got,
+					"expected %d new concerts after dedup, got %d", tt.wantNewConcerts, got)
+			})
 		})
 	}
 }
 
 func TestConcertUseCase_ListSearchStatuses(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("empty artist IDs", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 		_, err := d.uc.ListSearchStatuses(ctx, nil)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("returns status for multiple artists", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 		logs := []*entity.SearchLog{
 			{ArtistID: "a1", SearchTime: time.Now(), Status: entity.SearchLogStatusCompleted},
@@ -608,6 +629,7 @@ func TestConcertUseCase_ListSearchStatuses(t *testing.T) {
 	})
 
 	t.Run("stale pending treated as failed", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 		logs := []*entity.SearchLog{
 			{ArtistID: "a1", SearchTime: time.Now().Add(-5 * time.Minute), Status: entity.SearchLogStatusPending},
@@ -621,6 +643,7 @@ func TestConcertUseCase_ListSearchStatuses(t *testing.T) {
 	})
 
 	t.Run("failed status returned as-is", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 		logs := []*entity.SearchLog{
 			{ArtistID: "a1", SearchTime: time.Now(), Status: entity.SearchLogStatusFailed},
@@ -635,11 +658,13 @@ func TestConcertUseCase_ListSearchStatuses(t *testing.T) {
 }
 
 func TestConcertUseCase_ListWithProximity(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	date1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 
 	t.Run("empty artist IDs returns error", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 
 		_, err := d.uc.ListWithProximity(ctx, []string{}, nil)
@@ -647,6 +672,7 @@ func TestConcertUseCase_ListWithProximity(t *testing.T) {
 	})
 
 	t.Run("returns grouped concerts by proximity", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 
 		home := &entity.Home{
@@ -684,6 +710,7 @@ func TestConcertUseCase_ListWithProximity(t *testing.T) {
 	})
 
 	t.Run("nil home classifies all as away", func(t *testing.T) {
+		t.Parallel()
 		d := newConcertTestDeps(t)
 
 		concerts := []*entity.Concert{

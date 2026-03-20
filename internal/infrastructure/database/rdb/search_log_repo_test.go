@@ -24,7 +24,7 @@ func TestSearchLogRepository_Upsert(t *testing.T) {
 			name: "insert new search log with pending status",
 			run: func(t *testing.T) {
 				t.Helper()
-				cleanDatabase()
+				cleanDatabase(t)
 				artistID := seedArtist(t, "Search Log Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
 				err := repo.Upsert(ctx, artistID, entity.SearchLogStatusPending)
@@ -41,7 +41,7 @@ func TestSearchLogRepository_Upsert(t *testing.T) {
 			name: "upsert updates status when record already exists",
 			run: func(t *testing.T) {
 				t.Helper()
-				cleanDatabase()
+				cleanDatabase(t)
 				artistID := seedArtist(t, "Search Log Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
 				err := repo.Upsert(ctx, artistID, entity.SearchLogStatusFailed)
@@ -59,7 +59,7 @@ func TestSearchLogRepository_Upsert(t *testing.T) {
 			name: "upsert updates searched_at timestamp",
 			run: func(t *testing.T) {
 				t.Helper()
-				cleanDatabase()
+				cleanDatabase(t)
 				artistID := seedArtist(t, "Search Log Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
 				err := repo.Upsert(ctx, artistID, entity.SearchLogStatusPending)
@@ -90,7 +90,7 @@ func TestSearchLogRepository_Upsert(t *testing.T) {
 }
 
 func TestSearchLogRepository_GetByArtistID(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	searchLogRepo := rdb.NewSearchLogRepository(testDB)
 	ctx := context.Background()
 
@@ -116,7 +116,7 @@ func TestSearchLogRepository_GetByArtistID(t *testing.T) {
 }
 
 func TestSearchLogRepository_ListByArtistIDs(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	searchLogRepo := rdb.NewSearchLogRepository(testDB)
 	ctx := context.Background()
 
@@ -169,7 +169,7 @@ func TestSearchLogRepository_UpdateStatus(t *testing.T) {
 		{
 			name: "update to completed",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				artistID := seedArtist(t, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
 				err := repo.Upsert(ctx, artistID, entity.SearchLogStatusPending)
 				require.NoError(t, err)
@@ -180,7 +180,7 @@ func TestSearchLogRepository_UpdateStatus(t *testing.T) {
 		{
 			name: "update to failed",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				artistID := seedArtist(t, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
 				err := repo.Upsert(ctx, artistID, entity.SearchLogStatusPending)
 				require.NoError(t, err)
@@ -191,7 +191,7 @@ func TestSearchLogRepository_UpdateStatus(t *testing.T) {
 		{
 			name: "update from failed back to completed",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				artistID := seedArtist(t, "UpdateStatus Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4b01")
 				err := repo.Upsert(ctx, artistID, entity.SearchLogStatusPending)
 				require.NoError(t, err)
@@ -230,7 +230,7 @@ func TestSearchLogRepository_Delete(t *testing.T) {
 			name: "deletes existing search log",
 			setup: func(t *testing.T) string {
 				t.Helper()
-				cleanDatabase()
+				cleanDatabase(t)
 				artistID := seedArtist(t, "Delete Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4c01")
 				err := repo.Upsert(ctx, artistID, entity.SearchLogStatusPending)
 				require.NoError(t, err)
@@ -242,7 +242,7 @@ func TestSearchLogRepository_Delete(t *testing.T) {
 			name: "deleting non-existent log is idempotent",
 			setup: func(t *testing.T) string {
 				t.Helper()
-				cleanDatabase()
+				cleanDatabase(t)
 				// Seed an artist but intentionally do not upsert a search log for it.
 				return seedArtist(t, "No Log Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4c02")
 			},

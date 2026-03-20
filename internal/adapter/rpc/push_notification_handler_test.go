@@ -11,6 +11,7 @@ import (
 	"github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func authedCtx(userID string) context.Context {
@@ -18,7 +19,7 @@ func authedCtx(userID string) context.Context {
 }
 
 func TestPushNotificationHandler_Subscribe(t *testing.T) {
-	logger, _ := logging.New()
+	t.Parallel()
 
 	tests := []struct {
 		name     string
@@ -78,6 +79,11 @@ func TestPushNotificationHandler_Subscribe(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
+
 			uc := mocks.NewMockPushNotificationUseCase(t)
 			tt.setup(uc)
 			h := handler.NewPushNotificationHandler(uc, logger)
@@ -98,7 +104,7 @@ func TestPushNotificationHandler_Subscribe(t *testing.T) {
 }
 
 func TestPushNotificationHandler_Unsubscribe(t *testing.T) {
-	logger, _ := logging.New()
+	t.Parallel()
 
 	tests := []struct {
 		name     string
@@ -126,6 +132,11 @@ func TestPushNotificationHandler_Unsubscribe(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
+
 			uc := mocks.NewMockPushNotificationUseCase(t)
 			tt.setup(uc)
 			h := handler.NewPushNotificationHandler(uc, logger)

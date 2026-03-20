@@ -13,12 +13,18 @@ import (
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestArtistHandler_Create(t *testing.T) {
-	logger, _ := logging.New()
+	t.Parallel()
 
 	t.Run("passes MBID to use case", func(t *testing.T) {
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
 		artistUC := mocks.NewMockArtistUseCase(t)
 		h := handler.NewArtistHandler(artistUC, logger)
 
@@ -43,6 +49,11 @@ func TestArtistHandler_Create(t *testing.T) {
 	})
 
 	t.Run("works without MBID", func(t *testing.T) {
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
 		artistUC := mocks.NewMockArtistUseCase(t)
 		h := handler.NewArtistHandler(artistUC, logger)
 
@@ -64,12 +75,17 @@ func TestArtistHandler_Create(t *testing.T) {
 	})
 
 	t.Run("error - missing name", func(t *testing.T) {
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
 		artistUC := mocks.NewMockArtistUseCase(t)
 		h := handler.NewArtistHandler(artistUC, logger)
 
 		req := connect.NewRequest(&artistv1.CreateRequest{})
 
-		_, err := h.Create(context.Background(), req)
+		_, err = h.Create(context.Background(), req)
 
 		assert.Error(t, err)
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))

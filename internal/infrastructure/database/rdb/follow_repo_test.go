@@ -26,7 +26,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 		{
 			name: "includes fanart when artist has fanart data",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				created, err := artistRepo.Create(ctx, entity.NewArtist("Logo Artist", "f1000000-0000-0000-0000-00000000fa01"))
 				require.NoError(t, err)
 				artistID := created[0].ID
@@ -72,7 +72,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 		{
 			name: "no followed artists returns empty slice",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return seedUser(t, "Lonely User", "lonely@example.com", "ext-lonely-01")
 			},
 			want: nil,
@@ -80,7 +80,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 		{
 			name: "multiple artists with mixed fanart presence",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 
 				created, err := artistRepo.Create(ctx,
 					entity.NewArtist("With Fanart", "f3000000-0000-0000-0000-00000000fa03"),
@@ -130,7 +130,7 @@ func TestFollowRepository_ListByUser(t *testing.T) {
 		{
 			name: "returns nil fanart when artist has no fanart data",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				created, err := artistRepo.Create(ctx, entity.NewArtist("Plain Artist", "f2000000-0000-0000-0000-00000000fa02"))
 				require.NoError(t, err)
 				artistID := created[0].ID
@@ -197,7 +197,7 @@ func TestFollowRepository_Follow(t *testing.T) {
 		{
 			name: "follow succeeds",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "Follow User", "follow@test.com", "ext-follow-01")
 				artistID := seedArtist(t, "Follow Artist", "a1000000-0000-0000-0000-000000000001")
 				return userID, artistID
@@ -206,7 +206,7 @@ func TestFollowRepository_Follow(t *testing.T) {
 		{
 			name: "duplicate follow is idempotent",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "Dup Follow User", "dupfollow@test.com", "ext-dupfollow-01")
 				artistID := seedArtist(t, "Dup Follow Artist", "a1000000-0000-0000-0000-000000000002")
 				err := followRepo.Follow(ctx, userID, artistID)
@@ -244,7 +244,7 @@ func TestFollowRepository_Unfollow(t *testing.T) {
 		{
 			name: "unfollow existing relationship",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "Unfollow User", "unfollow@test.com", "ext-unfollow-01")
 				artistID := seedArtist(t, "Unfollow Artist", "a2000000-0000-0000-0000-000000000001")
 				err := followRepo.Follow(ctx, userID, artistID)
@@ -255,7 +255,7 @@ func TestFollowRepository_Unfollow(t *testing.T) {
 		{
 			name: "unfollow non-existent relationship",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "Ghost Unfollow User", "ghost-unfollow@test.com", "ext-ghost-unfollow-01")
 				artistID := seedArtist(t, "Ghost Artist", "a2000000-0000-0000-0000-000000000002")
 				return userID, artistID
@@ -292,7 +292,7 @@ func TestFollowRepository_SetHype(t *testing.T) {
 		{
 			name: "set hype on existing follow",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "Hype User", "hype@test.com", "ext-hype-01")
 				artistID := seedArtist(t, "Hype Artist", "a3000000-0000-0000-0000-000000000001")
 				err := followRepo.Follow(ctx, userID, artistID)
@@ -304,7 +304,7 @@ func TestFollowRepository_SetHype(t *testing.T) {
 		{
 			name: "set hype on non-existent follow returns NotFound",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "No Follow Hype User", "nofollow-hype@test.com", "ext-nofollow-hype-01")
 				artistID := seedArtist(t, "No Follow Hype Artist", "a3000000-0000-0000-0000-000000000002")
 				return userID, artistID
@@ -350,14 +350,14 @@ func TestFollowRepository_ListAll(t *testing.T) {
 		{
 			name: "empty when no follows",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 			},
 			wantCount: 0,
 		},
 		{
 			name: "returns distinct artists",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				artistID1 := seedArtist(t, "ListAll Artist 1", "a4000000-0000-0000-0000-000000000001")
 				artistID2 := seedArtist(t, "ListAll Artist 2", "a4000000-0000-0000-0000-000000000002")
 				user1ID := seedUser(t, "ListAll User 1", "listall-user1@test.com", "ext-listall-01")
@@ -407,7 +407,7 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 		{
 			name: "empty when no followers",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return seedArtist(t, "No Followers Artist", "a5000000-0000-0000-0000-000000000001")
 			},
 			check: func(t *testing.T, got []*entity.Follower) {
@@ -418,7 +418,7 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 		{
 			name: "returns followers with hype and home",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				artistID := seedArtist(t, "Followers Artist", "a5000000-0000-0000-0000-000000000002")
 
 				// User without home area.

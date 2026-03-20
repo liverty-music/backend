@@ -8,7 +8,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -35,7 +34,6 @@ type pushNotificationTestDeps struct {
 
 func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 	t.Helper()
-	logger, _ := logging.New()
 	d := &pushNotificationTestDeps{
 		followRepo:  mocks.NewMockFollowRepository(t),
 		pushSubRepo: mocks.NewMockPushSubscriptionRepository(t),
@@ -45,7 +43,7 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 		d.followRepo,
 		d.pushSubRepo,
 		d.sender,
-		logger,
+		newTestLogger(t),
 	)
 	return d
 }
@@ -107,10 +105,10 @@ func TestPushNotificationUseCase_Subscribe(t *testing.T) {
 						P256dh:   "key123",
 						Auth:     "auth456",
 					}).
-					Return(assert.AnError).
+					Return(apperr.ErrInternal).
 					Once()
 			},
-			wantErr: assert.AnError,
+			wantErr: apperr.ErrInternal,
 		},
 	}
 
@@ -162,9 +160,9 @@ func TestPushNotificationUseCase_Unsubscribe(t *testing.T) {
 			args: args{userID: "user-1"},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				d.pushSubRepo.EXPECT().DeleteByUserID(ctx, "user-1").Return(assert.AnError).Once()
+				d.pushSubRepo.EXPECT().DeleteByUserID(ctx, "user-1").Return(apperr.ErrInternal).Once()
 			},
-			wantErr: assert.AnError,
+			wantErr: apperr.ErrInternal,
 		},
 	}
 
@@ -392,9 +390,9 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			args: args{artist: artist, concerts: concertsWithVenue(&tokyoArea)},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(nil, assert.AnError).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(nil, apperr.ErrInternal).Once()
 			},
-			wantErr: assert.AnError,
+			wantErr: apperr.ErrInternal,
 		},
 		{
 			name: "return error when ListByUserIDs fails",
@@ -407,10 +405,10 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				d.pushSubRepo.EXPECT().
 					ListByUserIDs(ctx, []string{"user-1"}).
-					Return(nil, assert.AnError).
+					Return(nil, apperr.ErrInternal).
 					Once()
 			},
-			wantErr: assert.AnError,
+			wantErr: apperr.ErrInternal,
 		},
 	}
 
@@ -477,7 +475,7 @@ func TestNotifyNewConcerts_SenderGone_DeleteFails_ContinuesProcessing(t *testing
 	d.sender.sendFn = func(_ context.Context, _ []byte, _ *entity.PushSubscription) error {
 		return apperr.ErrNotFound
 	}
-	d.pushSubRepo.EXPECT().DeleteByEndpoint(ctx, "https://push.example.com/gone").Return(assert.AnError).Once()
+	d.pushSubRepo.EXPECT().DeleteByEndpoint(ctx, "https://push.example.com/gone").Return(apperr.ErrInternal).Once()
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	tokyoArea := "JP-13"
@@ -496,7 +494,7 @@ func TestNotifyNewConcerts_SenderTransientError_LogsAndContinues(t *testing.T) {
 	sub := &entity.PushSubscription{UserID: "user-1", Endpoint: "https://push.example.com/flaky"}
 	d := notifySenderTestDeps(t, []*entity.PushSubscription{sub})
 	d.sender.sendFn = func(_ context.Context, _ []byte, _ *entity.PushSubscription) error {
-		return assert.AnError
+		return apperr.ErrInternal
 	}
 	// No DeleteByEndpoint expected — transient errors don't trigger cleanup.
 
@@ -528,7 +526,7 @@ func TestNotifyNewConcerts_MixedSenderResults(t *testing.T) {
 		case "https://push.example.com/gone":
 			return apperr.ErrNotFound
 		case "https://push.example.com/fail":
-			return assert.AnError
+			return apperr.ErrInternal
 		}
 		return nil
 	}

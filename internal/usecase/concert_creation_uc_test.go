@@ -107,10 +107,13 @@ func newTestLogger(t *testing.T) *logging.Logger {
 // --- tests ---
 
 func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
+	t.Parallel()
+
 	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 	startTime := time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC)
 
 	t.Run("creates venues and concerts from Places API results", func(t *testing.T) {
+		t.Parallel()
 		venueRepo := newFakeVenueRepo()
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
@@ -149,6 +152,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	})
 
 	t.Run("reuses existing venue by place_id", func(t *testing.T) {
+		t.Parallel()
 		venueRepo := newFakeVenueRepo()
 		placeID := "place-existing"
 		venueRepo.venues["Existing Venue"] = &entity.Venue{
@@ -184,6 +188,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	})
 
 	t.Run("deduplicates venues within batch by place_id", func(t *testing.T) {
+		t.Parallel()
 		venueRepo := newFakeVenueRepo()
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
@@ -219,6 +224,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	})
 
 	t.Run("skips concerts when Places API returns NotFound", func(t *testing.T) {
+		t.Parallel()
 		venueRepo := newFakeVenueRepo()
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
@@ -256,6 +262,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	})
 
 	t.Run("skips all concerts when all venues are not found", func(t *testing.T) {
+		t.Parallel()
 		venueRepo := newFakeVenueRepo()
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
@@ -284,6 +291,8 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 }
 
 func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
+	t.Parallel()
+
 	assert.Panics(t, func() {
 		usecase.NewConcertCreationUseCase(newFakeVenueRepo(), &fakeConcertRepo{}, nil, newGoChannelPub(t), newTestLogger(t))
 	})

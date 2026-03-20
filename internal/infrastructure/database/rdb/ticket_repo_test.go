@@ -24,7 +24,7 @@ func seedTicketTestData(t *testing.T) (string, string) {
 }
 
 func TestTicketRepository_Create(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewTicketRepository(testDB)
 	ctx := context.Background()
 	eventID, userID := seedTicketTestData(t)
@@ -71,7 +71,7 @@ func TestTicketRepository_Create(t *testing.T) {
 }
 
 func TestTicketRepository_Create_DuplicateEventUser(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewTicketRepository(testDB)
 	ctx := context.Background()
 	eventID, userID := seedTicketTestData(t)
@@ -95,7 +95,7 @@ func TestTicketRepository_Create_DuplicateEventUser(t *testing.T) {
 }
 
 func TestTicketRepository_Get(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewTicketRepository(testDB)
 	ctx := context.Background()
 	eventID, userID := seedTicketTestData(t)
@@ -148,7 +148,7 @@ func TestTicketRepository_Get(t *testing.T) {
 }
 
 func TestTicketRepository_GetByEventAndUser(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewTicketRepository(testDB)
 	ctx := context.Background()
 	eventID, userID := seedTicketTestData(t)
@@ -209,7 +209,7 @@ func TestTicketRepository_GetByEventAndUser(t *testing.T) {
 }
 
 func TestTicketRepository_ListByUser(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewTicketRepository(testDB)
 	ctx := context.Background()
 	eventID, userID := seedTicketTestData(t)
@@ -265,7 +265,7 @@ func TestTicketRepository_ListByUser(t *testing.T) {
 }
 
 func TestTicketRepository_ListByEvent(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewTicketRepository(testDB)
 	ctx := context.Background()
 	eventID, userID := seedTicketTestData(t)
@@ -301,7 +301,7 @@ func TestTicketRepository_ListByEvent(t *testing.T) {
 }
 
 func TestTicketRepository_EventExists(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewTicketRepository(testDB)
 	ctx := context.Background()
 	eventID, _ := seedTicketTestData(t)

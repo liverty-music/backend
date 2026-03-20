@@ -33,7 +33,7 @@ func TestTicketJourneyRepository_Upsert(t *testing.T) {
 		{
 			name: "creates new journey",
 			setup: func() *entity.TicketJourney {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID := seedJourneyDeps(t)
 				return &entity.TicketJourney{
 					UserID:  userID,
@@ -52,7 +52,7 @@ func TestTicketJourneyRepository_Upsert(t *testing.T) {
 		{
 			name: "updates status on conflict",
 			setup: func() *entity.TicketJourney {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID := seedJourneyDeps(t)
 
 				err := repo.Upsert(ctx, &entity.TicketJourney{
@@ -102,7 +102,7 @@ func TestTicketJourneyRepository_Delete(t *testing.T) {
 		{
 			name: "deletes existing journey",
 			setup: func() (userID, eventID string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID = seedJourneyDeps(t)
 				err := repo.Upsert(ctx, &entity.TicketJourney{
 					UserID:  userID,
@@ -117,7 +117,7 @@ func TestTicketJourneyRepository_Delete(t *testing.T) {
 		{
 			name: "deleting non-existent journey is idempotent",
 			setup: func() (userID, eventID string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				return seedJourneyDeps(t)
 			},
 			wantErr: nil,
@@ -157,7 +157,7 @@ func TestTicketJourneyRepository_ListByUser(t *testing.T) {
 		{
 			name: "returns empty for user with no journeys",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return seedUser(t, "empty-journey-user", "empty-journey@test.com", "ext-empty-jrn-01")
 			},
 			wantCount: 0,
@@ -166,7 +166,7 @@ func TestTicketJourneyRepository_ListByUser(t *testing.T) {
 		{
 			name: "returns multiple journeys",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID, eventID1 := seedJourneyDeps(t)
 
 				artistID2 := seedArtist(t, "journey-artist-2", "jj000000-0000-0000-0000-000000jrn002")

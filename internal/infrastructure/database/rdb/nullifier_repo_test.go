@@ -11,7 +11,7 @@ import (
 )
 
 func TestNullifierRepository_Insert(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewNullifierRepository(testDB)
 	ctx := context.Background()
 	eventID := seedMerkleTestData(t) // reuse: creates venue + event
@@ -65,7 +65,7 @@ func TestNullifierRepository_Insert(t *testing.T) {
 }
 
 func TestNullifierRepository_Exists(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewNullifierRepository(testDB)
 	ctx := context.Background()
 	eventID := seedMerkleTestData(t)

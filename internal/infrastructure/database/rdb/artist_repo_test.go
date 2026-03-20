@@ -36,32 +36,32 @@ func TestArtistRepository_Create(t *testing.T) {
 	}{
 		{
 			name:  "single artist with MBID",
-			setup: cleanDatabase,
+			setup: func() { cleanDatabase(t) },
 			args:  args{artists: []*entity.Artist{beatles}},
 			want:  []*entity.Artist{beatles},
 		},
 		{
 			name:  "bulk insert multiple artists",
-			setup: cleanDatabase,
+			setup: func() { cleanDatabase(t) },
 			args:  args{artists: []*entity.Artist{bulkA, bulkB, bulkC}},
 			want:  []*entity.Artist{bulkA, bulkB, bulkC},
 		},
 		{
 			name:  "empty slice returns empty",
-			setup: cleanDatabase,
+			setup: func() { cleanDatabase(t) },
 			args:  args{artists: nil},
 			want:  []*entity.Artist{},
 		},
 		{
 			name:  "preserves pre-set ID",
-			setup: cleanDatabase,
+			setup: func() { cleanDatabase(t) },
 			args:  args{artists: []*entity.Artist{presetID}},
 			want:  []*entity.Artist{presetID},
 		},
 		{
 			name: "duplicate MBID returns original artist",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx, entity.NewArtist("Original Name", "eeeeeeee-eeee-eeee-eeee-eeeeeeeed001"))
 				require.NoError(t, err)
 			},
@@ -70,7 +70,7 @@ func TestArtistRepository_Create(t *testing.T) {
 		},
 		{
 			name:    "empty MBID returns error",
-			setup:   cleanDatabase,
+			setup:   func() { cleanDatabase(t) },
 			args:    args{artists: []*entity.Artist{entity.NewArtist("Test", "")}},
 			wantErr: apperr.ErrInvalidArgument,
 		},
@@ -118,7 +118,7 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 		{
 			name: "returns matching artists in input order",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx,
 					entity.NewArtist("Artist A", "11111111-1111-1111-1111-11111111a001"),
 					entity.NewArtist("Artist B", "22222222-2222-2222-2222-22222222b002"),
@@ -135,7 +135,7 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 		{
 			name: "unknown MBIDs are silently skipped",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx, entity.NewArtist("Known", "44444444-4444-4444-4444-444444known1"))
 				require.NoError(t, err)
 			},
@@ -146,14 +146,14 @@ func TestArtistRepository_ListByMBIDs(t *testing.T) {
 		},
 		{
 			name:  "empty input returns empty slice",
-			setup: cleanDatabase,
+			setup: func() { cleanDatabase(t) },
 			mbids: nil,
 			want:  []*entity.Artist{},
 		},
 		{
 			name: "all MBIDs unknown returns empty slice",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 			},
 			mbids: []string{"66666666-6666-6666-6666-666nonexist1"},
 			want:  []*entity.Artist{},
@@ -189,7 +189,7 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("stores and retrieves fanart data", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 		created, err := repo.Create(ctx, entity.NewArtist("Fanart Artist", "fa000000-0000-0000-0000-00000000dd01"))
 		require.NoError(t, err)
 		artistID := created[0].ID
@@ -220,7 +220,7 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 	})
 
 	t.Run("stores nil fanart with sync time", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 		created, err := repo.Create(ctx, entity.NewArtist("No Fanart", "fa000000-0000-0000-0000-00000000dd02"))
 		require.NoError(t, err)
 		artistID := created[0].ID
@@ -237,7 +237,7 @@ func TestArtistRepository_UpdateFanart(t *testing.T) {
 	})
 
 	t.Run("returns NotFound for unknown ID", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 		err := repo.UpdateFanart(ctx, "00000000-0000-0000-0000-000000000000", nil, time.Now())
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -248,7 +248,7 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("returns artists with no fanart first then stale", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		// Create three artists.
 		created, err := repo.Create(ctx,
@@ -292,7 +292,7 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 	})
 
 	t.Run("respects limit", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		_, err := repo.Create(ctx,
 			entity.NewArtist("A", "11000000-0000-0000-0000-00000000bb01"),
@@ -307,7 +307,7 @@ func TestArtistRepository_ListStaleOrMissingFanart(t *testing.T) {
 	})
 
 	t.Run("returns empty when all are fresh", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		created, err := repo.Create(ctx,
 			entity.NewArtist("Fresh", "f0000000-0000-0000-0000-00000000cc01"),
@@ -341,7 +341,7 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 		{
 			name: "updates name successfully",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				created, err := repo.Create(ctx, entity.NewArtist("Old Name", "77777777-7777-7777-7777-00000000ee01"))
 				require.NoError(t, err)
 				return created[0].ID
@@ -351,7 +351,7 @@ func TestArtistRepository_UpdateName(t *testing.T) {
 		{
 			name: "returns NotFound for unknown ID",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return "00000000-0000-0000-0000-000000000000"
 			},
 			newName: "Anything",
@@ -397,7 +397,7 @@ func TestArtistRepository_Get(t *testing.T) {
 		{
 			name: "returns existing artist",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				created, err := repo.Create(ctx, entity.NewArtist("Get Test Artist", "aa000000-0000-0000-0000-000000get001"))
 				require.NoError(t, err)
 				return created[0].ID
@@ -407,7 +407,7 @@ func TestArtistRepository_Get(t *testing.T) {
 		{
 			name: "returns NotFound for non-existent ID",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return "00000000-0000-0000-0000-000000000000"
 			},
 			wantErr: apperr.ErrNotFound,
@@ -452,7 +452,7 @@ func TestArtistRepository_GetByMBID(t *testing.T) {
 		{
 			name: "returns artist by known MBID",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx, entity.NewArtist("MBID Test Artist", knownMBID))
 				require.NoError(t, err)
 			},
@@ -462,7 +462,7 @@ func TestArtistRepository_GetByMBID(t *testing.T) {
 		{
 			name: "returns NotFound for unknown MBID",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 			},
 			args:    args{mbid: "00000000-0000-0000-0000-000000000000"},
 			wantErr: apperr.ErrNotFound,
@@ -501,14 +501,14 @@ func TestArtistRepository_List(t *testing.T) {
 		{
 			name: "empty database returns empty slice",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 			},
 			wantEmpty: true,
 		},
 		{
 			name: "returns all artists",
 			setup: func() {
-				cleanDatabase()
+				cleanDatabase(t)
 				_, err := repo.Create(ctx,
 					entity.NewArtist("List Artist A", "cc000000-0000-0000-0000-00000list001"),
 					entity.NewArtist("List Artist B", "cc000000-0000-0000-0000-00000list002"),
@@ -558,7 +558,7 @@ func TestArtistRepository_CreateOfficialSite(t *testing.T) {
 		{
 			name: "creates site for existing artist",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				created, err := repo.Create(ctx, entity.NewArtist("Site Artist", "dd000000-0000-0000-0000-00000site001"))
 				require.NoError(t, err)
 				return created[0].ID
@@ -568,7 +568,7 @@ func TestArtistRepository_CreateOfficialSite(t *testing.T) {
 		{
 			name: "returns AlreadyExists when creating second site for same artist",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				created, err := repo.Create(ctx, entity.NewArtist("Site Artist Dup", "dd000000-0000-0000-0000-00000site002"))
 				require.NoError(t, err)
 				artistID := created[0].ID
@@ -615,7 +615,7 @@ func TestArtistRepository_GetOfficialSite(t *testing.T) {
 		{
 			name: "returns site after creating one",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				created, err := repo.Create(ctx, entity.NewArtist("Get Site Artist", "ee000000-0000-0000-0000-0000getsite1"))
 				require.NoError(t, err)
 				artistID := created[0].ID
@@ -629,7 +629,7 @@ func TestArtistRepository_GetOfficialSite(t *testing.T) {
 		{
 			name: "returns NotFound when artist has no official site",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				created, err := repo.Create(ctx, entity.NewArtist("No Site Artist", "ee000000-0000-0000-0000-0000getsite2"))
 				require.NoError(t, err)
 				return created[0].ID

@@ -9,7 +9,6 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,7 +25,6 @@ type followTestDeps struct {
 
 func newFollowTestDeps(t *testing.T) *followTestDeps {
 	t.Helper()
-	logger, _ := logging.New()
 	d := &followTestDeps{
 		followRepo:    mocks.NewMockFollowRepository(t),
 		artistRepo:    mocks.NewMockArtistRepository(t),
@@ -42,7 +40,7 @@ func newFollowTestDeps(t *testing.T) *followTestDeps {
 		d.siteResolver,
 		d.concertUC,
 		d.searchLogRepo,
-		logger,
+		newTestLogger(t),
 	)
 	return d
 }
@@ -135,10 +133,10 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 					Once()
 				d.followRepo.EXPECT().
 					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
-					Return(assert.AnError).
+					Return(apperr.ErrInternal).
 					Once()
 			},
-			wantErr: assert.AnError,
+			wantErr: apperr.ErrInternal,
 		},
 	}
 
