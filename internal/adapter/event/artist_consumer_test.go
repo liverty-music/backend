@@ -21,7 +21,11 @@ func makeArtistCreatedMsg(t *testing.T, data entity.ArtistCreatedData) *message.
 }
 
 func TestArtistNameConsumer_Handle(t *testing.T) {
+	t.Parallel()
+
 	t.Run("delegates to use case", func(t *testing.T) {
+		t.Parallel()
+
 		nameResolutionUC := ucmocks.NewMockArtistNameResolutionUseCase(t)
 		handler := event.NewArtistNameConsumer(nameResolutionUC, newTestLogger(t))
 
@@ -38,6 +42,8 @@ func TestArtistNameConsumer_Handle(t *testing.T) {
 	})
 
 	t.Run("returns error when use case fails", func(t *testing.T) {
+		t.Parallel()
+
 		nameResolutionUC := ucmocks.NewMockArtistNameResolutionUseCase(t)
 		handler := event.NewArtistNameConsumer(nameResolutionUC, newTestLogger(t))
 
@@ -55,6 +61,8 @@ func TestArtistNameConsumer_Handle(t *testing.T) {
 	})
 
 	t.Run("returns error on invalid payload", func(t *testing.T) {
+		t.Parallel()
+
 		nameResolutionUC := ucmocks.NewMockArtistNameResolutionUseCase(t)
 		handler := event.NewArtistNameConsumer(nameResolutionUC, newTestLogger(t))
 

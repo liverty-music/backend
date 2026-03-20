@@ -24,8 +24,6 @@ func ticketEmailAuthedCtx(sub string) context.Context {
 func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 	t.Parallel()
 
-	logger, _ := logging.New()
-
 	tests := []struct {
 		name     string
 		ctx      context.Context
@@ -122,6 +120,9 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			logger, err := logging.New()
+			require.NoError(t, err)
+
 			ticketEmailUC := ucmocks.NewMockTicketEmailUseCase(t)
 			tc.setup(ticketEmailUC)
 
@@ -147,8 +148,6 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 
 func TestTicketEmailHandler_UpdateTicketEmail(t *testing.T) {
 	t.Parallel()
-
-	logger, _ := logging.New()
 
 	appURL := "https://example.com/apply"
 	journeyStatus := entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_TRACKING
@@ -225,6 +224,9 @@ func TestTicketEmailHandler_UpdateTicketEmail(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
 
 			ticketEmailUC := ucmocks.NewMockTicketEmailUseCase(t)
 			tc.setup(ticketEmailUC)

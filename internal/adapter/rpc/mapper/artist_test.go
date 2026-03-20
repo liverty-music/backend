@@ -10,6 +10,8 @@ import (
 )
 
 func TestArtistToProto(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		args *entity.Artist
@@ -170,6 +172,8 @@ func TestArtistToProto(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := mapper.ArtistToProto(tt.args)
 			assert.Equal(t, tt.want.String(), got.String())
 		})
@@ -179,6 +183,8 @@ func TestArtistToProto(t *testing.T) {
 func floatPtr(v float64) *float64 { return &v }
 
 func TestArtistsToProto(t *testing.T) {
+	t.Parallel()
+
 	artists := []*entity.Artist{
 		{ID: "1", Name: "A", MBID: "m1"},
 		{ID: "2", Name: "B", MBID: "m2"},

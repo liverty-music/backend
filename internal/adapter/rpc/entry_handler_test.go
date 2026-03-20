@@ -24,7 +24,7 @@ func entryAuthedCtx(sub string) context.Context {
 }
 
 func TestEntryHandler_VerifyEntry(t *testing.T) {
-	logger, _ := logging.New()
+	t.Parallel()
 
 	tests := []struct {
 		name     string
@@ -98,6 +98,11 @@ func TestEntryHandler_VerifyEntry(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
+
 			entryUC := ucmocks.NewMockEntryUseCase(t)
 			userRepo := mocks.NewMockUserRepository(t)
 			tc.setup(entryUC)
@@ -124,7 +129,7 @@ func TestEntryHandler_VerifyEntry(t *testing.T) {
 }
 
 func TestEntryHandler_GetMerklePath(t *testing.T) {
-	logger, _ := logging.New()
+	t.Parallel()
 
 	tests := []struct {
 		name     string
@@ -182,6 +187,11 @@ func TestEntryHandler_GetMerklePath(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
+
 			entryUC := ucmocks.NewMockEntryUseCase(t)
 			userRepo := mocks.NewMockUserRepository(t)
 			tc.setup(entryUC, userRepo)

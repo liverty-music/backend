@@ -27,7 +27,11 @@ func makeCreatedMsg(t *testing.T, data entity.ConcertCreatedData) *message.Messa
 }
 
 func TestNotificationConsumer_Handle(t *testing.T) {
+	t.Parallel()
+
 	t.Run("sends notifications on concert.created event", func(t *testing.T) {
+		t.Parallel()
+
 		artistRepo := mocks.NewMockArtistRepository(t)
 		concertRepo := mocks.NewMockConcertRepository(t)
 		pushUC := ucmocks.NewMockPushNotificationUseCase(t)
@@ -52,6 +56,8 @@ func TestNotificationConsumer_Handle(t *testing.T) {
 	})
 
 	t.Run("returns error when artist not found", func(t *testing.T) {
+		t.Parallel()
+
 		artistRepo := mocks.NewMockArtistRepository(t)
 		concertRepo := mocks.NewMockConcertRepository(t)
 		pushUC := ucmocks.NewMockPushNotificationUseCase(t)
@@ -71,6 +77,8 @@ func TestNotificationConsumer_Handle(t *testing.T) {
 	})
 
 	t.Run("returns error when notification fails", func(t *testing.T) {
+		t.Parallel()
+
 		artistRepo := mocks.NewMockArtistRepository(t)
 		concertRepo := mocks.NewMockConcertRepository(t)
 		pushUC := ucmocks.NewMockPushNotificationUseCase(t)
@@ -95,6 +103,8 @@ func TestNotificationConsumer_Handle(t *testing.T) {
 	})
 
 	t.Run("returns error on invalid payload", func(t *testing.T) {
+		t.Parallel()
+
 		artistRepo := mocks.NewMockArtistRepository(t)
 		concertRepo := mocks.NewMockConcertRepository(t)
 		pushUC := ucmocks.NewMockPushNotificationUseCase(t)
