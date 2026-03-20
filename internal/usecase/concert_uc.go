@@ -92,6 +92,11 @@ const pendingTimeout = 3 * time.Minute
 // backgroundSearchTimeout is the context timeout for background Gemini API calls.
 const backgroundSearchTimeout = 120 * time.Second
 
+// statusUpdateTimeout is the context timeout for search log status updates.
+// Uses a fresh context.Background() to ensure updates succeed even when the
+// parent context (Gemini API call) has expired.
+const statusUpdateTimeout = 5 * time.Second
+
 // Compile-time interface compliance check
 var _ ConcertUseCase = (*concertUseCase)(nil)
 
@@ -371,15 +376,25 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 }
 
 // markSearchCompleted updates the search log status to completed.
+// It uses a fresh context to ensure the update succeeds even when the caller's
+// context has expired (e.g., after a long Gemini API call).
 func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID string) {
-	if err := uc.searchLogRepo.UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted); err != nil {
+	updateCtx, cancel := context.WithTimeout(context.Background(), statusUpdateTimeout)
+	defer cancel()
+
+	if err := uc.searchLogRepo.UpdateStatus(updateCtx, artistID, entity.SearchLogStatusCompleted); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as completed", err, slog.String("artist_id", artistID))
 	}
 }
 
 // markSearchFailed updates the search log status to failed.
+// It uses a fresh context to ensure the update succeeds even when the caller's
+// context has expired (e.g., after a long Gemini API call).
 func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string) {
-	if err := uc.searchLogRepo.UpdateStatus(ctx, artistID, entity.SearchLogStatusFailed); err != nil {
+	updateCtx, cancel := context.WithTimeout(context.Background(), statusUpdateTimeout)
+	defer cancel()
+
+	if err := uc.searchLogRepo.UpdateStatus(updateCtx, artistID, entity.SearchLogStatusFailed); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as failed", err, slog.String("artist_id", artistID))
 	}
 }

@@ -323,7 +323,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
-				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -347,7 +347,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, site, mock.AnythingOfType("time.Time")).Return(nil, nil).Once()
-				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -364,7 +364,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, apperr.ErrInternal).Once()
-				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusFailed).Return(nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusFailed).Return(nil).Once()
 			},
 			wantErr: apperr.ErrInternal,
 		},
@@ -385,7 +385,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
-				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -410,7 +410,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(existing, nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
-				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -438,6 +438,51 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestSearchNewConcerts_StatusUpdateWithCancelledContext(t *testing.T) {
+	t.Parallel()
+
+	t.Run("markSearchCompleted succeeds even when parent context is cancelled", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			d := newConcertTestDeps(t)
+			artistID := "artist-1"
+			artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+			site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
+
+			// Create a context that will be cancelled before the search completes.
+			ctx, cancel := context.WithCancel(context.Background())
+
+			done := make(chan struct{})
+
+			d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artistID).Return(site, nil).Once()
+			d.concertRepo.EXPECT().ListByArtist(mock.Anything, artistID, true).Return(nil, nil).Once()
+			d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).
+				Run(func(_ context.Context, _ *entity.Artist, _ *entity.OfficialSite, _ time.Time) {
+					// Cancel the parent context during the Gemini search, simulating deadline exceeded.
+					cancel()
+				}).
+				Return(nil, nil).Once()
+			// The status update must still succeed with a fresh context (mock.Anything, not ctx).
+			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).
+				Run(func(_ context.Context, _ string, _ entity.SearchLogStatus) { close(done) }).
+				Return(nil).Once()
+
+			err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err)
+
+			select {
+			case <-done:
+				// UpdateStatus was called with a fresh context — success.
+			case <-time.After(5 * time.Second):
+				t.Fatal("status update was not called — context decoupling may have failed")
+			}
+		})
+	})
 }
 
 // strPtr returns a pointer to the given string. Test helper.
@@ -587,7 +632,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(tt.existing, nil).Once()
 				d.searcher.EXPECT().Search(ctx, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(tt.scraped, nil).Once()
-				d.searchLogRepo.EXPECT().UpdateStatus(ctx, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 
 				err = d.uc.SearchNewConcerts(ctx, artistID)
 				assert.NoError(t, err)
