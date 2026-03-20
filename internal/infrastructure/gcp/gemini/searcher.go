@@ -278,13 +278,9 @@ func (s *ConcertSearcher) Search(
 
 		parsed, err := s.parseEvents(ctx, parts[0].Text, from, attrs...)
 		if err != nil {
-			// parseEvents returns errInvalidJSON for invalid JSON (retryable)
-			// and backoff.Permanent for structural mismatches (not retryable).
-			if errors.Is(err, errInvalidJSON) {
-				lastTransientErr = err
-			} else {
-				lastPermanentErr = err
-			}
+			// parseEvents returns backoff.Permanent for both invalid JSON
+			// (truncated output) and structural mismatches — neither is retryable.
+			lastPermanentErr = err
 			return nil, err
 		}
 		return parsed, nil
@@ -339,19 +335,21 @@ func (s *ConcertSearcher) parseEvents(
 		return nil, nil
 	}
 
-	// Pre-check JSON validity. Invalid JSON indicates a truncated or malformed Gemini
-	// response (transient), which is retryable. Log WARN with truncated raw text for diagnosis.
+	// Pre-check JSON validity. With structured output mode (ResponseMIMEType +
+	// ResponseSchema), invalid JSON indicates output truncation due to maxOutputTokens
+	// exhaustion. Retrying the same prompt produces the same truncation, so this is
+	// treated as a permanent error.
 	if !json.Valid([]byte(text)) {
 		truncated := rawText
 		if len(truncated) > maxRawTextLogLen {
 			truncated = truncated[:maxRawTextLogLen]
 		}
-		s.logger.Warn(ctx, "gemini returned invalid JSON, retrying",
+		s.logger.Warn(ctx, "gemini returned invalid JSON (permanent, not retrying)",
 			append(attrs,
 				slog.String("raw_text_truncated", truncated),
 				slog.Int("raw_text_len", len(rawText)),
 			)...)
-		return nil, errInvalidJSON
+		return nil, backoff.Permanent(errInvalidJSON)
 	}
 
 	var eventsResp EventsResponse
