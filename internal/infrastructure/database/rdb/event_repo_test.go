@@ -12,7 +12,7 @@ import (
 )
 
 func TestEventEntryRepository_GetMerkleRoot(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewEventEntryRepository(testDB)
 	ctx := context.Background()
 	eventID := seedMerkleTestData(t)
@@ -46,7 +46,7 @@ func TestEventEntryRepository_GetMerkleRoot(t *testing.T) {
 }
 
 func TestEventEntryRepository_UpdateMerkleRoot(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewEventEntryRepository(testDB)
 	ctx := context.Background()
 	eventID := seedMerkleTestData(t)
@@ -87,7 +87,7 @@ func TestEventEntryRepository_UpdateMerkleRoot(t *testing.T) {
 }
 
 func TestEventEntryRepository_GetTicketLeafIndex(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewEventEntryRepository(testDB)
 	ticketRepo := rdb.NewTicketRepository(testDB)
 	ctx := context.Background()

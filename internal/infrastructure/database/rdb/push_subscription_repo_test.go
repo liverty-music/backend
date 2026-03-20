@@ -23,7 +23,7 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 		{
 			name: "creates new subscription",
 			setup: func() *entity.PushSubscription {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "push-create-user", "push-create@example.com", "ext-push-create-01")
 				return &entity.PushSubscription{
 					UserID:   userID,
@@ -37,7 +37,7 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 		{
 			name: "upsert updates existing subscription on same endpoint",
 			setup: func() *entity.PushSubscription {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "push-upsert-user", "push-upsert@example.com", "ext-push-upsert-01")
 				first := &entity.PushSubscription{
 					UserID:   userID,
@@ -97,7 +97,7 @@ func TestPushSubscriptionRepository_DeleteByEndpoint(t *testing.T) {
 		{
 			name: "deletes existing subscription",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "push-delete-ep-user", "push-delete-ep@example.com", "ext-push-delete-ep-01")
 				sub := &entity.PushSubscription{
 					UserID:   userID,
@@ -114,7 +114,7 @@ func TestPushSubscriptionRepository_DeleteByEndpoint(t *testing.T) {
 		{
 			name: "deleting non-existent endpoint is idempotent",
 			setup: func() (string, string) {
-				cleanDatabase()
+				cleanDatabase(t)
 				return "https://push.example.com/nonexistent-endpoint", ""
 			},
 			wantErr: nil,
@@ -155,7 +155,7 @@ func TestPushSubscriptionRepository_ListByUserIDs(t *testing.T) {
 		{
 			name: "empty input returns empty slice",
 			setup: func() []string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return nil
 			},
 			want:    0,
@@ -164,7 +164,7 @@ func TestPushSubscriptionRepository_ListByUserIDs(t *testing.T) {
 		{
 			name: "returns subscriptions for matching users",
 			setup: func() []string {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID1 := seedUser(t, "push-list-user1", "push-list-1@example.com", "ext-push-list-01")
 				userID2 := seedUser(t, "push-list-user2", "push-list-2@example.com", "ext-push-list-02")
 				err := repo.Create(ctx, &entity.PushSubscription{
@@ -189,7 +189,7 @@ func TestPushSubscriptionRepository_ListByUserIDs(t *testing.T) {
 		{
 			name: "returns empty for non-matching users",
 			setup: func() []string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return []string{"00000000-0000-0000-0000-000000000001"}
 			},
 			want:    0,
@@ -229,7 +229,7 @@ func TestPushSubscriptionRepository_DeleteByUserID(t *testing.T) {
 		{
 			name: "deletes all subscriptions for user",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				userID := seedUser(t, "push-delete-uid-user", "push-delete-uid@example.com", "ext-push-delete-uid-01")
 				err := repo.Create(ctx, &entity.PushSubscription{
 					UserID:   userID,
@@ -252,7 +252,7 @@ func TestPushSubscriptionRepository_DeleteByUserID(t *testing.T) {
 		{
 			name: "deleting for user with no subscriptions is idempotent",
 			setup: func() string {
-				cleanDatabase()
+				cleanDatabase(t)
 				return seedUser(t, "push-delete-empty-user", "push-delete-empty@example.com", "ext-push-delete-empty-01")
 			},
 			wantErr: nil,

@@ -12,7 +12,7 @@ import (
 )
 
 func TestVenueRepository_Create(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewVenueRepository(testDB)
 	ctx := context.Background()
 
@@ -93,7 +93,7 @@ func TestVenueRepository_Create(t *testing.T) {
 }
 
 func TestVenueRepository_Get(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewVenueRepository(testDB)
 	ctx := context.Background()
 
@@ -168,7 +168,7 @@ func TestVenueRepository_Get(t *testing.T) {
 }
 
 func TestVenueRepository_GetByPlaceID(t *testing.T) {
-	cleanDatabase()
+	cleanDatabase(t)
 	repo := rdb.NewVenueRepository(testDB)
 	ctx := context.Background()
 

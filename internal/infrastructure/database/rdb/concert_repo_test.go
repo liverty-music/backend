@@ -27,7 +27,7 @@ func TestConcertRepository_Create(t *testing.T) {
 
 	setupFixtures := func(t *testing.T) {
 		t.Helper()
-		cleanDatabase()
+		cleanDatabase(t)
 		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Concert Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a1"})
 		require.NoError(t, err)
 		require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Concert Test Arena"}))
@@ -439,7 +439,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cleanDatabase()
+			cleanDatabase(t)
 
 			artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 			_, err := artistRepo.Create(ctx, artist)
@@ -466,7 +466,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	artistRepo := rdb.NewArtistRepository(testDB)
 	venueRepo := rdb.NewVenueRepository(testDB)
 
-	cleanDatabase()
+	cleanDatabase(t)
 
 	// Setup: Create test data
 	testArtist1 := &entity.Artist{
@@ -651,7 +651,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	// Pre-migration rows have NULL in listed_venue_name; scanning NULL into a
 	// non-pointer string would panic at runtime.
 	t.Run("NULL listed_venue_name is scanned to nil without error", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 		_, err := artistRepo.Create(ctx, artist)
@@ -679,7 +679,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	})
 
 	t.Run("non-NULL listed_venue_name is persisted and retrieved correctly", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4aa1", Name: "VenueName Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4aa1"}
 		_, err := artistRepo.Create(ctx, artist)
@@ -718,7 +718,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 	venueRepo := rdb.NewVenueRepository(testDB)
 
 	t.Run("returns concerts for multiple artists with coordinates", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		artist1 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6001", Name: "Multi Band 1", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6001"}
 		artist2 := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6002", Name: "Multi Band 2", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6002"}
@@ -772,7 +772,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 	})
 
 	t.Run("returns empty list for unknown artist IDs", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		got, err := concertRepo.ListByArtists(ctx, []string{"018b2f19-e591-7d12-bf9e-f0e74f1b6099"})
 		assert.NoError(t, err)
@@ -780,7 +780,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 	})
 
 	t.Run("venue without coordinates returns nil Coordinates", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6003", Name: "No Coord Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b6003"}
 		_, err := artistRepo.Create(ctx, artist)
@@ -813,7 +813,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 	venueRepo := rdb.NewVenueRepository(testDB)
 
 	t.Run("returns concerts for followed artists", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		// Setup: user, 2 artists, venue, concerts, follow relationships
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5001"
@@ -871,7 +871,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 	})
 
 	t.Run("returns venue Coordinates when DB has lat/lng", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5003"
 		_, err := testDB.Pool.Exec(ctx,
@@ -916,7 +916,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 	})
 
 	t.Run("returns empty list when no followed artists", func(t *testing.T) {
-		cleanDatabase()
+		cleanDatabase(t)
 
 		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5002"
 		_, err := testDB.Pool.Exec(ctx,

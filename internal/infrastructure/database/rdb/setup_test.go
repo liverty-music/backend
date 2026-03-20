@@ -63,7 +63,8 @@ func setupTestDatabase() *rdb.Database {
 	return db
 }
 
-func cleanDatabase() {
+func cleanDatabase(t *testing.T) {
+	t.Helper()
 	if testDB == nil {
 		testDB = setupTestDatabase()
 	}
