@@ -442,46 +442,42 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 
 func TestSearchNewConcerts_StatusUpdateWithCancelledContext(t *testing.T) {
 	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		d := newConcertTestDeps(t)
+		artistID := "artist-1"
+		artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+		site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
 
-	t.Run("markSearchCompleted succeeds even when parent context is cancelled", func(t *testing.T) {
-		t.Parallel()
-		synctest.Test(t, func(t *testing.T) {
-			d := newConcertTestDeps(t)
-			artistID := "artist-1"
-			artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
-			site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
+		// Create a context that will be cancelled before the search completes.
+		ctx, cancel := context.WithCancel(context.Background())
 
-			// Create a context that will be cancelled before the search completes.
-			ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
 
-			done := make(chan struct{})
+		d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
+		d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+		d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
+		d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artistID).Return(site, nil).Once()
+		d.concertRepo.EXPECT().ListByArtist(mock.Anything, artistID, true).Return(nil, nil).Once()
+		d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).
+			Run(func(_ context.Context, _ *entity.Artist, _ *entity.OfficialSite, _ time.Time) {
+				// Cancel the parent context during the Gemini search, simulating deadline exceeded.
+				cancel()
+			}).
+			Return(nil, nil).Once()
+		// The status update must still succeed with a fresh context (mock.Anything, not ctx).
+		d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).
+			Run(func(_ context.Context, _ string, _ entity.SearchLogStatus) { close(done) }).
+			Return(nil).Once()
 
-			d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, artistID).Return(nil, apperr.ErrNotFound).Once()
-			d.searchLogRepo.EXPECT().Upsert(mock.Anything, artistID, entity.SearchLogStatusPending).Return(nil).Once()
-			d.artistRepo.EXPECT().Get(mock.Anything, artistID).Return(artist, nil).Once()
-			d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, artistID).Return(site, nil).Once()
-			d.concertRepo.EXPECT().ListByArtist(mock.Anything, artistID, true).Return(nil, nil).Once()
-			d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).
-				Run(func(_ context.Context, _ *entity.Artist, _ *entity.OfficialSite, _ time.Time) {
-					// Cancel the parent context during the Gemini search, simulating deadline exceeded.
-					cancel()
-				}).
-				Return(nil, nil).Once()
-			// The status update must still succeed with a fresh context (mock.Anything, not ctx).
-			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).
-				Run(func(_ context.Context, _ string, _ entity.SearchLogStatus) { close(done) }).
-				Return(nil).Once()
+		err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
+		assert.NoError(t, err)
 
-			err := d.uc.AsyncSearchNewConcerts(ctx, artistID)
-			assert.NoError(t, err)
-
-			select {
-			case <-done:
-				// UpdateStatus was called with a fresh context — success.
-			case <-time.After(5 * time.Second):
-				t.Fatal("status update was not called — context decoupling may have failed")
-			}
-		})
+		select {
+		case <-done:
+			// UpdateStatus was called with a fresh context — success.
+		case <-time.After(5 * time.Second):
+			t.Fatal("status update was not called — context decoupling may have failed")
+		}
 	})
 }
 

@@ -568,7 +568,7 @@ func geminiResponse(bodyText, finishReason string) string {
 	}`, strconv.Quote(bodyText), finishReason)
 }
 
-func TestConcertSearcher_Search_InvalidJSON_NoPermanentRetry(t *testing.T) {
+func TestConcertSearcher_Search_InvalidJSON_Permanent(t *testing.T) {
 	logger, _ := logging.New()
 	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
