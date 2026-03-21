@@ -43,9 +43,9 @@ func TestIsRetryable(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "401 Unauthorized is not retryable",
+			name: "401 Unauthorized is retryable (transient WI token refresh)",
 			err:  genai.APIError{Code: http.StatusUnauthorized, Message: "unauthorized"},
-			want: false,
+			want: true,
 		},
 		{
 			name: "500 Internal Server Error is not retryable",
