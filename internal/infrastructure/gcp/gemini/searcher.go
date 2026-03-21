@@ -224,7 +224,8 @@ func (s *ConcertSearcher) Search(
 	results, err := backoff.Retry(ctx, func() ([]*entity.ScrapedConcert, error) {
 		resp, err := s.client.Models.GenerateContent(ctx, s.config.ModelName, genai.Text(prompt), generateCfg)
 		if err != nil {
-			s.logger.Error(ctx, "gemini model call failed", err, attrs...)
+			s.logger.Warn(ctx, "gemini model call failed",
+				append(attrs, slog.String("error", err.Error()))...)
 			if !isRetryable(err) {
 				return nil, backoff.Permanent(err)
 			}
