@@ -34,6 +34,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
+	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
 	"github.com/liverty-music/backend/internal/infrastructure/zkp"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/cache"
@@ -160,8 +161,18 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
 
+	// Infrastructure - Zitadel API client (optional, nil in local dev)
+	var emailVerifier usecase.EmailVerifier
+	if cfg.ZitadelMachineKeyPath != "" {
+		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyPath, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create zitadel email verifier: %w", err)
+		}
+		emailVerifier = ev
+	}
+
 	// Use Cases
-	userUC := usecase.NewUserUseCase(userRepo, logger)
+	userUC := usecase.NewUserUseCase(userRepo, publisher, logger)
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, publisher, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, publisher, artistCache, logger)
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, userRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
@@ -221,7 +232,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return userconnect.NewUserServiceHandler(
-				rpc.NewUserHandler(userUC, logger),
+				rpc.NewUserHandler(userUC, emailVerifier, logger),
 				opts...,
 			)
 		},

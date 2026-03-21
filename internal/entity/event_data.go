@@ -7,6 +7,7 @@ const (
 	SubjectConcertDiscovered = "CONCERT.discovered"
 	SubjectConcertCreated    = "CONCERT.created"
 	SubjectArtistCreated     = "ARTIST.created"
+	SubjectUserCreated       = "USER.created"
 )
 
 // ConcertDiscoveredData is the payload for concert.discovered.v1 events.
@@ -41,6 +42,15 @@ type ConcertCreatedData struct {
 	ArtistName string `json:"artist_name"`
 	// ConcertCount is the number of concerts created in this batch.
 	ConcertCount int `json:"concert_count"`
+}
+
+// UserCreatedData is the payload for user.created events.
+// Published by UserUseCase.Create after persisting a new user.
+type UserCreatedData struct {
+	// ExternalID is the Zitadel user ID (JWT sub claim).
+	ExternalID string `json:"external_id"`
+	// Email is the user's email address.
+	Email string `json:"email"`
 }
 
 // ArtistCreatedData is the payload for artist.created events.

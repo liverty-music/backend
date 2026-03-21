@@ -19,6 +19,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
+	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/httpx"
@@ -125,11 +126,22 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 
+	// Infrastructure - Zitadel API client (optional, nil in local dev)
+	var emailVerifier usecase.EmailVerifier
+	if cfg.ZitadelMachineKeyPath != "" {
+		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.ZitadelDomain, cfg.ZitadelMachineKeyPath, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create zitadel email verifier: %w", err)
+		}
+		emailVerifier = ev
+	}
+
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(artistRepo, concertRepo, pushNotificationUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
+	userConsumer := event.NewUserConsumer(emailVerifier, logger)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -163,6 +175,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		entity.SubjectArtistCreated,
 		subscriber,
 		artistImageConsumer.Handle,
+	)
+
+	router.AddConsumerHandler(
+		"send-email-verification",
+		entity.SubjectUserCreated,
+		subscriber,
+		userConsumer.Handle,
 	)
 
 	// Register shutdown phases.

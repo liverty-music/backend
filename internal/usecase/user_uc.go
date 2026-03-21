@@ -3,9 +3,12 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
+	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -54,19 +57,22 @@ type UserUseCase interface {
 
 // userUseCase implements the UserUseCase interface.
 type userUseCase struct {
-	userRepo entity.UserRepository
-	logger   *logging.Logger
+	userRepo  entity.UserRepository
+	publisher message.Publisher
+	logger    *logging.Logger
 }
 
 // Compile-time interface compliance check
 var _ UserUseCase = (*userUseCase)(nil)
 
 // NewUserUseCase creates a new user use case.
-// It requires a user repository for data persistence and a logger.
-func NewUserUseCase(userRepo entity.UserRepository, logger *logging.Logger) UserUseCase {
+// It requires a user repository for data persistence, a publisher for domain
+// events, and a logger.
+func NewUserUseCase(userRepo entity.UserRepository, publisher message.Publisher, logger *logging.Logger) UserUseCase {
 	return &userUseCase{
-		userRepo: userRepo,
-		logger:   logger,
+		userRepo:  userRepo,
+		publisher: publisher,
+		logger:    logger,
 	}
 }
 
@@ -89,7 +95,26 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 
 	uc.logger.Info(ctx, "User created successfully", slog.String("user_id", user.ID))
 
+	if err := uc.publishEvent(ctx, entity.SubjectUserCreated, entity.UserCreatedData{
+		ExternalID: user.ExternalID,
+		Email:      user.Email,
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish user.created event", err,
+			slog.String("user_id", user.ID),
+		)
+		// Non-fatal: user is already persisted.
+	}
+
 	return user, nil
+}
+
+// publishEvent creates an event message and publishes it to the given subject.
+func (uc *userUseCase) publishEvent(ctx context.Context, subject string, data any) error {
+	msg, err := messaging.NewEvent(ctx, data)
+	if err != nil {
+		return fmt.Errorf("create %s event: %w", subject, err)
+	}
+	return uc.publisher.Publish(subject, msg)
 }
 
 // Get retrieves a user by ID.
