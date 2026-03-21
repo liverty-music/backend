@@ -169,6 +169,11 @@ func (h *UserHandler) allowResend(userID string) bool {
 		}
 	}
 
+	// Reclaim memory for users with no recent activity.
+	if len(recent) == 0 {
+		delete(h.resendLog, userID)
+	}
+
 	if len(recent) >= resendRateLimit {
 		h.resendLog[userID] = recent
 		return false

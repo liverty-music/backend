@@ -50,7 +50,6 @@ func (h *UserConsumer) Handle(msg *message.Message) error {
 
 	h.logger.Info(ctx, "sending email verification",
 		slog.String("external_id", data.ExternalID),
-		slog.String("email", data.Email),
 	)
 
 	if err := h.emailVerifier.SendVerification(ctx, data.ExternalID); err != nil {
