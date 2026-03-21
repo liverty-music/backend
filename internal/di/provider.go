@@ -244,7 +244,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return followconnect.NewFollowServiceHandler(
-				rpc.NewFollowHandler(followUC, userRepo, logger),
+				rpc.NewFollowHandler(followUC, logger),
 				opts...,
 			)
 		},
