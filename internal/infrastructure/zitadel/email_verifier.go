@@ -45,20 +45,26 @@ type EmailVerifier struct {
 //
 // issuerURL is the OIDC issuer URL (e.g., "https://dev-svijfm.us1.zitadel.cloud").
 // keyPath is the file path to the machine key JSON.
-func NewEmailVerifier(ctx context.Context, issuerURL, keyPath string, logger *logging.Logger) (*EmailVerifier, error) {
+// opts are additional zitadel connection options (e.g., WithInsecure for testing).
+func NewEmailVerifier(ctx context.Context, issuerURL, keyPath string, logger *logging.Logger, opts ...zitadelconn.Option) (*EmailVerifier, error) {
 	apiEndpoint, err := grpcEndpoint(issuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse zitadel domain: %w", err)
 	}
+
+	connOpts := []zitadelconn.Option{
+		zitadelconn.WithJWTProfileTokenSource(
+			middleware.JWTProfileFromPath(ctx, keyPath),
+		),
+	}
+	connOpts = append(connOpts, opts...)
 
 	userClient, err := userv2.NewClient(
 		ctx,
 		issuerURL,
 		apiEndpoint,
 		nil,
-		zitadelconn.WithJWTProfileTokenSource(
-			middleware.JWTProfileFromPath(ctx, keyPath),
-		),
+		connOpts...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create zitadel user client: %w", err)
