@@ -23,7 +23,7 @@ func TestUserHandler_Get(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, logger)
+		h := rpc.NewUserHandler(userUC, nil, logger)
 
 		userUC.EXPECT().GetByExternalID(mock.Anything, "ext-123").Return(&entity.User{
 			ID:         "user-1",
@@ -49,7 +49,7 @@ func TestUserHandler_Get(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, logger)
+		h := rpc.NewUserHandler(userUC, nil, logger)
 
 		userUC.EXPECT().GetByExternalID(mock.Anything, "ext-unknown").Return(
 			nil, apperr.New(apperr.ErrNotFound.Code, "user not found"),
