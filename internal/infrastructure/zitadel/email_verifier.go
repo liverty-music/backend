@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
 	userv2 "github.com/zitadel/zitadel-go/v3/pkg/client/user/v2"
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
@@ -63,7 +64,7 @@ func NewEmailVerifier(ctx context.Context, issuerURL, keyPath string, logger *lo
 		ctx,
 		issuerURL,
 		apiEndpoint,
-		nil,
+		[]string{oidc.ScopeOpenID, zitadelconn.ScopeZitadelAPI()},
 		connOpts...,
 	)
 	if err != nil {
