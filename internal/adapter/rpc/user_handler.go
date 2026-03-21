@@ -3,6 +3,8 @@ package rpc
 import (
 	"context"
 	"errors"
+	"sync"
+	"time"
 
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
@@ -11,17 +13,30 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
+const (
+	resendRateLimit  = 3
+	resendRateWindow = 10 * time.Minute
+)
+
 // UserHandler implements the UserService Connect interface.
 type UserHandler struct {
-	userUseCase usecase.UserUseCase
-	logger      *logging.Logger
+	userUseCase   usecase.UserUseCase
+	emailVerifier usecase.EmailVerifier
+	logger        *logging.Logger
+
+	// resendMu protects resendLog for concurrent access.
+	resendMu  sync.Mutex
+	resendLog map[string][]time.Time
 }
 
 // NewUserHandler creates a new user handler.
-func NewUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger) *UserHandler {
+// emailVerifier may be nil when the Zitadel API client is not configured (local dev).
+func NewUserHandler(userUseCase usecase.UserUseCase, emailVerifier usecase.EmailVerifier, logger *logging.Logger) *UserHandler {
 	return &UserHandler{
-		userUseCase: userUseCase,
-		logger:      logger,
+		userUseCase:   userUseCase,
+		emailVerifier: emailVerifier,
+		logger:        logger,
+		resendLog:     make(map[string][]time.Time),
 	}
 }
 
@@ -112,4 +127,53 @@ func (h *UserHandler) UpdateHome(ctx context.Context, req *connect.Request[userv
 	return connect.NewResponse(&userv1.UpdateHomeResponse{
 		User: mapper.UserToProto(updatedUser),
 	}), nil
+}
+
+// ResendEmailVerification triggers a new email verification message for the
+// authenticated user via the Zitadel API.
+func (h *UserHandler) ResendEmailVerification(ctx context.Context, req *connect.Request[userv1.ResendEmailVerificationRequest]) (*connect.Response[userv1.ResendEmailVerificationResponse], error) {
+	if h.emailVerifier == nil {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("email verification service is not configured"))
+	}
+
+	claims, err := mapper.GetClaimsFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !h.allowResend(claims.Sub) {
+		return nil, connect.NewError(connect.CodeResourceExhausted, errors.New("resend rate limit exceeded"))
+	}
+
+	if err := h.emailVerifier.ResendVerification(ctx, claims.Sub); err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&userv1.ResendEmailVerificationResponse{}), nil
+}
+
+// allowResend checks whether the user has not exceeded the resend rate limit.
+// Returns true if the request is allowed, false if rate-limited.
+func (h *UserHandler) allowResend(userID string) bool {
+	now := time.Now()
+	cutoff := now.Add(-resendRateWindow)
+
+	h.resendMu.Lock()
+	defer h.resendMu.Unlock()
+
+	// Filter out expired entries.
+	var recent []time.Time
+	for _, t := range h.resendLog[userID] {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+
+	if len(recent) >= resendRateLimit {
+		h.resendLog[userID] = recent
+		return false
+	}
+
+	h.resendLog[userID] = append(recent, now)
+	return true
 }

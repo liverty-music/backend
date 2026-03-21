@@ -23,7 +23,7 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 	d := &userTestDeps{
 		repo: mocks.NewMockUserRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, newTestPublisher(), newTestLogger(t))
 	return d
 }
 

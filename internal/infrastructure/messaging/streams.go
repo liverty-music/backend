@@ -64,6 +64,16 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
+		Name:       "USER",
+		Subjects:   []string{"USER.*"},
+		Retention:  nats.LimitsPolicy,
+		MaxAge:     7 * 24 * time.Hour,
+		Storage:    nats.FileStorage,
+		Discard:    nats.DiscardOld,
+		Replicas:   1,
+		Duplicates: 2 * time.Minute,
+	},
+	{
 		Name:       "POISON",
 		Subjects:   []string{"POISON.*"},
 		Retention:  nats.LimitsPolicy,

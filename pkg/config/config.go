@@ -83,6 +83,11 @@ type ServerConfig struct {
 	// ZKP configuration
 	ZKP ZKPConfig `envconfig:""`
 
+	// ZitadelMachineKeyPath is the file path to the Zitadel machine user's
+	// private key JSON. When empty, the Zitadel API client is disabled
+	// (email verification features are unavailable).
+	ZitadelMachineKeyPath string `envconfig:"ZITADEL_MACHINE_KEY_PATH"`
+
 	// LastFM API Key
 	LastFMAPIKey string `envconfig:"LASTFM_API_KEY"`
 }
@@ -113,6 +118,15 @@ type ConsumerConfig struct {
 
 	// VAPID configuration for Web Push notifications
 	VAPID VAPIDConfig `envconfig:""`
+
+	// ZitadelDomain is the Zitadel instance URL for API calls.
+	// Same value as OIDC_ISSUER_URL used by the API server.
+	ZitadelDomain string `envconfig:"OIDC_ISSUER_URL"`
+
+	// ZitadelMachineKeyPath is the file path to the Zitadel machine user's
+	// private key JSON. When empty, the email verification consumer skips
+	// processing with a warning.
+	ZitadelMachineKeyPath string `envconfig:"ZITADEL_MACHINE_KEY_PATH"`
 
 	// FanartTV API Key for artist image resolution
 	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
