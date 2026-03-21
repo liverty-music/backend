@@ -244,7 +244,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return followconnect.NewFollowServiceHandler(
-				rpc.NewFollowHandler(followUC, logger),
+				rpc.NewFollowHandler(followUC, userRepo, logger),
 				opts...,
 			)
 		},
@@ -262,7 +262,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketjourneyconnect.NewTicketJourneyServiceHandler(
-				rpc.NewTicketJourneyHandler(ticketJourneyUC, logger),
+				rpc.NewTicketJourneyHandler(ticketJourneyUC, userRepo, logger),
 				opts...,
 			)
 		},
@@ -281,7 +281,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if ticketEmailUC != nil {
 		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketemailconnect.NewTicketEmailServiceHandler(
-				rpc.NewTicketEmailHandler(ticketEmailUC, logger),
+				rpc.NewTicketEmailHandler(ticketEmailUC, userRepo, logger),
 				opts...,
 			)
 		})

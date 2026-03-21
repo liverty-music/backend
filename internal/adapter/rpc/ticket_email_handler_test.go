@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-logging/logging"
@@ -28,7 +29,7 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 		name     string
 		ctx      context.Context
 		req      *ticketemailv1.CreateTicketEmailRequest
-		setup    func(uc *ucmocks.MockTicketEmailUseCase)
+		setup    func(uc *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository)
 		wantCode connect.Code
 		wantLen  int
 		wantErr  error
@@ -44,16 +45,20 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 					{Value: "event-2"},
 				},
 			},
-			setup: func(uc *ucmocks.MockTicketEmailUseCase) {
+			setup: func(uc *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "user-sub-1",
+				}, nil)
 				uc.EXPECT().Create(
 					mock.Anything,
-					"user-sub-1",
+					"user-uuid-1",
 					[]string{"event-1", "event-2"},
 					entity.TicketEmailTypeLotteryInfo,
 					"lottery info body",
 				).Return([]*entity.TicketEmail{
-					{ID: "te-1", UserID: "user-sub-1", EventID: "event-1", EmailType: entity.TicketEmailTypeLotteryInfo},
-					{ID: "te-2", UserID: "user-sub-1", EventID: "event-2", EmailType: entity.TicketEmailTypeLotteryInfo},
+					{ID: "te-1", UserID: "user-uuid-1", EventID: "event-1", EmailType: entity.TicketEmailTypeLotteryInfo},
+					{ID: "te-2", UserID: "user-uuid-1", EventID: "event-2", EmailType: entity.TicketEmailTypeLotteryInfo},
 				}, nil)
 			},
 			wantLen: 2,
@@ -67,7 +72,7 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 				EmailType: entityv1.TicketEmailType_TICKET_EMAIL_TYPE_LOTTERY_INFO,
 				EventIds:  []*entityv1.EventId{{Value: "event-1"}},
 			},
-			setup:    func(_ *ucmocks.MockTicketEmailUseCase) {},
+			setup:    func(_ *ucmocks.MockTicketEmailUseCase, _ *entitymocks.MockUserRepository) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  assert.AnError,
 		},
@@ -79,7 +84,7 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 				EmailType: entityv1.TicketEmailType_TICKET_EMAIL_TYPE_UNSPECIFIED,
 				EventIds:  []*entityv1.EventId{{Value: "event-1"}},
 			},
-			setup:    func(_ *ucmocks.MockTicketEmailUseCase) {},
+			setup:    func(_ *ucmocks.MockTicketEmailUseCase, _ *entitymocks.MockUserRepository) {},
 			wantCode: connect.CodeInvalidArgument,
 			wantErr:  assert.AnError,
 		},
@@ -91,8 +96,22 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 				EmailType: entityv1.TicketEmailType_TICKET_EMAIL_TYPE_LOTTERY_INFO,
 				EventIds:  []*entityv1.EventId{{Value: "event-1"}, nil},
 			},
-			setup:    func(_ *ucmocks.MockTicketEmailUseCase) {},
+			setup:    func(_ *ucmocks.MockTicketEmailUseCase, _ *entitymocks.MockUserRepository) {},
 			wantCode: connect.CodeInvalidArgument,
+			wantErr:  assert.AnError,
+		},
+		{
+			name: "return not found error when user does not exist",
+			ctx:  ticketEmailAuthedCtx("user-sub-1"),
+			req: &ticketemailv1.CreateTicketEmailRequest{
+				RawBody:   "body",
+				EmailType: entityv1.TicketEmailType_TICKET_EMAIL_TYPE_LOTTERY_INFO,
+				EventIds:  []*entityv1.EventId{{Value: "event-1"}},
+			},
+			setup: func(_ *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(nil, nil)
+			},
+			wantCode: connect.CodeNotFound,
 			wantErr:  assert.AnError,
 		},
 		{
@@ -103,10 +122,14 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 				EmailType: entityv1.TicketEmailType_TICKET_EMAIL_TYPE_LOTTERY_INFO,
 				EventIds:  []*entityv1.EventId{{Value: "event-1"}},
 			},
-			setup: func(uc *ucmocks.MockTicketEmailUseCase) {
+			setup: func(uc *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "user-sub-1",
+				}, nil)
 				uc.EXPECT().Create(
 					mock.Anything,
-					"user-sub-1",
+					"user-uuid-1",
 					[]string{"event-1"},
 					entity.TicketEmailTypeLotteryInfo,
 					"body",
@@ -124,9 +147,10 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 			require.NoError(t, err)
 
 			ticketEmailUC := ucmocks.NewMockTicketEmailUseCase(t)
-			tc.setup(ticketEmailUC)
+			ur := entitymocks.NewMockUserRepository(t)
+			tc.setup(ticketEmailUC, ur)
 
-			h := handler.NewTicketEmailHandler(ticketEmailUC, logger)
+			h := handler.NewTicketEmailHandler(ticketEmailUC, ur, logger)
 			req := connect.NewRequest(tc.req)
 
 			resp, err := h.CreateTicketEmail(tc.ctx, req)
@@ -156,7 +180,7 @@ func TestTicketEmailHandler_UpdateTicketEmail(t *testing.T) {
 		name     string
 		ctx      context.Context
 		req      *ticketemailv1.UpdateTicketEmailRequest
-		setup    func(uc *ucmocks.MockTicketEmailUseCase)
+		setup    func(uc *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository)
 		wantCode connect.Code
 		wantErr  error
 	}{
@@ -168,15 +192,19 @@ func TestTicketEmailHandler_UpdateTicketEmail(t *testing.T) {
 				ApplicationUrl: &appURL,
 				JourneyStatus:  &journeyStatus,
 			},
-			setup: func(uc *ucmocks.MockTicketEmailUseCase) {
+			setup: func(uc *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "user-sub-1",
+				}, nil)
 				uc.EXPECT().Update(
 					mock.Anything,
-					"user-sub-1",
+					"user-uuid-1",
 					"te-123",
 					mock.AnythingOfType("*entity.UpdateTicketEmail"),
 				).Return(&entity.TicketEmail{
 					ID:             "te-123",
-					UserID:         "user-sub-1",
+					UserID:         "user-uuid-1",
 					EventID:        "event-1",
 					ApplicationURL: appURL,
 				}, nil)
@@ -189,7 +217,7 @@ func TestTicketEmailHandler_UpdateTicketEmail(t *testing.T) {
 			req: &ticketemailv1.UpdateTicketEmailRequest{
 				TicketEmailId: &entityv1.TicketEmailId{Value: "te-123"},
 			},
-			setup:    func(_ *ucmocks.MockTicketEmailUseCase) {},
+			setup:    func(_ *ucmocks.MockTicketEmailUseCase, _ *entitymocks.MockUserRepository) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  assert.AnError,
 		},
@@ -199,8 +227,20 @@ func TestTicketEmailHandler_UpdateTicketEmail(t *testing.T) {
 			req: &ticketemailv1.UpdateTicketEmailRequest{
 				TicketEmailId: nil,
 			},
-			setup:    func(_ *ucmocks.MockTicketEmailUseCase) {},
+			setup:    func(_ *ucmocks.MockTicketEmailUseCase, _ *entitymocks.MockUserRepository) {},
 			wantCode: connect.CodeInvalidArgument,
+			wantErr:  assert.AnError,
+		},
+		{
+			name: "return not found error when user does not exist",
+			ctx:  ticketEmailAuthedCtx("user-sub-1"),
+			req: &ticketemailv1.UpdateTicketEmailRequest{
+				TicketEmailId: &entityv1.TicketEmailId{Value: "te-123"},
+			},
+			setup: func(_ *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(nil, nil)
+			},
+			wantCode: connect.CodeNotFound,
 			wantErr:  assert.AnError,
 		},
 		{
@@ -209,10 +249,14 @@ func TestTicketEmailHandler_UpdateTicketEmail(t *testing.T) {
 			req: &ticketemailv1.UpdateTicketEmailRequest{
 				TicketEmailId: &entityv1.TicketEmailId{Value: "te-123"},
 			},
-			setup: func(uc *ucmocks.MockTicketEmailUseCase) {
+			setup: func(uc *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "user-sub-1",
+				}, nil)
 				uc.EXPECT().Update(
 					mock.Anything,
-					"user-sub-1",
+					"user-uuid-1",
 					"te-123",
 					mock.AnythingOfType("*entity.UpdateTicketEmail"),
 				).Return(nil, assert.AnError)
@@ -229,9 +273,10 @@ func TestTicketEmailHandler_UpdateTicketEmail(t *testing.T) {
 			require.NoError(t, err)
 
 			ticketEmailUC := ucmocks.NewMockTicketEmailUseCase(t)
-			tc.setup(ticketEmailUC)
+			ur := entitymocks.NewMockUserRepository(t)
+			tc.setup(ticketEmailUC, ur)
 
-			h := handler.NewTicketEmailHandler(ticketEmailUC, logger)
+			h := handler.NewTicketEmailHandler(ticketEmailUC, ur, logger)
 			req := connect.NewRequest(tc.req)
 
 			resp, err := h.UpdateTicketEmail(tc.ctx, req)

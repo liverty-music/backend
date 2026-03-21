@@ -8,7 +8,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -16,25 +15,28 @@ import (
 // TicketEmailHandler implements the TicketEmailService Connect interface.
 type TicketEmailHandler struct {
 	ticketEmailUC usecase.TicketEmailUseCase
+	userRepo      entity.UserRepository
 	logger        *logging.Logger
 }
 
 // NewTicketEmailHandler creates a new instance of the ticket email RPC service handler.
 func NewTicketEmailHandler(
 	ticketEmailUC usecase.TicketEmailUseCase,
+	userRepo entity.UserRepository,
 	logger *logging.Logger,
 ) *TicketEmailHandler {
 	return &TicketEmailHandler{
 		ticketEmailUC: ticketEmailUC,
+		userRepo:      userRepo,
 		logger:        logger,
 	}
 }
 
 // CreateTicketEmail parses a shared email and persists the results.
 func (h *TicketEmailHandler) CreateTicketEmail(ctx context.Context, req *connect.Request[rpc.CreateTicketEmailRequest]) (*connect.Response[rpc.CreateTicketEmailResponse], error) {
-	userID, ok := auth.GetUserID(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
+	claims, err := mapper.GetClaimsFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	emailType, ok := mapper.TicketEmailTypeFromProto[req.Msg.EmailType]
@@ -50,7 +52,18 @@ func (h *TicketEmailHandler) CreateTicketEmail(ctx context.Context, req *connect
 		eventIDs = append(eventIDs, eid.Value)
 	}
 
-	emails, err := h.ticketEmailUC.Create(ctx, userID, eventIDs, emailType, req.Msg.RawBody)
+	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
+	// ticket_emails.user_id references users.id (internal UUID),
+	// not the identity-provider-specific external_id.
+	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
+	}
+
+	emails, err := h.ticketEmailUC.Create(ctx, user.ID, eventIDs, emailType, req.Msg.RawBody)
 	if err != nil {
 		return nil, err
 	}
@@ -62,13 +75,24 @@ func (h *TicketEmailHandler) CreateTicketEmail(ctx context.Context, req *connect
 
 // UpdateTicketEmail applies user corrections and triggers TicketJourney status updates.
 func (h *TicketEmailHandler) UpdateTicketEmail(ctx context.Context, req *connect.Request[rpc.UpdateTicketEmailRequest]) (*connect.Response[rpc.UpdateTicketEmailResponse], error) {
-	userID, ok := auth.GetUserID(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
+	claims, err := mapper.GetClaimsFromContext(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.Msg.TicketEmailId == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("ticket_email_id is required"))
+	}
+
+	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
+	// ticket_emails.user_id references users.id (internal UUID),
+	// not the identity-provider-specific external_id.
+	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
 	}
 
 	params := &entity.UpdateTicketEmail{}
@@ -94,7 +118,7 @@ func (h *TicketEmailHandler) UpdateTicketEmail(ctx context.Context, req *connect
 		}
 	}
 
-	updated, err := h.ticketEmailUC.Update(ctx, userID, req.Msg.TicketEmailId.Value, params)
+	updated, err := h.ticketEmailUC.Update(ctx, user.ID, req.Msg.TicketEmailId.Value, params)
 	if err != nil {
 		return nil, err
 	}
