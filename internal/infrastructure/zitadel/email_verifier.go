@@ -5,11 +5,13 @@ package zitadel
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
 	userv2 "github.com/zitadel/zitadel-go/v3/pkg/client/user/v2"
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 
 	"github.com/liverty-music/backend/internal/usecase"
@@ -20,26 +22,39 @@ import (
 	grpccodes "google.golang.org/grpc/codes"
 )
 
+// emailCodeClient is the subset of the Zitadel UserServiceClient that
+// EmailVerifier needs. Extracting this narrow interface allows unit testing
+// without a real gRPC connection.
+type emailCodeClient interface {
+	SendEmailCode(ctx context.Context, in *userpb.SendEmailCodeRequest, opts ...grpc.CallOption) (*userpb.SendEmailCodeResponse, error)
+	ResendEmailCode(ctx context.Context, in *userpb.ResendEmailCodeRequest, opts ...grpc.CallOption) (*userpb.ResendEmailCodeResponse, error)
+}
+
 // Compile-time interface compliance check.
 var _ usecase.EmailVerifier = (*EmailVerifier)(nil)
 
 // EmailVerifier calls the Zitadel User Service v2 API to send and resend
 // email verification codes.
 type EmailVerifier struct {
-	client *userv2.Client
+	client emailCodeClient
 	logger *logging.Logger
 }
 
 // NewEmailVerifier creates a new EmailVerifier that authenticates to the
 // Zitadel API using a machine user's private key JWT.
 //
-// domain is the Zitadel instance URL (e.g., "https://dev-svijfm.us1.zitadel.cloud").
+// issuerURL is the OIDC issuer URL (e.g., "https://dev-svijfm.us1.zitadel.cloud").
 // keyPath is the file path to the machine key JSON.
-func NewEmailVerifier(ctx context.Context, domain, keyPath string, logger *logging.Logger) (*EmailVerifier, error) {
+func NewEmailVerifier(ctx context.Context, issuerURL, keyPath string, logger *logging.Logger) (*EmailVerifier, error) {
+	apiEndpoint, err := grpcEndpoint(issuerURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse zitadel domain: %w", err)
+	}
+
 	userClient, err := userv2.NewClient(
 		ctx,
-		domain,
-		domain,
+		issuerURL,
+		apiEndpoint,
 		nil,
 		zitadelconn.WithJWTProfileTokenSource(
 			middleware.JWTProfileFromPath(ctx, keyPath),
@@ -79,4 +94,25 @@ func (v *EmailVerifier) ResendVerification(ctx context.Context, externalID strin
 		return apperr.Wrap(err, codes.Internal, "resend email verification code")
 	}
 	return nil
+}
+
+// grpcEndpoint extracts the host:port gRPC endpoint from an OIDC issuer URL.
+// The issuer URL uses https:// scheme, but gRPC Dial expects host:port.
+func grpcEndpoint(issuerURL string) (string, error) {
+	u, err := url.Parse(issuerURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid issuer URL %q: %w", issuerURL, err)
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		return "", fmt.Errorf("issuer URL %q has no host", issuerURL)
+	}
+
+	port := u.Port()
+	if port == "" {
+		port = "443"
+	}
+
+	return host + ":" + port, nil
 }
