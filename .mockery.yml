@@ -16,6 +16,7 @@ packages:
       ArtistImageSyncUseCase:
       TicketJourneyUseCase:
       TicketEmailUseCase:
+      EmailVerifier:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
