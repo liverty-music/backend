@@ -142,7 +142,7 @@ func (uc *followUseCase) triggerFirstFollowSearch(ctx context.Context, artistID 
 	uc.logger.Info(ctx, "First follow detected, triggering concert search",
 		slog.String("artist_id", artistID))
 
-	if err := uc.concertUC.SearchNewConcerts(ctx, artistID); err != nil {
+	if _, err := uc.concertUC.SearchNewConcerts(ctx, artistID); err != nil {
 		uc.logger.Warn(ctx, "background concert search failed after first follow",
 			slog.String("artist_id", artistID), slog.Any("error", err))
 	}

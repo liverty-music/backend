@@ -51,23 +51,14 @@ type ConcertUseCase interface {
 	//  - InvalidArgument: If the artist IDs slice is empty.
 	ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error)
 
-	// AsyncSearchNewConcerts enqueues an asynchronous concert discovery job for the
-	// given artist. It returns immediately after marking the search log as pending.
-	// The actual Gemini API call runs in a background goroutine.
+	// SearchNewConcerts discovers new concerts for the given artist synchronously.
+	// It returns the newly discovered concerts after deduplication against
+	// already-known upcoming events.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If the artist ID is empty.
-	AsyncSearchNewConcerts(ctx context.Context, artistID string) error
-
-	// SearchNewConcerts discovers new concerts synchronously. This is intended
-	// for use by the CronJob, which manages its own timeout and circuit breaker.
-	SearchNewConcerts(ctx context.Context, artistID string) error
-
-	// ListSearchStatuses returns the search status for the given artist IDs.
-	// Artists without a search log entry are returned with StatusUnspecified.
-	// Entries pending for more than 3 minutes are treated as failed (self-healing).
-	ListSearchStatuses(ctx context.Context, artistIDs []string) ([]*SearchStatus, error)
+	SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error)
 }
 
 // concertUseCase implements the ConcertUseCase interface.
@@ -88,9 +79,6 @@ const searchCacheTTL = 24 * time.Hour
 // pendingTimeout is the maximum age of a pending search log before it is
 // considered stale and treated as failed (self-healing for crashed workers).
 const pendingTimeout = 3 * time.Minute
-
-// backgroundSearchTimeout is the context timeout for background Gemini API calls.
-const backgroundSearchTimeout = 120 * time.Second
 
 // statusUpdateTimeout is the context timeout for search log status updates.
 // Uses a fresh context.Background() to ensure updates succeed even when the
@@ -202,38 +190,18 @@ func (uc *concertUseCase) resolveUserID(ctx context.Context, externalID string) 
 	return user.ID, nil
 }
 
-// AsyncSearchNewConcerts is a thin async wrapper around SearchNewConcerts.
-// It spawns a background goroutine with a detached context so the RPC returns
-// immediately. All guard logic lives in SearchNewConcerts.
-// Callers poll ListSearchStatuses for completion.
-func (uc *concertUseCase) AsyncSearchNewConcerts(ctx context.Context, artistID string) error {
-	// Spawn background goroutine with a detached context and 120s timeout.
-	// Validation and guard logic are handled by SearchNewConcerts.
-	bgCtx, bgCancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundSearchTimeout)
-	go func() {
-		defer bgCancel()
-		if err := uc.SearchNewConcerts(bgCtx, artistID); err != nil {
-			uc.logger.Error(bgCtx, "background concert search failed",
-				err, slog.String("artist_id", artistID),
-			)
-		}
-	}()
-
-	return nil
-}
-
-// SearchNewConcerts discovers new concerts synchronously. It is the single
-// entry point for concert search logic, used by both AsyncSearchNewConcerts
-// (via background goroutine) and the CronJob.
-func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string) error {
+// SearchNewConcerts discovers new concerts for the given artist synchronously.
+// It returns the newly discovered concerts after deduplication against
+// already-known upcoming events.
+func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error) {
 	if artistID == "" {
-		return apperr.New(codes.InvalidArgument, "artist ID is required")
+		return nil, apperr.New(codes.InvalidArgument, "artist ID is required")
 	}
 
 	// Check search log — skip if recently completed or currently pending.
 	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		return fmt.Errorf("failed to get search log: %w", err)
+		return nil, fmt.Errorf("failed to get search log: %w", err)
 	}
 	if searchLog != nil {
 		if searchLog.Status == entity.SearchLogStatusCompleted && time.Since(searchLog.SearchTime) < searchCacheTTL {
@@ -241,27 +209,27 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 				slog.String("artist_id", artistID),
 				slog.Time("search_time", searchLog.SearchTime),
 			)
-			return nil
+			return nil, nil
 		}
 		if searchLog.Status == entity.SearchLogStatusPending && time.Since(searchLog.SearchTime) < pendingTimeout {
 			uc.logger.Debug(ctx, "skipping external search, already pending",
 				slog.String("artist_id", artistID),
 			)
-			return nil
+			return nil, nil
 		}
 	}
 
 	// Mark as pending. If this fails, abort — without a pending row,
 	// downstream UpdateStatus calls silently no-op (0 rows affected).
 	if err := uc.searchLogRepo.Upsert(ctx, artistID, entity.SearchLogStatusPending); err != nil {
-		return fmt.Errorf("failed to mark search as pending: %w", err)
+		return nil, fmt.Errorf("failed to mark search as pending: %w", err)
 	}
 
 	return uc.executeSearch(ctx, artistID)
 }
 
 // executeSearch performs the actual Gemini search, deduplication, and event publishing.
-// It updates the search log status to completed or failed on exit.
+// It returns the newly discovered concerts and updates the search log status on exit.
 //
 // Deduplication uses date-only matching: one event per artist per date.
 // An artist cannot perform at two venues simultaneously on the same day.
@@ -271,19 +239,19 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 // regardless of start_at value. The DB constraint (artist_id, local_event_date)
 // provides the same guarantee; this application-level check avoids unnecessary
 // publish/UPSERT round-trips.
-func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) error {
+func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) ([]*entity.Concert, error) {
 	// Get Artist
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
 		uc.markSearchFailed(ctx, artistID)
-		return fmt.Errorf("failed to get artist: %w", err)
+		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
 	// Get Official Site — missing site is not an error; search continues with nil
 	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 		uc.markSearchFailed(ctx, artistID)
-		return fmt.Errorf("failed to get official site: %w", err)
+		return nil, fmt.Errorf("failed to get official site: %w", err)
 	}
 	if errors.Is(err, apperr.ErrNotFound) {
 		site = nil
@@ -293,7 +261,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 	existing, err := uc.concertRepo.ListByArtist(ctx, artistID, true)
 	if err != nil {
 		uc.markSearchFailed(ctx, artistID)
-		return fmt.Errorf("failed to list existing concerts: %w", err)
+		return nil, fmt.Errorf("failed to list existing concerts: %w", err)
 	}
 
 	// Search new concerts via external API (60s timeout for Gemini call)
@@ -302,7 +270,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 	scraped, err := uc.concertSearcher.Search(searchCtx, artist, site, time.Now())
 	if err != nil {
 		uc.markSearchFailed(ctx, artistID)
-		return fmt.Errorf("failed to search concerts via external API: %w", err)
+		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
 
 	// Deduplicate: one event per artist per date.
@@ -311,7 +279,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 		seenDate[ex.LocalDate.Format("2006-01-02")] = true
 	}
 
-	var newConcerts []entity.ScrapedConcertData
+	var newScraped []entity.ScrapedConcertData
 	for _, s := range scraped {
 		dateKey := s.DateKey()
 		if seenDate[dateKey] {
@@ -325,7 +293,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 		}
 		seenDate[dateKey] = true
 
-		newConcerts = append(newConcerts, entity.ScrapedConcertData{
+		newScraped = append(newScraped, entity.ScrapedConcertData{
 			Title:           s.Title,
 			ListedVenueName: s.ListedVenueName,
 			AdminArea:       s.AdminArea,
@@ -337,44 +305,61 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) er
 	}
 
 	// Publish concert.discovered.v1 event (artist-level batch)
-	if len(newConcerts) == 0 {
+	if len(newScraped) == 0 {
 		uc.logger.Debug(ctx, "no new concerts after deduplication",
 			slog.String("artist_id", artistID),
 		)
 		uc.markSearchCompleted(ctx, artistID)
-		return nil
+		return nil, nil
 	}
 
 	eventData := entity.ConcertDiscoveredData{
 		ArtistID:   artistID,
 		ArtistName: artist.Name,
-		Concerts:   newConcerts,
+		Concerts:   newScraped,
 	}
 
 	msg, err := messaging.NewEvent(ctx, eventData)
 	if err != nil {
 		uc.markSearchFailed(ctx, artistID)
-		return fmt.Errorf("failed to create concert.discovered event: %w", err)
+		return nil, fmt.Errorf("failed to create concert.discovered event: %w", err)
 	}
 
 	if err := uc.publisher.Publish(entity.SubjectConcertDiscovered, msg); err != nil {
 		uc.logger.Error(ctx, "failed to publish concert.discovered event", err,
 			slog.String("artist_id", artistID),
-			slog.Int("concert_count", len(newConcerts)),
+			slog.Int("concert_count", len(newScraped)),
 		)
 		// Non-fatal: CronJob will re-discover on next run.
 		uc.markSearchFailed(ctx, artistID)
-		return nil
+		return nil, nil
 	}
 
 	uc.logger.Info(ctx, "published concert.discovered event",
 		slog.String("artist_id", artistID),
 		slog.String("artist_name", artist.Name),
-		slog.Int("concert_count", len(newConcerts)),
+		slog.Int("concert_count", len(newScraped)),
 	)
 
 	uc.markSearchCompleted(ctx, artistID)
-	return nil
+
+	// Build Concert entities from the deduplicated scraped data to return to the caller.
+	concerts := make([]*entity.Concert, 0, len(newScraped))
+	for _, s := range newScraped {
+		listedName := s.ListedVenueName
+		concerts = append(concerts, &entity.Concert{
+			Event: entity.Event{
+				Title:           s.Title,
+				ListedVenueName: &listedName,
+				LocalDate:       s.LocalDate,
+				StartTime:       s.StartTime,
+				OpenTime:        s.OpenTime,
+				SourceURL:       s.SourceURL,
+			},
+			ArtistID: artistID,
+		})
+	}
+	return concerts, nil
 }
 
 // markSearchCompleted updates the search log status to completed.
@@ -398,52 +383,5 @@ func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string)
 
 	if err := uc.searchLogRepo.UpdateStatus(updateCtx, artistID, entity.SearchLogStatusFailed); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as failed", err, slog.String("artist_id", artistID))
-	}
-}
-
-// ListSearchStatuses returns the search status for the given artist IDs.
-func (uc *concertUseCase) ListSearchStatuses(ctx context.Context, artistIDs []string) ([]*SearchStatus, error) {
-	if len(artistIDs) == 0 {
-		return nil, apperr.New(codes.InvalidArgument, "at least one artist ID is required")
-	}
-
-	logs, err := uc.searchLogRepo.ListByArtistIDs(ctx, artistIDs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list search logs: %w", err)
-	}
-
-	// Build a map for quick lookup.
-	logMap := make(map[string]*entity.SearchLog, len(logs))
-	for _, l := range logs {
-		logMap[l.ArtistID] = l
-	}
-
-	statuses := make([]*SearchStatus, 0, len(artistIDs))
-	for _, id := range artistIDs {
-		s := &SearchStatus{ArtistID: id, Status: SearchStatusUnspecified}
-		if log, ok := logMap[id]; ok {
-			s.Status = toSearchStatusValue(log)
-		}
-		statuses = append(statuses, s)
-	}
-
-	return statuses, nil
-}
-
-// toSearchStatusValue converts a search log entity to a SearchStatusValue,
-// applying stale-pending detection.
-func toSearchStatusValue(log *entity.SearchLog) SearchStatusValue {
-	switch log.Status {
-	case entity.SearchLogStatusPending:
-		if time.Since(log.SearchTime) > pendingTimeout {
-			return SearchStatusFailed
-		}
-		return SearchStatusPending
-	case entity.SearchLogStatusCompleted:
-		return SearchStatusCompleted
-	case entity.SearchLogStatusFailed:
-		return SearchStatusFailed
-	default:
-		return SearchStatusUnspecified
 	}
 }

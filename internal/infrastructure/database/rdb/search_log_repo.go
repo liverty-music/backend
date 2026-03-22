@@ -18,11 +18,6 @@ const (
 		FROM latest_search_logs
 		WHERE artist_id = $1
 	`
-	listSearchLogsByArtistIDsQuery = `
-		SELECT artist_id, searched_at, status
-		FROM latest_search_logs
-		WHERE artist_id = ANY($1)
-	`
 	upsertSearchLogQuery = `
 		INSERT INTO latest_search_logs (artist_id, searched_at, status)
 		VALUES ($1, NOW(), $2)
@@ -53,28 +48,6 @@ func (r *SearchLogRepository) GetByArtistID(ctx context.Context, artistID string
 		return nil, toAppErr(err, "failed to get search log", slog.String("artist_id", artistID))
 	}
 	return &log, nil
-}
-
-// ListByArtistIDs retrieves search logs for multiple artists.
-func (r *SearchLogRepository) ListByArtistIDs(ctx context.Context, artistIDs []string) ([]*entity.SearchLog, error) {
-	rows, err := r.db.Pool.Query(ctx, listSearchLogsByArtistIDsQuery, artistIDs)
-	if err != nil {
-		return nil, toAppErr(err, "failed to list search logs")
-	}
-	defer rows.Close()
-
-	var logs []*entity.SearchLog
-	for rows.Next() {
-		var log entity.SearchLog
-		if err := rows.Scan(&log.ArtistID, &log.SearchTime, &log.Status); err != nil {
-			return nil, toAppErr(err, "failed to scan search log")
-		}
-		logs = append(logs, &log)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "failed to iterate search logs")
-	}
-	return logs, nil
 }
 
 // Upsert creates or updates the search log for an artist with the given status.

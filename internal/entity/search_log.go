@@ -37,10 +37,6 @@ type SearchLogRepository interface {
 	//  - NotFound: If no search log exists for the artist.
 	GetByArtistID(ctx context.Context, artistID string) (*SearchLog, error)
 
-	// ListByArtistIDs retrieves search logs for multiple artists.
-	// Artists without a search log entry are omitted from the result.
-	ListByArtistIDs(ctx context.Context, artistIDs []string) ([]*SearchLog, error)
-
 	// Upsert creates or updates the search log for an artist with the given status.
 	//
 	// # Possible errors
