@@ -10,7 +10,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -134,7 +133,44 @@ func TestConcertHandler_List(t *testing.T) {
 func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 	t.Parallel()
 
-	t.Run("success", func(t *testing.T) {
+	t.Run("success_returns_concerts", func(t *testing.T) {
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
+		concertUC := mocks.NewMockConcertUseCase(t)
+		h := rpc.NewConcertHandler(concertUC, logger)
+
+		artistID := "artist-123"
+		date := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+		venueName := "Tokyo Dome"
+		concerts := []*entity.Concert{
+			{
+				Event: entity.Event{
+					ID: "c1", Title: "Summer Live",
+					ListedVenueName: &venueName,
+					LocalDate:       date,
+				},
+				ArtistID: artistID,
+			},
+		}
+
+		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(concerts, nil)
+
+		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
+			ArtistId: &entityv1.ArtistId{Value: artistID},
+		})
+
+		resp, err := h.SearchNewConcerts(context.Background(), req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Len(t, resp.Msg.Concerts, 1)
+		assert.Equal(t, "Summer Live", resp.Msg.Concerts[0].Title.GetValue())
+	})
+
+	t.Run("success_no_concerts", func(t *testing.T) {
 		t.Parallel()
 
 		logger, err := logging.New()
@@ -145,7 +181,7 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 
 		artistID := "artist-123"
 
-		concertUC.EXPECT().AsyncSearchNewConcerts(mock.Anything, artistID).Return(nil)
+		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(nil, nil)
 
 		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
 			ArtistId: &entityv1.ArtistId{Value: artistID},
@@ -155,6 +191,7 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
+		assert.Empty(t, resp.Msg.Concerts)
 	})
 
 	t.Run("failure", func(t *testing.T) {
@@ -167,9 +204,8 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		h := rpc.NewConcertHandler(concertUC, logger)
 
 		artistID := "artist-123"
-		expectedErr := assert.AnError
 
-		concertUC.EXPECT().AsyncSearchNewConcerts(mock.Anything, artistID).Return(expectedErr)
+		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(nil, assert.AnError)
 
 		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
 			ArtistId: &entityv1.ArtistId{Value: artistID},
@@ -179,7 +215,6 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
-		assert.Equal(t, expectedErr, err)
 	})
 
 	t.Run("invalid_argument", func(t *testing.T) {
@@ -223,112 +258,5 @@ func TestConcertHandler_ListByFollower(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
-	})
-}
-
-func TestConcertHandler_ListSearchStatuses(t *testing.T) {
-	t.Parallel()
-
-	t.Run("success_multiple_statuses", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
-
-		concertUC.EXPECT().ListSearchStatuses(mock.Anything, []string{"a1", "a2", "a3"}).
-			Return([]*usecase.SearchStatus{
-				{ArtistID: "a1", Status: usecase.SearchStatusCompleted},
-				{ArtistID: "a2", Status: usecase.SearchStatusPending},
-				{ArtistID: "a3", Status: usecase.SearchStatusFailed},
-			}, nil)
-
-		req := connect.NewRequest(&concertv1.ListSearchStatusesRequest{
-			ArtistIds: []*entityv1.ArtistId{
-				{Value: "a1"},
-				{Value: "a2"},
-				{Value: "a3"},
-			},
-		})
-
-		resp, err := h.ListSearchStatuses(context.Background(), req)
-
-		assert.NoError(t, err)
-		assert.Len(t, resp.Msg.Statuses, 3)
-		assert.Equal(t, "a1", resp.Msg.Statuses[0].ArtistId.Value)
-		assert.Equal(t, concertv1.SearchStatus_SEARCH_STATUS_COMPLETED, resp.Msg.Statuses[0].Status)
-		assert.Equal(t, "a2", resp.Msg.Statuses[1].ArtistId.Value)
-		assert.Equal(t, concertv1.SearchStatus_SEARCH_STATUS_PENDING, resp.Msg.Statuses[1].Status)
-		assert.Equal(t, "a3", resp.Msg.Statuses[2].ArtistId.Value)
-		assert.Equal(t, concertv1.SearchStatus_SEARCH_STATUS_FAILED, resp.Msg.Statuses[2].Status)
-	})
-
-	t.Run("empty_artist_ids", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
-
-		req := connect.NewRequest(&concertv1.ListSearchStatusesRequest{
-			ArtistIds: nil,
-		})
-
-		resp, err := h.ListSearchStatuses(context.Background(), req)
-
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-	})
-
-	t.Run("usecase_error", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
-
-		concertUC.EXPECT().ListSearchStatuses(mock.Anything, []string{"a1"}).
-			Return(nil, assert.AnError)
-
-		req := connect.NewRequest(&concertv1.ListSearchStatusesRequest{
-			ArtistIds: []*entityv1.ArtistId{{Value: "a1"}},
-		})
-
-		resp, err := h.ListSearchStatuses(context.Background(), req)
-
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-	})
-
-	t.Run("unspecified_status", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
-
-		concertUC.EXPECT().ListSearchStatuses(mock.Anything, []string{"unknown"}).
-			Return([]*usecase.SearchStatus{
-				{ArtistID: "unknown", Status: usecase.SearchStatusUnspecified},
-			}, nil)
-
-		req := connect.NewRequest(&concertv1.ListSearchStatusesRequest{
-			ArtistIds: []*entityv1.ArtistId{{Value: "unknown"}},
-		})
-
-		resp, err := h.ListSearchStatuses(context.Background(), req)
-
-		assert.NoError(t, err)
-		assert.Len(t, resp.Msg.Statuses, 1)
-		assert.Equal(t, concertv1.SearchStatus_SEARCH_STATUS_UNSPECIFIED, resp.Msg.Statuses[0].Status)
 	})
 }

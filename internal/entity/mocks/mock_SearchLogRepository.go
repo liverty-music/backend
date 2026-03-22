@@ -128,65 +128,6 @@ func (_c *MockSearchLogRepository_GetByArtistID_Call) RunAndReturn(run func(cont
 	return _c
 }
 
-// ListByArtistIDs provides a mock function with given fields: ctx, artistIDs
-func (_m *MockSearchLogRepository) ListByArtistIDs(ctx context.Context, artistIDs []string) ([]*entity.SearchLog, error) {
-	ret := _m.Called(ctx, artistIDs)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListByArtistIDs")
-	}
-
-	var r0 []*entity.SearchLog
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, []string) ([]*entity.SearchLog, error)); ok {
-		return rf(ctx, artistIDs)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, []string) []*entity.SearchLog); ok {
-		r0 = rf(ctx, artistIDs)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.SearchLog)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, []string) error); ok {
-		r1 = rf(ctx, artistIDs)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockSearchLogRepository_ListByArtistIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByArtistIDs'
-type MockSearchLogRepository_ListByArtistIDs_Call struct {
-	*mock.Call
-}
-
-// ListByArtistIDs is a helper method to define mock.On call
-//   - ctx context.Context
-//   - artistIDs []string
-func (_e *MockSearchLogRepository_Expecter) ListByArtistIDs(ctx interface{}, artistIDs interface{}) *MockSearchLogRepository_ListByArtistIDs_Call {
-	return &MockSearchLogRepository_ListByArtistIDs_Call{Call: _e.mock.On("ListByArtistIDs", ctx, artistIDs)}
-}
-
-func (_c *MockSearchLogRepository_ListByArtistIDs_Call) Run(run func(ctx context.Context, artistIDs []string)) *MockSearchLogRepository_ListByArtistIDs_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]string))
-	})
-	return _c
-}
-
-func (_c *MockSearchLogRepository_ListByArtistIDs_Call) Return(_a0 []*entity.SearchLog, _a1 error) *MockSearchLogRepository_ListByArtistIDs_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockSearchLogRepository_ListByArtistIDs_Call) RunAndReturn(run func(context.Context, []string) ([]*entity.SearchLog, error)) *MockSearchLogRepository_ListByArtistIDs_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // UpdateStatus provides a mock function with given fields: ctx, artistID, status
 func (_m *MockSearchLogRepository) UpdateStatus(ctx context.Context, artistID string, status entity.SearchLogStatus) error {
 	ret := _m.Called(ctx, artistID, status)

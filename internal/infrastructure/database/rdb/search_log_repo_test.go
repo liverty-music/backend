@@ -115,48 +115,6 @@ func TestSearchLogRepository_GetByArtistID(t *testing.T) {
 	})
 }
 
-func TestSearchLogRepository_ListByArtistIDs(t *testing.T) {
-	cleanDatabase(t)
-	searchLogRepo := rdb.NewSearchLogRepository(testDB)
-	ctx := context.Background()
-
-	// Setup: Create test artists
-	artistIDs := []string{
-		seedArtist(t, "List Artist 1", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4a01"),
-		seedArtist(t, "List Artist 2", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4a02"),
-		seedArtist(t, "List Artist 3", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4a03"),
-	}
-
-	t.Run("returns empty slice for no matches", func(t *testing.T) {
-		logs, err := searchLogRepo.ListByArtistIDs(ctx, []string{"018b2f19-e591-7d12-bf9e-000000000000"})
-		require.NoError(t, err)
-		assert.Empty(t, logs)
-	})
-
-	t.Run("returns logs for matching artists only", func(t *testing.T) {
-		// Insert logs for artist 1 and 2 but not 3
-		err := searchLogRepo.Upsert(ctx, artistIDs[0], entity.SearchLogStatusCompleted)
-		require.NoError(t, err)
-		err = searchLogRepo.Upsert(ctx, artistIDs[1], entity.SearchLogStatusPending)
-		require.NoError(t, err)
-
-		logs, err := searchLogRepo.ListByArtistIDs(ctx, artistIDs)
-		require.NoError(t, err)
-		assert.Len(t, logs, 2)
-
-		// Build a map for easier assertions
-		logMap := make(map[string]*entity.SearchLog)
-		for _, l := range logs {
-			logMap[l.ArtistID] = l
-		}
-
-		assert.Equal(t, entity.SearchLogStatusCompleted, logMap[artistIDs[0]].Status)
-		assert.Equal(t, entity.SearchLogStatusPending, logMap[artistIDs[1]].Status)
-		_, exists := logMap[artistIDs[2]]
-		assert.False(t, exists)
-	})
-}
-
 func TestSearchLogRepository_UpdateStatus(t *testing.T) {
 	repo := rdb.NewSearchLogRepository(testDB)
 	ctx := context.Background()
