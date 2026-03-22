@@ -88,39 +88,20 @@ func (h *ConcertHandler) ListWithProximity(ctx context.Context, req *connect.Req
 	}), nil
 }
 
-// SearchNewConcerts enqueues an asynchronous concert discovery job and returns immediately.
-// The actual search runs in a background goroutine. Use GetSearchStatus to poll for completion.
+// SearchNewConcerts discovers new concerts for the given artist synchronously
+// and returns them in the response.
 func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[concertv1.SearchNewConcertsRequest]) (*connect.Response[concertv1.SearchNewConcertsResponse], error) {
 	artistID := req.Msg.GetArtistId().GetValue()
 	if artistID == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("artist_id cannot be empty"))
 	}
 
-	if err := h.concertUseCase.AsyncSearchNewConcerts(ctx, artistID); err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&concertv1.SearchNewConcertsResponse{}), nil
-}
-
-// ListSearchStatuses returns the current search status for one or more artists.
-func (h *ConcertHandler) ListSearchStatuses(ctx context.Context, req *connect.Request[concertv1.ListSearchStatusesRequest]) (*connect.Response[concertv1.ListSearchStatusesResponse], error) {
-	ids := req.Msg.GetArtistIds()
-	if len(ids) == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("artist_ids cannot be empty"))
-	}
-
-	artistIDs := make([]string, 0, len(ids))
-	for _, id := range ids {
-		artistIDs = append(artistIDs, id.GetValue())
-	}
-
-	statuses, err := h.concertUseCase.ListSearchStatuses(ctx, artistIDs)
+	concerts, err := h.concertUseCase.SearchNewConcerts(ctx, artistID)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&concertv1.ListSearchStatusesResponse{
-		Statuses: mapper.SearchStatusesToProto(statuses),
+	return connect.NewResponse(&concertv1.SearchNewConcertsResponse{
+		Concerts: mapper.ConcertsToProto(concerts),
 	}), nil
 }

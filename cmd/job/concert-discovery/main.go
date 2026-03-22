@@ -70,7 +70,7 @@ func run() error {
 		// SearchNewConcerts calls the external API, deduplicates, and publishes
 		// a concert.discovered.v1 event. Concert persistence, notification, and
 		// venue enrichment are handled asynchronously by event consumers.
-		if err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID); err != nil {
+		if _, err := app.ConcertUC.SearchNewConcerts(ctx, artist.ID); err != nil {
 			totalFailed++
 			consecutiveErrors++
 			app.Logger.Error(ctx, "failed to search concerts for artist", err,
