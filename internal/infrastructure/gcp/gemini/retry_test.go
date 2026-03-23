@@ -43,10 +43,10 @@ func TestSearch_RetryOnTransientError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := callCount.Add(1)
 
-		// First call returns 504, second succeeds
+		// First call returns 503 (retryable), second succeeds
 		if n == 1 {
-			w.WriteHeader(http.StatusGatewayTimeout)
-			if _, err := w.Write([]byte(`{"error":{"code":504,"message":"Deadline exceeded","status":"DEADLINE_EXCEEDED"}}`)); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			if _, err := w.Write([]byte(`{"error":{"code":503,"message":"Service unavailable","status":"UNAVAILABLE"}}`)); err != nil {
 				t.Fatal(err)
 			}
 			return
@@ -94,8 +94,8 @@ func TestSearch_AllRetriesExhausted(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
-		w.WriteHeader(http.StatusGatewayTimeout)
-		if _, err := w.Write([]byte(`{"error":{"code":504,"message":"Deadline exceeded","status":"DEADLINE_EXCEEDED"}}`)); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		if _, err := w.Write([]byte(`{"error":{"code":503,"message":"Service unavailable","status":"UNAVAILABLE"}}`)); err != nil {
 			t.Fatal(err)
 		}
 	}))
@@ -111,7 +111,7 @@ func TestSearch_AllRetriesExhausted(t *testing.T) {
 
 	assert.Nil(t, got)
 	assert.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrDeadlineExceeded)
+	assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	assert.Equal(t, int32(3), callCount.Load(), "should have called API 3 times (all retries exhausted)")
 }
 
@@ -161,8 +161,8 @@ func TestSearch_ContextCancellationStopsRetry(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
-		w.WriteHeader(http.StatusGatewayTimeout)
-		if _, err := w.Write([]byte(`{"error":{"code":504,"message":"Deadline exceeded","status":"DEADLINE_EXCEEDED"}}`)); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		if _, err := w.Write([]byte(`{"error":{"code":503,"message":"Service unavailable","status":"UNAVAILABLE"}}`)); err != nil {
 			t.Fatal(err)
 		}
 	}))
