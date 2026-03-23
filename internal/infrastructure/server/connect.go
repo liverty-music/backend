@@ -128,7 +128,7 @@ func NewConnectServer(
 
 	// Root mux: health check is public, everything else requires auth
 	rootMux := http.NewServeMux()
-	rootMux.Handle(healthPath, healthH)
+	rootMux.Handle(healthPath, http.TimeoutHandler(healthH, serverCfg.HandlerTimeout, ""))
 	rootMux.Handle("/", authMiddleware.Wrap(protectedMux))
 
 	address := net.JoinHostPort(serverCfg.Host, strconv.Itoa(serverCfg.Port))
