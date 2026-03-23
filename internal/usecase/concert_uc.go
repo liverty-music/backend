@@ -264,10 +264,8 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) ([
 		return nil, fmt.Errorf("failed to list existing concerts: %w", err)
 	}
 
-	// Search new concerts via external API (60s timeout for Gemini call)
-	searchCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	scraped, err := uc.concertSearcher.Search(searchCtx, artist, site, time.Now())
+	// Search new concerts via external API (deadline inherited from HandlerTimeout)
+	scraped, err := uc.concertSearcher.Search(ctx, artist, site, time.Now())
 	if err != nil {
 		uc.markSearchFailed(ctx, artistID)
 		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
