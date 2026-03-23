@@ -18,9 +18,29 @@ func TestIsRetryable(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "504 Gateway Timeout is not retryable (Gemini deadline expired)",
-			err:  genai.APIError{Code: http.StatusGatewayTimeout, Message: "timeout"},
-			want: false,
+			name: "401 Unauthorized is retryable (transient WI token refresh)",
+			err:  genai.APIError{Code: http.StatusUnauthorized, Message: "unauthorized"},
+			want: true,
+		},
+		{
+			name: "408 Request Timeout is retryable",
+			err:  genai.APIError{Code: http.StatusRequestTimeout, Message: "timeout"},
+			want: true,
+		},
+		{
+			name: "429 Too Many Requests is retryable",
+			err:  genai.APIError{Code: http.StatusTooManyRequests, Message: "rate limited"},
+			want: true,
+		},
+		{
+			name: "500 Internal Server Error is retryable",
+			err:  genai.APIError{Code: http.StatusInternalServerError, Message: "internal"},
+			want: true,
+		},
+		{
+			name: "502 Bad Gateway is retryable",
+			err:  genai.APIError{Code: http.StatusBadGateway, Message: "bad gateway"},
+			want: true,
 		},
 		{
 			name: "503 Service Unavailable is retryable",
@@ -28,8 +48,8 @@ func TestIsRetryable(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "429 Too Many Requests is retryable",
-			err:  genai.APIError{Code: http.StatusTooManyRequests, Message: "rate limited"},
+			name: "504 Gateway Timeout is retryable (each retry uses fresh context)",
+			err:  genai.APIError{Code: http.StatusGatewayTimeout, Message: "timeout"},
 			want: true,
 		},
 		{
@@ -40,16 +60,6 @@ func TestIsRetryable(t *testing.T) {
 		{
 			name: "400 Bad Request is not retryable",
 			err:  genai.APIError{Code: http.StatusBadRequest, Message: "bad request"},
-			want: false,
-		},
-		{
-			name: "401 Unauthorized is retryable (transient WI token refresh)",
-			err:  genai.APIError{Code: http.StatusUnauthorized, Message: "unauthorized"},
-			want: true,
-		},
-		{
-			name: "500 Internal Server Error is not retryable",
-			err:  genai.APIError{Code: http.StatusInternalServerError, Message: "internal"},
 			want: false,
 		},
 		{
