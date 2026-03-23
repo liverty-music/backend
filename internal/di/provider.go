@@ -248,12 +248,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return concertconnect.NewConcertServiceHandler(
-				rpc.NewConcertHandler(concertUC, logger),
-				opts...,
-			)
-		},
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return pushconnect.NewPushNotificationServiceHandler(
 				rpc.NewPushNotificationHandler(pushNotificationUC, userRepo, logger),
 				opts...,
@@ -309,7 +303,21 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger.Warn(ctx, "⚠️  ZKP verification key not configured, entry verification is disabled")
 	}
 
-	srv := server.NewConnectServer(cfg.Server, logger, authFunc, healthHandler, handlers...)
+	// ConcertService requires a longer handler timeout because Gemini API + Google Search
+	// grounding takes 25-110s per call.
+	longTimeoutHandlers := []server.LongTimeoutRPCHandler{
+		{
+			HandlerFunc: func(opts ...connect.HandlerOption) (string, http.Handler) {
+				return concertconnect.NewConcertServiceHandler(
+					rpc.NewConcertHandler(concertUC, logger),
+					opts...,
+				)
+			},
+			Timeout: cfg.Server.ConcertHandlerTimeout,
+		},
+	}
+
+	srv := server.NewConnectServer(cfg.Server, logger, authFunc, healthHandler, longTimeoutHandlers, handlers...)
 
 	// Register shutdown phases.
 	// Drain: health → NOT_SERVING, then server drains in-flight requests,

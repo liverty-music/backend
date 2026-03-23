@@ -146,9 +146,14 @@ type ServerSettings struct {
 	// Read timeout in milliseconds
 	ReadTimeout time.Duration `envconfig:"SERVER_READ_TIMEOUT" default:"1000ms"`
 
-	// Handler timeout is an insurance safety net for all RPCs.
+	// Handler timeout is the default safety net for all RPCs.
 	// Individual RPC deadlines are controlled by client-side timeoutMs.
 	HandlerTimeout time.Duration `envconfig:"SERVER_HANDLER_TIMEOUT" default:"30s"`
+
+	// ConcertHandlerTimeout is the handler timeout for ConcertService RPCs.
+	// Gemini API + Google Search grounding takes 25-110s per call, so this
+	// must be larger than the default HandlerTimeout.
+	ConcertHandlerTimeout time.Duration `envconfig:"SERVER_CONCERT_HANDLER_TIMEOUT" default:"120s"`
 
 	// Idle timeout in seconds
 	IdleTimeout time.Duration `envconfig:"SERVER_IDLE_TIMEOUT" default:"3s"`
