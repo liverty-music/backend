@@ -34,12 +34,21 @@ type RPCHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler)
 // HealthHandlerFunc is a function that returns a path and handler for the health check endpoint.
 type HealthHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler)
 
+// LongTimeoutRPCHandler groups an RPC handler that requires a longer timeout
+// than the default HandlerTimeout (e.g., ConcertService with Gemini API calls).
+type LongTimeoutRPCHandler struct {
+	HandlerFunc RPCHandlerFunc
+	Timeout     time.Duration
+}
+
 // NewConnectServer creates a new Connect server instance.
+// longTimeoutHandlers are wrapped with their own http.TimeoutHandler instead of the default.
 func NewConnectServer(
 	serverCfg config.ServerSettings,
 	logger *logging.Logger,
 	authFunc authn.AuthFunc,
 	healthHandler HealthHandlerFunc,
+	longTimeoutHandlers []LongTimeoutRPCHandler,
 	handlerFuncs ...RPCHandlerFunc,
 ) *ConnectServer {
 	// Create interceptors
@@ -98,9 +107,17 @@ func NewConnectServer(
 
 	// Protected mux — all RPC services
 	protectedMux := http.NewServeMux()
+
+	// Long-timeout handlers get their own http.TimeoutHandler wrapping.
+	for _, lth := range longTimeoutHandlers {
+		path, handler := lth.HandlerFunc(handlerOpts...)
+		protectedMux.Handle(path, http.TimeoutHandler(handler, lth.Timeout, ""))
+	}
+
+	// Default-timeout handlers — each wrapped with the standard HandlerTimeout.
 	for _, handlerFunc := range handlerFuncs {
 		path, handler := handlerFunc(handlerOpts...)
-		protectedMux.Handle(path, handler)
+		protectedMux.Handle(path, http.TimeoutHandler(handler, serverCfg.HandlerTimeout, ""))
 	}
 
 	// Health check handler (no auth required for K8s probes)
@@ -111,7 +128,7 @@ func NewConnectServer(
 
 	// Root mux: health check is public, everything else requires auth
 	rootMux := http.NewServeMux()
-	rootMux.Handle(healthPath, healthH)
+	rootMux.Handle(healthPath, http.TimeoutHandler(healthH, serverCfg.HandlerTimeout, ""))
 	rootMux.Handle("/", authMiddleware.Wrap(protectedMux))
 
 	address := net.JoinHostPort(serverCfg.Host, strconv.Itoa(serverCfg.Port))
@@ -125,7 +142,7 @@ func NewConnectServer(
 
 	server := &http.Server{
 		Addr:              address,
-		Handler:           http.TimeoutHandler(handler, serverCfg.HandlerTimeout, ""),
+		Handler:           handler,
 		Protocols:         p,
 		ReadHeaderTimeout: serverCfg.ReadHeaderTimeout,
 		ReadTimeout:       serverCfg.ReadTimeout,

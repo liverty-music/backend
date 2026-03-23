@@ -77,6 +77,11 @@ Constraints:
 	// maxRawTextLogLen is the maximum number of characters of Gemini's raw response
 	// text to include in WARN logs. Truncated to stay within Cloud Logging limits.
 	maxRawTextLogLen = 1000
+
+	// geminiCallTimeout is the per-attempt timeout for each Gemini API call.
+	// Google Search grounding typically takes 25-110s; 120s provides sufficient
+	// headroom for a single attempt.
+	geminiCallTimeout = 120 * time.Second
 )
 
 var (
@@ -216,13 +221,20 @@ func (s *ConcertSearcher) Search(
 	bo := &backoff.ExponentialBackOff{
 		InitialInterval: 1 * time.Second,
 		Multiplier:      2.0,
-		MaxInterval:     10 * time.Second,
+		MaxInterval:     60 * time.Second,
 	}
 
 	var lastTransientErr error
 	var lastPermanentErr error
 	results, err := backoff.Retry(ctx, func() ([]*entity.ScrapedConcert, error) {
-		resp, err := s.client.Models.GenerateContent(ctx, s.config.ModelName, genai.Text(prompt), generateCfg)
+		// Create an independent context per attempt so that:
+		// 1. Each retry gets a fresh 120s deadline (not constrained by parent RPC timeout).
+		// 2. Client cancellation (e.g., page navigation) does not abort the Gemini call.
+		// 3. Trace context (trace_id, span_id) is preserved via WithoutCancel.
+		reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), geminiCallTimeout)
+		defer cancel()
+
+		resp, err := s.client.Models.GenerateContent(reqCtx, s.config.ModelName, genai.Text(prompt), generateCfg)
 		if err != nil {
 			s.logger.Warn(ctx, "gemini model call failed",
 				append(attrs, slog.String("error", err.Error()))...)

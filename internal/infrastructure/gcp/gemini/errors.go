@@ -65,12 +65,20 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 
 // isRetryable reports whether err is a transient Gemini API error that
 // may succeed on a subsequent attempt.
-// It returns true for HTTP 401 (Unauthorized — transient WI token refresh),
-// 503 (Service Unavailable), and 429 (Too Many Requests).
+//
+// Retryable status codes are aligned with Google's Vertex AI retry strategy:
+// https://cloud.google.com/vertex-ai/generative-ai/docs/retry-strategy
+//
+//   - 401 (Unauthorized): Transient GKE Workload Identity token refresh.
+//   - 408 (Request Timeout): Server did not receive complete request in time.
+//   - 429 (Too Many Requests): Rate limit exceeded.
+//   - 500 (Internal Server Error): Transient server-side failure.
+//   - 502 (Bad Gateway): Upstream proxy failure.
+//   - 503 (Service Unavailable): Server temporarily overloaded.
+//   - 504 (Gateway Timeout): Deadline exceeded. Retryable because each attempt
+//     uses an independent context with a fresh 120s timeout.
 //
 // NOT retryable:
-//   - 504 (Gateway Timeout): Gemini's own deadline expired. Production data shows
-//     retrying wastes 15-25s per attempt with no improvement.
 //   - 499 (Client Cancelled): Gemini cancelled the operation server-side.
 //   - Context errors (DeadlineExceeded, Canceled): caller's own deadline expired.
 func isRetryable(err error) bool {
@@ -80,8 +88,12 @@ func isRetryable(err error) bool {
 	}
 	switch apiErr.Code {
 	case http.StatusUnauthorized, // Transient: GKE Workload Identity token refresh
+		http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
 		http.StatusServiceUnavailable,
-		http.StatusTooManyRequests:
+		http.StatusGatewayTimeout:
 		return true
 	default:
 		return false
