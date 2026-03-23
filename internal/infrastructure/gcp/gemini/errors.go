@@ -66,10 +66,13 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 // isRetryable reports whether err is a transient Gemini API error that
 // may succeed on a subsequent attempt.
 // It returns true for HTTP 401 (Unauthorized — transient WI token refresh),
-// 504 (Gateway Timeout), 503 (Service Unavailable),
-// 429 (Too Many Requests), and 499 (Client Cancelled on Gemini side).
-// Context errors (DeadlineExceeded, Canceled) are NOT retryable because
-// they indicate the caller's own deadline expired.
+// 503 (Service Unavailable), and 429 (Too Many Requests).
+//
+// NOT retryable:
+//   - 504 (Gateway Timeout): Gemini's own deadline expired. Production data shows
+//     retrying wastes 15-25s per attempt with no improvement.
+//   - 499 (Client Cancelled): Gemini cancelled the operation server-side.
+//   - Context errors (DeadlineExceeded, Canceled): caller's own deadline expired.
 func isRetryable(err error) bool {
 	var apiErr genai.APIError
 	if !errors.As(err, &apiErr) {
@@ -77,10 +80,8 @@ func isRetryable(err error) bool {
 	}
 	switch apiErr.Code {
 	case http.StatusUnauthorized, // Transient: GKE Workload Identity token refresh
-		http.StatusGatewayTimeout,
 		http.StatusServiceUnavailable,
-		http.StatusTooManyRequests,
-		499: // Gemini-specific: operation cancelled on the server side
+		http.StatusTooManyRequests:
 		return true
 	default:
 		return false

@@ -18,9 +18,9 @@ func TestIsRetryable(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "504 Gateway Timeout is retryable",
+			name: "504 Gateway Timeout is not retryable (Gemini deadline expired)",
 			err:  genai.APIError{Code: http.StatusGatewayTimeout, Message: "timeout"},
-			want: true,
+			want: false,
 		},
 		{
 			name: "503 Service Unavailable is retryable",
@@ -33,9 +33,9 @@ func TestIsRetryable(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "499 Client Cancelled is retryable",
+			name: "499 Client Cancelled is not retryable (Gemini server-side cancel)",
 			err:  genai.APIError{Code: 499, Message: "cancelled"},
-			want: true,
+			want: false,
 		},
 		{
 			name: "400 Bad Request is not retryable",
