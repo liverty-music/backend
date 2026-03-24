@@ -10,10 +10,12 @@ CREATE TABLE ticket_emails (
     lottery_start_at TIMESTAMPTZ,
     lottery_end_at TIMESTAMPTZ,
     application_url TEXT,
-    journey_status SMALLINT,
+    lottery_result SMALLINT,
+    payment_status SMALLINT,
     CONSTRAINT chk_ticket_emails_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_ticket_emails_email_type CHECK (email_type BETWEEN 1 AND 2),
-    CONSTRAINT chk_ticket_emails_journey_status CHECK (journey_status IS NULL OR journey_status BETWEEN 1 AND 5)
+    CONSTRAINT chk_ticket_emails_lottery_result CHECK (lottery_result IS NULL OR lottery_result BETWEEN 1 AND 2),
+    CONSTRAINT chk_ticket_emails_payment_status CHECK (payment_status IS NULL OR payment_status BETWEEN 1 AND 2)
 );
 
 COMMENT ON TABLE ticket_emails IS 'Ticket-related emails imported via PWA Share Target and parsed by Gemini Flash. Linked to ticket_journeys via (user_id, event_id).';
@@ -27,7 +29,8 @@ COMMENT ON COLUMN ticket_emails.payment_deadline_at IS 'Payment due date extract
 COMMENT ON COLUMN ticket_emails.lottery_start_at IS 'Lottery application period start from lottery info emails';
 COMMENT ON COLUMN ticket_emails.lottery_end_at IS 'Lottery application period end from lottery info emails';
 COMMENT ON COLUMN ticket_emails.application_url IS 'URL for lottery application from lottery info emails';
-COMMENT ON COLUMN ticket_emails.journey_status IS 'TicketJourney status derived from email: 1=TRACKING, 2=APPLIED, 3=LOST, 4=UNPAID, 5=PAID';
+COMMENT ON COLUMN ticket_emails.lottery_result IS 'Lottery outcome: 1=WON, 2=LOST. Present only for LOTTERY_RESULT emails.';
+COMMENT ON COLUMN ticket_emails.payment_status IS 'Payment state: 1=UNPAID, 2=PAID. Present only for LOTTERY_RESULT emails where lottery_result=WON.';
 
 CREATE INDEX idx_ticket_emails_user_event ON ticket_emails(user_id, event_id);
 COMMENT ON INDEX idx_ticket_emails_user_event IS 'Optimizes lookup of imported emails for a user-event combination';

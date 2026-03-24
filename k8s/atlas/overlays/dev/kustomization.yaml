@@ -14,3 +14,28 @@ patches:
     - op: replace
       path: /spec/credentials/host
       value: "6ea7e9f2efe1.3saucev2x125n.asia-northeast2.sql.goog"
+    # dev-only: Atlas Operator generates devDB pods without nodeSelector by default.
+    # The dev cluster is spot-only (taint: cloud.google.com/compute-class=autopilot-spot:NoSchedule),
+    # so the pod would stay Pending indefinitely without this patch.
+    # Also right-sizes resources for the ephemeral schema-diffing workload (vs Autopilot default 500m/2Gi).
+    - op: add
+      path: /spec/devDB
+      value:
+        spec:
+          nodeSelector:
+            cloud.google.com/compute-class: autopilot-spot
+          tolerations:
+          - key: cloud.google.com/compute-class
+            operator: Equal
+            value: autopilot-spot
+            effect: NoSchedule
+          containers:
+          - name: postgres
+            image: postgres:16
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 200m
+                memory: 512Mi
