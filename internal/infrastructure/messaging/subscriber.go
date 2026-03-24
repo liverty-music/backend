@@ -40,6 +40,11 @@ func NewSubscriber(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCh
 			DurableCalculator: func(_, topic string) string {
 				return strings.ReplaceAll(topic, ".", "_")
 			},
+			AckAsync: true,
+			SubscribeOptions: []nats.SubOpt{
+				nats.AckExplicit(),
+				nats.DeliverAll(),
+			},
 		},
 	}, wmLogger)
 	if err != nil {
