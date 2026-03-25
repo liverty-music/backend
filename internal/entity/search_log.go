@@ -28,6 +28,18 @@ type SearchLog struct {
 	Status SearchLogStatus
 }
 
+// IsFresh reports whether this search log represents a recently completed search
+// that is still within the given TTL. Returns false if the status is not Completed.
+func (sl *SearchLog) IsFresh(now time.Time, ttl time.Duration) bool {
+	return sl.Status == SearchLogStatusCompleted && now.Sub(sl.SearchTime) < ttl
+}
+
+// IsPending reports whether this search log represents an in-progress search
+// that has not yet exceeded the given timeout. Returns false if the status is not Pending.
+func (sl *SearchLog) IsPending(now time.Time, timeout time.Duration) bool {
+	return sl.Status == SearchLogStatusPending && now.Sub(sl.SearchTime) < timeout
+}
+
 // SearchLogRepository defines the data access interface for search logs.
 type SearchLogRepository interface {
 	// GetByArtistID retrieves the search log for a specific artist.

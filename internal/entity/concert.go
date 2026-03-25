@@ -38,6 +38,31 @@ type ScrapedConcert struct {
 	SourceURL string `json:"source_url"`
 }
 
+// ToConcert converts a ScrapedConcert into a Concert entity using the provided IDs.
+//
+// Two usage patterns exist:
+//
+//   - Search path (concert_uc): pass empty strings for eventID and venueID.
+//     The returned Concert is for immediate return to callers and is never persisted.
+//   - Creation path (concert_creation_uc): pass UUIDs for all three IDs.
+//     The returned Concert is bulk-inserted into the database.
+func (sc *ScrapedConcert) ToConcert(artistID, eventID, venueID string) *Concert {
+	listedName := sc.ListedVenueName
+	return &Concert{
+		Event: Event{
+			ID:              eventID,
+			VenueID:         venueID,
+			Title:           sc.Title,
+			ListedVenueName: &listedName,
+			LocalDate:       sc.LocalDate,
+			StartTime:       sc.StartTime,
+			OpenTime:        sc.OpenTime,
+			SourceURL:       sc.SourceURL,
+		},
+		ArtistID: artistID,
+	}
+}
+
 // ScrapedConcerts is a slice of ScrapedConcert pointers with domain-level operations.
 type ScrapedConcerts []*ScrapedConcert
 

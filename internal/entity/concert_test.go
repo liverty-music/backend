@@ -7,6 +7,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConcert_ProximityTo_Extended(t *testing.T) {
@@ -281,6 +282,118 @@ func TestGroupByDateAndProximity(t *testing.T) {
 				assert.Len(t, g.Nearby, tt.wantDate1Len[1])
 				assert.Len(t, g.Away, tt.wantDate1Len[2])
 			}
+		})
+	}
+}
+
+func TestScrapedConcert_ToConcert(t *testing.T) {
+	t.Parallel()
+
+	localDate := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	startTime := time.Date(2026, 6, 15, 19, 0, 0, 0, time.UTC)
+	openTime := time.Date(2026, 6, 15, 18, 0, 0, 0, time.UTC)
+	adminArea := "JP-13"
+
+	tests := []struct {
+		name      string
+		sc        *entity.ScrapedConcert
+		artistID  string
+		eventID   string
+		venueID   string
+		wantCheck func(t *testing.T, got *entity.Concert)
+	}{
+		{
+			name: "maps all fields including optional times",
+			sc: &entity.ScrapedConcert{
+				Title:           "Live Show",
+				ListedVenueName: "Zepp Tokyo",
+				AdminArea:       &adminArea,
+				LocalDate:       localDate,
+				StartTime:       &startTime,
+				OpenTime:        &openTime,
+				SourceURL:       "https://example.com/live",
+			},
+			artistID: "artist-1",
+			eventID:  "event-1",
+			venueID:  "venue-1",
+			wantCheck: func(t *testing.T, got *entity.Concert) {
+				t.Helper()
+				assert.Equal(t, "artist-1", got.ArtistID)
+				assert.Equal(t, "event-1", got.ID)
+				assert.Equal(t, "venue-1", got.VenueID)
+				assert.Equal(t, "Live Show", got.Title)
+				assert.Equal(t, "Zepp Tokyo", *got.ListedVenueName)
+				assert.Equal(t, localDate, got.LocalDate)
+				assert.Equal(t, &startTime, got.StartTime)
+				assert.Equal(t, &openTime, got.OpenTime)
+				assert.Equal(t, "https://example.com/live", got.SourceURL)
+			},
+		},
+		{
+			name: "maps nil optional times",
+			sc: &entity.ScrapedConcert{
+				Title:           "Minimal Show",
+				ListedVenueName: "Some Venue",
+				LocalDate:       localDate,
+				SourceURL:       "https://example.com",
+			},
+			artistID: "artist-2",
+			eventID:  "",
+			venueID:  "",
+			wantCheck: func(t *testing.T, got *entity.Concert) {
+				t.Helper()
+				assert.Equal(t, "artist-2", got.ArtistID)
+				assert.Empty(t, got.ID)
+				assert.Empty(t, got.VenueID)
+				assert.Nil(t, got.StartTime)
+				assert.Nil(t, got.OpenTime)
+				assert.Equal(t, "Minimal Show", got.Title)
+			},
+		},
+		{
+			name: "distinct outputs for different IDs",
+			sc: &entity.ScrapedConcert{
+				Title:           "Same Show",
+				ListedVenueName: "Same Venue",
+				LocalDate:       localDate,
+				SourceURL:       "https://example.com",
+			},
+			artistID: "artist-A",
+			eventID:  "event-A",
+			venueID:  "venue-A",
+			wantCheck: func(t *testing.T, got *entity.Concert) {
+				t.Helper()
+				assert.Equal(t, "artist-A", got.ArtistID)
+				assert.Equal(t, "event-A", got.ID)
+				assert.Equal(t, "venue-A", got.VenueID)
+			},
+		},
+		{
+			name: "ListedVenueName is an independent copy",
+			sc: &entity.ScrapedConcert{
+				Title:           "Copy Test",
+				ListedVenueName: "Original Venue",
+				LocalDate:       localDate,
+				SourceURL:       "https://example.com",
+			},
+			artistID: "artist-3",
+			eventID:  "event-3",
+			venueID:  "venue-3",
+			wantCheck: func(t *testing.T, got *entity.Concert) {
+				t.Helper()
+				require.NotNil(t, got.ListedVenueName)
+				assert.Equal(t, "Original Venue", *got.ListedVenueName)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tt.sc.ToConcert(tt.artistID, tt.eventID, tt.venueID)
+			require.NotNil(t, got)
+			tt.wantCheck(t, got)
 		})
 	}
 }
