@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -20,14 +21,24 @@ import (
 
 // concertTestDeps holds all dependencies for ConcertUseCase tests.
 type concertTestDeps struct {
-	artistRepo    *mocks.MockArtistRepository
-	concertRepo   *mocks.MockConcertRepository
-	venueRepo     *mocks.MockVenueRepository
-	userRepo      *mocks.MockUserRepository
-	searchLogRepo *mocks.MockSearchLogRepository
-	searcher      *mocks.MockConcertSearcher
-	publisher     *gochannel.GoChannel
-	uc            usecase.ConcertUseCase
+	artistRepo       *mocks.MockArtistRepository
+	concertRepo      *mocks.MockConcertRepository
+	venueRepo        *mocks.MockVenueRepository
+	userRepo         *mocks.MockUserRepository
+	searchLogRepo    *mocks.MockSearchLogRepository
+	searcher         *mocks.MockConcertSearcher
+	centroidResolver usecase.CentroidResolver
+	publisher        *gochannel.GoChannel
+	uc               usecase.ConcertUseCase
+}
+
+// noopCentroidResolver is a test stub that always returns "not found".
+// Tests that exercise centroid resolution should supply a custom resolver via
+// usecase.NewConcertUseCase directly.
+type noopCentroidResolver struct{}
+
+func (noopCentroidResolver) ResolveCentroid(*entity.Home) (float64, float64, error) {
+	return 0, 0, fmt.Errorf("centroid not found")
 }
 
 func newConcertTestDeps(t *testing.T) *concertTestDeps {
@@ -35,15 +46,16 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 	logger := newTestLogger(t)
 	pub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 64}, watermill.NopLogger{})
 	d := &concertTestDeps{
-		artistRepo:    mocks.NewMockArtistRepository(t),
-		concertRepo:   mocks.NewMockConcertRepository(t),
-		venueRepo:     mocks.NewMockVenueRepository(t),
-		userRepo:      mocks.NewMockUserRepository(t),
-		searchLogRepo: mocks.NewMockSearchLogRepository(t),
-		searcher:      mocks.NewMockConcertSearcher(t),
-		publisher:     pub,
+		artistRepo:       mocks.NewMockArtistRepository(t),
+		concertRepo:      mocks.NewMockConcertRepository(t),
+		venueRepo:        mocks.NewMockVenueRepository(t),
+		userRepo:         mocks.NewMockUserRepository(t),
+		searchLogRepo:    mocks.NewMockSearchLogRepository(t),
+		searcher:         mocks.NewMockConcertSearcher(t),
+		centroidResolver: noopCentroidResolver{},
+		publisher:        pub,
 	}
-	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.userRepo, d.searchLogRepo, d.searcher, pub, logger)
+	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.userRepo, d.searchLogRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), logger)
 	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
@@ -396,6 +408,132 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+// TestSearchNewConcerts_TimingBoundaries verifies the cache TTL and pending timeout
+// boundaries using deterministic fake-clock time via testing/synctest. Each sub-test
+// runs inside a synctest.Test bubble so that time.Now() in production code uses virtual
+// time that advances only when explicitly slept.
+func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
+	t.Parallel()
+
+	artistID := "artist-1"
+	artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+	scraped := []*entity.ScrapedConcert{
+		{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), SourceURL: "https://example.com"},
+	}
+
+	t.Run("recently completed search is skipped (age < searchCacheTTL)", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := context.Background()
+			d := newConcertTestDeps(t)
+
+			// SearchTime is "now" at bubble start; 1 hour later is still fresh (TTL = 24h).
+			searchedAt := time.Now()
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.SearchLog{
+				ArtistID:   artistID,
+				SearchTime: searchedAt,
+				Status:     entity.SearchLogStatusCompleted,
+			}, nil).Once()
+
+			time.Sleep(1 * time.Hour) // advance fake clock — still within 24h TTL
+
+			got, err := d.uc.SearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err)
+			assert.Nil(t, got)
+		})
+	})
+
+	t.Run("stale completed search triggers re-search (age > searchCacheTTL)", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := context.Background()
+			d := newConcertTestDeps(t)
+
+			// SearchTime is "now" at bubble start; advance 25h to exceed 24h TTL.
+			searchedAt := time.Now()
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.SearchLog{
+				ArtistID:   artistID,
+				SearchTime: searchedAt,
+				Status:     entity.SearchLogStatusCompleted,
+			}, nil).Once()
+
+			time.Sleep(25 * time.Hour) // advance fake clock past TTL
+
+			d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+
+			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
+			assert.NoError(t, err)
+
+			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err)
+
+			got := receivePublishedConcerts(t, ctx, sub)
+			assert.Equal(t, 1, got, "stale cache should trigger re-search and publish")
+		})
+	})
+
+	t.Run("pending search within timeout is skipped (age < pendingTimeout)", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := context.Background()
+			d := newConcertTestDeps(t)
+
+			// SearchTime is "now"; advance 1 minute — still within 3-minute pendingTimeout.
+			searchedAt := time.Now()
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.SearchLog{
+				ArtistID:   artistID,
+				SearchTime: searchedAt,
+				Status:     entity.SearchLogStatusPending,
+			}, nil).Once()
+
+			time.Sleep(1 * time.Minute)
+
+			got, err := d.uc.SearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err)
+			assert.Nil(t, got)
+		})
+	})
+
+	t.Run("stale pending search is retried (age > pendingTimeout)", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := context.Background()
+			d := newConcertTestDeps(t)
+
+			// SearchTime is "now"; advance 4 minutes to exceed 3-minute pendingTimeout.
+			searchedAt := time.Now()
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.SearchLog{
+				ArtistID:   artistID,
+				SearchTime: searchedAt,
+				Status:     entity.SearchLogStatusPending,
+			}, nil).Once()
+
+			time.Sleep(4 * time.Minute) // advance fake clock past pendingTimeout
+
+			d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+
+			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
+			assert.NoError(t, err)
+
+			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err)
+
+			got := receivePublishedConcerts(t, ctx, sub)
+			assert.Equal(t, 1, got, "stale pending should trigger re-search and publish")
+		})
+	})
 }
 
 // strPtr returns a pointer to the given string. Test helper.
