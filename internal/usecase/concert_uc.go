@@ -204,14 +204,15 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		return nil, fmt.Errorf("failed to get search log: %w", err)
 	}
 	if searchLog != nil {
-		if searchLog.Status == entity.SearchLogStatusCompleted && time.Since(searchLog.SearchTime) < searchCacheTTL {
+		now := time.Now()
+		if searchLog.IsFresh(now, searchCacheTTL) {
 			uc.logger.Debug(ctx, "skipping external search, recently searched",
 				slog.String("artist_id", artistID),
 				slog.Time("search_time", searchLog.SearchTime),
 			)
 			return nil, nil
 		}
-		if searchLog.Status == entity.SearchLogStatusPending && time.Since(searchLog.SearchTime) < pendingTimeout {
+		if searchLog.IsPending(now, pendingTimeout) {
 			uc.logger.Debug(ctx, "skipping external search, already pending",
 				slog.String("artist_id", artistID),
 			)
@@ -323,18 +324,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) ([
 	// Build Concert entities from the deduplicated scraped data to return to the caller.
 	concerts := make([]*entity.Concert, 0, len(newScraped))
 	for _, s := range newScraped {
-		listedName := s.ListedVenueName
-		concerts = append(concerts, &entity.Concert{
-			Event: entity.Event{
-				Title:           s.Title,
-				ListedVenueName: &listedName,
-				LocalDate:       s.LocalDate,
-				StartTime:       s.StartTime,
-				OpenTime:        s.OpenTime,
-				SourceURL:       s.SourceURL,
-			},
-			ArtistID: artistID,
-		})
+		concerts = append(concerts, s.ToConcert(artistID, "", ""))
 	}
 	return concerts, nil
 }

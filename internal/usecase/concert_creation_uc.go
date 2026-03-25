@@ -92,20 +92,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			return fmt.Errorf("generate concert ID: %w", err)
 		}
 
-		listedName := sc.ListedVenueName
-		concerts = append(concerts, &entity.Concert{
-			Event: entity.Event{
-				ID:              id.String(),
-				VenueID:         venueID,
-				Title:           sc.Title,
-				ListedVenueName: &listedName,
-				LocalDate:       sc.LocalDate,
-				StartTime:       sc.StartTime,
-				OpenTime:        sc.OpenTime,
-				SourceURL:       sc.SourceURL,
-			},
-			ArtistID: data.ArtistID,
-		})
+		concerts = append(concerts, sc.ToConcert(data.ArtistID, id.String(), venueID))
 	}
 
 	// Bulk insert concerts (ON CONFLICT DO NOTHING handles duplicates).
