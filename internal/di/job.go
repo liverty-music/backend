@@ -10,6 +10,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
@@ -95,7 +96,9 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	}
 
 	// Use Cases
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, publisher, logger)
+	eventPublisher := messaging.NewEventPublisher(publisher)
+	centroidResolver := geo.NewCentroidResolver()
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)
