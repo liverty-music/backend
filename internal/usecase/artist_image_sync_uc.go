@@ -47,9 +47,17 @@ func NewArtistImageSyncUseCase(
 
 // SyncArtistImage resolves images from the external provider, analyzes the
 // best logo for color profiling, and updates the artist record.
-// When ResolveImages returns nil (no images found), fanart_synced_at is still
-// updated to record that the artist was checked.
+// When mbid is empty the artist has no MusicBrainz identity and image sync
+// is skipped. When ResolveImages returns nil (no images found), fanart_synced_at
+// is still updated to record that the artist was checked.
 func (uc *artistImageSyncUseCase) SyncArtistImage(ctx context.Context, artistID, mbid string) error {
+	if mbid == "" {
+		uc.logger.Info(ctx, "skipping image sync: artist has no MusicBrainz ID",
+			slog.String("artist_id", artistID),
+		)
+		return nil
+	}
+
 	fanart, err := uc.imageResolver.ResolveImages(ctx, mbid)
 	if err != nil {
 		return fmt.Errorf("resolve images for artist %s: %w", artistID, err)
