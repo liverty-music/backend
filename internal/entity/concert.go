@@ -18,23 +18,54 @@ type Concert struct {
 
 // ScrapedConcert represents raw concert information rediscovered from external sources.
 // It lacks system-specific identifiers like ID or ArtistID.
+// JSON tags are present to support serialization as an event payload (concert.discovered).
 type ScrapedConcert struct {
 	// Title is the descriptive title of the scraped event.
-	Title string
+	Title string `json:"title"`
 	// ListedVenueName is the raw venue name as listed in the source data.
-	ListedVenueName string
+	ListedVenueName string `json:"listed_venue_name"`
 	// AdminArea is the administrative area (prefecture, state, province) where the venue is located.
 	// It is nil when the area could not be determined with confidence.
-	AdminArea *string
+	AdminArea *string `json:"admin_area,omitempty"`
 	// LocalDate represents the calendar date of the event.
 	// See entity.Concert.LocalDate for detailed specifications.
-	LocalDate time.Time
+	LocalDate time.Time `json:"local_date"`
 	// StartTime is the specific starting time (optional).
-	StartTime *time.Time
+	StartTime *time.Time `json:"start_time,omitempty"`
 	// OpenTime is the time when doors open (optional).
-	OpenTime *time.Time
+	OpenTime *time.Time `json:"open_time,omitempty"`
 	// SourceURL is the URL where this information was found.
-	SourceURL string
+	SourceURL string `json:"source_url"`
+}
+
+// ScrapedConcerts is a slice of ScrapedConcert pointers with domain-level operations.
+type ScrapedConcerts []*ScrapedConcert
+
+// FilterNew returns scraped concerts that do not conflict with existing concerts,
+// applying date-only deduplication. It handles both cross-batch deduplication
+// (against existing DB concerts) and within-batch deduplication (multiple scraped
+// concerts on the same date in the receiver).
+//
+// A scraped concert is excluded if its DateKey() matches a date already seen in
+// existing concerts or in an earlier element of the receiver slice.
+//
+// Returns nil if no new concerts remain after filtering.
+func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
+	seenDate := make(map[string]bool, len(existing))
+	for _, ex := range existing {
+		seenDate[ex.LocalDate.Format("2006-01-02")] = true
+	}
+
+	var result ScrapedConcerts
+	for _, s := range ss {
+		dateKey := s.LocalDate.Format("2006-01-02")
+		if seenDate[dateKey] {
+			continue
+		}
+		seenDate[dateKey] = true
+		result = append(result, s)
+	}
+	return result
 }
 
 // ProximityTo determines the geographic proximity of this concert's venue
@@ -119,11 +150,6 @@ func GroupByDateAndProximity(concerts []*Concert, home *Home) []*ProximityGroup 
 		result = append(result, groups[key])
 	}
 	return result
-}
-
-// DateKey returns the date-only deduplication key for a ScrapedConcert.
-func (s *ScrapedConcert) DateKey() string {
-	return s.LocalDate.Format("2006-01-02")
 }
 
 // ConcertRepository defines the data access interface for Concerts.
