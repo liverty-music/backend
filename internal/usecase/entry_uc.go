@@ -3,12 +3,8 @@ package usecase
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"math/big"
-	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -111,7 +107,7 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 
 	// Parse public signals once and extract all fields.
 	// Public signals order: [merkleRoot, eventId, nullifierHash]
-	signals, err := parsePublicSignals(params.PublicSignalsJSON)
+	signals, err := entity.ParseZKPPublicSignals(params.PublicSignalsJSON)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.InvalidArgument, "failed to parse public signals")
 	}
@@ -120,7 +116,7 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 	// This prevents an attacker from submitting a proof generated for a
 	// different event, which would produce a different nullifier and bypass
 	// double-entry protection.
-	eventIDErr := signals.verifyEventID(params.EventID)
+	eventIDErr := signals.VerifyEventID(params.EventID)
 	uc.logger.Info(ctx, "entry verification step",
 		slog.String("step", "eventID"),
 		slog.String("eventID", params.EventID),
@@ -130,15 +126,15 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 		return nil, apperr.Wrap(eventIDErr, codes.InvalidArgument, "event ID mismatch in public signals")
 	}
 
-	nullifierHash := signals.nullifierHash
-	merkleRoot := signals.merkleRoot
+	nullifierHash := signals.NullifierHash
+	merkleRoot := signals.MerkleRoot
 
 	expectedRoot, err := uc.eventRepo.GetMerkleRoot(ctx, params.EventID)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to get expected merkle root")
 	}
 
-	rootMatch := bytesEqual(merkleRoot, expectedRoot)
+	rootMatch := entity.BytesEqual(merkleRoot, expectedRoot)
 	uc.logger.Info(ctx, "entry verification step",
 		slog.String("step", "merkleRoot"),
 		slog.String("eventID", params.EventID),
@@ -207,98 +203,6 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 		Verified: true,
 		Message:  "entry verified",
 	}, nil
-}
-
-// publicSignals holds the parsed public signals from a ZK proof.
-// Expected JSON format: ["<merkleRoot>", "<eventId>", "<nullifierHash>"]
-type publicSignals struct {
-	merkleRoot    []byte
-	eventID       *big.Int
-	nullifierHash []byte
-}
-
-// verifyEventID checks that the eventId in the proof matches the expected UUID.
-// The frontend encodes eventId as BigInt(hex(uuid_without_hyphens)).
-func (ps *publicSignals) verifyEventID(expectedUUID string) error {
-	hex := strings.ReplaceAll(expectedUUID, "-", "")
-	expected := new(big.Int)
-	if _, ok := expected.SetString(hex, 16); !ok {
-		return fmt.Errorf("invalid event UUID: %s", expectedUUID)
-	}
-	if ps.eventID.Cmp(expected) != 0 {
-		return fmt.Errorf("proof eventId %s does not match request event %s", ps.eventID.String(), expectedUUID)
-	}
-	return nil
-}
-
-// parsePublicSignals parses the public signals JSON array once and extracts
-// all fields: merkleRoot (index 0), eventId (index 1), nullifierHash (index 2).
-func parsePublicSignals(publicSignalsJSON string) (*publicSignals, error) {
-	var raw []string
-	if err := json.Unmarshal([]byte(publicSignalsJSON), &raw); err != nil {
-		return nil, fmt.Errorf("unmarshal public signals: %w", err)
-	}
-
-	if len(raw) < 3 {
-		return nil, fmt.Errorf("expected at least 3 public signals, got %d", len(raw))
-	}
-
-	// Index 0: merkleRoot
-	rootInt := new(big.Int)
-	if _, ok := rootInt.SetString(raw[0], 10); !ok {
-		return nil, fmt.Errorf("invalid merkle root: %s", raw[0])
-	}
-	merkleRoot, err := bigIntToBytes32(rootInt, "merkle root")
-	if err != nil {
-		return nil, err
-	}
-
-	// Index 1: eventId
-	eventID := new(big.Int)
-	if _, ok := eventID.SetString(raw[1], 10); !ok {
-		return nil, fmt.Errorf("invalid event ID: %s", raw[1])
-	}
-
-	// Index 2: nullifierHash
-	nullInt := new(big.Int)
-	if _, ok := nullInt.SetString(raw[2], 10); !ok {
-		return nil, fmt.Errorf("invalid nullifier hash: %s", raw[2])
-	}
-	nullifierHash, err := bigIntToBytes32(nullInt, "nullifier hash")
-	if err != nil {
-		return nil, err
-	}
-
-	return &publicSignals{
-		merkleRoot:    merkleRoot,
-		eventID:       eventID,
-		nullifierHash: nullifierHash,
-	}, nil
-}
-
-// bigIntToBytes32 converts a big.Int to a 32-byte big-endian slice.
-// Returns an error if the value exceeds 32 bytes (> 2^256-1).
-func bigIntToBytes32(n *big.Int, label string) ([]byte, error) {
-	b := n.Bytes()
-	if len(b) > 32 {
-		return nil, fmt.Errorf("%s exceeds 32 bytes (BN254 field element size): got %d bytes", label, len(b))
-	}
-	buf := make([]byte, 32)
-	copy(buf[32-len(b):], b)
-	return buf, nil
-}
-
-// bytesEqual compares two byte slices for equality.
-func bytesEqual(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // GetMerklePath returns the Merkle path for a user at an event.

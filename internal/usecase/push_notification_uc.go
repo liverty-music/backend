@@ -42,14 +42,6 @@ type PushNotificationUseCase interface {
 	NotifyNewConcerts(ctx context.Context, artist *entity.Artist, concerts []*entity.Concert) error
 }
 
-// pushNotificationPayload is the JSON structure sent as the push message body.
-type pushNotificationPayload struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
-	URL   string `json:"url"`
-	Tag   string `json:"tag"`
-}
-
 // pushNotificationUseCase implements PushNotificationUseCase.
 type pushNotificationUseCase struct {
 	followRepo  entity.FollowRepository
@@ -151,13 +143,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 	}
 
 	// 4. Build the JSON notification payload.
-	payload := pushNotificationPayload{
-		Title: artist.Name,
-		Body:  fmt.Sprintf("%d new concerts found", len(concerts)),
-		URL:   fmt.Sprintf("/concerts?artist=%s", artist.ID),
-		Tag:   fmt.Sprintf("concert-%s", artist.ID),
-	}
-	payloadBytes, err := json.Marshal(payload)
+	payloadBytes, err := json.Marshal(entity.NewConcertNotificationPayload(artist, len(concerts)))
 	if err != nil {
 		return fmt.Errorf("failed to marshal push notification payload: %w", err)
 	}

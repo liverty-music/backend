@@ -163,30 +163,7 @@ func (uc *ticketEmailUseCase) buildNewTicketEmail(userID string, emailType entit
 		}
 	}
 	// Map raw Gemini output to a single JourneyStatus.
-	ne.JourneyStatus = mapParsedToJourneyStatus(emailType, parsed)
+	ne.JourneyStatus = parsed.JourneyStatus(emailType)
 
 	return ne
-}
-
-// mapParsedToJourneyStatus converts raw Gemini parsed strings to a TicketJourneyStatus.
-func mapParsedToJourneyStatus(emailType entity.TicketEmailType, parsed *entity.ParsedEmailData) *entity.TicketJourneyStatus {
-	switch emailType {
-	case entity.TicketEmailTypeLotteryInfo:
-		s := entity.TicketJourneyStatusTracking
-		return &s
-
-	case entity.TicketEmailTypeLotteryResult:
-		if parsed.LotteryResult != nil && *parsed.LotteryResult == "lost" {
-			s := entity.TicketJourneyStatusLost
-			return &s
-		}
-		if parsed.PaymentStatus != nil && *parsed.PaymentStatus == "paid" {
-			s := entity.TicketJourneyStatusPaid
-			return &s
-		}
-		s := entity.TicketJourneyStatusUnpaid
-		return &s
-	}
-
-	return nil
 }

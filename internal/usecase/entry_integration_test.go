@@ -58,7 +58,7 @@ func TestVerifyEntry_Integration_DuplicateNullifier(t *testing.T) {
 	// Parse merkle root from public signals to set up the event repo stub.
 	// Public signals: [merkleRoot, eventId, nullifierHash]
 	merkleRootBig := mustParseBigInt(t, "6331401000423026358291629782353603237933267665498208286537849807283925720420")
-	merkleRootBytes := bigIntToBytes32(merkleRootBig)
+	merkleRootBytes := bigIntToBytes32(t, merkleRootBig)
 
 	eventRepo := &stubEventRepo{merkleRoot: merkleRootBytes}
 	nullifiers := &stubNullifierRepo{existsResult: false}
@@ -100,7 +100,7 @@ func TestVerifyEntry_Integration_ConcurrentNullifierRace(t *testing.T) {
 	fixtureEventID := "550e8400-e29b-41d4-a716-446655440000"
 
 	merkleRootBig := mustParseBigInt(t, "6331401000423026358291629782353603237933267665498208286537849807283925720420")
-	merkleRootBytes := bigIntToBytes32(merkleRootBig)
+	merkleRootBytes := bigIntToBytes32(t, merkleRootBig)
 
 	eventRepo := &stubEventRepo{merkleRoot: merkleRootBytes}
 	// Nullifier doesn't exist (race: both checks pass), but insert fails

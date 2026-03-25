@@ -113,11 +113,11 @@ func makePublicSignals(merkleRoot, nullifierHash *big.Int, eventUUID string) str
 	return string(b)
 }
 
-func bigIntToBytes32(n *big.Int) []byte {
-	buf := make([]byte, 32)
-	b := n.Bytes()
-	copy(buf[32-len(b):], b)
-	return buf
+func bigIntToBytes32(t *testing.T, n *big.Int) []byte {
+	t.Helper()
+	b, err := entity.BigIntToBytes32(n, "test")
+	require.NoError(t, err)
+	return b
 }
 
 // stubMerkleBuilder implements entity.MerkleTreeBuilder for tests.
@@ -235,7 +235,7 @@ func TestVerifyEntry_MerkleRootMismatch(t *testing.T) {
 	expectedRoot := big.NewInt(99999)
 
 	eventRepo := &stubEventRepo{
-		merkleRoot: bigIntToBytes32(expectedRoot),
+		merkleRoot: bigIntToBytes32(t, expectedRoot),
 	}
 	uc := newTestEntryUC(t,
 		&stubZKPVerifier{verified: true},
@@ -263,7 +263,7 @@ func TestVerifyEntry_DuplicateNullifier(t *testing.T) {
 	root := big.NewInt(42)
 
 	eventRepo := &stubEventRepo{
-		merkleRoot: bigIntToBytes32(root),
+		merkleRoot: bigIntToBytes32(t, root),
 	}
 	nullifiers := &stubNullifierRepo{existsResult: true}
 
@@ -292,7 +292,7 @@ func TestVerifyEntry_ProofFails(t *testing.T) {
 
 	root := big.NewInt(42)
 
-	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(t, root)}
 	nullifiers := &stubNullifierRepo{existsResult: false}
 	verifier := &stubZKPVerifier{verified: false}
 
@@ -315,7 +315,7 @@ func TestVerifyEntry_Success(t *testing.T) {
 
 	root := big.NewInt(42)
 
-	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(t, root)}
 	nullifiers := &stubNullifierRepo{existsResult: false}
 	verifier := &stubZKPVerifier{verified: true}
 
@@ -339,7 +339,7 @@ func TestVerifyEntry_ConcurrentNullifierInsert(t *testing.T) {
 
 	root := big.NewInt(42)
 
-	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(t, root)}
 	// Nullifier doesn't exist during check, but insert fails with AlreadyExists
 	// (concurrent verification succeeded first).
 	nullifiers := &stubNullifierRepo{
@@ -368,7 +368,7 @@ func TestVerifyEntry_EventIDMismatch(t *testing.T) {
 	t.Parallel()
 
 	root := big.NewInt(42)
-	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(t, root)}
 
 	uc := newTestEntryUC(t, &stubZKPVerifier{verified: true}, &stubNullifierRepo{}, nil, eventRepo, nil)
 
@@ -526,7 +526,7 @@ func TestVerifyEntry_NullifierExistsError(t *testing.T) {
 	t.Parallel()
 
 	root := big.NewInt(42)
-	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(t, root)}
 	nullifiers := &stubNullifierRepo{existsErr: apperr.ErrInternal}
 
 	uc := newTestEntryUC(t, &stubZKPVerifier{}, nullifiers, nil, eventRepo, nil)
@@ -546,7 +546,7 @@ func TestVerifyEntry_VerifierError(t *testing.T) {
 	t.Parallel()
 
 	root := big.NewInt(42)
-	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(t, root)}
 	nullifiers := &stubNullifierRepo{}
 	verifier := &stubZKPVerifier{err: apperr.ErrInternal}
 
@@ -567,7 +567,7 @@ func TestVerifyEntry_InsertNullifierError(t *testing.T) {
 	t.Parallel()
 
 	root := big.NewInt(42)
-	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(root)}
+	eventRepo := &stubEventRepo{merkleRoot: bigIntToBytes32(t, root)}
 	nullifiers := &stubNullifierRepo{insertErr: apperr.ErrInternal}
 	verifier := &stubZKPVerifier{verified: true}
 
