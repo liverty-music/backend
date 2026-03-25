@@ -1,7 +1,5 @@
 package entity
 
-import "time"
-
 // Event subject constants for domain events published via messaging.
 const (
 	SubjectConcertDiscovered = "CONCERT.discovered"
@@ -19,18 +17,7 @@ type ConcertDiscoveredData struct {
 	// ArtistName is the display name of the artist (for notification context).
 	ArtistName string `json:"artist_name"`
 	// Concerts is the list of newly discovered, deduplicated scraped concerts.
-	Concerts []ScrapedConcertData `json:"concerts"`
-}
-
-// ScrapedConcertData represents a single scraped concert within a discovered batch.
-type ScrapedConcertData struct {
-	Title           string     `json:"title"`
-	ListedVenueName string     `json:"listed_venue_name"`
-	AdminArea       *string    `json:"admin_area,omitempty"`
-	LocalDate       time.Time  `json:"local_date"`
-	StartTime       *time.Time `json:"start_time,omitempty"`
-	OpenTime        *time.Time `json:"open_time,omitempty"`
-	SourceURL       string     `json:"source_url"`
+	Concerts ScrapedConcerts `json:"concerts"`
 }
 
 // ConcertCreatedData is the payload for concert.created.v1 events.

@@ -272,34 +272,13 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) ([
 	}
 
 	// Deduplicate: one event per artist per date.
-	seenDate := make(map[string]bool)
-	for _, ex := range existing {
-		seenDate[ex.LocalDate.Format("2006-01-02")] = true
-	}
-
-	var newScraped []entity.ScrapedConcertData
-	for _, s := range scraped {
-		dateKey := s.DateKey()
-		if seenDate[dateKey] {
-			uc.logger.Debug(ctx, "filtered existing/duplicate event (same date)",
-				slog.String("artist_id", artistID),
-				slog.String("title", s.Title),
-				slog.String("venue", s.ListedVenueName),
-				slog.String("date", s.LocalDate.Format("2006-01-02")),
-			)
-			continue
-		}
-		seenDate[dateKey] = true
-
-		newScraped = append(newScraped, entity.ScrapedConcertData{
-			Title:           s.Title,
-			ListedVenueName: s.ListedVenueName,
-			AdminArea:       s.AdminArea,
-			LocalDate:       s.LocalDate,
-			StartTime:       s.StartTime,
-			OpenTime:        s.OpenTime,
-			SourceURL:       s.SourceURL,
-		})
+	// FilterNew handles both cross-batch dedup (against existing) and within-batch dedup.
+	newScraped := entity.ScrapedConcerts(scraped).FilterNew(existing)
+	if filtered := len(scraped) - len(newScraped); filtered > 0 {
+		uc.logger.Debug(ctx, "filtered existing/duplicate events (same date)",
+			slog.String("artist_id", artistID),
+			slog.Int("filtered_count", filtered),
+		)
 	}
 
 	// Publish concert.discovered.v1 event (artist-level batch)

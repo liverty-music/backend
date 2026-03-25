@@ -1,6 +1,7 @@
 package entity_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -284,28 +285,101 @@ func TestGroupByDateAndProximity(t *testing.T) {
 	}
 }
 
-func TestScrapedConcert_DateKey(t *testing.T) {
+func TestScrapedConcerts_FilterNew(t *testing.T) {
 	t.Parallel()
 
-	date := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	date1 := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	date2 := time.Date(2026, 3, 17, 0, 0, 0, 0, time.UTC)
+	date3 := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)
+
+	sc1 := &entity.ScrapedConcert{LocalDate: date1, ListedVenueName: "Zepp Tokyo", Title: "Live A"}
+	sc2 := &entity.ScrapedConcert{LocalDate: date2, ListedVenueName: "Zepp Osaka", Title: "Live B"}
+	sc3 := &entity.ScrapedConcert{LocalDate: date3, ListedVenueName: "Zepp Nagoya", Title: "Live C"}
+	sc1Dup := &entity.ScrapedConcert{LocalDate: date1, ListedVenueName: "Other Venue", Title: "Live A2"}
+
+	existing1 := &entity.Concert{Event: entity.Event{LocalDate: date1}}
+	existing2 := &entity.Concert{Event: entity.Event{LocalDate: date2}}
 
 	type args struct {
-		concert *entity.ScrapedConcert
+		scraped  entity.ScrapedConcerts
+		existing []*entity.Concert
 	}
 	tests := []struct {
 		name string
 		args args
-		want string
+		want entity.ScrapedConcerts
 	}{
 		{
-			name: "return formatted date",
+			name: "return nil when scraped is nil",
 			args: args{
-				concert: &entity.ScrapedConcert{
-					LocalDate:       date,
-					ListedVenueName: "Budokan",
-				},
+				scraped:  nil,
+				existing: []*entity.Concert{existing1},
 			},
-			want: "2025-06-01",
+			want: nil,
+		},
+		{
+			name: "return nil when scraped is empty",
+			args: args{
+				scraped:  entity.ScrapedConcerts{},
+				existing: []*entity.Concert{existing1},
+			},
+			want: nil,
+		},
+		{
+			name: "return all scraped when existing is empty",
+			args: args{
+				scraped:  entity.ScrapedConcerts{sc1, sc2, sc3},
+				existing: []*entity.Concert{},
+			},
+			want: entity.ScrapedConcerts{sc1, sc2, sc3},
+		},
+		{
+			name: "return nil when all scraped conflict with existing",
+			args: args{
+				scraped:  entity.ScrapedConcerts{sc1, sc2},
+				existing: []*entity.Concert{existing1, existing2},
+			},
+			want: nil,
+		},
+		{
+			name: "return only non-conflicting concerts",
+			args: args{
+				scraped:  entity.ScrapedConcerts{sc1, sc2, sc3},
+				existing: []*entity.Concert{existing1},
+			},
+			want: entity.ScrapedConcerts{sc2, sc3},
+		},
+		{
+			name: "deduplicate within-batch same-date concerts",
+			args: args{
+				scraped:  entity.ScrapedConcerts{sc1, sc1Dup},
+				existing: []*entity.Concert{},
+			},
+			want: entity.ScrapedConcerts{sc1},
+		},
+		{
+			name: "return nil when within-batch duplicate conflicts with existing",
+			args: args{
+				scraped:  entity.ScrapedConcerts{sc1, sc1Dup},
+				existing: []*entity.Concert{existing1},
+			},
+			want: nil,
+		},
+		{
+			name: "preserve original order of scraped concerts",
+			args: args{
+				scraped:  entity.ScrapedConcerts{sc1, sc2, sc3},
+				existing: []*entity.Concert{},
+			},
+			want: entity.ScrapedConcerts{sc1, sc2, sc3},
+		},
+		{
+			name: "return all scraped when existing is nil",
+			args: args{
+				scraped:  entity.ScrapedConcerts{sc1, sc2},
+				existing: nil,
+			},
+			want: entity.ScrapedConcerts{sc1, sc2},
 		},
 	}
 
@@ -313,8 +387,71 @@ func TestScrapedConcert_DateKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.args.concert.DateKey()
+			got := tt.args.scraped.FilterNew(tt.args.existing)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestScrapedConcert_JSONSerialization(t *testing.T) {
+	t.Parallel()
+
+	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	startTime := time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC)
+	adminArea := "JP-13"
+
+	tests := []struct {
+		name           string
+		concert        *entity.ScrapedConcert
+		wantKeys       []string
+		wantAbsentKeys []string
+	}{
+		{
+			name: "omit nil optional fields",
+			concert: &entity.ScrapedConcert{
+				Title:           "Live Show",
+				ListedVenueName: "Zepp Tokyo",
+				AdminArea:       nil,
+				LocalDate:       localDate,
+				StartTime:       nil,
+				OpenTime:        nil,
+				SourceURL:       "https://example.com",
+			},
+			wantKeys:       []string{"title", "listed_venue_name", "local_date", "source_url"},
+			wantAbsentKeys: []string{"admin_area", "start_time", "open_time"},
+		},
+		{
+			name: "include all non-nil fields",
+			concert: &entity.ScrapedConcert{
+				Title:           "Live Show",
+				ListedVenueName: "Zepp Tokyo",
+				AdminArea:       &adminArea,
+				LocalDate:       localDate,
+				StartTime:       &startTime,
+				OpenTime:        &startTime,
+				SourceURL:       "https://example.com",
+			},
+			wantKeys:       []string{"title", "listed_venue_name", "admin_area", "local_date", "start_time", "open_time", "source_url"},
+			wantAbsentKeys: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := json.Marshal(tt.concert)
+			assert.NoError(t, err)
+
+			var m map[string]any
+			assert.NoError(t, json.Unmarshal(data, &m))
+
+			for _, key := range tt.wantKeys {
+				assert.Contains(t, m, key, "expected key %q in JSON", key)
+			}
+			for _, key := range tt.wantAbsentKeys {
+				assert.NotContains(t, m, key, "unexpected key %q in JSON", key)
+			}
 		})
 	}
 }

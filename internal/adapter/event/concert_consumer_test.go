@@ -54,7 +54,7 @@ func TestConcertConsumer_Handle(t *testing.T) {
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
 			ArtistName: "Test Artist",
-			Concerts: []entity.ScrapedConcertData{
+			Concerts: entity.ScrapedConcerts{
 				{
 					Title:           "Concert A",
 					ListedVenueName: "Venue X",
@@ -82,7 +82,7 @@ func TestConcertConsumer_Handle(t *testing.T) {
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
 			ArtistName: "Test Artist",
-			Concerts:   []entity.ScrapedConcertData{},
+			Concerts:   entity.ScrapedConcerts{},
 		}
 
 		msg := makeDiscoveredMsg(t, data)

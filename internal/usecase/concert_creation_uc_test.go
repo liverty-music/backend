@@ -125,7 +125,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
 			ArtistName: "Test Artist",
-			Concerts: []entity.ScrapedConcertData{
+			Concerts: entity.ScrapedConcerts{
 				{
 					Title:           "Concert A",
 					ListedVenueName: "Venue X",
@@ -169,7 +169,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-2",
 			ArtistName: "Another Artist",
-			Concerts: []entity.ScrapedConcertData{
+			Concerts: entity.ScrapedConcerts{
 				{
 					Title:           "Concert C",
 					ListedVenueName: "Existing Venue",
@@ -199,7 +199,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-3",
 			ArtistName: "Third Artist",
-			Concerts: []entity.ScrapedConcertData{
+			Concerts: entity.ScrapedConcerts{
 				{
 					Title:           "Show 1",
 					ListedVenueName: "Same Venue",
@@ -236,7 +236,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-4",
 			ArtistName: "Fourth Artist",
-			Concerts: []entity.ScrapedConcertData{
+			Concerts: entity.ScrapedConcerts{
 				{
 					Title:           "Concert at Known",
 					ListedVenueName: "Known Venue",
@@ -272,7 +272,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-5",
 			ArtistName: "Fifth Artist",
-			Concerts: []entity.ScrapedConcertData{
+			Concerts: entity.ScrapedConcerts{
 				{
 					Title:           "Show A",
 					ListedVenueName: "Nowhere",
