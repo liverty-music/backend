@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -29,7 +27,7 @@ type concertCreationUseCase struct {
 	venueRepo     entity.VenueRepository
 	concertRepo   entity.ConcertRepository
 	placeSearcher entity.VenuePlaceSearcher
-	publisher     message.Publisher
+	publisher     EventPublisher
 	logger        *logging.Logger
 }
 
@@ -42,7 +40,7 @@ func NewConcertCreationUseCase(
 	venueRepo entity.VenueRepository,
 	concertRepo entity.ConcertRepository,
 	placeSearcher entity.VenuePlaceSearcher,
-	publisher message.Publisher,
+	publisher EventPublisher,
 	logger *logging.Logger,
 ) ConcertCreationUseCase {
 	if placeSearcher == nil {
@@ -208,11 +206,7 @@ func (uc *concertCreationUseCase) createVenueFromPlace(
 	return venue.ID, venue, nil
 }
 
-// publishEvent creates an event message and publishes it to the given subject.
+// publishEvent publishes data as a CloudEvent to the given subject.
 func (uc *concertCreationUseCase) publishEvent(ctx context.Context, subject string, data any) error {
-	msg, err := messaging.NewEvent(ctx, data)
-	if err != nil {
-		return fmt.Errorf("create %s event: %w", subject, err)
-	}
-	return uc.publisher.Publish(subject, msg)
+	return uc.publisher.PublishEvent(ctx, subject, data)
 }

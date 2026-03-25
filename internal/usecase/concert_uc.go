@@ -7,10 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/geo"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -63,14 +60,15 @@ type ConcertUseCase interface {
 
 // concertUseCase implements the ConcertUseCase interface.
 type concertUseCase struct {
-	artistRepo      entity.ArtistRepository
-	concertRepo     entity.ConcertRepository
-	venueRepo       entity.VenueRepository
-	userRepo        entity.UserRepository
-	searchLogRepo   entity.SearchLogRepository
-	concertSearcher entity.ConcertSearcher
-	publisher       message.Publisher
-	logger          *logging.Logger
+	artistRepo       entity.ArtistRepository
+	concertRepo      entity.ConcertRepository
+	venueRepo        entity.VenueRepository
+	userRepo         entity.UserRepository
+	searchLogRepo    entity.SearchLogRepository
+	concertSearcher  entity.ConcertSearcher
+	centroidResolver CentroidResolver
+	publisher        EventPublisher
+	logger           *logging.Logger
 }
 
 // searchCacheTTL is the duration for which a completed search log is considered fresh.
@@ -97,18 +95,20 @@ func NewConcertUseCase(
 	userRepo entity.UserRepository,
 	searchLogRepo entity.SearchLogRepository,
 	concertSearcher entity.ConcertSearcher,
-	publisher message.Publisher,
+	centroidResolver CentroidResolver,
+	publisher EventPublisher,
 	logger *logging.Logger,
 ) ConcertUseCase {
 	return &concertUseCase{
-		artistRepo:      artistRepo,
-		concertRepo:     concertRepo,
-		venueRepo:       venueRepo,
-		userRepo:        userRepo,
-		searchLogRepo:   searchLogRepo,
-		concertSearcher: concertSearcher,
-		publisher:       publisher,
-		logger:          logger,
+		artistRepo:       artistRepo,
+		concertRepo:      concertRepo,
+		venueRepo:        venueRepo,
+		userRepo:         userRepo,
+		searchLogRepo:    searchLogRepo,
+		concertSearcher:  concertSearcher,
+		centroidResolver: centroidResolver,
+		publisher:        publisher,
+		logger:           logger,
 	}
 }
 
@@ -132,7 +132,7 @@ func (uc *concertUseCase) ListByFollower(ctx context.Context, externalUserID str
 		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
 	}
 
-	internalUserID, err := uc.resolveUserID(ctx, externalUserID)
+	internalUserID, err := resolveUserID(ctx, uc.userRepo, externalUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,8 +168,8 @@ func (uc *concertUseCase) ListWithProximity(ctx context.Context, artistIDs []str
 	}
 
 	if home != nil && home.Centroid == nil {
-		if c, ok := geo.ResolveCentroid(home.Level1); ok {
-			home.Centroid = &entity.Coordinates{Latitude: c.Latitude, Longitude: c.Longitude}
+		if lat, lng, err := uc.centroidResolver.ResolveCentroid(home); err == nil {
+			home.Centroid = &entity.Coordinates{Latitude: lat, Longitude: lng}
 		}
 	}
 
@@ -179,15 +179,6 @@ func (uc *concertUseCase) ListWithProximity(ctx context.Context, artistIDs []str
 	}
 
 	return entity.GroupByDateAndProximity(concerts, home), nil
-}
-
-// resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.
-func (uc *concertUseCase) resolveUserID(ctx context.Context, externalID string) (string, error) {
-	user, err := uc.userRepo.GetByExternalID(ctx, externalID)
-	if err != nil {
-		return "", fmt.Errorf("resolve user by external ID: %w", err)
-	}
-	return user.ID, nil
 }
 
 // SearchNewConcerts discovers new concerts for the given artist synchronously.
@@ -240,35 +231,40 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 // regardless of start_at value. The DB constraint (artist_id, local_event_date)
 // provides the same guarantee; this application-level check avoids unnecessary
 // publish/UPSERT round-trips.
-func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_ []*entity.Concert, err error) {
+	defer func() {
+		if err != nil {
+			uc.markSearchFailed(ctx, artistID)
+		} else {
+			uc.markSearchCompleted(ctx, artistID)
+		}
+	}()
+
 	// Get Artist
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
-		uc.markSearchFailed(ctx, artistID)
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
 	// Get Official Site — missing site is not an error; search continues with nil
 	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		uc.markSearchFailed(ctx, artistID)
 		return nil, fmt.Errorf("failed to get official site: %w", err)
 	}
 	if errors.Is(err, apperr.ErrNotFound) {
 		site = nil
+		err = nil
 	}
 
 	// Get existing upcoming concerts for deduplication
 	existing, err := uc.concertRepo.ListByArtist(ctx, artistID, true)
 	if err != nil {
-		uc.markSearchFailed(ctx, artistID)
 		return nil, fmt.Errorf("failed to list existing concerts: %w", err)
 	}
 
 	// Search new concerts via external API (deadline inherited from HandlerTimeout)
 	scraped, err := uc.concertSearcher.Search(ctx, artist, site, time.Now())
 	if err != nil {
-		uc.markSearchFailed(ctx, artistID)
 		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
 
@@ -287,7 +283,6 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) ([
 		uc.logger.Debug(ctx, "no new concerts after deduplication",
 			slog.String("artist_id", artistID),
 		)
-		uc.markSearchCompleted(ctx, artistID)
 		return nil, nil
 	}
 
@@ -297,20 +292,14 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) ([
 		Concerts:   newScraped,
 	}
 
-	msg, err := messaging.NewEvent(ctx, eventData)
-	if err != nil {
-		uc.markSearchFailed(ctx, artistID)
-		return nil, fmt.Errorf("failed to create concert.discovered event: %w", err)
-	}
-
-	if err := uc.publisher.Publish(entity.SubjectConcertDiscovered, msg); err != nil {
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertDiscovered, eventData); err != nil {
 		uc.logger.Error(ctx, "failed to publish concert.discovered event", err,
 			slog.String("artist_id", artistID),
 			slog.Int("concert_count", len(newScraped)),
 		)
 		// Non-fatal: CronJob will re-discover on next run.
-		uc.markSearchFailed(ctx, artistID)
-		return nil, nil
+		// The defer will call markSearchFailed because err != nil.
+		return nil, err
 	}
 
 	uc.logger.Info(ctx, "published concert.discovered event",
@@ -318,8 +307,6 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) ([
 		slog.String("artist_name", artist.Name),
 		slog.Int("concert_count", len(newScraped)),
 	)
-
-	uc.markSearchCompleted(ctx, artistID)
 
 	// Build Concert entities from the deduplicated scraped data to return to the caller.
 	concerts := make([]*entity.Concert, 0, len(newScraped))
