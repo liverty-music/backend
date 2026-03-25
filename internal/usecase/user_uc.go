@@ -3,12 +3,9 @@ package usecase
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
-	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -58,7 +55,7 @@ type UserUseCase interface {
 // userUseCase implements the UserUseCase interface.
 type userUseCase struct {
 	userRepo  entity.UserRepository
-	publisher message.Publisher
+	publisher EventPublisher
 	logger    *logging.Logger
 }
 
@@ -68,7 +65,7 @@ var _ UserUseCase = (*userUseCase)(nil)
 // NewUserUseCase creates a new user use case.
 // It requires a user repository for data persistence, a publisher for domain
 // events, and a logger.
-func NewUserUseCase(userRepo entity.UserRepository, publisher message.Publisher, logger *logging.Logger) UserUseCase {
+func NewUserUseCase(userRepo entity.UserRepository, publisher EventPublisher, logger *logging.Logger) UserUseCase {
 	return &userUseCase{
 		userRepo:  userRepo,
 		publisher: publisher,
@@ -108,13 +105,9 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 	return user, nil
 }
 
-// publishEvent creates an event message and publishes it to the given subject.
+// publishEvent publishes data as a CloudEvent to the given subject.
 func (uc *userUseCase) publishEvent(ctx context.Context, subject string, data any) error {
-	msg, err := messaging.NewEvent(ctx, data)
-	if err != nil {
-		return fmt.Errorf("create %s event: %w", subject, err)
-	}
-	return uc.publisher.Publish(subject, msg)
+	return uc.publisher.PublishEvent(ctx, subject, data)
 }
 
 // Get retrieves a user by ID.

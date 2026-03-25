@@ -122,7 +122,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		webpushSender,
 		logger,
 	)
-	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, placeSearcher, publisher, logger)
+	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, placeSearcher, messaging.NewEventPublisher(publisher), logger)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 

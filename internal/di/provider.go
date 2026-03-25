@@ -28,6 +28,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	inframerkle "github.com/liverty-music/backend/internal/infrastructure/merkle"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
@@ -172,9 +173,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Use Cases
-	userUC := usecase.NewUserUseCase(userRepo, publisher, logger)
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, publisher, logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, publisher, artistCache, logger)
+	eventPublisher := messaging.NewEventPublisher(publisher)
+	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, logger)
+	centroidResolver := geo.NewCentroidResolver()
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, userRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
 	var ticketEmailUC usecase.TicketEmailUseCase

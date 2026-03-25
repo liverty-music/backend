@@ -17,6 +17,8 @@ packages:
       TicketJourneyUseCase:
       TicketEmailUseCase:
       EmailVerifier:
+      CentroidResolver:
+      EventPublisher:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:

@@ -8,6 +8,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -23,7 +24,7 @@ func newUserTestDeps(t *testing.T) *userTestDeps {
 	d := &userTestDeps{
 		repo: mocks.NewMockUserRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, newTestPublisher(), newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, messaging.NewEventPublisher(newTestPublisher()), newTestLogger(t))
 	return d
 }
 

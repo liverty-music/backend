@@ -9,6 +9,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-apperr/apperr"
@@ -38,7 +39,7 @@ func newArtistTestDeps(t *testing.T) *artistTestDeps {
 		searcher:  mocks.NewMockArtistSearcher(t),
 		idManager: mocks.NewMockArtistIdentityManager(t),
 	}
-	d.uc = usecase.NewArtistUseCase(d.repo, d.searcher, d.idManager, newTestPublisher(), cache.NewMemoryCache(1*time.Hour), newTestLogger(t))
+	d.uc = usecase.NewArtistUseCase(d.repo, d.searcher, d.idManager, messaging.NewEventPublisher(newTestPublisher()), cache.NewMemoryCache(1*time.Hour), newTestLogger(t))
 	return d
 }
 

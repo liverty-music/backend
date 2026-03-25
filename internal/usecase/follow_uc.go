@@ -83,15 +83,6 @@ func NewFollowUseCase(
 	}
 }
 
-// resolveUserID maps an external identity (Zitadel sub claim) to the internal user UUID.
-func (uc *followUseCase) resolveUserID(ctx context.Context, externalID string) (string, error) {
-	user, err := uc.userRepo.GetByExternalID(ctx, externalID)
-	if err != nil {
-		return "", apperr.Wrap(err, codes.NotFound, "resolve user by external ID")
-	}
-	return user.ID, nil
-}
-
 // Follow establishes a follow relationship between a user and an artist.
 // After the follow is persisted, it asynchronously resolves and stores the
 // artist's official site URL if one is not already recorded.
@@ -100,7 +91,7 @@ func (uc *followUseCase) Follow(ctx context.Context, userID string, artistID str
 		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
 	}
 
-	internalUserID, err := uc.resolveUserID(ctx, userID)
+	internalUserID, err := resolveUserID(ctx, uc.userRepo, userID)
 	if err != nil {
 		return err
 	}
@@ -198,7 +189,7 @@ func (uc *followUseCase) Unfollow(ctx context.Context, userID, artistID string) 
 		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
 	}
 
-	internalUserID, err := uc.resolveUserID(ctx, userID)
+	internalUserID, err := resolveUserID(ctx, uc.userRepo, userID)
 	if err != nil {
 		return err
 	}
@@ -218,7 +209,7 @@ func (uc *followUseCase) SetHype(ctx context.Context, userID, artistID string, h
 		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
 	}
 
-	internalUserID, err := uc.resolveUserID(ctx, userID)
+	internalUserID, err := resolveUserID(ctx, uc.userRepo, userID)
 	if err != nil {
 		return err
 	}
@@ -242,7 +233,7 @@ func (uc *followUseCase) ListFollowed(ctx context.Context, userID string) ([]*en
 		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
 	}
 
-	internalUserID, err := uc.resolveUserID(ctx, userID)
+	internalUserID, err := resolveUserID(ctx, uc.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
