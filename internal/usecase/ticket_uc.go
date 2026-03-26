@@ -48,8 +48,6 @@ type MintTicketParams struct {
 	UserID string
 	// RecipientAddress is the EVM address (Safe or EOA) that receives the SBT.
 	RecipientAddress string
-	// TokenID is no longer accepted from callers. It is generated internally
-	// by generateTokenID to prevent client-controlled token ID assignment.
 }
 
 // ticketUseCase implements the TicketUseCase interface.
@@ -75,81 +73,88 @@ func NewTicketUseCase(
 	}
 }
 
-// MintTicket mints a soulbound ticket, with idempotency via DB + on-chain checks.
-func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParams) (*entity.Ticket, error) {
+// validateMintParams checks all required input fields for a mint request.
+// Returns InvalidArgument if any field is missing or invalid.
+func (uc *ticketUseCase) validateMintParams(params *MintTicketParams) error {
 	if params == nil {
-		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
+		return apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
 	if params.EventID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "event_id is required")
+		return apperr.New(codes.InvalidArgument, "event_id is required")
 	}
 
 	if params.UserID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user_id is required")
+		return apperr.New(codes.InvalidArgument, "user_id is required")
 	}
 
 	if params.RecipientAddress == "" {
-		return nil, apperr.New(codes.InvalidArgument, "recipient_address is required")
+		return apperr.New(codes.InvalidArgument, "recipient_address is required")
 	}
 
 	if !ethAddressRe.MatchString(params.RecipientAddress) {
-		return nil, apperr.New(codes.InvalidArgument, "recipient_address must be a valid Ethereum address (0x followed by 40 hex characters)")
+		return apperr.New(codes.InvalidArgument, "recipient_address must be a valid Ethereum address (0x followed by 40 hex characters)")
 	}
 
-	// Idempotency check 1: check the database for an existing ticket record.
-	existing, err := uc.ticketRepo.GetByEventAndUser(ctx, params.EventID, params.UserID)
+	return nil
+}
+
+// checkExistingTicket queries the database for an existing ticket by event and user,
+// then verifies the event exists before allowing a mint.
+// Returns (ticket, true, nil) when a ticket is already present,
+// (nil, false, nil) when not found and the event exists,
+// and (nil, false, err) on any error.
+func (uc *ticketUseCase) checkExistingTicket(ctx context.Context, eventID, userID string) (*entity.Ticket, bool, error) {
+	ticket, err := uc.ticketRepo.GetByEventAndUser(ctx, eventID, userID)
 	if err == nil {
-		uc.logger.Info(ctx, "ticket already exists in database, returning existing record",
-			slog.String("ticket_id", existing.ID),
-			slog.String("event_id", params.EventID),
-			slog.String("user_id", params.UserID),
-		)
-		return existing, nil
+		return ticket, true, nil
 	}
-
 	if !errors.Is(err, apperr.ErrNotFound) {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Validate that the event exists before triggering an irreversible on-chain mint.
-	eventExists, err := uc.ticketRepo.EventExists(ctx, params.EventID)
+	eventExists, err := uc.ticketRepo.EventExists(ctx, eventID)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.Internal, "failed to check event existence")
+		return nil, false, apperr.Wrap(err, codes.Internal, "failed to check event existence")
 	}
 	if !eventExists {
-		return nil, apperr.New(codes.NotFound, fmt.Sprintf("event %s does not exist", params.EventID))
+		return nil, false, apperr.New(codes.NotFound, fmt.Sprintf("event %s does not exist", eventID))
 	}
 
+	return nil, false, nil
+}
+
+// mintOrReconcile generates a token ID, checks on-chain state, and either mints
+// a new token or reconciles an existing one.
+func (uc *ticketUseCase) mintOrReconcile(ctx context.Context, params *MintTicketParams) (string, uint64, error) {
 	// Generate a backend-controlled token ID from a UUIDv7.
 	// Using the high 64 bits (timestamp + random) gives a monotonically increasing,
 	// collision-resistant value without accepting client input.
 	tokenID, err := entity.GenerateTokenID()
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.Internal, "failed to generate token ID")
+		return "", 0, apperr.Wrap(err, codes.Internal, "failed to generate token ID")
 	}
 
 	// Idempotency check 2: check on-chain whether tokenID is already minted.
 	alreadyMinted, err := uc.minter.IsTokenMinted(ctx, tokenID)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.Internal, "failed to check on-chain token status",
+		return "", 0, apperr.Wrap(err, codes.Internal, "failed to check on-chain token status",
 			slog.Uint64("token_id", tokenID),
 		)
 	}
-
-	var txHash string
 
 	if alreadyMinted {
 		// Token exists on-chain but no DB record — verify ownership before reconciling.
 		owner, err := uc.minter.OwnerOf(ctx, tokenID)
 		if err != nil {
-			return nil, apperr.Wrap(err, codes.Internal, "failed to fetch on-chain owner for reconciliation",
+			return "", 0, apperr.Wrap(err, codes.Internal, "failed to fetch on-chain owner for reconciliation",
 				slog.Uint64("token_id", tokenID),
 			)
 		}
 
 		if !strings.EqualFold(owner, params.RecipientAddress) {
-			return nil, apperr.New(codes.PermissionDenied,
+			return "", 0, apperr.New(codes.PermissionDenied,
 				fmt.Sprintf("token %d is already owned by %s, not %s", tokenID, owner, params.RecipientAddress),
 			)
 		}
@@ -159,25 +164,29 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 			slog.String("event_id", params.EventID),
 			slog.String("user_id", params.UserID),
 		)
-		txHash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-	} else {
-		// Submit the mint transaction. Retry logic is inside the minter implementation.
-		txHash, err = uc.minter.Mint(ctx, params.RecipientAddress, tokenID)
-		if err != nil {
-			return nil, apperr.Wrap(err, codes.Internal, "failed to mint ticket on-chain",
-				slog.String("event_id", params.EventID),
-				slog.String("user_id", params.UserID),
-				slog.Uint64("token_id", tokenID),
-			)
-		}
+		return "0x0000000000000000000000000000000000000000000000000000000000000000", tokenID, nil
+	}
 
-		uc.logger.Info(ctx, "ticket minted on-chain",
-			slog.String("tx_hash", txHash),
+	// Submit the mint transaction. Retry logic is inside the minter implementation.
+	txHash, err := uc.minter.Mint(ctx, params.RecipientAddress, tokenID)
+	if err != nil {
+		return "", 0, apperr.Wrap(err, codes.Internal, "failed to mint ticket on-chain",
+			slog.String("event_id", params.EventID),
+			slog.String("user_id", params.UserID),
 			slog.Uint64("token_id", tokenID),
 		)
 	}
 
-	// Store the minted ticket in the database.
+	uc.logger.Info(ctx, "ticket minted on-chain",
+		slog.String("tx_hash", txHash),
+		slog.Uint64("token_id", tokenID),
+	)
+	return txHash, tokenID, nil
+}
+
+// persistTicket inserts a minted ticket into the database.
+// On concurrent duplicate (AlreadyExists), fetches and returns the winning record.
+func (uc *ticketUseCase) persistTicket(ctx context.Context, params *MintTicketParams, tokenID uint64, txHash string) (*entity.Ticket, error) {
 	ticket, err := uc.ticketRepo.Create(ctx, &entity.NewTicket{
 		EventID: params.EventID,
 		UserID:  params.UserID,
@@ -189,7 +198,6 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 		if errors.Is(err, apperr.ErrAlreadyExists) {
 			return uc.ticketRepo.GetByEventAndUser(ctx, params.EventID, params.UserID)
 		}
-
 		return nil, err
 	}
 
@@ -198,8 +206,35 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 		slog.String("event_id", params.EventID),
 		slog.String("user_id", params.UserID),
 	)
-
 	return ticket, nil
+}
+
+// MintTicket mints a soulbound ticket, with idempotency via DB + on-chain checks.
+func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParams) (*entity.Ticket, error) {
+	if err := uc.validateMintParams(params); err != nil {
+		return nil, err
+	}
+
+	// Idempotency check 1: check the database for an existing ticket record.
+	existing, found, err := uc.checkExistingTicket(ctx, params.EventID, params.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		uc.logger.Info(ctx, "ticket already exists in database, returning existing record",
+			slog.String("ticket_id", existing.ID),
+			slog.String("event_id", params.EventID),
+			slog.String("user_id", params.UserID),
+		)
+		return existing, nil
+	}
+
+	txHash, tokenID, err := uc.mintOrReconcile(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	return uc.persistTicket(ctx, params, tokenID, txHash)
 }
 
 // GetTicket retrieves a ticket by ID.
