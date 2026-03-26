@@ -74,6 +74,20 @@ func GetClaimsFromContext(ctx context.Context) (*auth.Claims, error) {
 	return claims, nil
 }
 
+// GetExternalUserID extracts the external user ID (subject claim) from the
+// authenticated context. Returns CodeUnauthenticated if claims are missing
+// or the subject claim is empty.
+func GetExternalUserID(ctx context.Context) (string, error) {
+	claims, err := GetClaimsFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	if claims.Sub == "" {
+		return "", connect.NewError(connect.CodeUnauthenticated, errors.New("token missing subject claim"))
+	}
+	return claims.Sub, nil
+}
+
 // NewUserFromCreateRequest converts JWT claims and optional home to domain NewUser.
 // Security note: All identity fields (external_id, email, name) are extracted from
 // validated JWT claims to prevent client-side identity tampering.
