@@ -44,6 +44,8 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 			code = codes.Unavailable
 		case http.StatusGatewayTimeout:
 			code = codes.DeadlineExceeded
+		case 499: // Client Closed Request (Nginx-origin; Gemini uses it for server-side cancellation)
+			code = codes.Canceled
 		default:
 			code = codes.Unknown
 		}

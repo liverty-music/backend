@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -73,8 +74,11 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 		}
 	}
 
-	// Default to Internal error
-	return apperr.Wrap(err, codes.Internal, msg, attrs...)
+	// Unknown errors: preserve original error type for upstream inspection
+	// (e.g., context.Canceled). Error classification is the interceptor's responsibility.
+	// Note: attrs are intentionally not included here — structured logging attributes
+	// are only meaningful when creating an AppErr for known error types above.
+	return fmt.Errorf("%s: %w", msg, err)
 }
 
 // IsForeignKeyViolation returns true if the error is a PostgreSQL foreign key violation.
