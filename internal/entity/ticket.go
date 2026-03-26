@@ -4,10 +4,22 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// ethAddressRe matches a valid Ethereum address: 0x prefix followed by 40 hex characters.
+var ethAddressRe = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
+
+// ValidateEthereumAddress validates that addr is a well-formed Ethereum address.
+func ValidateEthereumAddress(addr string) error {
+	if !ethAddressRe.MatchString(addr) {
+		return fmt.Errorf("invalid Ethereum address: must be 0x followed by 40 hex characters")
+	}
+	return nil
+}
 
 // Ticket represents a soulbound ticket (ERC-5192) issued to a user for an event.
 //

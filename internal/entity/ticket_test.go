@@ -1,6 +1,7 @@
 package entity_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -46,6 +47,61 @@ func TestCreateTicket(t *testing.T) {
 
 		assert.NotEqual(t, first.ID, second.ID)
 	})
+}
+
+func TestValidateEthereumAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		addr    string
+		wantErr error
+	}{
+		{
+			name:    "valid checksummed address",
+			addr:    "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+			wantErr: nil,
+		},
+		{
+			name:    "valid lowercase address",
+			addr:    "0x742d35cc6634c0532925a3b844bc9e7595f2bd18",
+			wantErr: nil,
+		},
+		{
+			name:    "missing 0x prefix",
+			addr:    "742d35cc6634c0532925a3b844bc9e7595f2bd18",
+			wantErr: fmt.Errorf("invalid Ethereum address: must be 0x followed by 40 hex characters"),
+		},
+		{
+			name:    "too short",
+			addr:    "0x742d35cc",
+			wantErr: fmt.Errorf("invalid Ethereum address: must be 0x followed by 40 hex characters"),
+		},
+		{
+			name:    "empty string",
+			addr:    "",
+			wantErr: fmt.Errorf("invalid Ethereum address: must be 0x followed by 40 hex characters"),
+		},
+		{
+			name:    "invalid hex characters",
+			addr:    "0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+			wantErr: fmt.Errorf("invalid Ethereum address: must be 0x followed by 40 hex characters"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := entity.ValidateEthereumAddress(tt.addr)
+
+			if tt.wantErr == nil {
+				assert.NoError(t, got)
+			} else {
+				assert.EqualError(t, got, tt.wantErr.Error())
+			}
+		})
+	}
 }
 
 func TestGenerateTokenID(t *testing.T) {
