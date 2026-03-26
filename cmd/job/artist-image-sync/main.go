@@ -20,6 +20,9 @@ const (
 	staleDuration = 7 * 24 * time.Hour
 	// batchLimit caps the number of artists processed per run.
 	batchLimit = 500
+	// fallbackShutdownTimeout is used when DI initialization fails and
+	// app.ShutdownTimeout is unavailable.
+	fallbackShutdownTimeout = 10 * time.Second
 )
 
 func main() {
@@ -37,18 +40,26 @@ func run() error {
 	bootLogger, _ := logging.New()
 	bootLogger.Info(ctx, "starting artist image sync job")
 
-	app, err := di.InitializeImageSyncJobApp(ctx)
+	// Register shutdown before DI so partially-initialized resources are
+	// cleaned up even when initialization fails partway through.
+	var app *di.ImageSyncJobApp
+	defer func() {
+		timeout := fallbackShutdownTimeout
+		if app != nil {
+			timeout = app.ShutdownTimeout
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if err := shutdown.Shutdown(ctx); err != nil {
+			bootLogger.Error(context.Background(), "error during shutdown", err)
+		}
+	}()
+
+	var err error
+	app, err = di.InitializeImageSyncJobApp(ctx)
 	if err != nil {
 		return err
 	}
-
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), app.ShutdownTimeout)
-		defer cancel()
-		if err := shutdown.Shutdown(ctx); err != nil {
-			app.Logger.Error(context.Background(), "error during shutdown", err)
-		}
-	}()
 
 	artists, err := app.ArtistRepo.ListStaleOrMissingFanart(ctx, staleDuration, batchLimit)
 	if err != nil {

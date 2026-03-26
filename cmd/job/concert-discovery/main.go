@@ -6,14 +6,20 @@ import (
 	"log/slog"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/pannpers/go-logging/logging"
 )
 
-// maxConsecutiveErrors is the threshold for stopping the job due to systemic failures.
-const maxConsecutiveErrors = 3
+const (
+	// maxConsecutiveErrors is the threshold for stopping the job due to systemic failures.
+	maxConsecutiveErrors = 3
+	// fallbackShutdownTimeout is used when DI initialization fails and
+	// app.ShutdownTimeout is unavailable.
+	fallbackShutdownTimeout = 10 * time.Second
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -34,19 +40,26 @@ func run() error {
 	bootLogger, _ := logging.New()
 	bootLogger.Info(ctx, "starting concert discovery job")
 
-	app, err := di.InitializeJobApp(ctx)
+	// Register shutdown before DI so partially-initialized resources are
+	// cleaned up even when initialization fails partway through.
+	var app *di.JobApp
+	defer func() {
+		timeout := fallbackShutdownTimeout
+		if app != nil {
+			timeout = app.ShutdownTimeout
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if err := shutdown.Shutdown(ctx); err != nil {
+			bootLogger.Error(context.Background(), "error during shutdown", err)
+		}
+	}()
+
+	var err error
+	app, err = di.InitializeJobApp(ctx)
 	if err != nil {
 		return err
 	}
-	// Use a fresh context with a deadline aligned to the K8s termination budget,
-	// so that phases are skipped if shutdown runs too long.
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), app.ShutdownTimeout)
-		defer cancel()
-		if err := shutdown.Shutdown(ctx); err != nil {
-			app.Logger.Error(context.Background(), "error during shutdown", err)
-		}
-	}()
 
 	artists, err := app.FollowRepo.ListAll(ctx)
 	if err != nil {
