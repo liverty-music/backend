@@ -59,11 +59,18 @@ func run() error {
 
 	// Register shutdown before DI so partially-initialized resources are
 	// cleaned up even when initialization fails partway through.
+	// shutdownDeadline tracks the overall termination budget so that
+	// Router drain + shutdown phases share a single time allocation.
 	var app *di.ConsumerApp
+	var shutdownDeadline time.Time
 	defer func() {
 		timeout := fallbackShutdownTimeout
 		if app != nil {
-			timeout = app.ShutdownTimeout
+			// Use remaining budget after Router drain consumed part of it.
+			timeout = time.Until(shutdownDeadline)
+			if timeout <= 0 {
+				timeout = time.Second // minimum to attempt cleanup
+			}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
@@ -101,6 +108,10 @@ func run() error {
 		app.Logger.Info(ctx, "received shutdown signal, stopping consumer gracefully",
 			slog.String("cause", cause.Error()),
 		)
+		// Set a shared deadline for Router drain + shutdown phases so
+		// the total does not exceed the K8s termination budget.
+		shutdownDeadline = time.Now().Add(app.ShutdownTimeout)
+
 		// Wait for Router.Run() to fully complete before proceeding to
 		// shutdown phases. This ensures all in-flight message handlers
 		// finish their DB writes and acks before publisher/DB are closed.

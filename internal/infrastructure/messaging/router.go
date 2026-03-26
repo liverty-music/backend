@@ -15,10 +15,9 @@ import (
 func NewRouter(wmLogger watermill.LoggerAdapter, poisonQueuePub message.Publisher, poisonQueueTopic string) (*message.Router, error) {
 	router, err := message.NewRouter(message.RouterConfig{
 		// CloseTimeout bounds how long Router.Close() waits for in-flight
-		// handlers. Aligned with K8s termination budget: the consumer waits
-		// for Router.Run() to return before running shutdown phases, so this
-		// timeout must leave room for Flush/Observe/Datastore phases.
-		// Budget: terminationGracePeriodSeconds(60) - preStop(5) - shutdownPhases(~15) - buffer(10) = 30s
+		// handlers. The consumer shares a single deadline between Router
+		// drain and shutdown phases, so this value caps the worst-case
+		// drain duration. The remaining budget flows to shutdown phases.
 		CloseTimeout: 30 * time.Second,
 	}, wmLogger)
 	if err != nil {
