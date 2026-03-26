@@ -13,7 +13,14 @@ import (
 // The router manages message handlers and provides retry, poison queue,
 // and logging middleware.
 func NewRouter(wmLogger watermill.LoggerAdapter, poisonQueuePub message.Publisher, poisonQueueTopic string) (*message.Router, error) {
-	router, err := message.NewRouter(message.RouterConfig{}, wmLogger)
+	router, err := message.NewRouter(message.RouterConfig{
+		// CloseTimeout bounds how long Router.Close() waits for in-flight
+		// handlers. Aligned with K8s termination budget: the consumer waits
+		// for Router.Run() to return before running shutdown phases, so this
+		// timeout must leave room for Flush/Observe/Datastore phases.
+		// Budget: terminationGracePeriodSeconds(60) - preStop(5) - shutdownPhases(~15) - buffer(10) = 30s
+		CloseTimeout: 30 * time.Second,
+	}, wmLogger)
 	if err != nil {
 		return nil, err
 	}
