@@ -177,9 +177,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, logger)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
-	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, userRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
+	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
 	var ticketEmailUC usecase.TicketEmailUseCase
 	if emailParser != nil {
@@ -247,7 +247,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return followconnect.NewFollowServiceHandler(
-				rpc.NewFollowHandler(followUC, logger),
+				rpc.NewFollowHandler(followUC, userRepo, logger),
 				opts...,
 			)
 		},
@@ -313,7 +313,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		{
 			HandlerFunc: func(opts ...connect.HandlerOption) (string, http.Handler) {
 				return concertconnect.NewConcertServiceHandler(
-					rpc.NewConcertHandler(concertUC, logger),
+					rpc.NewConcertHandler(concertUC, userRepo, logger),
 					opts...,
 				)
 			},
