@@ -9,12 +9,18 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/pannpers/go-logging/logging"
 )
+
+// fallbackShutdownTimeout is used when DI initialization fails and
+// app.ShutdownTimeout is unavailable. 10 seconds is generous for
+// closing partially-initialized resources.
+const fallbackShutdownTimeout = 10 * time.Second
 
 func main() {
 	if err := run(); err != nil {
@@ -43,8 +49,31 @@ func run() error {
 			bootLogger.Error(ctx, "health server failed", err)
 		}
 	}()
+	// Ensure the health server is closed on all exit paths, including DI failure.
+	// HealthServer.Close() is idempotent — the Drain phase may call it again safely.
+	defer func() {
+		if err := healthSrv.Close(); err != nil {
+			bootLogger.Error(ctx, "health server close error", err)
+		}
+	}()
 
-	app, err := di.InitializeConsumerApp(ctx)
+	// Register shutdown before DI so partially-initialized resources are
+	// cleaned up even when initialization fails partway through.
+	var app *di.ConsumerApp
+	defer func() {
+		timeout := fallbackShutdownTimeout
+		if app != nil {
+			timeout = app.ShutdownTimeout
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if err := shutdown.Shutdown(ctx); err != nil {
+			bootLogger.Error(context.Background(), "error during shutdown", err)
+		}
+	}()
+
+	var err error
+	app, err = di.InitializeConsumerApp(ctx)
 	if err != nil {
 		return err
 	}
@@ -52,20 +81,11 @@ func run() error {
 	healthSrv.SetReady()
 	shutdown.AddDrainPhase(healthSrv)
 
-	// Use a fresh context with a deadline aligned to the K8s termination budget,
-	// so that phases are skipped if shutdown runs too long.
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), app.ShutdownTimeout)
-		defer cancel()
-		if err := shutdown.Shutdown(ctx); err != nil {
-			app.Logger.Error(context.Background(), "error during shutdown", err)
-		}
-	}()
-
 	app.Logger.Info(ctx, "consumer router starting")
 
 	// Run the router in a goroutine so we can react to ctx cancellation.
-	// Router.Run(ctx) internally closes the router when ctx is cancelled.
+	// Router.Run(ctx) internally closes the router when ctx is cancelled,
+	// then blocks until all in-flight handlers complete (via closedCh).
 	errChan := make(chan error, 1)
 	go func() {
 		if err := app.Router.Run(ctx); err != nil {
@@ -81,6 +101,12 @@ func run() error {
 		app.Logger.Info(ctx, "received shutdown signal, stopping consumer gracefully",
 			slog.String("cause", cause.Error()),
 		)
+		// Wait for Router.Run() to fully complete before proceeding to
+		// shutdown phases. This ensures all in-flight message handlers
+		// finish their DB writes and acks before publisher/DB are closed.
+		if routerErr := <-errChan; routerErr != nil {
+			app.Logger.Error(ctx, "router stopped with error during shutdown", routerErr)
+		}
 		return nil
 
 	case err := <-errChan:
