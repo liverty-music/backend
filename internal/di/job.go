@@ -3,6 +3,7 @@ package di
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -44,6 +45,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	if err != nil {
 		return nil, err
 	}
+	slog.SetDefault(logger.Slog())
 
 	db, err := rdb.New(ctx, cfg.Database, cfg.IsLocal(), logger)
 	if err != nil {

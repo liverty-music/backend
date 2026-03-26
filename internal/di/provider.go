@@ -60,6 +60,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	slog.SetDefault(logger.Slog())
 
 	if len(cfg.Server.AllowedOrigins) == 0 {
 		logger.Warn(ctx, "⚠️  CORS not configured, browser requests will fail")
