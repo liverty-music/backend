@@ -3,6 +3,7 @@ package di
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -50,6 +51,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	if err != nil {
 		return nil, err
 	}
+	slog.SetDefault(logger.Slog())
 
 	db, err := rdb.New(ctx, cfg.Database, cfg.IsLocal(), logger)
 	if err != nil {
