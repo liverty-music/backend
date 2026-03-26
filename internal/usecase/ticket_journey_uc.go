@@ -4,8 +4,6 @@ import (
 	"context"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -15,7 +13,6 @@ type TicketJourneyUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: missing user/event identification or invalid status.
 	//   - Internal: unexpected failure.
 	SetStatus(ctx context.Context, userID, eventID string, status entity.TicketJourneyStatus) error
 
@@ -24,7 +21,6 @@ type TicketJourneyUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: missing user or event identification.
 	//   - Internal: unexpected failure.
 	Delete(ctx context.Context, userID, eventID string) error
 
@@ -32,7 +28,6 @@ type TicketJourneyUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: missing user identification.
 	//   - Internal: query failure.
 	ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error)
 }
@@ -56,16 +51,6 @@ func NewTicketJourneyUseCase(
 
 // SetStatus creates or updates a ticket journey.
 func (uc *ticketJourneyUseCase) SetStatus(ctx context.Context, userID, eventID string, status entity.TicketJourneyStatus) error {
-	if userID == "" {
-		return apperr.New(codes.InvalidArgument, "user_id is required")
-	}
-	if eventID == "" {
-		return apperr.New(codes.InvalidArgument, "event_id is required")
-	}
-	if !status.IsValid() {
-		return apperr.New(codes.InvalidArgument, "invalid ticket journey status")
-	}
-
 	return uc.repo.Upsert(ctx, &entity.TicketJourney{
 		UserID:  userID,
 		EventID: eventID,
@@ -75,21 +60,10 @@ func (uc *ticketJourneyUseCase) SetStatus(ctx context.Context, userID, eventID s
 
 // Delete removes a ticket journey.
 func (uc *ticketJourneyUseCase) Delete(ctx context.Context, userID, eventID string) error {
-	if userID == "" {
-		return apperr.New(codes.InvalidArgument, "user_id is required")
-	}
-	if eventID == "" {
-		return apperr.New(codes.InvalidArgument, "event_id is required")
-	}
-
 	return uc.repo.Delete(ctx, userID, eventID)
 }
 
 // ListByUser retrieves all ticket journeys for a user.
 func (uc *ticketJourneyUseCase) ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error) {
-	if userID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user_id is required")
-	}
-
 	return uc.repo.ListByUser(ctx, userID)
 }

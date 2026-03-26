@@ -29,10 +29,6 @@ func TestMintTicket_Validation(t *testing.T) {
 		name   string
 		params *usecase.MintTicketParams
 	}{
-		{"nil params", nil},
-		{"empty EventID", &usecase.MintTicketParams{UserID: "u1", RecipientAddress: "0xabc"}},
-		{"empty UserID", &usecase.MintTicketParams{EventID: "e1", RecipientAddress: "0xabc"}},
-		{"empty RecipientAddress", &usecase.MintTicketParams{EventID: "e1", UserID: "u1"}},
 		{"invalid RecipientAddress", &usecase.MintTicketParams{EventID: "e1", UserID: "u1", RecipientAddress: "not-an-address"}},
 	}
 
@@ -221,22 +217,4 @@ func TestMintTicket_IsTokenMintedError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperr.ErrInternal), "expected Internal, got %v", err)
-}
-
-func TestGetTicket_EmptyID(t *testing.T) {
-	t.Parallel()
-	logger := newTestLogger(t)
-	uc := usecase.NewTicketUseCase(nil, nil, logger)
-	_, err := uc.GetTicket(context.Background(), "")
-	assert.Error(t, err)
-	assert.True(t, errors.Is(err, apperr.ErrInvalidArgument))
-}
-
-func TestListTicketsForUser_EmptyID(t *testing.T) {
-	t.Parallel()
-	logger := newTestLogger(t)
-	uc := usecase.NewTicketUseCase(nil, nil, logger)
-	_, err := uc.ListTicketsForUser(context.Background(), "")
-	assert.Error(t, err)
-	assert.True(t, errors.Is(err, apperr.ErrInvalidArgument))
 }

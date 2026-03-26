@@ -125,24 +125,6 @@ func TestTicketEmailUseCase_Create(t *testing.T) {
 			wantCount: 1,
 		},
 		{
-			name:      "rejects invalid email type without calling parser",
-			userID:    userID,
-			eventIDs:  []string{eventID1},
-			emailType: entity.TicketEmailType(99),
-			rawBody:   rawBody,
-			setup:     func(_ *testing.T, _ *ticketEmailTestDeps) {},
-			wantErr:   apperr.ErrInvalidArgument,
-		},
-		{
-			name:      "rejects empty raw body without calling parser",
-			userID:    userID,
-			eventIDs:  []string{eventID1},
-			emailType: entity.TicketEmailTypeLotteryInfo,
-			rawBody:   "",
-			setup:     func(_ *testing.T, _ *ticketEmailTestDeps) {},
-			wantErr:   apperr.ErrInvalidArgument,
-		},
-		{
 			name:      "propagates parser error without persisting",
 			userID:    userID,
 			eventIDs:  []string{eventID1},
@@ -239,14 +221,6 @@ func TestTicketEmailUseCase_Update(t *testing.T) {
 					Return(nil).
 					Once()
 			},
-		},
-		{
-			name:          "rejects empty ticket_email_id",
-			userID:        userID,
-			ticketEmailID: "",
-			params:        &entity.UpdateTicketEmail{},
-			setup:         func(_ *testing.T, _ *ticketEmailTestDeps) {},
-			wantErr:       apperr.ErrInvalidArgument,
 		},
 		{
 			name:          "returns NotFound when record does not exist",

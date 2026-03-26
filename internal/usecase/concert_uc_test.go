@@ -24,7 +24,6 @@ type concertTestDeps struct {
 	artistRepo       *mocks.MockArtistRepository
 	concertRepo      *mocks.MockConcertRepository
 	venueRepo        *mocks.MockVenueRepository
-	userRepo         *mocks.MockUserRepository
 	searchLogRepo    *mocks.MockSearchLogRepository
 	searcher         *mocks.MockConcertSearcher
 	centroidResolver usecase.CentroidResolver
@@ -49,13 +48,12 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		artistRepo:       mocks.NewMockArtistRepository(t),
 		concertRepo:      mocks.NewMockConcertRepository(t),
 		venueRepo:        mocks.NewMockVenueRepository(t),
-		userRepo:         mocks.NewMockUserRepository(t),
 		searchLogRepo:    mocks.NewMockSearchLogRepository(t),
 		searcher:         mocks.NewMockConcertSearcher(t),
 		centroidResolver: noopCentroidResolver{},
 		publisher:        pub,
 	}
-	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.userRepo, d.searchLogRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), logger)
+	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.searchLogRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), logger)
 	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
@@ -87,11 +85,6 @@ func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
 			},
 			want:    1,
 			wantErr: nil,
-		},
-		{
-			name:    "empty artist ID",
-			args:    args{artistID: ""},
-			wantErr: apperr.ErrInvalidArgument,
 		},
 	}
 
@@ -130,23 +123,11 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 	osakaLat := 34.6863
 	osakaLng := 135.5200
 
-	t.Run("empty external user ID returns error", func(t *testing.T) {
-		t.Parallel()
-		d := newConcertTestDeps(t)
-		_, err := d.uc.ListByFollowerGrouped(ctx, "")
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
-
 	t.Run("classifies concerts into home/nearby/away by date", func(t *testing.T) {
 		t.Parallel()
 		d := newConcertTestDeps(t)
 
-		user := &entity.User{
-			ID:         "user-1",
-			ExternalID: "ext-1",
-			Home:       &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}, // Tokyo
-		}
-		d.userRepo.EXPECT().GetByExternalID(ctx, "ext-1").Return(user, nil).Once()
+		home := &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}} // Tokyo
 
 		concerts := []*entity.Concert{
 			// Date 1: Tokyo venue (HOME), Saitama venue (NEARBY), Osaka venue (AWAY)
@@ -170,7 +151,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		}
 		d.concertRepo.EXPECT().ListByFollower(ctx, "user-1").Return(concerts, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "ext-1")
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-1", home)
 		assert.NoError(t, err)
 		assert.Len(t, groups, 2)
 
@@ -195,9 +176,6 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		t.Parallel()
 		d := newConcertTestDeps(t)
 
-		user := &entity.User{ID: "user-2", ExternalID: "ext-2", Home: nil}
-		d.userRepo.EXPECT().GetByExternalID(ctx, "ext-2").Return(user, nil).Once()
-
 		concerts := []*entity.Concert{
 			{
 				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: strPtr("JP-13"), Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng}}},
@@ -206,7 +184,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		}
 		d.concertRepo.EXPECT().ListByFollower(ctx, "user-2").Return(concerts, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "ext-2")
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-2", nil)
 		assert.NoError(t, err)
 		assert.Len(t, groups, 1)
 		assert.Len(t, groups[0].Home, 0)
@@ -218,11 +196,10 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		t.Parallel()
 		d := newConcertTestDeps(t)
 
-		user := &entity.User{ID: "user-3", ExternalID: "ext-3", Home: &entity.Home{Level1: "JP-13"}}
-		d.userRepo.EXPECT().GetByExternalID(ctx, "ext-3").Return(user, nil).Once()
+		home := &entity.Home{Level1: "JP-13"}
 		d.concertRepo.EXPECT().ListByFollower(ctx, "user-3").Return(nil, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "ext-3")
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-3", home)
 		assert.NoError(t, err)
 		assert.Nil(t, groups)
 	})
@@ -242,11 +219,6 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 		setup   func(t *testing.T, d *concertTestDeps)
 		wantErr error
 	}{
-		{
-			name:    "empty artist ID",
-			args:    args{artistID: ""},
-			wantErr: apperr.ErrInvalidArgument,
-		},
 		{
 			name: "cache hit - recently completed returns nil",
 			args: args{artistID: "artist-1"},
@@ -701,14 +673,6 @@ func TestConcertUseCase_ListWithProximity(t *testing.T) {
 	ctx := context.Background()
 
 	date1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-
-	t.Run("empty artist IDs returns error", func(t *testing.T) {
-		t.Parallel()
-		d := newConcertTestDeps(t)
-
-		_, err := d.uc.ListWithProximity(ctx, []string{}, nil)
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
 
 	t.Run("returns grouped concerts by proximity", func(t *testing.T) {
 		t.Parallel()

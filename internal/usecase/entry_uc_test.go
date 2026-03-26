@@ -173,32 +173,6 @@ func newTestEntryUCWithBuilder(
 
 // --- VerifyEntry tests ---
 
-func TestVerifyEntry_Validation(t *testing.T) {
-	t.Parallel()
-
-	uc := newTestEntryUC(t, nil, nil, nil, nil, nil)
-
-	tests := []struct {
-		name   string
-		params *usecase.VerifyEntryParams
-	}{
-		{"nil params", nil},
-		{"empty event_id", &usecase.VerifyEntryParams{ProofJSON: "p", PublicSignalsJSON: "s"}},
-		{"empty proof_json", &usecase.VerifyEntryParams{EventID: "e1", PublicSignalsJSON: "s"}},
-		{"empty public_signals_json", &usecase.VerifyEntryParams{EventID: "e1", ProofJSON: "p"}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			result, err := uc.VerifyEntry(context.Background(), tc.params)
-			assert.Nil(t, result)
-			assert.Error(t, err)
-			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-		})
-	}
-}
-
 func TestVerifyEntry_InvalidPublicSignals(t *testing.T) {
 	t.Parallel()
 
@@ -389,30 +363,6 @@ func TestVerifyEntry_EventIDMismatch(t *testing.T) {
 
 // --- GetMerklePath tests ---
 
-func TestGetMerklePath_Validation(t *testing.T) {
-	t.Parallel()
-
-	uc := newTestEntryUC(t, nil, nil, nil, nil, nil)
-
-	tests := []struct {
-		name    string
-		eventID string
-		userID  string
-	}{
-		{"empty event_id", "", "user-1"},
-		{"empty user_id", "event-1", ""},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			result, err := uc.GetMerklePath(context.Background(), tc.eventID, tc.userID)
-			assert.Nil(t, result)
-			assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-		})
-	}
-}
-
 func TestGetMerklePath_NoTicket(t *testing.T) {
 	t.Parallel()
 
@@ -453,15 +403,6 @@ func TestGetMerklePath_Success(t *testing.T) {
 }
 
 // --- BuildMerkleTree tests ---
-
-func TestBuildMerkleTree_Validation(t *testing.T) {
-	t.Parallel()
-
-	uc := newTestEntryUC(t, nil, nil, nil, nil, nil)
-
-	err := uc.BuildMerkleTree(context.Background(), "")
-	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-}
 
 func TestBuildMerkleTree_Success(t *testing.T) {
 	t.Parallel()

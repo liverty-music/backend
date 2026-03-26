@@ -70,21 +70,6 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 		assert.Equal(t, artist, result)
 	})
 
-	t.Run("error - empty name", func(t *testing.T) {
-		t.Parallel()
-		d := newArtistTestDeps(t)
-
-		artist := &entity.Artist{
-			ID:   "artist-1",
-			Name: "",
-			MBID: "",
-		}
-
-		result, err := d.uc.Create(ctx, artist)
-
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-		assert.Nil(t, result)
-	})
 }
 
 func TestArtistUseCase_ListArtists(t *testing.T) {
@@ -313,16 +298,6 @@ func TestArtistUseCase_Search(t *testing.T) {
 		result, err := d.uc.Search(ctx, "test")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
-		assert.Nil(t, result)
-	})
-
-	t.Run("error - empty query", func(t *testing.T) {
-		t.Parallel()
-		d := newArtistTestDeps(t)
-
-		result, err := d.uc.Search(ctx, "")
-
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		assert.Nil(t, result)
 	})
 

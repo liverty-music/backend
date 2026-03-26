@@ -10,7 +10,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -20,32 +19,31 @@ type ConcertUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If the artist ID is empty.
+	//  - NotFound: If the artist does not exist.
+	//  - Internal: database query failure.
 	ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error)
 
 	// ListByFollower returns all concerts for artists followed by the given user.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If the external user ID is empty.
 	//  - NotFound: If the user does not exist.
-	ListByFollower(ctx context.Context, externalUserID string) ([]*entity.Concert, error)
+	ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error)
 
 	// ListByFollowerGrouped returns concerts for followed artists, grouped by date
 	// and classified into home/nearby/away lanes based on proximity to the user's home.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If the external user ID is empty.
 	//  - NotFound: If the user does not exist.
-	ListByFollowerGrouped(ctx context.Context, externalUserID string) ([]*entity.ProximityGroup, error)
+	ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home) ([]*entity.ProximityGroup, error)
 
 	// ListWithProximity returns concerts for the specified artists, grouped by date
 	// and classified by proximity to the given home.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If the artist IDs slice is empty.
+	//  - Internal: database query failure.
 	ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error)
 
 	// SearchNewConcerts discovers new concerts for the given artist synchronously.
@@ -54,7 +52,8 @@ type ConcertUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: If the artist ID is empty.
+	//  - NotFound: If the artist does not exist.
+	//  - Internal: search or database failure.
 	SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error)
 }
 
@@ -63,7 +62,6 @@ type concertUseCase struct {
 	artistRepo       entity.ArtistRepository
 	concertRepo      entity.ConcertRepository
 	venueRepo        entity.VenueRepository
-	userRepo         entity.UserRepository
 	searchLogRepo    entity.SearchLogRepository
 	concertSearcher  entity.ConcertSearcher
 	centroidResolver CentroidResolver
@@ -92,7 +90,6 @@ func NewConcertUseCase(
 	artistRepo entity.ArtistRepository,
 	concertRepo entity.ConcertRepository,
 	venueRepo entity.VenueRepository,
-	userRepo entity.UserRepository,
 	searchLogRepo entity.SearchLogRepository,
 	concertSearcher entity.ConcertSearcher,
 	centroidResolver CentroidResolver,
@@ -103,7 +100,6 @@ func NewConcertUseCase(
 		artistRepo:       artistRepo,
 		concertRepo:      concertRepo,
 		venueRepo:        venueRepo,
-		userRepo:         userRepo,
 		searchLogRepo:    searchLogRepo,
 		concertSearcher:  concertSearcher,
 		centroidResolver: centroidResolver,
@@ -114,10 +110,6 @@ func NewConcertUseCase(
 
 // ListByArtist returns all concerts for a specific artist.
 func (uc *concertUseCase) ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error) {
-	if artistID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "artist ID is required")
-	}
-
 	concerts, err := uc.concertRepo.ListByArtist(ctx, artistID, false)
 	if err != nil {
 		return nil, err
@@ -127,46 +119,24 @@ func (uc *concertUseCase) ListByArtist(ctx context.Context, artistID string) ([]
 }
 
 // ListByFollower returns all concerts for artists followed by the given user.
-func (uc *concertUseCase) ListByFollower(ctx context.Context, externalUserID string) ([]*entity.Concert, error) {
-	if externalUserID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
-	}
-
-	internalUserID, err := resolveUserID(ctx, uc.userRepo, externalUserID)
-	if err != nil {
-		return nil, err
-	}
-
-	return uc.concertRepo.ListByFollower(ctx, internalUserID)
+func (uc *concertUseCase) ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error) {
+	return uc.concertRepo.ListByFollower(ctx, userID)
 }
 
 // ListByFollowerGrouped returns concerts for followed artists, grouped by date
 // and classified into home/nearby/away lanes based on proximity to the user's home.
-func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, externalUserID string) ([]*entity.ProximityGroup, error) {
-	if externalUserID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
-	}
-
-	user, err := uc.userRepo.GetByExternalID(ctx, externalUserID)
-	if err != nil {
-		return nil, fmt.Errorf("resolve user by external ID: %w", err)
-	}
-
-	concerts, err := uc.concertRepo.ListByFollower(ctx, user.ID)
+func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home) ([]*entity.ProximityGroup, error) {
+	concerts, err := uc.concertRepo.ListByFollower(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	return entity.GroupByDateAndProximity(concerts, user.Home), nil
+	return entity.GroupByDateAndProximity(concerts, home), nil
 }
 
 // ListWithProximity returns concerts for the specified artists, grouped by date
 // and classified by proximity to the given home.
 func (uc *concertUseCase) ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error) {
-	if len(artistIDs) == 0 {
-		return nil, apperr.New(codes.InvalidArgument, "at least one artist ID is required")
-	}
-
 	if home != nil && home.Centroid == nil {
 		if lat, lng, err := uc.centroidResolver.ResolveCentroid(home); err == nil {
 			home.Centroid = &entity.Coordinates{Latitude: lat, Longitude: lng}
@@ -185,10 +155,6 @@ func (uc *concertUseCase) ListWithProximity(ctx context.Context, artistIDs []str
 // It returns the newly discovered concerts after deduplication against
 // already-known upcoming events.
 func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error) {
-	if artistID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "artist ID is required")
-	}
-
 	// Check search log — skip if recently completed or currently pending.
 	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {

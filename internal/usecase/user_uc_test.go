@@ -188,15 +188,17 @@ func TestUserUseCase_GetUser(t *testing.T) {
 		assert.Equal(t, expectedUser, result)
 	})
 
-	t.Run("error - empty ID", func(t *testing.T) {
+	t.Run("error - not found", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
-		result, err := d.uc.Get(ctx, "")
+		d.repo.EXPECT().Get(ctx, "nonexistent").Return(nil, apperr.ErrNotFound).Once()
+
+		result, err := d.uc.Get(ctx, "nonexistent")
 
 		assert.Error(t, err)
 		assert.Nil(t, result)
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
 
@@ -231,33 +233,6 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, expectedUser, result)
 		assert.Equal(t, "JP-13", result.Home.Level1)
-	})
-
-	t.Run("error - empty ID", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		home := &entity.Home{
-			CountryCode: "JP",
-			Level1:      "JP-13",
-		}
-
-		result, err := d.uc.UpdateHome(ctx, "", home)
-
-		assert.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
-
-	t.Run("error - nil home", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		result, err := d.uc.UpdateHome(ctx, "user-123", nil)
-
-		assert.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("error - invalid country_code", func(t *testing.T) {
