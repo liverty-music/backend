@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
 	entryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/entry/v1/entryv1connect"
 	entryv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/entry/v1"
@@ -45,22 +44,7 @@ func (h *EntryHandler) VerifyEntry(
 	ctx context.Context,
 	req *connect.Request[entryv1.VerifyEntryRequest],
 ) (*connect.Response[entryv1.VerifyEntryResponse], error) {
-	if req == nil || req.Msg == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
-	}
-
 	msg := req.Msg
-	if msg.GetEventId() == nil || msg.GetEventId().GetValue() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("event_id is required"))
-	}
-
-	if msg.GetProofJson() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("proof_json is required"))
-	}
-
-	if msg.GetPublicSignalsJson() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("public_signals_json is required"))
-	}
 
 	result, err := h.entryUseCase.VerifyEntry(ctx, &usecase.VerifyEntryParams{
 		EventID:           msg.GetEventId().GetValue(),
@@ -82,32 +66,20 @@ func (h *EntryHandler) GetMerklePath(
 	ctx context.Context,
 	req *connect.Request[entryv1.GetMerklePathRequest],
 ) (*connect.Response[entryv1.GetMerklePathResponse], error) {
-	if req == nil || req.Msg == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
-	}
-
-	msg := req.Msg
-	if msg.GetEventId() == nil || msg.GetEventId().GetValue() == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("event_id is required"))
-	}
-
 	// Resolve user ID from JWT claims for authorization safety.
 	// The request body user_id is intentionally ignored to prevent users from
 	// querying other users' Merkle paths.
-	claims, err := mapper.GetClaimsFromContext(ctx)
+	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
+	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("failed to resolve user"))
-	}
-	if user == nil {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
+		return nil, err
 	}
 
-	result, err := h.entryUseCase.GetMerklePath(ctx, msg.GetEventId().GetValue(), user.ID)
+	result, err := h.entryUseCase.GetMerklePath(ctx, req.Msg.GetEventId().GetValue(), user.ID)
 	if err != nil {
 		return nil, err
 	}

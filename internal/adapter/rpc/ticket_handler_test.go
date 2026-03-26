@@ -66,22 +66,6 @@ func TestTicketHandler_MintTicket(t *testing.T) {
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
-		{
-			name:     "nil request",
-			ctx:      ticketAuthedCtx("ext-user-1"),
-			req:      nil,
-			setup:    func(_ *ucmocks.MockTicketUseCase, _ *mocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name:     "missing event_id",
-			ctx:      ticketAuthedCtx("ext-user-1"),
-			req:      &ticketv1.MintTicketRequest{},
-			setup:    func(_ *ucmocks.MockTicketUseCase, _ *mocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
 	}
 
 	for _, tc := range tests {
@@ -141,20 +125,6 @@ func TestTicketHandler_GetTicket(t *testing.T) {
 				}, nil)
 			},
 			wantErr: false,
-		},
-		{
-			name:     "nil request",
-			req:      nil,
-			setup:    func(_ *ucmocks.MockTicketUseCase) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name:     "missing ticket_id",
-			req:      &ticketv1.GetTicketRequest{},
-			setup:    func(_ *ucmocks.MockTicketUseCase) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
 		},
 	}
 
@@ -225,14 +195,6 @@ func TestTicketHandler_ListTickets(t *testing.T) {
 			req:      &ticketv1.ListTicketsRequest{},
 			setup:    func(_ *ucmocks.MockTicketUseCase, _ *mocks.MockUserRepository) {},
 			wantCode: connect.CodeUnauthenticated,
-			wantErr:  true,
-		},
-		{
-			name:     "nil request",
-			ctx:      ticketAuthedCtx("ext-user-1"),
-			req:      nil,
-			setup:    func(_ *ucmocks.MockTicketUseCase, _ *mocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
 			wantErr:  true,
 		},
 	}

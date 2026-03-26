@@ -63,17 +63,6 @@ func TestTicketJourneyHandler_SetStatus(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name: "error - missing event_id",
-			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
-			req: &ticketjourneyv1.SetStatusRequest{
-				EventId: nil,
-				Status:  entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_TRACKING,
-			},
-			setup:    func(_ *ucmocks.MockTicketJourneyUseCase, _ *entitymocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
 			name: "error - user not found",
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
 			req: &ticketjourneyv1.SetStatusRequest{
@@ -81,7 +70,7 @@ func TestTicketJourneyHandler_SetStatus(t *testing.T) {
 				Status:  entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_TRACKING,
 			},
 			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, nil)
+				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  true,
@@ -150,19 +139,11 @@ func TestTicketJourneyHandler_Delete(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "error - missing event_id",
-			ctx:      ticketJourneyAuthedCtx("ext-user-1"),
-			req:      &ticketjourneyv1.DeleteRequest{EventId: nil},
-			setup:    func(_ *ucmocks.MockTicketJourneyUseCase, _ *entitymocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
 			name: "error - user not found",
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
 			req:  &ticketjourneyv1.DeleteRequest{EventId: &entityv1.EventId{Value: eventID}},
 			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, nil)
+				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  true,
@@ -229,7 +210,7 @@ func TestTicketJourneyHandler_ListByUser(t *testing.T) {
 			name: "error - user not found",
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
 			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, nil)
+				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  true,

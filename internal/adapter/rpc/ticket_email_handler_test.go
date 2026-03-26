@@ -77,30 +77,6 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 			wantErr:  assert.AnError,
 		},
 		{
-			name: "return invalid argument error when email type is unspecified",
-			ctx:  ticketEmailAuthedCtx("user-sub-1"),
-			req: &ticketemailv1.CreateTicketEmailRequest{
-				RawBody:   "body",
-				EmailType: entityv1.TicketEmailType_TICKET_EMAIL_TYPE_UNSPECIFIED,
-				EventIds:  []*entityv1.EventId{{Value: "event-1"}},
-			},
-			setup:    func(_ *ucmocks.MockTicketEmailUseCase, _ *entitymocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  assert.AnError,
-		},
-		{
-			name: "return invalid argument error when one of the event IDs is nil",
-			ctx:  ticketEmailAuthedCtx("user-sub-1"),
-			req: &ticketemailv1.CreateTicketEmailRequest{
-				RawBody:   "body",
-				EmailType: entityv1.TicketEmailType_TICKET_EMAIL_TYPE_LOTTERY_INFO,
-				EventIds:  []*entityv1.EventId{{Value: "event-1"}, nil},
-			},
-			setup:    func(_ *ucmocks.MockTicketEmailUseCase, _ *entitymocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  assert.AnError,
-		},
-		{
 			name: "return not found error when user does not exist",
 			ctx:  ticketEmailAuthedCtx("user-sub-1"),
 			req: &ticketemailv1.CreateTicketEmailRequest{
@@ -109,7 +85,7 @@ func TestTicketEmailHandler_CreateTicketEmail(t *testing.T) {
 				EventIds:  []*entityv1.EventId{{Value: "event-1"}},
 			},
 			setup: func(_ *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(nil, nil)
+				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  assert.AnError,
@@ -222,23 +198,13 @@ func TestTicketEmailHandler_UpdateTicketEmail(t *testing.T) {
 			wantErr:  assert.AnError,
 		},
 		{
-			name: "return invalid argument error when ticket_email_id is nil",
-			ctx:  ticketEmailAuthedCtx("user-sub-1"),
-			req: &ticketemailv1.UpdateTicketEmailRequest{
-				TicketEmailId: nil,
-			},
-			setup:    func(_ *ucmocks.MockTicketEmailUseCase, _ *entitymocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  assert.AnError,
-		},
-		{
 			name: "return not found error when user does not exist",
 			ctx:  ticketEmailAuthedCtx("user-sub-1"),
 			req: &ticketemailv1.UpdateTicketEmailRequest{
 				TicketEmailId: &entityv1.TicketEmailId{Value: "te-123"},
 			},
 			setup: func(_ *ucmocks.MockTicketEmailUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(nil, nil)
+				ur.EXPECT().GetByExternalID(mock.Anything, "user-sub-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  assert.AnError,

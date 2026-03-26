@@ -66,34 +66,6 @@ func TestEntryHandler_VerifyEntry(t *testing.T) {
 			wantErr: false,
 			wantOK:  false,
 		},
-		{
-			name:     "nil request",
-			req:      nil,
-			setup:    func(_ *ucmocks.MockEntryUseCase) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name:     "missing event_id",
-			req:      &entryv1.VerifyEntryRequest{ProofJson: "x", PublicSignalsJson: "y"},
-			setup:    func(_ *ucmocks.MockEntryUseCase) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name:     "missing proof_json",
-			req:      &entryv1.VerifyEntryRequest{EventId: &entityv1.EventId{Value: "event-1"}, PublicSignalsJson: "y"},
-			setup:    func(_ *ucmocks.MockEntryUseCase) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name:     "missing public_signals_json",
-			req:      &entryv1.VerifyEntryRequest{EventId: &entityv1.EventId{Value: "event-1"}, ProofJson: "x"},
-			setup:    func(_ *ucmocks.MockEntryUseCase) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
 	}
 
 	for _, tc := range tests {
@@ -165,22 +137,6 @@ func TestEntryHandler_GetMerklePath(t *testing.T) {
 			req:      &entryv1.GetMerklePathRequest{EventId: &entityv1.EventId{Value: "event-1"}},
 			setup:    func(_ *ucmocks.MockEntryUseCase, _ *mocks.MockUserRepository) {},
 			wantCode: connect.CodeUnauthenticated,
-			wantErr:  true,
-		},
-		{
-			name:     "nil request",
-			ctx:      entryAuthedCtx("ext-user-1"),
-			req:      nil,
-			setup:    func(_ *ucmocks.MockEntryUseCase, _ *mocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name:     "missing event_id",
-			ctx:      entryAuthedCtx("ext-user-1"),
-			req:      &entryv1.GetMerklePathRequest{},
-			setup:    func(_ *ucmocks.MockEntryUseCase, _ *mocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
 			wantErr:  true,
 		},
 	}
