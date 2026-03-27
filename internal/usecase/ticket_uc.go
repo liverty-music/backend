@@ -52,11 +52,11 @@ type MintTicketParams struct {
 
 // ticketUseCase implements the TicketUseCase interface.
 type ticketUseCase struct {
-	ticketRepo    entity.TicketRepository
-	minter        entity.TicketMinter
-	logger        *logging.Logger
-	mintDuration  metric.Float64Histogram
-	mintTotal     metric.Int64Counter
+	ticketRepo   entity.TicketRepository
+	minter       entity.TicketMinter
+	logger       *logging.Logger
+	mintDuration metric.Float64Histogram
+	mintTotal    metric.Int64Counter
 }
 
 // Compile-time interface compliance check.

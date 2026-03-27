@@ -238,8 +238,7 @@ func (uc *entryUseCase) BuildMerkleTree(ctx context.Context, eventID string) err
 	}
 
 	// Compute identity commitments and build the tree — CPU-intensive crypto work.
-	ctx, span := otel.Tracer("usecase/entry").Start(ctx, "BuildMerkleTree",
-	)
+	ctx, span := otel.Tracer("usecase/entry").Start(ctx, "BuildMerkleTree")
 	defer span.End()
 	span.SetAttributes(attribute.Int("merkle.leaf_count", len(tickets)))
 
