@@ -202,7 +202,7 @@ func TestEmailParser_Parse(t *testing.T) {
 				ProjectID: "test-project",
 				Location:  "us-central1",
 				ModelName: "gemini-2.0-flash",
-			}, httpClient, logger)
+			}, httpClient, false, logger)
 			require.NoError(t, err)
 
 			got, err := parser.Parse(ctx, "テストメール本文", tt.args.emailType)

@@ -29,7 +29,7 @@ func TestConcertSearcher_Search_Real(t *testing.T) {
 		logging.WithLevel(slog.LevelDebug),
 		logging.WithFormat(logging.FormatJSON),
 	)
-	s, _ := gemini.NewConcertSearcher(ctx, cfg, nil, logger) // Pass nil for Real test
+	s, _ := gemini.NewConcertSearcher(ctx, cfg, nil, true, logger) // Pass nil for Real test
 
 	artist := &entity.Artist{ID: "artist-uverworld", Name: "UVERworld"}
 	officialSite := &entity.OfficialSite{URL: "https://www.uverworld.jp/"}

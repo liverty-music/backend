@@ -27,6 +27,7 @@ import (
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // ConsumerApp represents the event consumer application with a Watermill Router.
@@ -58,7 +59,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		return nil, err
 	}
 
-	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.ShutdownTimeout)
+	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.Environment, cfg.ShutdownTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -103,18 +104,19 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		return nil, fmt.Errorf("obtain google maps token source: %w", err)
 	}
 	gmHTTPClient := &http.Client{
-		Transport: httpx.NewRetryTransport(nil),
+		Transport: otelhttp.NewTransport(httpx.NewRetryTransport(nil)),
 		Timeout:   10 * time.Second,
 	}
 	gmClient := googlemaps.NewClient(gmTokenSource, cfg.GCP.ProjectID, gmHTTPClient, logger)
 	placeSearcher := googlemaps.NewPlaceSearcher(gmClient)
 
 	// Infrastructure - MusicBrainz (for artist name resolution)
-	musicbrainzClient := musicbrainz.NewClient(nil, logger)
+	extHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+	musicbrainzClient := musicbrainz.NewClient(extHTTPClient, logger)
 
 	// Infrastructure - fanart.tv (for artist image resolution)
-	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, nil, logger)
-	logoFetcher := fanarttv.NewLogoFetcher(nil)
+	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, extHTTPClient, logger)
+	logoFetcher := fanarttv.NewLogoFetcher(extHTTPClient)
 
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)

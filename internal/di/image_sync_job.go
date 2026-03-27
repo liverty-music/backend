@@ -2,6 +2,7 @@ package di
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -12,6 +13,7 @@ import (
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // ImageSyncJobApp represents the artist image sync CronJob application.
@@ -43,7 +45,7 @@ func InitializeImageSyncJobApp(ctx context.Context) (*ImageSyncJobApp, error) {
 		return nil, err
 	}
 
-	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.ShutdownTimeout)
+	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.Environment, cfg.ShutdownTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -52,8 +54,9 @@ func InitializeImageSyncJobApp(ctx context.Context) (*ImageSyncJobApp, error) {
 	artistRepo := rdb.NewArtistRepository(db)
 
 	// Infrastructure - fanart.tv
-	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, nil, logger)
-	logoFetcher := fanarttv.NewLogoFetcher(nil)
+	extHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, extHTTPClient, logger)
+	logoFetcher := fanarttv.NewLogoFetcher(extHTTPClient)
 
 	// Use Cases
 	imageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)

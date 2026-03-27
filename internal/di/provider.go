@@ -43,6 +43,7 @@ import (
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // InitializeApp creates a new App with all dependencies wired up manually.
@@ -71,7 +72,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 
-	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.ShutdownTimeout)
+	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.Environment, cfg.ShutdownTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -92,12 +93,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	var geminiSearcher entity.ConcertSearcher
 	var emailParser entity.TicketEmailParser
 	if cfg.GCP.ProjectID != "" {
+		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 			ProjectID:   cfg.GCP.ProjectID,
 			Location:    cfg.GCP.Location,
 			ModelName:   cfg.GCP.GeminiModel,
 			DataStoreID: cfg.GCP.VertexAISearchDataStore,
-		}, nil, logger)
+		}, geminiHTTPClient, true, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +109,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			ProjectID: cfg.GCP.ProjectID,
 			Location:  cfg.GCP.Location,
 			ModelName: cfg.GCP.GeminiModel,
-		}, nil, logger)
+		}, geminiHTTPClient, true, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -115,8 +117,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Infrastructure - Music
-	lastfmClient := lastfm.NewClient(cfg.LastFMAPIKey, nil, logger)
-	musicbrainzClient := musicbrainz.NewClient(nil, logger)
+	musicHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+	lastfmClient := lastfm.NewClient(cfg.LastFMAPIKey, musicHTTPClient, logger)
+	musicbrainzClient := musicbrainz.NewClient(musicHTTPClient, logger)
 
 	// Cache - Artist discovery results with 1 hour TTL
 	artistCache := cache.NewMemoryCache(1 * time.Hour)

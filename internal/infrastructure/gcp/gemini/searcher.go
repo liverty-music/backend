@@ -134,15 +134,22 @@ type ConcertSearcher struct {
 }
 
 // NewConcertSearcher creates a new ConcertSearcher.
-// The httpClient parameter allows for custom transport configuration, which is
-// particularly useful for unit testing with httptest. If nil, the default transport is used.
-func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client, logger *logging.Logger) (*ConcertSearcher, error) {
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+// When httpClient is provided, UseDefaultCredentials layers ADC authentication
+// on top of its transport (e.g., otelhttp). Tests pass a custom httpClient
+// without ADC via the useADC flag.
+func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client, useADC bool, logger *logging.Logger) (*ConcertSearcher, error) {
+	cc := &genai.ClientConfig{
 		Project:    cfg.ProjectID,
 		Location:   cfg.Location,
 		Backend:    genai.BackendVertexAI,
 		HTTPClient: httpClient,
-	})
+	}
+	if httpClient != nil && useADC {
+		if err := cc.UseDefaultCredentials(); err != nil {
+			return nil, fmt.Errorf("setup default credentials: %w", err)
+		}
+	}
+	client, err := genai.NewClient(ctx, cc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}

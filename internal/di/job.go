@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -18,6 +19,7 @@ import (
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // JobApp represents a lightweight application for batch jobs without an HTTP server.
@@ -52,7 +54,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 		return nil, err
 	}
 
-	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.ShutdownTimeout)
+	telemetryCloser, err := telemetry.SetupTelemetry(ctx, cfg.Telemetry, cfg.Environment, cfg.ShutdownTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -67,12 +69,13 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	// Infrastructure - Gemini
 	var geminiSearcher entity.ConcertSearcher
 	if cfg.GCP.ProjectID != "" {
+		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 			ProjectID:   cfg.GCP.ProjectID,
 			Location:    cfg.GCP.Location,
 			ModelName:   cfg.GCP.GeminiModel,
 			DataStoreID: cfg.GCP.VertexAISearchDataStore,
-		}, nil, logger)
+		}, geminiHTTPClient, true, logger)
 		if err != nil {
 			return nil, err
 		}

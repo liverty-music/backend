@@ -425,7 +425,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 				ProjectID: "test",
 				Location:  "us-central1",
 				ModelName: "gemini-pro",
-			}, httpClient, logger)
+			}, httpClient, false, logger)
 			require.NoError(t, err)
 
 			got, err := s.Search(ctx, artist, officialSite, from)
@@ -515,7 +515,7 @@ func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
 		ProjectID: "test",
 		Location:  "us-central1",
 		ModelName: "gemini-pro",
-	}, httpClient, logger)
+	}, httpClient, false, logger)
 	require.NoError(t, err)
 
 	// Pass nil officialSite — should use the fallback prompt and still return concerts
@@ -567,7 +567,7 @@ func TestConcertSearcher_Search_InvalidJSON_Permanent(t *testing.T) {
 		ProjectID: "test",
 		Location:  "us-central1",
 		ModelName: "gemini-pro",
-	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, logger)
+	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, false, logger)
 	require.NoError(t, err)
 
 	got, err := s.Search(ctx, artist, officialSite, from)
@@ -600,7 +600,7 @@ func TestConcertSearcher_Search_StructuralMismatch(t *testing.T) {
 		ProjectID: "test",
 		Location:  "us-central1",
 		ModelName: "gemini-pro",
-	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, logger)
+	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, false, logger)
 	require.NoError(t, err)
 
 	got, err := s.Search(ctx, artist, officialSite, from)
