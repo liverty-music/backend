@@ -3,6 +3,7 @@ package rdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -22,16 +24,41 @@ const tracerName = "github.com/liverty-music/backend/internal/infrastructure/dat
 // TracedPool wraps *pgxpool.Pool to transparently create OTel spans and inject
 // sqlcommenter traceparent comments into every SQL query.
 type TracedPool struct {
-	inner  *pgxpool.Pool
-	tracer trace.Tracer
+	inner         *pgxpool.Pool
+	tracer        trace.Tracer
+	dbNamespace   string
+	serverAddress string
 }
 
 // NewTracedPool creates a TracedPool wrapping the given pool.
-func NewTracedPool(pool *pgxpool.Pool) *TracedPool {
-	return &TracedPool{
-		inner:  pool,
-		tracer: otel.Tracer(tracerName),
+// dbNamespace is the database name and serverAddress is the database host.
+func NewTracedPool(pool *pgxpool.Pool, dbNamespace, serverAddress string) *TracedPool {
+	tp := &TracedPool{
+		inner:         pool,
+		tracer:        otel.Tracer(tracerName),
+		dbNamespace:   dbNamespace,
+		serverAddress: serverAddress,
 	}
+	tp.registerPoolMetrics(pool)
+	return tp
+}
+
+func (tp *TracedPool) registerPoolMetrics(pool *pgxpool.Pool) {
+	meter := otel.Meter(tracerName)
+	_, _ = meter.Int64ObservableGauge("db.pool.active_connections",
+		metric.WithDescription("Number of active (acquired) database connections"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			o.Observe(int64(pool.Stat().AcquiredConns()))
+			return nil
+		}),
+	)
+	_, _ = meter.Int64ObservableGauge("db.pool.idle_connections",
+		metric.WithDescription("Number of idle database connections"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			o.Observe(int64(pool.Stat().IdleConns()))
+			return nil
+		}),
+	)
 }
 
 // Query executes a query that returns rows, with tracing and traceparent injection.
@@ -84,7 +111,7 @@ func (tp *TracedPool) Begin(ctx context.Context) (pgx.Tx, error) {
 		recordError(span, err)
 		return nil, err
 	}
-	return &TracedTx{inner: tx, tracer: tp.tracer}, nil
+	return &TracedTx{inner: tx, tracer: tp.tracer, dbNamespace: tp.dbNamespace, serverAddress: tp.serverAddress}, nil
 }
 
 // Ping delegates to the inner pool.
@@ -98,14 +125,24 @@ func (tp *TracedPool) Close() {
 }
 
 func (tp *TracedPool) startSpan(ctx context.Context, sql string) (context.Context, trace.Span) {
-	op := ExtractOperation(sql)
-	return tp.tracer.Start(ctx, op,
+	meta := ExtractQueryMeta(sql)
+	attrs := []attribute.KeyValue{
+		semconv.DBSystemPostgreSQL,
+		attribute.String("db.query.text", sql),
+		attribute.String("db.operation.name", meta.Operation),
+	}
+	if meta.Table != "" {
+		attrs = append(attrs, attribute.String("db.collection.name", meta.Table))
+	}
+	if tp.dbNamespace != "" {
+		attrs = append(attrs, attribute.String("db.namespace", tp.dbNamespace))
+	}
+	if tp.serverAddress != "" {
+		attrs = append(attrs, attribute.String("server.address", tp.serverAddress))
+	}
+	return tp.tracer.Start(ctx, meta.Operation,
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			semconv.DBSystemPostgreSQL,
-			attribute.String("db.query.text", sql),
-			attribute.String("db.operation.name", op),
-		),
+		trace.WithAttributes(attrs...),
 	)
 }
 
@@ -142,6 +179,11 @@ func (r *tracedRows) Close() {
 func recordError(span trace.Span, err error) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, err.Error())
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		span.SetAttributes(attribute.String("db.response.status_code", pgErr.Code))
+	}
 }
 
 // InjectTraceparent prepends a sqlcommenter traceparent comment to the SQL if
@@ -159,15 +201,74 @@ func InjectTraceparent(ctx context.Context, sql string) string {
 	)
 }
 
-// ExtractOperation returns the SQL operation name from the first keyword of the query.
-func ExtractOperation(sql string) string {
+// QueryMeta holds the extracted operation and table name from a SQL query.
+type QueryMeta struct {
+	Operation string
+	Table     string
+}
+
+// ExtractQueryMeta returns the SQL operation name and primary table name from a query.
+// Table extraction uses simple pattern matching for common SQL forms; complex queries
+// (CTEs, subqueries) may not match, in which case Table is empty.
+func ExtractQueryMeta(sql string) QueryMeta {
 	s := strings.TrimSpace(sql)
-	if i := strings.IndexAny(s, " \t\n\r"); i > 0 {
-		op := strings.ToUpper(s[:i])
-		switch op {
-		case "SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "TRUNCATE":
-			return op
-		}
+	i := strings.IndexAny(s, " \t\n\r")
+	if i <= 0 {
+		return QueryMeta{Operation: "DB"}
 	}
-	return "DB"
+
+	op := strings.ToUpper(s[:i])
+	switch op {
+	case "SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "TRUNCATE":
+	default:
+		return QueryMeta{Operation: "DB"}
+	}
+
+	table := extractTable(op, s)
+	return QueryMeta{Operation: op, Table: table}
+}
+
+// ExtractOperation returns the SQL operation name from the first keyword of the query.
+// Deprecated: Use ExtractQueryMeta for both operation and table name.
+func ExtractOperation(sql string) string {
+	return ExtractQueryMeta(sql).Operation
+}
+
+// extractTable extracts the primary table name from SQL based on the operation.
+func extractTable(op, sql string) string {
+	upper := strings.ToUpper(sql)
+
+	var keyword string
+	switch op {
+	case "SELECT", "DELETE":
+		keyword = "FROM"
+	case "INSERT":
+		keyword = "INTO"
+	case "UPDATE":
+		keyword = "UPDATE"
+	default:
+		return ""
+	}
+
+	idx := strings.Index(upper, keyword)
+	if idx < 0 {
+		return ""
+	}
+
+	rest := strings.TrimSpace(sql[idx+len(keyword):])
+	// Take the first word (table name), stripping any schema prefix or quotes.
+	end := strings.IndexAny(rest, " \t\n\r(,;")
+	if end < 0 {
+		end = len(rest)
+	}
+	if end == 0 {
+		return ""
+	}
+
+	table := rest[:end]
+	// Strip schema prefix (e.g., "app.concerts" → "concerts").
+	if dot := strings.LastIndex(table, "."); dot >= 0 {
+		table = table[dot+1:]
+	}
+	return strings.Trim(table, "\"")
 }

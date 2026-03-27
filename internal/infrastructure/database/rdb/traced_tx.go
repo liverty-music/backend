@@ -17,8 +17,10 @@ var _ pgx.Tx = (*TracedTx)(nil)
 // TracedTx wraps pgx.Tx to create OTel spans and inject sqlcommenter traceparent
 // comments for queries executed within a transaction.
 type TracedTx struct {
-	inner  pgx.Tx
-	tracer trace.Tracer
+	inner         pgx.Tx
+	tracer        trace.Tracer
+	dbNamespace   string
+	serverAddress string
 }
 
 // Query executes a query within the transaction, with tracing and traceparent injection.
@@ -94,7 +96,7 @@ func (t *TracedTx) Begin(ctx context.Context) (pgx.Tx, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &TracedTx{inner: tx, tracer: t.tracer}, nil
+	return &TracedTx{inner: tx, tracer: t.tracer, dbNamespace: t.dbNamespace, serverAddress: t.serverAddress}, nil
 }
 
 // Conn returns the underlying *pgx.Conn.
@@ -123,13 +125,23 @@ func (t *TracedTx) Prepare(ctx context.Context, name, sql string) (*pgconn.State
 }
 
 func (t *TracedTx) startSpan(ctx context.Context, sql string) (context.Context, trace.Span) {
-	op := ExtractOperation(sql)
-	return t.tracer.Start(ctx, op,
+	meta := ExtractQueryMeta(sql)
+	attrs := []attribute.KeyValue{
+		semconv.DBSystemPostgreSQL,
+		attribute.String("db.query.text", sql),
+		attribute.String("db.operation.name", meta.Operation),
+	}
+	if meta.Table != "" {
+		attrs = append(attrs, attribute.String("db.collection.name", meta.Table))
+	}
+	if t.dbNamespace != "" {
+		attrs = append(attrs, attribute.String("db.namespace", t.dbNamespace))
+	}
+	if t.serverAddress != "" {
+		attrs = append(attrs, attribute.String("server.address", t.serverAddress))
+	}
+	return t.tracer.Start(ctx, meta.Operation,
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(
-			semconv.DBSystemPostgreSQL,
-			attribute.String("db.query.text", sql),
-			attribute.String("db.operation.name", op),
-		),
+		trace.WithAttributes(attrs...),
 	)
 }

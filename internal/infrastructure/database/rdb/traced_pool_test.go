@@ -113,3 +113,40 @@ func TestExtractOperation(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractQueryMeta(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		sql       string
+		wantOp    string
+		wantTable string
+	}{
+		{name: "SELECT FROM", sql: "SELECT * FROM users WHERE id = $1", wantOp: "SELECT", wantTable: "users"},
+		{name: "INSERT INTO", sql: "INSERT INTO artists (id, name) VALUES ($1, $2)", wantOp: "INSERT", wantTable: "artists"},
+		{name: "UPDATE", sql: "UPDATE concerts SET name = $1 WHERE id = $2", wantOp: "UPDATE", wantTable: "concerts"},
+		{name: "DELETE FROM", sql: "DELETE FROM sessions WHERE expired_at < $1", wantOp: "DELETE", wantTable: "sessions"},
+		{name: "schema prefix", sql: "SELECT * FROM app.venues WHERE id = $1", wantOp: "SELECT", wantTable: "venues"},
+		{name: "quoted table", sql: `SELECT * FROM "users" WHERE id = $1`, wantOp: "SELECT", wantTable: "users"},
+		{name: "WITH CTE no table", sql: "WITH cte AS (SELECT 1) SELECT * FROM cte", wantOp: "WITH", wantTable: ""},
+		{name: "TRUNCATE no table", sql: "TRUNCATE TABLE users CASCADE", wantOp: "TRUNCATE", wantTable: ""},
+		{name: "lowercase", sql: "select * from tickets where event_id = $1", wantOp: "SELECT", wantTable: "tickets"},
+		{name: "empty string", sql: "", wantOp: "DB", wantTable: ""},
+		{name: "SELECT without FROM", sql: "SELECT 1", wantOp: "SELECT", wantTable: ""},
+		{name: "INSERT with newline", sql: "INSERT INTO\n  follow_artists (user_id, artist_id) VALUES ($1, $2)", wantOp: "INSERT", wantTable: "follow_artists"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			meta := rdb.ExtractQueryMeta(tt.sql)
+			if meta.Operation != tt.wantOp {
+				t.Errorf("ExtractQueryMeta(%q).Operation = %q, want %q", tt.sql, meta.Operation, tt.wantOp)
+			}
+			if meta.Table != tt.wantTable {
+				t.Errorf("ExtractQueryMeta(%q).Table = %q, want %q", tt.sql, meta.Table, tt.wantTable)
+			}
+		})
+	}
+}
