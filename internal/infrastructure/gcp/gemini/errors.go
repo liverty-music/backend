@@ -28,8 +28,7 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 	}
 
 	// Handle Gemini API errors
-	var apiErr genai.APIError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[genai.APIError](err); ok {
 		var code codes.Code
 		switch apiErr.Code {
 		case http.StatusBadRequest:
@@ -53,12 +52,10 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 	}
 
 	// Handle JSON errors (usually indicate model output mismatch or malformed response)
-	var jsonSyntaxErr *json.SyntaxError
-	if errors.As(err, &jsonSyntaxErr) {
+	if _, ok := errors.AsType[*json.SyntaxError](err); ok {
 		return apperr.Wrap(err, codes.Internal, msg, attrs...)
 	}
-	var jsonTypeErr *json.UnmarshalTypeError
-	if errors.As(err, &jsonTypeErr) {
+	if _, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
 		return apperr.Wrap(err, codes.Internal, msg, attrs...)
 	}
 
@@ -84,8 +81,8 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 //   - 499 (Client Cancelled): Gemini cancelled the operation server-side.
 //   - Context errors (DeadlineExceeded, Canceled): caller's own deadline expired.
 func isRetryable(err error) bool {
-	var apiErr genai.APIError
-	if !errors.As(err, &apiErr) {
+	apiErr, ok := errors.AsType[genai.APIError](err)
+	if !ok {
 		return false
 	}
 	switch apiErr.Code {

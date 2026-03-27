@@ -24,8 +24,7 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 	}
 
 	// Handle PostgreSQL specific errors
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		switch pgErr.Code {
 		// Constraint violations (Class 23)
 		case "23505": // unique_violation
@@ -83,8 +82,7 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 
 // IsForeignKeyViolation returns true if the error is a PostgreSQL foreign key violation.
 func IsForeignKeyViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return pgErr.Code == "23503"
 	}
 	return false
@@ -92,8 +90,7 @@ func IsForeignKeyViolation(err error) bool {
 
 // IsUniqueViolation returns true if the error is a PostgreSQL unique violation.
 func IsUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return pgErr.Code == "23505"
 	}
 	return false

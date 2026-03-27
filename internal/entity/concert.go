@@ -31,9 +31,11 @@ type ScrapedConcert struct {
 	// See entity.Concert.LocalDate for detailed specifications.
 	LocalDate time.Time `json:"local_date"`
 	// StartTime is the specific starting time (optional).
-	StartTime *time.Time `json:"start_time,omitempty"`
+	// Zero value means unknown; omitted from JSON via omitzero.
+	StartTime time.Time `json:"start_time,omitzero"`
 	// OpenTime is the time when doors open (optional).
-	OpenTime *time.Time `json:"open_time,omitempty"`
+	// Zero value means unknown; omitted from JSON via omitzero.
+	OpenTime time.Time `json:"open_time,omitzero"`
 	// SourceURL is the URL where this information was found.
 	SourceURL string `json:"source_url"`
 }
@@ -48,19 +50,24 @@ type ScrapedConcert struct {
 //     The returned Concert is bulk-inserted into the database.
 func (sc *ScrapedConcert) ToConcert(artistID, eventID, venueID string) *Concert {
 	listedName := sc.ListedVenueName
-	return &Concert{
+	c := &Concert{
 		Event: Event{
 			ID:              eventID,
 			VenueID:         venueID,
 			Title:           sc.Title,
 			ListedVenueName: &listedName,
 			LocalDate:       sc.LocalDate,
-			StartTime:       sc.StartTime,
-			OpenTime:        sc.OpenTime,
 			SourceURL:       sc.SourceURL,
 		},
 		ArtistID: artistID,
 	}
+	if !sc.StartTime.IsZero() {
+		c.StartTime = &sc.StartTime
+	}
+	if !sc.OpenTime.IsZero() {
+		c.OpenTime = &sc.OpenTime
+	}
+	return c
 }
 
 // ScrapedConcerts is a slice of ScrapedConcert pointers with domain-level operations.

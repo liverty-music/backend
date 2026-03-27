@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -80,13 +81,7 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 
 	// Verify the issuer against the accepted list.
 	tokenIssuer := token.Issuer()
-	issuerOK := false
-	for _, accepted := range v.acceptedIssuers {
-		if tokenIssuer == accepted {
-			issuerOK = true
-			break
-		}
-	}
+	issuerOK := slices.Contains(v.acceptedIssuers, tokenIssuer)
 	if !issuerOK {
 		return nil, fmt.Errorf("token issuer %q is not in the accepted issuers list", tokenIssuer)
 	}

@@ -131,7 +131,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 					Title:           "Concert A",
 					ListedVenueName: "Venue X",
 					LocalDate:       localDate,
-					StartTime:       &startTime,
+					StartTime:       startTime,
 					SourceURL:       "https://example.com/a",
 				},
 				{

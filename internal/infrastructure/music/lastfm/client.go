@@ -226,7 +226,7 @@ func (c *client) ListTop(ctx context.Context, country string, tag string, limit 
 	return artists, nil
 }
 
-func (c *client) get(ctx context.Context, params url.Values, result interface{}) error {
+func (c *client) get(ctx context.Context, params url.Values, result any) error {
 	params.Set("api_key", c.apiKey)
 	params.Set("format", "json")
 

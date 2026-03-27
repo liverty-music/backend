@@ -309,8 +309,8 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 				ListedVenueName: "Zepp Tokyo",
 				AdminArea:       &adminArea,
 				LocalDate:       localDate,
-				StartTime:       &startTime,
-				OpenTime:        &openTime,
+				StartTime:       startTime,
+				OpenTime:        openTime,
 				SourceURL:       "https://example.com/live",
 			},
 			artistID: "artist-1",
@@ -520,28 +520,26 @@ func TestScrapedConcert_JSONSerialization(t *testing.T) {
 		wantAbsentKeys []string
 	}{
 		{
-			name: "omit nil optional fields",
+			name: "omit zero optional fields",
 			concert: &entity.ScrapedConcert{
 				Title:           "Live Show",
 				ListedVenueName: "Zepp Tokyo",
 				AdminArea:       nil,
 				LocalDate:       localDate,
-				StartTime:       nil,
-				OpenTime:        nil,
 				SourceURL:       "https://example.com",
 			},
 			wantKeys:       []string{"title", "listed_venue_name", "local_date", "source_url"},
 			wantAbsentKeys: []string{"admin_area", "start_time", "open_time"},
 		},
 		{
-			name: "include all non-nil fields",
+			name: "include all populated fields",
 			concert: &entity.ScrapedConcert{
 				Title:           "Live Show",
 				ListedVenueName: "Zepp Tokyo",
 				AdminArea:       &adminArea,
 				LocalDate:       localDate,
-				StartTime:       &startTime,
-				OpenTime:        &startTime,
+				StartTime:       startTime,
+				OpenTime:        startTime,
 				SourceURL:       "https://example.com",
 			},
 			wantKeys:       []string{"title", "listed_venue_name", "admin_area", "local_date", "start_time", "open_time", "source_url"},

@@ -55,7 +55,7 @@ func TestClient_SearchPlace(t *testing.T) {
 		venueName    string
 		adminArea    string
 		statusCode   int
-		responseBody interface{}
+		responseBody any
 		wantErr      error
 		wantPlaceID  string
 		wantName     string

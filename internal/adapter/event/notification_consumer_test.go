@@ -17,7 +17,7 @@ import (
 )
 
 // anyCtx matches any context.Context argument.
-var anyCtx = mock.MatchedBy(func(interface{}) bool { return true })
+var anyCtx = mock.MatchedBy(func(any) bool { return true })
 
 func makeCreatedMsg(t *testing.T, data entity.ConcertCreatedData) *message.Message {
 	t.Helper()

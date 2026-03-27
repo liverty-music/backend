@@ -97,7 +97,7 @@ func (p *EmailParser) Parse(ctx context.Context, emailBody string, emailType ent
 			Parts: []*genai.Part{{Text: emailParserSystemInstruction}},
 		},
 		ResponseMIMEType: "application/json",
-		Temperature:      genai.Ptr(float32(0.0)),
+		Temperature:      new(float32(0.0)),
 	})
 	if err != nil {
 		p.logger.Error(ctx, "gemini email parse failed", err,

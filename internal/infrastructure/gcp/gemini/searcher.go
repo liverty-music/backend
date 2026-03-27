@@ -193,7 +193,7 @@ func (s *ConcertSearcher) Search(
 			Parts: []*genai.Part{{Text: systemInstruction}},
 		},
 		Tools:            []*genai.Tool{tool},
-		Temperature:      genai.Ptr(float32(1.0)),
+		Temperature:      new(float32(1.0)),
 		MaxOutputTokens:  maxOutputTokens,
 		ResponseMIMEType: "application/json",
 		ResponseSchema:   responseSchema,
@@ -327,11 +327,11 @@ func (s *ConcertSearcher) parseEvents(
 	text := strings.TrimSpace(rawText)
 	if strings.Contains(text, "```") {
 		// Try to find content inside the block
-		parts := strings.Split(text, "```")
-		for _, p := range parts {
+		parts := strings.SplitSeq(text, "```")
+		for p := range parts {
 			p = strings.TrimSpace(p)
-			if strings.HasPrefix(p, "json") {
-				text = strings.TrimPrefix(p, "json")
+			if after, ok := strings.CutPrefix(p, "json"); ok {
+				text = after
 				break
 			}
 			if len(p) > 0 {
@@ -389,23 +389,23 @@ func (s *ConcertSearcher) parseEvents(
 			continue
 		}
 
-		var startTime *time.Time
+		var startTime time.Time
 		if ev.StartTime != nil && *ev.StartTime != "" && *ev.StartTime != "null" {
 			st, err := time.Parse(time.RFC3339, *ev.StartTime)
 			if err != nil {
 				startTimeStr := *ev.StartTime
-				s.logger.Warn(ctx, "failed to parse event start time, using nil",
+				s.logger.Warn(ctx, "failed to parse event start time, using zero",
 					append(attrs, slog.String("start_time", startTimeStr))...,
 				)
 			} else {
-				startTime = &st
+				startTime = st
 			}
 		}
 
-		var openTime *time.Time
+		var openTime time.Time
 		if ev.OpenTime != nil && *ev.OpenTime != "" && *ev.OpenTime != "null" {
 			if ot, err := time.Parse(time.RFC3339, *ev.OpenTime); err == nil {
-				openTime = &ot
+				openTime = ot
 			}
 		}
 

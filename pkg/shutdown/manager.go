@@ -194,15 +194,13 @@ func run(ctx context.Context) error {
 			phaseErr error
 		)
 		for _, c := range cs {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				if err := c.Close(); err != nil {
 					mu.Lock()
 					phaseErr = errors.Join(phaseErr, fmt.Errorf("phase %q: %w", name, err))
 					mu.Unlock()
 				}
-			}()
+			})
 		}
 		wg.Wait()
 		errs = errors.Join(errs, phaseErr)

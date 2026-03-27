@@ -48,7 +48,7 @@ type jsonRPCRequest struct {
 type jsonRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
-	Result  interface{}     `json:"result,omitempty"`
+	Result  any             `json:"result,omitempty"`
 	Error   *jsonRPCError   `json:"error,omitempty"`
 }
 
@@ -60,7 +60,7 @@ type jsonRPCError struct {
 
 // newTestRPCServer creates an httptest server that responds to JSON-RPC calls.
 // The handler func receives the method and params and returns (result, error).
-func newTestRPCServer(t *testing.T, handler func(method string, params json.RawMessage) (interface{}, *jsonRPCError)) *httptest.Server {
+func newTestRPCServer(t *testing.T, handler func(method string, params json.RawMessage) (any, *jsonRPCError)) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req jsonRPCRequest
@@ -148,7 +148,7 @@ func TestNewClient_InvalidInputs(t *testing.T) {
 func TestNewClient_Success(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (interface{}, *jsonRPCError) {
+	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (any, *jsonRPCError) {
 		// NewClient dials but doesn't make RPC calls during construction.
 		return nil, nil
 	})
@@ -167,7 +167,7 @@ func TestIsTokenMinted_NotMinted(t *testing.T) {
 	// go-ethereum extracts the revert reason from the "data" field and includes it
 	// in the error message. We include the selector 0x7e273289 in the message
 	// to match what a real node returns after go-ethereum error parsing.
-	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (interface{}, *jsonRPCError) {
+	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (any, *jsonRPCError) {
 		if method == "eth_call" {
 			revertData := fmt.Sprintf("0x7e273289%064x", 42)
 			return nil, &jsonRPCError{
@@ -193,7 +193,7 @@ func TestIsTokenMinted_AlreadyMinted(t *testing.T) {
 
 	ownerAddr := crypto.PubkeyToAddress(mustParseKey(t).PublicKey)
 
-	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (interface{}, *jsonRPCError) {
+	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (any, *jsonRPCError) {
 		if method == "eth_call" {
 			return abiEncodeAddress(ownerAddr), nil
 		}
@@ -214,7 +214,7 @@ func TestIsTokenMinted_RPCError(t *testing.T) {
 	t.Parallel()
 
 	// Return a non-ERC721NonexistentToken error — should propagate as an error.
-	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (interface{}, *jsonRPCError) {
+	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (any, *jsonRPCError) {
 		if method == "eth_call" {
 			return nil, &jsonRPCError{
 				Code:    -32000,
@@ -239,7 +239,7 @@ func TestOwnerOf_Success(t *testing.T) {
 
 	ownerAddr := crypto.PubkeyToAddress(mustParseKey(t).PublicKey)
 
-	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (interface{}, *jsonRPCError) {
+	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (any, *jsonRPCError) {
 		if method == "eth_call" {
 			return abiEncodeAddress(ownerAddr), nil
 		}
@@ -259,7 +259,7 @@ func TestOwnerOf_Success(t *testing.T) {
 func TestOwnerOf_NonexistentToken(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (interface{}, *jsonRPCError) {
+	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (any, *jsonRPCError) {
 		if method == "eth_call" {
 			tokenID := new(big.Int).SetUint64(999)
 			return nil, &jsonRPCError{
@@ -290,7 +290,7 @@ func TestMint_AllRetriesFail(t *testing.T) {
 	// for client creation) fail, so that contract.Mint() returns an error on
 	// every attempt, exercising the retry + error wrapping logic.
 	attemptCount := 0
-	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (interface{}, *jsonRPCError) {
+	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (any, *jsonRPCError) {
 		switch method {
 		case "eth_chainId":
 			return fmt.Sprintf("0x%x", testChainID), nil
@@ -315,7 +315,7 @@ func TestMint_AllRetriesFail(t *testing.T) {
 func TestMint_ContextCancelled(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (interface{}, *jsonRPCError) {
+	srv := newTestRPCServer(t, func(method string, _ json.RawMessage) (any, *jsonRPCError) {
 		return nil, &jsonRPCError{Code: -32000, Message: "timeout"}
 	})
 	defer srv.Close()

@@ -39,8 +39,8 @@ func TestConcertSearcher_Search_Real(t *testing.T) {
 
 	t.Logf("Found %d concerts for %s (with official site)", len(discovered), artist.Name)
 	for _, c := range discovered {
-		st := "nil"
-		if c.StartTime != nil {
+		st := "zero"
+		if !c.StartTime.IsZero() {
 			st = c.StartTime.Format(time.RFC3339)
 		}
 		t.Logf("  - %s (%s) @ %s [Source: %s]", c.Title, c.LocalDate.Format("2006-01-02"), st, c.SourceURL)
@@ -51,8 +51,8 @@ func TestConcertSearcher_Search_Real(t *testing.T) {
 
 	t.Logf("Found %d concerts for %s (no official site)", len(discoveredNoSite), artist.Name)
 	for _, c := range discoveredNoSite {
-		st := "nil"
-		if c.StartTime != nil {
+		st := "zero"
+		if !c.StartTime.IsZero() {
 			st = c.StartTime.Format(time.RFC3339)
 		}
 		t.Logf("  - %s (%s) @ %s [Source: %s]", c.Title, c.LocalDate.Format("2006-01-02"), st, c.SourceURL)

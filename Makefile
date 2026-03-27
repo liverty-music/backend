@@ -1,4 +1,4 @@
-.PHONY: lint lint-schema fix test test-integration check
+.PHONY: lint lint-schema modernize fix test test-integration check
 
 ## lint: format check + golangci-lint (matches CI)
 lint:
@@ -10,6 +10,11 @@ lint:
 ## lint-schema: check schema.sql against design policies
 lint-schema:
 	bash scripts/lint-schema.sh
+
+## modernize: check that code uses modern Go idioms (go fix)
+modernize:
+	@echo "==> Checking go fix modernizers..."
+	@test -z "$$(go fix -diff ./... 2>&1)" || (echo "Run 'go fix ./...' to modernize code"; go fix -diff ./...; exit 1)
 
 ## fix: auto-fix formatting
 fix:
@@ -27,4 +32,4 @@ test-integration:
 	go test -tags=integration -race -timeout=5m $(GOTEST_FLAGS) ./...
 
 ## check: full local pre-commit check (lint + schema lint + test)
-check: lint lint-schema test
+check: lint lint-schema modernize test

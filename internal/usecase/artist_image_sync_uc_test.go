@@ -39,8 +39,8 @@ func newArtistImageSyncTestDeps(t *testing.T) *artistImageSyncTestDeps {
 func opaqueImage(w, h int) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	white := color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			img.Set(x, y, white)
 		}
 	}

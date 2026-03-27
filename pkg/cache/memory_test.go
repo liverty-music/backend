@@ -94,21 +94,21 @@ func TestMemoryCache_Concurrent(t *testing.T) {
 
 		done := make(chan bool)
 
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			go func(val int) {
 				c.Set("key", val)
 				done <- true
 			}(i)
 		}
 
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			go func() {
 				_ = c.Get("key")
 				done <- true
 			}()
 		}
 
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			<-done
 		}
 

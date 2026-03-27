@@ -1,8 +1,10 @@
 package entity
 
 import (
+	"cmp"
 	"context"
 	"image"
+	"slices"
 )
 
 // LogoColorProfile holds the dominant color characteristics extracted from an
@@ -57,13 +59,9 @@ func BestByLikes(images []FanartImage) string {
 	if len(images) == 0 {
 		return ""
 	}
-	best := images[0]
-	for _, img := range images[1:] {
-		if img.Likes > best.Likes {
-			best = img
-		}
-	}
-	return best.URL
+	return slices.MaxFunc(images, func(a, b FanartImage) int {
+		return cmp.Compare(a.Likes, b.Likes)
+	}).URL
 }
 
 // ArtistImageResolver fetches artist image data from an external provider.

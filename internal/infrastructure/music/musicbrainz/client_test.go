@@ -58,7 +58,7 @@ func TestClient_GetArtist(t *testing.T) {
 		name         string
 		args         args
 		statusCode   int
-		responseBody interface{}
+		responseBody any
 		wantErr      error
 		want         want
 		invalidJSON  bool
@@ -153,7 +153,7 @@ func TestClient_SearchPlace(t *testing.T) {
 		venueName    string
 		adminArea    string
 		statusCode   int
-		responseBody interface{}
+		responseBody any
 		wantErr      error
 		wantID       string
 		wantName     string
@@ -378,7 +378,7 @@ func TestClient_ResolveOfficialSiteURL(t *testing.T) {
 		name         string
 		args         args
 		statusCode   int
-		responseBody interface{}
+		responseBody any
 		invalidJSON  bool
 		wantErr      error
 		wantURL      string

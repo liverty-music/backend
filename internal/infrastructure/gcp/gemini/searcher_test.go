@@ -23,14 +23,6 @@ type rewriteTransport struct {
 	URL string
 }
 
-func ptr(t time.Time) *time.Time {
-	return &t
-}
-
-func ptrStr(s string) *string {
-	return &s
-}
-
 func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	u, _ := url.Parse(t.URL)
 	req.URL.Scheme = u.Scheme
@@ -75,7 +67,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					Title:           "Test Tour 2026",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:       ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
+					StartTime:       time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC),
 					SourceURL:       "https://example.com/test",
 				},
 			},
@@ -101,9 +93,9 @@ func TestConcertSearcher_Search(t *testing.T) {
 				{
 					Title:           "Nagoya Concert",
 					ListedVenueName: "Zepp Nagoya",
-					AdminArea:       ptrStr("JP-23"),
+					AdminArea:       new("JP-23"),
 					LocalDate:       time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
-					StartTime:       ptr(time.Date(2026, 3, 15, 18, 0, 0, 0, time.FixedZone("", 9*60*60))),
+					StartTime:       time.Date(2026, 3, 15, 18, 0, 0, 0, time.FixedZone("", 9*60*60)),
 					SourceURL:       "https://example.com/nagoya",
 				},
 			},
@@ -131,7 +123,6 @@ func TestConcertSearcher_Search(t *testing.T) {
 					ListedVenueName: "Some Venue",
 					AdminArea:       nil,
 					LocalDate:       time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
-					StartTime:       nil,
 					SourceURL:       "https://example.com/unknown",
 				},
 			},
@@ -165,14 +156,14 @@ func TestConcertSearcher_Search(t *testing.T) {
 					Title:           "Test Tour 2026",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:       ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
+					StartTime:       time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC),
 					SourceURL:       "https://example.com/test",
 				},
 				{
 					Title:           "Test Tour 2026",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:       ptr(time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC)),
+					StartTime:       time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC),
 					SourceURL:       "https://example.com/test-dup",
 				},
 			},
@@ -198,7 +189,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					Title:           "New Event",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:       ptr(time.Date(2026, 4, 1, 19, 0, 0, 0, time.UTC)),
+					StartTime:       time.Date(2026, 4, 1, 19, 0, 0, 0, time.UTC),
 					SourceURL:       "https://example.com/new",
 				},
 			},
@@ -290,21 +281,21 @@ func TestConcertSearcher_Search(t *testing.T) {
 					Title:           "HH:MM Format",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-					StartTime:       nil, // Invalid HH:MM results in nil
-					SourceURL:       "https://example.com/hh-mm",
+					// Invalid HH:MM results in zero StartTime
+					SourceURL: "https://example.com/hh-mm",
 				},
 				{
 					Title:           "Empty Start Time",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC),
-					StartTime:       nil, // Empty results in nil
-					SourceURL:       "https://example.com/empty",
+					// Empty results in zero StartTime
+					SourceURL: "https://example.com/empty",
 				},
 				{
 					Title:           "Valid RFC3339",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC),
-					StartTime:       ptr(time.Date(2026, 3, 3, 19, 0, 0, 0, time.FixedZone("", 9*60*60))),
+					StartTime:       time.Date(2026, 3, 3, 19, 0, 0, 0, time.FixedZone("", 9*60*60)),
 					SourceURL:       "https://example.com/valid",
 				},
 			},
@@ -331,8 +322,6 @@ func TestConcertSearcher_Search(t *testing.T) {
 					Title:           "Null Start Time Concert",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC),
-					StartTime:       nil,
-					OpenTime:        nil,
 					SourceURL:       "https://example.com/null-time",
 				},
 			},
@@ -459,18 +448,8 @@ func TestConcertSearcher_Search(t *testing.T) {
 					assert.Equal(t, *tt.want[i].AdminArea, *got[i].AdminArea, "AdminArea mismatch at index %d", i)
 				}
 				assert.True(t, tt.want[i].LocalDate.Equal(got[i].LocalDate), "LocalDate mismatch at index %d", i)
-				if tt.want[i].StartTime == nil {
-					assert.Nil(t, got[i].StartTime, "StartTime should be nil at index %d", i)
-				} else {
-					require.NotNil(t, got[i].StartTime, "StartTime should not be nil at index %d", i)
-					assert.True(t, tt.want[i].StartTime.Equal(*got[i].StartTime), "StartTime mismatch at index %d", i)
-				}
-				if tt.want[i].OpenTime == nil {
-					assert.Nil(t, got[i].OpenTime, "OpenTime should be nil at index %d", i)
-				} else {
-					require.NotNil(t, got[i].OpenTime, "OpenTime should not be nil at index %d", i)
-					assert.True(t, tt.want[i].OpenTime.Equal(*got[i].OpenTime), "OpenTime mismatch at index %d", i)
-				}
+				assert.True(t, tt.want[i].StartTime.Equal(got[i].StartTime), "StartTime mismatch at index %d", i)
+				assert.True(t, tt.want[i].OpenTime.Equal(got[i].OpenTime), "OpenTime mismatch at index %d", i)
 				assert.Equal(t, tt.want[i].SourceURL, got[i].SourceURL, "SourceURL mismatch at index %d", i)
 			}
 		})
