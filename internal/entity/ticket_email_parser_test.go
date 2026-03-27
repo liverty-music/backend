@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func strPtr(s string) *string { return &s }
-
 func TestParsedEmailData_JourneyStatus(t *testing.T) {
 	t.Parallel()
 
@@ -23,43 +21,43 @@ func TestParsedEmailData_JourneyStatus(t *testing.T) {
 			name:      "LotteryInfo always returns Tracking",
 			parsed:    &entity.ParsedEmailData{},
 			emailType: entity.TicketEmailTypeLotteryInfo,
-			want:      statusPtr(entity.TicketJourneyStatusTracking),
+			want:      new(entity.TicketJourneyStatusTracking),
 		},
 		{
 			name: "LotteryResult with lost returns Lost",
 			parsed: &entity.ParsedEmailData{
-				LotteryResult: strPtr("lost"),
+				LotteryResult: new("lost"),
 			},
 			emailType: entity.TicketEmailTypeLotteryResult,
-			want:      statusPtr(entity.TicketJourneyStatusLost),
+			want:      new(entity.TicketJourneyStatusLost),
 		},
 		{
 			name: "LotteryResult with payment_status paid returns Paid",
 			parsed: &entity.ParsedEmailData{
-				PaymentStatus: strPtr("paid"),
+				PaymentStatus: new("paid"),
 			},
 			emailType: entity.TicketEmailTypeLotteryResult,
-			want:      statusPtr(entity.TicketJourneyStatusPaid),
+			want:      new(entity.TicketJourneyStatusPaid),
 		},
 		{
 			name: "LotteryResult with no result or payment returns Unpaid",
 			parsed: &entity.ParsedEmailData{
-				PaymentStatus: strPtr("unpaid"),
+				PaymentStatus: new("unpaid"),
 			},
 			emailType: entity.TicketEmailTypeLotteryResult,
-			want:      statusPtr(entity.TicketJourneyStatusUnpaid),
+			want:      new(entity.TicketJourneyStatusUnpaid),
 		},
 		{
 			name:      "LotteryResult with no fields returns Unpaid",
 			parsed:    &entity.ParsedEmailData{},
 			emailType: entity.TicketEmailTypeLotteryResult,
-			want:      statusPtr(entity.TicketJourneyStatusUnpaid),
+			want:      new(entity.TicketJourneyStatusUnpaid),
 		},
 		{
 			name:      "lost takes priority over payment status",
-			parsed:    &entity.ParsedEmailData{LotteryResult: strPtr("lost"), PaymentStatus: strPtr("paid")},
+			parsed:    &entity.ParsedEmailData{LotteryResult: new("lost"), PaymentStatus: new("paid")},
 			emailType: entity.TicketEmailTypeLotteryResult,
-			want:      statusPtr(entity.TicketJourneyStatusLost),
+			want:      new(entity.TicketJourneyStatusLost),
 		},
 		{
 			name:      "unknown email type returns nil",
@@ -83,5 +81,3 @@ func TestParsedEmailData_JourneyStatus(t *testing.T) {
 		})
 	}
 }
-
-func statusPtr(s entity.TicketJourneyStatus) *entity.TicketJourneyStatus { return &s }

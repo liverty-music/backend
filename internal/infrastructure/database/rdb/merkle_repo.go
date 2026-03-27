@@ -155,7 +155,7 @@ func (r *MerkleTreeRepository) GetPath(ctx context.Context, eventID string, leaf
 	pathIndices := make([]uint32, treeDepth)
 
 	currentIndex := leafIndex
-	for depth := 0; depth < treeDepth; depth++ {
+	for depth := range treeDepth {
 		// Determine sibling index: XOR with 1.
 		siblingIndex := currentIndex ^ 1
 

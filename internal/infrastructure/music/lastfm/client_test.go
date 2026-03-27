@@ -91,7 +91,7 @@ func TestClient_Search(t *testing.T) {
 		name         string
 		args         args
 		statusCode   int
-		responseBody interface{}
+		responseBody any
 		wantErr      error
 		want         want
 		invalidJSON  bool
@@ -185,7 +185,7 @@ func TestClient_ListSimilar(t *testing.T) {
 		name         string
 		args         args
 		statusCode   int
-		responseBody interface{}
+		responseBody any
 		wantErr      error
 		want         want
 	}{
@@ -281,7 +281,7 @@ func TestClient_ListTop(t *testing.T) {
 		name           string
 		args           args
 		statusCode     int
-		responseBody   interface{}
+		responseBody   any
 		wantErr        error
 		want           want
 		expectedMethod string

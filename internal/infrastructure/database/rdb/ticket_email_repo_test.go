@@ -198,7 +198,7 @@ func TestTicketEmailRepository_Update(t *testing.T) {
 				return created.ID
 			},
 			params: &entity.UpdateTicketEmail{
-				PaymentDeadlineTime: ptr(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)),
+				PaymentDeadlineTime: new(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)),
 			},
 			wantErr: nil,
 		},

@@ -71,9 +71,6 @@ func cleanDatabase(t *testing.T) {
 	cleanTables(testDB)
 }
 
-// ptr returns a pointer to a copy of v. Used to construct optional fields in test fixtures.
-func ptr[T any](v T) *T { return &v }
-
 // seedUser inserts a minimal user record and returns its ID.
 func seedUser(t *testing.T, name, email, externalID string) string {
 	t.Helper()

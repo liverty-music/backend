@@ -114,8 +114,8 @@ func TestBestLogoURL(t *testing.T) {
 // chromaticImage creates a 10x10 image where all pixels are red (chromatic).
 func chromaticImage() *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, 10, 10))
-	for y := 0; y < 10; y++ {
-		for x := 0; x < 10; x++ {
+	for y := range 10 {
+		for x := range 10 {
 			img.SetNRGBA(x, y, color.NRGBA{R: 255, G: 0, B: 0, A: 255})
 		}
 	}
@@ -125,8 +125,8 @@ func chromaticImage() *image.NRGBA {
 // achromaticLightImage creates a 10x10 image where all pixels are white.
 func achromaticLightImage() *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, 10, 10))
-	for y := 0; y < 10; y++ {
-		for x := 0; x < 10; x++ {
+	for y := range 10 {
+		for x := range 10 {
 			img.SetNRGBA(x, y, color.NRGBA{R: 240, G: 240, B: 240, A: 255})
 		}
 	}
@@ -136,8 +136,8 @@ func achromaticLightImage() *image.NRGBA {
 // achromaticDarkImage creates a 10x10 image where all pixels are dark gray.
 func achromaticDarkImage() *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, 10, 10))
-	for y := 0; y < 10; y++ {
-		for x := 0; x < 10; x++ {
+	for y := range 10 {
+		for x := range 10 {
 			img.SetNRGBA(x, y, color.NRGBA{R: 30, G: 30, B: 30, A: 255})
 		}
 	}

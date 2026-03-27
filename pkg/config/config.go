@@ -35,6 +35,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
@@ -353,45 +354,21 @@ func (c *BaseConfig) Validate() error {
 	}
 
 	validEnvironments := []string{"local", "development", "staging", "production"}
-	valid := false
-
-	for _, env := range validEnvironments {
-		if c.Environment == env {
-			valid = true
-
-			break
-		}
-	}
+	valid := slices.Contains(validEnvironments, c.Environment)
 
 	if !valid {
 		return fmt.Errorf("invalid environment: %s", c.Environment)
 	}
 
 	validLogLevels := []string{"debug", "info", "warn", "error"}
-	valid = false
-
-	for _, level := range validLogLevels {
-		if c.Logging.Level == level {
-			valid = true
-
-			break
-		}
-	}
+	valid = slices.Contains(validLogLevels, c.Logging.Level)
 
 	if !valid {
 		return fmt.Errorf("invalid log level: %s", c.Logging.Level)
 	}
 
 	validLogFormats := []string{"json", "text"}
-	valid = false
-
-	for _, format := range validLogFormats {
-		if c.Logging.Format == format {
-			valid = true
-
-			break
-		}
-	}
+	valid = slices.Contains(validLogFormats, c.Logging.Format)
 
 	if !valid {
 		return fmt.Errorf("invalid log format: %s", c.Logging.Format)

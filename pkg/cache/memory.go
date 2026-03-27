@@ -9,7 +9,7 @@ import (
 
 // entry represents a cached value with expiration metadata.
 type entry struct {
-	value      interface{}
+	value      any
 	expiration time.Time
 }
 
@@ -66,7 +66,7 @@ func (c *MemoryCache) Close() error {
 }
 
 // Get retrieves a value from the cache. Returns nil if not found or expired.
-func (c *MemoryCache) Get(key string) interface{} {
+func (c *MemoryCache) Get(key string) any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -83,7 +83,7 @@ func (c *MemoryCache) Get(key string) interface{} {
 }
 
 // Set stores a value in the cache with the configured TTL.
-func (c *MemoryCache) Set(key string, value interface{}) {
+func (c *MemoryCache) Set(key string, value any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

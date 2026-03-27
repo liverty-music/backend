@@ -41,7 +41,7 @@ func TestVenueRepository_Create(t *testing.T) {
 				venue: &entity.Venue{
 					ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e5",
 					Name:      "Zepp Nagoya",
-					AdminArea: ptr("JP-23"),
+					AdminArea: new("JP-23"),
 				},
 			},
 			wantErr: nil,
@@ -52,7 +52,7 @@ func TestVenueRepository_Create(t *testing.T) {
 				venue: &entity.Venue{
 					ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49ea",
 					Name:          "Zepp Sapporo",
-					GooglePlaceID: ptr("ChIJtest123"),
+					GooglePlaceID: new("ChIJtest123"),
 					Coordinates:   &entity.Coordinates{Latitude: 43.0618, Longitude: 141.3545},
 				},
 			},
@@ -106,7 +106,7 @@ func TestVenueRepository_Get(t *testing.T) {
 	testVenueWithAdminArea := &entity.Venue{
 		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 		Name:      "Zepp Tokyo",
-		AdminArea: ptr("JP-13"),
+		AdminArea: new("JP-13"),
 	}
 	require.NoError(t, repo.Create(ctx, testVenueWithAdminArea))
 
@@ -130,7 +130,7 @@ func TestVenueRepository_Get(t *testing.T) {
 			want: &entity.Venue{
 				ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 				Name:      "Zepp Tokyo",
-				AdminArea: ptr("JP-13"),
+				AdminArea: new("JP-13"),
 			},
 		},
 		{
@@ -176,7 +176,7 @@ func TestVenueRepository_GetByPlaceID(t *testing.T) {
 	seededVenue := &entity.Venue{
 		ID:            "018b2f19-e591-7d12-bf9e-f0e74f1b49eb",
 		Name:          "Place ID Test Arena",
-		GooglePlaceID: ptr("ChIJtest456"),
+		GooglePlaceID: new("ChIJtest456"),
 	}
 	require.NoError(t, repo.Create(ctx, seededVenue))
 

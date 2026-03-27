@@ -98,7 +98,7 @@ func TestArtistToProto(t *testing.T) {
 				Fanart: &entity.Fanart{
 					HDMusicLogo: []entity.FanartImage{{ID: "1", URL: "https://fanart.tv/logo.png", Likes: 5}},
 					LogoColorProfile: &entity.LogoColorProfile{
-						DominantHue:       floatPtr(210.0),
+						DominantHue:       new(210.0),
 						DominantLightness: 0.45,
 						IsChromatic:       true,
 					},
@@ -179,8 +179,6 @@ func TestArtistToProto(t *testing.T) {
 		})
 	}
 }
-
-func floatPtr(v float64) *float64 { return &v }
 
 func TestArtistsToProto(t *testing.T) {
 	t.Parallel()

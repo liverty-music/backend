@@ -43,9 +43,9 @@ func TestEmailParser_Parse(t *testing.T) {
 				"application_url": "https://eplus.jp/apply/12345"
 			}`,
 			want: &entity.ParsedEmailData{
-				LotteryStart:   ptrStr("2026-04-01T10:00:00+09:00"),
-				LotteryEnd:     ptrStr("2026-04-10T23:59:00+09:00"),
-				ApplicationURL: ptrStr("https://eplus.jp/apply/12345"),
+				LotteryStart:   new("2026-04-01T10:00:00+09:00"),
+				LotteryEnd:     new("2026-04-10T23:59:00+09:00"),
+				ApplicationURL: new("https://eplus.jp/apply/12345"),
 			},
 		},
 		{
@@ -58,8 +58,8 @@ func TestEmailParser_Parse(t *testing.T) {
 				"application_url": "https://pia.jp/lottery/98765"
 			}`,
 			want: &entity.ParsedEmailData{
-				LotteryStart:   ptrStr("2026-05-01T12:00:00+09:00"),
-				ApplicationURL: ptrStr("https://pia.jp/lottery/98765"),
+				LotteryStart:   new("2026-05-01T12:00:00+09:00"),
+				ApplicationURL: new("https://pia.jp/lottery/98765"),
 			},
 		},
 		{
@@ -83,9 +83,9 @@ func TestEmailParser_Parse(t *testing.T) {
 				"payment_deadline": "2026-04-20T23:59:00+09:00"
 			}`,
 			want: &entity.ParsedEmailData{
-				LotteryResult:   ptrStr("won"),
-				PaymentStatus:   ptrStr("unpaid"),
-				PaymentDeadline: ptrStr("2026-04-20T23:59:00+09:00"),
+				LotteryResult:   new("won"),
+				PaymentStatus:   new("unpaid"),
+				PaymentDeadline: new("2026-04-20T23:59:00+09:00"),
 			},
 		},
 		{
@@ -98,8 +98,8 @@ func TestEmailParser_Parse(t *testing.T) {
 				"payment_deadline": null
 			}`,
 			want: &entity.ParsedEmailData{
-				LotteryResult: ptrStr("won"),
-				PaymentStatus: ptrStr("paid"),
+				LotteryResult: new("won"),
+				PaymentStatus: new("paid"),
 			},
 		},
 		{
@@ -112,7 +112,7 @@ func TestEmailParser_Parse(t *testing.T) {
 				"payment_deadline": null
 			}`,
 			want: &entity.ParsedEmailData{
-				LotteryResult: ptrStr("lost"),
+				LotteryResult: new("lost"),
 			},
 		},
 		{
