@@ -132,20 +132,20 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		concerts := []*entity.Concert{
 			// Date 1: Tokyo venue (HOME), Saitama venue (NEARBY), Osaka venue (AWAY)
 			{
-				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: strPtr("JP-13"), Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng}}},
+				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: new("JP-13"), Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng}}},
 				ArtistID: "a1",
 			},
 			{
-				Event:    entity.Event{ID: "c2", LocalDate: date1, Venue: &entity.Venue{ID: "v2", AdminArea: strPtr("JP-11"), Coordinates: &entity.Coordinates{Latitude: saitamaLat, Longitude: saitamaLng}}},
+				Event:    entity.Event{ID: "c2", LocalDate: date1, Venue: &entity.Venue{ID: "v2", AdminArea: new("JP-11"), Coordinates: &entity.Coordinates{Latitude: saitamaLat, Longitude: saitamaLng}}},
 				ArtistID: "a1",
 			},
 			{
-				Event:    entity.Event{ID: "c3", LocalDate: date1, Venue: &entity.Venue{ID: "v3", AdminArea: strPtr("JP-27"), Coordinates: &entity.Coordinates{Latitude: osakaLat, Longitude: osakaLng}}},
+				Event:    entity.Event{ID: "c3", LocalDate: date1, Venue: &entity.Venue{ID: "v3", AdminArea: new("JP-27"), Coordinates: &entity.Coordinates{Latitude: osakaLat, Longitude: osakaLng}}},
 				ArtistID: "a1",
 			},
 			// Date 2: No venue coordinates (AWAY)
 			{
-				Event:    entity.Event{ID: "c4", LocalDate: date2, Venue: &entity.Venue{ID: "v4", AdminArea: strPtr("JP-40")}},
+				Event:    entity.Event{ID: "c4", LocalDate: date2, Venue: &entity.Venue{ID: "v4", AdminArea: new("JP-40")}},
 				ArtistID: "a2",
 			},
 		}
@@ -178,7 +178,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 
 		concerts := []*entity.Concert{
 			{
-				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: strPtr("JP-13"), Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng}}},
+				Event:    entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: new("JP-13"), Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng}}},
 				ArtistID: "a1",
 			},
 		}
@@ -508,9 +508,6 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 	})
 }
 
-// strPtr returns a pointer to the given string. Test helper.
-func strPtr(s string) *string { return &s }
-
 // receivePublishedConcerts reads from a concert.discovered subscription and
 // returns the number of new concerts in the published event, or 0 if nothing
 // was published within the timeout. Must be called inside a synctest.Test
@@ -554,40 +551,40 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 		{
 			name: "same date, same start_at — deduped",
 			existing: []*entity.Concert{
-				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startUTC, SourceURL: "https://example.com"},
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC, SourceURL: "https://example.com"},
 			},
 			wantNewConcerts: 0,
 		},
 		{
 			name: "same date, scraped nil start_at — deduped",
 			existing: []*entity.Concert{
-				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com"},
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com"},
 			},
 			wantNewConcerts: 0,
 		},
 		{
 			name: "same date, existing nil start_at, scraped has start_at — deduped",
 			existing: []*entity.Concert{
-				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startUTC, SourceURL: "https://example.com"},
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC, SourceURL: "https://example.com"},
 			},
 			wantNewConcerts: 0,
 		},
 		{
 			name: "both nil start_at, same date — deduped",
 			existing: []*entity.Concert{
-				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com"},
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com"},
 			},
 			wantNewConcerts: 0,
 		},
@@ -595,18 +592,18 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			name:     "within-batch dedup: two scraped concerts with same date",
 			existing: nil,
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: &startUTC, SourceURL: "https://example.com/a"},
-				{Title: "Concert A (dup)", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com/b"},
+				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC, SourceURL: "https://example.com/a"},
+				{Title: "Concert A (dup)", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com/b"},
 			},
 			wantNewConcerts: 1, // second is intra-batch duplicate
 		},
 		{
 			name: "same date, different venue — deduped (venue not in key)",
 			existing: []*entity.Concert{
-				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Festival B", ListedVenueName: "Tokyo Dome", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com"},
+				{Title: "Festival B", ListedVenueName: "Tokyo Dome", LocalDate: concertDate, SourceURL: "https://example.com"},
 			},
 			wantNewConcerts: 0,
 		},
@@ -616,21 +613,21 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 		{
 			name: "different date — distinct concerts",
 			existing: []*entity.Concert{
-				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert Day 2", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate.AddDate(0, 0, 1), StartTime: &startUTC, SourceURL: "https://example.com"},
+				{Title: "Concert Day 2", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate.AddDate(0, 0, 1), StartTime: startUTC, SourceURL: "https://example.com"},
 			},
 			wantNewConcerts: 1,
 		},
 		{
 			name: "mixed batch: one matches existing date, one is genuinely new date",
 			existing: []*entity.Concert{
-				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: strPtr("Zepp Tokyo")}, ArtistID: "artist-1"},
+				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")}, ArtistID: "artist-1"},
 			},
 			scraped: []*entity.ScrapedConcert{
-				{Title: "Existing Concert", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: nil, SourceURL: "https://example.com/old"},
-				{Title: "New Concert", ListedVenueName: "Tokyo Dome", LocalDate: concertDate.AddDate(0, 0, 7), StartTime: nil, SourceURL: "https://example.com/new"},
+				{Title: "Existing Concert", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com/old"},
+				{Title: "New Concert", ListedVenueName: "Tokyo Dome", LocalDate: concertDate.AddDate(0, 0, 7), SourceURL: "https://example.com/new"},
 			},
 			wantNewConcerts: 1,
 		},
@@ -688,7 +685,7 @@ func TestConcertUseCase_ListWithProximity(t *testing.T) {
 			{
 				Event: entity.Event{
 					ID: "c1", Title: "Fukuoka Concert", LocalDate: date1,
-					Venue: &entity.Venue{AdminArea: strPtr("JP-40")},
+					Venue: &entity.Venue{AdminArea: new("JP-40")},
 				},
 				ArtistID: "a1",
 			},
