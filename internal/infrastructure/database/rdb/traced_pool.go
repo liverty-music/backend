@@ -274,8 +274,8 @@ func extractTable(op, sql string) string {
 }
 
 // findKeyword returns the index of keyword in upper-cased SQL, ensuring it appears
-// at a word boundary (preceded by whitespace or start-of-string). This prevents
-// matching column names like "date_from" when searching for "FROM".
+// at a word boundary (preceded and followed by whitespace, punctuation, or string edge).
+// This prevents matching identifiers like "date_from" or "FROMDATE" when searching for "FROM".
 func findKeyword(upper, keyword string) int {
 	start := 0
 	for {
@@ -284,9 +284,16 @@ func findKeyword(upper, keyword string) int {
 			return -1
 		}
 		abs := start + idx
-		if abs == 0 || upper[abs-1] == ' ' || upper[abs-1] == '\t' || upper[abs-1] == '\n' || upper[abs-1] == '\r' {
+		leadingOK := abs == 0 || isWordBoundary(upper[abs-1])
+		afterIdx := abs + len(keyword)
+		trailingOK := afterIdx >= len(upper) || isWordBoundary(upper[afterIdx])
+		if leadingOK && trailingOK {
 			return abs
 		}
 		start = abs + len(keyword)
 	}
+}
+
+func isWordBoundary(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == ',' || b == '(' || b == ')' || b == ';'
 }
