@@ -250,7 +250,7 @@ func extractTable(op, sql string) string {
 		return ""
 	}
 
-	idx := strings.Index(upper, keyword)
+	idx := findKeyword(upper, keyword)
 	if idx < 0 {
 		return ""
 	}
@@ -271,4 +271,22 @@ func extractTable(op, sql string) string {
 		table = table[dot+1:]
 	}
 	return strings.Trim(table, "\"")
+}
+
+// findKeyword returns the index of keyword in upper-cased SQL, ensuring it appears
+// at a word boundary (preceded by whitespace or start-of-string). This prevents
+// matching column names like "date_from" when searching for "FROM".
+func findKeyword(upper, keyword string) int {
+	start := 0
+	for {
+		idx := strings.Index(upper[start:], keyword)
+		if idx < 0 {
+			return -1
+		}
+		abs := start + idx
+		if abs == 0 || upper[abs-1] == ' ' || upper[abs-1] == '\t' || upper[abs-1] == '\n' || upper[abs-1] == '\r' {
+			return abs
+		}
+		start = abs + len(keyword)
+	}
 }

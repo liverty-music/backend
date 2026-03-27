@@ -34,6 +34,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
+	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
 	"github.com/liverty-music/backend/internal/infrastructure/zkp"
@@ -143,7 +144,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			return nil, err
 		}
 		sbtCloser = sbtClient
-		ticketUC = usecase.NewTicketUseCase(ticketRepo, sbtClient, logger)
+		ticketUC = usecase.NewTicketUseCase(ticketRepo, sbtClient, infratelemetry.NewOTelMintMetrics(), logger)
 	} else {
 		logger.Warn(ctx, "⚠️  Blockchain config absent, ticket minting is disabled")
 		_ = ticketRepo // referenced when blockchain is enabled; suppress unused warning

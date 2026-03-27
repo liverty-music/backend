@@ -135,6 +135,8 @@ func TestExtractQueryMeta(t *testing.T) {
 		{name: "empty string", sql: "", wantOp: "DB", wantTable: ""},
 		{name: "SELECT without FROM", sql: "SELECT 1", wantOp: "SELECT", wantTable: ""},
 		{name: "INSERT with newline", sql: "INSERT INTO\n  follow_artists (user_id, artist_id) VALUES ($1, $2)", wantOp: "INSERT", wantTable: "follow_artists"},
+		{name: "column name contains FROM", sql: "SELECT date_from, name FROM events WHERE id = $1", wantOp: "SELECT", wantTable: "events"},
+		{name: "column name contains INTO", sql: "INSERT INTO tickets (inserted_into) VALUES ($1)", wantOp: "INSERT", wantTable: "tickets"},
 	}
 
 	for _, tt := range tests {

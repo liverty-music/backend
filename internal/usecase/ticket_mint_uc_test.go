@@ -33,7 +33,7 @@ func validMintParams() *usecase.MintTicketParams {
 
 func newTicketUC(t *testing.T, repo *mocks.MockTicketRepository, minter *mocks.MockTicketMinter) usecase.TicketUseCase {
 	t.Helper()
-	return usecase.NewTicketUseCase(repo, minter, newTestLogger(t))
+	return usecase.NewTicketUseCase(repo, minter, noopMintMetrics{}, newTestLogger(t))
 }
 
 // --- validateMintParams ---
@@ -61,7 +61,7 @@ func TestTicketUseCase_ValidateMintParams(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			uc := usecase.NewTicketUseCase(nil, nil, newTestLogger(t))
+			uc := usecase.NewTicketUseCase(nil, nil, noopMintMetrics{}, newTestLogger(t))
 
 			err := usecase.ExportedValidateMintParams(uc, tt.params)
 

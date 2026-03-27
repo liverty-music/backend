@@ -14,10 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type noopMintMetrics struct{}
+
+func (noopMintMetrics) RecordDuration(context.Context, float64, string) {}
+func (noopMintMetrics) RecordTotal(context.Context, string)             {}
+
 func newTestTicketUC(t *testing.T, repo *mocks.MockTicketRepository, minter *mocks.MockTicketMinter) usecase.TicketUseCase {
 	t.Helper()
 	logger := newTestLogger(t)
-	return usecase.NewTicketUseCase(repo, minter, logger)
+	return usecase.NewTicketUseCase(repo, minter, noopMintMetrics{}, logger)
 }
 
 func TestMintTicket_Validation(t *testing.T) {
@@ -35,7 +40,7 @@ func TestMintTicket_Validation(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			uc := usecase.NewTicketUseCase(nil, nil, logger)
+			uc := usecase.NewTicketUseCase(nil, nil, noopMintMetrics{}, logger)
 			_, err := uc.MintTicket(context.Background(), tc.params)
 			assert.Error(t, err)
 			assert.True(t, errors.Is(err, apperr.ErrInvalidArgument), "expected InvalidArgument, got %v", err)
