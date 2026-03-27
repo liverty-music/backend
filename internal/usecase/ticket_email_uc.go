@@ -18,7 +18,6 @@ type TicketEmailUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: missing or invalid fields.
 	//   - Internal: Gemini parsing or database failure.
 	Create(ctx context.Context, userID string, eventIDs []string, emailType entity.TicketEmailType, rawBody string) ([]*entity.TicketEmail, error)
 
@@ -26,7 +25,6 @@ type TicketEmailUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: missing ticket email ID.
 	//   - NotFound: record does not exist or belongs to another user.
 	//   - Internal: unexpected failure.
 	Update(ctx context.Context, userID, ticketEmailID string, params *entity.UpdateTicketEmail) (*entity.TicketEmail, error)
@@ -57,19 +55,6 @@ func NewTicketEmailUseCase(
 
 // Create parses a ticket email and persists one record per event.
 func (uc *ticketEmailUseCase) Create(ctx context.Context, userID string, eventIDs []string, emailType entity.TicketEmailType, rawBody string) ([]*entity.TicketEmail, error) {
-	if userID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user_id is required")
-	}
-	if len(eventIDs) == 0 {
-		return nil, apperr.New(codes.InvalidArgument, "at least one event_id is required")
-	}
-	if !emailType.IsValid() {
-		return nil, apperr.New(codes.InvalidArgument, "invalid email type")
-	}
-	if rawBody == "" {
-		return nil, apperr.New(codes.InvalidArgument, "raw_body is required")
-	}
-
 	parsed, err := uc.parser.Parse(ctx, rawBody, emailType)
 	if err != nil {
 		return nil, err
@@ -97,10 +82,6 @@ func (uc *ticketEmailUseCase) Create(ctx context.Context, userID string, eventID
 
 // Update applies corrections and triggers TicketJourney status updates.
 func (uc *ticketEmailUseCase) Update(ctx context.Context, userID, ticketEmailID string, params *entity.UpdateTicketEmail) (*entity.TicketEmail, error) {
-	if ticketEmailID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "ticket_email_id is required")
-	}
-
 	existing, err := uc.emailRepo.GetByID(ctx, ticketEmailID)
 	if err != nil {
 		return nil, err

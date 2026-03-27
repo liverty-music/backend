@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket_journey/v1"
 	"connectrpc.com/connect"
@@ -34,29 +33,19 @@ func NewTicketJourneyHandler(
 
 // SetStatus creates or updates the fan's ticket journey status for a specific event.
 func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *connect.Request[rpc.SetStatusRequest]) (*connect.Response[rpc.SetStatusResponse], error) {
-	claims, err := mapper.GetClaimsFromContext(ctx)
+	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if req.Msg.EventId == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("event_id is required"))
-	}
-
-	status, ok := mapper.TicketJourneyStatusFromProto[req.Msg.Status]
-	if !ok {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("invalid ticket journey status"))
-	}
+	status := mapper.TicketJourneyStatusFromProto[req.Msg.Status]
 
 	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
 	// not the identity-provider-specific external_id.
-	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
+	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
-	}
-	if user == nil {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
 	}
 
 	if err := h.ticketJourneyUC.SetStatus(ctx, user.ID, req.Msg.EventId.Value, status); err != nil {
@@ -68,24 +57,17 @@ func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *connect.Reque
 
 // Delete removes the fan's ticket journey for a specific event.
 func (h *TicketJourneyHandler) Delete(ctx context.Context, req *connect.Request[rpc.DeleteRequest]) (*connect.Response[rpc.DeleteResponse], error) {
-	claims, err := mapper.GetClaimsFromContext(ctx)
+	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
-	}
-
-	if req.Msg.EventId == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("event_id is required"))
 	}
 
 	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
 	// not the identity-provider-specific external_id.
-	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
+	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
-	}
-	if user == nil {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
 	}
 
 	if err := h.ticketJourneyUC.Delete(ctx, user.ID, req.Msg.EventId.Value); err != nil {
@@ -97,7 +79,7 @@ func (h *TicketJourneyHandler) Delete(ctx context.Context, req *connect.Request[
 
 // ListByUser retrieves all ticket journeys for the authenticated fan.
 func (h *TicketJourneyHandler) ListByUser(ctx context.Context, _ *connect.Request[rpc.ListByUserRequest]) (*connect.Response[rpc.ListByUserResponse], error) {
-	claims, err := mapper.GetClaimsFromContext(ctx)
+	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -105,12 +87,9 @@ func (h *TicketJourneyHandler) ListByUser(ctx context.Context, _ *connect.Reques
 	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
 	// not the identity-provider-specific external_id.
-	user, err := h.userRepo.GetByExternalID(ctx, claims.Sub)
+	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
-	}
-	if user == nil {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
 	}
 
 	journeys, err := h.ticketJourneyUC.ListByUser(ctx, user.ID)

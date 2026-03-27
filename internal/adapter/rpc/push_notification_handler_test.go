@@ -58,30 +58,6 @@ func TestPushNotificationHandler_Subscribe(t *testing.T) {
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
-		{
-			name:     "error - missing endpoint",
-			ctx:      authedCtx("ext-user-1"),
-			req:      &rpcv1.SubscribeRequest{P256Dh: "k", Auth: "a"},
-			setup:    func(_ *ucmocks.MockPushNotificationUseCase, _ *entitymocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name:     "error - missing p256dh",
-			ctx:      authedCtx("ext-user-1"),
-			req:      &rpcv1.SubscribeRequest{Endpoint: "https://push.example.com/sub", Auth: "a"},
-			setup:    func(_ *ucmocks.MockPushNotificationUseCase, _ *entitymocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name:     "error - missing auth",
-			ctx:      authedCtx("ext-user-1"),
-			req:      &rpcv1.SubscribeRequest{Endpoint: "https://push.example.com/sub", P256Dh: "k"},
-			setup:    func(_ *ucmocks.MockPushNotificationUseCase, _ *entitymocks.MockUserRepository) {},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
 	}
 
 	for _, tt := range tests {

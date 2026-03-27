@@ -3,13 +3,11 @@ package rpc
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	concertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -17,16 +15,19 @@ import (
 // ConcertHandler implements the ConcertService Connect interface.
 type ConcertHandler struct {
 	concertUseCase usecase.ConcertUseCase
+	userRepo       entity.UserRepository
 	logger         *logging.Logger
 }
 
 // NewConcertHandler creates a new concert handler.
 func NewConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
+	userRepo entity.UserRepository,
 	logger *logging.Logger,
 ) *ConcertHandler {
 	return &ConcertHandler{
 		concertUseCase: concertUseCase,
+		userRepo:       userRepo,
 		logger:         logger,
 	}
 }
@@ -51,12 +52,17 @@ func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[concertv
 // ListByFollower returns all concerts for artists followed by the authenticated user,
 // grouped by date and classified into geographic proximity lanes.
 func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[concertv1.ListByFollowerRequest]) (*connect.Response[concertv1.ListByFollowerResponse], error) {
-	userID, ok := auth.GetUserID(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("user not authenticated"))
+	externalID, err := mapper.GetExternalUserID(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	groups, err := h.concertUseCase.ListByFollowerGrouped(ctx, userID)
+	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	if err != nil {
+		return nil, err
+	}
+
+	groups, err := h.concertUseCase.ListByFollowerGrouped(ctx, user.ID, user.Home)
 	if err != nil {
 		return nil, err
 	}
@@ -91,12 +97,7 @@ func (h *ConcertHandler) ListWithProximity(ctx context.Context, req *connect.Req
 // SearchNewConcerts discovers new concerts for the given artist synchronously
 // and returns them in the response.
 func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[concertv1.SearchNewConcertsRequest]) (*connect.Response[concertv1.SearchNewConcertsResponse], error) {
-	artistID := req.Msg.GetArtistId().GetValue()
-	if artistID == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("artist_id cannot be empty"))
-	}
-
-	concerts, err := h.concertUseCase.SearchNewConcerts(ctx, artistID)
+	concerts, err := h.concertUseCase.SearchNewConcerts(ctx, req.Msg.GetArtistId().GetValue())
 	if err != nil {
 		return nil, err
 	}

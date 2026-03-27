@@ -19,7 +19,6 @@ type ArtistUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: the artist name or MBID is empty.
 	//   - Internal: unexpected failure during creation or normalization.
 	Create(ctx context.Context, artist *entity.Artist) (*entity.Artist, error)
 
@@ -34,7 +33,6 @@ type ArtistUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: the URL is empty or the artist ID is missing.
 	//   - Internal: database execution failure.
 	CreateOfficialSite(ctx context.Context, site *entity.OfficialSite) error
 
@@ -50,7 +48,6 @@ type ArtistUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: the search query is empty.
 	//   - NotFound: no matching artists found.
 	Search(ctx context.Context, query string) ([]*entity.Artist, error)
 
@@ -108,10 +105,6 @@ func NewArtistUseCase(
 
 // Create creates a new artist.
 func (uc *artistUseCase) Create(ctx context.Context, artist *entity.Artist) (*entity.Artist, error) {
-	if artist.MBID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "artist MBID is required")
-	}
-
 	// Normalize artist name using MBID
 	if artist.MBID != "" {
 		mbArtist, err := uc.idManager.GetArtist(ctx, artist.MBID)
@@ -123,10 +116,6 @@ func (uc *artistUseCase) Create(ctx context.Context, artist *entity.Artist) (*en
 			artist.Name = mbArtist.Name
 			artist.MBID = mbArtist.MBID // Ensure MBID is set from canonical source
 		}
-	}
-
-	if artist.Name == "" {
-		return nil, apperr.New(codes.InvalidArgument, "artist name is required")
 	}
 
 	created, err := uc.artistRepo.Create(ctx, artist)
@@ -155,10 +144,6 @@ func (uc *artistUseCase) List(ctx context.Context) ([]*entity.Artist, error) {
 
 // CreateOfficialSite adds an official site for an artist.
 func (uc *artistUseCase) CreateOfficialSite(ctx context.Context, site *entity.OfficialSite) error {
-	if site.URL == "" {
-		return apperr.New(codes.InvalidArgument, "official site URL is required")
-	}
-
 	err := uc.artistRepo.CreateOfficialSite(ctx, site)
 	if err != nil {
 		return err
@@ -169,10 +154,6 @@ func (uc *artistUseCase) CreateOfficialSite(ctx context.Context, site *entity.Of
 
 // GetOfficialSite retrieves the official site for an artist.
 func (uc *artistUseCase) GetOfficialSite(ctx context.Context, artistID string) (*entity.OfficialSite, error) {
-	if artistID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "artist ID is required")
-	}
-
 	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
 	if err != nil {
 		return nil, err
@@ -184,10 +165,6 @@ func (uc *artistUseCase) GetOfficialSite(ctx context.Context, artistID string) (
 // Search finds artists matching the query using the primary external discovery service.
 // Results are cached to reduce external API calls.
 func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Artist, error) {
-	if query == "" {
-		return nil, apperr.New(codes.InvalidArgument, "search query is required")
-	}
-
 	// Check cache first
 	cacheKey := fmt.Sprintf("search:%s", hashString(query))
 	if cached := uc.cache.Get(cacheKey); cached != nil {

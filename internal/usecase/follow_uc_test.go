@@ -16,7 +16,6 @@ import (
 type followTestDeps struct {
 	followRepo    *mocks.MockFollowRepository
 	artistRepo    *mocks.MockArtistRepository
-	userRepo      *mocks.MockUserRepository
 	siteResolver  *mocks.MockOfficialSiteResolver
 	concertUC     *ucmocks.MockConcertUseCase
 	searchLogRepo *mocks.MockSearchLogRepository
@@ -28,7 +27,6 @@ func newFollowTestDeps(t *testing.T) *followTestDeps {
 	d := &followTestDeps{
 		followRepo:    mocks.NewMockFollowRepository(t),
 		artistRepo:    mocks.NewMockArtistRepository(t),
-		userRepo:      mocks.NewMockUserRepository(t),
 		siteResolver:  mocks.NewMockOfficialSiteResolver(t),
 		concertUC:     ucmocks.NewMockConcertUseCase(t),
 		searchLogRepo: mocks.NewMockSearchLogRepository(t),
@@ -36,7 +34,6 @@ func newFollowTestDeps(t *testing.T) *followTestDeps {
 	d.uc = usecase.NewFollowUseCase(
 		d.followRepo,
 		d.artistRepo,
-		d.userRepo,
 		d.siteResolver,
 		d.concertUC,
 		d.searchLogRepo,
@@ -63,18 +60,14 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "resolves external user ID and updates hype",
+			name: "success",
 			args: args{
-				userID:   "external-zitadel-sub",
+				userID:   "internal-uuid-1",
 				artistID: "artist-1",
 				hype:     entity.HypeAway,
 			},
 			setup: func(t *testing.T, d *followTestDeps) {
 				t.Helper()
-				d.userRepo.EXPECT().
-					GetByExternalID(ctx, "external-zitadel-sub").
-					Return(&entity.User{ID: "internal-uuid-1"}, nil).
-					Once()
 				d.followRepo.EXPECT().
 					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
 					Return(nil).
@@ -83,54 +76,14 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "return error when user ID is empty",
-			args: args{
-				userID:   "",
-				artistID: "artist-1",
-				hype:     entity.HypeHome,
-			},
-			setup:   nil,
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name: "return error when artist ID is empty",
-			args: args{
-				userID:   "external-zitadel-sub",
-				artistID: "",
-				hype:     entity.HypeHome,
-			},
-			setup:   nil,
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name: "return error when resolveUserID fails",
-			args: args{
-				userID:   "unknown-external-id",
-				artistID: "artist-1",
-				hype:     entity.HypeHome,
-			},
-			setup: func(t *testing.T, d *followTestDeps) {
-				t.Helper()
-				d.userRepo.EXPECT().
-					GetByExternalID(ctx, "unknown-external-id").
-					Return(nil, apperr.ErrNotFound).
-					Once()
-			},
-			wantErr: apperr.ErrNotFound,
-		},
-		{
 			name: "return error when repository SetHype fails",
 			args: args{
-				userID:   "external-zitadel-sub",
+				userID:   "internal-uuid-1",
 				artistID: "artist-1",
 				hype:     entity.HypeAway,
 			},
 			setup: func(t *testing.T, d *followTestDeps) {
 				t.Helper()
-				d.userRepo.EXPECT().
-					GetByExternalID(ctx, "external-zitadel-sub").
-					Return(&entity.User{ID: "internal-uuid-1"}, nil).
-					Once()
 				d.followRepo.EXPECT().
 					SetHype(ctx, "internal-uuid-1", "artist-1", entity.HypeAway).
 					Return(apperr.ErrInternal).

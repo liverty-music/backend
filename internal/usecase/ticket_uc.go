@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -13,9 +12,6 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
-
-// ethAddressRe matches a valid Ethereum address (0x-prefixed, 40 hex chars).
-var ethAddressRe = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
 
 // TicketUseCase defines the interface for ticket-related business logic.
 type TicketUseCase interface {
@@ -73,27 +69,10 @@ func NewTicketUseCase(
 	}
 }
 
-// validateMintParams checks all required input fields for a mint request.
-// Returns InvalidArgument if any field is missing or invalid.
+// validateMintParams checks domain invariants for a mint request.
 func (uc *ticketUseCase) validateMintParams(params *MintTicketParams) error {
-	if params == nil {
-		return apperr.New(codes.InvalidArgument, "params cannot be nil")
-	}
-
-	if params.EventID == "" {
-		return apperr.New(codes.InvalidArgument, "event_id is required")
-	}
-
-	if params.UserID == "" {
-		return apperr.New(codes.InvalidArgument, "user_id is required")
-	}
-
-	if params.RecipientAddress == "" {
-		return apperr.New(codes.InvalidArgument, "recipient_address is required")
-	}
-
-	if !ethAddressRe.MatchString(params.RecipientAddress) {
-		return apperr.New(codes.InvalidArgument, "recipient_address must be a valid Ethereum address (0x followed by 40 hex characters)")
+	if err := entity.ValidateEthereumAddress(params.RecipientAddress); err != nil {
+		return apperr.New(codes.InvalidArgument, err.Error())
 	}
 
 	return nil
@@ -239,18 +218,10 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 
 // GetTicket retrieves a ticket by ID.
 func (uc *ticketUseCase) GetTicket(ctx context.Context, id string) (*entity.Ticket, error) {
-	if id == "" {
-		return nil, apperr.New(codes.InvalidArgument, "ticket ID cannot be empty")
-	}
-
 	return uc.ticketRepo.Get(ctx, id)
 }
 
 // ListTicketsForUser retrieves all tickets for a given user.
 func (uc *ticketUseCase) ListTicketsForUser(ctx context.Context, userID string) ([]*entity.Ticket, error) {
-	if userID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
-	}
-
 	return uc.ticketRepo.ListByUser(ctx, userID)
 }

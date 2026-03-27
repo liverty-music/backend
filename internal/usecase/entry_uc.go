@@ -89,22 +89,6 @@ func NewEntryUseCase(
 
 // VerifyEntry verifies a ZKP and records the nullifier on success.
 func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryParams) (*VerifyEntryResult, error) {
-	if params == nil {
-		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
-	}
-
-	if params.EventID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "event_id is required")
-	}
-
-	if params.ProofJSON == "" {
-		return nil, apperr.New(codes.InvalidArgument, "proof_json is required")
-	}
-
-	if params.PublicSignalsJSON == "" {
-		return nil, apperr.New(codes.InvalidArgument, "public_signals_json is required")
-	}
-
 	// Parse public signals once and extract all fields.
 	// Public signals order: [merkleRoot, eventId, nullifierHash]
 	signals, err := entity.ParseZKPPublicSignals(params.PublicSignalsJSON)
@@ -207,14 +191,6 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 
 // GetMerklePath returns the Merkle path for a user at an event.
 func (uc *entryUseCase) GetMerklePath(ctx context.Context, eventID, userID string) (*MerklePathResult, error) {
-	if eventID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "event_id is required")
-	}
-
-	if userID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user_id is required")
-	}
-
 	// Get the user's leaf index from their ticket position.
 	leafIndex, err := uc.eventRepo.GetTicketLeafIndex(ctx, eventID, userID)
 	if err != nil {
@@ -253,10 +229,6 @@ func (uc *entryUseCase) GetMerklePath(ctx context.Context, eventID, userID strin
 
 // BuildMerkleTree builds the Merkle tree for an event from ticket holders.
 func (uc *entryUseCase) BuildMerkleTree(ctx context.Context, eventID string) error {
-	if eventID == "" {
-		return apperr.New(codes.InvalidArgument, "event_id is required")
-	}
-
 	// Get all tickets for the event to build identity commitments.
 	tickets, err := uc.ticketRepo.ListByEvent(ctx, eventID)
 	if err != nil {

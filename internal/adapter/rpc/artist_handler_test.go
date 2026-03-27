@@ -74,20 +74,4 @@ func TestArtistHandler_Create(t *testing.T) {
 		assert.NotNil(t, resp)
 	})
 
-	t.Run("error - missing name", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		artistUC := mocks.NewMockArtistUseCase(t)
-		h := handler.NewArtistHandler(artistUC, logger)
-
-		req := connect.NewRequest(&artistv1.CreateRequest{})
-
-		_, err = h.Create(context.Background(), req)
-
-		assert.Error(t, err)
-		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-	})
 }

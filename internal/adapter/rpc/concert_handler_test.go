@@ -10,6 +10,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +27,8 @@ func TestConcertHandler_List(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
 
 		artistID := "artist-123"
 		localDate := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
@@ -64,7 +67,8 @@ func TestConcertHandler_List(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
 
 		localDate := time.Date(2025, 7, 20, 0, 0, 0, 0, time.UTC)
 		concertUC.EXPECT().ListByArtist(mock.Anything, "").Return([]*entity.Concert{
@@ -94,7 +98,8 @@ func TestConcertHandler_List(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-999").Return([]*entity.Concert{}, nil).Once()
 
@@ -114,7 +119,8 @@ func TestConcertHandler_List(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-123").Return(nil, assert.AnError).Once()
 
@@ -140,7 +146,8 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		require.NoError(t, err)
 
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
 
 		artistID := "artist-123"
 		date := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -177,7 +184,8 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		require.NoError(t, err)
 
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
 
 		artistID := "artist-123"
 
@@ -201,7 +209,8 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		require.NoError(t, err)
 
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
 
 		artistID := "artist-123"
 
@@ -216,30 +225,12 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, resp)
 	})
-
-	t.Run("invalid_argument", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
-
-		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
-			ArtistId: nil,
-		})
-
-		resp, err := h.SearchNewConcerts(context.Background(), req)
-
-		assert.Error(t, err)
-		assert.Nil(t, resp)
-		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-	})
 }
 
 func TestConcertHandler_ListByFollower(t *testing.T) {
 	t.Parallel()
+
+	internalUserID := "internal-user-uuid-1"
 
 	t.Run("unauthenticated", func(t *testing.T) {
 		t.Parallel()
@@ -248,9 +239,10 @@ func TestConcertHandler_ListByFollower(t *testing.T) {
 		require.NoError(t, err)
 
 		concertUC := mocks.NewMockConcertUseCase(t)
-		h := rpc.NewConcertHandler(concertUC, logger)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
 
-		// No auth context → GetUserID returns false → UNAUTHENTICATED
+		// No auth context → GetExternalUserID returns CodeUnauthenticated.
 		req := connect.NewRequest(&concertv1.ListByFollowerRequest{})
 
 		resp, err := h.ListByFollower(context.Background(), req)
@@ -258,5 +250,28 @@ func TestConcertHandler_ListByFollower(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+
+	t.Run("success", func(t *testing.T) {
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
+		concertUC := mocks.NewMockConcertUseCase(t)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
+
+		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
+		user := &entity.User{ID: internalUserID}
+		userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+		concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID, user.Home).Return([]*entity.ProximityGroup{}, nil).Once()
+
+		req := connect.NewRequest(&concertv1.ListByFollowerRequest{})
+
+		resp, err := h.ListByFollower(ctx, req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
 	})
 }

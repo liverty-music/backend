@@ -112,10 +112,6 @@ func (uc *userUseCase) publishEvent(ctx context.Context, subject string, data an
 
 // Get retrieves a user by ID.
 func (uc *userUseCase) Get(ctx context.Context, id string) (*entity.User, error) {
-	if id == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
-	}
-
 	user, err := uc.userRepo.Get(ctx, id)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.NotFound, "failed to get user",
@@ -128,10 +124,6 @@ func (uc *userUseCase) Get(ctx context.Context, id string) (*entity.User, error)
 
 // GetByExternalID retrieves a user by identity provider ID.
 func (uc *userUseCase) GetByExternalID(ctx context.Context, externalID string) (*entity.User, error) {
-	if externalID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "external ID cannot be empty")
-	}
-
 	user, err := uc.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.NotFound, "failed to get user by external ID",
@@ -144,12 +136,6 @@ func (uc *userUseCase) GetByExternalID(ctx context.Context, externalID string) (
 
 // UpdateHome sets or changes the user's home area after validating the structured Home.
 func (uc *userUseCase) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
-	if id == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
-	}
-	if home == nil {
-		return nil, apperr.New(codes.InvalidArgument, "home cannot be nil")
-	}
 	if err := home.Validate(); err != nil {
 		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
 	}
@@ -170,10 +156,6 @@ func (uc *userUseCase) UpdateHome(ctx context.Context, id string, home *entity.H
 
 // Delete deletes a user by ID.
 func (uc *userUseCase) Delete(ctx context.Context, id string) error {
-	if id == "" {
-		return apperr.New(codes.InvalidArgument, "user ID cannot be empty")
-	}
-
 	err := uc.userRepo.Delete(ctx, id)
 	if err != nil {
 		return err

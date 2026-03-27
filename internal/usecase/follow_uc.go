@@ -17,7 +17,6 @@ type FollowUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: required identification (ID) or user context is missing.
 	//   - NotFound: the artist does not exist.
 	//   - Internal: unexpected failure during relationship establishment.
 	Follow(ctx context.Context, userID string, artistID string) error
@@ -26,7 +25,6 @@ type FollowUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: missing user or artist identification.
 	//   - Internal: execution failure.
 	Unfollow(ctx context.Context, userID, artistID string) error
 
@@ -34,7 +32,6 @@ type FollowUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: missing user or artist identification, or invalid hype.
 	//   - NotFound: the user is not following the specified artist.
 	SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error
 
@@ -43,7 +40,6 @@ type FollowUseCase interface {
 	//
 	// # Possible errors:
 	//
-	//   - InvalidArgument: missing user identification.
 	//   - Internal: query failure.
 	ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error)
 }
@@ -52,7 +48,6 @@ type FollowUseCase interface {
 type followUseCase struct {
 	followRepo    entity.FollowRepository
 	artistRepo    entity.ArtistRepository
-	userRepo      entity.UserRepository
 	siteResolver  entity.OfficialSiteResolver
 	concertUC     ConcertUseCase
 	searchLogRepo entity.SearchLogRepository
@@ -66,7 +61,6 @@ var _ FollowUseCase = (*followUseCase)(nil)
 func NewFollowUseCase(
 	followRepo entity.FollowRepository,
 	artistRepo entity.ArtistRepository,
-	userRepo entity.UserRepository,
 	siteResolver entity.OfficialSiteResolver,
 	concertUC ConcertUseCase,
 	searchLogRepo entity.SearchLogRepository,
@@ -75,7 +69,6 @@ func NewFollowUseCase(
 	return &followUseCase{
 		followRepo:    followRepo,
 		artistRepo:    artistRepo,
-		userRepo:      userRepo,
 		siteResolver:  siteResolver,
 		concertUC:     concertUC,
 		searchLogRepo: searchLogRepo,
@@ -87,16 +80,7 @@ func NewFollowUseCase(
 // After the follow is persisted, it asynchronously resolves and stores the
 // artist's official site URL if one is not already recorded.
 func (uc *followUseCase) Follow(ctx context.Context, userID string, artistID string) error {
-	if userID == "" || artistID == "" {
-		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
-	}
-
-	internalUserID, err := resolveUserID(ctx, uc.userRepo, userID)
-	if err != nil {
-		return err
-	}
-
-	err = uc.followRepo.Follow(ctx, internalUserID, artistID)
+	err := uc.followRepo.Follow(ctx, userID, artistID)
 	if err != nil {
 		// Treat "already following" as success
 		if errors.Is(err, apperr.ErrAlreadyExists) {
@@ -105,7 +89,7 @@ func (uc *followUseCase) Follow(ctx context.Context, userID string, artistID str
 		return apperr.Wrap(err, codes.Internal, "failed to establish follow relationship")
 	}
 
-	uc.logger.Info(ctx, "User followed artist", slog.String("user_id", internalUserID), slog.String("artist_id", artistID))
+	uc.logger.Info(ctx, "User followed artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
 
 	bgCtx := context.WithoutCancel(ctx)
 	go uc.resolveAndPersistOfficialSite(bgCtx, artistID)
@@ -185,42 +169,24 @@ func (uc *followUseCase) resolveAndPersistOfficialSite(ctx context.Context, arti
 
 // Unfollow removes a follow relationship.
 func (uc *followUseCase) Unfollow(ctx context.Context, userID, artistID string) error {
-	if userID == "" || artistID == "" {
-		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
-	}
-
-	internalUserID, err := resolveUserID(ctx, uc.userRepo, userID)
+	err := uc.followRepo.Unfollow(ctx, userID, artistID)
 	if err != nil {
 		return err
 	}
 
-	err = uc.followRepo.Unfollow(ctx, internalUserID, artistID)
-	if err != nil {
-		return err
-	}
-
-	uc.logger.Info(ctx, "Artist unfollowed", slog.String("user_id", internalUserID), slog.String("artist_id", artistID))
+	uc.logger.Info(ctx, "Artist unfollowed", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	return nil
 }
 
 // SetHype updates the enthusiasm tier for a followed artist.
 func (uc *followUseCase) SetHype(ctx context.Context, userID, artistID string, hype entity.Hype) error {
-	if userID == "" || artistID == "" {
-		return apperr.New(codes.InvalidArgument, "user ID and artist ID are required")
-	}
-
-	internalUserID, err := resolveUserID(ctx, uc.userRepo, userID)
-	if err != nil {
-		return err
-	}
-
-	err = uc.followRepo.SetHype(ctx, internalUserID, artistID, hype)
+	err := uc.followRepo.SetHype(ctx, userID, artistID, hype)
 	if err != nil {
 		return err
 	}
 
 	uc.logger.Info(ctx, "Hype updated",
-		slog.String("user_id", internalUserID),
+		slog.String("user_id", userID),
 		slog.String("artist_id", artistID),
 		slog.String("hype", string(hype)),
 	)
@@ -229,14 +195,5 @@ func (uc *followUseCase) SetHype(ctx context.Context, userID, artistID string, h
 
 // ListFollowed retrieves the list of artists followed by a user, including hype level.
 func (uc *followUseCase) ListFollowed(ctx context.Context, userID string) ([]*entity.FollowedArtist, error) {
-	if userID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user ID is required")
-	}
-
-	internalUserID, err := resolveUserID(ctx, uc.userRepo, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	return uc.followRepo.ListByUser(ctx, internalUserID)
+	return uc.followRepo.ListByUser(ctx, userID)
 }

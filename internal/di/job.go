@@ -62,7 +62,6 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	followRepo := rdb.NewFollowRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
-	userRepo := rdb.NewUserRepository(db)
 	searchLogRepo := rdb.NewSearchLogRepository(db)
 
 	// Infrastructure - Gemini
@@ -100,7 +99,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, userRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)

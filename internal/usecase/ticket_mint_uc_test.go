@@ -47,21 +47,6 @@ func TestTicketUseCase_ValidateMintParams(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "nil params returns InvalidArgument",
-			params:  nil,
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "empty EventID returns InvalidArgument",
-			params:  &usecase.MintTicketParams{UserID: mintTestUserID, RecipientAddress: mintTestAddress},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "empty UserID returns InvalidArgument",
-			params:  &usecase.MintTicketParams{EventID: mintTestEventID, RecipientAddress: mintTestAddress},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
 			name:    "invalid Ethereum address returns InvalidArgument",
 			params:  &usecase.MintTicketParams{EventID: mintTestEventID, UserID: mintTestUserID, RecipientAddress: "not-an-address"},
 			wantErr: apperr.ErrInvalidArgument,

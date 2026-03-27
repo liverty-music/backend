@@ -41,19 +41,15 @@ func NewUserHandler(userUseCase usecase.UserUseCase, emailVerifier usecase.Email
 }
 
 // Get retrieves the authenticated user's profile using their JWT identity.
-func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
-	if req == nil || req.Msg == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
-	}
-
+func (h *UserHandler) Get(ctx context.Context, _ *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
 	// Extract user identity from JWT context.
-	claims, err := mapper.GetClaimsFromContext(ctx)
+	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Resolve the user by their external identity provider ID (JWT sub claim).
-	user, err := h.userUseCase.GetByExternalID(ctx, claims.Sub)
+	user, err := h.userUseCase.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -67,10 +63,6 @@ func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRe
 // The optional home field allows persisting the user's home area atomically
 // with account creation (selected during onboarding before sign-up).
 func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.CreateRequest]) (*connect.Response[userv1.CreateResponse], error) {
-	if req == nil || req.Msg == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
-	}
-
 	// Extract JWT claims from authenticated context (set by auth interceptor)
 	// This is critical for security - we extract all identity fields from validated JWT claims
 	// (external_id, email, name) and never trust client-provided identity data
@@ -95,27 +87,16 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 
 // UpdateHome sets or changes the authenticated user's home area.
 func (h *UserHandler) UpdateHome(ctx context.Context, req *connect.Request[userv1.UpdateHomeRequest]) (*connect.Response[userv1.UpdateHomeResponse], error) {
-	if req == nil || req.Msg == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request cannot be nil"))
-	}
-
-	if req.Msg.Home == nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("home is required"))
-	}
-
-	// Extract user identity from JWT context
-	claims, err := mapper.GetClaimsFromContext(ctx)
+	// Extract user identity from JWT context.
+	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
-	user, err := h.userUseCase.GetByExternalID(ctx, claims.Sub)
+	user, err := h.userUseCase.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
-	}
-	if user == nil {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("user not found"))
 	}
 
 	home := mapper.ProtoHomeToEntity(req.Msg.Home)

@@ -7,7 +7,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -54,30 +53,6 @@ func TestTicketJourneyUseCase_SetStatus(t *testing.T) {
 					Once()
 			},
 		},
-		{
-			name:    "rejects empty user_id",
-			userID:  "",
-			eventID: "event-1",
-			status:  entity.TicketJourneyStatusTracking,
-			setup:   func(_ *testing.T, _ *ticketJourneyTestDeps) {},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "rejects empty event_id",
-			userID:  "user-1",
-			eventID: "",
-			status:  entity.TicketJourneyStatusTracking,
-			setup:   func(_ *testing.T, _ *ticketJourneyTestDeps) {},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "rejects invalid status",
-			userID:  "user-1",
-			eventID: "event-1",
-			status:  entity.TicketJourneyStatus(0),
-			setup:   func(_ *testing.T, _ *ticketJourneyTestDeps) {},
-			wantErr: apperr.ErrInvalidArgument,
-		},
 	}
 
 	for _, tt := range tests {
@@ -121,20 +96,6 @@ func TestTicketJourneyUseCase_Delete(t *testing.T) {
 					Once()
 			},
 		},
-		{
-			name:    "rejects empty user_id",
-			userID:  "",
-			eventID: "event-1",
-			setup:   func(_ *testing.T, _ *ticketJourneyTestDeps) {},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "rejects empty event_id",
-			userID:  "user-1",
-			eventID: "",
-			setup:   func(_ *testing.T, _ *ticketJourneyTestDeps) {},
-			wantErr: apperr.ErrInvalidArgument,
-		},
 	}
 
 	for _, tt := range tests {
@@ -175,13 +136,4 @@ func TestTicketJourneyUseCase_ListByUser(t *testing.T) {
 		assert.Equal(t, expected, result)
 	})
 
-	t.Run("rejects empty user_id", func(t *testing.T) {
-		t.Parallel()
-		d := newTicketJourneyTestDeps(t)
-
-		result, err := d.uc.ListByUser(ctx, "")
-
-		assert.Nil(t, result)
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
 }
