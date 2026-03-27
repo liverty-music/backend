@@ -6,12 +6,19 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
+
+// MintMetrics records observability signals for ticket mint operations.
+type MintMetrics interface {
+	RecordDuration(ctx context.Context, seconds float64, outcome string)
+	RecordTotal(ctx context.Context, outcome string)
+}
 
 // TicketUseCase defines the interface for ticket-related business logic.
 type TicketUseCase interface {
@@ -48,9 +55,10 @@ type MintTicketParams struct {
 
 // ticketUseCase implements the TicketUseCase interface.
 type ticketUseCase struct {
-	ticketRepo entity.TicketRepository
-	minter     entity.TicketMinter
-	logger     *logging.Logger
+	ticketRepo  entity.TicketRepository
+	minter      entity.TicketMinter
+	logger      *logging.Logger
+	mintMetrics MintMetrics
 }
 
 // Compile-time interface compliance check.
@@ -60,12 +68,14 @@ var _ TicketUseCase = (*ticketUseCase)(nil)
 func NewTicketUseCase(
 	ticketRepo entity.TicketRepository,
 	minter entity.TicketMinter,
+	mintMetrics MintMetrics,
 	logger *logging.Logger,
 ) TicketUseCase {
 	return &ticketUseCase{
-		ticketRepo: ticketRepo,
-		minter:     minter,
-		logger:     logger,
+		ticketRepo:  ticketRepo,
+		minter:      minter,
+		logger:      logger,
+		mintMetrics: mintMetrics,
 	}
 }
 
@@ -208,10 +218,17 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 		return existing, nil
 	}
 
+	mintStart := time.Now()
 	txHash, tokenID, err := uc.mintOrReconcile(ctx, params)
+	mintElapsed := time.Since(mintStart).Seconds()
+
 	if err != nil {
+		uc.mintMetrics.RecordDuration(ctx, mintElapsed, "error")
+		uc.mintMetrics.RecordTotal(ctx, "error")
 		return nil, err
 	}
+	uc.mintMetrics.RecordDuration(ctx, mintElapsed, "success")
+	uc.mintMetrics.RecordTotal(ctx, "success")
 
 	return uc.persistTicket(ctx, params, tokenID, txHash)
 }

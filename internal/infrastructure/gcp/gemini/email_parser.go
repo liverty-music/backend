@@ -60,15 +60,22 @@ type EmailParser struct {
 }
 
 // NewEmailParser creates a new Gemini-based ticket email parser.
-// The httpClient parameter allows for custom transport configuration, which is
-// particularly useful for unit testing with httptest. If nil, the default transport is used.
-func NewEmailParser(ctx context.Context, cfg EmailParserConfig, httpClient *http.Client, logger *logging.Logger) (*EmailParser, error) {
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+// When httpClient is provided, UseDefaultCredentials layers ADC authentication
+// on top of its transport (e.g., otelhttp). Tests pass a custom httpClient
+// without ADC via the useADC flag.
+func NewEmailParser(ctx context.Context, cfg EmailParserConfig, httpClient *http.Client, useADC bool, logger *logging.Logger) (*EmailParser, error) {
+	cc := &genai.ClientConfig{
 		Project:    cfg.ProjectID,
 		Location:   cfg.Location,
 		Backend:    genai.BackendVertexAI,
 		HTTPClient: httpClient,
-	})
+	}
+	if httpClient != nil && useADC {
+		if err := cc.UseDefaultCredentials(); err != nil {
+			return nil, fmt.Errorf("setup default credentials: %w", err)
+		}
+	}
+	client, err := genai.NewClient(ctx, cc)
 	if err != nil {
 		return nil, fmt.Errorf("create genai client: %w", err)
 	}

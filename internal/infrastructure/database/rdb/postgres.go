@@ -83,7 +83,7 @@ func New(ctx context.Context, dbCfg config.DatabaseConfig, isLocal bool, logger 
 	}
 
 	database := &Database{
-		Pool:   NewTracedPool(pool),
+		Pool:   NewTracedPool(pool, dbCfg.Name, dbCfg.Host),
 		logger: logger,
 		dialer: dialer,
 	}

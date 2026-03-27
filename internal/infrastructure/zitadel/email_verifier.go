@@ -12,6 +12,7 @@ import (
 	userv2 "github.com/zitadel/zitadel-go/v3/pkg/client/user/v2"
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 
@@ -56,6 +57,9 @@ func NewEmailVerifier(ctx context.Context, issuerURL, keyPath string, logger *lo
 	connOpts := []zitadelconn.Option{
 		zitadelconn.WithJWTProfileTokenSource(
 			middleware.JWTProfileFromPath(ctx, keyPath),
+		),
+		zitadelconn.WithDialOptions(
+			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		),
 	}
 	connOpts = append(connOpts, opts...)

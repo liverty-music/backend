@@ -242,6 +242,10 @@ type TelemetryConfig struct {
 
 	// Service version for tracing
 	ServiceVersion string `envconfig:"TELEMETRY_SERVICE_VERSION" default:"1.0.0"`
+
+	// SamplerRatio controls the trace sampling rate (0.0 to 1.0).
+	// Uses ParentBased(TraceIDRatioBased) sampler. Default 1.0 samples all traces.
+	SamplerRatio float64 `envconfig:"TELEMETRY_SAMPLER_RATIO" default:"1.0"`
 }
 
 // GCPConfig represents Google Cloud specific configuration.

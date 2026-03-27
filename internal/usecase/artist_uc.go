@@ -11,6 +11,8 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // ArtistUseCase defines the interface for artist-related business logic and orchestration.
@@ -277,6 +279,10 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 		return []*entity.Artist{}, nil
 	}
 
+	ctx, span := otel.Tracer("usecase/artist").Start(ctx, "PersistArtists")
+	defer span.End()
+	span.SetAttributes(attribute.Int("persist.input_count", len(artists)))
+
 	// Step 1: Collect MBIDs.
 	mbids := make([]string, len(artists))
 	for i, a := range artists {
@@ -321,6 +327,8 @@ func (uc *artistUseCase) persistArtists(ctx context.Context, artists []*entity.A
 			}
 		}
 	}
+
+	span.SetAttributes(attribute.Int("persist.created_count", len(missing)))
 
 	// Step 5: Merge preserving input order.
 	result := make([]*entity.Artist, 0, len(artists))
