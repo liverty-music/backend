@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // TicketUseCase defines the interface for ticket-related business logic.
@@ -48,9 +52,11 @@ type MintTicketParams struct {
 
 // ticketUseCase implements the TicketUseCase interface.
 type ticketUseCase struct {
-	ticketRepo entity.TicketRepository
-	minter     entity.TicketMinter
-	logger     *logging.Logger
+	ticketRepo    entity.TicketRepository
+	minter        entity.TicketMinter
+	logger        *logging.Logger
+	mintDuration  metric.Float64Histogram
+	mintTotal     metric.Int64Counter
 }
 
 // Compile-time interface compliance check.
@@ -62,10 +68,20 @@ func NewTicketUseCase(
 	minter entity.TicketMinter,
 	logger *logging.Logger,
 ) TicketUseCase {
+	meter := otel.Meter("usecase/ticket")
+	mintDuration, _ := meter.Float64Histogram("blockchain.mint.duration",
+		metric.WithUnit("s"),
+		metric.WithDescription("Duration of ticket mint operations including retries"),
+	)
+	mintTotal, _ := meter.Int64Counter("blockchain.mint.total",
+		metric.WithDescription("Total ticket mint operations by outcome"),
+	)
 	return &ticketUseCase{
-		ticketRepo: ticketRepo,
-		minter:     minter,
-		logger:     logger,
+		ticketRepo:   ticketRepo,
+		minter:       minter,
+		logger:       logger,
+		mintDuration: mintDuration,
+		mintTotal:    mintTotal,
 	}
 }
 
@@ -208,10 +224,17 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 		return existing, nil
 	}
 
+	mintStart := time.Now()
 	txHash, tokenID, err := uc.mintOrReconcile(ctx, params)
+	mintElapsed := time.Since(mintStart).Seconds()
+
 	if err != nil {
+		uc.mintDuration.Record(ctx, mintElapsed, metric.WithAttributes(attribute.String("outcome", "error")))
+		uc.mintTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", "error")))
 		return nil, err
 	}
+	uc.mintDuration.Record(ctx, mintElapsed, metric.WithAttributes(attribute.String("outcome", "success")))
+	uc.mintTotal.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", "success")))
 
 	return uc.persistTicket(ctx, params, tokenID, txHash)
 }
