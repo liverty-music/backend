@@ -51,6 +51,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 						OTLPEndpoint:   "",
 						ServiceName:    "go-backend-scaffold",
 						ServiceVersion: "1.0.0",
+						SamplerRatio:   1.0,
 					},
 				},
 				Server: ServerSettings{
@@ -132,6 +133,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 						OTLPEndpoint:   "",
 						ServiceName:    "go-backend-scaffold",
 						ServiceVersion: "1.0.0",
+						SamplerRatio:   1.0,
 					},
 				},
 				Server: ServerSettings{

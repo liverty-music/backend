@@ -1,74 +1,118 @@
-// Package telemetry provides OpenTelemetry tracing setup and configuration.
+// Package telemetry provides OpenTelemetry tracing and metrics setup.
 package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
 	"github.com/liverty-music/backend/pkg/config"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	"go.opentelemetry.io/otel/sdk/trace"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-// SetupTelemetry initializes OpenTelemetry tracing and returns a closer for shutdown.
-// If telemetry OTLP endpoint is not configured, tracer is initialized without exporter
-// to disable sending trace info to OTEL collector.
-func SetupTelemetry(ctx context.Context, telCfg config.TelemetryConfig, shutdownTimeout time.Duration) (io.Closer, error) {
+// SetupTelemetry initializes OpenTelemetry tracing and metrics, then returns
+// a closer that shuts down both providers. When the OTLP endpoint is empty,
+// providers are created without exporters (local development).
+func SetupTelemetry(ctx context.Context, telCfg config.TelemetryConfig, environment string, shutdownTimeout time.Duration) (io.Closer, error) {
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceNameKey.String(telCfg.ServiceName),
 			semconv.ServiceVersionKey.String(telCfg.ServiceVersion),
+			semconv.DeploymentEnvironmentKey.String(environment),
 		),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create telemetry resource: %w", err)
+		return nil, fmt.Errorf("create telemetry resource: %w", err)
 	}
 
-	tracerProviderOpts := []trace.TracerProviderOption{
-		trace.WithResource(res),
-		trace.WithSampler(trace.AlwaysSample()),
+	// Propagator — explicit W3C TraceContext.
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	// TracerProvider
+	tp, err := setupTracerProvider(ctx, telCfg, res)
+	if err != nil {
+		return nil, err
+	}
+	otel.SetTracerProvider(tp)
+
+	// MeterProvider
+	mp, err := setupMeterProvider(ctx, telCfg, res)
+	if err != nil {
+		return nil, err
+	}
+	otel.SetMeterProvider(mp)
+
+	return &telemetryCloser{
+		tracerProvider:  tp,
+		meterProvider:   mp,
+		shutdownTimeout: shutdownTimeout,
+	}, nil
+}
+
+func setupTracerProvider(ctx context.Context, telCfg config.TelemetryConfig, res *resource.Resource) (*sdktrace.TracerProvider, error) {
+	sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(telCfg.SamplerRatio))
+
+	opts := []sdktrace.TracerProviderOption{
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sampler),
 	}
 
-	// disable to export traces to OTEL collector for local development
 	if telCfg.OTLPEndpoint != "" {
 		exporter, err := otlptracehttp.New(ctx,
 			otlptracehttp.WithEndpoint(telCfg.OTLPEndpoint),
 			otlptracehttp.WithInsecure(),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+			return nil, fmt.Errorf("create OTLP trace exporter: %w", err)
 		}
-
-		tracerProviderOpts = append(tracerProviderOpts, trace.WithBatcher(exporter))
+		opts = append(opts, sdktrace.WithBatcher(exporter))
 	}
 
-	tracerProvider := trace.NewTracerProvider(tracerProviderOpts...)
-
-	// Set the global tracer provider
-	otel.SetTracerProvider(tracerProvider)
-
-	return &tracerCloser{provider: tracerProvider, shutdownTimeout: shutdownTimeout}, nil
+	return sdktrace.NewTracerProvider(opts...), nil
 }
 
-// tracerCloser implements io.Closer for shutting down the tracer provider
-type tracerCloser struct {
-	provider        *trace.TracerProvider
+func setupMeterProvider(ctx context.Context, telCfg config.TelemetryConfig, res *resource.Resource) (*sdkmetric.MeterProvider, error) {
+	opts := []sdkmetric.Option{
+		sdkmetric.WithResource(res),
+	}
+
+	if telCfg.OTLPEndpoint != "" {
+		exporter, err := otlpmetrichttp.New(ctx,
+			otlpmetrichttp.WithEndpoint(telCfg.OTLPEndpoint),
+			otlpmetrichttp.WithInsecure(),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create OTLP metric exporter: %w", err)
+		}
+		opts = append(opts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
+	}
+
+	return sdkmetric.NewMeterProvider(opts...), nil
+}
+
+// telemetryCloser shuts down both the TracerProvider and MeterProvider.
+type telemetryCloser struct {
+	tracerProvider  *sdktrace.TracerProvider
+	meterProvider   *sdkmetric.MeterProvider
 	shutdownTimeout time.Duration
 }
 
-// Close shuts down the tracer provider and flushes any remaining spans
-func (tc *tracerCloser) Close() error {
+// Close flushes pending telemetry data and shuts down both providers.
+func (tc *telemetryCloser) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), tc.shutdownTimeout)
 	defer cancel()
 
-	if err := tc.provider.Shutdown(ctx); err != nil {
-		return fmt.Errorf("failed to shutdown tracer provider: %w", err)
-	}
-
-	return nil
+	return errors.Join(
+		tc.tracerProvider.Shutdown(ctx),
+		tc.meterProvider.Shutdown(ctx),
+	)
 }
