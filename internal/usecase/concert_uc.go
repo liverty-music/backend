@@ -11,6 +11,8 @@ import (
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // ConcertUseCase defines the interface for concert-related business logic.
@@ -234,9 +236,15 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
 
-	// Deduplicate: one event per artist per date.
-	// FilterNew handles both cross-batch dedup (against existing) and within-batch dedup.
+	// Deduplicate: one event per artist per date — CPU-bound O(n) set operations.
+	_, filterSpan := otel.Tracer("usecase/concert").Start(ctx, "FilterNewConcerts")
 	newScraped := entity.ScrapedConcerts(scraped).FilterNew(existing)
+	filterSpan.SetAttributes(
+		attribute.Int("filter.scraped_count", len(scraped)),
+		attribute.Int("filter.new_count", len(newScraped)),
+	)
+	filterSpan.End()
+
 	if filtered := len(scraped) - len(newScraped); filtered > 0 {
 		uc.logger.Debug(ctx, "filtered existing/duplicate events (same date)",
 			slog.String("artist_id", artistID),
@@ -283,10 +291,10 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 }
 
 // markSearchCompleted updates the search log status to completed.
-// It uses a fresh context to ensure the update succeeds even when the caller's
-// context has expired (e.g., after a long Gemini API call).
+// It uses context.WithoutCancel to detach from the parent's deadline while
+// preserving trace context for span correlation.
 func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID string) {
-	updateCtx, cancel := context.WithTimeout(context.Background(), statusUpdateTimeout)
+	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
 	defer cancel()
 
 	if err := uc.searchLogRepo.UpdateStatus(updateCtx, artistID, entity.SearchLogStatusCompleted); err != nil {
@@ -295,10 +303,10 @@ func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID stri
 }
 
 // markSearchFailed updates the search log status to failed.
-// It uses a fresh context to ensure the update succeeds even when the caller's
-// context has expired (e.g., after a long Gemini API call).
+// It uses context.WithoutCancel to detach from the parent's deadline while
+// preserving trace context for span correlation.
 func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string) {
-	updateCtx, cancel := context.WithTimeout(context.Background(), statusUpdateTimeout)
+	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
 	defer cancel()
 
 	if err := uc.searchLogRepo.UpdateStatus(updateCtx, artistID, entity.SearchLogStatusFailed); err != nil {

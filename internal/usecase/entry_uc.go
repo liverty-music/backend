@@ -10,6 +10,8 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // DefaultTreeDepth is the default Merkle tree depth for event entry.
@@ -235,7 +237,12 @@ func (uc *entryUseCase) BuildMerkleTree(ctx context.Context, eventID string) err
 		return apperr.Wrap(err, codes.Internal, "failed to list tickets for event")
 	}
 
-	// Compute identity commitments for each ticket holder.
+	// Compute identity commitments and build the tree — CPU-intensive crypto work.
+	ctx, span := otel.Tracer("usecase/entry").Start(ctx, "BuildMerkleTree",
+	)
+	defer span.End()
+	span.SetAttributes(attribute.Int("merkle.leaf_count", len(tickets)))
+
 	leaves := make([][]byte, len(tickets))
 	for i, ticket := range tickets {
 		commitment, err := uc.merkleBuilder.IdentityCommitment([]byte(ticket.UserID))

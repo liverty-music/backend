@@ -115,8 +115,8 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		}
 
 		d.searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return(fetched, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-a", "mbid-b"}).Return([]*entity.Artist{}, nil).Once()
-		d.repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-a", "mbid-b"}).Return([]*entity.Artist{}, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		result, err := d.uc.ListTop(ctx, "JP", "", int32(0))
 
@@ -139,8 +139,8 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		}
 
 		d.searcher.EXPECT().ListTop(ctx, "JP", "", int32(0)).Return(fetched, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-x"}).Return([]*entity.Artist{}, nil).Once()
-		d.repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-x"}).Return([]*entity.Artist{}, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		result, err := d.uc.ListTop(ctx, "JP", "", int32(0))
 
@@ -170,8 +170,8 @@ func TestArtistUseCase_ListTop(t *testing.T) {
 		}
 
 		d.searcher.EXPECT().ListTop(ctx, "US", "", int32(0)).Return([]*entity.Artist{{Name: "Artist A", MBID: "mbid-a"}}, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-a"}).Return([]*entity.Artist{}, nil).Once()
-		d.repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-a"}).Return([]*entity.Artist{}, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		// First call — cache miss
 		_, err := d.uc.ListTop(ctx, "US", "", int32(0))
@@ -217,8 +217,8 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 
 		d.repo.EXPECT().Get(ctx, "seed-id").Return(seedArtist, nil).Once()
 		d.searcher.EXPECT().ListSimilar(ctx, seedArtist, int32(0)).Return(fetched, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(ctx, []string{"sim-a", "sim-b"}).Return([]*entity.Artist{}, nil).Once()
-		d.repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"sim-a", "sim-b"}).Return([]*entity.Artist{}, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		result, err := d.uc.ListSimilar(ctx, "seed-id", int32(0))
 
@@ -243,8 +243,8 @@ func TestArtistUseCase_ListSimilar(t *testing.T) {
 
 		d.repo.EXPECT().Get(ctx, "seed-id").Return(seedArtist, nil).Once()
 		d.searcher.EXPECT().ListSimilar(ctx, seedArtist, int32(0)).Return(fetched, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(ctx, []string{"sim-x"}).Return([]*entity.Artist{}, nil).Once()
-		d.repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"sim-x"}).Return([]*entity.Artist{}, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		result, err := d.uc.ListSimilar(ctx, "seed-id", int32(0))
 
@@ -275,8 +275,8 @@ func TestArtistUseCase_Search(t *testing.T) {
 		}
 
 		d.searcher.EXPECT().Search(ctx, "ヨルシカ").Return(fetched, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(ctx, []string{"abc", "def"}).Return([]*entity.Artist{}, nil).Once()
-		d.repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"abc", "def"}).Return([]*entity.Artist{}, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist"), mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		result, err := d.uc.Search(ctx, "ヨルシカ")
 
@@ -310,8 +310,8 @@ func TestArtistUseCase_Search(t *testing.T) {
 		}
 
 		d.searcher.EXPECT().Search(ctx, "cached").Return([]*entity.Artist{{Name: "Artist", MBID: "mbid-1"}}, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-1"}).Return([]*entity.Artist{}, nil).Once()
-		d.repo.EXPECT().Create(ctx, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-1"}).Return([]*entity.Artist{}, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.AnythingOfType("*entity.Artist")).Return(persisted, nil).Once()
 
 		// First call — cache miss
 		_, err := d.uc.Search(ctx, "cached")
@@ -339,8 +339,8 @@ func TestArtistUseCase_Search(t *testing.T) {
 		}
 
 		d.searcher.EXPECT().Search(ctx, "mixed").Return(fetched, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-existing", "mbid-new"}).Return(existingFromDB, nil).Once()
-		d.repo.EXPECT().Create(ctx, mock.MatchedBy(func(a *entity.Artist) bool {
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-existing", "mbid-new"}).Return(existingFromDB, nil).Once()
+		d.repo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(a *entity.Artist) bool {
 			return a.MBID == "mbid-new"
 		})).Return(createdNew, nil).Once()
 
@@ -360,7 +360,7 @@ func TestArtistUseCase_Search(t *testing.T) {
 			{Name: "A", MBID: "mbid-a"},
 			{Name: "B", MBID: "mbid-b"},
 		}, nil).Once()
-		d.repo.EXPECT().ListByMBIDs(ctx, []string{"mbid-a", "mbid-b"}).Return([]*entity.Artist{
+		d.repo.EXPECT().ListByMBIDs(mock.Anything, []string{"mbid-a", "mbid-b"}).Return([]*entity.Artist{
 			{ID: "db-a", Name: "A", MBID: "mbid-a"},
 			{ID: "db-b", Name: "B", MBID: "mbid-b"},
 		}, nil).Once()
