@@ -17,8 +17,8 @@ func TestToAppErr_GeminiHTTP499(t *testing.T) {
 
 	err := toAppErr(genai.APIError{Code: 499, Message: "The operation was cancelled."}, "failed to call Gemini API")
 
-	var appErr *apperr.AppErr
-	require.True(t, errors.As(err, &appErr), "expected AppErr, got %T", err)
+	appErr, ok := errors.AsType[*apperr.AppErr](err)
+	require.True(t, ok, "expected AppErr, got %T", err)
 	assert.Equal(t, codes.Canceled, appErr.Code)
 }
 
@@ -27,7 +27,7 @@ func TestToAppErr_ContextCanceled(t *testing.T) {
 
 	err := toAppErr(context.Canceled, "failed to call Gemini API")
 
-	var appErr *apperr.AppErr
-	require.True(t, errors.As(err, &appErr), "expected AppErr, got %T", err)
+	appErr, ok := errors.AsType[*apperr.AppErr](err)
+	require.True(t, ok, "expected AppErr, got %T", err)
 	assert.Equal(t, codes.Canceled, appErr.Code)
 }

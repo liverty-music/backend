@@ -285,8 +285,7 @@ func (c *Client) IsTokenMinted(ctx context.Context, tokenID uint64) (bool, error
 // (via rpc.DataError interface), falling back to string matching as a last resort.
 func isERC721NonexistentTokenError(err error) bool {
 	// Try structured error data first (robust across go-ethereum versions).
-	var dataErr rpc.DataError
-	if errors.As(err, &dataErr) {
+	if dataErr, ok := errors.AsType[rpc.DataError](err); ok {
 		if data, ok := dataErr.ErrorData().(string); ok {
 			// RPC returns error data as a hex string (e.g., "0x7e273289...").
 			data = strings.TrimPrefix(data, "0x")
@@ -298,7 +297,7 @@ func isERC721NonexistentTokenError(err error) bool {
 
 	// Try extracting selector from raw hex in the error chain.
 	// Some wrapped errors embed the revert data as hex bytes in the message.
-	var rawErr interface{ ErrorData() interface{} }
+	var rawErr interface{ ErrorData() any }
 	if errors.As(err, &rawErr) {
 		if rawData, ok := rawErr.ErrorData().([]byte); ok && len(rawData) >= 4 {
 			selector := hex.EncodeToString(rawData[:4])
