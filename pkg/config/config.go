@@ -161,6 +161,21 @@ type ServerSettings struct {
 
 	// Allowed CORS origins
 	AllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS"`
+
+	// Rate limiting configuration
+	RateLimit RateLimitConfig `envconfig:""`
+}
+
+// RateLimitConfig holds rate limiting parameters for the API server.
+type RateLimitConfig struct {
+	// AuthRPS is the sustained request rate for authenticated users (per second).
+	AuthRPS float64 `envconfig:"RATE_LIMIT_AUTH_RPS" default:"100"`
+	// AuthBurst is the maximum burst size for authenticated users.
+	AuthBurst int `envconfig:"RATE_LIMIT_AUTH_BURST" default:"200"`
+	// AnonRPS is the sustained request rate for unauthenticated clients (per second).
+	AnonRPS float64 `envconfig:"RATE_LIMIT_ANON_RPS" default:"30"`
+	// AnonBurst is the maximum burst size for unauthenticated clients.
+	AnonBurst int `envconfig:"RATE_LIMIT_ANON_BURST" default:"60"`
 }
 
 // DatabaseConfig represents database-specific configuration.

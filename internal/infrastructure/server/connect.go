@@ -16,6 +16,7 @@ import (
 	"connectrpc.com/otelconnect"
 	"connectrpc.com/validate"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	"github.com/liverty-music/backend/pkg/config"
 	apperr_connect "github.com/pannpers/go-apperr/apperr/connect"
 	"github.com/pannpers/go-logging/logging"
@@ -47,6 +48,7 @@ func NewConnectServer(
 	serverCfg config.ServerSettings,
 	logger *logging.Logger,
 	authFunc authn.AuthFunc,
+	rateLimiter *ratelimit.Limiter,
 	healthHandler HealthHandlerFunc,
 	longTimeoutHandlers []LongTimeoutRPCHandler,
 	handlerFuncs ...RPCHandlerFunc,
@@ -70,23 +72,27 @@ func NewConnectServer(
 	// Execution order (outermost → innermost):
 	//
 	//   [1] tracingInterceptor        — Starts OTel span. ALL inner layers get trace_id/span_id.
-	//   [2] accessLogInterceptor      — Logs after next() returns. Sees *connect.Error (converted
-	//                                   by [3]) for correct status codes. Outside [4] so it is NOT
+	//   [2] rateLimitInterceptor      — Rejects excess requests with CodeResourceExhausted.
+	//                                   After tracing so rejections are traced; before access log
+	//                                   so they are logged with correct status.
+	//   [3] accessLogInterceptor      — Logs after next() returns. Sees *connect.Error (converted
+	//                                   by [4]) for correct status codes. Outside [5] so it is NOT
 	//                                   bypassed when a panic unwinds the stack.
-	//   [3] errorHandlingInterceptor  — Converts AppErr → *connect.Error. Has trace context from [1].
-	//   [4] recoverHandler            — defer recover(). Returns *connect.Error on panic. Has trace
-	//                                   context from [1]. Inside [2] so access log still fires.
-	//   [5] claimsBridgeInterceptor        — Reads authn.infoKey (set by HTTP-layer authn.Middleware)
+	//   [4] errorHandlingInterceptor  — Converts AppErr → *connect.Error. Has trace context from [1].
+	//   [5] recoverHandler            — defer recover(). Returns *connect.Error on panic. Has trace
+	//                                   context from [1]. Inside [3] so access log still fires.
+	//   [6] claimsBridgeInterceptor        — Reads authn.infoKey (set by HTTP-layer authn.Middleware)
 	//                                        and writes auth.claimsKey for handlers.
-	//   [6] validationInterceptor          — Validates request proto via protovalidate. Innermost layer.
+	//   [7] validationInterceptor          — Validates request proto via protovalidate. Innermost layer.
 	//
 	// Response path (innermost → outermost):
-	//   handler error (AppErr) → [6] pass → [5] pass → [4] pass (or catch panic) →
-	//   [3] convert to *connect.Error → [2] log with correct status → [1] end span
+	//   handler error (AppErr) → [7] pass → [6] pass → [5] pass (or catch panic) →
+	//   [4] convert to *connect.Error → [3] log with correct status → [2] rate limit pass → [1] end span
 	//
 	handlerOpts := []connect.HandlerOption{
 		connect.WithInterceptors(
 			tracingInterceptor,
+			ratelimit.NewInterceptor(rateLimiter),
 			accessLogInterceptor,
 			apperr_connect.NewErrorHandlingInterceptor(logger),
 		),
