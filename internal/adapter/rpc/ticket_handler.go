@@ -9,7 +9,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/blockchain/safe"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -21,12 +20,12 @@ var _ ticketconnect.TicketServiceHandler = (*TicketHandler)(nil)
 type TicketHandler struct {
 	ticketUseCase usecase.TicketUseCase
 	userRepo      entity.UserRepository
-	safePredictor *safe.Predictor
+	safePredictor entity.SafePredictor
 	logger        *logging.Logger
 }
 
 // NewTicketHandler creates a new ticket handler.
-func NewTicketHandler(ticketUseCase usecase.TicketUseCase, userRepo entity.UserRepository, safePredictor *safe.Predictor, logger *logging.Logger) *TicketHandler {
+func NewTicketHandler(ticketUseCase usecase.TicketUseCase, userRepo entity.UserRepository, safePredictor entity.SafePredictor, logger *logging.Logger) *TicketHandler {
 	return &TicketHandler{
 		ticketUseCase: ticketUseCase,
 		userRepo:      userRepo,
@@ -61,7 +60,7 @@ func (h *TicketHandler) MintTicket(
 		if err := h.userRepo.UpdateSafeAddress(ctx, user.ID, addr); err != nil {
 			h.logger.Warn(ctx, "failed to persist safe address, continuing with computed value",
 				slog.String("user_id", user.ID),
-				slog.String("error", err.Error()),
+				slog.Any("error", err),
 			)
 		}
 		user.SafeAddress = addr
