@@ -19,6 +19,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -124,6 +125,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		followRepo,
 		pushSubRepo,
 		webpushSender,
+		infratelemetry.NewBusinessMetrics(),
 		logger,
 	)
 	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, placeSearcher, messaging.NewEventPublisher(publisher), logger)

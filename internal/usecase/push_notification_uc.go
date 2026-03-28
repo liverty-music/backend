@@ -47,6 +47,7 @@ type pushNotificationUseCase struct {
 	followRepo  entity.FollowRepository
 	pushSubRepo entity.PushSubscriptionRepository
 	sender      entity.PushNotificationSender
+	metrics     PushMetrics
 	logger      *logging.Logger
 }
 
@@ -58,12 +59,14 @@ func NewPushNotificationUseCase(
 	followRepo entity.FollowRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
+	metrics PushMetrics,
 	logger *logging.Logger,
 ) PushNotificationUseCase {
 	return &pushNotificationUseCase{
 		followRepo:  followRepo,
 		pushSubRepo: pushSubRepo,
 		sender:      sender,
+		metrics:     metrics,
 		logger:      logger,
 	}
 }
@@ -159,17 +162,21 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 
 		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {
 			if errors.Is(err, apperr.ErrNotFound) {
+				uc.metrics.RecordPushSend(ctx, "gone")
 				if delErr := uc.pushSubRepo.DeleteByEndpoint(ctx, sub.Endpoint); delErr != nil {
 					uc.logger.Error(ctx, "failed to delete stale push subscription", delErr,
 						slog.String("endpoint", sub.Endpoint),
 					)
 				}
 			} else {
+				uc.metrics.RecordPushSend(ctx, "error")
 				uc.logger.Error(ctx, "failed to send push notification", err,
 					slog.String("user_id", sub.UserID),
 					slog.String("artist_id", artist.ID),
 				)
 			}
+		} else {
+			uc.metrics.RecordPushSend(ctx, "success")
 		}
 	}
 
