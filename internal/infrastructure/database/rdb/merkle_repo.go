@@ -147,7 +147,7 @@ func (r *MerkleTreeRepository) batchInsertNodes(ctx context.Context, tx pgx.Tx, 
 	}
 
 	br := tx.SendBatch(ctx, batch)
-	defer br.Close()
+	defer func() { _ = br.Close() }()
 
 	for i, node := range nodes {
 		if _, err := br.Exec(); err != nil {

@@ -27,7 +27,7 @@ func TestLimiter_Allow(t *testing.T) {
 	t.Run("authenticated user within burst", func(t *testing.T) {
 		t.Parallel()
 		l := newTestLimiter()
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 
 		assert.True(t, l.Allow("user:alice", true))
 		assert.True(t, l.Allow("user:alice", true))
@@ -36,7 +36,7 @@ func TestLimiter_Allow(t *testing.T) {
 	t.Run("authenticated user exceeds burst", func(t *testing.T) {
 		t.Parallel()
 		l := newTestLimiter()
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 
 		// Consume the burst (2).
 		l.Allow("user:bob", true)
@@ -49,7 +49,7 @@ func TestLimiter_Allow(t *testing.T) {
 	t.Run("unauthenticated client within burst", func(t *testing.T) {
 		t.Parallel()
 		l := newTestLimiter()
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 
 		assert.True(t, l.Allow("ip:1.2.3.4", false))
 	})
@@ -57,7 +57,7 @@ func TestLimiter_Allow(t *testing.T) {
 	t.Run("unauthenticated client exceeds burst", func(t *testing.T) {
 		t.Parallel()
 		l := newTestLimiter()
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 
 		// Consume the burst (1).
 		l.Allow("ip:5.6.7.8", false)
@@ -69,7 +69,7 @@ func TestLimiter_Allow(t *testing.T) {
 	t.Run("different users have independent limits", func(t *testing.T) {
 		t.Parallel()
 		l := newTestLimiter()
-		defer l.Close()
+		defer func() { _ = l.Close() }()
 
 		// Exhaust alice's burst.
 		l.Allow("user:alice", true)
@@ -85,7 +85,7 @@ func TestLimiter_NewKeyGetsFullBurst(t *testing.T) {
 	t.Parallel()
 
 	l := newTestLimiter()
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	// Exhaust burst for one key.
 	l.Allow("user:alice", true)
@@ -166,7 +166,7 @@ func TestInterceptor_RetryAfterHeader(t *testing.T) {
 	t.Parallel()
 
 	l := newTestLimiter()
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	interceptor := ratelimit.NewInterceptor(l)
 
