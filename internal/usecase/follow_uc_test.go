@@ -37,6 +37,7 @@ func newFollowTestDeps(t *testing.T) *followTestDeps {
 		d.siteResolver,
 		d.concertUC,
 		d.searchLogRepo,
+		noopMetrics{},
 		newTestLogger(t),
 	)
 	return d

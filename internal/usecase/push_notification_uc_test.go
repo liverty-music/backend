@@ -43,6 +43,7 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 		d.followRepo,
 		d.pushSubRepo,
 		d.sender,
+		noopMetrics{},
 		newTestLogger(t),
 	)
 	return d

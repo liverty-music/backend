@@ -53,7 +53,7 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		centroidResolver: noopCentroidResolver{},
 		publisher:        pub,
 	}
-	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.searchLogRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), logger)
+	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.searchLogRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, logger)
 	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
