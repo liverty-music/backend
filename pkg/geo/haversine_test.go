@@ -15,10 +15,10 @@ func TestHaversine(t *testing.T) {
 		lat2, lng2 float64
 	}
 	tests := []struct {
-		name          string
-		args          args
-		wantApproxKm  float64
-		toleranceKm   float64
+		name         string
+		args         args
+		wantApproxKm float64
+		toleranceKm  float64
 	}{
 		{
 			name: "same point returns zero distance",
@@ -60,7 +60,7 @@ func TestHaversine(t *testing.T) {
 			name: "New York to London is approximately 5570 km",
 			args: args{
 				lat1: 40.7128, lng1: -74.0060, // New York
-				lat2: 51.5074, lng2: -0.1278,  // London
+				lat2: 51.5074, lng2: -0.1278, // London
 			},
 			wantApproxKm: 5570.0,
 			toleranceKm:  20.0,
