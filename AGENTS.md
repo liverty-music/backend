@@ -19,7 +19,7 @@
 | **Use Case**       | `internal/usecase/`        | Business logic & Application rules. Interfaces defined here.                    |
 | **Adapter**        | `internal/adapter/`        | Interface adapters. RPC handlers (`ipc/`) convert Proto <-> Entity.             |
 | **Infrastructure** | `internal/infrastructure/` | Frameworks & Drivers. DB (`database/rdb`), Server (`server/`).                  |
-| **DI**             | `internal/di/`             | Dependency Injection wiring using Google Wire.                                  |
+| **DI**             | `internal/di/`             | Dependency Injection wiring using manual factory functions.                      |
 
 ## Key Technical Decisions
 
