@@ -112,9 +112,9 @@ func TestClientIP(t *testing.T) {
 			want:    "203.0.113.50",
 		},
 		{
-			name:    "X-Forwarded-For with multiple IPs",
+			name:    "X-Forwarded-For with multiple IPs returns rightmost (GCP LB entry)",
 			headers: http.Header{"X-Forwarded-For": []string{"203.0.113.50, 70.41.3.18, 150.172.238.178"}},
-			want:    "203.0.113.50",
+			want:    "150.172.238.178",
 		},
 		{
 			name:    "X-Real-Ip fallback",
@@ -127,9 +127,14 @@ func TestClientIP(t *testing.T) {
 			want:    "",
 		},
 		{
-			name:    "X-Forwarded-For with spaces",
+			name:    "X-Forwarded-For with spaces returns rightmost trimmed",
 			headers: http.Header{"X-Forwarded-For": []string{"  192.168.1.1 , 10.0.0.1 "}},
-			want:    "192.168.1.1",
+			want:    "10.0.0.1",
+		},
+		{
+			name:    "X-Forwarded-For spoofed prefix ignored — rightmost is GCP LB entry",
+			headers: http.Header{"X-Forwarded-For": []string{"1.2.3.4, 5.6.7.8, 203.0.113.99"}},
+			want:    "203.0.113.99",
 		},
 	}
 

@@ -149,15 +149,15 @@ func extractKey(ctx context.Context, headers http.Header) (string, bool) {
 }
 
 // ClientIP extracts the client IP address from request headers.
-// It uses X-Forwarded-For (leftmost entry) if present, falling back to
-// X-Real-Ip, then an empty string.
+// It uses the rightmost entry of X-Forwarded-For, which is the address
+// appended by the GCP external load balancer and cannot be spoofed by the
+// client. Falls back to X-Real-Ip, then an empty string.
 func ClientIP(headers http.Header) string {
 	if xff := headers.Get("X-Forwarded-For"); xff != "" {
-		// Leftmost entry is the original client IP.
-		if i := strings.IndexByte(xff, ','); i != -1 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
+		// Rightmost entry is appended by the trusted GCP LB; all entries to
+		// the left are client-supplied and must not be trusted for rate limiting.
+		entries := strings.Split(xff, ",")
+		return strings.TrimSpace(entries[len(entries)-1])
 	}
 	if xri := headers.Get("X-Real-Ip"); xri != "" {
 		return strings.TrimSpace(xri)

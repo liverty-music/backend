@@ -218,7 +218,7 @@ func (r *MerkleTreeRepository) GetPath(ctx context.Context, eventID string, leaf
 	}
 
 	if len(pathElements) != treeDepth {
-		return nil, nil, apperr.New(codes.Internal, "merkle path incomplete: expected %d siblings, got %d",
+		return nil, nil, apperr.New(codes.Internal, "merkle path incomplete",
 			slog.Int("expected", treeDepth),
 			slog.Int("got", len(pathElements)),
 		)
