@@ -16,6 +16,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 
+	"log/slog"
+
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -89,6 +91,9 @@ func (v *EmailVerifier) SendVerification(ctx context.Context, externalID string)
 	if err != nil {
 		return apperr.Wrap(err, codes.Internal, "send email verification code")
 	}
+	v.logger.Info(ctx, "email verification sent",
+		slog.String("external_id", externalID),
+	)
 	return nil
 }
 
@@ -99,11 +104,17 @@ func (v *EmailVerifier) ResendVerification(ctx context.Context, externalID strin
 		UserId: externalID,
 	})
 	if err != nil {
+		v.logger.Error(ctx, "failed to resend email code", err,
+			slog.String("external_id", externalID),
+		)
 		if st, ok := status.FromError(err); ok && st.Code() == grpccodes.FailedPrecondition {
 			return apperr.Wrap(err, codes.FailedPrecondition, "email is already verified")
 		}
 		return apperr.Wrap(err, codes.Internal, "resend email verification code")
 	}
+	v.logger.Info(ctx, "email verification resent",
+		slog.String("external_id", externalID),
+	)
 	return nil
 }
 
