@@ -181,6 +181,99 @@ func TestMerkleTreeRepository_GetPath(t *testing.T) {
 		_, _, err := repo.GetPath(ctx, "", 0, 2)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
+
+	t.Run("depth-1 tree (minimal: 2 leaves)", func(t *testing.T) {
+		cleanDatabase(t)
+		eventID2 := seedMerkleTestData(t)
+
+		// depth-1 tree: root at depth=1, two leaves at depth=0.
+		//   root (depth=1, index=0)
+		//   /  \
+		//  L0  L1
+		minimalNodes := []*entity.MerkleNode{
+			{EventID: eventID2, Depth: 0, NodeIndex: 0, Hash: testHash32("min-L0")},
+			{EventID: eventID2, Depth: 0, NodeIndex: 1, Hash: testHash32("min-L1")},
+			{EventID: eventID2, Depth: 1, NodeIndex: 0, Hash: testHash32("min-root")},
+		}
+		err := repo.StoreBatch(ctx, eventID2, minimalNodes)
+		require.NoError(t, err)
+
+		pathElements, pathIndices, err := repo.GetPath(ctx, eventID2, 0, 1)
+		require.NoError(t, err)
+		require.Len(t, pathElements, 1)
+		assert.Equal(t, testHash32("min-L1"), pathElements[0])
+		assert.Equal(t, uint32(0), pathIndices[0])
+	})
+
+	t.Run("depth-4 tree (16 leaves)", func(t *testing.T) {
+		cleanDatabase(t)
+		eventID3 := seedMerkleTestData(t)
+
+		// Build a depth-4 tree with 16 leaves and all internal nodes.
+		var deepNodes []*entity.MerkleNode
+		// Depth 0: 16 leaves
+		for i := range 16 {
+			deepNodes = append(deepNodes, &entity.MerkleNode{
+				EventID: eventID3, Depth: 0, NodeIndex: i, Hash: testHash32("d4-L" + string(rune('A'+i))),
+			})
+		}
+		// Depth 1: 8 nodes
+		for i := range 8 {
+			deepNodes = append(deepNodes, &entity.MerkleNode{
+				EventID: eventID3, Depth: 1, NodeIndex: i, Hash: testHash32("d4-N1-" + string(rune('A'+i))),
+			})
+		}
+		// Depth 2: 4 nodes
+		for i := range 4 {
+			deepNodes = append(deepNodes, &entity.MerkleNode{
+				EventID: eventID3, Depth: 2, NodeIndex: i, Hash: testHash32("d4-N2-" + string(rune('A'+i))),
+			})
+		}
+		// Depth 3: 2 nodes
+		deepNodes = append(deepNodes, &entity.MerkleNode{EventID: eventID3, Depth: 3, NodeIndex: 0, Hash: testHash32("d4-N3-A")})
+		deepNodes = append(deepNodes, &entity.MerkleNode{EventID: eventID3, Depth: 3, NodeIndex: 1, Hash: testHash32("d4-N3-B")})
+		// Depth 4: root
+		deepNodes = append(deepNodes, &entity.MerkleNode{EventID: eventID3, Depth: 4, NodeIndex: 0, Hash: testHash32("d4-root")})
+
+		err := repo.StoreBatch(ctx, eventID3, deepNodes)
+		require.NoError(t, err)
+
+		// Get path for leaf 5 (binary: 0101).
+		// depth 0: leaf 5, sibling = 5^1 = 4, path index = 1 (odd)
+		// depth 1: parent = 5/2 = 2, sibling = 2^1 = 3, path index = 0 (even)
+		// depth 2: parent = 2/2 = 1, sibling = 1^1 = 0, path index = 1 (odd)
+		// depth 3: parent = 1/2 = 0, sibling = 0^1 = 1, path index = 0 (even)
+		pathElements, pathIndices, err := repo.GetPath(ctx, eventID3, 5, 4)
+		require.NoError(t, err)
+		require.Len(t, pathElements, 4)
+
+		assert.Equal(t, testHash32("d4-L"+string(rune('A'+4))), pathElements[0])
+		assert.Equal(t, uint32(1), pathIndices[0])
+
+		assert.Equal(t, testHash32("d4-N1-"+string(rune('A'+3))), pathElements[1])
+		assert.Equal(t, uint32(0), pathIndices[1])
+
+		assert.Equal(t, testHash32("d4-N2-"+string(rune('A'+0))), pathElements[2])
+		assert.Equal(t, uint32(1), pathIndices[2])
+
+		assert.Equal(t, testHash32("d4-N3-B"), pathElements[3])
+		assert.Equal(t, uint32(0), pathIndices[3])
+	})
+
+	t.Run("missing siblings returns Internal error", func(t *testing.T) {
+		cleanDatabase(t)
+		eventID4 := seedMerkleTestData(t)
+
+		// Store only leaf 0 at depth 0 — sibling at index 1 is missing.
+		incompleteNodes := []*entity.MerkleNode{
+			{EventID: eventID4, Depth: 0, NodeIndex: 0, Hash: testHash32("only-leaf")},
+		}
+		err := repo.StoreBatch(ctx, eventID4, incompleteNodes)
+		require.NoError(t, err)
+
+		_, _, err = repo.GetPath(ctx, eventID4, 0, 2)
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+	})
 }
 
 func TestMerkleTreeRepository_GetRoot(t *testing.T) {

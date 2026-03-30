@@ -34,6 +34,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
+	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
@@ -177,13 +178,16 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		emailVerifier = ev
 	}
 
+	// Business metrics
+	businessMetrics := infratelemetry.NewBusinessMetrics()
+
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, logger)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
-	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, logger)
+	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
 	var ticketEmailUC usecase.TicketEmailUseCase
 	if emailParser != nil {
@@ -196,6 +200,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		followRepo,
 		pushSubRepo,
 		webpushSender,
+		businessMetrics,
 		logger,
 	)
 	// Auth - JWT Validator and Interceptor
@@ -325,12 +330,19 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 	}
 
-	srv := server.NewConnectServer(cfg.Server, logger, authFunc, healthHandler, longTimeoutHandlers, handlers...)
+	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{
+		AuthRPS:   cfg.Server.RateLimit.AuthRPS,
+		AuthBurst: cfg.Server.RateLimit.AuthBurst,
+		AnonRPS:   cfg.Server.RateLimit.AnonRPS,
+		AnonBurst: cfg.Server.RateLimit.AnonBurst,
+	}, time.Minute)
+
+	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, longTimeoutHandlers, handlers...)
 
 	// Register shutdown phases.
 	// Drain: health → NOT_SERVING, then server drains in-flight requests,
 	// then cache cleanup goroutine stops.
-	shutdown.AddDrainPhase(healthChecker, srv, artistCache)
+	shutdown.AddDrainPhase(healthChecker, srv, rateLimiter, artistCache)
 	shutdown.AddFlushPhase(publisher)
 	externalClosers := []io.Closer{lastfmClient, musicbrainzClient}
 	if sbtCloser != nil {

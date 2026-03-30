@@ -105,6 +105,14 @@ func newTestLogger(t *testing.T) *logging.Logger {
 	return logger
 }
 
+// noopMetrics is a no-op implementation of ConcertMetrics, FollowMetrics, and PushMetrics
+// for use in unit tests that do not assert on metric recording.
+type noopMetrics struct{}
+
+func (noopMetrics) RecordConcertSearch(_ context.Context, _ string) {}
+func (noopMetrics) RecordFollow(_ context.Context, _ string)        {}
+func (noopMetrics) RecordPushSend(_ context.Context, _ string)      {}
+
 // --- tests ---
 
 func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {

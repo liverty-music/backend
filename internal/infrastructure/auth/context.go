@@ -22,6 +22,12 @@ type TokenValidator interface {
 	ValidateToken(ctx context.Context, tokenString string) (*Claims, error)
 }
 
+// Subject returns the subject claim (external user ID from identity provider).
+// This satisfies the ratelimit.SubjectProvider interface.
+func (c *Claims) Subject() string {
+	return c.Sub
+}
+
 // contextKey is a type-safe key for storing values in context.
 type contextKey struct{}
 

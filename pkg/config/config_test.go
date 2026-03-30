@@ -63,6 +63,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ConcertHandlerTimeout: 120 * time.Second,
 					IdleTimeout:           3 * time.Second,
 					AllowedOrigins:        nil,
+					RateLimit:             RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
 				},
 				GCP: GCPConfig{
 					ProjectID:               "test-project",
@@ -145,6 +146,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ConcertHandlerTimeout: 180 * time.Second,
 					IdleTimeout:           45 * time.Second,
 					AllowedOrigins:        nil,
+					RateLimit:             RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
 				},
 				GCP: GCPConfig{
 					ProjectID:               "custom-project",

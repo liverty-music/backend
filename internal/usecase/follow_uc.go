@@ -51,6 +51,7 @@ type followUseCase struct {
 	siteResolver  entity.OfficialSiteResolver
 	concertUC     ConcertUseCase
 	searchLogRepo entity.SearchLogRepository
+	metrics       FollowMetrics
 	logger        *logging.Logger
 }
 
@@ -64,6 +65,7 @@ func NewFollowUseCase(
 	siteResolver entity.OfficialSiteResolver,
 	concertUC ConcertUseCase,
 	searchLogRepo entity.SearchLogRepository,
+	metrics FollowMetrics,
 	logger *logging.Logger,
 ) FollowUseCase {
 	return &followUseCase{
@@ -72,6 +74,7 @@ func NewFollowUseCase(
 		siteResolver:  siteResolver,
 		concertUC:     concertUC,
 		searchLogRepo: searchLogRepo,
+		metrics:       metrics,
 		logger:        logger,
 	}
 }
@@ -90,6 +93,7 @@ func (uc *followUseCase) Follow(ctx context.Context, userID string, artistID str
 	}
 
 	uc.logger.Info(ctx, "User followed artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
+	uc.metrics.RecordFollow(ctx, "follow")
 
 	bgCtx := context.WithoutCancel(ctx)
 	go uc.resolveAndPersistOfficialSite(bgCtx, artistID)
@@ -175,6 +179,7 @@ func (uc *followUseCase) Unfollow(ctx context.Context, userID, artistID string) 
 	}
 
 	uc.logger.Info(ctx, "Artist unfollowed", slog.String("user_id", userID), slog.String("artist_id", artistID))
+	uc.metrics.RecordFollow(ctx, "unfollow")
 	return nil
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/liverty-music/backend/internal/entity"
 )
 
 // DefaultSafeProxyFactory is the canonical Safe{Wallet} ProxyFactory contract address on all EVM chains.
@@ -33,6 +34,9 @@ const DefaultSafeInitCodeHash = "0x52bede2892dc6ee239117844c91b0bdd458c318980592
 // defaultPredictor is the package-level predictor using canonical Safe v1.4.1 defaults.
 // Used by the package-level functions for backward compatibility.
 var defaultPredictor = NewPredictor(DefaultSafeProxyFactory, DefaultSafeInitCodeHash)
+
+// Compile-time check that *Predictor implements entity.SafePredictor.
+var _ entity.SafePredictor = (*Predictor)(nil)
 
 // Predictor computes deterministic Safe addresses via CREATE2.
 type Predictor struct {

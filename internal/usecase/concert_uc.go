@@ -68,6 +68,7 @@ type concertUseCase struct {
 	concertSearcher  entity.ConcertSearcher
 	centroidResolver CentroidResolver
 	publisher        EventPublisher
+	metrics          ConcertMetrics
 	logger           *logging.Logger
 }
 
@@ -96,6 +97,7 @@ func NewConcertUseCase(
 	concertSearcher entity.ConcertSearcher,
 	centroidResolver CentroidResolver,
 	publisher EventPublisher,
+	metrics ConcertMetrics,
 	logger *logging.Logger,
 ) ConcertUseCase {
 	return &concertUseCase{
@@ -106,6 +108,7 @@ func NewConcertUseCase(
 		concertSearcher:  concertSearcher,
 		centroidResolver: centroidResolver,
 		publisher:        publisher,
+		metrics:          metrics,
 		logger:           logger,
 	}
 }
@@ -203,8 +206,10 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 	defer func() {
 		if err != nil {
 			uc.markSearchFailed(ctx, artistID)
+			uc.metrics.RecordConcertSearch(ctx, "error")
 		} else {
 			uc.markSearchCompleted(ctx, artistID)
+			uc.metrics.RecordConcertSearch(ctx, "success")
 		}
 	}()
 
