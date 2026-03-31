@@ -148,6 +148,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(emailVerifier, logger)
+	poisonConsumer := event.NewPoisonConsumer(logger)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -188,6 +189,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		entity.SubjectUserCreated,
 		subscriber,
 		userConsumer.Handle,
+	)
+
+	router.AddConsumerHandler(
+		"log-poison-queue",
+		messaging.PoisonQueueSubject,
+		subscriber,
+		poisonConsumer.Handle,
 	)
 
 	// Register shutdown phases.

@@ -1,6 +1,7 @@
 package zitadel_test
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"testing"
@@ -62,9 +63,11 @@ func startUserServiceServer(t *testing.T, srv *stubUserServiceServer) string {
 
 // newTestVerifier creates an EmailVerifier pointing at the given gRPC server
 // address using insecure transport and a static token, bypassing JWT auth.
-func newTestVerifier(t *testing.T, addr string) *infrazitadel.EmailVerifier {
+// The returned bytes.Buffer captures all log output for assertions.
+func newTestVerifier(t *testing.T, addr string) (*infrazitadel.EmailVerifier, *bytes.Buffer) {
 	t.Helper()
-	logger, err := logging.New()
+	buf := &bytes.Buffer{}
+	logger, err := logging.New(logging.WithWriter(buf))
 	require.NoError(t, err)
 
 	v, err := infrazitadel.NewEmailVerifier(
@@ -77,7 +80,7 @@ func newTestVerifier(t *testing.T, addr string) *infrazitadel.EmailVerifier {
 		zitadelconn.WithCustomURL("http://test-issuer", addr),
 	)
 	require.NoError(t, err)
-	return v
+	return v, buf
 }
 
 func TestEmailVerifier_SendVerification(t *testing.T) {
@@ -87,33 +90,38 @@ func TestEmailVerifier_SendVerification(t *testing.T) {
 		externalID string
 	}
 	tests := []struct {
-		name    string
-		args    args
-		sendErr error
-		wantErr error
-		check   func(t *testing.T, stub *stubUserServiceServer)
+		name      string
+		args      args
+		sendErr   error
+		wantErr   error
+		wantInLog string
+		wantNoLog string
+		check     func(t *testing.T, stub *stubUserServiceServer)
 	}{
 		{
-			name:    "success",
-			args:    args{externalID: "user-123"},
-			sendErr: nil,
-			wantErr: nil,
+			name:      "success emits INFO log",
+			args:      args{externalID: "user-123"},
+			sendErr:   nil,
+			wantErr:   nil,
+			wantInLog: "email verification sent",
 			check: func(t *testing.T, stub *stubUserServiceServer) {
 				t.Helper()
 				assert.Equal(t, "user-123", stub.lastSendUserID)
 			},
 		},
 		{
-			name:    "gRPC unavailable wraps as internal",
-			args:    args{externalID: "user-456"},
-			sendErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
-			wantErr: apperr.ErrInternal,
+			name:      "gRPC unavailable wraps as internal without logging (caller logs)",
+			args:      args{externalID: "user-456"},
+			sendErr:   grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
+			wantErr:   apperr.ErrInternal,
+			wantNoLog: "failed to send email code",
 		},
 		{
-			name:    "gRPC not found wraps as internal",
-			args:    args{externalID: "nonexistent"},
-			sendErr: grpcstatus.Error(grpccodes.NotFound, "user not found"),
-			wantErr: apperr.ErrInternal,
+			name:      "gRPC not found wraps as internal without logging (caller logs)",
+			args:      args{externalID: "nonexistent"},
+			sendErr:   grpcstatus.Error(grpccodes.NotFound, "user not found"),
+			wantErr:   apperr.ErrInternal,
+			wantNoLog: "failed to send email code",
 		},
 	}
 
@@ -122,16 +130,22 @@ func TestEmailVerifier_SendVerification(t *testing.T) {
 			t.Parallel()
 			stub := &stubUserServiceServer{sendErr: tt.sendErr}
 			addr := startUserServiceServer(t, stub)
-			v := newTestVerifier(t, addr)
+			v, logBuf := newTestVerifier(t, addr)
 
 			err := v.SendVerification(context.Background(), tt.args.externalID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
-				return
+			} else {
+				assert.NoError(t, err)
 			}
-
-			assert.NoError(t, err)
+			if tt.wantInLog != "" {
+				assert.Contains(t, logBuf.String(), tt.wantInLog)
+				assert.Contains(t, logBuf.String(), tt.args.externalID)
+			}
+			if tt.wantNoLog != "" {
+				assert.NotContains(t, logBuf.String(), tt.wantNoLog)
+			}
 			if tt.check != nil {
 				tt.check(t, stub)
 			}
@@ -150,41 +164,47 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 		args      args
 		resendErr error
 		wantErr   error
+		wantInLog string
 		check     func(t *testing.T, stub *stubUserServiceServer)
 	}{
 		{
-			name:      "success",
+			name:      "success emits INFO log",
 			args:      args{externalID: "user-123"},
 			resendErr: nil,
 			wantErr:   nil,
+			wantInLog: "email verification resent",
 			check: func(t *testing.T, stub *stubUserServiceServer) {
 				t.Helper()
 				assert.Equal(t, "user-123", stub.lastResendUserID)
 			},
 		},
 		{
-			name:      "already verified maps to FailedPrecondition",
+			name:      "already verified emits ERROR log and maps to FailedPrecondition",
 			args:      args{externalID: "verified-user"},
 			resendErr: grpcstatus.Error(grpccodes.FailedPrecondition, "email already verified"),
 			wantErr:   apperr.ErrFailedPrecondition,
+			wantInLog: "failed to resend email code",
 		},
 		{
-			name:      "gRPC unavailable wraps as internal",
+			name:      "gRPC unavailable emits ERROR log and wraps as internal",
 			args:      args{externalID: "user-456"},
 			resendErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
 			wantErr:   apperr.ErrInternal,
+			wantInLog: "failed to resend email code",
 		},
 		{
-			name:      "gRPC internal wraps as internal",
+			name:      "gRPC internal emits ERROR log and wraps as internal",
 			args:      args{externalID: "user-789"},
 			resendErr: grpcstatus.Error(grpccodes.Internal, "something went wrong"),
 			wantErr:   apperr.ErrInternal,
+			wantInLog: "failed to resend email code",
 		},
 		{
-			name:      "gRPC permission denied wraps as internal",
+			name:      "gRPC permission denied emits ERROR log and wraps as internal",
 			args:      args{externalID: "no-perms"},
 			resendErr: grpcstatus.Error(grpccodes.PermissionDenied, "insufficient permissions"),
 			wantErr:   apperr.ErrInternal,
+			wantInLog: "failed to resend email code",
 		},
 	}
 
@@ -193,16 +213,17 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 			t.Parallel()
 			stub := &stubUserServiceServer{resendErr: tt.resendErr}
 			addr := startUserServiceServer(t, stub)
-			v := newTestVerifier(t, addr)
+			v, logBuf := newTestVerifier(t, addr)
 
 			err := v.ResendVerification(context.Background(), tt.args.externalID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
-				return
+			} else {
+				assert.NoError(t, err)
 			}
-
-			assert.NoError(t, err)
+			assert.Contains(t, logBuf.String(), tt.wantInLog)
+			assert.Contains(t, logBuf.String(), tt.args.externalID)
 			if tt.check != nil {
 				tt.check(t, stub)
 			}
