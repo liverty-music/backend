@@ -14,6 +14,11 @@ patches:
     - op: replace
       path: /spec/credentials/host
       value: "6ea7e9f2efe1.3saucev2x125n.asia-northeast2.sql.goog"
+    # dev-only: devURL is required when devDB is provided.
+    # The operator replaces the hostname with the actual pod IP at runtime.
+    - op: add
+      path: /spec/devURL
+      value: "postgres://postgres:postgres@localhost:5432/dev"
     # dev-only: Atlas Operator generates devDB pods without nodeSelector by default.
     # The dev cluster is GKE Standard with Spot VMs (label: cloud.google.com/gke-spot=true),
     # so the pod would be scheduled on on-demand nodes without this patch.
