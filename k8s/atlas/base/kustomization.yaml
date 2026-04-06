@@ -64,3 +64,4 @@ configMapGenerator:
   - migrations/20260318120000_create_ticket_journeys.sql
   - migrations/20260319120000_create_ticket_emails.sql
   - migrations/20260324120000_consolidate_ticket_email_status.sql
+  - migrations/20260406120000_add_venue_listed_name_index.sql

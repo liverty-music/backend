@@ -19,6 +19,10 @@ type Venue struct {
 	GooglePlaceID *string
 	// Coordinates is the WGS 84 geographic position of the venue.
 	Coordinates *Coordinates
+	// ListedVenueName is the raw scraped venue name as returned by Gemini.
+	// Used for DB-first lookup to avoid redundant Places API calls.
+	// Nil for venues created before this field was introduced.
+	ListedVenueName *string
 }
 
 // VenuePlace represents a resolved canonical venue from an external place search service.
@@ -65,4 +69,13 @@ type VenueRepository interface {
 	//
 	//  - NotFound: If no venue with that place ID exists.
 	GetByPlaceID(ctx context.Context, placeID string) (*Venue, error)
+
+	// GetByListedName retrieves a venue by its exact listed venue name and optional admin area.
+	// This is used for a DB-first lookup to avoid redundant Google Places API calls
+	// when the same venue has been resolved in a previous discovery batch.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If no venue with that listed name and admin area combination exists.
+	GetByListedName(ctx context.Context, listedVenueName string, adminArea *string) (*Venue, error)
 }

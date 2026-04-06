@@ -52,6 +52,21 @@ func (r *fakeVenueRepo) GetByPlaceID(_ context.Context, placeID string) (*entity
 	return nil, apperr.New(codes.NotFound, "venue not found")
 }
 
+func (r *fakeVenueRepo) GetByListedName(_ context.Context, listedVenueName string, adminArea *string) (*entity.Venue, error) {
+	for _, v := range r.venues {
+		if v.ListedVenueName == nil || *v.ListedVenueName != listedVenueName {
+			continue
+		}
+		if adminArea == nil && v.AdminArea == nil {
+			return v, nil
+		}
+		if adminArea != nil && v.AdminArea != nil && *adminArea == *v.AdminArea {
+			return v, nil
+		}
+	}
+	return nil, apperr.New(codes.NotFound, "venue not found")
+}
+
 type fakeConcertRepo struct {
 	created []*entity.Concert
 }
@@ -296,6 +311,119 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		assert.Empty(t, venueRepo.created)
 		assert.Empty(t, concertRepo.created)
+	})
+}
+
+func TestConcertCreationUseCase_ResolveVenue_DBFirstLookup(t *testing.T) {
+	t.Parallel()
+
+	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+
+	t.Run("DB hit by listed name: Places API not called", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := newFakeVenueRepo()
+		listedName := "武道館"
+		placeID := "place-budokan"
+		// Pre-seed a venue with listed_venue_name set.
+		venueRepo.venues["Nippon Budokan"] = &entity.Venue{
+			ID:              "budokan-id",
+			Name:            "Nippon Budokan",
+			GooglePlaceID:   &placeID,
+			ListedVenueName: &listedName,
+		}
+		concertRepo := &fakeConcertRepo{}
+		pub := newGoChannelPub(t)
+		// placeSearcher has no entry for 武道館; if called it returns NotFound → concert would be skipped.
+		ps := newStubPlaceSearcher()
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID:   "artist-db-hit",
+			ArtistName: "DB Hit Artist",
+			Concerts: entity.ScrapedConcerts{
+				{
+					Title:           "Budokan Show",
+					ListedVenueName: "武道館",
+					LocalDate:       localDate,
+					SourceURL:       "https://example.com/budokan",
+				},
+			},
+		}
+
+		err := uc.CreateFromDiscovered(context.Background(), data)
+		require.NoError(t, err)
+
+		// Concert created using the DB-found venue, no new venue created.
+		assert.Empty(t, venueRepo.created)
+		require.Len(t, concertRepo.created, 1)
+		assert.Equal(t, "budokan-id", concertRepo.created[0].VenueID)
+	})
+
+	t.Run("DB miss by listed name: Places API called, new venue created", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := newFakeVenueRepo()
+		concertRepo := &fakeConcertRepo{}
+		pub := newGoChannelPub(t)
+		ps := newStubPlaceSearcher()
+		ps.places["Zepp Tokyo"] = &entity.VenuePlace{ExternalID: "place-zepp-tokyo", Name: "Zepp DiverCity Tokyo"}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID:   "artist-api-hit",
+			ArtistName: "API Hit Artist",
+			Concerts: entity.ScrapedConcerts{
+				{
+					Title:           "Zepp Show",
+					ListedVenueName: "Zepp Tokyo",
+					LocalDate:       localDate,
+					SourceURL:       "https://example.com/zepp",
+				},
+			},
+		}
+
+		err := uc.CreateFromDiscovered(context.Background(), data)
+		require.NoError(t, err)
+
+		require.Len(t, venueRepo.created, 1)
+		assert.Equal(t, "Zepp DiverCity Tokyo", venueRepo.created[0].Name)
+		require.Len(t, concertRepo.created, 1)
+	})
+
+	t.Run("batch-local cache hit: same listed name deduped within batch without DB or API", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := newFakeVenueRepo()
+		concertRepo := &fakeConcertRepo{}
+		pub := newGoChannelPub(t)
+		ps := newStubPlaceSearcher()
+		ps.places["Zepp Osaka"] = &entity.VenuePlace{ExternalID: "place-zepp-osaka", Name: "Zepp Namba Osaka"}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID:   "artist-batch",
+			ArtistName: "Batch Artist",
+			Concerts: entity.ScrapedConcerts{
+				{
+					Title:           "Night 1",
+					ListedVenueName: "Zepp Osaka",
+					LocalDate:       localDate,
+					SourceURL:       "https://example.com/n1",
+				},
+				{
+					Title:           "Night 2",
+					ListedVenueName: "Zepp Osaka",
+					LocalDate:       localDate.AddDate(0, 0, 1),
+					SourceURL:       "https://example.com/n2",
+				},
+			},
+		}
+
+		err := uc.CreateFromDiscovered(context.Background(), data)
+		require.NoError(t, err)
+
+		// Only one venue created for two concerts with the same listed name.
+		assert.Len(t, venueRepo.created, 1)
+		require.Len(t, concertRepo.created, 2)
+		assert.Equal(t, concertRepo.created[0].VenueID, concertRepo.created[1].VenueID)
 	})
 }
 

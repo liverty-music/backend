@@ -167,6 +167,81 @@ func TestVenueRepository_Get(t *testing.T) {
 	}
 }
 
+func TestVenueRepository_GetByListedName(t *testing.T) {
+	cleanDatabase(t)
+	repo := rdb.NewVenueRepository(testDB)
+	ctx := context.Background()
+
+	adminArea := "JP-13"
+	listedName := "武道館"
+
+	// Seed: venue with listed_venue_name and admin_area.
+	seededWithArea := &entity.Venue{
+		ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b50a1",
+		Name:            "Nippon Budokan",
+		AdminArea:       &adminArea,
+		GooglePlaceID:   new("ChIJbudokan001"),
+		ListedVenueName: &listedName,
+	}
+	require.NoError(t, repo.Create(ctx, seededWithArea))
+
+	// Seed: venue with listed_venue_name and NULL admin_area.
+	listedNameNoArea := "Zepp DiverCity"
+	seededNoArea := &entity.Venue{
+		ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b50a2",
+		Name:            "Zepp DiverCity Tokyo",
+		GooglePlaceID:   new("ChIJzepp001"),
+		ListedVenueName: &listedNameNoArea,
+	}
+	require.NoError(t, repo.Create(ctx, seededNoArea))
+
+	type args struct {
+		listedVenueName string
+		adminArea       *string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantID  string
+		wantErr error
+	}{
+		{
+			name:   "found by listed name and admin area",
+			args:   args{listedVenueName: "武道館", adminArea: &adminArea},
+			wantID: seededWithArea.ID,
+		},
+		{
+			name:   "found by listed name with NULL admin area",
+			args:   args{listedVenueName: "Zepp DiverCity", adminArea: nil},
+			wantID: seededNoArea.ID,
+		},
+		{
+			name:    "not found: unknown listed name",
+			args:    args{listedVenueName: "Unknown Hall", adminArea: nil},
+			wantErr: apperr.ErrNotFound,
+		},
+		{
+			name:    "not found: correct name but wrong admin area",
+			args:    args{listedVenueName: "武道館", adminArea: new("JP-27")},
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := repo.GetByListedName(ctx, tt.args.listedVenueName, tt.args.adminArea)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tt.wantID, got.ID)
+		})
+	}
+}
+
 func TestVenueRepository_GetByPlaceID(t *testing.T) {
 	cleanDatabase(t)
 	repo := rdb.NewVenueRepository(testDB)

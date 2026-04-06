@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS venues (
     google_place_id TEXT,
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
+    listed_venue_name TEXT,
     CONSTRAINT chk_venues_name_not_empty CHECK (name <> ''),
     CONSTRAINT chk_venues_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
@@ -110,6 +111,7 @@ COMMENT ON COLUMN venues.admin_area IS 'ISO 3166-2 subdivision code (e.g., JP-13
 COMMENT ON COLUMN venues.google_place_id IS 'Google Maps Place ID for the canonical venue record';
 COMMENT ON COLUMN venues.latitude IS 'WGS 84 latitude of the venue from Google Places API';
 COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude of the venue from Google Places API';
+COMMENT ON COLUMN venues.listed_venue_name IS 'Raw scraped venue name as returned by Gemini; used for DB-first lookup to avoid redundant Places API calls';
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (
