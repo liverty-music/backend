@@ -14,18 +14,25 @@ type VenueRepository struct {
 
 const (
 	insertVenueQuery = `
-		INSERT INTO venues (id, name, admin_area, google_place_id, latitude, longitude)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO venues (id, name, admin_area, google_place_id, latitude, longitude, listed_venue_name)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 	getVenueQuery = `
-		SELECT id, name, admin_area, google_place_id, latitude, longitude
+		SELECT id, name, admin_area, google_place_id, latitude, longitude, listed_venue_name
 		FROM venues
 		WHERE id = $1
 	`
 	getVenueByPlaceIDQuery = `
-		SELECT id, name, admin_area, google_place_id, latitude, longitude
+		SELECT id, name, admin_area, google_place_id, latitude, longitude, listed_venue_name
 		FROM venues
 		WHERE google_place_id = $1
+	`
+	getVenueByListedNameQuery = `
+		SELECT id, name, admin_area, google_place_id, latitude, longitude, listed_venue_name
+		FROM venues
+		WHERE listed_venue_name = $1
+		  AND (admin_area = $2 OR (admin_area IS NULL AND $2 IS NULL))
+		LIMIT 1
 	`
 )
 
@@ -41,7 +48,7 @@ func (r *VenueRepository) Create(ctx context.Context, venue *entity.Venue) error
 		lat = &venue.Coordinates.Latitude
 		lng = &venue.Coordinates.Longitude
 	}
-	_, err := r.db.Pool.Exec(ctx, insertVenueQuery, venue.ID, venue.Name, venue.AdminArea, venue.GooglePlaceID, lat, lng)
+	_, err := r.db.Pool.Exec(ctx, insertVenueQuery, venue.ID, venue.Name, venue.AdminArea, venue.GooglePlaceID, lat, lng, venue.ListedVenueName)
 	if err != nil {
 		if IsUniqueViolation(err) {
 			r.db.logger.Warn(ctx, "duplicate venue",
@@ -67,7 +74,7 @@ func (r *VenueRepository) Get(ctx context.Context, id string) (*entity.Venue, er
 	var lat, lng *float64
 	err := r.db.Pool.QueryRow(ctx, getVenueQuery, id).Scan(
 		&v.ID, &v.Name, &v.AdminArea, &v.GooglePlaceID,
-		&lat, &lng,
+		&lat, &lng, &v.ListedVenueName,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get venue", slog.String("venue_id", id))
@@ -84,10 +91,28 @@ func (r *VenueRepository) GetByPlaceID(ctx context.Context, placeID string) (*en
 	var lat, lng *float64
 	err := r.db.Pool.QueryRow(ctx, getVenueByPlaceIDQuery, placeID).Scan(
 		&v.ID, &v.Name, &v.AdminArea, &v.GooglePlaceID,
-		&lat, &lng,
+		&lat, &lng, &v.ListedVenueName,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get venue by place ID", slog.String("place_id", placeID))
+	}
+	if lat != nil && lng != nil {
+		v.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
+	}
+	return &v, nil
+}
+
+// GetByListedName retrieves a venue by the exact raw scraped name and optional admin area.
+// Returns NotFound when no match exists.
+func (r *VenueRepository) GetByListedName(ctx context.Context, listedVenueName string, adminArea *string) (*entity.Venue, error) {
+	var v entity.Venue
+	var lat, lng *float64
+	err := r.db.Pool.QueryRow(ctx, getVenueByListedNameQuery, listedVenueName, adminArea).Scan(
+		&v.ID, &v.Name, &v.AdminArea, &v.GooglePlaceID,
+		&lat, &lng, &v.ListedVenueName,
+	)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get venue by listed name", slog.String("listed_venue_name", listedVenueName))
 	}
 	if lat != nil && lng != nil {
 		v.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}

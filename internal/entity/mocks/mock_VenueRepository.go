@@ -128,6 +128,66 @@ func (_c *MockVenueRepository_Get_Call) RunAndReturn(run func(context.Context, s
 	return _c
 }
 
+// GetByListedName provides a mock function with given fields: ctx, listedVenueName, adminArea
+func (_m *MockVenueRepository) GetByListedName(ctx context.Context, listedVenueName string, adminArea *string) (*entity.Venue, error) {
+	ret := _m.Called(ctx, listedVenueName, adminArea)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByListedName")
+	}
+
+	var r0 *entity.Venue
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *string) (*entity.Venue, error)); ok {
+		return rf(ctx, listedVenueName, adminArea)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, *string) *entity.Venue); ok {
+		r0 = rf(ctx, listedVenueName, adminArea)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Venue)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, *string) error); ok {
+		r1 = rf(ctx, listedVenueName, adminArea)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockVenueRepository_GetByListedName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByListedName'
+type MockVenueRepository_GetByListedName_Call struct {
+	*mock.Call
+}
+
+// GetByListedName is a helper method to define mock.On call
+//   - ctx context.Context
+//   - listedVenueName string
+//   - adminArea *string
+func (_e *MockVenueRepository_Expecter) GetByListedName(ctx interface{}, listedVenueName interface{}, adminArea interface{}) *MockVenueRepository_GetByListedName_Call {
+	return &MockVenueRepository_GetByListedName_Call{Call: _e.mock.On("GetByListedName", ctx, listedVenueName, adminArea)}
+}
+
+func (_c *MockVenueRepository_GetByListedName_Call) Run(run func(ctx context.Context, listedVenueName string, adminArea *string)) *MockVenueRepository_GetByListedName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*string))
+	})
+	return _c
+}
+
+func (_c *MockVenueRepository_GetByListedName_Call) Return(_a0 *entity.Venue, _a1 error) *MockVenueRepository_GetByListedName_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockVenueRepository_GetByListedName_Call) RunAndReturn(run func(context.Context, string, *string) (*entity.Venue, error)) *MockVenueRepository_GetByListedName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetByPlaceID provides a mock function with given fields: ctx, placeID
 func (_m *MockVenueRepository) GetByPlaceID(ctx context.Context, placeID string) (*entity.Venue, error) {
 	ret := _m.Called(ctx, placeID)
