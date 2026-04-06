@@ -82,7 +82,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		}
 
 		if venue != nil {
-			newVenues[sc.ListedVenueName] = venue
+			newVenues[venueKey(sc.ListedVenueName, sc.AdminArea)] = venue
 		}
 
 		id, err := uuid.NewV7()
@@ -138,8 +138,8 @@ func (uc *concertCreationUseCase) resolveVenue(
 	adminArea *string,
 	newVenues map[string]*entity.Venue,
 ) (string, *entity.Venue, bool, error) {
-	// Step 1: Check batch-local cache by listed_venue_name.
-	if v, ok := newVenues[name]; ok {
+	// Step 1: Check batch-local cache by listed_venue_name + admin_area.
+	if v, ok := newVenues[venueKey(name, adminArea)]; ok {
 		return v.ID, nil, false, nil
 	}
 
@@ -220,4 +220,14 @@ func (uc *concertCreationUseCase) createVenueFromPlace(
 // publishEvent publishes data as a CloudEvent to the given subject.
 func (uc *concertCreationUseCase) publishEvent(ctx context.Context, subject string, data any) error {
 	return uc.publisher.PublishEvent(ctx, subject, data)
+}
+
+// venueKey returns a composite cache key for the batch-local venue map.
+// It combines listed_venue_name and admin_area to prevent collision between
+// venues sharing the same name in different regions (e.g. "Zepp" in JP-13 vs JP-27).
+func venueKey(name string, adminArea *string) string {
+	if adminArea == nil {
+		return name + "|"
+	}
+	return name + "|" + *adminArea
 }
