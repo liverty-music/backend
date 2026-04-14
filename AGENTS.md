@@ -94,4 +94,10 @@ make check             # Full pre-commit check (lint + test)
 
 Integration tests under `internal/infrastructure/database/rdb/` require a local PostgreSQL instance. `make test` handles DB startup automatically via `docker compose up -d postgres --wait`.
 
+### Dev DB Access (Cloud SQL via port-forward)
+
+**Dev Cloud SQL only** — for integration tests use `docker compose up -d postgres` instead.
+
+See [docs/dev-db-access.md](docs/dev-db-access.md) for port-forward command and psql connection string.
+
 </agent-rules>
