@@ -25,6 +25,9 @@ type PushSubscription struct {
 }
 
 // PushSubscriptionRepository defines the persistence layer operations for push subscription entities.
+//
+// All mutation and single-subscription retrieval operations are scoped to the
+// (userID, endpoint) pair so each call affects exactly one browser session.
 type PushSubscriptionRepository interface {
 	// Create persists a new push subscription, or updates the existing record
 	// when the endpoint is already registered (UPSERT by endpoint).
@@ -34,26 +37,31 @@ type PushSubscriptionRepository interface {
 	//   - Internal: database connection or execution failure.
 	Create(ctx context.Context, sub *PushSubscription) error
 
-	// DeleteByEndpoint removes the push subscription identified by the given endpoint URL.
+	// Get retrieves the push subscription uniquely identified by the (userID, endpoint) pair.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no subscription matches the supplied (userID, endpoint) pair.
+	//   - Internal: database query failure.
+	Get(ctx context.Context, userID, endpoint string) (*PushSubscription, error)
+
+	// Delete removes the push subscription uniquely identified by the (userID, endpoint)
+	// pair. Only the specified browser's row is deleted; other browsers registered
+	// by the same user remain active. Deleting a subscription that does not exist
+	// returns a successful nil result (idempotency).
 	//
 	// # Possible errors:
 	//
 	//   - Internal: database execution failure.
-	DeleteByEndpoint(ctx context.Context, endpoint string) error
+	Delete(ctx context.Context, userID, endpoint string) error
 
 	// ListByUserIDs retrieves all push subscriptions belonging to any of the given user IDs.
 	// Returns an empty slice (no error) when none of the users have registered subscriptions.
+	//
+	// Used only by the internal push delivery path; not exposed via RPC.
 	//
 	// # Possible errors:
 	//
 	//   - Internal: database query failure.
 	ListByUserIDs(ctx context.Context, userIDs []string) ([]*PushSubscription, error)
-
-	// DeleteByUserID removes all push subscriptions associated with the given user.
-	// This operation is idempotent: it succeeds even if the user has no subscriptions.
-	//
-	// # Possible errors:
-	//
-	//   - Internal: database execution failure.
-	DeleteByUserID(ctx context.Context, userID string) error
 }

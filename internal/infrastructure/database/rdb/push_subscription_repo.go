@@ -25,18 +25,19 @@ const (
 			p256dh  = EXCLUDED.p256dh,
 			auth    = EXCLUDED.auth
 	`
-	deletePushSubscriptionByEndpointQuery = `
+	getPushSubscriptionQuery = `
+		SELECT id, user_id, endpoint, p256dh, auth
+		FROM push_subscriptions
+		WHERE user_id = $1 AND endpoint = $2
+	`
+	deletePushSubscriptionQuery = `
 		DELETE FROM push_subscriptions
-		WHERE endpoint = $1
+		WHERE user_id = $1 AND endpoint = $2
 	`
 	listPushSubscriptionsByUserIDsQuery = `
 		SELECT id, user_id, endpoint, p256dh, auth
 		FROM push_subscriptions
 		WHERE user_id = ANY($1::uuid[])
-	`
-	deletePushSubscriptionsByUserIDQuery = `
-		DELETE FROM push_subscriptions
-		WHERE user_id = $1
 	`
 )
 
@@ -65,12 +66,27 @@ func (r *PushSubscriptionRepository) Create(ctx context.Context, sub *entity.Pus
 	return nil
 }
 
-// DeleteByEndpoint removes the push subscription identified by the given endpoint URL.
-func (r *PushSubscriptionRepository) DeleteByEndpoint(ctx context.Context, endpoint string) error {
-	_, err := r.db.Pool.Exec(ctx, deletePushSubscriptionByEndpointQuery, endpoint)
+// Get retrieves the push subscription uniquely identified by the (userID, endpoint) pair.
+// Returns a NotFound application error when no row matches.
+func (r *PushSubscriptionRepository) Get(ctx context.Context, userID, endpoint string) (*entity.PushSubscription, error) {
+	var s entity.PushSubscription
+	err := r.db.Pool.QueryRow(ctx, getPushSubscriptionQuery, userID, endpoint).
+		Scan(&s.ID, &s.UserID, &s.Endpoint, &s.P256dh, &s.Auth)
 	if err != nil {
-		return toAppErr(err, "failed to delete push subscription by endpoint",
-			slog.String("endpoint", endpoint),
+		return nil, toAppErr(err, "failed to get push subscription",
+			slog.String("user_id", userID),
+		)
+	}
+	return &s, nil
+}
+
+// Delete removes the push subscription uniquely identified by the (userID, endpoint) pair.
+// The operation is idempotent: deleting a subscription that does not exist returns nil.
+func (r *PushSubscriptionRepository) Delete(ctx context.Context, userID, endpoint string) error {
+	_, err := r.db.Pool.Exec(ctx, deletePushSubscriptionQuery, userID, endpoint)
+	if err != nil {
+		return toAppErr(err, "failed to delete push subscription",
+			slog.String("user_id", userID),
 		)
 	}
 	return nil
@@ -103,15 +119,4 @@ func (r *PushSubscriptionRepository) ListByUserIDs(ctx context.Context, userIDs 
 		return nil, toAppErr(err, "error iterating push subscription rows")
 	}
 	return subs, nil
-}
-
-// DeleteByUserID removes all push subscriptions associated with the given user.
-func (r *PushSubscriptionRepository) DeleteByUserID(ctx context.Context, userID string) error {
-	_, err := r.db.Pool.Exec(ctx, deletePushSubscriptionsByUserIDQuery, userID)
-	if err != nil {
-		return toAppErr(err, "failed to delete push subscriptions by user ID",
-			slog.String("user_id", userID),
-		)
-	}
-	return nil
 }

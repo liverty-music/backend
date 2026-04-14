@@ -2,12 +2,24 @@ package rpc
 
 import (
 	"context"
+	"errors"
 
+	// TODO(bsr): swap to generated types after BSR gen completes for
+	// specification/main following merge of PR #404 and publish of the
+	// corresponding GitHub Release. The new types are:
+	//   rpc.CreateRequest / rpc.CreateResponse
+	//   rpc.GetRequest / rpc.GetResponse
+	//   rpc.DeleteRequest / rpc.DeleteResponse
+	// plus the nested entity.v1 types:
+	//   entity.PushSubscription / entity.PushSubscriptionId /
+	//   entity.PushEndpoint / entity.PushKeys
+	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/push_notification/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -31,43 +43,116 @@ func NewPushNotificationHandler(
 	}
 }
 
-// Subscribe registers or updates the browser push subscription for the authenticated user.
-func (h *PushNotificationHandler) Subscribe(ctx context.Context, req *connect.Request[rpc.SubscribeRequest]) (*connect.Response[rpc.SubscribeResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+// Create registers the calling browser's push subscription for the authenticated user.
+// The user identity is always resolved from the JWT context — clients do not
+// supply a user_id for creation because subscriptions are owned by the
+// authenticated caller by construction.
+func (h *PushNotificationHandler) Create(ctx context.Context, req *connect.Request[rpc.CreateRequest]) (*connect.Response[rpc.CreateResponse], error) {
+	user, err := h.resolveCallerUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
-	// push_subscriptions.user_id references users.id (internal UUID),
-	// not the identity-provider-specific external_id.
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	if req.Msg.GetEndpoint() == nil || req.Msg.GetKeys() == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("endpoint and keys are required"))
+	}
+	endpoint := req.Msg.GetEndpoint().GetValue()
+	p256dh := req.Msg.GetKeys().GetP256Dh()
+	auth := req.Msg.GetKeys().GetAuth()
+
+	sub, err := h.pushUseCase.Create(ctx, user.ID, endpoint, p256dh, auth)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := h.pushUseCase.Subscribe(ctx, user.ID, req.Msg.Endpoint, req.Msg.P256Dh, req.Msg.Auth); err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&rpc.SubscribeResponse{}), nil
+	return connect.NewResponse(&rpc.CreateResponse{
+		Subscription: toPushSubscriptionProto(sub),
+	}), nil
 }
 
-// Unsubscribe removes all push subscriptions associated with the authenticated user.
-func (h *PushNotificationHandler) Unsubscribe(ctx context.Context, _ *connect.Request[rpc.UnsubscribeRequest]) (*connect.Response[rpc.UnsubscribeResponse], error) {
+// Get retrieves the push subscription identified by (user_id, endpoint). The
+// request-supplied user_id is verified against the JWT-derived userID;
+// mismatches are rejected with PERMISSION_DENIED. Returns NOT_FOUND when no
+// subscription exists for the (user_id, endpoint) pair.
+func (h *PushNotificationHandler) Get(ctx context.Context, req *connect.Request[rpc.GetRequest]) (*connect.Response[rpc.GetResponse], error) {
+	user, err := h.resolveCallerUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Msg.GetUserId() == nil || req.Msg.GetEndpoint() == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("user_id and endpoint are required"))
+	}
+	if err := mapper.RequireUserIDMatch(user.ID, req.Msg.GetUserId().GetValue()); err != nil {
+		return nil, err
+	}
+	endpoint := req.Msg.GetEndpoint().GetValue()
+
+	sub, err := h.pushUseCase.Get(ctx, user.ID, endpoint)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, errors.New("push subscription not found"))
+		}
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.GetResponse{
+		Subscription: toPushSubscriptionProto(sub),
+	}), nil
+}
+
+// Delete removes the push subscription identified by (user_id, endpoint). The
+// request-supplied user_id is verified against the JWT-derived userID;
+// mismatches are rejected with PERMISSION_DENIED. Only the specified
+// browser's subscription is removed.
+func (h *PushNotificationHandler) Delete(ctx context.Context, req *connect.Request[rpc.DeleteRequest]) (*connect.Response[rpc.DeleteResponse], error) {
+	user, err := h.resolveCallerUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Msg.GetUserId() == nil || req.Msg.GetEndpoint() == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("user_id and endpoint are required"))
+	}
+	if err := mapper.RequireUserIDMatch(user.ID, req.Msg.GetUserId().GetValue()); err != nil {
+		return nil, err
+	}
+	endpoint := req.Msg.GetEndpoint().GetValue()
+
+	if err := h.pushUseCase.Delete(ctx, user.ID, endpoint); err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.DeleteResponse{}), nil
+}
+
+// resolveCallerUser extracts the external_id from JWT claims and resolves the
+// internal user record for the caller.
+func (h *PushNotificationHandler) resolveCallerUser(ctx context.Context) (*entity.User, error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
-
+	// push_subscriptions.user_id references users.id (internal UUID),
+	// not the identity-provider-specific external_id, so we must resolve
+	// the internal user record before interacting with the repository.
 	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
+	return user, nil
+}
 
-	if err := h.pushUseCase.Unsubscribe(ctx, user.ID); err != nil {
-		return nil, err
+// toPushSubscriptionProto maps the internal entity to the wire type returned
+// by Create and Get RPCs.
+func toPushSubscriptionProto(sub *entity.PushSubscription) *entitypb.PushSubscription {
+	return &entitypb.PushSubscription{
+		Id:       &entitypb.PushSubscriptionId{Value: sub.ID},
+		UserId:   &entitypb.UserId{Value: sub.UserID},
+		Endpoint: &entitypb.PushEndpoint{Value: sub.Endpoint},
+		Keys: &entitypb.PushKeys{
+			P256Dh: sub.P256dh,
+			Auth:   sub.Auth,
+		},
 	}
-
-	return connect.NewResponse(&rpc.UnsubscribeResponse{}), nil
 }

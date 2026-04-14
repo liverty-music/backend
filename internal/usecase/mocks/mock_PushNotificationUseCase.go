@@ -22,6 +22,176 @@ func (_m *MockPushNotificationUseCase) EXPECT() *MockPushNotificationUseCase_Exp
 	return &MockPushNotificationUseCase_Expecter{mock: &_m.Mock}
 }
 
+// Create provides a mock function with given fields: ctx, userID, endpoint, p256dh, auth
+func (_m *MockPushNotificationUseCase) Create(ctx context.Context, userID string, endpoint string, p256dh string, auth string) (*entity.PushSubscription, error) {
+	ret := _m.Called(ctx, userID, endpoint, p256dh, auth)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Create")
+	}
+
+	var r0 *entity.PushSubscription
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (*entity.PushSubscription, error)); ok {
+		return rf(ctx, userID, endpoint, p256dh, auth)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) *entity.PushSubscription); ok {
+		r0 = rf(ctx, userID, endpoint, p256dh, auth)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.PushSubscription)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
+		r1 = rf(ctx, userID, endpoint, p256dh, auth)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockPushNotificationUseCase_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
+type MockPushNotificationUseCase_Create_Call struct {
+	*mock.Call
+}
+
+// Create is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - endpoint string
+//   - p256dh string
+//   - auth string
+func (_e *MockPushNotificationUseCase_Expecter) Create(ctx interface{}, userID interface{}, endpoint interface{}, p256dh interface{}, auth interface{}) *MockPushNotificationUseCase_Create_Call {
+	return &MockPushNotificationUseCase_Create_Call{Call: _e.mock.On("Create", ctx, userID, endpoint, p256dh, auth)}
+}
+
+func (_c *MockPushNotificationUseCase_Create_Call) Run(run func(ctx context.Context, userID string, endpoint string, p256dh string, auth string)) *MockPushNotificationUseCase_Create_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *MockPushNotificationUseCase_Create_Call) Return(_a0 *entity.PushSubscription, _a1 error) *MockPushNotificationUseCase_Create_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockPushNotificationUseCase_Create_Call) RunAndReturn(run func(context.Context, string, string, string, string) (*entity.PushSubscription, error)) *MockPushNotificationUseCase_Create_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Delete provides a mock function with given fields: ctx, userID, endpoint
+func (_m *MockPushNotificationUseCase) Delete(ctx context.Context, userID string, endpoint string) error {
+	ret := _m.Called(ctx, userID, endpoint)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, userID, endpoint)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockPushNotificationUseCase_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
+type MockPushNotificationUseCase_Delete_Call struct {
+	*mock.Call
+}
+
+// Delete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - endpoint string
+func (_e *MockPushNotificationUseCase_Expecter) Delete(ctx interface{}, userID interface{}, endpoint interface{}) *MockPushNotificationUseCase_Delete_Call {
+	return &MockPushNotificationUseCase_Delete_Call{Call: _e.mock.On("Delete", ctx, userID, endpoint)}
+}
+
+func (_c *MockPushNotificationUseCase_Delete_Call) Run(run func(ctx context.Context, userID string, endpoint string)) *MockPushNotificationUseCase_Delete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockPushNotificationUseCase_Delete_Call) Return(_a0 error) *MockPushNotificationUseCase_Delete_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockPushNotificationUseCase_Delete_Call) RunAndReturn(run func(context.Context, string, string) error) *MockPushNotificationUseCase_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Get provides a mock function with given fields: ctx, userID, endpoint
+func (_m *MockPushNotificationUseCase) Get(ctx context.Context, userID string, endpoint string) (*entity.PushSubscription, error) {
+	ret := _m.Called(ctx, userID, endpoint)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Get")
+	}
+
+	var r0 *entity.PushSubscription
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*entity.PushSubscription, error)); ok {
+		return rf(ctx, userID, endpoint)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *entity.PushSubscription); ok {
+		r0 = rf(ctx, userID, endpoint)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.PushSubscription)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, userID, endpoint)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockPushNotificationUseCase_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
+type MockPushNotificationUseCase_Get_Call struct {
+	*mock.Call
+}
+
+// Get is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - endpoint string
+func (_e *MockPushNotificationUseCase_Expecter) Get(ctx interface{}, userID interface{}, endpoint interface{}) *MockPushNotificationUseCase_Get_Call {
+	return &MockPushNotificationUseCase_Get_Call{Call: _e.mock.On("Get", ctx, userID, endpoint)}
+}
+
+func (_c *MockPushNotificationUseCase_Get_Call) Run(run func(ctx context.Context, userID string, endpoint string)) *MockPushNotificationUseCase_Get_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockPushNotificationUseCase_Get_Call) Return(_a0 *entity.PushSubscription, _a1 error) *MockPushNotificationUseCase_Get_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockPushNotificationUseCase_Get_Call) RunAndReturn(run func(context.Context, string, string) (*entity.PushSubscription, error)) *MockPushNotificationUseCase_Get_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NotifyNewConcerts provides a mock function with given fields: ctx, artist, concerts
 func (_m *MockPushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist *entity.Artist, concerts []*entity.Concert) error {
 	ret := _m.Called(ctx, artist, concerts)
@@ -66,103 +236,6 @@ func (_c *MockPushNotificationUseCase_NotifyNewConcerts_Call) Return(_a0 error) 
 }
 
 func (_c *MockPushNotificationUseCase_NotifyNewConcerts_Call) RunAndReturn(run func(context.Context, *entity.Artist, []*entity.Concert) error) *MockPushNotificationUseCase_NotifyNewConcerts_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Subscribe provides a mock function with given fields: ctx, userID, endpoint, p256dh, auth
-func (_m *MockPushNotificationUseCase) Subscribe(ctx context.Context, userID string, endpoint string, p256dh string, auth string) error {
-	ret := _m.Called(ctx, userID, endpoint, p256dh, auth)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Subscribe")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) error); ok {
-		r0 = rf(ctx, userID, endpoint, p256dh, auth)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockPushNotificationUseCase_Subscribe_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Subscribe'
-type MockPushNotificationUseCase_Subscribe_Call struct {
-	*mock.Call
-}
-
-// Subscribe is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID string
-//   - endpoint string
-//   - p256dh string
-//   - auth string
-func (_e *MockPushNotificationUseCase_Expecter) Subscribe(ctx interface{}, userID interface{}, endpoint interface{}, p256dh interface{}, auth interface{}) *MockPushNotificationUseCase_Subscribe_Call {
-	return &MockPushNotificationUseCase_Subscribe_Call{Call: _e.mock.On("Subscribe", ctx, userID, endpoint, p256dh, auth)}
-}
-
-func (_c *MockPushNotificationUseCase_Subscribe_Call) Run(run func(ctx context.Context, userID string, endpoint string, p256dh string, auth string)) *MockPushNotificationUseCase_Subscribe_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
-	})
-	return _c
-}
-
-func (_c *MockPushNotificationUseCase_Subscribe_Call) Return(_a0 error) *MockPushNotificationUseCase_Subscribe_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockPushNotificationUseCase_Subscribe_Call) RunAndReturn(run func(context.Context, string, string, string, string) error) *MockPushNotificationUseCase_Subscribe_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Unsubscribe provides a mock function with given fields: ctx, userID
-func (_m *MockPushNotificationUseCase) Unsubscribe(ctx context.Context, userID string) error {
-	ret := _m.Called(ctx, userID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Unsubscribe")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, userID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockPushNotificationUseCase_Unsubscribe_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Unsubscribe'
-type MockPushNotificationUseCase_Unsubscribe_Call struct {
-	*mock.Call
-}
-
-// Unsubscribe is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID string
-func (_e *MockPushNotificationUseCase_Expecter) Unsubscribe(ctx interface{}, userID interface{}) *MockPushNotificationUseCase_Unsubscribe_Call {
-	return &MockPushNotificationUseCase_Unsubscribe_Call{Call: _e.mock.On("Unsubscribe", ctx, userID)}
-}
-
-func (_c *MockPushNotificationUseCase_Unsubscribe_Call) Run(run func(ctx context.Context, userID string)) *MockPushNotificationUseCase_Unsubscribe_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockPushNotificationUseCase_Unsubscribe_Call) Return(_a0 error) *MockPushNotificationUseCase_Unsubscribe_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockPushNotificationUseCase_Unsubscribe_Call) RunAndReturn(run func(context.Context, string) error) *MockPushNotificationUseCase_Unsubscribe_Call {
 	_c.Call.Return(run)
 	return _c
 }

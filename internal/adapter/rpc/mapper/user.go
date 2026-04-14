@@ -88,6 +88,25 @@ func GetExternalUserID(ctx context.Context) (string, error) {
 	return claims.Sub, nil
 }
 
+// RequireUserIDMatch verifies that the userID supplied by the client in the
+// request body matches the caller's authenticated userID. It returns
+// InvalidArgument when reqUserID is empty and PermissionDenied when the two
+// values differ.
+//
+// Handlers for per-user RPCs that expose an explicit user_id field in their
+// request message MUST invoke this helper before performing any business
+// logic so that cross-user requests are rejected before they reach the
+// persistence layer.
+func RequireUserIDMatch(callerUserID, reqUserID string) error {
+	if reqUserID == "" {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("user_id is required"))
+	}
+	if reqUserID != callerUserID {
+		return connect.NewError(connect.CodePermissionDenied, errors.New("user_id does not match authenticated user"))
+	}
+	return nil
+}
+
 // NewUserFromCreateRequest converts JWT claims and optional home to domain NewUser.
 // Security note: All identity fields (external_id, email, name) are extracted from
 // validated JWT claims to prevent client-side identity tampering.
