@@ -69,17 +69,17 @@ func (_c *MockPushSubscriptionRepository_Create_Call) RunAndReturn(run func(cont
 	return _c
 }
 
-// DeleteByEndpoint provides a mock function with given fields: ctx, endpoint
-func (_m *MockPushSubscriptionRepository) DeleteByEndpoint(ctx context.Context, endpoint string) error {
-	ret := _m.Called(ctx, endpoint)
+// Delete provides a mock function with given fields: ctx, userID, endpoint
+func (_m *MockPushSubscriptionRepository) Delete(ctx context.Context, userID string, endpoint string) error {
+	ret := _m.Called(ctx, userID, endpoint)
 
 	if len(ret) == 0 {
-		panic("no return value specified for DeleteByEndpoint")
+		panic("no return value specified for Delete")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, endpoint)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, userID, endpoint)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -87,78 +87,92 @@ func (_m *MockPushSubscriptionRepository) DeleteByEndpoint(ctx context.Context, 
 	return r0
 }
 
-// MockPushSubscriptionRepository_DeleteByEndpoint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteByEndpoint'
-type MockPushSubscriptionRepository_DeleteByEndpoint_Call struct {
+// MockPushSubscriptionRepository_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
+type MockPushSubscriptionRepository_Delete_Call struct {
 	*mock.Call
 }
 
-// DeleteByEndpoint is a helper method to define mock.On call
+// Delete is a helper method to define mock.On call
 //   - ctx context.Context
+//   - userID string
 //   - endpoint string
-func (_e *MockPushSubscriptionRepository_Expecter) DeleteByEndpoint(ctx interface{}, endpoint interface{}) *MockPushSubscriptionRepository_DeleteByEndpoint_Call {
-	return &MockPushSubscriptionRepository_DeleteByEndpoint_Call{Call: _e.mock.On("DeleteByEndpoint", ctx, endpoint)}
+func (_e *MockPushSubscriptionRepository_Expecter) Delete(ctx interface{}, userID interface{}, endpoint interface{}) *MockPushSubscriptionRepository_Delete_Call {
+	return &MockPushSubscriptionRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, userID, endpoint)}
 }
 
-func (_c *MockPushSubscriptionRepository_DeleteByEndpoint_Call) Run(run func(ctx context.Context, endpoint string)) *MockPushSubscriptionRepository_DeleteByEndpoint_Call {
+func (_c *MockPushSubscriptionRepository_Delete_Call) Run(run func(ctx context.Context, userID string, endpoint string)) *MockPushSubscriptionRepository_Delete_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockPushSubscriptionRepository_DeleteByEndpoint_Call) Return(_a0 error) *MockPushSubscriptionRepository_DeleteByEndpoint_Call {
+func (_c *MockPushSubscriptionRepository_Delete_Call) Return(_a0 error) *MockPushSubscriptionRepository_Delete_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockPushSubscriptionRepository_DeleteByEndpoint_Call) RunAndReturn(run func(context.Context, string) error) *MockPushSubscriptionRepository_DeleteByEndpoint_Call {
+func (_c *MockPushSubscriptionRepository_Delete_Call) RunAndReturn(run func(context.Context, string, string) error) *MockPushSubscriptionRepository_Delete_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeleteByUserID provides a mock function with given fields: ctx, userID
-func (_m *MockPushSubscriptionRepository) DeleteByUserID(ctx context.Context, userID string) error {
-	ret := _m.Called(ctx, userID)
+// Get provides a mock function with given fields: ctx, userID, endpoint
+func (_m *MockPushSubscriptionRepository) Get(ctx context.Context, userID string, endpoint string) (*entity.PushSubscription, error) {
+	ret := _m.Called(ctx, userID, endpoint)
 
 	if len(ret) == 0 {
-		panic("no return value specified for DeleteByUserID")
+		panic("no return value specified for Get")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, userID)
+	var r0 *entity.PushSubscription
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*entity.PushSubscription, error)); ok {
+		return rf(ctx, userID, endpoint)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *entity.PushSubscription); ok {
+		r0 = rf(ctx, userID, endpoint)
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.PushSubscription)
+		}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, userID, endpoint)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
-// MockPushSubscriptionRepository_DeleteByUserID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteByUserID'
-type MockPushSubscriptionRepository_DeleteByUserID_Call struct {
+// MockPushSubscriptionRepository_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
+type MockPushSubscriptionRepository_Get_Call struct {
 	*mock.Call
 }
 
-// DeleteByUserID is a helper method to define mock.On call
+// Get is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID string
-func (_e *MockPushSubscriptionRepository_Expecter) DeleteByUserID(ctx interface{}, userID interface{}) *MockPushSubscriptionRepository_DeleteByUserID_Call {
-	return &MockPushSubscriptionRepository_DeleteByUserID_Call{Call: _e.mock.On("DeleteByUserID", ctx, userID)}
+//   - endpoint string
+func (_e *MockPushSubscriptionRepository_Expecter) Get(ctx interface{}, userID interface{}, endpoint interface{}) *MockPushSubscriptionRepository_Get_Call {
+	return &MockPushSubscriptionRepository_Get_Call{Call: _e.mock.On("Get", ctx, userID, endpoint)}
 }
 
-func (_c *MockPushSubscriptionRepository_DeleteByUserID_Call) Run(run func(ctx context.Context, userID string)) *MockPushSubscriptionRepository_DeleteByUserID_Call {
+func (_c *MockPushSubscriptionRepository_Get_Call) Run(run func(ctx context.Context, userID string, endpoint string)) *MockPushSubscriptionRepository_Get_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockPushSubscriptionRepository_DeleteByUserID_Call) Return(_a0 error) *MockPushSubscriptionRepository_DeleteByUserID_Call {
-	_c.Call.Return(_a0)
+func (_c *MockPushSubscriptionRepository_Get_Call) Return(_a0 *entity.PushSubscription, _a1 error) *MockPushSubscriptionRepository_Get_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockPushSubscriptionRepository_DeleteByUserID_Call) RunAndReturn(run func(context.Context, string) error) *MockPushSubscriptionRepository_DeleteByUserID_Call {
+func (_c *MockPushSubscriptionRepository_Get_Call) RunAndReturn(run func(context.Context, string, string) (*entity.PushSubscription, error)) *MockPushSubscriptionRepository_Get_Call {
 	_c.Call.Return(run)
 	return _c
 }

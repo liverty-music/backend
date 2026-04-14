@@ -49,7 +49,7 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 	return d
 }
 
-func TestPushNotificationUseCase_Subscribe(t *testing.T) {
+func TestPushNotificationUseCase_Create(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -121,24 +121,103 @@ func TestPushNotificationUseCase_Subscribe(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			err := d.uc.Subscribe(ctx, tt.args.userID, tt.args.endpoint, tt.args.p256dh, tt.args.auth)
+			sub, err := d.uc.Create(ctx, tt.args.userID, tt.args.endpoint, tt.args.p256dh, tt.args.auth)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				return
 			}
 			assert.NoError(t, err)
+			assert.Equal(t, tt.args.userID, sub.UserID)
+			assert.Equal(t, tt.args.endpoint, sub.Endpoint)
 		})
 	}
 }
 
-func TestPushNotificationUseCase_Unsubscribe(t *testing.T) {
+func TestPushNotificationUseCase_Get(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 
 	type args struct {
-		userID string
+		userID   string
+		endpoint string
+	}
+
+	tests := []struct {
+		name    string
+		args    args
+		setup   func(t *testing.T, d *pushNotificationTestDeps)
+		want    *entity.PushSubscription
+		wantErr error
+	}{
+		{
+			name: "returns matching subscription",
+			args: args{userID: "user-1", endpoint: "https://push.example.com/sub"},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.pushSubRepo.EXPECT().
+					Get(ctx, "user-1", "https://push.example.com/sub").
+					Return(&entity.PushSubscription{
+						ID:       "sub-1",
+						UserID:   "user-1",
+						Endpoint: "https://push.example.com/sub",
+						P256dh:   "k",
+						Auth:     "a",
+					}, nil).
+					Once()
+			},
+			want: &entity.PushSubscription{
+				ID:       "sub-1",
+				UserID:   "user-1",
+				Endpoint: "https://push.example.com/sub",
+				P256dh:   "k",
+				Auth:     "a",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "propagates NotFound from repository",
+			args: args{userID: "user-1", endpoint: "https://push.example.com/missing"},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.pushSubRepo.EXPECT().
+					Get(ctx, "user-1", "https://push.example.com/missing").
+					Return(nil, apperr.ErrNotFound).
+					Once()
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newPushNotificationTestDeps(t)
+			if tt.setup != nil {
+				tt.setup(t, d)
+			}
+
+			got, err := d.uc.Get(ctx, tt.args.userID, tt.args.endpoint)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPushNotificationUseCase_Delete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	type args struct {
+		userID   string
+		endpoint string
 	}
 
 	tests := []struct {
@@ -148,20 +227,26 @@ func TestPushNotificationUseCase_Unsubscribe(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "delete subscriptions successfully",
-			args: args{userID: "user-1"},
+			name: "delete subscription successfully",
+			args: args{userID: "user-1", endpoint: "https://push.example.com/sub"},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				d.pushSubRepo.EXPECT().DeleteByUserID(ctx, "user-1").Return(nil).Once()
+				d.pushSubRepo.EXPECT().
+					Delete(ctx, "user-1", "https://push.example.com/sub").
+					Return(nil).
+					Once()
 			},
 			wantErr: nil,
 		},
 		{
 			name: "return error when repository fails",
-			args: args{userID: "user-1"},
+			args: args{userID: "user-1", endpoint: "https://push.example.com/sub"},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
-				d.pushSubRepo.EXPECT().DeleteByUserID(ctx, "user-1").Return(apperr.ErrInternal).Once()
+				d.pushSubRepo.EXPECT().
+					Delete(ctx, "user-1", "https://push.example.com/sub").
+					Return(apperr.ErrInternal).
+					Once()
 			},
 			wantErr: apperr.ErrInternal,
 		},
@@ -175,7 +260,7 @@ func TestPushNotificationUseCase_Unsubscribe(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			err := d.uc.Unsubscribe(ctx, tt.args.userID)
+			err := d.uc.Delete(ctx, tt.args.userID, tt.args.endpoint)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -455,7 +540,7 @@ func TestNotifyNewConcerts_SenderGone_DeletesSubscription(t *testing.T) {
 	d.sender.sendFn = func(_ context.Context, _ []byte, _ *entity.PushSubscription) error {
 		return apperr.ErrNotFound
 	}
-	d.pushSubRepo.EXPECT().DeleteByEndpoint(ctx, "https://push.example.com/gone").Return(nil).Once()
+	d.pushSubRepo.EXPECT().Delete(ctx, "user-1", "https://push.example.com/gone").Return(nil).Once()
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	tokyoArea := "JP-13"
@@ -476,7 +561,7 @@ func TestNotifyNewConcerts_SenderGone_DeleteFails_ContinuesProcessing(t *testing
 	d.sender.sendFn = func(_ context.Context, _ []byte, _ *entity.PushSubscription) error {
 		return apperr.ErrNotFound
 	}
-	d.pushSubRepo.EXPECT().DeleteByEndpoint(ctx, "https://push.example.com/gone").Return(apperr.ErrInternal).Once()
+	d.pushSubRepo.EXPECT().Delete(ctx, "user-1", "https://push.example.com/gone").Return(apperr.ErrInternal).Once()
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	tokyoArea := "JP-13"
@@ -497,7 +582,7 @@ func TestNotifyNewConcerts_SenderTransientError_LogsAndContinues(t *testing.T) {
 	d.sender.sendFn = func(_ context.Context, _ []byte, _ *entity.PushSubscription) error {
 		return apperr.ErrInternal
 	}
-	// No DeleteByEndpoint expected — transient errors don't trigger cleanup.
+	// No Delete expected — transient errors don't trigger cleanup.
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	tokyoArea := "JP-13"
@@ -532,7 +617,7 @@ func TestNotifyNewConcerts_MixedSenderResults(t *testing.T) {
 		return nil
 	}
 	d.pushSubRepo.EXPECT().
-		DeleteByEndpoint(ctx, "https://push.example.com/gone").
+		Delete(ctx, "user-1", "https://push.example.com/gone").
 		Return(nil).
 		Once()
 

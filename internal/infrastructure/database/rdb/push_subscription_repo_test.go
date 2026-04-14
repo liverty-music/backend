@@ -6,6 +6,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,47 +86,73 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 	}
 }
 
-func TestPushSubscriptionRepository_DeleteByEndpoint(t *testing.T) {
+func TestPushSubscriptionRepository_Get(t *testing.T) {
 	repo := rdb.NewPushSubscriptionRepository(testDB)
 	ctx := context.Background()
 
 	tests := []struct {
 		name    string
-		setup   func() (endpoint string, userID string)
+		setup   func() (userID, endpoint string)
+		check   func(t *testing.T, got *entity.PushSubscription)
 		wantErr error
 	}{
 		{
-			name: "deletes existing subscription",
+			name: "returns matching subscription",
 			setup: func() (string, string) {
 				cleanDatabase(t)
-				userID := seedUser(t, "push-delete-ep-user", "push-delete-ep@example.com", "ext-push-delete-ep-01")
+				userID := seedUser(t, "push-get-user", "push-get@example.com", "ext-push-get-01")
 				sub := &entity.PushSubscription{
 					UserID:   userID,
-					Endpoint: "https://push.example.com/delete-by-endpoint",
-					P256dh:   "p256dh-del",
-					Auth:     "auth-del",
+					Endpoint: "https://push.example.com/get-endpoint",
+					P256dh:   "p256dh-get",
+					Auth:     "auth-get",
 				}
 				err := repo.Create(ctx, sub)
 				require.NoError(t, err)
-				return sub.Endpoint, userID
+				return userID, sub.Endpoint
+			},
+			check: func(t *testing.T, got *entity.PushSubscription) {
+				t.Helper()
+				assert.Equal(t, "https://push.example.com/get-endpoint", got.Endpoint)
+				assert.Equal(t, "p256dh-get", got.P256dh)
+				assert.Equal(t, "auth-get", got.Auth)
 			},
 			wantErr: nil,
 		},
 		{
-			name: "deleting non-existent endpoint is idempotent",
+			name: "returns NotFound when endpoint does not match for user",
 			setup: func() (string, string) {
 				cleanDatabase(t)
-				return "https://push.example.com/nonexistent-endpoint", ""
+				userID := seedUser(t, "push-get-miss-user", "push-get-miss@example.com", "ext-push-get-miss-01")
+				return userID, "https://push.example.com/nonexistent"
 			},
-			wantErr: nil,
+			wantErr: apperr.ErrNotFound,
+		},
+		{
+			name: "returns NotFound when subscription exists but belongs to different user",
+			setup: func() (string, string) {
+				cleanDatabase(t)
+				ownerID := seedUser(t, "push-get-owner", "push-get-owner@example.com", "ext-push-get-owner-01")
+				sub := &entity.PushSubscription{
+					UserID:   ownerID,
+					Endpoint: "https://push.example.com/cross-user-endpoint",
+					P256dh:   "p256dh-cross",
+					Auth:     "auth-cross",
+				}
+				err := repo.Create(ctx, sub)
+				require.NoError(t, err)
+				otherID := seedUser(t, "push-get-other", "push-get-other@example.com", "ext-push-get-other-01")
+				return otherID, sub.Endpoint
+			},
+			wantErr: apperr.ErrNotFound,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			endpoint, userID := tt.setup()
+			userID, endpoint := tt.setup()
 
-			err := repo.DeleteByEndpoint(ctx, endpoint)
+			got, err := repo.Get(ctx, userID, endpoint)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -133,10 +160,97 @@ func TestPushSubscriptionRepository_DeleteByEndpoint(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			if userID != "" {
-				subs, listErr := repo.ListByUserIDs(ctx, []string{userID})
-				require.NoError(t, listErr)
-				assert.Empty(t, subs)
+			if tt.check != nil {
+				tt.check(t, got)
+			}
+		})
+	}
+}
+
+func TestPushSubscriptionRepository_Delete(t *testing.T) {
+	repo := rdb.NewPushSubscriptionRepository(testDB)
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		setup   func() (userID, endpoint, otherEndpoint string)
+		wantErr error
+	}{
+		{
+			name: "deletes only the specified browser's subscription",
+			setup: func() (string, string, string) {
+				cleanDatabase(t)
+				userID := seedUser(t, "push-delete-user", "push-delete@example.com", "ext-push-delete-01")
+				target := &entity.PushSubscription{
+					UserID:   userID,
+					Endpoint: "https://push.example.com/delete-target",
+					P256dh:   "p256dh-target",
+					Auth:     "auth-target",
+				}
+				require.NoError(t, repo.Create(ctx, target))
+				other := &entity.PushSubscription{
+					UserID:   userID,
+					Endpoint: "https://push.example.com/delete-other",
+					P256dh:   "p256dh-other",
+					Auth:     "auth-other",
+				}
+				require.NoError(t, repo.Create(ctx, other))
+				return userID, target.Endpoint, other.Endpoint
+			},
+			wantErr: nil,
+		},
+		{
+			name: "deleting non-existent pair is idempotent",
+			setup: func() (string, string, string) {
+				cleanDatabase(t)
+				userID := seedUser(t, "push-delete-idem-user", "push-delete-idem@example.com", "ext-push-delete-idem-01")
+				return userID, "https://push.example.com/does-not-exist", ""
+			},
+			wantErr: nil,
+		},
+		{
+			name: "deleting another user's endpoint does not remove their row",
+			setup: func() (string, string, string) {
+				cleanDatabase(t)
+				ownerID := seedUser(t, "push-delete-owner", "push-delete-owner@example.com", "ext-push-delete-owner-01")
+				sub := &entity.PushSubscription{
+					UserID:   ownerID,
+					Endpoint: "https://push.example.com/owner-endpoint",
+					P256dh:   "p256dh-owner",
+					Auth:     "auth-owner",
+				}
+				require.NoError(t, repo.Create(ctx, sub))
+				otherID := seedUser(t, "push-delete-attacker", "push-delete-attacker@example.com", "ext-push-delete-attacker-01")
+				// The attacker tries to delete the owner's endpoint using the attacker's userID.
+				// Repository scoping by (userID, endpoint) must leave the owner's row intact.
+				return otherID, sub.Endpoint, ""
+			},
+			wantErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			userID, endpoint, otherEndpoint := tt.setup()
+
+			err := repo.Delete(ctx, userID, endpoint)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify the specified (userID, endpoint) row is gone.
+			_, getErr := repo.Get(ctx, userID, endpoint)
+			assert.ErrorIs(t, getErr, apperr.ErrNotFound)
+
+			// Verify other rows for the same user remain when provided.
+			if otherEndpoint != "" {
+				other, otherErr := repo.Get(ctx, userID, otherEndpoint)
+				require.NoError(t, otherErr)
+				assert.Equal(t, otherEndpoint, other.Endpoint)
 			}
 		})
 	}
@@ -213,67 +327,6 @@ func TestPushSubscriptionRepository_ListByUserIDs(t *testing.T) {
 			if len(userIDs) == 0 {
 				assert.Equal(t, []*entity.PushSubscription{}, got)
 			}
-		})
-	}
-}
-
-func TestPushSubscriptionRepository_DeleteByUserID(t *testing.T) {
-	repo := rdb.NewPushSubscriptionRepository(testDB)
-	ctx := context.Background()
-
-	tests := []struct {
-		name    string
-		setup   func() string
-		wantErr error
-	}{
-		{
-			name: "deletes all subscriptions for user",
-			setup: func() string {
-				cleanDatabase(t)
-				userID := seedUser(t, "push-delete-uid-user", "push-delete-uid@example.com", "ext-push-delete-uid-01")
-				err := repo.Create(ctx, &entity.PushSubscription{
-					UserID:   userID,
-					Endpoint: "https://push.example.com/delete-uid-ep1",
-					P256dh:   "p256dh-d1",
-					Auth:     "auth-d1",
-				})
-				require.NoError(t, err)
-				err = repo.Create(ctx, &entity.PushSubscription{
-					UserID:   userID,
-					Endpoint: "https://push.example.com/delete-uid-ep2",
-					P256dh:   "p256dh-d2",
-					Auth:     "auth-d2",
-				})
-				require.NoError(t, err)
-				return userID
-			},
-			wantErr: nil,
-		},
-		{
-			name: "deleting for user with no subscriptions is idempotent",
-			setup: func() string {
-				cleanDatabase(t)
-				return seedUser(t, "push-delete-empty-user", "push-delete-empty@example.com", "ext-push-delete-empty-01")
-			},
-			wantErr: nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			userID := tt.setup()
-
-			err := repo.DeleteByUserID(ctx, userID)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-
-			require.NoError(t, err)
-			subs, listErr := repo.ListByUserIDs(ctx, []string{userID})
-			require.NoError(t, listErr)
-			assert.Empty(t, subs)
 		})
 	}
 }

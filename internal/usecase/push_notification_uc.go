@@ -14,19 +14,31 @@ import (
 
 // PushNotificationUseCase defines the interface for Web Push notification business logic.
 type PushNotificationUseCase interface {
-	// Subscribe registers or updates the browser push subscription for the given user.
+	// Create registers or updates the browser push subscription for the given
+	// (userID, endpoint) pair. The subscription is keyed by endpoint: calling
+	// Create with an endpoint that already exists updates the record in place.
 	//
 	// # Possible errors
 	//
 	//   - Internal: subscription persistence failure.
-	Subscribe(ctx context.Context, userID, endpoint, p256dh, auth string) error
+	Create(ctx context.Context, userID, endpoint, p256dh, auth string) (*entity.PushSubscription, error)
 
-	// Unsubscribe removes all push subscriptions associated with the given user.
+	// Get returns the push subscription uniquely identified by (userID, endpoint).
+	//
+	// # Possible errors
+	//
+	//   - NotFound: no subscription exists for the given pair.
+	//   - Internal: subscription lookup failure.
+	Get(ctx context.Context, userID, endpoint string) (*entity.PushSubscription, error)
+
+	// Delete removes the push subscription uniquely identified by
+	// (userID, endpoint). Other browsers registered by the same user remain
+	// active. The operation is idempotent.
 	//
 	// # Possible errors
 	//
 	//   - Internal: subscription deletion failure.
-	Unsubscribe(ctx context.Context, userID string) error
+	Delete(ctx context.Context, userID, endpoint string) error
 
 	// NotifyNewConcerts sends Web Push notifications to followers of the given
 	// artist, filtered by each follower's hype level. WATCH followers are skipped,
@@ -71,8 +83,8 @@ func NewPushNotificationUseCase(
 	}
 }
 
-// Subscribe registers or updates the push subscription for the given user.
-func (uc *pushNotificationUseCase) Subscribe(ctx context.Context, userID, endpoint, p256dh, auth string) error {
+// Create registers or updates the push subscription for the given (userID, endpoint) pair.
+func (uc *pushNotificationUseCase) Create(ctx context.Context, userID, endpoint, p256dh, auth string) (*entity.PushSubscription, error) {
 	sub := &entity.PushSubscription{
 		UserID:   userID,
 		Endpoint: endpoint,
@@ -80,15 +92,26 @@ func (uc *pushNotificationUseCase) Subscribe(ctx context.Context, userID, endpoi
 		Auth:     auth,
 	}
 	if err := uc.pushSubRepo.Create(ctx, sub); err != nil {
-		return fmt.Errorf("failed to persist push subscription: %w", err)
+		return nil, fmt.Errorf("failed to persist push subscription: %w", err)
 	}
-	return nil
+	return sub, nil
 }
 
-// Unsubscribe removes all push subscriptions for the given user.
-func (uc *pushNotificationUseCase) Unsubscribe(ctx context.Context, userID string) error {
-	if err := uc.pushSubRepo.DeleteByUserID(ctx, userID); err != nil {
-		return fmt.Errorf("failed to delete push subscriptions: %w", err)
+// Get retrieves the push subscription matching the (userID, endpoint) pair.
+// Returns a NotFound error when no such subscription exists.
+func (uc *pushNotificationUseCase) Get(ctx context.Context, userID, endpoint string) (*entity.PushSubscription, error) {
+	sub, err := uc.pushSubRepo.Get(ctx, userID, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get push subscription: %w", err)
+	}
+	return sub, nil
+}
+
+// Delete removes the push subscription matching the (userID, endpoint) pair.
+// Other browsers registered by the same user remain active. Idempotent.
+func (uc *pushNotificationUseCase) Delete(ctx context.Context, userID, endpoint string) error {
+	if err := uc.pushSubRepo.Delete(ctx, userID, endpoint); err != nil {
+		return fmt.Errorf("failed to delete push subscription: %w", err)
 	}
 	return nil
 }
@@ -163,8 +186,11 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist
 		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {
 			if errors.Is(err, apperr.ErrNotFound) {
 				uc.metrics.RecordPushSend(ctx, "gone")
-				if delErr := uc.pushSubRepo.DeleteByEndpoint(ctx, sub.Endpoint); delErr != nil {
+				// Scoped cleanup: delete only the dead (userID, endpoint) pair, not
+				// every subscription that happens to share the endpoint URL.
+				if delErr := uc.pushSubRepo.Delete(ctx, sub.UserID, sub.Endpoint); delErr != nil {
 					uc.logger.Error(ctx, "failed to delete stale push subscription", delErr,
+						slog.String("user_id", sub.UserID),
 						slog.String("endpoint", sub.Endpoint),
 					)
 				}
