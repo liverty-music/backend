@@ -217,6 +217,14 @@ type ConcertRepository interface {
 	//
 	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid artist or venue).
 	Create(ctx context.Context, concerts ...*Concert) error
+	// ListByIDs retrieves concerts by their event IDs. Venues are joined so
+	// that Concert.Venue.AdminArea is populated for hype-level filtering.
+	// IDs that do not match any row are silently omitted from the result.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the ids slice is empty.
+	ListByIDs(ctx context.Context, ids []string) ([]*Concert, error)
 }
 
 // ConcertSearcher defines the interface for searching concerts from external sources.

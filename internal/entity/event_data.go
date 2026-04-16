@@ -20,17 +20,6 @@ type ConcertDiscoveredData struct {
 	Concerts ScrapedConcerts `json:"concerts"`
 }
 
-// ConcertCreatedData is the payload for concert.created.v1 events.
-// Published by the create-concerts consumer after persisting concerts.
-type ConcertCreatedData struct {
-	// ArtistID is the internal UUID of the artist.
-	ArtistID string `json:"artist_id"`
-	// ArtistName is the display name of the artist (for notification context).
-	ArtistName string `json:"artist_name"`
-	// ConcertCount is the number of concerts created in this batch.
-	ConcertCount int `json:"concert_count"`
-}
-
 // UserCreatedData is the payload for user.created events.
 // Published by UserUseCase.Create after persisting a new user.
 type UserCreatedData struct {

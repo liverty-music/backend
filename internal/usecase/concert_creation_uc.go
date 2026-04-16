@@ -106,16 +106,22 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	)
 
 	// Publish concert.created.v1 for downstream notification handler.
-	createdData := entity.ConcertCreatedData{
-		ArtistID:     data.ArtistID,
-		ArtistName:   data.ArtistName,
-		ConcertCount: len(concerts),
-	}
-	if err := uc.publishEvent(ctx, entity.SubjectConcertCreated, createdData); err != nil {
-		uc.logger.Error(ctx, "failed to publish concert.created event", err,
-			slog.String("artist_id", data.ArtistID),
-		)
-		// Non-fatal: concerts are already persisted.
+	// Only emit when new concerts were actually created; skip when all were deduplicated.
+	if len(concerts) > 0 {
+		concertIDs := make([]string, len(concerts))
+		for i, c := range concerts {
+			concertIDs[i] = c.ID
+		}
+		createdData := ConcertCreatedData{
+			ArtistID:   data.ArtistID,
+			ConcertIDs: concertIDs,
+		}
+		if err := uc.publishEvent(ctx, entity.SubjectConcertCreated, createdData); err != nil {
+			uc.logger.Error(ctx, "failed to publish concert.created event", err,
+				slog.String("artist_id", data.ArtistID),
+			)
+			// Non-fatal: concerts are already persisted.
+		}
 	}
 
 	return nil

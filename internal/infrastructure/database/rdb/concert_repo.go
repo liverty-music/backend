@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // ConcertRepository implements entity.ConcertRepository interface for PostgreSQL.
@@ -57,6 +59,14 @@ const (
 		WHERE c.artist_id = ANY($1)
 		ORDER BY e.local_event_date ASC
 	`
+	listConcertsByIDsQuery = `
+		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
+		       v.id, v.name, v.admin_area
+		FROM concerts c
+		JOIN events e ON c.event_id = e.id
+		JOIN venues v ON e.venue_id = v.id
+		WHERE c.event_id = ANY($1)
+	`
 	listConcertsByFollowerQuery = `
 		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
@@ -84,6 +94,36 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 	rows, err := r.db.Pool.Query(ctx, query, artistID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by artist", slog.String("artist_id", artistID))
+	}
+	defer rows.Close()
+
+	var concerts []*entity.Concert
+	for rows.Next() {
+		var c entity.Concert
+		var venue entity.Venue
+		err := rows.Scan(
+			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
+			&venue.ID, &venue.Name, &venue.AdminArea,
+		)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan concert")
+		}
+		c.Venue = &venue
+		concerts = append(concerts, &c)
+	}
+	return concerts, nil
+}
+
+// ListByIDs retrieves concerts by their event IDs. Venues are joined so that
+// Concert.Venue.AdminArea is populated for hype-level filtering.
+func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*entity.Concert, error) {
+	if len(ids) == 0 {
+		return nil, apperr.New(codes.InvalidArgument, "concert IDs must not be empty")
+	}
+
+	rows, err := r.db.Pool.Query(ctx, listConcertsByIDsQuery, ids)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list concerts by IDs")
 	}
 	defer rows.Close()
 

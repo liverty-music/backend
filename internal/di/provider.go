@@ -197,6 +197,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
+		artistRepo,
+		concertRepo,
 		followRepo,
 		pushSubRepo,
 		webpushSender,
