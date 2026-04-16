@@ -4,42 +4,40 @@ import (
 	"context"
 	"errors"
 
-	// TODO(bsr): swap to generated types after BSR gen completes for
-	// specification/main following merge of PR #404 and publish of the
-	// corresponding GitHub Release. The new types are:
-	//   rpc.CreateRequest / rpc.CreateResponse
-	//   rpc.GetRequest / rpc.GetResponse
-	//   rpc.DeleteRequest / rpc.DeleteResponse
-	// plus the nested entity.v1 types:
-	//   entity.PushSubscription / entity.PushSubscriptionId /
-	//   entity.PushEndpoint / entity.PushKeys
 	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/push_notification/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
 
 // PushNotificationHandler implements the PushNotificationService Connect interface.
 type PushNotificationHandler struct {
-	pushUseCase usecase.PushNotificationUseCase
-	userRepo    entity.UserRepository
-	logger      *logging.Logger
+	pushUseCase  usecase.PushNotificationUseCase
+	userRepo     entity.UserRepository
+	concertRepo  entity.ConcertRepository
+	isProduction bool
+	logger       *logging.Logger
 }
 
 // NewPushNotificationHandler creates a new instance of the push notification RPC service handler.
 func NewPushNotificationHandler(
 	pushUseCase usecase.PushNotificationUseCase,
 	userRepo entity.UserRepository,
+	concertRepo entity.ConcertRepository,
+	cfg config.BaseConfig,
 	logger *logging.Logger,
 ) *PushNotificationHandler {
 	return &PushNotificationHandler{
-		pushUseCase: pushUseCase,
-		userRepo:    userRepo,
-		logger:      logger,
+		pushUseCase:  pushUseCase,
+		userRepo:     userRepo,
+		concertRepo:  concertRepo,
+		isProduction: cfg.IsProduction(),
+		logger:       logger,
 	}
 }
 
@@ -124,6 +122,66 @@ func (h *PushNotificationHandler) Delete(ctx context.Context, req *connect.Reque
 	}
 
 	return connect.NewResponse(&rpc.DeleteResponse{}), nil
+}
+
+// NotifyNewConcerts triggers the push notification delivery pipeline for the
+// supplied artist + concert_ids, bypassing the NATS event bus. This RPC is
+// restricted to non-production environments — production returns
+// PERMISSION_DENIED. Every supplied concert_id must belong to the artist;
+// otherwise the entire request is rejected with INVALID_ARGUMENT (no partial
+// delivery).
+func (h *PushNotificationHandler) NotifyNewConcerts(ctx context.Context, req *connect.Request[rpc.NotifyNewConcertsRequest]) (*connect.Response[rpc.NotifyNewConcertsResponse], error) {
+	if h.isProduction {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("debug RPC is not available in production"))
+	}
+	// Require a valid authenticated session even in non-production so callers
+	// get UNAUTHENTICATED (not PERMISSION_DENIED) when unauthenticated.
+	if _, err := mapper.GetExternalUserID(ctx); err != nil {
+		return nil, err
+	}
+
+	if req.Msg.GetArtistId() == nil || len(req.Msg.GetConcertIds()) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id and at least one concert_id are required"))
+	}
+
+	artistID := req.Msg.GetArtistId().GetValue()
+	concertIDs := make([]string, 0, len(req.Msg.GetConcertIds()))
+	for _, id := range req.Msg.GetConcertIds() {
+		if id == nil || id.GetValue() == "" {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("concert_id values must not be empty"))
+		}
+		concertIDs = append(concertIDs, id.GetValue())
+	}
+
+	// Validate each concert belongs to the specified artist before invoking
+	// the delivery pipeline. This is stricter than the consumer path (which
+	// trusts the publisher) because operators can pass arbitrary IDs here.
+	concerts, err := h.concertRepo.ListByIDs(ctx, concertIDs)
+	if err != nil {
+		return nil, err
+	}
+	resolved := make(map[string]string, len(concerts))
+	for _, c := range concerts {
+		resolved[c.ID] = c.ArtistID
+	}
+	for _, id := range concertIDs {
+		ownedBy, ok := resolved[id]
+		if !ok {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("concert_id "+id+" does not exist"))
+		}
+		if ownedBy != artistID {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("concert_id "+id+" does not belong to the specified artist"))
+		}
+	}
+
+	if err := h.pushUseCase.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{
+		ArtistID:   artistID,
+		ConcertIDs: concertIDs,
+	}); err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&rpc.NotifyNewConcertsResponse{}), nil
 }
 
 // resolveCallerUser extracts the external_id from JWT claims and resolves the

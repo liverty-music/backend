@@ -11,7 +11,9 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +23,18 @@ import (
 
 func authedCtx(externalID string) context.Context {
 	return auth.WithClaims(context.Background(), &auth.Claims{Sub: externalID})
+}
+
+// devConfig returns a BaseConfig representing a non-production environment
+// so the debug RPC is enabled under test.
+func devConfig() config.BaseConfig {
+	return config.BaseConfig{Environment: "development"}
+}
+
+// prodConfig returns a BaseConfig representing production so the debug RPC
+// is gated at the handler.
+func prodConfig() config.BaseConfig {
+	return config.BaseConfig{Environment: "production"}
 }
 
 func TestPushNotificationHandler_Create(t *testing.T) {
@@ -93,7 +107,8 @@ func TestPushNotificationHandler_Create(t *testing.T) {
 			uc := ucmocks.NewMockPushNotificationUseCase(t)
 			ur := entitymocks.NewMockUserRepository(t)
 			tt.setup(uc, ur)
-			h := handler.NewPushNotificationHandler(uc, ur, logger)
+			cr := entitymocks.NewMockConcertRepository(t)
+			h := handler.NewPushNotificationHandler(uc, ur, cr, devConfig(), logger)
 
 			resp, err := h.Create(tt.ctx, connect.NewRequest(tt.req))
 
@@ -214,9 +229,136 @@ func TestPushNotificationHandler_Get(t *testing.T) {
 			uc := ucmocks.NewMockPushNotificationUseCase(t)
 			ur := entitymocks.NewMockUserRepository(t)
 			tt.setup(uc, ur)
-			h := handler.NewPushNotificationHandler(uc, ur, logger)
+			cr := entitymocks.NewMockConcertRepository(t)
+			h := handler.NewPushNotificationHandler(uc, ur, cr, devConfig(), logger)
 
 			resp, err := h.Get(tt.ctx, connect.NewRequest(tt.req))
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.wantCode != 0 {
+					assert.Equal(t, tt.wantCode, connect.CodeOf(err))
+				}
+				return
+			}
+			assert.NoError(t, err)
+			assert.NotNil(t, resp)
+		})
+	}
+}
+
+func TestPushNotificationHandler_NotifyNewConcerts(t *testing.T) {
+	t.Parallel()
+
+	validReq := func() *rpcv1.NotifyNewConcertsRequest {
+		return &rpcv1.NotifyNewConcertsRequest{
+			ArtistId:   &entitypb.ArtistId{Value: "artist-1"},
+			ConcertIds: []*entitypb.EventId{{Value: "concert-1"}, {Value: "concert-2"}},
+		}
+	}
+
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		cfg      config.BaseConfig
+		req      *rpcv1.NotifyNewConcertsRequest
+		setup    func(uc *ucmocks.MockPushNotificationUseCase, cr *entitymocks.MockConcertRepository)
+		wantCode connect.Code
+		wantErr  bool
+	}{
+		{
+			name: "success in non-production",
+			ctx:  authedCtx("ext-user-1"),
+			cfg:  devConfig(),
+			req:  validReq(),
+			setup: func(uc *ucmocks.MockPushNotificationUseCase, cr *entitymocks.MockConcertRepository) {
+				cr.EXPECT().ListByIDs(mock.Anything, []string{"concert-1", "concert-2"}).
+					Return([]*entity.Concert{
+						{Event: entity.Event{ID: "concert-1"}, ArtistID: "artist-1"},
+						{Event: entity.Event{ID: "concert-2"}, ArtistID: "artist-1"},
+					}, nil).Once()
+				uc.EXPECT().NotifyNewConcerts(mock.Anything, usecase.ConcertCreatedData{
+					ArtistID:   "artist-1",
+					ConcertIDs: []string{"concert-1", "concert-2"},
+				}).Return(nil).Once()
+			},
+			wantErr: false,
+		},
+		{
+			name:     "error - PermissionDenied in production",
+			ctx:      authedCtx("ext-user-1"),
+			cfg:      prodConfig(),
+			req:      validReq(),
+			setup:    func(_ *ucmocks.MockPushNotificationUseCase, _ *entitymocks.MockConcertRepository) {},
+			wantCode: connect.CodePermissionDenied,
+			wantErr:  true,
+		},
+		{
+			name:     "error - Unauthenticated when session missing",
+			ctx:      context.Background(),
+			cfg:      devConfig(),
+			req:      validReq(),
+			setup:    func(_ *ucmocks.MockPushNotificationUseCase, _ *entitymocks.MockConcertRepository) {},
+			wantCode: connect.CodeUnauthenticated,
+			wantErr:  true,
+		},
+		{
+			name: "error - InvalidArgument when concert_id missing from repo",
+			ctx:  authedCtx("ext-user-1"),
+			cfg:  devConfig(),
+			req:  validReq(),
+			setup: func(_ *ucmocks.MockPushNotificationUseCase, cr *entitymocks.MockConcertRepository) {
+				cr.EXPECT().ListByIDs(mock.Anything, []string{"concert-1", "concert-2"}).
+					Return([]*entity.Concert{
+						{Event: entity.Event{ID: "concert-1"}, ArtistID: "artist-1"},
+					}, nil).Once()
+			},
+			wantCode: connect.CodeInvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name: "error - InvalidArgument when concert belongs to different artist",
+			ctx:  authedCtx("ext-user-1"),
+			cfg:  devConfig(),
+			req:  validReq(),
+			setup: func(_ *ucmocks.MockPushNotificationUseCase, cr *entitymocks.MockConcertRepository) {
+				cr.EXPECT().ListByIDs(mock.Anything, []string{"concert-1", "concert-2"}).
+					Return([]*entity.Concert{
+						{Event: entity.Event{ID: "concert-1"}, ArtistID: "artist-1"},
+						{Event: entity.Event{ID: "concert-2"}, ArtistID: "different-artist"},
+					}, nil).Once()
+			},
+			wantCode: connect.CodeInvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name: "error - InvalidArgument when concert_ids empty",
+			ctx:  authedCtx("ext-user-1"),
+			cfg:  devConfig(),
+			req: &rpcv1.NotifyNewConcertsRequest{
+				ArtistId:   &entitypb.ArtistId{Value: "artist-1"},
+				ConcertIds: []*entitypb.EventId{},
+			},
+			setup:    func(_ *ucmocks.MockPushNotificationUseCase, _ *entitymocks.MockConcertRepository) {},
+			wantCode: connect.CodeInvalidArgument,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
+
+			uc := ucmocks.NewMockPushNotificationUseCase(t)
+			ur := entitymocks.NewMockUserRepository(t)
+			cr := entitymocks.NewMockConcertRepository(t)
+			tt.setup(uc, cr)
+			h := handler.NewPushNotificationHandler(uc, ur, cr, tt.cfg, logger)
+
+			resp, err := h.NotifyNewConcerts(tt.ctx, connect.NewRequest(tt.req))
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -295,7 +437,8 @@ func TestPushNotificationHandler_Delete(t *testing.T) {
 			uc := ucmocks.NewMockPushNotificationUseCase(t)
 			ur := entitymocks.NewMockUserRepository(t)
 			tt.setup(uc, ur)
-			h := handler.NewPushNotificationHandler(uc, ur, logger)
+			cr := entitymocks.NewMockConcertRepository(t)
+			h := handler.NewPushNotificationHandler(uc, ur, cr, devConfig(), logger)
 
 			resp, err := h.Delete(tt.ctx, connect.NewRequest(tt.req))
 
