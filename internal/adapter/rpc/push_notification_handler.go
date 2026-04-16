@@ -19,7 +19,6 @@ import (
 type PushNotificationHandler struct {
 	pushUseCase  usecase.PushNotificationUseCase
 	userRepo     entity.UserRepository
-	concertRepo  entity.ConcertRepository
 	isProduction bool
 	logger       *logging.Logger
 }
@@ -28,14 +27,12 @@ type PushNotificationHandler struct {
 func NewPushNotificationHandler(
 	pushUseCase usecase.PushNotificationUseCase,
 	userRepo entity.UserRepository,
-	concertRepo entity.ConcertRepository,
 	cfg config.BaseConfig,
 	logger *logging.Logger,
 ) *PushNotificationHandler {
 	return &PushNotificationHandler{
 		pushUseCase:  pushUseCase,
 		userRepo:     userRepo,
-		concertRepo:  concertRepo,
 		isProduction: cfg.IsProduction(),
 		logger:       logger,
 	}
@@ -140,11 +137,13 @@ func (h *PushNotificationHandler) NotifyNewConcerts(ctx context.Context, req *co
 		return nil, err
 	}
 
-	if req.Msg.GetArtistId() == nil || len(req.Msg.GetConcertIds()) == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id and at least one concert_id are required"))
+	if req.Msg.GetArtistId() == nil || req.Msg.GetArtistId().GetValue() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("artist_id is required"))
+	}
+	if len(req.Msg.GetConcertIds()) == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("at least one concert_id is required"))
 	}
 
-	artistID := req.Msg.GetArtistId().GetValue()
 	concertIDs := make([]string, 0, len(req.Msg.GetConcertIds()))
 	for _, id := range req.Msg.GetConcertIds() {
 		if id == nil || id.GetValue() == "" {
@@ -153,29 +152,12 @@ func (h *PushNotificationHandler) NotifyNewConcerts(ctx context.Context, req *co
 		concertIDs = append(concertIDs, id.GetValue())
 	}
 
-	// Validate each concert belongs to the specified artist before invoking
-	// the delivery pipeline. This is stricter than the consumer path (which
-	// trusts the publisher) because operators can pass arbitrary IDs here.
-	concerts, err := h.concertRepo.ListByIDs(ctx, concertIDs)
-	if err != nil {
-		return nil, err
-	}
-	resolved := make(map[string]string, len(concerts))
-	for _, c := range concerts {
-		resolved[c.ID] = c.ArtistID
-	}
-	for _, id := range concertIDs {
-		ownedBy, ok := resolved[id]
-		if !ok {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("concert_id "+id+" does not exist"))
-		}
-		if ownedBy != artistID {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("concert_id "+id+" does not belong to the specified artist"))
-		}
-	}
-
+	// Delegate ownership validation and delivery to the use case. Any
+	// apperr InvalidArgument (e.g., concert_id ownership mismatch) returned
+	// from the use case is translated to connect.CodeInvalidArgument by
+	// the error-handling interceptor.
 	if err := h.pushUseCase.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{
-		ArtistID:   artistID,
+		ArtistID:   req.Msg.GetArtistId().GetValue(),
 		ConcertIDs: concertIDs,
 	}); err != nil {
 		return nil, err

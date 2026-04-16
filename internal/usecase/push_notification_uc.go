@@ -9,6 +9,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -144,12 +145,22 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	if err != nil {
 		return fmt.Errorf("failed to list concerts by IDs: %w", err)
 	}
-	if len(concerts) == 0 {
-		uc.logger.Warn(ctx, "no concerts found for IDs; skipping notification",
-			slog.String("artist_id", data.ArtistID),
-			slog.Int("requested", len(data.ConcertIDs)),
-		)
-		return nil
+
+	// Validate that every requested concert exists and belongs to the
+	// specified artist. This protects against operator mistakes on the
+	// debug RPC path and bad publisher state on the event path.
+	resolved := make(map[string]string, len(concerts))
+	for _, c := range concerts {
+		resolved[c.ID] = c.ArtistID
+	}
+	for _, id := range data.ConcertIDs {
+		ownedBy, ok := resolved[id]
+		if !ok {
+			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not exist")
+		}
+		if ownedBy != data.ArtistID {
+			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not belong to artist "+data.ArtistID)
+		}
 	}
 
 	// 1. Retrieve all followers with their hype level and home area.

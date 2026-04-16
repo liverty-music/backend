@@ -264,7 +264,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return pushconnect.NewPushNotificationServiceHandler(
-				rpc.NewPushNotificationHandler(pushNotificationUC, userRepo, concertRepo, cfg.BaseConfig, logger),
+				rpc.NewPushNotificationHandler(pushNotificationUC, userRepo, cfg.BaseConfig, logger),
 				opts...,
 			)
 		},

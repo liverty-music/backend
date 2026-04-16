@@ -521,6 +521,32 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name: "error - InvalidArgument when concert_id not found in repo",
+			args: args{data: usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2"}}},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+				// ListByIDs returns only c1 — c2 is missing from the result.
+				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1", "c2"}).Return([]*entity.Concert{
+					{Event: entity.Event{ID: "c1"}, ArtistID: "artist-1"},
+				}, nil).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			name: "error - InvalidArgument when concert belongs to different artist",
+			args: args{data: usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}}},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+				// c1 exists but is owned by a different artist.
+				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return([]*entity.Concert{
+					{Event: entity.Event{ID: "c1"}, ArtistID: "artist-999"},
+				}, nil).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
 			name: "return error when artist lookup fails",
 			args: args{data: usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}}},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
