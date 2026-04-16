@@ -213,10 +213,22 @@ type ConcertRepository interface {
 	//
 	// Nil elements in the input slice are silently skipped.
 	//
+	// Returns the event IDs of concerts that were genuinely inserted (i.e.,
+	// not deduplicated by natural-key UPSERT). Callers must not assume the
+	// returned slice matches the input slice in length or order.
+	//
 	// # Possible errors
 	//
 	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid artist or venue).
-	Create(ctx context.Context, concerts ...*Concert) error
+	Create(ctx context.Context, concerts ...*Concert) ([]string, error)
+	// ListByIDs retrieves concerts by their event IDs. Venues are joined so
+	// that Concert.Venue.AdminArea is populated for hype-level filtering.
+	// IDs that do not match any row are silently omitted from the result.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the ids slice is empty.
+	ListByIDs(ctx context.Context, ids []string) ([]*Concert, error)
 }
 
 // ConcertSearcher defines the interface for searching concerts from external sources.

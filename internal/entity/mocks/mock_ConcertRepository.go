@@ -23,7 +23,7 @@ func (_m *MockConcertRepository) EXPECT() *MockConcertRepository_Expecter {
 }
 
 // Create provides a mock function with given fields: ctx, concerts
-func (_m *MockConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) error {
+func (_m *MockConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) ([]string, error) {
 	_va := make([]interface{}, len(concerts))
 	for _i := range concerts {
 		_va[_i] = concerts[_i]
@@ -37,14 +37,26 @@ func (_m *MockConcertRepository) Create(ctx context.Context, concerts ...*entity
 		panic("no return value specified for Create")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, ...*entity.Concert) error); ok {
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, ...*entity.Concert) ([]string, error)); ok {
+		return rf(ctx, concerts...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, ...*entity.Concert) []string); ok {
 		r0 = rf(ctx, concerts...)
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, ...*entity.Concert) error); ok {
+		r1 = rf(ctx, concerts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockConcertRepository_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
@@ -73,12 +85,12 @@ func (_c *MockConcertRepository_Create_Call) Run(run func(ctx context.Context, c
 	return _c
 }
 
-func (_c *MockConcertRepository_Create_Call) Return(_a0 error) *MockConcertRepository_Create_Call {
-	_c.Call.Return(_a0)
+func (_c *MockConcertRepository_Create_Call) Return(_a0 []string, _a1 error) *MockConcertRepository_Create_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockConcertRepository_Create_Call) RunAndReturn(run func(context.Context, ...*entity.Concert) error) *MockConcertRepository_Create_Call {
+func (_c *MockConcertRepository_Create_Call) RunAndReturn(run func(context.Context, ...*entity.Concert) ([]string, error)) *MockConcertRepository_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -257,6 +269,65 @@ func (_c *MockConcertRepository_ListByFollower_Call) Return(_a0 []*entity.Concer
 }
 
 func (_c *MockConcertRepository_ListByFollower_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Concert, error)) *MockConcertRepository_ListByFollower_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByIDs provides a mock function with given fields: ctx, ids
+func (_m *MockConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx, ids)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByIDs")
+	}
+
+	var r0 []*entity.Concert
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []string) ([]*entity.Concert, error)); ok {
+		return rf(ctx, ids)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []string) []*entity.Concert); ok {
+		r0 = rf(ctx, ids)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Concert)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []string) error); ok {
+		r1 = rf(ctx, ids)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertRepository_ListByIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByIDs'
+type MockConcertRepository_ListByIDs_Call struct {
+	*mock.Call
+}
+
+// ListByIDs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ids []string
+func (_e *MockConcertRepository_Expecter) ListByIDs(ctx interface{}, ids interface{}) *MockConcertRepository_ListByIDs_Call {
+	return &MockConcertRepository_ListByIDs_Call{Call: _e.mock.On("ListByIDs", ctx, ids)}
+}
+
+func (_c *MockConcertRepository_ListByIDs_Call) Run(run func(ctx context.Context, ids []string)) *MockConcertRepository_ListByIDs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]string))
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_ListByIDs_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertRepository_ListByIDs_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertRepository_ListByIDs_Call) RunAndReturn(run func(context.Context, []string) ([]*entity.Concert, error)) *MockConcertRepository_ListByIDs_Call {
 	_c.Call.Return(run)
 	return _c
 }

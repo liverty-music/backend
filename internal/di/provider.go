@@ -197,6 +197,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
+		artistRepo,
+		concertRepo,
 		followRepo,
 		pushSubRepo,
 		webpushSender,
@@ -262,7 +264,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return pushconnect.NewPushNotificationServiceHandler(
-				rpc.NewPushNotificationHandler(pushNotificationUC, userRepo, logger),
+				rpc.NewPushNotificationHandler(pushNotificationUC, userRepo, cfg.BaseConfig, logger),
 				opts...,
 			)
 		},

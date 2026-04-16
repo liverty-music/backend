@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -83,9 +84,21 @@ func (r *fakeConcertRepo) ListByArtists(_ context.Context, _ []string) ([]*entit
 	return nil, nil
 }
 
-func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert) error {
+func (r *fakeConcertRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Concert, error) {
+	return nil, nil
+}
+
+func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert) ([]string, error) {
 	r.created = append(r.created, concerts...)
-	return nil
+	// Fake returns all input IDs as "inserted" — tests that need to exercise
+	// the dedupe path should override this behaviour.
+	ids := make([]string, 0, len(concerts))
+	for _, c := range concerts {
+		if c != nil {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids, nil
 }
 
 // stubPlaceSearcher returns pre-configured results keyed by venue name.
@@ -432,5 +445,105 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 
 	assert.Panics(t, func() {
 		usecase.NewConcertCreationUseCase(newFakeVenueRepo(), &fakeConcertRepo{}, nil, messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+	})
+}
+
+func TestConcertCreationUseCase_EventPublishing(t *testing.T) {
+	t.Parallel()
+
+	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+
+	t.Run("publishes concert.created event with exact concert IDs when concerts are created", func(t *testing.T) {
+		t.Parallel()
+
+		venueRepo := newFakeVenueRepo()
+		concertRepo := &fakeConcertRepo{}
+		pub := newGoChannelPub(t)
+		ps := newStubPlaceSearcher()
+		ps.places["Venue A"] = &entity.VenuePlace{ExternalID: "place-a", Name: "Venue A Canonical"}
+		ps.places["Venue B"] = &entity.VenuePlace{ExternalID: "place-b", Name: "Venue B Canonical"}
+
+		// Subscribe before triggering the publish so no messages are lost.
+		ctx := context.Background()
+		msgCh, err := pub.Subscribe(ctx, entity.SubjectConcertCreated)
+		require.NoError(t, err)
+
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID:   "artist-pub",
+			ArtistName: "Publish Artist",
+			Concerts: entity.ScrapedConcerts{
+				{
+					Title:           "Show A",
+					ListedVenueName: "Venue A",
+					LocalDate:       localDate,
+					SourceURL:       "https://example.com/a",
+				},
+				{
+					Title:           "Show B",
+					ListedVenueName: "Venue B",
+					LocalDate:       localDate.AddDate(0, 0, 1),
+					SourceURL:       "https://example.com/b",
+				},
+			},
+		}
+
+		err = uc.CreateFromDiscovered(ctx, data)
+		require.NoError(t, err)
+		require.Len(t, concertRepo.created, 2)
+
+		// Receive the published event.
+		select {
+		case msg := <-msgCh:
+			msg.Ack()
+			var published usecase.ConcertCreatedData
+			require.NoError(t, json.Unmarshal(msg.Payload, &published))
+			assert.Equal(t, "artist-pub", published.ArtistID)
+			assert.ElementsMatch(t, []string{concertRepo.created[0].ID, concertRepo.created[1].ID}, published.ConcertIDs)
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for concert.created event")
+		}
+	})
+
+	t.Run("does not publish event when zero concerts are created", func(t *testing.T) {
+		t.Parallel()
+
+		venueRepo := newFakeVenueRepo()
+		concertRepo := &fakeConcertRepo{}
+		pub := newGoChannelPub(t)
+		// placeSearcher has no entries — all venue lookups return NotFound → all concerts skipped.
+		ps := newStubPlaceSearcher()
+
+		ctx := context.Background()
+		msgCh, err := pub.Subscribe(ctx, entity.SubjectConcertCreated)
+		require.NoError(t, err)
+
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID:   "artist-nopub",
+			ArtistName: "No Publish Artist",
+			Concerts: entity.ScrapedConcerts{
+				{
+					Title:           "Unresolvable Show",
+					ListedVenueName: "Unknown Venue",
+					LocalDate:       localDate,
+					SourceURL:       "https://example.com/nopub",
+				},
+			},
+		}
+
+		err = uc.CreateFromDiscovered(ctx, data)
+		require.NoError(t, err)
+		assert.Empty(t, concertRepo.created)
+
+		// No event should arrive within a short window.
+		select {
+		case msg := <-msgCh:
+			t.Fatalf("unexpected concert.created event received: %s", msg.Payload)
+		case <-time.After(100 * time.Millisecond):
+			// Correct — no event published.
+		}
 	})
 }

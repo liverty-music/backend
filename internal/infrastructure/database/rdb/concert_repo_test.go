@@ -12,6 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// requireCreate wraps ConcertRepository.Create for integration tests that only
+// care about the error path. The returned inserted-IDs slice is intentionally
+// discarded — tests that assert on the deduplication behaviour should call
+// Create directly and inspect the slice.
+func requireCreate(t *testing.T, ctx context.Context, repo *rdb.ConcertRepository, concerts ...*entity.Concert) {
+	t.Helper()
+	_, err := repo.Create(ctx, concerts...)
+	require.NoError(t, err)
+}
+
 func TestConcertRepository_Create(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB)
@@ -36,7 +46,7 @@ func TestConcertRepository_Create(t *testing.T) {
 	t.Run("create valid concert", func(t *testing.T) {
 		setupFixtures(t)
 
-		err := concertRepo.Create(ctx, &entity.Concert{
+		_, err := concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
 				Title: "New Year's Eve Concert", LocalDate: concertDate,
@@ -76,7 +86,7 @@ func TestConcertRepository_Create(t *testing.T) {
 				ArtistID: artistID,
 			},
 		}
-		err := concertRepo.Create(ctx, concerts...)
+		_, err := concertRepo.Create(ctx, concerts...)
 		require.NoError(t, err)
 
 		got, err := concertRepo.ListByArtist(ctx, artistID, false)
@@ -95,10 +105,11 @@ func TestConcertRepository_Create(t *testing.T) {
 			},
 			ArtistID: artistID,
 		}
-		require.NoError(t, concertRepo.Create(ctx, concert))
+		_, err := concertRepo.Create(ctx, concert)
+		require.NoError(t, err)
 
 		// Same ID again — UPSERT on natural key, concerts ON CONFLICT DO NOTHING.
-		err := concertRepo.Create(ctx, concert)
+		_, err = concertRepo.Create(ctx, concert)
 		assert.NoError(t, err)
 	})
 
@@ -106,17 +117,17 @@ func TestConcertRepository_Create(t *testing.T) {
 		setupFixtures(t)
 
 		// Seed one concert first.
-		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
 				Title: "Existing Concert", LocalDate: concertDate,
 				StartTime: &startTime, OpenTime: &openTime,
 			},
 			ArtistID: artistID,
-		}))
+		})
 
 		// Batch: one existing (same ID) + one new.
-		err := concertRepo.Create(ctx,
+		_, err := concertRepo.Create(ctx,
 			&entity.Concert{
 				Event: entity.Event{
 					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
@@ -144,7 +155,7 @@ func TestConcertRepository_Create(t *testing.T) {
 	t.Run("foreign key violation - invalid artist", func(t *testing.T) {
 		setupFixtures(t)
 
-		err := concertRepo.Create(ctx, &entity.Concert{
+		_, err := concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c2", VenueID: venueID,
 				Title: "Invalid Artist Concert", LocalDate: concertDate,
@@ -158,7 +169,7 @@ func TestConcertRepository_Create(t *testing.T) {
 	t.Run("foreign key violation - invalid venue", func(t *testing.T) {
 		setupFixtures(t)
 
-		err := concertRepo.Create(ctx, &entity.Concert{
+		_, err := concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID:      "018b2f19-e591-7d12-bf9e-f0e74f1b49c3",
 				VenueID: "018b2f19-e591-7d12-bf9e-f0e74f1b49b0", // does not exist
@@ -173,7 +184,7 @@ func TestConcertRepository_Create(t *testing.T) {
 	t.Run("empty slice - no-op", func(t *testing.T) {
 		setupFixtures(t)
 
-		err := concertRepo.Create(ctx, []*entity.Concert{}...)
+		_, err := concertRepo.Create(ctx, []*entity.Concert{}...)
 		assert.NoError(t, err)
 	})
 
@@ -183,7 +194,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		// Regression: nil elements must be compacted before building unnest arrays.
 		// A nil element left at index i results in an empty-string UUID in eventIDs[i],
 		// which PostgreSQL rejects as "invalid input syntax for type uuid: """.
-		err := concertRepo.Create(ctx,
+		_, err := concertRepo.Create(ctx,
 			nil,
 			&entity.Concert{
 				Event: entity.Event{
@@ -205,19 +216,19 @@ func TestConcertRepository_Create(t *testing.T) {
 
 		listedVenue := "Zepp DiverCity"
 		// First insert: event + concert created normally.
-		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c01", VenueID: venueID,
 				Title: "Original", ListedVenueName: &listedVenue,
 				LocalDate: concertDate, StartTime: &startTime, SourceURL: "https://example.com/1",
 			},
 			ArtistID: artistID,
-		}))
+		})
 
 		// Second insert: same natural key (artist_id, date) but different UUID.
 		// UPSERT updates the existing event row; the input UUID does NOT exist in events,
 		// so WHERE EXISTS filters it out and no duplicate concerts row is created.
-		err := concertRepo.Create(ctx, &entity.Concert{
+		_, err := concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c02", VenueID: venueID,
 				Title: "Duplicate Attempt", ListedVenueName: &listedVenue,
@@ -238,18 +249,18 @@ func TestConcertRepository_Create(t *testing.T) {
 
 		listedVenue := "Zepp DiverCity"
 		// First insert: event with open_at = NULL.
-		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c03", VenueID: venueID,
 				Title: "No OpenTime", ListedVenueName: &listedVenue,
 				LocalDate: concertDate, StartTime: &startTime, SourceURL: "https://example.com/3",
 			},
 			ArtistID: artistID,
-		}))
+		})
 
 		// Second insert: same natural key but open_at is now non-NULL.
 		// COALESCE(EXCLUDED.open_at, events.open_at) → fills the NULL.
-		err := concertRepo.Create(ctx, &entity.Concert{
+		_, err := concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c04", VenueID: venueID,
 				Title: "With OpenTime", ListedVenueName: &listedVenue,
@@ -271,7 +282,7 @@ func TestConcertRepository_Create(t *testing.T) {
 
 		listedVenue := "Zepp DiverCity"
 		// First insert: event with open_at = non-NULL.
-		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c05", VenueID: venueID,
 				Title: "Has OpenTime", ListedVenueName: &listedVenue,
@@ -279,11 +290,11 @@ func TestConcertRepository_Create(t *testing.T) {
 				SourceURL: "https://example.com/5",
 			},
 			ArtistID: artistID,
-		}))
+		})
 
 		// Second insert: same natural key but open_at = NULL.
 		// COALESCE(NULL, events.open_at) → preserves existing value.
-		err := concertRepo.Create(ctx, &entity.Concert{
+		_, err := concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c06", VenueID: venueID,
 				Title: "Missing OpenTime", ListedVenueName: &listedVenue,
@@ -305,18 +316,18 @@ func TestConcertRepository_Create(t *testing.T) {
 
 		listedVenue := "Zepp DiverCity"
 		// First insert: event with start_at = NULL.
-		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c07", VenueID: venueID,
 				Title: "First NULL start", ListedVenueName: &listedVenue,
 				LocalDate: concertDate, SourceURL: "https://example.com/7",
 			},
 			ArtistID: artistID,
-		}))
+		})
 
 		// Second insert: same artist+date, also start_at = NULL.
 		// NULLS NOT DISTINCT means (artist, date, NULL) == (artist, date, NULL) → conflict.
-		err := concertRepo.Create(ctx, &entity.Concert{
+		_, err := concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c08", VenueID: venueID,
 				Title: "Second NULL start", ListedVenueName: &listedVenue,
@@ -343,12 +354,12 @@ func TestConcertRepository_Create(t *testing.T) {
 			},
 			ArtistID: artistID,
 		}
-		require.NoError(t, concertRepo.Create(ctx, concert))
+		requireCreate(t, ctx, concertRepo, concert)
 
 		// Same event UUID and same artist again.
 		// Events UPSERT is a no-op (same id, same natural key).
 		// Concerts INSERT hits PK conflict → ON CONFLICT DO NOTHING.
-		err := concertRepo.Create(ctx, concert)
+		_, err := concertRepo.Create(ctx, concert)
 		require.NoError(t, err)
 
 		got, err := concertRepo.ListByArtist(ctx, artistID, false)
@@ -407,7 +418,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 			name: "non-NULL listed_venue_name is persisted and retrieved correctly",
 			setup: func(t *testing.T, artistID, venueID string) {
 				t.Helper()
-				err := concertRepo.Create(ctx, &entity.Concert{
+				_, err := concertRepo.Create(ctx, &entity.Concert{
 					Event: entity.Event{
 						ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4cc2",
 						VenueID:         venueID,
@@ -548,7 +559,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		},
 	}
 
-	err = concertRepo.Create(ctx, concerts...)
+	_, err = concertRepo.Create(ctx, concerts...)
 	require.NoError(t, err)
 
 	type args struct {
@@ -690,7 +701,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
 
 		listedName := "Zepp Nagoya"
-		err = concertRepo.Create(ctx, &entity.Concert{
+		_, err = concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4cc2",
 				VenueID:         venue.ID,
@@ -737,7 +748,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 		concertDate, _ := time.Parse("2006-01-02", "2026-10-01")
 		startTime, _ := time.Parse("15:04", "19:00")
 
-		require.NoError(t, concertRepo.Create(ctx,
+		requireCreate(t, ctx, concertRepo,
 			&entity.Concert{
 				Event: entity.Event{
 					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6021", VenueID: venue.ID,
@@ -752,7 +763,7 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 				},
 				ArtistID: artist2.ID,
 			},
-		))
+		)
 
 		got, err := concertRepo.ListByArtists(ctx, []string{artist1.ID, artist2.ID})
 		require.NoError(t, err)
@@ -790,13 +801,13 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 		require.NoError(t, venueRepo.Create(ctx, venue))
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-11-01")
-		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6023", VenueID: venue.ID,
 				Title: "No Coord Concert", LocalDate: concertDate,
 			},
 			ArtistID: artist.ID,
-		}))
+		})
 
 		got, err := concertRepo.ListByArtists(ctx, []string{artist.ID})
 		require.NoError(t, err)
@@ -837,7 +848,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		startTime, _ := time.Parse("15:04", "19:00")
 
 		// Create concerts for both artists
-		require.NoError(t, concertRepo.Create(ctx,
+		requireCreate(t, ctx, concertRepo,
 			&entity.Concert{
 				Event: entity.Event{
 					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5031", VenueID: venue.ID,
@@ -852,7 +863,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 				},
 				ArtistID: artist2.ID,
 			},
-		))
+		)
 
 		// Follow only artist1
 		_, err = testDB.Pool.Exec(ctx,
@@ -892,13 +903,13 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		require.NoError(t, venueRepo.Create(ctx, venue))
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-09-01")
-		require.NoError(t, concertRepo.Create(ctx, &entity.Concert{
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5041", VenueID: venue.ID,
 				Title: "Coord Concert", LocalDate: concertDate,
 			},
 			ArtistID: artist.ID,
-		}))
+		})
 
 		_, err = testDB.Pool.Exec(ctx,
 			"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",

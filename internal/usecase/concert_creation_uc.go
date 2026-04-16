@@ -94,28 +94,38 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	}
 
 	// Bulk insert concerts (ON CONFLICT DO NOTHING handles duplicates).
+	// insertedIDs holds only the IDs that were actually persisted — natural-
+	// key UPSERT conflicts keep the pre-existing event's id, so the phantom
+	// UUIDs generated above are filtered out by Create.
+	var insertedIDs []string
 	if len(concerts) > 0 {
-		if err := uc.concertRepo.Create(ctx, concerts...); err != nil {
+		ids, err := uc.concertRepo.Create(ctx, concerts...)
+		if err != nil {
 			return fmt.Errorf("create concerts: %w", err)
 		}
+		insertedIDs = ids
 	}
 
 	uc.logger.Info(ctx, "concerts persisted",
 		slog.String("artist_id", data.ArtistID),
-		slog.Int("count", len(concerts)),
+		slog.Int("requested", len(concerts)),
+		slog.Int("inserted", len(insertedIDs)),
 	)
 
-	// Publish concert.created.v1 for downstream notification handler.
-	createdData := entity.ConcertCreatedData{
-		ArtistID:     data.ArtistID,
-		ArtistName:   data.ArtistName,
-		ConcertCount: len(concerts),
-	}
-	if err := uc.publishEvent(ctx, entity.SubjectConcertCreated, createdData); err != nil {
-		uc.logger.Error(ctx, "failed to publish concert.created event", err,
-			slog.String("artist_id", data.ArtistID),
-		)
-		// Non-fatal: concerts are already persisted.
+	// Publish concert.created.v1 only when at least one concert was genuinely
+	// inserted. Emitting the event with phantom UUIDs would cause downstream
+	// NotifyNewConcerts to reject the batch with InvalidArgument.
+	if len(insertedIDs) > 0 {
+		createdData := ConcertCreatedData{
+			ArtistID:   data.ArtistID,
+			ConcertIDs: insertedIDs,
+		}
+		if err := uc.publishEvent(ctx, entity.SubjectConcertCreated, createdData); err != nil {
+			uc.logger.Error(ctx, "failed to publish concert.created event", err,
+				slog.String("artist_id", data.ArtistID),
+			)
+			// Non-fatal: concerts are already persisted.
+		}
 	}
 
 	return nil

@@ -9,6 +9,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -41,21 +42,23 @@ type PushNotificationUseCase interface {
 	Delete(ctx context.Context, userID, endpoint string) error
 
 	// NotifyNewConcerts sends Web Push notifications to followers of the given
-	// artist, filtered by each follower's hype level. WATCH followers are skipped,
-	// HOME followers receive notifications only when a concert venue matches their
-	// home area, NEARBY followers receive notifications when a venue is within 200km,
-	// and AWAY followers always receive them.
+	// artist for the specified newly created concerts. The delivery pipeline
+	// hydrates the artist and concert entities internally, applies hype-level
+	// filtering, and dispatches push notifications to all eligible followers.
+	//
 	// Per-subscription delivery errors (including 410 Gone responses) are handled
 	// internally and do not cause the method to return an error.
 	//
 	// # Possible errors
 	//
-	//   - Internal: failure to look up followers or their subscriptions.
-	NotifyNewConcerts(ctx context.Context, artist *entity.Artist, concerts []*entity.Concert) error
+	//   - Internal: failure to look up artist, concerts, followers, or subscriptions.
+	NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error
 }
 
 // pushNotificationUseCase implements PushNotificationUseCase.
 type pushNotificationUseCase struct {
+	artistRepo  entity.ArtistRepository
+	concertRepo entity.ConcertRepository
 	followRepo  entity.FollowRepository
 	pushSubRepo entity.PushSubscriptionRepository
 	sender      entity.PushNotificationSender
@@ -68,6 +71,8 @@ var _ PushNotificationUseCase = (*pushNotificationUseCase)(nil)
 
 // NewPushNotificationUseCase creates a new PushNotificationUseCase.
 func NewPushNotificationUseCase(
+	artistRepo entity.ArtistRepository,
+	concertRepo entity.ConcertRepository,
 	followRepo entity.FollowRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
@@ -75,6 +80,8 @@ func NewPushNotificationUseCase(
 	logger *logging.Logger,
 ) PushNotificationUseCase {
 	return &pushNotificationUseCase{
+		artistRepo:  artistRepo,
+		concertRepo: concertRepo,
 		followRepo:  followRepo,
 		pushSubRepo: pushSubRepo,
 		sender:      sender,
@@ -117,7 +124,8 @@ func (uc *pushNotificationUseCase) Delete(ctx context.Context, userID, endpoint 
 }
 
 // NotifyNewConcerts sends Web Push notifications to followers of the artist,
-// filtered by each follower's hype level.
+// filtered by each follower's hype level. Only the concerts identified in data
+// are used for hype filtering and payload computation.
 //
 // Filtering rules:
 //   - WATCH: no notification.
@@ -126,7 +134,35 @@ func (uc *pushNotificationUseCase) Delete(ctx context.Context, userID, endpoint 
 //   - AWAY: always notify.
 //
 // Individual delivery failures are logged but do not cause the method to return an error.
-func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, artist *entity.Artist, concerts []*entity.Concert) error {
+func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error {
+	// 0. Hydrate artist and concerts from their IDs.
+	artist, err := uc.artistRepo.Get(ctx, data.ArtistID)
+	if err != nil {
+		return fmt.Errorf("failed to get artist %s: %w", data.ArtistID, err)
+	}
+
+	concerts, err := uc.concertRepo.ListByIDs(ctx, data.ConcertIDs)
+	if err != nil {
+		return fmt.Errorf("failed to list concerts by IDs: %w", err)
+	}
+
+	// Validate that every requested concert exists and belongs to the
+	// specified artist. This protects against operator mistakes on the
+	// debug RPC path and bad publisher state on the event path.
+	resolved := make(map[string]string, len(concerts))
+	for _, c := range concerts {
+		resolved[c.ID] = c.ArtistID
+	}
+	for _, id := range data.ConcertIDs {
+		ownedBy, ok := resolved[id]
+		if !ok {
+			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not exist")
+		}
+		if ownedBy != data.ArtistID {
+			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not belong to artist "+data.ArtistID)
+		}
+	}
+
 	// 1. Retrieve all followers with their hype level and home area.
 	followers, err := uc.followRepo.ListFollowers(ctx, artist.ID)
 	if err != nil {
