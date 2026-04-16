@@ -88,9 +88,17 @@ func (r *fakeConcertRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Co
 	return nil, nil
 }
 
-func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert) error {
+func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert) ([]string, error) {
 	r.created = append(r.created, concerts...)
-	return nil
+	// Fake returns all input IDs as "inserted" — tests that need to exercise
+	// the dedupe path should override this behaviour.
+	ids := make([]string, 0, len(concerts))
+	for _, c := range concerts {
+		if c != nil {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids, nil
 }
 
 // stubPlaceSearcher returns pre-configured results keyed by venue name.

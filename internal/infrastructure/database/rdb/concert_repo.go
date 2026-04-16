@@ -33,6 +33,7 @@ const (
 		FROM unnest($1::uuid[], $2::uuid[]) AS a(input_id, artist_id)
 		WHERE EXISTS (SELECT 1 FROM events e WHERE e.id = a.input_id)
 		ON CONFLICT DO NOTHING
+		RETURNING event_id
 	`
 	listConcertsByArtistQuery = `
 		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
@@ -211,9 +212,9 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 // On conflict, only NULL open_at is filled via COALESCE — existing non-NULL values are
 // preserved. The concerts INSERT uses WHERE EXISTS to skip rows whose input UUID was not
 // inserted into events (i.e., the event already existed with a different id).
-func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) error {
+func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) ([]string, error) {
 	if len(concerts) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Compact the slice first: skip nil elements so target arrays have no empty-value holes.
@@ -226,7 +227,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		}
 	}
 	if len(valid) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	n := len(valid)
@@ -254,26 +255,42 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return toAppErr(err, "failed to begin transaction")
+		return nil, toAppErr(err, "failed to begin transaction")
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx, upsertEventsQuery, eventIDs, venueIDs, titles, listedVenueNames, eventDates, startTimes, openTimes, sourceURLs, artistIDs); err != nil {
-		return toAppErr(err, "failed to upsert events", slog.Int("count", n))
+		return nil, toAppErr(err, "failed to upsert events", slog.Int("count", n))
 	}
 
-	if _, err := tx.Exec(ctx, insertConcertsQuery, eventIDs, artistIDs); err != nil {
-		return toAppErr(err, "failed to insert concerts", slog.Int("count", n))
+	// RETURNING event_id gives us only the rows actually inserted — phantom
+	// UUIDs from natural-key conflicts (where the pre-existing event kept its
+	// original id) are filtered by the WHERE EXISTS clause and do not appear
+	// in the result.
+	rows, err := tx.Query(ctx, insertConcertsQuery, eventIDs, artistIDs)
+	if err != nil {
+		return nil, toAppErr(err, "failed to insert concerts", slog.Int("count", n))
 	}
+	insertedIDs := make([]string, 0, n)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, toAppErr(err, "failed to scan inserted concert id")
+		}
+		insertedIDs = append(insertedIDs, id)
+	}
+	rows.Close()
 
 	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit transaction")
+		return nil, toAppErr(err, "failed to commit transaction")
 	}
 
 	r.db.logger.Info(ctx, "concerts created",
 		slog.String("entityType", "concert"),
-		slog.Int("count", n),
+		slog.Int("requested", n),
+		slog.Int("inserted", len(insertedIDs)),
 	)
 
-	return nil
+	return insertedIDs, nil
 }
