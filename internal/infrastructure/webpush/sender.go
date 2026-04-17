@@ -4,11 +4,13 @@ package webpush
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	wpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/httpx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -56,7 +58,11 @@ func (s *Sender) Send(_ context.Context, payload []byte, sub *entity.PushSubscri
 			return apperr.New(codes.NotFound, "push subscription is no longer valid")
 		}
 		if resp.StatusCode >= http.StatusBadRequest {
-			return apperr.New(codes.Internal, fmt.Sprintf("push service returned status %d", resp.StatusCode))
+			var attrs []slog.Attr
+			if body := httpx.CaptureResponseBody(resp.Body); body != "" {
+				attrs = append(attrs, slog.String("responseBody", body))
+			}
+			return apperr.New(codes.Internal, fmt.Sprintf("push service returned status %d", resp.StatusCode), attrs...)
 		}
 	}
 

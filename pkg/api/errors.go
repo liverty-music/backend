@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/liverty-music/backend/pkg/httpx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -59,6 +60,12 @@ func FromHTTP(err error, resp *http.Response, msg string, attrs ...slog.Attr) er
 			code = codes.Unavailable
 		} else if resp.StatusCode >= 400 {
 			code = codes.InvalidArgument
+		}
+	}
+
+	if resp.StatusCode >= 400 && resp.Body != nil {
+		if body := httpx.CaptureResponseBody(resp.Body); body != "" {
+			attrs = append(attrs, slog.String("responseBody", body))
 		}
 	}
 

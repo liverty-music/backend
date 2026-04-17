@@ -6,11 +6,13 @@ import (
 	"image"
 	_ "image/png" // Register PNG decoder.
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/pkg/httpx"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
@@ -36,6 +38,10 @@ func NewLogoFetcher(httpClient *http.Client) *LogoFetcher {
 	return &LogoFetcher{httpClient: httpClient}
 }
 
+// validateLogoURLFn is the URL validator used by FetchImage. It is a package-level
+// variable so that tests can substitute a no-op validator via export_test.go.
+var validateLogoURLFn = validateLogoURL
+
 // FetchImage downloads the image at the given URL and decodes it as PNG.
 // Returns nil without error when the server returns HTTP 404.
 //
@@ -43,7 +49,7 @@ func NewLogoFetcher(httpClient *http.Client) *LogoFetcher {
 // SSRF, and the response body is capped at maxLogoBytes to guard against
 // decompression bombs.
 func (f *LogoFetcher) FetchImage(ctx context.Context, logoURL string) (image.Image, error) {
-	if err := validateLogoURL(logoURL); err != nil {
+	if err := validateLogoURLFn(logoURL); err != nil {
 		return nil, err
 	}
 
@@ -62,7 +68,11 @@ func (f *LogoFetcher) FetchImage(ctx context.Context, logoURL string) (image.Ima
 		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, apperr.New(codes.Unavailable, fmt.Sprintf("logo fetch returned HTTP %d", resp.StatusCode))
+		var attrs []slog.Attr
+		if body := httpx.CaptureResponseBody(resp.Body); body != "" {
+			attrs = append(attrs, slog.String("responseBody", body))
+		}
+		return nil, apperr.New(codes.Unavailable, fmt.Sprintf("logo fetch returned HTTP %d", resp.StatusCode), attrs...)
 	}
 
 	img, _, err := image.Decode(io.LimitReader(resp.Body, maxLogoBytes))
