@@ -44,19 +44,21 @@ func CaptureResponseBody(r io.Reader) string {
 	return sanitized
 }
 
-// sanitizeBody replaces non-printable bytes (below 0x20 except \t, \n, \r and
-// above 0x7E) with the Unicode replacement character U+FFFD.
+// sanitizeBody replaces control characters and invalid UTF-8 with U+FFFD while
+// preserving valid multi-byte Unicode (e.g., Japanese, accented Latin).
+// Iterating via range string(b) auto-decodes UTF-8 runes; invalid byte
+// sequences become U+FFFD during decoding.
 func sanitizeBody(b []byte) string {
 	var out bytes.Buffer
 	out.Grow(len(b))
-	for _, c := range b {
+	for _, r := range string(b) {
 		switch {
-		case c == '\t' || c == '\n' || c == '\r':
-			out.WriteByte(c)
-		case c < 0x20 || c >= 0x7F:
+		case r == '\t' || r == '\n' || r == '\r':
+			out.WriteRune(r)
+		case r < 0x20 || r == 0x7F:
 			out.WriteRune('\uFFFD')
 		default:
-			out.WriteByte(c)
+			out.WriteRune(r)
 		}
 	}
 	return out.String()

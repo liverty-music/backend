@@ -64,6 +64,16 @@ func TestCaptureResponseBody(t *testing.T) {
 			want: "ok\uFFFDnotok",
 		},
 		{
+			name: "valid UTF-8 multi-byte characters are preserved",
+			args: struct{ r io.Reader }{r: strings.NewReader("権限がありません: FCM rejected")},
+			want: "権限がありません: FCM rejected",
+		},
+		{
+			name: "mixed valid UTF-8 and control characters",
+			args: struct{ r io.Reader }{r: strings.NewReader("error\x00日本語\x01ok")},
+			want: "error\uFFFD日本語\uFFFDok",
+		},
+		{
 			name: "truncate with ellipsis and replace non-printable bytes when body is large with binary data",
 			args: struct{ r io.Reader }{r: strings.NewReader("\x00" + strings.Repeat("a", 2000))},
 			// First byte becomes replacement char, next 1023 are 'a', then ellipsis
