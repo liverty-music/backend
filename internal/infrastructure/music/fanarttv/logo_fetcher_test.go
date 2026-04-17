@@ -19,17 +19,33 @@ func TestLogoFetcher_FetchImage(t *testing.T) {
 		body       string
 		wantNil    bool
 		wantErr    error
+		// check performs additional assertions beyond wantErr matching.
+		check func(t *testing.T, err error)
 	}{
 		{
-			name:       "not found - HTTP 404 returns nil image without error",
+			name:       "return nil image without error when server returns 404",
 			statusCode: http.StatusNotFound,
 			wantNil:    true,
 			wantErr:    nil,
 		},
 		{
-			name:       "error - HTTP 500 returns unavailable error",
+			name:       "return ErrUnavailable when server returns 500",
 			statusCode: http.StatusInternalServerError,
 			wantErr:    apperr.ErrUnavailable,
+		},
+		{
+			name:       "return ErrUnavailable with responseBody attr when server returns 403 with body",
+			statusCode: http.StatusForbidden,
+			body:       "Access denied by CDN policy",
+			wantErr:    apperr.ErrUnavailable,
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				var appErr *apperr.AppErr
+				if assert.ErrorAs(t, err, &appErr) {
+					assert.Contains(t, appErr.Msg, "403", "error message should include status code")
+					assert.NotEmpty(t, appErr.Attrs, "responseBody attr should be captured for non-200/non-404 responses with body")
+				}
+			},
 		},
 	}
 
@@ -67,12 +83,15 @@ func TestLogoFetcher_FetchImage(t *testing.T) {
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, img)
-				return
+			} else {
+				require.NoError(t, err)
+				if tt.wantNil {
+					assert.Nil(t, img)
+				}
 			}
 
-			require.NoError(t, err)
-			if tt.wantNil {
-				assert.Nil(t, img)
+			if tt.check != nil {
+				tt.check(t, err)
 			}
 		})
 	}
