@@ -3,6 +3,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -13,13 +14,22 @@ import (
 
 // UserUseCase defines the interface for user-related business logic.
 type UserUseCase interface {
-	// Create registers a new user.
-	// If params.Home is non-nil, the home area is validated and persisted atomically.
+	// Create registers a new user, or returns the existing user when the
+	// caller's external_id is already provisioned.
+	//
+	// Idempotent behavior: when the underlying repository reports a unique
+	// violation and a user already exists for the supplied external_id, the
+	// existing entity is returned with no error and no UserCreated event is
+	// published. The existing row's email, name, and home fields are NOT
+	// overwritten — the duplicate call is a read, not an upsert.
+	//
+	// A unique violation on email by a different external_id is NOT
+	// idempotent and is surfaced as AlreadyExists.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If email or name is invalid, or home is malformed.
-	//  - AlreadyExists: If a user with the same email already exists.
+	//  - AlreadyExists: If the email is already claimed by a different identity.
 	Create(ctx context.Context, params *entity.NewUser) (*entity.User, error)
 
 	// Get retrieves a user by their unique ID.
@@ -73,7 +83,8 @@ func NewUserUseCase(userRepo entity.UserRepository, publisher EventPublisher, lo
 	}
 }
 
-// Create creates a new user.
+// Create creates a new user, or returns the existing user on duplicate
+// external_id (idempotent).
 func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*entity.User, error) {
 	if params.Home != nil {
 		if err := params.Home.Validate(); err != nil {
@@ -83,6 +94,23 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 
 	user, err := uc.userRepo.Create(ctx, params)
 	if err != nil {
+		// On AlreadyExists, distinguish between (a) same caller retrying the
+		// Create (duplicate external_id) — treat as idempotent success — and
+		// (b) a different identity claiming the same email — surface the
+		// original error. GetByExternalID resolves which case we are in.
+		if errors.Is(err, apperr.ErrAlreadyExists) {
+			existing, getErr := uc.userRepo.GetByExternalID(ctx, params.ExternalID)
+			if getErr != nil {
+				// external_id was NOT the conflicting column — propagate the
+				// original AlreadyExists to signal the email collision.
+				return nil, err
+			}
+			uc.logger.Info(ctx, "Create returned existing user (idempotent on duplicate external_id)",
+				slog.String("user_id", existing.ID),
+				slog.String("external_id", existing.ExternalID),
+			)
+			return existing, nil
+		}
 		return nil, err
 	}
 

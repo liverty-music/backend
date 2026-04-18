@@ -40,17 +40,23 @@ func NewUserHandler(userUseCase usecase.UserUseCase, emailVerifier usecase.Email
 	}
 }
 
-// Get retrieves the authenticated user's profile using their JWT identity.
-func (h *UserHandler) Get(ctx context.Context, _ *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
-	// Extract user identity from JWT context.
+// Get retrieves the authenticated user's profile.
+//
+// The request-supplied user_id is verified against the JWT-derived userID;
+// mismatches are rejected with PERMISSION_DENIED per the rpc-auth-scoping
+// convention.
+func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Resolve the user by their external identity provider ID (JWT sub claim).
 	user, err := h.userUseCase.GetByExternalID(ctx, externalID)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := mapper.RequireUserIDMatch(user.ID, req.Msg.GetUserId().GetValue()); err != nil {
 		return nil, err
 	}
 
@@ -86,20 +92,26 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 }
 
 // UpdateHome sets or changes the authenticated user's home area.
+//
+// The request-supplied user_id is verified against the JWT-derived userID;
+// mismatches are rejected with PERMISSION_DENIED per the rpc-auth-scoping
+// convention.
 func (h *UserHandler) UpdateHome(ctx context.Context, req *connect.Request[userv1.UpdateHomeRequest]) (*connect.Response[userv1.UpdateHomeResponse], error) {
-	// Extract user identity from JWT context.
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
 	user, err := h.userUseCase.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
 
-	home := mapper.ProtoHomeToEntity(req.Msg.Home)
+	if err := mapper.RequireUserIDMatch(user.ID, req.Msg.GetUserId().GetValue()); err != nil {
+		return nil, err
+	}
+
+	home := mapper.ProtoHomeToEntity(req.Msg.GetHome())
 	updatedUser, err := h.userUseCase.UpdateHome(ctx, user.ID, home)
 	if err != nil {
 		return nil, err
@@ -112,6 +124,10 @@ func (h *UserHandler) UpdateHome(ctx context.Context, req *connect.Request[userv
 
 // ResendEmailVerification triggers a new email verification message for the
 // authenticated user via the Zitadel API.
+//
+// The request-supplied user_id is verified against the JWT-derived userID;
+// mismatches are rejected with PERMISSION_DENIED before any Zitadel API call
+// is made, per the rpc-auth-scoping convention.
 func (h *UserHandler) ResendEmailVerification(ctx context.Context, req *connect.Request[userv1.ResendEmailVerificationRequest]) (*connect.Response[userv1.ResendEmailVerificationResponse], error) {
 	if h.emailVerifier == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("email verification service is not configured"))
@@ -119,6 +135,15 @@ func (h *UserHandler) ResendEmailVerification(ctx context.Context, req *connect.
 
 	claims, err := mapper.GetClaimsFromContext(ctx)
 	if err != nil {
+		return nil, err
+	}
+
+	user, err := h.userUseCase.GetByExternalID(ctx, claims.Sub)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := mapper.RequireUserIDMatch(user.ID, req.Msg.GetUserId().GetValue()); err != nil {
 		return nil, err
 	}
 
