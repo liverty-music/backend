@@ -163,6 +163,57 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.Nil(t, result)
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
+
+	t.Run("idempotent — duplicate external_id returns existing user", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		params := &entity.NewUser{
+			ExternalID: "ext-existing",
+			Email:      "existing@example.com",
+			Name:       "Existing User",
+		}
+		existingUser := &entity.User{
+			ID:         "user-existing-1",
+			ExternalID: "ext-existing",
+			Email:      "existing@example.com",
+			Name:       "Existing User",
+		}
+
+		d.repo.EXPECT().Create(ctx, params).
+			Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
+		d.repo.EXPECT().GetByExternalID(ctx, "ext-existing").
+			Return(existingUser, nil).Once()
+
+		result, err := d.uc.Create(ctx, params)
+
+		assert.NoError(t, err)
+		assert.Equal(t, existingUser, result)
+	})
+
+	t.Run("duplicate email with different external_id surfaces AlreadyExists", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		params := &entity.NewUser{
+			ExternalID: "ext-new-caller",
+			Email:      "taken@example.com",
+			Name:       "New Caller",
+		}
+
+		d.repo.EXPECT().Create(ctx, params).
+			Return(nil, apperr.New(codes.AlreadyExists, "duplicate email")).Once()
+		// GetByExternalID returns NotFound because the caller's external_id is not
+		// the conflicting column — the email was claimed by a different identity.
+		d.repo.EXPECT().GetByExternalID(ctx, "ext-new-caller").
+			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+
+		result, err := d.uc.Create(ctx, params)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+	})
 }
 
 func TestUserUseCase_GetUser(t *testing.T) {

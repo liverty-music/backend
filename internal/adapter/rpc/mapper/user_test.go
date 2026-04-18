@@ -74,3 +74,51 @@ func TestGetExternalUserID(t *testing.T) {
 		})
 	}
 }
+
+func TestRequireUserIDMatch(t *testing.T) {
+	t.Parallel()
+
+	const callerUserID = "11111111-1111-1111-1111-111111111111"
+
+	tests := []struct {
+		name      string
+		reqUserID string
+		wantErr   bool
+		wantCode  connect.Code
+	}{
+		{
+			name:      "matching user_id passes",
+			reqUserID: callerUserID,
+			wantErr:   false,
+		},
+		{
+			name:      "mismatched user_id returns PermissionDenied",
+			reqUserID: "22222222-2222-2222-2222-222222222222",
+			wantErr:   true,
+			wantCode:  connect.CodePermissionDenied,
+		},
+		{
+			name:      "empty user_id returns InvalidArgument",
+			reqUserID: "",
+			wantErr:   true,
+			wantCode:  connect.CodeInvalidArgument,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := mapper.RequireUserIDMatch(callerUserID, tt.reqUserID)
+
+			if !tt.wantErr {
+				assert.NoError(t, err)
+				return
+			}
+			assert.Error(t, err)
+			var connectErr *connect.Error
+			assert.ErrorAs(t, err, &connectErr)
+			assert.Equal(t, tt.wantCode, connectErr.Code())
+		})
+	}
+}
