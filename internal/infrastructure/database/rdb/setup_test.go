@@ -38,7 +38,7 @@ func TestMain(m *testing.M) {
 func setupTestDatabase() *rdb.Database {
 	dbCfg := config.DatabaseConfig{
 		Host:              "localhost",
-		Port:              5432,
+		Port:              15432,
 		Name:              "test-db",
 		User:              "test-user",
 		SSLMode:           "disable",
