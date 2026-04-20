@@ -56,7 +56,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
         ports:
-          - 5432:5432
+          - 15432:5432
 
     steps:
       - uses: actions/checkout@v4
@@ -76,7 +76,7 @@ jobs:
         uses: ariga/setup-atlas@v0
 
       - name: Apply database migrations
-        run: atlas migrate apply --url "postgres://test-user@localhost:5432/test-db?sslmode=disable" --dir "file://k8s/atlas/base/migrations"
+        run: atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable" --dir "file://k8s/atlas/base/migrations"
 
       - name: Run integration tests
         run: make test-integration GOTEST_FLAGS="-v -coverprofile=coverage.out -covermode=atomic"
@@ -216,7 +216,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
         ports:
-          - 5432:5432
+          - 15432:5432
 
     steps:
       - uses: actions/checkout@v4
@@ -233,7 +233,7 @@ jobs:
         uses: ariga/setup-atlas@v0
 
       - name: Apply database migrations
-        run: atlas migrate apply --url "postgres://test-user@localhost:5432/test-db?sslmode=disable" --dir "file://k8s/atlas/base/migrations"
+        run: atlas migrate apply --url "postgres://test-user@localhost:15432/test-db?sslmode=disable" --dir "file://k8s/atlas/base/migrations"
 
       - name: Run benchmarks
         run: go test -bench=. -benchmem -run=^$ ./...
