@@ -40,6 +40,7 @@ func TestTicketHandler_MintTicket(t *testing.T) {
 			ctx:  ticketAuthedCtx("ext-user-1"),
 			req: &ticketv1.MintTicketRequest{
 				EventId: &entityv1.EventId{Value: "event-123"},
+				UserId:  &entityv1.UserId{Value: "user-uuid-1"},
 			},
 			setup: func(uc *ucmocks.MockTicketUseCase, ur *mocks.MockUserRepository) {
 				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
@@ -57,6 +58,37 @@ func TestTicketHandler_MintTicket(t *testing.T) {
 				}, nil)
 			},
 			wantErr: false,
+		},
+		{
+			name: "permission_denied - user_id mismatch",
+			ctx:  ticketAuthedCtx("ext-user-1"),
+			req: &ticketv1.MintTicketRequest{
+				EventId: &entityv1.EventId{Value: "event-123"},
+				UserId:  &entityv1.UserId{Value: "other-user-uuid"},
+			},
+			setup: func(_ *ucmocks.MockTicketUseCase, ur *mocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "ext-user-1",
+				}, nil)
+			},
+			wantCode: connect.CodePermissionDenied,
+			wantErr:  true,
+		},
+		{
+			name: "invalid_argument - missing user_id",
+			ctx:  ticketAuthedCtx("ext-user-1"),
+			req: &ticketv1.MintTicketRequest{
+				EventId: &entityv1.EventId{Value: "event-123"},
+			},
+			setup: func(_ *ucmocks.MockTicketUseCase, ur *mocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "ext-user-1",
+				}, nil)
+			},
+			wantCode: connect.CodeInvalidArgument,
+			wantErr:  true,
 		},
 		{
 			name:     "unauthenticated",
@@ -175,7 +207,9 @@ func TestTicketHandler_ListTickets(t *testing.T) {
 		{
 			name: "success with tickets",
 			ctx:  ticketAuthedCtx("ext-user-1"),
-			req:  &ticketv1.ListTicketsRequest{},
+			req: &ticketv1.ListTicketsRequest{
+				UserId: &entityv1.UserId{Value: "user-uuid-1"},
+			},
 			setup: func(uc *ucmocks.MockTicketUseCase, ur *mocks.MockUserRepository) {
 				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
 					ID:         "user-uuid-1",
@@ -188,6 +222,34 @@ func TestTicketHandler_ListTickets(t *testing.T) {
 			},
 			wantErr: false,
 			wantLen: 2,
+		},
+		{
+			name: "permission_denied - user_id mismatch",
+			ctx:  ticketAuthedCtx("ext-user-1"),
+			req: &ticketv1.ListTicketsRequest{
+				UserId: &entityv1.UserId{Value: "other-user-uuid"},
+			},
+			setup: func(_ *ucmocks.MockTicketUseCase, ur *mocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "ext-user-1",
+				}, nil)
+			},
+			wantCode: connect.CodePermissionDenied,
+			wantErr:  true,
+		},
+		{
+			name: "invalid_argument - missing user_id",
+			ctx:  ticketAuthedCtx("ext-user-1"),
+			req:  &ticketv1.ListTicketsRequest{},
+			setup: func(_ *ucmocks.MockTicketUseCase, ur *mocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "ext-user-1",
+				}, nil)
+			},
+			wantCode: connect.CodeInvalidArgument,
+			wantErr:  true,
 		},
 		{
 			name:     "unauthenticated",
