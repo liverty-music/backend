@@ -116,6 +116,7 @@ func TestEntryHandler_GetMerklePath(t *testing.T) {
 			ctx:  entryAuthedCtx("ext-user-1"),
 			req: &entryv1.GetMerklePathRequest{
 				EventId: &entityv1.EventId{Value: "event-1"},
+				UserId:  &entityv1.UserId{Value: "user-uuid-1"},
 			},
 			setup: func(uc *ucmocks.MockEntryUseCase, ur *mocks.MockUserRepository) {
 				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
@@ -130,6 +131,37 @@ func TestEntryHandler_GetMerklePath(t *testing.T) {
 				}, nil)
 			},
 			wantErr: false,
+		},
+		{
+			name: "permission_denied - user_id mismatch",
+			ctx:  entryAuthedCtx("ext-user-1"),
+			req: &entryv1.GetMerklePathRequest{
+				EventId: &entityv1.EventId{Value: "event-1"},
+				UserId:  &entityv1.UserId{Value: "other-user-uuid"},
+			},
+			setup: func(_ *ucmocks.MockEntryUseCase, ur *mocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "ext-user-1",
+				}, nil)
+			},
+			wantCode: connect.CodePermissionDenied,
+			wantErr:  true,
+		},
+		{
+			name: "invalid_argument - missing user_id",
+			ctx:  entryAuthedCtx("ext-user-1"),
+			req: &entryv1.GetMerklePathRequest{
+				EventId: &entityv1.EventId{Value: "event-1"},
+			},
+			setup: func(_ *ucmocks.MockEntryUseCase, ur *mocks.MockUserRepository) {
+				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
+					ID:         "user-uuid-1",
+					ExternalID: "ext-user-1",
+				}, nil)
+			},
+			wantCode: connect.CodeInvalidArgument,
+			wantErr:  true,
 		},
 		{
 			name:     "unauthenticated",

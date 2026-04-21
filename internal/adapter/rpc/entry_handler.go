@@ -62,13 +62,14 @@ func (h *EntryHandler) VerifyEntry(
 }
 
 // GetMerklePath retrieves the Merkle path for a user at an event.
+//
+// The request-supplied user_id is verified against the JWT-derived userID;
+// mismatches are rejected with PERMISSION_DENIED per the rpc-auth-scoping
+// convention.
 func (h *EntryHandler) GetMerklePath(
 	ctx context.Context,
 	req *connect.Request[entryv1.GetMerklePathRequest],
 ) (*connect.Response[entryv1.GetMerklePathResponse], error) {
-	// Resolve user ID from JWT claims for authorization safety.
-	// The request body user_id is intentionally ignored to prevent users from
-	// querying other users' Merkle paths.
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -76,6 +77,10 @@ func (h *EntryHandler) GetMerklePath(
 
 	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := mapper.RequireUserIDMatch(user.ID, req.Msg.GetUserId().GetValue()); err != nil {
 		return nil, err
 	}
 

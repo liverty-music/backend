@@ -35,6 +35,10 @@ func NewTicketHandler(ticketUseCase usecase.TicketUseCase, userRepo entity.UserR
 }
 
 // MintTicket mints a soulbound ticket for the authenticated user.
+//
+// The request-supplied user_id is verified against the JWT-derived userID;
+// mismatches are rejected with PERMISSION_DENIED per the rpc-auth-scoping
+// convention.
 func (h *TicketHandler) MintTicket(
 	ctx context.Context,
 	req *connect.Request[ticketv1.MintTicketRequest],
@@ -51,6 +55,10 @@ func (h *TicketHandler) MintTicket(
 	// not the identity-provider-specific external_id.
 	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := mapper.RequireUserIDMatch(user.ID, msg.GetUserId().GetValue()); err != nil {
 		return nil, err
 	}
 
@@ -96,10 +104,13 @@ func (h *TicketHandler) GetTicket(
 }
 
 // ListTickets retrieves all tickets for the authenticated user.
-// The user ID is resolved from the JWT claims for authorization safety.
+//
+// The request-supplied user_id is verified against the JWT-derived userID;
+// mismatches are rejected with PERMISSION_DENIED per the rpc-auth-scoping
+// convention.
 func (h *TicketHandler) ListTickets(
 	ctx context.Context,
-	_ *connect.Request[ticketv1.ListTicketsRequest],
+	req *connect.Request[ticketv1.ListTicketsRequest],
 ) (*connect.Response[ticketv1.ListTicketsResponse], error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
@@ -112,8 +123,10 @@ func (h *TicketHandler) ListTickets(
 		return nil, err
 	}
 
-	// Use the authenticated user's internal ID from the resolved user record,
-	// not the request body, to prevent users from listing other users' tickets.
+	if err := mapper.RequireUserIDMatch(user.ID, req.Msg.GetUserId().GetValue()); err != nil {
+		return nil, err
+	}
+
 	tickets, err := h.ticketUseCase.ListTicketsForUser(ctx, user.ID)
 	if err != nil {
 		return nil, err
