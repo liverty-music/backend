@@ -22,6 +22,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
+	"github.com/liverty-music/backend/internal/adapter/webhook"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/blockchain/safe"
@@ -341,10 +342,27 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, longTimeoutHandlers, handlers...)
 
+	// Zitadel Actions v2 webhook listener — runs on a separate port so the
+	// webhook paths are unreachable via the public GKE Gateway. Validators
+	// share the JWKS cache with `jwtValidator` so there is exactly one
+	// refresh goroutine for all JWT verification.
+	preAccessTokenHandler := webhook.NewPreAccessTokenHandler(
+		jwtValidator.NewWebhookValidator(cfg.Webhook.PreAccessTokenAudience),
+		logger,
+	)
+	autoVerifyEmailHandler := webhook.NewAutoVerifyEmailHandler(
+		jwtValidator.NewWebhookValidator(cfg.Webhook.AutoVerifyEmailAudience),
+		logger,
+	)
+	webhookSrv := server.NewWebhookServer(cfg.Webhook, logger, map[string]http.Handler{
+		"/pre-access-token":  preAccessTokenHandler,
+		"/auto-verify-email": autoVerifyEmailHandler,
+	})
+
 	// Register shutdown phases.
-	// Drain: health → NOT_SERVING, then server drains in-flight requests,
+	// Drain: health → NOT_SERVING, then servers drain in-flight requests,
 	// then cache cleanup goroutine stops.
-	shutdown.AddDrainPhase(healthChecker, srv, rateLimiter, artistCache)
+	shutdown.AddDrainPhase(healthChecker, srv, webhookSrv, rateLimiter, artistCache)
 	shutdown.AddFlushPhase(publisher)
 	externalClosers := []io.Closer{lastfmClient, musicbrainzClient}
 	if sbtCloser != nil {
@@ -356,6 +374,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	return &App{
 		Server:          srv,
+		WebhookServer:   webhookSrv,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,
 	}, nil

@@ -8,6 +8,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// validWebhookSettings returns a WebhookSettings that passes Validate.
+// Port is 9090 (distinct from the default server port of 8080) and both
+// audiences are the production defaults.
+func validWebhookSettings() WebhookSettings {
+	return WebhookSettings{
+		Port:                    9090,
+		PreAccessTokenAudience:  "urn:liverty-music:webhook:pre-access-token",
+		AutoVerifyEmailAudience: "urn:liverty-music:webhook:auto-verify-email",
+	}
+}
+
 func TestLoad_ServerConfig(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -64,6 +75,15 @@ func TestLoad_ServerConfig(t *testing.T) {
 					IdleTimeout:           3 * time.Second,
 					AllowedOrigins:        nil,
 					RateLimit:             RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
+				},
+				Webhook: WebhookSettings{
+					Port:                    9090,
+					Host:                    "0.0.0.0",
+					ReadHeaderTimeout:       500 * time.Millisecond,
+					ReadTimeout:             5 * time.Second,
+					IdleTimeout:             30 * time.Second,
+					PreAccessTokenAudience:  "urn:liverty-music:webhook:pre-access-token",
+					AutoVerifyEmailAudience: "urn:liverty-music:webhook:auto-verify-email",
 				},
 				GCP: GCPConfig{
 					ProjectID:               "test-project",
@@ -148,6 +168,15 @@ func TestLoad_ServerConfig(t *testing.T) {
 					AllowedOrigins:        nil,
 					RateLimit:             RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
 				},
+				Webhook: WebhookSettings{
+					Port:                    9090,
+					Host:                    "0.0.0.0",
+					ReadHeaderTimeout:       500 * time.Millisecond,
+					ReadTimeout:             5 * time.Second,
+					IdleTimeout:             30 * time.Second,
+					PreAccessTokenAudience:  "urn:liverty-music:webhook:pre-access-token",
+					AutoVerifyEmailAudience: "urn:liverty-music:webhook:auto-verify-email",
+				},
 				GCP: GCPConfig{
 					ProjectID:               "custom-project",
 					Location:                "us-central1",
@@ -230,8 +259,9 @@ func TestServerConfig_Validate(t *testing.T) {
 					},
 					Logging: LoggingConfig{Level: "info", Format: "json"},
 				},
-				Server: ServerSettings{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
-				NATS:   NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
+				Server:  ServerSettings{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
+				Webhook: validWebhookSettings(),
+				NATS:    NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
@@ -297,7 +327,8 @@ func TestServerConfig_Validate(t *testing.T) {
 					Database:    DatabaseConfig{Port: 5432},
 					Logging:     LoggingConfig{Level: "info", Format: "json"},
 				},
-				Server: ServerSettings{Port: 8080},
+				Server:  ServerSettings{Port: 8080},
+				Webhook: validWebhookSettings(),
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,

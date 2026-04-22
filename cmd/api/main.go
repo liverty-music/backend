@@ -61,11 +61,20 @@ func run() error {
 		return err
 	}
 
-	// Start server in a goroutine
-	errChan := make(chan error, 1)
+	// Start both the Connect-RPC server and the Zitadel webhook listener in
+	// separate goroutines. The webhook listener runs on a distinct port
+	// (default 9090) that is only exposed by the internal-only
+	// `server-webhook-svc` Service — not by the public Gateway.
+	errChan := make(chan error, 2)
 
 	go func() {
 		if err := app.Server.Start(); err != nil {
+			errChan <- err
+		}
+	}()
+
+	go func() {
+		if err := app.WebhookServer.Start(); err != nil {
 			errChan <- err
 		}
 	}()
