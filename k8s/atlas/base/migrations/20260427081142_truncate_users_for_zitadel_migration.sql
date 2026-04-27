@@ -1,0 +1,40 @@
+-- Wipe user-scoped data ahead of cutting the dev OIDC issuer over from
+-- Zitadel Cloud (`dev-svijfm.us1.zitadel.cloud`) to the self-hosted Zitadel
+-- instance (`auth.dev.liverty-music.app`).
+--
+-- The new instance assigns Zitadel-internal `sub` claims that have no
+-- relation to the Cloud tenant's IDs, so any existing `users` row whose
+-- `external_id` points at a Cloud-tenant `sub` would orphan: the same human
+-- logging in via the new instance would be issued a different `sub` and
+-- therefore appear as a different user, while the original row would remain
+-- forever unmapped. Rather than rewrite identifiers (which has no source of
+-- truth that maps Cloud `sub` ↔ self-hosted `sub`), the OpenSpec
+-- `self-hosted-zitadel` change explicitly accepts dropping all dev users
+-- and their dependent rows. See OpenSpec D9 for the full rationale.
+--
+-- TRUNCATE on `users` cascades through every FK with `ON DELETE CASCADE`:
+--
+--     users
+--      ├── followed_artists  (user_id)
+--      ├── tickets           (user_id)
+--      ├── ticket_journeys   (user_id)
+--      ├── ticket_emails     (user_id)
+--      └── push_subscriptions(user_id)
+--
+-- Event-level tables (`merkle_tree`, `nullifiers`) and the `homes` lookup
+-- table are intentionally NOT truncated:
+--
+--   - `merkle_tree` / `nullifiers` are keyed by `event_id`. Surviving rows
+--     are inert lookup data; they don't reference users directly and
+--     remain valid for any future ticket minted against the same event.
+--   - `homes` is a dimension table of geographic regions, referenced by
+--     users via `home_id` (not the other way round). Its rows are
+--     reusable across users; truncating them would force re-resolution
+--     of every region centroid post-cutover for no benefit.
+--
+-- This migration is reversible only as a no-op — an empty table cannot
+-- have its rows restored. Rollback of the broader Zitadel cutover
+-- (revert PR cloud-provisioning#209 + revert frontend GH secrets) leaves
+-- these tables empty; existing dev users do not return.
+
+TRUNCATE TABLE users CASCADE;
