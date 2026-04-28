@@ -1,4 +1,4 @@
-h1:P3U7EvBOMU9e+5aycwCWpbEpEG+xV8Kgb4RefxZsDoY=
+h1:TXGfPw6Ol1E/AF9MwMS5E84WS3aEyKFnKJdckAdOOgE=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -51,3 +51,4 @@ h1:P3U7EvBOMU9e+5aycwCWpbEpEG+xV8Kgb4RefxZsDoY=
 20260319120000_create_ticket_emails.sql h1:6lgvs8T5Gtr+Sjo5kjVZXJ33uwvAkiDRKZdjXMbUttg=
 20260324120000_consolidate_ticket_email_status.sql h1:BL0f7xaE4MXzF6H29RJ25sAkcr2pS3g3edRlv7zEy50=
 20260406120000_add_venue_listed_name_index.sql h1:Ufe7vfOM9zLLK9hixGFJrgCr+u7FNeId7s1I9hv2wNU=
+20260427081142_truncate_users_for_zitadel_migration.sql h1:E4C/6gWXCrFqaXPT/kZ+12+or3iIWrITtLGIRHKj9vI=
