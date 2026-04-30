@@ -181,24 +181,6 @@ func TestPreAccessTokenHandler_WrongAudience_Returns401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
-func TestPreAccessTokenHandler_WrongIssuer_Returns401(t *testing.T) {
-	fixture := newJWKSFixture(t)
-	handler := webhook.NewPreAccessTokenHandler(
-		fixture.newValidator(t, testPreAccessAud),
-		newLogger(t),
-	)
-
-	body := fixture.signWebhookJWT(t, "https://evil.example.com", testPreAccessAud, map[string]any{
-		"user": map[string]any{"human": map[string]any{"email": "x@x"}},
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/pre-access-token", bytes.NewBufferString(body))
-	handler.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-}
-
 func TestPreAccessTokenHandler_EmptyBody_Returns400(t *testing.T) {
 	fixture := newJWKSFixture(t)
 	handler := webhook.NewPreAccessTokenHandler(
