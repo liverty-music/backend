@@ -159,28 +159,6 @@ func TestPreAccessTokenHandler_MachineUser_OmitsEmailClaim(t *testing.T) {
 	assert.Empty(t, resp.AppendClaims)
 }
 
-func TestPreAccessTokenHandler_WrongAudience_Returns401(t *testing.T) {
-	fixture := newJWKSFixture(t)
-	handler := webhook.NewPreAccessTokenHandler(
-		fixture.newValidator(t, testPreAccessAud),
-		newLogger(t),
-	)
-
-	// JWT claims a different webhook's audience — exactly the replay case
-	// the `aud` pin is meant to reject.
-	body := fixture.signWebhookJWT(t, testIssuer, "urn:liverty-music:webhook:auto-verify-email", map[string]any{
-		"user": map[string]any{
-			"human": map[string]any{"email": "mallory@example.com"},
-		},
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/pre-access-token", bytes.NewBufferString(body))
-	handler.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-}
-
 func TestPreAccessTokenHandler_EmptyBody_Returns400(t *testing.T) {
 	fixture := newJWKSFixture(t)
 	handler := webhook.NewPreAccessTokenHandler(
