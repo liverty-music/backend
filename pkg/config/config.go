@@ -66,6 +66,11 @@ type ServerConfig struct {
 	// Server settings (port, host, timeouts, CORS)
 	Server ServerSettings `envconfig:""`
 
+	// Webhook settings — dedicated listener for Zitadel Actions v2 webhooks.
+	// Runs on a separate port from the public Connect-RPC server so the
+	// webhook paths are physically unreachable via the GKE Gateway.
+	Webhook WebhookSettings `envconfig:""`
+
 	// JWT configuration
 	JWT JWTConfig `envconfig:""`
 
@@ -345,6 +350,41 @@ type JWTConfig struct {
 	JWKSRefreshInterval time.Duration `envconfig:"JWKS_REFRESH_INTERVAL" default:"15m"`
 }
 
+// WebhookSettings is the HTTP server configuration for the Zitadel Actions v2
+// webhook listener. It runs on a separate port and Service (`server-webhook-svc`)
+// from the public Connect-RPC server so the webhook paths are physically
+// absent from the GKE Gateway / `server-svc` HTTPRoute.
+//
+// `PreAccessTokenAudience` and `AutoVerifyEmailAudience` pin the `aud` claim
+// each handler's WebhookValidator requires. They MUST match the values
+// registered on the corresponding Zitadel Targets in Pulumi, otherwise every
+// webhook call fails 401 (signature OK, audience mismatch).
+type WebhookSettings struct {
+	// Port to listen on for webhook traffic.
+	Port int `envconfig:"WEBHOOK_PORT" default:"9090"`
+
+	// Host to bind to.
+	Host string `envconfig:"WEBHOOK_HOST" default:"0.0.0.0"`
+
+	// Read header timeout.
+	ReadHeaderTimeout time.Duration `envconfig:"WEBHOOK_READ_HEADER_TIMEOUT" default:"500ms"`
+
+	// Read timeout.
+	ReadTimeout time.Duration `envconfig:"WEBHOOK_READ_TIMEOUT" default:"5s"`
+
+	// Idle timeout.
+	IdleTimeout time.Duration `envconfig:"WEBHOOK_IDLE_TIMEOUT" default:"30s"`
+
+	// PreAccessTokenAudience is the expected `aud` claim for webhook JWTs
+	// delivered to `POST /pre-access-token`. Must match the audience
+	// registered on the corresponding Zitadel Target.
+	PreAccessTokenAudience string `envconfig:"WEBHOOK_PRE_ACCESS_TOKEN_AUDIENCE" default:"urn:liverty-music:webhook:pre-access-token"`
+
+	// AutoVerifyEmailAudience is the expected `aud` claim for webhook JWTs
+	// delivered to `POST /auto-verify-email`.
+	AutoVerifyEmailAudience string `envconfig:"WEBHOOK_AUTO_VERIFY_EMAIL_AUDIENCE" default:"urn:liverty-music:webhook:auto-verify-email"`
+}
+
 // Loadable constrains the config types that can be loaded from environment variables.
 type Loadable interface {
 	ServerConfig | JobConfig | ConsumerConfig
@@ -429,6 +469,22 @@ func (c *ServerConfig) Validate() error {
 
 	if c.JWT.JWKSRefreshInterval <= 0 {
 		return fmt.Errorf("JWT JWKS refresh interval must be positive")
+	}
+
+	if c.Webhook.Port <= 0 || c.Webhook.Port > 65535 {
+		return fmt.Errorf("invalid webhook port: %d", c.Webhook.Port)
+	}
+
+	if c.Webhook.Port == c.Server.Port {
+		return fmt.Errorf("webhook port %d must differ from server port to keep webhook listener off the public Gateway", c.Webhook.Port)
+	}
+
+	if c.Webhook.PreAccessTokenAudience == "" {
+		return fmt.Errorf("webhook pre-access-token audience is required")
+	}
+
+	if c.Webhook.AutoVerifyEmailAudience == "" {
+		return fmt.Errorf("webhook auto-verify-email audience is required")
 	}
 
 	return nil
