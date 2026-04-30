@@ -45,25 +45,6 @@ func TestAutoVerifyEmailHandler_ValidJWT_ReturnsVerifiedTrue(t *testing.T) {
 	assert.True(t, resp.Email.IsVerified)
 }
 
-func TestAutoVerifyEmailHandler_WrongAudience_Returns401(t *testing.T) {
-	fixture := newJWKSFixture(t)
-	handler := webhook.NewAutoVerifyEmailHandler(
-		fixture.newValidator(t, testAutoVerifyAud),
-		newLogger(t),
-	)
-
-	// Re-use the pre-access-token audience — should be rejected.
-	body := fixture.signWebhookJWT(t, testIssuer, testPreAccessAud, map[string]any{
-		"request": map[string]any{"email": map[string]any{"address": "x@x"}},
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/auto-verify-email", bytes.NewBufferString(body))
-	handler.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
-}
-
 func TestAutoVerifyEmailHandler_EmptyBody_Returns400(t *testing.T) {
 	fixture := newJWKSFixture(t)
 	handler := webhook.NewAutoVerifyEmailHandler(

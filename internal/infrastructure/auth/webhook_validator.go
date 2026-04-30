@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
@@ -11,52 +10,60 @@ import (
 
 // WebhookValidator validates Zitadel Actions v2 webhook JWT bodies.
 //
-// Webhook JWTs are signed by the same Zitadel JWKS that signs end-user
-// access tokens, so signature verification alone proves the JWT
-// originated from our Zitadel instance (only Zitadel holds the private
-// key). The decisive boundary that distinguishes a webhook payload from
-// a user-facing access token is `expectedAudience` — each webhook
-// Target is registered with a distinct `aud` value (e.g.
-// `urn:liverty-music:webhook:pre-access-token`), and the validator
-// rejects any JWT whose audience list does not include that value.
+// Empirically, Zitadel v4 webhook JWTs (`PAYLOAD_TYPE_JWT`) do not
+// populate the standard OIDC claims `iss` or `aud` — the previous
+// validator versions rejected every webhook call because both claims
+// came through empty. The signature is what proves authenticity:
+// webhooks are signed by the same Zitadel instance JWKS that signs
+// end-user access tokens, and only Zitadel holds the corresponding
+// private keys. Thus signature verification (via the shared JWKS
+// cache) is the security boundary.
 //
-// `iss` is intentionally NOT enforced. Empirically, Zitadel v4 webhook
-// JWTs do not include an `iss` claim (or include it as an empty
-// string), and the upstream community Go webhook implementation
-// (xianyu-one/zitadel-mapping) also relies on signature + custom
-// validation without checking `iss`. Adding an issuer check here is
-// redundant once signature verification has succeeded — there is no
-// other Zitadel instance that could have signed a token verifiable
-// against our JWKS.
+// Replay risk is mitigated by:
+//   - Network isolation: the webhook listener is a private :9090
+//     ClusterIP service, not exposed externally.
+//   - Per-handler payload-shape checks: each webhook handler decodes
+//     application-specific claims (e.g. `request.email.address` for
+//     auto-verify-email vs. `user.human.email` for pre-access-token);
+//     a JWT minted for a different webhook would fail the handler's
+//     payload-shape expectations.
+//
+// As Zitadel matures the webhook JWT contract, we may re-introduce
+// `iss` / `aud` enforcement and/or migrate to per-Target HMAC
+// signing-key verification. Until then, signature + network isolation
+// is the documented contract.
 //
 // The JWKS cache is shared with the end-user JWTValidator rather than
 // duplicated, so there is exactly one refresh goroutine per instance.
 type WebhookValidator struct {
-	jwks             *jwk.Cache
-	jwksURL          string
-	expectedAudience string
+	jwks    *jwk.Cache
+	jwksURL string
 }
 
-// NewWebhookValidator returns a validator that shares the receiver's JWKS
-// cache but pins `expectedAudience` (the `aud` claim) to distinguish
-// webhook JWTs from end-user access tokens.
-func (v *JWTValidator) NewWebhookValidator(expectedAudience string) *WebhookValidator {
+// NewWebhookValidator returns a validator that shares the receiver's
+// JWKS cache. No additional configuration is required because Zitadel
+// v4 webhook JWTs do not carry `iss`/`aud` claims that we could pin.
+//
+// The `_ string` parameter is preserved for API compatibility with the
+// previous `expectedAudience`-taking signature; callers can pass the
+// audience-shaped identifier (e.g. "urn:liverty-music:webhook:...")
+// for documentation purposes, but it is not enforced.
+func (v *JWTValidator) NewWebhookValidator(_ string) *WebhookValidator {
 	return &WebhookValidator{
-		jwks:             v.jwks,
-		jwksURL:          v.jwksURL,
-		expectedAudience: expectedAudience,
+		jwks:    v.jwks,
+		jwksURL: v.jwksURL,
 	}
 }
 
-// ValidateWebhookToken verifies the JWT string and returns the parsed
-// token (claims included). Unlike end-user access-token validation,
-// `sub`, `email`, `name`, and `iss` claims are not required — webhook
-// payload user data is extracted from application-specific private
-// claims by the caller.
+// ValidateWebhookToken verifies the JWT signature against the JWKS and
+// returns the parsed token (claims included). Unlike end-user
+// access-token validation, no standard OIDC claims (`iss`, `aud`,
+// `sub`, `email`, `name`) are required — webhook payload data is
+// extracted from application-specific private claims by the caller.
 //
-// The validator enforces: signature (via JWKS), expiry not past, and
-// audience matches `expectedAudience`. See the type-level doc comment
-// for why `iss` is intentionally not enforced.
+// The validator enforces only: signature (via JWKS) and expiry not
+// past (via `jwt.WithValidate(true)`). See the type-level doc comment
+// for why `iss` and `aud` are intentionally not enforced.
 func (v *WebhookValidator) ValidateWebhookToken(
 	ctx context.Context,
 	tokenString string,
@@ -73,10 +80,6 @@ func (v *WebhookValidator) ValidateWebhookToken(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate webhook token: %w", err)
-	}
-
-	if !slices.Contains(token.Audience(), v.expectedAudience) {
-		return nil, fmt.Errorf("webhook token audience %v does not contain expected %q", token.Audience(), v.expectedAudience)
 	}
 
 	return token, nil
