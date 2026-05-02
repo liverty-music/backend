@@ -37,8 +37,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/vocdoni/circom2gnark v1.0.0
 	github.com/voi-oss/watermill-opentelemetry v0.1.3
-	github.com/zitadel/oidc/v3 v3.45.1
-	github.com/zitadel/zitadel-go/v3 v3.26.1
+	github.com/zitadel/oidc/v3 v3.45.5
+	github.com/zitadel/zitadel-go/v3 v3.29.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.67.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
 	go.opentelemetry.io/otel v1.42.0
@@ -52,7 +52,7 @@ require (
 	golang.org/x/time v0.15.0
 	google.golang.org/genai v1.44.0
 	google.golang.org/genproto v0.0.0-20260316180232-0b37fe3546d5
-	google.golang.org/grpc v1.79.2
+	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -106,23 +106,23 @@ require (
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/envoyproxy/protoc-gen-validate v1.3.0 // indirect
+	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.5 // indirect
 	github.com/fatih/structs v1.1.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/go-chi/chi/v5 v5.2.3 // indirect
+	github.com/go-chi/chi/v5 v5.2.5 // indirect
 	github.com/go-delve/delve v1.26.0 // indirect
 	github.com/go-delve/liner v1.2.3-0.20231231155935-4726ab1d7f62 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.4 // indirect
 	github.com/gofrs/flock v0.12.1 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/cel-go v0.26.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
@@ -186,7 +186,7 @@ require (
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/segmentio/encoding v0.5.3 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/sony/gobreaker v1.0.0 // indirect
 	github.com/spf13/cobra v1.10.1 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
@@ -202,8 +202,8 @@ require (
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
-	github.com/zitadel/logging v0.6.2 // indirect
-	github.com/zitadel/schema v1.3.1 // indirect
+	github.com/zitadel/logging v0.7.0 // indirect
+	github.com/zitadel/schema v1.3.2 // indirect
 	go.lsp.dev/jsonrpc2 v0.10.0 // indirect
 	go.lsp.dev/pkg v0.0.0-20210717090340-384b27a52fb2 // indirect
 	go.lsp.dev/protocol v0.12.0 // indirect
