@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
+	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
@@ -20,15 +21,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// stubUserServiceServer implements only the two email code methods under test.
-// All other UserServiceServer methods return Unimplemented via the embedded type.
+// stubUserServiceServer implements only the v2 UserService method used by
+// SendVerification. All other methods return Unimplemented via the embedded
+// type.
 type stubUserServiceServer struct {
 	userpb.UnimplementedUserServiceServer
-	sendErr   error
-	resendErr error
+	sendErr error
 
-	lastSendUserID   string
-	lastResendUserID string
+	lastSendUserID string
 }
 
 func (s *stubUserServiceServer) SendEmailCode(_ context.Context, in *userpb.SendEmailCodeRequest) (*userpb.SendEmailCodeResponse, error) {
@@ -39,23 +39,41 @@ func (s *stubUserServiceServer) SendEmailCode(_ context.Context, in *userpb.Send
 	return &userpb.SendEmailCodeResponse{}, nil
 }
 
-func (s *stubUserServiceServer) ResendEmailCode(_ context.Context, in *userpb.ResendEmailCodeRequest) (*userpb.ResendEmailCodeResponse, error) {
+// stubManagementServiceServer implements only the v1 Management method used
+// by ResendVerification. The post-cutover ResendVerification path uses v1
+// Management `ResendHumanEmailVerification` rather than v2
+// `ResendEmailCode` — see emailResendClient docstring in email_verifier.go.
+type stubManagementServiceServer struct {
+	mgmtpb.UnimplementedManagementServiceServer
+	resendErr error
+
+	lastResendUserID string
+}
+
+func (s *stubManagementServiceServer) ResendHumanEmailVerification(_ context.Context, in *mgmtpb.ResendHumanEmailVerificationRequest) (*mgmtpb.ResendHumanEmailVerificationResponse, error) {
 	s.lastResendUserID = in.UserId
 	if s.resendErr != nil {
 		return nil, s.resendErr
 	}
-	return &userpb.ResendEmailCodeResponse{}, nil
+	return &mgmtpb.ResendHumanEmailVerificationResponse{}, nil
 }
 
-// startUserServiceServer starts a real gRPC server on a random local port and
-// returns the "host:port" address, mirroring the pattern used in the Zitadel SDK
-// own tests (pkg/client/zitadel/client_test.go).
-func startUserServiceServer(t *testing.T, srv *stubUserServiceServer) string {
+// startZitadelStubServer starts a real gRPC server on a random local port
+// with both v2 UserService and v1 ManagementService registered, mirroring
+// the real Zitadel API surface. The same listener handles both because the
+// EmailVerifier shares one underlying connection between its two service
+// stubs.
+func startZitadelStubServer(t *testing.T, userSrv *stubUserServiceServer, mgmtSrv *stubManagementServiceServer) string {
 	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	s := grpc.NewServer()
-	userpb.RegisterUserServiceServer(s, srv)
+	if userSrv != nil {
+		userpb.RegisterUserServiceServer(s, userSrv)
+	}
+	if mgmtSrv != nil {
+		mgmtpb.RegisterManagementServiceServer(s, mgmtSrv)
+	}
 	go func() { _ = s.Serve(lis) }()
 	t.Cleanup(s.GracefulStop)
 	return lis.Addr().String()
@@ -129,7 +147,7 @@ func TestEmailVerifier_SendVerification(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			stub := &stubUserServiceServer{sendErr: tt.sendErr}
-			addr := startUserServiceServer(t, stub)
+			addr := startZitadelStubServer(t, stub, nil)
 			v, logBuf := newTestVerifier(t, addr)
 
 			err := v.SendVerification(context.Background(), tt.args.externalID)
@@ -165,7 +183,7 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 		resendErr error
 		wantErr   error
 		wantInLog string
-		check     func(t *testing.T, stub *stubUserServiceServer)
+		check     func(t *testing.T, stub *stubManagementServiceServer)
 	}{
 		{
 			name:      "success emits INFO log",
@@ -173,9 +191,24 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 			resendErr: nil,
 			wantErr:   nil,
 			wantInLog: "email verification resent",
-			check: func(t *testing.T, stub *stubUserServiceServer) {
+			check: func(t *testing.T, stub *stubManagementServiceServer) {
 				t.Helper()
 				assert.Equal(t, "user-123", stub.lastResendUserID)
+			},
+		},
+		{
+			// §13.16 incident path: user signed up while SMTP was inactive,
+			// so no verification code was ever generated. The v2 endpoint
+			// fails this case with `Code is empty (EMAIL-5w5ilin4yt)`; the
+			// v1 Management endpoint generates a fresh code and succeeds.
+			name:      "succeeds when no prior verification code exists (post-SMTP-inactive sign-up)",
+			args:      args{externalID: "user-no-prior-code"},
+			resendErr: nil,
+			wantErr:   nil,
+			wantInLog: "email verification resent",
+			check: func(t *testing.T, stub *stubManagementServiceServer) {
+				t.Helper()
+				assert.Equal(t, "user-no-prior-code", stub.lastResendUserID)
 			},
 		},
 		{
@@ -183,36 +216,36 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 			args:      args{externalID: "verified-user"},
 			resendErr: grpcstatus.Error(grpccodes.FailedPrecondition, "email already verified"),
 			wantErr:   apperr.ErrFailedPrecondition,
-			wantInLog: "failed to resend email code",
+			wantInLog: "failed to resend email verification",
 		},
 		{
 			name:      "gRPC unavailable emits ERROR log and wraps as internal",
 			args:      args{externalID: "user-456"},
 			resendErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
 			wantErr:   apperr.ErrInternal,
-			wantInLog: "failed to resend email code",
+			wantInLog: "failed to resend email verification",
 		},
 		{
 			name:      "gRPC internal emits ERROR log and wraps as internal",
 			args:      args{externalID: "user-789"},
 			resendErr: grpcstatus.Error(grpccodes.Internal, "something went wrong"),
 			wantErr:   apperr.ErrInternal,
-			wantInLog: "failed to resend email code",
+			wantInLog: "failed to resend email verification",
 		},
 		{
 			name:      "gRPC permission denied emits ERROR log and wraps as internal",
 			args:      args{externalID: "no-perms"},
 			resendErr: grpcstatus.Error(grpccodes.PermissionDenied, "insufficient permissions"),
 			wantErr:   apperr.ErrInternal,
-			wantInLog: "failed to resend email code",
+			wantInLog: "failed to resend email verification",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			stub := &stubUserServiceServer{resendErr: tt.resendErr}
-			addr := startUserServiceServer(t, stub)
+			stub := &stubManagementServiceServer{resendErr: tt.resendErr}
+			addr := startZitadelStubServer(t, nil, stub)
 			v, logBuf := newTestVerifier(t, addr)
 
 			err := v.ResendVerification(context.Background(), tt.args.externalID)
