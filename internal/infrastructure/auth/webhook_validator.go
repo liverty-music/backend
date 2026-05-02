@@ -23,10 +23,9 @@ import (
 //   - Network isolation: the webhook listener is a private :9090
 //     ClusterIP service, not exposed externally.
 //   - Per-handler payload-shape checks: each webhook handler decodes
-//     application-specific claims (e.g. `request.email.address` for
-//     auto-verify-email vs. `user.human.email` for pre-access-token);
-//     a JWT minted for a different webhook would fail the handler's
-//     payload-shape expectations.
+//     application-specific claims (e.g. `user.human.email` for
+//     pre-access-token); a JWT minted for a different webhook would
+//     fail the handler's payload-shape expectations.
 //
 // As Zitadel matures the webhook JWT contract, we may re-introduce
 // `iss` / `aud` enforcement and/or migrate to per-Target HMAC

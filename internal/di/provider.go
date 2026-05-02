@@ -350,13 +350,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		jwtValidator.NewWebhookValidator(cfg.Webhook.PreAccessTokenAudience),
 		logger,
 	)
-	autoVerifyEmailHandler := webhook.NewAutoVerifyEmailHandler(
-		jwtValidator.NewWebhookValidator(cfg.Webhook.AutoVerifyEmailAudience),
-		logger,
-	)
 	webhookSrv := server.NewWebhookServer(cfg.Webhook, logger, map[string]http.Handler{
-		"/pre-access-token":  preAccessTokenHandler,
-		"/auto-verify-email": autoVerifyEmailHandler,
+		"/pre-access-token": preAccessTokenHandler,
 	})
 
 	// Register shutdown phases.
