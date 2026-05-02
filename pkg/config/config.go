@@ -355,10 +355,10 @@ type JWTConfig struct {
 // from the public Connect-RPC server so the webhook paths are physically
 // absent from the GKE Gateway / `server-svc` HTTPRoute.
 //
-// `PreAccessTokenAudience` and `AutoVerifyEmailAudience` pin the `aud` claim
-// each handler's WebhookValidator requires. They MUST match the values
-// registered on the corresponding Zitadel Targets in Pulumi, otherwise every
-// webhook call fails 401 (signature OK, audience mismatch).
+// `PreAccessTokenAudience` pins the `aud` claim the handler's WebhookValidator
+// requires. It MUST match the value registered on the corresponding Zitadel
+// Target in Pulumi, otherwise every webhook call fails 401 (signature OK,
+// audience mismatch).
 type WebhookSettings struct {
 	// Port to listen on for webhook traffic.
 	Port int `envconfig:"WEBHOOK_PORT" default:"9090"`
@@ -379,10 +379,6 @@ type WebhookSettings struct {
 	// delivered to `POST /pre-access-token`. Must match the audience
 	// registered on the corresponding Zitadel Target.
 	PreAccessTokenAudience string `envconfig:"WEBHOOK_PRE_ACCESS_TOKEN_AUDIENCE" default:"urn:liverty-music:webhook:pre-access-token"`
-
-	// AutoVerifyEmailAudience is the expected `aud` claim for webhook JWTs
-	// delivered to `POST /auto-verify-email`.
-	AutoVerifyEmailAudience string `envconfig:"WEBHOOK_AUTO_VERIFY_EMAIL_AUDIENCE" default:"urn:liverty-music:webhook:auto-verify-email"`
 }
 
 // Loadable constrains the config types that can be loaded from environment variables.
@@ -481,10 +477,6 @@ func (c *ServerConfig) Validate() error {
 
 	if c.Webhook.PreAccessTokenAudience == "" {
 		return fmt.Errorf("webhook pre-access-token audience is required")
-	}
-
-	if c.Webhook.AutoVerifyEmailAudience == "" {
-		return fmt.Errorf("webhook auto-verify-email audience is required")
 	}
 
 	return nil

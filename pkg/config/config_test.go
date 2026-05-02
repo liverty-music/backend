@@ -9,13 +9,12 @@ import (
 )
 
 // validWebhookSettings returns a WebhookSettings that passes Validate.
-// Port is 9090 (distinct from the default server port of 8080) and both
-// audiences are the production defaults.
+// Port is 9090 (distinct from the default server port of 8080) and the
+// audience is the production default.
 func validWebhookSettings() WebhookSettings {
 	return WebhookSettings{
-		Port:                    9090,
-		PreAccessTokenAudience:  "urn:liverty-music:webhook:pre-access-token",
-		AutoVerifyEmailAudience: "urn:liverty-music:webhook:auto-verify-email",
+		Port:                   9090,
+		PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
 	}
 }
 
@@ -77,13 +76,12 @@ func TestLoad_ServerConfig(t *testing.T) {
 					RateLimit:             RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
 				},
 				Webhook: WebhookSettings{
-					Port:                    9090,
-					Host:                    "0.0.0.0",
-					ReadHeaderTimeout:       500 * time.Millisecond,
-					ReadTimeout:             5 * time.Second,
-					IdleTimeout:             30 * time.Second,
-					PreAccessTokenAudience:  "urn:liverty-music:webhook:pre-access-token",
-					AutoVerifyEmailAudience: "urn:liverty-music:webhook:auto-verify-email",
+					Port:                   9090,
+					Host:                   "0.0.0.0",
+					ReadHeaderTimeout:      500 * time.Millisecond,
+					ReadTimeout:            5 * time.Second,
+					IdleTimeout:            30 * time.Second,
+					PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
 				},
 				GCP: GCPConfig{
 					ProjectID:               "test-project",
@@ -169,13 +167,12 @@ func TestLoad_ServerConfig(t *testing.T) {
 					RateLimit:             RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
 				},
 				Webhook: WebhookSettings{
-					Port:                    9090,
-					Host:                    "0.0.0.0",
-					ReadHeaderTimeout:       500 * time.Millisecond,
-					ReadTimeout:             5 * time.Second,
-					IdleTimeout:             30 * time.Second,
-					PreAccessTokenAudience:  "urn:liverty-music:webhook:pre-access-token",
-					AutoVerifyEmailAudience: "urn:liverty-music:webhook:auto-verify-email",
+					Port:                   9090,
+					Host:                   "0.0.0.0",
+					ReadHeaderTimeout:      500 * time.Millisecond,
+					ReadTimeout:            5 * time.Second,
+					IdleTimeout:            30 * time.Second,
+					PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
 				},
 				GCP: GCPConfig{
 					ProjectID:               "custom-project",

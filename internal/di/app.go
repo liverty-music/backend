@@ -14,9 +14,9 @@ import (
 type App struct {
 	Server *server.ConnectServer
 	// WebhookServer handles Zitadel Actions v2 callbacks
-	// (/pre-access-token, /auto-verify-email) on a separate internal-only
-	// port. See `internal/infrastructure/server/webhook.go` for the
-	// port-isolation rationale.
+	// (/pre-access-token) on a separate internal-only port. See
+	// `internal/infrastructure/server/webhook.go` for the port-isolation
+	// rationale.
 	WebhookServer   *server.WebhookServer
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
