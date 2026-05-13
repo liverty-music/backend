@@ -134,10 +134,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 
-	// Infrastructure - Zitadel API client (optional, nil in local dev)
+	// Infrastructure - Zitadel API client (optional, nil in local dev).
+	// ResolveZitadelMachineKeyPath prefers the new env var with fallback
+	// to the legacy one during the rename-zitadel-machine-keys migration.
 	var emailVerifier usecase.EmailVerifier
-	if cfg.ZitadelMachineKeyPath != "" {
-		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.ZitadelDomain, cfg.ZitadelMachineKeyPath, logger)
+	if zitadelKeyPath := cfg.ResolveZitadelMachineKeyPath(); zitadelKeyPath != "" {
+		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.ZitadelDomain, zitadelKeyPath, logger)
 		if err != nil {
 			return nil, fmt.Errorf("create zitadel email verifier: %w", err)
 		}
