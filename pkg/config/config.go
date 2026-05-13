@@ -92,10 +92,42 @@ type ServerConfig struct {
 	// ZitadelMachineKeyPath is the file path to the Zitadel machine user's
 	// private key JSON. When empty, the Zitadel API client is disabled
 	// (email verification features are unavailable).
+	//
+	// Deprecated: prefer ZitadelMachineKeyForBackendAppPath. This field
+	// is kept as a fallback during the GSM secret rename transition
+	// (openspec change rename-zitadel-machine-keys). Removed in PR 5
+	// of the migration after a 7-day soak.
 	ZitadelMachineKeyPath string `envconfig:"ZITADEL_MACHINE_KEY_PATH"`
+
+	// ZitadelMachineKeyForBackendAppPath is the file path to the
+	// `backend-app` Zitadel MachineUser's private key JSON, mounted
+	// from GSM secret `zitadel-machine-key-for-backend-app`. When both
+	// this and ZitadelMachineKeyPath are empty, the Zitadel API client
+	// is disabled. When both are set, the new path wins.
+	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
 
 	// LastFM API Key
 	LastFMAPIKey string `envconfig:"LASTFM_API_KEY"`
+}
+
+// resolveZitadelMachineKeyPath picks the new path if set, otherwise
+// falls back to the legacy one. Empty result means "no client".
+//
+// The fallback exists only during the rename-zitadel-machine-keys
+// migration and is removed in PR 5 of the migration.
+func resolveZitadelMachineKeyPath(newPath, oldPath string) string {
+	if newPath != "" {
+		return newPath
+	}
+	return oldPath
+}
+
+// ResolveZitadelMachineKeyPath returns the file path to use for the
+// Zitadel API client, preferring ZitadelMachineKeyForBackendAppPath
+// and falling back to ZitadelMachineKeyPath. Returns the empty string
+// if neither is set, which the caller treats as "disable the client".
+func (c *ServerConfig) ResolveZitadelMachineKeyPath() string {
+	return resolveZitadelMachineKeyPath(c.ZitadelMachineKeyForBackendAppPath, c.ZitadelMachineKeyPath)
 }
 
 // JobConfig is the configuration for batch job workloads (e.g., concert-discovery CronJob).
@@ -132,10 +164,30 @@ type ConsumerConfig struct {
 	// ZitadelMachineKeyPath is the file path to the Zitadel machine user's
 	// private key JSON. When empty, the email verification consumer skips
 	// processing with a warning.
+	//
+	// Deprecated: prefer ZitadelMachineKeyForBackendAppPath. This field
+	// is kept as a fallback during the GSM secret rename transition
+	// (openspec change rename-zitadel-machine-keys). Removed in PR 5
+	// of the migration after a 7-day soak.
 	ZitadelMachineKeyPath string `envconfig:"ZITADEL_MACHINE_KEY_PATH"`
+
+	// ZitadelMachineKeyForBackendAppPath is the file path to the
+	// `backend-app` Zitadel MachineUser's private key JSON, mounted
+	// from GSM secret `zitadel-machine-key-for-backend-app`. When both
+	// this and ZitadelMachineKeyPath are empty, the email verification
+	// consumer is disabled. When both are set, the new path wins.
+	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
 
 	// FanartTV API Key for artist image resolution
 	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
+}
+
+// ResolveZitadelMachineKeyPath returns the file path to use for the
+// Zitadel API client, preferring ZitadelMachineKeyForBackendAppPath
+// and falling back to ZitadelMachineKeyPath. Returns the empty string
+// if neither is set, which the caller treats as "disable the client".
+func (c *ConsumerConfig) ResolveZitadelMachineKeyPath() string {
+	return resolveZitadelMachineKeyPath(c.ZitadelMachineKeyForBackendAppPath, c.ZitadelMachineKeyPath)
 }
 
 // ServerSettings represents HTTP server settings (port, host, timeouts, CORS).
