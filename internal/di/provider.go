@@ -170,11 +170,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Infrastructure - Zitadel API client (optional, nil in local dev).
-	// ResolveZitadelMachineKeyPath prefers the new env var with fallback
-	// to the legacy one during the rename-zitadel-machine-keys migration.
 	var emailVerifier usecase.EmailVerifier
-	if zitadelKeyPath := cfg.ResolveZitadelMachineKeyPath(); zitadelKeyPath != "" {
-		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.JWT.Issuer, zitadelKeyPath, logger)
+	if cfg.ZitadelMachineKeyForBackendAppPath != "" {
+		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForBackendAppPath, logger)
 		if err != nil {
 			return nil, fmt.Errorf("create zitadel email verifier: %w", err)
 		}
