@@ -26,8 +26,15 @@ concurrency:
 
 jobs:
   build-and-push:
-    # Defensive guard: only fire on the two supported events. Any other event
-    # type (workflow_dispatch, schedule, etc.) is rejected without running.
+    # Defensive guard layer 1 (event filter): only fire on the two supported
+    # events. The `target_commitish == 'main'` check is intentionally
+    # absent — it's release-creation metadata, not a verified assertion
+    # about the tag's underlying commit (see PR #297 review threads
+    # 3248512589 / 3248513873). A user could push a tag to a non-main
+    # commit and create the release with `--target main`, passing this
+    # check while building the non-main commit. The authoritative check
+    # is the runtime `Verify release commit on main` step below, which
+    # compares `github.sha` against `origin/main` history.
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'release' && github.event.action == 'published')
@@ -62,6 +69,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Defensive guard layer 2 (runtime verification): for release events,
+      # confirm the checked-out commit (`github.sha`, == the tag's commit)
+      # is actually reachable from `origin/main`. Closes the gap where:
+      #   * a tag points at a non-main commit, AND
+      #   * the release was created with `--target main` (so
+      #     `target_commitish` would have falsely passed an event-level
+      #     check), OR
+      #   * the release was created with `--target <sha>` (where the SHA
+      #     happens to be main HEAD but the literal `target_commitish`
+      #     string is the SHA, not `"main"`, breaking a string check).
+      # See PR #297 review threads 3248512589 (false-negative scenario)
+      # and 3248513873 (false-positive scenario).
+      - name: Verify release commit is on main
+        if: github.event_name == 'release'
+        run: |
+          git fetch origin main --depth=100
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::Release tag at $(git rev-parse HEAD) is not reachable from origin/main ($(git rev-parse origin/main)). Refusing to push prod images. Cut releases on main HEAD only."
+            exit 1
+          fi
 
       - name: Authenticate to Google Cloud
         id: auth
