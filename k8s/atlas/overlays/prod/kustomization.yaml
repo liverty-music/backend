@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Prod Atlas migration overlay. Per OpenSpec change `prepare-prod-service-in`
+# §4, this directory's presence is the precondition for ArgoCD's
+# `backend-migrations` Application (declared in
+# cloud-provisioning/k8s/argocd-apps/prod/backend-migrations.yaml) to sync —
+# without it the app reports `Status=Unknown (ComparisonError)`.
+#
+# Divergence from dev (mirroring dev's deployed config exactly except for
+# host):
+#   - `spec.credentials.host` → prod Cloud SQL PSC DNS
+#     (`298474959c18.25pf3r4b6sfkn.asia-northeast2.sql.goog`)
+#   - No `devURL` / `devDB` patch: those are dev-only schema-diffing knobs
+#     used by `atlas migrate diff`. Prod runs `atlas migrate apply` only —
+#     no devDB pod is needed.
+#
+# Migration source: the same `configMapGenerator` from `../../base` is
+# reused unchanged. Both envs apply identical forward migrations from the
+# same `migrations/` directory; no fork.
+#
+# Authenticated user: `postgres` (inherited from base). Atlas Operator
+# requires superuser privileges to GRANT/REVOKE on the `app` schema; the
+# `postgres-admin-password` is delivered via the ESO-synced
+# `atlas-db-credentials` Secret in the `atlas-operator` namespace (provisioned
+# by Pulumi in `liverty-music-prod`).
+#
+# First-apply safety: per task §4.5 (operator-attended), run
+# `atlas migrate diff` against the prod DB before merging this overlay to
+# confirm zero destructive operations. The prod `liverty-music` database
+# is freshly bootstrapped (no pre-existing `app.*` tables) so the full
+# forward migration set is expected.
+
+resources:
+- ../../base
+
+patches:
+- target:
+    group: db.atlasgo.io
+    version: v1alpha1
+    kind: AtlasMigration
+    name: backend-migration
+  patch: |
+    - op: replace
+      path: /spec/credentials/host
+      value: "298474959c18.25pf3r4b6sfkn.asia-northeast2.sql.goog"

@@ -1,5 +1,12 @@
 name: Deploy Backend
 
+# Dual trigger per OpenSpec change `prepare-prod-service-in`:
+#  - push to main      -> dev build, dev AR (liverty-music-dev/backend)
+#  - release published -> prod build, prod AR (liverty-music-prod/backend)
+#
+# The `paths:` filter only applies to `push` events. Release events fire on
+# any published Release regardless of file diff — the deploy step is always
+# desired for a Release cut.
 on:
   push:
     branches:
@@ -10,8 +17,8 @@ on:
       - 'go.sum'
       - 'Dockerfile'
       - '.github/workflows/deploy.yml'
-
-
+  release:
+    types: [published]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,9 +26,18 @@ concurrency:
 
 jobs:
   build-and-push:
+    # Defensive guard: only fire on the two supported events. Any other event
+    # type (workflow_dispatch, schedule, etc.) is rejected without running.
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'release' && github.event.action == 'published')
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.ref == 'refs/heads/main' && 'dev' || 'prod' }}
+      # release -> prod; push to main -> dev. The `prod` environment binds
+      # vars.PROJECT_ID=liverty-music-prod / vars.WORKLOAD_IDENTITY_PROVIDER /
+      # vars.SERVICE_ACCOUNT scoped to the prod project (managed by Pulumi's
+      # GitHubRepositoryComponent — see cloud-provisioning/src/github/).
+      name: ${{ github.event_name == 'release' && 'prod' || 'dev' }}
     permissions:
       contents: read
       id-token: write
@@ -63,6 +79,18 @@ jobs:
       - name: Set Image URI
         run: echo "IMAGE_URI=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ matrix.image.name }}" >> $GITHUB_ENV
 
+      # Dev tag set: :latest (consumed by ArgoCD Image Updater for dev
+      # auto-rollout) + :sha (immutable digest pointer) + :main (branch ref).
+      # Prod is forbidden from using :latest per the `prod-image-pipeline`
+      # spec — release builds use :<tag> + :sha only.
+      - name: Set Image Tags (dev path)
+        if: github.event_name == 'push'
+        run: echo "IMAGE_TAGS=${{ env.IMAGE_URI }}:latest,${{ env.IMAGE_URI }}:${{ github.sha }},${{ env.IMAGE_URI }}:main" >> $GITHUB_ENV
+
+      - name: Set Image Tags (prod path)
+        if: github.event_name == 'release'
+        run: echo "IMAGE_TAGS=${{ env.IMAGE_URI }}:${{ github.event.release.tag_name }},${{ env.IMAGE_URI }}:${{ github.sha }}" >> $GITHUB_ENV
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -72,6 +100,6 @@ jobs:
           context: .
           target: ${{ matrix.image.target }}
           push: true
-          tags: ${{ env.IMAGE_URI }}:latest,${{ env.IMAGE_URI }}:${{ github.sha }},${{ env.IMAGE_URI }}:main
+          tags: ${{ env.IMAGE_TAGS }}
           cache-from: type=gha,scope=${{ matrix.image.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
