@@ -26,11 +26,16 @@ concurrency:
 
 jobs:
   build-and-push:
-    # Defensive guard: only fire on the two supported events. Any other event
-    # type (workflow_dispatch, schedule, etc.) is rejected without running.
+    # Defensive guard: only fire on the two supported events AND require
+    # both to originate from `main`. `target_commitish` is the branch/SHA
+    # the Release was created against (set by `--target` on
+    # `gh release create`); without this check a Release published from a
+    # feature branch tag would push to prod AR. Mirrors the fix applied
+    # in liverty-music/frontend#356 (review id 3248455636).
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'release' && github.event.action == 'published')
+      (github.event_name == 'release' && github.event.action == 'published' &&
+       github.event.release.target_commitish == 'main')
     runs-on: ubuntu-latest
     environment:
       # release -> prod; push to main -> dev. The `prod` environment binds
