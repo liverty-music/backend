@@ -63,6 +63,19 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	newVenues := make(map[string]*entity.Venue) // track newly created venues by cache key
 
 	for _, sc := range data.Concerts {
+		if sc.ListedVenueName == "" {
+			// Skip TBA-venue entries; an empty text_query returns 400 from Places and would poison the batch.
+			uc.logger.Warn(ctx, "skipping concert: empty venue name from Gemini",
+				slog.String("artist_id", data.ArtistID),
+				slog.String("title", sc.Title),
+				slog.Any("admin_area", sc.AdminArea),
+				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
+				slog.Time("start_time", sc.StartTime),
+				slog.Time("open_time", sc.OpenTime),
+				slog.String("source_url", sc.SourceURL),
+			)
+			continue
+		}
 		venueID, venue, skip, err := uc.resolveVenue(ctx, sc.ListedVenueName, sc.AdminArea, newVenues)
 		if err != nil {
 			return fmt.Errorf("resolve venue %q: %w", sc.ListedVenueName, err)

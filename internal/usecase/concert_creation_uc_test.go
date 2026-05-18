@@ -298,6 +298,43 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		assert.Equal(t, "Concert at Known", concertRepo.created[0].Title)
 	})
 
+	t.Run("skips concert with empty venue name without poisoning the batch", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := newFakeVenueRepo()
+		concertRepo := &fakeConcertRepo{}
+		pub := newGoChannelPub(t)
+		ps := newStubPlaceSearcher()
+		ps.places["Known Venue"] = &entity.VenuePlace{ExternalID: "place-known", Name: "Known Venue"}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID:   "artist-empty-venue",
+			ArtistName: "Edge Case Artist",
+			Concerts: entity.ScrapedConcerts{
+				{
+					Title:           "Valid Show",
+					ListedVenueName: "Known Venue",
+					LocalDate:       localDate,
+					SourceURL:       "https://example.com/valid",
+				},
+				{
+					Title:           "TBA Show",
+					ListedVenueName: "",
+					LocalDate:       localDate,
+					SourceURL:       "https://example.com/tba",
+				},
+			},
+		}
+
+		err := uc.CreateFromDiscovered(context.Background(), data)
+		require.NoError(t, err)
+
+		// Only the valid-venue concert persists; the empty-name entry is skipped.
+		assert.Len(t, venueRepo.created, 1)
+		require.Len(t, concertRepo.created, 1)
+		assert.Equal(t, "Valid Show", concertRepo.created[0].Title)
+	})
+
 	t.Run("skips all concerts when all venues are not found", func(t *testing.T) {
 		t.Parallel()
 		venueRepo := newFakeVenueRepo()
