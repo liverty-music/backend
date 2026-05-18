@@ -307,12 +307,6 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		ps.places["Known Venue"] = &entity.VenuePlace{ExternalID: "place-known", Name: "Known Venue"}
 		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
-		// Gemini occasionally returns a concert entry with no listed_venue_name
-		// (announced-but-venue-TBA tour dates). Before this fix, the empty string
-		// would be sent to Google Places, which returns 400 INVALID_ARGUMENT,
-		// crashing the whole batch via the watermill retry → poison-queue path.
-		// Now the empty-name entry SHALL be skipped silently and sibling concerts
-		// SHALL persist normally.
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-empty-venue",
 			ArtistName: "Edge Case Artist",
