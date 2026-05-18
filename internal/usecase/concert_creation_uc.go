@@ -63,6 +63,23 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	newVenues := make(map[string]*entity.Venue) // track newly created venues by cache key
 
 	for _, sc := range data.Concerts {
+		if sc.ListedVenueName == "" {
+			// Gemini occasionally returns a concert entry with no `listed_venue_name`
+			// (e.g. announced-but-venue-TBA tour dates). Posting an empty `text_query`
+			// to Google Places returns 400 INVALID_ARGUMENT, which previously bubbled
+			// up and poisoned the whole batch — sibling concerts with valid venues
+			// were silently lost. Skip just this entry instead.
+			uc.logger.Warn(ctx, "skipping concert: empty venue name from Gemini",
+				slog.String("artist_id", data.ArtistID),
+				slog.String("title", sc.Title),
+				slog.Any("admin_area", sc.AdminArea),
+				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
+				slog.Any("start_time", sc.StartTime),
+				slog.Any("open_time", sc.OpenTime),
+				slog.String("source_url", sc.SourceURL),
+			)
+			continue
+		}
 		venueID, venue, skip, err := uc.resolveVenue(ctx, sc.ListedVenueName, sc.AdminArea, newVenues)
 		if err != nil {
 			return fmt.Errorf("resolve venue %q: %w", sc.ListedVenueName, err)
