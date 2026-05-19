@@ -235,25 +235,81 @@ jobs:
           # spec, this is a SHALL retry, not a MAY — silent failure on
           # the digest-resolve step is exactly what the retry contract
           # prevents.
+          #
+          # Error classification: gcloud exits non-zero on any failure
+          # (NOT_FOUND for missing :<sha>, PERMISSION_DENIED for auth
+          # regression, transient 5xx, rate limit, etc.). Treating all
+          # failures uniformly as "retry up to 6×" would mask an IAM
+          # regression as a 5-minute timeout with a misleading
+          # "not found" error. So we capture stderr, classify against
+          # the gcloud / AR error vocabulary, and fail fast on auth and
+          # other non-NOT_FOUND classes. Only NOT_FOUND-shaped responses
+          # consume retry budget.
+          stderr_file=$(mktemp)
           for attempt in $(seq 1 6); do
             digest=$(gcloud artifacts docker images describe \
               "${DEV_AR_IMAGE}:${GITHUB_SHA}" \
               --format='value(image_summary.digest)' \
-              2>/dev/null || echo "")
-            if [ -n "$digest" ]; then
+              2>"$stderr_file") || rc=$?
+            rc=${rc:-0}
+            if [ "$rc" -eq 0 ] && [ -n "$digest" ]; then
               echo "Resolved digest on attempt ${attempt}/6: $digest"
               echo "digest=$digest" >> "$GITHUB_OUTPUT"
+              rm -f "$stderr_file"
               exit 0
             fi
+            stderr_body=$(cat "$stderr_file")
+            # PERMISSION_DENIED / 403 / forbidden — IAM regression or
+            # WIF token misconfig. Retrying for 5 minutes won't help;
+            # surface immediately.
+            if echo "$stderr_body" | grep -qE 'PERMISSION_DENIED|Permission .* denied|HTTPError 403|403 Forbidden|UNAUTHENTICATED|401'; then
+              echo "::error::Auth failure resolving dev AR digest for ${DEV_AR_IMAGE}:${GITHUB_SHA} on attempt ${attempt}/6. The prod CI service account likely lost the cross-project AR reader grant on dev backend AR (resource: prod-ci-backend-ar-reader in cloud-provisioning Pulumi state). Recovery: see docs/runbooks/prod-image-tag-pinning.md retag-failure-recovery in cloud-provisioning."
+              echo "::error::gcloud stderr: ${stderr_body}"
+              rm -f "$stderr_file"
+              exit 1
+            fi
+            # NOT_FOUND-shaped: the dev :<sha> tag hasn't landed yet
+            # (typical) or the release was cut on a non-main commit
+            # whose dev build never ran (corner case). Retry within
+            # the 5-minute budget.
+            if echo "$stderr_body" | grep -qE 'NOT_FOUND|not found|does not exist|tag .* doesn'\''t exist'; then
+              if [ "$attempt" -lt 6 ]; then
+                echo "Attempt ${attempt}/6: dev AR :sha not yet available; waiting 60s..."
+                sleep 60
+                continue
+              fi
+            fi
+            # Empty digest with rc==0 OR any other non-zero (transient
+            # 5xx, rate limit, network blip) — retry. Echo the stderr
+            # so the run log shows what we saw rather than hiding it.
             if [ "$attempt" -lt 6 ]; then
-              echo "Attempt ${attempt}/6: dev AR :sha not yet available; waiting 60s..."
+              if [ -n "$stderr_body" ]; then
+                echo "Attempt ${attempt}/6: gcloud rc=$rc stderr=${stderr_body}; waiting 60s before retry..."
+              else
+                echo "Attempt ${attempt}/6: gcloud returned empty digest with rc=$rc; waiting 60s before retry..."
+              fi
               sleep 60
             fi
           done
-          echo "::error::dev AR tag :${GITHUB_SHA} not found for ${DEV_AR_IMAGE} after 6 attempts (~5 min total wait). Either the dev build for this matrix entry's image failed, or the release was cut on a non-main commit. See docs/runbooks/prod-image-tag-pinning.md retag-failure-recovery in cloud-provisioning."
+          final_stderr=$(cat "$stderr_file" 2>/dev/null || echo "(no stderr captured)")
+          rm -f "$stderr_file"
+          echo "::error::dev AR tag :${GITHUB_SHA} not resolved for ${DEV_AR_IMAGE} after 6 attempts (~5 min total wait). Either the dev build for this matrix entry's image failed, or the release was cut on a non-main commit. Last gcloud stderr: ${final_stderr}. See docs/runbooks/prod-image-tag-pinning.md retag-failure-recovery in cloud-provisioning."
           exit 1
 
-      - name: Promote dev AR digest to prod AR (semver tag)
+      # The two `crane copy` calls are bundled into a single step so the
+      # workflow's release path presents one "Promote dev AR digest to
+      # prod AR" unit rather than two separate steps that could each
+      # surface in a partial-success state. Note that this does not
+      # change atomicity at the registry layer — `crane copy` is two
+      # sequential AR API calls regardless of whether they live in one
+      # YAML step or two. If the SHA tag write fails after the semver
+      # tag write succeeds, prod AR has only the semver tag; recovery
+      # is `gh run rerun --job <job-id>` and the second copy completes
+      # (the semver-tag copy is a no-op at the same digest under AR's
+      # immutability policy). The runbook
+      # docs/runbooks/prod-image-tag-pinning.md "Retag failure recovery"
+      # in cloud-provisioning documents this re-run path explicitly.
+      - name: Promote dev AR digest to prod AR (semver + sha tags)
         if: github.event_name == 'release'
         env:
           DEV_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/liverty-music-dev/backend/${{ matrix.image.name }}
@@ -261,17 +317,6 @@ jobs:
           DIGEST: ${{ steps.resolve_digest.outputs.digest }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          crane copy \
-            "${DEV_AR_IMAGE}@${DIGEST}" \
-            "${PROD_AR_IMAGE}:${RELEASE_TAG}"
-
-      - name: Promote dev AR digest to prod AR (commit SHA tag)
-        if: github.event_name == 'release'
-        env:
-          DEV_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/liverty-music-dev/backend/${{ matrix.image.name }}
-          PROD_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/backend/${{ matrix.image.name }}
-          DIGEST: ${{ steps.resolve_digest.outputs.digest }}
-        run: |
-          crane copy \
-            "${DEV_AR_IMAGE}@${DIGEST}" \
-            "${PROD_AR_IMAGE}:${GITHUB_SHA}"
+          set -euo pipefail
+          crane copy "${DEV_AR_IMAGE}@${DIGEST}" "${PROD_AR_IMAGE}:${RELEASE_TAG}"
+          crane copy "${DEV_AR_IMAGE}@${DIGEST}" "${PROD_AR_IMAGE}:${GITHUB_SHA}"
