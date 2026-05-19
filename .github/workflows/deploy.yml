@@ -139,7 +139,14 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
+      # IMAGE_URI is only consumed by `Set Image Tags (dev path)` and the
+      # `Build and Push Docker Image` step, both push-only. Gate the
+      # assignment to push too so the release path doesn't carry a dead
+      # env var that future readers might assume is wired into the retag
+      # flow. (The retag steps below construct DEV_AR_IMAGE /
+      # PROD_AR_IMAGE from literal AR paths, not IMAGE_URI.)
       - name: Set Image URI
+        if: github.event_name == 'push'
         run: echo "IMAGE_URI=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ matrix.image.name }}" >> $GITHUB_ENV
 
       # Dev tag set: :latest (consumed by ArgoCD Image Updater for dev
@@ -209,7 +216,11 @@ jobs:
       # release path is already covered without any gating change).
       - name: Install crane
         if: github.event_name == 'release'
-        uses: imjasonh/setup-crane@v0.4
+        # SHA-pinned for the prod-write path: this action runs with prod
+        # AR credentials, so a hijacked mutable tag would execute code
+        # with prod-write authority. SHA of v0.4 verified against
+        # https://github.com/imjasonh/setup-crane refs/tags/v0.4.
+        uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
 
       - name: Resolve dev AR digest for ${{ matrix.image.name }}:${{ github.sha }}
         if: github.event_name == 'release'
