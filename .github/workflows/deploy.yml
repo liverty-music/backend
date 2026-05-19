@@ -247,11 +247,16 @@ jobs:
           # consume retry budget.
           stderr_file=$(mktemp)
           for attempt in $(seq 1 6); do
+            # rc MUST be reset per iteration: bash leaves rc untouched on
+            # a successful command (no `|| rc=$?` trigger), so a stale rc
+            # from a prior failed attempt would persist and disqualify a
+            # successful resolve in attempt 2..6. Explicit reset before
+            # the call, and only the failure branch writes rc.
+            rc=0
             digest=$(gcloud artifacts docker images describe \
               "${DEV_AR_IMAGE}:${GITHUB_SHA}" \
               --format='value(image_summary.digest)' \
               2>"$stderr_file") || rc=$?
-            rc=${rc:-0}
             if [ "$rc" -eq 0 ] && [ -n "$digest" ]; then
               echo "Resolved digest on attempt ${attempt}/6: $digest"
               echo "digest=$digest" >> "$GITHUB_OUTPUT"
