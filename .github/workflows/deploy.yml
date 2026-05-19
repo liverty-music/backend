@@ -1,8 +1,25 @@
 name: Deploy Backend
 
-# Dual trigger per OpenSpec change `prepare-prod-service-in`:
+# Dual trigger:
 #  - push to main      -> dev build, dev AR (liverty-music-dev/backend)
-#  - release published -> prod build, prod AR (liverty-music-prod/backend)
+#                         4× docker/build-push-action across the strategy
+#                         matrix (server, consumer, concert-discovery,
+#                         artist-image-sync). Each builds and pushes
+#                         :latest, :main, :<sha> for its image.
+#  - release published -> retag dev AR digest into prod AR
+#                         (liverty-music-prod/backend). 4× `crane copy`
+#                         across the matrix — no rebuild. Each matrix
+#                         entry resolves its own dev AR digest for
+#                         github.sha and promotes that exact digest to
+#                         prod AR under :<release-tag> and :<sha>.
+#
+# Per OpenSpec change `backend-symmetric-retag` (extending the
+# frontend `promote-prod-image-via-retag` archive to the backend's
+# 4-image matrix), the release path stops invoking `docker build`. The
+# prod image deployed is byte-identical to the dev image already
+# exercised under the same `:<sha>` tag. This trims ~6 min of redundant
+# rebuild per release event (4× ~90 s sequential build-push) down to
+# ~30 s of parallel digest-resolve + crane copy.
 #
 # The `paths:` filter only applies to `push` events. Release events fire on
 # any published Release regardless of file diff — the deploy step is always
@@ -49,6 +66,15 @@ jobs:
       contents: read
       id-token: write
     strategy:
+      # fail-fast: false so that one matrix entry's failure (e.g. transient
+      # AR error during digest-resolve, or a single-image dev build that
+      # was filtered out by paths) does NOT cancel the other 3. Partial
+      # success is the expected steady state on release events: per the
+      # retag runbook, the operator can `gh run rerun --job <job-id>` the
+      # single failing matrix entry. The 3 successful entries' prod AR
+      # writes are idempotent because `crane copy` to an existing
+      # immutable tag at the same digest is a no-op.
+      fail-fast: false
       matrix:
         image:
           - name: server
@@ -101,6 +127,15 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      # `Configure Docker` runs on BOTH paths:
+      #   * push path:    docker/build-push-action's pusher needs it.
+      #   * release path: `crane` reads its auth from ~/.docker/config.json's
+      #                   credential helpers (the gcloud helper for *.pkg.dev).
+      #                   Without this step crane falls back to anonymous and
+      #                   fails on the prod-AR write.
+      # Backend's existing step is already unconditional, so no gating
+      # change is needed here (unlike the frontend rollout which had to
+      # drop a `push`-only `if:` gate during implementation).
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
@@ -110,19 +145,22 @@ jobs:
       # Dev tag set: :latest (consumed by ArgoCD Image Updater for dev
       # auto-rollout) + :sha (immutable digest pointer) + :main (branch ref).
       # Prod is forbidden from using :latest per the `prod-image-pipeline`
-      # spec — release builds use :<tag> + :sha only.
+      # spec — release builds use :<tag> + :sha only, and on the release
+      # path those tags are written by `crane copy` directly (no
+      # IMAGE_TAGS env-var indirection is needed on prod).
       - name: Set Image Tags (dev path)
         if: github.event_name == 'push'
         run: echo "IMAGE_TAGS=${{ env.IMAGE_URI }}:latest,${{ env.IMAGE_URI }}:${{ github.sha }},${{ env.IMAGE_URI }}:main" >> $GITHUB_ENV
 
-      - name: Set Image Tags (prod path)
-        if: github.event_name == 'release'
-        run: echo "IMAGE_TAGS=${{ env.IMAGE_URI }}:${{ github.event.release.tag_name }},${{ env.IMAGE_URI }}:${{ github.sha }}" >> $GITHUB_ENV
-
+      # =====================================================================
+      # Dev push path: build + push the 4 images to dev AR
+      # =====================================================================
       - name: Set up Docker Buildx
+        if: github.event_name == 'push'
         uses: docker/setup-buildx-action@v3
 
       - name: Build and Push Docker Image
+        if: github.event_name == 'push'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -131,3 +169,98 @@ jobs:
           tags: ${{ env.IMAGE_TAGS }}
           cache-from: type=gha,scope=${{ matrix.image.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+
+      # =====================================================================
+      # Release path: retag the dev AR digest into prod AR — no rebuild
+      # =====================================================================
+      # Each matrix entry resolves the dev AR digest for its own
+      # `<image>:<sha>` and copies it twice into prod AR under
+      # `:<release-tag>` and `:<sha>`. The 4 matrix entries run in parallel;
+      # total wall-clock is bounded by the slowest single retag (~30 s).
+      #
+      # Source and destination FQDNs are written with the literal `backend`
+      # repository segment rather than `${{ env.REPOSITORY }}`. Although
+      # `REPOSITORY` (== `github.event.repository.name`) happens to equal
+      # `backend` today, the dev-AR source is structurally fixed at
+      # `liverty-music-dev/backend` regardless of the GitHub repo name —
+      # threading it via env would invite a class of bug where renaming
+      # the GitHub repo silently breaks the retag pointer. PROJECT_ID
+      # is still env-driven because it correctly toggles between
+      # `liverty-music-dev` and `liverty-music-prod` via the per-event
+      # `environment:` binding above, and we want that toggle.
+
+      # Install `crane` (go-containerregistry's registry CLI) for the
+      # cross-repository / cross-project digest copy. `gcloud artifacts
+      # docker tags add` is intentionally NOT used here: despite its
+      # name, it only renames tags within a single repository — passing
+      # a source from `liverty-music-dev/backend/<img>` and a destination
+      # in `liverty-music-prod/backend/<img>` fails with `Image ... does
+      # not match image ...`. `crane copy` is the registry-to-registry
+      # primitive; within the same AR region it uses cross-repo blob
+      # mounting so no image bytes actually transfer (manifest re-push
+      # only).
+      #
+      # Note: the action's name is `setup-crane`, and it installs the
+      # `crane` binary — NOT the `gcrane` wrapper (a GCR-specific
+      # convenience build from the same go-containerregistry repo that
+      # the action does not ship). `crane` works identically for AR.
+      # Auth: `crane` reads ~/.docker/config.json populated by the
+      # `Configure Docker` step above (which is unconditional, so the
+      # release path is already covered without any gating change).
+      - name: Install crane
+        if: github.event_name == 'release'
+        uses: imjasonh/setup-crane@v0.4
+
+      - name: Resolve dev AR digest for ${{ matrix.image.name }}:${{ github.sha }}
+        if: github.event_name == 'release'
+        id: resolve_digest
+        env:
+          DEV_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/liverty-music-dev/backend/${{ matrix.image.name }}
+        run: |
+          # 6 total attempts (initial + 5 retries) × 60s wait between =
+          # ~5-minute total budget. Absorbs the race window where a
+          # release is cut seconds after merge-to-main and the dev push
+          # for THIS matrix entry's image is still in-flight. Per the
+          # spec, this is a SHALL retry, not a MAY — silent failure on
+          # the digest-resolve step is exactly what the retry contract
+          # prevents.
+          for attempt in $(seq 1 6); do
+            digest=$(gcloud artifacts docker images describe \
+              "${DEV_AR_IMAGE}:${GITHUB_SHA}" \
+              --format='value(image_summary.digest)' \
+              2>/dev/null || echo "")
+            if [ -n "$digest" ]; then
+              echo "Resolved digest on attempt ${attempt}/6: $digest"
+              echo "digest=$digest" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$attempt" -lt 6 ]; then
+              echo "Attempt ${attempt}/6: dev AR :sha not yet available; waiting 60s..."
+              sleep 60
+            fi
+          done
+          echo "::error::dev AR tag :${GITHUB_SHA} not found for ${DEV_AR_IMAGE} after 6 attempts (~5 min total wait). Either the dev build for this matrix entry's image failed, or the release was cut on a non-main commit. See docs/runbooks/prod-image-tag-pinning.md retag-failure-recovery in cloud-provisioning."
+          exit 1
+
+      - name: Promote dev AR digest to prod AR (semver tag)
+        if: github.event_name == 'release'
+        env:
+          DEV_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/liverty-music-dev/backend/${{ matrix.image.name }}
+          PROD_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/backend/${{ matrix.image.name }}
+          DIGEST: ${{ steps.resolve_digest.outputs.digest }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          crane copy \
+            "${DEV_AR_IMAGE}@${DIGEST}" \
+            "${PROD_AR_IMAGE}:${RELEASE_TAG}"
+
+      - name: Promote dev AR digest to prod AR (commit SHA tag)
+        if: github.event_name == 'release'
+        env:
+          DEV_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/liverty-music-dev/backend/${{ matrix.image.name }}
+          PROD_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/backend/${{ matrix.image.name }}
+          DIGEST: ${{ steps.resolve_digest.outputs.digest }}
+        run: |
+          crane copy \
+            "${DEV_AR_IMAGE}@${DIGEST}" \
+            "${PROD_AR_IMAGE}:${GITHUB_SHA}"
