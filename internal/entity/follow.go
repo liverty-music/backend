@@ -7,15 +7,28 @@ import "context"
 type Hype string
 
 const (
-	// HypeWatch indicates dashboard-only display, no push notifications (default).
+	// HypeWatch indicates dashboard-only display, no push notifications. Lowest tier.
 	HypeWatch Hype = "watch"
 	// HypeHome indicates notifications only for concerts in the user's home area.
 	HypeHome Hype = "home"
-	// HypeNearby is reserved for Phase 2 (physical distance based proximity).
+	// HypeNearby indicates notifications for concerts within physical proximity
+	// (~200km) of the user's home area.
 	HypeNearby Hype = "nearby"
 	// HypeAway indicates notifications for all concerts nationwide.
 	HypeAway Hype = "away"
 )
+
+// DefaultHype is the tier assigned to a fan when they follow an artist without
+// specifying enthusiasm. This expresses the product decision that following an
+// artist implicitly means "notify me about concerts within reach" — the
+// non-dismissable signup banner makes the signup prerequisite explicit.
+//
+// The followed_artists.hype DB column DEFAULT mirrors this value so that
+// INSERT statements omitting the hype column produce consistent state, but
+// the constant here is the canonical domain-layer source: Go code creating
+// follows (bulk operations, background jobs, test fixtures) SHALL reference
+// this constant rather than re-deciding the default.
+const DefaultHype Hype = HypeNearby
 
 // IsValid reports whether h is a recognized Hype value.
 func (h Hype) IsValid() bool {

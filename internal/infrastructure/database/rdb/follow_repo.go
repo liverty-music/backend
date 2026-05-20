@@ -16,9 +16,13 @@ type FollowRepository struct {
 }
 
 const (
+	// followInsertQuery passes the hype column explicitly so the Go domain
+	// constant entity.DefaultHype is the source-of-truth on the write path
+	// rather than the DB column DEFAULT. The DB DEFAULT remains as a safety
+	// net for any future code path that omits the column.
 	followInsertQuery = `
-		INSERT INTO followed_artists (user_id, artist_id)
-		VALUES ($1, $2)
+		INSERT INTO followed_artists (user_id, artist_id, hype)
+		VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING
 	`
 	followDeleteQuery = `
@@ -56,8 +60,10 @@ func NewFollowRepository(db *Database) *FollowRepository {
 }
 
 // Follow establishes a follow relationship between a user and an artist.
+// The new row's hype is set to entity.DefaultHype — the canonical domain-layer
+// default. The DB column DEFAULT mirrors this value but is not relied upon here.
 func (r *FollowRepository) Follow(ctx context.Context, userID, artistID string) error {
-	_, err := r.db.Pool.Exec(ctx, followInsertQuery, userID, artistID)
+	_, err := r.db.Pool.Exec(ctx, followInsertQuery, userID, artistID, string(entity.DefaultHype))
 	if err != nil {
 		return toAppErr(err, "failed to follow artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	}
