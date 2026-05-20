@@ -2,7 +2,9 @@ package rpc
 
 import (
 	"context"
+	"errors"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/follow/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -103,6 +105,15 @@ func (h *FollowHandler) SetHype(ctx context.Context, req *connect.Request[rpc.Se
 	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Reject HYPE_TYPE_UNSPECIFIED (proto3 zero value) explicitly rather than
+	// letting it fall through to entity.Hype("") and surface as an internal
+	// DB constraint error. With the per-follow default flipped to Nearby
+	// (opt-in to notifications), an unintentional SetHype call carries more
+	// weight than under the previous Watch default — fail loud.
+	if req.Msg.Hype == entityv1.HypeType_HYPE_TYPE_UNSPECIFIED {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("hype is required"))
 	}
 
 	hype := mapper.HypeFromProto[req.Msg.Hype]

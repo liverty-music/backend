@@ -236,6 +236,19 @@ func TestFollowHandler_SetHype(t *testing.T) {
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
 		},
+		{
+			name: "error - HYPE_TYPE_UNSPECIFIED rejected with InvalidArgument",
+			ctx:  followAuthedCtx("ext-user-1"),
+			req: &followv1.SetHypeRequest{
+				ArtistId: &entityv1.ArtistId{Value: artistID},
+				Hype:     entityv1.HypeType_HYPE_TYPE_UNSPECIFIED,
+			},
+			setup: func(_ *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
+				repo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{ID: internalUserID}, nil).Once()
+			},
+			wantCode: connect.CodeInvalidArgument,
+			wantErr:  true,
+		},
 	}
 
 	for _, tt := range tests {

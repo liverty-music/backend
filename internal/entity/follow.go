@@ -7,7 +7,7 @@ import "context"
 type Hype string
 
 const (
-	// HypeWatch indicates dashboard-only display, no push notifications (opt-out tier).
+	// HypeWatch indicates dashboard-only display, no push notifications. Lowest tier.
 	HypeWatch Hype = "watch"
 	// HypeHome indicates notifications only for concerts in the user's home area.
 	HypeHome Hype = "home"
@@ -28,7 +28,7 @@ const (
 // the constant here is the canonical domain-layer source: Go code creating
 // follows (bulk operations, background jobs, test fixtures) SHALL reference
 // this constant rather than re-deciding the default.
-const DefaultHype = HypeNearby
+const DefaultHype Hype = HypeNearby
 
 // IsValid reports whether h is a recognized Hype value.
 func (h Hype) IsValid() bool {
