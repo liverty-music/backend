@@ -31,6 +31,12 @@ func UserToProto(user *entity.User) *proto.User {
 	if user.Home != nil {
 		pb.Home = HomeToProto(user.Home)
 	}
+	// TODO(persist-user-language): swap to generated type after BSR gen.
+	// Once the proto schema package publishes User.preferred_language (optional string,
+	// field 7), replace this block with:
+	//   if user.PreferredLanguage != "" {
+	//       pb.PreferredLanguage = proto.String(user.PreferredLanguage)
+	//   }
 	return pb
 }
 
@@ -107,19 +113,27 @@ func RequireUserIDMatch(callerUserID, reqUserID string) error {
 	return nil
 }
 
-// NewUserFromCreateRequest converts JWT claims and optional home to domain NewUser.
+// NewUserFromCreateRequest converts JWT claims, optional home, and preferred language
+// to domain NewUser.
+//
 // Security note: All identity fields (external_id, email, name) are extracted from
-// validated JWT claims to prevent client-side identity tampering.
-// The home field is the only client-provided data (selected during onboarding).
-func NewUserFromCreateRequest(claims *auth.Claims, home *proto.Home) *entity.NewUser {
+// validated JWT claims to prevent client-side identity tampering. The home and
+// preferred_language fields are client-provided data accepted at signup.
+//
+// TODO(persist-user-language): replace placeholder parameter with proto.CreateRequest after BSR gen.
+// Once the proto schema package publishes CreateRequest.preferred_language (required string,
+// field 3), change the signature to accept *userv1.CreateRequest and read
+// req.GetPreferredLanguage() directly instead of a bare string.
+func NewUserFromCreateRequest(claims *auth.Claims, home *proto.Home, preferredLanguage string) *entity.NewUser {
 	if claims == nil {
 		return nil
 	}
 
 	return &entity.NewUser{
-		ExternalID: claims.Sub,
-		Email:      claims.Email,
-		Name:       claims.Name,
-		Home:       ProtoHomeToEntity(home),
+		ExternalID:        claims.Sub,
+		Email:             claims.Email,
+		Name:              claims.Name,
+		Home:              ProtoHomeToEntity(home),
+		PreferredLanguage: preferredLanguage,
 	}
 }

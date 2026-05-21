@@ -46,6 +46,13 @@ type UserUseCase interface {
 	//  - NotFound: If the user does not exist.
 	GetByExternalID(ctx context.Context, externalID string) (*entity.User, error)
 
+	// UpdatePreferredLanguage sets or changes the user's preferred display language.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
+	UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error)
+
 	// UpdateHome sets or changes the user's home area.
 	//
 	// # Possible errors
@@ -158,6 +165,21 @@ func (uc *userUseCase) GetByExternalID(ctx context.Context, externalID string) (
 			slog.String("external_id", externalID),
 		)
 	}
+
+	return user, nil
+}
+
+// UpdatePreferredLanguage sets the user's preferred display language.
+func (uc *userUseCase) UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error) {
+	user, err := uc.userRepo.UpdatePreferredLanguage(ctx, id, lang)
+	if err != nil {
+		return nil, err
+	}
+
+	uc.logger.Info(ctx, "User preferred language updated",
+		slog.String("user_id", id),
+		slog.String("preferred_language", lang),
+	)
 
 	return user, nil
 }

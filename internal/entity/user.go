@@ -73,7 +73,9 @@ type User struct {
 	Email string
 	// Name is the user's display name.
 	Name string
-	// PreferredLanguage is the user's preferred language code (e.g., "en", "ja").
+	// PreferredLanguage is the user's preferred ISO 639-1 two-letter language code
+	// (e.g., "en", "ja"). Non-empty when supplied at Create; may be empty for legacy
+	// rows pending backfill via UpdatePreferredLanguage.
 	PreferredLanguage string
 	// Country is the user's country code.
 	Country string
@@ -97,7 +99,9 @@ type NewUser struct {
 	Email string
 	// Name is the user's display name.
 	Name string
-	// PreferredLanguage is the user's preferred language code.
+	// PreferredLanguage is the user's preferred ISO 639-1 two-letter language code
+	// (e.g., "en", "ja"). Non-empty when supplied at Create; may be empty for legacy
+	// rows pending backfill via UpdatePreferredLanguage.
 	PreferredLanguage string
 	// Country is the user's country code.
 	Country string
@@ -176,6 +180,15 @@ type UserRepository interface {
 	//
 	//  - NotFound: If the user does not exist.
 	Delete(ctx context.Context, id string) error
+
+	// UpdatePreferredLanguage sets the user's preferred display language.
+	// Performs a focused UPDATE on the preferred_language column and returns
+	// the refreshed user entity.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
+	UpdatePreferredLanguage(ctx context.Context, id, lang string) (*User, error)
 
 	// UpdateHome sets or changes the user's home area.
 	// Creates or updates the associated home record.

@@ -66,6 +66,10 @@ const (
 		UPDATE users SET safe_address = $2 WHERE id = $1
 	`
 
+	updatePreferredLanguageQuery = `
+		UPDATE users SET preferred_language = $2 WHERE id = $1
+	`
+
 	insertHomeQuery = `
 		INSERT INTO homes (id, country_code, level_1, level_2, centroid_latitude, centroid_longitude)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -105,17 +109,21 @@ func NewUserRepository(db *Database) *UserRepository {
 // scanUser scans a user row with optional home columns from a LEFT JOIN.
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
+	var preferredLanguage sql.NullString
 	var homeID, countryCode, level1, level2 sql.NullString
 	var centroidLat, centroidLng sql.NullFloat64
 
 	err := scanner.Scan(
 		&user.ID, &user.ExternalID, &user.Email, &user.Name,
-		&user.PreferredLanguage, &user.Country, &user.TimeZone,
+		&preferredLanguage, &user.Country, &user.TimeZone,
 		&user.SafeAddress, &user.IsActive,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if preferredLanguage.Valid {
+		user.PreferredLanguage = preferredLanguage.String
 	}
 
 	if homeID.Valid {
@@ -322,6 +330,37 @@ func (r *UserRepository) UpdateSafeAddress(ctx context.Context, id, safeAddress 
 	)
 
 	return nil
+}
+
+// UpdatePreferredLanguage sets the user's preferred display language.
+// It performs a focused UPDATE on the preferred_language column and returns
+// the refreshed user entity via the standard SELECT query.
+func (r *UserRepository) UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error) {
+	if id == "" {
+		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
+	}
+
+	result, err := r.db.Pool.Exec(ctx, updatePreferredLanguageQuery, id, lang)
+	if err != nil {
+		return nil, toAppErr(err, "failed to update preferred language", slog.String("user_id", id))
+	}
+
+	if result.RowsAffected() == 0 {
+		return nil, apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
+	}
+
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserQuery, id))
+	if err != nil {
+		return nil, toAppErr(err, "failed to get user after preferred language update", slog.String("user_id", id))
+	}
+
+	r.db.logger.Info(ctx, "user updated",
+		slog.String("entityType", "user"),
+		slog.String("userID", id),
+		slog.String("field", "preferredLanguage"),
+	)
+
+	return user, nil
 }
 
 // UpdateHome sets or changes the user's home area.

@@ -674,3 +674,98 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 		assert.Nil(t, got.Home.Centroid, "Centroid should remain nil through Get")
 	})
 }
+
+func TestUserRepository_PreferredLanguage(t *testing.T) {
+	repo := rdb.NewUserRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("Create persists preferred_language", func(t *testing.T) {
+		cleanDatabase(t)
+
+		params := newTestUser("ext-lang-1", "lang1@example.com", "Lang1")
+		params.PreferredLanguage = "ja"
+
+		user, err := repo.Create(ctx, params)
+		require.NoError(t, err)
+		assert.Equal(t, "ja", user.PreferredLanguage)
+
+		// Verify it round-trips through Get.
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ja", got.PreferredLanguage)
+	})
+
+	t.Run("Create with empty preferred_language persists NULL (empty string in domain)", func(t *testing.T) {
+		cleanDatabase(t)
+
+		params := newTestUser("ext-lang-2", "lang2@example.com", "Lang2")
+		params.PreferredLanguage = "" // simulates legacy/not-yet-set row
+
+		user, err := repo.Create(ctx, params)
+		require.NoError(t, err)
+		assert.Equal(t, "", user.PreferredLanguage, "NULL column should map to empty string in domain")
+
+		// Verify round-trip via Get.
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "", got.PreferredLanguage)
+	})
+
+	t.Run("idempotent Create does NOT overwrite existing preferred_language", func(t *testing.T) {
+		cleanDatabase(t)
+
+		// First Create: persists "ja".
+		first := newTestUser("ext-lang-3", "lang3@example.com", "Lang3")
+		first.PreferredLanguage = "ja"
+		created, err := repo.Create(ctx, first)
+		require.NoError(t, err)
+		require.Equal(t, "ja", created.PreferredLanguage)
+
+		// Second Create: duplicate external_id returns AlreadyExists at repo layer.
+		// The use case handles idempotency; at the repo level we just confirm the
+		// existing row's preferred_language is still "ja" after the conflict.
+		second := newTestUser("ext-lang-3", "lang3@example.com", "Lang3")
+		second.PreferredLanguage = "en"
+		_, err = repo.Create(ctx, second)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+
+		// Verify the stored preferred_language was NOT changed to "en".
+		got, err := repo.GetByExternalID(ctx, "ext-lang-3")
+		require.NoError(t, err)
+		assert.Equal(t, "ja", got.PreferredLanguage, "idempotent Create must not overwrite existing preferred_language")
+	})
+
+	t.Run("UpdatePreferredLanguage round-trips and persists", func(t *testing.T) {
+		cleanDatabase(t)
+
+		user, err := repo.Create(ctx, newTestUser("ext-lang-4", "lang4@example.com", "Lang4"))
+		require.NoError(t, err)
+		// newTestUser sets PreferredLanguage = "ja"; confirm initial value.
+		assert.Equal(t, "ja", user.PreferredLanguage)
+
+		// Update to "en".
+		updated, err := repo.UpdatePreferredLanguage(ctx, user.ID, "en")
+		require.NoError(t, err)
+		assert.Equal(t, "en", updated.PreferredLanguage)
+
+		// Verify persistence via independent Get.
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "en", got.PreferredLanguage)
+	})
+
+	t.Run("UpdatePreferredLanguage — non-existent user returns NotFound", func(t *testing.T) {
+		cleanDatabase(t)
+
+		_, err := repo.UpdatePreferredLanguage(ctx, "00000000-0000-0000-0000-000000000000", "en")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("UpdatePreferredLanguage — empty ID returns InvalidArgument", func(t *testing.T) {
+		_, err := repo.UpdatePreferredLanguage(ctx, "", "en")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}

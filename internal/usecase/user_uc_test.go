@@ -443,3 +443,43 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
+
+func TestUserUseCase_UpdatePreferredLanguage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("success — updates and returns the user", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		updatedUser := &entity.User{
+			ID:                "user-lang-1",
+			Email:             "lang@example.com",
+			PreferredLanguage: "en",
+		}
+
+		d.repo.EXPECT().UpdatePreferredLanguage(ctx, "user-lang-1", "en").
+			Return(updatedUser, nil).Once()
+
+		result, err := d.uc.UpdatePreferredLanguage(ctx, "user-lang-1", "en")
+
+		assert.NoError(t, err)
+		assert.Equal(t, updatedUser, result)
+		assert.Equal(t, "en", result.PreferredLanguage)
+	})
+
+	t.Run("not found — repository returns NotFound", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().UpdatePreferredLanguage(ctx, "ghost-id", "ja").
+			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+
+		result, err := d.uc.UpdatePreferredLanguage(ctx, "ghost-id", "ja")
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}

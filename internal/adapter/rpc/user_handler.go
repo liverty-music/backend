@@ -9,6 +9,7 @@ import (
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -69,18 +70,23 @@ func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRe
 // The optional home field allows persisting the user's home area atomically
 // with account creation (selected during onboarding before sign-up).
 func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.CreateRequest]) (*connect.Response[userv1.CreateResponse], error) {
-	// Extract JWT claims from authenticated context (set by auth interceptor)
-	// This is critical for security - we extract all identity fields from validated JWT claims
-	// (external_id, email, name) and never trust client-provided identity data
+	// Extract JWT claims from authenticated context (set by auth interceptor).
+	// This is critical for security — we extract all identity fields from validated JWT claims
+	// (external_id, email, name) and never trust client-provided identity data.
 	claims, err := mapper.GetClaimsFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert JWT claims and optional home to domain DTO
-	newUser := mapper.NewUserFromCreateRequest(claims, req.Msg.Home)
+	// TODO(persist-user-language): replace placeholder with req.GetPreferredLanguage() after BSR gen.
+	// Once the proto schema package publishes CreateRequest.preferred_language (field 3),
+	// change the third argument to: req.Msg.GetPreferredLanguage()
+	var preferredLanguage string // placeholder: will be req.Msg.GetPreferredLanguage() after BSR gen
 
-	// Use the use case layer for business logic
+	// Convert JWT claims, optional home, and preferred language to domain DTO.
+	newUser := mapper.NewUserFromCreateRequest(claims, req.Msg.Home, preferredLanguage)
+
+	// Use the use case layer for business logic.
 	createdUser, err := h.userUseCase.Create(ctx, newUser)
 	if err != nil {
 		return nil, err
@@ -89,6 +95,59 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 	return connect.NewResponse(&userv1.CreateResponse{
 		User: mapper.UserToProto(createdUser),
 	}), nil
+}
+
+// UpdatePreferredLanguageParams holds the parsed parameters for the
+// UpdatePreferredLanguage operation. This struct exists only until BSR gen lands
+// and the proto-generated request type becomes available.
+//
+// TODO(persist-user-language): remove this struct and replace call sites with
+// *connect.Request[userv1.UpdatePreferredLanguageRequest] after BSR gen.
+type UpdatePreferredLanguageParams struct {
+	// UserID is the caller's user identifier from the request body.
+	UserID string
+	// PreferredLanguage is the new ISO 639-1 two-letter language code.
+	PreferredLanguage string
+}
+
+// UpdatePreferredLanguage sets or changes the authenticated user's preferred display language.
+//
+// It follows the rpc-auth-scoping convention: the userID embedded in the request
+// is verified against the caller's JWT-derived identity before any DB write.
+//
+// TODO(persist-user-language): replace this method with the generated Connect handler
+// after BSR gen. The eventual signature (mirroring UpdateHome) will be:
+//
+//	func (h *UserHandler) UpdatePreferredLanguage(
+//	    ctx context.Context,
+//	    req *connect.Request[userv1.UpdatePreferredLanguageRequest],
+//	) (*connect.Response[userv1.UpdatePreferredLanguageResponse], error)
+//
+// After BSR gen, inline the body of this method there and delete
+// UpdatePreferredLanguageParams. The only change required is reading
+// req.Msg.GetUserId().GetValue() and req.Msg.GetPreferredLanguage() from
+// the generated proto type instead of the params struct.
+func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, params UpdatePreferredLanguageParams) (*entity.User, error) {
+	externalID, err := mapper.GetExternalUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	caller, err := h.userUseCase.GetByExternalID(ctx, externalID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := mapper.RequireUserIDMatch(caller.ID, params.UserID); err != nil {
+		return nil, err
+	}
+
+	user, err := h.userUseCase.UpdatePreferredLanguage(ctx, caller.ID, params.PreferredLanguage)
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }
 
 // UpdateHome sets or changes the authenticated user's home area.
