@@ -166,6 +166,16 @@ type cellResult struct {
 	URLContextSuccess int `json:"url_context_success"`
 	URLContextError   int `json:"url_context_error"`
 	URLContextOther   int `json:"url_context_other"`
+	// GroundingSearchQueries is the number of GoogleSearch queries the model
+	// issued — billed separately at $35/1K. Together with URLContextTotal
+	// this is the full grounding spend picture for the cell.
+	GroundingSearchQueries int `json:"grounding_search_queries"`
+	// Truncation diagnostics: even when FinishReason is "STOP" the API can
+	// silently truncate the JSON candidate mid-emission. FinishMessage and
+	// AvgLogprobs let us cross-check.
+	FinishReason  string  `json:"finish_reason"`
+	FinishMessage string  `json:"finish_message"`
+	AvgLogprobs   float64 `json:"avg_logprobs"`
 	CostUSD           float64 `json:"cost_usd"`
 	Error             string  `json:"error,omitempty"`
 }
@@ -342,6 +352,10 @@ func runCell(
 		res.PartsTotal = md.PartsTotal
 		res.ThoughtParts = md.ThoughtParts
 		res.TextParts = md.TextParts
+		res.GroundingSearchQueries = md.WebSearchQueries
+		res.FinishReason = md.FinishReason
+		res.FinishMessage = md.FinishMessage
+		res.AvgLogprobs = md.AvgLogprobs
 		res.URLContextTotal = len(md.URLContextRetrieved)
 		for _, u := range md.URLContextRetrieved {
 			switch {
@@ -361,6 +375,19 @@ func runCell(
 	}
 	writeRawResponse(t, rawDir, cellIdx, cell, md, got, errMsg)
 
+	// Always charge for tokens / search queries consumed, even when the call
+	// errored out (e.g. invalid-JSON truncation still bills the input,
+	// thinking, candidates, and tool-use tokens the API metered). Skipping
+	// CostUSD on error under-reports actual spend by ~30-50% in our matrix.
+	res.CostUSD = gemini.DefaultPricing.CostUSD(
+		cell.Model,
+		res.PromptTokens,
+		res.CandidatesTokens,
+		res.ThinkingTokens,
+		res.ToolUseTokens,
+		int32(res.GroundingSearchQueries),
+	)
+
 	if err != nil {
 		res.Error = errMsg
 		return res
@@ -368,7 +395,6 @@ func runCell(
 
 	res.ReturnedCount = len(got)
 	scoreCell(&res, got, cell.Artist.Events)
-	res.CostUSD = gemini.DefaultPricing.CostUSD(cell.Model, res.PromptTokens, res.CandidatesTokens, res.ThinkingTokens, res.ToolUseTokens)
 	return res
 }
 
@@ -405,6 +431,8 @@ func writeRawResponse(
 	if md != nil {
 		payload["raw_response_text"] = md.RawResponseText
 		payload["finish_reason"] = md.FinishReason
+		payload["finish_message"] = md.FinishMessage
+		payload["avg_logprobs"] = md.AvgLogprobs
 		payload["retry_count"] = md.RetryCount
 		payload["invalid_json"] = md.InvalidJSON
 		payload["prompt_tokens"] = md.PromptTokens
@@ -577,6 +605,7 @@ func writeOutputs(t *testing.T, rf runFile) error {
 		"tours_count", "standalones_count",
 		"parts_total", "thought_parts", "text_parts",
 		"url_ctx_total", "url_ctx_success", "url_ctx_error", "url_ctx_other",
+		"search_queries", "finish_reason", "finish_message", "avg_logprobs",
 		"venue_acc", "admin_area_acc", "local_date_acc", "start_time_acc", "open_time_acc", "source_url_acc",
 		"prompt_tokens", "candidates_tokens", "thinking_tokens", "tool_use_tokens", "total_tokens",
 		"latency_ms", "cost_usd", "error",
@@ -608,6 +637,10 @@ func writeOutputs(t *testing.T, rf runFile) error {
 			strconv.Itoa(c.URLContextSuccess),
 			strconv.Itoa(c.URLContextError),
 			strconv.Itoa(c.URLContextOther),
+			strconv.Itoa(c.GroundingSearchQueries),
+			c.FinishReason,
+			c.FinishMessage,
+			strconv.FormatFloat(c.AvgLogprobs, 'f', 4, 64),
 			strconv.FormatFloat(c.FieldAccuracy.Venue, 'f', 4, 64),
 			strconv.FormatFloat(c.FieldAccuracy.AdminArea, 'f', 4, 64),
 			strconv.FormatFloat(c.FieldAccuracy.LocalDate, 'f', 4, 64),

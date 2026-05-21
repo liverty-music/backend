@@ -63,16 +63,16 @@ func thinkingLevelFromConfig(level string) genai.ThinkingLevel {
 }
 
 const (
+	// systemInstruction is intentionally short — every behavioural rule
+	// (scope, INCLUDE/EXCLUDE, verbatim extraction) lives in the user prompt
+	// below so it is co-located with the data the model is acting on. The
+	// minimal-prompt variant produced the same UVERworld smoke result with
+	// 4× lower cost, but on Vaundy (51 events) the long form recovered F1
+	// from 0 → 0.95 by re-introducing explicit STEP 1 / STEP 2 directives.
 	systemInstruction = `You are a concert-extraction agent.
 PRIORITY: accuracy > completeness. When uncertain, omit rather than guess.`
 
-	// promptTemplateWithSite is used when the artist's official site URL is known.
-	// Placeholders (4): 1=artist name, 2=official_site URL (in <goal>),
-	// 3=evaluation start date, 4=official_site URL (in <sources> STEP 1).
-	//
-	// Field-level extraction rules live in the response schema property
-	// descriptions, not here. Output format is dictated by ResponseJsonSchema
-	// + ResponseMIMEType, not by this prompt.
+	// promptTemplateWithSite (4 placeholders): artist, site, date, site.
 	promptTemplateWithSite = `<goal>
 Extract upcoming concerts for "%s" from the artist's official site %s
 on or after %s.
@@ -109,12 +109,7 @@ feature URL next.
 </sources>
 `
 
-	// promptTemplateWithoutSite is used when no official site URL is available.
-	// Placeholders (2): 1=artist name (in <goal>), 2=evaluation start date.
-	//
-	// NOTE: this template requires google_search to be enabled in the tool list
-	// (it is currently disabled in the PoC; enable searchTool in NewConcertSearcher
-	// when using this template).
+	// promptTemplateWithoutSite (2 placeholders): artist, date.
 	promptTemplateWithoutSite = `<goal>
 Extract upcoming concerts for "%s" on or after %s.
 
@@ -320,8 +315,17 @@ type SearchMetadata struct {
 	ToolUseTokens    int32
 	TotalTokens      int32
 	FinishReason     string
-	RetryCount       int
-	InvalidJSON      bool
+	// FinishMessage is the human-readable reason the model stopped (e.g. a
+	// safety hit, a max-output cap reached internally). Often populated even
+	// when FinishReason is STOP — useful for diagnosing truncation that
+	// presents as a successful stop.
+	FinishMessage string
+	// AvgLogprobs is the candidate's average per-token log-probability.
+	// Low values flag low-confidence emissions (often correlated with
+	// fabricated content). Zero when the API does not return it.
+	AvgLogprobs float64
+	RetryCount  int
+	InvalidJSON bool
 	WebSearchQueries int
 	RenderedParts    int
 	// ToursCount / StandalonesCount are the structural sizes of the two
@@ -423,34 +427,29 @@ func (s *ConcertSearcher) SearchExt(
 	officialSite *entity.OfficialSite,
 	from time.Time,
 ) ([]*entity.ScrapedConcert, *SearchMetadata, error) {
-	// Tool setup for grounding.
+	// Tool setup for grounding: GoogleSearch + URLContext.
 	//
-	// Current PoC: URLContext-only. The artist's official site URL is known
-	// (passed in the prompt as STEP 1), so we go straight to url_context for
-	// deep-reading. GoogleSearch is disabled to isolate the URLContext effect
-	// — see references below for rationale.
+	// URLContext-only PoC was insufficient: across 36 cells the model never
+	// recursed into tour-detail pages and fell back to hallucinating dates.
+	// GoogleSearch lets the model find news / fan-club / detail URLs that
+	// URLContext can then deep-read.
 	//
-	// To re-enable GoogleSearch (needed for promptTemplateWithoutSite or when
-	// the DB official_site URL is unreliable), uncomment the searchTool block
-	// AND add searchTool to the Tools slice. The block includes a 6-month
-	// TimeRangeFilter, which only takes effect on the Gemini API direct
-	// backend (BackendGeminiAPI); Vertex AI silently ignores it.
+	// TimeRangeFilter narrows GoogleSearch to the last 6 months (artist news
+	// rarely lives beyond that window). Only takes effect on the Gemini API
+	// direct backend (BackendGeminiAPI); Vertex AI silently ignores it.
 	//
 	// References:
 	//   - https://ai.google.dev/gemini-api/docs/url-context
 	//   - https://ai.google.dev/gemini-api/docs/google-search
-	/*
-		// TimeRangeFilter requires second-or-coarser granularity (nanos rejected by API).
-		now := time.Now().UTC().Truncate(time.Second)
-		searchTool := &genai.Tool{
-			GoogleSearch: &genai.GoogleSearch{
-				TimeRangeFilter: &genai.Interval{
-					StartTime: now.AddDate(0, -6, 0),
-					EndTime:   now,
-				},
+	now := time.Now().UTC().Truncate(time.Second)
+	searchTool := &genai.Tool{
+		GoogleSearch: &genai.GoogleSearch{
+			TimeRangeFilter: &genai.Interval{
+				StartTime: now.AddDate(0, -6, 0),
+				EndTime:   now,
 			},
-		}
-	*/
+		},
+	}
 	urlCtxTool := &genai.Tool{
 		URLContext: &genai.URLContext{},
 	}
@@ -460,8 +459,7 @@ func (s *ConcertSearcher) SearchExt(
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{Text: systemInstruction}},
 		},
-		// PoC: URLContext only. Add searchTool here to re-enable Google Search.
-		Tools:              []*genai.Tool{urlCtxTool},
+		Tools:              []*genai.Tool{searchTool, urlCtxTool},
 		Temperature:        &temperature,
 		MaxOutputTokens:    maxOutputTokens,
 		ResponseMIMEType:   "application/json",
@@ -479,12 +477,11 @@ func (s *ConcertSearcher) SearchExt(
 	if officialSite != nil {
 		officialSiteURL = officialSite.URL
 		fromStr := from.Format("2006-01-02")
-		// 4 placeholders: artist, site (in <goal>), fromStr (in <goal>),
-		// site (in <sources> STEP 1).
+		// 4 placeholders (long-form A/B): artist, site, fromStr, site (STEP 1).
 		prompt = fmt.Sprintf(promptTemplateWithSite, artist.Name, officialSiteURL, fromStr, officialSiteURL)
 	} else {
 		fromStr := from.Format("2006-01-02")
-		// 2 placeholders: artist, fromStr (both in <goal>).
+		// 2 placeholders: artist, fromStr.
 		prompt = fmt.Sprintf(promptTemplateWithoutSite, artist.Name, fromStr)
 	}
 
@@ -578,6 +575,8 @@ func (s *ConcertSearcher) SearchExt(
 			md.RenderedParts = len(renderedPartsAgg)
 		}
 		md.FinishReason = string(candidate.FinishReason)
+		md.FinishMessage = candidate.FinishMessage
+		md.AvgLogprobs = candidate.AvgLogprobs
 
 		// URLContext metadata: which pages the model deep-fetched.
 		if candidate.URLContextMetadata != nil {
@@ -593,6 +592,8 @@ func (s *ConcertSearcher) SearchExt(
 		}
 		candidateAttrs := append(respAttrs,
 			slog.String("finish_reason", string(candidate.FinishReason)),
+			slog.String("finish_message", candidate.FinishMessage),
+			slog.Float64("avg_logprobs", candidate.AvgLogprobs),
 			slog.Group("grounding_metadata",
 				slog.Any("web_search_queries", webSearchQueries),
 				slog.Any("grounding_chunk_urls", groundingChunkURLs),

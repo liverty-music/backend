@@ -127,30 +127,40 @@ func timesEqual(got time.Time, want string) bool {
 // Gemini 3 series.
 type PricingTable map[string]Pricing
 
-// Pricing is the standard tier price per 1M tokens for one model.
+// Pricing is the standard tier price for one model.
 type Pricing struct {
-	InputPerM  float64
-	OutputPerM float64
-	CachedPerM float64
+	InputPerM  float64 // USD per 1M input tokens (prompt + tool-use)
+	OutputPerM float64 // USD per 1M output tokens (candidates + thinking)
+	CachedPerM float64 // USD per 1M cached input tokens (not yet exposed by SDK)
+	// SearchPerK is the USD price per 1000 GoogleSearch grounding queries,
+	// billed separately from tokens by Google. Daily free tier (~1500 queries)
+	// is ignored here — this is the marginal price applied to every query.
+	SearchPerK float64
 }
+
+// googleSearchPerK is the published price for GoogleSearch grounding on
+// Gemini API direct, paid tier ($35 per 1000 queries as of 2026-05).
+const googleSearchPerK = 35.0
 
 // DefaultPricing is the inline pricing table for models under matrix evaluation.
 var DefaultPricing = PricingTable{
-	"gemini-3-flash-preview": {InputPerM: 0.50, OutputPerM: 3.00, CachedPerM: 0.05},
-	"gemini-3.1-flash-lite":  {InputPerM: 0.25, OutputPerM: 1.50, CachedPerM: 0.025},
-	// Documented for completeness; excluded from the matrix on cost grounds.
-	"gemini-3.5-flash": {InputPerM: 1.50, OutputPerM: 9.00, CachedPerM: 0.15},
+	"gemini-3-flash-preview": {InputPerM: 0.50, OutputPerM: 3.00, CachedPerM: 0.05, SearchPerK: googleSearchPerK},
+	"gemini-3.1-flash-lite":  {InputPerM: 0.25, OutputPerM: 1.50, CachedPerM: 0.025, SearchPerK: googleSearchPerK},
+	"gemini-3.5-flash":       {InputPerM: 1.50, OutputPerM: 9.00, CachedPerM: 0.15, SearchPerK: googleSearchPerK},
 }
 
 // CostUSD returns the standard-tier dollar cost for a single call.
 // Thinking tokens bill as output; tool-use tokens (e.g. URLContext fetches)
-// bill as input. Returns 0 if the model is unknown.
-func (t PricingTable) CostUSD(model string, promptTokens, candidatesTokens, thinkingTokens, toolUseTokens int32) float64 {
+// bill as input. searchQueries is the number of GoogleSearch grounding
+// requests the model issued — billed separately at SearchPerK per 1000.
+// Returns 0 if the model is unknown.
+func (t PricingTable) CostUSD(model string, promptTokens, candidatesTokens, thinkingTokens, toolUseTokens, searchQueries int32) float64 {
 	p, ok := t[model]
 	if !ok {
 		return 0
 	}
 	input := float64(promptTokens+toolUseTokens) / 1_000_000.0 * p.InputPerM
 	output := float64(candidatesTokens+thinkingTokens) / 1_000_000.0 * p.OutputPerM
-	return input + output
+	search := float64(searchQueries) / 1_000.0 * p.SearchPerK
+	return input + output + search
 }
