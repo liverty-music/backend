@@ -28,9 +28,9 @@ func TestSearch_RetryOnTransientError(t *testing.T) {
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
 	successBody := `{
-		"events": [{
-			"artist_name": "Test Artist",
-			"event_name": "Retry Success Tour",
+		"tours": [],
+		"standalones": [{
+			"event_title": "Retry Success Tour",
 			"venue": "Test Hall",
 			"local_date": "2026-03-01",
 			"start_time": "2026-03-01T18:00:00Z",

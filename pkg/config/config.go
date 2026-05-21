@@ -279,12 +279,51 @@ type GCPConfig struct {
 	// GCP Location (e.g., us-central1)
 	Location string `envconfig:"GCP_LOCATION" default:"us-central1"`
 
-	// Gemini Model Name
+	// Gemini Model Name (legacy, fallback when workload-specific vars are unset).
 	GeminiModel string `envconfig:"GCP_GEMINI_MODEL" default:"gemini-3-flash-preview"`
+
+	// Gemini Model Name for the concert searcher workload. Empty falls back to GeminiModel.
+	GeminiSearchModel string `envconfig:"GCP_GEMINI_SEARCH_MODEL"`
+
+	// Gemini Model Name for the email parser workload. Empty falls back to GeminiModel.
+	GeminiParserModel string `envconfig:"GCP_GEMINI_PARSER_MODEL"`
+
+	// Sampling temperature for the concert searcher's GenerateContent call.
+	GeminiSearchTemperature float32 `envconfig:"GCP_GEMINI_SEARCH_TEMPERATURE" default:"1.0"`
+
+	// Thinking level for the concert searcher (Gemini 3 series). Empty leaves the SDK/model
+	// default in place. Accepted: "", "low", "medium", "high".
+	GeminiSearchThinkingLevel string `envconfig:"GCP_GEMINI_SEARCH_THINKING_LEVEL"`
+
+	// API key for the Gemini API direct backend (BackendGeminiAPI).
+	// When set, ConcertSearcher uses Gemini API direct instead of Vertex AI,
+	// enabling URLContext / TimeRangeFilter / ExcludeDomains features that
+	// the Vertex AI backend does not support. Empty falls back to Vertex AI
+	// with ADC. Get a key at https://aistudio.google.com/apikey and apply
+	// API restrictions (Generative Language API only) before 2026-06-19.
+	GeminiSearchAPIKey string `envconfig:"GCP_GEMINI_SEARCH_API_KEY"`
 
 	// Vertex AI Search Data Store ID (full resource name)
 	// Format: projects/{project}/locations/global/collections/default_collection/dataStores/{data_store_id}
 	VertexAISearchDataStore string `envconfig:"GCP_VERTEX_AI_SEARCH_DATA_STORE"`
+}
+
+// SearchModel returns the model name for the concert searcher workload,
+// applying the resolution order: workload-specific → legacy → built-in default.
+func (c *GCPConfig) SearchModel() string {
+	if c.GeminiSearchModel != "" {
+		return c.GeminiSearchModel
+	}
+	return c.GeminiModel
+}
+
+// ParserModel returns the model name for the email parser workload,
+// applying the resolution order: workload-specific → legacy → built-in default.
+func (c *GCPConfig) ParserModel() string {
+	if c.GeminiParserModel != "" {
+		return c.GeminiParserModel
+	}
+	return c.GeminiModel
 }
 
 // BlockchainConfig holds configuration for EVM interactions and the TicketSBT contract.
@@ -400,6 +439,16 @@ func Load[T Loadable]() (*T, error) {
 	return &cfg, nil
 }
 
+// Validate validates the GCPConfig fields:
+//   - GeminiSearchThinkingLevel: must be one of "", "low", "medium", "high"
+func (c *GCPConfig) Validate() error {
+	validThinkingLevels := []string{"", "low", "medium", "high"}
+	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingLevel) {
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_LEVEL: %q (allowed: \"\", low, medium, high)", c.GeminiSearchThinkingLevel)
+	}
+	return nil
+}
+
 // Validate validates BaseConfig fields shared by all workloads:
 //   - Database port: 1-65535 range
 //   - Environment: local, development, staging, or production
@@ -450,6 +499,10 @@ func (c *ServerConfig) Validate() error {
 		return err
 	}
 
+	if err := c.GCP.Validate(); err != nil {
+		return err
+	}
+
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
 		return fmt.Errorf("invalid server port: %d", c.Server.Port)
 	}
@@ -489,12 +542,19 @@ func (c *ServerConfig) Validate() error {
 // NATS URL is optional because not all jobs require event messaging
 // (e.g., artist-image-sync only needs database access).
 func (c *JobConfig) Validate() error {
-	return c.BaseConfig.Validate()
+	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+	return c.GCP.Validate()
 }
 
 // Validate validates ConsumerConfig including base checks plus NATS URL for non-local environments.
 func (c *ConsumerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+
+	if err := c.GCP.Validate(); err != nil {
 		return err
 	}
 

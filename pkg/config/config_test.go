@@ -87,6 +87,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ProjectID:               "test-project",
 					Location:                "us-central1",
 					GeminiModel:             "gemini-3-flash-preview",
+					GeminiSearchTemperature: 1.0,
 					VertexAISearchDataStore: "test-datastore",
 				},
 				JWT: JWTConfig{
@@ -178,6 +179,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ProjectID:               "custom-project",
 					Location:                "us-central1",
 					GeminiModel:             "gemini-3-flash-preview",
+					GeminiSearchTemperature: 1.0,
 					VertexAISearchDataStore: "custom-datastore",
 				},
 				JWT: JWTConfig{
@@ -398,5 +400,69 @@ func TestConsumerConfig_Validate(t *testing.T) {
 			},
 		}
 		assert.Error(t, cfg.Validate())
+	})
+}
+
+func TestGCPConfig_SearchModelResolution(t *testing.T) {
+	tests := []struct {
+		name           string
+		geminiModel    string
+		searchOverride string
+		parserOverride string
+		wantSearch     string
+		wantParser     string
+	}{
+		{
+			name:           "workload-specific vars take precedence",
+			geminiModel:    "gemini-3-flash-preview",
+			searchOverride: "gemini-3.1-flash-lite",
+			parserOverride: "gemini-3-flash-preview",
+			wantSearch:     "gemini-3.1-flash-lite",
+			wantParser:     "gemini-3-flash-preview",
+		},
+		{
+			name:        "legacy fallback applies to both",
+			geminiModel: "gemini-3-flash-preview",
+			wantSearch:  "gemini-3-flash-preview",
+			wantParser:  "gemini-3-flash-preview",
+		},
+		{
+			name:           "search override + legacy fallback for parser",
+			geminiModel:    "gemini-3-flash-preview",
+			searchOverride: "gemini-3.1-flash-lite",
+			wantSearch:     "gemini-3.1-flash-lite",
+			wantParser:     "gemini-3-flash-preview",
+		},
+		{
+			name:       "all empty leaves both empty (caller must default elsewhere)",
+			wantSearch: "",
+			wantParser: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := GCPConfig{
+				GeminiModel:       tt.geminiModel,
+				GeminiSearchModel: tt.searchOverride,
+				GeminiParserModel: tt.parserOverride,
+			}
+			assert.Equal(t, tt.wantSearch, c.SearchModel())
+			assert.Equal(t, tt.wantParser, c.ParserModel())
+		})
+	}
+}
+
+func TestGCPConfig_Validate_ThinkingLevel(t *testing.T) {
+	for _, lvl := range []string{"", "low", "medium", "high"} {
+		t.Run("accepts "+lvl, func(t *testing.T) {
+			c := GCPConfig{GeminiSearchThinkingLevel: lvl}
+			assert.NoError(t, c.Validate())
+		})
+	}
+	t.Run("rejects unknown value", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchThinkingLevel: "ultra"}
+		err := c.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GCP_GEMINI_SEARCH_THINKING_LEVEL")
 	})
 }

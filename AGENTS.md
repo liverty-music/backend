@@ -94,6 +94,10 @@ make check             # Full pre-commit check (lint + test)
 
 Integration tests under `internal/infrastructure/database/rdb/` require a local PostgreSQL instance. `make test` handles DB startup automatically via `docker compose up -d postgres --wait`.
 
+### Gemini A/B Evaluation Harness
+
+The matrix-based A/B harness at `internal/infrastructure/gcp/gemini/searcher_integration_test.go` runs only when `GEMINI_AB_EVAL=1`. It compares concert-search performance across Gemini models, temperatures, and thinking levels against a frozen ground-truth fixture. See [`internal/infrastructure/gcp/gemini/testdata/README.md`](internal/infrastructure/gcp/gemini/testdata/README.md) for the full matrix, run command, fixture format, and how to interpret results.
+
 ### Dev DB Access (Cloud SQL via port-forward)
 
 **Dev Cloud SQL only** — for integration tests use `docker compose up -d postgres` instead.

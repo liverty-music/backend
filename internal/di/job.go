@@ -72,10 +72,13 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	if cfg.GCP.ProjectID != "" {
 		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-			ProjectID:   cfg.GCP.ProjectID,
-			Location:    cfg.GCP.Location,
-			ModelName:   cfg.GCP.GeminiModel,
-			DataStoreID: cfg.GCP.VertexAISearchDataStore,
+			ProjectID:     cfg.GCP.ProjectID,
+			Location:      cfg.GCP.Location,
+			ModelName:     cfg.GCP.SearchModel(),
+			DataStoreID:   cfg.GCP.VertexAISearchDataStore,
+			Temperature:   cfg.GCP.GeminiSearchTemperature,
+			ThinkingLevel: cfg.GCP.GeminiSearchThinkingLevel,
+			APIKey:        cfg.GCP.GeminiSearchAPIKey,
 		}, geminiHTTPClient, true, logger)
 		if err != nil {
 			return nil, err

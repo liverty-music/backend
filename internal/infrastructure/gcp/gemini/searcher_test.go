@@ -2,6 +2,7 @@ package gemini_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -48,13 +49,13 @@ func TestConcertSearcher_Search(t *testing.T) {
 		wantErr      error
 	}{
 		{
-			name:       "success - single event",
+			name:       "success - single standalone event",
 			statusCode: http.StatusOK,
 			responseBody: `{
-				"events": [
+				"tours": [],
+				"standalones": [
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Test Tour 2026",
+						"event_title": "Test One-Off 2026",
 						"venue": "Test Hall",
 						"local_date": "2026-03-01",
 						"start_time": "2026-03-01T18:00:00Z",
@@ -64,7 +65,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 			}`,
 			want: []*entity.ScrapedConcert{
 				{
-					Title:           "Test Tour 2026",
+					Title:           "Test One-Off 2026",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 					StartTime:       time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC),
@@ -74,13 +75,56 @@ func TestConcertSearcher_Search(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name:       "success - tour with multiple dates flattens to multiple concerts",
+			statusCode: http.StatusOK,
+			responseBody: `{
+				"tours": [
+					{
+						"tour_title": "Test Tour 2026",
+						"events": [
+							{
+								"venue": "Hall A",
+								"local_date": "2026-03-01",
+								"start_time": "2026-03-01T18:00:00Z",
+								"source_url": "https://example.com/test/a"
+							},
+							{
+								"venue": "Hall B",
+								"local_date": "2026-03-05",
+								"start_time": "2026-03-05T19:00:00Z",
+								"source_url": "https://example.com/test/b"
+							}
+						]
+					}
+				],
+				"standalones": []
+			}`,
+			want: []*entity.ScrapedConcert{
+				{
+					Title:           "Test Tour 2026",
+					ListedVenueName: "Hall A",
+					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+					StartTime:       time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC),
+					SourceURL:       "https://example.com/test/a",
+				},
+				{
+					Title:           "Test Tour 2026",
+					ListedVenueName: "Hall B",
+					LocalDate:       time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC),
+					StartTime:       time.Date(2026, 3, 5, 19, 0, 0, 0, time.UTC),
+					SourceURL:       "https://example.com/test/b",
+				},
+			},
+			wantErr: nil,
+		},
+		{
 			name:       "success - event with admin_area",
 			statusCode: http.StatusOK,
 			responseBody: `{
-				"events": [
+				"tours": [],
+				"standalones": [
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Nagoya Concert",
+						"event_title": "Nagoya Concert",
 						"venue": "Zepp Nagoya",
 						"admin_area": "愛知県",
 						"local_date": "2026-03-15",
@@ -105,14 +149,14 @@ func TestConcertSearcher_Search(t *testing.T) {
 			name:       "success - event with empty admin_area returns nil",
 			statusCode: http.StatusOK,
 			responseBody: `{
-				"events": [
+				"tours": [],
+				"standalones": [
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Unknown Venue Concert",
+						"event_title": "Unknown Venue Concert",
 						"venue": "Some Venue",
 						"admin_area": "",
 						"local_date": "2026-03-20",
-						"start_time": null,
+						"start_time": "",
 						"source_url": "https://example.com/unknown"
 					}
 				]
@@ -129,21 +173,20 @@ func TestConcertSearcher_Search(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:       "success - multiple events without deduplication",
+			name:       "success - multiple standalone events without deduplication",
 			statusCode: http.StatusOK,
 			responseBody: `{
-				"events": [
+				"tours": [],
+				"standalones": [
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Test Tour 2026",
+						"event_title": "Test One-Off A",
 						"venue": "Test Hall",
 						"local_date": "2026-03-01",
 						"start_time": "2026-03-01T18:00:00Z",
 						"source_url": "https://example.com/test"
 					},
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Test Tour 2026",
+						"event_title": "Test One-Off A",
 						"venue": "Test Hall",
 						"local_date": "2026-03-01",
 						"start_time": "2026-03-01T18:00:00Z",
@@ -153,14 +196,14 @@ func TestConcertSearcher_Search(t *testing.T) {
 			}`,
 			want: []*entity.ScrapedConcert{
 				{
-					Title:           "Test Tour 2026",
+					Title:           "Test One-Off A",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 					StartTime:       time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC),
 					SourceURL:       "https://example.com/test",
 				},
 				{
-					Title:           "Test Tour 2026",
+					Title:           "Test One-Off A",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 					StartTime:       time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC),
@@ -173,10 +216,10 @@ func TestConcertSearcher_Search(t *testing.T) {
 			name:       "success - no filter excluded in searcher",
 			statusCode: http.StatusOK,
 			responseBody: `{
-				"events": [
+				"tours": [],
+				"standalones": [
 					{
-						"artist_name": "Test Artist",
-						"event_name": "New Event",
+						"event_title": "New Event",
 						"venue": "Test Hall",
 						"local_date": "2026-04-01",
 						"start_time": "2026-04-01T19:00:00Z",
@@ -199,10 +242,10 @@ func TestConcertSearcher_Search(t *testing.T) {
 			name:       "success - filter past events",
 			statusCode: http.StatusOK,
 			responseBody: `{
-				"events": [
+				"tours": [],
+				"standalones": [
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Past Event",
+						"event_title": "Past Event",
 						"venue": "Test Hall",
 						"local_date": "2026-01-01",
 						"start_time": "2026-01-01T18:00:00Z",
@@ -231,10 +274,10 @@ func TestConcertSearcher_Search(t *testing.T) {
 			name:       "error - invalid local date format (skips event)",
 			statusCode: http.StatusOK,
 			responseBody: `{
-				"events": [
+				"tours": [],
+				"standalones": [
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Invalid Date",
+						"event_title": "Invalid Date",
 						"venue": "Test Hall",
 						"local_date": "invalid-date",
 						"start_time": "2026-03-01T18:00:00Z",
@@ -249,26 +292,24 @@ func TestConcertSearcher_Search(t *testing.T) {
 			name:       "success - various start_time formats",
 			statusCode: http.StatusOK,
 			responseBody: `{
-				"events": [
+				"tours": [],
+				"standalones": [
 					{
-						"artist_name": "Test Artist",
-						"event_name": "HH:MM Format",
+						"event_title": "HH:MM Format",
 						"venue": "Test Hall",
 						"local_date": "2026-03-01",
 						"start_time": "18:00",
 						"source_url": "https://example.com/hh-mm"
 					},
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Empty Start Time",
+						"event_title": "Empty Start Time",
 						"venue": "Test Hall",
 						"local_date": "2026-03-02",
 						"start_time": "",
 						"source_url": "https://example.com/empty"
 					},
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Valid RFC3339",
+						"event_title": "Valid RFC3339",
 						"venue": "Test Hall",
 						"local_date": "2026-03-03",
 						"start_time": "2026-03-03T19:00:00+09:00",
@@ -305,10 +346,10 @@ func TestConcertSearcher_Search(t *testing.T) {
 			name:       "success - literal null string start_time treated as nil",
 			statusCode: http.StatusOK,
 			responseBody: `{
-				"events": [
+				"tours": [],
+				"standalones": [
 					{
-						"artist_name": "Test Artist",
-						"event_name": "Null Start Time Concert",
+						"event_title": "Null Start Time Concert",
 						"venue": "Test Hall",
 						"local_date": "2026-03-10",
 						"start_time": "null",
@@ -357,7 +398,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 			name:         "resilience - MAX_TOKENS returns nil after retries",
 			statusCode:   http.StatusOK,
 			finishReason: "MAX_TOKENS",
-			responseBody: `{"events": [{"artist_name": "Test Artist", "event_name": "Trunca`,
+			responseBody: `{"tours": [], "standalones": [{"event_title": "Trunca`,
 			want:         nil,
 			wantErr:      nil, // non-STOP finish reason retried then returns empty
 		},
@@ -465,10 +506,10 @@ func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
 	artist := &entity.Artist{Name: "Test Artist"}
 
 	responseBody := `{
-		"events": [
+		"tours": [],
+		"standalones": [
 			{
-				"artist_name": "Test Artist",
-				"event_name": "Nameless Tour",
+				"event_title": "Nameless Tour",
 				"venue": "Test Hall",
 				"local_date": "2026-03-01",
 				"start_time": "2026-03-01T18:00:00Z",
@@ -559,7 +600,7 @@ func TestConcertSearcher_Search_InvalidJSON_Permanent(t *testing.T) {
 		callCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		// Return truncated JSON — permanent error, should not be retried.
-		_, _ = w.Write([]byte(geminiResponse(`{"events": [{"artist_name": "Test`, "STOP")))
+		_, _ = w.Write([]byte(geminiResponse(`{"tours": [], "standalones": [{"event_title": "Test`, "STOP")))
 	}))
 	defer ts.Close()
 
@@ -585,8 +626,8 @@ func TestConcertSearcher_Search_StructuralMismatch(t *testing.T) {
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
-	// Valid JSON but wrong structure: "events" is a string instead of an array.
-	wrongStructure := `{"events": "not an array"}`
+	// Valid JSON but wrong structure: "tours" is a string instead of an array.
+	wrongStructure := `{"tours": "not an array", "standalones": []}`
 
 	var callCount atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -609,4 +650,72 @@ func TestConcertSearcher_Search_StructuralMismatch(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrInternal)
 	assert.Equal(t, int32(1), callCount.Load(), "structural mismatch should not retry")
+}
+
+func TestConcertSearcher_Search_ConfigHonored(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		temperature       float32
+		thinkingLevel     string
+		wantThinkingLevel string // empty string means: thinkingConfig should be absent
+	}{
+		{name: "temperature 0.2 + thinking medium", temperature: 0.2, thinkingLevel: "medium", wantThinkingLevel: "MEDIUM"},
+		{name: "temperature 0.5 + thinking high", temperature: 0.5, thinkingLevel: "high", wantThinkingLevel: "HIGH"},
+		{name: "temperature 1.0 + no thinking level", temperature: 1.0, thinkingLevel: "", wantThinkingLevel: ""},
+		{name: "lowercase low maps to LOW", temperature: 0.3, thinkingLevel: "low", wantThinkingLevel: "LOW"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			logger, _ := logging.New()
+			ctx := context.Background()
+			from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+			artist := &entity.Artist{Name: "Test Artist"}
+			officialSite := &entity.OfficialSite{URL: "https://example.com"}
+
+			var capturedBody map[string]any
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(geminiResponse(`{"tours":[],"standalones":[]}`, "STOP")))
+			}))
+			defer ts.Close()
+
+			s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
+				ProjectID:     "test",
+				Location:      "us-central1",
+				ModelName:     "gemini-pro",
+				Temperature:   tt.temperature,
+				ThinkingLevel: tt.thinkingLevel,
+			}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, false, logger)
+			require.NoError(t, err)
+
+			_, err = s.Search(ctx, artist, officialSite, from)
+			require.NoError(t, err)
+			require.NotNil(t, capturedBody, "request body must be captured")
+
+			genCfg, _ := capturedBody["generationConfig"].(map[string]any)
+			require.NotNil(t, genCfg, "generationConfig must be present in the request")
+
+			temp, _ := genCfg["temperature"].(float64)
+			assert.InDelta(t, float64(tt.temperature), temp, 1e-6, "temperature in request must equal Config.Temperature")
+
+			// responseJsonSchema is sent (not responseSchema) and additionalProperties is wired through.
+			assert.Nil(t, genCfg["responseSchema"], "responseSchema must NOT be set when using responseJsonSchema")
+			respJSONSchema, _ := genCfg["responseJsonSchema"].(map[string]any)
+			require.NotNil(t, respJSONSchema, "responseJsonSchema must be set")
+			assert.Equal(t, false, respJSONSchema["additionalProperties"], "top-level additionalProperties must be false")
+
+			thinkingCfg, _ := genCfg["thinkingConfig"].(map[string]any)
+			if tt.wantThinkingLevel == "" {
+				assert.Nil(t, thinkingCfg, "thinkingConfig must be omitted when ThinkingLevel is empty")
+			} else {
+				require.NotNil(t, thinkingCfg, "thinkingConfig must be present when ThinkingLevel is set")
+				assert.Equal(t, tt.wantThinkingLevel, thinkingCfg["thinkingLevel"])
+			}
+		})
+	}
 }
