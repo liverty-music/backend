@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	proto "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -31,12 +32,10 @@ func UserToProto(user *entity.User) *proto.User {
 	if user.Home != nil {
 		pb.Home = HomeToProto(user.Home)
 	}
-	// TODO(persist-user-language): swap to generated type after BSR gen.
-	// Once the proto schema package publishes User.preferred_language (optional string,
-	// field 7), replace this block with:
-	//   if user.PreferredLanguage != "" {
-	//       pb.PreferredLanguage = proto.String(user.PreferredLanguage)
-	//   }
+	if user.PreferredLanguage != "" {
+		lang := user.PreferredLanguage
+		pb.PreferredLanguage = &lang
+	}
 	return pb
 }
 
@@ -113,18 +112,16 @@ func RequireUserIDMatch(callerUserID, reqUserID string) error {
 	return nil
 }
 
-// NewUserFromCreateRequest converts JWT claims, optional home, and preferred language
-// to domain NewUser.
+// NewUserFromCreateRequest converts JWT claims and a CreateRequest to a domain NewUser.
 //
 // Security note: All identity fields (external_id, email, name) are extracted from
 // validated JWT claims to prevent client-side identity tampering. The home and
 // preferred_language fields are client-provided data accepted at signup.
 //
-// TODO(persist-user-language): replace placeholder parameter with proto.CreateRequest after BSR gen.
-// Once the proto schema package publishes CreateRequest.preferred_language (required string,
-// field 3), change the signature to accept *userv1.CreateRequest and read
-// req.GetPreferredLanguage() directly instead of a bare string.
-func NewUserFromCreateRequest(claims *auth.Claims, home *proto.Home, preferredLanguage string) *entity.NewUser {
+// preferred_language is optional in the proto; an absent field returns an empty string
+// via GetPreferredLanguage(), which is passed through to the entity as-is. The
+// repository treats empty string as a NULL preferred_language in the database.
+func NewUserFromCreateRequest(claims *auth.Claims, req *userv1.CreateRequest) *entity.NewUser {
 	if claims == nil {
 		return nil
 	}
@@ -133,7 +130,7 @@ func NewUserFromCreateRequest(claims *auth.Claims, home *proto.Home, preferredLa
 		ExternalID:        claims.Sub,
 		Email:             claims.Email,
 		Name:              claims.Name,
-		Home:              ProtoHomeToEntity(home),
-		PreferredLanguage: preferredLanguage,
+		Home:              ProtoHomeToEntity(req.GetHome()),
+		PreferredLanguage: req.GetPreferredLanguage(),
 	}
 }

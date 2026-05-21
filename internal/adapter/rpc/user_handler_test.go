@@ -199,11 +199,6 @@ func TestUserHandler_UpdateHome(t *testing.T) {
 	})
 }
 
-// TestUserHandler_UpdatePreferredLanguage tests the UpdatePreferredLanguage handler
-// via its pre-BSR-gen placeholder signature.
-//
-// TODO(persist-user-language): migrate these tests to use the generated
-// *connect.Request[userv1.UpdatePreferredLanguageRequest] signature after BSR gen.
 func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 	t.Parallel()
 
@@ -228,17 +223,17 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 			Return(updatedUser, nil).Once()
 
 		ctx := authedCtx(testCallerExtID)
-		params := rpc.UpdatePreferredLanguageParams{
-			UserID:            testCallerUserID,
+		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+			UserId:            newUserIDProto(testCallerUserID),
 			PreferredLanguage: "en",
-		}
+		})
 
-		result, err := h.UpdatePreferredLanguage(ctx, params)
+		resp, err := h.UpdatePreferredLanguage(ctx, req)
 
 		assert.NoError(t, err)
-		require.NotNil(t, result)
-		assert.Equal(t, testCallerUserID, result.ID)
-		assert.Equal(t, "en", result.PreferredLanguage)
+		require.NotNil(t, resp)
+		assert.Equal(t, testCallerUserID, resp.Msg.User.GetId().GetValue())
+		assert.Equal(t, "en", resp.Msg.User.GetPreferredLanguage())
 	})
 
 	t.Run("PermissionDenied when user_id mismatches JWT", func(t *testing.T) {
@@ -253,14 +248,14 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		// UpdatePreferredLanguage must NOT be called.
 
 		ctx := authedCtx(testCallerExtID)
-		params := rpc.UpdatePreferredLanguageParams{
-			UserID:            testForeignUserID, // cross-user request
+		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+			UserId:            newUserIDProto(testForeignUserID), // cross-user request
 			PreferredLanguage: "en",
-		}
+		})
 
-		result, err := h.UpdatePreferredLanguage(ctx, params)
+		resp, err := h.UpdatePreferredLanguage(ctx, req)
 
-		assert.Nil(t, result)
+		assert.Nil(t, resp)
 		var connectErr *connect.Error
 		require.ErrorAs(t, err, &connectErr)
 		assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
@@ -274,14 +269,14 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		h := rpc.NewUserHandler(userUC, nil, logger)
 
 		ctx := context.Background() // no auth claims
-		params := rpc.UpdatePreferredLanguageParams{
-			UserID:            testCallerUserID,
+		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+			UserId:            newUserIDProto(testCallerUserID),
 			PreferredLanguage: "ja",
-		}
+		})
 
-		result, err := h.UpdatePreferredLanguage(ctx, params)
+		resp, err := h.UpdatePreferredLanguage(ctx, req)
 
-		assert.Nil(t, result)
+		assert.Nil(t, resp)
 		var connectErr *connect.Error
 		require.ErrorAs(t, err, &connectErr)
 		assert.Equal(t, connect.CodeUnauthenticated, connectErr.Code())

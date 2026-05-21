@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -148,10 +149,7 @@ func TestUserToProto(t *testing.T) {
 				Name:              "Taro",
 				PreferredLanguage: "ja",
 			},
-			// TODO(persist-user-language): assert wantPreferredLanguage = "ja" after BSR gen.
-			// Until User.preferred_language is published to BSR and read back from pb,
-			// the proto field is not yet set. The domain entity carries the value.
-			wantPreferredLanguage: "",
+			wantPreferredLanguage: "ja",
 		},
 		{
 			name: "user with empty preferred_language (legacy / not-yet-backfilled row)",
@@ -181,7 +179,7 @@ func TestUserToProto(t *testing.T) {
 			assert.Equal(t, tt.user.Email, pb.GetEmail().GetValue())
 			assert.Equal(t, tt.user.ExternalID, pb.GetExternalId().GetValue())
 			assert.Equal(t, tt.user.Name, pb.GetName())
-			// TODO(persist-user-language): assert pb.GetPreferredLanguage() == tt.wantPreferredLanguage after BSR gen.
+			assert.Equal(t, tt.wantPreferredLanguage, pb.GetPreferredLanguage())
 		})
 	}
 }
@@ -190,15 +188,16 @@ func TestNewUserFromCreateRequest(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		claims            *auth.Claims
-		preferredLanguage string
-		wantNil           bool
-		wantLang          string
+		name     string
+		claims   *auth.Claims
+		req      *userv1.CreateRequest
+		wantNil  bool
+		wantLang string
 	}{
 		{
 			name:    "nil claims returns nil",
 			claims:  nil,
+			req:     &userv1.CreateRequest{},
 			wantNil: true,
 		},
 		{
@@ -208,18 +207,22 @@ func TestNewUserFromCreateRequest(t *testing.T) {
 				Email: "user@example.com",
 				Name:  "Hana",
 			},
-			preferredLanguage: "ja",
-			wantLang:          "ja",
+			req: func() *userv1.CreateRequest {
+				r := &userv1.CreateRequest{}
+				r.SetPreferredLanguage("ja")
+				return r
+			}(),
+			wantLang: "ja",
 		},
 		{
-			name: "empty preferred_language is propagated as empty string",
+			name: "absent preferred_language is propagated as empty string",
 			claims: &auth.Claims{
 				Sub:   "ext-456",
 				Email: "empty@example.com",
 				Name:  "Empty",
 			},
-			preferredLanguage: "",
-			wantLang:          "",
+			req:      &userv1.CreateRequest{},
+			wantLang: "",
 		},
 	}
 
@@ -227,8 +230,7 @@ func TestNewUserFromCreateRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// TODO(persist-user-language): replace bare string arg with req.GetPreferredLanguage() after BSR gen.
-			got := mapper.NewUserFromCreateRequest(tt.claims, nil, tt.preferredLanguage)
+			got := mapper.NewUserFromCreateRequest(tt.claims, tt.req)
 
 			if tt.wantNil {
 				assert.Nil(t, got)
