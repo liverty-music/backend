@@ -359,6 +359,38 @@ func TestUserRepository_Update(t *testing.T) {
 			assert.Equal(t, tt.params.Name, got.Name)
 		})
 	}
+
+	// Regression guard: Update intentionally does NOT touch
+	// preferred_language (the column is owned by UpdatePreferredLanguage —
+	// see the updateUserQuery comment). If a future change re-adds
+	// preferred_language to the SET clause, callers that pass NewUser
+	// with an empty PreferredLanguage would silently NULL the column.
+	// This test would catch that regression.
+	t.Run("does NOT touch preferred_language (managed by UpdatePreferredLanguage)", func(t *testing.T) {
+		cleanDatabase(t)
+		// newTestUser sets PreferredLanguage = "ja"; persist that initial value.
+		user, err := repo.Create(ctx, newTestUser("ext-upd-lang", "lang-update@example.com", "Lang"))
+		require.NoError(t, err)
+		require.Equal(t, "ja", user.PreferredLanguage)
+
+		// Build params with a DIFFERENT preferred_language to prove Update
+		// ignores it (instead of writing it through, or NULLing on empty).
+		params := newTestUser("ext-upd-lang", "lang-update-renamed@example.com", "LangRenamed")
+		params.PreferredLanguage = "en" // would be written if Update touched the column
+
+		got, err := repo.Update(ctx, user.ID, params)
+		require.NoError(t, err)
+		// Email / Name updated as expected ...
+		assert.Equal(t, "lang-update-renamed@example.com", got.Email)
+		assert.Equal(t, "LangRenamed", got.Name)
+		// ... preferred_language preserved.
+		assert.Equal(t, "ja", got.PreferredLanguage)
+
+		// Verify via independent Get that the value really wasn't touched.
+		fresh, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ja", fresh.PreferredLanguage)
+	})
 }
 
 func TestUserRepository_List(t *testing.T) {

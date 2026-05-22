@@ -281,4 +281,33 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		require.ErrorAs(t, err, &connectErr)
 		assert.Equal(t, connect.CodeUnauthenticated, connectErr.Code())
 	})
+
+	t.Run("InvalidArgument when preferred_language is empty", func(t *testing.T) {
+		// Defense-in-depth: protovalidate already rejects empty / malformed
+		// values at the wire boundary, but the handler also guards in case
+		// the validation interceptor is bypassed (internal callers, test
+		// harnesses, misconfigured chain). This test covers that fallback.
+		t.Parallel()
+		logger, err := logging.New()
+		require.NoError(t, err)
+		userUC := mocks.NewMockUserUseCase(t)
+		h := rpc.NewUserHandler(userUC, nil, logger)
+
+		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).
+			Return(existingUser, nil).Once()
+		// UpdatePreferredLanguage MUST NOT be called.
+
+		ctx := authedCtx(testCallerExtID)
+		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+			UserId:            newUserIDProto(testCallerUserID),
+			PreferredLanguage: "",
+		})
+
+		resp, err := h.UpdatePreferredLanguage(ctx, req)
+
+		assert.Nil(t, resp)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	})
 }

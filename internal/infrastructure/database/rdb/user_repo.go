@@ -57,7 +57,7 @@ const (
 			WHERE id = $1
 			RETURNING *
 		)
-		SELECT ` + `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active` + `, ` + homeColumns + `
+		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM updated u
 		LEFT JOIN homes h ON u.home_id = h.id
 	`
@@ -84,7 +84,7 @@ const (
 			WHERE id = $1
 			RETURNING *
 		)
-		SELECT ` + `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active` + `, ` + homeColumns + `
+		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM updated u
 		LEFT JOIN homes h ON u.home_id = h.id
 	`
