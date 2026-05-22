@@ -79,6 +79,18 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 		return nil, err
 	}
 
+	// Defense-in-depth format check for preferred_language. The wire-layer
+	// protovalidate constraint and the use case both validate this; the
+	// handler also rejects malformed values at the seam so all three
+	// layers stay symmetric with UpdatePreferredLanguage. preferred_language
+	// is optional at Create (old clients omit it → stored as NULL), so
+	// only the non-empty case is checked here.
+	lang := req.Msg.GetPreferredLanguage()
+	if lang != "" && !entity.IsValidLanguageCode(lang) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("preferred_language must match ISO 639-1 (^[a-z]{2}$) when present"))
+	}
+
 	// Convert JWT claims and request to domain DTO. preferred_language is optional;
 	// GetPreferredLanguage() returns "" when the field is absent, which is stored
 	// as NULL in the database.

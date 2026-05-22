@@ -408,7 +408,15 @@ func (r *UserRepository) UpdatePreferredLanguage(ctx context.Context, id, lang s
 	// Atomic UPDATE + SELECT via CTE — no race window with a concurrent
 	// DELETE on this user. If no row matches, scanUser returns ErrNoRows
 	// which we wrap as NotFound.
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, updatePreferredLanguageQuery, id, lang))
+	//
+	// Belt-and-suspenders: pass via nullStringFromEmpty so that IF the
+	// `lang == ""` guard above ever gets removed by a future refactor,
+	// the query writes SQL NULL (preserving the "client has not yet
+	// asserted" invariant and inviting a backfill on next hydration)
+	// rather than an empty string (which would silently escape the
+	// IS NULL invariant). The guard returning InvalidArgument is the
+	// intended contract — this is the failure-mode safety net.
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, updatePreferredLanguageQuery, id, nullStringFromEmpty(lang)))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
