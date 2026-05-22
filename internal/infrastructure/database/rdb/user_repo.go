@@ -3,9 +3,11 @@ package rdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
 	infrageo "github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/pannpers/go-apperr/apperr"
@@ -43,9 +45,15 @@ const (
 		WHERE u.email = $1
 	`
 
+	// updateUserQuery intentionally does NOT include preferred_language.
+	// The column is owned by UpdatePreferredLanguage; a generic Update
+	// would otherwise risk silently NULLing the row whenever a caller
+	// passes a NewUser with an empty PreferredLanguage field (e.g. a
+	// partial update built by a caller that forgot to copy the existing
+	// value first).
 	updateUserQuery = `
 		WITH updated AS (
-			UPDATE users SET external_id = $2, email = $3, name = $4, preferred_language = $5, country = $6, time_zone = $7
+			UPDATE users SET external_id = $2, email = $3, name = $4, country = $5, time_zone = $6
 			WHERE id = $1
 			RETURNING *
 		)
@@ -66,8 +74,19 @@ const (
 		UPDATE users SET safe_address = $2 WHERE id = $1
 	`
 
+	// Atomic UPDATE + SELECT in a single statement so the read-after-write
+	// can't race with a concurrent DELETE on the same user. The CTE
+	// returns 0 rows if no row matches the WHERE, which scanUser surfaces
+	// as ErrNoRows and the caller maps to NotFound.
 	updatePreferredLanguageQuery = `
-		UPDATE users SET preferred_language = $2 WHERE id = $1
+		WITH updated AS (
+			UPDATE users SET preferred_language = $2
+			WHERE id = $1
+			RETURNING *
+		)
+		SELECT ` + `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active` + `, ` + homeColumns + `
+		FROM updated u
+		LEFT JOIN homes h ON u.home_id = h.id
 	`
 
 	insertHomeQuery = `
@@ -288,9 +307,10 @@ func (r *UserRepository) Update(ctx context.Context, id string, params *entity.N
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
+	// Note: preferred_language is intentionally omitted — see the
+	// updateUserQuery comment. Use UpdatePreferredLanguage instead.
 	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateUserQuery,
 		id, params.ExternalID, params.Email, params.Name,
-		nullStringFromEmpty(params.PreferredLanguage),
 		params.Country, params.TimeZone,
 	))
 	if err != nil {
@@ -369,18 +389,15 @@ func (r *UserRepository) UpdatePreferredLanguage(ctx context.Context, id, lang s
 		return nil, apperr.New(codes.InvalidArgument, "preferred language cannot be empty")
 	}
 
-	result, err := r.db.Pool.Exec(ctx, updatePreferredLanguageQuery, id, lang)
+	// Atomic UPDATE + SELECT via CTE — no race window with a concurrent
+	// DELETE on this user. If no row matches, scanUser returns ErrNoRows
+	// which we wrap as NotFound.
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, updatePreferredLanguageQuery, id, lang))
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
+		}
 		return nil, toAppErr(err, "failed to update preferred language", slog.String("user_id", id))
-	}
-
-	if result.RowsAffected() == 0 {
-		return nil, apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
-	}
-
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserQuery, id))
-	if err != nil {
-		return nil, toAppErr(err, "failed to get user after preferred language update", slog.String("user_id", id))
 	}
 
 	r.db.logger.Info(ctx, "user updated",

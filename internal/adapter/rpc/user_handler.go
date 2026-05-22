@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -113,7 +114,17 @@ func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.
 		return nil, err
 	}
 
-	user, err := h.userUseCase.UpdatePreferredLanguage(ctx, caller.ID, req.Msg.GetPreferredLanguage())
+	// Defense in depth: protovalidate also enforces this at the wire layer
+	// (min_len: 2 + pattern ^[a-z]{2}$). Re-checking here keeps the contract
+	// explicit at the RPC seam so the handler stays correct if the
+	// validation interceptor is ever misconfigured or bypassed (e.g.,
+	// internal callers, test harnesses).
+	lang := req.Msg.GetPreferredLanguage()
+	if lang == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("preferred_language is required"))
+	}
+
+	user, err := h.userUseCase.UpdatePreferredLanguage(ctx, caller.ID, lang)
 	if err != nil {
 		return nil, err
 	}
