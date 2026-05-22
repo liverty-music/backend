@@ -1,4 +1,4 @@
-h1:G2fknd6U4YqMIfej643dzwk1FbkUZ+eb1I8uufICbPk=
+h1:ELdoOQb7F8xEFIz3BkYx3UwgqUWtGvSRRaCyrZcxoEs=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -53,4 +53,4 @@ h1:G2fknd6U4YqMIfej643dzwk1FbkUZ+eb1I8uufICbPk=
 20260406120000_add_venue_listed_name_index.sql h1:Ufe7vfOM9zLLK9hixGFJrgCr+u7FNeId7s1I9hv2wNU=
 20260427081142_truncate_users_for_zitadel_migration.sql h1:E4C/6gWXCrFqaXPT/kZ+12+or3iIWrITtLGIRHKj9vI=
 20260520120000_change_default_hype_to_nearby.sql h1:Ajn8f4CdBt+GkM2TGDTNI+ad+LrEp+gPamBzBNiF5VQ=
-20260521083536_drop_users_preferred_language_default.sql h1:FkURTzbkKXa+VMqpgJqoHVcwnOqLRssjslG51g+HBDk=
+20260521083536_drop_users_preferred_language_default.sql h1:wHHZUf5C7GgKV2C4BD0E0BgcIq6BC0S9mSijUWIsb4A=

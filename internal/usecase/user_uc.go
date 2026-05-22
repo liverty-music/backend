@@ -106,6 +106,18 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 			return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
 		}
 	}
+	// preferred_language is optional at Create (old clients omit it, which
+	// is allowed — the row is created NULL and the client backfills on
+	// next hydration). When present, it MUST match the ISO 639-1 pattern;
+	// otherwise a value like "EN" or "english" would round-trip into the
+	// DB unchanged and the frontend's i18n.setLocale would silently
+	// fall back to the fallbackLng.
+	if params.PreferredLanguage != "" && !languageCodePattern.MatchString(params.PreferredLanguage) {
+		return nil, apperr.New(codes.InvalidArgument,
+			"preferred_language must match ISO 639-1 (^[a-z]{2}$)",
+			slog.String("preferred_language", params.PreferredLanguage),
+		)
+	}
 
 	user, err := uc.userRepo.Create(ctx, params)
 	if err != nil {
@@ -184,6 +196,9 @@ func (uc *userUseCase) GetByExternalID(ctx context.Context, externalID string) (
 // non-RPC callers (integration tests, future internal handlers, scripts)
 // don't bypass the wire-layer protovalidate constraint.
 func (uc *userUseCase) UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error) {
+	if id == "" {
+		return nil, apperr.New(codes.InvalidArgument, "user id is required")
+	}
 	if !languageCodePattern.MatchString(lang) {
 		return nil, apperr.New(codes.InvalidArgument,
 			"preferred_language must match ISO 639-1 (^[a-z]{2}$)",
