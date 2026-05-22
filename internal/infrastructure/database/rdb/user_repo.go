@@ -106,6 +106,18 @@ func NewUserRepository(db *Database) *UserRepository {
 	return &UserRepository{db: db}
 }
 
+// nullStringFromEmpty maps Go's zero value (empty string) to a NULL
+// SQL value, and any non-empty string to a present value. Used at the
+// write boundary so columns whose semantics distinguish "absent" from
+// "explicitly empty" (e.g. users.preferred_language) preserve that
+// distinction in the database.
+func nullStringFromEmpty(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
 // scanUser scans a user row with optional home columns from a LEFT JOIN.
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
@@ -161,9 +173,17 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	// Preserve the NULL = "client has not yet asserted a preference"
+	// invariant on insert. Old clients that pre-date the
+	// CreateRequest.preferred_language field send no value, which arrives
+	// here as an empty string; mapping that to sql.NullString{Valid:false}
+	// keeps such rows distinguishable from "client explicitly chose 'en'"
+	// and feeds them into the same hydration-backfill path that legacy
+	// rows already use.
 	_, err = tx.Exec(ctx, insertUserQuery,
 		user.ID, params.ExternalID, params.Email, params.Name,
-		params.PreferredLanguage, params.Country, params.TimeZone, true,
+		nullStringFromEmpty(params.PreferredLanguage),
+		params.Country, params.TimeZone, true,
 	)
 	if err != nil {
 		if IsUniqueViolation(err) {
@@ -270,7 +290,8 @@ func (r *UserRepository) Update(ctx context.Context, id string, params *entity.N
 
 	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateUserQuery,
 		id, params.ExternalID, params.Email, params.Name,
-		params.PreferredLanguage, params.Country, params.TimeZone,
+		nullStringFromEmpty(params.PreferredLanguage),
+		params.Country, params.TimeZone,
 	))
 	if err != nil {
 		return nil, toAppErr(err, "failed to update user", slog.String("user_id", id))
@@ -338,6 +359,14 @@ func (r *UserRepository) UpdateSafeAddress(ctx context.Context, id, safeAddress 
 func (r *UserRepository) UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error) {
 	if id == "" {
 		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
+	}
+	// UpdatePreferredLanguage's RPC contract requires a non-empty
+	// ISO 639-1 code (protovalidate enforces min_len: 2 + pattern). An
+	// empty value reaching the repository is a programmer error; reject
+	// loudly rather than write a NULL that downstream code would
+	// misinterpret as "client has not yet asserted a preference".
+	if lang == "" {
+		return nil, apperr.New(codes.InvalidArgument, "preferred language cannot be empty")
 	}
 
 	result, err := r.db.Pool.Exec(ctx, updatePreferredLanguageQuery, id, lang)

@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -695,17 +696,28 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 		assert.Equal(t, "ja", got.PreferredLanguage)
 	})
 
-	t.Run("Create with empty preferred_language persists NULL (empty string in domain)", func(t *testing.T) {
+	t.Run("Create with empty preferred_language persists SQL NULL (not empty string)", func(t *testing.T) {
 		cleanDatabase(t)
 
 		params := newTestUser("ext-lang-2", "lang2@example.com", "Lang2")
-		params.PreferredLanguage = "" // simulates legacy/not-yet-set row
+		params.PreferredLanguage = "" // simulates an old client that omitted the wire field
 
 		user, err := repo.Create(ctx, params)
 		require.NoError(t, err)
 		assert.Equal(t, "", user.PreferredLanguage, "NULL column should map to empty string in domain")
 
-		// Verify round-trip via Get.
+		// Verify the column is SQL NULL, not the literal empty string —
+		// the NULL='not-yet-set' invariant lets the hydration backfill
+		// path differentiate old-client rows from "client explicitly chose ''".
+		var lang sql.NullString
+		err = testDB.Pool.QueryRow(ctx,
+			`SELECT preferred_language FROM users WHERE id = $1`,
+			user.ID,
+		).Scan(&lang)
+		require.NoError(t, err)
+		assert.False(t, lang.Valid, "preferred_language must be SQL NULL, got %q (Valid=%t)", lang.String, lang.Valid)
+
+		// Round-trip via Get also yields empty.
 		got, err := repo.Get(ctx, user.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "", got.PreferredLanguage)
@@ -767,5 +779,24 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 		_, err := repo.UpdatePreferredLanguage(ctx, "", "en")
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("UpdatePreferredLanguage — empty language returns InvalidArgument", func(t *testing.T) {
+		// The RPC contract requires a non-empty ISO 639-1 code. An empty
+		// value at the repo boundary is a programmer error; we reject it
+		// rather than write NULL (which would falsely re-arm the
+		// hydration-backfill loop).
+		cleanDatabase(t)
+		user, err := repo.Create(ctx, newTestUser("ext-lang-5", "lang5@example.com", "Lang5"))
+		require.NoError(t, err)
+
+		_, err = repo.UpdatePreferredLanguage(ctx, user.ID, "")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+
+		// Confirm the stored language wasn't touched.
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ja", got.PreferredLanguage)
 	})
 }
