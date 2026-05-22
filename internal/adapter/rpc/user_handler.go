@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -19,6 +20,13 @@ const (
 	resendRateLimit  = 3
 	resendRateWindow = 10 * time.Minute
 )
+
+// Compile-time assertion: UserHandler satisfies the generated
+// UserServiceHandler interface. Matches the same pattern in
+// TicketHandler / EntryHandler and surfaces interface drift (added or
+// renamed RPC methods) at build time instead of waiting for the DI
+// wiring to fail at startup.
+var _ userv1connect.UserServiceHandler = (*UserHandler)(nil)
 
 // UserHandler implements the UserService Connect interface.
 type UserHandler struct {
