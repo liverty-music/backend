@@ -323,6 +323,13 @@ func (r *UserRepository) Update(ctx context.Context, id string, params *entity.N
 		params.Country, params.TimeZone,
 	))
 	if err != nil {
+		// CTE RETURNING returns 0 rows when no row matches the WHERE.
+		// QueryRow surfaces that as pgx.ErrNoRows; map to NotFound with
+		// a clear message instead of the generic toAppErr "failed to
+		// update user" (which reads like a query execution failure).
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
+		}
 		return nil, toAppErr(err, "failed to update user", slog.String("user_id", id))
 	}
 

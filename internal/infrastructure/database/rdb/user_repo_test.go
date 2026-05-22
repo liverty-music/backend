@@ -100,6 +100,11 @@ func TestUserRepository_Create(t *testing.T) {
 			assert.Equal(t, tt.args.params.Email, got.Email)
 			assert.Equal(t, tt.args.params.Name, got.Name)
 			assert.Equal(t, tt.args.params.ExternalID, got.ExternalID)
+			// Create returns the in-memory entity built from params, so
+			// PreferredLanguage MUST round-trip through entity.CreateUser.
+			// Catches regressions where a refactor would drop the field
+			// from the constructor copy.
+			assert.Equal(t, tt.args.params.PreferredLanguage, got.PreferredLanguage)
 
 			if tt.args.params.Home != nil {
 				require.NotNil(t, got.Home)

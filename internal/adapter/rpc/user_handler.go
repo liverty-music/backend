@@ -101,6 +101,28 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 // mismatches are rejected with PERMISSION_DENIED per the rpc-auth-scoping
 // convention.
 func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.Request[userv1.UpdatePreferredLanguageRequest]) (*connect.Response[userv1.UpdatePreferredLanguageResponse], error) {
+	// Defense in depth: protovalidate enforces the same regex at the wire
+	// layer and the use case has the authoritative guard. Re-checking
+	// here at the RPC seam keeps the contract explicit and consistent so
+	// all three layers reject the same shape if any one is bypassed
+	// (interceptor misconfigured, internal callers, test harnesses).
+	//
+	// Order: format validation runs BEFORE GetByExternalID so a malformed
+	// payload doesn't trigger a DB round-trip and doesn't leak
+	// user-existence information on the sad path (a deleted user with a
+	// malformed lang would otherwise see NotFound instead of
+	// InvalidArgument). This intentionally diverges from UpdateHome's
+	// auth-first posture — UpdateHome has no handler-layer payload check;
+	// here we do, so payload first is the right ordering.
+	//
+	// `entity.IsValidLanguageCode` is the single source of truth (also
+	// used by the use case), so a future format change is one edit.
+	lang := req.Msg.GetPreferredLanguage()
+	if !entity.IsValidLanguageCode(lang) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("preferred_language must match ISO 639-1 (^[a-z]{2}$)"))
+	}
+
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -113,21 +135,6 @@ func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.
 
 	if err := mapper.RequireUserIDMatch(caller.ID, req.Msg.GetUserId().GetValue()); err != nil {
 		return nil, err
-	}
-
-	// Defense in depth: protovalidate enforces this at the wire layer
-	// and the use case has the authoritative guard. Re-checking at the
-	// RPC seam keeps the contract explicit and consistent so all three
-	// layers reject the same shape if any one is bypassed (interceptor
-	// misconfigured, internal callers, test harnesses). Auth-scoping
-	// runs before format validation to match UpdateHome's posture.
-	// `entity.IsValidLanguageCode` is the single source of truth — used
-	// here and in the use case — so a future change (e.g. BCP 47 region
-	// tags) only needs to be made in one place.
-	lang := req.Msg.GetPreferredLanguage()
-	if !entity.IsValidLanguageCode(lang) {
-		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("preferred_language must match ISO 639-1 (^[a-z]{2}$)"))
 	}
 
 	user, err := h.userUseCase.UpdatePreferredLanguage(ctx, caller.ID, lang)

@@ -22,6 +22,17 @@ ALTER TABLE "users" ALTER COLUMN "preferred_language" DROP DEFAULT;
 -- the column — the generic Update query no longer touches it — so the
 -- no-explicit-write guarantee will hold without ambiguity from this PR
 -- onward.
+--
+-- Locking note: this UPDATE acquires row-level locks on every matching
+-- row inside the Atlas migration transaction (no table lock — PostgreSQL
+-- row-level UPDATE semantics). Concurrent writes that touch the same
+-- rows (UpdateHome, UpdateSafeAddress, etc.) will block until the
+-- migration commits. Acceptable for the current alpha-scale user table
+-- where the UPDATE completes in milliseconds. If the table grows to a
+-- point where this becomes a deploy-time risk, split the data backfill
+-- out into a separate operational migration that runs in its own
+-- transactions (Atlas wraps each file in one txn, so chunking within a
+-- single migration with pg_sleep doesn't release the locks).
 UPDATE "users" SET "preferred_language" = NULL WHERE "preferred_language" IS NOT NULL;
 -- Set comment to column: "preferred_language" on table: "users"
 COMMENT ON COLUMN "users"."preferred_language" IS 'User preferred language code (e.g., en, ja). NULL means "not yet set by client"; client backfills via UpdatePreferredLanguage on first observation.';

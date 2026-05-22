@@ -282,32 +282,50 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		assert.Equal(t, connect.CodeUnauthenticated, connectErr.Code())
 	})
 
-	t.Run("InvalidArgument when preferred_language is empty", func(t *testing.T) {
+	t.Run("InvalidArgument when preferred_language is malformed", func(t *testing.T) {
 		// Defense-in-depth: protovalidate already rejects empty / malformed
 		// values at the wire boundary, but the handler also guards in case
 		// the validation interceptor is bypassed (internal callers, test
-		// harnesses, misconfigured chain). This test covers that fallback.
+		// harnesses, misconfigured chain). Table-driven so the full set
+		// of invalid shapes is exercised — if the regex is ever loosened
+		// (e.g. to accept uppercase), at least one case here will fail.
+		//
+		// The format check runs BEFORE GetByExternalID, so no auth-related
+		// mocks are needed.
 		t.Parallel()
-		logger, err := logging.New()
-		require.NoError(t, err)
-		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		cases := []string{
+			"",        // empty
+			"e",       // too short
+			"eng",     // too long
+			"EN",      // uppercase
+			"42",      // digits
+			"ja-JP",   // region tag
+			"english", // word
+			" ja",     // whitespace
+		}
+		for _, bad := range cases {
+			t.Run(bad, func(t *testing.T) {
+				t.Parallel()
+				logger, err := logging.New()
+				require.NoError(t, err)
+				userUC := mocks.NewMockUserUseCase(t)
+				h := rpc.NewUserHandler(userUC, nil, logger)
+				// Neither GetByExternalID nor UpdatePreferredLanguage
+				// must be called — format check should reject first.
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).
-			Return(existingUser, nil).Once()
-		// UpdatePreferredLanguage MUST NOT be called.
+				ctx := authedCtx(testCallerExtID)
+				req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+					UserId:            newUserIDProto(testCallerUserID),
+					PreferredLanguage: bad,
+				})
 
-		ctx := authedCtx(testCallerExtID)
-		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
-			UserId:            newUserIDProto(testCallerUserID),
-			PreferredLanguage: "",
-		})
+				resp, err := h.UpdatePreferredLanguage(ctx, req)
 
-		resp, err := h.UpdatePreferredLanguage(ctx, req)
-
-		assert.Nil(t, resp)
-		var connectErr *connect.Error
-		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+				assert.Nil(t, resp)
+				var connectErr *connect.Error
+				require.ErrorAs(t, err, &connectErr)
+				assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+			})
+		}
 	})
 }
