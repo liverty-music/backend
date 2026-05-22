@@ -184,6 +184,15 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
+	// Create returns the in-memory entity built from params (not a row
+	// re-fetched after INSERT). This is intentional and currently safe:
+	// every column we write here round-trips identically through pgx (no
+	// triggers, generated columns, or server-side normalization on
+	// users.* writes). If that ever changes — e.g., a DB-side normalizer
+	// is added to preferred_language, or a trigger rewrites name — switch
+	// Create to the CTE RETURNING + scanUser pattern that Update,
+	// UpdateHome, and UpdatePreferredLanguage already use, so the caller
+	// observes DB truth instead of a stale snapshot of params.
 	user := entity.CreateUser(params)
 
 	tx, err := r.db.Pool.Begin(ctx)

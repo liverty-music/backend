@@ -5,12 +5,20 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
+
+// languageCodePattern matches an ISO 639-1 two-letter lowercase code, mirroring
+// the protovalidate constraint on UpdatePreferredLanguageRequest.preferred_language
+// (^[a-z]{2}$ + min_len: 2). Validating at the use-case layer means internal
+// callers — integration tests, future handlers, scripts — get the same
+// guarantee even when they bypass the wire-layer interceptor.
+var languageCodePattern = regexp.MustCompile(`^[a-z]{2}$`)
 
 // UserUseCase defines the interface for user-related business logic.
 type UserUseCase interface {
@@ -170,7 +178,19 @@ func (uc *userUseCase) GetByExternalID(ctx context.Context, externalID string) (
 }
 
 // UpdatePreferredLanguage sets the user's preferred display language.
+//
+// Validates `lang` against the ISO 639-1 two-letter pattern before reaching
+// the repository — mirrors UpdateHome's `home.Validate()` posture so that
+// non-RPC callers (integration tests, future internal handlers, scripts)
+// don't bypass the wire-layer protovalidate constraint.
 func (uc *userUseCase) UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error) {
+	if !languageCodePattern.MatchString(lang) {
+		return nil, apperr.New(codes.InvalidArgument,
+			"preferred_language must match ISO 639-1 (^[a-z]{2}$)",
+			slog.String("preferred_language", lang),
+		)
+	}
+
 	user, err := uc.userRepo.UpdatePreferredLanguage(ctx, id, lang)
 	if err != nil {
 		return nil, err
