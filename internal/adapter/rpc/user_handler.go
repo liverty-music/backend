@@ -4,23 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"sync"
 	"time"
 
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
-
-// languageCodePattern mirrors the protovalidate constraint on
-// UpdatePreferredLanguageRequest.preferred_language (^[a-z]{2}$ + min_len: 2).
-// Re-checking at the handler short-circuits invalid values before the
-// downstream GetByExternalID DB round-trip, when the wire-layer interceptor
-// is bypassed (internal callers, test harnesses).
-var languageCodePattern = regexp.MustCompile(`^[a-z]{2}$`)
 
 const (
 	resendRateLimit  = 3
@@ -123,14 +116,16 @@ func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.
 	}
 
 	// Defense in depth: protovalidate enforces this at the wire layer
-	// (min_len: 2 + pattern ^[a-z]{2}$). The use case has the same
-	// regex check as the authoritative guard. Repeating it at the RPC
-	// seam keeps the contract explicit and consistent so all three
+	// and the use case has the authoritative guard. Re-checking at the
+	// RPC seam keeps the contract explicit and consistent so all three
 	// layers reject the same shape if any one is bypassed (interceptor
 	// misconfigured, internal callers, test harnesses). Auth-scoping
 	// runs before format validation to match UpdateHome's posture.
+	// `entity.IsValidLanguageCode` is the single source of truth — used
+	// here and in the use case — so a future change (e.g. BCP 47 region
+	// tags) only needs to be made in one place.
 	lang := req.Msg.GetPreferredLanguage()
-	if !languageCodePattern.MatchString(lang) {
+	if !entity.IsValidLanguageCode(lang) {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
 			fmt.Errorf("preferred_language must match ISO 639-1 (^[a-z]{2}$)"))
 	}

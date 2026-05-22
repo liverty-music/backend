@@ -12,6 +12,22 @@ var countryCodeRe = regexp.MustCompile(`^[A-Z]{2}$`)
 // iso31662Re validates ISO 3166-2 subdivision codes (e.g., "JP-13", "US-CA").
 var iso31662Re = regexp.MustCompile(`^[A-Z]{2}-[A-Z0-9]{1,3}$`)
 
+// languageCodeRe validates ISO 639-1 two-letter lowercase codes (e.g., "ja", "en").
+// Mirrors the protovalidate constraint on the proto wire types
+// (CreateRequest.preferred_language, UpdatePreferredLanguageRequest.preferred_language,
+// User.preferred_language) so the entity-level invariant matches what the wire
+// accepts.
+var languageCodeRe = regexp.MustCompile(`^[a-z]{2}$`)
+
+// IsValidLanguageCode reports whether s is a syntactically valid ISO 639-1
+// two-letter language code. Single source of truth for the user-language
+// format check — used by the use case (authoritative gate for all callers)
+// and the RPC handler (defense-in-depth at the seam). Keeping it on the
+// entity package avoids duplicating the regex across layers.
+func IsValidLanguageCode(s string) bool {
+	return languageCodeRe.MatchString(s)
+}
+
 // Validate checks that the Home has a valid CountryCode, Level1, and optional Level2.
 // It returns a non-nil error describing the first validation failure.
 // The entity layer returns stdlib errors; callers in the usecase layer are responsible
