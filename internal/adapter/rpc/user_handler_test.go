@@ -261,6 +261,35 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
 	})
 
+	t.Run("InvalidArgument when user_id is empty", func(t *testing.T) {
+		// Per the rpc-auth-scoping convention, RequireUserIDMatch rejects
+		// an empty client-supplied user_id with InvalidArgument before
+		// any business logic runs. This test pins the contract; the
+		// format check has already passed at this point.
+		t.Parallel()
+		logger, err := logging.New()
+		require.NoError(t, err)
+		userUC := mocks.NewMockUserUseCase(t)
+		h := rpc.NewUserHandler(userUC, nil, logger)
+
+		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).
+			Return(existingUser, nil).Once()
+		// UpdatePreferredLanguage MUST NOT be called.
+
+		ctx := authedCtx(testCallerExtID)
+		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+			UserId:            newUserIDProto(""), // empty
+			PreferredLanguage: "en",
+		})
+
+		resp, err := h.UpdatePreferredLanguage(ctx, req)
+
+		assert.Nil(t, resp)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	})
+
 	t.Run("Unauthenticated when no JWT claims", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()

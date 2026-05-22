@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -96,7 +95,7 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 	lang := req.Msg.GetPreferredLanguage()
 	if lang != "" && !entity.IsValidLanguageCode(lang) {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("preferred_language must match ISO 639-1 (^[a-z]{2}$) when present"))
+			errors.New("preferred_language must match ISO 639-1 (^[a-z]{2}$) when present"))
 	}
 
 	// Convert JWT claims and request to domain DTO. preferred_language is optional;
@@ -140,7 +139,7 @@ func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.
 	lang := req.Msg.GetPreferredLanguage()
 	if !entity.IsValidLanguageCode(lang) {
 		return nil, connect.NewError(connect.CodeInvalidArgument,
-			fmt.Errorf("preferred_language must match ISO 639-1 (^[a-z]{2}$)"))
+			errors.New("preferred_language must match ISO 639-1 (^[a-z]{2}$)"))
 	}
 
 	externalID, err := mapper.GetExternalUserID(ctx)
