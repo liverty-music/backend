@@ -1,6 +1,7 @@
 package rpc_test
 
 import (
+	"context"
 	"testing"
 
 	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
@@ -195,5 +196,165 @@ func TestUserHandler_UpdateHome(t *testing.T) {
 		var connectErr *connect.Error
 		require.ErrorAs(t, err, &connectErr)
 		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	})
+}
+
+func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
+	t.Parallel()
+
+	existingUser := &entity.User{ID: testCallerUserID, ExternalID: testCallerExtID}
+
+	t.Run("happy path — returns updated user", func(t *testing.T) {
+		t.Parallel()
+		logger, err := logging.New()
+		require.NoError(t, err)
+		userUC := mocks.NewMockUserUseCase(t)
+		h := rpc.NewUserHandler(userUC, nil, logger)
+
+		updatedUser := &entity.User{
+			ID:                testCallerUserID,
+			ExternalID:        testCallerExtID,
+			PreferredLanguage: "en",
+		}
+
+		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).
+			Return(existingUser, nil).Once()
+		userUC.EXPECT().UpdatePreferredLanguage(mock.Anything, testCallerUserID, "en").
+			Return(updatedUser, nil).Once()
+
+		ctx := authedCtx(testCallerExtID)
+		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+			UserId:            newUserIDProto(testCallerUserID),
+			PreferredLanguage: "en",
+		})
+
+		resp, err := h.UpdatePreferredLanguage(ctx, req)
+
+		assert.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, testCallerUserID, resp.Msg.User.GetId().GetValue())
+		assert.Equal(t, "en", resp.Msg.User.GetPreferredLanguage())
+	})
+
+	t.Run("PermissionDenied when user_id mismatches JWT", func(t *testing.T) {
+		t.Parallel()
+		logger, err := logging.New()
+		require.NoError(t, err)
+		userUC := mocks.NewMockUserUseCase(t)
+		h := rpc.NewUserHandler(userUC, nil, logger)
+
+		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).
+			Return(existingUser, nil).Once()
+		// UpdatePreferredLanguage must NOT be called.
+
+		ctx := authedCtx(testCallerExtID)
+		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+			UserId:            newUserIDProto(testForeignUserID), // cross-user request
+			PreferredLanguage: "en",
+		})
+
+		resp, err := h.UpdatePreferredLanguage(ctx, req)
+
+		assert.Nil(t, resp)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
+	})
+
+	t.Run("InvalidArgument when user_id is empty", func(t *testing.T) {
+		// Per the rpc-auth-scoping convention, RequireUserIDMatch rejects
+		// an empty client-supplied user_id with InvalidArgument before
+		// any business logic runs. This test pins the contract; the
+		// format check has already passed at this point.
+		t.Parallel()
+		logger, err := logging.New()
+		require.NoError(t, err)
+		userUC := mocks.NewMockUserUseCase(t)
+		h := rpc.NewUserHandler(userUC, nil, logger)
+
+		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).
+			Return(existingUser, nil).Once()
+		// UpdatePreferredLanguage MUST NOT be called.
+
+		ctx := authedCtx(testCallerExtID)
+		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+			UserId:            newUserIDProto(""), // empty
+			PreferredLanguage: "en",
+		})
+
+		resp, err := h.UpdatePreferredLanguage(ctx, req)
+
+		assert.Nil(t, resp)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	})
+
+	t.Run("Unauthenticated when no JWT claims", func(t *testing.T) {
+		t.Parallel()
+		logger, err := logging.New()
+		require.NoError(t, err)
+		userUC := mocks.NewMockUserUseCase(t)
+		h := rpc.NewUserHandler(userUC, nil, logger)
+
+		ctx := context.Background() // no auth claims
+		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+			UserId:            newUserIDProto(testCallerUserID),
+			PreferredLanguage: "ja",
+		})
+
+		resp, err := h.UpdatePreferredLanguage(ctx, req)
+
+		assert.Nil(t, resp)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeUnauthenticated, connectErr.Code())
+	})
+
+	t.Run("InvalidArgument when preferred_language is malformed", func(t *testing.T) {
+		// Defense-in-depth: protovalidate already rejects empty / malformed
+		// values at the wire boundary, but the handler also guards in case
+		// the validation interceptor is bypassed (internal callers, test
+		// harnesses, misconfigured chain). Table-driven so the full set
+		// of invalid shapes is exercised — if the regex is ever loosened
+		// (e.g. to accept uppercase), at least one case here will fail.
+		//
+		// The format check runs BEFORE GetByExternalID, so no auth-related
+		// mocks are needed.
+		t.Parallel()
+		cases := []string{
+			"",        // empty
+			"e",       // too short
+			"eng",     // too long
+			"EN",      // uppercase
+			"42",      // digits
+			"ja-JP",   // region tag
+			"english", // word
+			" ja",     // whitespace
+		}
+		for _, bad := range cases {
+			t.Run(bad, func(t *testing.T) {
+				t.Parallel()
+				logger, err := logging.New()
+				require.NoError(t, err)
+				userUC := mocks.NewMockUserUseCase(t)
+				h := rpc.NewUserHandler(userUC, nil, logger)
+				// Neither GetByExternalID nor UpdatePreferredLanguage
+				// must be called — format check should reject first.
+
+				ctx := authedCtx(testCallerExtID)
+				req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
+					UserId:            newUserIDProto(testCallerUserID),
+					PreferredLanguage: bad,
+				})
+
+				resp, err := h.UpdatePreferredLanguage(ctx, req)
+
+				assert.Nil(t, resp)
+				var connectErr *connect.Error
+				require.ErrorAs(t, err, &connectErr)
+				assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+			})
+		}
 	})
 }

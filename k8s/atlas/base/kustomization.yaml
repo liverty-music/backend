@@ -67,3 +67,4 @@ configMapGenerator:
   - migrations/20260406120000_add_venue_listed_name_index.sql
   - migrations/20260427081142_truncate_users_for_zitadel_migration.sql
   - migrations/20260520120000_change_default_hype_to_nearby.sql
+  - migrations/20260521083536_drop_users_preferred_language_default.sql

@@ -4,10 +4,13 @@ import (
 	"context"
 	"testing"
 
+	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetExternalUserID(t *testing.T) {
@@ -119,6 +122,125 @@ func TestRequireUserIDMatch(t *testing.T) {
 			var connectErr *connect.Error
 			assert.ErrorAs(t, err, &connectErr)
 			assert.Equal(t, tt.wantCode, connectErr.Code())
+		})
+	}
+}
+
+func TestUserToProto(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                  string
+		user                  *entity.User
+		wantNil               bool
+		wantPreferredLanguage string // empty when field not yet set (pre-BSR-gen)
+	}{
+		{
+			name:    "nil user returns nil",
+			user:    nil,
+			wantNil: true,
+		},
+		{
+			name: "user with preferred_language populated",
+			user: &entity.User{
+				ID:                "u-1",
+				Email:             "test@example.com",
+				ExternalID:        "ext-1",
+				Name:              "Taro",
+				PreferredLanguage: "ja",
+			},
+			wantPreferredLanguage: "ja",
+		},
+		{
+			name: "user with empty preferred_language (legacy / not-yet-backfilled row)",
+			user: &entity.User{
+				ID:                "u-2",
+				Email:             "legacy@example.com",
+				ExternalID:        "ext-2",
+				Name:              "Legacy User",
+				PreferredLanguage: "",
+			},
+			wantPreferredLanguage: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pb := mapper.UserToProto(tt.user)
+
+			if tt.wantNil {
+				assert.Nil(t, pb)
+				return
+			}
+			require.NotNil(t, pb)
+			assert.Equal(t, tt.user.ID, pb.GetId().GetValue())
+			assert.Equal(t, tt.user.Email, pb.GetEmail().GetValue())
+			assert.Equal(t, tt.user.ExternalID, pb.GetExternalId().GetValue())
+			assert.Equal(t, tt.user.Name, pb.GetName())
+			assert.Equal(t, tt.wantPreferredLanguage, pb.GetPreferredLanguage())
+		})
+	}
+}
+
+func TestNewUserFromCreateRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		claims   *auth.Claims
+		req      *userv1.CreateRequest
+		wantNil  bool
+		wantLang string
+	}{
+		{
+			name:    "nil claims returns nil",
+			claims:  nil,
+			req:     &userv1.CreateRequest{},
+			wantNil: true,
+		},
+		{
+			name: "carries preferred_language from request",
+			claims: &auth.Claims{
+				Sub:   "ext-123",
+				Email: "user@example.com",
+				Name:  "Hana",
+			},
+			req: func() *userv1.CreateRequest {
+				r := &userv1.CreateRequest{}
+				r.SetPreferredLanguage("ja")
+				return r
+			}(),
+			wantLang: "ja",
+		},
+		{
+			name: "absent preferred_language is propagated as empty string",
+			claims: &auth.Claims{
+				Sub:   "ext-456",
+				Email: "empty@example.com",
+				Name:  "Empty",
+			},
+			req:      &userv1.CreateRequest{},
+			wantLang: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := mapper.NewUserFromCreateRequest(tt.claims, tt.req)
+
+			if tt.wantNil {
+				assert.Nil(t, got)
+				return
+			}
+			require.NotNil(t, got)
+			assert.Equal(t, tt.claims.Sub, got.ExternalID)
+			assert.Equal(t, tt.claims.Email, got.Email)
+			assert.Equal(t, tt.claims.Name, got.Name)
+			assert.Equal(t, tt.wantLang, got.PreferredLanguage)
 		})
 	}
 }

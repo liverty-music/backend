@@ -3,9 +3,11 @@ package rdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
 	infrageo "github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/pannpers/go-apperr/apperr"
@@ -43,13 +45,19 @@ const (
 		WHERE u.email = $1
 	`
 
+	// updateUserQuery intentionally does NOT include preferred_language.
+	// The column is owned by UpdatePreferredLanguage; a generic Update
+	// would otherwise risk silently NULLing the row whenever a caller
+	// passes a NewUser with an empty PreferredLanguage field (e.g. a
+	// partial update built by a caller that forgot to copy the existing
+	// value first).
 	updateUserQuery = `
 		WITH updated AS (
-			UPDATE users SET external_id = $2, email = $3, name = $4, preferred_language = $5, country = $6, time_zone = $7
+			UPDATE users SET external_id = $2, email = $3, name = $4, country = $5, time_zone = $6
 			WHERE id = $1
 			RETURNING *
 		)
-		SELECT ` + `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active` + `, ` + homeColumns + `
+		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM updated u
 		LEFT JOIN homes h ON u.home_id = h.id
 	`
@@ -64,6 +72,21 @@ const (
 
 	updateSafeAddressQuery = `
 		UPDATE users SET safe_address = $2 WHERE id = $1
+	`
+
+	// Atomic UPDATE + SELECT in a single statement so the read-after-write
+	// can't race with a concurrent DELETE on the same user. The CTE
+	// returns 0 rows if no row matches the WHERE, which scanUser surfaces
+	// as ErrNoRows and the caller maps to NotFound.
+	updatePreferredLanguageQuery = `
+		WITH updated AS (
+			UPDATE users SET preferred_language = $2
+			WHERE id = $1
+			RETURNING *
+		)
+		SELECT ` + userColumns + `, ` + homeColumns + `
+		FROM updated u
+		LEFT JOIN homes h ON u.home_id = h.id
 	`
 
 	insertHomeQuery = `
@@ -102,20 +125,36 @@ func NewUserRepository(db *Database) *UserRepository {
 	return &UserRepository{db: db}
 }
 
+// nullStringFromEmpty maps Go's zero value (empty string) to a NULL
+// SQL value, and any non-empty string to a present value. Used at the
+// write boundary so columns whose semantics distinguish "absent" from
+// "explicitly empty" (e.g. users.preferred_language) preserve that
+// distinction in the database.
+func nullStringFromEmpty(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
+
 // scanUser scans a user row with optional home columns from a LEFT JOIN.
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
+	var preferredLanguage sql.NullString
 	var homeID, countryCode, level1, level2 sql.NullString
 	var centroidLat, centroidLng sql.NullFloat64
 
 	err := scanner.Scan(
 		&user.ID, &user.ExternalID, &user.Email, &user.Name,
-		&user.PreferredLanguage, &user.Country, &user.TimeZone,
+		&preferredLanguage, &user.Country, &user.TimeZone,
 		&user.SafeAddress, &user.IsActive,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if preferredLanguage.Valid {
+		user.PreferredLanguage = preferredLanguage.String
 	}
 
 	if homeID.Valid {
@@ -145,6 +184,15 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
+	// Create returns the in-memory entity built from params (not a row
+	// re-fetched after INSERT). This is intentional and currently safe:
+	// every column we write here round-trips identically through pgx (no
+	// triggers, generated columns, or server-side normalization on
+	// users.* writes). If that ever changes — e.g., a DB-side normalizer
+	// is added to preferred_language, or a trigger rewrites name — switch
+	// Create to the CTE RETURNING + scanUser pattern that Update,
+	// UpdateHome, and UpdatePreferredLanguage already use, so the caller
+	// observes DB truth instead of a stale snapshot of params.
 	user := entity.CreateUser(params)
 
 	tx, err := r.db.Pool.Begin(ctx)
@@ -153,9 +201,17 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	// Preserve the NULL = "client has not yet asserted a preference"
+	// invariant on insert. Old clients that pre-date the
+	// CreateRequest.preferred_language field send no value, which arrives
+	// here as an empty string; mapping that to sql.NullString{Valid:false}
+	// keeps such rows distinguishable from "client explicitly chose 'en'"
+	// and feeds them into the same hydration-backfill path that legacy
+	// rows already use.
 	_, err = tx.Exec(ctx, insertUserQuery,
 		user.ID, params.ExternalID, params.Email, params.Name,
-		params.PreferredLanguage, params.Country, params.TimeZone, true,
+		nullStringFromEmpty(params.PreferredLanguage),
+		params.Country, params.TimeZone, true,
 	)
 	if err != nil {
 		if IsUniqueViolation(err) {
@@ -260,11 +316,20 @@ func (r *UserRepository) Update(ctx context.Context, id string, params *entity.N
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
+	// Note: preferred_language is intentionally omitted — see the
+	// updateUserQuery comment. Use UpdatePreferredLanguage instead.
 	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateUserQuery,
 		id, params.ExternalID, params.Email, params.Name,
-		params.PreferredLanguage, params.Country, params.TimeZone,
+		params.Country, params.TimeZone,
 	))
 	if err != nil {
+		// CTE RETURNING returns 0 rows when no row matches the WHERE.
+		// QueryRow surfaces that as pgx.ErrNoRows; map to NotFound with
+		// a clear message instead of the generic toAppErr "failed to
+		// update user" (which reads like a query execution failure).
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
+		}
 		return nil, toAppErr(err, "failed to update user", slog.String("user_id", id))
 	}
 
@@ -322,6 +387,50 @@ func (r *UserRepository) UpdateSafeAddress(ctx context.Context, id, safeAddress 
 	)
 
 	return nil
+}
+
+// UpdatePreferredLanguage sets the user's preferred display language.
+// It performs a focused UPDATE on the preferred_language column and returns
+// the refreshed user entity via the standard SELECT query.
+func (r *UserRepository) UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error) {
+	if id == "" {
+		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
+	}
+	// UpdatePreferredLanguage's RPC contract requires a non-empty
+	// ISO 639-1 code (protovalidate enforces min_len: 2 + pattern). An
+	// empty value reaching the repository is a programmer error; reject
+	// loudly rather than write a NULL that downstream code would
+	// misinterpret as "client has not yet asserted a preference".
+	if lang == "" {
+		return nil, apperr.New(codes.InvalidArgument, "preferred language cannot be empty")
+	}
+
+	// Atomic UPDATE + SELECT via CTE — no race window with a concurrent
+	// DELETE on this user. If no row matches, scanUser returns ErrNoRows
+	// which we wrap as NotFound.
+	//
+	// Belt-and-suspenders: pass via nullStringFromEmpty so that IF the
+	// `lang == ""` guard above ever gets removed by a future refactor,
+	// the query writes SQL NULL (preserving the "client has not yet
+	// asserted" invariant and inviting a backfill on next hydration)
+	// rather than an empty string (which would silently escape the
+	// IS NULL invariant). The guard returning InvalidArgument is the
+	// intended contract — this is the failure-mode safety net.
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, updatePreferredLanguageQuery, id, nullStringFromEmpty(lang)))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
+		}
+		return nil, toAppErr(err, "failed to update preferred language", slog.String("user_id", id))
+	}
+
+	r.db.logger.Info(ctx, "user updated",
+		slog.String("entityType", "user"),
+		slog.String("userID", id),
+		slog.String("field", "preferredLanguage"),
+	)
+
+	return user, nil
 }
 
 // UpdateHome sets or changes the user's home area.

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
     external_id TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
-    preferred_language TEXT DEFAULT 'en',
+    preferred_language TEXT,
     country TEXT,
     time_zone TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -27,7 +27,7 @@ COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7, application-gener
 COMMENT ON COLUMN users.external_id IS 'Zitadel identity provider user ID (sub claim), used for account sync';
 COMMENT ON COLUMN users.email IS 'Primary contact and login identifier';
 COMMENT ON COLUMN users.name IS 'User display name from identity provider';
-COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g., en, ja)';
+COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g., en, ja). NULL means "not yet set by client"; client backfills via UpdatePreferredLanguage on first observation.';
 COMMENT ON COLUMN users.country IS 'User country code (ISO 3166-1 alpha-2)';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
 COMMENT ON COLUMN users.is_active IS 'Whether the user account is active';

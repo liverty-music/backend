@@ -46,6 +46,13 @@ type UserUseCase interface {
 	//  - NotFound: If the user does not exist.
 	GetByExternalID(ctx context.Context, externalID string) (*entity.User, error)
 
+	// UpdatePreferredLanguage sets or changes the user's preferred display language.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the user does not exist.
+	UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error)
+
 	// UpdateHome sets or changes the user's home area.
 	//
 	// # Possible errors
@@ -90,6 +97,18 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 		if err := params.Home.Validate(); err != nil {
 			return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
 		}
+	}
+	// preferred_language is optional at Create (old clients omit it, which
+	// is allowed — the row is created NULL and the client backfills on
+	// next hydration). When present, it MUST match the ISO 639-1 pattern;
+	// otherwise a value like "EN" or "english" would round-trip into the
+	// DB unchanged and the frontend's i18n.setLocale would silently
+	// fall back to the fallbackLng.
+	if params.PreferredLanguage != "" && !entity.IsValidLanguageCode(params.PreferredLanguage) {
+		return nil, apperr.New(codes.InvalidArgument,
+			"preferred_language must match ISO 639-1 (^[a-z]{2}$)",
+			slog.String("preferred_language", params.PreferredLanguage),
+		)
 	}
 
 	user, err := uc.userRepo.Create(ctx, params)
@@ -158,6 +177,36 @@ func (uc *userUseCase) GetByExternalID(ctx context.Context, externalID string) (
 			slog.String("external_id", externalID),
 		)
 	}
+
+	return user, nil
+}
+
+// UpdatePreferredLanguage sets the user's preferred display language.
+//
+// Validates `lang` against the ISO 639-1 two-letter pattern before reaching
+// the repository — mirrors UpdateHome's `home.Validate()` posture so that
+// non-RPC callers (integration tests, future internal handlers, scripts)
+// don't bypass the wire-layer protovalidate constraint.
+func (uc *userUseCase) UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error) {
+	if id == "" {
+		return nil, apperr.New(codes.InvalidArgument, "user id is required")
+	}
+	if !entity.IsValidLanguageCode(lang) {
+		return nil, apperr.New(codes.InvalidArgument,
+			"preferred_language must match ISO 639-1 (^[a-z]{2}$)",
+			slog.String("preferred_language", lang),
+		)
+	}
+
+	user, err := uc.userRepo.UpdatePreferredLanguage(ctx, id, lang)
+	if err != nil {
+		return nil, err
+	}
+
+	uc.logger.Info(ctx, "User preferred language updated",
+		slog.String("user_id", id),
+		slog.String("preferred_language", lang),
+	)
 
 	return user, nil
 }

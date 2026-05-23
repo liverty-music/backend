@@ -6,9 +6,11 @@ import (
 	"sync"
 	"time"
 
+	userv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -17,6 +19,13 @@ const (
 	resendRateLimit  = 3
 	resendRateWindow = 10 * time.Minute
 )
+
+// Compile-time assertion: UserHandler satisfies the generated
+// UserServiceHandler interface. Matches the same pattern in
+// TicketHandler / EntryHandler and surfaces interface drift (added or
+// renamed RPC methods) at build time instead of waiting for the DI
+// wiring to fail at startup.
+var _ userv1connect.UserServiceHandler = (*UserHandler)(nil)
 
 // UserHandler implements the UserService Connect interface.
 type UserHandler struct {
@@ -69,18 +78,32 @@ func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRe
 // The optional home field allows persisting the user's home area atomically
 // with account creation (selected during onboarding before sign-up).
 func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.CreateRequest]) (*connect.Response[userv1.CreateResponse], error) {
-	// Extract JWT claims from authenticated context (set by auth interceptor)
-	// This is critical for security - we extract all identity fields from validated JWT claims
-	// (external_id, email, name) and never trust client-provided identity data
+	// Extract JWT claims from authenticated context (set by auth interceptor).
+	// This is critical for security — we extract all identity fields from validated JWT claims
+	// (external_id, email, name) and never trust client-provided identity data.
 	claims, err := mapper.GetClaimsFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert JWT claims and optional home to domain DTO
-	newUser := mapper.NewUserFromCreateRequest(claims, req.Msg.Home)
+	// Defense-in-depth format check for preferred_language. The wire-layer
+	// protovalidate constraint and the use case both validate this; the
+	// handler also rejects malformed values at the seam so all three
+	// layers stay symmetric with UpdatePreferredLanguage. preferred_language
+	// is optional at Create (old clients omit it → stored as NULL), so
+	// only the non-empty case is checked here.
+	lang := req.Msg.GetPreferredLanguage()
+	if lang != "" && !entity.IsValidLanguageCode(lang) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("preferred_language must match ISO 639-1 (^[a-z]{2}$) when present"))
+	}
 
-	// Use the use case layer for business logic
+	// Convert JWT claims and request to domain DTO. preferred_language is optional;
+	// GetPreferredLanguage() returns "" when the field is absent, which is stored
+	// as NULL in the database.
+	newUser := mapper.NewUserFromCreateRequest(claims, req.Msg)
+
+	// Use the use case layer for business logic.
 	createdUser, err := h.userUseCase.Create(ctx, newUser)
 	if err != nil {
 		return nil, err
@@ -88,6 +111,58 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 
 	return connect.NewResponse(&userv1.CreateResponse{
 		User: mapper.UserToProto(createdUser),
+	}), nil
+}
+
+// UpdatePreferredLanguage sets or changes the authenticated user's preferred display language.
+//
+// The request-supplied user_id is verified against the JWT-derived userID;
+// mismatches are rejected with PERMISSION_DENIED per the rpc-auth-scoping
+// convention.
+func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.Request[userv1.UpdatePreferredLanguageRequest]) (*connect.Response[userv1.UpdatePreferredLanguageResponse], error) {
+	// Defense in depth: protovalidate enforces the same regex at the wire
+	// layer and the use case has the authoritative guard. Re-checking
+	// here at the RPC seam keeps the contract explicit and consistent so
+	// all three layers reject the same shape if any one is bypassed
+	// (interceptor misconfigured, internal callers, test harnesses).
+	//
+	// Order: format validation runs BEFORE GetByExternalID so a malformed
+	// payload doesn't trigger a DB round-trip and doesn't leak
+	// user-existence information on the sad path (a deleted user with a
+	// malformed lang would otherwise see NotFound instead of
+	// InvalidArgument). This intentionally diverges from UpdateHome's
+	// auth-first posture — UpdateHome has no handler-layer payload check;
+	// here we do, so payload first is the right ordering.
+	//
+	// `entity.IsValidLanguageCode` is the single source of truth (also
+	// used by the use case), so a future format change is one edit.
+	lang := req.Msg.GetPreferredLanguage()
+	if !entity.IsValidLanguageCode(lang) {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			errors.New("preferred_language must match ISO 639-1 (^[a-z]{2}$)"))
+	}
+
+	externalID, err := mapper.GetExternalUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	caller, err := h.userUseCase.GetByExternalID(ctx, externalID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := mapper.RequireUserIDMatch(caller.ID, req.Msg.GetUserId().GetValue()); err != nil {
+		return nil, err
+	}
+
+	user, err := h.userUseCase.UpdatePreferredLanguage(ctx, caller.ID, lang)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&userv1.UpdatePreferredLanguageResponse{
+		User: mapper.UserToProto(user),
 	}), nil
 }
 

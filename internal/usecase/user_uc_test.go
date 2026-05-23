@@ -214,6 +214,38 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.Nil(t, result)
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 	})
+
+	// Create accepts an empty preferred_language (old clients omit the
+	// field; the row is created NULL and the client backfills on next
+	// hydration). A non-empty value MUST match ISO 639-1.
+	t.Run("InvalidArgument when preferred_language is present but malformed", func(t *testing.T) {
+		t.Parallel()
+		cases := []string{
+			"e",       // too short
+			"eng",     // too long
+			"EN",      // uppercase
+			"42",      // digits
+			"ja-JP",   // region tag
+			"english", // word
+		}
+		for _, bad := range cases {
+			t.Run(bad, func(t *testing.T) {
+				t.Parallel()
+				d := newUserTestDeps(t)
+				// repo MUST NOT be called.
+
+				result, err := d.uc.Create(ctx, &entity.NewUser{
+					ExternalID:        "ext-bad-lang",
+					Email:             "bad-lang@example.com",
+					Name:              "Bad Lang",
+					PreferredLanguage: bad,
+				})
+
+				assert.Nil(t, result)
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+			})
+		}
+	})
 }
 
 func TestUserUseCase_GetUser(t *testing.T) {
@@ -441,5 +473,87 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, result)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}
+
+func TestUserUseCase_UpdatePreferredLanguage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("success — updates and returns the user", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		updatedUser := &entity.User{
+			ID:                "user-lang-1",
+			Email:             "lang@example.com",
+			PreferredLanguage: "en",
+		}
+
+		d.repo.EXPECT().UpdatePreferredLanguage(ctx, "user-lang-1", "en").
+			Return(updatedUser, nil).Once()
+
+		result, err := d.uc.UpdatePreferredLanguage(ctx, "user-lang-1", "en")
+
+		assert.NoError(t, err)
+		assert.Equal(t, updatedUser, result)
+		assert.Equal(t, "en", result.PreferredLanguage)
+	})
+
+	t.Run("not found — repository returns NotFound", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().UpdatePreferredLanguage(ctx, "ghost-id", "ja").
+			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+
+		result, err := d.uc.UpdatePreferredLanguage(ctx, "ghost-id", "ja")
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	// Defense-in-depth: a non-RPC caller (integration test, internal
+	// script, future handler that bypasses protovalidate) MUST be rejected
+	// at the use-case layer when lang doesn't match ISO 639-1. The repo
+	// mock is intentionally not registered — the use-case must fail before
+	// touching it.
+	t.Run("InvalidArgument when lang does not match ISO 639-1", func(t *testing.T) {
+		t.Parallel()
+		cases := []string{
+			"",        // empty
+			"e",       // too short
+			"eng",     // too long
+			"EN",      // uppercase
+			"42",      // digits
+			"ja-JP",   // region tag
+			"english", // word
+			" ja",     // whitespace
+		}
+		for _, bad := range cases {
+			t.Run(bad, func(t *testing.T) {
+				t.Parallel()
+				d := newUserTestDeps(t)
+				// repo MUST NOT be called — no EXPECT() registered.
+
+				result, err := d.uc.UpdatePreferredLanguage(ctx, "user-1", bad)
+
+				assert.Nil(t, result)
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+			})
+		}
+	})
+
+	t.Run("InvalidArgument when id is empty", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		// repo MUST NOT be called.
+
+		result, err := d.uc.UpdatePreferredLanguage(ctx, "", "ja")
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }

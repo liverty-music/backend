@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -99,6 +100,11 @@ func TestUserRepository_Create(t *testing.T) {
 			assert.Equal(t, tt.args.params.Email, got.Email)
 			assert.Equal(t, tt.args.params.Name, got.Name)
 			assert.Equal(t, tt.args.params.ExternalID, got.ExternalID)
+			// Create returns the in-memory entity built from params, so
+			// PreferredLanguage MUST round-trip through entity.CreateUser.
+			// Catches regressions where a refactor would drop the field
+			// from the constructor copy.
+			assert.Equal(t, tt.args.params.PreferredLanguage, got.PreferredLanguage)
 
 			if tt.args.params.Home != nil {
 				require.NotNil(t, got.Home)
@@ -358,6 +364,38 @@ func TestUserRepository_Update(t *testing.T) {
 			assert.Equal(t, tt.params.Name, got.Name)
 		})
 	}
+
+	// Regression guard: Update intentionally does NOT touch
+	// preferred_language (the column is owned by UpdatePreferredLanguage —
+	// see the updateUserQuery comment). If a future change re-adds
+	// preferred_language to the SET clause, callers that pass NewUser
+	// with an empty PreferredLanguage would silently NULL the column.
+	// This test would catch that regression.
+	t.Run("does NOT touch preferred_language (managed by UpdatePreferredLanguage)", func(t *testing.T) {
+		cleanDatabase(t)
+		// newTestUser sets PreferredLanguage = "ja"; persist that initial value.
+		user, err := repo.Create(ctx, newTestUser("ext-upd-lang", "lang-update@example.com", "Lang"))
+		require.NoError(t, err)
+		require.Equal(t, "ja", user.PreferredLanguage)
+
+		// Build params with a DIFFERENT preferred_language to prove Update
+		// ignores it (instead of writing it through, or NULLing on empty).
+		params := newTestUser("ext-upd-lang", "lang-update-renamed@example.com", "LangRenamed")
+		params.PreferredLanguage = "en" // would be written if Update touched the column
+
+		got, err := repo.Update(ctx, user.ID, params)
+		require.NoError(t, err)
+		// Email / Name updated as expected ...
+		assert.Equal(t, "lang-update-renamed@example.com", got.Email)
+		assert.Equal(t, "LangRenamed", got.Name)
+		// ... preferred_language preserved.
+		assert.Equal(t, "ja", got.PreferredLanguage)
+
+		// Verify via independent Get that the value really wasn't touched.
+		fresh, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ja", fresh.PreferredLanguage)
+	})
 }
 
 func TestUserRepository_List(t *testing.T) {
@@ -672,5 +710,130 @@ func TestUserRepository_CentroidRoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, got.Home)
 		assert.Nil(t, got.Home.Centroid, "Centroid should remain nil through Get")
+	})
+}
+
+func TestUserRepository_PreferredLanguage(t *testing.T) {
+	repo := rdb.NewUserRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("Create persists preferred_language", func(t *testing.T) {
+		cleanDatabase(t)
+
+		params := newTestUser("ext-lang-1", "lang1@example.com", "Lang1")
+		params.PreferredLanguage = "ja"
+
+		user, err := repo.Create(ctx, params)
+		require.NoError(t, err)
+		assert.Equal(t, "ja", user.PreferredLanguage)
+
+		// Verify it round-trips through Get.
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ja", got.PreferredLanguage)
+	})
+
+	t.Run("Create with empty preferred_language persists SQL NULL (not empty string)", func(t *testing.T) {
+		cleanDatabase(t)
+
+		params := newTestUser("ext-lang-2", "lang2@example.com", "Lang2")
+		params.PreferredLanguage = "" // simulates an old client that omitted the wire field
+
+		user, err := repo.Create(ctx, params)
+		require.NoError(t, err)
+		assert.Equal(t, "", user.PreferredLanguage, "NULL column should map to empty string in domain")
+
+		// Verify the column is SQL NULL, not the literal empty string —
+		// the NULL='not-yet-set' invariant lets the hydration backfill
+		// path differentiate old-client rows from "client explicitly chose ''".
+		var lang sql.NullString
+		err = testDB.Pool.QueryRow(ctx,
+			`SELECT preferred_language FROM users WHERE id = $1`,
+			user.ID,
+		).Scan(&lang)
+		require.NoError(t, err)
+		assert.False(t, lang.Valid, "preferred_language must be SQL NULL, got %q (Valid=%t)", lang.String, lang.Valid)
+
+		// Round-trip via Get also yields empty.
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "", got.PreferredLanguage)
+	})
+
+	t.Run("idempotent Create does NOT overwrite existing preferred_language", func(t *testing.T) {
+		cleanDatabase(t)
+
+		// First Create: persists "ja".
+		first := newTestUser("ext-lang-3", "lang3@example.com", "Lang3")
+		first.PreferredLanguage = "ja"
+		created, err := repo.Create(ctx, first)
+		require.NoError(t, err)
+		require.Equal(t, "ja", created.PreferredLanguage)
+
+		// Second Create: duplicate external_id returns AlreadyExists at repo layer.
+		// The use case handles idempotency; at the repo level we just confirm the
+		// existing row's preferred_language is still "ja" after the conflict.
+		second := newTestUser("ext-lang-3", "lang3@example.com", "Lang3")
+		second.PreferredLanguage = "en"
+		_, err = repo.Create(ctx, second)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+
+		// Verify the stored preferred_language was NOT changed to "en".
+		got, err := repo.GetByExternalID(ctx, "ext-lang-3")
+		require.NoError(t, err)
+		assert.Equal(t, "ja", got.PreferredLanguage, "idempotent Create must not overwrite existing preferred_language")
+	})
+
+	t.Run("UpdatePreferredLanguage round-trips and persists", func(t *testing.T) {
+		cleanDatabase(t)
+
+		user, err := repo.Create(ctx, newTestUser("ext-lang-4", "lang4@example.com", "Lang4"))
+		require.NoError(t, err)
+		// newTestUser sets PreferredLanguage = "ja"; confirm initial value.
+		assert.Equal(t, "ja", user.PreferredLanguage)
+
+		// Update to "en".
+		updated, err := repo.UpdatePreferredLanguage(ctx, user.ID, "en")
+		require.NoError(t, err)
+		assert.Equal(t, "en", updated.PreferredLanguage)
+
+		// Verify persistence via independent Get.
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "en", got.PreferredLanguage)
+	})
+
+	t.Run("UpdatePreferredLanguage — non-existent user returns NotFound", func(t *testing.T) {
+		cleanDatabase(t)
+
+		_, err := repo.UpdatePreferredLanguage(ctx, "00000000-0000-0000-0000-000000000000", "en")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("UpdatePreferredLanguage — empty ID returns InvalidArgument", func(t *testing.T) {
+		_, err := repo.UpdatePreferredLanguage(ctx, "", "en")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("UpdatePreferredLanguage — empty language returns InvalidArgument", func(t *testing.T) {
+		// The RPC contract requires a non-empty ISO 639-1 code. An empty
+		// value at the repo boundary is a programmer error; we reject it
+		// rather than write NULL (which would falsely re-arm the
+		// hydration-backfill loop).
+		cleanDatabase(t)
+		user, err := repo.Create(ctx, newTestUser("ext-lang-5", "lang5@example.com", "Lang5"))
+		require.NoError(t, err)
+
+		_, err = repo.UpdatePreferredLanguage(ctx, user.ID, "")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+
+		// Confirm the stored language wasn't touched.
+		got, err := repo.Get(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "ja", got.PreferredLanguage)
 	})
 }

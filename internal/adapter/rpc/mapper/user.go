@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	proto "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -30,6 +31,10 @@ func UserToProto(user *entity.User) *proto.User {
 	}
 	if user.Home != nil {
 		pb.Home = HomeToProto(user.Home)
+	}
+	if user.PreferredLanguage != "" {
+		lang := user.PreferredLanguage
+		pb.PreferredLanguage = &lang
 	}
 	return pb
 }
@@ -107,19 +112,25 @@ func RequireUserIDMatch(callerUserID, reqUserID string) error {
 	return nil
 }
 
-// NewUserFromCreateRequest converts JWT claims and optional home to domain NewUser.
+// NewUserFromCreateRequest converts JWT claims and a CreateRequest to a domain NewUser.
+//
 // Security note: All identity fields (external_id, email, name) are extracted from
-// validated JWT claims to prevent client-side identity tampering.
-// The home field is the only client-provided data (selected during onboarding).
-func NewUserFromCreateRequest(claims *auth.Claims, home *proto.Home) *entity.NewUser {
+// validated JWT claims to prevent client-side identity tampering. The home and
+// preferred_language fields are client-provided data accepted at signup.
+//
+// preferred_language is optional in the proto; an absent field returns an empty string
+// via GetPreferredLanguage(), which is passed through to the entity as-is. The
+// repository treats empty string as a NULL preferred_language in the database.
+func NewUserFromCreateRequest(claims *auth.Claims, req *userv1.CreateRequest) *entity.NewUser {
 	if claims == nil {
 		return nil
 	}
 
 	return &entity.NewUser{
-		ExternalID: claims.Sub,
-		Email:      claims.Email,
-		Name:       claims.Name,
-		Home:       ProtoHomeToEntity(home),
+		ExternalID:        claims.Sub,
+		Email:             claims.Email,
+		Name:              claims.Name,
+		Home:              ProtoHomeToEntity(req.GetHome()),
+		PreferredLanguage: req.GetPreferredLanguage(),
 	}
 }
