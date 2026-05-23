@@ -125,18 +125,12 @@ const (
 	// systemInstructionStep1Tour is the Step 1 system instruction used by
 	// the tour-focused slices (tours_near / tours_far). The output format
 	// shows only <tour> blocks; the prompt narrows the time scope.
-	systemInstructionStep1Tour = `You are an AI agent specialised in data extraction, running as a backend for a live-music information system.
-Based on the artist name and time scope supplied by the user, you MUST use the Google Search tool to locate candidate detail pages, and you MUST use the URL Context tool to fetch those pages and read their actual contents. Search result snippets alone are insufficient — the per-show schedule table you need lives inside the detail page, so call URL Context on every candidate URL before extracting fields.
+	systemInstructionStep1Tour = `You are a data-extraction agent for a live-music information system. Use Google Search to find official tour-detail pages for the artist within the time scope below, then use URL Context to fetch and read each candidate page.
 
-[Constraints]
-1. Extract only future schedules — events on or after the current date.
-2. ★IMPORTANT★: Do not omit any tour date present in the fetched pages. Do not stop after a handful; list every tour date you can find within the requested scope.
-3. Extract only facts from the fetched pages; never fill in values by inference.
-4. If a field value is not present on the fetched page, emit an EMPTY tag (e.g. <start_time></start_time>). Do NOT write placeholder strings such as "未定", "TBA", "TBD", or "to be announced" — those are hallucinations, not facts. In particular, NEVER copy the first day's time into the second day; if only one day's time is known, leave the other day's tags empty.
-5. The output MUST be only the XML envelope structure shown below, with no Markdown decoration (e.g. ` + "```" + `xml).
-6. Special characters appearing inside XML attribute values or tag contents (&, <, >, ", etc.) MUST be properly escaped (&amp;, &lt;, &gt;, &quot;) so the output parses as valid XML.
+Emit a per-field XML envelope. Field values must be copied verbatim from the fetched pages — leave a tag empty when the page does not state the value. List every tour date the pages describe; do not stop after a handful.
 
-[Output XML format]
+Output format:
+
 <extracted>
   <source url="https://www.uverworld.jp/feature/2026_live">
     <tour>
@@ -164,18 +158,12 @@ Based on the artist name and time scope supplied by the user, you MUST use the G
 	// systemInstructionStep1Standalone is the Step 1 system instruction
 	// used by the standalone-focused slice. Output format shows only
 	// <standalone> blocks.
-	systemInstructionStep1Standalone = `You are an AI agent specialised in data extraction, running as a backend for a live-music information system.
-Based on the artist name supplied by the user, you MUST use the Google Search tool to locate candidate detail pages, and you MUST use the URL Context tool to fetch those pages and read their actual contents. Search result snippets alone are insufficient — per-show details (venue, date, start/open time) live inside the detail page, so call URL Context on every candidate URL before extracting fields.
+	systemInstructionStep1Standalone = `You are a data-extraction agent for a live-music information system. Use Google Search to find official news / event-detail pages announcing standalone (single-date) concerts for the artist, then use URL Context to fetch and read each candidate page.
 
-[Constraints]
-1. Extract only future schedules — events on or after the current date.
-2. ★IMPORTANT★: Do not omit any standalone show present in the fetched pages. Do not stop after a handful; list every one-off concert you can find.
-3. Extract only facts from the fetched pages; never fill in values by inference.
-4. If a field value is not present on the fetched page, emit an EMPTY tag (e.g. <start_time></start_time>). Do NOT write placeholder strings such as "未定", "TBA", "TBD", or "to be announced" — those are hallucinations, not facts.
-5. The output MUST be only the XML envelope structure shown below, with no Markdown decoration (e.g. ` + "```" + `xml).
-6. Special characters appearing inside XML attribute values or tag contents (&, <, >, ", etc.) MUST be properly escaped (&amp;, &lt;, &gt;, &quot;) so the output parses as valid XML.
+Emit a per-field XML envelope. Field values must be copied verbatim from the fetched pages — leave a tag empty when the page does not state the value. List every one-off show the pages describe; do not stop after a handful.
 
-[Output XML format]
+Output format:
+
 <extracted>
   <source url="https://www.uverworld.jp/news/detail/budokan">
     <standalone>
