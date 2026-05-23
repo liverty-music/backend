@@ -40,10 +40,10 @@ func TestConcertToProto(t *testing.T) {
 				Event: entity.Event{
 					ID:        "event-id-1",
 					VenueID:   "venue-id-1",
-					Title:     "Summer Live 2025",
 					LocalDate: localDate,
 				},
-				ArtistID: "artist-id-1",
+				Series:     &entity.Series{Title: "Summer Live 2025"},
+				Performers: []*entity.Artist{{ID: "artist-id-1"}},
 			},
 			want: &entityv1.Concert{
 				Id:        &entityv1.EventId{Value: "event-id-1"},
@@ -59,14 +59,13 @@ func TestConcertToProto(t *testing.T) {
 				Event: entity.Event{
 					ID:              "event-id-2",
 					VenueID:         "venue-id-2",
-					Title:           "Winter Tour",
 					LocalDate:       localDate,
 					StartTime:       &startTime,
 					OpenTime:        &openTime,
-					SourceURL:       "https://example.com/event",
 					ListedVenueName: &listedVenueName,
 				},
-				ArtistID: "artist-id-2",
+				Series:     &entity.Series{Title: "Winter Tour", SourceURL: "https://example.com/event"},
+				Performers: []*entity.Artist{{ID: "artist-id-2"}},
 			},
 			want: func() *entityv1.Concert {
 				p := &entityv1.Concert{
@@ -89,7 +88,6 @@ func TestConcertToProto(t *testing.T) {
 				Event: entity.Event{
 					ID:        "event-id-3",
 					VenueID:   "venue-id-3",
-					Title:     "Rock Night",
 					LocalDate: localDate,
 					Venue: &entity.Venue{
 						ID:        "venue-id-3",
@@ -97,7 +95,8 @@ func TestConcertToProto(t *testing.T) {
 						AdminArea: &adminArea,
 					},
 				},
-				ArtistID: "artist-id-3",
+				Series:     &entity.Series{Title: "Rock Night"},
+				Performers: []*entity.Artist{{ID: "artist-id-3"}},
 			},
 			want: &entityv1.Concert{
 				Id:       &entityv1.EventId{Value: "event-id-3"},
@@ -120,11 +119,10 @@ func TestConcertToProto(t *testing.T) {
 				Event: entity.Event{
 					ID:        "event-id-4",
 					VenueID:   "venue-id-4",
-					Title:     "Acoustic Session",
 					LocalDate: localDate,
-					SourceURL: "",
 				},
-				ArtistID: "artist-id-4",
+				Series:     &entity.Series{Title: "Acoustic Session", SourceURL: ""},
+				Performers: []*entity.Artist{{ID: "artist-id-4"}},
 			},
 			want: &entityv1.Concert{
 				Id:        &entityv1.EventId{Value: "event-id-4"},
@@ -160,12 +158,14 @@ func TestConcertsToProto(t *testing.T) {
 
 	concerts := []*entity.Concert{
 		{
-			Event:    entity.Event{ID: "event-1", VenueID: "venue-1", Title: "Concert 1", LocalDate: localDate},
-			ArtistID: "artist-1",
+			Event:      entity.Event{ID: "event-1", VenueID: "venue-1", LocalDate: localDate},
+			Series:     &entity.Series{Title: "Concert 1"},
+			Performers: []*entity.Artist{{ID: "artist-1"}},
 		},
 		{
-			Event:    entity.Event{ID: "event-2", VenueID: "venue-2", Title: "Concert 2", LocalDate: localDate},
-			ArtistID: "artist-2",
+			Event:      entity.Event{ID: "event-2", VenueID: "venue-2", LocalDate: localDate},
+			Series:     &entity.Series{Title: "Concert 2"},
+			Performers: []*entity.Artist{{ID: "artist-2"}},
 		},
 	}
 
@@ -196,8 +196,9 @@ func TestProximityGroupsToProto(t *testing.T) {
 			Date: date1,
 			Home: []*entity.Concert{
 				{
-					Event:    entity.Event{ID: "home-1", VenueID: "v1", Title: "Home Concert", LocalDate: date1},
-					ArtistID: "artist-1",
+					Event:      entity.Event{ID: "home-1", VenueID: "v1", LocalDate: date1},
+					Series:     &entity.Series{Title: "Home Concert"},
+					Performers: []*entity.Artist{{ID: "artist-1"}},
 				},
 			},
 			Nearby: []*entity.Concert{},
@@ -208,14 +209,16 @@ func TestProximityGroupsToProto(t *testing.T) {
 			Home: []*entity.Concert{},
 			Nearby: []*entity.Concert{
 				{
-					Event:    entity.Event{ID: "nearby-1", VenueID: "v2", Title: "Nearby Concert", LocalDate: date2},
-					ArtistID: "artist-2",
+					Event:      entity.Event{ID: "nearby-1", VenueID: "v2", LocalDate: date2},
+					Series:     &entity.Series{Title: "Nearby Concert"},
+					Performers: []*entity.Artist{{ID: "artist-2"}},
 				},
 			},
 			Away: []*entity.Concert{
 				{
-					Event:    entity.Event{ID: "away-1", VenueID: "v3", Title: "Away Concert", LocalDate: date2},
-					ArtistID: "artist-3",
+					Event:      entity.Event{ID: "away-1", VenueID: "v3", LocalDate: date2},
+					Series:     &entity.Series{Title: "Away Concert"},
+					Performers: []*entity.Artist{{ID: "artist-3"}},
 				},
 			},
 		},

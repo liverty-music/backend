@@ -69,6 +69,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistRepo := rdb.NewArtistRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	followRepo := rdb.NewFollowRepository(db)
 
@@ -130,7 +131,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		infratelemetry.NewBusinessMetrics(),
 		logger,
 	)
-	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, placeSearcher, messaging.NewEventPublisher(publisher), logger)
+	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, seriesRepo, concertRepo, placeSearcher, messaging.NewEventPublisher(publisher), logger)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 

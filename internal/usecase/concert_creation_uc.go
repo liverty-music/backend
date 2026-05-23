@@ -25,6 +25,7 @@ type ConcertCreationUseCase interface {
 // concertCreationUseCase implements ConcertCreationUseCase.
 type concertCreationUseCase struct {
 	venueRepo     entity.VenueRepository
+	seriesRepo    entity.SeriesRepository
 	concertRepo   entity.ConcertRepository
 	placeSearcher entity.VenuePlaceSearcher
 	publisher     EventPublisher
@@ -38,6 +39,7 @@ var _ ConcertCreationUseCase = (*concertCreationUseCase)(nil)
 // placeSearcher must not be nil; panics if not provided.
 func NewConcertCreationUseCase(
 	venueRepo entity.VenueRepository,
+	seriesRepo entity.SeriesRepository,
 	concertRepo entity.ConcertRepository,
 	placeSearcher entity.VenuePlaceSearcher,
 	publisher EventPublisher,
@@ -48,6 +50,7 @@ func NewConcertCreationUseCase(
 	}
 	return &concertCreationUseCase{
 		venueRepo:     venueRepo,
+		seriesRepo:    seriesRepo,
 		concertRepo:   concertRepo,
 		placeSearcher: placeSearcher,
 		publisher:     publisher,
@@ -57,9 +60,17 @@ func NewConcertCreationUseCase(
 
 // CreateFromDiscovered processes a discovered concert batch: resolves venues,
 // persists concerts, and publishes downstream events.
+//
+// Each scraped concert is paired with a freshly-generated Series row (1:1
+// fallback with SeriesType=SINGLE). Smarter series grouping — folding multiple
+// stops of the same tour under one Series — is deferred to a follow-up change
+// (auto-discovery-series-grouping). The data model already supports the
+// eventual N:1 grouping; only the discovery prompt and grouping heuristic are
+// missing.
 func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error {
 	// Resolve or create venues for each scraped concert, then build Concert entities.
 	var concerts []*entity.Concert
+	var seriesBatch []*entity.Series
 	newVenues := make(map[string]*entity.Venue) // track newly created venues by cache key
 
 	for _, sc := range data.Concerts {
@@ -98,12 +109,31 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			newVenues[venueKey(sc.ListedVenueName, sc.AdminArea)] = venue
 		}
 
-		id, err := uuid.NewV7()
+		eventID, err := uuid.NewV7()
 		if err != nil {
 			return fmt.Errorf("generate concert ID: %w", err)
 		}
+		seriesID, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("generate series ID: %w", err)
+		}
 
-		concerts = append(concerts, sc.ToConcert(data.ArtistID, id.String(), venueID))
+		concert := sc.ToConcert(data.ArtistID, seriesID.String(), eventID.String(), venueID)
+		concerts = append(concerts, concert)
+		// ToConcert builds the shell Series; collect it for bulk-insert so
+		// the FK from events.series_id is satisfied before ConcertRepo.Create runs.
+		seriesBatch = append(seriesBatch, concert.Series)
+	}
+
+	// Bulk insert series first so events.series_id FK is satisfied. Orphan
+	// series (series rows whose concerts later fail to insert) are accepted as
+	// a known minor cost of running across two repository transactions; the
+	// alternative (a unit-of-work passing tx between repos) is heavier than
+	// this code path warrants today.
+	if len(seriesBatch) > 0 {
+		if _, err := uc.seriesRepo.Create(ctx, seriesBatch...); err != nil {
+			return fmt.Errorf("create series: %w", err)
+		}
 	}
 
 	// Bulk insert concerts (ON CONFLICT DO NOTHING handles duplicates).

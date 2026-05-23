@@ -288,9 +288,12 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 	)
 
 	// Build Concert entities from the deduplicated scraped data to return to the caller.
+	// All IDs are empty because this is the search path: the returned concerts are
+	// for immediate display, not persistence. SeriesType defaults to SINGLE on the
+	// shell Series ToConcert constructs.
 	concerts := make([]*entity.Concert, 0, len(newScraped))
 	for _, s := range newScraped {
-		concerts = append(concerts, s.ToConcert(artistID, "", ""))
+		concerts = append(concerts, s.ToConcert(artistID, "", "", ""))
 	}
 	return concerts, nil
 }

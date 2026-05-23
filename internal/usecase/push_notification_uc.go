@@ -146,20 +146,28 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		return fmt.Errorf("failed to list concerts by IDs: %w", err)
 	}
 
-	// Validate that every requested concert exists and belongs to the
-	// specified artist. This protects against operator mistakes on the
-	// debug RPC path and bad publisher state on the event path.
-	resolved := make(map[string]string, len(concerts))
+	// Validate that every requested concert exists and that the specified
+	// artist is one of its performers. With M:N performers, "belongs to" is
+	// "is a performer at" — a single concert (e.g. a festival) may legitimately
+	// belong to multiple artists. This protects against operator mistakes on
+	// the debug RPC path and bad publisher state on the event path.
+	hasPerformer := make(map[string]bool, len(concerts))
 	for _, c := range concerts {
-		resolved[c.ID] = c.ArtistID
+		hasPerformer[c.ID] = false
+		for _, p := range c.Performers {
+			if p != nil && p.ID == data.ArtistID {
+				hasPerformer[c.ID] = true
+				break
+			}
+		}
 	}
 	for _, id := range data.ConcertIDs {
-		ownedBy, ok := resolved[id]
-		if !ok {
+		performs, exists := hasPerformer[id]
+		if !exists {
 			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not exist")
 		}
-		if ownedBy != data.ArtistID {
-			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not belong to artist "+data.ArtistID)
+		if !performs {
+			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not feature artist "+data.ArtistID)
 		}
 	}
 

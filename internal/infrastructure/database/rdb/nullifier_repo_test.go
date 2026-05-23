@@ -33,10 +33,10 @@ func TestNullifierRepository_Insert(t *testing.T) {
 	})
 
 	t.Run("same nullifier hash for different events succeeds", func(t *testing.T) {
-		// Create a second event. Retrieve venue_id and artist_id from the existing event.
+		// Create a second event. Retrieve venue_id and artist_id from the existing event and its performer.
 		var venueID, artistID string
 		err := testDB.Pool.QueryRow(ctx,
-			`SELECT venue_id, artist_id FROM events WHERE id = $1`,
+			`SELECT e.venue_id, ep.artist_id FROM events e JOIN event_performers ep ON ep.event_id = e.id WHERE e.id = $1`,
 			eventID,
 		).Scan(&venueID, &artistID)
 		require.NoError(t, err)

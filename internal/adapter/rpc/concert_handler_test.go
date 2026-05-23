@@ -37,10 +37,10 @@ func TestConcertHandler_List(t *testing.T) {
 				Event: entity.Event{
 					ID:        "concert-1",
 					VenueID:   "venue-1",
-					Title:     "Summer Tour",
 					LocalDate: localDate,
 				},
-				ArtistID: artistID,
+				Series:     &entity.Series{Title: "Summer Tour"},
+				Performers: []*entity.Artist{{ID: artistID}},
 			},
 		}, nil).Once()
 
@@ -76,10 +76,10 @@ func TestConcertHandler_List(t *testing.T) {
 				Event: entity.Event{
 					ID:        "concert-2",
 					VenueID:   "venue-2",
-					Title:     "World Tour",
 					LocalDate: localDate,
 				},
-				ArtistID: "artist-456",
+				Series:     &entity.Series{Title: "World Tour"},
+				Performers: []*entity.Artist{{ID: "artist-456"}},
 			},
 		}, nil).Once()
 
@@ -155,11 +155,12 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		concerts := []*entity.Concert{
 			{
 				Event: entity.Event{
-					ID: "c1", Title: "Summer Live",
+					ID:              "c1",
 					ListedVenueName: &venueName,
 					LocalDate:       date,
 				},
-				ArtistID: artistID,
+				Series:     &entity.Series{Title: "Summer Live"},
+				Performers: []*entity.Artist{{ID: artistID}},
 			},
 		}
 

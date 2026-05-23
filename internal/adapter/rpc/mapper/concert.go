@@ -12,6 +12,14 @@ import (
 )
 
 // ConcertToProto converts domain Concert entity to protobuf.
+//
+// Transitional bridge: the BSR-published Concert proto still exposes the
+// pre-Series fields (Title, SourceUrl, ArtistId). We fill them from the new
+// entity locations — Series.Title, Series.SourceURL, and the first performer
+// in Performers — so existing clients keep working until the new proto
+// (Series-embedded + repeated performers) is published and consumed. When the
+// new proto lands this mapper will be rewritten to populate the new fields
+// directly (see openspec/changes/add-series-hierarchy task 9.2).
 func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 	if c == nil {
 		return nil
@@ -21,21 +29,28 @@ func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 		Id: &entityv1.EventId{
 			Value: c.ID,
 		},
-		ArtistId: &entityv1.ArtistId{
-			Value: c.ArtistID,
-		},
 		VenueId: &entityv1.VenueId{
 			Value: c.VenueID,
 		},
 		LocalDate: &entityv1.LocalDate{
 			Value: TimeToDate(c.LocalDate),
 		},
-		Title: &entityv1.Title{
-			Value: c.Title,
-		},
 		Venue: VenueToProto(c.Venue),
 	}
 
+	if c.Series != nil {
+		proto.Title = &entityv1.Title{Value: c.Series.Title}
+		if c.Series.SourceURL != "" {
+			proto.SourceUrl = &entityv1.Url{Value: c.Series.SourceURL}
+		}
+	}
+	if len(c.Performers) > 0 && c.Performers[0] != nil {
+		// Single-artist projection for the legacy proto field. Multi-performer
+		// concerts (festivals, co-headliners) lose the supporting artists in
+		// this response shape; clients that need the full lineup should wait
+		// for the new proto with repeated performers.
+		proto.ArtistId = &entityv1.ArtistId{Value: c.Performers[0].ID}
+	}
 	if c.StartTime != nil {
 		proto.StartTime = &entityv1.StartTime{
 			Value: timestamppb.New(*c.StartTime),
@@ -44,11 +59,6 @@ func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 	if c.OpenTime != nil {
 		proto.OpenTime = &entityv1.OpenTime{
 			Value: timestamppb.New(*c.OpenTime),
-		}
-	}
-	if c.SourceURL != "" {
-		proto.SourceUrl = &entityv1.Url{
-			Value: c.SourceURL,
 		}
 	}
 	if c.ListedVenueName != nil {
