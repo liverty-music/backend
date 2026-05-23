@@ -30,6 +30,8 @@ const (
 	abEvalThinkingEnvVar        = "GEMINI_AB_EVAL_THINKING"          // uniform thinking; "" = default medium
 	abEvalThinkingExtractEnvVar = "GEMINI_AB_EVAL_THINKING_EXTRACT"  // per-step override for Step 1 (extract); empty = uniform
 	abEvalThinkingParseEnvVar   = "GEMINI_AB_EVAL_THINKING_PARSE"    // per-step override for Step 2 (parse); empty = uniform
+	abEvalModelExtractEnvVar    = "GEMINI_AB_EVAL_MODEL_EXTRACT"     // per-step override for Step 1 (extract); empty = cell.Model
+	abEvalModelParseEnvVar      = "GEMINI_AB_EVAL_MODEL_PARSE"       // per-step override for Step 2 (parse); empty = cell.Model
 
 	// resultsDir is relative to this package. Output filenames embed an
 	// RFC3339Nano UTC timestamp to disambiguate concurrent runs.
@@ -348,13 +350,21 @@ func runCell(
 	// Production wire-up sets these independently via
 	// GCP_GEMINI_SEARCH_MODEL_{DISCOVERY,EXTRACT,PARSE} (and the future
 	// equivalents for thinking).
+	extractModel := cell.Model
+	if m := strings.TrimSpace(os.Getenv(abEvalModelExtractEnvVar)); m != "" {
+		extractModel = m
+	}
+	parseModel := cell.Model
+	if m := strings.TrimSpace(os.Getenv(abEvalModelParseEnvVar)); m != "" {
+		parseModel = m
+	}
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 		ProjectID:       projectID,
 		Location:        "global",
 		ModelName:       cell.Model,
-		ModelDiscovery:  cell.Model,
-		ModelExtract:    cell.Model,
-		ModelParse:      cell.Model,
+		ModelDiscovery:  extractModel,
+		ModelExtract:    extractModel,
+		ModelParse:      parseModel,
 		Temperature:     cell.Temperature,
 		ThinkingLevel:   cell.Thinking,
 		ThinkingExtract: strings.TrimSpace(os.Getenv(abEvalThinkingExtractEnvVar)),
