@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -505,7 +506,21 @@ func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}
 
-	responseBody := `{
+	// Step 1 fans out into 3 parallel slices (tours_near, tours_far,
+	// standalones), each producing an XML envelope. All slices return the
+	// same envelope (Go-side dedup keeps only one <source>). Step 2 then
+	// parses the merged envelope into JSON. Total: 3 slice calls + 1 parse.
+	step1Envelope := `<extracted>
+  <source url="https://test-artist.example/news/1">
+    <standalone>
+      <event_title>Nameless Tour</event_title>
+      <venue>Test Hall</venue>
+      <local_date>2026-03-01</local_date>
+      <start_time>2026-03-01 18:00 JST</start_time>
+    </standalone>
+  </source>
+</extracted>`
+	step2JSON := `{
 		"tours": [],
 		"standalones": [
 			{
@@ -513,38 +528,22 @@ func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
 				"venue": "Test Hall",
 				"local_date": "2026-03-01",
 				"start_time": "2026-03-01T18:00:00Z",
-				"source_url": "https://example.com/nameless"
+				"source_url": "https://test-artist.example/news/1"
 			}
 		]
 	}`
 
+	var callCount atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fullResponse := fmt.Sprintf(`{
-			"candidates": [
-				{
-					"content": {
-						"parts": [
-							{
-								"text": %s
-							}
-						]
-					},
-					"groundingMetadata": {
-						"webSearchQueries": ["test query"]
-					}
-				}
-			],
-			"usageMetadata": {
-				"promptTokenCount": 10,
-				"candidatesTokenCount": 10,
-				"totalTokenCount": 20
-			}
-		}`, strconv.Quote(responseBody))
-
-		w.Header().Set("Content-Type", "application/json")
-		if _, err := w.Write([]byte(fullResponse)); err != nil {
-			t.Errorf("failed to write response body: %v", err)
+		n := callCount.Add(1)
+		var body string
+		if n <= 3 {
+			body = step1Envelope
+		} else {
+			body = step2JSON
 		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(geminiResponse(body, "STOP")))
 	}))
 	defer ts.Close()
 
@@ -559,14 +558,16 @@ func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
 	}, httpClient, false, logger)
 	require.NoError(t, err)
 
-	// Pass nil officialSite — should use the fallback prompt and still return concerts
+	// nil officialSite — Step 1 still runs (grounded search), emits a
+	// per-field XML envelope; Step 2 parses it.
 	got, err := s.Search(ctx, artist, nil, from)
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "Nameless Tour", got[0].Title)
 	assert.Equal(t, "Test Hall", got[0].ListedVenueName)
-	assert.Equal(t, "https://example.com/nameless", got[0].SourceURL)
+	assert.Equal(t, "https://test-artist.example/news/1", got[0].SourceURL)
+	assert.Equal(t, int32(4), callCount.Load(), "3 Step 1 slices + 1 Step 2 parse = 4 calls")
 }
 
 // geminiResponse builds a mock Gemini API JSON response with the given body text and finish reason.
@@ -616,7 +617,10 @@ func TestConcertSearcher_Search_InvalidJSON_Permanent(t *testing.T) {
 	assert.Nil(t, got)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, gemini.ErrInvalidJSON)
-	assert.Equal(t, int32(1), callCount.Load(), "invalid JSON should not retry (permanent error)")
+	// Step 1 fans out 3 parallel slices, each returning the truncated body
+	// as envelope text. Step 2 parses the merged result and hits the same
+	// truncation → permanent. Total: 3 slice calls + 1 parse = 4.
+	assert.Equal(t, int32(4), callCount.Load(), "3 slices + 1 parse (permanent invalid JSON) = 4 calls")
 }
 
 func TestConcertSearcher_Search_StructuralMismatch(t *testing.T) {
@@ -649,7 +653,10 @@ func TestConcertSearcher_Search_StructuralMismatch(t *testing.T) {
 	assert.Nil(t, got)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrInternal)
-	assert.Equal(t, int32(1), callCount.Load(), "structural mismatch should not retry")
+	// Step 1 fans out 3 parallel slices, each returning the wrong-structure
+	// JSON as envelope text. Step 2 parses the merged result and hits the
+	// structural mismatch → permanent. Total: 3 slice calls + 1 parse = 4.
+	assert.Equal(t, int32(4), callCount.Load(), "3 slices + 1 parse (structural mismatch) = 4 calls")
 }
 
 func TestConcertSearcher_Search_ConfigHonored(t *testing.T) {
@@ -676,9 +683,26 @@ func TestConcertSearcher_Search_ConfigHonored(t *testing.T) {
 			artist := &entity.Artist{Name: "Test Artist"}
 			officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
-			var capturedBody map[string]any
+			// Step 1 fans out into 3 parallel slice goroutines and then
+			// fires Step 2 sequentially. All 4 hit this mock server. We
+			// only care about the Step 2 (parse) request — it is the one
+			// that carries the responseJsonSchema — so the handler
+			// captures the most recently seen Step 2 body, ignoring the
+			// 3 Step 1 slice bodies. A mutex guards the shared map.
+			var (
+				capturedBody map[string]any
+				captureMu    sync.Mutex
+			)
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				if genCfg, _ := body["generationConfig"].(map[string]any); genCfg != nil {
+					if _, hasSchema := genCfg["responseJsonSchema"]; hasSchema {
+						captureMu.Lock()
+						capturedBody = body
+						captureMu.Unlock()
+					}
+				}
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(geminiResponse(`{"tours":[],"standalones":[]}`, "STOP")))
 			}))

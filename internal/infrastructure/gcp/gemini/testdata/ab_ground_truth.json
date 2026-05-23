@@ -1005,6 +1005,102 @@
           "visibility": "public"
         }
       ]
+    },
+    {
+      "id": "019e4d59-98fa-7d1d-9689-e02398fbbb86",
+      "name": "BRADIO",
+      "official_site_url": "https://bradio.jp/",
+      "events": [
+        {
+          "event_name": "hoshioto'26",
+          "venue": "岡山県・井原市青野町 葡萄浪漫館 特設ステージ",
+          "admin_area": "岡山県",
+          "local_date": "2026-05-23",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public",
+          "excluded_per_spec": true
+        },
+        {
+          "event_name": "BRADIO presents「Kyotown Dance」",
+          "venue": "京都府・磔磔",
+          "admin_area": "京都府",
+          "local_date": "2026-05-24",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "\"チビっ子さんとアフロくん\" vol.2 in 大阪",
+          "venue": "大阪府・",
+          "admin_area": "大阪府",
+          "local_date": "2026-06-14",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO Billboard Live 2026",
+          "venue": "大阪府・Billborad Live OSAKA",
+          "admin_area": "大阪府",
+          "local_date": "2026-08-07",
+          "open_time": "2026-08-07T17:00:00+09:00",
+          "start_time": "2026-08-07T18:00:00+09:00",
+          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO Billboard Live 2026",
+          "venue": "東京都・Billborad Live TOKYO",
+          "admin_area": "東京都",
+          "local_date": "2026-08-09",
+          "open_time": "2026-08-09T15:00:00+09:00",
+          "start_time": "2026-08-09T16:00:00+09:00",
+          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026",
+          "venue": "埼玉県・HEAVEN'S ROCK さいたま新都心 VJ-3",
+          "admin_area": "埼玉県",
+          "local_date": "2026-09-20",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026",
+          "venue": "神奈川県・F.A.D YOKOHAMA",
+          "admin_area": "神奈川県",
+          "local_date": "2026-09-21",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026",
+          "venue": "長野県・CLUB JUNK BOX",
+          "admin_area": "長野県",
+          "local_date": "2026-09-26",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        }
+      ]
     }
   ]
 }

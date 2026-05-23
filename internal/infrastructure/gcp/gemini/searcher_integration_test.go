@@ -21,12 +21,15 @@ import (
 )
 
 const (
-	abEvalEnvVar        = "GEMINI_AB_EVAL"
-	abEvalSmokeEnvVar   = "GEMINI_AB_EVAL_SMOKE"
-	abEvalGCPVar        = "GCP_PROJECT_ID"
-	abEvalAPIKeyVar     = "GCP_GEMINI_SEARCH_API_KEY" // optional: enables Gemini API direct backend
-	abEvalModelsEnvVar  = "GEMINI_AB_EVAL_MODELS"     // CSV; empty = all built-in models
-	abEvalArtistsEnvVar = "GEMINI_AB_EVAL_ARTISTS"    // CSV of artist names; empty = all fixture artists
+	abEvalEnvVar                = "GEMINI_AB_EVAL"
+	abEvalSmokeEnvVar           = "GEMINI_AB_EVAL_SMOKE"
+	abEvalGCPVar                = "GCP_PROJECT_ID"
+	abEvalAPIKeyVar             = "GCP_GEMINI_SEARCH_API_KEY"        // optional: enables Gemini API direct backend
+	abEvalModelsEnvVar          = "GEMINI_AB_EVAL_MODELS"            // CSV; empty = all built-in models
+	abEvalArtistsEnvVar         = "GEMINI_AB_EVAL_ARTISTS"           // CSV of artist names; empty = all fixture artists
+	abEvalThinkingEnvVar        = "GEMINI_AB_EVAL_THINKING"          // uniform thinking; "" = default medium
+	abEvalThinkingExtractEnvVar = "GEMINI_AB_EVAL_THINKING_EXTRACT"  // per-step override for Step 1 (extract); empty = uniform
+	abEvalThinkingParseEnvVar   = "GEMINI_AB_EVAL_THINKING_PARSE"    // per-step override for Step 2 (parse); empty = uniform
 
 	// resultsDir is relative to this package. Output filenames embed an
 	// RFC3339Nano UTC timestamp to disambiguate concurrent runs.
@@ -48,11 +51,36 @@ const (
 //   - GEMINI_AB_EVAL_MODELS=csv intersects the model list.
 //   - GEMINI_AB_EVAL_ARTISTS=csv intersects the artist list by Name.
 func abMatrix(artists []gemini.GroundTruthArtist) []abCell {
+	// Apply the artist filter BEFORE smoke collapse so smoke mode can
+	// target a specific artist (e.g. GEMINI_AB_EVAL_ARTISTS=Vaundy).
+	if filter := strings.TrimSpace(os.Getenv(abEvalArtistsEnvVar)); filter != "" {
+		want := map[string]bool{}
+		for _, a := range strings.Split(filter, ",") {
+			want[strings.TrimSpace(a)] = true
+		}
+		filtered := artists[:0:0]
+		for _, a := range artists {
+			if want[a.Name] {
+				filtered = append(filtered, a)
+			}
+		}
+		artists = filtered
+	}
+
 	if os.Getenv(abEvalSmokeEnvVar) == "1" && len(artists) > 0 {
+		thinking := "medium"
+		if t := strings.TrimSpace(os.Getenv(abEvalThinkingEnvVar)); t != "" {
+			thinking = t
+		}
+		model := "gemini-3.1-flash-lite"
+		if filter := strings.TrimSpace(os.Getenv(abEvalModelsEnvVar)); filter != "" {
+			// First entry in the CSV is the smoke override.
+			model = strings.TrimSpace(strings.SplitN(filter, ",", 2)[0])
+		}
 		return []abCell{{
-			Model:       "gemini-3.1-flash-lite",
+			Model:       model,
 			Temperature: 1.0,
-			Thinking:    "medium",
+			Thinking:    thinking,
 			Artist:      artists[0],
 			Repetition:  0,
 		}}
@@ -73,21 +101,6 @@ func abMatrix(artists []gemini.GroundTruthArtist) []abCell {
 			}
 		}
 		models = filtered
-	}
-
-	// Apply optional artist-name filter.
-	if filter := strings.TrimSpace(os.Getenv(abEvalArtistsEnvVar)); filter != "" {
-		want := map[string]bool{}
-		for _, a := range strings.Split(filter, ",") {
-			want[strings.TrimSpace(a)] = true
-		}
-		filtered := artists[:0:0]
-		for _, a := range artists {
-			if want[a.Name] {
-				filtered = append(filtered, a)
-			}
-		}
-		artists = filtered
 	}
 
 	temps := []float32{1.0}
@@ -172,12 +185,21 @@ type cellResult struct {
 	GroundingSearchQueries int `json:"grounding_search_queries"`
 	// Truncation diagnostics: even when FinishReason is "STOP" the API can
 	// silently truncate the JSON candidate mid-emission. FinishMessage and
-	// AvgLogprobs let us cross-check.
+	// AvgLogprobs let us cross-check. These mirror Pass 2 values.
 	FinishReason  string  `json:"finish_reason"`
 	FinishMessage string  `json:"finish_message"`
 	AvgLogprobs   float64 `json:"avg_logprobs"`
-	CostUSD           float64 `json:"cost_usd"`
-	Error             string  `json:"error,omitempty"`
+	// Two-step pipeline observability. Step 1 = grounded search +
+	// verbatim per-field XML extract (GoogleSearch + URLContext), Step 2
+	// = XML → JSON parse with schema.
+	DiscoveredURLCount int      `json:"discovered_url_count"`
+	DiscoveredURLs     []string `json:"discovered_urls,omitempty"`
+	Step1Tokens        int32    `json:"step1_tokens"`
+	Step1Cost          float64  `json:"step1_cost"`
+	Step2Tokens        int32    `json:"step2_tokens"`
+	Step2Cost          float64  `json:"step2_cost"`
+	CostUSD            float64  `json:"cost_usd"`
+	Error              string   `json:"error,omitempty"`
 }
 
 type aggregateFieldAccuracy struct {
@@ -321,13 +343,23 @@ func runCell(
 		Repetition:    cell.Repetition,
 	}
 
+	// In the matrix harness, cell.Model and cell.Thinking are applied
+	// uniformly across both steps unless per-step env overrides are set.
+	// Production wire-up sets these independently via
+	// GCP_GEMINI_SEARCH_MODEL_{DISCOVERY,EXTRACT,PARSE} (and the future
+	// equivalents for thinking).
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID:     projectID,
-		Location:      "global",
-		ModelName:     cell.Model,
-		Temperature:   cell.Temperature,
-		ThinkingLevel: cell.Thinking,
-		APIKey:        os.Getenv(abEvalAPIKeyVar), // empty → Vertex AI; set → Gemini API direct
+		ProjectID:       projectID,
+		Location:        "global",
+		ModelName:       cell.Model,
+		ModelDiscovery:  cell.Model,
+		ModelExtract:    cell.Model,
+		ModelParse:      cell.Model,
+		Temperature:     cell.Temperature,
+		ThinkingLevel:   cell.Thinking,
+		ThinkingExtract: strings.TrimSpace(os.Getenv(abEvalThinkingExtractEnvVar)),
+		ThinkingParse:   strings.TrimSpace(os.Getenv(abEvalThinkingParseEnvVar)),
+		APIKey:          os.Getenv(abEvalAPIKeyVar), // empty → Vertex AI; set → Gemini API direct
 	}, nil, true, logger)
 	if err != nil {
 		res.Error = "construct searcher: " + err.Error()
@@ -367,6 +399,30 @@ func runCell(
 				res.URLContextOther++
 			}
 		}
+		res.DiscoveredURLs = md.DiscoveredURLs
+		res.DiscoveredURLCount = md.DiscoveredURLCount
+		if md.Step1Grounded != nil {
+			res.Step1Tokens = md.Step1Grounded.TotalTokens
+			res.Step1Cost = gemini.DefaultPricing.CostUSD(
+				cell.Model,
+				md.Step1Grounded.PromptTokens,
+				md.Step1Grounded.CandidatesTokens,
+				md.Step1Grounded.ThinkingTokens,
+				md.Step1Grounded.ToolUseTokens,
+				int32(md.Step1Grounded.WebSearchQueries),
+			)
+		}
+		if md.Step2Parse != nil {
+			res.Step2Tokens = md.Step2Parse.TotalTokens
+			res.Step2Cost = gemini.DefaultPricing.CostUSD(
+				cell.Model,
+				md.Step2Parse.PromptTokens,
+				md.Step2Parse.CandidatesTokens,
+				md.Step2Parse.ThinkingTokens,
+				md.Step2Parse.ToolUseTokens,
+				int32(md.Step2Parse.WebSearchQueries),
+			)
+		}
 	}
 
 	errMsg := ""
@@ -375,18 +431,11 @@ func runCell(
 	}
 	writeRawResponse(t, rawDir, cellIdx, cell, md, got, errMsg)
 
-	// Always charge for tokens / search queries consumed, even when the call
-	// errored out (e.g. invalid-JSON truncation still bills the input,
-	// thinking, candidates, and tool-use tokens the API metered). Skipping
-	// CostUSD on error under-reports actual spend by ~30-50% in our matrix.
-	res.CostUSD = gemini.DefaultPricing.CostUSD(
-		cell.Model,
-		res.PromptTokens,
-		res.CandidatesTokens,
-		res.ThinkingTokens,
-		res.ToolUseTokens,
-		int32(res.GroundingSearchQueries),
-	)
+	// CostUSD sums all three steps. Charging on errored calls is correct:
+	// even invalid-JSON truncations still bill every input/output/thinking
+	// token, and earlier steps always bill regardless of whether later
+	// steps succeed.
+	res.CostUSD = res.Step1Cost + res.Step2Cost
 
 	if err != nil {
 		res.Error = errMsg
@@ -449,6 +498,14 @@ func writeRawResponse(
 		payload["grounding_chunk_urls"] = md.GroundingChunkURLs
 		payload["rendered_parts_count"] = md.RenderedParts
 		payload["url_context_retrieved"] = md.URLContextRetrieved
+		payload["discovered_urls"] = md.DiscoveredURLs
+		payload["discovered_url_count"] = md.DiscoveredURLCount
+		if md.Step1Grounded != nil {
+			payload["step1_grounded"] = passMetadataPayload(md.Step1Grounded)
+		}
+		if md.Step2Parse != nil {
+			payload["step2_parse"] = passMetadataPayload(md.Step2Parse)
+		}
 	}
 	jb, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -457,6 +514,31 @@ func writeRawResponse(
 	}
 	if err := os.WriteFile(path, jb, 0o644); err != nil {
 		t.Logf("raw response write failed for cell %d: %v", cellIdx, err)
+	}
+}
+
+// passMetadataPayload renders a *gemini.PassMetadata as a serialisable map
+// for inclusion in the per-cell raw response file. Keeps the JSON keys
+// consistent with the cellResult / CSV column names.
+func passMetadataPayload(pm *gemini.PassMetadata) map[string]any {
+	return map[string]any{
+		"prompt_tokens":         pm.PromptTokens,
+		"candidates_tokens":     pm.CandidatesTokens,
+		"thinking_tokens":       pm.ThinkingTokens,
+		"tool_use_tokens":       pm.ToolUseTokens,
+		"total_tokens":          pm.TotalTokens,
+		"finish_reason":         pm.FinishReason,
+		"finish_message":        pm.FinishMessage,
+		"avg_logprobs":          pm.AvgLogprobs,
+		"retry_count":           pm.RetryCount,
+		"parts_total":           pm.PartsTotal,
+		"thought_parts":         pm.ThoughtParts,
+		"text_parts":            pm.TextParts,
+		"raw_response_text":     pm.RawResponseText,
+		"web_search_queries":    pm.WebSearchQueriesList,
+		"grounding_chunk_urls":  pm.GroundingChunkURLs,
+		"rendered_parts":        pm.RenderedParts,
+		"url_context_retrieved": pm.URLContextRetrieved,
 	}
 }
 
@@ -606,6 +688,8 @@ func writeOutputs(t *testing.T, rf runFile) error {
 		"parts_total", "thought_parts", "text_parts",
 		"url_ctx_total", "url_ctx_success", "url_ctx_error", "url_ctx_other",
 		"search_queries", "finish_reason", "finish_message", "avg_logprobs",
+		"discovered_url_count",
+		"step1_tokens", "step1_cost", "step2_tokens", "step2_cost",
 		"venue_acc", "admin_area_acc", "local_date_acc", "start_time_acc", "open_time_acc", "source_url_acc",
 		"prompt_tokens", "candidates_tokens", "thinking_tokens", "tool_use_tokens", "total_tokens",
 		"latency_ms", "cost_usd", "error",
@@ -641,6 +725,12 @@ func writeOutputs(t *testing.T, rf runFile) error {
 			c.FinishReason,
 			c.FinishMessage,
 			strconv.FormatFloat(c.AvgLogprobs, 'f', 4, 64),
+			strconv.Itoa(c.DiscoveredURLCount),
+			strconv.Itoa(int(c.Step1Tokens)),
+			strconv.FormatFloat(c.Step1Cost, 'f', 6, 64),
+			strconv.Itoa(int(c.Step2Tokens)),
+			strconv.FormatFloat(c.Step2Cost, 'f', 6, 64),
+
 			strconv.FormatFloat(c.FieldAccuracy.Venue, 'f', 4, 64),
 			strconv.FormatFloat(c.FieldAccuracy.AdminArea, 'f', 4, 64),
 			strconv.FormatFloat(c.FieldAccuracy.LocalDate, 'f', 4, 64),

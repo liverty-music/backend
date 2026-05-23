@@ -283,7 +283,21 @@ type GCPConfig struct {
 	GeminiModel string `envconfig:"GCP_GEMINI_MODEL" default:"gemini-3-flash-preview"`
 
 	// Gemini Model Name for the concert searcher workload. Empty falls back to GeminiModel.
+	// In the three-step pipeline this is used as the fallback when
+	// GeminiSearchModelDiscovery / Extract / Parse are unset.
 	GeminiSearchModel string `envconfig:"GCP_GEMINI_SEARCH_MODEL"`
+
+	// Per-step model overrides for the three-step concert searcher pipeline.
+	// Each unset value falls back through: step-specific → GeminiSearchModel
+	// (legacy) → GeminiModel (legacy) → built-in step default.
+	//
+	// Step defaults match the cost-optimised production target:
+	//   - Step 1 (URL discovery, GoogleSearch tool): gemini-3.1-flash-lite
+	//   - Step 2 (verbatim extract, URLContext tool): gemini-3.1-flash-lite
+	//   - Step 3 (structured parse, responseJsonSchema, no tools): gemini-3.5-flash
+	GeminiSearchModelDiscovery string `envconfig:"GCP_GEMINI_SEARCH_MODEL_DISCOVERY"`
+	GeminiSearchModelExtract   string `envconfig:"GCP_GEMINI_SEARCH_MODEL_EXTRACT"`
+	GeminiSearchModelParse     string `envconfig:"GCP_GEMINI_SEARCH_MODEL_PARSE"`
 
 	// Gemini Model Name for the email parser workload. Empty falls back to GeminiModel.
 	GeminiParserModel string `envconfig:"GCP_GEMINI_PARSER_MODEL"`
@@ -315,6 +329,56 @@ func (c *GCPConfig) SearchModel() string {
 		return c.GeminiSearchModel
 	}
 	return c.GeminiModel
+}
+
+// Default models for each step of the three-step search pipeline. These are
+// the cost-optimised production targets: lite handles the bulk URL discovery
+// and content extraction (where reasoning demand is low), and 3.5-flash
+// handles the final structured-output parse (where schema enforcement is
+// required and only 3.5-flash officially supports the combination).
+const (
+	defaultSearchModelDiscovery = "gemini-3.1-flash-lite"
+	defaultSearchModelExtract   = "gemini-3.1-flash-lite"
+	defaultSearchModelParse     = "gemini-3.5-flash"
+)
+
+// SearchModelDiscovery returns the model name for Step 1 (URL discovery via
+// GoogleSearch). Resolution: step-specific → SearchModel() (legacy) →
+// built-in default.
+func (c *GCPConfig) SearchModelDiscovery() string {
+	if c.GeminiSearchModelDiscovery != "" {
+		return c.GeminiSearchModelDiscovery
+	}
+	if m := c.SearchModel(); m != "" {
+		return m
+	}
+	return defaultSearchModelDiscovery
+}
+
+// SearchModelExtract returns the model name for Step 2 (verbatim extraction
+// via URLContext). Resolution: step-specific → SearchModel() (legacy) →
+// built-in default.
+func (c *GCPConfig) SearchModelExtract() string {
+	if c.GeminiSearchModelExtract != "" {
+		return c.GeminiSearchModelExtract
+	}
+	if m := c.SearchModel(); m != "" {
+		return m
+	}
+	return defaultSearchModelExtract
+}
+
+// SearchModelParse returns the model name for Step 3 (structured-output
+// JSON parse with responseJsonSchema, no tools). Resolution: step-specific
+// → SearchModel() (legacy) → built-in default.
+func (c *GCPConfig) SearchModelParse() string {
+	if c.GeminiSearchModelParse != "" {
+		return c.GeminiSearchModelParse
+	}
+	if m := c.SearchModel(); m != "" {
+		return m
+	}
+	return defaultSearchModelParse
 }
 
 // ParserModel returns the model name for the email parser workload,
