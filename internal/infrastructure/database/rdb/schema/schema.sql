@@ -113,44 +113,70 @@ COMMENT ON COLUMN venues.latitude IS 'WGS 84 latitude of the venue from Google P
 COMMENT ON COLUMN venues.longitude IS 'WGS 84 longitude of the venue from Google Places API';
 COMMENT ON COLUMN venues.listed_venue_name IS 'Raw scraped venue name as returned by Gemini; used for DB-first lookup to avoid redundant Places API calls';
 
+-- Series type enum
+CREATE TYPE series_type AS ENUM ('TOUR', 'SINGLE', 'FESTIVAL');
+
+COMMENT ON TYPE series_type IS 'Classification of an event series: TOUR (multi-venue), SINGLE (single-venue standalone, possibly multi-day), FESTIVAL (multi-performer)';
+
+-- Series table
+CREATE TABLE IF NOT EXISTS series (
+    id UUID PRIMARY KEY,
+    title TEXT NOT NULL,
+    type series_type NOT NULL,
+    source_url TEXT,
+    CONSTRAINT chk_series_title_not_empty CHECK (title <> ''),
+    CONSTRAINT chk_series_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+);
+
+COMMENT ON TABLE series IS 'Parent aggregation above events. Owns metadata shared across every event in a tour, festival, or multi-day single-venue run.';
+COMMENT ON COLUMN series.id IS 'Unique series identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN series.title IS 'Series title shared across all member events (e.g. tour name, festival name)';
+COMMENT ON COLUMN series.type IS 'Classification of the series; drives presentation and notification grouping';
+COMMENT ON COLUMN series.source_url IS 'Optional series-level official URL (tour page, festival page); per-event URLs are not stored';
+
 -- Events table
 CREATE TABLE IF NOT EXISTS events (
     id UUID PRIMARY KEY,
+    series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
     venue_id UUID NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
-    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
     listed_venue_name TEXT,
     local_event_date DATE NOT NULL,
     start_at TIMESTAMPTZ,
     open_at TIMESTAMPTZ,
-    source_url TEXT,
     merkle_root BYTEA,
-    CONSTRAINT uq_events_natural_key UNIQUE (artist_id, local_event_date),
+    CONSTRAINT uq_events_natural_key UNIQUE (series_id, local_event_date, venue_id),
     CONSTRAINT chk_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE events IS 'Generic event data including time, location, and metadata';
-COMMENT ON CONSTRAINT uq_events_natural_key ON events IS 'Prevents duplicate events for the same artist and date. An artist cannot perform at two venues simultaneously.';
+COMMENT ON TABLE events IS 'A single performance occurring on a specific date at a specific venue. Belongs to exactly one parent series.';
+COMMENT ON CONSTRAINT uq_events_natural_key ON events IS 'Prevents duplicate events for the same series at the same venue on the same date. Different series at the same venue on the same date are allowed.';
 COMMENT ON COLUMN events.id IS 'Unique event identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN events.series_id IS 'Reference to the parent series that aggregates this event with any sibling events';
 COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
-COMMENT ON COLUMN events.artist_id IS 'Reference to the performing artist; denormalized from concerts for natural key deduplication';
-COMMENT ON COLUMN events.title IS 'Event title as displayed to users';
 COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from the source, preserved separately from the normalized venue record';
 COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
 COMMENT ON COLUMN events.start_at IS 'Event start time (absolute)';
 COMMENT ON COLUMN events.open_at IS 'Doors open time (absolute), if available';
-COMMENT ON COLUMN events.source_url IS 'URL where the event information was found';
 COMMENT ON COLUMN events.merkle_root IS 'Merkle tree root hash for ZKP identity set; NULL for non-ticket events';
 
 -- Concerts table
 CREATE TABLE IF NOT EXISTS concerts (
-    event_id UUID PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE
+    event_id UUID PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE
 );
 
-COMMENT ON TABLE concerts IS 'Music-specific event details, linked 1:1 with events table';
+COMMENT ON TABLE concerts IS 'Music-specific event extension, linked 1:1 with events. Currently a placeholder; reserved for future music-specific columns per the Event-Type Extensibility requirement.';
 COMMENT ON COLUMN concerts.event_id IS 'Reference to the generic event (PK/FK)';
-COMMENT ON COLUMN concerts.artist_id IS 'Reference to the performing artist';
+
+-- Event performers (M:N between events and artists)
+CREATE TABLE IF NOT EXISTS event_performers (
+    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    PRIMARY KEY (event_id, artist_id)
+);
+
+COMMENT ON TABLE event_performers IS 'M:N relation between events and performing artists. Supports festival lineups, co-headliners, and support acts.';
+COMMENT ON COLUMN event_performers.event_id IS 'Reference to the event';
+COMMENT ON COLUMN event_performers.artist_id IS 'Reference to the performing artist';
 
 -- User artist follows
 CREATE TABLE IF NOT EXISTS followed_artists (
@@ -322,9 +348,12 @@ COMMENT ON INDEX idx_events_local_event_date IS 'Speeds up date-based event sear
 CREATE INDEX IF NOT EXISTS idx_events_venue_id ON events(venue_id);
 COMMENT ON INDEX idx_events_venue_id IS 'Optimizes listing events by venue';
 
--- Concerts indexes
-CREATE INDEX IF NOT EXISTS idx_concerts_artist_id ON concerts(artist_id);
-COMMENT ON INDEX idx_concerts_artist_id IS 'Optimizes listing concerts by artist';
+CREATE INDEX IF NOT EXISTS idx_events_series_id ON events(series_id);
+COMMENT ON INDEX idx_events_series_id IS 'Optimizes listing all events belonging to a series';
+
+-- Event performers indexes
+CREATE INDEX IF NOT EXISTS idx_event_performers_artist_id ON event_performers(artist_id);
+COMMENT ON INDEX idx_event_performers_artist_id IS 'Optimizes lookup of all events for a given artist (reverse direction of the composite PK)';
 
 -- Followed artists indexes
 CREATE INDEX IF NOT EXISTS idx_followed_artists_user_id ON followed_artists(user_id);
