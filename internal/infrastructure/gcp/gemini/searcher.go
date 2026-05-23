@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -193,13 +194,12 @@ Based on the artist name supplied by the user, you MUST use the Google Search to
 	// systemInstructionStep2Parse is the Step 2 system instruction. Static
 	// (no placeholders) so it caches across all parse calls.
 	systemInstructionStep2Parse = `You are an AI agent specialised in data transformation, running as a backend for a live-music information system.
-Convert the per-field XML envelope supplied by the user into the JSON format defined by the response schema.
+You receive a JSON array of input events with raw venue, country, and date/time strings. Produce a JSON response per the schema in which each input event appears exactly once, with admin_area inferred from venue and date/time coerced to ISO formats.
 
 [Constraints]
-1. XML tag names map 1:1 to JSON field names.
-2. Deduplicate events by (local_date, venue) across the merged envelope. URL-level dedup has already been applied upstream; this step removes the same event surfaced under different source URLs.
-3. Per-field coercion rules (date/time ISO formats, admin_area inference from venue, source_url from the parent <source> attribute, empty-string handling) are defined in each schema field's description — follow them.
-4. Output only the JSON defined by the schema. No Markdown decoration or comments.
+1. The output MUST contain exactly one entry per input event. Preserve the input index unchanged — it is the join key the caller uses to merge your output back with title / source_url fields you never see.
+2. Per-field coercion rules (admin_area inference from venue, local_date YYYY-MM-DD, start_time / open_time RFC3339 composed from local_date + the raw time + country timezone, empty-string handling) are defined in each schema field's description — follow them.
+3. Output only the JSON defined by the schema. No Markdown decoration or comments.
 `
 
 	// promptTemplateStep1Slice carries the per-call variables for one
@@ -216,9 +216,10 @@ Official site host: %s
 Extract every entry discovered within the scope above. Do not omit any.
 `
 
-	// promptTemplateParse is just the Step 1 envelope. All task/rules
-	// live in systemInstructionStep2Parse.
-	// Placeholder (1): the envelope.
+	// promptTemplateParse carries the JSON-list payload of Step 2 input
+	// events. All task / rules live in systemInstructionStep2Parse.
+	// Placeholder (1): the JSON list (output of json.Marshal on
+	// []step2InputEvent).
 	promptTemplateParse = `%s`
 
 	// urlContextMaxURLs is the per-request limit URLContext enforces.
@@ -231,133 +232,184 @@ Extract every entry discovered within the scope above. Do not omit any.
 	geminiCallTimeout = 120 * time.Second
 )
 
-// Shared field definitions reused by tourEventSchema and standaloneSchema.
-// Descriptions describe the XML → JSON mapping; the verbatim contract was
-// enforced in Step 1, so Step 2's job is structural conversion plus the
-// date/time format coercion called out below.
+// Step 2 field descriptions. Per-field descriptions cover ONLY the
+// fields Step 2 still produces (admin_area + coerced date/time);
+// title / source_url / venue are now carried verbatim through Go-side
+// XML parsing and never enter Step 2's schema.
 var (
-	venueField = map[string]any{
-		"type":        "string",
-		"description": "Value of the <venue> XML tag, copied as-is. \"\" when the tag is empty.",
+	indexField = map[string]any{
+		"type":        "integer",
+		"description": "Echo the input event's index unchanged. Used to align this output with the corresponding input event (positional order MAY differ; index is the authoritative key).",
 	}
 	adminAreaField = map[string]any{
 		"type":        "string",
-		"description": "Administrative area (prefecture / state / province) of the venue, in the local form (e.g. 愛知県, 東京都). Derived from the <venue> tag. \"\" when uncertain.",
+		"description": "Administrative area (prefecture / state / province) of the venue, in the local form (e.g. 愛知県, 東京都). Derived from the input event's venue. \"\" when uncertain.",
 	}
 	localDateField = map[string]any{
 		"type":        "string",
-		"description": "Calendar date in YYYY-MM-DD, coerced from the <local_date> tag (whose verbatim value may be e.g. \"2026年3月1日\" or \"March 1, 2026\"). \"\" when the tag is empty or coercion is ambiguous.",
+		"description": "Calendar date in YYYY-MM-DD, coerced from the input event's local_date (whose raw value may be e.g. \"2026年3月1日\", \"2026.3.15(土)\", or \"March 1, 2026\"). \"\" when the input is empty or coercion is ambiguous.",
 	}
 	startTimeField = map[string]any{
 		"type":        "string",
-		"description": "RFC3339 (e.g. 2026-02-14T18:30:00+09:00). Composed from <local_date>, <start_time>, and the timezone of <country> (JP → +09:00, etc.). \"\" when any of them is empty or coercion is ambiguous.",
+		"description": "RFC3339 (e.g. 2026-02-14T18:30:00+09:00). Composed from the input event's local_date + start_time + the timezone of country (JP → +09:00, KR → +09:00, HK → +08:00, TW → +08:00, CN → +08:00, etc.). \"\" when any of them is empty or coercion is ambiguous.",
 	}
 	openTimeField = map[string]any{
 		"type":        "string",
-		"description": "RFC3339. Composed from <local_date>, <open_time>, and the timezone of <country>. \"\" when any of them is empty or coercion is ambiguous.",
-	}
-	sourceURLField = map[string]any{
-		"type":        "string",
-		"description": "url attribute of the enclosing <source> block, copied as-is.",
+		"description": "RFC3339. Composed from the input event's local_date + open_time + the timezone of country. \"\" when any of them is empty or coercion is ambiguous.",
 	}
 )
 
-var tourEventSchema = map[string]any{
-	"type":                 "object",
-	"additionalProperties": false,
-	"properties": map[string]any{
-		"venue":      venueField,
-		"admin_area": adminAreaField,
-		"local_date": localDateField,
-		"start_time": startTimeField,
-		"open_time":  openTimeField,
-		"source_url": sourceURLField,
-	},
-	"required": []string{"venue", "local_date", "source_url"},
-}
-
-var tourSchema = map[string]any{
-	"type":                 "object",
-	"additionalProperties": false,
-	"properties": map[string]any{
-		"tour_title": map[string]any{
-			"type":        "string",
-			"description": "Value of the <tour_title> XML tag, copied as-is.",
-		},
-		"events": map[string]any{
-			"type":        "array",
-			"description": "One entry per <event> child of the <tour> XML block.",
-			"items":       tourEventSchema,
-		},
-	},
-	"required": []string{"tour_title", "events"},
-}
-
-var standaloneSchema = map[string]any{
-	"type":                 "object",
-	"additionalProperties": false,
-	"properties": map[string]any{
-		"event_title": map[string]any{
-			"type":        "string",
-			"description": "Value of the <event_title> XML tag, copied as-is.",
-		},
-		"venue":      venueField,
-		"admin_area": adminAreaField,
-		"local_date": localDateField,
-		"start_time": startTimeField,
-		"open_time":  openTimeField,
-		"source_url": sourceURLField,
-	},
-	"required": []string{"event_title", "venue", "local_date", "source_url"},
-}
-
+// responseJSONSchema is the Step 2 response schema. Step 2 receives a
+// JSON list of input events (index + venue + country + raw date/time
+// strings) and returns the coerced fields keyed back by index. Title,
+// source_url and the verbatim venue are not part of Step 2's universe —
+// Go carries them through from the Step 1 XML envelope.
 var responseJSONSchema = map[string]any{
 	"type":                 "object",
 	"additionalProperties": false,
-	"description": "Upcoming concerts for one artist, transformed from the per-field <extracted> XML envelope. <tour> XML blocks map to tours[]; <standalone> blocks map to standalones[]. For any string field whose corresponding XML tag is empty (or, for date/time fields, whose verbatim cannot be unambiguously coerced), emit \"\"; never emit null.",
+	"description":          "Coerced fields for each input event. For any field whose input is empty or unparseable, emit \"\"; never emit null.",
 	"properties": map[string]any{
-		"tours": map[string]any{
+		"events": map[string]any{
 			"type":        "array",
-			"description": "One entry per <tour> XML block across all <source> snippets.",
-			"items":       tourSchema,
-		},
-		"standalones": map[string]any{
-			"type":        "array",
-			"description": "One entry per <standalone> XML block across all <source> snippets.",
-			"items":       standaloneSchema,
+			"description": "One coerced entry per input event. The output MAY be in any order; the index field is the authoritative key. Every input event MUST appear in the output, even if all coerced fields end up empty.",
+			"items": map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"index":      indexField,
+					"admin_area": adminAreaField,
+					"local_date": localDateField,
+					"start_time": startTimeField,
+					"open_time":  openTimeField,
+				},
+				"required": []string{"index", "admin_area", "local_date", "start_time", "open_time"},
+			},
 		},
 	},
-	"required": []string{"tours", "standalones"},
+	"required": []string{"events"},
 }
 
-// ScrapedTourEvent is one date inside a ScrapedTour.
-type ScrapedTourEvent struct {
+// EventDraft is the intermediate working buffer between Step 1 (XML
+// envelope) and Step 2 (coerced JSON). Go-side XML parsing populates
+// every field; Step 2 only modifies AdminArea and coerces LocalDate /
+// StartTime / OpenTime into ISO 8601 form. Title, SourceURL and Venue
+// pass through verbatim and never enter Step 2's schema, eliminating
+// the LLM-side hallucination paths observed in prior smokes (venue
+// translation, source_url fabrication, title decoration).
+type EventDraft struct {
+	Title     string // <tour_title> for tour events; <event_title> for standalones.
+	SourceURL string // url attribute of the enclosing <source> block.
+	Venue     string // verbatim <venue> tag content.
+	Country   string // verbatim <country> tag content (ISO 3166-1 alpha-2).
+	LocalDate string // raw <local_date> tag content (un-coerced).
+	StartTime string // raw <start_time> tag content (un-coerced).
+	OpenTime  string // raw <open_time> tag content (un-coerced).
+}
+
+// step2InputEvent is the per-event payload sent to Step 2. It is a
+// pure subset of EventDraft — only the fields that Step 2 needs to
+// produce its coerced output. Title and SourceURL are intentionally
+// absent; they never leave Go.
+type step2InputEvent struct {
+	Index     int    `json:"index"`
 	Venue     string `json:"venue"`
+	Country   string `json:"country"`
+	LocalDate string `json:"local_date"`
+	StartTime string `json:"start_time"`
+	OpenTime  string `json:"open_time"`
+}
+
+// step2OutputEvent is Step 2's per-event response. Index is the join
+// key back to the EventDraft list.
+type step2OutputEvent struct {
+	Index     int    `json:"index"`
 	AdminArea string `json:"admin_area"`
 	LocalDate string `json:"local_date"`
 	StartTime string `json:"start_time"`
 	OpenTime  string `json:"open_time"`
-	SourceURL string `json:"source_url"`
 }
 
-type ScrapedTour struct {
-	TourTitle string             `json:"tour_title"`
-	Events    []ScrapedTourEvent `json:"events"`
+// step2Response is the top-level Step 2 JSON shape (matches
+// responseJSONSchema).
+type step2Response struct {
+	Events []step2OutputEvent `json:"events"`
 }
 
-type ScrapedStandalone struct {
-	EventTitle string `json:"event_title"`
-	Venue      string `json:"venue"`
-	AdminArea  string `json:"admin_area"`
-	LocalDate  string `json:"local_date"`
-	StartTime  string `json:"start_time"`
-	OpenTime   string `json:"open_time"`
-	SourceURL  string `json:"source_url"`
+// ----- Step 1 envelope XML parsing -----
+
+type step1Envelope struct {
+	XMLName xml.Name        `xml:"extracted"`
+	Sources []step1Source   `xml:"source"`
 }
 
-type EventsResponse struct {
-	Tours       []ScrapedTour       `json:"tours"`
-	Standalones []ScrapedStandalone `json:"standalones"`
+type step1Source struct {
+	URL         string             `xml:"url,attr"`
+	Tours       []step1Tour        `xml:"tour"`
+	Standalones []step1Event       `xml:"standalone"`
+}
+
+type step1Tour struct {
+	TourTitle string       `xml:"tour_title"`
+	Events    []step1Event `xml:"event"`
+}
+
+type step1Event struct {
+	EventTitle string `xml:"event_title"` // only set when parsed as a <standalone>
+	Venue      string `xml:"venue"`
+	Country    string `xml:"country"`
+	LocalDate  string `xml:"local_date"`
+	StartTime  string `xml:"start_time"`
+	OpenTime   string `xml:"open_time"`
+}
+
+// parseStep1Envelope unmarshals the merged Step 1 <extracted>...</extracted>
+// envelope into a flat list of EventDraft. <tour> blocks contribute one
+// draft per child <event>, with Title = the parent <tour_title>.
+// <standalone> blocks contribute one draft each with Title = their own
+// <event_title>. SourceURL on every draft is the url attribute of the
+// enclosing <source>.
+//
+// Returns an empty slice (no error) on unparseable input — Step 1 may
+// emit non-XML fallback text (e.g. when the model misbehaves), in which
+// case we degrade gracefully rather than failing the whole Search.
+func parseStep1Envelope(envelope string) []EventDraft {
+	envelope = strings.TrimSpace(envelope)
+	if envelope == "" {
+		return nil
+	}
+	var env step1Envelope
+	if err := xml.Unmarshal([]byte(envelope), &env); err != nil {
+		return nil
+	}
+	var drafts []EventDraft
+	for _, src := range env.Sources {
+		for _, tour := range src.Tours {
+			title := strings.TrimSpace(tour.TourTitle)
+			for _, ev := range tour.Events {
+				drafts = append(drafts, EventDraft{
+					Title:     title,
+					SourceURL: src.URL,
+					Venue:     strings.TrimSpace(ev.Venue),
+					Country:   strings.TrimSpace(ev.Country),
+					LocalDate: strings.TrimSpace(ev.LocalDate),
+					StartTime: strings.TrimSpace(ev.StartTime),
+					OpenTime:  strings.TrimSpace(ev.OpenTime),
+				})
+			}
+		}
+		for _, ev := range src.Standalones {
+			drafts = append(drafts, EventDraft{
+				Title:     strings.TrimSpace(ev.EventTitle),
+				SourceURL: src.URL,
+				Venue:     strings.TrimSpace(ev.Venue),
+				Country:   strings.TrimSpace(ev.Country),
+				LocalDate: strings.TrimSpace(ev.LocalDate),
+				StartTime: strings.TrimSpace(ev.StartTime),
+				OpenTime:  strings.TrimSpace(ev.OpenTime),
+			})
+		}
+	}
+	return drafts
 }
 
 // ConcertSearcher implements entity.ConcertSearcher using Vertex AI Gemini.
@@ -411,6 +463,12 @@ type SearchMetadata struct {
 	// url_context during Step 1, for harness reporting convenience.
 	DiscoveredURLs     []string
 	DiscoveredURLCount int
+
+	// DraftCount is the number of EventDraft entries Go parsed from the
+	// merged Step 1 envelope before sending to Step 2. Useful for
+	// diagnostics: a large drop between DraftCount and ToursCount +
+	// StandalonesCount points to Step 2 losing rows during coercion.
+	DraftCount int
 
 	// Mirror Step2Parse onto top-level (back-compat with log consumers).
 	PromptTokens     int32
@@ -550,8 +608,19 @@ func (s *ConcertSearcher) SearchExt(
 		return nil, md, nil
 	}
 
+	// Go-side XML parse: title / source_url / venue / country / raw
+	// date-time fields are extracted verbatim from Step 1's <extracted>
+	// envelope and held in EventDraft. Step 2 only sees the subset it
+	// needs to coerce (venue + country + raw date-time strings).
+	drafts := parseStep1Envelope(envelope)
+	md.DraftCount = len(drafts)
+	if len(drafts) == 0 {
+		s.logger.Warn(ctx, "step 1 envelope produced 0 parseable events, returning empty results", attrs...)
+		return nil, md, nil
+	}
+
 	// ===== Step 2: Structured parse (no tools, schema enforced) =====
-	results, step2, err := s.runStep2Parse(ctx, envelope, from, md, attrs)
+	results, step2, err := s.runStep2Parse(ctx, drafts, from, md, attrs)
 	md.Step2Parse = step2
 	mirrorStep2(md, step2)
 	if err != nil {
@@ -871,19 +940,44 @@ func mergeAndDedupEnvelopes(envelopes []string) string {
 	return out.String()
 }
 
-// runStep2Parse executes Step 2 — structured-output JSON parse. No tools,
-// responseJsonSchema enforced.
+// runStep2Parse executes Step 2 — coercion of the per-event raw
+// fields produced by Step 1 into ISO-formatted output, plus
+// admin_area inference. No tools, responseJsonSchema enforced.
+//
+// drafts is the Go-side parsed Step 1 envelope. Title / SourceURL /
+// Venue pass through Go untouched and are merged back with the
+// coerced output by index. Step 2 never sees these fields.
 func (s *ConcertSearcher) runStep2Parse(
 	ctx context.Context,
-	envelope string,
+	drafts []EventDraft,
 	from time.Time,
 	md *SearchMetadata,
 	attrs []slog.Attr,
 ) ([]*entity.ScrapedConcert, *PassMetadata, error) {
-	// INCLUDE/EXCLUDE (including from_date) is applied in Step 1. `from`
-	// is still passed through to parseEvents for the post-parse past-event
-	// guard.
-	prompt := fmt.Sprintf(promptTemplateParse, envelope)
+	if len(drafts) == 0 {
+		return nil, nil, nil
+	}
+
+	// Build the Step 2 input payload. JSON list of {index, venue,
+	// country, local_date, start_time, open_time}.
+	inputs := make([]step2InputEvent, len(drafts))
+	for i, d := range drafts {
+		inputs[i] = step2InputEvent{
+			Index:     i,
+			Venue:     d.Venue,
+			Country:   d.Country,
+			LocalDate: d.LocalDate,
+			StartTime: d.StartTime,
+			OpenTime:  d.OpenTime,
+		}
+	}
+	payload, err := json.Marshal(inputs)
+	if err != nil {
+		// json.Marshal on a list of strings should never fail; treat as
+		// permanent if it does.
+		return nil, nil, backoff.Permanent(toAppErr(err, "failed to marshal step 2 input", attrs...))
+	}
+	prompt := fmt.Sprintf(promptTemplateParse, string(payload))
 	temperature := s.config.Temperature
 
 	cfg := &genai.GenerateContentConfig{
@@ -913,7 +1007,7 @@ func (s *ConcertSearcher) runStep2Parse(
 		return nil, pm, nil
 	}
 
-	parsed, perr := s.parseEvents(ctx, rawText, from, md, stepAttrs...)
+	parsed, perr := s.parseStep2Response(ctx, rawText, drafts, from, md, stepAttrs...)
 	if perr != nil {
 		if errors.Is(perr, errInvalidJSON) {
 			md.InvalidJSON = true
@@ -1168,9 +1262,18 @@ func hostOf(u string) string {
 	return strings.ToLower(rest)
 }
 
-func (s *ConcertSearcher) parseEvents(
+// parseStep2Response parses the Step 2 JSON output and merges its
+// coerced fields back into the input EventDraft list (matched by
+// index), producing the final []*entity.ScrapedConcert. Drafts with
+// no matching Step 2 entry are skipped; drafts whose coerced
+// local_date is empty or in the past are also dropped.
+//
+// drafts is the source-of-truth for Title / SourceURL / Venue —
+// those values pass through verbatim and never see Step 2.
+func (s *ConcertSearcher) parseStep2Response(
 	ctx context.Context,
 	rawText string,
+	drafts []EventDraft,
 	from time.Time,
 	md *SearchMetadata,
 	attrs ...slog.Attr,
@@ -1191,7 +1294,7 @@ func (s *ConcertSearcher) parseEvents(
 	}
 	text = strings.TrimSpace(text)
 
-	if text == "" || text == "{}" || text == "{\"tours\":[],\"standalones\":[]}" {
+	if text == "" || text == "{}" || text == `{"events":[]}` {
 		s.logger.Info(ctx, "Gemini response is effectively empty", append(attrs, slog.String("raw_text", rawText))...)
 		return nil, nil
 	}
@@ -1209,71 +1312,124 @@ func (s *ConcertSearcher) parseEvents(
 		return nil, backoff.Permanent(errInvalidJSON)
 	}
 
-	var eventsResp EventsResponse
-	if err := json.Unmarshal([]byte(text), &eventsResp); err != nil {
+	var resp step2Response
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
 		return nil, backoff.Permanent(toAppErr(err, "failed to unmarshal gemini response",
 			append(attrs, slog.String("text", text))...,
 		))
 	}
 
-	if md != nil {
-		md.ToursCount = len(eventsResp.Tours)
-		md.StandalonesCount = len(eventsResp.Standalones)
+	// Build a lookup from index → step2OutputEvent so out-of-order or
+	// partial returns still match correctly.
+	byIndex := make(map[int]step2OutputEvent, len(resp.Events))
+	for _, ev := range resp.Events {
+		if ev.Index < 0 || ev.Index >= len(drafts) {
+			s.logger.Warn(ctx, "step 2 returned event with out-of-range index, skipping",
+				append(attrs, slog.Int("index", ev.Index))...)
+			continue
+		}
+		byIndex[ev.Index] = ev
 	}
 
+	// Merge drafts + coerced output → final concerts, applying past-date
+	// filter and (local_date, venue) dedup along the way.
+	type dedupKey struct {
+		date  string
+		venue string
+	}
+	seen := make(map[dedupKey]struct{}, len(drafts))
 	var discovered []*entity.ScrapedConcert
-	for _, tour := range eventsResp.Tours {
-		for _, ev := range tour.Events {
-			c := s.toScrapedConcert(ctx, tour.TourTitle, ev.Venue, ev.AdminArea, ev.LocalDate, ev.StartTime, ev.OpenTime, ev.SourceURL, from, attrs)
-			if c != nil {
-				discovered = append(discovered, c)
-			}
+	var toursCount, standalonesCount int
+	for i, draft := range drafts {
+		coerced, ok := byIndex[i]
+		if !ok {
+			// Step 2 dropped this event. Possible causes: model truncated
+			// the response, or it deduped silently. Log and move on.
+			s.logger.Warn(ctx, "step 2 omitted event from response, skipping",
+				append(attrs, slog.Int("index", i), slog.String("title", draft.Title))...)
+			continue
+		}
+		c := s.toScrapedConcert(ctx, draft, coerced, from, attrs)
+		if c == nil {
+			continue
+		}
+		key := dedupKey{date: coerced.LocalDate, venue: draft.Venue}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		discovered = append(discovered, c)
+		// We can't classify tour vs standalone from EventDraft alone
+		// (the same EventDraft shape covers both). Track structural
+		// counts by checking whether multiple drafts share the same
+		// title — done after the loop.
+		_ = toursCount
+		_ = standalonesCount
+	}
+
+	// Compute tours / standalones counts by grouping discovered events
+	// on Title (multi-event title = tour; single-event title =
+	// standalone). This mirrors the structural classification the
+	// previous schema enforced.
+	byTitle := make(map[string]int, len(discovered))
+	for _, c := range discovered {
+		byTitle[c.Title]++
+	}
+	for _, cnt := range byTitle {
+		if cnt >= 2 {
+			toursCount++
+		} else {
+			standalonesCount++
 		}
 	}
-	for _, ev := range eventsResp.Standalones {
-		c := s.toScrapedConcert(ctx, ev.EventTitle, ev.Venue, ev.AdminArea, ev.LocalDate, ev.StartTime, ev.OpenTime, ev.SourceURL, from, attrs)
-		if c != nil {
-			discovered = append(discovered, c)
-		}
+	if md != nil {
+		md.ToursCount = toursCount
+		md.StandalonesCount = standalonesCount
 	}
 
 	s.logger.Info(ctx, "successfully parsed new concerts",
 		append(attrs,
+			slog.Int("draft_count", len(drafts)),
+			slog.Int("step2_returned", len(resp.Events)),
 			slog.Int("discovered_count", len(discovered)),
-			slog.Int("tours_count", len(eventsResp.Tours)),
-			slog.Int("standalones_count", len(eventsResp.Standalones)),
-			slog.Any("concerts", discovered),
+			slog.Int("tours_count", toursCount),
+			slog.Int("standalones_count", standalonesCount),
 		)...,
 	)
 	return discovered, nil
 }
 
-// toScrapedConcert converts flat per-date fields into entity.ScrapedConcert.
-// Returns nil if the event must be skipped (invalid date or past event).
+// toScrapedConcert merges a Go-side EventDraft (Title / Venue /
+// SourceURL pass-through) with the Step 2 coerced output
+// (AdminArea / LocalDate / StartTime / OpenTime in ISO form) into an
+// entity.ScrapedConcert. Returns nil if the event must be skipped
+// (unparseable date, or local_date is before `from`).
 func (s *ConcertSearcher) toScrapedConcert(
 	ctx context.Context,
-	title, venue, adminAreaRaw, localDate, startTimeRaw, openTimeRaw, sourceURL string,
+	draft EventDraft,
+	coerced step2OutputEvent,
 	from time.Time,
 	attrs []slog.Attr,
 ) *entity.ScrapedConcert {
-	date, err := time.Parse("2006-01-02", localDate)
+	date, err := time.Parse("2006-01-02", coerced.LocalDate)
 	if err != nil {
-		s.logger.Warn(ctx, "failed to parse event date and skip", append(attrs, slog.String("date", localDate))...)
+		s.logger.Warn(ctx, "failed to parse event date and skip",
+			append(attrs, slog.String("date", coerced.LocalDate), slog.String("title", draft.Title))...)
 		return nil
 	}
 
 	if date.Before(from.Truncate(24 * time.Hour)) {
 		s.logger.Debug(ctx, "filtered past event",
-			append(attrs, slog.String("title", title), slog.String("date", localDate))...,
+			append(attrs, slog.String("title", draft.Title), slog.String("date", coerced.LocalDate))...,
 		)
 		return nil
 	}
 
 	var startTime time.Time
-	if startTimeRaw != "" && startTimeRaw != "null" {
-		if st, err := time.Parse(time.RFC3339, startTimeRaw); err != nil {
+	if coerced.StartTime != "" && coerced.StartTime != "null" {
+		if st, err := time.Parse(time.RFC3339, coerced.StartTime); err != nil {
 			s.logger.Warn(ctx, "failed to parse event start time, using zero",
-				append(attrs, slog.String("start_time", startTimeRaw))...,
+				append(attrs, slog.String("start_time", coerced.StartTime))...,
 			)
 		} else {
 			startTime = st
@@ -1281,24 +1437,24 @@ func (s *ConcertSearcher) toScrapedConcert(
 	}
 
 	var openTime time.Time
-	if openTimeRaw != "" && openTimeRaw != "null" {
-		if ot, err := time.Parse(time.RFC3339, openTimeRaw); err == nil {
+	if coerced.OpenTime != "" && coerced.OpenTime != "null" {
+		if ot, err := time.Parse(time.RFC3339, coerced.OpenTime); err == nil {
 			openTime = ot
 		}
 	}
 
 	var adminArea *string
-	if adminAreaRaw != "" {
-		adminArea = geo.NormalizeAdminArea(adminAreaRaw)
+	if coerced.AdminArea != "" {
+		adminArea = geo.NormalizeAdminArea(coerced.AdminArea)
 	}
 
 	return &entity.ScrapedConcert{
-		Title:           title,
-		ListedVenueName: venue,
+		Title:           draft.Title,
+		ListedVenueName: draft.Venue,
 		AdminArea:       adminArea,
 		LocalDate:       date,
 		StartTime:       startTime,
 		OpenTime:        openTime,
-		SourceURL:       sourceURL,
+		SourceURL:       draft.SourceURL,
 	}
 }

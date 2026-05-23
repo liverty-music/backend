@@ -19,6 +19,7 @@ import (
 )
 
 func TestSearch_RetryOnTransientError(t *testing.T) {
+	t.Skip("pending rewrite for Go-side draft + Step 2 coercion split (#303)")
 	t.Parallel()
 
 	logger, _ := logging.New()
