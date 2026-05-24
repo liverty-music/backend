@@ -142,14 +142,14 @@ func nullStringFromEmpty(s string) sql.NullString {
 // Every nullable users column (preferred_language, country, time_zone,
 // safe_address) is scanned into a sql.NullString intermediate, then assigned
 // to the entity field via .String when .Valid. pgx errors out when scanning
-// SQL NULL directly into a non-nullable Go *string; the four columns above
-// are nullable per schema and at least one (preferred_language) is regularly
-// NULL on legacy rows after the persist-user-language migration, so the
-// intermediate-local pattern protects every read path that shares this
-// scanner (Get, GetByExternalID, GetByEmail, Update, UpdatePreferredLanguage,
-// UpdateHome's re-fetch, List). safe_address remains COALESCE'd at the SQL
-// boundary for historical reasons; the scan path is defensive in either
-// case.
+// SQL NULL into a non-nullable Go destination (a bare string); the four
+// columns above are nullable per schema and at least one
+// (preferred_language) is regularly NULL on legacy rows after the
+// persist-user-language migration, so the intermediate-local pattern
+// protects every read path that shares this scanner (Get, GetByExternalID,
+// GetByEmail, Update, UpdatePreferredLanguage, UpdateHome's re-fetch,
+// List). safe_address remains COALESCE'd at the SQL boundary for
+// historical reasons; the scan path is defensive in either case.
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
 	var preferredLanguage, country, timeZone sql.NullString

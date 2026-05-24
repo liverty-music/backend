@@ -221,57 +221,62 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 	// into the original AlreadyExists. Previously the retry path discarded
 	// getErr entirely, masking a scanUser NULL→string crash as
 	// AlreadyExists at the wire with no log trail.
-	t.Run("retry GetByExternalID Internal error surfaces as Internal, not AlreadyExists", func(t *testing.T) {
+	t.Run("retry GetByExternalID non-NotFound error surfaces truthfully", func(t *testing.T) {
 		t.Parallel()
-		d := newUserTestDeps(t)
-
-		params := &entity.NewUser{
-			ExternalID: "ext-internal-error",
-			Email:      "ie@example.com",
-			Name:       "Internal Error Probe",
+		// Table covers the representative non-NotFound classes the retry
+		// path can encounter. Internal is the original incident's class
+		// (scanUser NULL→string crash); Unavailable covers transient pool
+		// / connection failures. Both MUST propagate as themselves so the
+		// operator sees the real failure instead of AlreadyExists.
+		cases := []struct {
+			name       string
+			externalID string
+			email      string
+			retryErr   error
+			wantClass  error
+		}{
+			{
+				name:       "Internal (scan failure on NULL column)",
+				externalID: "ext-internal-error",
+				email:      "ie@example.com",
+				retryErr:   apperr.New(codes.Internal, "scan failure"),
+				wantClass:  apperr.ErrInternal,
+			},
+			{
+				name:       "Unavailable (transient pool failure)",
+				externalID: "ext-unavailable",
+				email:      "ua@example.com",
+				retryErr:   apperr.New(codes.Unavailable, "connection refused"),
+				wantClass:  apperr.ErrUnavailable,
+			},
 		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				d := newUserTestDeps(t)
 
-		d.repo.EXPECT().Create(ctx, params).
-			Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
-		// Simulate scanUser failing on a NULL nullable column. toAppErr maps
-		// non-PG errors via fmt.Errorf("%s: %w", ...) which is not an
-		// apperr; but the production failure also passes through the Wrap
-		// codepath for pgErr-class faults. Use Internal here as the
-		// representative "anything but NotFound" case.
-		d.repo.EXPECT().GetByExternalID(ctx, "ext-internal-error").
-			Return(nil, apperr.New(codes.Internal, "scan failure")).Once()
+				params := &entity.NewUser{
+					ExternalID: tc.externalID,
+					Email:      tc.email,
+					Name:       "retry probe",
+				}
 
-		result, err := d.uc.Create(ctx, params)
+				d.repo.EXPECT().Create(ctx, params).
+					Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
+				d.repo.EXPECT().GetByExternalID(ctx, tc.externalID).
+					Return(nil, tc.retryErr).Once()
 
-		assert.Error(t, err)
-		assert.Nil(t, result)
-		// The retry's Internal error wins; original AlreadyExists is logged
-		// for forensics but NOT returned (rationale documented in user_uc.go).
-		assert.ErrorIs(t, err, apperr.ErrInternal)
-		assert.NotErrorIs(t, err, apperr.ErrAlreadyExists)
-	})
+				result, err := d.uc.Create(ctx, params)
 
-	t.Run("retry GetByExternalID Unavailable surfaces as Unavailable", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		params := &entity.NewUser{
-			ExternalID: "ext-unavailable",
-			Email:      "ua@example.com",
-			Name:       "Unavailable Probe",
+				assert.Error(t, err)
+				assert.Nil(t, result)
+				// The retry's error class wins; original AlreadyExists is
+				// logged for forensics but NOT returned (rationale in
+				// user_uc.go).
+				assert.ErrorIs(t, err, tc.wantClass)
+				assert.NotErrorIs(t, err, apperr.ErrAlreadyExists)
+			})
 		}
-
-		d.repo.EXPECT().Create(ctx, params).
-			Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
-		d.repo.EXPECT().GetByExternalID(ctx, "ext-unavailable").
-			Return(nil, apperr.New(codes.Unavailable, "connection refused")).Once()
-
-		result, err := d.uc.Create(ctx, params)
-
-		assert.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorIs(t, err, apperr.ErrUnavailable)
-		assert.NotErrorIs(t, err, apperr.ErrAlreadyExists)
 	})
 
 	// Create accepts an empty preferred_language (old clients omit the
