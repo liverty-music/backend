@@ -2,7 +2,7 @@
 
 公式ドキュメント・SDK ソース・Google 公式ブログから検証した「concert searcher のチューニングで役立つ情報」を集約したリファレンス。`internal/infrastructure/gcp/gemini/searcher.go` を触る際に読む前提。
 
-**最終更新**: 2026-05-21 (Gemini 3 series GA、`google.golang.org/genai@v1.57.0` 基準)
+**最終更新**: 2026-05-24 (Gemini 3 series GA、`google.golang.org/genai@v1.57.0` 基準。 2-step grounded-extract pipeline shipped — 詳細は §10)
 
 ---
 
@@ -17,7 +17,8 @@
 7. [Go SDK 現状](#7-go-sdk-現状)
 8. [運用上の制約](#8-運用上の制約)
 9. [既知の落とし穴・既知問題](#9-既知の落とし穴-既知問題)
-10. [References](#10-references)
+10. [Concert Search Pipeline (shipped architecture)](#10-concert-search-pipeline-shipped-architecture)
+11. [References](#11-references)
 
 ---
 
@@ -506,7 +507,163 @@ K8s 環境では:
 
 ---
 
-## 10. References
+## 10. Concert Search Pipeline (shipped architecture)
+
+`ConcertSearcher.Search` is a **2-step** LLM pipeline plus Go-side parsing. The architecture below is the one currently on disk; the abandoned alternatives are kept in the appendix at the bottom of this section as cautionary tales.
+
+### 10.1 End-to-end call flow
+
+```
+                    ┌─────────────── Step 1 (grounded extract) ──────────────┐
+                    │ goroutine A: tours_near    [from, from+12mo]            │
+artist + from ──┬──>│ goroutine B: tours_far     [from+12mo, from+24mo]       │ ──> []EventDraft
+(public Search)  │  │ goroutine C: standalones   [from, from+24mo]            │     (verbatim title /
+                 │  │ each call: gemini-3.5-flash + GoogleSearch + URLContext │      source_url / venue /
+                 │  │ each emits <extracted>...</extracted> XML envelope      │      country + raw dates)
+                 │  └─────────────────────────────────────────────────────────┘
+                 │             │
+                 │             ▼  parseStep1Envelope + mergeAndDedupEnvelopes (Go)
+                 │             │
+                 │  ┌─── Step 2 (JSON coerce) ───────────────────────────────┐
+                 └─>│ gemini-3.1-flash-lite, no tools, responseJsonSchema    │
+                    │ input  : []{index, venue, country, raw date/time}      │
+                    │ output : []{index, admin_area, ISO date/time}          │
+                    └────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼  parseStep2Response (Go-side index join + triple-key dedup)
+                                  │
+                                  ▼
+                          []*entity.ScrapedConcert
+```
+
+Only **two LLM round trips** worth of latency, even though Step 1 fans out to three goroutines (they run concurrently). Title, source_url, and venue never enter Step 2's schema — they pass through Go untouched, eliminating LLM-side hallucination on those fields.
+
+### 10.2 Step 1 — parallel grounded extract
+
+`defaultStep1Slices` in `searcher.go` defines exactly three slices. Each fires its own Gemini call with its own system instruction and date window.
+
+| Slice name | System instruction | From offset | To offset | Window (from `time.Now()`) |
+|------------|--------------------|------------:|----------:|----------------------------|
+| `tours_near` | `systemInstructionStep1Tour` | 0 mo | 12 mo | tours opening in the next year |
+| `tours_far` | `systemInstructionStep1Tour` | 12 mo | 24 mo | tours opening 12 – 24 months out |
+| `standalones` | `systemInstructionStep1Standalone` | 0 mo | 24 mo | one-off shows in the next 24 months |
+
+Each slice's prompt template carries four positional `%s` placeholders: `from_date`, `to_date`, artist name, official-site host.
+
+**Tool invariant** (enforced by `assertStepInvariants("step1_grounded", cfg)` before the call): `cfg.Tools` MUST contain **both** `GoogleSearch` and `URLContext`. `cfg.ResponseJsonSchema` MUST be nil. This combination is documented as supported on flash (see `Search_Grounding.ipynb` cookbook), but the same combination on lite has documented reliability bugs (see section 9 / appendix).
+
+### 10.3 Step 1 system instructions — workflow-style
+
+Both tour and standalone system instructions follow the same five-step Japanese-language workflow:
+
+1. **Discover** the relevant detail pages for the artist within `[from_date, to_date]`.
+2. **Extract** verbatim into the per-field XML envelope.
+3. **Dedup** within the slice on `(venue, local_date, start_time)`.
+4. **MECE check** — verify the slice covers every date in the range without overlap with the other slices.
+5. **Emit XML only** — no prose, no markdown.
+
+The XML envelope:
+
+```xml
+<extracted>
+  <tour>
+    <title>都会のラクダ TOUR 2026-2027</title>
+    <source_url>https://super-beaver.com/feature/tour2627</source_url>
+    <event>
+      <venue>Zepp Nagoya</venue>
+      <country>JP</country>
+      <local_date>2026.07.07. tue</local_date>
+      <open_time>OPEN 17:00</open_time>
+      <start_time>START 18:00</start_time>
+    </event>
+    <!-- ...more <event> children... -->
+  </tour>
+  <standalone>
+    <title>BRADIO presents「Kyotown Dance」</title>
+    <source_url>https://bradio.jp/show/detail/2015</source_url>
+    <event>
+      <venue>京都府・磔磔</venue>
+      <country>JP</country>
+      <local_date>2026年5月24日(日)</local_date>
+      <open_time>OPEN 17:30</open_time>
+      <start_time>START 18:00</start_time>
+    </event>
+  </standalone>
+</extracted>
+```
+
+- `<source_url>` is a child of `<tour>` / `<standalone>`, not the outer wrapper.
+- Each `<standalone>` contains exactly one `<event>`. Each `<tour>` contains one or more.
+- Empty fields are emitted as empty elements (`<open_time></open_time>`), never as `null` and never omitted.
+
+### 10.4 Page-context year inference for partial dates
+
+Many Japanese tour pages emit dates as `MM.DD. weekday` without a year (the year lives in the page heading or tour title). Step 1's instruction REQUIRES the model to infer the year from page context and prefix the verbatim raw value with that year, producing strings like `2027.01.16. sat`.
+
+**Why this matters** — Step 2 (lite) has no `from_date` reference. Year-less dates default to the current calendar year and get filtered out by the past-date cutoff. Concrete example from the 2026-05-24 smoke:
+
+- SUPER BEAVER's `都会のラクダ TOUR 2026-2027` page lists 28 dates spanning 2026-07 through 2027-03.
+- Without the inference rule, lite coerced all 28 to `2026-MM-DD`. The 12 `2026-01..03` dates fell before the past-date cutoff and were dropped → recall 16/28 (57%).
+- With the inference rule, flash emits `2027.01.16. sat` etc. directly; lite then coerces correctly → recall 28/28 (100%).
+
+### 10.5 Step 2 — JSON coerce
+
+| Aspect | Value |
+|--------|-------|
+| Model (default) | `gemini-3.1-flash-lite` (via `cfg.GCP.SearchModelParse()`) |
+| Tools | none (enforced by `assertStepInvariants("step2_parse", cfg)`) |
+| `ResponseJsonSchema` | required (the same guard rejects nil) |
+| Input | `[]step2InputEvent` JSON: `{index, venue, country, local_date, start_time, open_time}` |
+| Output | `[]step2OutputEvent`: `{index, admin_area, local_date, start_time, open_time}` (coerced) |
+| Title / source_url / verbatim venue | **never sent or received**; Go merges them back by `index` |
+
+`responseJsonSchema × URLContext` on lite truncates ~67% of cells (see appendix 10.8). Step 2 has no tools, so the bug does not apply.
+
+### 10.6 `(local_date, venue, start_time)` dedup key
+
+`parseStep2Response` deduplicates merged results using the triple `(local_date, venue, start_time)` (see `searcher.go`). The third key element is critical: without `start_time`, two shows at the same venue on the same date — e.g. Billboard Live 1st-stage 18:00 / 2nd-stage 21:00 — collapse into one entry.
+
+Concrete example from the 2026-05-24 BRADIO smoke:
+
+| Date | Venue | start_time | Survives dedup? |
+|------|-------|------------|-----------------|
+| 2026-08-07 | ビルボードライブ大阪 | 18:00 (1st stage) | ✅ |
+| 2026-08-07 | ビルボードライブ大阪 | 21:00 (2nd stage) | ✅ |
+| 2026-08-09 | ビルボードライブ東京 | 16:00 (1st stage) | ✅ |
+| 2026-08-09 | ビルボードライブ東京 | 19:00 (2nd stage) | ✅ |
+
+Switching the key to `(local_date, venue)` only would fold each (1st, 2nd) pair into a single row and recall drops from 19/22 → 17/22 on BRADIO.
+
+### 10.7 Model selection per step (defaults + env overrides)
+
+`pkg/config.GCPConfig` has two per-step model fields:
+
+| Field | Env var | Default | Step |
+|-------|---------|---------|------|
+| `GeminiSearchModelExtract` | `GCP_GEMINI_SEARCH_MODEL_EXTRACT` | `gemini-3.5-flash` | Step 1 (grounded extract) |
+| `GeminiSearchModelParse` | `GCP_GEMINI_SEARCH_MODEL_PARSE` | `gemini-3.1-flash-lite` | Step 2 (JSON coerce) |
+
+`GCP_GEMINI_SEARCH_MODEL` (`GeminiSearchModel`) is retained as a legacy fallback **only for callers that have not migrated to per-step**. The per-step resolvers `SearchModelExtract()` / `SearchModelParse()` ignore the legacy field and fall straight to the step-specific default if the env override is unset.
+
+There is **no `ModelDiscovery` field**. The earlier three-step proposal carried a `discovery → extract → parse` split that has since been superseded; the field and its env var were removed in this change.
+
+**Why flash on Step 1**: lite's URLContext tool has documented reliability bugs (python-genai #2120 empty `grounding_chunks`, genkit #3513 ~10% tool-resolution failure rate, Google AI Forum 107050 grounding hallucination). The cookbook's URLContext examples (`Grounding.ipynb`) use `gemini-3.5-flash` exclusively.
+
+**Why lite on Step 2**: Step 2 has no tools and no semantic ambiguity — just text → JSON coercion of `admin_area` plus ISO date/time. Lite handles this reliably and costs ~3× less than flash.
+
+### 10.8 Appendix — historical alternatives considered
+
+Three architectures were prototyped on this worktree before the shipped grounded-extract design landed. Both abandoned designs are summarised below so future contributors do not re-explore them.
+
+**Two-pass `lite × URLContext + responseJsonSchema`** (proposal: `redesign-concert-searcher-two-pass`, withdrawn). Pass 2 combined `URLContext` with `responseJsonSchema` on lite. A 12-cell matrix on 2026-05-22 (Vaundy + BRADIO) hit invalid-JSON truncation in 8/12 cells (`{"standalones":[],"tours":` cutoff at ~33 chars of structured output). Running the same Pass 2 on `gemini-3.5-flash` was clean but cost ~$0.27 / artist, well above the ¥1,500 monthly cap target.
+
+**Three-step `lite × Search → lite × URLContext → flash × schema`** (proposal: `redesign-concert-searcher-three-step-pipeline`, withdrawn). Split Pass 2 into separate URLContext-only and schema-only calls to dodge the truncation, with lite carrying the two cheap grounded steps. The reliability defects above falsified the assumption that lite could carry URLContext: smokes on 2026-05-23 reproduced both the empty-grounding_chunks bug and the resolution-failure rate.
+
+**Grounded-extract `flash × {Search + URLContext} → lite × schema`** (this design, shipped). Keeps flash on the grounded call, collapses URL discovery and verbatim extraction into a single Gemini call with both tools enabled together, lifts verbatim fields into Go, and runs lite on a pure no-tools coercion step where `responseJsonSchema` is safe. A 4-artist smoke (95 in-scope events) records 92/95 effective matches at 100% precision, ~$0.20 / artist, ~75 s / artist.
+
+---
+
+## 11. References
 
 ### Google 公式ドキュメント
 
