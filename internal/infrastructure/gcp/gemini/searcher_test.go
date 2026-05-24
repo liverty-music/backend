@@ -752,3 +752,34 @@ func TestConcertSearcher_Search_ConfigHonored(t *testing.T) {
 		})
 	}
 }
+
+// TestParseStep1Envelope_EmptyOrUnparseable locks in the contract from
+// the gemini-grounded-extract-and-coerce spec (R8): for empty input or
+// any input that does not unmarshal as the expected <extracted>...
+// envelope, the parser SHALL return an empty slice without an error.
+// Step 2 always receives a deterministic []EventDraft, never a panic
+// or a parser error, so the pipeline degrades gracefully when Step 1
+// emits something the model botched.
+func TestParseStep1Envelope_EmptyOrUnparseable(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{name: "empty string", input: ""},
+		{name: "whitespace only", input: "  \n\t  "},
+		{name: "malformed xml — unclosed tag", input: "<extracted><tour></extracted>"},
+		{name: "json fallback body", input: `{"tours":[],"standalones":[]}`},
+		{name: "extracted with no children", input: "<extracted></extracted>"},
+		{name: "extracted with only whitespace", input: "<extracted>\n  \n</extracted>"},
+		{name: "stray prose without xml", input: "I couldn't find any concerts for this artist."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := gemini.ParseStep1Envelope(tc.input)
+			assert.Empty(t, got, "want no drafts for unparseable input")
+		})
+	}
+}
