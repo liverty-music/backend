@@ -123,60 +123,85 @@ func thinkingLevelFromConfig(level string) genai.ThinkingLevel {
 
 const (
 	// systemInstructionStep1Tour is the Step 1 system instruction used by
-	// the tour-focused slices (tours_near / tours_far). The output format
-	// shows only <tour> blocks; the prompt narrows the time scope.
-	systemInstructionStep1Tour = `You are a data-extraction agent for a live-music information system. Use Google Search to find official tour-detail pages for the artist within the time scope below, then use URL Context to fetch and read each candidate page.
+	// the tour-focused slices. Workflow-style (numbered steps); each tour
+	// has a single <source_url> child.
+	systemInstructionStep1Tour = `あなたはライブ音楽情報システム向けのデータ抽出エージェントです。下記の手順に従って、音楽ファンに提供するための、正確な公式情報を抽出することがゴールです。
 
-Emit a per-field XML envelope. Field values must be copied verbatim from the fetched pages — leave a tag empty when the page does not state the value. List every tour date the pages describe; do not stop after a handful.
+1. 対象アーティストの公式サイトから、指定の期間内に開催される全てのツアー詳細ページを探索。複数ある場合も漏れが無いように。
 
-Output format:
+2. 全てのツアー日程の正確な情報を読み込み、下記の出力フォーマットで指定されたフィールドに値をセット。
 
 <extracted>
-  <source url="https://www.uverworld.jp/feature/2026_live">
-    <tour>
-      <tour_title>UVERworld TYCOON LIVE -DOCUMENT-</tour_title>
-      <event>
-        <venue>Zepp Nagoya</venue>
-        <country>JP</country>
-        <local_date>2026年3月15日(土)</local_date>
-        <start_time>開演 18:00</start_time>
-        <open_time>開場 17:00</open_time>
-      </event>
-      <event>
-        <venue>大阪府・Zepp Osaka Bayside</venue>
-        <country>JP</country>
-        <local_date>2026.3.16(日)</local_date>
-        <start_time>18:00</start_time>
-        <open_time>17:00</open_time>
-      </event>
-    </tour>
-  </source>
-  <source url="..."><empty/></source>
+  <tour>
+    <title>UVERworld TYCOON LIVE -DOCUMENT-</title>
+    <source_url>https://www.uverworld.jp/feature/2026_live</source_url>
+    <event>
+      <venue>Zepp Nagoya</venue>
+      <country>JP</country>
+      <local_date>2026年3月15日(土)</local_date>
+      <open_time>開場 17:00</open_time>
+      <start_time>開演 18:00</start_time>
+    </event>
+    <event>
+      <venue>大阪府・Zepp Osaka Bayside</venue>
+      <country>JP</country>
+      <local_date>2026.3.16(日)</local_date>
+      <open_time>17:00</open_time>
+      <start_time>18:00</start_time>
+    </event>
+  </tour>
+  <tour>...</tour>
 </extracted>
+
+抽出ルール:
+- source_url: そのツアー用の特設ページ、もしくは最も詳細な情報を記載しているページのURL。
+- country: コンサート開催予定の国コード (ISO 3166-1 alpha-2)。
+- country 以外は必ず、verbatim (一字一句そのまま) でコピーすること。
+- ページに該当する情報が記載されていない場合は、タグを空のままにすること。
+
+3. venue, local_date, start_time の3つのフィールドが同じコンサートは重複と判定し、除外する。
+
+4. 指定期間中の全てのツアーの全ての日程がMECEで抽出できていることをチェック。
+
+5. 余計なテキストは含めず、XMLのみをレスポンスに含める。
 `
 
 	// systemInstructionStep1Standalone is the Step 1 system instruction
-	// used by the standalone-focused slice. Output format shows only
-	// <standalone> blocks.
-	systemInstructionStep1Standalone = `You are a data-extraction agent for a live-music information system. Use Google Search to find official news / event-detail pages announcing standalone (single-date) concerts for the artist, then use URL Context to fetch and read each candidate page.
+	// used by the standalone-focused slice. Mirrors the tour instruction
+	// in workflow shape; the inner <event> appears exactly once per
+	// <standalone>.
+	systemInstructionStep1Standalone = `あなたはライブ音楽情報システム向けのデータ抽出エージェントです。下記の手順に従って、音楽ファンに提供するための、正確な公式情報を抽出することがゴールです。
 
-Emit a per-field XML envelope. Field values must be copied verbatim from the fetched pages — leave a tag empty when the page does not state the value. List every one-off show the pages describe; do not stop after a handful.
+1. 対象アーティストの公式サイトから、指定の期間内に開催される全ての単発公演の告知ページを探索。複数ある場合も漏れが無いように。
 
-Output format:
+2. 全ての公演の正確な情報を読み込み、下記の出力フォーマットで指定されたフィールドに値をセット。
 
 <extracted>
-  <source url="https://www.uverworld.jp/news/detail/budokan">
-    <standalone>
-      <event_title>UVERworld 武道館単独公演 2026</event_title>
+  <standalone>
+    <title>UVERworld 武道館単独公演 2026</title>
+    <source_url>https://www.uverworld.jp/news/detail/budokan</source_url>
+    <event>
       <venue>日本武道館</venue>
       <country>JP</country>
       <local_date>2026/04/01</local_date>
-      <start_time>19:00</start_time>
       <open_time></open_time>
-    </standalone>
-  </source>
-  <source url="..."><empty/></source>
+      <start_time>19:00</start_time>
+    </event>
+  </standalone>
+  <standalone>...</standalone>
 </extracted>
+
+抽出ルール:
+- source_url: その公演用の特設ページ、もしくは最も詳細な情報を記載しているページのURL。
+- country: コンサート開催予定の国コード (ISO 3166-1 alpha-2)。
+- country 以外は必ず、verbatim (一字一句そのまま) でコピーすること。
+- ページに該当する情報が記載されていない場合は、タグを空のままにすること。
+
+3. venue, local_date, start_time の3つのフィールドが同じコンサートは重複と判定し、除外する。
+
+4. 指定期間中の全ての単発公演がMECEで抽出できていることをチェック。
+
+5. 余計なテキストは含めず、XMLのみをレスポンスに含める。
 `
 
 	// systemInstructionStep2Parse is the Step 2 system instruction. Static
@@ -190,18 +215,19 @@ You receive a JSON array of input events with raw venue, country, and date/time 
 3. Output only the JSON defined by the schema. No Markdown decoration or comments.
 `
 
-	// promptTemplateStep1Slice carries the per-call variables for one
-	// Step 1 slice. Placeholders (4): today (YYYY-MM-DD), slice scope
-	// instruction (e.g. "all multi-date tours beginning within the next
-	// 12 months..."), artist name, official site host.
-	promptTemplateStep1Slice = `Today: %s
+	// promptTemplateStep1Tour carries the per-call variables for a Step 1
+	// tour slice. Placeholders (4): from_date (YYYY-MM-DD), to_date
+	// (YYYY-MM-DD), artist name, official site host.
+	promptTemplateStep1Tour = `開催日が %s から %s に含まれる %s のツアーを全て抽出して。音楽フェスと単発公演は除外して。
 
-%s
+公式サイト host: %s
+`
 
-Artist: %s
-Official site host: %s
+	// promptTemplateStep1Standalone carries the per-call variables for a
+	// Step 1 standalone slice. Same 4 placeholders as the tour template.
+	promptTemplateStep1Standalone = `開催日が %s から %s に含まれる %s の単発公演 (ソロ単独ライブ、ファンクラブ限定ライブ、2-4組の named co-headliner との対バン) を全て抽出して。音楽フェスとツアーは除外して。
 
-Extract every entry discovered within the scope above. Do not omit any.
+公式サイト host: %s
 `
 
 	// promptTemplateParse carries the JSON-list payload of Step 2 input
@@ -285,8 +311,8 @@ var responseJSONSchema = map[string]any{
 // the LLM-side hallucination paths observed in prior smokes (venue
 // translation, source_url fabrication, title decoration).
 type EventDraft struct {
-	Title     string // <tour_title> for tour events; <event_title> for standalones.
-	SourceURL string // url attribute of the enclosing <source> block.
+	Title     string // verbatim <title> tag content (per tour/standalone).
+	SourceURL string // verbatim <source_url> tag content (per tour/standalone).
 	Venue     string // verbatim <venue> tag content.
 	Country   string // verbatim <country> tag content (ISO 3166-1 alpha-2).
 	LocalDate string // raw <local_date> tag content (un-coerced).
@@ -326,36 +352,36 @@ type step2Response struct {
 // ----- Step 1 envelope XML parsing -----
 
 type step1Envelope struct {
-	XMLName xml.Name        `xml:"extracted"`
-	Sources []step1Source   `xml:"source"`
-}
-
-type step1Source struct {
-	URL         string             `xml:"url,attr"`
-	Tours       []step1Tour        `xml:"tour"`
-	Standalones []step1Event       `xml:"standalone"`
+	XMLName     xml.Name          `xml:"extracted"`
+	Tours       []step1Tour       `xml:"tour"`
+	Standalones []step1Standalone `xml:"standalone"`
 }
 
 type step1Tour struct {
-	TourTitle string       `xml:"tour_title"`
+	Title     string       `xml:"title"`
+	SourceURL string       `xml:"source_url"`
 	Events    []step1Event `xml:"event"`
 }
 
+type step1Standalone struct {
+	Title     string     `xml:"title"`
+	SourceURL string     `xml:"source_url"`
+	Event     step1Event `xml:"event"`
+}
+
 type step1Event struct {
-	EventTitle string `xml:"event_title"` // only set when parsed as a <standalone>
-	Venue      string `xml:"venue"`
-	Country    string `xml:"country"`
-	LocalDate  string `xml:"local_date"`
-	StartTime  string `xml:"start_time"`
-	OpenTime   string `xml:"open_time"`
+	Venue     string `xml:"venue"`
+	Country   string `xml:"country"`
+	LocalDate string `xml:"local_date"`
+	OpenTime  string `xml:"open_time"`
+	StartTime string `xml:"start_time"`
 }
 
 // parseStep1Envelope unmarshals the merged Step 1 <extracted>...</extracted>
 // envelope into a flat list of EventDraft. <tour> blocks contribute one
-// draft per child <event>, with Title = the parent <tour_title>.
-// <standalone> blocks contribute one draft each with Title = their own
-// <event_title>. SourceURL on every draft is the url attribute of the
-// enclosing <source>.
+// draft per child <event>, with Title and SourceURL taken from the tour's
+// own <title> / <source_url> children. <standalone> blocks contribute
+// exactly one draft each (a standalone has a single <event> child).
 //
 // Returns an empty slice (no error) on unparseable input — Step 1 may
 // emit non-XML fallback text (e.g. when the model misbehaves), in which
@@ -370,25 +396,13 @@ func parseStep1Envelope(envelope string) []EventDraft {
 		return nil
 	}
 	var drafts []EventDraft
-	for _, src := range env.Sources {
-		for _, tour := range src.Tours {
-			title := strings.TrimSpace(tour.TourTitle)
-			for _, ev := range tour.Events {
-				drafts = append(drafts, EventDraft{
-					Title:     title,
-					SourceURL: src.URL,
-					Venue:     strings.TrimSpace(ev.Venue),
-					Country:   strings.TrimSpace(ev.Country),
-					LocalDate: strings.TrimSpace(ev.LocalDate),
-					StartTime: strings.TrimSpace(ev.StartTime),
-					OpenTime:  strings.TrimSpace(ev.OpenTime),
-				})
-			}
-		}
-		for _, ev := range src.Standalones {
+	for _, tour := range env.Tours {
+		title := strings.TrimSpace(tour.Title)
+		srcURL := strings.TrimSpace(tour.SourceURL)
+		for _, ev := range tour.Events {
 			drafts = append(drafts, EventDraft{
-				Title:     strings.TrimSpace(ev.EventTitle),
-				SourceURL: src.URL,
+				Title:     title,
+				SourceURL: srcURL,
 				Venue:     strings.TrimSpace(ev.Venue),
 				Country:   strings.TrimSpace(ev.Country),
 				LocalDate: strings.TrimSpace(ev.LocalDate),
@@ -396,6 +410,17 @@ func parseStep1Envelope(envelope string) []EventDraft {
 				OpenTime:  strings.TrimSpace(ev.OpenTime),
 			})
 		}
+	}
+	for _, sa := range env.Standalones {
+		drafts = append(drafts, EventDraft{
+			Title:     strings.TrimSpace(sa.Title),
+			SourceURL: strings.TrimSpace(sa.SourceURL),
+			Venue:     strings.TrimSpace(sa.Event.Venue),
+			Country:   strings.TrimSpace(sa.Event.Country),
+			LocalDate: strings.TrimSpace(sa.Event.LocalDate),
+			StartTime: strings.TrimSpace(sa.Event.StartTime),
+			OpenTime:  strings.TrimSpace(sa.Event.OpenTime),
+		})
 	}
 	return drafts
 }
@@ -652,34 +677,49 @@ type Step1Slice struct {
 	// SystemInstruction selects the tour-only or standalone-only Step 1
 	// system instruction.
 	SystemInstruction string
-	// Scope is the slice-specific instruction sentence injected into the
-	// prompt (e.g. "Find every multi-date tour beginning within the next
-	// 12 months from today; exclude festivals and one-off shows.").
-	Scope string
+	// PromptTemplate is the per-slice prompt template (tour or standalone
+	// variant). It carries 4 %s placeholders in order: from_date, to_date,
+	// artist name, official site host.
+	PromptTemplate string
+	// FromMonthsOffset is the offset in calendar months added to the
+	// base date (time.Now()) to compute the slice's from_date.
+	FromMonthsOffset int
+	// ToMonthsOffset is the offset in calendar months added to the base
+	// date to compute the slice's to_date.
+	ToMonthsOffset int
 }
 
 // defaultStep1Slices is the three-slice split used by SearchExt:
-//  1. Tours beginning within the next 12 months.
-//  2. Tours beginning more than 12 months from now.
-//  3. Upcoming one-off / standalone shows.
+//  1. Tours opening within the next 12 months.
+//  2. Tours opening between 12 and 24 months from now.
+//  3. Upcoming one-off / standalone shows (any time in the next 24 months).
 //
-// Each slice excludes the other two categories so the model focuses on
-// one bucket at a time.
+// Each slice's prompt narrows the open-date window so the model can
+// focus on a single bucket per call. Cross-slice duplicates (e.g. the
+// same tour discovered by both tour slices on a boundary date) are
+// removed downstream by parseStep2Response's (local_date, venue,
+// start_time) dedup.
 var defaultStep1Slices = []Step1Slice{
 	{
 		Name:              "tours_near",
 		SystemInstruction: systemInstructionStep1Tour,
-		Scope:             "Find every multi-date tour featuring the artist whose first show is scheduled on a date in the closed interval [today, today + 12 months] (the 12-month boundary date itself counts as 'near'). Exclude music festivals (multi-artist lineups) and one-off / standalone shows.",
+		PromptTemplate:    promptTemplateStep1Tour,
+		FromMonthsOffset:  0,
+		ToMonthsOffset:    12,
 	},
 	{
 		Name:              "tours_far",
 		SystemInstruction: systemInstructionStep1Tour,
-		Scope:             "Find every multi-date tour featuring the artist whose first show is scheduled strictly after today + 12 months (i.e. more than 12 months from today). Exclude music festivals (multi-artist lineups) and one-off / standalone shows.",
+		PromptTemplate:    promptTemplateStep1Tour,
+		FromMonthsOffset:  12,
+		ToMonthsOffset:    24,
 	},
 	{
 		Name:              "standalones",
 		SystemInstruction: systemInstructionStep1Standalone,
-		Scope:             "Find every upcoming one-off / standalone single-date show featuring the artist (solo shows, fan-club exclusive lives, 対バン with 2-4 named co-headliners). Exclude music festivals (multi-artist lineups) and multi-date tours.",
+		PromptTemplate:    promptTemplateStep1Standalone,
+		FromMonthsOffset:  0,
+		ToMonthsOffset:    24,
 	},
 }
 
@@ -698,7 +738,7 @@ func (s *ConcertSearcher) runStep1Grounded(
 	attrs []slog.Attr,
 ) (string, *PassMetadata, []*PassMetadata, error) {
 	host := hostOf(officialSiteURL)
-	today := time.Now().UTC().Format("2006-01-02")
+	baseDate := time.Now().UTC()
 
 	type sliceResult struct {
 		envelope string
@@ -711,7 +751,7 @@ func (s *ConcertSearcher) runStep1Grounded(
 		wg.Add(1)
 		go func(idx int, slice Step1Slice) {
 			defer wg.Done()
-			env, pm, err := s.runStep1Slice(ctx, slice, artist.Name, host, today, attrs)
+			env, pm, err := s.runStep1Slice(ctx, slice, artist.Name, host, baseDate, attrs)
 			results[idx] = sliceResult{envelope: env, pm: pm, err: err}
 		}(i, sl)
 	}
@@ -746,10 +786,13 @@ func (s *ConcertSearcher) runStep1Grounded(
 func (s *ConcertSearcher) runStep1Slice(
 	ctx context.Context,
 	slice Step1Slice,
-	artistName, officialSiteHost, today string,
+	artistName, officialSiteHost string,
+	baseDate time.Time,
 	attrs []slog.Attr,
 ) (string, *PassMetadata, error) {
-	prompt := fmt.Sprintf(promptTemplateStep1Slice, today, slice.Scope, artistName, officialSiteHost)
+	from := baseDate.AddDate(0, slice.FromMonthsOffset, 0).Format("2006-01-02")
+	to := baseDate.AddDate(0, slice.ToMonthsOffset, 0).Format("2006-01-02")
+	prompt := fmt.Sprintf(slice.PromptTemplate, from, to, artistName, officialSiteHost)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	searchTool := &genai.Tool{
@@ -850,57 +893,37 @@ func aggregatePassMetadata(slices []*PassMetadata) *PassMetadata {
 	return agg
 }
 
-// sourceInnerRe captures (url, inner-body) for a <source ...>...</source>
-// block. Group 1 = url attribute value; Group 2 = inner XML between the
-// open and close tags.
-var sourceInnerRe = regexp.MustCompile(`(?s)<source\s+url="([^"]*)"[^>]*>(.*?)</source>`)
+// extractedInnerRe captures the inner body between <extracted> and
+// </extracted>. Group 1 = inner XML.
+var extractedInnerRe = regexp.MustCompile(`(?s)<extracted>(.*?)</extracted>`)
 
 // mergeAndDedupEnvelopes merges several Step 1 slice envelopes into one
-// <extracted>...</extracted> wrapper. <source> blocks sharing the same
-// url attribute have their inner XML CONCATENATED into a single block;
-// this preserves all per-slice content even when slices reuse the same
-// URL (e.g. lite mode where the model writes the artist root for every
-// slice because it has not actually called url_context).
+// <extracted>...</extracted> wrapper. The inner content of each slice's
+// envelope (its <tour> and <standalone> children) is concatenated into
+// the merged wrapper. Cross-slice event-level dedup is NOT performed here;
+// it is handled in parseStep2Response by the (local_date, venue,
+// start_time) triple.
 //
-// Dedup layering:
-//   - This function (Go-side): URL-level GROUPING. Multiple <source>
-//     blocks with the same URL collapse to one block whose body is the
-//     concatenation of their inner content. No event-level dedup here.
-//   - Step 2 (LLM-side): event-level dedup keyed on (local_date, venue).
-//     Step 2 sees a deduped <source> set but may receive duplicated
-//     <tour>/<standalone>/<event> entries from the concatenation; it
-//     removes those by the documented (local_date, venue) rule.
-//
-// Fallback: if none of the envelopes contain parseable <source> blocks
-// (e.g. unit-test mocks that return a JSON body where Step 1 would
-// normally emit XML), the first non-empty envelope is returned verbatim
-// so Step 2 still receives something to parse.
+// Fallback: if none of the envelopes contain a parseable <extracted>
+// wrapper (e.g. unit-test mocks that return a JSON body where Step 1
+// would normally emit XML), the first non-empty envelope is returned
+// verbatim so Step 2 still receives something to parse.
 func mergeAndDedupEnvelopes(envelopes []string) string {
 	if len(envelopes) == 0 {
 		return ""
 	}
-	type group struct {
-		url    string
-		bodies []string
-	}
-	byURL := make(map[string]int) // url -> index into groups
-	var groups []group
-
+	var bodies []string
 	for _, env := range envelopes {
-		matches := sourceInnerRe.FindAllStringSubmatch(env, -1)
+		matches := extractedInnerRe.FindAllStringSubmatch(env, -1)
 		for _, m := range matches {
-			url := m[1]
-			body := strings.TrimSpace(m[2])
-			if idx, ok := byURL[url]; ok {
-				groups[idx].bodies = append(groups[idx].bodies, body)
-			} else {
-				byURL[url] = len(groups)
-				groups = append(groups, group{url: url, bodies: []string{body}})
+			body := strings.TrimSpace(m[1])
+			if body != "" {
+				bodies = append(bodies, body)
 			}
 		}
 	}
 
-	if len(groups) == 0 {
+	if len(bodies) == 0 {
 		for _, e := range envelopes {
 			if strings.TrimSpace(e) != "" {
 				return e
@@ -911,18 +934,9 @@ func mergeAndDedupEnvelopes(envelopes []string) string {
 
 	var out strings.Builder
 	out.WriteString("<extracted>\n")
-	for _, g := range groups {
-		out.WriteString(`  <source url="`)
-		out.WriteString(g.url)
-		out.WriteString("\">\n")
-		for _, body := range g.bodies {
-			if body == "" {
-				continue
-			}
-			out.WriteString(body)
-			out.WriteByte('\n')
-		}
-		out.WriteString("  </source>\n")
+	for _, body := range bodies {
+		out.WriteString(body)
+		out.WriteByte('\n')
 	}
 	out.WriteString("</extracted>")
 	return out.String()
@@ -1320,10 +1334,14 @@ func (s *ConcertSearcher) parseStep2Response(
 	}
 
 	// Merge drafts + coerced output → final concerts, applying past-date
-	// filter and (local_date, venue) dedup along the way.
+	// filter and (local_date, venue, start_time) dedup along the way.
+	// start_time is part of the key so that two shows on the same date at
+	// the same venue (e.g. Billboard Live 1st stage / 2nd stage) survive
+	// as distinct concerts.
 	type dedupKey struct {
-		date  string
-		venue string
+		date      string
+		venue     string
+		startTime string
 	}
 	seen := make(map[dedupKey]struct{}, len(drafts))
 	var discovered []*entity.ScrapedConcert
@@ -1341,7 +1359,7 @@ func (s *ConcertSearcher) parseStep2Response(
 		if c == nil {
 			continue
 		}
-		key := dedupKey{date: coerced.LocalDate, venue: draft.Venue}
+		key := dedupKey{date: coerced.LocalDate, venue: draft.Venue, startTime: coerced.StartTime}
 		if _, dup := seen[key]; dup {
 			continue
 		}
