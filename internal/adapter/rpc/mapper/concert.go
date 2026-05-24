@@ -11,60 +11,77 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// ConcertToProto converts domain Concert entity to protobuf.
+// seriesTypeToProto maps the domain SeriesType string enum onto the generated
+// protobuf SeriesType. An unrecognised value falls back to UNSPECIFIED — the
+// proto-level not_in: [0] rule on Series.type means a Concert response carrying
+// UNSPECIFIED will fail protovalidate, surfacing the bad mapping before it
+// reaches the client.
+func seriesTypeToProto(t entity.SeriesType) entityv1.SeriesType {
+	switch t {
+	case entity.SeriesTypeTour:
+		return entityv1.SeriesType_SERIES_TYPE_TOUR
+	case entity.SeriesTypeSingle:
+		return entityv1.SeriesType_SERIES_TYPE_SINGLE
+	case entity.SeriesTypeFestival:
+		return entityv1.SeriesType_SERIES_TYPE_FESTIVAL
+	default:
+		return entityv1.SeriesType_SERIES_TYPE_UNSPECIFIED
+	}
+}
+
+// SeriesToProto converts a domain Series entity to the protobuf Series message.
+// Returns nil when the input is nil so callers can pass through optional values.
+func SeriesToProto(s *entity.Series) *entityv1.Series {
+	if s == nil {
+		return nil
+	}
+	proto := &entityv1.Series{
+		Id:    &entityv1.SeriesId{Value: s.ID},
+		Title: &entityv1.Title{Value: s.Title},
+		Type:  seriesTypeToProto(s.Type),
+	}
+	if s.SourceURL != "" {
+		proto.SourceUrl = &entityv1.Url{Value: s.SourceURL}
+	}
+	return proto
+}
+
+// ConcertToProto converts a domain Concert entity to protobuf.
 //
-// Transitional bridge: the BSR-published Concert proto still exposes the
-// pre-Series fields (Title, SourceUrl, ArtistId). We fill them from the new
-// entity locations — Series.Title, Series.SourceURL, and the first performer
-// in Performers — so existing clients keep working until the new proto
-// (Series-embedded + repeated performers) is published and consumed. When the
-// new proto lands this mapper will be rewritten to populate the new fields
-// directly (see openspec/changes/add-series-hierarchy task 9.2).
+// The Concert proto now embeds the full Series parent and exposes the
+// performing artists via the repeated `performers` field — see the new
+// schema published in liverty-music/specification v0.41.0. Series and
+// Performers MUST be populated by the repository before this mapper runs;
+// ConcertRepository.ListByIDs and friends do this via hydratePerformers.
 func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 	if c == nil {
 		return nil
 	}
 
-	proto := &entityv1.Concert{
-		Id: &entityv1.EventId{
-			Value: c.ID,
-		},
-		VenueId: &entityv1.VenueId{
-			Value: c.VenueID,
-		},
-		LocalDate: &entityv1.LocalDate{
-			Value: TimeToDate(c.LocalDate),
-		},
-		Venue: VenueToProto(c.Venue),
+	performers := make([]*entityv1.Artist, 0, len(c.Performers))
+	for _, a := range c.Performers {
+		if a == nil {
+			continue
+		}
+		performers = append(performers, ArtistToProto(a))
 	}
 
-	if c.Series != nil {
-		proto.Title = &entityv1.Title{Value: c.Series.Title}
-		if c.Series.SourceURL != "" {
-			proto.SourceUrl = &entityv1.Url{Value: c.Series.SourceURL}
-		}
-	}
-	if len(c.Performers) > 0 && c.Performers[0] != nil {
-		// Single-artist projection for the legacy proto field. Multi-performer
-		// concerts (festivals, co-headliners) lose the supporting artists in
-		// this response shape; clients that need the full lineup should wait
-		// for the new proto with repeated performers.
-		proto.ArtistId = &entityv1.ArtistId{Value: c.Performers[0].ID}
+	proto := &entityv1.Concert{
+		Id:         &entityv1.EventId{Value: c.ID},
+		VenueId:    &entityv1.VenueId{Value: c.VenueID},
+		Venue:      VenueToProto(c.Venue),
+		LocalDate:  &entityv1.LocalDate{Value: TimeToDate(c.LocalDate)},
+		Series:     SeriesToProto(c.Series),
+		Performers: performers,
 	}
 	if c.StartTime != nil {
-		proto.StartTime = &entityv1.StartTime{
-			Value: timestamppb.New(*c.StartTime),
-		}
+		proto.StartTime = &entityv1.StartTime{Value: timestamppb.New(*c.StartTime)}
 	}
 	if c.OpenTime != nil {
-		proto.OpenTime = &entityv1.OpenTime{
-			Value: timestamppb.New(*c.OpenTime),
-		}
+		proto.OpenTime = &entityv1.OpenTime{Value: timestamppb.New(*c.OpenTime)}
 	}
 	if c.ListedVenueName != nil {
-		proto.ListedVenueName = &entityv1.ListedVenueName{
-			Value: *c.ListedVenueName,
-		}
+		proto.ListedVenueName = &entityv1.ListedVenueName{Value: *c.ListedVenueName}
 	}
 
 	return proto

@@ -19,20 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TODO(add-series-hierarchy task 9.2): assertions in this file target the legacy
-// BSR Concert proto (Title / SourceUrl / ArtistId scalar fields). They are
-// correct for the transitional mapper bridge in internal/adapter/rpc/mapper/
-// concert.go, which sources values from the new entity locations
-// (Series.Title, Performers[0].ID, ...) while still emitting the pre-Series
-// proto shape. When the new generated types reach BSR and the bridge is
-// retired, swap these assertions to:
-//
-//	resp.Msg.Concerts[i].Series.Title.Value              (instead of .Title)
-//	resp.Msg.Concerts[i].Series.SourceUrl.Value          (instead of .SourceUrl)
-//	resp.Msg.Concerts[i].Performers                      (instead of .ArtistId)
-//
-// Add at least one multi-performer assertion (len(Performers) > 1) once the
-// new repeated field is available.
 func TestConcertHandler_List(t *testing.T) {
 	t.Parallel()
 
@@ -45,6 +31,7 @@ func TestConcertHandler_List(t *testing.T) {
 		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
 
 		artistID := "artist-123"
+		supportID := "artist-456"
 		localDate := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
 		concertUC.EXPECT().ListByArtist(mock.Anything, artistID).Return([]*entity.Concert{
 			{
@@ -53,8 +40,11 @@ func TestConcertHandler_List(t *testing.T) {
 					VenueID:   "venue-1",
 					LocalDate: localDate,
 				},
-				Series:     &entity.Series{Title: "Summer Tour"},
-				Performers: []*entity.Artist{{ID: artistID}},
+				Series: &entity.Series{ID: "series-1", Title: "Summer Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/tour"},
+				Performers: []*entity.Artist{
+					{ID: artistID, Name: "Headliner", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
+					{ID: supportID, Name: "Support", MBID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"},
+				},
 			},
 		}, nil).Once()
 
@@ -67,13 +57,19 @@ func TestConcertHandler_List(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, resp.Msg.Concerts, 1)
-		assert.Equal(t, "concert-1", resp.Msg.Concerts[0].Id.Value)
-		assert.Equal(t, artistID, resp.Msg.Concerts[0].ArtistId.Value)
-		assert.Equal(t, "venue-1", resp.Msg.Concerts[0].VenueId.Value)
-		assert.Equal(t, "Summer Tour", resp.Msg.Concerts[0].Title.Value)
-		assert.Equal(t, int32(2025), resp.Msg.Concerts[0].LocalDate.Value.Year)
-		assert.Equal(t, int32(6), resp.Msg.Concerts[0].LocalDate.Value.Month)
-		assert.Equal(t, int32(15), resp.Msg.Concerts[0].LocalDate.Value.Day)
+		concert := resp.Msg.Concerts[0]
+		assert.Equal(t, "concert-1", concert.GetId().GetValue())
+		assert.Equal(t, "venue-1", concert.GetVenueId().GetValue())
+		assert.Equal(t, int32(2025), concert.GetLocalDate().GetValue().GetYear())
+		assert.Equal(t, int32(6), concert.GetLocalDate().GetValue().GetMonth())
+		assert.Equal(t, int32(15), concert.GetLocalDate().GetValue().GetDay())
+		// New Concert shape: title / source URL on the embedded Series,
+		// performers as a repeated Artist.
+		assert.Equal(t, "Summer Tour", concert.GetSeries().GetTitle().GetValue())
+		assert.Equal(t, "https://example.com/tour", concert.GetSeries().GetSourceUrl().GetValue())
+		require.Len(t, concert.GetPerformers(), 2, "multi-performer concert must round-trip both performers")
+		assert.Equal(t, artistID, concert.GetPerformers()[0].GetId().GetValue())
+		assert.Equal(t, supportID, concert.GetPerformers()[1].GetId().GetValue())
 	})
 
 	t.Run("returns all concerts when artist_id is not specified", func(t *testing.T) {
@@ -189,7 +185,7 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, resp.Msg.Concerts, 1)
-		assert.Equal(t, "Summer Live", resp.Msg.Concerts[0].Title.GetValue())
+		assert.Equal(t, "Summer Live", resp.Msg.Concerts[0].GetSeries().GetTitle().GetValue())
 	})
 
 	t.Run("success_no_concerts", func(t *testing.T) {
