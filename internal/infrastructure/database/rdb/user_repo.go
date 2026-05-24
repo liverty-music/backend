@@ -138,15 +138,27 @@ func nullStringFromEmpty(s string) sql.NullString {
 }
 
 // scanUser scans a user row with optional home columns from a LEFT JOIN.
+//
+// Every nullable users column (preferred_language, country, time_zone,
+// safe_address) is scanned into a sql.NullString intermediate, then assigned
+// to the entity field via .String when .Valid. pgx errors out when scanning
+// SQL NULL directly into a non-nullable Go *string; the four columns above
+// are nullable per schema and at least one (preferred_language) is regularly
+// NULL on legacy rows after the persist-user-language migration, so the
+// intermediate-local pattern protects every read path that shares this
+// scanner (Get, GetByExternalID, GetByEmail, Update, UpdatePreferredLanguage,
+// UpdateHome's re-fetch, List). safe_address remains COALESCE'd at the SQL
+// boundary for historical reasons; the scan path is defensive in either
+// case.
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
-	var preferredLanguage sql.NullString
+	var preferredLanguage, country, timeZone sql.NullString
 	var homeID, countryCode, level1, level2 sql.NullString
 	var centroidLat, centroidLng sql.NullFloat64
 
 	err := scanner.Scan(
 		&user.ID, &user.ExternalID, &user.Email, &user.Name,
-		&preferredLanguage, &user.Country, &user.TimeZone,
+		&preferredLanguage, &country, &timeZone,
 		&user.SafeAddress, &user.IsActive,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
@@ -155,6 +167,12 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	}
 	if preferredLanguage.Valid {
 		user.PreferredLanguage = preferredLanguage.String
+	}
+	if country.Valid {
+		user.Country = country.String
+	}
+	if timeZone.Valid {
+		user.TimeZone = timeZone.String
 	}
 
 	if homeID.Valid {
@@ -201,17 +219,22 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// Preserve the NULL = "client has not yet asserted a preference"
-	// invariant on insert. Old clients that pre-date the
-	// CreateRequest.preferred_language field send no value, which arrives
-	// here as an empty string; mapping that to sql.NullString{Valid:false}
-	// keeps such rows distinguishable from "client explicitly chose 'en'"
-	// and feeds them into the same hydration-backfill path that legacy
-	// rows already use.
+	// Preserve the NULL = "client has not yet asserted a value" invariant
+	// for every nullable users column. Callers (handlers, mappers, the
+	// guest-bootstrap path) carry these fields as Go strings, so an
+	// unfilled field arrives here as the empty string. Mapping "" to
+	// sql.NullString{Valid:false} keeps the distinction between "absent"
+	// and "explicitly empty" in the database, which the scanUser pattern
+	// preserves on read. preferred_language uses this distinction to feed
+	// the hydration backfill path; country and time_zone use it for
+	// downstream observability (a NULL row is a "never asserted" signal
+	// while an empty string would be a contract violation).
 	_, err = tx.Exec(ctx, insertUserQuery,
 		user.ID, params.ExternalID, params.Email, params.Name,
 		nullStringFromEmpty(params.PreferredLanguage),
-		params.Country, params.TimeZone, true,
+		nullStringFromEmpty(params.Country),
+		nullStringFromEmpty(params.TimeZone),
+		true,
 	)
 	if err != nil {
 		if IsUniqueViolation(err) {
@@ -318,9 +341,14 @@ func (r *UserRepository) Update(ctx context.Context, id string, params *entity.N
 
 	// Note: preferred_language is intentionally omitted — see the
 	// updateUserQuery comment. Use UpdatePreferredLanguage instead.
+	// country / time_zone are wrapped via nullStringFromEmpty so an
+	// empty-string field round-trips to SQL NULL, preserving the
+	// "absent vs explicitly empty" distinction on both write and read
+	// (see scanUser).
 	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateUserQuery,
 		id, params.ExternalID, params.Email, params.Name,
-		params.Country, params.TimeZone,
+		nullStringFromEmpty(params.Country),
+		nullStringFromEmpty(params.TimeZone),
 	))
 	if err != nil {
 		// CTE RETURNING returns 0 rows when no row matches the WHERE.

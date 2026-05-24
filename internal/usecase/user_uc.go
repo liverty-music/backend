@@ -113,22 +113,42 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 
 	user, err := uc.userRepo.Create(ctx, params)
 	if err != nil {
-		// On AlreadyExists, distinguish between (a) same caller retrying the
-		// Create (duplicate external_id) — treat as idempotent success — and
-		// (b) a different identity claiming the same email — surface the
-		// original error. GetByExternalID resolves which case we are in.
+		// On AlreadyExists, distinguish:
+		//   (a) Same caller retrying — duplicate external_id. GetByExternalID
+		//       returns the existing row; treat as idempotent success.
+		//   (b) Different identity claiming the same email — GetByExternalID
+		//       returns NotFound. Propagate the original AlreadyExists so the
+		//       caller sees the email-collision signal.
+		//   (c) GetByExternalID itself errored for a non-NotFound reason
+		//       (Internal scan failure, Unavailable, transient pool error,
+		//       etc.). Return the retry error so the operator sees the real
+		//       failure instead of a masquerading AlreadyExists — masking
+		//       caused a multi-hour incident on 2026-05-23 when scanUser
+		//       failed on NULL columns and surfaced to clients as
+		//       AlreadyExists with no log trail (the bug ate its own
+		//       evidence). The original AlreadyExists is logged so the full
+		//       chain is preserved for forensic review.
 		if errors.Is(err, apperr.ErrAlreadyExists) {
 			existing, getErr := uc.userRepo.GetByExternalID(ctx, params.ExternalID)
-			if getErr != nil {
-				// external_id was NOT the conflicting column — propagate the
-				// original AlreadyExists to signal the email collision.
+			if getErr == nil {
+				uc.logger.Info(ctx, "Create returned existing user (idempotent on duplicate external_id)",
+					slog.String("user_id", existing.ID),
+					slog.String("external_id", existing.ExternalID),
+				)
+				return existing, nil
+			}
+			if errors.Is(getErr, apperr.ErrNotFound) {
+				// Case (b): email-collision case.
 				return nil, err
 			}
-			uc.logger.Info(ctx, "Create returned existing user (idempotent on duplicate external_id)",
-				slog.String("user_id", existing.ID),
-				slog.String("external_id", existing.ExternalID),
+			// Case (c): retry failure other than NotFound — return the
+			// truthful error class.
+			uc.logger.Warn(ctx, "Create retry GetByExternalID failed with non-NotFound error; returning retry error to surface real failure",
+				slog.String("external_id", params.ExternalID),
+				slog.String("original_error", err.Error()),
+				slog.String("retry_error", getErr.Error()),
 			)
-			return existing, nil
+			return nil, getErr
 		}
 		return nil, err
 	}

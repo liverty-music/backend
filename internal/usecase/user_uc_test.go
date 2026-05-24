@@ -215,6 +215,65 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 	})
 
+	// Regression for the 2026-05-23 incident: when GetByExternalID fails
+	// for a non-NotFound reason (Internal scan failure, Unavailable, etc.),
+	// the use-case MUST surface that error class instead of collapsing it
+	// into the original AlreadyExists. Previously the retry path discarded
+	// getErr entirely, masking a scanUser NULL→string crash as
+	// AlreadyExists at the wire with no log trail.
+	t.Run("retry GetByExternalID Internal error surfaces as Internal, not AlreadyExists", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		params := &entity.NewUser{
+			ExternalID: "ext-internal-error",
+			Email:      "ie@example.com",
+			Name:       "Internal Error Probe",
+		}
+
+		d.repo.EXPECT().Create(ctx, params).
+			Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
+		// Simulate scanUser failing on a NULL nullable column. toAppErr maps
+		// non-PG errors via fmt.Errorf("%s: %w", ...) which is not an
+		// apperr; but the production failure also passes through the Wrap
+		// codepath for pgErr-class faults. Use Internal here as the
+		// representative "anything but NotFound" case.
+		d.repo.EXPECT().GetByExternalID(ctx, "ext-internal-error").
+			Return(nil, apperr.New(codes.Internal, "scan failure")).Once()
+
+		result, err := d.uc.Create(ctx, params)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		// The retry's Internal error wins; original AlreadyExists is logged
+		// for forensics but NOT returned (rationale documented in user_uc.go).
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+		assert.NotErrorIs(t, err, apperr.ErrAlreadyExists)
+	})
+
+	t.Run("retry GetByExternalID Unavailable surfaces as Unavailable", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		params := &entity.NewUser{
+			ExternalID: "ext-unavailable",
+			Email:      "ua@example.com",
+			Name:       "Unavailable Probe",
+		}
+
+		d.repo.EXPECT().Create(ctx, params).
+			Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
+		d.repo.EXPECT().GetByExternalID(ctx, "ext-unavailable").
+			Return(nil, apperr.New(codes.Unavailable, "connection refused")).Once()
+
+		result, err := d.uc.Create(ctx, params)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		assert.NotErrorIs(t, err, apperr.ErrAlreadyExists)
+	})
+
 	// Create accepts an empty preferred_language (old clients omit the
 	// field; the row is created NULL and the client backfills on next
 	// hydration). A non-empty value MUST match ISO 639-1.
