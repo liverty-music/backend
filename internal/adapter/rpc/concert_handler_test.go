@@ -19,6 +19,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TODO(add-series-hierarchy task 9.2): assertions in this file target the legacy
+// BSR Concert proto (Title / SourceUrl / ArtistId scalar fields). They are
+// correct for the transitional mapper bridge in internal/adapter/rpc/mapper/
+// concert.go, which sources values from the new entity locations
+// (Series.Title, Performers[0].ID, ...) while still emitting the pre-Series
+// proto shape. When the new generated types reach BSR and the bridge is
+// retired, swap these assertions to:
+//
+//	resp.Msg.Concerts[i].Series.Title.Value              (instead of .Title)
+//	resp.Msg.Concerts[i].Series.SourceUrl.Value          (instead of .SourceUrl)
+//	resp.Msg.Concerts[i].Performers                      (instead of .ArtistId)
+//
+// Add at least one multi-performer assertion (len(Performers) > 1) once the
+// new repeated field is available.
 func TestConcertHandler_List(t *testing.T) {
 	t.Parallel()
 

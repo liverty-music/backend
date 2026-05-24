@@ -433,6 +433,119 @@ func TestConcertRepository_Create(t *testing.T) {
 	})
 }
 
+// TestConcertRepository_CoHeadliners verifies the M:N performers contract:
+// inserting a Concert with multiple Performers writes one event_performers row
+// per artist, and every row round-trips through the hydrate query so callers
+// see the full lineup. Covers the "Co-headliner persistence" scenario from the
+// event-management spec.
+func TestConcertRepository_CoHeadliners(t *testing.T) {
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB)
+
+	headliner := "018b2f19-e591-7d12-bf9e-f0e74f1bc0a1"
+	support := "018b2f19-e591-7d12-bf9e-f0e74f1bc0a2"
+	opener := "018b2f19-e591-7d12-bf9e-f0e74f1bc0a3"
+	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1bc0b1"
+	eventID := "018b2f19-e591-7d12-bf9e-f0e74f1bc0c1"
+	concertDate, _ := time.Parse("2006-01-02", "2026-07-04")
+
+	cleanDatabase(t)
+	_, err := artistRepo.Create(ctx,
+		&entity.Artist{ID: headliner, Name: "Headliner Band", MBID: "11111111-2222-3333-4444-555555555aaa"},
+		&entity.Artist{ID: support, Name: "Support Act", MBID: "22222222-3333-4444-5555-666666666bbb"},
+		&entity.Artist{ID: opener, Name: "Opening Act", MBID: "33333333-4444-5555-6666-777777777ccc"},
+	)
+	require.NoError(t, err)
+	require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Co-Headliner Arena"}))
+	seriesID := seedSeries(t, ctx, seriesRepo, "Triple Bill")
+
+	_, err = concertRepo.Create(ctx, &entity.Concert{
+		Event:  entity.Event{ID: eventID, SeriesID: seriesID, VenueID: venueID, LocalDate: concertDate},
+		Series: &entity.Series{ID: seriesID},
+		Performers: []*entity.Artist{
+			{ID: headliner},
+			{ID: support},
+			{ID: opener},
+		},
+	})
+	require.NoError(t, err)
+
+	// Read back via ListByIDs (path used by NotifyNewConcerts) and assert
+	// every performer is present.
+	got, err := concertRepo.ListByIDs(ctx, []string{eventID})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Performers, 3, "all three M:N rows must round-trip")
+	gotIDs := got[0].PerformerIDs()
+	assert.ElementsMatch(t, []string{headliner, support, opener}, gotIDs)
+
+	// And via ListByArtist for each performer — every artist should see this
+	// concert regardless of billing position.
+	for _, aid := range []string{headliner, support, opener} {
+		listed, err := concertRepo.ListByArtist(ctx, aid, false)
+		require.NoError(t, err)
+		require.Len(t, listed, 1, "artist %s should see the shared concert", aid)
+		assert.Equal(t, eventID, listed[0].ID)
+	}
+}
+
+// TestConcertRepository_DifferentSeriesSameVenueDate verifies the second half
+// of the new natural-key contract: the (series_id, local_event_date, venue_id)
+// UNIQUE constraint only rejects duplicates within the same series — two
+// distinct series may legitimately have events at the same venue on the same
+// date (e.g. an afternoon TOUR stop and an evening FESTIVAL at the same arena).
+// Covers the "Different series at the same venue on the same date are allowed"
+// scenario from the event-management spec.
+func TestConcertRepository_DifferentSeriesSameVenueDate(t *testing.T) {
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB)
+
+	artistID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1a1"
+	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1b1"
+	concertDate, _ := time.Parse("2006-01-02", "2026-08-15")
+
+	cleanDatabase(t)
+	_, err := artistRepo.Create(ctx, &entity.Artist{
+		ID: artistID, Name: "Shared Artist",
+		MBID: "44444444-5555-6666-7777-888888888ddd",
+	})
+	require.NoError(t, err)
+	require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Shared Arena"}))
+
+	tourSeriesID := seedSeries(t, ctx, seriesRepo, "Afternoon Tour Stop")
+	festivalSeriesID := seedSeries(t, ctx, seriesRepo, "Evening Festival")
+	require.NotEqual(t, tourSeriesID, festivalSeriesID)
+
+	tourEventID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1c1"
+	festivalEventID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1c2"
+
+	_, err = concertRepo.Create(ctx,
+		&entity.Concert{
+			Event:      entity.Event{ID: tourEventID, SeriesID: tourSeriesID, VenueID: venueID, LocalDate: concertDate},
+			Series:     &entity.Series{ID: tourSeriesID},
+			Performers: []*entity.Artist{{ID: artistID}},
+		},
+		&entity.Concert{
+			Event:      entity.Event{ID: festivalEventID, SeriesID: festivalSeriesID, VenueID: venueID, LocalDate: concertDate},
+			Series:     &entity.Series{ID: festivalSeriesID},
+			Performers: []*entity.Artist{{ID: artistID}},
+		},
+	)
+	require.NoError(t, err, "different series at the same venue+date must both succeed")
+
+	got, err := concertRepo.ListByArtist(ctx, artistID, false)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "both concerts must come back — natural key only collides within the same series")
+	gotEventIDs := []string{got[0].ID, got[1].ID}
+	assert.ElementsMatch(t, []string{tourEventID, festivalEventID}, gotEventIDs)
+}
+
 // TestConcertRepository_ListedVenueName verifies that ListedVenueName is
 // correctly scanned from the database in both the NULL and non-NULL cases.
 // This is a regression test for the scan correctness of the nullable column.
