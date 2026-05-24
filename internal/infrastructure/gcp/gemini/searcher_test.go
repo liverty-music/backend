@@ -576,38 +576,6 @@ func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
 	assert.Equal(t, int32(4), callCount.Load(), "3 Step 1 slices + 1 Step 2 parse = 4 calls")
 }
 
-// stepSwitchingHandler returns an HTTP handler that distinguishes
-// Step 1 (grounded search/extract) from Step 2 (parse) calls by
-// inspecting the request body: Step 2 requests carry a
-// generationConfig.responseJsonSchema, Step 1 requests do not.
-// step1Envelope is returned for Step 1; step2Response for Step 2.
-// finishReason is applied to both. Both `count1` and `count2` are
-// atomically incremented for assertion convenience.
-func stepSwitchingHandler(step1Envelope, step2Response, finishReason string, count1, count2 *atomic.Int32) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		var req map[string]any
-		_ = json.Unmarshal(body, &req)
-		isStep2 := false
-		if gc, ok := req["generationConfig"].(map[string]any); ok {
-			if _, has := gc["responseJsonSchema"]; has {
-				isStep2 = true
-			}
-		}
-		text := step1Envelope
-		if isStep2 {
-			text = step2Response
-			if count2 != nil {
-				count2.Add(1)
-			}
-		} else if count1 != nil {
-			count1.Add(1)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(geminiResponse(text, finishReason)))
-	}
-}
-
 // geminiResponse builds a mock Gemini API JSON response with the given body text and finish reason.
 func geminiResponse(bodyText, finishReason string) string {
 	if finishReason == "" {

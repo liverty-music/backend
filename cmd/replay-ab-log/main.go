@@ -45,17 +45,17 @@ type cellCoord struct {
 }
 
 type cellResult struct {
-	Coord            cellCoord
-	Returned         int
-	Matched          int
-	Precision        float64
-	RecallPublic     float64
-	RecallAll        float64
-	VenueAcc         float64
-	AdminAreaAcc     float64
-	StartTimeAcc     float64
-	OpenTimeAcc      float64
-	SourceURLAcc     float64
+	Coord        cellCoord
+	Returned     int
+	Matched      int
+	Precision    float64
+	RecallPublic float64
+	RecallAll    float64
+	VenueAcc     float64
+	AdminAreaAcc float64
+	StartTimeAcc float64
+	OpenTimeAcc  float64
+	SourceURLAcc float64
 }
 
 var cellRe = regexp.MustCompile(`\[(\d+)/\d+\] model=(\S+) temp=([\d.]+) thinking=(\S+) artist=(.+?) rep=(\d+)$`)
@@ -78,7 +78,7 @@ func main() {
 	if err != nil {
 		fail("open log: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<22)

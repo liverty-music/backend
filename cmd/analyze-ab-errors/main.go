@@ -92,7 +92,7 @@ func main() {
 	if err != nil {
 		fail("open log: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<22)

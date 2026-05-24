@@ -36,15 +36,12 @@ type Config struct {
 	ModelName string
 
 	// Per-step model names for the two-step pipeline.
-	//   - ModelDiscovery / ModelExtract: Step 1 (grounded search + verbatim
-	//     extract — GoogleSearch + URLContext, no schema). ModelExtract is
-	//     preferred for new callers; ModelDiscovery is retained as a legacy
-	//     alias and resolved together with ModelExtract.
-	//   - ModelParse: Step 2 (structured-output JSON parse, no tools).
+	//   - ModelExtract: Step 1 (grounded search + verbatim extract —
+	//     GoogleSearch + URLContext, no schema).
+	//   - ModelParse:   Step 2 (structured-output JSON parse, no tools).
 	// Empty fields fall back to ModelName.
-	ModelDiscovery string
-	ModelExtract   string
-	ModelParse     string
+	ModelExtract string
+	ModelParse   string
 
 	Temperature float32
 
@@ -69,18 +66,9 @@ type Config struct {
 	APIKey string
 }
 
-func (c *Config) modelDiscovery() string {
-	if c.ModelDiscovery != "" {
-		return c.ModelDiscovery
-	}
-	return c.ModelName
-}
 func (c *Config) modelExtract() string {
 	if c.ModelExtract != "" {
 		return c.ModelExtract
-	}
-	if c.ModelDiscovery != "" {
-		return c.ModelDiscovery
 	}
 	return c.ModelName
 }
@@ -232,14 +220,9 @@ You receive a JSON array of input events with raw venue, country, and date/time 
 公式サイト host: %s
 `
 
-	// promptTemplateParse carries the JSON-list payload of Step 2 input
-	// events. All task / rules live in systemInstructionStep2Parse.
-	// Placeholder (1): the JSON list (output of json.Marshal on
-	// []step2InputEvent).
-	promptTemplateParse = `%s`
-
-	// urlContextMaxURLs is the per-request limit URLContext enforces.
-	urlContextMaxURLs = 20
+	// Step 2's prompt body is the JSON list payload itself (output of
+	// json.Marshal on []step2InputEvent); all task / rules live in
+	// systemInstructionStep2Parse, so no template wrapper is needed.
 
 	// maxOutputTokens is the default response cap.
 	maxOutputTokens = int32(16384)
@@ -981,7 +964,7 @@ func (s *ConcertSearcher) runStep2Parse(
 		// permanent if it does.
 		return nil, nil, backoff.Permanent(toAppErr(err, "failed to marshal step 2 input", attrs...))
 	}
-	prompt := fmt.Sprintf(promptTemplateParse, string(payload))
+	prompt := string(payload)
 	temperature := s.config.Temperature
 
 	cfg := &genai.GenerateContentConfig{

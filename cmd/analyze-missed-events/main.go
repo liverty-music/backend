@@ -72,7 +72,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "open: %v\n", err)
 		os.Exit(1)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<22)
@@ -151,10 +151,10 @@ func main() {
 	}
 
 	type miss struct {
-		Key   string
-		Event gemini.GroundTruthEvent
+		Key    string
+		Event  gemini.GroundTruthEvent
 		Artist string
-		Count int
+		Count  int
 	}
 	var all []miss
 	for k, v := range missCounter {

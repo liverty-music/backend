@@ -24,14 +24,14 @@ const (
 	abEvalEnvVar                = "GEMINI_AB_EVAL"
 	abEvalSmokeEnvVar           = "GEMINI_AB_EVAL_SMOKE"
 	abEvalGCPVar                = "GCP_PROJECT_ID"
-	abEvalAPIKeyVar             = "GCP_GEMINI_SEARCH_API_KEY"        // optional: enables Gemini API direct backend
-	abEvalModelsEnvVar          = "GEMINI_AB_EVAL_MODELS"            // CSV; empty = all built-in models
-	abEvalArtistsEnvVar         = "GEMINI_AB_EVAL_ARTISTS"           // CSV of artist names; empty = all fixture artists
-	abEvalThinkingEnvVar        = "GEMINI_AB_EVAL_THINKING"          // uniform thinking; "" = default medium
-	abEvalThinkingExtractEnvVar = "GEMINI_AB_EVAL_THINKING_EXTRACT"  // per-step override for Step 1 (extract); empty = uniform
-	abEvalThinkingParseEnvVar   = "GEMINI_AB_EVAL_THINKING_PARSE"    // per-step override for Step 2 (parse); empty = uniform
-	abEvalModelExtractEnvVar    = "GEMINI_AB_EVAL_MODEL_EXTRACT"     // per-step override for Step 1 (extract); empty = cell.Model
-	abEvalModelParseEnvVar      = "GEMINI_AB_EVAL_MODEL_PARSE"       // per-step override for Step 2 (parse); empty = cell.Model
+	abEvalAPIKeyVar             = "GCP_GEMINI_SEARCH_API_KEY"       // optional: enables Gemini API direct backend
+	abEvalModelsEnvVar          = "GEMINI_AB_EVAL_MODELS"           // CSV; empty = all built-in models
+	abEvalArtistsEnvVar         = "GEMINI_AB_EVAL_ARTISTS"          // CSV of artist names; empty = all fixture artists
+	abEvalThinkingEnvVar        = "GEMINI_AB_EVAL_THINKING"         // uniform thinking; "" = default medium
+	abEvalThinkingExtractEnvVar = "GEMINI_AB_EVAL_THINKING_EXTRACT" // per-step override for Step 1 (extract); empty = uniform
+	abEvalThinkingParseEnvVar   = "GEMINI_AB_EVAL_THINKING_PARSE"   // per-step override for Step 2 (parse); empty = uniform
+	abEvalModelExtractEnvVar    = "GEMINI_AB_EVAL_MODEL_EXTRACT"    // per-step override for Step 1 (extract); empty = cell.Model
+	abEvalModelParseEnvVar      = "GEMINI_AB_EVAL_MODEL_PARSE"      // per-step override for Step 2 (parse); empty = cell.Model
 
 	// resultsDir is relative to this package. Output filenames embed an
 	// RFC3339Nano UTC timestamp to disambiguate concurrent runs.
@@ -151,22 +151,22 @@ type cellResult struct {
 	//    fixture entry — counted separately, not as a generic FP)
 	// Recall = matched_public / public_fixture_count
 	//   (excluded_per_spec fixture entries are removed from the denominator)
-	Precision         float64                `json:"precision"`
-	RecallPublic      float64                `json:"recall_public"`
-	RecallAll         float64                `json:"recall_all"`
-	F1Public          float64                `json:"f1_public"`
-	F1All             float64                `json:"f1_all"`
-	FalsePositives    int                    `json:"false_positives"`     // returned, not matching any fixture entry
-	FestivalLeaks     int                    `json:"festival_leaks"`      // returned, matching an excluded_per_spec entry
-	FieldAccuracy     aggregateFieldAccuracy `json:"field_accuracy"`
-	PromptTokens      int32                  `json:"prompt_tokens"`
-	CandidatesTokens  int32                  `json:"candidates_tokens"`
-	ThinkingTokens    int32                  `json:"thinking_tokens"`
-	ToolUseTokens     int32                  `json:"tool_use_tokens"`
-	TotalTokens       int32                  `json:"total_tokens"`
-	LatencyMillis     int64                  `json:"latency_ms"`
-	ReturnedCount     int                    `json:"returned_count"`
-	MatchedCount      int                    `json:"matched_count"`
+	Precision        float64                `json:"precision"`
+	RecallPublic     float64                `json:"recall_public"`
+	RecallAll        float64                `json:"recall_all"`
+	F1Public         float64                `json:"f1_public"`
+	F1All            float64                `json:"f1_all"`
+	FalsePositives   int                    `json:"false_positives"` // returned, not matching any fixture entry
+	FestivalLeaks    int                    `json:"festival_leaks"`  // returned, matching an excluded_per_spec entry
+	FieldAccuracy    aggregateFieldAccuracy `json:"field_accuracy"`
+	PromptTokens     int32                  `json:"prompt_tokens"`
+	CandidatesTokens int32                  `json:"candidates_tokens"`
+	ThinkingTokens   int32                  `json:"thinking_tokens"`
+	ToolUseTokens    int32                  `json:"tool_use_tokens"`
+	TotalTokens      int32                  `json:"total_tokens"`
+	LatencyMillis    int64                  `json:"latency_ms"`
+	ReturnedCount    int                    `json:"returned_count"`
+	MatchedCount     int                    `json:"matched_count"`
 	// Tours / standalones from the raw model JSON, pre-flatten.
 	ToursCount       int `json:"tours_count"`
 	StandalonesCount int `json:"standalones_count"`
@@ -362,7 +362,6 @@ func runCell(
 		ProjectID:       projectID,
 		Location:        "global",
 		ModelName:       cell.Model,
-		ModelDiscovery:  extractModel,
 		ModelExtract:    extractModel,
 		ModelParse:      parseModel,
 		Temperature:     cell.Temperature,
@@ -476,16 +475,16 @@ func writeRawResponse(
 	path := filepath.Join(dir, fname)
 
 	payload := map[string]any{
-		"cell_index":       cellIdx,
-		"model":            cell.Model,
-		"temperature":      cell.Temperature,
-		"thinking_level":   cell.Thinking,
-		"artist_id":        cell.Artist.ID,
-		"artist_name":      cell.Artist.Name,
-		"official_site":    cell.Artist.OfficialSiteURL,
-		"repetition":       cell.Repetition,
-		"parsed_concerts":  parsed,
-		"error":            errMsg,
+		"cell_index":      cellIdx,
+		"model":           cell.Model,
+		"temperature":     cell.Temperature,
+		"thinking_level":  cell.Thinking,
+		"artist_id":       cell.Artist.ID,
+		"artist_name":     cell.Artist.Name,
+		"official_site":   cell.Artist.OfficialSiteURL,
+		"repetition":      cell.Repetition,
+		"parsed_concerts": parsed,
+		"error":           errMsg,
 	}
 	if md != nil {
 		payload["raw_response_text"] = md.RawResponseText

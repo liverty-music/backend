@@ -46,14 +46,14 @@ var (
 // punctuation-strip, so a marker like "-STAY TUNED-" becomes "stay tuned"
 // before this check fires.
 var tbdVenueMarkers = map[string]struct{}{
-	"":             {},
-	"stay tuned":   {},
-	"tba":          {},
-	"tbd":          {},
-	"未定":           {},
-	"後日発表":         {},
-	"coming soon":  {},
-	"announced":    {}, // "to be announced"-style truncated remainders
+	"":                {},
+	"stay tuned":      {},
+	"tba":             {},
+	"tbd":             {},
+	"未定":              {},
+	"後日発表":            {},
+	"coming soon":     {},
+	"announced":       {}, // "to be announced"-style truncated remainders
 	"to be announced": {},
 }
 
