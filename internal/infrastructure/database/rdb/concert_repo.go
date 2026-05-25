@@ -407,12 +407,42 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		return nil, nil
 	}
 
-	// Compact the slice first.
+	// Compact the slice first AND dedup by the events natural key
+	// `(series_id, local_event_date, venue_id)`. PostgreSQL rejects
+	// `INSERT ... ON CONFLICT DO UPDATE` when two rows in the same
+	// statement target the same conflict row with:
+	//   ERROR: ON CONFLICT DO UPDATE command cannot affect row a second time
+	// This can fire on the discovery path when Gemini returns two scraped
+	// entries for the same physical venue under different ListedVenueNames
+	// (e.g. "Zepp" + "Zepp DiverCity"): FilterNew dedups on raw
+	// ListedVenueName so both survive, GetByListedName/Places resolves them
+	// to the same venue_id, the seriesID derivation (venue+date) then
+	// collapses them to identical keys → batch UPSERT crash, the tx rolls
+	// back, and the Pub/Sub consumer retries the message indefinitely.
+	// Today's only caller (concert_creation_uc.CreateFromDiscovered) emits
+	// one batch per Pub/Sub message and one message per artist, so every
+	// concert in a single Create call shares the same artist set — dropping
+	// duplicates by natural key cannot lose performer information. If a
+	// future caller batches concerts from multiple artists (a cross-artist
+	// admin path, say), it must merge duplicates' Performers into the kept
+	// entry before invoking Create; the Warn log surfaces if that happens.
 	var valid []*entity.Concert
+	seenKey := make(map[string]struct{}, len(concerts))
 	for _, c := range concerts {
-		if c != nil {
-			valid = append(valid, c)
+		if c == nil {
+			continue
 		}
+		key := c.SeriesID + "|" + c.LocalDate.Format("2006-01-02") + "|" + c.VenueID
+		if _, dup := seenKey[key]; dup {
+			r.db.logger.Warn(ctx, "Create: dropping duplicate concert with identical natural key from same batch",
+				slog.String("concert_id", c.ID),
+				slog.String("series_id", c.SeriesID),
+				slog.String("venue_id", c.VenueID),
+			)
+			continue
+		}
+		seenKey[key] = struct{}{}
+		valid = append(valid, c)
 	}
 	if len(valid) == 0 {
 		return nil, nil
@@ -501,6 +531,13 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 			slog.Int("count", n),
 		)
 	}
+	// Load-bearing explicit close: pgx v5 forbids issuing a new query on
+	// the same transaction while a previous Rows is still open, and the
+	// next tx.Query for insertEventPerformersQuery happens immediately
+	// below. The `defer rows.Close()` at line 520 only fires when Create
+	// returns; while `rows.Next()` returning false also auto-closes today,
+	// any future intermediate break/return between the loop and the next
+	// tx.Query would leak the cursor and block the follow-up query.
 	rows.Close()
 
 	// linkedEventIDs collects the event IDs returned by

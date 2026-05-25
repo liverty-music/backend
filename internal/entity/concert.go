@@ -145,23 +145,19 @@ func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
 		date  string
 		venue string
 	}
-	// ptrOrEmpty unifies the *string (Concert.ListedVenueName, NULL→nil)
-	// and string (ScrapedConcert.ListedVenueName) types into the same key
-	// shape. Without this, the two arms of the dedup loop would build
-	// keys whose `venue` strings only happened to compare equal — and a
-	// `nil` existing pointer and an empty scraped string would BOTH
-	// resolve to {date, ""}, causing a TBA scraped concert (from the
-	// search path which doesn't filter empty venues) to be incorrectly
-	// dropped against any NULL-venue DB row on the same date.
-	ptrOrEmpty := func(p *string) string {
-		if p == nil {
-			return ""
-		}
-		return *p
-	}
 	seen := make(map[key]bool, len(existing))
 	for _, ex := range existing {
-		seen[key{date: ex.LocalDate.Format("2006-01-02"), venue: ptrOrEmpty(ex.ListedVenueName)}] = true
+		// Skip NULL-venue existing rows from dedup tracking — a row
+		// inserted before this PR (when listed_venue_name was not
+		// stored) has no upstream identity to dedup against, and
+		// keying it as {date, ""} would silently swallow a legitimate
+		// re-scrape that now carries the real venue name. Symmetric
+		// with the empty-venue scraped skip below: blank venues on
+		// either side bypass dedup, never silently clobber.
+		if ex.ListedVenueName == nil {
+			continue
+		}
+		seen[key{date: ex.LocalDate.Format("2006-01-02"), venue: *ex.ListedVenueName}] = true
 	}
 
 	var result ScrapedConcerts
