@@ -215,6 +215,70 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 	})
 
+	// Regression for the 2026-05-23 incident: when GetByExternalID fails
+	// for a non-NotFound reason (Internal scan failure, Unavailable, etc.),
+	// the use-case MUST surface that error class instead of collapsing it
+	// into the original AlreadyExists. Previously the retry path discarded
+	// getErr entirely, masking a scanUser NULL→string crash as
+	// AlreadyExists at the wire with no log trail.
+	t.Run("retry GetByExternalID non-NotFound error surfaces truthfully", func(t *testing.T) {
+		t.Parallel()
+		// Table covers the representative non-NotFound classes the retry
+		// path can encounter. Internal is the original incident's class
+		// (scanUser NULL→string crash); Unavailable covers transient pool
+		// / connection failures. Both MUST propagate as themselves so the
+		// operator sees the real failure instead of AlreadyExists.
+		cases := []struct {
+			name       string
+			externalID string
+			email      string
+			retryErr   error
+			wantClass  error
+		}{
+			{
+				name:       "Internal (scan failure on NULL column)",
+				externalID: "ext-internal-error",
+				email:      "ie@example.com",
+				retryErr:   apperr.New(codes.Internal, "scan failure"),
+				wantClass:  apperr.ErrInternal,
+			},
+			{
+				name:       "Unavailable (transient pool failure)",
+				externalID: "ext-unavailable",
+				email:      "ua@example.com",
+				retryErr:   apperr.New(codes.Unavailable, "connection refused"),
+				wantClass:  apperr.ErrUnavailable,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				d := newUserTestDeps(t)
+
+				params := &entity.NewUser{
+					ExternalID: tc.externalID,
+					Email:      tc.email,
+					Name:       "retry probe",
+				}
+
+				d.repo.EXPECT().Create(ctx, params).
+					Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
+				d.repo.EXPECT().GetByExternalID(ctx, tc.externalID).
+					Return(nil, tc.retryErr).Once()
+
+				result, err := d.uc.Create(ctx, params)
+
+				assert.Error(t, err)
+				assert.Nil(t, result)
+				// The retry's error class wins; original AlreadyExists is
+				// logged for forensics but NOT returned (rationale in
+				// user_uc.go).
+				assert.ErrorIs(t, err, tc.wantClass)
+				assert.NotErrorIs(t, err, apperr.ErrAlreadyExists)
+			})
+		}
+	})
+
 	// Create accepts an empty preferred_language (old clients omit the
 	// field; the row is created NULL and the client backfills on next
 	// hydration). A non-empty value MUST match ISO 639-1.
