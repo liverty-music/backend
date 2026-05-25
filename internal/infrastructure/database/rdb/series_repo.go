@@ -26,7 +26,7 @@ const (
 	insertSeriesQuery = `
 		INSERT INTO series (id, title, type, source_url)
 		SELECT * FROM unnest($1::uuid[], $2::text[], $3::series_type[], $4::text[])
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (id) DO NOTHING
 		RETURNING id
 	`
 

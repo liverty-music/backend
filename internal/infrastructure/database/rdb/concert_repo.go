@@ -104,10 +104,15 @@ const (
 		ORDER BY e.local_event_date ASC
 	`
 
+	// listConcertsByIDsQuery includes venue lat/lng because NotifyNewConcerts
+	// feeds the result into HypeNearby.ShouldNotify, which calls ProximityTo
+	// on Venue.Coordinates. Without the coordinates, ProximityTo returns
+	// ProximityAway for every concert and HypeNearby followers are silently
+	// excluded from every new-concert push notification.
 	listConcertsByIDsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
-		       v.id, v.name, v.admin_area
+		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
@@ -295,7 +300,10 @@ func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*ent
 
 	var concerts []*entity.Concert
 	for rows.Next() {
-		c, err := scanConcertRow(rows.Scan, false)
+		// withCoords=true matches the lat/lng columns selected by
+		// listConcertsByIDsQuery — required so NotifyNewConcerts can
+		// evaluate HypeNearby followers via Venue.Coordinates.
+		c, err := scanConcertRow(rows.Scan, true)
 		if err != nil {
 			return nil, toAppErr(err, "failed to scan concert")
 		}
@@ -461,17 +469,16 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	if err != nil {
 		return nil, toAppErr(err, "failed to insert concerts", slog.Int("count", n))
 	}
+	defer rows.Close()
 	insertedIDs := make([]string, 0, n)
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
 			return nil, toAppErr(err, "failed to scan inserted concert id")
 		}
 		insertedIDs = append(insertedIDs, id)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
 		return nil, toAppErr(err, "concert insert RETURNING iteration ended with error",
 			slog.Int("count", n),
 		)

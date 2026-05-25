@@ -202,11 +202,15 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	// 3. Filter followers by hype level and collect eligible user IDs.
 	var userIDs []string
 	for _, f := range followers {
-		var home *entity.Home
-		if f.User != nil && f.User.Home != nil {
-			home = f.User.Home
+		// f.User may be nil if the join with users dropped a row (e.g.
+		// orphaned follow). Skip the whole follower in that case — the
+		// subsequent f.User.ID dereference would panic for any non-Watch
+		// hype tier because HypeAway.ShouldNotify always returns true and
+		// HypeHome may return true without ever reading f.User.Home.
+		if f.User == nil {
+			continue
 		}
-		if !f.Hype.ShouldNotify(home, venueAreas, concerts) {
+		if !f.Hype.ShouldNotify(f.User.Home, venueAreas, concerts) {
 			continue
 		}
 		userIDs = append(userIDs, f.User.ID)
