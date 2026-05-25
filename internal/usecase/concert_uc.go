@@ -11,6 +11,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -294,6 +295,23 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 	// (UUIDv7) on the fly so the embedded SeriesId carries a valid UUID and
 	// passes the response-side protovalidate guards; the synthetic ID has no
 	// referent in the DB and is discarded by the client after rendering.
+	// Guard against the artist row missing required fields the proto
+	// response demands. ArtistName.value has min_len=1 and Mbid.value has
+	// a uuid constraint in the BSR proto schema (see
+	// specification/proto/liverty_music/entity/v1/artist.proto). If either
+	// is empty the outbound protovalidate would reject the response — and
+	// even where the server interceptor only validates inbound, the client
+	// would render a blank performer card. Fail fast at Internal so the
+	// caller sees a structured error rather than a silent invalid proto.
+	if artist.Name == "" || artist.MBID == "" {
+		return nil, apperr.New(codes.Internal,
+			"artist is missing required fields for search response",
+			slog.String("artist_id", artistID),
+			slog.Bool("name_empty", artist.Name == ""),
+			slog.Bool("mbid_empty", artist.MBID == ""),
+		)
+	}
+
 	concerts := make([]*entity.Concert, 0, len(newScraped))
 	for _, s := range newScraped {
 		syntheticSeriesID, err := uuid.NewV7()
@@ -303,11 +321,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		c := s.ToConcert(artistID, syntheticSeriesID.String(), "", "")
 		// Replace ToConcert's id-only Performer shell with the resolved
 		// Artist entity so the response carries a complete performer with
-		// Name and MBID. ArtistName.value has min_len=1 and Mbid.value
-		// has a uuid constraint in the BSR proto schema — leaving them
-		// empty would fail protovalidate on outbound, and even where the
-		// server interceptor only validates inbound, the client would
-		// render a blank performer card.
+		// Name and MBID (validated non-empty by the guard above).
 		c.Performers = []*entity.Artist{artist}
 		concerts = append(concerts, c)
 	}

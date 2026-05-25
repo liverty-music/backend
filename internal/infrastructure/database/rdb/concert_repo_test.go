@@ -370,6 +370,46 @@ func TestConcertRepository_Create(t *testing.T) {
 		require.NotNil(t, got[0].OpenTime, "existing non-NULL open_at must not be overwritten by NULL")
 	})
 
+	t.Run("natural key conflict — existing non-NULL open_at preserved against a different non-NULL incoming value (first-write-wins)", func(t *testing.T) {
+		setupFixtures(t)
+
+		listedVenue := "Zepp DiverCity"
+		seriesID := seedSeries(t, ctx, seriesRepo, "First Write Wins OpenAt")
+
+		// First insert: confirmed open_at.
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0b", VenueID: venueID,
+				SeriesID: seriesID, ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime, OpenTime: &openTime,
+			},
+			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/11"},
+			Performers: []*entity.Artist{{ID: artistID}},
+		})
+
+		// Second insert: same natural key with a different non-NULL open_at.
+		// Symmetric assertion to the start_at first-write-wins test —
+		// COALESCE(events.open_at, EXCLUDED.open_at) keeps the first value.
+		laterOpen := openTime.Add(2 * time.Hour)
+		_, err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0c", VenueID: venueID,
+				SeriesID: seriesID, ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime, OpenTime: &laterOpen,
+			},
+			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/12"},
+			Performers: []*entity.Artist{{ID: artistID}},
+		})
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].OpenTime)
+		require.True(t, got[0].OpenTime.Equal(openTime),
+			"non-NULL open_at must NOT be overwritten by a different non-NULL incoming value")
+	})
+
 	t.Run("natural key conflict — existing non-NULL start_at preserved against a different non-NULL incoming value (first-write-wins)", func(t *testing.T) {
 		setupFixtures(t)
 

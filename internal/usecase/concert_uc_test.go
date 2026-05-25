@@ -250,7 +250,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				artistID := "artist-1"
-				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+				artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
 				site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
 				scraped := []*entity.ScrapedConcert{
 					{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
@@ -272,7 +272,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				artistID := "artist-1"
-				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+				artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
 				site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
 				expiredLog := &entity.SearchLog{
 					ArtistID:   artistID,
@@ -313,7 +313,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				artistID := "artist-1"
-				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+				artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
 				scraped := []*entity.ScrapedConcert{
 					{Title: "No-Site Concert", ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
 				}
@@ -334,7 +334,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				artistID := "artist-1"
-				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+				artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
 				concertDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 				existing := []*entity.Concert{
 					{Event: entity.Event{ID: "c1", LocalDate: concertDate}},
@@ -387,7 +387,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 	t.Parallel()
 
 	artistID := "artist-1"
-	artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+	artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
 	scraped := []*entity.ScrapedConcert{
 		{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), SourceURL: "https://example.com"},
 	}
@@ -643,7 +643,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				d := newConcertTestDeps(t)
 				artistID := "artist-1"
-				artist := &entity.Artist{ID: artistID, Name: "Test Artist"}
+				artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
 
 				// Subscribe BEFORE calling SearchNewConcerts so the GoChannel buffers the message.
 				sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)

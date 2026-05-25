@@ -48,6 +48,15 @@ const (
 	// re-scrape / lineup-update — a second discovery that adds a new performer
 	// to an already-known event still attaches the new performer to that
 	// event's actual id. Idempotent via ON CONFLICT DO NOTHING.
+	//
+	// RETURNING event_id surfaces ONLY the genuinely new performer links
+	// (re-deliveries hit ON CONFLICT and are not returned). Callers use this
+	// to drive notification: an artist's followers must be notified whenever
+	// the artist is newly attached to an event, whether the event itself is
+	// brand-new OR pre-existing (the co-headliner case — artist B discovered
+	// for an event artist A already created). Without RETURNING, the
+	// pre-existing-event path silently skipped notifications because
+	// insertConcertsQuery only RETURNs UUIDs that won the UPSERT race.
 	insertEventPerformersQuery = `
 		INSERT INTO event_performers (event_id, artist_id)
 		SELECT e.id, perf.artist_id
@@ -58,6 +67,7 @@ const (
 			AND e.local_event_date = perf.local_event_date
 			AND e.venue_id = perf.venue_id
 		ON CONFLICT DO NOTHING
+		RETURNING event_id
 	`
 
 	// listConcertsByArtistQuery returns concerts where the given artist appears
@@ -485,8 +495,18 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	}
 	rows.Close()
 
+	// linkedEventIDs collects the event IDs returned by
+	// insertEventPerformersQuery — these are the events where one of THIS
+	// batch's performer links was genuinely new (ON CONFLICT DO NOTHING
+	// excludes re-deliveries from RETURNING). The union with insertedIDs
+	// covers the co-headliner notification case: when artist B is
+	// discovered for an event artist A already created, the events UPSERT
+	// keeps the existing row, insertConcertsQuery returns nothing — but
+	// the event_performers RETURNING surfaces the new (event, B) link so
+	// B's followers get notified.
+	var linkedEventIDs []string
 	if len(performerArtistIDs) > 0 {
-		tag, err := tx.Exec(ctx, insertEventPerformersQuery,
+		linkRows, err := tx.Query(ctx, insertEventPerformersQuery,
 			performerSeriesIDs, performerEventDates, performerVenueIDs, performerArtistIDs,
 		)
 		if err != nil {
@@ -495,33 +515,54 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 				slog.Int("link_count", len(performerArtistIDs)),
 			)
 		}
-		// Defensive 0-row check. The query resolves the events row via a
-		// 3-column natural-key JOIN, so if any of (series_id,
-		// local_event_date, venue_id) on the input doesn't match an
-		// already-inserted event, the JOIN silently produces zero rows
-		// and tx.Exec returns success with 0 affected. Today the upstream
-		// path keeps these triples in lockstep (seriesID is derived from
-		// venueID+date), so this should never fire — but a future code
-		// path that derives seriesID independently could regress this
-		// invariant. Surface the anomaly so the missing performer links
-		// are investigable rather than silently dropped.
-		if tag.RowsAffected() == 0 {
-			r.db.logger.Warn(ctx, "insertEventPerformersQuery inserted 0 rows — natural-key JOIN found no matching events",
-				slog.Int("event_count", n),
+		defer linkRows.Close()
+		for linkRows.Next() {
+			var id string
+			if err := linkRows.Scan(&id); err != nil {
+				return nil, toAppErr(err, "failed to scan linked event id")
+			}
+			linkedEventIDs = append(linkedEventIDs, id)
+		}
+		if err := linkRows.Err(); err != nil {
+			return nil, toAppErr(err, "event_performers insert RETURNING iteration ended with error",
 				slog.Int("link_count", len(performerArtistIDs)),
 			)
 		}
+		linkRows.Close()
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit transaction")
 	}
 
+	// Union insertedIDs with linkedEventIDs and dedup. A brand-new event
+	// appears in both sets (insertConcertsQuery returned its UUID, AND the
+	// performer link RETURNING surfaced it). A co-headliner-on-existing-
+	// event case appears only in linkedEventIDs. A pure re-delivery (event
+	// AND link both pre-exist) appears in neither, which is correct — no
+	// new notification work to do.
+	notifiableIDs := make([]string, 0, len(insertedIDs)+len(linkedEventIDs))
+	seen := make(map[string]bool, len(insertedIDs)+len(linkedEventIDs))
+	for _, id := range insertedIDs {
+		if !seen[id] {
+			seen[id] = true
+			notifiableIDs = append(notifiableIDs, id)
+		}
+	}
+	for _, id := range linkedEventIDs {
+		if !seen[id] {
+			seen[id] = true
+			notifiableIDs = append(notifiableIDs, id)
+		}
+	}
+
 	r.db.logger.Info(ctx, "concerts created",
 		slog.String("entityType", "concert"),
 		slog.Int("requested", n),
 		slog.Int("inserted", len(insertedIDs)),
+		slog.Int("newly_linked", len(linkedEventIDs)),
+		slog.Int("notifiable", len(notifiableIDs)),
 	)
 
-	return insertedIDs, nil
+	return notifiableIDs, nil
 }
