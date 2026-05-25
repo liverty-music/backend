@@ -152,14 +152,18 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	// belong to multiple artists. This protects against operator mistakes on
 	// the debug RPC path and bad publisher state on the event path.
 	hasPerformer := make(map[string]bool, len(concerts))
+	// orphanConcerts records concerts whose Performers slice is empty after
+	// hydration. The new M:N schema allows a structurally valid event row
+	// to exist with no event_performers links (e.g. a race between Create
+	// and the natural-key JOIN in insertEventPerformersQuery, or an
+	// orphaned data state). Treat these as non-fatal — log + skip — rather
+	// than aborting the whole batch and indefinitely retrying the Pub/Sub
+	// message, which would block notifications for every other concert.
+	orphanConcerts := make(map[string]bool, len(concerts))
 	for _, c := range concerts {
-		// Data anomaly: an event row exists but hydratePerformers returned
-		// zero links. The membership check still resolves to false (the
-		// artist legitimately isn't a performer), but the absence is worth
-		// surfacing because it indicates an orphan event_performers state
-		// that the discovery pipeline should not produce.
 		if len(c.Performers) == 0 {
-			uc.logger.Warn(ctx, "concert has no performers after hydration",
+			orphanConcerts[c.ID] = true
+			uc.logger.Warn(ctx, "concert has no performers after hydration; skipping membership check",
 				slog.String("concert_id", c.ID),
 				slog.String("artist_id", data.ArtistID),
 			)
@@ -176,6 +180,10 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		performs, exists := hasPerformer[id]
 		if !exists {
 			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not exist")
+		}
+		if orphanConcerts[id] {
+			// Already logged above; do not fail the batch on a data anomaly.
+			continue
 		}
 		if !performs {
 			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not feature artist "+data.ArtistID)

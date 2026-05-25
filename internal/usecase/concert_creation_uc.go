@@ -113,19 +113,25 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		if err != nil {
 			return fmt.Errorf("generate concert ID: %w", err)
 		}
-		// Derive seriesID deterministically from the stable identity of a SINGLE
-		// series (artist + venue + local date). Without this, every re-delivery
-		// of a Pub/Sub `concert.discovered` message — or any user-triggered
-		// re-discovery of the same artist — would mint a fresh series UUID, and
-		// the events natural key `(series_id, local_event_date, venue_id)`
-		// would never collide on UPSERT → duplicate event rows accumulate.
-		// UUID v5 is content-addressed and stable across runs, so two
-		// discoveries of the same concert produce the same seriesID and the
-		// natural-key UPSERT correctly deduplicates. Once smarter grouping
-		// (auto-discovery-series-grouping) folds multi-stop tours under a
-		// shared Series, this 1:1 derivation is replaced by the tour-title
-		// resolution path; the natural key still does the deduplication work.
-		seriesKey := data.ArtistID + "|" + venueID + "|" + sc.LocalDate.Format("2006-01-02")
+		// Derive seriesID deterministically from the venue + local date —
+		// intentionally artist-independent. Without this, every re-delivery
+		// of a Pub/Sub `concert.discovered` message would mint a fresh
+		// series UUID, and the events natural key `(series_id,
+		// local_event_date, venue_id)` would never collide on UPSERT →
+		// duplicate event rows accumulate.
+		// The key MUST NOT embed ArtistID: when two co-headliners are
+		// discovered separately (the normal Pub/Sub flow — one message per
+		// artist), an artist-scoped key would yield distinct seriesIDs and
+		// two event rows for the same real-world concert. A venue+date key
+		// keeps the seriesID stable across artists so the events UPSERT
+		// dedupes and the second artist's link lands on the same event row
+		// via insertEventPerformersQuery.
+		// UUID v5 is content-addressed and stable across runs. Once smarter
+		// grouping (auto-discovery-series-grouping) folds multi-stop tours
+		// under a shared Series, this 1:1 derivation is replaced by the
+		// tour-title resolution path; the natural key still does the
+		// deduplication work.
+		seriesKey := venueID + "|" + sc.LocalDate.Format("2006-01-02")
 		seriesID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(seriesKey))
 
 		concert := sc.ToConcert(data.ArtistID, seriesID.String(), eventID.String(), venueID)

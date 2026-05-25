@@ -300,7 +300,16 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		if err != nil {
 			return nil, fmt.Errorf("generate synthetic series ID for search response: %w", err)
 		}
-		concerts = append(concerts, s.ToConcert(artistID, syntheticSeriesID.String(), "", ""))
+		c := s.ToConcert(artistID, syntheticSeriesID.String(), "", "")
+		// Replace ToConcert's id-only Performer shell with the resolved
+		// Artist entity so the response carries a complete performer with
+		// Name and MBID. ArtistName.value has min_len=1 and Mbid.value
+		// has a uuid constraint in the BSR proto schema — leaving them
+		// empty would fail protovalidate on outbound, and even where the
+		// server interceptor only validates inbound, the client would
+		// render a blank performer card.
+		c.Performers = []*entity.Artist{artist}
+		concerts = append(concerts, c)
 	}
 	return concerts, nil
 }
