@@ -24,8 +24,8 @@ const (
 		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at)
 		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::date[], $6::timestamptz[], $7::timestamptz[])
 		ON CONFLICT ON CONSTRAINT uq_events_natural_key DO UPDATE SET
-			start_at = COALESCE(EXCLUDED.start_at, events.start_at),
-			open_at  = COALESCE(EXCLUDED.open_at, events.open_at)
+			start_at = COALESCE(events.start_at, EXCLUDED.start_at),
+			open_at  = COALESCE(events.open_at, EXCLUDED.open_at)
 	`
 
 	// insertConcertsQuery inserts placeholder concerts rows only for events that
@@ -176,7 +176,24 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		return nil, err
 	}
 	series.ID = c.SeriesID
-	series.Type = entity.SeriesType(seriesT)
+	// Validate the DB-side series_type against the Go-side allowlist. Without
+	// this check, an enum value added to the Postgres `series_type` type
+	// before the Go binary is updated (e.g. a future `RESIDENCY`) would
+	// silently cast to entity.SeriesType("RESIDENCY"), then collapse to
+	// SERIES_TYPE_UNSPECIFIED at the proto mapper's default branch. The
+	// Connect server only validates inbound requests, so the bad value would
+	// reach the client as a structurally-valid-but-typeless concert. Failing
+	// fast here surfaces the version skew before the response is built.
+	switch entity.SeriesType(seriesT) {
+	case entity.SeriesTypeTour, entity.SeriesTypeSingle, entity.SeriesTypeFestival:
+		series.Type = entity.SeriesType(seriesT)
+	default:
+		return nil, apperr.New(codes.Internal,
+			"unknown series_type from DB — Go binary may be behind a Postgres enum extension",
+			slog.String("series_id", c.SeriesID),
+			slog.String("series_type", seriesT),
+		)
+	}
 	if sourceURL != nil {
 		series.SourceURL = *sourceURL
 	}
