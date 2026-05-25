@@ -132,11 +132,17 @@ const (
 
 	// listPerformersByEventIDsQuery hydrates the Performers slice on each Concert.
 	// One row per (event_id, artist) pair so callers can group in Go.
+	// ORDER BY a.id keeps the per-event performer order stable across queries so
+	// callers that assert on order (handler tests, UI snapshots) don't flake on
+	// PostgreSQL plan changes. The artist id is deterministic at insert time,
+	// which produces a consistent — if not semantically "billed" — ordering;
+	// promoting a billing/role column when needed is tracked separately.
 	listPerformersByEventIDsQuery = `
 		SELECT ep.event_id, a.id, a.name, a.mbid
 		FROM event_performers ep
 		JOIN artists a ON a.id = ep.artist_id
 		WHERE ep.event_id = ANY($1)
+		ORDER BY ep.event_id, a.id
 	`
 )
 

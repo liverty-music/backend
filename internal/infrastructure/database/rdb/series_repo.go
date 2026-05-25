@@ -97,6 +97,11 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 		}
 		insertedIDs = append(insertedIDs, id)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "series insert RETURNING iteration ended with error",
+			slog.Int("count", n),
+		)
+	}
 	return insertedIDs, nil
 }
 
@@ -149,6 +154,11 @@ func (r *SeriesRepository) ListByIDs(ctx context.Context, ids []string) ([]*enti
 			s.SourceURL = *sourceURL
 		}
 		result = append(result, &s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "series list iteration ended with error",
+			slog.Int("count", len(ids)),
+		)
 	}
 	return result, nil
 }
