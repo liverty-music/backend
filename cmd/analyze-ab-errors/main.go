@@ -323,19 +323,22 @@ func main() {
 }
 
 // classifyFalsePositive categorizes why a returned event did not match any
-// fixture entry. Checks in priority order:
-//  1. date matches a fixture event but venue differs → wrong_venue
-//  2. venue matches a fixture event but date differs → wrong_date
+// fixture entry. Checks in priority order (most specific signal first;
+// the doc string and the code SHALL agree):
+//  1. date matches a fixture event but venue differs → right_date_wrong_venue
+//  2. venue matches a fixture event but date differs → right_venue_wrong_date
 //  3. date is before evaluation_from → stale_date
-//  4. title closely resembles a fixture event_name → mislabeled
+//  4. title overlaps a fixture event_name → title_overlap_no_date_venue_match
 //  5. otherwise → hallucinated_or_unknown
+//
+// stale_date is intentionally checked AFTER the two date/venue diagnostics
+// because a past-dated returned event that happens to land on a fixture
+// date / venue is more diagnostic as "right_*_wrong_*" than as "stale";
+// the previous ordering (stale_date first) buried those cases.
 func classifyFalsePositive(rc rawConcert, fixture []gemini.GroundTruthEvent) string {
 	scDate := parseDate(rc.LocalDate)
 	normReturned := gemini.NormalizeVenue(rc.ListedVenueName)
 
-	if !scDate.IsZero() && scDate.Before(parseDate("2026-05-20")) {
-		return "stale_date (before evaluation_from)"
-	}
 	for _, f := range fixture {
 		fDate := parseDate(f.LocalDate)
 		if !fDate.IsZero() && !scDate.IsZero() && fDate.Equal(scDate) && normReturned != "" &&
@@ -350,6 +353,9 @@ func classifyFalsePositive(rc rawConcert, fixture []gemini.GroundTruthEvent) str
 				return "right_venue_wrong_date"
 			}
 		}
+	}
+	if !scDate.IsZero() && scDate.Before(parseDate("2026-05-20")) {
+		return "stale_date (before evaluation_from)"
 	}
 	for _, f := range fixture {
 		if strings.Contains(rc.Title, f.EventName) || strings.Contains(f.EventName, rc.Title) {

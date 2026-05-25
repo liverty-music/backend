@@ -129,8 +129,22 @@ func main() {
 }
 
 func scoreCell(coord cellCoord, raw []rawConcert, fixture []gemini.GroundTruthEvent) cellResult {
-	fixByKey := make(map[gemini.MatchKey]gemini.GroundTruthEvent, len(fixture))
+	// Filter the fixture to in-scope events only. Entries with
+	// ExcludedPerSpec=true (e.g. multi-artist festivals) are kept as
+	// negative samples — returning one is a "festival_leak" false
+	// positive — but they SHALL NOT enter the recall denominator and
+	// SHALL NOT count toward matches when a smoke output happens to hit
+	// one. This mirrors the integration test harness's behaviour so
+	// replay numbers stay consistent with live-run numbers.
+	inScope := make([]gemini.GroundTruthEvent, 0, len(fixture))
 	for _, f := range fixture {
+		if !f.ExcludedPerSpec {
+			inScope = append(inScope, f)
+		}
+	}
+
+	fixByKey := make(map[gemini.MatchKey]gemini.GroundTruthEvent, len(inScope))
+	for _, f := range inScope {
 		fixByKey[f.Key()] = f
 	}
 
@@ -167,7 +181,7 @@ func scoreCell(coord cellCoord, raw []rawConcert, fixture []gemini.GroundTruthEv
 	}
 
 	publicTotal := 0
-	for _, f := range fixture {
+	for _, f := range inScope {
 		if f.Visibility != "members-only" {
 			publicTotal++
 		}
@@ -177,8 +191,8 @@ func scoreCell(coord cellCoord, raw []rawConcert, fixture []gemini.GroundTruthEv
 	if len(raw) > 0 {
 		res.Precision = float64(matched) / float64(len(raw))
 	}
-	if len(fixture) > 0 {
-		res.RecallAll = float64(matched) / float64(len(fixture))
+	if len(inScope) > 0 {
+		res.RecallAll = float64(matched) / float64(len(inScope))
 	}
 	if publicTotal > 0 {
 		res.RecallPublic = float64(publicMatched) / float64(publicTotal)
