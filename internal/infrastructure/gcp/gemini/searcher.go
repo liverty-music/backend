@@ -778,7 +778,19 @@ func (s *ConcertSearcher) runStep1Grounded(
 	}
 	agg := aggregatePassMetadata(perSlice)
 	if firstErr != nil {
-		return "", agg, perSlice, firstErr
+		// Partial-success: if any slice produced a usable envelope, do
+		// not throw away the work. Surface the error via WARN so the
+		// loss is visible, but let Step 2 run with whatever Step 1
+		// extracted from the surviving slices. Only fail hard when
+		// every slice failed (no envelopes at all).
+		if len(envelopes) == 0 {
+			return "", agg, perSlice, firstErr
+		}
+		s.logger.Warn(ctx, "step 1: one or more slices failed permanently, continuing with partial results",
+			append(attrs,
+				slog.Int("succeeded_envelopes", len(envelopes)),
+				slog.String("first_error", firstErr.Error()),
+			)...)
 	}
 
 	merged := mergeAndDedupEnvelopes(envelopes)
@@ -878,9 +890,17 @@ func aggregatePassMetadata(slices []*PassMetadata) *PassMetadata {
 		// ExhaustedTransient is OR-ed across slices: a single slice
 		// exhausting retries is enough to flag the aggregated metadata.
 		agg.ExhaustedTransient = agg.ExhaustedTransient || s.ExhaustedTransient
-		// FinishReason: keep STOP if any slice succeeded; otherwise show
-		// the last non-empty non-STOP reason for diagnostics.
-		if agg.FinishReason == "" || agg.FinishReason == string(genai.FinishReasonStop) {
+		// FinishReason aggregation: the goal is "show the worst reason
+		// seen". Slot empty → use whatever the slice reported (including
+		// STOP). Slot already STOP → overwrite only with a non-STOP /
+		// non-empty failure reason (RECITATION, SAFETY, MAX_TOKENS).
+		// Slot already non-STOP failure → keep it (later slices' STOPs
+		// don't paper over an earlier failure).
+		switch {
+		case agg.FinishReason == "":
+			agg.FinishReason = s.FinishReason
+		case agg.FinishReason == string(genai.FinishReasonStop) &&
+			s.FinishReason != "" && s.FinishReason != string(genai.FinishReasonStop):
 			agg.FinishReason = s.FinishReason
 		}
 		if agg.FinishMessage == "" {
@@ -1152,20 +1172,27 @@ func (s *ConcertSearcher) executePass(
 
 		var textBuf strings.Builder
 		var totalParts, thoughtParts, textParts int
-		for _, p := range candidate.Content.Parts {
-			if p == nil {
-				continue
+		// Content can be nil when the response was filtered out (SAFETY,
+		// RECITATION, etc.). The FinishReason check below would surface the
+		// failure, but a nil-pointer dereference here would panic the goroutine
+		// before that guard runs. Treat nil Content as "no text" and let the
+		// FinishReason / empty-text branches handle the diagnostic.
+		if candidate.Content != nil {
+			for _, p := range candidate.Content.Parts {
+				if p == nil {
+					continue
+				}
+				totalParts++
+				if p.Thought {
+					thoughtParts++
+					continue
+				}
+				if p.Text == "" {
+					continue
+				}
+				textParts++
+				textBuf.WriteString(p.Text)
 			}
-			totalParts++
-			if p.Thought {
-				thoughtParts++
-				continue
-			}
-			if p.Text == "" {
-				continue
-			}
-			textParts++
-			textBuf.WriteString(p.Text)
 		}
 		pm.PartsTotal = totalParts
 		pm.ThoughtParts = thoughtParts
@@ -1201,12 +1228,28 @@ func (s *ConcertSearcher) executePass(
 		if sawPermanent {
 			return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
 		}
+		// Parent context cancellation (handler deadline, SIGTERM) is a
+		// caller-driven hard stop, not a remote transient failure — propagate
+		// it as a permanent error so SearchExt surfaces the cancellation
+		// up the stack rather than silently returning an empty result.
+		if ctx.Err() != nil {
+			return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
+		}
 		if lastWasFinish {
 			s.logger.Warn(ctx, "executePass exhausted retries with non-STOP finish_reason",
 				append(attrs, slog.String("last_error", err.Error()))...)
 			return pm, "", true, nil
 		}
-		return pm, "", false, toAppErr(err, "failed to call Gemini API", attrs...)
+		// Transient network exhaustion (HTTP 503, rate-limit, etc.): the
+		// per-attempt RPC failed three times without ever reaching a
+		// permanent / non-STOP-FinishReason path. The function docstring
+		// promises `(pm, "", true, nil)` for exhausted transient errors;
+		// surfacing this as a hard error would propagate as a permanent
+		// failure to runStep1Grounded / SearchExt and lose the other
+		// slices' work. Degrade gracefully instead.
+		s.logger.Warn(ctx, "executePass exhausted retries with transient network error",
+			append(attrs, slog.String("last_error", err.Error()))...)
+		return pm, "", true, nil
 	}
 	return pm, rawText, false, nil
 }
@@ -1388,13 +1431,18 @@ func (s *ConcertSearcher) parseStep2Response(
 		if c == nil {
 			continue
 		}
-		key := dedupKey{date: coerced.LocalDate, venue: draft.Venue, startTime: coerced.StartTime}
+		// Use the normalized venue form as the dedup key so cross-slice
+		// duplicates with slightly different verbatim prefixes ("大阪府・X"
+		// vs "X") collapse correctly. The returned ScrapedConcert keeps
+		// `draft.Venue` verbatim — normalization only affects the key.
+		key := dedupKey{date: coerced.LocalDate, venue: NormalizeVenue(draft.Venue), startTime: coerced.StartTime}
 		if _, dup := seen[key]; dup {
-			s.logger.Warn(ctx, "duplicate concert dropped by (local_date, venue, start_time) dedup",
+			s.logger.Warn(ctx, "duplicate concert dropped by (local_date, normalized_venue, start_time) dedup",
 				append(attrs,
 					slog.String("title", draft.Title),
 					slog.String("date", coerced.LocalDate),
-					slog.String("venue", draft.Venue),
+					slog.String("venue_raw", draft.Venue),
+					slog.String("venue_normalized", NormalizeVenue(draft.Venue)),
 					slog.String("start_time", coerced.StartTime),
 				)...)
 			continue

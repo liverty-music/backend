@@ -115,11 +115,19 @@ func TestSearch_AllRetriesExhausted(t *testing.T) {
 
 	got, err := s.Search(ctx, artist, officialSite, from)
 
-	assert.Nil(t, got)
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	// Graceful-degradation semantics (post-review-2): transient exhaustion
+	// on every Step 1 slice surfaces as an empty result, NOT an error.
+	// The exhaustion is observable via the WARN logs (one per slice) and
+	// via `SearchMetadata.Step1Grounded.ExhaustedTransient = true`.
+	// Promoting it to a hard error would have lost the work of any sibling
+	// slice that succeeded, so the contract is "swallow transient
+	// exhaustion at the slice level; fail hard only on permanent errors".
+	assert.NoError(t, err)
+	assert.Empty(t, got)
 	// 3 parallel slices × 3 retries each = 9 total slice attempts. Step 2
-	// is skipped because every slice exhausts retries.
+	// is skipped because every slice exhausts retries (empty envelope set →
+	// runStep1Grounded returns "" → runStep2Parse short-circuits on the
+	// empty draft list).
 	assert.Equal(t, int32(9), callCount.Load(), "3 slices × 3 retries = 9 calls")
 }
 
