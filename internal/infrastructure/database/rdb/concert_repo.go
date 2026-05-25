@@ -188,7 +188,7 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		dests = append(dests, &lat, &lng)
 	}
 	if err := rowScan(dests...); err != nil {
-		return nil, err
+		return nil, toAppErr(err, "failed to scan concert row")
 	}
 	series.ID = c.SeriesID
 	// Validate the DB-side series_type against the Go-side allowlist. Without
@@ -280,7 +280,13 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 	for rows.Next() {
 		c, err := scanConcertRow(rows.Scan, false)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan concert")
+			// scanConcertRow already returns a classified error
+			// (toAppErr-wrapped pgx errors or apperr.New for the
+			// SeriesType allowlist failure); don't re-wrap here or the
+			// outer fmt.Errorf would bury the structured slog attrs
+			// and the codes.Internal designation downstream callers
+			// rely on.
+			return nil, err
 		}
 		concerts = append(concerts, c)
 	}
@@ -314,7 +320,7 @@ func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*ent
 		// evaluate HypeNearby followers via Venue.Coordinates.
 		c, err := scanConcertRow(rows.Scan, true)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan concert")
+			return nil, err
 		}
 		concerts = append(concerts, c)
 	}
@@ -341,7 +347,7 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) (
 	for rows.Next() {
 		c, err := scanConcertRow(rows.Scan, true)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan concert")
+			return nil, err
 		}
 		concerts = append(concerts, c)
 	}
@@ -368,7 +374,7 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 	for rows.Next() {
 		c, err := scanConcertRow(rows.Scan, true)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan concert")
+			return nil, err
 		}
 		concerts = append(concerts, c)
 	}
@@ -435,6 +441,12 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	)
 
 	for i, c := range valid {
+		if c.ID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "concert must carry an ID (event UUID) before insert")
+		}
+		if c.VenueID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "concert must carry a VenueID before insert")
+		}
 		if c.SeriesID == "" {
 			return nil, apperr.New(codes.InvalidArgument, "concert must carry a SeriesID before insert")
 		}

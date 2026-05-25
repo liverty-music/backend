@@ -267,6 +267,25 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		return nil, nil
 	}
 
+	// Guard against the artist row missing required fields the proto
+	// response demands. ArtistName.value has min_len=1 and Mbid.value has
+	// a uuid constraint in the BSR proto schema (see
+	// specification/proto/liverty_music/entity/v1/artist.proto). If either
+	// is empty the outbound protovalidate would reject the search response
+	// — and the consumer-side ConcertDiscovered handler would persist
+	// performer rows with empty Name/MBID. Fail fast BEFORE the publish so
+	// no invalid concert lands on the bus. (Previously this guard fired
+	// after PublishEvent, so a malformed artist still propagated to the
+	// consumer side even though the search response returned an error.)
+	if artist.Name == "" || artist.MBID == "" {
+		return nil, apperr.New(codes.Internal,
+			"artist is missing required fields for search response",
+			slog.String("artist_id", artistID),
+			slog.Bool("name_empty", artist.Name == ""),
+			slog.Bool("mbid_empty", artist.MBID == ""),
+		)
+	}
+
 	eventData := entity.ConcertDiscoveredData{
 		ArtistID:   artistID,
 		ArtistName: artist.Name,
@@ -295,22 +314,6 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 	// (UUIDv7) on the fly so the embedded SeriesId carries a valid UUID and
 	// passes the response-side protovalidate guards; the synthetic ID has no
 	// referent in the DB and is discarded by the client after rendering.
-	// Guard against the artist row missing required fields the proto
-	// response demands. ArtistName.value has min_len=1 and Mbid.value has
-	// a uuid constraint in the BSR proto schema (see
-	// specification/proto/liverty_music/entity/v1/artist.proto). If either
-	// is empty the outbound protovalidate would reject the response — and
-	// even where the server interceptor only validates inbound, the client
-	// would render a blank performer card. Fail fast at Internal so the
-	// caller sees a structured error rather than a silent invalid proto.
-	if artist.Name == "" || artist.MBID == "" {
-		return nil, apperr.New(codes.Internal,
-			"artist is missing required fields for search response",
-			slog.String("artist_id", artistID),
-			slog.Bool("name_empty", artist.Name == ""),
-			slog.Bool("mbid_empty", artist.MBID == ""),
-		)
-	}
 
 	concerts := make([]*entity.Concert, 0, len(newScraped))
 	for _, s := range newScraped {
