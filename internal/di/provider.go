@@ -95,7 +95,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
 	var emailParser entity.TicketEmailParser
-	if cfg.GCP.ProjectID != "" {
+	if cfg.GCP.GeminiSearchAPIKey != "" {
 		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 			APIKey:          cfg.GCP.GeminiSearchAPIKey,

@@ -21,8 +21,12 @@ import (
 	"google.golang.org/genai"
 )
 
-// errInvalidJSON is a sentinel error returned by parseEvents when the Gemini
-// response contains invalid JSON. Treated as a transient (retryable) error.
+// errInvalidJSON is a sentinel error returned by parseStep2Response when the
+// Gemini Step 2 response is not valid JSON or fails responseJSONSchema
+// validation. Step 2 callers wrap this in `backoff.Permanent` before
+// returning, so it propagates as a hard error rather than triggering another
+// retry — the model produced a structurally broken envelope and retrying the
+// same prompt is unlikely to fix it.
 var errInvalidJSON = errors.New("gemini returned invalid JSON")
 
 // Config holds the configuration for Gemini searcher.
@@ -1005,7 +1009,14 @@ func (s *ConcertSearcher) runStep2Parse(
 		return nil, nil, err
 	}
 
-	stepAttrs := append(attrs, slog.String("step", "2_parse"))
+	// Build stepAttrs on a fresh backing array to mirror the safe pattern
+	// in runStep1Slice. Step 2 runs single-goroutine so the data race that
+	// motivated the Step 1 copy is not present here, but using the same
+	// idiom keeps the two sites consistent and removes a "why is this
+	// different?" footgun for future contributors.
+	stepAttrs := make([]slog.Attr, 0, len(attrs)+1)
+	stepAttrs = append(stepAttrs, attrs...)
+	stepAttrs = append(stepAttrs, slog.String("step", "2_parse"))
 	pm, rawText, transient, err := s.executePass(ctx, s.config.modelParse(), prompt, cfg, stepAttrs)
 	if err != nil {
 		return nil, pm, err
@@ -1078,6 +1089,18 @@ func (s *ConcertSearcher) executePass(
 			}
 			return "", err
 		}
+
+		// Reset per-attempt accumulators BEFORE we read the new response.
+		// `pm` lives across retries; without this reset the grounding
+		// slices would accumulate URLs/URLRetrievals from every attempt
+		// (including the failed ones), producing inflated counts. Scalar
+		// fields are unconditionally overwritten below, but slice
+		// appends need an explicit reset.
+		pm.GroundingChunkURLs = nil
+		pm.URLContextRetrieved = nil
+		pm.WebSearchQueriesList = nil
+		pm.WebSearchQueries = 0
+		pm.RenderedParts = 0
 
 		if u := resp.UsageMetadata; u != nil {
 			pm.PromptTokens = u.PromptTokenCount
@@ -1362,13 +1385,20 @@ func (s *ConcertSearcher) parseStep2Response(
 	}
 
 	// Build a lookup from index → step2OutputEvent so out-of-order or
-	// partial returns still match correctly.
+	// partial returns still match correctly. Duplicate indices in Step 2's
+	// output (the model returning the same join key twice with different
+	// coerced fields) would silently overwrite the first occurrence;
+	// surface that as a WARN so the corruption is visible in logs.
 	byIndex := make(map[int]step2OutputEvent, len(resp.Events))
 	for _, ev := range resp.Events {
 		if ev.Index < 0 || ev.Index >= len(drafts) {
 			s.logger.Warn(ctx, "step 2 returned event with out-of-range index, skipping",
 				append(attrs, slog.Int("index", ev.Index))...)
 			continue
+		}
+		if _, dup := byIndex[ev.Index]; dup {
+			s.logger.Warn(ctx, "step 2 returned duplicate index, last occurrence wins",
+				append(attrs, slog.Int("index", ev.Index))...)
 		}
 		byIndex[ev.Index] = ev
 	}

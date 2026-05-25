@@ -153,6 +153,10 @@ func main() {
 		cellsByArtist[current.Artist]++
 		have = false
 	}
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "scan: %v\n", err)
+		os.Exit(1)
+	}
 
 	type miss struct {
 		Key    string

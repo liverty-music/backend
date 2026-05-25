@@ -69,7 +69,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 
 	// Infrastructure - Gemini
 	var geminiSearcher entity.ConcertSearcher
-	if cfg.GCP.ProjectID != "" {
+	if cfg.GCP.GeminiSearchAPIKey != "" {
 		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 			APIKey:          cfg.GCP.GeminiSearchAPIKey,
