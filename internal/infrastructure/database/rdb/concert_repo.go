@@ -287,7 +287,6 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
-	rows.Close()
 
 	if err := r.hydratePerformers(ctx, concerts); err != nil {
 		return nil, err
@@ -322,7 +321,6 @@ func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*ent
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
-	rows.Close()
 
 	if err := r.hydratePerformers(ctx, concerts); err != nil {
 		return nil, err
@@ -350,7 +348,6 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) (
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
-	rows.Close()
 
 	if err := r.hydratePerformers(ctx, concerts); err != nil {
 		return nil, err
@@ -378,7 +375,6 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
-	rows.Close()
 
 	if err := r.hydratePerformers(ctx, concerts); err != nil {
 		return nil, err
