@@ -486,10 +486,27 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	rows.Close()
 
 	if len(performerArtistIDs) > 0 {
-		if _, err := tx.Exec(ctx, insertEventPerformersQuery,
+		tag, err := tx.Exec(ctx, insertEventPerformersQuery,
 			performerSeriesIDs, performerEventDates, performerVenueIDs, performerArtistIDs,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, toAppErr(err, "failed to insert event_performers",
+				slog.Int("event_count", n),
+				slog.Int("link_count", len(performerArtistIDs)),
+			)
+		}
+		// Defensive 0-row check. The query resolves the events row via a
+		// 3-column natural-key JOIN, so if any of (series_id,
+		// local_event_date, venue_id) on the input doesn't match an
+		// already-inserted event, the JOIN silently produces zero rows
+		// and tx.Exec returns success with 0 affected. Today the upstream
+		// path keeps these triples in lockstep (seriesID is derived from
+		// venueID+date), so this should never fire — but a future code
+		// path that derives seriesID independently could regress this
+		// invariant. Surface the anomaly so the missing performer links
+		// are investigable rather than silently dropped.
+		if tag.RowsAffected() == 0 {
+			r.db.logger.Warn(ctx, "insertEventPerformersQuery inserted 0 rows — natural-key JOIN found no matching events",
 				slog.Int("event_count", n),
 				slog.Int("link_count", len(performerArtistIDs)),
 			)

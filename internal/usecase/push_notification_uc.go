@@ -190,6 +190,22 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		}
 	}
 
+	// Drop orphan concerts from the working slice. The membership check
+	// skipped them above so they don't abort the batch, but if they
+	// stayed in `concerts` they would still feed venueAreas and the
+	// ShouldNotify input — qualifying a follower for HypeHome /
+	// HypeNearby on a concert whose performer membership was never
+	// confirmed (orphan event_performers state).
+	if len(orphanConcerts) > 0 {
+		kept := concerts[:0]
+		for _, c := range concerts {
+			if !orphanConcerts[c.ID] {
+				kept = append(kept, c)
+			}
+		}
+		concerts = kept
+	}
+
 	// 1. Retrieve all followers with their hype level and home area.
 	followers, err := uc.followRepo.ListFollowers(ctx, artist.ID)
 	if err != nil {

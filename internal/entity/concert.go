@@ -126,27 +126,41 @@ func (sc *ScrapedConcert) ToConcert(artistID, seriesID, eventID, venueID string)
 type ScrapedConcerts []*ScrapedConcert
 
 // FilterNew returns scraped concerts that do not conflict with existing concerts,
-// applying date-only deduplication. It handles both cross-batch deduplication
-// (against existing DB concerts) and within-batch deduplication (multiple scraped
-// concerts on the same date in the receiver).
+// applying (date, venue-name) deduplication aligned with the events natural key
+// `(series_id, local_event_date, venue_id)`. It handles both cross-batch
+// deduplication (against existing DB concerts) and within-batch deduplication
+// (multiple scraped rows for the same date+venue in the receiver).
 //
-// A scraped concert is excluded if its DateKey() matches a date already seen in
-// existing concerts or in an earlier element of the receiver slice.
+// The key uses ListedVenueName rather than the resolved venue_id because
+// scraped concerts have not yet been venue-resolved; ListedVenueName is the
+// upstream identity that survives both sides of the comparison. A date-only
+// key (the previous behaviour) would incorrectly drop a same-date appearance
+// at a different venue — e.g. an afternoon tour stop at Venue A plus an
+// evening festival at Venue B — which the new natural key legitimately
+// accepts.
 //
 // Returns nil if no new concerts remain after filtering.
 func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
-	seenDate := make(map[string]bool, len(existing))
+	type key struct {
+		date  string
+		venue string
+	}
+	seen := make(map[key]bool, len(existing))
 	for _, ex := range existing {
-		seenDate[ex.LocalDate.Format("2006-01-02")] = true
+		venue := ""
+		if ex.ListedVenueName != nil {
+			venue = *ex.ListedVenueName
+		}
+		seen[key{date: ex.LocalDate.Format("2006-01-02"), venue: venue}] = true
 	}
 
 	var result ScrapedConcerts
 	for _, s := range ss {
-		dateKey := s.LocalDate.Format("2006-01-02")
-		if seenDate[dateKey] {
+		k := key{date: s.LocalDate.Format("2006-01-02"), venue: s.ListedVenueName}
+		if seen[k] {
 			continue
 		}
-		seenDate[dateKey] = true
+		seen[k] = true
 		result = append(result, s)
 	}
 	return result

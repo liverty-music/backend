@@ -129,11 +129,34 @@ func (r *SeriesRepository) Get(ctx context.Context, id string) (*entity.Series, 
 	if err != nil {
 		return nil, toAppErr(err, "failed to get series", slog.String("series_id", id))
 	}
-	s.Type = entity.SeriesType(seriesT)
+	if err := assignSeriesType(&s, seriesT, id); err != nil {
+		return nil, err
+	}
 	if sourceURL != nil {
 		s.SourceURL = *sourceURL
 	}
 	return &s, nil
+}
+
+// assignSeriesType validates the raw DB series_type string against the Go
+// allowlist before assigning it to the entity. Without this guard a value
+// added to the Postgres `series_type` enum before the binary is updated
+// (e.g. a future `RESIDENCY`) would silently collapse to UNSPECIFIED at
+// the proto mapper, and the version skew would only surface at the RPC
+// boundary. Same logic as scanConcertRow in concert_repo.go — kept here
+// so Get / ListByIDs share the fail-fast contract.
+func assignSeriesType(s *entity.Series, raw, seriesID string) error {
+	switch entity.SeriesType(raw) {
+	case entity.SeriesTypeTour, entity.SeriesTypeSingle, entity.SeriesTypeFestival:
+		s.Type = entity.SeriesType(raw)
+		return nil
+	default:
+		return apperr.New(codes.Internal,
+			"unknown series_type from DB — Go binary may be behind a Postgres enum extension",
+			slog.String("series_id", seriesID),
+			slog.String("series_type", raw),
+		)
+	}
 }
 
 // ListByIDs retrieves multiple series by ID. IDs not found are silently omitted.
@@ -158,7 +181,9 @@ func (r *SeriesRepository) ListByIDs(ctx context.Context, ids []string) ([]*enti
 		if err := rows.Scan(&s.ID, &s.Title, &seriesT, &sourceURL); err != nil {
 			return nil, toAppErr(err, "failed to scan series")
 		}
-		s.Type = entity.SeriesType(seriesT)
+		if err := assignSeriesType(&s, seriesT, s.ID); err != nil {
+			return nil, err
+		}
 		if sourceURL != nil {
 			s.SourceURL = *sourceURL
 		}

@@ -595,14 +595,21 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			wantNewConcerts: 1, // second is intra-batch duplicate
 		},
 		{
-			name: "same date, different venue — deduped (venue not in key)",
+			// FilterNew's key is now (date, listedVenueName) to align with the
+			// events natural key (series_id, local_event_date, venue_id) — same
+			// date at a different venue is a legitimate separate event (e.g.
+			// an afternoon tour stop plus an evening festival appearance) and
+			// MUST NOT be deduplicated. The previous date-only key would have
+			// silently dropped the second one before concert_creation_uc
+			// could persist it.
+			name: "same date, different venue — NOT deduped (venue in key)",
 			existing: []*entity.Concert{
 				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")}},
 			},
 			scraped: []*entity.ScrapedConcert{
 				{Title: "Festival B", ListedVenueName: "Tokyo Dome", LocalDate: concertDate, SourceURL: "https://example.com"},
 			},
-			wantNewConcerts: 0,
+			wantNewConcerts: 1,
 		},
 
 		// ── Cases where dedup should NOT filter (wantNewConcerts > 0) ──

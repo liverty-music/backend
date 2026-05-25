@@ -370,6 +370,50 @@ func TestConcertRepository_Create(t *testing.T) {
 		require.NotNil(t, got[0].OpenTime, "existing non-NULL open_at must not be overwritten by NULL")
 	})
 
+	t.Run("natural key conflict — existing non-NULL start_at preserved against a different non-NULL incoming value (first-write-wins)", func(t *testing.T) {
+		setupFixtures(t)
+
+		listedVenue := "Zepp DiverCity"
+		seriesID := seedSeries(t, ctx, seriesRepo, "First Write Wins")
+
+		// First insert: confirmed start_at = startTime.
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c09", VenueID: venueID,
+				SeriesID: seriesID, ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime, OpenTime: &openTime,
+			},
+			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/9"},
+			Performers: []*entity.Artist{{ID: artistID}},
+		})
+
+		// Second insert: same natural key with a different non-NULL start_at.
+		// COALESCE(events.start_at, EXCLUDED.start_at) → keeps the first value
+		// because both are non-NULL. This pins the "first write wins" semantic
+		// — Gemini-driven re-scrapes do not silently overwrite a previously-
+		// confirmed time with a fresh extraction. Tradeoff: a known mis-scrape
+		// will not self-correct on a subsequent scrape (operator path covers
+		// that case).
+		laterStart := startTime.Add(2 * time.Hour)
+		_, err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0a", VenueID: venueID,
+				SeriesID: seriesID, ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &laterStart, OpenTime: &openTime,
+			},
+			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/10"},
+			Performers: []*entity.Artist{{ID: artistID}},
+		})
+		require.NoError(t, err)
+
+		got, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].StartTime)
+		require.True(t, got[0].StartTime.Equal(startTime),
+			"non-NULL start_at must NOT be overwritten by a different non-NULL incoming value")
+	})
+
 	t.Run("NULL start_at — same (series_id, local_event_date, venue_id) triggers UPSERT regardless of start_at", func(t *testing.T) {
 		setupFixtures(t)
 
