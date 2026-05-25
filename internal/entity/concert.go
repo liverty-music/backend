@@ -32,13 +32,21 @@ type Concert struct {
 // PerformerIDs returns the IDs of all performers attached to this concert.
 // Convenient for callers that only need identifiers (e.g. mock comparisons,
 // repository writes, or hype checks against followed_artists).
+//
+// Nil entries in Performers (which the type system permits even though the
+// supported insert path rejects them) are skipped silently rather than
+// triggering a nil-pointer panic, so read-side callers can safely call this
+// on any Concert hydrated from external code paths or test fixtures.
 func (c *Concert) PerformerIDs() []string {
 	if len(c.Performers) == 0 {
 		return nil
 	}
-	ids := make([]string, len(c.Performers))
-	for i, p := range c.Performers {
-		ids[i] = p.ID
+	ids := make([]string, 0, len(c.Performers))
+	for _, p := range c.Performers {
+		if p == nil {
+			continue
+		}
+		ids = append(ids, p.ID)
 	}
 	return ids
 }

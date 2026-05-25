@@ -40,15 +40,23 @@ const (
 		RETURNING event_id
 	`
 
-	// insertEventPerformersQuery links events to their performing artists.
-	// Idempotent via ON CONFLICT DO NOTHING so re-runs are safe.
-	// Only inserts links for events whose input UUID actually landed in events
-	// (mirroring the insertConcertsQuery WHERE EXISTS check).
+	// insertEventPerformersQuery links events to their performing artists by
+	// JOINing the events table on the natural key, so it picks up the actual
+	// event row's UUID regardless of whether the caller's input UUID landed
+	// in events (newly inserted) or was discarded in favour of a pre-existing
+	// row (natural-key UPSERT conflict). This makes the M:N insert correct on
+	// re-scrape / lineup-update — a second discovery that adds a new performer
+	// to an already-known event still attaches the new performer to that
+	// event's actual id. Idempotent via ON CONFLICT DO NOTHING.
 	insertEventPerformersQuery = `
 		INSERT INTO event_performers (event_id, artist_id)
-		SELECT a.event_id, a.artist_id
-		FROM unnest($1::uuid[], $2::uuid[]) AS a(event_id, artist_id)
-		WHERE EXISTS (SELECT 1 FROM events e WHERE e.id = a.event_id)
+		SELECT e.id, perf.artist_id
+		FROM unnest($1::uuid[], $2::date[], $3::uuid[], $4::uuid[])
+			AS perf(series_id, local_event_date, venue_id, artist_id)
+		JOIN events e
+			ON e.series_id = perf.series_id
+			AND e.local_event_date = perf.local_event_date
+			AND e.venue_id = perf.venue_id
 		ON CONFLICT DO NOTHING
 	`
 
@@ -65,6 +73,7 @@ const (
 		WHERE EXISTS (
 			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
+		ORDER BY e.local_event_date ASC
 	`
 
 	listUpcomingConcertsByArtistQuery = `
@@ -78,6 +87,7 @@ const (
 			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
 		AND e.local_event_date >= CURRENT_DATE
+		ORDER BY e.local_event_date ASC
 	`
 
 	// listConcertsByArtistsQuery includes venue lat/lng for proximity classification.
@@ -208,6 +218,9 @@ func (r *ConcertRepository) hydratePerformers(ctx context.Context, concerts []*e
 		a := artist
 		c.Performers = append(c.Performers, &a)
 	}
+	if err := rows.Err(); err != nil {
+		return toAppErr(err, "performer iteration ended with error")
+	}
 	return nil
 }
 
@@ -231,6 +244,9 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 			return nil, toAppErr(err, "failed to scan concert")
 		}
 		concerts = append(concerts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
 	rows.Close()
 
@@ -261,6 +277,9 @@ func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*ent
 		}
 		concerts = append(concerts, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
+	}
 	rows.Close()
 
 	if err := r.hydratePerformers(ctx, concerts); err != nil {
@@ -286,6 +305,9 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) (
 		}
 		concerts = append(concerts, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
+	}
 	rows.Close()
 
 	if err := r.hydratePerformers(ctx, concerts); err != nil {
@@ -310,6 +332,9 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 			return nil, toAppErr(err, "failed to scan concert")
 		}
 		concerts = append(concerts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
 	rows.Close()
 
@@ -358,8 +383,18 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	startTimes := make([]*time.Time, n)
 	openTimes := make([]*time.Time, n)
 
-	// Flatten (event_id, artist_id) pairs from each concert's Performers slice.
-	var performerEventIDs, performerArtistIDs []string
+	// Flatten (series_id, local_event_date, venue_id, artist_id) tuples from
+	// each concert's Performers slice. The natural-key triple lets the
+	// insertEventPerformersQuery JOIN onto the actual event row regardless of
+	// whether our input event UUID landed or lost the UPSERT race — this is
+	// what makes re-scrape lineup updates correctly attach to the existing
+	// event id instead of being silently dropped.
+	var (
+		performerSeriesIDs  []string
+		performerEventDates []time.Time
+		performerVenueIDs   []string
+		performerArtistIDs  []string
+	)
 
 	for i, c := range valid {
 		if c.SeriesID == "" {
@@ -379,7 +414,9 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 			if p == nil || p.ID == "" {
 				return nil, apperr.New(codes.InvalidArgument, "performer ID must not be empty")
 			}
-			performerEventIDs = append(performerEventIDs, c.ID)
+			performerSeriesIDs = append(performerSeriesIDs, c.SeriesID)
+			performerEventDates = append(performerEventDates, c.LocalDate)
+			performerVenueIDs = append(performerVenueIDs, c.VenueID)
 			performerArtistIDs = append(performerArtistIDs, p.ID)
 		}
 	}
@@ -409,13 +446,21 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		}
 		insertedIDs = append(insertedIDs, id)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, toAppErr(err, "concert insert RETURNING iteration ended with error",
+			slog.Int("count", n),
+		)
+	}
 	rows.Close()
 
-	if len(performerEventIDs) > 0 {
-		if _, err := tx.Exec(ctx, insertEventPerformersQuery, performerEventIDs, performerArtistIDs); err != nil {
+	if len(performerArtistIDs) > 0 {
+		if _, err := tx.Exec(ctx, insertEventPerformersQuery,
+			performerSeriesIDs, performerEventDates, performerVenueIDs, performerArtistIDs,
+		); err != nil {
 			return nil, toAppErr(err, "failed to insert event_performers",
 				slog.Int("event_count", n),
-				slog.Int("link_count", len(performerEventIDs)),
+				slog.Int("link_count", len(performerArtistIDs)),
 			)
 		}
 	}
