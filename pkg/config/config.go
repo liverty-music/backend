@@ -279,12 +279,84 @@ type GCPConfig struct {
 	// GCP Location (e.g., us-central1)
 	Location string `envconfig:"GCP_LOCATION" default:"us-central1"`
 
-	// Gemini Model Name
+	// Gemini Model Name (legacy, fallback when workload-specific vars are unset).
 	GeminiModel string `envconfig:"GCP_GEMINI_MODEL" default:"gemini-3-flash-preview"`
 
-	// Vertex AI Search Data Store ID (full resource name)
-	// Format: projects/{project}/locations/global/collections/default_collection/dataStores/{data_store_id}
-	VertexAISearchDataStore string `envconfig:"GCP_VERTEX_AI_SEARCH_DATA_STORE"`
+	// Per-step model overrides for the two-step grounded-extract concert
+	// searcher pipeline. Each unset value falls back to the step-specific
+	// default below; defaults are intentionally different per step so
+	// there is no shared workload-wide fallback.
+	//
+	// Step defaults:
+	//   - Step 1 (grounded extract, GoogleSearch + URLContext, no schema): gemini-3.5-flash
+	//   - Step 2 (JSON coerce, responseJsonSchema, no tools): gemini-3.1-flash-lite
+	GeminiSearchModelExtract string `envconfig:"GCP_GEMINI_SEARCH_MODEL_EXTRACT"`
+	GeminiSearchModelParse   string `envconfig:"GCP_GEMINI_SEARCH_MODEL_PARSE"`
+
+	// Gemini Model Name for the email parser workload. Empty falls back to GeminiModel.
+	GeminiParserModel string `envconfig:"GCP_GEMINI_PARSER_MODEL"`
+
+	// Sampling temperature for the concert searcher's GenerateContent call.
+	GeminiSearchTemperature float32 `envconfig:"GCP_GEMINI_SEARCH_TEMPERATURE" default:"1.0"`
+
+	// Thinking level for the concert searcher (Gemini 3 series). Empty leaves the SDK/model
+	// default in place. Accepted: "", "low", "medium", "high".
+	GeminiSearchThinkingLevel string `envconfig:"GCP_GEMINI_SEARCH_THINKING_LEVEL"`
+
+	// Per-step thinking level overrides for the two-step grounded-extract pipeline.
+	// Each unset value falls back to GeminiSearchThinkingLevel. Recommended split
+	// (per docs/gemini-concert-searcher-tuning.md §10.7):
+	//   - Extract (Step 1, grounded search + URLContext): "medium" or "high"
+	//   - Parse   (Step 2, mechanical JSON coercion):     "low"
+	// Accepted: "", "low", "medium", "high".
+	GeminiSearchThinkingExtract string `envconfig:"GCP_GEMINI_SEARCH_THINKING_EXTRACT"`
+	GeminiSearchThinkingParse   string `envconfig:"GCP_GEMINI_SEARCH_THINKING_PARSE"`
+
+	// API key for the Gemini API direct backend (BackendGeminiAPI).
+	// REQUIRED for the concert searcher — Vertex AI does not support
+	// URLContext or GoogleSearch.TimeRangeFilter, which the two-step
+	// grounded-extract pipeline depends on. Get a key at
+	// https://aistudio.google.com/apikey and apply API restrictions
+	// (Generative Language API only) before 2026-06-19.
+	GeminiSearchAPIKey string `envconfig:"GCP_GEMINI_SEARCH_API_KEY"`
+}
+
+// Default models for each step of the two-step grounded-extract search
+// pipeline. Step 1 is grounded (search + URLContext) and benefits from
+// flash's reliability with those tools; Step 2 is a pure text-to-JSON
+// coercion with no tools where lite is cheap and reliable.
+const (
+	defaultSearchModelExtract = "gemini-3.5-flash"
+	defaultSearchModelParse   = "gemini-3.1-flash-lite"
+)
+
+// SearchModelExtract returns the model name for Step 1 (grounded extract:
+// GoogleSearch + URLContext, no schema). Resolution: step-specific env
+// override → built-in default.
+func (c *GCPConfig) SearchModelExtract() string {
+	if c.GeminiSearchModelExtract != "" {
+		return c.GeminiSearchModelExtract
+	}
+	return defaultSearchModelExtract
+}
+
+// SearchModelParse returns the model name for Step 2 (JSON coerce with
+// responseJsonSchema, no tools). Resolution: step-specific env override →
+// built-in default.
+func (c *GCPConfig) SearchModelParse() string {
+	if c.GeminiSearchModelParse != "" {
+		return c.GeminiSearchModelParse
+	}
+	return defaultSearchModelParse
+}
+
+// ParserModel returns the model name for the email parser workload,
+// applying the resolution order: workload-specific → legacy → built-in default.
+func (c *GCPConfig) ParserModel() string {
+	if c.GeminiParserModel != "" {
+		return c.GeminiParserModel
+	}
+	return c.GeminiModel
 }
 
 // BlockchainConfig holds configuration for EVM interactions and the TicketSBT contract.
@@ -400,6 +472,26 @@ func Load[T Loadable]() (*T, error) {
 	return &cfg, nil
 }
 
+// Validate validates the GCPConfig fields:
+//   - GeminiSearchThinkingLevel / Extract / Parse: each must be one of "", "low", "medium", "high"
+func (c *GCPConfig) Validate() error {
+	// validThinkingLevels must mirror the set accepted by
+	// gemini.thinkingLevelFromConfig (searcher.go). Keeping these in sync
+	// prevents a misconfiguration where the env-var passes Validate but
+	// later silently degrades to ThinkingLevelUnspecified at runtime.
+	validThinkingLevels := []string{"", "minimal", "low", "medium", "high"}
+	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingLevel) {
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_LEVEL: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingLevel)
+	}
+	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingExtract) {
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_EXTRACT: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingExtract)
+	}
+	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingParse) {
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_PARSE: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingParse)
+	}
+	return nil
+}
+
 // Validate validates BaseConfig fields shared by all workloads:
 //   - Database port: 1-65535 range
 //   - Environment: local, development, staging, or production
@@ -450,6 +542,10 @@ func (c *ServerConfig) Validate() error {
 		return err
 	}
 
+	if err := c.GCP.Validate(); err != nil {
+		return err
+	}
+
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
 		return fmt.Errorf("invalid server port: %d", c.Server.Port)
 	}
@@ -489,12 +585,19 @@ func (c *ServerConfig) Validate() error {
 // NATS URL is optional because not all jobs require event messaging
 // (e.g., artist-image-sync only needs database access).
 func (c *JobConfig) Validate() error {
-	return c.BaseConfig.Validate()
+	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+	return c.GCP.Validate()
 }
 
 // Validate validates ConsumerConfig including base checks plus NATS URL for non-local environments.
 func (c *ConsumerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+
+	if err := c.GCP.Validate(); err != nil {
 		return err
 	}
 

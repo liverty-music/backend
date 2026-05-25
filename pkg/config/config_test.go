@@ -87,7 +87,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ProjectID:               "test-project",
 					Location:                "us-central1",
 					GeminiModel:             "gemini-3-flash-preview",
-					VertexAISearchDataStore: "test-datastore",
+					GeminiSearchTemperature: 1.0,
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
@@ -178,7 +178,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ProjectID:               "custom-project",
 					Location:                "us-central1",
 					GeminiModel:             "gemini-3-flash-preview",
-					VertexAISearchDataStore: "custom-datastore",
+					GeminiSearchTemperature: 1.0,
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://custom-issuer.com",
@@ -398,5 +398,54 @@ func TestConsumerConfig_Validate(t *testing.T) {
 			},
 		}
 		assert.Error(t, cfg.Validate())
+	})
+}
+
+func TestGCPConfig_ParserModelResolution(t *testing.T) {
+	tests := []struct {
+		name           string
+		geminiModel    string
+		parserOverride string
+		wantParser     string
+	}{
+		{
+			name:           "workload-specific var takes precedence",
+			geminiModel:    "gemini-3-flash-preview",
+			parserOverride: "gemini-3.1-flash-lite",
+			wantParser:     "gemini-3.1-flash-lite",
+		},
+		{
+			name:        "legacy fallback to GeminiModel when override empty",
+			geminiModel: "gemini-3-flash-preview",
+			wantParser:  "gemini-3-flash-preview",
+		},
+		{
+			name:       "all empty leaves it empty (caller must default elsewhere)",
+			wantParser: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := GCPConfig{
+				GeminiModel:       tt.geminiModel,
+				GeminiParserModel: tt.parserOverride,
+			}
+			assert.Equal(t, tt.wantParser, c.ParserModel())
+		})
+	}
+}
+
+func TestGCPConfig_Validate_ThinkingLevel(t *testing.T) {
+	for _, lvl := range []string{"", "low", "medium", "high"} {
+		t.Run("accepts "+lvl, func(t *testing.T) {
+			c := GCPConfig{GeminiSearchThinkingLevel: lvl}
+			assert.NoError(t, c.Validate())
+		})
+	}
+	t.Run("rejects unknown value", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchThinkingLevel: "ultra"}
+		err := c.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GCP_GEMINI_SEARCH_THINKING_LEVEL")
 	})
 }

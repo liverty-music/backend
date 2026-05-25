@@ -1,0 +1,5 @@
+# Harness outputs are git-ignored by default. When committing the result of
+# an A/B run for PR review, force-add with `git add -f <filename>` so reviewers
+# can see the numbers alongside the code change.
+*.json
+*.csv

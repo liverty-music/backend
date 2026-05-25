@@ -95,14 +95,17 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
 	var emailParser entity.TicketEmailParser
-	if cfg.GCP.ProjectID != "" {
+	if cfg.GCP.GeminiSearchAPIKey != "" {
 		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-			ProjectID:   cfg.GCP.ProjectID,
-			Location:    cfg.GCP.Location,
-			ModelName:   cfg.GCP.GeminiModel,
-			DataStoreID: cfg.GCP.VertexAISearchDataStore,
-		}, geminiHTTPClient, true, logger)
+			APIKey:          cfg.GCP.GeminiSearchAPIKey,
+			ModelExtract:    cfg.GCP.SearchModelExtract(),
+			ModelParse:      cfg.GCP.SearchModelParse(),
+			Temperature:     cfg.GCP.GeminiSearchTemperature,
+			ThinkingLevel:   cfg.GCP.GeminiSearchThinkingLevel,
+			ThinkingExtract: cfg.GCP.GeminiSearchThinkingExtract,
+			ThinkingParse:   cfg.GCP.GeminiSearchThinkingParse,
+		}, geminiHTTPClient, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +114,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		parser, err := gemini.NewEmailParser(ctx, gemini.EmailParserConfig{
 			ProjectID: cfg.GCP.ProjectID,
 			Location:  cfg.GCP.Location,
-			ModelName: cfg.GCP.GeminiModel,
+			ModelName: cfg.GCP.ParserModel(),
 		}, geminiHTTPClient, true, logger)
 		if err != nil {
 			return nil, err
