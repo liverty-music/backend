@@ -224,6 +224,25 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
+	// Guard before the Gemini call: an artist row with empty Name or MBID
+	// is a data-integrity problem the discovery pipeline can't recover
+	// from — both fields are required for the proto response (ArtistName
+	// min_len=1, Mbid uuid format) AND for the consumer-side performer
+	// link to validate. Fail fast here so we don't burn a Gemini quota
+	// unit (and re-burn it on every subsequent retry — markSearchFailed
+	// sets the log to "failed", which the IsFresh/IsPending skip check
+	// doesn't catch, so the next CronJob tick re-enters executeSearch
+	// unconditionally). An admin fix to the artist row is the only valid
+	// recovery; surfacing Internal here keeps the error visible in logs.
+	if artist.Name == "" || artist.MBID == "" {
+		return nil, apperr.New(codes.Internal,
+			"artist is missing required fields for discovery",
+			slog.String("artist_id", artistID),
+			slog.Bool("name_empty", artist.Name == ""),
+			slog.Bool("mbid_empty", artist.MBID == ""),
+		)
+	}
+
 	// Get Official Site — missing site is not an error; search continues with nil
 	site, err := uc.artistRepo.GetOfficialSite(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
@@ -270,24 +289,10 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		return nil, nil
 	}
 
-	// Guard against the artist row missing required fields the proto
-	// response demands. ArtistName.value has min_len=1 and Mbid.value has
-	// a uuid constraint in the BSR proto schema (see
-	// specification/proto/liverty_music/entity/v1/artist.proto). If either
-	// is empty the outbound protovalidate would reject the search response
-	// — and the consumer-side ConcertDiscovered handler would persist
-	// performer rows with empty Name/MBID. Fail fast BEFORE the publish so
-	// no invalid concert lands on the bus. (Previously this guard fired
-	// after PublishEvent, so a malformed artist still propagated to the
-	// consumer side even though the search response returned an error.)
-	if artist.Name == "" || artist.MBID == "" {
-		return nil, apperr.New(codes.Internal,
-			"artist is missing required fields for search response",
-			slog.String("artist_id", artistID),
-			slog.Bool("name_empty", artist.Name == ""),
-			slog.Bool("mbid_empty", artist.MBID == ""),
-		)
-	}
+	// Note: the artist.Name / MBID guard fires at the top of executeSearch
+	// (right after artistRepo.Get) so the Gemini call is never reached for
+	// data-quality failures. By the time we get here both fields are
+	// guaranteed non-empty.
 
 	eventData := entity.ConcertDiscoveredData{
 		ArtistID:   artistID,

@@ -162,14 +162,18 @@ func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
 
 	var result ScrapedConcerts
 	for _, s := range ss {
-		// Skip blank-venue scraped entries from dedup tracking. The
-		// downstream creation path treats them as TBA and filters them
-		// out before insert, so they have no natural-key identity to
-		// dedup against — falling through to "match anything with
-		// empty venue" would silently drop legitimate TBA results on
-		// the search-display path.
+		// Drop blank-venue (TBA) scraped entries entirely. They have no
+		// natural-key identity to dedup against on the creation path —
+		// CreateFromDiscovered already skips them with a Warn before
+		// insert — AND they have no useful content for the search path:
+		// ToConcert on the search side produces an empty VenueID / event
+		// ID, so the client receives malformed concert rows with empty
+		// wrappers (potentially violating the proto venue_id min_len
+		// constraint). Letting them through earlier let multiple TBA
+		// entries on the same date all surface as separate broken rows
+		// since they bypassed the seen map. Dropping at the FilterNew
+		// boundary is the single chokepoint for both downstream consumers.
 		if s.ListedVenueName == "" {
-			result = append(result, s)
 			continue
 		}
 		k := key{date: s.LocalDate.Format("2006-01-02"), venue: s.ListedVenueName}

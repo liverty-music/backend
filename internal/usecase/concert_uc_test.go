@@ -299,7 +299,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
-				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID}, nil).Once()
+				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, apperr.ErrInternal).Once()

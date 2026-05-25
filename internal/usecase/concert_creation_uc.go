@@ -87,6 +87,21 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			)
 			continue
 		}
+		if sc.Title == "" {
+			// Skip empty-title entries: SeriesRepository.Create rejects
+			// `Title == ""` with InvalidArgument, which propagates out of
+			// CreateFromDiscovered and aborts the entire Pub/Sub batch —
+			// every valid concert in the same message is then lost on the
+			// Pub/Sub retry. Per-concert skip with a Warn keeps the rest
+			// of the batch persisting and surfaces the upstream data issue.
+			uc.logger.Warn(ctx, "skipping concert: empty title from Gemini",
+				slog.String("artist_id", data.ArtistID),
+				slog.String("listed_venue_name", sc.ListedVenueName),
+				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
+				slog.String("source_url", sc.SourceURL),
+			)
+			continue
+		}
 		venueID, venue, skip, err := uc.resolveVenue(ctx, sc.ListedVenueName, sc.AdminArea, newVenues)
 		if err != nil {
 			return fmt.Errorf("resolve venue %q: %w", sc.ListedVenueName, err)
