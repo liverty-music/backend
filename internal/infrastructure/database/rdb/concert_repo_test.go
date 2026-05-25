@@ -454,6 +454,73 @@ func TestConcertRepository_Create(t *testing.T) {
 			"non-NULL start_at must NOT be overwritten by a different non-NULL incoming value")
 	})
 
+	t.Run("co-headliner — second artist's discovery returns the existing event id via linkedEventIDs", func(t *testing.T) {
+		// Co-headliner notification path:
+		// 1. Artist A is discovered; Create inserts a new event row and
+		//    insertConcertsQuery returns its UUID. linkedEventIDs from
+		//    insertEventPerformersQuery RETURNING ALSO includes that
+		//    same UUID (the new (event, A) link).
+		// 2. Artist B is discovered for the same real-world concert.
+		//    upsertEventsQuery's natural-key UPSERT keeps the existing
+		//    event row, so insertConcertsQuery's WHERE EXISTS filters out
+		//    B's phantom input UUID — insertedIDs is empty. But the
+		//    natural-key JOIN in insertEventPerformersQuery resolves to
+		//    the existing event's UUID and RETURNS it (the new (event, B)
+		//    link is genuinely new). The deduped union surfaces that
+		//    event for B's followers — without the RETURNING path, B's
+		//    followers would never be notified.
+		setupFixtures(t)
+		artistB := "018b2f19-e591-7d12-bf9e-f0e74f1b49a2"
+		_, err := artistRepo.Create(ctx, &entity.Artist{
+			ID: artistB, Name: "Co-Headliner B",
+			MBID: "bbbbbbbb-bbbb-bbbb-bbbb-f0e74f1b49a2",
+		})
+		require.NoError(t, err)
+
+		listedVenue := "Zepp DiverCity"
+		seriesID := seedSeries(t, ctx, seriesRepo, "Shared Co-Headliner Series")
+
+		// Artist A creates the event.
+		aIDs, err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0d", VenueID: venueID,
+				SeriesID: seriesID, ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime,
+			},
+			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/coh-a"},
+			Performers: []*entity.Artist{{ID: artistID}},
+		})
+		require.NoError(t, err)
+		require.Len(t, aIDs, 1, "artist A's discovery should surface the new event id")
+
+		// Artist B's discovery: same series+venue+date, fresh input UUID
+		// for the event, B as the only performer.
+		bIDs, err := concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0e", VenueID: venueID,
+				SeriesID: seriesID, ListedVenueName: &listedVenue,
+				LocalDate: concertDate, StartTime: &startTime,
+			},
+			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/coh-b"},
+			Performers: []*entity.Artist{{ID: artistB}},
+		})
+		require.NoError(t, err)
+		require.Len(t, bIDs, 1,
+			"artist B's discovery must surface the existing event id so B's followers get notified")
+		assert.Equal(t, aIDs[0], bIDs[0],
+			"linkedEventIDs must resolve to the pre-existing event row id, not B's phantom input UUID")
+
+		// Verify both artists are now linked to the same event.
+		gotA, err := concertRepo.ListByArtist(ctx, artistID, false)
+		require.NoError(t, err)
+		require.Len(t, gotA, 1)
+		gotB, err := concertRepo.ListByArtist(ctx, artistB, false)
+		require.NoError(t, err)
+		require.Len(t, gotB, 1)
+		assert.Equal(t, gotA[0].ID, gotB[0].ID,
+			"both artists should resolve to the same event row")
+	})
+
 	t.Run("NULL start_at — same (series_id, local_event_date, venue_id) triggers UPSERT regardless of start_at", func(t *testing.T) {
 		setupFixtures(t)
 
