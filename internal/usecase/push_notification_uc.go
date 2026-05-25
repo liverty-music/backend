@@ -153,6 +153,17 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	// the debug RPC path and bad publisher state on the event path.
 	hasPerformer := make(map[string]bool, len(concerts))
 	for _, c := range concerts {
+		// Data anomaly: an event row exists but hydratePerformers returned
+		// zero links. The membership check still resolves to false (the
+		// artist legitimately isn't a performer), but the absence is worth
+		// surfacing because it indicates an orphan event_performers state
+		// that the discovery pipeline should not produce.
+		if len(c.Performers) == 0 {
+			uc.logger.Warn(ctx, "concert has no performers after hydration",
+				slog.String("concert_id", c.ID),
+				slog.String("artist_id", data.ArtistID),
+			)
+		}
 		hasPerformer[c.ID] = false
 		for _, p := range c.Performers {
 			if p != nil && p.ID == data.ArtistID {

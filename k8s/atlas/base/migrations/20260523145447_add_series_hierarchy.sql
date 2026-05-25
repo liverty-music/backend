@@ -23,13 +23,13 @@ CREATE TABLE "series" (
   "type" "series_type" NOT NULL,
   "source_url" text NULL,
   PRIMARY KEY ("id"),
-  CONSTRAINT "chk_series_id_uuidv7" CHECK ("substring"((id)::text, 15, 1) = '7'::text),
+  CONSTRAINT "chk_series_id_uuid_v5_or_v7" CHECK ("substring"((id)::text, 15, 1) = ANY (ARRAY['5'::text, '7'::text])),
   CONSTRAINT "chk_series_title_not_empty" CHECK (title <> ''::text)
 );
 -- Set comment to table: "series"
 COMMENT ON TABLE "series" IS 'Parent aggregation above events. Owns metadata shared across every event in a tour, festival, or multi-day single-venue run.';
 -- Set comment to column: "id" on table: "series"
-COMMENT ON COLUMN "series"."id" IS 'Unique series identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN "series"."id" IS 'Unique series identifier. UUIDv7 for synthetic (search-path) IDs; UUIDv5 for content-addressed deterministic IDs from auto-discovery (so a re-discovered concert produces the same series UUID and the events natural-key UPSERT deduplicates across runs).';
 -- Set comment to column: "title" on table: "series"
 COMMENT ON COLUMN "series"."title" IS 'Series title shared across all member events (e.g. tour name, festival name)';
 -- Set comment to column: "type" on table: "series"

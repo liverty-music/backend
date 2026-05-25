@@ -77,6 +77,12 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 		if s.Type == "" {
 			return nil, apperr.New(codes.InvalidArgument, "series type must not be empty")
 		}
+		switch s.Type {
+		case entity.SeriesTypeTour, entity.SeriesTypeSingle, entity.SeriesTypeFestival:
+			// valid
+		default:
+			return nil, apperr.New(codes.InvalidArgument, "series type is not a recognised value: "+string(s.Type))
+		}
 		ids[i] = s.ID
 		titles[i] = s.Title
 		types[i] = string(s.Type)

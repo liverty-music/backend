@@ -1,4 +1,4 @@
-h1:++IK5fiPvQ9qj/a+x25q5PKqgbGIRUchqSuywqZdyac=
+h1:tPEmmkIex0k+KAmjL5fiZAHHnNRL+yEkQ8CbnbPROYQ=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -54,4 +54,4 @@ h1:++IK5fiPvQ9qj/a+x25q5PKqgbGIRUchqSuywqZdyac=
 20260427081142_truncate_users_for_zitadel_migration.sql h1:E4C/6gWXCrFqaXPT/kZ+12+or3iIWrITtLGIRHKj9vI=
 20260520120000_change_default_hype_to_nearby.sql h1:Ajn8f4CdBt+GkM2TGDTNI+ad+LrEp+gPamBzBNiF5VQ=
 20260521083536_drop_users_preferred_language_default.sql h1:FMjScRBRZqefpPxyJ8BGYaAZ34D7omn25V1SXBY6gts=
-20260523145447_add_series_hierarchy.sql h1:3b2AE6XPvFm/Pb67i1Oj/SfAaO7hQnWskJ+s/24xGFo=
+20260523145447_add_series_hierarchy.sql h1:oEn1OrF2g2ps+Va7HKNvfa14s4OkzTI6CHRZ+klEViA=
