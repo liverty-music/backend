@@ -68,6 +68,9 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 	sourceURLs := make([]*string, n)
 
 	for i, s := range valid {
+		if s.ID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "series ID must not be empty")
+		}
 		if s.Title == "" {
 			return nil, apperr.New(codes.InvalidArgument, "series title must not be empty")
 		}

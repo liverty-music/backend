@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -288,12 +289,18 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 	)
 
 	// Build Concert entities from the deduplicated scraped data to return to the caller.
-	// All IDs are empty because this is the search path: the returned concerts are
-	// for immediate display, not persistence. SeriesType defaults to SINGLE on the
-	// shell Series ToConcert constructs.
+	// Event / Venue IDs stay empty because the search path returns concerts for
+	// immediate display rather than persistence. The series ID is generated
+	// (UUIDv7) on the fly so the embedded SeriesId carries a valid UUID and
+	// passes the response-side protovalidate guards; the synthetic ID has no
+	// referent in the DB and is discarded by the client after rendering.
 	concerts := make([]*entity.Concert, 0, len(newScraped))
 	for _, s := range newScraped {
-		concerts = append(concerts, s.ToConcert(artistID, "", "", ""))
+		syntheticSeriesID, err := uuid.NewV7()
+		if err != nil {
+			return nil, fmt.Errorf("generate synthetic series ID for search response: %w", err)
+		}
+		concerts = append(concerts, s.ToConcert(artistID, syntheticSeriesID.String(), "", ""))
 	}
 	return concerts, nil
 }
