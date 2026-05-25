@@ -196,14 +196,17 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 // executeSearch performs the actual Gemini search, deduplication, and event publishing.
 // It returns the newly discovered concerts and updates the search log status on exit.
 //
-// Deduplication uses date-only matching: one event per artist per date.
-// An artist cannot perform at two venues simultaneously on the same day.
+// Deduplication uses `(local_event_date, listed_venue_name)` matching via
+// `entity.ScrapedConcerts.FilterNew`, aligned with the DB-level natural key
+// `UNIQUE (series_id, local_event_date, venue_id)` enforced by the events
+// table (added in migration `20260523145447_add_series_hierarchy`). The pre-
+// v0.41.0 per-artist constraint `(artist_id, local_event_date)` was dropped
+// in that migration alongside the singular events.artist_id column.
 //
-// The seenDate set tracks dates already occupied by existing or earlier-scraped
-// concerts. Any scraped concert whose date is already seen is filtered out,
-// regardless of start_at value. The DB constraint (artist_id, local_event_date)
-// provides the same guarantee; this application-level check avoids unnecessary
-// publish/UPSERT round-trips.
+// The application-level FilterNew check on `(date, listed_venue_name)` avoids
+// unnecessary publish/UPSERT round-trips for re-scrapes; the DB natural key
+// is the source of truth and uses the resolved `venue_id` instead of the raw
+// listed name, so the application key is a best-effort upstream filter.
 func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_ []*entity.Concert, err error) {
 	defer func() {
 		if err != nil {

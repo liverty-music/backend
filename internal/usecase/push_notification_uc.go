@@ -206,6 +206,16 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		concerts = kept
 	}
 
+	// If every concert was an orphan, there's nothing real to notify
+	// about — short-circuit before the hype loop. Without this guard,
+	// HypeAway.ShouldNotify returns true unconditionally and every
+	// HypeAway follower receives a push with a "0 new concerts" payload
+	// (NewConcertNotificationPayload formats the count from
+	// len(concerts)).
+	if len(concerts) == 0 {
+		return nil
+	}
+
 	// 1. Retrieve all followers with their hype level and home area.
 	followers, err := uc.followRepo.ListFollowers(ctx, artist.ID)
 	if err != nil {

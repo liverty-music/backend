@@ -111,6 +111,20 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 			slog.Int("count", n),
 		)
 	}
+	// `ON CONFLICT (id) DO NOTHING` silently drops the caller's title +
+	// source_url when a series row with the same content-addressed id
+	// already exists (the co-headliner case: artist B's discovery
+	// re-computes the same UUID v5 as artist A's earlier run). Surface
+	// the discard so ops can investigate if the rejected count is
+	// abnormally high — typical re-deliveries account for a few %, but
+	// a sustained gap suggests upstream data churn or a key-derivation
+	// regression.
+	if len(insertedIDs) < n {
+		r.db.logger.Warn(ctx, "some series rows already existed; title/source_url from caller not applied",
+			slog.Int("submitted", n),
+			slog.Int("inserted", len(insertedIDs)),
+		)
+	}
 	return insertedIDs, nil
 }
 
