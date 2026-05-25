@@ -23,8 +23,7 @@ import (
 const (
 	abEvalEnvVar                = "GEMINI_AB_EVAL"
 	abEvalSmokeEnvVar           = "GEMINI_AB_EVAL_SMOKE"
-	abEvalGCPVar                = "GCP_PROJECT_ID"
-	abEvalAPIKeyVar             = "GCP_GEMINI_SEARCH_API_KEY"       // optional: enables Gemini API direct backend
+	abEvalAPIKeyVar             = "GCP_GEMINI_SEARCH_API_KEY"       // REQUIRED: Gemini API direct is the only supported backend
 	abEvalModelsEnvVar          = "GEMINI_AB_EVAL_MODELS"           // CSV; empty = all built-in models
 	abEvalArtistsEnvVar         = "GEMINI_AB_EVAL_ARTISTS"          // CSV of artist names; empty = all fixture artists
 	abEvalThinkingEnvVar        = "GEMINI_AB_EVAL_THINKING"         // uniform thinking; "" = default medium
@@ -235,9 +234,9 @@ func TestConcertSearcher_ABEval(t *testing.T) {
 	if os.Getenv(abEvalEnvVar) != "1" {
 		t.Skipf("matrix A/B harness is opt-in: set %s=1 to run", abEvalEnvVar)
 	}
-	projectID := os.Getenv(abEvalGCPVar)
-	if projectID == "" {
-		t.Fatalf("%s must be set to a GCP project with Vertex AI + grounding enabled", abEvalGCPVar)
+	apiKey := os.Getenv(abEvalAPIKeyVar)
+	if apiKey == "" {
+		t.Fatalf("%s must be set; Gemini API direct is the only supported backend for the concert searcher", abEvalAPIKeyVar)
 	}
 
 	ctx := context.Background()
@@ -300,7 +299,7 @@ func TestConcertSearcher_ABEval(t *testing.T) {
 		t.Logf("[%d/%d] model=%s temp=%.1f thinking=%s artist=%s rep=%d",
 			i+1, len(cells), cell.Model, cell.Temperature, cell.Thinking, cell.Artist.Name, cell.Repetition)
 
-		res := runCell(ctx, t, logger, projectID, cell, from, rawDir, i+1)
+		res := runCell(ctx, t, logger, cell, from, rawDir, i+1)
 		results = append(results, res)
 		totalCost += res.CostUSD
 		snapshot()
@@ -328,7 +327,6 @@ func runCell(
 	ctx context.Context,
 	t *testing.T,
 	logger *logging.Logger,
-	projectID string,
 	cell abCell,
 	from time.Time,
 	rawDir string,
@@ -359,17 +357,14 @@ func runCell(
 		parseModel = m
 	}
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID:       projectID,
-		Location:        "global",
-		ModelName:       cell.Model,
+		APIKey:          os.Getenv(abEvalAPIKeyVar),
 		ModelExtract:    extractModel,
 		ModelParse:      parseModel,
 		Temperature:     cell.Temperature,
 		ThinkingLevel:   cell.Thinking,
 		ThinkingExtract: strings.TrimSpace(os.Getenv(abEvalThinkingExtractEnvVar)),
 		ThinkingParse:   strings.TrimSpace(os.Getenv(abEvalThinkingParseEnvVar)),
-		APIKey:          os.Getenv(abEvalAPIKeyVar), // empty → Vertex AI; set → Gemini API direct
-	}, nil, true, logger)
+	}, nil, logger)
 	if err != nil {
 		res.Error = "construct searcher: " + err.Error()
 		writeRawResponse(t, rawDir, cellIdx, cell, nil, nil, res.Error)

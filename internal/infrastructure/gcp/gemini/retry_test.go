@@ -71,8 +71,8 @@ func TestSearch_RetryOnTransientError(t *testing.T) {
 
 	httpClient := &http.Client{Transport: &rewriteTransport{URL: ts.URL}}
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID: "test", Location: "us-central1", ModelName: "gemini-pro",
-	}, httpClient, false, logger)
+		APIKey: "test", ModelExtract: "gemini-pro", ModelParse: "gemini-pro",
+	}, httpClient, logger)
 	require.NoError(t, err)
 
 	got, err := s.Search(ctx, artist, officialSite, from)
@@ -109,8 +109,8 @@ func TestSearch_AllRetriesExhausted(t *testing.T) {
 
 	httpClient := &http.Client{Transport: &rewriteTransport{URL: ts.URL}}
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID: "test", Location: "us-central1", ModelName: "gemini-pro",
-	}, httpClient, false, logger)
+		APIKey: "test", ModelExtract: "gemini-pro", ModelParse: "gemini-pro",
+	}, httpClient, logger)
 	require.NoError(t, err)
 
 	got, err := s.Search(ctx, artist, officialSite, from)
@@ -153,8 +153,8 @@ func TestSearch_NonRetryableErrorStopsImmediately(t *testing.T) {
 
 	httpClient := &http.Client{Transport: &rewriteTransport{URL: ts.URL}}
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID: "test", Location: "us-central1", ModelName: "gemini-pro",
-	}, httpClient, false, logger)
+		APIKey: "test", ModelExtract: "gemini-pro", ModelParse: "gemini-pro",
+	}, httpClient, logger)
 	require.NoError(t, err)
 
 	got, err := s.Search(ctx, artist, officialSite, from)
@@ -193,8 +193,8 @@ func TestSearch_ContextCancellationStopsRetry(t *testing.T) {
 
 	httpClient := &http.Client{Transport: &rewriteTransport{URL: ts.URL}}
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID: "test", Location: "us-central1", ModelName: "gemini-pro",
-	}, httpClient, false, logger)
+		APIKey: "test", ModelExtract: "gemini-pro", ModelParse: "gemini-pro",
+	}, httpClient, logger)
 	require.NoError(t, err)
 
 	got, err := s.Search(ctx, artist, officialSite, from)

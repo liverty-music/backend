@@ -487,10 +487,10 @@ func TestConcertSearcher_Search(t *testing.T) {
 			}
 
 			s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-				ProjectID: "test",
-				Location:  "us-central1",
-				ModelName: "gemini-pro",
-			}, httpClient, false, logger)
+				APIKey:       "test",
+				ModelExtract: "gemini-pro",
+				ModelParse:   "gemini-pro",
+			}, httpClient, logger)
 			require.NoError(t, err)
 
 			got, err := s.Search(ctx, artist, officialSite, from)
@@ -576,10 +576,10 @@ func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
 	}
 
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID: "test",
-		Location:  "us-central1",
-		ModelName: "gemini-pro",
-	}, httpClient, false, logger)
+		APIKey:       "test",
+		ModelExtract: "gemini-pro",
+		ModelParse:   "gemini-pro",
+	}, httpClient, logger)
 	require.NoError(t, err)
 
 	// nil officialSite — Step 1 still runs (grounded search), emits a
@@ -631,10 +631,10 @@ func TestConcertSearcher_Search_InvalidJSON_Permanent(t *testing.T) {
 	defer ts.Close()
 
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID: "test",
-		Location:  "us-central1",
-		ModelName: "gemini-pro",
-	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, false, logger)
+		APIKey:       "test",
+		ModelExtract: "gemini-pro",
+		ModelParse:   "gemini-pro",
+	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, logger)
 	require.NoError(t, err)
 
 	got, err := s.Search(ctx, artist, officialSite, from)
@@ -668,10 +668,10 @@ func TestConcertSearcher_Search_StructuralMismatch(t *testing.T) {
 	defer ts.Close()
 
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		ProjectID: "test",
-		Location:  "us-central1",
-		ModelName: "gemini-pro",
-	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, false, logger)
+		APIKey:       "test",
+		ModelExtract: "gemini-pro",
+		ModelParse:   "gemini-pro",
+	}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, logger)
 	require.NoError(t, err)
 
 	got, err := s.Search(ctx, artist, officialSite, from)
@@ -736,12 +736,12 @@ func TestConcertSearcher_Search_ConfigHonored(t *testing.T) {
 			defer ts.Close()
 
 			s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-				ProjectID:     "test",
-				Location:      "us-central1",
-				ModelName:     "gemini-pro",
+				APIKey:        "test",
+				ModelExtract:  "gemini-pro",
+				ModelParse:    "gemini-pro",
 				Temperature:   tt.temperature,
 				ThinkingLevel: tt.thinkingLevel,
-			}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, false, logger)
+			}, &http.Client{Transport: &rewriteTransport{URL: ts.URL}}, logger)
 			require.NoError(t, err)
 
 			_, err = s.Search(ctx, artist, officialSite, from)

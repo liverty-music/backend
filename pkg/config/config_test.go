@@ -88,7 +88,6 @@ func TestLoad_ServerConfig(t *testing.T) {
 					Location:                "us-central1",
 					GeminiModel:             "gemini-3-flash-preview",
 					GeminiSearchTemperature: 1.0,
-					VertexAISearchDataStore: "test-datastore",
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
@@ -180,7 +179,6 @@ func TestLoad_ServerConfig(t *testing.T) {
 					Location:                "us-central1",
 					GeminiModel:             "gemini-3-flash-preview",
 					GeminiSearchTemperature: 1.0,
-					VertexAISearchDataStore: "custom-datastore",
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://custom-issuer.com",
@@ -403,39 +401,26 @@ func TestConsumerConfig_Validate(t *testing.T) {
 	})
 }
 
-func TestGCPConfig_SearchModelResolution(t *testing.T) {
+func TestGCPConfig_ParserModelResolution(t *testing.T) {
 	tests := []struct {
 		name           string
 		geminiModel    string
-		searchOverride string
 		parserOverride string
-		wantSearch     string
 		wantParser     string
 	}{
 		{
-			name:           "workload-specific vars take precedence",
+			name:           "workload-specific var takes precedence",
 			geminiModel:    "gemini-3-flash-preview",
-			searchOverride: "gemini-3.1-flash-lite",
-			parserOverride: "gemini-3-flash-preview",
-			wantSearch:     "gemini-3.1-flash-lite",
-			wantParser:     "gemini-3-flash-preview",
+			parserOverride: "gemini-3.1-flash-lite",
+			wantParser:     "gemini-3.1-flash-lite",
 		},
 		{
-			name:        "legacy fallback applies to both",
+			name:        "legacy fallback to GeminiModel when override empty",
 			geminiModel: "gemini-3-flash-preview",
-			wantSearch:  "gemini-3-flash-preview",
 			wantParser:  "gemini-3-flash-preview",
 		},
 		{
-			name:           "search override + legacy fallback for parser",
-			geminiModel:    "gemini-3-flash-preview",
-			searchOverride: "gemini-3.1-flash-lite",
-			wantSearch:     "gemini-3.1-flash-lite",
-			wantParser:     "gemini-3-flash-preview",
-		},
-		{
-			name:       "all empty leaves both empty (caller must default elsewhere)",
-			wantSearch: "",
+			name:       "all empty leaves it empty (caller must default elsewhere)",
 			wantParser: "",
 		},
 	}
@@ -443,10 +428,8 @@ func TestGCPConfig_SearchModelResolution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			c := GCPConfig{
 				GeminiModel:       tt.geminiModel,
-				GeminiSearchModel: tt.searchOverride,
 				GeminiParserModel: tt.parserOverride,
 			}
-			assert.Equal(t, tt.wantSearch, c.SearchModel())
 			assert.Equal(t, tt.wantParser, c.ParserModel())
 		})
 	}

@@ -282,15 +282,10 @@ type GCPConfig struct {
 	// Gemini Model Name (legacy, fallback when workload-specific vars are unset).
 	GeminiModel string `envconfig:"GCP_GEMINI_MODEL" default:"gemini-3-flash-preview"`
 
-	// Gemini Model Name for the concert searcher workload. Empty falls back to GeminiModel.
-	// Retained as a legacy fallback for any caller that has not migrated to
-	// the per-step Extract / Parse overrides below.
-	GeminiSearchModel string `envconfig:"GCP_GEMINI_SEARCH_MODEL"`
-
 	// Per-step model overrides for the two-step grounded-extract concert
 	// searcher pipeline. Each unset value falls back to the step-specific
-	// default below (no GeminiSearchModel fallback — defaults are
-	// intentionally different per step).
+	// default below; defaults are intentionally different per step so
+	// there is no shared workload-wide fallback.
 	//
 	// Step defaults:
 	//   - Step 1 (grounded extract, GoogleSearch + URLContext, no schema): gemini-3.5-flash
@@ -318,25 +313,12 @@ type GCPConfig struct {
 	GeminiSearchThinkingParse   string `envconfig:"GCP_GEMINI_SEARCH_THINKING_PARSE"`
 
 	// API key for the Gemini API direct backend (BackendGeminiAPI).
-	// When set, ConcertSearcher uses Gemini API direct instead of Vertex AI,
-	// enabling URLContext / TimeRangeFilter / ExcludeDomains features that
-	// the Vertex AI backend does not support. Empty falls back to Vertex AI
-	// with ADC. Get a key at https://aistudio.google.com/apikey and apply
-	// API restrictions (Generative Language API only) before 2026-06-19.
+	// REQUIRED for the concert searcher — Vertex AI does not support
+	// URLContext or GoogleSearch.TimeRangeFilter, which the two-step
+	// grounded-extract pipeline depends on. Get a key at
+	// https://aistudio.google.com/apikey and apply API restrictions
+	// (Generative Language API only) before 2026-06-19.
 	GeminiSearchAPIKey string `envconfig:"GCP_GEMINI_SEARCH_API_KEY"`
-
-	// Vertex AI Search Data Store ID (full resource name)
-	// Format: projects/{project}/locations/global/collections/default_collection/dataStores/{data_store_id}
-	VertexAISearchDataStore string `envconfig:"GCP_VERTEX_AI_SEARCH_DATA_STORE"`
-}
-
-// SearchModel returns the model name for the concert searcher workload,
-// applying the resolution order: workload-specific → legacy → built-in default.
-func (c *GCPConfig) SearchModel() string {
-	if c.GeminiSearchModel != "" {
-		return c.GeminiSearchModel
-	}
-	return c.GeminiModel
 }
 
 // Default models for each step of the two-step grounded-extract search

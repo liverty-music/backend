@@ -26,20 +26,21 @@ import (
 var errInvalidJSON = errors.New("gemini returned invalid JSON")
 
 // Config holds the configuration for Gemini searcher.
+//
+// The searcher exclusively targets the Gemini API direct backend
+// (BackendGeminiAPI). The two-step grounded-extract pipeline depends on
+// URLContext and GoogleSearch.TimeRangeFilter, neither of which is
+// supported on Vertex AI; APIKey is therefore required.
 type Config struct {
-	ProjectID   string
-	Location    string
-	DataStoreID string
-
-	// ModelName is the legacy fallback used when per-step model names are
-	// unset.
-	ModelName string
+	// APIKey selects the Gemini API direct backend. REQUIRED — no Vertex
+	// AI fallback exists for this workload.
+	APIKey string
 
 	// Per-step model names for the two-step pipeline.
 	//   - ModelExtract: Step 1 (grounded search + verbatim extract —
 	//     GoogleSearch + URLContext, no schema).
 	//   - ModelParse:   Step 2 (structured-output JSON parse, no tools).
-	// Empty fields fall back to ModelName.
+	// Both REQUIRED — the constructor errors on empty.
 	ModelExtract string
 	ModelParse   string
 
@@ -59,25 +60,10 @@ type Config struct {
 	//   - Parse:   "low" (mechanical transformation; schema bounds output)
 	ThinkingExtract string
 	ThinkingParse   string
-
-	// APIKey, when non-empty, selects the Gemini API direct backend.
-	// Required for URLContext / TimeRangeFilter / ExcludeDomains (not
-	// supported via Vertex AI).
-	APIKey string
 }
 
-func (c *Config) modelExtract() string {
-	if c.ModelExtract != "" {
-		return c.ModelExtract
-	}
-	return c.ModelName
-}
-func (c *Config) modelParse() string {
-	if c.ModelParse != "" {
-		return c.ModelParse
-	}
-	return c.ModelName
-}
+func (c *Config) modelExtract() string { return c.ModelExtract }
+func (c *Config) modelParse() string   { return c.ModelParse }
 
 // thinkingExtract / thinkingParse resolve the per-step thinking level
 // with fallback to the legacy ThinkingLevel field.
@@ -513,36 +499,26 @@ type URLRetrieval struct {
 
 // NewConcertSearcher creates a new ConcertSearcher.
 //
-// Backend selection:
-//   - cfg.APIKey != "": Gemini API direct (unlocks URLContext, TimeRangeFilter).
-//   - cfg.APIKey == "": Vertex AI with ADC.
-//
-// The constructor fast-fails when either per-step model name resolves to the
-// empty string (a future DI path dropping the wiring while ModelName is also
-// empty); without this guard a misconfigured Config would only surface as an
-// opaque Gemini API error on the first Search call.
-func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client, useADC bool, logger *logging.Logger) (*ConcertSearcher, error) {
-	if cfg.modelExtract() == "" {
-		return nil, fmt.Errorf("gemini.NewConcertSearcher: ModelExtract is empty (no per-step override and ModelName fallback is empty); set GCP_GEMINI_SEARCH_MODEL_EXTRACT or GCP_GEMINI_SEARCH_MODEL")
+// The constructor fast-fails when APIKey, ModelExtract, or ModelParse is
+// empty. The two-step pipeline targets the Gemini API direct backend
+// exclusively (Vertex AI does not support URLContext or
+// GoogleSearch.TimeRangeFilter), so a missing APIKey would only surface
+// as an opaque API error on the first Search call.
+func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client, logger *logging.Logger) (*ConcertSearcher, error) {
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("gemini.NewConcertSearcher: APIKey is empty; set GCP_GEMINI_SEARCH_API_KEY (Gemini API direct is the only supported backend for this workload)")
 	}
-	if cfg.modelParse() == "" {
-		return nil, fmt.Errorf("gemini.NewConcertSearcher: ModelParse is empty (no per-step override and ModelName fallback is empty); set GCP_GEMINI_SEARCH_MODEL_PARSE or GCP_GEMINI_SEARCH_MODEL")
+	if cfg.ModelExtract == "" {
+		return nil, fmt.Errorf("gemini.NewConcertSearcher: ModelExtract is empty; set GCP_GEMINI_SEARCH_MODEL_EXTRACT (Step 1 grounded extract model)")
+	}
+	if cfg.ModelParse == "" {
+		return nil, fmt.Errorf("gemini.NewConcertSearcher: ModelParse is empty; set GCP_GEMINI_SEARCH_MODEL_PARSE (Step 2 JSON coerce model)")
 	}
 
-	cc := &genai.ClientConfig{HTTPClient: httpClient}
-
-	if cfg.APIKey != "" {
-		cc.Backend = genai.BackendGeminiAPI
-		cc.APIKey = cfg.APIKey
-	} else {
-		cc.Backend = genai.BackendVertexAI
-		cc.Project = cfg.ProjectID
-		cc.Location = cfg.Location
-		if httpClient != nil && useADC {
-			if err := cc.UseDefaultCredentials(); err != nil {
-				return nil, fmt.Errorf("setup default credentials: %w", err)
-			}
-		}
+	cc := &genai.ClientConfig{
+		HTTPClient: httpClient,
+		Backend:    genai.BackendGeminiAPI,
+		APIKey:     cfg.APIKey,
 	}
 
 	client, err := genai.NewClient(ctx, cc)
