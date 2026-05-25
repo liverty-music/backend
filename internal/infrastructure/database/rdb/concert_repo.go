@@ -112,6 +112,7 @@ const (
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
 		WHERE e.id = ANY($1)
+		ORDER BY e.local_event_date ASC
 	`
 
 	// listConcertsByFollowerQuery joins followed_artists via event_performers.
