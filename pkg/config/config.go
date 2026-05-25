@@ -475,15 +475,19 @@ func Load[T Loadable]() (*T, error) {
 // Validate validates the GCPConfig fields:
 //   - GeminiSearchThinkingLevel / Extract / Parse: each must be one of "", "low", "medium", "high"
 func (c *GCPConfig) Validate() error {
-	validThinkingLevels := []string{"", "low", "medium", "high"}
+	// validThinkingLevels must mirror the set accepted by
+	// gemini.thinkingLevelFromConfig (searcher.go). Keeping these in sync
+	// prevents a misconfiguration where the env-var passes Validate but
+	// later silently degrades to ThinkingLevelUnspecified at runtime.
+	validThinkingLevels := []string{"", "minimal", "low", "medium", "high"}
 	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingLevel) {
-		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_LEVEL: %q (allowed: \"\", low, medium, high)", c.GeminiSearchThinkingLevel)
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_LEVEL: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingLevel)
 	}
 	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingExtract) {
-		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_EXTRACT: %q (allowed: \"\", low, medium, high)", c.GeminiSearchThinkingExtract)
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_EXTRACT: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingExtract)
 	}
 	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingParse) {
-		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_PARSE: %q (allowed: \"\", low, medium, high)", c.GeminiSearchThinkingParse)
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_PARSE: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingParse)
 	}
 	return nil
 }
