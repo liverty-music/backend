@@ -1,3 +1,21 @@
+// Coverage status for the two-step grounded-extract pipeline:
+//
+//   - TestParseStep1Envelope_EmptyOrUnparseable at the bottom of this
+//     file locks in the Go-side XML parser's graceful-degradation
+//     contract (spec R8).
+//   - The transport-level retry and invariant tests in this file (and
+//     in retry_test.go) still execute under the new shape; they exercise
+//     network errors only.
+//   - Every test that drove the production happy path end-to-end
+//     (`Search` with mocked Step 1 envelopes and Step 2 JSON, the
+//     index-based join, the (date, venue, start_time) dedup, and the
+//     past-date filter in toScrapedConcert) is currently t.Skip'd
+//     pending a rewrite for the Go-side draft + Step 2 coercion split —
+//     tracked as #303. Until the rewrite lands the only end-to-end
+//     validation of the new pipeline is the live-API smoke harness
+//     gated behind GEMINI_AB_EVAL_SMOKE=1; the 2026-05-24 4-artist
+//     smoke recorded 92/95 effective matches at 100% precision against
+//     ab_ground_truth.json.
 package gemini_test
 
 import (

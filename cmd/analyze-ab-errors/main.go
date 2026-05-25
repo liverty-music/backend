@@ -190,7 +190,11 @@ func main() {
 			fp = append(fp, r)
 		}
 	}
-	fmt.Printf("## False positives: %d / %d returned (%.0f%%)\n\n", len(fp), len(allReturned), 100*float64(len(fp))/float64(len(allReturned)))
+	if len(allReturned) == 0 {
+		fmt.Printf("## False positives: 0 / 0 returned (no events to analyze)\n\n")
+	} else {
+		fmt.Printf("## False positives: %d / %d returned (%.0f%%)\n\n", len(fp), len(allReturned), 100*float64(len(fp))/float64(len(allReturned)))
+	}
 
 	fpReasons := map[string]int{}
 	for _, r := range fp {

@@ -308,6 +308,15 @@ type GCPConfig struct {
 	// default in place. Accepted: "", "low", "medium", "high".
 	GeminiSearchThinkingLevel string `envconfig:"GCP_GEMINI_SEARCH_THINKING_LEVEL"`
 
+	// Per-step thinking level overrides for the two-step grounded-extract pipeline.
+	// Each unset value falls back to GeminiSearchThinkingLevel. Recommended split
+	// (per docs/gemini-concert-searcher-tuning.md §10.7):
+	//   - Extract (Step 1, grounded search + URLContext): "medium" or "high"
+	//   - Parse   (Step 2, mechanical JSON coercion):     "low"
+	// Accepted: "", "low", "medium", "high".
+	GeminiSearchThinkingExtract string `envconfig:"GCP_GEMINI_SEARCH_THINKING_EXTRACT"`
+	GeminiSearchThinkingParse   string `envconfig:"GCP_GEMINI_SEARCH_THINKING_PARSE"`
+
 	// API key for the Gemini API direct backend (BackendGeminiAPI).
 	// When set, ConcertSearcher uses Gemini API direct instead of Vertex AI,
 	// enabling URLContext / TimeRangeFilter / ExcludeDomains features that
@@ -482,11 +491,17 @@ func Load[T Loadable]() (*T, error) {
 }
 
 // Validate validates the GCPConfig fields:
-//   - GeminiSearchThinkingLevel: must be one of "", "low", "medium", "high"
+//   - GeminiSearchThinkingLevel / Extract / Parse: each must be one of "", "low", "medium", "high"
 func (c *GCPConfig) Validate() error {
 	validThinkingLevels := []string{"", "low", "medium", "high"}
 	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingLevel) {
 		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_LEVEL: %q (allowed: \"\", low, medium, high)", c.GeminiSearchThinkingLevel)
+	}
+	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingExtract) {
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_EXTRACT: %q (allowed: \"\", low, medium, high)", c.GeminiSearchThinkingExtract)
+	}
+	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingParse) {
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_PARSE: %q (allowed: \"\", low, medium, high)", c.GeminiSearchThinkingParse)
 	}
 	return nil
 }

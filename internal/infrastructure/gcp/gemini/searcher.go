@@ -439,6 +439,15 @@ type PassMetadata struct {
 	RenderedParts        int
 
 	URLContextRetrieved []URLRetrieval
+
+	// ExhaustedTransient is true when the per-step retry policy ran to the
+	// end with the call still in a transient-error state and the caller
+	// chose to swallow that into an empty result (Step 1 slice → empty
+	// envelope; Step 2 → empty draft list). Surfaced so observability /
+	// alerting can distinguish "model found nothing" (this flag is false)
+	// from "infra failed, output was forced to empty" (this flag is true).
+	// Aggregated by OR in aggregatePassMetadata.
+	ExhaustedTransient bool
 }
 
 // SearchMetadata captures per-call observation data used by the A/B
@@ -507,7 +516,19 @@ type URLRetrieval struct {
 // Backend selection:
 //   - cfg.APIKey != "": Gemini API direct (unlocks URLContext, TimeRangeFilter).
 //   - cfg.APIKey == "": Vertex AI with ADC.
+//
+// The constructor fast-fails when either per-step model name resolves to the
+// empty string (a future DI path dropping the wiring while ModelName is also
+// empty); without this guard a misconfigured Config would only surface as an
+// opaque Gemini API error on the first Search call.
 func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client, useADC bool, logger *logging.Logger) (*ConcertSearcher, error) {
+	if cfg.modelExtract() == "" {
+		return nil, fmt.Errorf("gemini.NewConcertSearcher: ModelExtract is empty (no per-step override and ModelName fallback is empty); set GCP_GEMINI_SEARCH_MODEL_EXTRACT or GCP_GEMINI_SEARCH_MODEL")
+	}
+	if cfg.modelParse() == "" {
+		return nil, fmt.Errorf("gemini.NewConcertSearcher: ModelParse is empty (no per-step override and ModelName fallback is empty); set GCP_GEMINI_SEARCH_MODEL_PARSE or GCP_GEMINI_SEARCH_MODEL")
+	}
+
 	cc := &genai.ClientConfig{HTTPClient: httpClient}
 
 	if cfg.APIKey != "" {
@@ -823,6 +844,7 @@ func (s *ConcertSearcher) runStep1Slice(
 	}
 	if transient {
 		s.logger.Warn(ctx, "step 1 slice exhausted retries with transient error", stepAttrs...)
+		pm.ExhaustedTransient = true
 		return "", pm, nil
 	}
 	return rawText, pm, nil
@@ -853,6 +875,9 @@ func aggregatePassMetadata(slices []*PassMetadata) *PassMetadata {
 		agg.GroundingChunkURLs = append(agg.GroundingChunkURLs, s.GroundingChunkURLs...)
 		agg.RenderedParts += s.RenderedParts
 		agg.URLContextRetrieved = append(agg.URLContextRetrieved, s.URLContextRetrieved...)
+		// ExhaustedTransient is OR-ed across slices: a single slice
+		// exhausting retries is enough to flag the aggregated metadata.
+		agg.ExhaustedTransient = agg.ExhaustedTransient || s.ExhaustedTransient
 		// FinishReason: keep STOP if any slice succeeded; otherwise show
 		// the last non-empty non-STOP reason for diagnostics.
 		if agg.FinishReason == "" || agg.FinishReason == string(genai.FinishReasonStop) {
@@ -991,6 +1016,7 @@ func (s *ConcertSearcher) runStep2Parse(
 	}
 	if transient {
 		s.logger.Warn(ctx, "step 2 exhausted retries, returning empty results", stepAttrs...)
+		pm.ExhaustedTransient = true
 		return nil, pm, nil
 	}
 
@@ -1032,6 +1058,16 @@ func (s *ConcertSearcher) executePass(
 	)
 	rawText, err := backoff.Retry(ctx, func() (string, error) {
 		pm.RetryCount++
+		// Detach from the parent context for the duration of one Gemini call,
+		// then re-impose a per-attempt 120 s budget. Parent cancellation
+		// (handler timeout, SIGTERM on the CronJob) still stops `backoff.Retry`
+		// from scheduling another attempt — the outer `ctx` is what backoff
+		// monitors — so cancellation propagation is preserved at the retry
+		// level. We only protect the in-flight `GenerateContent` from mid-
+		// response cancellation, which would otherwise leave Gemini in an
+		// ambiguous state (URLContext fetch partially started, grounding
+		// chunks recorded but not delivered). Worst-case teardown is one
+		// stuck request × 120 s on top of the parent's deadline.
 		reqCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), geminiCallTimeout)
 		defer cancel()
 
@@ -1323,6 +1359,14 @@ func (s *ConcertSearcher) parseStep2Response(
 	// start_time is part of the key so that two shows on the same date at
 	// the same venue (e.g. Billboard Live 1st stage / 2nd stage) survive
 	// as distinct concerts.
+	//
+	// Note on empty start_time: two concerts that share (local_date, venue)
+	// AND both lack a published start_time will collapse to one row here
+	// (the second is dropped, logged via the "duplicate concert dropped"
+	// WARN below). This is intentional — we prefer to dedup conservatively
+	// when the disambiguator is missing rather than false-positive two
+	// rows. The trade-off is recall loss for the rare case of two genuinely
+	// distinct shows announced before their start times are published.
 	type dedupKey struct {
 		date      string
 		venue     string
@@ -1346,6 +1390,13 @@ func (s *ConcertSearcher) parseStep2Response(
 		}
 		key := dedupKey{date: coerced.LocalDate, venue: draft.Venue, startTime: coerced.StartTime}
 		if _, dup := seen[key]; dup {
+			s.logger.Warn(ctx, "duplicate concert dropped by (local_date, venue, start_time) dedup",
+				append(attrs,
+					slog.String("title", draft.Title),
+					slog.String("date", coerced.LocalDate),
+					slog.String("venue", draft.Venue),
+					slog.String("start_time", coerced.StartTime),
+				)...)
 			continue
 		}
 		seen[key] = struct{}{}
@@ -1429,7 +1480,11 @@ func (s *ConcertSearcher) toScrapedConcert(
 
 	var openTime time.Time
 	if coerced.OpenTime != "" && coerced.OpenTime != "null" {
-		if ot, err := time.Parse(time.RFC3339, coerced.OpenTime); err == nil {
+		if ot, err := time.Parse(time.RFC3339, coerced.OpenTime); err != nil {
+			s.logger.Warn(ctx, "failed to parse event open time, using zero",
+				append(attrs, slog.String("open_time", coerced.OpenTime))...,
+			)
+		} else {
 			openTime = ot
 		}
 	}

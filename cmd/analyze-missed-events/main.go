@@ -49,7 +49,11 @@ func main() {
 	}
 	var tempFilter *float32
 	if len(os.Args) >= 3 && os.Args[2] != "" {
-		v, _ := strconv.ParseFloat(os.Args[2], 32)
+		v, err := strconv.ParseFloat(os.Args[2], 32)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bad temperature %q: %v\n", os.Args[2], err)
+			os.Exit(1)
+		}
 		t := float32(v)
 		tempFilter = &t
 	}
