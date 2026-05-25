@@ -370,7 +370,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		require.NotNil(t, got[0].OpenTime, "existing non-NULL open_at must not be overwritten by NULL")
 	})
 
-	t.Run("NULL start_at conflict — NULLS NOT DISTINCT triggers UPSERT", func(t *testing.T) {
+	t.Run("NULL start_at — same (series_id, local_event_date, venue_id) triggers UPSERT regardless of start_at", func(t *testing.T) {
 		setupFixtures(t)
 
 		listedVenue := "Zepp DiverCity"
@@ -388,7 +388,7 @@ func TestConcertRepository_Create(t *testing.T) {
 		})
 
 		// Second insert: same series+venue+date, also start_at = NULL.
-		// NULLS NOT DISTINCT means (series, date, venue, NULL) == (series, date, venue, NULL) → conflict.
+		// Same natural key (series_id, local_event_date, venue_id) → conflict. start_at is NOT part of the key; it's filled in via COALESCE when previously NULL.
 		_, err := concertRepo.Create(ctx, &entity.Concert{
 			Event: entity.Event{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c08", VenueID: venueID,

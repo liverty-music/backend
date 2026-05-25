@@ -153,7 +153,7 @@ func NewConcertRepository(db *Database) *ConcertRepository {
 }
 
 // scanConcertRow scans a row from the standard JOIN (events + series + venue)
-// into a Concert without populating Performers. Pass nonNilLatLng=true when the
+// into a Concert without populating Performers. Pass withCoords=true when the
 // query selects venue lat/lng (used by ListByArtists / ListByFollower).
 func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.Concert, error) {
 	var (
