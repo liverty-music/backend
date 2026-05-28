@@ -68,6 +68,29 @@ func (r *fakeVenueRepo) GetByListedName(_ context.Context, listedVenueName strin
 	return nil, apperr.New(codes.NotFound, "venue not found")
 }
 
+type fakeSeriesRepo struct {
+	created []*entity.Series
+}
+
+func (r *fakeSeriesRepo) Create(_ context.Context, series ...*entity.Series) ([]string, error) {
+	r.created = append(r.created, series...)
+	ids := make([]string, 0, len(series))
+	for _, s := range series {
+		if s != nil {
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids, nil
+}
+
+func (r *fakeSeriesRepo) Get(_ context.Context, _ string) (*entity.Series, error) {
+	return nil, apperr.New(codes.NotFound, "series not found")
+}
+
+func (r *fakeSeriesRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Series, error) {
+	return nil, nil
+}
+
 type fakeConcertRepo struct {
 	created []*entity.Concert
 }
@@ -157,7 +180,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		ps := newStubPlaceSearcher()
 		ps.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X Canonical"}
 		ps.places["Venue Y"] = &entity.VenuePlace{ExternalID: "place-y", Name: "Venue Y Canonical"}
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
@@ -184,8 +207,10 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		assert.Len(t, venueRepo.created, 2)
 		assert.Len(t, concertRepo.created, 2)
-		assert.Equal(t, "artist-1", concertRepo.created[0].ArtistID)
-		assert.Equal(t, "Concert A", concertRepo.created[0].Title)
+		require.NotEmpty(t, concertRepo.created[0].PerformerIDs())
+		assert.Equal(t, "artist-1", concertRepo.created[0].PerformerIDs()[0])
+		require.NotNil(t, concertRepo.created[0].Series)
+		assert.Equal(t, "Concert A", concertRepo.created[0].Series.Title)
 	})
 
 	t.Run("reuses existing venue by place_id", func(t *testing.T) {
@@ -201,7 +226,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		pub := newGoChannelPub(t)
 		ps := newStubPlaceSearcher()
 		ps.places["Existing Venue"] = &entity.VenuePlace{ExternalID: placeID, Name: "Existing Venue"}
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-2",
@@ -231,7 +256,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		pub := newGoChannelPub(t)
 		ps := newStubPlaceSearcher()
 		ps.places["Same Venue"] = &entity.VenuePlace{ExternalID: "place-same", Name: "Same Venue Canonical"}
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-3",
@@ -268,7 +293,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		ps := newStubPlaceSearcher()
 		ps.places["Known Venue"] = &entity.VenuePlace{ExternalID: "place-known", Name: "Known Venue"}
 		// "Unknown Venue" is NOT in ps.places → SearchPlace returns NotFound
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-4",
@@ -295,7 +320,8 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		// Only the known venue concert should be created.
 		assert.Len(t, venueRepo.created, 1)
 		require.Len(t, concertRepo.created, 1)
-		assert.Equal(t, "Concert at Known", concertRepo.created[0].Title)
+		require.NotNil(t, concertRepo.created[0].Series)
+		assert.Equal(t, "Concert at Known", concertRepo.created[0].Series.Title)
 	})
 
 	t.Run("skips concert with empty venue name without poisoning the batch", func(t *testing.T) {
@@ -305,7 +331,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		pub := newGoChannelPub(t)
 		ps := newStubPlaceSearcher()
 		ps.places["Known Venue"] = &entity.VenuePlace{ExternalID: "place-known", Name: "Known Venue"}
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-empty-venue",
@@ -332,7 +358,8 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		// Only the valid-venue concert persists; the empty-name entry is skipped.
 		assert.Len(t, venueRepo.created, 1)
 		require.Len(t, concertRepo.created, 1)
-		assert.Equal(t, "Valid Show", concertRepo.created[0].Title)
+		require.NotNil(t, concertRepo.created[0].Series)
+		assert.Equal(t, "Valid Show", concertRepo.created[0].Series.Title)
 	})
 
 	t.Run("skips all concerts when all venues are not found", func(t *testing.T) {
@@ -341,7 +368,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		concertRepo := &fakeConcertRepo{}
 		pub := newGoChannelPub(t)
 		ps := newStubPlaceSearcher() // empty — all venues return NotFound
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-5",
@@ -385,7 +412,7 @@ func TestConcertCreationUseCase_ResolveVenue_DBFirstLookup(t *testing.T) {
 		pub := newGoChannelPub(t)
 		// placeSearcher has no entry for 武道館; if called it returns NotFound → concert would be skipped.
 		ps := newStubPlaceSearcher()
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-db-hit",
@@ -416,7 +443,7 @@ func TestConcertCreationUseCase_ResolveVenue_DBFirstLookup(t *testing.T) {
 		pub := newGoChannelPub(t)
 		ps := newStubPlaceSearcher()
 		ps.places["Zepp Tokyo"] = &entity.VenuePlace{ExternalID: "place-zepp-tokyo", Name: "Zepp DiverCity Tokyo"}
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-api-hit",
@@ -446,7 +473,7 @@ func TestConcertCreationUseCase_ResolveVenue_DBFirstLookup(t *testing.T) {
 		pub := newGoChannelPub(t)
 		ps := newStubPlaceSearcher()
 		ps.places["Zepp Osaka"] = &entity.VenuePlace{ExternalID: "place-zepp-osaka", Name: "Zepp Namba Osaka"}
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-batch",
@@ -481,7 +508,7 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 	t.Parallel()
 
 	assert.Panics(t, func() {
-		usecase.NewConcertCreationUseCase(newFakeVenueRepo(), &fakeConcertRepo{}, nil, messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+		usecase.NewConcertCreationUseCase(newFakeVenueRepo(), &fakeSeriesRepo{}, &fakeConcertRepo{}, nil, messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
 	})
 }
 
@@ -505,7 +532,7 @@ func TestConcertCreationUseCase_EventPublishing(t *testing.T) {
 		msgCh, err := pub.Subscribe(ctx, entity.SubjectConcertCreated)
 		require.NoError(t, err)
 
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-pub",
@@ -556,7 +583,7 @@ func TestConcertCreationUseCase_EventPublishing(t *testing.T) {
 		msgCh, err := pub.Subscribe(ctx, entity.SubjectConcertCreated)
 		require.NoError(t, err)
 
-		uc := usecase.NewConcertCreationUseCase(venueRepo, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, ps, messaging.NewEventPublisher(pub), newTestLogger(t))
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-nopub",

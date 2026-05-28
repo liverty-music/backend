@@ -25,6 +25,7 @@ type ConcertCreationUseCase interface {
 // concertCreationUseCase implements ConcertCreationUseCase.
 type concertCreationUseCase struct {
 	venueRepo     entity.VenueRepository
+	seriesRepo    entity.SeriesRepository
 	concertRepo   entity.ConcertRepository
 	placeSearcher entity.VenuePlaceSearcher
 	publisher     EventPublisher
@@ -38,6 +39,7 @@ var _ ConcertCreationUseCase = (*concertCreationUseCase)(nil)
 // placeSearcher must not be nil; panics if not provided.
 func NewConcertCreationUseCase(
 	venueRepo entity.VenueRepository,
+	seriesRepo entity.SeriesRepository,
 	concertRepo entity.ConcertRepository,
 	placeSearcher entity.VenuePlaceSearcher,
 	publisher EventPublisher,
@@ -48,6 +50,7 @@ func NewConcertCreationUseCase(
 	}
 	return &concertCreationUseCase{
 		venueRepo:     venueRepo,
+		seriesRepo:    seriesRepo,
 		concertRepo:   concertRepo,
 		placeSearcher: placeSearcher,
 		publisher:     publisher,
@@ -57,9 +60,17 @@ func NewConcertCreationUseCase(
 
 // CreateFromDiscovered processes a discovered concert batch: resolves venues,
 // persists concerts, and publishes downstream events.
+//
+// Each scraped concert is paired with a freshly-generated Series row (1:1
+// fallback with SeriesType=SINGLE). Smarter series grouping — folding multiple
+// stops of the same tour under one Series — is deferred to a follow-up change
+// (auto-discovery-series-grouping). The data model already supports the
+// eventual N:1 grouping; only the discovery prompt and grouping heuristic are
+// missing.
 func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error {
 	// Resolve or create venues for each scraped concert, then build Concert entities.
 	var concerts []*entity.Concert
+	var seriesBatch []*entity.Series
 	newVenues := make(map[string]*entity.Venue) // track newly created venues by cache key
 
 	for _, sc := range data.Concerts {
@@ -72,6 +83,21 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
 				slog.Time("start_time", sc.StartTime),
 				slog.Time("open_time", sc.OpenTime),
+				slog.String("source_url", sc.SourceURL),
+			)
+			continue
+		}
+		if sc.Title == "" {
+			// Skip empty-title entries: SeriesRepository.Create rejects
+			// `Title == ""` with InvalidArgument, which propagates out of
+			// CreateFromDiscovered and aborts the entire Pub/Sub batch —
+			// every valid concert in the same message is then lost on the
+			// Pub/Sub retry. Per-concert skip with a Warn keeps the rest
+			// of the batch persisting and surfaces the upstream data issue.
+			uc.logger.Warn(ctx, "skipping concert: empty title from Gemini",
+				slog.String("artist_id", data.ArtistID),
+				slog.String("listed_venue_name", sc.ListedVenueName),
+				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
 				slog.String("source_url", sc.SourceURL),
 			)
 			continue
@@ -98,12 +124,47 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			newVenues[venueKey(sc.ListedVenueName, sc.AdminArea)] = venue
 		}
 
-		id, err := uuid.NewV7()
+		eventID, err := uuid.NewV7()
 		if err != nil {
 			return fmt.Errorf("generate concert ID: %w", err)
 		}
+		// Derive seriesID deterministically from the venue + local date —
+		// intentionally artist-independent. Without this, every re-delivery
+		// of a Pub/Sub `concert.discovered` message would mint a fresh
+		// series UUID, and the events natural key `(series_id,
+		// local_event_date, venue_id)` would never collide on UPSERT →
+		// duplicate event rows accumulate.
+		// The key MUST NOT embed ArtistID: when two co-headliners are
+		// discovered separately (the normal Pub/Sub flow — one message per
+		// artist), an artist-scoped key would yield distinct seriesIDs and
+		// two event rows for the same real-world concert. A venue+date key
+		// keeps the seriesID stable across artists so the events UPSERT
+		// dedupes and the second artist's link lands on the same event row
+		// via insertEventPerformersQuery.
+		// UUID v5 is content-addressed and stable across runs. Once smarter
+		// grouping (auto-discovery-series-grouping) folds multi-stop tours
+		// under a shared Series, this 1:1 derivation is replaced by the
+		// tour-title resolution path; the natural key still does the
+		// deduplication work.
+		seriesKey := venueID + "|" + sc.LocalDate.Format("2006-01-02")
+		seriesID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(seriesKey))
 
-		concerts = append(concerts, sc.ToConcert(data.ArtistID, id.String(), venueID))
+		concert := sc.ToConcert(data.ArtistID, seriesID.String(), eventID.String(), venueID)
+		concerts = append(concerts, concert)
+		// ToConcert builds the shell Series; collect it for bulk-insert so
+		// the FK from events.series_id is satisfied before ConcertRepo.Create runs.
+		seriesBatch = append(seriesBatch, concert.Series)
+	}
+
+	// Bulk insert series first so events.series_id FK is satisfied. Orphan
+	// series (series rows whose concerts later fail to insert) are accepted as
+	// a known minor cost of running across two repository transactions; the
+	// alternative (a unit-of-work passing tx between repos) is heavier than
+	// this code path warrants today.
+	if len(seriesBatch) > 0 {
+		if _, err := uc.seriesRepo.Create(ctx, seriesBatch...); err != nil {
+			return fmt.Errorf("create series: %w", err)
+		}
 	}
 
 	// Bulk insert concerts (ON CONFLICT DO NOTHING handles duplicates).

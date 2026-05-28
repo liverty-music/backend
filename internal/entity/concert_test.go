@@ -298,6 +298,7 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 		name      string
 		sc        *entity.ScrapedConcert
 		artistID  string
+		seriesID  string
 		eventID   string
 		venueID   string
 		wantCheck func(t *testing.T, got *entity.Concert)
@@ -314,19 +315,25 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 				SourceURL:       "https://example.com/live",
 			},
 			artistID: "artist-1",
+			seriesID: "series-1",
 			eventID:  "event-1",
 			venueID:  "venue-1",
 			wantCheck: func(t *testing.T, got *entity.Concert) {
 				t.Helper()
-				assert.Equal(t, "artist-1", got.ArtistID)
+				require.Len(t, got.Performers, 1)
+				assert.Equal(t, "artist-1", got.Performers[0].ID)
 				assert.Equal(t, "event-1", got.ID)
+				assert.Equal(t, "series-1", got.SeriesID)
 				assert.Equal(t, "venue-1", got.VenueID)
-				assert.Equal(t, "Live Show", got.Title)
+				require.NotNil(t, got.Series)
+				assert.Equal(t, "series-1", got.Series.ID)
+				assert.Equal(t, "Live Show", got.Series.Title)
+				assert.Equal(t, entity.SeriesTypeSingle, got.Series.Type)
 				assert.Equal(t, "Zepp Tokyo", *got.ListedVenueName)
 				assert.Equal(t, localDate, got.LocalDate)
 				assert.Equal(t, &startTime, got.StartTime)
 				assert.Equal(t, &openTime, got.OpenTime)
-				assert.Equal(t, "https://example.com/live", got.SourceURL)
+				assert.Equal(t, "https://example.com/live", got.Series.SourceURL)
 			},
 		},
 		{
@@ -338,16 +345,19 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 				SourceURL:       "https://example.com",
 			},
 			artistID: "artist-2",
+			seriesID: "",
 			eventID:  "",
 			venueID:  "",
 			wantCheck: func(t *testing.T, got *entity.Concert) {
 				t.Helper()
-				assert.Equal(t, "artist-2", got.ArtistID)
+				require.Len(t, got.Performers, 1)
+				assert.Equal(t, "artist-2", got.Performers[0].ID)
 				assert.Empty(t, got.ID)
 				assert.Empty(t, got.VenueID)
 				assert.Nil(t, got.StartTime)
 				assert.Nil(t, got.OpenTime)
-				assert.Equal(t, "Minimal Show", got.Title)
+				require.NotNil(t, got.Series)
+				assert.Equal(t, "Minimal Show", got.Series.Title)
 			},
 		},
 		{
@@ -359,12 +369,15 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 				SourceURL:       "https://example.com",
 			},
 			artistID: "artist-A",
+			seriesID: "series-A",
 			eventID:  "event-A",
 			venueID:  "venue-A",
 			wantCheck: func(t *testing.T, got *entity.Concert) {
 				t.Helper()
-				assert.Equal(t, "artist-A", got.ArtistID)
+				require.Len(t, got.Performers, 1)
+				assert.Equal(t, "artist-A", got.Performers[0].ID)
 				assert.Equal(t, "event-A", got.ID)
+				assert.Equal(t, "series-A", got.SeriesID)
 				assert.Equal(t, "venue-A", got.VenueID)
 			},
 		},
@@ -377,6 +390,7 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 				SourceURL:       "https://example.com",
 			},
 			artistID: "artist-3",
+			seriesID: "series-3",
 			eventID:  "event-3",
 			venueID:  "venue-3",
 			wantCheck: func(t *testing.T, got *entity.Concert) {
@@ -391,7 +405,7 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.sc.ToConcert(tt.artistID, tt.eventID, tt.venueID)
+			got := tt.sc.ToConcert(tt.artistID, tt.seriesID, tt.eventID, tt.venueID)
 			require.NotNil(t, got)
 			tt.wantCheck(t, got)
 		})
@@ -408,10 +422,16 @@ func TestScrapedConcerts_FilterNew(t *testing.T) {
 	sc1 := &entity.ScrapedConcert{LocalDate: date1, ListedVenueName: "Zepp Tokyo", Title: "Live A"}
 	sc2 := &entity.ScrapedConcert{LocalDate: date2, ListedVenueName: "Zepp Osaka", Title: "Live B"}
 	sc3 := &entity.ScrapedConcert{LocalDate: date3, ListedVenueName: "Zepp Nagoya", Title: "Live C"}
-	sc1Dup := &entity.ScrapedConcert{LocalDate: date1, ListedVenueName: "Other Venue", Title: "Live A2"}
+	// sc1SameVenue duplicates sc1 on the new (date, venue) dedup key.
+	sc1SameVenue := &entity.ScrapedConcert{LocalDate: date1, ListedVenueName: "Zepp Tokyo", Title: "Live A2"}
 
-	existing1 := &entity.Concert{Event: entity.Event{LocalDate: date1}}
-	existing2 := &entity.Concert{Event: entity.Event{LocalDate: date2}}
+	// Existing concerts must carry ListedVenueName so the new
+	// (date, venue) dedup key can match them. The previous date-only
+	// key did not need it.
+	zeppTokyo := "Zepp Tokyo"
+	zeppOsaka := "Zepp Osaka"
+	existing1 := &entity.Concert{Event: entity.Event{LocalDate: date1, ListedVenueName: &zeppTokyo}}
+	existing2 := &entity.Concert{Event: entity.Event{LocalDate: date2, ListedVenueName: &zeppOsaka}}
 
 	type args struct {
 		scraped  entity.ScrapedConcerts
@@ -463,20 +483,32 @@ func TestScrapedConcerts_FilterNew(t *testing.T) {
 			want: entity.ScrapedConcerts{sc2, sc3},
 		},
 		{
-			name: "deduplicate within-batch same-date concerts",
+			name: "deduplicate within-batch same-date-and-venue concerts",
 			args: args{
-				scraped:  entity.ScrapedConcerts{sc1, sc1Dup},
+				scraped:  entity.ScrapedConcerts{sc1, sc1SameVenue},
 				existing: []*entity.Concert{},
 			},
 			want: entity.ScrapedConcerts{sc1},
 		},
 		{
-			name: "return nil when within-batch duplicate conflicts with existing",
+			name: "return nil when within-batch same-venue duplicate conflicts with existing",
 			args: args{
-				scraped:  entity.ScrapedConcerts{sc1, sc1Dup},
+				scraped:  entity.ScrapedConcerts{sc1, sc1SameVenue},
 				existing: []*entity.Concert{existing1},
 			},
 			want: nil,
+		},
+		{
+			name: "same date at a different venue is NOT deduped (matches new natural key)",
+			args: args{
+				scraped: entity.ScrapedConcerts{
+					{LocalDate: date1, ListedVenueName: "Tokyo Dome", Title: "Festival B"},
+				},
+				existing: []*entity.Concert{existing1},
+			},
+			want: entity.ScrapedConcerts{
+				{LocalDate: date1, ListedVenueName: "Tokyo Dome", Title: "Festival B"},
+			},
 		},
 		{
 			name: "preserve original order of scraped concerts",

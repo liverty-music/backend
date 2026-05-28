@@ -24,6 +24,7 @@ packages:
       ArtistRepository:
       FollowRepository:
       ConcertRepository:
+      SeriesRepository:
       ConcertSearcher:
       UserRepository:
       SearchLogRepository:

@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -194,14 +196,17 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 // executeSearch performs the actual Gemini search, deduplication, and event publishing.
 // It returns the newly discovered concerts and updates the search log status on exit.
 //
-// Deduplication uses date-only matching: one event per artist per date.
-// An artist cannot perform at two venues simultaneously on the same day.
+// Deduplication uses `(local_event_date, listed_venue_name)` matching via
+// `entity.ScrapedConcerts.FilterNew`, aligned with the DB-level natural key
+// `UNIQUE (series_id, local_event_date, venue_id)` enforced by the events
+// table (added in migration `20260523145447_add_series_hierarchy`). The pre-
+// v0.41.0 per-artist constraint `(artist_id, local_event_date)` was dropped
+// in that migration alongside the singular events.artist_id column.
 //
-// The seenDate set tracks dates already occupied by existing or earlier-scraped
-// concerts. Any scraped concert whose date is already seen is filtered out,
-// regardless of start_at value. The DB constraint (artist_id, local_event_date)
-// provides the same guarantee; this application-level check avoids unnecessary
-// publish/UPSERT round-trips.
+// The application-level FilterNew check on `(date, listed_venue_name)` avoids
+// unnecessary publish/UPSERT round-trips for re-scrapes; the DB natural key
+// is the source of truth and uses the resolved `venue_id` instead of the raw
+// listed name, so the application key is a best-effort upstream filter.
 func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_ []*entity.Concert, err error) {
 	defer func() {
 		if err != nil {
@@ -217,6 +222,25 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 	artist, err := uc.artistRepo.Get(ctx, artistID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get artist: %w", err)
+	}
+
+	// Guard before the Gemini call: an artist row with empty Name or MBID
+	// is a data-integrity problem the discovery pipeline can't recover
+	// from — both fields are required for the proto response (ArtistName
+	// min_len=1, Mbid uuid format) AND for the consumer-side performer
+	// link to validate. Fail fast here so we don't burn a Gemini quota
+	// unit (and re-burn it on every subsequent retry — markSearchFailed
+	// sets the log to "failed", which the IsFresh/IsPending skip check
+	// doesn't catch, so the next CronJob tick re-enters executeSearch
+	// unconditionally). An admin fix to the artist row is the only valid
+	// recovery; surfacing Internal here keeps the error visible in logs.
+	if artist.Name == "" || artist.MBID == "" {
+		return nil, apperr.New(codes.Internal,
+			"artist is missing required fields for discovery",
+			slog.String("artist_id", artistID),
+			slog.Bool("name_empty", artist.Name == ""),
+			slog.Bool("mbid_empty", artist.MBID == ""),
+		)
 	}
 
 	// Get Official Site — missing site is not an error; search continues with nil
@@ -265,6 +289,11 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		return nil, nil
 	}
 
+	// Note: the artist.Name / MBID guard fires at the top of executeSearch
+	// (right after artistRepo.Get) so the Gemini call is never reached for
+	// data-quality failures. By the time we get here both fields are
+	// guaranteed non-empty.
+
 	eventData := entity.ConcertDiscoveredData{
 		ArtistID:   artistID,
 		ArtistName: artist.Name,
@@ -288,9 +317,24 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 	)
 
 	// Build Concert entities from the deduplicated scraped data to return to the caller.
+	// Event / Venue IDs stay empty because the search path returns concerts for
+	// immediate display rather than persistence. The series ID is generated
+	// (UUIDv7) on the fly so the embedded SeriesId carries a valid UUID and
+	// passes the response-side protovalidate guards; the synthetic ID has no
+	// referent in the DB and is discarded by the client after rendering.
+
 	concerts := make([]*entity.Concert, 0, len(newScraped))
 	for _, s := range newScraped {
-		concerts = append(concerts, s.ToConcert(artistID, "", ""))
+		syntheticSeriesID, err := uuid.NewV7()
+		if err != nil {
+			return nil, fmt.Errorf("generate synthetic series ID for search response: %w", err)
+		}
+		c := s.ToConcert(artistID, syntheticSeriesID.String(), "", "")
+		// Replace ToConcert's id-only Performer shell with the resolved
+		// Artist entity so the response carries a complete performer with
+		// Name and MBID (validated non-empty by the guard above).
+		c.Performers = []*entity.Artist{artist}
+		concerts = append(concerts, c)
 	}
 	return concerts, nil
 }

@@ -292,8 +292,8 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 	concertsInArea := func(adminArea *string) []*entity.Concert {
 		return []*entity.Concert{
 			{
-				Event:    entity.Event{ID: "c1", Title: "Concert 1", Venue: &entity.Venue{AdminArea: adminArea}},
-				ArtistID: "artist-1",
+				Event:      entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: adminArea}},
+				Performers: []*entity.Artist{{ID: "artist-1"}},
 			},
 		}
 	}
@@ -395,8 +395,8 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				// concerts include JP-13 (Tokyo), but those are NOT in this batch.
 				newConcerts := []*entity.Concert{
 					{
-						Event:    entity.Event{ID: "c-new", Title: "New Concert", Venue: &entity.Venue{AdminArea: &kanazawaArea}},
-						ArtistID: "artist-1",
+						Event:      entity.Event{ID: "c-new", Venue: &entity.Venue{AdminArea: &kanazawaArea}},
+						Performers: []*entity.Artist{{ID: "artist-1"}},
 					},
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c-new"}).Return(newConcerts, nil).Once()
@@ -434,14 +434,13 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				nearbyConcerts := []*entity.Concert{
 					{
 						Event: entity.Event{
-							ID:    "c1",
-							Title: "Concert 1",
+							ID: "c1",
 							Venue: &entity.Venue{
 								AdminArea:   &saitamaArea,
 								Coordinates: &entity.Coordinates{Latitude: 35.8569, Longitude: 139.6489},
 							},
 						},
-						ArtistID: "artist-1",
+						Performers: []*entity.Artist{{ID: "artist-1"}},
 					},
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(nearbyConcerts, nil).Once()
@@ -465,14 +464,13 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				farConcerts := []*entity.Concert{
 					{
 						Event: entity.Event{
-							ID:    "c1",
-							Title: "Concert 1",
+							ID: "c1",
 							Venue: &entity.Venue{
 								AdminArea:   &osakaArea,
 								Coordinates: &entity.Coordinates{Latitude: 34.6863, Longitude: 135.5200},
 							},
 						},
-						ArtistID: "artist-1",
+						Performers: []*entity.Artist{{ID: "artist-1"}},
 					},
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(farConcerts, nil).Once()
@@ -528,7 +526,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
 				// ListByIDs returns only c1 — c2 is missing from the result.
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1", "c2"}).Return([]*entity.Concert{
-					{Event: entity.Event{ID: "c1"}, ArtistID: "artist-1"},
+					{Event: entity.Event{ID: "c1"}, Performers: []*entity.Artist{{ID: "artist-1"}}},
 				}, nil).Once()
 			},
 			wantErr: apperr.ErrInvalidArgument,
@@ -539,9 +537,9 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
 				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
-				// c1 exists but is owned by a different artist.
+				// c1 exists but is performed by a different artist.
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return([]*entity.Concert{
-					{Event: entity.Event{ID: "c1"}, ArtistID: "artist-999"},
+					{Event: entity.Event{ID: "c1"}, Performers: []*entity.Artist{{ID: "artist-999"}}},
 				}, nil).Once()
 			},
 			wantErr: apperr.ErrInvalidArgument,
@@ -624,7 +622,7 @@ func notifySenderTestDeps(t *testing.T, subs []*entity.PushSubscription) *pushNo
 
 	tokyoArea := "JP-13"
 	concerts := []*entity.Concert{
-		{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}, ArtistID: "artist-1"},
+		{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
 	}
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	followers := []*entity.Follower{

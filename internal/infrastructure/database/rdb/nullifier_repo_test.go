@@ -33,12 +33,26 @@ func TestNullifierRepository_Insert(t *testing.T) {
 	})
 
 	t.Run("same nullifier hash for different events succeeds", func(t *testing.T) {
-		// Create a second event. Retrieve venue_id and artist_id from the existing event.
-		var venueID, artistID string
+		// Create a second event. Retrieve venue_id from events and the first
+		// performer's artist_id separately. The previous shape (JOIN +
+		// QueryRow) silently dropped all but the first event_performers row
+		// when the JOIN matched multiple performers — single-performer
+		// fixtures hid the bug today, but a multi-performer fixture would
+		// have masked which artist actually came back. Split into two
+		// QueryRow calls keyed on the event_id so the artist selection is
+		// explicit (the first performer ordered by artist_id, matching
+		// listPerformersByEventIDsQuery's stable ordering).
+		var venueID string
 		err := testDB.Pool.QueryRow(ctx,
-			`SELECT venue_id, artist_id FROM events WHERE id = $1`,
+			`SELECT venue_id FROM events WHERE id = $1`,
 			eventID,
-		).Scan(&venueID, &artistID)
+		).Scan(&venueID)
+		require.NoError(t, err)
+		var artistID string
+		err = testDB.Pool.QueryRow(ctx,
+			`SELECT artist_id FROM event_performers WHERE event_id = $1 ORDER BY artist_id ASC LIMIT 1`,
+			eventID,
+		).Scan(&artistID)
 		require.NoError(t, err)
 
 		eventID2 := seedEvent(t, venueID, artistID, "second event", "2026-04-01")

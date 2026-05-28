@@ -7,20 +7,57 @@ import (
 	"github.com/liverty-music/backend/pkg/geo"
 )
 
-// Concert represents a specific music live event.
+// Concert is the user-facing DTO for a music live event.
+//
+// It composes the underlying [Event] with its parent [Series] and the full list
+// of performing artists so that a single read carries everything the UI needs
+// without follow-up fetches. Series-level metadata (title, source URL, type)
+// lives on the embedded Series. The previously-singular ArtistID has been
+// replaced by Performers to support festival lineups and co-headliners.
 //
 // Corresponds to liverty_music.entity.v1.Concert.
 type Concert struct {
 	Event
-	// ArtistID is the ID of the artist performing.
-	ArtistID string
+	// Series is the parent series that aggregates this concert with any sibling
+	// events sharing the same tour, festival, or multi-day run. Populated by
+	// the repository layer on read; required when building a Concert for write.
+	Series *Series
+	// Performers are the artists performing at this concert, in display order.
+	// Always contains at least one performer; multi-performer values cover
+	// festivals, co-headliners, and support acts. Populated by the repository
+	// layer on read.
+	Performers []*Artist
+}
+
+// PerformerIDs returns the IDs of all performers attached to this concert.
+// Convenient for callers that only need identifiers (e.g. mock comparisons,
+// repository writes, or hype checks against followed_artists).
+//
+// Nil entries in Performers (which the type system permits even though the
+// supported insert path rejects them) are skipped silently rather than
+// triggering a nil-pointer panic, so read-side callers can safely call this
+// on any Concert hydrated from external code paths or test fixtures.
+func (c *Concert) PerformerIDs() []string {
+	if len(c.Performers) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(c.Performers))
+	for _, p := range c.Performers {
+		if p == nil {
+			continue
+		}
+		ids = append(ids, p.ID)
+	}
+	return ids
 }
 
 // ScrapedConcert represents raw concert information rediscovered from external sources.
-// It lacks system-specific identifiers like ID or ArtistID.
+// It lacks system-specific identifiers like ID, SeriesID, or PerformerIDs.
 // JSON tags are present to support serialization as an event payload (concert.discovered).
 type ScrapedConcert struct {
-	// Title is the descriptive title of the scraped event.
+	// Title is the descriptive title of the scraped event. During the transition
+	// to first-class series, this is used as both the series title and (when the
+	// event has a unique subtitle) the event-specific suffix.
 	Title string `json:"title"`
 	// ListedVenueName is the raw venue name as listed in the source data.
 	ListedVenueName string `json:"listed_venue_name"`
@@ -36,30 +73,45 @@ type ScrapedConcert struct {
 	// OpenTime is the time when doors open (optional).
 	// Zero value means unknown; omitted from JSON via omitzero.
 	OpenTime time.Time `json:"open_time,omitzero"`
-	// SourceURL is the URL where this information was found.
+	// SourceURL is the URL where this information was found. Used to populate
+	// Series.SourceURL during the 1:1 series-per-scraped-concert fallback.
 	SourceURL string `json:"source_url"`
 }
 
-// ToConcert converts a ScrapedConcert into a Concert entity using the provided IDs.
+// ToConcert converts a ScrapedConcert into a fully-populated Concert entity.
+//
+// The caller supplies the three IDs (artist, event, venue) and the seriesID
+// of the parent Series that has already been built (or will be built in the
+// same transaction). The returned Concert embeds the Series shell — with the
+// title and source URL copied from the scrape — so the caller can pass the
+// same Series instance into SeriesRepository.Create alongside ConcertRepository.Create.
 //
 // Two usage patterns exist:
 //
-//   - Search path (concert_uc): pass empty strings for eventID and venueID.
-//     The returned Concert is for immediate return to callers and is never persisted.
-//   - Creation path (concert_creation_uc): pass UUIDs for all three IDs.
-//     The returned Concert is bulk-inserted into the database.
-func (sc *ScrapedConcert) ToConcert(artistID, eventID, venueID string) *Concert {
+//   - Search path (concert_uc): pass empty strings for eventID, venueID, and
+//     seriesID. The returned Concert is for immediate return to callers and is
+//     never persisted; the embedded Series is non-canonical.
+//   - Creation path (concert_creation_uc): pass UUIDs for all four IDs. The
+//     returned Concert is bulk-inserted into the database, and the embedded
+//     Series row is inserted in the same use-case run via SeriesRepository.
+func (sc *ScrapedConcert) ToConcert(artistID, seriesID, eventID, venueID string) *Concert {
 	listedName := sc.ListedVenueName
+	series := &Series{
+		ID:        seriesID,
+		Title:     sc.Title,
+		Type:      SeriesTypeSingle,
+		SourceURL: sc.SourceURL,
+	}
 	c := &Concert{
 		Event: Event{
 			ID:              eventID,
+			SeriesID:        seriesID,
 			VenueID:         venueID,
-			Title:           sc.Title,
 			ListedVenueName: &listedName,
 			LocalDate:       sc.LocalDate,
-			SourceURL:       sc.SourceURL,
 		},
-		ArtistID: artistID,
+		Series:     series,
+		Performers: []*Artist{{ID: artistID}},
 	}
 	if !sc.StartTime.IsZero() {
 		c.StartTime = &sc.StartTime
@@ -74,27 +126,61 @@ func (sc *ScrapedConcert) ToConcert(artistID, eventID, venueID string) *Concert 
 type ScrapedConcerts []*ScrapedConcert
 
 // FilterNew returns scraped concerts that do not conflict with existing concerts,
-// applying date-only deduplication. It handles both cross-batch deduplication
-// (against existing DB concerts) and within-batch deduplication (multiple scraped
-// concerts on the same date in the receiver).
+// applying (date, venue-name) deduplication aligned with the events natural key
+// `(series_id, local_event_date, venue_id)`. It handles both cross-batch
+// deduplication (against existing DB concerts) and within-batch deduplication
+// (multiple scraped rows for the same date+venue in the receiver).
 //
-// A scraped concert is excluded if its DateKey() matches a date already seen in
-// existing concerts or in an earlier element of the receiver slice.
+// The key uses ListedVenueName rather than the resolved venue_id because
+// scraped concerts have not yet been venue-resolved; ListedVenueName is the
+// upstream identity that survives both sides of the comparison. A date-only
+// key (the previous behaviour) would incorrectly drop a same-date appearance
+// at a different venue — e.g. an afternoon tour stop at Venue A plus an
+// evening festival at Venue B — which the new natural key legitimately
+// accepts.
 //
 // Returns nil if no new concerts remain after filtering.
 func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
-	seenDate := make(map[string]bool, len(existing))
+	type key struct {
+		date  string
+		venue string
+	}
+	seen := make(map[key]bool, len(existing))
 	for _, ex := range existing {
-		seenDate[ex.LocalDate.Format("2006-01-02")] = true
+		// Skip NULL-venue existing rows from dedup tracking — a row
+		// inserted before this PR (when listed_venue_name was not
+		// stored) has no upstream identity to dedup against, and
+		// keying it as {date, ""} would silently swallow a legitimate
+		// re-scrape that now carries the real venue name. Symmetric
+		// with the empty-venue scraped skip below: blank venues on
+		// either side bypass dedup, never silently clobber.
+		if ex.ListedVenueName == nil {
+			continue
+		}
+		seen[key{date: ex.LocalDate.Format("2006-01-02"), venue: *ex.ListedVenueName}] = true
 	}
 
 	var result ScrapedConcerts
 	for _, s := range ss {
-		dateKey := s.LocalDate.Format("2006-01-02")
-		if seenDate[dateKey] {
+		// Drop blank-venue (TBA) scraped entries entirely. They have no
+		// natural-key identity to dedup against on the creation path —
+		// CreateFromDiscovered already skips them with a Warn before
+		// insert — AND they have no useful content for the search path:
+		// ToConcert on the search side produces an empty VenueID / event
+		// ID, so the client receives malformed concert rows with empty
+		// wrappers (potentially violating the proto venue_id min_len
+		// constraint). Letting them through earlier let multiple TBA
+		// entries on the same date all surface as separate broken rows
+		// since they bypassed the seen map. Dropping at the FilterNew
+		// boundary is the single chokepoint for both downstream consumers.
+		if s.ListedVenueName == "" {
 			continue
 		}
-		seenDate[dateKey] = true
+		k := key{date: s.LocalDate.Format("2006-01-02"), venue: s.ListedVenueName}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
 		result = append(result, s)
 	}
 	return result
@@ -186,8 +272,9 @@ func GroupByDateAndProximity(concerts []*Concert, home *Home) []*ProximityGroup 
 
 // ConcertRepository defines the data access interface for Concerts.
 type ConcertRepository interface {
-	// ListByArtist retrieves all concerts for a specific artist.
-	// if upcomingOnly is true, it only returns concerts with LocalDate >= today.
+	// ListByArtist retrieves all concerts where the given artist appears in
+	// event_performers. if upcomingOnly is true, it only returns concerts with
+	// LocalDate >= today.
 	//
 	// # Possible errors
 	//
@@ -196,20 +283,21 @@ type ConcertRepository interface {
 	// ListByFollower retrieves all concerts for artists followed by the given user,
 	// ordered by local_event_date ascending.
 	ListByFollower(ctx context.Context, userID string) ([]*Concert, error)
-	// ListByArtists retrieves concerts for multiple artists in a single query.
-	// Venue coordinates are included for proximity classification.
-	// Results are ordered by local_event_date ascending.
+	// ListByArtists retrieves concerts where any of the given artists appear in
+	// event_performers, in a single query. Venue coordinates are included for
+	// proximity classification. Results are ordered by local_event_date ascending.
 	ListByArtists(ctx context.Context, artistIDs []string) ([]*Concert, error)
-	// Create creates one or more concerts using bulk insert with UPSERT semantics.
+	// Create persists one or more concerts using bulk insert with UPSERT semantics.
 	//
+	// Each concert must already carry an embedded Series whose row has been
+	// inserted (or will be inserted in the same transaction) via SeriesRepository.
 	// Events are inserted with ON CONFLICT on the natural key
-	// (artist_id, local_event_date, start_at). When a conflict is detected:
-	//   - open_at is updated only if the existing value is NULL (COALESCE).
-	//   - The existing row's non-NULL values are never overwritten.
+	// (series_id, local_event_date, venue_id). When a conflict is detected the
+	// existing row is preserved and event_performers links are reconciled.
 	//
-	// Concert rows are only inserted for genuinely new events. If the event
-	// already existed (UPSERT conflict), the corresponding concert row is
-	// skipped because the input UUID does not exist in the events table.
+	// Concert rows are only inserted for genuinely new events. Performer links
+	// (event_performers) are inserted for every concert in the batch and use
+	// ON CONFLICT DO NOTHING so re-runs are idempotent.
 	//
 	// Nil elements in the input slice are silently skipped.
 	//
@@ -219,11 +307,12 @@ type ConcertRepository interface {
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid artist or venue).
+	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid series, venue, or performer).
 	Create(ctx context.Context, concerts ...*Concert) ([]string, error)
-	// ListByIDs retrieves concerts by their event IDs. Venues are joined so
-	// that Concert.Venue.AdminArea is populated for hype-level filtering.
-	// IDs that do not match any row are silently omitted from the result.
+	// ListByIDs retrieves concerts by their event IDs. Venues, parent Series,
+	// and Performers are all populated so callers can render the response
+	// without follow-up queries. IDs that do not match any row are silently
+	// omitted from the result.
 	//
 	// # Possible errors
 	//

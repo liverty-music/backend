@@ -146,21 +146,74 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		return fmt.Errorf("failed to list concerts by IDs: %w", err)
 	}
 
-	// Validate that every requested concert exists and belongs to the
-	// specified artist. This protects against operator mistakes on the
-	// debug RPC path and bad publisher state on the event path.
-	resolved := make(map[string]string, len(concerts))
+	// Validate that every requested concert exists and that the specified
+	// artist is one of its performers. With M:N performers, "belongs to" is
+	// "is a performer at" — a single concert (e.g. a festival) may legitimately
+	// belong to multiple artists. This protects against operator mistakes on
+	// the debug RPC path and bad publisher state on the event path.
+	hasPerformer := make(map[string]bool, len(concerts))
+	// orphanConcerts records concerts whose Performers slice is empty after
+	// hydration. The new M:N schema allows a structurally valid event row
+	// to exist with no event_performers links (e.g. a race between Create
+	// and the natural-key JOIN in insertEventPerformersQuery, or an
+	// orphaned data state). Treat these as non-fatal — log + skip — rather
+	// than aborting the whole batch and indefinitely retrying the Pub/Sub
+	// message, which would block notifications for every other concert.
+	orphanConcerts := make(map[string]bool, len(concerts))
 	for _, c := range concerts {
-		resolved[c.ID] = c.ArtistID
+		if len(c.Performers) == 0 {
+			orphanConcerts[c.ID] = true
+			uc.logger.Warn(ctx, "concert has no performers after hydration; skipping membership check",
+				slog.String("concert_id", c.ID),
+				slog.String("artist_id", data.ArtistID),
+			)
+		}
+		hasPerformer[c.ID] = false
+		for _, p := range c.Performers {
+			if p != nil && p.ID == data.ArtistID {
+				hasPerformer[c.ID] = true
+				break
+			}
+		}
 	}
 	for _, id := range data.ConcertIDs {
-		ownedBy, ok := resolved[id]
-		if !ok {
+		performs, exists := hasPerformer[id]
+		if !exists {
 			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not exist")
 		}
-		if ownedBy != data.ArtistID {
-			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not belong to artist "+data.ArtistID)
+		if orphanConcerts[id] {
+			// Already logged above; do not fail the batch on a data anomaly.
+			continue
 		}
+		if !performs {
+			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not feature artist "+data.ArtistID)
+		}
+	}
+
+	// Drop orphan concerts from the working slice. The membership check
+	// skipped them above so they don't abort the batch, but if they
+	// stayed in `concerts` they would still feed venueAreas and the
+	// ShouldNotify input — qualifying a follower for HypeHome /
+	// HypeNearby on a concert whose performer membership was never
+	// confirmed (orphan event_performers state).
+	if len(orphanConcerts) > 0 {
+		kept := concerts[:0]
+		for _, c := range concerts {
+			if !orphanConcerts[c.ID] {
+				kept = append(kept, c)
+			}
+		}
+		concerts = kept
+	}
+
+	// If every concert was an orphan, there's nothing real to notify
+	// about — short-circuit before the hype loop. Without this guard,
+	// HypeAway.ShouldNotify returns true unconditionally and every
+	// HypeAway follower receives a push with a "0 new concerts" payload
+	// (NewConcertNotificationPayload formats the count from
+	// len(concerts)).
+	if len(concerts) == 0 {
+		return nil
 	}
 
 	// 1. Retrieve all followers with their hype level and home area.
@@ -183,11 +236,15 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	// 3. Filter followers by hype level and collect eligible user IDs.
 	var userIDs []string
 	for _, f := range followers {
-		var home *entity.Home
-		if f.User != nil && f.User.Home != nil {
-			home = f.User.Home
+		// f.User may be nil if the join with users dropped a row (e.g.
+		// orphaned follow). Skip the whole follower in that case — the
+		// subsequent f.User.ID dereference would panic for any non-Watch
+		// hype tier because HypeAway.ShouldNotify always returns true and
+		// HypeHome may return true without ever reading f.User.Home.
+		if f.User == nil {
+			continue
 		}
-		if !f.Hype.ShouldNotify(home, venueAreas, concerts) {
+		if !f.Hype.ShouldNotify(f.User.Home, venueAreas, concerts) {
 			continue
 		}
 		userIDs = append(userIDs, f.User.ID)

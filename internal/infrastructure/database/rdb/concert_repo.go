@@ -16,67 +16,149 @@ type ConcertRepository struct {
 }
 
 const (
+	// upsertEventsQuery bulk-inserts events with their new (series_id, local_event_date, venue_id)
+	// natural key. On natural-key conflict the existing row is preserved and only NULL
+	// open_at / start_at are filled in via COALESCE. The input id is discarded in that case;
+	// callers detect this by re-querying with WHERE EXISTS on the input UUID.
 	upsertEventsQuery = `
-		INSERT INTO events (id, venue_id, title, listed_venue_name, local_event_date, start_at, open_at, source_url, artist_id)
-		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[], $5::date[], $6::timestamptz[], $7::timestamptz[], $8::text[], $9::uuid[])
+		INSERT INTO events (id, series_id, venue_id, listed_venue_name, local_event_date, start_at, open_at)
+		SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::date[], $6::timestamptz[], $7::timestamptz[])
 		ON CONFLICT ON CONSTRAINT uq_events_natural_key DO UPDATE SET
-			start_at = COALESCE(EXCLUDED.start_at, events.start_at),
-			open_at  = COALESCE(EXCLUDED.open_at, events.open_at)
+			start_at = COALESCE(events.start_at, EXCLUDED.start_at),
+			open_at  = COALESCE(events.open_at, EXCLUDED.open_at)
 	`
-	// insertConcertsQuery inserts concert rows only for events that were actually
-	// inserted (not UPSERTed). The WHERE EXISTS check filters out input UUIDs that
-	// don't exist in the events table — this happens when a natural-key conflict
-	// caused the UPSERT to update an existing row whose id differs from the input.
+
+	// insertConcertsQuery inserts placeholder concerts rows only for events that
+	// were genuinely inserted. The WHERE EXISTS check filters out input UUIDs
+	// whose UPSERT lost a natural-key race.
 	insertConcertsQuery = `
-		INSERT INTO concerts (event_id, artist_id)
-		SELECT a.input_id, a.artist_id
-		FROM unnest($1::uuid[], $2::uuid[]) AS a(input_id, artist_id)
+		INSERT INTO concerts (event_id)
+		SELECT a.input_id
+		FROM unnest($1::uuid[]) AS a(input_id)
 		WHERE EXISTS (SELECT 1 FROM events e WHERE e.id = a.input_id)
 		ON CONFLICT DO NOTHING
 		RETURNING event_id
 	`
+
+	// insertEventPerformersQuery links events to their performing artists by
+	// JOINing the events table on the natural key, so it picks up the actual
+	// event row's UUID regardless of whether the caller's input UUID landed
+	// in events (newly inserted) or was discarded in favour of a pre-existing
+	// row (natural-key UPSERT conflict). This makes the M:N insert correct on
+	// re-scrape / lineup-update — a second discovery that adds a new performer
+	// to an already-known event still attaches the new performer to that
+	// event's actual id. Idempotent via ON CONFLICT DO NOTHING.
+	//
+	// RETURNING event_id surfaces ONLY the genuinely new performer links
+	// (re-deliveries hit ON CONFLICT and are not returned). Callers use this
+	// to drive notification: an artist's followers must be notified whenever
+	// the artist is newly attached to an event, whether the event itself is
+	// brand-new OR pre-existing (the co-headliner case — artist B discovered
+	// for an event artist A already created). Without RETURNING, the
+	// pre-existing-event path silently skipped notifications because
+	// insertConcertsQuery only RETURNs UUIDs that won the UPSERT race.
+	insertEventPerformersQuery = `
+		INSERT INTO event_performers (event_id, artist_id)
+		SELECT e.id, perf.artist_id
+		FROM unnest($1::uuid[], $2::date[], $3::uuid[], $4::uuid[])
+			AS perf(series_id, local_event_date, venue_id, artist_id)
+		JOIN events e
+			ON e.series_id = perf.series_id
+			AND e.local_event_date = perf.local_event_date
+			AND e.venue_id = perf.venue_id
+		ON CONFLICT DO NOTHING
+		RETURNING event_id
+	`
+
+	// listConcertsByArtistQuery returns concerts where the given artist appears
+	// in event_performers. The Series parent and the venue are joined; performer
+	// hydration happens in a follow-up query (listPerformersByEventIDsQuery).
 	listConcertsByArtistQuery = `
-		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		       s.title, s.type, s.source_url,
 		       v.id, v.name, v.admin_area
-		FROM concerts c
-		JOIN events e ON c.event_id = e.id
+		FROM events e
+		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		WHERE c.artist_id = $1
-	`
-	listUpcomingConcertsByArtistQuery = `
-		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
-		       v.id, v.name, v.admin_area
-		FROM concerts c
-		JOIN events e ON c.event_id = e.id
-		JOIN venues v ON e.venue_id = v.id
-		WHERE c.artist_id = $1 AND e.local_event_date >= CURRENT_DATE
-	`
-	listConcertsByArtistsQuery = `
-		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
-		       v.id, v.name, v.admin_area, v.latitude, v.longitude
-		FROM concerts c
-		JOIN events e ON c.event_id = e.id
-		JOIN venues v ON e.venue_id = v.id
-		WHERE c.artist_id = ANY($1)
+		WHERE EXISTS (
+			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
+		)
 		ORDER BY e.local_event_date ASC
 	`
-	listConcertsByIDsQuery = `
-		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
+
+	listUpcomingConcertsByArtistQuery = `
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		       s.title, s.type, s.source_url,
 		       v.id, v.name, v.admin_area
-		FROM concerts c
-		JOIN events e ON c.event_id = e.id
+		FROM events e
+		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		WHERE c.event_id = ANY($1)
+		WHERE EXISTS (
+			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
+		)
+		AND e.local_event_date >= CURRENT_DATE
+		ORDER BY e.local_event_date ASC
 	`
-	listConcertsByFollowerQuery = `
-		SELECT c.event_id, c.artist_id, e.venue_id, e.title, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at, e.source_url,
+
+	// listConcertsByArtistsQuery includes venue lat/lng for proximity classification.
+	listConcertsByArtistsQuery = `
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		       s.title, s.type, s.source_url,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
-		FROM concerts c
-		JOIN events e ON c.event_id = e.id
+		FROM events e
+		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		JOIN followed_artists fa ON c.artist_id = fa.artist_id
+		WHERE EXISTS (
+			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = ANY($1)
+		)
+		ORDER BY e.local_event_date ASC
+	`
+
+	// listConcertsByIDsQuery includes venue lat/lng because NotifyNewConcerts
+	// feeds the result into HypeNearby.ShouldNotify, which calls ProximityTo
+	// on Venue.Coordinates. Without the coordinates, ProximityTo returns
+	// ProximityAway for every concert and HypeNearby followers are silently
+	// excluded from every new-concert push notification.
+	listConcertsByIDsQuery = `
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		       s.title, s.type, s.source_url,
+		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		FROM events e
+		JOIN series s ON e.series_id = s.id
+		JOIN venues v ON e.venue_id = v.id
+		WHERE e.id = ANY($1)
+		ORDER BY e.local_event_date ASC
+	`
+
+	// listConcertsByFollowerQuery joins followed_artists via event_performers.
+	// Distinct is required because an event could have multiple performers that
+	// are all followed by the same user; we want one row per event.
+	listConcertsByFollowerQuery = `
+		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		       s.title, s.type, s.source_url,
+		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		FROM events e
+		JOIN series s ON e.series_id = s.id
+		JOIN venues v ON e.venue_id = v.id
+		JOIN event_performers ep ON ep.event_id = e.id
+		JOIN followed_artists fa ON fa.artist_id = ep.artist_id
 		WHERE fa.user_id = $1
 		ORDER BY e.local_event_date ASC
+	`
+
+	// listPerformersByEventIDsQuery hydrates the Performers slice on each Concert.
+	// One row per (event_id, artist) pair so callers can group in Go.
+	// ORDER BY a.id keeps the per-event performer order stable across queries so
+	// callers that assert on order (handler tests, UI snapshots) don't flake on
+	// PostgreSQL plan changes. The artist id is deterministic at insert time,
+	// which produces a consistent — if not semantically "billed" — ordering;
+	// promoting a billing/role column when needed is tracked separately.
+	listPerformersByEventIDsQuery = `
+		SELECT ep.event_id, a.id, a.name, a.mbid
+		FROM event_performers ep
+		JOIN artists a ON a.id = ep.artist_id
+		WHERE ep.event_id = ANY($1)
+		ORDER BY ep.event_id, a.id
 	`
 )
 
@@ -85,7 +167,103 @@ func NewConcertRepository(db *Database) *ConcertRepository {
 	return &ConcertRepository{db: db}
 }
 
-// ListByArtist retrieves concerts for a specific artist, optionally filtering for upcoming ones.
+// scanConcertRow scans a row from the standard JOIN (events + series + venue)
+// into a Concert without populating Performers. Pass withCoords=true when the
+// query selects venue lat/lng (used by ListByArtists / ListByFollower).
+func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.Concert, error) {
+	var (
+		c         entity.Concert
+		series    entity.Series
+		venue     entity.Venue
+		seriesT   string
+		sourceURL *string
+		lat, lng  *float64
+	)
+	dests := []any{
+		&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime,
+		&series.Title, &seriesT, &sourceURL,
+		&venue.ID, &venue.Name, &venue.AdminArea,
+	}
+	if withCoords {
+		dests = append(dests, &lat, &lng)
+	}
+	if err := rowScan(dests...); err != nil {
+		return nil, toAppErr(err, "failed to scan concert row")
+	}
+	series.ID = c.SeriesID
+	// Validate the DB-side series_type against the Go-side allowlist. Without
+	// this check, an enum value added to the Postgres `series_type` type
+	// before the Go binary is updated (e.g. a future `RESIDENCY`) would
+	// silently cast to entity.SeriesType("RESIDENCY"), then collapse to
+	// SERIES_TYPE_UNSPECIFIED at the proto mapper's default branch. The
+	// Connect server only validates inbound requests, so the bad value would
+	// reach the client as a structurally-valid-but-typeless concert. Failing
+	// fast here surfaces the version skew before the response is built.
+	switch entity.SeriesType(seriesT) {
+	case entity.SeriesTypeTour, entity.SeriesTypeSingle, entity.SeriesTypeFestival:
+		series.Type = entity.SeriesType(seriesT)
+	default:
+		return nil, apperr.New(codes.Internal,
+			"unknown series_type from DB — Go binary may be behind a Postgres enum extension",
+			slog.String("series_id", c.SeriesID),
+			slog.String("series_type", seriesT),
+		)
+	}
+	if sourceURL != nil {
+		series.SourceURL = *sourceURL
+	}
+	if lat != nil && lng != nil {
+		venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
+	}
+	c.Series = &series
+	c.Venue = &venue
+	return &c, nil
+}
+
+// hydratePerformers fetches event_performers + artists for the given concerts
+// and assigns each Concert.Performers slice. Concerts with no performers are
+// left with a nil slice; callers downstream are expected to treat that as a
+// data anomaly because every Event MUST have at least one performer.
+func (r *ConcertRepository) hydratePerformers(ctx context.Context, concerts []*entity.Concert) error {
+	if len(concerts) == 0 {
+		return nil
+	}
+
+	ids := make([]string, len(concerts))
+	byID := make(map[string]*entity.Concert, len(concerts))
+	for i, c := range concerts {
+		ids[i] = c.ID
+		byID[c.ID] = c
+	}
+
+	rows, err := r.db.Pool.Query(ctx, listPerformersByEventIDsQuery, ids)
+	if err != nil {
+		return toAppErr(err, "failed to list performers for events", slog.Int("count", len(ids)))
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			eventID string
+			artist  entity.Artist
+		)
+		if err := rows.Scan(&eventID, &artist.ID, &artist.Name, &artist.MBID); err != nil {
+			return toAppErr(err, "failed to scan performer")
+		}
+		c, ok := byID[eventID]
+		if !ok {
+			continue
+		}
+		a := artist
+		c.Performers = append(c.Performers, &a)
+	}
+	if err := rows.Err(); err != nil {
+		return toAppErr(err, "performer iteration ended with error")
+	}
+	return nil
+}
+
+// ListByArtist retrieves concerts where the given artist is one of the performers.
 func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, upcomingOnly bool) ([]*entity.Concert, error) {
 	query := listConcertsByArtistQuery
 	if upcomingOnly {
@@ -100,23 +278,30 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 
 	var concerts []*entity.Concert
 	for rows.Next() {
-		var c entity.Concert
-		var venue entity.Venue
-		err := rows.Scan(
-			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
-			&venue.ID, &venue.Name, &venue.AdminArea,
-		)
+		c, err := scanConcertRow(rows.Scan, false)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan concert")
+			// scanConcertRow already returns a classified error
+			// (toAppErr-wrapped pgx errors or apperr.New for the
+			// SeriesType allowlist failure); don't re-wrap here or the
+			// outer fmt.Errorf would bury the structured slog attrs
+			// and the codes.Internal designation downstream callers
+			// rely on.
+			return nil, err
 		}
-		c.Venue = &venue
-		concerts = append(concerts, &c)
+		concerts = append(concerts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
+	}
+
+	if err := r.hydratePerformers(ctx, concerts); err != nil {
+		return nil, err
 	}
 	return concerts, nil
 }
 
-// ListByIDs retrieves concerts by their event IDs. Venues are joined so that
-// Concert.Venue.AdminArea is populated for hype-level filtering.
+// ListByIDs retrieves concerts by their event IDs. Series, Venue, and Performers
+// are all populated.
 func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*entity.Concert, error) {
 	if len(ids) == 0 {
 		return nil, apperr.New(codes.InvalidArgument, "concert IDs must not be empty")
@@ -130,23 +315,27 @@ func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*ent
 
 	var concerts []*entity.Concert
 	for rows.Next() {
-		var c entity.Concert
-		var venue entity.Venue
-		err := rows.Scan(
-			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
-			&venue.ID, &venue.Name, &venue.AdminArea,
-		)
+		// withCoords=true matches the lat/lng columns selected by
+		// listConcertsByIDsQuery — required so NotifyNewConcerts can
+		// evaluate HypeNearby followers via Venue.Coordinates.
+		c, err := scanConcertRow(rows.Scan, true)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan concert")
+			return nil, err
 		}
-		c.Venue = &venue
-		concerts = append(concerts, &c)
+		concerts = append(concerts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
+	}
+
+	if err := r.hydratePerformers(ctx, concerts); err != nil {
+		return nil, err
 	}
 	return concerts, nil
 }
 
-// ListByFollower retrieves all concerts for artists followed by the given user.
-// Venue latitude and longitude are included for proximity classification.
+// ListByFollower retrieves all concerts featuring artists the user follows.
+// Venue lat/lng are included for proximity classification.
 func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error) {
 	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID)
 	if err != nil {
@@ -156,27 +345,24 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) (
 
 	var concerts []*entity.Concert
 	for rows.Next() {
-		var c entity.Concert
-		var venue entity.Venue
-		var lat, lng *float64
-		err := rows.Scan(
-			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
-			&venue.ID, &venue.Name, &venue.AdminArea, &lat, &lng,
-		)
+		c, err := scanConcertRow(rows.Scan, true)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan concert")
+			return nil, err
 		}
-		if lat != nil && lng != nil {
-			venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
-		}
-		c.Venue = &venue
-		concerts = append(concerts, &c)
+		concerts = append(concerts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
+	}
+
+	if err := r.hydratePerformers(ctx, concerts); err != nil {
+		return nil, err
 	}
 	return concerts, nil
 }
 
-// ListByArtists retrieves concerts for multiple artists in a single query.
-// Venue coordinates are included for proximity classification.
+// ListByArtists retrieves concerts where any of the given artists is a performer.
+// Venue lat/lng are included for proximity classification.
 func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []string) ([]*entity.Concert, error) {
 	rows, err := r.db.Pool.Query(ctx, listConcertsByArtistsQuery, artistIDs)
 	if err != nil {
@@ -186,45 +372,77 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 
 	var concerts []*entity.Concert
 	for rows.Next() {
-		var c entity.Concert
-		var venue entity.Venue
-		var lat, lng *float64
-		err := rows.Scan(
-			&c.ID, &c.ArtistID, &c.VenueID, &c.Title, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime, &c.SourceURL,
-			&venue.ID, &venue.Name, &venue.AdminArea, &lat, &lng,
-		)
+		c, err := scanConcertRow(rows.Scan, true)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan concert")
+			return nil, err
 		}
-		if lat != nil && lng != nil {
-			venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
-		}
-		c.Venue = &venue
-		concerts = append(concerts, &c)
+		concerts = append(concerts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
+	}
+
+	if err := r.hydratePerformers(ctx, concerts); err != nil {
+		return nil, err
 	}
 	return concerts, nil
 }
 
-// Create creates one or more concerts in the database within a single transaction.
-// Uses PostgreSQL unnest for bulk inserts — no parameter limit, single statement per table.
+// Create persists one or more concerts using bulk insert with UPSERT semantics.
 //
-// The events INSERT uses UPSERT on the natural key (artist_id, local_event_date, start_at).
-// On conflict, only NULL open_at is filled via COALESCE — existing non-NULL values are
-// preserved. The concerts INSERT uses WHERE EXISTS to skip rows whose input UUID was not
-// inserted into events (i.e., the event already existed with a different id).
+// Caller MUST have already created the parent Series rows via
+// [SeriesRepository.Create]; this method only inserts into events, concerts, and
+// event_performers. Each concert MUST carry a non-empty SeriesID matching one of
+// those Series rows (FK enforced).
+//
+// Events use UPSERT on (series_id, local_event_date, venue_id). On conflict the
+// pre-existing event keeps its id and only NULL start/open times are filled.
+// The placeholder concerts row and the event_performers links are only inserted
+// for events whose input UUID survived the UPSERT.
+//
+// Returns the event IDs of concerts that were genuinely inserted (i.e., not
+// deduplicated by natural-key UPSERT).
 func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Concert) ([]string, error) {
 	if len(concerts) == 0 {
 		return nil, nil
 	}
 
-	// Compact the slice first: skip nil elements so target arrays have no empty-value holes.
-	// A nil element with index i would leave an empty string at eventIDs[i], which PostgreSQL
-	// rejects as "invalid input syntax for type uuid: """.
+	// Compact the slice first AND dedup by the events natural key
+	// `(series_id, local_event_date, venue_id)`. PostgreSQL rejects
+	// `INSERT ... ON CONFLICT DO UPDATE` when two rows in the same
+	// statement target the same conflict row with:
+	//   ERROR: ON CONFLICT DO UPDATE command cannot affect row a second time
+	// This can fire on the discovery path when Gemini returns two scraped
+	// entries for the same physical venue under different ListedVenueNames
+	// (e.g. "Zepp" + "Zepp DiverCity"): FilterNew dedups on raw
+	// ListedVenueName so both survive, GetByListedName/Places resolves them
+	// to the same venue_id, the seriesID derivation (venue+date) then
+	// collapses them to identical keys → batch UPSERT crash, the tx rolls
+	// back, and the Pub/Sub consumer retries the message indefinitely.
+	// Today's only caller (concert_creation_uc.CreateFromDiscovered) emits
+	// one batch per Pub/Sub message and one message per artist, so every
+	// concert in a single Create call shares the same artist set — dropping
+	// duplicates by natural key cannot lose performer information. If a
+	// future caller batches concerts from multiple artists (a cross-artist
+	// admin path, say), it must merge duplicates' Performers into the kept
+	// entry before invoking Create; the Warn log surfaces if that happens.
 	var valid []*entity.Concert
+	seenKey := make(map[string]struct{}, len(concerts))
 	for _, c := range concerts {
-		if c != nil {
-			valid = append(valid, c)
+		if c == nil {
+			continue
 		}
+		key := c.SeriesID + "|" + c.LocalDate.Format("2006-01-02") + "|" + c.VenueID
+		if _, dup := seenKey[key]; dup {
+			r.db.logger.Warn(ctx, "Create: dropping duplicate concert with identical natural key from same batch",
+				slog.String("concert_id", c.ID),
+				slog.String("series_id", c.SeriesID),
+				slog.String("venue_id", c.VenueID),
+			)
+			continue
+		}
+		seenKey[key] = struct{}{}
+		valid = append(valid, c)
 	}
 	if len(valid) == 0 {
 		return nil, nil
@@ -232,25 +450,55 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 
 	n := len(valid)
 	eventIDs := make([]string, n)
+	seriesIDs := make([]string, n)
 	venueIDs := make([]string, n)
-	titles := make([]string, n)
 	listedVenueNames := make([]*string, n)
 	eventDates := make([]time.Time, n)
 	startTimes := make([]*time.Time, n)
 	openTimes := make([]*time.Time, n)
-	sourceURLs := make([]string, n)
-	artistIDs := make([]string, n)
+
+	// Flatten (series_id, local_event_date, venue_id, artist_id) tuples from
+	// each concert's Performers slice. The natural-key triple lets the
+	// insertEventPerformersQuery JOIN onto the actual event row regardless of
+	// whether our input event UUID landed or lost the UPSERT race — this is
+	// what makes re-scrape lineup updates correctly attach to the existing
+	// event id instead of being silently dropped.
+	var (
+		performerSeriesIDs  []string
+		performerEventDates []time.Time
+		performerVenueIDs   []string
+		performerArtistIDs  []string
+	)
 
 	for i, c := range valid {
+		if c.ID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "concert must carry an ID (event UUID) before insert")
+		}
+		if c.VenueID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "concert must carry a VenueID before insert")
+		}
+		if c.SeriesID == "" {
+			return nil, apperr.New(codes.InvalidArgument, "concert must carry a SeriesID before insert")
+		}
+		if len(c.Performers) == 0 {
+			return nil, apperr.New(codes.InvalidArgument, "concert must have at least one performer before insert")
+		}
 		eventIDs[i] = c.ID
+		seriesIDs[i] = c.SeriesID
 		venueIDs[i] = c.VenueID
-		titles[i] = c.Title
 		listedVenueNames[i] = c.ListedVenueName
 		eventDates[i] = c.LocalDate
 		startTimes[i] = c.StartTime
 		openTimes[i] = c.OpenTime
-		sourceURLs[i] = c.SourceURL
-		artistIDs[i] = c.ArtistID
+		for _, p := range c.Performers {
+			if p == nil || p.ID == "" {
+				return nil, apperr.New(codes.InvalidArgument, "performer ID must not be empty")
+			}
+			performerSeriesIDs = append(performerSeriesIDs, c.SeriesID)
+			performerEventDates = append(performerEventDates, c.LocalDate)
+			performerVenueIDs = append(performerVenueIDs, c.VenueID)
+			performerArtistIDs = append(performerArtistIDs, p.ID)
+		}
 	}
 
 	tx, err := r.db.Pool.Begin(ctx)
@@ -259,38 +507,107 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, upsertEventsQuery, eventIDs, venueIDs, titles, listedVenueNames, eventDates, startTimes, openTimes, sourceURLs, artistIDs); err != nil {
+	if _, err := tx.Exec(ctx, upsertEventsQuery,
+		eventIDs, seriesIDs, venueIDs, listedVenueNames, eventDates, startTimes, openTimes,
+	); err != nil {
 		return nil, toAppErr(err, "failed to upsert events", slog.Int("count", n))
 	}
 
-	// RETURNING event_id gives us only the rows actually inserted — phantom
-	// UUIDs from natural-key conflicts (where the pre-existing event kept its
-	// original id) are filtered by the WHERE EXISTS clause and do not appear
-	// in the result.
-	rows, err := tx.Query(ctx, insertConcertsQuery, eventIDs, artistIDs)
+	rows, err := tx.Query(ctx, insertConcertsQuery, eventIDs)
 	if err != nil {
 		return nil, toAppErr(err, "failed to insert concerts", slog.Int("count", n))
 	}
+	defer rows.Close()
 	insertedIDs := make([]string, 0, n)
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
 			return nil, toAppErr(err, "failed to scan inserted concert id")
 		}
 		insertedIDs = append(insertedIDs, id)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert insert RETURNING iteration ended with error",
+			slog.Int("count", n),
+		)
+	}
+	// Load-bearing explicit close: pgx v5 forbids issuing a new query on
+	// the same transaction while a previous Rows is still open, and the
+	// next tx.Query for insertEventPerformersQuery happens immediately
+	// below. The `defer rows.Close()` at line 520 only fires when Create
+	// returns; while `rows.Next()` returning false also auto-closes today,
+	// any future intermediate break/return between the loop and the next
+	// tx.Query would leak the cursor and block the follow-up query.
 	rows.Close()
+
+	// linkedEventIDs collects the event IDs returned by
+	// insertEventPerformersQuery — these are the events where one of THIS
+	// batch's performer links was genuinely new (ON CONFLICT DO NOTHING
+	// excludes re-deliveries from RETURNING). The union with insertedIDs
+	// covers the co-headliner notification case: when artist B is
+	// discovered for an event artist A already created, the events UPSERT
+	// keeps the existing row, insertConcertsQuery returns nothing — but
+	// the event_performers RETURNING surfaces the new (event, B) link so
+	// B's followers get notified.
+	var linkedEventIDs []string
+	if len(performerArtistIDs) > 0 {
+		linkRows, err := tx.Query(ctx, insertEventPerformersQuery,
+			performerSeriesIDs, performerEventDates, performerVenueIDs, performerArtistIDs,
+		)
+		if err != nil {
+			return nil, toAppErr(err, "failed to insert event_performers",
+				slog.Int("event_count", n),
+				slog.Int("link_count", len(performerArtistIDs)),
+			)
+		}
+		defer linkRows.Close()
+		for linkRows.Next() {
+			var id string
+			if err := linkRows.Scan(&id); err != nil {
+				return nil, toAppErr(err, "failed to scan linked event id")
+			}
+			linkedEventIDs = append(linkedEventIDs, id)
+		}
+		if err := linkRows.Err(); err != nil {
+			return nil, toAppErr(err, "event_performers insert RETURNING iteration ended with error",
+				slog.Int("link_count", len(performerArtistIDs)),
+			)
+		}
+		linkRows.Close()
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, toAppErr(err, "failed to commit transaction")
+	}
+
+	// Union insertedIDs with linkedEventIDs and dedup. A brand-new event
+	// appears in both sets (insertConcertsQuery returned its UUID, AND the
+	// performer link RETURNING surfaced it). A co-headliner-on-existing-
+	// event case appears only in linkedEventIDs. A pure re-delivery (event
+	// AND link both pre-exist) appears in neither, which is correct — no
+	// new notification work to do.
+	notifiableIDs := make([]string, 0, len(insertedIDs)+len(linkedEventIDs))
+	seen := make(map[string]bool, len(insertedIDs)+len(linkedEventIDs))
+	for _, id := range insertedIDs {
+		if !seen[id] {
+			seen[id] = true
+			notifiableIDs = append(notifiableIDs, id)
+		}
+	}
+	for _, id := range linkedEventIDs {
+		if !seen[id] {
+			seen[id] = true
+			notifiableIDs = append(notifiableIDs, id)
+		}
 	}
 
 	r.db.logger.Info(ctx, "concerts created",
 		slog.String("entityType", "concert"),
 		slog.Int("requested", n),
 		slog.Int("inserted", len(insertedIDs)),
+		slog.Int("newly_linked", len(linkedEventIDs)),
+		slog.Int("notifiable", len(notifiableIDs)),
 	)
 
-	return insertedIDs, nil
+	return notifiableIDs, nil
 }
