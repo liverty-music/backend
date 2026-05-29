@@ -149,15 +149,15 @@ func TestAnalyticsClient_Enqueue(t *testing.T) {
 		properties usecase.AnalyticsProperties
 	}
 	tests := []struct {
-		name      string
-		args      args
-		setupErr  error // optional: makes the fake return this on Enqueue
-		wantErr   error
-		check     func(t *testing.T, fake *fakeEnqueuer)
+		name     string
+		args     args
+		setupErr error // optional: makes the fake return this on Enqueue
+		wantErr  error
+		check    func(t *testing.T, fake *fakeEnqueuer)
 	}{
 		{
-			name: "rejects empty distinctID",
-			args: args{distinctID: "", eventName: usecase.EventUserCreated},
+			name:    "rejects empty distinctID",
+			args:    args{distinctID: "", eventName: usecase.EventUserCreated},
 			wantErr: apperr.ErrInvalidArgument,
 			check: func(t *testing.T, fake *fakeEnqueuer) {
 				t.Helper()
@@ -165,8 +165,8 @@ func TestAnalyticsClient_Enqueue(t *testing.T) {
 			},
 		},
 		{
-			name: "rejects non-UUID distinctID (Finding 05 — Zitadel sub mistakenly passed)",
-			args: args{distinctID: "not-a-uuid", eventName: usecase.EventUserCreated},
+			name:    "rejects non-UUID distinctID (Finding 05 — Zitadel sub mistakenly passed)",
+			args:    args{distinctID: "not-a-uuid", eventName: usecase.EventUserCreated},
 			wantErr: apperr.ErrInvalidArgument,
 			check: func(t *testing.T, fake *fakeEnqueuer) {
 				t.Helper()
@@ -174,8 +174,8 @@ func TestAnalyticsClient_Enqueue(t *testing.T) {
 			},
 		},
 		{
-			name: "rejects empty eventName",
-			args: args{distinctID: validUUID, eventName: ""},
+			name:    "rejects empty eventName",
+			args:    args{distinctID: validUUID, eventName: ""},
 			wantErr: apperr.ErrInvalidArgument,
 			check: func(t *testing.T, fake *fakeEnqueuer) {
 				t.Helper()
