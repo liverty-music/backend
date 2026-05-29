@@ -7,3 +7,8 @@ var NewWithEnqueuer = newWithEnqueuer
 // Enqueuer re-exports the unexported enqueuer interface so tests can
 // declare a fake that satisfies it.
 type Enqueuer = enqueuer
+
+// TracePropertyKey re-exports the unexported tracePropertyKey constant
+// so tests can assert that injected trace_id properties land under the
+// expected key without duplicating the literal.
+const TracePropertyKey = tracePropertyKey

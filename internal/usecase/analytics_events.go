@@ -109,3 +109,39 @@ const (
 	// downstream open/dismiss separately.
 	EventPushNotificationDelivered AnalyticsEventName = "push.notification.delivered"
 )
+
+// knownBackendEvents is the allowlist of AnalyticsEventName constants
+// emitted from the backend. AnalyticsClient implementations consult this
+// via IsKnownEvent to reject typos at the call site, satisfying the
+// "unknown eventName" contract on Enqueue.
+//
+// The map is populated lazily-once at package init via the const groups
+// above; every new constant MUST be added here in the same commit.
+var knownBackendEvents = map[AnalyticsEventName]struct{}{
+	EventAccountSignupCompleted:          {},
+	EventAccountLogin:                    {},
+	EventAccountPreferredLanguageUpdated: {},
+	EventUserCreated:                     {},
+	EventUserDeleted:                     {},
+	EventArtistFollowCompleted:           {},
+	EventArtistUnfollowCompleted:         {},
+	EventConcertRecommendationServed:     {},
+	EventTicketLotteryEntryAccepted:      {},
+	EventTicketLotteryEntryRejected:      {},
+	EventTicketLotteryResultAssigned:     {},
+	EventTicketPurchaseCompleted:         {},
+	EventTicketPurchaseFailed:            {},
+	EventEntryZkProofVerified:            {},
+	EventEntryZkProofRejected:            {},
+	EventPushSubscriptionCompleted:       {},
+	EventPushNotificationDelivered:       {},
+}
+
+// IsKnownEvent reports whether name is registered in the backend event
+// catalogue. AnalyticsClient implementations call this on Enqueue to
+// fail fast on typos like AnalyticsEventName("ticket.purcase.completed")
+// that would otherwise silently fragment downstream dashboards.
+func IsKnownEvent(name AnalyticsEventName) bool {
+	_, ok := knownBackendEvents[name]
+	return ok
+}
