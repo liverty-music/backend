@@ -275,12 +275,13 @@ jobs:
           # Errors are classified like the release-path resolve (auth ->
           # fail fast with auth guidance; transient -> retry; NOT_FOUND ->
           # chain-broken) so an IAM/5xx failure is not misreported as a
-          # missing-tag "seed the chain" instruction. -e is NOT set during
-          # resolve (gcloud's non-zero is handled explicitly) and is enabled
-          # only around the crane copies.
-          set -uo pipefail
+          # missing-tag "seed the chain" instruction. -e is safe to keep on
+          # throughout: every gcloud call is guarded by `|| rc=$?` or sits
+          # inside an `if`, so a non-zero resolve does not abort the step.
+          set -euo pipefail
           stderr_file=$(mktemp)
           digest=""
+          body=""
           for attempt in $(seq 1 3); do
             rc=0
             digest=$(gcloud artifacts docker images describe "${DEV_AR_IMAGE}:${BEFORE}" \
@@ -299,12 +300,12 @@ jobs:
           done
           rm -f "$stderr_file"
           if [ -z "${digest}" ]; then
-            echo "::error::Cannot resolve parent dev image ${DEV_AR_IMAGE}:${BEFORE} after 3 attempts. The inherit chain is broken — the parent push for this matrix entry failed or never wrote :${BEFORE}. Seed by pushing a build-relevant change (any **.go / go.mod / Dockerfile) to main to force a fresh build, then re-cut the release on the new HEAD. Not writing :${SHA} to avoid pinning a wrong digest."
+            echo "::error::Cannot resolve parent dev image ${DEV_AR_IMAGE}:${BEFORE} after 3 attempts. The inherit chain is broken — the parent push for this matrix entry failed or never wrote :${BEFORE}. Seed by pushing a build-relevant change (any **.go / go.mod / Dockerfile) to main to force a fresh build, then re-cut the release on the new HEAD. Not writing :${SHA} to avoid pinning a wrong digest. Last gcloud stderr: ${body}"
             exit 1
           fi
           echo "Inheriting digest ${digest} onto :${SHA}, :main, :latest."
-          # Abort immediately if any of the three retags fails.
-          set -e
+          # -e (set at the top of this step) aborts immediately if any of the
+          # three retags fails.
           crane copy "${DEV_AR_IMAGE}@${digest}" "${DEV_AR_IMAGE}:${SHA}"
           crane copy "${DEV_AR_IMAGE}@${digest}" "${DEV_AR_IMAGE}:main"
           crane copy "${DEV_AR_IMAGE}@${digest}" "${DEV_AR_IMAGE}:latest"
