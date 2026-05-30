@@ -261,20 +261,45 @@ jobs:
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
         run: |
-          # NOTE: -e is intentionally NOT set here — the resolve() calls below
-          # are expected to return non-zero on a missing tag (that drives the
-          # :main fallback), and `digest=$(resolve ...)` would abort under -e.
-          # -e is enabled explicitly just before the crane copy sequence.
+          # Resolve ONLY the parent push tip's digest (event.before). By
+          # induction + the `concurrency` serialization (the parent run
+          # completes before this one starts), :<before> exists in steady
+          # state. There is deliberately NO fallback to :main or any other
+          # tag: the fallback would only ever fire when :<before> is missing
+          # (i.e. the parent run FAILED), and in that gapped state :main can
+          # point at an older commit whose tree differs from this one —
+          # inheriting it would pin non-equivalent bytes onto :<sha> and
+          # silently ship the wrong code to prod. A missing :<before> means
+          # the chain is genuinely broken -> fail loudly.
+          #
+          # Errors are classified like the release-path resolve (auth ->
+          # fail fast with auth guidance; transient -> retry; NOT_FOUND ->
+          # chain-broken) so an IAM/5xx failure is not misreported as a
+          # missing-tag "seed the chain" instruction. -e is NOT set during
+          # resolve (gcloud's non-zero is handled explicitly) and is enabled
+          # only around the crane copies.
           set -uo pipefail
-          resolve() { gcloud artifacts docker images describe "$1" --format='value(image_summary.digest)' 2>/dev/null; }
-          # The parent push tip (event.before) has a :<sha> image by induction.
-          digest=$(resolve "${DEV_AR_IMAGE}:${BEFORE}")
+          stderr_file=$(mktemp)
+          digest=""
+          for attempt in $(seq 1 3); do
+            rc=0
+            digest=$(gcloud artifacts docker images describe "${DEV_AR_IMAGE}:${BEFORE}" \
+              --format='value(image_summary.digest)' 2>"$stderr_file") || rc=$?
+            if [ "$rc" -eq 0 ] && [ -n "$digest" ]; then break; fi
+            body=$(cat "$stderr_file")
+            if echo "$body" | grep -qE 'PERMISSION_DENIED|Permission .* denied|HTTPError 403|403 Forbidden|UNAUTHENTICATED|401'; then
+              echo "::error::Auth failure resolving ${DEV_AR_IMAGE}:${BEFORE} (dev AR read) — NOT a missing-tag/chain problem. Check the dev build service account's AR read access. stderr: ${body}"
+              rm -f "$stderr_file"; exit 1
+            fi
+            digest=""
+            if [ "$attempt" -lt 3 ]; then
+              echo "Attempt ${attempt}/3: ${DEV_AR_IMAGE}:${BEFORE} not resolvable yet (${body}); retrying in 20s..."
+              sleep 20
+            fi
+          done
+          rm -f "$stderr_file"
           if [ -z "${digest}" ]; then
-            echo "Parent :${BEFORE} not resolvable; falling back to the :main tag digest."
-            digest=$(resolve "${DEV_AR_IMAGE}:main")
-          fi
-          if [ -z "${digest}" ]; then
-            echo "::error::Cannot resolve a parent dev image for ${DEV_AR_IMAGE} (tried :${BEFORE} and :main). The inherit chain is broken. Seed it by pushing a build-relevant change (any **.go / go.mod / Dockerfile) to main, which forces a fresh build. Not writing :${SHA} to avoid pinning a wrong digest."
+            echo "::error::Cannot resolve parent dev image ${DEV_AR_IMAGE}:${BEFORE} after 3 attempts. The inherit chain is broken — the parent push for this matrix entry failed or never wrote :${BEFORE}. Seed by pushing a build-relevant change (any **.go / go.mod / Dockerfile) to main to force a fresh build, then re-cut the release on the new HEAD. Not writing :${SHA} to avoid pinning a wrong digest."
             exit 1
           fi
           echo "Inheriting digest ${digest} onto :${SHA}, :main, :latest."
