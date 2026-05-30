@@ -155,19 +155,27 @@ jobs:
       #   * any build-relevant file changed -> build (produces fresh images)
       #   * none changed                     -> inherit the parent tip's digest
       #     so this commit still gets a :<sha> image (byte-identical to parent).
-      # Unknown parent (zero `before` SHA on branch creation / force-push, or
-      # an unresolvable parent commit) -> build: the conservative choice that
-      # always produces a fresh image rather than risk a wrong inherit.
+      # Force-push and branch-creation are NOT inheritable and route to build:
+      #   * force-push: `github.event.before` is the previous, now-orphaned tip
+      #     (a real non-zero SHA, flagged by `github.event.forced == true`) that
+      #     is not necessarily an ancestor of the new tip — inheriting its
+      #     digest would pin :<sha> to non-equivalent bytes.
+      #   * branch creation: `github.event.before` is the zero SHA
+      #     (`github.event.created == true`) — no ancestor image exists.
+      # An otherwise-unresolvable parent commit also defaults to build (the
+      # conservative choice that always produces a fresh image).
       - name: Decide build vs inherit (push path)
         if: github.event_name == 'push'
         id: decide
         env:
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
+          FORCED: ${{ github.event.forced }}
+          CREATED: ${{ github.event.created }}
         run: |
           set -uo pipefail
-          if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
-            echo "Parent commit unavailable (BEFORE=${BEFORE}); defaulting to build."
+          if [ "${FORCED}" = "true" ] || [ "${CREATED}" = "true" ] || [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "Force-push / branch-creation / unresolvable parent (forced=${FORCED} created=${CREATED} before=${BEFORE}) -> build."
             echo "mode=build" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -253,6 +261,10 @@ jobs:
           BEFORE: ${{ github.event.before }}
           SHA: ${{ github.sha }}
         run: |
+          # NOTE: -e is intentionally NOT set here — the resolve() calls below
+          # are expected to return non-zero on a missing tag (that drives the
+          # :main fallback), and `digest=$(resolve ...)` would abort under -e.
+          # -e is enabled explicitly just before the crane copy sequence.
           set -uo pipefail
           resolve() { gcloud artifacts docker images describe "$1" --format='value(image_summary.digest)' 2>/dev/null; }
           # The parent push tip (event.before) has a :<sha> image by induction.
@@ -266,6 +278,8 @@ jobs:
             exit 1
           fi
           echo "Inheriting digest ${digest} onto :${SHA}, :main, :latest."
+          # Abort immediately if any of the three retags fails.
+          set -e
           crane copy "${DEV_AR_IMAGE}@${digest}" "${DEV_AR_IMAGE}:${SHA}"
           crane copy "${DEV_AR_IMAGE}@${digest}" "${DEV_AR_IMAGE}:main"
           crane copy "${DEV_AR_IMAGE}@${digest}" "${DEV_AR_IMAGE}:latest"
