@@ -206,6 +206,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		followRepo,
 		pushSubRepo,
 		webpushSender,
+		eventPublisher,
 		businessMetrics,
 		logger,
 	)

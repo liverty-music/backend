@@ -7,6 +7,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 )
@@ -31,6 +32,7 @@ type pushNotificationTestDeps struct {
 	followRepo  *mocks.MockFollowRepository
 	pushSubRepo *mocks.MockPushSubscriptionRepository
 	sender      *fakeSender
+	publisher   *ucmocks.MockEventPublisher
 	uc          usecase.PushNotificationUseCase
 }
 
@@ -42,6 +44,7 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 		followRepo:  mocks.NewMockFollowRepository(t),
 		pushSubRepo: mocks.NewMockPushSubscriptionRepository(t),
 		sender:      &fakeSender{},
+		publisher:   ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewPushNotificationUseCase(
 		d.artistRepo,
@@ -49,6 +52,7 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 		d.followRepo,
 		d.pushSubRepo,
 		d.sender,
+		d.publisher,
 		noopMetrics{},
 		newTestLogger(t),
 	)
@@ -74,10 +78,10 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "persist subscription successfully",
+			name: "persist subscription successfully and publish analytics event",
 			args: args{
 				userID:   "user-1",
-				endpoint: "https://push.example.com/sub/abc",
+				endpoint: "https://fcm.googleapis.com/sub/abc",
 				p256dh:   "key123",
 				auth:     "auth456",
 			},
@@ -86,12 +90,18 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 				d.pushSubRepo.EXPECT().
 					Create(ctx, &entity.PushSubscription{
 						UserID:   "user-1",
-						Endpoint: "https://push.example.com/sub/abc",
+						Endpoint: "https://fcm.googleapis.com/sub/abc",
 						P256dh:   "key123",
 						Auth:     "auth456",
 					}).
 					Return(nil).
 					Once()
+				d.publisher.EXPECT().
+					PublishEvent(ctx, entity.SubjectPushSubscriptionCompleted, entity.PushSubscriptionCompletedData{
+						UserID:     "user-1",
+						DeviceType: "android",
+					}).
+					Return(nil).Once()
 			},
 			wantErr: nil,
 		},

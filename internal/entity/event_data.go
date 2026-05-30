@@ -15,6 +15,7 @@ const (
 	SubjectArtistUnfollowed             = "ARTIST.unfollowed"
 	SubjectUserCreated                  = "USER.created"
 	SubjectUserPreferredLanguageUpdated = "USER.preferred_language_updated"
+	SubjectPushSubscriptionCompleted    = "PUSH.subscription_completed"
 )
 
 // ConcertDiscoveredData is the payload for concert.discovered.v1 events.
@@ -92,4 +93,20 @@ type ArtistUnfollowedData struct {
 	UserID string `json:"user_id"`
 	// ArtistID is the internal UUID of the unfollowed artist.
 	ArtistID string `json:"artist_id"`
+}
+
+// PushSubscriptionCompletedData is the payload for PUSH.subscription_completed.
+// Mapped to the catalogue event push.subscription.completed by the
+// analytics-consumer. Published by PushNotificationUseCase.Create after the
+// repository persists the subscription record.
+type PushSubscriptionCompletedData struct {
+	// UserID is the platform-internal user identifier of the subscriber.
+	// Used as the PostHog distinct_id.
+	UserID string `json:"user_id"`
+	// DeviceType is the browser/OS family derived from the push endpoint
+	// host. Values: "android" (FCM), "apple" (Web Push for Safari), "firefox"
+	// (Mozilla autopush), "windows" (WNS), "other". The endpoint URL itself
+	// is sensitive and is NOT included in the payload — the host classifier
+	// is the only signal forwarded to PostHog.
+	DeviceType string `json:"device_type"`
 }

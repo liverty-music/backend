@@ -482,6 +482,113 @@ func TestAnalyticsConsumer_HandleArtistUnfollowed(t *testing.T) {
 	}
 }
 
+// TestAnalyticsConsumer_HandlePushSubscriptionCompleted covers
+// PUSH.subscription_completed → push.subscription.completed routing.
+// Property: device_type (the endpoint host classifier).
+func TestAnalyticsConsumer_HandlePushSubscriptionCompleted(t *testing.T) {
+	t.Parallel()
+
+	const validUserID = "11111111-2222-3333-4444-555555555555"
+
+	type args struct {
+		data entity.PushSubscriptionCompletedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards with device_type when client + UserID present",
+			args: args{data: entity.PushSubscriptionCompletedData{
+				UserID:     validUserID,
+				DeviceType: "android",
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.PushSubscriptionCompletedData{
+				UserID:     validUserID,
+				DeviceType: "apple",
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			args: args{data: entity.PushSubscriptionCompletedData{
+				UserID:     "",
+				DeviceType: "android",
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.PushSubscriptionCompletedData{
+				UserID:     validUserID,
+				DeviceType: "other",
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.UserID,
+							usecase.EventPushSubscriptionCompleted,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["device_type"] == tt.args.data.DeviceType
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandlePushSubscriptionCompleted(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 // TestAnalyticsConsumer_HandleUserCreated_BadPayload covers the
 // CloudEvent decode failure path separately because constructing an
 // invalid JSON payload with the same table shape would obscure the
