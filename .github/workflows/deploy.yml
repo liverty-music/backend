@@ -1,11 +1,19 @@
 name: Deploy Backend
 
 # Dual trigger:
-#  - push to main      -> dev build, dev AR (liverty-music-dev/backend)
-#                         4× docker/build-push-action across the strategy
-#                         matrix (server, consumer, concert-discovery,
-#                         artist-image-sync). Each builds and pushes
-#                         :latest, :main, :<sha> for its image.
+#  - push to main      -> dev AR (liverty-music-dev/backend). Every push to
+#                         main runs this workflow (no paths: trigger gate).
+#                         A per-run "build vs inherit" decision over the
+#                         pushed range (event.before..sha) picks one of:
+#                           * build:   4× docker/build-push-action across the
+#                                      strategy matrix (server, consumer,
+#                                      concert-discovery, artist-image-sync),
+#                                      pushing :latest, :main, :<sha>.
+#                           * inherit: no rebuild — crane-copy the parent push
+#                                      tip's dev digest onto :<sha> (and
+#                                      re-point :main, :latest). Used when the
+#                                      push changed no build-relevant file
+#                                      (CI config / docs only).
 #  - release published -> retag dev AR digest into prod AR
 #                         (liverty-music-prod/backend). 4× `crane copy`
 #                         across the matrix — no rebuild. Each matrix
@@ -21,19 +29,17 @@ name: Deploy Backend
 # rebuild per release event (4× ~90 s sequential build-push) down to
 # ~30 s of parallel digest-resolve + crane copy.
 #
-# The `paths:` filter only applies to `push` events. Release events fire on
-# any published Release regardless of file diff — the deploy step is always
-# desired for a Release cut.
+# Per OpenSpec change `guarantee-dev-image-per-main-commit`, the `paths:`
+# trigger gate was removed so EVERY main commit gets a resolvable dev
+# `:<sha>` image (by build or by parent-digest inheritance). This makes
+# "any main commit is releasable" a true invariant: a release cut on main
+# HEAD always resolves a dev image, regardless of what the HEAD commit
+# touched. The former glob set now drives the in-workflow build-vs-inherit
+# decision instead of gating the trigger.
 on:
   push:
     branches:
       - main
-    paths:
-      - '**.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'Dockerfile'
-      - '.github/workflows/deploy.yml'
   release:
     types: [published]
 
@@ -67,8 +73,7 @@ jobs:
       id-token: write
     strategy:
       # fail-fast: false so that one matrix entry's failure (e.g. transient
-      # AR error during digest-resolve, or a single-image dev build that
-      # was filtered out by paths) does NOT cancel the other 3. Partial
+      # AR error during digest-resolve) does NOT cancel the other 3. Partial
       # success is the expected steady state on release events: per the
       # retag runbook, the operator can `gh run rerun --job <job-id>` the
       # single failing matrix entry. The 3 successful entries' prod AR
@@ -95,6 +100,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so the push-path "build vs inherit" decision can
+          # diff the pushed range (event.before..sha), and so the release
+          # path's ancestry verification has main's history available.
+          fetch-depth: 0
 
       # Defensive guard layer 2 (runtime verification): for release events,
       # confirm the checked-out commit (`github.sha`, == the tag's commit)
@@ -113,7 +123,7 @@ jobs:
         run: |
           git fetch origin main --depth=100
           if ! git merge-base --is-ancestor HEAD origin/main; then
-            echo "::error::Release tag at $(git rev-parse HEAD) is not reachable from origin/main ($(git rev-parse origin/main)). Refusing to push prod images. Cut releases on main HEAD only."
+            echo "::error::Release tag at $(git rev-parse HEAD) is not reachable from origin/main ($(git rev-parse origin/main)). Refusing to push prod images. Cut releases on a commit reachable from main — main HEAD is always valid, since every main commit has a resolvable dev image (guarantee-dev-image-per-main-commit)."
             exit 1
           fi
 
@@ -127,26 +137,55 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      # `Configure Docker` runs on BOTH paths:
-      #   * push path:    docker/build-push-action's pusher needs it.
-      #   * release path: `crane` reads its auth from ~/.docker/config.json's
-      #                   credential helpers (the gcloud helper for *.pkg.dev).
-      #                   Without this step crane falls back to anonymous and
-      #                   fails on the prod-AR write.
-      # Backend's existing step is already unconditional, so no gating
-      # change is needed here (unlike the frontend rollout which had to
-      # drop a `push`-only `if:` gate during implementation).
+      # `Configure Docker` runs on ALL paths:
+      #   * push/build path:   docker/build-push-action's pusher needs it.
+      #   * push/inherit path: `crane` reads its auth from ~/.docker/config.json's
+      #                        credential helpers (the dev AR copy is dev->dev).
+      #   * release path:      `crane` likewise reads ~/.docker/config.json for
+      #                        the cross-project prod-AR write.
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      # IMAGE_URI is only consumed by `Set Image Tags (dev path)` and the
-      # `Build and Push Docker Image` step, both push-only. Gate the
-      # assignment to push too so the release path doesn't carry a dead
-      # env var that future readers might assume is wired into the retag
-      # flow. (The retag steps below construct DEV_AR_IMAGE /
-      # PROD_AR_IMAGE from literal AR paths, not IMAGE_URI.)
-      - name: Set Image URI
+      # =====================================================================
+      # Push path: decide build vs inherit
+      # =====================================================================
+      # The `paths:` trigger gate was removed (guarantee-dev-image-per-main-commit)
+      # so every push to main runs this workflow. Replicate the former glob set
+      # as an in-workflow decision over the pushed range event.before..sha:
+      #   * any build-relevant file changed -> build (produces fresh images)
+      #   * none changed                     -> inherit the parent tip's digest
+      #     so this commit still gets a :<sha> image (byte-identical to parent).
+      # Unknown parent (zero `before` SHA on branch creation / force-push, or
+      # an unresolvable parent commit) -> build: the conservative choice that
+      # always produces a fresh image rather than risk a wrong inherit.
+      - name: Decide build vs inherit (push path)
         if: github.event_name == 'push'
+        id: decide
+        env:
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "Parent commit unavailable (BEFORE=${BEFORE}); defaulting to build."
+            echo "mode=build" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "${BEFORE}" "${SHA}")
+          echo "Changed files in ${BEFORE}..${SHA}:"
+          echo "${changed}"
+          # Build glob set (kept in lock-step with the prior `on.push.paths`):
+          # any *.go, go.mod, go.sum, root Dockerfile, or this workflow file.
+          if echo "${changed}" | grep -qE '\.go$|^go\.mod$|^go\.sum$|^Dockerfile$|^\.github/workflows/deploy\.yml$'; then
+            echo "Build-relevant change detected -> build."
+            echo "mode=build" >> "$GITHUB_OUTPUT"
+          else
+            echo "No build-relevant change -> inherit parent digest."
+            echo "mode=inherit" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set Image URI
+        if: github.event_name == 'push' && steps.decide.outputs.mode == 'build'
         run: echo "IMAGE_URI=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ matrix.image.name }}" >> $GITHUB_ENV
 
       # Dev tag set: :latest (consumed by ArgoCD Image Updater for dev
@@ -156,18 +195,18 @@ jobs:
       # path those tags are written by `crane copy` directly (no
       # IMAGE_TAGS env-var indirection is needed on prod).
       - name: Set Image Tags (dev path)
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.decide.outputs.mode == 'build'
         run: echo "IMAGE_TAGS=${{ env.IMAGE_URI }}:latest,${{ env.IMAGE_URI }}:${{ github.sha }},${{ env.IMAGE_URI }}:main" >> $GITHUB_ENV
 
       # =====================================================================
-      # Dev push path: build + push the 4 images to dev AR
+      # Dev build path: build + push the 4 images to dev AR
       # =====================================================================
       - name: Set up Docker Buildx
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.decide.outputs.mode == 'build'
         uses: docker/setup-buildx-action@v3
 
       - name: Build and Push Docker Image
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.decide.outputs.mode == 'build'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -176,6 +215,60 @@ jobs:
           tags: ${{ env.IMAGE_TAGS }}
           cache-from: type=gha,scope=${{ matrix.image.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+
+      # Install `crane` (go-containerregistry's registry CLI) for the
+      # cross-repository / cross-project digest copy. Needed on BOTH the
+      # push/inherit path (dev->dev retag) and the release path (dev->prod
+      # retag). `gcloud artifacts docker tags add` is intentionally NOT used:
+      # despite its name, it only renames tags within a single repository —
+      # passing a source from `liverty-music-dev/backend/<img>` and a
+      # destination in `liverty-music-prod/backend/<img>` fails with
+      # `Image ... does not match image ...`. `crane copy` is the
+      # registry-to-registry primitive; within the same AR region it uses
+      # cross-repo blob mounting so no image bytes actually transfer
+      # (manifest re-push only).
+      #
+      # Note: the action's name is `setup-crane`, and it installs the
+      # `crane` binary — NOT the `gcrane` wrapper. `crane` works for AR.
+      # Auth: `crane` reads ~/.docker/config.json populated by the
+      # `Configure Docker` step above (unconditional).
+      - name: Install crane
+        if: github.event_name == 'release' || (github.event_name == 'push' && steps.decide.outputs.mode == 'inherit')
+        # SHA-pinned: on the release path this action runs with prod AR
+        # credentials, so a hijacked mutable tag would execute code with
+        # prod-write authority. SHA of v0.4 verified against
+        # https://github.com/imjasonh/setup-crane refs/tags/v0.4.
+        uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
+
+      # =====================================================================
+      # Push/inherit path: this commit changed nothing build-relevant, so its
+      # image is byte-identical to the parent push tip's. Copy the parent's
+      # digest onto :<sha> (and re-point :main, :latest) — no rebuild. This
+      # keeps the "every main commit has a resolvable dev :<sha>" invariant.
+      # =====================================================================
+      - name: Inherit parent dev AR digest (push path, no rebuild)
+        if: github.event_name == 'push' && steps.decide.outputs.mode == 'inherit'
+        env:
+          DEV_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/liverty-music-dev/backend/${{ matrix.image.name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          resolve() { gcloud artifacts docker images describe "$1" --format='value(image_summary.digest)' 2>/dev/null; }
+          # The parent push tip (event.before) has a :<sha> image by induction.
+          digest=$(resolve "${DEV_AR_IMAGE}:${BEFORE}")
+          if [ -z "${digest}" ]; then
+            echo "Parent :${BEFORE} not resolvable; falling back to the :main tag digest."
+            digest=$(resolve "${DEV_AR_IMAGE}:main")
+          fi
+          if [ -z "${digest}" ]; then
+            echo "::error::Cannot resolve a parent dev image for ${DEV_AR_IMAGE} (tried :${BEFORE} and :main). The inherit chain is broken. Seed it by pushing a build-relevant change (any **.go / go.mod / Dockerfile) to main, which forces a fresh build. Not writing :${SHA} to avoid pinning a wrong digest."
+            exit 1
+          fi
+          echo "Inheriting digest ${digest} onto :${SHA}, :main, :latest."
+          crane copy "${DEV_AR_IMAGE}@${digest}" "${DEV_AR_IMAGE}:${SHA}"
+          crane copy "${DEV_AR_IMAGE}@${digest}" "${DEV_AR_IMAGE}:main"
+          crane copy "${DEV_AR_IMAGE}@${digest}" "${DEV_AR_IMAGE}:latest"
 
       # =====================================================================
       # Release path: retag the dev AR digest into prod AR — no rebuild
@@ -195,33 +288,6 @@ jobs:
       # is still env-driven because it correctly toggles between
       # `liverty-music-dev` and `liverty-music-prod` via the per-event
       # `environment:` binding above, and we want that toggle.
-
-      # Install `crane` (go-containerregistry's registry CLI) for the
-      # cross-repository / cross-project digest copy. `gcloud artifacts
-      # docker tags add` is intentionally NOT used here: despite its
-      # name, it only renames tags within a single repository — passing
-      # a source from `liverty-music-dev/backend/<img>` and a destination
-      # in `liverty-music-prod/backend/<img>` fails with `Image ... does
-      # not match image ...`. `crane copy` is the registry-to-registry
-      # primitive; within the same AR region it uses cross-repo blob
-      # mounting so no image bytes actually transfer (manifest re-push
-      # only).
-      #
-      # Note: the action's name is `setup-crane`, and it installs the
-      # `crane` binary — NOT the `gcrane` wrapper (a GCR-specific
-      # convenience build from the same go-containerregistry repo that
-      # the action does not ship). `crane` works identically for AR.
-      # Auth: `crane` reads ~/.docker/config.json populated by the
-      # `Configure Docker` step above (which is unconditional, so the
-      # release path is already covered without any gating change).
-      - name: Install crane
-        if: github.event_name == 'release'
-        # SHA-pinned for the prod-write path: this action runs with prod
-        # AR credentials, so a hijacked mutable tag would execute code
-        # with prod-write authority. SHA of v0.4 verified against
-        # https://github.com/imjasonh/setup-crane refs/tags/v0.4.
-        uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
-
       - name: Resolve dev AR digest for ${{ matrix.image.name }}:${{ github.sha }}
         if: github.event_name == 'release'
         id: resolve_digest
@@ -229,12 +295,13 @@ jobs:
           DEV_AR_IMAGE: ${{ env.REGION }}-docker.pkg.dev/liverty-music-dev/backend/${{ matrix.image.name }}
         run: |
           # 6 total attempts (initial + 5 retries) × 60s wait between =
-          # ~5-minute total budget. Absorbs the race window where a
-          # release is cut seconds after merge-to-main and the dev push
-          # for THIS matrix entry's image is still in-flight. Per the
-          # spec, this is a SHALL retry, not a MAY — silent failure on
-          # the digest-resolve step is exactly what the retry contract
-          # prevents.
+          # ~5-minute total budget. With the "every main commit has a
+          # resolvable dev image" invariant (guarantee-dev-image-per-main-commit),
+          # a missing :<sha> can only mean the push-path build/inherit job for
+          # this commit is still in-flight (release cut seconds after the push)
+          # or that job failed — NOT a filtered-out or non-main commit. The
+          # retry absorbs the in-flight race; a non-main commit is already
+          # rejected by the `Verify release commit is on main` step above.
           #
           # Error classification: gcloud exits non-zero on any failure
           # (NOT_FOUND for missing :<sha>, PERMISSION_DENIED for auth
@@ -273,10 +340,9 @@ jobs:
               rm -f "$stderr_file"
               exit 1
             fi
-            # NOT_FOUND-shaped: the dev :<sha> tag hasn't landed yet
-            # (typical) or the release was cut on a non-main commit
-            # whose dev build never ran (corner case). Retry within
-            # the 5-minute budget.
+            # NOT_FOUND-shaped: the dev :<sha> tag hasn't landed yet — the
+            # push-path build/inherit job for this commit is still in-flight
+            # (release cut seconds after the push). Retry within the budget.
             if echo "$stderr_body" | grep -qE 'NOT_FOUND|not found|does not exist|tag .* doesn'\''t exist'; then
               if [ "$attempt" -lt 6 ]; then
                 echo "Attempt ${attempt}/6: dev AR :sha not yet available; waiting 60s..."
@@ -298,7 +364,7 @@ jobs:
           done
           final_stderr=$(cat "$stderr_file" 2>/dev/null || echo "(no stderr captured)")
           rm -f "$stderr_file"
-          echo "::error::dev AR tag :${GITHUB_SHA} not resolved for ${DEV_AR_IMAGE} after 6 attempts (~5 min total wait). Either the dev build for this matrix entry's image failed, or the release was cut on a non-main commit. Last gcloud stderr: ${final_stderr}. See docs/runbooks/prod-image-tag-pinning.md retag-failure-recovery in cloud-provisioning."
+          echo "::error::dev AR tag :${GITHUB_SHA} not resolved for ${DEV_AR_IMAGE} after 6 attempts (~5 min total wait). Given the every-main-commit-has-an-image invariant, the push-path build/inherit for this commit is still in-flight or failed — do NOT re-target an earlier commit; re-run the push-path 'Deploy Backend' run for this SHA, then re-run this matrix entry. Last gcloud stderr: ${final_stderr}. See docs/runbooks/prod-image-tag-pinning.md retag-failure-recovery in cloud-provisioning."
           exit 1
 
       # The two `crane copy` calls are bundled into a single step so the
