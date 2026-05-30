@@ -160,6 +160,7 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 	uc.logger.Info(ctx, "User created successfully", slog.String("user_id", user.ID))
 
 	if err := uc.publishEvent(ctx, entity.SubjectUserCreated, entity.UserCreatedData{
+		UserID:     user.ID,
 		ExternalID: user.ExternalID,
 		Email:      user.Email,
 	}); err != nil {

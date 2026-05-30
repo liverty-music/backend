@@ -127,6 +127,10 @@ type ConsumerConfig struct {
 	// VAPID configuration for Web Push notifications
 	VAPID VAPIDConfig `envconfig:""`
 
+	// PostHog configuration for product-analytics forwarding by the
+	// analytics-consumer.
+	PostHog PostHogConfig `envconfig:""`
+
 	// ZitadelDomain is the Zitadel instance URL for API calls.
 	// Same value as OIDC_ISSUER_URL used by the API server.
 	ZitadelDomain string `envconfig:"OIDC_ISSUER_URL"`
@@ -636,4 +640,21 @@ func (c *BaseConfig) IsStaging() bool {
 // IsLocal returns true if the environment is "local".
 func (c *BaseConfig) IsLocal() bool {
 	return c.Environment == "local"
+}
+
+// PostHogConfig holds the credentials required by the PostHog product-
+// analytics client. When ProjectAPIKey is empty (or whitespace-only),
+// the analytics-consumer logs a warning and acknowledges messages
+// without forwarding — matching the optional-dependency pattern used
+// by VAPID and Zitadel in local development.
+type PostHogConfig struct {
+	// APIHost is the PostHog ingestion endpoint. Defaults to the EU
+	// Cloud endpoint, which is the only production destination per
+	// the introduce-analytics-tool OpenSpec change.
+	APIHost string `envconfig:"POSTHOG_API_HOST" default:"https://eu.i.posthog.com"`
+
+	// ProjectAPIKey is the PostHog public project API key. Sourced
+	// from GCP Secret Manager via the workload ConfigMap; left empty
+	// in local development to disable forwarding.
+	ProjectAPIKey string `envconfig:"POSTHOG_PROJECT_API_KEY"`
 }
