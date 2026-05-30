@@ -10,6 +10,7 @@ import (
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 // followTestDeps holds all dependencies for FollowUseCase tests.
@@ -19,6 +20,7 @@ type followTestDeps struct {
 	siteResolver  *mocks.MockOfficialSiteResolver
 	concertUC     *ucmocks.MockConcertUseCase
 	searchLogRepo *mocks.MockSearchLogRepository
+	publisher     *ucmocks.MockEventPublisher
 	uc            usecase.FollowUseCase
 }
 
@@ -30,6 +32,7 @@ func newFollowTestDeps(t *testing.T) *followTestDeps {
 		siteResolver:  mocks.NewMockOfficialSiteResolver(t),
 		concertUC:     ucmocks.NewMockConcertUseCase(t),
 		searchLogRepo: mocks.NewMockSearchLogRepository(t),
+		publisher:     ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewFollowUseCase(
 		d.followRepo,
@@ -37,6 +40,7 @@ func newFollowTestDeps(t *testing.T) *followTestDeps {
 		d.siteResolver,
 		d.concertUC,
 		d.searchLogRepo,
+		d.publisher,
 		noopMetrics{},
 		newTestLogger(t),
 	)
@@ -111,4 +115,130 @@ func TestFollowUseCase_SetHype(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+// TestFollowUseCase_Follow_PublishesAnalyticsEvent verifies that a
+// successful Follow publishes ARTIST.followed via the injected
+// EventPublisher. The background goroutines (resolveAndPersistOfficialSite,
+// triggerFirstFollowSearch) run with context.WithoutCancel and touch
+// the artist + searchLog + concert mocks; their EXPECT()s are declared
+// .Maybe() so the test exits deterministically without waiting on
+// background work that this test isn't asserting.
+func TestFollowUseCase_Follow_PublishesAnalyticsEvent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("publishes ARTIST.followed on first follow", func(t *testing.T) {
+		t.Parallel()
+		d := newFollowTestDeps(t)
+
+		d.followRepo.EXPECT().
+			Follow(ctx, "user-1", "artist-1").
+			Return(nil).Once()
+		d.publisher.EXPECT().
+			PublishEvent(ctx, entity.SubjectArtistFollowed, entity.ArtistFollowedData{
+				UserID:   "user-1",
+				ArtistID: "artist-1",
+			}).
+			Return(nil).Once()
+
+		// Background goroutine deps — .Maybe() because the goroutines run
+		// asynchronously and may or may not have entered their first mock
+		// call by the time the test returns.
+		d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, "artist-1").
+			Return(nil, apperr.ErrNotFound).Maybe()
+		d.artistRepo.EXPECT().Get(mock.Anything, "artist-1").
+			Return(&entity.Artist{ID: "artist-1"}, nil).Maybe()
+		d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, "artist-1").
+			Return(nil, apperr.ErrNotFound).Maybe()
+		d.concertUC.EXPECT().SearchNewConcerts(mock.Anything, "artist-1").
+			Return(nil, nil).Maybe()
+
+		err := d.uc.Follow(ctx, "user-1", "artist-1")
+		assert.NoError(t, err)
+	})
+
+	t.Run("does not publish on already-following idempotent path", func(t *testing.T) {
+		t.Parallel()
+		d := newFollowTestDeps(t)
+
+		d.followRepo.EXPECT().
+			Follow(ctx, "user-1", "artist-1").
+			Return(apperr.ErrAlreadyExists).Once()
+		// publisher MUST NOT be called — no EXPECT() registered.
+
+		err := d.uc.Follow(ctx, "user-1", "artist-1")
+		assert.NoError(t, err)
+	})
+
+	t.Run("returns Internal on repository failure without publishing", func(t *testing.T) {
+		t.Parallel()
+		d := newFollowTestDeps(t)
+
+		d.followRepo.EXPECT().
+			Follow(ctx, "user-1", "artist-1").
+			Return(apperr.ErrInternal).Once()
+		// publisher MUST NOT be called.
+
+		err := d.uc.Follow(ctx, "user-1", "artist-1")
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+	})
+}
+
+// TestFollowUseCase_Unfollow_PublishesAnalyticsEvent verifies that a
+// successful Unfollow publishes ARTIST.unfollowed. No goroutines in the
+// Unfollow path, so the test is straightforward.
+func TestFollowUseCase_Unfollow_PublishesAnalyticsEvent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("publishes ARTIST.unfollowed on success", func(t *testing.T) {
+		t.Parallel()
+		d := newFollowTestDeps(t)
+
+		d.followRepo.EXPECT().
+			Unfollow(ctx, "user-1", "artist-1").
+			Return(nil).Once()
+		d.publisher.EXPECT().
+			PublishEvent(ctx, entity.SubjectArtistUnfollowed, entity.ArtistUnfollowedData{
+				UserID:   "user-1",
+				ArtistID: "artist-1",
+			}).
+			Return(nil).Once()
+
+		err := d.uc.Unfollow(ctx, "user-1", "artist-1")
+		assert.NoError(t, err)
+	})
+
+	t.Run("does not publish when repository fails", func(t *testing.T) {
+		t.Parallel()
+		d := newFollowTestDeps(t)
+
+		d.followRepo.EXPECT().
+			Unfollow(ctx, "user-1", "artist-1").
+			Return(apperr.ErrInternal).Once()
+		// publisher MUST NOT be called.
+
+		err := d.uc.Unfollow(ctx, "user-1", "artist-1")
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+	})
+
+	t.Run("tolerates publisher failure (non-fatal)", func(t *testing.T) {
+		t.Parallel()
+		d := newFollowTestDeps(t)
+
+		d.followRepo.EXPECT().
+			Unfollow(ctx, "user-1", "artist-1").
+			Return(nil).Once()
+		d.publisher.EXPECT().
+			PublishEvent(ctx, entity.SubjectArtistUnfollowed, mock.Anything).
+			Return(apperr.ErrInternal).Once()
+
+		err := d.uc.Unfollow(ctx, "user-1", "artist-1")
+		// Unfollow contract: succeeds despite publish failure because
+		// the relationship is already persisted.
+		assert.NoError(t, err)
+	})
 }

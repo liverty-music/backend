@@ -110,6 +110,153 @@ func (c *AnalyticsConsumer) HandleUserCreated(msg *message.Message) error {
 	return nil
 }
 
+// HandleUserPreferredLanguageUpdated forwards the
+// USER.preferred_language_updated NATS subject as the catalogue event
+// usecase.EventAccountPreferredLanguageUpdated. Properties: from_locale,
+// to_locale (per specification/docs/analytics/event-catalog.md).
+func (c *AnalyticsConsumer) HandleUserPreferredLanguageUpdated(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.UserPreferredLanguageUpdatedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse USER.preferred_language_updated event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse USER.preferred_language_updated event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventAccountPreferredLanguageUpdated)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.UserID == "" {
+		c.logger.Warn(ctx, "USER.preferred_language_updated event missing user_id, skipping forward")
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"from_locale": data.FromLocale,
+		"to_locale":   data.ToLocale,
+	}
+
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventAccountPreferredLanguageUpdated, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventAccountPreferredLanguageUpdated)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
+// HandleArtistFollowed forwards the ARTIST.followed NATS subject as the
+// catalogue event usecase.EventArtistFollowCompleted. Properties:
+// artist_id (per specification/docs/analytics/event-catalog.md; the
+// optional `source` property is FE-only and is therefore omitted here).
+func (c *AnalyticsConsumer) HandleArtistFollowed(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.ArtistFollowedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse ARTIST.followed event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse ARTIST.followed event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventArtistFollowCompleted)),
+			slog.String("user_id", data.UserID),
+			slog.String("artist_id", data.ArtistID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.UserID == "" {
+		c.logger.Warn(ctx, "ARTIST.followed event missing user_id, skipping forward",
+			slog.String("artist_id", data.ArtistID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"artist_id": data.ArtistID,
+	}
+
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventArtistFollowCompleted, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventArtistFollowCompleted)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
+// HandleArtistUnfollowed forwards the ARTIST.unfollowed NATS subject as
+// the catalogue event usecase.EventArtistUnfollowCompleted. Properties:
+// artist_id.
+func (c *AnalyticsConsumer) HandleArtistUnfollowed(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.ArtistUnfollowedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse ARTIST.unfollowed event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse ARTIST.unfollowed event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventArtistUnfollowCompleted)),
+			slog.String("user_id", data.UserID),
+			slog.String("artist_id", data.ArtistID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.UserID == "" {
+		c.logger.Warn(ctx, "ARTIST.unfollowed event missing user_id, skipping forward",
+			slog.String("artist_id", data.ArtistID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"artist_id": data.ArtistID,
+	}
+
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventArtistUnfollowCompleted, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventArtistUnfollowCompleted)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // recordLag emits analytics_consumer_lag_seconds derived from the
 // CloudEvent's `ce_time` metadata. Missing or unparseable timestamps
 // are silently skipped — the metric is best-effort and downstream
