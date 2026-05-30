@@ -256,6 +256,17 @@ In production, migrations are executed by the **Atlas Kubernetes Operator** — 
 
 When adding a new migration file, also add it to the `configMapGenerator.files` list in `k8s/atlas/base/kustomization.yaml`.
 
+### Deployment Pipeline
+
+Container images are built and promoted by `.github/workflows/deploy.yml`:
+
+- **Push to `main`** → dev Artifact Registry (`liverty-music-dev/backend`). Every push runs the workflow; a per-run decision over the changed files picks one of:
+  - **build** — when a build-relevant file changed (`**.go`, `go.mod`, `go.sum`, `Dockerfile`, or the workflow itself): the 4 images are rebuilt and pushed as `:latest`, `:main`, `:<sha>`.
+  - **inherit** — when nothing build-relevant changed (docs/CI only): no rebuild; the parent commit's digest is `crane copy`-ed onto `:<sha>`. This guarantees **every `main` commit has a resolvable dev `:<sha>` image**, so a release can be cut on `main` HEAD at any time.
+- **GitHub Release** → prod Artifact Registry (`liverty-music-prod/backend`). The release path never rebuilds — it promotes the exact dev `:<sha>` digest to prod via `crane copy` (byte-identical to what ran in dev).
+
+See `cloud-provisioning/docs/runbooks/prod-image-tag-pinning.md` for the retag-failure recovery runbook.
+
 ### Development
 
 #### Linting
