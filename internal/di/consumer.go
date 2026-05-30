@@ -123,16 +123,18 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
+	eventPublisher := messaging.NewEventPublisher(publisher)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		concertRepo,
 		followRepo,
 		pushSubRepo,
 		webpushSender,
+		eventPublisher,
 		infratelemetry.NewBusinessMetrics(),
 		logger,
 	)
-	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, seriesRepo, concertRepo, placeSearcher, messaging.NewEventPublisher(publisher), logger)
+	concertCreationUC := usecase.NewConcertCreationUseCase(venueRepo, seriesRepo, concertRepo, placeSearcher, eventPublisher, logger)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 
@@ -233,6 +235,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		entity.SubjectArtistUnfollowed,
 		subscriber,
 		analyticsConsumer.HandleArtistUnfollowed,
+	)
+
+	router.AddConsumerHandler(
+		"forward-push-subscription-completed-to-analytics",
+		entity.SubjectPushSubscriptionCompleted,
+		subscriber,
+		analyticsConsumer.HandlePushSubscriptionCompleted,
 	)
 
 	router.AddConsumerHandler(

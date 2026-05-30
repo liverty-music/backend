@@ -257,6 +257,54 @@ func (c *AnalyticsConsumer) HandleArtistUnfollowed(msg *message.Message) error {
 	return nil
 }
 
+// HandlePushSubscriptionCompleted forwards the PUSH.subscription_completed
+// NATS subject as the catalogue event
+// usecase.EventPushSubscriptionCompleted. Properties: device_type
+// (classifier output from the endpoint host; the endpoint itself is
+// never forwarded).
+func (c *AnalyticsConsumer) HandlePushSubscriptionCompleted(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.PushSubscriptionCompletedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse PUSH.subscription_completed event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse PUSH.subscription_completed event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventPushSubscriptionCompleted)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.UserID == "" {
+		c.logger.Warn(ctx, "PUSH.subscription_completed event missing user_id, skipping forward")
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"device_type": data.DeviceType,
+	}
+
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventPushSubscriptionCompleted, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventPushSubscriptionCompleted)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // recordLag emits analytics_consumer_lag_seconds derived from the
 // CloudEvent's `ce_time` metadata. Missing or unparseable timestamps
 // are silently skipped — the metric is best-effort and downstream

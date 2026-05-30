@@ -62,6 +62,7 @@ type pushNotificationUseCase struct {
 	followRepo  entity.FollowRepository
 	pushSubRepo entity.PushSubscriptionRepository
 	sender      entity.PushNotificationSender
+	publisher   EventPublisher
 	metrics     PushMetrics
 	logger      *logging.Logger
 }
@@ -76,6 +77,7 @@ func NewPushNotificationUseCase(
 	followRepo entity.FollowRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
+	publisher EventPublisher,
 	metrics PushMetrics,
 	logger *logging.Logger,
 ) PushNotificationUseCase {
@@ -85,6 +87,7 @@ func NewPushNotificationUseCase(
 		followRepo:  followRepo,
 		pushSubRepo: pushSubRepo,
 		sender:      sender,
+		publisher:   publisher,
 		metrics:     metrics,
 		logger:      logger,
 	}
@@ -101,6 +104,17 @@ func (uc *pushNotificationUseCase) Create(ctx context.Context, userID, endpoint,
 	if err := uc.pushSubRepo.Create(ctx, sub); err != nil {
 		return nil, fmt.Errorf("failed to persist push subscription: %w", err)
 	}
+
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectPushSubscriptionCompleted, entity.PushSubscriptionCompletedData{
+		UserID:     userID,
+		DeviceType: entity.DeviceTypeFromEndpoint(endpoint),
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish PUSH.subscription_completed event", err,
+			slog.String("user_id", userID),
+		)
+		// Non-fatal: the subscription is already persisted.
+	}
+
 	return sub, nil
 }
 
