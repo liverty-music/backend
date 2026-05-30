@@ -8,6 +8,7 @@ package posthog
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 
@@ -189,9 +190,7 @@ func buildSDKProperties(ctx context.Context, properties usecase.AnalyticsPropert
 
 	// Defensive copy to inject trace_id without mutating the caller's map.
 	out := make(posthogsdk.Properties, len(properties)+1)
-	for k, v := range properties {
-		out[k] = v
-	}
+	maps.Copy(out, properties)
 	out[tracePropertyKey] = span.SpanContext().TraceID().String()
 	return out
 }

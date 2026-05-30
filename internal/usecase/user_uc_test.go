@@ -549,12 +549,18 @@ func TestUserUseCase_UpdatePreferredLanguage(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
+		priorUser := &entity.User{
+			ID:                "user-lang-1",
+			Email:             "lang@example.com",
+			PreferredLanguage: "ja",
+		}
 		updatedUser := &entity.User{
 			ID:                "user-lang-1",
 			Email:             "lang@example.com",
 			PreferredLanguage: "en",
 		}
 
+		d.repo.EXPECT().Get(ctx, "user-lang-1").Return(priorUser, nil).Once()
 		d.repo.EXPECT().UpdatePreferredLanguage(ctx, "user-lang-1", "en").
 			Return(updatedUser, nil).Once()
 
@@ -565,10 +571,27 @@ func TestUserUseCase_UpdatePreferredLanguage(t *testing.T) {
 		assert.Equal(t, "en", result.PreferredLanguage)
 	})
 
-	t.Run("not found — repository returns NotFound", func(t *testing.T) {
+	t.Run("not found — pre-fetch Get returns NotFound", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
+		d.repo.EXPECT().Get(ctx, "ghost-id").
+			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+		// UpdatePreferredLanguage MUST NOT be called when the pre-fetch fails.
+
+		result, err := d.uc.UpdatePreferredLanguage(ctx, "ghost-id", "ja")
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("not found — repository returns NotFound at update", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		priorUser := &entity.User{ID: "ghost-id", PreferredLanguage: "en"}
+		d.repo.EXPECT().Get(ctx, "ghost-id").Return(priorUser, nil).Once()
 		d.repo.EXPECT().UpdatePreferredLanguage(ctx, "ghost-id", "ja").
 			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 

@@ -19,10 +19,9 @@ import (
 )
 
 // makeAnalyticsMsg builds a watermill message with a JSON-encoded
-// UserCreatedData payload (the only subject the consumer subscribes to
-// in this batch). The ce_time metadata is set 1 second in the past so
+// payload. The ce_time metadata is set 1 second in the past so
 // recordLag exercises a deterministic non-zero sample.
-func makeAnalyticsMsg(t *testing.T, data entity.UserCreatedData) *message.Message {
+func makeAnalyticsMsg(t *testing.T, data any) *message.Message {
 	t.Helper()
 	payload, err := json.Marshal(data)
 	require.NoError(t, err)
@@ -136,6 +135,343 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 
 			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
 			err := handler.HandleUserCreated(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyticsConsumer_HandleUserPreferredLanguageUpdated covers
+// USER.preferred_language_updated → account.preferred_language.updated
+// routing. Properties from_locale and to_locale travel verbatim.
+func TestAnalyticsConsumer_HandleUserPreferredLanguageUpdated(t *testing.T) {
+	t.Parallel()
+
+	const validUserID = "11111111-2222-3333-4444-555555555555"
+
+	type args struct {
+		data entity.UserPreferredLanguageUpdatedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards with both locales when client + UserID present",
+			args: args{data: entity.UserPreferredLanguageUpdatedData{
+				UserID:     validUserID,
+				FromLocale: "ja",
+				ToLocale:   "en",
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "forwards with empty from_locale when prior was unset",
+			args: args{data: entity.UserPreferredLanguageUpdatedData{
+				UserID:     validUserID,
+				FromLocale: "",
+				ToLocale:   "ja",
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.UserPreferredLanguageUpdatedData{
+				UserID:   validUserID,
+				ToLocale: "ja",
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			args: args{data: entity.UserPreferredLanguageUpdatedData{
+				UserID:   "",
+				ToLocale: "ja",
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.UserPreferredLanguageUpdatedData{
+				UserID:   validUserID,
+				ToLocale: "ja",
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.UserID,
+							usecase.EventAccountPreferredLanguageUpdated,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["from_locale"] == tt.args.data.FromLocale &&
+									props["to_locale"] == tt.args.data.ToLocale
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleUserPreferredLanguageUpdated(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyticsConsumer_HandleArtistFollowed covers ARTIST.followed →
+// artist.follow.completed routing. The catalogue's optional `source`
+// property is FE-only and not present on the backend payload.
+func TestAnalyticsConsumer_HandleArtistFollowed(t *testing.T) {
+	t.Parallel()
+
+	const (
+		validUserID   = "11111111-2222-3333-4444-555555555555"
+		validArtistID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	)
+
+	type args struct {
+		data entity.ArtistFollowedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards artist.follow.completed with artist_id property",
+			args: args{data: entity.ArtistFollowedData{
+				UserID:   validUserID,
+				ArtistID: validArtistID,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.ArtistFollowedData{
+				UserID:   validUserID,
+				ArtistID: validArtistID,
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			args: args{data: entity.ArtistFollowedData{
+				UserID:   "",
+				ArtistID: validArtistID,
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.ArtistFollowedData{
+				UserID:   validUserID,
+				ArtistID: validArtistID,
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.UserID,
+							usecase.EventArtistFollowCompleted,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["artist_id"] == tt.args.data.ArtistID
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleArtistFollowed(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyticsConsumer_HandleArtistUnfollowed mirrors the followed
+// test for the negative engagement case (artist.unfollow.completed).
+func TestAnalyticsConsumer_HandleArtistUnfollowed(t *testing.T) {
+	t.Parallel()
+
+	const (
+		validUserID   = "11111111-2222-3333-4444-555555555555"
+		validArtistID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	)
+
+	type args struct {
+		data entity.ArtistUnfollowedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards artist.unfollow.completed with artist_id property",
+			args: args{data: entity.ArtistUnfollowedData{
+				UserID:   validUserID,
+				ArtistID: validArtistID,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.ArtistUnfollowedData{
+				UserID:   validUserID,
+				ArtistID: validArtistID,
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			args: args{data: entity.ArtistUnfollowedData{
+				UserID:   "",
+				ArtistID: validArtistID,
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.ArtistUnfollowedData{
+				UserID:   validUserID,
+				ArtistID: validArtistID,
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.UserID,
+							usecase.EventArtistUnfollowCompleted,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["artist_id"] == tt.args.data.ArtistID
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleArtistUnfollowed(makeAnalyticsMsg(t, tt.args.data))
 
 			if tt.want.err != nil {
 				assert.ErrorIs(t, err, tt.want.err)

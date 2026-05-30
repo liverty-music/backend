@@ -51,6 +51,7 @@ type followUseCase struct {
 	siteResolver  entity.OfficialSiteResolver
 	concertUC     ConcertUseCase
 	searchLogRepo entity.SearchLogRepository
+	publisher     EventPublisher
 	metrics       FollowMetrics
 	logger        *logging.Logger
 }
@@ -65,6 +66,7 @@ func NewFollowUseCase(
 	siteResolver entity.OfficialSiteResolver,
 	concertUC ConcertUseCase,
 	searchLogRepo entity.SearchLogRepository,
+	publisher EventPublisher,
 	metrics FollowMetrics,
 	logger *logging.Logger,
 ) FollowUseCase {
@@ -74,6 +76,7 @@ func NewFollowUseCase(
 		siteResolver:  siteResolver,
 		concertUC:     concertUC,
 		searchLogRepo: searchLogRepo,
+		publisher:     publisher,
 		metrics:       metrics,
 		logger:        logger,
 	}
@@ -82,6 +85,11 @@ func NewFollowUseCase(
 // Follow establishes a follow relationship between a user and an artist.
 // After the follow is persisted, it asynchronously resolves and stores the
 // artist's official site URL if one is not already recorded.
+//
+// The first-call path publishes ARTIST.followed for the analytics-consumer
+// to forward as the catalogue event artist.follow.completed. The idempotent
+// "already following" path returns early WITHOUT republishing — duplicate
+// analytics events would inflate the follow funnel.
 func (uc *followUseCase) Follow(ctx context.Context, userID string, artistID string) error {
 	err := uc.followRepo.Follow(ctx, userID, artistID)
 	if err != nil {
@@ -94,6 +102,17 @@ func (uc *followUseCase) Follow(ctx context.Context, userID string, artistID str
 
 	uc.logger.Info(ctx, "User followed artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	uc.metrics.RecordFollow(ctx, "follow")
+
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectArtistFollowed, entity.ArtistFollowedData{
+		UserID:   userID,
+		ArtistID: artistID,
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish ARTIST.followed event", err,
+			slog.String("user_id", userID),
+			slog.String("artist_id", artistID),
+		)
+		// Non-fatal: the follow relationship is already persisted.
+	}
 
 	bgCtx := context.WithoutCancel(ctx)
 	go uc.resolveAndPersistOfficialSite(bgCtx, artistID)
@@ -180,6 +199,18 @@ func (uc *followUseCase) Unfollow(ctx context.Context, userID, artistID string) 
 
 	uc.logger.Info(ctx, "Artist unfollowed", slog.String("user_id", userID), slog.String("artist_id", artistID))
 	uc.metrics.RecordFollow(ctx, "unfollow")
+
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectArtistUnfollowed, entity.ArtistUnfollowedData{
+		UserID:   userID,
+		ArtistID: artistID,
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish ARTIST.unfollowed event", err,
+			slog.String("user_id", userID),
+			slog.String("artist_id", artistID),
+		)
+		// Non-fatal: the unfollow is already persisted.
+	}
+
 	return nil
 }
 

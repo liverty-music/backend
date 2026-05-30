@@ -215,6 +215,27 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	router.AddConsumerHandler(
+		"forward-user-preferred-language-updated-to-analytics",
+		entity.SubjectUserPreferredLanguageUpdated,
+		subscriber,
+		analyticsConsumer.HandleUserPreferredLanguageUpdated,
+	)
+
+	router.AddConsumerHandler(
+		"forward-artist-followed-to-analytics",
+		entity.SubjectArtistFollowed,
+		subscriber,
+		analyticsConsumer.HandleArtistFollowed,
+	)
+
+	router.AddConsumerHandler(
+		"forward-artist-unfollowed-to-analytics",
+		entity.SubjectArtistUnfollowed,
+		subscriber,
+		analyticsConsumer.HandleArtistUnfollowed,
+	)
+
+	router.AddConsumerHandler(
 		"log-poison-queue",
 		messaging.PoisonQueueSubject,
 		subscriber,
