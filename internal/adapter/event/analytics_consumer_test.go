@@ -589,6 +589,230 @@ func TestAnalyticsConsumer_HandlePushSubscriptionCompleted(t *testing.T) {
 	}
 }
 
+// TestAnalyticsConsumer_HandleEntryZkProofVerified covers
+// ENTRY.zk_proof_verified routing. Distinct_id is the nullifier hash
+// hex (anonymous per ZK guarantee); event_id is a property.
+func TestAnalyticsConsumer_HandleEntryZkProofVerified(t *testing.T) {
+	t.Parallel()
+
+	const (
+		validNullifier = "deadbeefcafebabe1234567890abcdef"
+		validEventID   = "550e8400-e29b-41d4-a716-446655440000"
+	)
+
+	type args struct {
+		data entity.EntryZkProofVerifiedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards entry.zk_proof.verified with event_id property",
+			args: args{data: entity.EntryZkProofVerifiedData{
+				NullifierHashHex: validNullifier,
+				EventID:          validEventID,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.EntryZkProofVerifiedData{
+				NullifierHashHex: validNullifier,
+				EventID:          validEventID,
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when nullifier_hash_hex is empty",
+			args: args{data: entity.EntryZkProofVerifiedData{
+				NullifierHashHex: "",
+				EventID:          validEventID,
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.EntryZkProofVerifiedData{
+				NullifierHashHex: validNullifier,
+				EventID:          validEventID,
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.NullifierHashHex,
+							usecase.EventEntryZkProofVerified,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["event_id"] == tt.args.data.EventID
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleEntryZkProofVerified(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyticsConsumer_HandleEntryZkProofRejected mirrors the verified
+// test for the rejection case (carries the reason property additionally).
+func TestAnalyticsConsumer_HandleEntryZkProofRejected(t *testing.T) {
+	t.Parallel()
+
+	const (
+		validNullifier = "deadbeefcafebabe1234567890abcdef"
+		validEventID   = "550e8400-e29b-41d4-a716-446655440000"
+	)
+
+	type args struct {
+		data entity.EntryZkProofRejectedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards entry.zk_proof.rejected with event_id + reason",
+			args: args{data: entity.EntryZkProofRejectedData{
+				NullifierHashHex: validNullifier,
+				EventID:          validEventID,
+				Reason:           entity.EntryRejectionMerkleRootMismatch,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.EntryZkProofRejectedData{
+				NullifierHashHex: validNullifier,
+				EventID:          validEventID,
+				Reason:           entity.EntryRejectionProofInvalid,
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when nullifier_hash_hex is empty",
+			args: args{data: entity.EntryZkProofRejectedData{
+				NullifierHashHex: "",
+				EventID:          validEventID,
+				Reason:           entity.EntryRejectionAlreadyCheckedIn,
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.EntryZkProofRejectedData{
+				NullifierHashHex: validNullifier,
+				EventID:          validEventID,
+				Reason:           entity.EntryRejectionProofInvalid,
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.NullifierHashHex,
+							usecase.EventEntryZkProofRejected,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["event_id"] == tt.args.data.EventID &&
+									props["reason"] == string(tt.args.data.Reason)
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleEntryZkProofRejected(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 // TestAnalyticsConsumer_HandleUserCreated_BadPayload covers the
 // CloudEvent decode failure path separately because constructing an
 // invalid JSON payload with the same table shape would obscure the
