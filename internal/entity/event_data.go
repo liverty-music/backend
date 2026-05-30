@@ -23,7 +23,12 @@ type ConcertDiscoveredData struct {
 // UserCreatedData is the payload for user.created events.
 // Published by UserUseCase.Create after persisting a new user.
 type UserCreatedData struct {
-	// ExternalID is the Zitadel user ID (JWT sub claim).
+	// UserID is the platform-internal user identifier (UUID). Used as
+	// the PostHog `distinct_id` by the analytics-consumer per the
+	// introduce-analytics-tool OpenSpec change (Decision 3).
+	UserID string `json:"user_id"`
+	// ExternalID is the Zitadel user ID (JWT sub claim). Used by the
+	// email-verification consumer to address Zitadel APIs.
 	ExternalID string `json:"external_id"`
 	// Email is the user's email address.
 	Email string `json:"email"`

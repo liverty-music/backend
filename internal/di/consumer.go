@@ -14,6 +14,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
@@ -145,12 +146,24 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		emailVerifier = ev
 	}
 
+	// Infrastructure - PostHog analytics client (optional, nil in local dev).
+	var analyticsClient usecase.AnalyticsClient
+	if cfg.PostHog.ProjectAPIKey != "" {
+		ac, err := posthog.New(cfg.PostHog.APIHost, cfg.PostHog.ProjectAPIKey, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create posthog analytics client: %w", err)
+		}
+		analyticsClient = ac
+	}
+
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(pushNotificationUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(emailVerifier, logger)
+	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
+	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
 
 	// Router
@@ -195,6 +208,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	router.AddConsumerHandler(
+		"forward-user-created-to-analytics",
+		entity.SubjectUserCreated,
+		subscriber,
+		analyticsConsumer.HandleUserCreated,
+	)
+
+	router.AddConsumerHandler(
 		"log-poison-queue",
 		messaging.PoisonQueueSubject,
 		subscriber,
@@ -206,6 +226,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	shutdown.AddFlushPhase(publisher)
 	shutdown.AddExternalPhase(musicbrainzClient)
 	shutdown.AddExternalPhase(fanarttvClient)
+	if analyticsClient != nil {
+		shutdown.AddExternalPhase(analyticsClient.(*posthog.AnalyticsClient))
+	}
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 
