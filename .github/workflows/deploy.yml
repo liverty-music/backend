@@ -298,9 +298,10 @@ jobs:
               sleep 20
             fi
           done
+          final_stderr=$(cat "$stderr_file" 2>/dev/null || echo "(no stderr captured)")
           rm -f "$stderr_file"
           if [ -z "${digest}" ]; then
-            echo "::error::Cannot resolve parent dev image ${DEV_AR_IMAGE}:${BEFORE} after 3 attempts. The inherit chain is broken — the parent push for this matrix entry failed or never wrote :${BEFORE}. Seed by pushing a build-relevant change (any **.go / go.mod / Dockerfile) to main to force a fresh build, then re-cut the release on the new HEAD. Not writing :${SHA} to avoid pinning a wrong digest. Last gcloud stderr: ${body}"
+            echo "::error::Cannot resolve parent dev image ${DEV_AR_IMAGE}:${BEFORE} after 3 attempts. The inherit chain is broken — the parent push for this matrix entry failed or never wrote :${BEFORE}. Seed by pushing a build-relevant change (any **.go / go.mod / Dockerfile) to main to force a fresh build, then re-cut the release on the new HEAD. Not writing :${SHA} to avoid pinning a wrong digest. Last gcloud stderr: ${final_stderr}"
             exit 1
           fi
           echo "Inheriting digest ${digest} onto :${SHA}, :main, :latest."
