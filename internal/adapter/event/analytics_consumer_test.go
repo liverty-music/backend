@@ -20,12 +20,15 @@ import (
 
 // makeAnalyticsMsg builds a watermill message with a JSON-encoded
 // UserCreatedData payload (the only subject the consumer subscribes to
-// in this batch).
+// in this batch). The ce_time metadata is set 1 second in the past so
+// recordLag exercises a deterministic non-zero sample.
 func makeAnalyticsMsg(t *testing.T, data entity.UserCreatedData) *message.Message {
 	t.Helper()
 	payload, err := json.Marshal(data)
 	require.NoError(t, err)
-	return message.NewMessage("test-id", payload)
+	msg := message.NewMessage("test-id", payload)
+	msg.Metadata.Set("ce_time", time.Now().UTC().Add(-time.Second).Format(time.RFC3339))
+	return msg
 }
 
 // TestAnalyticsConsumer_HandleUserCreated covers the routing/validation
@@ -43,6 +46,7 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 		err              error
 		expectEnqueueErr error // when set, the mock Enqueue returns this
 		expectEnqueue    bool  // whether Enqueue is expected to be called
+		expectStatus     string
 	}
 	tests := []struct {
 		name      string
@@ -57,7 +61,7 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 				ExternalID: "zitadel-sub-abc",
 				Email:      "alice@example.com",
 			}},
-			want: want{expectEnqueue: true},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
 		},
 		{
 			name: "skips forward when client is nil (local dev)",
@@ -66,7 +70,7 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 				ExternalID: "zitadel-sub-abc",
 				Email:      "alice@example.com",
 			}},
-			want:      want{expectEnqueue: false},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
 			nilClient: true,
 		},
 		{
@@ -76,7 +80,7 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 				ExternalID: "zitadel-sub-abc",
 				Email:      "alice@example.com",
 			}},
-			want: want{expectEnqueue: false},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
 		},
 		{
 			name: "wraps Enqueue error as apperr.ErrInternal",
@@ -87,6 +91,7 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 				expectEnqueue:    true,
 				expectEnqueueErr: errors.New("queue full"),
 				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
 			},
 		},
 	}
@@ -121,7 +126,15 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 				}
 			}
 
-			handler := event.NewAnalyticsConsumer(client, newTestLogger(t))
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
 			err := handler.HandleUserCreated(makeAnalyticsMsg(t, tt.args.data))
 
 			if tt.want.err != nil {
@@ -141,12 +154,19 @@ func TestAnalyticsConsumer_HandleUserCreated_BadPayload(t *testing.T) {
 	t.Parallel()
 
 	clientMock := ucmocks.NewMockAnalyticsClient(t)
-	handler := event.NewAnalyticsConsumer(clientMock, newTestLogger(t))
+	metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+	metricsMock.EXPECT().
+		RecordMessage(mock.Anything, "skipped_parse_error").
+		Once()
+	// No ce_time metadata on this raw-payload message, so recordLag
+	// silently no-ops and RecordLag is NOT expected.
+
+	handler := event.NewAnalyticsConsumer(clientMock, metricsMock, newTestLogger(t))
 
 	msg := message.NewMessage("test-id", []byte("not-valid-json"))
 	err := handler.HandleUserCreated(msg)
 
 	assert.ErrorIs(t, err, apperr.ErrInternal)
-	// The mock has no EXPECT() calls — assertExpectations on Cleanup
-	// would fail if Enqueue had been invoked.
+	// The client mock has no EXPECT() calls — assertExpectations on
+	// Cleanup would fail if Enqueue had been invoked.
 }

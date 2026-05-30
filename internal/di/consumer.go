@@ -162,7 +162,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(emailVerifier, logger)
-	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, logger)
+	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
+	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
 
 	// Router
