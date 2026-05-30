@@ -312,7 +312,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		eventEntryRepo := rdb.NewEventEntryRepository(db)
 		merkleBuilder := inframerkle.NewBuilder(usecase.DefaultTreeDepth)
 
-		entryUC := usecase.NewEntryUseCase(verifier, nullifierRepo, merkleTreeRepo, merkleBuilder, eventEntryRepo, ticketRepo, logger)
+		entryUC := usecase.NewEntryUseCase(verifier, nullifierRepo, merkleTreeRepo, merkleBuilder, eventEntryRepo, ticketRepo, eventPublisher, logger)
 		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return entryconnect.NewEntryServiceHandler(
 				rpc.NewEntryHandler(entryUC, userRepo, logger),

@@ -305,6 +305,110 @@ func (c *AnalyticsConsumer) HandlePushSubscriptionCompleted(msg *message.Message
 	return nil
 }
 
+// HandleEntryZkProofVerified forwards the ENTRY.zk_proof_verified
+// NATS subject as the catalogue event usecase.EventEntryZkProofVerified.
+// The distinct_id is the nullifier hash hex — anonymous-by-design per
+// ZK guarantee, stable per (ticket, event) pair.
+func (c *AnalyticsConsumer) HandleEntryZkProofVerified(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.EntryZkProofVerifiedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse ENTRY.zk_proof_verified event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse ENTRY.zk_proof_verified event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventEntryZkProofVerified)),
+			slog.String("event_id", data.EventID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.NullifierHashHex == "" {
+		c.logger.Warn(ctx, "ENTRY.zk_proof_verified event missing nullifier_hash_hex, skipping forward",
+			slog.String("event_id", data.EventID),
+		)
+		// Reuse the empty-user_id status label: the metric label set is
+		// fixed to keep Prometheus cardinality bounded, and "missing
+		// distinct_id" is the semantic match regardless of the field name.
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"event_id": data.EventID,
+	}
+
+	if err := c.client.Enqueue(ctx, data.NullifierHashHex, usecase.EventEntryZkProofVerified, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventEntryZkProofVerified)),
+			slog.String("event_id", data.EventID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
+// HandleEntryZkProofRejected forwards the ENTRY.zk_proof_rejected NATS
+// subject as the catalogue event usecase.EventEntryZkProofRejected.
+// Properties: event_id, reason (one of the entity.EntryRejection*
+// constants).
+func (c *AnalyticsConsumer) HandleEntryZkProofRejected(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.EntryZkProofRejectedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse ENTRY.zk_proof_rejected event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse ENTRY.zk_proof_rejected event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventEntryZkProofRejected)),
+			slog.String("event_id", data.EventID),
+			slog.String("reason", string(data.Reason)),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.NullifierHashHex == "" {
+		c.logger.Warn(ctx, "ENTRY.zk_proof_rejected event missing nullifier_hash_hex, skipping forward",
+			slog.String("event_id", data.EventID),
+			slog.String("reason", string(data.Reason)),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"event_id": data.EventID,
+		"reason":   string(data.Reason),
+	}
+
+	if err := c.client.Enqueue(ctx, data.NullifierHashHex, usecase.EventEntryZkProofRejected, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventEntryZkProofRejected)),
+			slog.String("event_id", data.EventID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // recordLag emits analytics_consumer_lag_seconds derived from the
 // CloudEvent's `ce_time` metadata. Missing or unparseable timestamps
 // are silently skipped — the metric is best-effort and downstream

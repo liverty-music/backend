@@ -62,6 +62,7 @@ type entryUseCase struct {
 	merkleBuilder entity.MerkleTreeBuilder
 	eventRepo     entity.EventRepository
 	ticketRepo    entity.TicketRepository
+	publisher     EventPublisher
 	logger        *logging.Logger
 }
 
@@ -76,6 +77,7 @@ func NewEntryUseCase(
 	merkleBuilder entity.MerkleTreeBuilder,
 	eventRepo entity.EventRepository,
 	ticketRepo entity.TicketRepository,
+	publisher EventPublisher,
 	logger *logging.Logger,
 ) EntryUseCase {
 	return &entryUseCase{
@@ -85,6 +87,7 @@ func NewEntryUseCase(
 		merkleBuilder: merkleBuilder,
 		eventRepo:     eventRepo,
 		ticketRepo:    ticketRepo,
+		publisher:     publisher,
 		logger:        logger,
 	}
 }
@@ -127,6 +130,7 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 		slog.Bool("match", rootMatch),
 	)
 	if !rootMatch {
+		uc.publishRejected(ctx, params.EventID, nullifierHash, entity.EntryRejectionMerkleRootMismatch)
 		return &VerifyEntryResult{
 			Verified: false,
 			Message:  "merkle root mismatch: proof does not match event membership set",
@@ -149,6 +153,7 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 			slog.String("eventID", params.EventID),
 			slog.String("nullifier", hex.EncodeToString(nullifierHash)),
 		)
+		uc.publishRejected(ctx, params.EventID, nullifierHash, entity.EntryRejectionAlreadyCheckedIn)
 		return &VerifyEntryResult{
 			Verified: false,
 			Message:  "already checked in for this event",
@@ -162,6 +167,7 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 	}
 
 	if !verified {
+		uc.publishRejected(ctx, params.EventID, nullifierHash, entity.EntryRejectionProofInvalid)
 		return &VerifyEntryResult{
 			Verified: false,
 			Message:  "proof verification failed",
@@ -172,6 +178,7 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 	if err := uc.nullifiers.Insert(ctx, params.EventID, nullifierHash); err != nil {
 		if errors.Is(err, apperr.ErrAlreadyExists) {
 			// Concurrent verification succeeded first — treat as duplicate.
+			uc.publishRejected(ctx, params.EventID, nullifierHash, entity.EntryRejectionAlreadyCheckedIn)
 			return &VerifyEntryResult{
 				Verified: false,
 				Message:  "already checked in for this event",
@@ -185,10 +192,37 @@ func (uc *entryUseCase) VerifyEntry(ctx context.Context, params *VerifyEntryPara
 		slog.String("nullifier", hex.EncodeToString(nullifierHash)),
 	)
 
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectEntryZkProofVerified, entity.EntryZkProofVerifiedData{
+		NullifierHashHex: hex.EncodeToString(nullifierHash),
+		EventID:          params.EventID,
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish ENTRY.zk_proof_verified event", err,
+			slog.String("event_id", params.EventID),
+		)
+		// Non-fatal: the nullifier insert already committed the verified state.
+	}
+
 	return &VerifyEntryResult{
 		Verified: true,
 		Message:  "entry verified",
 	}, nil
+}
+
+// publishRejected fires the ENTRY.zk_proof_rejected analytics event.
+// Non-fatal helper: rejection-path callers MUST still return their
+// VerifyEntryResult; the analytics emission is observability and does
+// not block the user-facing response.
+func (uc *entryUseCase) publishRejected(ctx context.Context, eventID string, nullifierHash []byte, reason entity.EntryRejectionReason) {
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectEntryZkProofRejected, entity.EntryZkProofRejectedData{
+		NullifierHashHex: hex.EncodeToString(nullifierHash),
+		EventID:          eventID,
+		Reason:           reason,
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish ENTRY.zk_proof_rejected event", err,
+			slog.String("event_id", eventID),
+			slog.String("reason", string(reason)),
+		)
+	}
 }
 
 // GetMerklePath returns the Merkle path for a user at an event.

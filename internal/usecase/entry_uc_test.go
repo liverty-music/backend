@@ -10,8 +10,10 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -157,7 +159,7 @@ func newTestEntryUC(
 	ticketRepo entity.TicketRepository,
 ) usecase.EntryUseCase {
 	t.Helper()
-	return usecase.NewEntryUseCase(verifier, nullifiers, merkleTree, &stubMerkleBuilder{}, eventRepo, ticketRepo, newTestLogger(t))
+	return usecase.NewEntryUseCase(verifier, nullifiers, merkleTree, &stubMerkleBuilder{}, eventRepo, ticketRepo, newAcceptingPublisher(t), newTestLogger(t))
 }
 
 func newTestEntryUCWithBuilder(
@@ -168,7 +170,19 @@ func newTestEntryUCWithBuilder(
 	ticketRepo entity.TicketRepository,
 ) usecase.EntryUseCase {
 	t.Helper()
-	return usecase.NewEntryUseCase(nil, nil, merkleTree, builder, eventRepo, ticketRepo, newTestLogger(t))
+	return usecase.NewEntryUseCase(nil, nil, merkleTree, builder, eventRepo, ticketRepo, newAcceptingPublisher(t), newTestLogger(t))
+}
+
+// newAcceptingPublisher returns a MockEventPublisher that accepts any
+// PublishEvent call. The existing VerifyEntry tests assert behaviour
+// other than analytics emission; a permissive publisher lets them stay
+// focused. Analytics-emission specifics are pinned in a dedicated
+// table-driven test below.
+func newAcceptingPublisher(t *testing.T) *ucmocks.MockEventPublisher {
+	t.Helper()
+	pub := ucmocks.NewMockEventPublisher(t)
+	pub.EXPECT().PublishEvent(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	return pub
 }
 
 // --- VerifyEntry tests ---

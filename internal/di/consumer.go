@@ -245,6 +245,20 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	router.AddConsumerHandler(
+		"forward-entry-zk-proof-verified-to-analytics",
+		entity.SubjectEntryZkProofVerified,
+		subscriber,
+		analyticsConsumer.HandleEntryZkProofVerified,
+	)
+
+	router.AddConsumerHandler(
+		"forward-entry-zk-proof-rejected-to-analytics",
+		entity.SubjectEntryZkProofRejected,
+		subscriber,
+		analyticsConsumer.HandleEntryZkProofRejected,
+	)
+
+	router.AddConsumerHandler(
 		"log-poison-queue",
 		messaging.PoisonQueueSubject,
 		subscriber,
