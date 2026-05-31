@@ -15,7 +15,7 @@ const (
 	SubjectArtistUnfollowed             = "ARTIST.unfollowed"
 	SubjectUserCreated                  = "USER.created"
 	SubjectUserPreferredLanguageUpdated = "USER.preferred_language_updated"
-	SubjectPushSubscriptionCompleted    = "PUSH.subscription_completed"
+	SubjectNotificationSubscribed       = "NOTIFICATION.subscribed"
 	SubjectEntryZkProofVerified         = "ENTRY.zk_proof_verified"
 	SubjectEntryZkProofRejected         = "ENTRY.zk_proof_rejected"
 )
@@ -139,11 +139,14 @@ type EntryZkProofRejectedData struct {
 	Reason           EntryRejectionReason `json:"reason"`
 }
 
-// PushSubscriptionCompletedData is the payload for PUSH.subscription_completed.
-// Mapped to the catalogue event push.subscription.completed by the
+// NotificationSubscribedData is the payload for NOTIFICATION.subscribed.
+// Mapped to the catalogue event notification.subscribed by the
 // analytics-consumer. Published by PushNotificationUseCase.Create after the
-// repository persists the subscription record.
-type PushSubscriptionCompletedData struct {
+// repository persists the Web Push subscription record. Although the
+// underlying transport is the W3C Push API, the analytics surface stays
+// scoped under the notification domain — see specification/docs/analytics/
+// event-catalog.md.
+type NotificationSubscribedData struct {
 	// UserID is the platform-internal user identifier of the subscriber.
 	// Used as the PostHog distinct_id.
 	UserID string `json:"user_id"`

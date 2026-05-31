@@ -238,10 +238,10 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	router.AddConsumerHandler(
-		"forward-push-subscription-completed-to-analytics",
-		entity.SubjectPushSubscriptionCompleted,
+		"forward-notification-subscribed-to-analytics",
+		entity.SubjectNotificationSubscribed,
 		subscriber,
-		analyticsConsumer.HandlePushSubscriptionCompleted,
+		analyticsConsumer.HandleNotificationSubscribed,
 	)
 
 	router.AddConsumerHandler(

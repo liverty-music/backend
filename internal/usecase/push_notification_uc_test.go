@@ -97,7 +97,7 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 					Return(nil).
 					Once()
 				d.publisher.EXPECT().
-					PublishEvent(ctx, entity.SubjectPushSubscriptionCompleted, entity.PushSubscriptionCompletedData{
+					PublishEvent(ctx, entity.SubjectNotificationSubscribed, entity.NotificationSubscribedData{
 						UserID:     "user-1",
 						DeviceType: "android",
 					}).

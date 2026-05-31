@@ -482,16 +482,16 @@ func TestAnalyticsConsumer_HandleArtistUnfollowed(t *testing.T) {
 	}
 }
 
-// TestAnalyticsConsumer_HandlePushSubscriptionCompleted covers
-// PUSH.subscription_completed → push.subscription.completed routing.
+// TestAnalyticsConsumer_HandleNotificationSubscribed covers
+// NOTIFICATION.subscribed → notification.subscribed routing.
 // Property: device_type (the endpoint host classifier).
-func TestAnalyticsConsumer_HandlePushSubscriptionCompleted(t *testing.T) {
+func TestAnalyticsConsumer_HandleNotificationSubscribed(t *testing.T) {
 	t.Parallel()
 
 	const validUserID = "11111111-2222-3333-4444-555555555555"
 
 	type args struct {
-		data entity.PushSubscriptionCompletedData
+		data entity.NotificationSubscribedData
 	}
 	type want struct {
 		err              error
@@ -507,7 +507,7 @@ func TestAnalyticsConsumer_HandlePushSubscriptionCompleted(t *testing.T) {
 	}{
 		{
 			name: "forwards with device_type when client + UserID present",
-			args: args{data: entity.PushSubscriptionCompletedData{
+			args: args{data: entity.NotificationSubscribedData{
 				UserID:     validUserID,
 				DeviceType: "android",
 			}},
@@ -515,7 +515,7 @@ func TestAnalyticsConsumer_HandlePushSubscriptionCompleted(t *testing.T) {
 		},
 		{
 			name: "skips forward when client is nil",
-			args: args{data: entity.PushSubscriptionCompletedData{
+			args: args{data: entity.NotificationSubscribedData{
 				UserID:     validUserID,
 				DeviceType: "apple",
 			}},
@@ -524,7 +524,7 @@ func TestAnalyticsConsumer_HandlePushSubscriptionCompleted(t *testing.T) {
 		},
 		{
 			name: "skips forward when UserID is empty",
-			args: args{data: entity.PushSubscriptionCompletedData{
+			args: args{data: entity.NotificationSubscribedData{
 				UserID:     "",
 				DeviceType: "android",
 			}},
@@ -532,7 +532,7 @@ func TestAnalyticsConsumer_HandlePushSubscriptionCompleted(t *testing.T) {
 		},
 		{
 			name: "wraps Enqueue error as apperr.ErrInternal",
-			args: args{data: entity.PushSubscriptionCompletedData{
+			args: args{data: entity.NotificationSubscribedData{
 				UserID:     validUserID,
 				DeviceType: "other",
 			}},
@@ -559,7 +559,7 @@ func TestAnalyticsConsumer_HandlePushSubscriptionCompleted(t *testing.T) {
 						Enqueue(
 							mock.Anything,
 							tt.args.data.UserID,
-							usecase.EventPushSubscriptionCompleted,
+							usecase.EventNotificationSubscribed,
 							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
 								return props["device_type"] == tt.args.data.DeviceType
 							}),
@@ -578,7 +578,7 @@ func TestAnalyticsConsumer_HandlePushSubscriptionCompleted(t *testing.T) {
 				Once()
 
 			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
-			err := handler.HandlePushSubscriptionCompleted(makeAnalyticsMsg(t, tt.args.data))
+			err := handler.HandleNotificationSubscribed(makeAnalyticsMsg(t, tt.args.data))
 
 			if tt.want.err != nil {
 				assert.ErrorIs(t, err, tt.want.err)
