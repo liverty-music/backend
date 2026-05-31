@@ -105,11 +105,11 @@ func (uc *pushNotificationUseCase) Create(ctx context.Context, userID, endpoint,
 		return nil, fmt.Errorf("failed to persist push subscription: %w", err)
 	}
 
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectPushSubscriptionCompleted, entity.PushSubscriptionCompletedData{
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationSubscribed, entity.NotificationSubscribedData{
 		UserID:     userID,
 		DeviceType: entity.DeviceTypeFromEndpoint(endpoint),
 	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish PUSH.subscription_completed event", err,
+		uc.logger.Error(ctx, "failed to publish NOTIFICATION.subscribed event", err,
 			slog.String("user_id", userID),
 		)
 		// Non-fatal: the subscription is already persisted.

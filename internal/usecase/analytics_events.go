@@ -11,8 +11,8 @@ package usecase
 // Frontend-only events are NOT listed here; they live in
 // frontend/src/services/analytics-events.ts. Trust-critical events whose
 // accuracy must survive client tampering (ticket purchases, ZK proof
-// verification, push delivery, account state changes) are emitted only
-// from the backend through these constants.
+// verification, notification delivery, account state changes) are emitted
+// only from the backend through these constants.
 type AnalyticsEventName string
 
 // Account lifecycle events emitted from the backend.
@@ -98,16 +98,19 @@ const (
 	EventEntryZkProofRejected AnalyticsEventName = "entry.zk_proof.rejected"
 )
 
-// Push notification lifecycle events emitted from the backend.
+// Notification lifecycle events emitted from the backend. The underlying
+// transport is the W3C Push API, but the analytics surface is scoped under
+// the notification domain to align with the user-facing concept — see
+// specification/docs/analytics/event-catalog.md.
 const (
-	// EventPushSubscriptionCompleted is recorded after a Web Push
+	// EventNotificationSubscribed is recorded after a Web Push
 	// subscription has been persisted against the user record.
-	EventPushSubscriptionCompleted AnalyticsEventName = "push.subscription.completed"
+	EventNotificationSubscribed AnalyticsEventName = "notification.subscribed"
 
-	// EventPushNotificationDelivered is recorded when the push provider
+	// EventNotificationDelivered is recorded when the push provider
 	// accepts a notification for delivery. The frontend records the
 	// downstream open/dismiss separately.
-	EventPushNotificationDelivered AnalyticsEventName = "push.notification.delivered"
+	EventNotificationDelivered AnalyticsEventName = "notification.delivered"
 )
 
 // knownBackendEvents is the allowlist of AnalyticsEventName constants
@@ -133,8 +136,8 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventTicketPurchaseFailed:            {},
 	EventEntryZkProofVerified:            {},
 	EventEntryZkProofRejected:            {},
-	EventPushSubscriptionCompleted:       {},
-	EventPushNotificationDelivered:       {},
+	EventNotificationSubscribed:          {},
+	EventNotificationDelivered:           {},
 }
 
 // IsKnownEvent reports whether name is registered in the backend event

@@ -257,25 +257,25 @@ func (c *AnalyticsConsumer) HandleArtistUnfollowed(msg *message.Message) error {
 	return nil
 }
 
-// HandlePushSubscriptionCompleted forwards the PUSH.subscription_completed
+// HandleNotificationSubscribed forwards the NOTIFICATION.subscribed
 // NATS subject as the catalogue event
-// usecase.EventPushSubscriptionCompleted. Properties: device_type
+// usecase.EventNotificationSubscribed. Properties: device_type
 // (classifier output from the endpoint host; the endpoint itself is
 // never forwarded).
-func (c *AnalyticsConsumer) HandlePushSubscriptionCompleted(msg *message.Message) error {
+func (c *AnalyticsConsumer) HandleNotificationSubscribed(msg *message.Message) error {
 	ctx := msg.Context()
 	defer c.recordLag(ctx, msg)
 
-	var data entity.PushSubscriptionCompletedData
+	var data entity.NotificationSubscribedData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		c.logger.Error(ctx, "failed to parse PUSH.subscription_completed event", err)
+		c.logger.Error(ctx, "failed to parse NOTIFICATION.subscribed event", err)
 		c.metrics.RecordMessage(ctx, statusSkippedParseError)
-		return apperr.Wrap(err, codes.Internal, "parse PUSH.subscription_completed event")
+		return apperr.Wrap(err, codes.Internal, "parse NOTIFICATION.subscribed event")
 	}
 
 	if c.client == nil {
 		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
-			slog.String("event", string(usecase.EventPushSubscriptionCompleted)),
+			slog.String("event", string(usecase.EventNotificationSubscribed)),
 			slog.String("user_id", data.UserID),
 		)
 		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
@@ -283,7 +283,7 @@ func (c *AnalyticsConsumer) HandlePushSubscriptionCompleted(msg *message.Message
 	}
 
 	if data.UserID == "" {
-		c.logger.Warn(ctx, "PUSH.subscription_completed event missing user_id, skipping forward")
+		c.logger.Warn(ctx, "NOTIFICATION.subscribed event missing user_id, skipping forward")
 		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
 		return nil
 	}
@@ -292,9 +292,9 @@ func (c *AnalyticsConsumer) HandlePushSubscriptionCompleted(msg *message.Message
 		"device_type": data.DeviceType,
 	}
 
-	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventPushSubscriptionCompleted, properties); err != nil {
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventNotificationSubscribed, properties); err != nil {
 		c.logger.Error(ctx, "failed to enqueue analytics event", err,
-			slog.String("event", string(usecase.EventPushSubscriptionCompleted)),
+			slog.String("event", string(usecase.EventNotificationSubscribed)),
 			slog.String("user_id", data.UserID),
 		)
 		c.metrics.RecordMessage(ctx, statusEnqueueError)

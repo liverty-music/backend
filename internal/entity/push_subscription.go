@@ -28,7 +28,7 @@ type PushSubscription struct {
 }
 
 // DeviceTypeFromEndpoint classifies a Web Push endpoint URL into a coarse
-// device-family label suitable for the push.subscription.completed analytics
+// device-family label suitable for the notification.subscribed analytics
 // event. The endpoint host identifies the push service vendor, which in turn
 // identifies the browser/OS family. The endpoint itself is sensitive (it
 // uniquely identifies the user's browser session) and MUST NOT leak into

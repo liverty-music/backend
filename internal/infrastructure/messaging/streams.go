@@ -74,8 +74,8 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
-		Name:       "PUSH",
-		Subjects:   []string{"PUSH.*"},
+		Name:       "NOTIFICATION",
+		Subjects:   []string{"NOTIFICATION.*"},
 		Retention:  nats.LimitsPolicy,
 		MaxAge:     7 * 24 * time.Hour,
 		Storage:    nats.FileStorage,
