@@ -133,3 +133,46 @@ func TestSearchLog_IsPending(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchLog_WasRecentlyDiscovered(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
+	window := 14 * 24 * time.Hour
+
+	tests := []struct {
+		name string
+		sl   *entity.SearchLog
+		want bool
+	}{
+		{
+			name: "never discovered (zero) is not recent",
+			sl:   &entity.SearchLog{},
+			want: false,
+		},
+		{
+			name: "discovered within window is recent",
+			sl:   &entity.SearchLog{LastFoundTime: now.Add(-2 * 24 * time.Hour)},
+			want: true,
+		},
+		{
+			name: "discovered exactly at window boundary is not recent",
+			sl:   &entity.SearchLog{LastFoundTime: now.Add(-window)},
+			want: false,
+		},
+		{
+			name: "discovered beyond window is not recent",
+			sl:   &entity.SearchLog{LastFoundTime: now.Add(-15 * 24 * time.Hour)},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tt.sl.WasRecentlyDiscovered(now, window)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

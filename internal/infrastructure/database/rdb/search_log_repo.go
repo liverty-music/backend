@@ -3,6 +3,7 @@ package rdb
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 )
@@ -14,7 +15,7 @@ type SearchLogRepository struct {
 
 const (
 	getSearchLogByArtistIDQuery = `
-		SELECT artist_id, searched_at, status
+		SELECT artist_id, searched_at, status, last_found_at
 		FROM latest_search_logs
 		WHERE artist_id = $1
 	`
@@ -26,6 +27,11 @@ const (
 	updateSearchLogStatusQuery = `
 		UPDATE latest_search_logs
 		SET status = $2
+		WHERE artist_id = $1
+	`
+	markSearchLogFoundQuery = `
+		UPDATE latest_search_logs
+		SET last_found_at = NOW()
 		WHERE artist_id = $1
 	`
 	deleteSearchLogQuery = `
@@ -42,10 +48,16 @@ func NewSearchLogRepository(db *Database) *SearchLogRepository {
 // GetByArtistID retrieves the search log for a specific artist.
 func (r *SearchLogRepository) GetByArtistID(ctx context.Context, artistID string) (*entity.SearchLog, error) {
 	var log entity.SearchLog
+	// last_found_at is nullable; scan into a pointer so a NULL maps to the
+	// zero value rather than a scan error.
+	var lastFound *time.Time
 	err := r.db.Pool.QueryRow(ctx, getSearchLogByArtistIDQuery, artistID).
-		Scan(&log.ArtistID, &log.SearchTime, &log.Status)
+		Scan(&log.ArtistID, &log.SearchTime, &log.Status, &lastFound)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get search log", slog.String("artist_id", artistID))
+	}
+	if lastFound != nil {
+		log.LastFoundTime = *lastFound
 	}
 	return &log, nil
 }
@@ -64,6 +76,17 @@ func (r *SearchLogRepository) UpdateStatus(ctx context.Context, artistID string,
 	_, err := r.db.Pool.Exec(ctx, updateSearchLogStatusQuery, artistID, string(status))
 	if err != nil {
 		return toAppErr(err, "failed to update search log status", slog.String("artist_id", artistID))
+	}
+	return nil
+}
+
+// MarkFound records that a search for the artist discovered at least one new
+// concert by setting last_found_at to the current time. It assumes a row
+// already exists (the pending Upsert creates it before the search runs).
+func (r *SearchLogRepository) MarkFound(ctx context.Context, artistID string) error {
+	_, err := r.db.Pool.Exec(ctx, markSearchLogFoundQuery, artistID)
+	if err != nil {
+		return toAppErr(err, "failed to mark search log found", slog.String("artist_id", artistID))
 	}
 	return nil
 }

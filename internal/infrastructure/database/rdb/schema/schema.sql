@@ -197,6 +197,7 @@ CREATE TABLE IF NOT EXISTS latest_search_logs (
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     searched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     status TEXT NOT NULL DEFAULT 'completed',
+    last_found_at TIMESTAMPTZ,
     PRIMARY KEY (artist_id)
 );
 
@@ -204,6 +205,7 @@ COMMENT ON TABLE latest_search_logs IS 'Tracks when each artist was last searche
 COMMENT ON COLUMN latest_search_logs.artist_id IS 'Reference to the artist that was searched';
 COMMENT ON COLUMN latest_search_logs.searched_at IS 'Timestamp of the most recent external search';
 COMMENT ON COLUMN latest_search_logs.status IS 'Search job status: pending, completed, or failed';
+COMMENT ON COLUMN latest_search_logs.last_found_at IS 'Timestamp of the most recent search that discovered at least one new concert; NULL if none ever found';
 
 -- Tickets table (Soulbound Ticket ERC-5192)
 CREATE TABLE IF NOT EXISTS tickets (

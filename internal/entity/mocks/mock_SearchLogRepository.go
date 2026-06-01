@@ -128,6 +128,53 @@ func (_c *MockSearchLogRepository_GetByArtistID_Call) RunAndReturn(run func(cont
 	return _c
 }
 
+// MarkFound provides a mock function with given fields: ctx, artistID
+func (_m *MockSearchLogRepository) MarkFound(ctx context.Context, artistID string) error {
+	ret := _m.Called(ctx, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkFound")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, artistID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSearchLogRepository_MarkFound_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkFound'
+type MockSearchLogRepository_MarkFound_Call struct {
+	*mock.Call
+}
+
+// MarkFound is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockSearchLogRepository_Expecter) MarkFound(ctx interface{}, artistID interface{}) *MockSearchLogRepository_MarkFound_Call {
+	return &MockSearchLogRepository_MarkFound_Call{Call: _e.mock.On("MarkFound", ctx, artistID)}
+}
+
+func (_c *MockSearchLogRepository_MarkFound_Call) Run(run func(ctx context.Context, artistID string)) *MockSearchLogRepository_MarkFound_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockSearchLogRepository_MarkFound_Call) Return(_a0 error) *MockSearchLogRepository_MarkFound_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSearchLogRepository_MarkFound_Call) RunAndReturn(run func(context.Context, string) error) *MockSearchLogRepository_MarkFound_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateStatus provides a mock function with given fields: ctx, artistID, status
 func (_m *MockSearchLogRepository) UpdateStatus(ctx context.Context, artistID string, status entity.SearchLogStatus) error {
 	ret := _m.Called(ctx, artistID, status)

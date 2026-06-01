@@ -106,7 +106,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, infratelemetry.NewBusinessMetrics(), logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, infratelemetry.NewBusinessMetrics(), cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 
 	// Register shutdown phases.
 	shutdown.Init(logger)

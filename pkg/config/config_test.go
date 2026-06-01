@@ -435,6 +435,53 @@ func TestGCPConfig_ParserModelResolution(t *testing.T) {
 	}
 }
 
+func TestGCPConfig_SearchCacheTTLResolution(t *testing.T) {
+	t.Run("env override takes precedence", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchCacheTTL: 72 * time.Hour}
+		assert.Equal(t, 72*time.Hour, c.SearchCacheTTL())
+	})
+	t.Run("default applied when unset", func(t *testing.T) {
+		c := GCPConfig{}
+		assert.Equal(t, defaultSearchCacheTTL, c.SearchCacheTTL())
+		assert.Equal(t, 24*time.Hour, c.SearchCacheTTL())
+	})
+}
+
+func TestGCPConfig_SearchDiscoveryWindowResolution(t *testing.T) {
+	t.Run("env override takes precedence", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchDiscoveryWindow: 168 * time.Hour}
+		assert.Equal(t, 168*time.Hour, c.SearchDiscoveryWindow())
+	})
+	t.Run("default applied when unset", func(t *testing.T) {
+		c := GCPConfig{}
+		assert.Equal(t, defaultSearchDiscoveryWindow, c.SearchDiscoveryWindow())
+		assert.Equal(t, 14*24*time.Hour, c.SearchDiscoveryWindow())
+	})
+}
+
+func TestGCPConfig_Validate_SearchDurations(t *testing.T) {
+	t.Run("accepts zero (falls back to default)", func(t *testing.T) {
+		c := GCPConfig{}
+		assert.NoError(t, c.Validate())
+	})
+	t.Run("accepts positive durations", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchCacheTTL: 72 * time.Hour, GeminiSearchDiscoveryWindow: 336 * time.Hour}
+		assert.NoError(t, c.Validate())
+	})
+	t.Run("rejects negative TTL", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchCacheTTL: -1 * time.Hour}
+		err := c.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GCP_GEMINI_SEARCH_CACHE_TTL")
+	})
+	t.Run("rejects negative discovery window", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchDiscoveryWindow: -1 * time.Hour}
+		err := c.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "GCP_GEMINI_SEARCH_DISCOVERY_WINDOW")
+	})
+}
+
 func TestGCPConfig_Validate_ThinkingLevel(t *testing.T) {
 	for _, lvl := range []string{"", "low", "medium", "high"} {
 		t.Run("accepts "+lvl, func(t *testing.T) {

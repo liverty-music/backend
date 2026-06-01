@@ -323,6 +323,17 @@ type GCPConfig struct {
 	// https://aistudio.google.com/apikey and apply API restrictions
 	// (Generative Language API only) before 2026-06-19.
 	GeminiSearchAPIKey string `envconfig:"GCP_GEMINI_SEARCH_API_KEY"`
+
+	// Freshness window for the search-log cache. A completed search within
+	// this window suppresses a repeat external call. Empty/zero falls back
+	// to defaultSearchCacheTTL via SearchCacheTTL(); prod sets 72h.
+	GeminiSearchCacheTTL time.Duration `envconfig:"GCP_GEMINI_SEARCH_CACHE_TTL"`
+
+	// Skip window after a successful discovery. If a new concert was found
+	// for an artist within this window, the external search is skipped
+	// (announcements are batch-then-quiet, so re-searching just re-finds the
+	// same events). Empty/zero falls back to defaultSearchDiscoveryWindow.
+	GeminiSearchDiscoveryWindow time.Duration `envconfig:"GCP_GEMINI_SEARCH_DISCOVERY_WINDOW"`
 }
 
 // Default models for each step of the two-step grounded-extract search
@@ -333,6 +344,33 @@ const (
 	defaultSearchModelExtract = "gemini-3.5-flash"
 	defaultSearchModelParse   = "gemini-3.1-flash-lite"
 )
+
+// Defaults for the concert-search skip windows. The freshness TTL bounds how
+// long a completed search is reused; the discovery window bounds how long a
+// fresh discovery suppresses re-searching. Both are env-overridable per
+// environment (prod runs a longer TTL); dev/unset inherit these.
+const (
+	defaultSearchCacheTTL        = 24 * time.Hour
+	defaultSearchDiscoveryWindow = 14 * 24 * time.Hour
+)
+
+// SearchCacheTTL returns the search-log freshness window. Resolution:
+// env override (GCP_GEMINI_SEARCH_CACHE_TTL) → built-in default.
+func (c *GCPConfig) SearchCacheTTL() time.Duration {
+	if c.GeminiSearchCacheTTL > 0 {
+		return c.GeminiSearchCacheTTL
+	}
+	return defaultSearchCacheTTL
+}
+
+// SearchDiscoveryWindow returns the post-discovery skip window. Resolution:
+// env override (GCP_GEMINI_SEARCH_DISCOVERY_WINDOW) → built-in default.
+func (c *GCPConfig) SearchDiscoveryWindow() time.Duration {
+	if c.GeminiSearchDiscoveryWindow > 0 {
+		return c.GeminiSearchDiscoveryWindow
+	}
+	return defaultSearchDiscoveryWindow
+}
 
 // SearchModelExtract returns the model name for Step 1 (grounded extract:
 // GoogleSearch + URLContext, no schema). Resolution: step-specific env
@@ -492,6 +530,14 @@ func (c *GCPConfig) Validate() error {
 	}
 	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingParse) {
 		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_PARSE: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingParse)
+	}
+	// A non-parseable duration already fails at envconfig.Process (Load);
+	// here we reject negatives so a stray "-1h" cannot disable the cache.
+	if c.GeminiSearchCacheTTL < 0 {
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_CACHE_TTL: %s (must be >= 0)", c.GeminiSearchCacheTTL)
+	}
+	if c.GeminiSearchDiscoveryWindow < 0 {
+		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_DISCOVERY_WINDOW: %s (must be >= 0)", c.GeminiSearchDiscoveryWindow)
 	}
 	return nil
 }
