@@ -71,11 +71,14 @@ type concertUseCase struct {
 	centroidResolver CentroidResolver
 	publisher        EventPublisher
 	metrics          ConcertMetrics
-	logger           *logging.Logger
+	// searchCacheTTL is how long a completed search is reused before a repeat
+	// external call is allowed. Configured per environment (prod runs longer).
+	searchCacheTTL time.Duration
+	// discoveryWindow is how long after a successful discovery the external
+	// search is skipped, since announcements arrive in batches then go quiet.
+	discoveryWindow time.Duration
+	logger          *logging.Logger
 }
-
-// searchCacheTTL is the duration for which a completed search log is considered fresh.
-const searchCacheTTL = 24 * time.Hour
 
 // pendingTimeout is the maximum age of a pending search log before it is
 // considered stale and treated as failed (self-healing for crashed workers).
@@ -100,6 +103,8 @@ func NewConcertUseCase(
 	centroidResolver CentroidResolver,
 	publisher EventPublisher,
 	metrics ConcertMetrics,
+	searchCacheTTL time.Duration,
+	discoveryWindow time.Duration,
 	logger *logging.Logger,
 ) ConcertUseCase {
 	return &concertUseCase{
@@ -111,6 +116,8 @@ func NewConcertUseCase(
 		centroidResolver: centroidResolver,
 		publisher:        publisher,
 		metrics:          metrics,
+		searchCacheTTL:   searchCacheTTL,
+		discoveryWindow:  discoveryWindow,
 		logger:           logger,
 	}
 }
@@ -169,10 +176,20 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	}
 	if searchLog != nil {
 		now := time.Now()
-		if searchLog.IsFresh(now, searchCacheTTL) {
+		if searchLog.IsFresh(now, uc.searchCacheTTL) {
 			uc.logger.Debug(ctx, "skipping external search, recently searched",
 				slog.String("artist_id", artistID),
 				slog.Time("search_time", searchLog.SearchTime),
+			)
+			return nil, nil
+		}
+		// Skip even when the last search is stale if a new concert was found
+		// recently: announcements arrive in batches then go quiet, so a repeat
+		// search would just re-find the same events and dedup to nothing.
+		if searchLog.WasRecentlyDiscovered(now, uc.discoveryWindow) {
+			uc.logger.Debug(ctx, "skipping external search, recently discovered new concert",
+				slog.String("artist_id", artistID),
+				slog.Time("last_found_at", searchLog.LastFoundTime),
 			)
 			return nil, nil
 		}
@@ -316,6 +333,10 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		slog.Int("concert_count", len(newScraped)),
 	)
 
+	// Record the discovery so the discoveryWindow skip suppresses redundant
+	// re-searches until the next announcement cycle is likely.
+	uc.markSearchFound(ctx, artistID)
+
 	// Build Concert entities from the deduplicated scraped data to return to the caller.
 	// Event / Venue IDs stay empty because the search path returns concerts for
 	// immediate display rather than persistence. The series ID is generated
@@ -348,6 +369,19 @@ func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID stri
 
 	if err := uc.searchLogRepo.UpdateStatus(updateCtx, artistID, entity.SearchLogStatusCompleted); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as completed", err, slog.String("artist_id", artistID))
+	}
+}
+
+// markSearchFound records that the search discovered at least one new concert.
+// Failure is non-fatal and only logged: the discovery event was already
+// published, so a missed last_found_at update merely lets the next CronJob tick
+// re-search this artist sooner than the discoveryWindow would otherwise allow.
+func (uc *concertUseCase) markSearchFound(ctx context.Context, artistID string) {
+	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
+	defer cancel()
+
+	if err := uc.searchLogRepo.MarkFound(updateCtx, artistID); err != nil {
+		uc.logger.Error(ctx, "failed to mark search as found", err, slog.String("artist_id", artistID))
 	}
 }
 

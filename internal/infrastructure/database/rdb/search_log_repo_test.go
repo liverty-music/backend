@@ -112,6 +112,35 @@ func TestSearchLogRepository_GetByArtistID(t *testing.T) {
 		log, err := searchLogRepo.GetByArtistID(ctx, artistID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.SearchLogStatusFailed, log.Status)
+		// last_found_at defaults to NULL → zero time until a discovery is recorded.
+		assert.True(t, log.LastFoundTime.IsZero())
+	})
+}
+
+func TestSearchLogRepository_MarkFound(t *testing.T) {
+	repo := rdb.NewSearchLogRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("sets last_found_at on existing row without disturbing searched_at", func(t *testing.T) {
+		cleanDatabase(t)
+		artistID := seedArtist(t, "MarkFound Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4d01")
+
+		err := repo.Upsert(ctx, artistID, entity.SearchLogStatusPending)
+		require.NoError(t, err)
+
+		before, err := repo.GetByArtistID(ctx, artistID)
+		require.NoError(t, err)
+		require.True(t, before.LastFoundTime.IsZero())
+
+		err = repo.MarkFound(ctx, artistID)
+		require.NoError(t, err)
+
+		after, err := repo.GetByArtistID(ctx, artistID)
+		require.NoError(t, err)
+		assert.False(t, after.LastFoundTime.IsZero())
+		assert.WithinDuration(t, time.Now(), after.LastFoundTime, 5*time.Second)
+		// searched_at is unaffected by MarkFound.
+		assert.True(t, after.SearchTime.Equal(before.SearchTime))
 	})
 }
 

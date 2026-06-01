@@ -19,6 +19,13 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+// Default skip windows used to construct the use case in tests; they mirror the
+// production defaults so the timing-boundary cases reason about a 24h TTL.
+const (
+	testSearchCacheTTL  = 24 * time.Hour
+	testDiscoveryWindow = 14 * 24 * time.Hour
+)
+
 // concertTestDeps holds all dependencies for ConcertUseCase tests.
 type concertTestDeps struct {
 	artistRepo       *mocks.MockArtistRepository
@@ -53,7 +60,7 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 		centroidResolver: noopCentroidResolver{},
 		publisher:        pub,
 	}
-	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.searchLogRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, logger)
+	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.searchLogRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, testSearchCacheTTL, testDiscoveryWindow, logger)
 	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
@@ -263,6 +270,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -325,6 +333,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -350,6 +359,9 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(existing, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				// Existing has a nil venue name; the (date, venue) key differs, so the
+				// scraped concert is new and published → last_found_at is recorded.
+				d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 			},
 			wantErr: nil,
 		},
@@ -436,6 +448,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 
 			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
 			assert.NoError(t, err)
@@ -492,6 +505,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
 			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
 
 			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
 			assert.NoError(t, err)
@@ -501,6 +515,113 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 
 			got := receivePublishedConcerts(t, ctx, sub)
 			assert.Equal(t, 1, got, "stale pending should trigger re-search and publish")
+		})
+	})
+}
+
+// TestSearchNewConcerts_DiscoveryWindow verifies the recent-discovery skip gate:
+// a stale search is still skipped when a new concert was found within the
+// discovery window, but proceeds when last_found_at is unset (null) or beyond
+// the window.
+func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
+	t.Parallel()
+
+	artistID := "artist-1"
+	artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
+	scraped := []*entity.ScrapedConcert{
+		{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), SourceURL: "https://example.com"},
+	}
+
+	t.Run("stale search but recent discovery is skipped (last_found_at < discoveryWindow)", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := context.Background()
+			d := newConcertTestDeps(t)
+
+			// Search is well past the TTL, but a concert was discovered "now".
+			now := time.Now()
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.SearchLog{
+				ArtistID:      artistID,
+				SearchTime:    now,
+				Status:        entity.SearchLogStatusCompleted,
+				LastFoundTime: now,
+			}, nil).Once()
+
+			time.Sleep(48 * time.Hour) // past 24h TTL but within 14d discovery window
+
+			got, err := d.uc.SearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err)
+			assert.Nil(t, got, "recent discovery should suppress the external search")
+		})
+	})
+
+	t.Run("stale search with no prior discovery proceeds (last_found_at null)", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := context.Background()
+			d := newConcertTestDeps(t)
+
+			// Stale completed search, never discovered anything (zero LastFoundTime).
+			now := time.Now()
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.SearchLog{
+				ArtistID:   artistID,
+				SearchTime: now,
+				Status:     entity.SearchLogStatusCompleted,
+			}, nil).Once()
+
+			time.Sleep(25 * time.Hour) // past TTL; discovery gate must not fire on zero time
+
+			d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
+
+			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
+			assert.NoError(t, err)
+
+			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err)
+
+			got := receivePublishedConcerts(t, ctx, sub)
+			assert.Equal(t, 1, got, "null last_found_at must not skip; search should publish")
+		})
+	})
+
+	t.Run("stale search and stale discovery proceeds (last_found_at > discoveryWindow)", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := context.Background()
+			d := newConcertTestDeps(t)
+
+			now := time.Now()
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(&entity.SearchLog{
+				ArtistID:      artistID,
+				SearchTime:    now,
+				Status:        entity.SearchLogStatusCompleted,
+				LastFoundTime: now,
+			}, nil).Once()
+
+			time.Sleep(15 * 24 * time.Hour) // past both the TTL and the 14d discovery window
+
+			d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
+			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
+
+			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
+			assert.NoError(t, err)
+
+			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			assert.NoError(t, err)
+
+			got := receivePublishedConcerts(t, ctx, sub)
+			assert.Equal(t, 1, got, "discovery beyond the window must not skip")
 		})
 	})
 }
@@ -657,6 +778,10 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(tt.existing, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(tt.scraped, nil).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+				// A published discovery records last_found_at; no publish → no MarkFound.
+				if tt.wantNewConcerts > 0 {
+					d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
+				}
 
 				_, err = d.uc.SearchNewConcerts(ctx, artistID)
 				assert.NoError(t, err)
