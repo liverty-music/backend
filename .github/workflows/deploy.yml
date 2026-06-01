@@ -432,3 +432,54 @@ jobs:
           set -euo pipefail
           crane copy "${DEV_AR_IMAGE}@${DIGEST}" "${PROD_AR_IMAGE}:${RELEASE_TAG}"
           crane copy "${DEV_AR_IMAGE}@${DIGEST}" "${PROD_AR_IMAGE}:${GITHUB_SHA}"
+
+  # =====================================================================
+  # Release path: trigger the automated prod kustomize pin-bump.
+  # =====================================================================
+  # After ALL 4 retag matrix entries succeed, emit a `repository_dispatch`
+  # to cloud-provisioning, which runs `bump-prod-pin.yml` to rewrite the
+  # prod overlay pin + version label and push to its own main (ArgoCD then
+  # auto-syncs). Per OpenSpec change `automate-prod-pin-bump` (D5): this is a
+  # SEPARATE job gated on `build-and-push` succeeding as a whole. With
+  # `fail-fast: false`, the matrix job's `result` is `success` ONLY when every
+  # one of the 4 entries passed, so a partially-failed retag (e.g. 3/4 images)
+  # never bumps the pin to a release tag whose prod images are incomplete
+  # (which would ImagePullBackOff in prod).
+  #
+  # The cross-repo trigger uses a GitHub App installation token (short-lived,
+  # auditable) minted at runtime and scoped to cloud-provisioning. The
+  # dispatches API requires `Contents: write` (no narrower scope exists), so
+  # the security boundary is branch protection: cloud-provisioning:main lets
+  # only `github-actions[bot]` bypass, so this token cannot push to the one ref
+  # ArgoCD tracks — its reach is bounded to non-`main` refs.
+  dispatch-prod-pin:
+    needs: [build-and-push]
+    if: github.event_name == 'release' && needs.build-and-push.result == 'success'
+    runs-on: ubuntu-latest
+    # `prod` environment so the dispatch-credential secrets resolve. On a
+    # release event the ref is the `vX.Y.Z` tag, which matches the prod
+    # environment's `v*` deployment-tag policy.
+    environment:
+      name: prod
+    steps:
+      - name: Mint dispatch token (GitHub App, scoped to cloud-provisioning)
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.CI_BOT_APP_ID }}
+          private-key: ${{ secrets.CI_BOT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cloud-provisioning
+
+      - name: Dispatch bump-prod-pin to cloud-provisioning
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          OWNER: ${{ github.repository_owner }}
+          TAG: ${{ github.event.release.tag_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          payload=$(jq -nc --arg t "$TAG" --arg s "$SHA" \
+            '{event_type:"bump-prod-pin",client_payload:{component:"backend",tag:$t,sha:$s}}')
+          echo "Dispatching: $payload"
+          echo "$payload" | gh api "repos/${OWNER}/cloud-provisioning/dispatches" --input -
