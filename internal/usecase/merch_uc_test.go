@@ -202,6 +202,11 @@ func TestValidMerchURL(t *testing.T) {
 		{"non-http scheme", "ftp://artist.example.com/file", false},
 		{"scheme only, no host", "https://", false},
 		{"too long", "https://example.com/" + strings.Repeat("a", 2048), false},
+		{"loopback IP host (SSRF)", "http://127.0.0.1/goods", false},
+		{"private IP host 10.x (SSRF)", "http://10.0.0.5/goods", false},
+		{"private IP host 192.168 (SSRF)", "http://192.168.1.1/", false},
+		{"cloud metadata IP (SSRF)", "http://169.254.169.254/latest/meta-data/", false},
+		{"ipv6 loopback (SSRF)", "http://[::1]/goods", false},
 	}
 
 	for _, tt := range tests {

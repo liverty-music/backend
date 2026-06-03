@@ -72,12 +72,11 @@ func InitializeMerchDiscoveryJobApp(ctx context.Context) (*MerchDiscoveryJobApp,
 		return nil, err
 	}
 
-	// Liveness probes hit arbitrary external hosts; the checker bounds each
-	// request with its own context deadline, so the client needs no Timeout.
-	checker := httpx.NewLivenessChecker(
-		&http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)},
-		logger,
-	)
+	// Liveness probes hit a Gemini-resolved, only-soft-trusted URL from inside
+	// the cluster. Passing nil selects the checker's SSRF-hardened default
+	// client (OTel-instrumented, with private/loopback/metadata addresses
+	// refused at connect time).
+	checker := httpx.NewLivenessChecker(nil, logger)
 
 	merchUC := usecase.NewMerchDiscoveryUseCase(seriesRepo, searcher, checker, cfg.GCP.MerchWindow(), logger)
 

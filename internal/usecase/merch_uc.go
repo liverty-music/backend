@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/url"
 	"time"
 
@@ -128,8 +129,13 @@ func (uc *merchDiscoveryUseCase) ResolveMerchURL(ctx context.Context, candidate 
 	return MerchOutcomeFilled, nil
 }
 
-// validMerchURL mirrors the proto Url value-object constraints: a non-empty,
-// absolute http(s) URI no longer than maxMerchURLLength.
+// validMerchURL mirrors the proto Url value-object constraints — a non-empty,
+// absolute http(s) URI no longer than maxMerchURLLength — and adds an SSRF
+// defense-in-depth check: a host that is a literal private, loopback,
+// link-local, or unspecified IP is rejected so such a value is never persisted
+// or surfaced to a client. The connect-time dialer guard on the liveness probe
+// (internal/infrastructure/httpx) covers the complementary hostname→private-IP
+// and DNS-rebinding cases that this syntactic check cannot.
 func validMerchURL(raw string) bool {
 	if raw == "" || len(raw) > maxMerchURLLength {
 		return false
@@ -141,5 +147,14 @@ func validMerchURL(raw string) bool {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return false
 	}
-	return u.Host != ""
+	if u.Host == "" {
+		return false
+	}
+	if ip := net.ParseIP(u.Hostname()); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return false
+		}
+	}
+	return true
 }

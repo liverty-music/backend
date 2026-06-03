@@ -4,13 +4,16 @@ package httpx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-logging/logging"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const (
@@ -35,13 +38,71 @@ type LivenessChecker struct {
 // Compile-time interface compliance check.
 var _ entity.MerchLivenessChecker = (*LivenessChecker)(nil)
 
-// NewLivenessChecker builds a checker. A nil client gets a default with the
-// liveness timeout applied.
+// NewLivenessChecker builds a checker. A nil client gets an SSRF-hardened
+// default (private/loopback/link-local/metadata addresses are refused at
+// connect time) with the liveness timeout and OTel instrumentation applied —
+// this is the production path. A non-nil client is used verbatim, which lets
+// tests point the checker at an httptest server on loopback.
 func NewLivenessChecker(client *http.Client, logger *logging.Logger) *LivenessChecker {
 	if client == nil {
-		client = &http.Client{Timeout: defaultLivenessTimeout}
+		client = newSafeClient()
 	}
 	return &LivenessChecker{client: client, logger: logger}
+}
+
+// newSafeClient builds the production HTTP client. Its dialer's Control hook
+// runs AFTER DNS resolution with the concrete IP that will be dialed, so it
+// blocks both literal private addresses and public hostnames that resolve to
+// private space (DNS-rebinding). The merch liveness probe fetches a
+// Gemini-resolved, only-soft-trusted URL from inside the cluster, so this guard
+// keeps it from reaching the GCP metadata server (169.254.169.254), loopback,
+// or RFC1918 services.
+func newSafeClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: defaultLivenessTimeout,
+		Control: blockNonPublicAddr,
+	}
+	transport := &http.Transport{
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          10,
+		IdleConnTimeout:       30 * time.Second,
+		TLSHandshakeTimeout:   defaultLivenessTimeout,
+		ExpectContinueTimeout: time.Second,
+	}
+	return &http.Client{
+		Timeout:   defaultLivenessTimeout,
+		Transport: otelhttp.NewTransport(transport),
+	}
+}
+
+// blockNonPublicAddr is a net.Dialer Control hook that refuses to connect to a
+// non-public IP. address is "host:port" with host already resolved to an IP.
+func blockNonPublicAddr(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("ssrf guard: unresolved dial address %q", address)
+	}
+	if isNonPublicIP(ip) {
+		return fmt.Errorf("ssrf guard: refusing to dial non-public address %s", ip)
+	}
+	return nil
+}
+
+// isNonPublicIP reports whether ip is in a range a public merch URL must never
+// resolve to: loopback, RFC1918 / ULA private, link-local (incl. the
+// 169.254.169.254 cloud-metadata endpoint), unspecified, or multicast.
+func isNonPublicIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() ||
+		ip.IsMulticast()
 }
 
 // ambiguousStatuses are 4xx codes that do NOT prove a link is gone: they

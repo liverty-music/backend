@@ -63,3 +63,20 @@ func TestLivenessChecker_MalformedURLIsNotDead(t *testing.T) {
 	got := checker.IsDeadLink(context.Background(), "://missing-scheme")
 	assert.False(t, got)
 }
+
+func TestLivenessChecker_SSRFGuardBlocksLoopback(t *testing.T) {
+	t.Parallel()
+
+	// httptest listens on loopback. The nil-client constructor selects the
+	// SSRF-hardened production client, whose dialer refuses to connect to a
+	// non-public address — so the probe fails at connect (a hard, non-timeout
+	// failure) and the URL is classified dead. This proves the guard fires
+	// before any request reaches an internal address.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	checker := httpx.NewLivenessChecker(nil, nil)
+	assert.True(t, checker.IsDeadLink(context.Background(), srv.URL))
+}
