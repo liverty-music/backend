@@ -54,6 +54,28 @@ FROM gcr.io/distroless/static:nonroot AS merch-discovery
 COPY --from=build-merch-discovery /out /merch-discovery
 ENTRYPOINT ["/merch-discovery"]
 
+# --- Sales Phase Discovery Job target ---
+FROM builder AS build-sales-phase-discovery
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s' \
+    -pgo=auto \
+    -o /out ./cmd/job/sales-phase-discovery
+
+FROM gcr.io/distroless/static:nonroot AS sales-phase-discovery
+COPY --from=build-sales-phase-discovery /out /sales-phase-discovery
+ENTRYPOINT ["/sales-phase-discovery"]
+
+# --- Sales Reminders Job target ---
+FROM builder AS build-sales-reminders
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s' \
+    -pgo=auto \
+    -o /out ./cmd/job/sales-reminders
+
+FROM gcr.io/distroless/static:nonroot AS sales-reminders
+COPY --from=build-sales-reminders /out /sales-reminders
+ENTRYPOINT ["/sales-reminders"]
+
 # --- Consumer target ---
 FROM builder AS build-consumer
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \

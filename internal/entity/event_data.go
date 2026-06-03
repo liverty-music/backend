@@ -18,6 +18,13 @@ const (
 	SubjectNotificationSubscribed       = "NOTIFICATION.subscribed"
 	SubjectEntryZkProofVerified         = "ENTRY.zk_proof_verified"
 	SubjectEntryZkProofRejected         = "ENTRY.zk_proof_rejected"
+	// SubjectSalesPhaseDiscovered is published when a brand-new sales phase row
+	// is inserted. Re-discovery of an existing phase (UpsertOutcomeUpdated)
+	// must NOT publish this event.
+	SubjectSalesPhaseDiscovered = "SALES_PHASE.discovered"
+	// SubjectSalesPhaseReminderDue is published by the reminder scan for each
+	// (user, phase, stage) triple that became due and has not yet been sent.
+	SubjectSalesPhaseReminderDue = "SALES_PHASE.reminder.due"
 )
 
 // EntryRejectionReason enumerates the legitimate causes for a
@@ -156,4 +163,34 @@ type NotificationSubscribedData struct {
 	// is sensitive and is NOT included in the payload — the host classifier
 	// is the only signal forwarded to PostHog.
 	DeviceType string `json:"device_type"`
+}
+
+// SalesPhaseDiscoveredData is the payload for SALES_PHASE.discovered events.
+// Published by the discovery use case only when a brand-new sales_phases row is
+// inserted (UpsertOutcomeInserted). Re-discovery of an existing phase
+// (UpsertOutcomeUpdated) must NOT publish this event.
+type SalesPhaseDiscoveredData struct {
+	// PhaseID is the surrogate UUID of the newly inserted SalesPhase row.
+	PhaseID string `json:"phase_id"`
+	// SeriesID is the parent series of the phase.
+	SeriesID string `json:"series_id"`
+	// CoveredEventIDs are the event IDs covered by the phase, used by the
+	// consumer to resolve performers and followers.
+	CoveredEventIDs []string `json:"covered_event_ids"`
+}
+
+// SalesPhaseReminderDueData is the payload for SALES_PHASE.reminder.due events.
+// Published by the reminder scan for each (user, phase, stage) triple that
+// became due in this scan window.
+type SalesPhaseReminderDueData struct {
+	// UserID is the recipient.
+	UserID string `json:"user_id"`
+	// PhaseID is the sales phase surrogate id.
+	PhaseID string `json:"phase_id"`
+	// Stage is the reminder stage (ReminderStage int16 value).
+	Stage int16 `json:"stage"`
+	// Payload is the pre-built notification payload for this recipient.
+	// Built per-recipient so times render in the user's timezone and copy
+	// is selected by preferred_language.
+	Payload *NotificationPayload `json:"payload"`
 }

@@ -73,6 +73,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	seriesRepo := rdb.NewSeriesRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	followRepo := rdb.NewFollowRepository(db)
+	salesPhaseRepo := rdb.NewSalesPhaseRepository(db)
+	salesReminderRepo := rdb.NewSalesPhaseReminderRepository(db)
 
 	// Infrastructure - Messaging
 	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
@@ -158,6 +160,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		analyticsClient = ac
 	}
 
+	pushMetrics := infratelemetry.NewBusinessMetrics()
+
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(pushNotificationUC, logger)
@@ -167,6 +171,22 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
 	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
+	salesPhaseAnnouncementConsumer := event.NewSalesPhaseAnnouncementConsumer(
+		salesPhaseRepo,
+		concertRepo,
+		followRepo,
+		pushSubRepo,
+		webpushSender,
+		pushMetrics,
+		logger,
+	)
+	salesReminderConsumer := event.NewSalesReminderConsumer(
+		pushSubRepo,
+		salesReminderRepo,
+		webpushSender,
+		pushMetrics,
+		logger,
+	)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -263,6 +283,20 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		messaging.PoisonQueueSubject,
 		subscriber,
 		poisonConsumer.Handle,
+	)
+
+	router.AddConsumerHandler(
+		"announce-sales-phase",
+		entity.SubjectSalesPhaseDiscovered,
+		subscriber,
+		salesPhaseAnnouncementConsumer.Handle,
+	)
+
+	router.AddConsumerHandler(
+		"send-sales-phase-reminder",
+		entity.SubjectSalesPhaseReminderDue,
+		subscriber,
+		salesReminderConsumer.Handle,
 	)
 
 	// Register shutdown phases.
