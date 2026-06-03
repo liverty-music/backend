@@ -120,6 +120,15 @@ func (uc *merchDiscoveryUseCase) ResolveMerchURL(ctx context.Context, candidate 
 			append(attrs, slog.String("resolved_url", resolved))...)
 		return MerchOutcomeInvalidDiscarded, nil
 	}
+	// Independent existence gate: probe the resolved URL ourselves (SSRF-hardened
+	// liveness checker) so a definitively dead link is never persisted, even if
+	// the searcher's own URLContext verification was bypassed. Defense-in-depth
+	// against a plausible-but-non-existent page (e.g. a fabricated deep link).
+	if uc.checker.IsDeadLink(ctx, resolved) {
+		uc.logger.Warn(ctx, "resolved merch url failed liveness check; discarding",
+			append(attrs, slog.String("resolved_url", resolved))...)
+		return MerchOutcomeInvalidDiscarded, nil
+	}
 
 	if err := uc.seriesRepo.SetMerchURL(ctx, candidate.SeriesID, resolved); err != nil {
 		return "", err
