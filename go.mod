@@ -16,8 +16,8 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.20.0-20260524050818-e7f694dd726b.1
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260524050818-e7f694dd726b.1
+	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.20.0-20260603024137-cbe7ee103c78.1
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260603024137-cbe7ee103c78.1
 	cloud.google.com/go/cloudsqlconn v1.20.0
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.20.0
@@ -38,6 +38,7 @@ require (
 	github.com/nats-io/nats.go v1.49.0
 	github.com/pannpers/go-apperr v1.1.0
 	github.com/pannpers/go-logging v1.2.1
+	github.com/posthog/posthog-go v1.13.1
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
 	github.com/vocdoni/circom2gnark v1.0.0
@@ -183,7 +184,6 @@ require (
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/posthog/posthog-go v1.13.1 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/quic-go/quic-go v0.54.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect

@@ -70,3 +70,4 @@ configMapGenerator:
   - migrations/20260521083536_drop_users_preferred_language_default.sql
   - migrations/20260523145447_add_series_hierarchy.sql
   - migrations/20260601120000_add_last_found_at_to_search_logs.sql
+  - migrations/20260602120000_add_merch_url_to_series.sql

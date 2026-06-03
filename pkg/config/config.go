@@ -334,6 +334,19 @@ type GCPConfig struct {
 	// (announcements are batch-then-quiet, so re-searching just re-finds the
 	// same events). Empty/zero falls back to defaultSearchDiscoveryWindow.
 	GeminiSearchDiscoveryWindow time.Duration `envconfig:"GCP_GEMINI_SEARCH_DISCOVERY_WINDOW"`
+
+	// Model name for the merch-url discovery job's single-step grounded
+	// search. Empty falls back to defaultMerchModel (Flash-Lite): merch
+	// resolution is a single best-URL lookup, far cheaper than the two-step
+	// concert pipeline. Reuses GeminiSearchAPIKey for the API backend.
+	GeminiMerchModel string `envconfig:"GCP_GEMINI_MERCH_MODEL"`
+
+	// Look-ahead window for the merch-url discovery job: a series is a
+	// candidate when its earliest event's local date falls within
+	// [today, today+window]. Merch pages are published close to the event,
+	// so this is far shorter than the concert-discovery horizon. Empty/zero
+	// falls back to defaultMerchDiscoveryWindow (60 days).
+	MerchDiscoveryWindow time.Duration `envconfig:"GCP_MERCH_DISCOVERY_WINDOW"`
 }
 
 // Default models for each step of the two-step grounded-extract search
@@ -353,6 +366,32 @@ const (
 	defaultSearchCacheTTL        = 24 * time.Hour
 	defaultSearchDiscoveryWindow = 14 * 24 * time.Hour
 )
+
+// Defaults for the merch-url discovery job. Flash-Lite is the cheapest model
+// that handles the single best-URL lookup well; the 60-day window matches when
+// tour merch is typically announced relative to the earliest event.
+const (
+	defaultMerchModel           = "gemini-3.1-flash-lite"
+	defaultMerchDiscoveryWindow = 60 * 24 * time.Hour
+)
+
+// MerchModel returns the model name for the merch-url discovery search.
+// Resolution: env override (GCP_GEMINI_MERCH_MODEL) → built-in default.
+func (c *GCPConfig) MerchModel() string {
+	if c.GeminiMerchModel != "" {
+		return c.GeminiMerchModel
+	}
+	return defaultMerchModel
+}
+
+// MerchWindow returns the merch-url discovery look-ahead window.
+// Resolution: env override (GCP_MERCH_DISCOVERY_WINDOW) → built-in default.
+func (c *GCPConfig) MerchWindow() time.Duration {
+	if c.MerchDiscoveryWindow > 0 {
+		return c.MerchDiscoveryWindow
+	}
+	return defaultMerchDiscoveryWindow
+}
 
 // SearchCacheTTL returns the search-log freshness window. Resolution:
 // env override (GCP_GEMINI_SEARCH_CACHE_TTL) → built-in default.
@@ -538,6 +577,9 @@ func (c *GCPConfig) Validate() error {
 	}
 	if c.GeminiSearchDiscoveryWindow < 0 {
 		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_DISCOVERY_WINDOW: %s (must be >= 0)", c.GeminiSearchDiscoveryWindow)
+	}
+	if c.MerchDiscoveryWindow < 0 {
+		return fmt.Errorf("invalid GCP_MERCH_DISCOVERY_WINDOW: %s (must be >= 0)", c.MerchDiscoveryWindow)
 	}
 	return nil
 }

@@ -75,7 +75,7 @@ const (
 	// hydration happens in a follow-up query (listPerformersByEventIDsQuery).
 	listConcertsByArtistQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
-		       s.title, s.type, s.source_url,
+		       s.title, s.type, s.source_url, s.merch_url,
 		       v.id, v.name, v.admin_area
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -88,7 +88,7 @@ const (
 
 	listUpcomingConcertsByArtistQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
-		       s.title, s.type, s.source_url,
+		       s.title, s.type, s.source_url, s.merch_url,
 		       v.id, v.name, v.admin_area
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -103,7 +103,7 @@ const (
 	// listConcertsByArtistsQuery includes venue lat/lng for proximity classification.
 	listConcertsByArtistsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
-		       s.title, s.type, s.source_url,
+		       s.title, s.type, s.source_url, s.merch_url,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -121,7 +121,7 @@ const (
 	// excluded from every new-concert push notification.
 	listConcertsByIDsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
-		       s.title, s.type, s.source_url,
+		       s.title, s.type, s.source_url, s.merch_url,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -135,7 +135,7 @@ const (
 	// are all followed by the same user; we want one row per event.
 	listConcertsByFollowerQuery = `
 		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
-		       s.title, s.type, s.source_url,
+		       s.title, s.type, s.source_url, s.merch_url,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -177,11 +177,12 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		venue     entity.Venue
 		seriesT   string
 		sourceURL *string
+		merchURL  *string
 		lat, lng  *float64
 	)
 	dests := []any{
 		&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime,
-		&series.Title, &seriesT, &sourceURL,
+		&series.Title, &seriesT, &sourceURL, &merchURL,
 		&venue.ID, &venue.Name, &venue.AdminArea,
 	}
 	if withCoords {
@@ -211,6 +212,9 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 	}
 	if sourceURL != nil {
 		series.SourceURL = *sourceURL
+	}
+	if merchURL != nil {
+		series.MerchURL = *merchURL
 	}
 	if lat != nil && lng != nil {
 		venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}

@@ -43,6 +43,9 @@ func SeriesToProto(s *entity.Series) *entityv1.Series {
 	if s.SourceURL != "" {
 		proto.SourceUrl = &entityv1.Url{Value: s.SourceURL}
 	}
+	if s.MerchURL != "" {
+		proto.MerchUrl = &entityv1.Url{Value: s.MerchURL}
+	}
 	return proto
 }
 

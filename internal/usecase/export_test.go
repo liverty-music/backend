@@ -22,6 +22,9 @@ var ExportedProfileLogoColor = func(uc ArtistImageSyncUseCase, ctx context.Conte
 	uc.(*artistImageSyncUseCase).profileLogoColor(ctx, fanart, artistID)
 }
 
+// ExportedValidMerchURL exposes validMerchURL for black-box tests.
+var ExportedValidMerchURL = validMerchURL
+
 // ExportedValidateMintParams exposes validateMintParams for black-box tests.
 var ExportedValidateMintParams = func(uc TicketUseCase, params *MintTicketParams) error {
 	return uc.(*ticketUseCase).validateMintParams(params)
