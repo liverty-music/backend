@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS series (
     title TEXT NOT NULL,
     type series_type NOT NULL,
     source_url TEXT,
+    merch_url TEXT,
     CONSTRAINT chk_series_title_not_empty CHECK (title <> ''),
     CONSTRAINT chk_series_id_uuid_v5_or_v7 CHECK (substring(id::text, 15, 1) IN ('5', '7'))
 );
@@ -133,6 +134,7 @@ COMMENT ON COLUMN series.id IS 'Unique series identifier. UUIDv7 for synthetic (
 COMMENT ON COLUMN series.title IS 'Series title shared across all member events (e.g. tour name, festival name)';
 COMMENT ON COLUMN series.type IS 'Classification of the series; drives presentation and notification grouping';
 COMMENT ON COLUMN series.source_url IS 'Optional series-level official URL (tour page, festival page); per-event URLs are not stored';
+COMMENT ON COLUMN series.merch_url IS 'Optional official merchandise information page (official site page or official social media post) shared across the series; populated asynchronously by the merch-url discovery job. Stores only the link — no sale timing, channel, price, or item data.';
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (

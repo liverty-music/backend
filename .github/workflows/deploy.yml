@@ -90,6 +90,8 @@ jobs:
             target: concert-discovery
           - name: artist-image-sync
             target: artist-image-sync
+          - name: merch-discovery
+            target: merch-discovery
     env:
       REGION: ${{ vars.REGION }}
       PROJECT_ID: ${{ vars.PROJECT_ID }}

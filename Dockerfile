@@ -43,6 +43,17 @@ FROM gcr.io/distroless/static:nonroot AS artist-image-sync
 COPY --from=build-artist-image-sync /out /artist-image-sync
 ENTRYPOINT ["/artist-image-sync"]
 
+# --- Merch Discovery Job target ---
+FROM builder AS build-merch-discovery
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s' \
+    -pgo=auto \
+    -o /out ./cmd/job/merch-discovery
+
+FROM gcr.io/distroless/static:nonroot AS merch-discovery
+COPY --from=build-merch-discovery /out /merch-discovery
+ENTRYPOINT ["/merch-discovery"]
+
 # --- Consumer target ---
 FROM builder AS build-consumer
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \

@@ -8,6 +8,7 @@ packages:
       ArtistUseCase:
       ArtistNameResolutionUseCase:
       ConcertUseCase:
+      MerchDiscoveryUseCase:
       UserUseCase:
       TicketUseCase:
       EntryUseCase:
@@ -28,6 +29,8 @@ packages:
       ConcertRepository:
       SeriesRepository:
       ConcertSearcher:
+      MerchSearcher:
+      MerchLivenessChecker:
       UserRepository:
       SearchLogRepository:
       VenueRepository:

@@ -91,6 +91,18 @@ func (r *fakeSeriesRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Ser
 	return nil, nil
 }
 
+func (r *fakeSeriesRepo) ListSeriesInMerchWindow(_ context.Context, _ time.Duration) ([]*entity.MerchCandidate, error) {
+	return nil, nil
+}
+
+func (r *fakeSeriesRepo) SetMerchURL(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (r *fakeSeriesRepo) ClearMerchURL(_ context.Context, _ string) error {
+	return nil
+}
+
 type fakeConcertRepo struct {
 	created []*entity.Concert
 }

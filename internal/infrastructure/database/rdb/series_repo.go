@@ -3,6 +3,7 @@ package rdb
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -24,22 +25,67 @@ func NewSeriesRepository(db *Database) *SeriesRepository {
 
 const (
 	insertSeriesQuery = `
-		INSERT INTO series (id, title, type, source_url)
-		SELECT * FROM unnest($1::uuid[], $2::text[], $3::series_type[], $4::text[])
+		INSERT INTO series (id, title, type, source_url, merch_url)
+		SELECT * FROM unnest($1::uuid[], $2::text[], $3::series_type[], $4::text[], $5::text[])
 		ON CONFLICT (id) DO NOTHING
 		RETURNING id
 	`
 
 	getSeriesQuery = `
-		SELECT id, title, type, source_url
+		SELECT id, title, type, source_url, merch_url
 		FROM series
 		WHERE id = $1
 	`
 
 	listSeriesByIDsQuery = `
-		SELECT id, title, type, source_url
+		SELECT id, title, type, source_url, merch_url
 		FROM series
 		WHERE id = ANY($1)
+	`
+
+	// listSeriesInMerchWindowQuery returns every series whose earliest event's
+	// local date sits within [today, today + $1 days]. The correlated subquery
+	// picks a single representative performer of that earliest event (stable
+	// ordering on date then artist id) to ground the merch search prompt.
+	// merch_url is returned as-is so the caller can partition into search
+	// (empty) and revalidation (non-empty) sets. Coalesced to '' so the Go
+	// side never has to scan a nullable.
+	listSeriesInMerchWindowQuery = `
+		WITH series_window AS (
+			SELECT e.series_id, MIN(e.local_event_date) AS earliest_date
+			FROM events e
+			GROUP BY e.series_id
+			HAVING MIN(e.local_event_date) >= CURRENT_DATE
+			   AND MIN(e.local_event_date) <= CURRENT_DATE + make_interval(days => $1)
+		)
+		SELECT s.id, s.title, COALESCE(s.merch_url, ''),
+		       COALESCE((
+		           SELECT a.name
+		           FROM events e
+		           JOIN event_performers ep ON ep.event_id = e.id
+		           JOIN artists a ON a.id = ep.artist_id
+		           WHERE e.series_id = s.id
+		           ORDER BY e.local_event_date ASC, a.id ASC
+		           LIMIT 1
+		       ), '') AS artist_name
+		FROM series s
+		JOIN series_window sw ON sw.series_id = s.id
+		ORDER BY sw.earliest_date ASC
+	`
+
+	// setMerchURLQuery enforces fill-once at the database layer: the UPDATE only
+	// touches rows whose merch_url is currently NULL, so a live URL is never
+	// overwritten even if the application-level guard is bypassed.
+	setMerchURLQuery = `
+		UPDATE series
+		SET merch_url = $2
+		WHERE id = $1 AND merch_url IS NULL
+	`
+
+	clearMerchURLQuery = `
+		UPDATE series
+		SET merch_url = NULL
+		WHERE id = $1
 	`
 )
 
@@ -66,6 +112,7 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 	titles := make([]string, n)
 	types := make([]string, n)
 	sourceURLs := make([]*string, n)
+	merchURLs := make([]*string, n)
 
 	for i, s := range valid {
 		if s.ID == "" {
@@ -90,9 +137,13 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 			url := s.SourceURL
 			sourceURLs[i] = &url
 		}
+		if s.MerchURL != "" {
+			url := s.MerchURL
+			merchURLs[i] = &url
+		}
 	}
 
-	rows, err := r.db.Pool.Query(ctx, insertSeriesQuery, ids, titles, types, sourceURLs)
+	rows, err := r.db.Pool.Query(ctx, insertSeriesQuery, ids, titles, types, sourceURLs, merchURLs)
 	if err != nil {
 		return nil, toAppErr(err, "failed to insert series", slog.Int("count", n))
 	}
@@ -138,8 +189,9 @@ func (r *SeriesRepository) Get(ctx context.Context, id string) (*entity.Series, 
 		s         entity.Series
 		seriesT   string
 		sourceURL *string
+		merchURL  *string
 	)
-	err := r.db.Pool.QueryRow(ctx, getSeriesQuery, id).Scan(&s.ID, &s.Title, &seriesT, &sourceURL)
+	err := r.db.Pool.QueryRow(ctx, getSeriesQuery, id).Scan(&s.ID, &s.Title, &seriesT, &sourceURL, &merchURL)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get series", slog.String("series_id", id))
 	}
@@ -148,6 +200,9 @@ func (r *SeriesRepository) Get(ctx context.Context, id string) (*entity.Series, 
 	}
 	if sourceURL != nil {
 		s.SourceURL = *sourceURL
+	}
+	if merchURL != nil {
+		s.MerchURL = *merchURL
 	}
 	return &s, nil
 }
@@ -191,8 +246,9 @@ func (r *SeriesRepository) ListByIDs(ctx context.Context, ids []string) ([]*enti
 			s         entity.Series
 			seriesT   string
 			sourceURL *string
+			merchURL  *string
 		)
-		if err := rows.Scan(&s.ID, &s.Title, &seriesT, &sourceURL); err != nil {
+		if err := rows.Scan(&s.ID, &s.Title, &seriesT, &sourceURL, &merchURL); err != nil {
 			return nil, toAppErr(err, "failed to scan series")
 		}
 		if err := assignSeriesType(&s, seriesT, s.ID); err != nil {
@@ -200,6 +256,9 @@ func (r *SeriesRepository) ListByIDs(ctx context.Context, ids []string) ([]*enti
 		}
 		if sourceURL != nil {
 			s.SourceURL = *sourceURL
+		}
+		if merchURL != nil {
+			s.MerchURL = *merchURL
 		}
 		result = append(result, &s)
 	}
@@ -209,4 +268,64 @@ func (r *SeriesRepository) ListByIDs(ctx context.Context, ids []string) ([]*enti
 		)
 	}
 	return result, nil
+}
+
+// ListSeriesInMerchWindow returns every series whose earliest event's local
+// date falls within [today, today+window], each paired with a representative
+// performing artist name. The caller partitions the result on MerchURL.
+func (r *SeriesRepository) ListSeriesInMerchWindow(ctx context.Context, window time.Duration) ([]*entity.MerchCandidate, error) {
+	if window <= 0 {
+		return nil, apperr.New(codes.InvalidArgument, "merch discovery window must be positive")
+	}
+	// make_interval(days => N) takes a whole number of days; round up so a
+	// fractional window never silently truncates the final day out of range.
+	windowDays := int(window.Hours()/24 + 0.999999)
+
+	rows, err := r.db.Pool.Query(ctx, listSeriesInMerchWindowQuery, windowDays)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list series in merch window", slog.Int("window_days", windowDays))
+	}
+	defer rows.Close()
+
+	var result []*entity.MerchCandidate
+	for rows.Next() {
+		var c entity.MerchCandidate
+		if err := rows.Scan(&c.SeriesID, &c.SeriesTitle, &c.MerchURL, &c.ArtistName); err != nil {
+			return nil, toAppErr(err, "failed to scan merch candidate")
+		}
+		result = append(result, &c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "merch candidate iteration ended with error")
+	}
+	return result, nil
+}
+
+// SetMerchURL persists a resolved merch URL only when the row's merch_url is
+// currently NULL (fill-once at the SQL layer). A no-op update (URL already
+// present) is not an error: the dead-link/empty precondition is the caller's
+// responsibility, and the WHERE clause is the backstop that guarantees a live
+// link is never clobbered.
+func (r *SeriesRepository) SetMerchURL(ctx context.Context, seriesID, merchURL string) error {
+	if seriesID == "" {
+		return apperr.New(codes.InvalidArgument, "series ID must not be empty")
+	}
+	if merchURL == "" {
+		return apperr.New(codes.InvalidArgument, "merch URL must not be empty")
+	}
+	if _, err := r.db.Pool.Exec(ctx, setMerchURLQuery, seriesID, merchURL); err != nil {
+		return toAppErr(err, "failed to set merch URL", slog.String("series_id", seriesID))
+	}
+	return nil
+}
+
+// ClearMerchURL resets a series' merch_url to NULL ahead of a re-search.
+func (r *SeriesRepository) ClearMerchURL(ctx context.Context, seriesID string) error {
+	if seriesID == "" {
+		return apperr.New(codes.InvalidArgument, "series ID must not be empty")
+	}
+	if _, err := r.db.Pool.Exec(ctx, clearMerchURLQuery, seriesID); err != nil {
+		return toAppErr(err, "failed to clear merch URL", slog.String("series_id", seriesID))
+	}
+	return nil
 }
