@@ -2,6 +2,11 @@ module github.com/liverty-music/backend
 
 go 1.26
 
+// Pin the minimum toolchain to 1.26.4, which fixes the Go stdlib advisories
+// GO-2026-5037 (crypto/x509) and GO-2026-5039 (net/textproto) flagged by
+// govulncheck. Every `go` invocation (local, CI) uses at least this toolchain.
+toolchain go1.26.4
+
 tool (
 	github.com/bufbuild/buf/cmd/buf
 	github.com/go-delve/delve/cmd/dlv
