@@ -66,7 +66,7 @@ func InitializeMerchDiscoveryJobApp(ctx context.Context) (*MerchDiscoveryJobApp,
 		APIKey:        cfg.GCP.GeminiSearchAPIKey,
 		Model:         cfg.GCP.MerchModel(),
 		Temperature:   cfg.GCP.GeminiSearchTemperature,
-		ThinkingLevel: cfg.GCP.GeminiSearchThinkingLevel,
+		ThinkingLevel: cfg.GCP.MerchThinking(),
 	}, &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}, logger)
 	if err != nil {
 		return nil, err

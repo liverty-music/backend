@@ -347,6 +347,13 @@ type GCPConfig struct {
 	// so this is far shorter than the concert-discovery horizon. Empty/zero
 	// falls back to defaultMerchDiscoveryWindow (60 days).
 	MerchDiscoveryWindow time.Duration `envconfig:"GCP_MERCH_DISCOVERY_WINDOW"`
+
+	// Thinking level for the merch-url search. Empty falls back to
+	// defaultMerchThinkingLevel ("high"). Live A/B showed Flash-Lite only obeys
+	// the "never fabricate an ID-bearing deep link; fall back to the stable
+	// store-top URL" rule at "high"; "low"/"medium" hallucinate a category_id.
+	// Accepted: "", minimal, low, medium, high.
+	GeminiMerchThinkingLevel string `envconfig:"GCP_GEMINI_MERCH_THINKING_LEVEL"`
 }
 
 // Default models for each step of the two-step grounded-extract search
@@ -373,6 +380,10 @@ const (
 const (
 	defaultMerchModel           = "gemini-3.1-flash-lite"
 	defaultMerchDiscoveryWindow = 60 * 24 * time.Hour
+	// defaultMerchThinkingLevel is "high": only at "high" does Flash-Lite
+	// reliably return the stable ID-free official store URL instead of a
+	// fabricated category_id deep link (verified 5/5 in live A/B).
+	defaultMerchThinkingLevel = "high"
 )
 
 // MerchModel returns the model name for the merch-url discovery search.
@@ -391,6 +402,15 @@ func (c *GCPConfig) MerchWindow() time.Duration {
 		return c.MerchDiscoveryWindow
 	}
 	return defaultMerchDiscoveryWindow
+}
+
+// MerchThinking returns the thinking level for the merch-url search.
+// Resolution: env override (GCP_GEMINI_MERCH_THINKING_LEVEL) → built-in default ("high").
+func (c *GCPConfig) MerchThinking() string {
+	if c.GeminiMerchThinkingLevel != "" {
+		return c.GeminiMerchThinkingLevel
+	}
+	return defaultMerchThinkingLevel
 }
 
 // SearchCacheTTL returns the search-log freshness window. Resolution:
@@ -569,6 +589,9 @@ func (c *GCPConfig) Validate() error {
 	}
 	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingParse) {
 		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_PARSE: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingParse)
+	}
+	if !slices.Contains(validThinkingLevels, c.GeminiMerchThinkingLevel) {
+		return fmt.Errorf("invalid GCP_GEMINI_MERCH_THINKING_LEVEL: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiMerchThinkingLevel)
 	}
 	// A non-parseable duration already fails at envconfig.Process (Load);
 	// here we reject negatives so a stray "-1h" cannot disable the cache.

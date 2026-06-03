@@ -80,6 +80,7 @@ func TestMerchDiscoveryUseCase_ResolveMerchURL(t *testing.T) {
 			merchURL: "",
 			setup: func(d *merchTestDeps) {
 				d.searcher.EXPECT().SearchMerchURL(mock.Anything, "Test Artist", "Summer Tour 2026").Return(officialURL, nil)
+				d.checker.EXPECT().IsDeadLink(mock.Anything, officialURL).Return(false)
 				d.seriesRepo.EXPECT().SetMerchURL(mock.Anything, mock.Anything, officialURL).Return(nil)
 			},
 			wantOutcome: usecase.MerchOutcomeFilled,
@@ -89,9 +90,20 @@ func TestMerchDiscoveryUseCase_ResolveMerchURL(t *testing.T) {
 			merchURL: "",
 			setup: func(d *merchTestDeps) {
 				d.searcher.EXPECT().SearchMerchURL(mock.Anything, mock.Anything, mock.Anything).Return(socialURL, nil)
+				d.checker.EXPECT().IsDeadLink(mock.Anything, socialURL).Return(false)
 				d.seriesRepo.EXPECT().SetMerchURL(mock.Anything, mock.Anything, socialURL).Return(nil)
 			},
 			wantOutcome: usecase.MerchOutcomeFilled,
+		},
+		{
+			name:     "empty field, resolved url is dead, discarded",
+			merchURL: "",
+			setup: func(d *merchTestDeps) {
+				d.searcher.EXPECT().SearchMerchURL(mock.Anything, mock.Anything, mock.Anything).Return(officialURL, nil)
+				d.checker.EXPECT().IsDeadLink(mock.Anything, officialURL).Return(true)
+				// no SetMerchURL expected
+			},
+			wantOutcome: usecase.MerchOutcomeInvalidDiscarded,
 		},
 		{
 			name:     "empty field, no confident source",
@@ -127,6 +139,7 @@ func TestMerchDiscoveryUseCase_ResolveMerchURL(t *testing.T) {
 				d.checker.EXPECT().IsDeadLink(mock.Anything, deadURL).Return(true)
 				d.seriesRepo.EXPECT().ClearMerchURL(mock.Anything, mock.Anything).Return(nil)
 				d.searcher.EXPECT().SearchMerchURL(mock.Anything, mock.Anything, mock.Anything).Return(officialURL, nil)
+				d.checker.EXPECT().IsDeadLink(mock.Anything, officialURL).Return(false)
 				d.seriesRepo.EXPECT().SetMerchURL(mock.Anything, mock.Anything, officialURL).Return(nil)
 			},
 			wantOutcome: usecase.MerchOutcomeFilled,
@@ -163,6 +176,7 @@ func TestMerchDiscoveryUseCase_ResolveMerchURL(t *testing.T) {
 			merchURL: "",
 			setup: func(d *merchTestDeps) {
 				d.searcher.EXPECT().SearchMerchURL(mock.Anything, mock.Anything, mock.Anything).Return(officialURL, nil)
+				d.checker.EXPECT().IsDeadLink(mock.Anything, officialURL).Return(false)
 				d.seriesRepo.EXPECT().SetMerchURL(mock.Anything, mock.Anything, officialURL).Return(errors.New("db down"))
 			},
 			wantErr: true,
