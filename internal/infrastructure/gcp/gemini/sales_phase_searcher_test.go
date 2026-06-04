@@ -143,7 +143,7 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
       "apply_end": "",
       "lottery_result": "",
       "payment_deadline": "",
-      "covered_event_indices": []
+      "covered_event_indices": [1]
     }
   ]
 }`,
@@ -188,7 +188,7 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
 			wantLen: 1,
 		},
 		{
-			name: "empty covered_event_indices defaults to all candidates",
+			name: "empty covered_event_indices with no 全公演 marker is dropped (coverage unknown, not all)",
 			rawJSON: `{
   "phases": [
     {
@@ -207,8 +207,35 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
 				sourceURL       string
 				candidateEvents []*entity.SalesPhaseCandidateEvent
 			}{
-				xmlPhases:       xmlPhases[:1],
+				xmlPhases:       xmlPhases[:1], // CoveredDates == "" → dropped
 				seriesID:        "series-333",
+				sourceURL:       "https://example.com/ticket",
+				candidateEvents: candidateEvents,
+			},
+			wantLen: 0,
+		},
+		{
+			name: "全公演 marker covers all candidates even with empty Step 2 indices",
+			rawJSON: `{
+  "phases": [
+    {
+      "output_index": 0,
+      "apply_start": "2026-07-01T10:00:00+09:00",
+      "apply_end": "",
+      "lottery_result": "",
+      "payment_deadline": "",
+      "covered_event_indices": []
+    }
+  ]
+}`,
+			args: struct {
+				xmlPhases       []salesPhaseXML
+				seriesID        string
+				sourceURL       string
+				candidateEvents []*entity.SalesPhaseCandidateEvent
+			}{
+				xmlPhases:       []salesPhaseXML{{Method: "先着", Channel: "一般", CoveredDates: "全公演"}},
+				seriesID:        "series-334",
 				sourceURL:       "https://example.com/ticket",
 				candidateEvents: candidateEvents,
 			},
@@ -360,9 +387,9 @@ func TestResolveCoveredEvents(t *testing.T) {
 			want:    []string{"event-0", "event-2"},
 		},
 		{
-			name:    "empty indices returns all candidates",
+			name:    "empty indices returns none (coverage unknown — not all)",
 			indices: []int{},
-			want:    []string{"event-0", "event-1", "event-2"},
+			want:    nil,
 		},
 		{
 			name:    "out-of-range indices are skipped",
@@ -520,4 +547,61 @@ func TestParseRFC3339OrZero(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFilterUpcomingPhases(t *testing.T) {
+	now := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
+	mk := func(start, end time.Time) *entity.SalesPhaseCandidate {
+		return &entity.SalesPhaseCandidate{ApplyStartTime: start, ApplyEndTime: end}
+	}
+	closed := mk(now.AddDate(0, -3, 0), now.AddDate(0, 0, -10)) // ended 10d ago → drop
+	open := mk(now.AddDate(0, 0, -2), now.AddDate(0, 0, 3))     // open now → keep
+	upcoming := mk(now.AddDate(0, 0, 5), now.AddDate(0, 0, 12)) // future → keep
+	unknownEnd := mk(now.AddDate(0, 0, -1), time.Time{})        // unknown end → keep
+
+	got := filterUpcomingPhases([]*entity.SalesPhaseCandidate{closed, open, upcoming, unknownEnd}, now)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 phases kept, got %d", len(got))
+	}
+	for _, c := range got {
+		if !c.ApplyEndTime.IsZero() && c.ApplyEndTime.Before(now) {
+			t.Errorf("closed phase leaked through: end=%v", c.ApplyEndTime)
+		}
+	}
+}
+
+func TestSanitizeTimeline(t *testing.T) {
+	base := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	d := func(days int) time.Time { return base.AddDate(0, 0, days) }
+	zero := time.Time{}
+
+	t.Run("monotonic timeline is preserved", func(t *testing.T) {
+		end, res, pay := sanitizeTimeline(base, d(10), d(20), d(25))
+		assert.True(t, d(10).Equal(end))
+		assert.True(t, d(20).Equal(res))
+		assert.True(t, d(25).Equal(pay))
+	})
+	t.Run("apply_end before start is nulled", func(t *testing.T) {
+		end, res, pay := sanitizeTimeline(base, d(-5), d(20), d(25))
+		assert.True(t, end.IsZero(), "end before start must be nulled")
+		// lower bound falls back to start, so later valid fields survive.
+		assert.True(t, d(20).Equal(res))
+		assert.True(t, d(25).Equal(pay))
+	})
+	t.Run("lottery_result before apply_end is nulled, payment still validated", func(t *testing.T) {
+		end, res, pay := sanitizeTimeline(base, d(10), d(5), d(25))
+		assert.True(t, d(10).Equal(end))
+		assert.True(t, res.IsZero(), "result before end must be nulled")
+		assert.True(t, d(25).Equal(pay))
+	})
+	t.Run("payment before lower bound is nulled", func(t *testing.T) {
+		end, res, pay := sanitizeTimeline(base, d(10), d(20), d(15))
+		assert.True(t, d(10).Equal(end))
+		assert.True(t, d(20).Equal(res))
+		assert.True(t, pay.IsZero(), "payment before result must be nulled")
+	})
+	t.Run("unknown (zero) fields pass through", func(t *testing.T) {
+		end, res, pay := sanitizeTimeline(base, zero, zero, zero)
+		assert.True(t, end.IsZero() && res.IsZero() && pay.IsZero())
+	})
 }
