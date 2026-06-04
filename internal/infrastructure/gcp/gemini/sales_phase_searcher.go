@@ -80,7 +80,7 @@ const (
 	//   一般         → GENERAL (6)
 	systemInstructionSalesPhaseStep1 = `あなたは音楽ファン向けサービスの、チケット販売スケジュール抽出エージェントです。
 
-アーティストの指定シリーズについて、公式サイトおよびチケット販売会社のページから、チケット販売スケジュールを全て抽出することがゴールです。
+アーティストの指定シリーズについて、公式サイトおよびチケット販売会社のページから、ユーザーが「今後申し込める」チケット販売スケジュールを抽出することがゴールです。ユーザー(ファン)が見逃したくないのは、これから受付が始まる先行・先着・一般発売です。すでに申込受付が終了した販売(申込締切が本日より前のもの)は価値がないため対象外とし、出力しないでください。
 
 以下の出力フォーマットに従い、販売フェーズごとに <phase> タグでまとめてください。
 
@@ -89,28 +89,42 @@ const (
   <phase>
     <method>抽選</method>
     <channel>ファンクラブ</channel>
-    <provider_name>e+</provider_name>
+    <provider_name></provider_name>
     <sequence>0</sequence>
     <apply_start>2026年7月1日 10:00</apply_start>
     <apply_end>2026年7月10日 23:59</apply_end>
     <lottery_result></lottery_result>
     <payment_deadline></payment_deadline>
-    <url>https://eplus.jp/example</url>
+    <url>https://fc.example/entry</url>
     <covered_dates>2026年9月1日,2026年9月2日</covered_dates>
   </phase>
   <phase>
-    <method>先着</method>
-    <channel>プレイガイド</channel>
-    <provider_name>ローチケ</provider_name>
+    <method>抽選</method>
+    <channel>ファンクラブ</channel>
+    <provider_name></provider_name>
     <sequence>0</sequence>
-    <apply_start>2026年7月20日 10:00</apply_start>
+    <apply_start>2026年7月1日 10:00</apply_start>
+    <apply_end>2026年7月10日 23:59</apply_end>
+    <lottery_result></lottery_result>
+    <payment_deadline></payment_deadline>
+    <url>https://fc.example/entry</url>
+    <covered_dates>2026年10月5日,2026年10月6日</covered_dates>
+  </phase>
+  <phase>
+    <method>先着</method>
+    <channel>一般</channel>
+    <provider_name>チケットぴあ</provider_name>
+    <sequence>0</sequence>
+    <apply_start>2026年8月1日 10:00</apply_start>
     <apply_end></apply_end>
     <lottery_result></lottery_result>
     <payment_deadline></payment_deadline>
-    <url>https://l-tike.com/example</url>
-    <covered_dates></covered_dates>
+    <url>https://t.pia.jp/example</url>
+    <covered_dates>全公演</covered_dates>
   </phase>
 </extracted>
+
+上の例では、同じFC先行でも前半(9月1・2日)と後半(10月5・6日)で対象公演が異なるため、別々の <phase> として covered_dates を区別している。一般発売は全公演対象なので covered_dates に「全公演」と記入している。
 
 抽出ルール:
 - source_url: 最も詳細な情報を記載しているページのURL。
@@ -125,17 +139,23 @@ const (
 - provider_name: チケット販売会社名を verbatim (一字一句そのまま) でコピーすること。不明な場合は空欄。特に channel が「プレイガイド」の場合は必ず具体的な会社名 (例: "e+"、"チケットぴあ"、"ローチケ") を記入する。
 - sequence: 同一チャネルで複数回抽選がある場合の0始まりの順番。通常は0。
 - apply_start, apply_end, lottery_result, payment_deadline: verbatim な日時文字列。不明・非該当の場合は空欄。
-- covered_dates: このフェーズが対象とする公演日付のカンマ区切りリスト。全公演対象なら空欄。
+- covered_dates: このフェーズが対象とする公演日を必ず明示すること。
+    ・一部の公演のみ対象(前半/後半/地域別など)の場合は、対象公演日をカンマ区切りで漏れなく列挙する。
+    ・全公演が対象の場合は「全公演」の一語のみを記入する。
+    ・空欄にしてはならない。対象公演がどうしても判別できない場合のみ空欄とし、その場合このフェーズは保存対象から除外される。
+- 同一シリーズに前半・後半など対象公演が異なる複数の販売がある場合は、それぞれ別の <phase> とし、covered_dates を必ず区別して記入すること(一方を全公演にしない)。
+- 対象期間: ユーザープロンプトで与えられる「本日」を基準とし、申込締切が本日より前の販売(受付終了済み)は出力しないこと。これから受付が始まる、または現在受付中で締切が本日以降の販売のみを対象とする。特に、告知されたばかりの今後の一般発売・追加先行を見落とさないこと。
 - 情報が確認できない項目はタグを空欄にすること。推測や補完は一切禁止。
 - 余計なテキストは含めず、XMLのみをレスポンスに含めること。
 `
 
 	// promptTemplateSalesPhaseStep1 is the per-call user prompt template.
-	// Placeholders: artist name, series title.
-	promptTemplateSalesPhaseStep1 = `アーティスト名: %s
+	// Placeholders: today (JST date), artist name, series title.
+	promptTemplateSalesPhaseStep1 = `本日: %s
+アーティスト名: %s
 シリーズ名: %s
 
-このシリーズのチケット販売スケジュールを全て抽出してください。`
+このシリーズについて、本日以降に申し込めるチケット販売スケジュールのみを抽出してください。申込締切が本日より前の販売(受付終了済み)は出力しないこと。これから受付が始まる先行・先着・一般発売、および現在受付中で締切が本日以降の販売を対象とし、今後の一般発売・追加先行を見落とさないでください。`
 
 	// systemInstructionSalesPhaseStep2 instructs Step 2 to perform JSON
 	// coercion only — dates and times are normalised from verbatim Japanese
@@ -144,7 +164,10 @@ const (
 
 You receive a JSON array of raw ticket-sales phase records extracted from Japanese web pages, plus a list of candidate events (index-tagged). For each phase record:
 1. Coerce date/time strings to RFC 3339 (Asia/Tokyo = +09:00). Emit "" for any field you cannot coerce unambiguously.
-2. Resolve covered_event_indices: match each covered_date (verbatim Japanese date) to the closest candidate event date. Return the indices of matching events. If covered_dates is empty, return ALL candidate event indices (the phase covers the whole series). If a date does not match any candidate, omit it silently — do NOT guess.
+2. Resolve covered_event_indices:
+   - If covered_dates contains the single token "全公演" (= all performances), return ALL candidate event indices.
+   - Otherwise, match each covered_date (verbatim Japanese date) to the closest candidate event date and return the indices of matching events. If a date does not match any candidate, omit it silently — do NOT guess.
+   - If covered_dates is EMPTY, return an empty index list. Do NOT assume the phase covers all performances: an empty list means coverage is unknown, and the phase is dropped downstream. This prevents a leg-specific sale (e.g. first-half only) that failed to list its dates from wrongly covering the entire tour.
 3. Return output_index unchanged (the join key the caller uses to align your output with the input).
 
 Output only the JSON defined by the response schema. No Markdown, no comments.
@@ -358,9 +381,34 @@ func (s *SalesPhaseSearcher) SearchSalesPhases(
 	if err != nil {
 		return nil, err
 	}
+
+	// Deterministic "upcoming only" backstop: the prompt asks the model to skip
+	// already-closed sales, but the model is not fully reliable (it can still
+	// surface a past round). Drop any phase whose application window has
+	// definitively ended (apply_end known and before now). Phases with an
+	// unknown end are kept (conservative — they may still be open), and the
+	// downstream reminder scan's first-sight guard suppresses stale milestones.
+	candidates = filterUpcomingPhases(candidates, time.Now().UTC())
 	s.logger.Info(ctx, "SalesPhaseSearcher: extraction complete",
 		append(attrs, slog.Int("candidates_count", len(candidates)))...)
 	return candidates, nil
+}
+
+// filterUpcomingPhases drops phases whose application window has definitively
+// closed (ApplyEndTime is known and before now), keeping upcoming, currently-
+// open, and unknown-end phases.
+func filterUpcomingPhases(candidates []*entity.SalesPhaseCandidate, now time.Time) []*entity.SalesPhaseCandidate {
+	out := candidates[:0]
+	for _, c := range candidates {
+		if c == nil {
+			continue
+		}
+		if !c.ApplyEndTime.IsZero() && c.ApplyEndTime.Before(now) {
+			continue // already closed — not actionable
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // runStep1 fires the grounded search call and returns the raw XML envelope
@@ -370,14 +418,26 @@ func (s *SalesPhaseSearcher) runStep1(
 	artistName, seriesTitle string,
 	attrs []slog.Attr,
 ) (string, error) {
-	prompt := fmt.Sprintf(promptTemplateSalesPhaseStep1, artistName, seriesTitle)
+	now := time.Now().UTC().Truncate(time.Second)
+	// Anchor the model on "today" (JST) so it excludes already-closed sales and
+	// surfaces upcoming / future-scheduled phases. JST has no DST, so a fixed
+	// +09:00 zone is exact and avoids a tzdata dependency.
+	jst := time.FixedZone("JST", 9*60*60)
+	today := now.In(jst).Format("2006年1月2日")
+	prompt := fmt.Sprintf(promptTemplateSalesPhaseStep1, today, artistName, seriesTitle)
 	temperature := s.config.Temperature
 
-	now := time.Now().UTC().Truncate(time.Second)
+	// TODO(grounding): GoogleSearch is NOT firing for this searcher — live runs
+	// show usage.tool_use=0 and grounding.fired=false for BOTH gemini-3.1-flash-
+	// lite AND gemini-3.5-flash, so extraction is currently from model memory,
+	// not live search. Removing TimeRangeFilter did NOT restore grounding, so it
+	// is not the cause; root cause is at the GoogleSearch tool / SDK / model
+	// level (likely affects the concert searcher too). TimeRangeFilter is kept
+	// for source freshness once grounding is fixed.
 	searchTool := &genai.Tool{
 		GoogleSearch: &genai.GoogleSearch{
 			TimeRangeFilter: &genai.Interval{
-				StartTime: now.AddDate(0, -3, 0),
+				StartTime: now.AddDate(0, -6, 0),
 				EndTime:   now,
 			},
 		},
@@ -391,6 +451,9 @@ func (s *SalesPhaseSearcher) runStep1(
 		Tools:           []*genai.Tool{searchTool, urlCtxTool},
 		Temperature:     &temperature,
 		MaxOutputTokens: maxOutputTokens,
+		// NOTE: ResponseLogprobs is unsupported on gemini-3.1-flash-lite
+		// (API 400 "Logprobs is not enabled for this model"), so avg_logprobs
+		// stays 0 — no confidence signal available with the lite model.
 	}
 	if level := thinkingLevelFromConfig(s.config.thinkingExtract()); level != genai.ThinkingLevelUnspecified {
 		cfg.ThinkingConfig = &genai.ThinkingConfig{ThinkingLevel: level}
@@ -523,10 +586,18 @@ func (s *SalesPhaseSearcher) generateSingle(
 			}
 			return "", err
 		}
+		// Log the FULL Gemini response metadata for tuning/observability:
+		// token usage, finish reason/message/logprobs, grounding (search
+		// queries, source URLs + titles, whether grounding fired, rendered
+		// supports), and URL-context retrieval. Emitted for every response,
+		// including empty/non-STOP ones.
+		s.logResponseMetadata(ctx, modelName, resp, attrs)
+
 		if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
 			return "", nil
 		}
 		candidate := resp.Candidates[0]
+
 		if candidate.FinishReason != genai.FinishReasonStop && candidate.FinishReason != "" {
 			return "", fmt.Errorf("non-STOP finish_reason: %s", candidate.FinishReason)
 		}
@@ -550,6 +621,92 @@ func (s *SalesPhaseSearcher) generateSingle(
 		return "", nil
 	}
 	return rawText, nil
+}
+
+// logResponseMetadata logs the complete metadata of a Gemini response for
+// tuning and observability: token usage, finish reason / message / avg
+// logprobs, grounding (search queries, source URLs + titles, whether grounding
+// fired, rendered support count), and URL-context retrieval results. It is
+// best-effort — nil sub-objects are logged as their zero/empty state so a line
+// is always emitted, one per Gemini call (Step 1 grounded and Step 2 parse).
+func (s *SalesPhaseSearcher) logResponseMetadata(
+	ctx context.Context,
+	modelName string,
+	resp *genai.GenerateContentResponse,
+	attrs []slog.Attr,
+) {
+	if resp == nil {
+		return
+	}
+	fields := make([]slog.Attr, 0, len(attrs)+10)
+	fields = append(fields, attrs...)
+	fields = append(fields,
+		slog.String("model", modelName),
+		slog.String("response_id", resp.ResponseID),
+		slog.String("model_version", resp.ModelVersion),
+	)
+
+	if u := resp.UsageMetadata; u != nil {
+		fields = append(fields, slog.Group("usage",
+			slog.Int("prompt", int(u.PromptTokenCount)),
+			slog.Int("candidates", int(u.CandidatesTokenCount)),
+			slog.Int("thinking", int(u.ThoughtsTokenCount)),
+			slog.Int("tool_use", int(u.ToolUsePromptTokenCount)),
+			slog.Int("total", int(u.TotalTokenCount)),
+		))
+	}
+
+	if len(resp.Candidates) == 0 {
+		fields = append(fields, slog.Bool("has_candidate", false))
+		s.logger.Info(ctx, "SalesPhaseSearcher: gemini response metadata", fields...)
+		return
+	}
+	c := resp.Candidates[0]
+	fields = append(fields,
+		slog.String("finish_reason", string(c.FinishReason)),
+		slog.String("finish_message", c.FinishMessage),
+		slog.Float64("avg_logprobs", c.AvgLogprobs),
+	)
+
+	if g := c.GroundingMetadata; g != nil {
+		urls := make([]string, 0, len(g.GroundingChunks))
+		titles := make([]string, 0, len(g.GroundingChunks))
+		for _, ch := range g.GroundingChunks {
+			if ch != nil && ch.Web != nil {
+				urls = append(urls, ch.Web.URI)
+				titles = append(titles, ch.Web.Title)
+			}
+		}
+		rendered := 0
+		for _, sup := range g.GroundingSupports {
+			if sup != nil {
+				rendered += len(sup.RenderedParts)
+			}
+		}
+		fields = append(fields, slog.Group("grounding",
+			slog.Bool("fired", true),
+			slog.Int("search_query_count", len(g.WebSearchQueries)),
+			slog.Any("search_queries", g.WebSearchQueries),
+			slog.Int("source_count", len(urls)),
+			slog.Any("source_urls", urls),
+			slog.Any("source_titles", titles),
+			slog.Int("rendered_supports", rendered),
+		))
+	} else {
+		fields = append(fields, slog.Group("grounding", slog.Bool("fired", false)))
+	}
+
+	if uc := c.URLContextMetadata; uc != nil {
+		retrieved := make([]string, 0, len(uc.URLMetadata))
+		for _, um := range uc.URLMetadata {
+			if um != nil {
+				retrieved = append(retrieved, fmt.Sprintf("%s [%s]", um.RetrievedURL, um.URLRetrievalStatus))
+			}
+		}
+		fields = append(fields, slog.Any("url_context_retrieved", retrieved))
+	}
+
+	s.logger.Info(ctx, "SalesPhaseSearcher: gemini response metadata", fields...)
 }
 
 // ----- parsing helpers -----
@@ -663,15 +820,36 @@ func parseSalesPhaseStep2Response(
 			continue
 		}
 
-		// Resolve covered event IDs from indices.
-		coveredEventIDs := resolveCoveredEvents(coerced.CoveredEventIndices, candidateEvents)
+		// Resolve covered event IDs. The "全公演" marker (all performances)
+		// deterministically covers every candidate event, independent of the
+		// model's index resolution; otherwise use the Step 2 indices. An empty
+		// result is dropped below — an unspecified covered_dates must NOT
+		// silently cover the whole tour, which would conflate leg-specific
+		// phases (e.g. first half vs second half) into one row.
+		coveredIndices := coerced.CoveredEventIndices
+		if strings.TrimSpace(xp.CoveredDates) == allPerformancesMarker {
+			coveredIndices = allIndices(len(candidateEvents))
+		}
+		coveredEventIDs := resolveCoveredEvents(coveredIndices, candidateEvents)
 		if len(coveredEventIDs) == 0 {
 			// Persistence guard: drop when no covered events resolved.
 			continue
 		}
 
 		// Determine anchor event ID = earliest covered event.
-		anchorEventID := earliestEventID(coerced.CoveredEventIndices, candidateEvents)
+		anchorEventID := earliestEventID(coveredIndices, candidateEvents)
+
+		// Deterministic timeline validation: enforce
+		// apply_start <= apply_end <= lottery_result <= payment_deadline. Any
+		// later field that precedes the running lower bound is nulled out (kept
+		// as "unknown") instead of driving a wrong reminder — flash-lite
+		// occasionally hallucinates inconsistent dates.
+		applyEnd, lotteryResult, paymentDeadline := sanitizeTimeline(
+			applyStart,
+			parseRFC3339OrZero(coerced.ApplyEnd),
+			parseRFC3339OrZero(coerced.LotteryResult),
+			parseRFC3339OrZero(coerced.PaymentDeadline),
+		)
 
 		c := &entity.SalesPhaseCandidate{
 			SeriesID:            seriesID,
@@ -682,9 +860,9 @@ func parseSalesPhaseStep2Response(
 			ProviderName:        strings.TrimSpace(xp.ProviderName),
 			Sequence:            parseSequence(xp.Sequence),
 			ApplyStartTime:      applyStart,
-			ApplyEndTime:        parseRFC3339OrZero(coerced.ApplyEnd),
-			LotteryResultTime:   parseRFC3339OrZero(coerced.LotteryResult),
-			PaymentDeadlineTime: parseRFC3339OrZero(coerced.PaymentDeadline),
+			ApplyEndTime:        applyEnd,
+			LotteryResultTime:   lotteryResult,
+			PaymentDeadlineTime: paymentDeadline,
 			URL:                 strings.TrimSpace(xp.URL),
 			SourceURL:           sourceURL,
 		}
@@ -693,18 +871,28 @@ func parseSalesPhaseStep2Response(
 	return candidates, nil
 }
 
-// resolveCoveredEvents maps Step 2 event indices back to event IDs.
-// When the indices slice is empty, it returns all candidate event IDs (the
-// phase is series-wide). Indices out of range are silently skipped.
-func resolveCoveredEvents(indices []int, candidates []*entity.SalesPhaseCandidateEvent) []string {
-	if len(indices) == 0 {
-		// Empty indices = the phase covers all candidate events.
-		ids := make([]string, 0, len(candidates))
-		for _, ce := range candidates {
-			ids = append(ids, ce.EventID)
-		}
-		return ids
+// allPerformancesMarker is the verbatim covered_dates token Step 1 emits when a
+// phase explicitly covers every performance of the series. It is the ONLY way to
+// express series-wide coverage — an empty covered_dates means "unknown", never
+// "all".
+const allPerformancesMarker = "全公演"
+
+// allIndices returns [0, 1, …, n-1].
+func allIndices(n int) []int {
+	idx := make([]int, n)
+	for i := range idx {
+		idx[i] = i
 	}
+	return idx
+}
+
+// resolveCoveredEvents maps Step 2 event indices back to event IDs. An empty
+// indices slice resolves to NO events (coverage unknown) — the caller drops
+// such phases via the persistence guard. Series-wide coverage is expressed
+// explicitly by the caller via the 全公演 marker, never by an empty list, so a
+// leg-specific phase that failed to list its dates is dropped rather than
+// wrongly covering the whole tour. Indices out of range are silently skipped.
+func resolveCoveredEvents(indices []int, candidates []*entity.SalesPhaseCandidateEvent) []string {
 	seen := make(map[string]struct{}, len(indices))
 	var ids []string
 	for _, idx := range indices {
@@ -750,6 +938,34 @@ func earliestEventID(indices []int, candidates []*entity.SalesPhaseCandidateEven
 		return ""
 	}
 	return earliest.EventID
+}
+
+// sanitizeTimeline enforces the monotonic order
+// apply_start <= apply_end <= lottery_result <= payment_deadline. apply_start is
+// assumed valid (guarded upstream). Any later field that precedes the running
+// lower bound is treated as a hallucinated / inconsistent value and nulled out
+// (returned as the zero time = "unknown") rather than persisted. Zero (unknown)
+// inputs pass through unchanged.
+func sanitizeTimeline(start, end, result, payment time.Time) (time.Time, time.Time, time.Time) {
+	lower := start
+	if !end.IsZero() {
+		if end.Before(lower) {
+			end = time.Time{}
+		} else {
+			lower = end
+		}
+	}
+	if !result.IsZero() {
+		if result.Before(lower) {
+			result = time.Time{}
+		} else {
+			lower = result
+		}
+	}
+	if !payment.IsZero() && payment.Before(lower) {
+		payment = time.Time{}
+	}
+	return end, result, payment
 }
 
 // parseRFC3339OrZero parses an RFC 3339 string, returning time.Time{} on
