@@ -354,6 +354,18 @@ type GCPConfig struct {
 	// store-top URL" rule at "high"; "low"/"medium" hallucinate a category_id.
 	// Accepted: "", minimal, low, medium, high.
 	GeminiMerchThinkingLevel string `envconfig:"GCP_GEMINI_MERCH_THINKING_LEVEL"`
+
+	// Look-ahead window for the sales-phase discovery job. A series is
+	// included in the discovery run when its upcoming events fall within
+	// [now, now+window]. Zero falls back to defaultSalesPhaseDiscoveryWindow
+	// (90 days — sales phases are announced well ahead of the event).
+	SalesPhaseDiscoveryWindow time.Duration `envconfig:"GCP_SALES_PHASE_DISCOVERY_WINDOW"`
+
+	// Look-ahead window for the sales-reminders scan. Phases whose
+	// apply_start_at falls within [now, now+window] are included in the
+	// reminder evaluation pass. Zero falls back to
+	// defaultSalesReminderWindow (7 days).
+	SalesReminderWindow time.Duration `envconfig:"GCP_SALES_REMINDER_WINDOW"`
 }
 
 // Default models for each step of the two-step grounded-extract search
@@ -386,6 +398,16 @@ const (
 	defaultMerchThinkingLevel = "high"
 )
 
+// Defaults for the sales-phase discovery and reminder jobs.
+const (
+	// defaultSalesPhaseDiscoveryWindow scans series with events in the next
+	// 90 days; sales phases are typically announced 1–3 months ahead.
+	defaultSalesPhaseDiscoveryWindow = 90 * 24 * time.Hour
+	// defaultSalesReminderWindow covers phases whose apply_start_at is within
+	// 7 days. Stages due within that horizon are evaluated each scan run.
+	defaultSalesReminderWindow = 7 * 24 * time.Hour
+)
+
 // MerchModel returns the model name for the merch-url discovery search.
 // Resolution: env override (GCP_GEMINI_MERCH_MODEL) → built-in default.
 func (c *GCPConfig) MerchModel() string {
@@ -411,6 +433,24 @@ func (c *GCPConfig) MerchThinking() string {
 		return c.GeminiMerchThinkingLevel
 	}
 	return defaultMerchThinkingLevel
+}
+
+// SalesPhaseWindow returns the sales-phase discovery look-ahead window.
+// Resolution: env override (GCP_SALES_PHASE_DISCOVERY_WINDOW) → built-in default.
+func (c *GCPConfig) SalesPhaseWindow() time.Duration {
+	if c.SalesPhaseDiscoveryWindow > 0 {
+		return c.SalesPhaseDiscoveryWindow
+	}
+	return defaultSalesPhaseDiscoveryWindow
+}
+
+// SalesReminderScanWindow returns the reminder scan look-ahead window.
+// Resolution: env override (GCP_SALES_REMINDER_WINDOW) → built-in default.
+func (c *GCPConfig) SalesReminderScanWindow() time.Duration {
+	if c.SalesReminderWindow > 0 {
+		return c.SalesReminderWindow
+	}
+	return defaultSalesReminderWindow
 }
 
 // SearchCacheTTL returns the search-log freshness window. Resolution:

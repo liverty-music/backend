@@ -46,3 +46,15 @@ var ExportedMintOrReconcile = func(uc TicketUseCase, ctx context.Context, params
 var ExportedPersistTicket = func(uc TicketUseCase, ctx context.Context, params *MintTicketParams, tokenID uint64, txHash string) (*entity.Ticket, error) {
 	return uc.(*ticketUseCase).persistTicket(ctx, params, tokenID, txHash)
 }
+
+// ExportedScheduledFireTime exposes scheduledFireTime for black-box tests.
+var ExportedScheduledFireTime = scheduledFireTime
+
+// ExportedBuildReminderPayload exposes buildReminderPayload for black-box tests.
+var ExportedBuildReminderPayload = buildReminderPayload
+
+// ExportedChannelDisplayName exposes channelDisplayName for black-box tests.
+var ExportedChannelDisplayName = channelDisplayName
+
+// ReminderScanLookbackMargin exposes reminderScanLookbackMargin for black-box tests.
+const ReminderScanLookbackMargin = reminderScanLookbackMargin
