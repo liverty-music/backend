@@ -22,6 +22,9 @@ packages:
       EventPublisher:
       AnalyticsClient:
       AnalyticsConsumerMetrics:
+      SalesPhaseDiscoveryUseCase:
+      SalesPhaseAnnouncementUseCase:
+      SalesReminderDeliveryUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -45,6 +48,9 @@ packages:
       TicketEmailRepository:
       TicketEmailParser:
       LogoImageFetcher:
+      SalesPhaseRepository:
+      SalesPhaseReminderRepository:
+      SalesPhaseSearcher:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:

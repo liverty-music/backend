@@ -119,12 +119,12 @@ type SalesPhase struct {
 	PaymentDeadlineTime time.Time
 	// URL is the direct link to the sales page for this phase. Empty when unknown.
 	URL string
-	// DiscoveredAt is the timestamp when this phase row was first inserted. It is
+	// DiscoveredTime is the timestamp when this phase row was first inserted. It is
 	// set by the database DEFAULT and never overwritten on update. The reminder
 	// scan uses it as the first-sight guard: stages whose natural trigger is
-	// before DiscoveredAt are not fired (the phase was discovered after that
+	// before DiscoveredTime are not fired (the phase was discovered after that
 	// milestone had already passed).
-	DiscoveredAt time.Time
+	DiscoveredTime time.Time
 }
 
 // SalesPhaseCandidate carries the data for a single phase extracted by the

@@ -22,25 +22,8 @@ func (_m *MockSalesPhaseReminderRepository) EXPECT() *MockSalesPhaseReminderRepo
 	return &MockSalesPhaseReminderRepository_Expecter{mock: &_m.Mock}
 }
 
-// RecordSent provides a mock function with given fields: ctx, userID, phaseID, stage
-func (_m *MockSalesPhaseReminderRepository) RecordSent(ctx context.Context, userID, phaseID string, stage entity.ReminderStage) error {
-	ret := _m.Called(ctx, userID, phaseID, stage)
-
-	if len(ret) == 0 {
-		panic("no return value specified for RecordSent")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.ReminderStage) error); ok {
-		r0 = rf(ctx, userID, phaseID, stage)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
 // AlreadySent provides a mock function with given fields: ctx, userID, phaseID, stage
-func (_m *MockSalesPhaseReminderRepository) AlreadySent(ctx context.Context, userID, phaseID string, stage entity.ReminderStage) (bool, error) {
+func (_m *MockSalesPhaseReminderRepository) AlreadySent(ctx context.Context, userID string, phaseID string, stage entity.ReminderStage) (bool, error) {
 	ret := _m.Called(ctx, userID, phaseID, stage)
 
 	if len(ret) == 0 {
@@ -57,12 +40,45 @@ func (_m *MockSalesPhaseReminderRepository) AlreadySent(ctx context.Context, use
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
+
 	if rf, ok := ret.Get(1).(func(context.Context, string, string, entity.ReminderStage) error); ok {
 		r1 = rf(ctx, userID, phaseID, stage)
 	} else {
 		r1 = ret.Error(1)
 	}
+
 	return r0, r1
+}
+
+// MockSalesPhaseReminderRepository_AlreadySent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AlreadySent'
+type MockSalesPhaseReminderRepository_AlreadySent_Call struct {
+	*mock.Call
+}
+
+// AlreadySent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - phaseID string
+//   - stage entity.ReminderStage
+func (_e *MockSalesPhaseReminderRepository_Expecter) AlreadySent(ctx interface{}, userID interface{}, phaseID interface{}, stage interface{}) *MockSalesPhaseReminderRepository_AlreadySent_Call {
+	return &MockSalesPhaseReminderRepository_AlreadySent_Call{Call: _e.mock.On("AlreadySent", ctx, userID, phaseID, stage)}
+}
+
+func (_c *MockSalesPhaseReminderRepository_AlreadySent_Call) Run(run func(ctx context.Context, userID string, phaseID string, stage entity.ReminderStage)) *MockSalesPhaseReminderRepository_AlreadySent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.ReminderStage))
+	})
+	return _c
+}
+
+func (_c *MockSalesPhaseReminderRepository_AlreadySent_Call) Return(_a0 bool, _a1 error) *MockSalesPhaseReminderRepository_AlreadySent_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSalesPhaseReminderRepository_AlreadySent_Call) RunAndReturn(run func(context.Context, string, string, entity.ReminderStage) (bool, error)) *MockSalesPhaseReminderRepository_AlreadySent_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // ListSentStages provides a mock function with given fields: ctx, phaseID, userIDs
@@ -85,21 +101,105 @@ func (_m *MockSalesPhaseReminderRepository) ListSentStages(ctx context.Context, 
 			r0 = ret.Get(0).(map[string]map[entity.ReminderStage]bool)
 		}
 	}
+
 	if rf, ok := ret.Get(1).(func(context.Context, string, []string) error); ok {
 		r1 = rf(ctx, phaseID, userIDs)
 	} else {
 		r1 = ret.Error(1)
 	}
+
 	return r0, r1
 }
 
-// NewMockSalesPhaseReminderRepository creates a new instance of MockSalesPhaseReminderRepository.
+// MockSalesPhaseReminderRepository_ListSentStages_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListSentStages'
+type MockSalesPhaseReminderRepository_ListSentStages_Call struct {
+	*mock.Call
+}
+
+// ListSentStages is a helper method to define mock.On call
+//   - ctx context.Context
+//   - phaseID string
+//   - userIDs []string
+func (_e *MockSalesPhaseReminderRepository_Expecter) ListSentStages(ctx interface{}, phaseID interface{}, userIDs interface{}) *MockSalesPhaseReminderRepository_ListSentStages_Call {
+	return &MockSalesPhaseReminderRepository_ListSentStages_Call{Call: _e.mock.On("ListSentStages", ctx, phaseID, userIDs)}
+}
+
+func (_c *MockSalesPhaseReminderRepository_ListSentStages_Call) Run(run func(ctx context.Context, phaseID string, userIDs []string)) *MockSalesPhaseReminderRepository_ListSentStages_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].([]string))
+	})
+	return _c
+}
+
+func (_c *MockSalesPhaseReminderRepository_ListSentStages_Call) Return(_a0 map[string]map[entity.ReminderStage]bool, _a1 error) *MockSalesPhaseReminderRepository_ListSentStages_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSalesPhaseReminderRepository_ListSentStages_Call) RunAndReturn(run func(context.Context, string, []string) (map[string]map[entity.ReminderStage]bool, error)) *MockSalesPhaseReminderRepository_ListSentStages_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RecordSent provides a mock function with given fields: ctx, userID, phaseID, stage
+func (_m *MockSalesPhaseReminderRepository) RecordSent(ctx context.Context, userID string, phaseID string, stage entity.ReminderStage) error {
+	ret := _m.Called(ctx, userID, phaseID, stage)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecordSent")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, entity.ReminderStage) error); ok {
+		r0 = rf(ctx, userID, phaseID, stage)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockSalesPhaseReminderRepository_RecordSent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordSent'
+type MockSalesPhaseReminderRepository_RecordSent_Call struct {
+	*mock.Call
+}
+
+// RecordSent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - phaseID string
+//   - stage entity.ReminderStage
+func (_e *MockSalesPhaseReminderRepository_Expecter) RecordSent(ctx interface{}, userID interface{}, phaseID interface{}, stage interface{}) *MockSalesPhaseReminderRepository_RecordSent_Call {
+	return &MockSalesPhaseReminderRepository_RecordSent_Call{Call: _e.mock.On("RecordSent", ctx, userID, phaseID, stage)}
+}
+
+func (_c *MockSalesPhaseReminderRepository_RecordSent_Call) Run(run func(ctx context.Context, userID string, phaseID string, stage entity.ReminderStage)) *MockSalesPhaseReminderRepository_RecordSent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(entity.ReminderStage))
+	})
+	return _c
+}
+
+func (_c *MockSalesPhaseReminderRepository_RecordSent_Call) Return(_a0 error) *MockSalesPhaseReminderRepository_RecordSent_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSalesPhaseReminderRepository_RecordSent_Call) RunAndReturn(run func(context.Context, string, string, entity.ReminderStage) error) *MockSalesPhaseReminderRepository_RecordSent_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// NewMockSalesPhaseReminderRepository creates a new instance of MockSalesPhaseReminderRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
 func NewMockSalesPhaseReminderRepository(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockSalesPhaseReminderRepository {
 	mock := &MockSalesPhaseReminderRepository{}
 	mock.Mock.Test(t)
+
 	t.Cleanup(func() { mock.AssertExpectations(t) })
+
 	return mock
 }

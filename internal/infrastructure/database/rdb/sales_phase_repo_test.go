@@ -411,9 +411,9 @@ func TestSalesPhaseRepository_ChannelIsolation(t *testing.T) {
 	})
 }
 
-// TestSalesPhaseRepository_DiscoveredAt proves fix #5b: DiscoveredAt is populated
+// TestSalesPhaseRepository_DiscoveredTime proves fix #5b: DiscoveredTime is populated
 // on read and never overwritten on update.
-func TestSalesPhaseRepository_DiscoveredAt(t *testing.T) {
+func TestSalesPhaseRepository_DiscoveredTime(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
@@ -444,13 +444,13 @@ func TestSalesPhaseRepository_DiscoveredAt(t *testing.T) {
 	phases, err := repo.GetBySeries(ctx, seriesID)
 	require.NoError(t, err)
 	require.Len(t, phases, 1)
-	assert.False(t, phases[0].DiscoveredAt.IsZero(), "DiscoveredAt must be non-zero after insert")
-	assert.True(t, phases[0].DiscoveredAt.After(before) && phases[0].DiscoveredAt.Before(after),
-		"DiscoveredAt must be populated by the DB DEFAULT during insert")
+	assert.False(t, phases[0].DiscoveredTime.IsZero(), "DiscoveredTime must be non-zero after insert")
+	assert.True(t, phases[0].DiscoveredTime.After(before) && phases[0].DiscoveredTime.Before(after),
+		"DiscoveredTime must be populated by the DB DEFAULT during insert")
 
-	createdAt := phases[0].DiscoveredAt
+	createdAt := phases[0].DiscoveredTime
 
-	// Update via a second upsert and verify DiscoveredAt is unchanged.
+	// Update via a second upsert and verify DiscoveredTime is unchanged.
 	updated := &entity.SalesPhaseCandidate{
 		SeriesID:        seriesID,
 		CoveredEventIDs: []string{eventID},
@@ -464,7 +464,7 @@ func TestSalesPhaseRepository_DiscoveredAt(t *testing.T) {
 	phases2, err := repo.GetBySeries(ctx, seriesID)
 	require.NoError(t, err)
 	require.Len(t, phases2, 1)
-	assert.Equal(t, createdAt.UTC(), phases2[0].DiscoveredAt.UTC(), "DiscoveredAt must not change on update")
+	assert.Equal(t, createdAt.UTC(), phases2[0].DiscoveredTime.UTC(), "DiscoveredTime must not change on update")
 }
 
 // TestSalesPhaseReminderRepository_ListSentStages proves fix #10: the batch
@@ -519,4 +519,83 @@ func TestSalesPhaseReminderRepository_ListSentStages(t *testing.T) {
 	empty, err := reminderRepo.ListSentStages(ctx, phaseID, nil)
 	require.NoError(t, err)
 	assert.Empty(t, empty)
+}
+
+// TestSalesPhaseRepository_ChannelPreferenceOrdering proves fix A:
+// When two rows exist for the same event — one UNSPECIFIED-channel (lower UUID)
+// and one determined FAN_CLUB (higher UUID) — a FAN_CLUB candidate must
+// converge onto the FAN_CLUB row (not the UNSPECIFIED one), leaving both rows
+// intact with no orphan/duplicate.
+//
+// Without the BOOL_OR ORDER BY fix, LIMIT 1 on UUID ascending would pick the
+// UNSPECIFIED row (lower UUID) and overwrite its channel, orphaning the
+// FAN_CLUB row.
+func TestSalesPhaseRepository_ChannelPreferenceOrdering(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	repo := rdb.NewSalesPhaseRepository(testDB)
+	ctx := context.Background()
+	t0 := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+
+	cleanDatabase(t)
+
+	artistID := seedArtist(t, "BandOrd", "eeeeeeee-ffff-7000-8000-000000000001")
+	venueID := seedVenue(t, "VenueOrd")
+	seriesID := seedSeriesOnly(t, "TourOrd")
+	eventID := seedEventForSeries(t, seriesID, venueID, artistID, "2026-09-01")
+
+	// Insert UNSPECIFIED row first — it gets a lower UUID (earlier timestamp).
+	unspec := &entity.SalesPhaseCandidate{
+		SeriesID:        seriesID,
+		CoveredEventIDs: []string{eventID},
+		AnchorEventID:   eventID,
+		Method:          entity.SalesMethodUnspecified,
+		Channel:         entity.SalesChannelUnspecified,
+		ApplyStartTime:  t0,
+	}
+	unspecPhaseID, unspecOutcome := upsertPhase(t, repo, ctx, unspec)
+	assert.Equal(t, entity.UpsertOutcomeInserted, unspecOutcome)
+
+	// Also insert a FAN_CLUB row covering the same event — logically a distinct
+	// phase (simulating a scenario where two phases were inserted out of order).
+	// We insert it directly to bypass the upsert overlap logic, so both rows
+	// coexist and the query must pick the right one.
+	fanClubPhaseID := mustNewV7()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO sales_phases (id, series_id, anchor_event_id, method, channel, sequence, apply_start_at)
+		VALUES ($1, $2, $3, 1, 1, 0, $4)`,
+		fanClubPhaseID, seriesID, eventID, t0.Add(time.Minute),
+	)
+	require.NoError(t, err)
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO event_sales_phases (sales_phase_id, event_id) VALUES ($1, $2)`,
+		fanClubPhaseID, eventID,
+	)
+	require.NoError(t, err)
+
+	// Now upsert a FAN_CLUB candidate. The query must prefer the FAN_CLUB row
+	// (exact channel match) over the UNSPECIFIED row, regardless of UUID order.
+	fc := &entity.SalesPhaseCandidate{
+		SeriesID:        seriesID,
+		CoveredEventIDs: []string{eventID},
+		AnchorEventID:   eventID,
+		Method:          entity.SalesMethodLottery,
+		Channel:         entity.SalesChannelFanClub,
+		ApplyStartTime:  t0.Add(2 * time.Minute),
+	}
+	matchedPhaseID, fcOutcome := upsertPhase(t, repo, ctx, fc)
+	assert.Equal(t, entity.UpsertOutcomeUpdated, fcOutcome, "FAN_CLUB candidate must UPDATE an existing row")
+
+	// The matched row must be the FAN_CLUB row, not the UNSPECIFIED one.
+	assert.Equal(t, fanClubPhaseID, matchedPhaseID,
+		"channel-preference ORDER BY must pick the FAN_CLUB row (exact channel match), not the UNSPECIFIED row")
+	assert.NotEqual(t, unspecPhaseID, matchedPhaseID,
+		"must not overwrite the UNSPECIFIED row when a FAN_CLUB row exists")
+
+	// Both rows must still exist — the UNSPECIFIED row was not orphaned.
+	phases, err := repo.GetBySeries(ctx, seriesID)
+	require.NoError(t, err)
+	assert.Len(t, phases, 2, "both UNSPECIFIED and FAN_CLUB rows must remain; no orphan, no duplicate")
 }
