@@ -42,21 +42,58 @@ func (_m *MockSalesPhaseSearcher) SearchSalesPhases(ctx context.Context, artistN
 			r0 = ret.Get(0).([]*entity.SalesPhaseCandidate)
 		}
 	}
+
 	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []*entity.SalesPhaseCandidateEvent) error); ok {
 		r1 = rf(ctx, artistName, seriesTitle, seriesID, candidateEvents)
 	} else {
 		r1 = ret.Error(1)
 	}
+
 	return r0, r1
 }
 
-// NewMockSalesPhaseSearcher creates a new instance of MockSalesPhaseSearcher.
+// MockSalesPhaseSearcher_SearchSalesPhases_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SearchSalesPhases'
+type MockSalesPhaseSearcher_SearchSalesPhases_Call struct {
+	*mock.Call
+}
+
+// SearchSalesPhases is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistName string
+//   - seriesTitle string
+//   - seriesID string
+//   - candidateEvents []*entity.SalesPhaseCandidateEvent
+func (_e *MockSalesPhaseSearcher_Expecter) SearchSalesPhases(ctx interface{}, artistName interface{}, seriesTitle interface{}, seriesID interface{}, candidateEvents interface{}) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
+	return &MockSalesPhaseSearcher_SearchSalesPhases_Call{Call: _e.mock.On("SearchSalesPhases", ctx, artistName, seriesTitle, seriesID, candidateEvents)}
+}
+
+func (_c *MockSalesPhaseSearcher_SearchSalesPhases_Call) Run(run func(ctx context.Context, artistName string, seriesTitle string, seriesID string, candidateEvents []*entity.SalesPhaseCandidateEvent)) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]*entity.SalesPhaseCandidateEvent))
+	})
+	return _c
+}
+
+func (_c *MockSalesPhaseSearcher_SearchSalesPhases_Call) Return(_a0 []*entity.SalesPhaseCandidate, _a1 error) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSalesPhaseSearcher_SearchSalesPhases_Call) RunAndReturn(run func(context.Context, string, string, string, []*entity.SalesPhaseCandidateEvent) ([]*entity.SalesPhaseCandidate, error)) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// NewMockSalesPhaseSearcher creates a new instance of MockSalesPhaseSearcher. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
 func NewMockSalesPhaseSearcher(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockSalesPhaseSearcher {
 	mock := &MockSalesPhaseSearcher{}
 	mock.Mock.Test(t)
+
 	t.Cleanup(func() { mock.AssertExpectations(t) })
+
 	return mock
 }

@@ -39,17 +39,21 @@ const (
 	// This prevents an FC presale (channel=1) and a general on-sale (channel=6)
 	// covering the same event from collapsing via last-write-wins.
 	//
-	// ORDER BY prefers an exact channel match so reclassification from UNSPECIFIED
-	// to a determined value converges onto the correct existing row. DISTINCT on
-	// sp.id avoids duplicate rows when multiple covered events match.
+	// GROUP BY + ORDER BY implement the documented channel-preference: when both
+	// an UNSPECIFIED-channel row and a determined-channel row match (because
+	// UNSPECIFIED matches any candidate channel), BOOL_OR(sp.channel = $3)
+	// is true for the exact match and false for the UNSPECIFIED row, so the
+	// exact match sorts first. Without this preference LIMIT 1 on UUID order
+	// could pick the UNSPECIFIED row and overwrite it, orphaning the determined row.
 	findOverlappingPhaseQuery = `
-		SELECT DISTINCT sp.id
+		SELECT sp.id
 		FROM sales_phases sp
 		JOIN event_sales_phases esp ON esp.sales_phase_id = sp.id
 		WHERE sp.series_id = $1
 		  AND esp.event_id = ANY($2::uuid[])
 		  AND (sp.channel = 0 OR $3::smallint = 0 OR sp.channel = $3::smallint)
-		ORDER BY sp.id ASC
+		GROUP BY sp.id
+		ORDER BY BOOL_OR(sp.channel = $3::smallint) DESC, sp.id ASC
 		LIMIT 1
 	`
 
@@ -492,7 +496,7 @@ func scanPhaseRows(rows pgx.Rows) ([]*entity.SalesPhase, error) {
 			&lotteryResultAt,
 			&paymentDeadlineAt,
 			&rawURL,
-			&p.DiscoveredAt,
+			&p.DiscoveredTime,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan sales phase row")
 		}

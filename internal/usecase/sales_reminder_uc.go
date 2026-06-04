@@ -214,7 +214,7 @@ func (uc *salesReminderUseCase) processPhase(ctx context.Context, phase *entity.
 //
 // ok=false means the stage is not applicable: either the milestone timestamp
 // is zero (unknown/N/A), or the milestone was already past when the phase was
-// first seen (base < phase.DiscoveredAt — the first-sight guard).
+// first seen (base < phase.DiscoveredTime — the first-sight guard).
 //
 // Per stage, base trigger and deadline:
 //   - APPLY_OPEN     : base = ApplyStartTime                    ; non-deadline.
@@ -270,8 +270,8 @@ func scheduledFireTime(stage entity.ReminderStage, phase *entity.SalesPhase, tz 
 	}
 
 	// First-sight guard: if the base trigger was already in the past when the
-	// phase was first persisted (phase.DiscoveredAt > base), do not fire retroactively.
-	if !phase.DiscoveredAt.IsZero() && base.Before(phase.DiscoveredAt) {
+	// phase was first persisted (phase.DiscoveredTime > base), do not fire retroactively.
+	if !phase.DiscoveredTime.IsZero() && base.Before(phase.DiscoveredTime) {
 		return time.Time{}, false
 	}
 

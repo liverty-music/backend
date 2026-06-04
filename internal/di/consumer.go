@@ -73,7 +73,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	seriesRepo := rdb.NewSeriesRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	followRepo := rdb.NewFollowRepository(db)
-	salesPhaseRepo := rdb.NewSalesPhaseRepository(db)
 	salesReminderRepo := rdb.NewSalesPhaseReminderRepository(db)
 
 	// Infrastructure - Messaging
@@ -162,6 +161,23 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	pushMetrics := infratelemetry.NewBusinessMetrics()
 
+	// Sales-phase use cases for the two new consumers.
+	salesPhaseAnnouncementUC := usecase.NewSalesPhaseAnnouncementUseCase(
+		concertRepo,
+		followRepo,
+		pushSubRepo,
+		webpushSender,
+		pushMetrics,
+		logger,
+	)
+	salesReminderDeliveryUC := usecase.NewSalesReminderDeliveryUseCase(
+		salesReminderRepo,
+		pushSubRepo,
+		webpushSender,
+		pushMetrics,
+		logger,
+	)
+
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
 	notificationConsumer := event.NewNotificationConsumer(pushNotificationUC, logger)
@@ -171,22 +187,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	analyticsConsumerMetrics := infratelemetry.NewOTelAnalyticsConsumerMetrics()
 	analyticsConsumer := event.NewAnalyticsConsumer(analyticsClient, analyticsConsumerMetrics, logger)
 	poisonConsumer := event.NewPoisonConsumer(logger)
-	salesPhaseAnnouncementConsumer := event.NewSalesPhaseAnnouncementConsumer(
-		salesPhaseRepo,
-		concertRepo,
-		followRepo,
-		pushSubRepo,
-		webpushSender,
-		pushMetrics,
-		logger,
-	)
-	salesReminderConsumer := event.NewSalesReminderConsumer(
-		pushSubRepo,
-		salesReminderRepo,
-		webpushSender,
-		pushMetrics,
-		logger,
-	)
+	salesPhaseAnnouncementConsumer := event.NewSalesPhaseAnnouncementConsumer(salesPhaseAnnouncementUC, logger)
+	salesReminderConsumer := event.NewSalesReminderConsumer(salesReminderDeliveryUC, logger)
 
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)

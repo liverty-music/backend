@@ -40,21 +40,55 @@ func (_m *MockSalesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context,
 	} else {
 		r0 = ret.Get(0).(int)
 	}
+
 	if rf, ok := ret.Get(1).(func(context.Context, *entity.Artist) error); ok {
 		r1 = rf(ctx, artist)
 	} else {
 		r1 = ret.Error(1)
 	}
+
 	return r0, r1
 }
 
-// NewMockSalesPhaseDiscoveryUseCase creates a new instance of MockSalesPhaseDiscoveryUseCase.
+// MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DiscoverForArtist'
+type MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call struct {
+	*mock.Call
+}
+
+// DiscoverForArtist is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artist *entity.Artist
+func (_e *MockSalesPhaseDiscoveryUseCase_Expecter) DiscoverForArtist(ctx interface{}, artist interface{}) *MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call {
+	return &MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call{Call: _e.mock.On("DiscoverForArtist", ctx, artist)}
+}
+
+func (_c *MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call) Run(run func(ctx context.Context, artist *entity.Artist)) *MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*entity.Artist))
+	})
+	return _c
+}
+
+func (_c *MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call) Return(_a0 int, _a1 error) *MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call) RunAndReturn(run func(context.Context, *entity.Artist) (int, error)) *MockSalesPhaseDiscoveryUseCase_DiscoverForArtist_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// NewMockSalesPhaseDiscoveryUseCase creates a new instance of MockSalesPhaseDiscoveryUseCase. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
 func NewMockSalesPhaseDiscoveryUseCase(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockSalesPhaseDiscoveryUseCase {
 	mock := &MockSalesPhaseDiscoveryUseCase{}
 	mock.Mock.Test(t)
+
 	t.Cleanup(func() { mock.AssertExpectations(t) })
+
 	return mock
 }

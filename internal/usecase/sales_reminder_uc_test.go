@@ -27,7 +27,7 @@ var la = func() *time.Location {
 	return loc
 }()
 
-// phaseFarPast is a DiscoveredAt well in the past so it never trips the first-sight guard.
+// phaseFarPast is a DiscoveredTime well in the past so it never trips the first-sight guard.
 var phaseFarPast = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // ---- scheduledFireTime ----
@@ -53,7 +53,7 @@ func TestScheduledFireTime(t *testing.T) {
 				stage: entity.ReminderStageApplyOpen,
 				phase: &entity.SalesPhase{
 					ApplyStartTime: time.Date(2026, 8, 1, 18, 0, 0, 0, time.UTC), // 03:00 JST
-					DiscoveredAt:   phaseFarPast,
+					DiscoveredTime: phaseFarPast,
 				},
 				tz: jst,
 			},
@@ -67,7 +67,7 @@ func TestScheduledFireTime(t *testing.T) {
 				stage: entity.ReminderStageApplyOpen,
 				phase: &entity.SalesPhase{
 					ApplyStartTime: time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC), // 10:00 JST
-					DiscoveredAt:   phaseFarPast,
+					DiscoveredTime: phaseFarPast,
 				},
 				tz: jst,
 			},
@@ -78,7 +78,7 @@ func TestScheduledFireTime(t *testing.T) {
 			name: "APPLY_OPEN zero timestamp → ok=false",
 			args: args{
 				stage: entity.ReminderStageApplyOpen,
-				phase: &entity.SalesPhase{DiscoveredAt: phaseFarPast},
+				phase: &entity.SalesPhase{DiscoveredTime: phaseFarPast},
 				tz:    jst,
 			},
 			wantOK: false,
@@ -91,8 +91,8 @@ func TestScheduledFireTime(t *testing.T) {
 				stage: entity.ReminderStageApplyClose24H,
 				phase: &entity.SalesPhase{
 					// deadline 10 Aug 12:00 JST; base = 9 Aug 12:00 JST = 03:00 UTC
-					ApplyEndTime: time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC), // 12:00 JST
-					DiscoveredAt: phaseFarPast,
+					ApplyEndTime:   time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC), // 12:00 JST
+					DiscoveredTime: phaseFarPast,
 				},
 				tz: jst,
 			},
@@ -103,7 +103,7 @@ func TestScheduledFireTime(t *testing.T) {
 			name: "APPLY_CLOSE_24H ApplyEndTime zero → ok=false",
 			args: args{
 				stage: entity.ReminderStageApplyClose24H,
-				phase: &entity.SalesPhase{DiscoveredAt: phaseFarPast},
+				phase: &entity.SalesPhase{DiscoveredTime: phaseFarPast},
 				tz:    jst,
 			},
 			wantOK: false,
@@ -120,8 +120,8 @@ func TestScheduledFireTime(t *testing.T) {
 				phase: &entity.SalesPhase{
 					// deadline = 2026-08-02 02:00 JST = 2026-08-01 17:00 UTC
 					// base = deadline - 1h = 2026-08-02 01:00 JST = 2026-08-01 16:00 UTC
-					ApplyEndTime: time.Date(2026, 8, 1, 17, 0, 0, 0, time.UTC), // 02:00 JST Aug 2
-					DiscoveredAt: phaseFarPast,
+					ApplyEndTime:   time.Date(2026, 8, 1, 17, 0, 0, 0, time.UTC), // 02:00 JST Aug 2
+					DiscoveredTime: phaseFarPast,
 				},
 				tz: jst,
 			},
@@ -139,8 +139,8 @@ func TestScheduledFireTime(t *testing.T) {
 				phase: &entity.SalesPhase{
 					// deadline = 2026-08-03 00:00 JST = 2026-08-02 15:00 UTC
 					// base = deadline - 1h = 2026-08-02 23:00 JST = 2026-08-02 14:00 UTC
-					ApplyEndTime: time.Date(2026, 8, 2, 15, 0, 0, 0, time.UTC), // 00:00 JST Aug 3
-					DiscoveredAt: phaseFarPast,
+					ApplyEndTime:   time.Date(2026, 8, 2, 15, 0, 0, 0, time.UTC), // 00:00 JST Aug 3
+					DiscoveredTime: phaseFarPast,
 				},
 				tz: jst,
 			},
@@ -158,8 +158,8 @@ func TestScheduledFireTime(t *testing.T) {
 				phase: &entity.SalesPhase{
 					// deadline = 2026-08-05 09:00 JST = 2026-08-05 00:00 UTC
 					// base = deadline - 1h = 2026-08-05 08:00 JST = 2026-08-04 23:00 UTC
-					ApplyEndTime: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), // 09:00 JST Aug 5
-					DiscoveredAt: phaseFarPast,
+					ApplyEndTime:   time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), // 09:00 JST Aug 5
+					DiscoveredTime: phaseFarPast,
 				},
 				tz: jst,
 			},
@@ -177,7 +177,7 @@ func TestScheduledFireTime(t *testing.T) {
 				stage: entity.ReminderStageResultDay,
 				phase: &entity.SalesPhase{
 					LotteryResultTime: time.Date(2026, 8, 15, 5, 0, 0, 0, time.UTC), // any time on Aug 15 JST
-					DiscoveredAt:      phaseFarPast,
+					DiscoveredTime:    phaseFarPast,
 				},
 				tz: jst,
 			},
@@ -196,7 +196,7 @@ func TestScheduledFireTime(t *testing.T) {
 					// → calendar day in LA = Aug 31
 					// → fire at 09:00 LA Aug 31 = 16:00 UTC Aug 31
 					LotteryResultTime: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-					DiscoveredAt:      phaseFarPast,
+					DiscoveredTime:    phaseFarPast,
 				},
 				tz: la,
 			},
@@ -208,7 +208,7 @@ func TestScheduledFireTime(t *testing.T) {
 			name: "RESULT_DAY zero LotteryResultTime → ok=false",
 			args: args{
 				stage: entity.ReminderStageResultDay,
-				phase: &entity.SalesPhase{DiscoveredAt: phaseFarPast},
+				phase: &entity.SalesPhase{DiscoveredTime: phaseFarPast},
 				tz:    jst,
 			},
 			wantOK: false,
@@ -216,26 +216,26 @@ func TestScheduledFireTime(t *testing.T) {
 
 		// --- First-sight guard ---
 		{
-			// phase.DiscoveredAt = now, base = 5 days ago → trigger was already past at first sight.
-			name: "First-sight guard: APPLY_OPEN base before DiscoveredAt → ok=false",
+			// phase.DiscoveredTime = now, base = 5 days ago → trigger was already past at first sight.
+			name: "First-sight guard: APPLY_OPEN base before DiscoveredTime → ok=false",
 			args: args{
 				stage: entity.ReminderStageApplyOpen,
 				phase: &entity.SalesPhase{
 					ApplyStartTime: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC), // 5 days before created
-					DiscoveredAt:   time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC),
+					DiscoveredTime: time.Date(2026, 8, 6, 10, 0, 0, 0, time.UTC),
 				},
 				tz: jst,
 			},
 			wantOK: false,
 		},
 		{
-			// base == DiscoveredAt exactly: base.Before(createdAt) is false → ok=true (fires).
-			name: "First-sight guard: base equals DiscoveredAt → ok=true (fires)",
+			// base == DiscoveredTime exactly: base.Before(createdAt) is false → ok=true (fires).
+			name: "First-sight guard: base equals DiscoveredTime → ok=true (fires)",
 			args: args{
 				stage: entity.ReminderStageApplyOpen,
 				phase: &entity.SalesPhase{
 					ApplyStartTime: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC),
-					DiscoveredAt:   time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC),
+					DiscoveredTime: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC),
 				},
 				tz: jst, // 10:00 UTC = 19:00 JST, not quiet
 			},
@@ -243,13 +243,13 @@ func TestScheduledFireTime(t *testing.T) {
 			wantOK:   true,
 		},
 		{
-			// base 1s after DiscoveredAt → fires normally.
-			name: "First-sight guard: base just after DiscoveredAt → ok=true",
+			// base 1s after DiscoveredTime → fires normally.
+			name: "First-sight guard: base just after DiscoveredTime → ok=true",
 			args: args{
 				stage: entity.ReminderStageApplyOpen,
 				phase: &entity.SalesPhase{
 					ApplyStartTime: time.Date(2026, 8, 1, 10, 0, 1, 0, time.UTC),
-					DiscoveredAt:   time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC),
+					DiscoveredTime: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC),
 				},
 				tz: jst, // 19:00 JST, active
 			},
@@ -266,8 +266,8 @@ func TestScheduledFireTime(t *testing.T) {
 				phase: &entity.SalesPhase{
 					// deadline = 2026-09-10 01:00 JST = 2026-09-09 16:00 UTC
 					// base = deadline - 1h = 2026-09-10 00:00 JST = 2026-09-09 15:00 UTC
-					ApplyEndTime: time.Date(2026, 9, 9, 16, 0, 0, 0, time.UTC),
-					DiscoveredAt: phaseFarPast,
+					ApplyEndTime:   time.Date(2026, 9, 9, 16, 0, 0, 0, time.UTC),
+					DiscoveredTime: phaseFarPast,
 				},
 				tz: jst,
 			},
@@ -396,8 +396,8 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 		ApplyEndTime:      base.AddDate(0, 0, -20), // 20 days ago
 		LotteryResultTime: base.Add(-30 * time.Hour),
 		URL:               "https://eplus.jp/late",
-		// DiscoveredAt well before all milestones → first-sight guard never trips.
-		DiscoveredAt: base.AddDate(0, 0, -60),
+		// DiscoveredTime well before all milestones → first-sight guard never trips.
+		DiscoveredTime: base.AddDate(0, 0, -60),
 	}
 
 	adminArea := "JP-13"
@@ -442,7 +442,7 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 	reminderRepo.On("ListSentStages", ctx, "phase-late", []string{"user-001"}).
 		Return(map[string]map[entity.ReminderStage]bool{}, nil)
 
-	// All 4 stages are due (all triggers in the past, DiscoveredAt 60 days ago).
+	// All 4 stages are due (all triggers in the past, DiscoveredTime 60 days ago).
 	// The producer must NOT call RecordSent (#1) — consumer does that after push.
 	// Use Maybe() for quiet-hours-sensitive stages (APPLY_OPEN, RESULT_DAY)
 	// since the test runs at an unpredictable wall-clock hour.
