@@ -645,9 +645,13 @@ func receivePublishedConcerts(t *testing.T, ctx context.Context, sub <-chan *mes
 }
 
 // TestSearchNewConcerts_Deduplication verifies that executeSearch correctly
-// deduplicates scraped concerts against existing DB records. The dedup key
-// is date-only (local_event_date) — an artist cannot perform at two venues
-// simultaneously on the same day.
+// deduplicates scraped concerts against existing DB records via
+// ScrapedConcerts.FilterNew, aligned with the events physical natural key
+// (venue_id, local_event_date, start_at). start_time disambiguates
+// asymmetrically: two differing known starts are distinct shows (昼夜2公演),
+// an unknown-start scrape is dropped when anything is already known at that
+// (date, venue), and a known-start scrape passes when only an unknown-start
+// row exists (so the creation path can fill it).
 func TestSearchNewConcerts_Deduplication(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -687,14 +691,19 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			wantNewConcerts: 0,
 		},
 		{
-			name: "same date, existing nil start_at, scraped has start_at — deduped",
+			// Existing row has no published start_at; the scrape now carries one.
+			// This is the FILL case: it MUST pass the filter so the creation path
+			// can fill the announced time onto the existing row rather than being
+			// silently dropped here (an unknown-start row does not absorb a known
+			// start). The creation path then UPSERT-dedups it onto that row.
+			name: "same date, existing nil start_at, scraped has start_at — passes for fill",
 			existing: []*entity.Concert{
 				{Event: entity.Event{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")}},
 			},
 			scraped: []*entity.ScrapedConcert{
 				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC, SourceURL: "https://example.com"},
 			},
-			wantNewConcerts: 0,
+			wantNewConcerts: 1,
 		},
 		{
 			name: "both nil start_at, same date — deduped",

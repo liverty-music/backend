@@ -105,10 +105,40 @@ func (r *fakeSeriesRepo) ClearMerchURL(_ context.Context, _ string) error {
 
 type fakeConcertRepo struct {
 	created []*entity.Concert
+	// existing maps "venueID|YYYY-MM-DD" → events FindEventsByVenueAndDate returns,
+	// letting tests exercise series adoption and start-time fill.
+	existing map[string][]*entity.Event
+	// filledIDs / filledStarts capture FillEventStartTimes calls.
+	filledIDs    []string
+	filledStarts []*time.Time
 }
 
 func (r *fakeConcertRepo) ListByArtist(_ context.Context, _ string, _ bool) ([]*entity.Concert, error) {
 	return nil, nil
+}
+
+func (r *fakeConcertRepo) FindEventsByVenueAndDate(_ context.Context, venueIDs []string, dates []time.Time) ([]*entity.Event, error) {
+	if r.existing == nil {
+		return nil, nil
+	}
+	seen := make(map[string]bool)
+	var out []*entity.Event
+	for i := range venueIDs {
+		k := venueIDs[i] + "|" + dates[i].Format("2006-01-02")
+		for _, e := range r.existing[k] {
+			if !seen[e.ID] {
+				seen[e.ID] = true
+				out = append(out, e)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (r *fakeConcertRepo) FillEventStartTimes(_ context.Context, eventIDs []string, startTimes, _ []*time.Time) error {
+	r.filledIDs = append(r.filledIDs, eventIDs...)
+	r.filledStarts = append(r.filledStarts, startTimes...)
+	return nil
 }
 
 func (r *fakeConcertRepo) ListByFollower(_ context.Context, _ string) ([]*entity.Concert, error) {
@@ -621,5 +651,232 @@ func TestConcertCreationUseCase_EventPublishing(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			// Correct — no event published.
 		}
+	})
+}
+
+// TestConcertCreationUseCase_SeriesGrouping covers the auto-discovery-series-grouping
+// behaviour: tour stops fold into one TOUR series, series identity is adopted
+// from already-persisted events, a later-announced start_at fills the existing
+// row instead of duplicating, and matinee/evening shows stay distinct.
+func TestConcertCreationUseCase_SeriesGrouping(t *testing.T) {
+	t.Parallel()
+
+	day1 := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)
+	day3 := time.Date(2026, 3, 17, 0, 0, 0, 0, time.UTC)
+	matinee := time.Date(2026, 3, 15, 13, 0, 0, 0, time.UTC)
+	evening := time.Date(2026, 3, 15, 18, 0, 0, 0, time.UTC)
+
+	// preseedVenue returns a venueRepo whose GetByListedName resolves the given
+	// listed names to deterministic IDs (so existing events can be keyed on them).
+	preseedVenue := func(byName map[string]string) *fakeVenueRepo {
+		r := newFakeVenueRepo()
+		for name, id := range byName {
+			ln := name
+			r.venues[name] = &entity.Venue{ID: id, Name: name, ListedVenueName: &ln}
+		}
+		return r
+	}
+
+	t.Run("multi-stop tour folds into one TOUR series", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := preseedVenue(map[string]string{"Hall 1": "v1", "Hall 2": "v2", "Hall 3": "v3"})
+		concertRepo := &fakeConcertRepo{}
+		seriesRepo := &fakeSeriesRepo{}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, seriesRepo, concertRepo, newStubPlaceSearcher(), messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "TOUR 2026", ListedVenueName: "Hall 1", LocalDate: day1, IsTour: true, TourGroup: 1, SourceURL: "https://x/tour"},
+				{Title: "TOUR 2026", ListedVenueName: "Hall 2", LocalDate: day2, IsTour: true, TourGroup: 1, SourceURL: "https://x/tour"},
+				{Title: "TOUR 2026", ListedVenueName: "Hall 3", LocalDate: day3, IsTour: true, TourGroup: 1, SourceURL: "https://x/tour"},
+			},
+		}
+		require.NoError(t, uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, seriesRepo.created, 1, "one TOUR series for the whole tour")
+		assert.Equal(t, entity.SeriesTypeTour, seriesRepo.created[0].Type)
+		require.Len(t, concertRepo.created, 3)
+		for _, c := range concertRepo.created {
+			assert.Equal(t, seriesRepo.created[0].ID, c.SeriesID, "all stops share the tour series_id")
+		}
+	})
+
+	t.Run("re-discovery adopts the existing series", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := preseedVenue(map[string]string{"Hall 1": "v1", "Hall 2": "v2"})
+		start := matinee
+		concertRepo := &fakeConcertRepo{
+			existing: map[string][]*entity.Event{
+				"v1|2026-03-15": {{ID: "ev-old", SeriesID: "series-old", VenueID: "v1", LocalDate: day1, StartTime: &start}},
+			},
+		}
+		seriesRepo := &fakeSeriesRepo{}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, seriesRepo, concertRepo, newStubPlaceSearcher(), messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "TOUR 2026", ListedVenueName: "Hall 1", LocalDate: day1, StartTime: matinee, IsTour: true, TourGroup: 1},
+				{Title: "TOUR 2026", ListedVenueName: "Hall 2", LocalDate: day2, IsTour: true, TourGroup: 1},
+			},
+		}
+		require.NoError(t, uc.CreateFromDiscovered(context.Background(), data))
+
+		assert.Empty(t, seriesRepo.created, "adopted series — no new series row minted")
+		require.Len(t, concertRepo.created, 2)
+		for _, c := range concertRepo.created {
+			assert.Equal(t, "series-old", c.SeriesID, "tour adopts the existing event's series_id")
+		}
+	})
+
+	t.Run("later-announced start_at fills the existing row", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := preseedVenue(map[string]string{"Hall 1": "v1"})
+		concertRepo := &fakeConcertRepo{
+			existing: map[string][]*entity.Event{
+				"v1|2026-03-15": {{ID: "ev-old", SeriesID: "series-old", VenueID: "v1", LocalDate: day1, StartTime: nil}},
+			},
+		}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, newStubPlaceSearcher(), messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Solo", ListedVenueName: "Hall 1", LocalDate: day1, StartTime: evening},
+			},
+		}
+		require.NoError(t, uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, concertRepo.filledIDs, 1, "the unknown-start row is filled, not duplicated")
+		assert.Equal(t, "ev-old", concertRepo.filledIDs[0])
+		require.Len(t, concertRepo.filledStarts, 1)
+		require.NotNil(t, concertRepo.filledStarts[0])
+		assert.True(t, concertRepo.filledStarts[0].Equal(evening))
+	})
+
+	t.Run("matinee and evening stay distinct", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := preseedVenue(map[string]string{"Hall 1": "v1"})
+		concertRepo := &fakeConcertRepo{}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, newStubPlaceSearcher(), messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Matinee", ListedVenueName: "Hall 1", LocalDate: day1, StartTime: matinee},
+				{Title: "Evening", ListedVenueName: "Hall 1", LocalDate: day1, StartTime: evening},
+			},
+		}
+		require.NoError(t, uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, concertRepo.created, 2, "same venue+date, different start → two events")
+		require.NotNil(t, concertRepo.created[0].StartTime)
+		require.NotNil(t, concertRepo.created[1].StartTime)
+		assert.False(t, concertRepo.created[0].StartTime.Equal(*concertRepo.created[1].StartTime))
+	})
+
+	t.Run("SeriesType from block: tour→TOUR, standalone→SINGLE", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := preseedVenue(map[string]string{"Hall 1": "v1", "Hall 2": "v2"})
+		seriesRepo := &fakeSeriesRepo{}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, seriesRepo, &fakeConcertRepo{}, newStubPlaceSearcher(), messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Single-date Tour", ListedVenueName: "Hall 1", LocalDate: day1, StartTime: evening, IsTour: true, TourGroup: 1},
+				{Title: "Standalone", ListedVenueName: "Hall 2", LocalDate: day2, StartTime: evening, IsTour: false},
+			},
+		}
+		require.NoError(t, uc.CreateFromDiscovered(context.Background(), data))
+
+		byType := map[entity.SeriesType]int{}
+		for _, s := range seriesRepo.created {
+			byType[s.Type]++
+		}
+		assert.Equal(t, 1, byType[entity.SeriesTypeTour], "single-date <tour> still yields TOUR")
+		assert.Equal(t, 1, byType[entity.SeriesTypeSingle], "standalone yields SINGLE")
+	})
+
+	t.Run("co-headliner with unknown start attaches to the existing unknown-start row", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := preseedVenue(map[string]string{"Hall 1": "v1"})
+		// Artist Y already persisted this 対バン with no published start time.
+		concertRepo := &fakeConcertRepo{
+			existing: map[string][]*entity.Event{
+				"v1|2026-03-15": {{ID: "ev-old", SeriesID: "series-old", VenueID: "v1", LocalDate: day1, StartTime: nil}},
+			},
+		}
+		seriesRepo := &fakeSeriesRepo{}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, seriesRepo, concertRepo, newStubPlaceSearcher(), messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+
+		// Artist X is discovered for the same bill, also without a start time.
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-X",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "2-man", ListedVenueName: "Hall 1", LocalDate: day1},
+			},
+		}
+		require.NoError(t, uc.CreateFromDiscovered(context.Background(), data))
+
+		// X must NOT be dropped: a concert is built so the performer JOIN attaches
+		// X to the existing event; it adopts the existing series and mints nothing.
+		require.Len(t, concertRepo.created, 1, "unknown-start co-headliner is built, not skipped")
+		assert.Equal(t, "series-old", concertRepo.created[0].SeriesID)
+		assert.Empty(t, seriesRepo.created, "adopts the existing series, no new series")
+		assert.Empty(t, concertRepo.filledIDs, "both unknown — exact NULL match, not a fill")
+	})
+
+	t.Run("unrelated show at same venue+date different start is NOT merged", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := preseedVenue(map[string]string{"Hall 1": "v1"})
+		// An evening show under its own series already exists.
+		evStart := evening
+		concertRepo := &fakeConcertRepo{
+			existing: map[string][]*entity.Event{
+				"v1|2026-03-15": {{ID: "ev-evening", SeriesID: "series-evening", VenueID: "v1", LocalDate: day1, StartTime: &evStart}},
+			},
+		}
+		seriesRepo := &fakeSeriesRepo{}
+		uc := usecase.NewConcertCreationUseCase(venueRepo, seriesRepo, concertRepo, newStubPlaceSearcher(), messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+
+		// A genuinely different matinee at the same venue/date.
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Matinee", ListedVenueName: "Hall 1", LocalDate: day1, StartTime: matinee},
+			},
+		}
+		require.NoError(t, uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, concertRepo.created, 1)
+		assert.NotEqual(t, "series-evening", concertRepo.created[0].SeriesID, "different start → not merged into the evening series")
+		require.Len(t, seriesRepo.created, 1, "mints its own series")
+		assert.Empty(t, concertRepo.filledIDs, "different known start is not a fill of the evening row")
+	})
+
+	t.Run("within-batch unknown-start is skipped when a known-start sibling covers the same venue/date", func(t *testing.T) {
+		t.Parallel()
+		venueRepo := preseedVenue(map[string]string{"Hall 1": "v1"})
+		concertRepo := &fakeConcertRepo{} // no pre-existing DB rows
+		uc := usecase.NewConcertCreationUseCase(venueRepo, &fakeSeriesRepo{}, concertRepo, newStubPlaceSearcher(), messaging.NewEventPublisher(newGoChannelPub(t)), newTestLogger(t))
+
+		// One batch lists the same show twice at the same venue/date: once with a
+		// start time, once without. The unknown-start one must NOT create a
+		// phantom NULL-start row beside the known one.
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Show (TBA)", ListedVenueName: "Hall 1", LocalDate: day1},
+				{Title: "Show", ListedVenueName: "Hall 1", LocalDate: day1, StartTime: evening},
+			},
+		}
+		require.NoError(t, uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, concertRepo.created, 1, "only the known-start show is built; the unknown-start duplicate is skipped")
+		require.NotNil(t, concertRepo.created[0].StartTime)
+		assert.True(t, concertRepo.created[0].StartTime.Equal(evening))
 	})
 }

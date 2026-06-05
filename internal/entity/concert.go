@@ -74,8 +74,18 @@ type ScrapedConcert struct {
 	// Zero value means unknown; omitted from JSON via omitzero.
 	OpenTime time.Time `json:"open_time,omitzero"`
 	// SourceURL is the URL where this information was found. Used to populate
-	// Series.SourceURL during the 1:1 series-per-scraped-concert fallback.
+	// the parent Series.SourceURL.
 	SourceURL string `json:"source_url"`
+	// IsTour reports whether this concert originated from a Gemini <tour> block
+	// (as opposed to <standalone>). It selects SeriesType downstream: TOUR vs
+	// SINGLE. Serialized so it survives the concert.discovered Pub/Sub payload.
+	IsTour bool `json:"is_tour,omitempty"`
+	// TourGroup ties together all concerts from the same tour block within one
+	// discovery run, so the creation path can persist them under one Series. It
+	// is an intra-run handle (unique within a single search only), NOT a
+	// cross-run series key — series identity is adopted from already-persisted
+	// member events. Zero for standalone concerts.
+	TourGroup int `json:"tour_group,omitempty"`
 }
 
 // ToConcert converts a ScrapedConcert into a fully-populated Concert entity.
@@ -94,12 +104,12 @@ type ScrapedConcert struct {
 //   - Creation path (concert_creation_uc): pass UUIDs for all four IDs. The
 //     returned Concert is bulk-inserted into the database, and the embedded
 //     Series row is inserted in the same use-case run via SeriesRepository.
-func (sc *ScrapedConcert) ToConcert(artistID, seriesID, eventID, venueID string) *Concert {
+func (sc *ScrapedConcert) ToConcert(artistID, seriesID, eventID, venueID string, seriesType SeriesType) *Concert {
 	listedName := sc.ListedVenueName
 	series := &Series{
 		ID:        seriesID,
 		Title:     sc.Title,
-		Type:      SeriesTypeSingle,
+		Type:      seriesType,
 		SourceURL: sc.SourceURL,
 	}
 	c := &Concert{
@@ -113,74 +123,119 @@ func (sc *ScrapedConcert) ToConcert(artistID, seriesID, eventID, venueID string)
 		Series:     series,
 		Performers: []*Artist{{ID: artistID}},
 	}
-	if !sc.StartTime.IsZero() {
-		c.StartTime = &sc.StartTime
-	}
-	if !sc.OpenTime.IsZero() {
-		c.OpenTime = &sc.OpenTime
-	}
+	c.StartTime = NullableTime(sc.StartTime)
+	c.OpenTime = NullableTime(sc.OpenTime)
 	return c
+}
+
+// NullableTime returns a pointer to t, or nil when t is the zero value (an
+// unknown time). It is the canonical "unknown time → SQL NULL" conversion used
+// across the event physical key, mirroring how nullable TIMESTAMPTZ columns
+// model "unknown".
+func NullableTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+// StartKey returns the canonical dedup key for an optional event start time
+// under NULLS NOT DISTINCT semantics: an unknown (nil/zero) start is the empty
+// string; a known start is its UTC RFC3339 form. Two events share a physical
+// start time iff their StartKey values are equal — the single source of truth
+// the application-layer dedup/fill paths use to match the DB's
+// `(venue_id, local_event_date, start_at) NULLS NOT DISTINCT` constraint.
+func StartKey(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 // ScrapedConcerts is a slice of ScrapedConcert pointers with domain-level operations.
 type ScrapedConcerts []*ScrapedConcert
 
 // FilterNew returns scraped concerts that do not conflict with existing concerts,
-// applying (date, venue-name) deduplication aligned with the events natural key
-// `(series_id, local_event_date, venue_id)`. It handles both cross-batch
+// a best-effort upstream filter aligned with the events physical natural key
+// `(venue_id, local_event_date, start_at)`. It handles both cross-batch
 // deduplication (against existing DB concerts) and within-batch deduplication
-// (multiple scraped rows for the same date+venue in the receiver).
+// (multiple scraped rows for the same key in the receiver). The key uses
+// ListedVenueName rather than the resolved venue_id because scraped concerts
+// have not yet been venue-resolved; ListedVenueName is the upstream identity
+// that survives both sides of the comparison.
 //
-// The key uses ListedVenueName rather than the resolved venue_id because
-// scraped concerts have not yet been venue-resolved; ListedVenueName is the
-// upstream identity that survives both sides of the comparison. A date-only
-// key (the previous behaviour) would incorrectly drop a same-date appearance
-// at a different venue — e.g. an afternoon tour stop at Venue A plus an
-// evening festival at Venue B — which the new natural key legitimately
-// accepts.
+// start_time disambiguates within a (date, venue), but asymmetrically so the
+// downstream resolution stays correct:
+//   - two KNOWN start times that differ → distinct shows (matinee/evening —
+//     昼夜2公演) → both kept.
+//   - a scraped entry with NO start time, when anything is already known at that
+//     (date, venue) → it adds no information → dropped.
+//   - a scraped entry WITH a start time, when only an unknown-start row exists at
+//     that (date, venue) → kept, so the creation path can fill the announced
+//     time onto the existing row instead of dropping it here.
+//
+// The creation path resolves event identity authoritatively (exact dedup, fill,
+// or insert); this filter only avoids redundant publish/UPSERT round-trips.
 //
 // Returns nil if no new concerts remain after filtering.
 func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
-	type key struct {
+	type vdKey struct {
 		date  string
 		venue string
 	}
-	seen := make(map[key]bool, len(existing))
+	// seen maps (date, venue) → the set of StartKey values already recorded
+	// there, with "" representing an unknown-start row. The asymmetric rule
+	// reads off this one map: an unknown-start entry is redundant iff anything
+	// is recorded (len>0); a known-start entry is redundant only iff that exact
+	// StartKey is recorded (the "" sentinel never matches a known start, so an
+	// unknown-start row never absorbs a known start the creation path must fill).
+	seen := make(map[vdKey]map[string]bool)
+	mark := func(k vdKey, start string) {
+		if seen[k] == nil {
+			seen[k] = make(map[string]bool)
+		}
+		seen[k][start] = true
+	}
 	for _, ex := range existing {
-		// Skip NULL-venue existing rows from dedup tracking — a row
-		// inserted before this PR (when listed_venue_name was not
-		// stored) has no upstream identity to dedup against, and
-		// keying it as {date, ""} would silently swallow a legitimate
-		// re-scrape that now carries the real venue name. Symmetric
-		// with the empty-venue scraped skip below: blank venues on
-		// either side bypass dedup, never silently clobber.
+		// Skip NULL-venue existing rows from dedup tracking — a row inserted
+		// before listed_venue_name was stored has no upstream identity to dedup
+		// against, and keying it as {date, ""} would silently swallow a
+		// legitimate re-scrape that now carries the real venue name. Symmetric
+		// with the empty-venue scraped skip below.
 		if ex.ListedVenueName == nil {
 			continue
 		}
-		seen[key{date: ex.LocalDate.Format("2006-01-02"), venue: *ex.ListedVenueName}] = true
+		mark(vdKey{date: ex.LocalDate.Format("2006-01-02"), venue: *ex.ListedVenueName}, StartKey(ex.StartTime))
 	}
 
 	var result ScrapedConcerts
 	for _, s := range ss {
 		// Drop blank-venue (TBA) scraped entries entirely. They have no
 		// natural-key identity to dedup against on the creation path —
-		// CreateFromDiscovered already skips them with a Warn before
-		// insert — AND they have no useful content for the search path:
-		// ToConcert on the search side produces an empty VenueID / event
-		// ID, so the client receives malformed concert rows with empty
-		// wrappers (potentially violating the proto venue_id min_len
-		// constraint). Letting them through earlier let multiple TBA
-		// entries on the same date all surface as separate broken rows
-		// since they bypassed the seen map. Dropping at the FilterNew
-		// boundary is the single chokepoint for both downstream consumers.
+		// CreateFromDiscovered already skips them with a Warn before insert —
+		// AND they have no useful content for the search path: ToConcert on the
+		// search side produces an empty VenueID / event ID, so the client would
+		// receive malformed concert rows with empty wrappers. Dropping at the
+		// FilterNew boundary is the single chokepoint for both consumers.
 		if s.ListedVenueName == "" {
 			continue
 		}
-		k := key{date: s.LocalDate.Format("2006-01-02"), venue: s.ListedVenueName}
-		if seen[k] {
+		k := vdKey{date: s.LocalDate.Format("2006-01-02"), venue: s.ListedVenueName}
+		start := StartKey(NullableTime(s.StartTime))
+		var dup bool
+		if start == "" {
+			// Unknown start: redundant if anything is already known here.
+			dup = len(seen[k]) > 0
+		} else {
+			// Known start: redundant only if this exact time was already seen;
+			// an existing unknown-start row does NOT absorb it (it must pass so
+			// the creation path can fill the announced time).
+			dup = seen[k][start]
+		}
+		if dup {
 			continue
 		}
-		seen[k] = true
+		mark(k, start)
 		result = append(result, s)
 	}
 	return result
@@ -318,6 +373,24 @@ type ConcertRepository interface {
 	//
 	//  - InvalidArgument: If the ids slice is empty.
 	ListByIDs(ctx context.Context, ids []string) ([]*Concert, error)
+	// FindEventsByVenueAndDate returns existing events occurring at any of the
+	// given (venue_id, local_event_date) pairs. The two slices are zipped
+	// element-wise into pairs; an event matches when its (venue_id,
+	// local_event_date) equals any supplied pair. Used by the discovery write
+	// path to (1) adopt a parent series from already-persisted member events and
+	// (2) detect a row first seen without a start_at so a later-announced time
+	// fills it instead of inserting a duplicate.
+	//
+	// Only physical-identity and parentage fields are populated (ID, SeriesID,
+	// VenueID, LocalDate, StartTime); Venue and Performers are not hydrated.
+	// Returns an empty slice (no error) when the inputs are empty.
+	FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*Event, error)
+	// FillEventStartTimes sets start_at / open_at on existing events identified
+	// by eventIDs, only where the column is currently NULL (COALESCE), for the
+	// case where a later discovery supplies a time the first discovery lacked.
+	// The three slices are zipped element-wise; a nil time leaves the column
+	// unchanged. Idempotent: a no-op when eventIDs is empty.
+	FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*time.Time) error
 }
 
 // ConcertSearcher defines the interface for searching concerts from external sources.

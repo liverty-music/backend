@@ -801,3 +801,54 @@ func TestParseStep1Envelope_EmptyOrUnparseable(t *testing.T) {
 		})
 	}
 }
+
+// TestParseStep1Envelope_TourGrouping locks in that the parser preserves the
+// tour grouping the envelope expresses: <tour> children share one intra-run
+// handle and are tour-origin; <standalone> drafts are standalone-origin with
+// handle 0; two distinct <tour> blocks get distinct handles.
+func TestParseStep1Envelope_TourGrouping(t *testing.T) {
+	t.Parallel()
+
+	envelope := `<extracted>
+  <tour>
+    <title>Tour A</title>
+    <source_url>https://example.com/tour-a</source_url>
+    <event><venue>Venue 1</venue><country>JP</country><local_date>2026-03-01</local_date><start_time>18:00</start_time></event>
+    <event><venue>Venue 2</venue><country>JP</country><local_date>2026-03-02</local_date><start_time>18:00</start_time></event>
+    <event><venue>Venue 3</venue><country>JP</country><local_date>2026-03-03</local_date><start_time>18:00</start_time></event>
+  </tour>
+  <tour>
+    <title>Tour B</title>
+    <source_url>https://example.com/tour-b</source_url>
+    <event><venue>Venue 9</venue><country>JP</country><local_date>2026-05-01</local_date><start_time>19:00</start_time></event>
+  </tour>
+  <standalone>
+    <title>Solo Show</title>
+    <source_url>https://example.com/solo</source_url>
+    <event><venue>Venue 5</venue><country>JP</country><local_date>2026-04-01</local_date><start_time>19:00</start_time></event>
+  </standalone>
+</extracted>`
+
+	drafts := gemini.ParseStep1Envelope(envelope)
+	require.Len(t, drafts, 5, "3 tour-A + 1 tour-B + 1 standalone")
+
+	// Tour A: three drafts, tour-origin, one shared non-zero handle.
+	tourA := drafts[0:3]
+	for _, d := range tourA {
+		assert.True(t, d.IsTour, "tour-A drafts are tour-origin")
+		assert.Equal(t, "Tour A", d.Title)
+	}
+	assert.Equal(t, tourA[0].TourGroup, tourA[1].TourGroup, "tour-A drafts share a handle")
+	assert.Equal(t, tourA[0].TourGroup, tourA[2].TourGroup, "tour-A drafts share a handle")
+	assert.NotZero(t, tourA[0].TourGroup, "tour handle is numbered from 1")
+
+	// Tour B: distinct handle from tour A.
+	tourB := drafts[3]
+	assert.True(t, tourB.IsTour)
+	assert.NotEqual(t, tourA[0].TourGroup, tourB.TourGroup, "two tours get two handles")
+
+	// Standalone: standalone-origin, handle 0.
+	standalone := drafts[4]
+	assert.False(t, standalone.IsTour, "standalone draft is standalone-origin")
+	assert.Zero(t, standalone.TourGroup, "standalone carries handle 0")
+}

@@ -405,7 +405,7 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.sc.ToConcert(tt.artistID, tt.seriesID, tt.eventID, tt.venueID)
+			got := tt.sc.ToConcert(tt.artistID, tt.seriesID, tt.eventID, tt.venueID, entity.SeriesTypeSingle)
 			require.NotNil(t, got)
 			tt.wantCheck(t, got)
 		})

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
@@ -68,9 +69,15 @@ func NewConcertCreationUseCase(
 // eventual N:1 grouping; only the discovery prompt and grouping heuristic are
 // missing.
 func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error {
-	// Resolve or create venues for each scraped concert, then build Concert entities.
-	var concerts []*entity.Concert
-	var seriesBatch []*entity.Series
+	// Phase 1 — resolve a venue for each scraped concert, dropping entries that
+	// cannot be persisted (empty title/venue, or a venue Google Places cannot
+	// resolve). The grouping markers (IsTour / TourGroup) ride along on sc so
+	// the build phase can fold a tour's stops under one Series.
+	type resolvedConcert struct {
+		sc      *entity.ScrapedConcert
+		venueID string
+	}
+	var entries []resolvedConcert
 	newVenues := make(map[string]*entity.Venue) // track newly created venues by cache key
 
 	for _, sc := range data.Concerts {
@@ -123,37 +130,189 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		if venue != nil {
 			newVenues[venueKey(sc.ListedVenueName, sc.AdminArea)] = venue
 		}
+		entries = append(entries, resolvedConcert{sc: sc, venueID: venueID})
+	}
+	if len(entries) == 0 {
+		return nil
+	}
 
-		eventID, err := uuid.NewV7()
-		if err != nil {
-			return fmt.Errorf("generate concert ID: %w", err)
+	// Phase 2 — fetch existing events at the resolved (venue, date) pairs. They
+	// drive two decisions below: adopting a parent Series from already-persisted
+	// member events, and filling a later-announced start_at onto a row first
+	// seen without one (instead of inserting a duplicate).
+	venueIDs := make([]string, len(entries))
+	dates := make([]time.Time, len(entries))
+	for i, e := range entries {
+		venueIDs[i] = e.venueID
+		dates[i] = e.sc.LocalDate
+	}
+	existingEvents, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, venueIDs, dates)
+	if err != nil {
+		return fmt.Errorf("find existing events for resolution: %w", err)
+	}
+	existingByVenueDate := make(map[string][]*entity.Event, len(existingEvents))
+	for _, ev := range existingEvents {
+		k := venueDateKey(ev.VenueID, ev.LocalDate)
+		existingByVenueDate[k] = append(existingByVenueDate[k], ev)
+	}
+
+	// knownStartAt records (venue, date) coordinates that already have a
+	// known-start representation — either an existing DB row or another entry in
+	// THIS batch. An unknown-start entry at such a coordinate is redundant: the
+	// show is represented by the known-start row, and a (venue, date, NULL) key
+	// can never dedup onto a known-start row, so building it would only insert a
+	// phantom NULL-start duplicate. It is skipped (see Phase 4). Computed over
+	// both sources so the decision is independent of intra-batch entry order.
+	knownStartAt := make(map[string]bool)
+	for _, ev := range existingEvents {
+		if ev.StartTime != nil && !ev.StartTime.IsZero() {
+			knownStartAt[venueDateKey(ev.VenueID, ev.LocalDate)] = true
 		}
-		// Derive seriesID deterministically from the venue + local date —
-		// intentionally artist-independent. Without this, every re-delivery
-		// of a Pub/Sub `concert.discovered` message would mint a fresh
-		// series UUID, and the events natural key `(series_id,
-		// local_event_date, venue_id)` would never collide on UPSERT →
-		// duplicate event rows accumulate.
-		// The key MUST NOT embed ArtistID: when two co-headliners are
-		// discovered separately (the normal Pub/Sub flow — one message per
-		// artist), an artist-scoped key would yield distinct seriesIDs and
-		// two event rows for the same real-world concert. A venue+date key
-		// keeps the seriesID stable across artists so the events UPSERT
-		// dedupes and the second artist's link lands on the same event row
-		// via insertEventPerformersQuery.
-		// UUID v5 is content-addressed and stable across runs. Once smarter
-		// grouping (auto-discovery-series-grouping) folds multi-stop tours
-		// under a shared Series, this 1:1 derivation is replaced by the
-		// tour-title resolution path; the natural key still does the
-		// deduplication work.
-		seriesKey := venueID + "|" + sc.LocalDate.Format("2006-01-02")
-		seriesID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(seriesKey))
+	}
+	for _, e := range entries {
+		if !e.sc.StartTime.IsZero() {
+			knownStartAt[venueDateKey(e.venueID, e.sc.LocalDate)] = true
+		}
+	}
 
-		concert := sc.ToConcert(data.ArtistID, seriesID.String(), eventID.String(), venueID)
-		concerts = append(concerts, concert)
-		// ToConcert builds the shell Series; collect it for bulk-insert so
-		// the FK from events.series_id is satisfied before ConcertRepo.Create runs.
-		seriesBatch = append(seriesBatch, concert.Series)
+	// Phase 3 — group resolved entries: tour stops sharing a TourGroup fold into
+	// one group; every standalone is its own group. The handle is intra-run
+	// only; the persisted Series identity is adopted from existing events (or
+	// minted) per group below.
+	type concertGroup struct {
+		entries []resolvedConcert
+		isTour  bool
+	}
+	var groupOrder []string
+	groups := make(map[string]*concertGroup)
+	for i, e := range entries {
+		groupKey := fmt.Sprintf("S%d", i) // standalone: unique per entry
+		if e.sc.IsTour && e.sc.TourGroup > 0 {
+			groupKey = fmt.Sprintf("T%d", e.sc.TourGroup)
+		}
+		g, ok := groups[groupKey]
+		if !ok {
+			g = &concertGroup{isTour: e.sc.IsTour}
+			groups[groupKey] = g
+			groupOrder = append(groupOrder, groupKey)
+		}
+		g.entries = append(g.entries, e)
+	}
+
+	// Phase 4 — for each group, adopt or mint a Series and build Concert rows.
+	var concerts []*entity.Concert
+	var seriesBatch []*entity.Series
+	var fillIDs []string
+	var fillStarts, fillOpens []*time.Time
+	// claimedFill tracks NULL-start rows already claimed for a fill in this
+	// batch, so two known-start entries at the same (venue, date) (e.g. a
+	// matinee and an evening announced together against one unknown-start row)
+	// do not both target the same row with conflicting times.
+	claimedFill := make(map[string]bool)
+
+	for _, groupKey := range groupOrder {
+		g := groups[groupKey]
+		seriesType := entity.SeriesTypeSingle
+		if g.isTour {
+			seriesType = entity.SeriesTypeTour
+		}
+
+		// Resolve each member once against the existing events at its (venue,
+		// date), capturing the action. Claiming fills here (sequentially) means
+		// two known starts at the same (venue, date) cannot target one
+		// unknown-start row. The adopted series is the series of the first member
+		// that resolves onto an existing event — same physical show (exact key)
+		// or the unknown-start row a known start fills. Resolving on the physical
+		// identity (not just (venue, date)) keeps an unrelated show at the same
+		// venue/date but a different start time from being merged in; a genuine
+		// sibling 昼夜 stop of the SAME tour still shares the series via the group.
+		type resolution struct {
+			entry  resolvedConcert
+			match  *entity.Event
+			isFill bool
+		}
+		resolutions := make([]resolution, 0, len(g.entries))
+		seriesID := ""
+		for _, e := range g.entries {
+			cands := existingByVenueDate[venueDateKey(e.venueID, e.sc.LocalDate)]
+			match, isFill := resolveExistingEvent(cands, e.sc, claimedFill)
+			if match != nil {
+				if seriesID == "" {
+					seriesID = match.SeriesID
+				}
+				if isFill {
+					claimedFill[match.ID] = true
+				}
+			}
+			resolutions = append(resolutions, resolution{entry: e, match: match, isFill: isFill})
+		}
+		minted := seriesID == ""
+		if minted {
+			id, err := uuid.NewV7()
+			if err != nil {
+				return fmt.Errorf("generate series ID: %w", err)
+			}
+			seriesID = id.String()
+		}
+
+		seriesAdded := false
+		for _, r := range resolutions {
+			// An unknown-start entry whose physical key is (venue, date, NULL)
+			// can only dedup onto an existing NULL-start row (NULLS NOT
+			// DISTINCT). If a known-start representation already exists at this
+			// (venue, date) — in the DB or elsewhere in this batch — the show is
+			// that known-start row, which a NULL-start key can never match, so
+			// building this entry would only insert a phantom NULL-start
+			// duplicate. Skip and log (accepted residual; the artist cannot be
+			// pinned to a session without a time). When NO known start exists,
+			// the entry is built: it either attaches to an existing unknown-start
+			// row via Create's UPSERT (the co-headliner-with-unknown-start case)
+			// or is a genuinely new unknown-time show.
+			if r.entry.sc.StartTime.IsZero() && knownStartAt[venueDateKey(r.entry.venueID, r.entry.sc.LocalDate)] {
+				uc.logger.Warn(ctx, "skipping unknown-start concert: a known-start row already represents this venue/date (cannot pin to a session)",
+					slog.String("artist_id", data.ArtistID),
+					slog.String("title", r.entry.sc.Title),
+					slog.String("listed_venue_name", r.entry.sc.ListedVenueName),
+					slog.String("local_date", r.entry.sc.LocalDate.Format("2006-01-02")),
+				)
+				continue
+			}
+
+			// Fill: a known start resolving onto an unknown-start row fills that
+			// row (already claimed during resolution). Create's UPSERT then dedups
+			// this entry onto the filled row and the performer JOIN attaches the artist.
+			if r.isFill {
+				fillIDs = append(fillIDs, r.match.ID)
+				fillStarts = append(fillStarts, entity.NullableTime(r.entry.sc.StartTime))
+				fillOpens = append(fillOpens, entity.NullableTime(r.entry.sc.OpenTime))
+			}
+
+			eventID, err := uuid.NewV7()
+			if err != nil {
+				return fmt.Errorf("generate concert ID: %w", err)
+			}
+			concert := r.entry.sc.ToConcert(data.ArtistID, seriesID, eventID.String(), r.entry.venueID, seriesType)
+			concerts = append(concerts, concert)
+			// Only minted series need a row inserted; an adopted series already
+			// exists. ToConcert builds the shell Series; add it once per group
+			// so the FK from events.series_id is satisfied before Create runs.
+			if minted && !seriesAdded {
+				seriesBatch = append(seriesBatch, concert.Series)
+				seriesAdded = true
+			}
+		}
+	}
+
+	if len(concerts) == 0 {
+		return nil
+	}
+
+	// Fill later-announced start times onto rows first seen without one, before
+	// Create so its UPSERT dedups the filled entries onto those rows.
+	if len(fillIDs) > 0 {
+		if err := uc.concertRepo.FillEventStartTimes(ctx, fillIDs, fillStarts, fillOpens); err != nil {
+			return fmt.Errorf("fill event start times: %w", err)
+		}
 	}
 
 	// Bulk insert series first so events.series_id FK is satisfied. Orphan
@@ -304,6 +463,42 @@ func (uc *concertCreationUseCase) createVenueFromPlace(
 // publishEvent publishes data as a CloudEvent to the given subject.
 func (uc *concertCreationUseCase) publishEvent(ctx context.Context, subject string, data any) error {
 	return uc.publisher.PublishEvent(ctx, subject, data)
+}
+
+// venueDateKey returns the index key for grouping existing events by their
+// physical (venue, date) coordinate during discovery-time resolution.
+func venueDateKey(venueID string, d time.Time) string {
+	return venueID + "|" + d.Format("2006-01-02")
+}
+
+// resolveExistingEvent finds the already-persisted event a scraped concert
+// resolves onto, given the candidate events at its (venue, date), comparing
+// start times via the canonical [entity.StartKey] (NULLS NOT DISTINCT: an
+// unknown start keys as ""):
+//   - an exact physical-key match (equal StartKey, incl. both-unknown) → (ev, false);
+//   - else a NULL-start row that the entry's known start will fill, not yet
+//     claimed by another entry in this batch → (ev, true);
+//   - else (genuinely new, or only unrelated known-start sessions exist) → (nil, false).
+//
+// It is the single matching primitive shared by series adoption, the
+// unknown-start skip decision, and fill detection, so all three agree on what
+// "the same physical show" means.
+func resolveExistingEvent(cands []*entity.Event, sc *entity.ScrapedConcert, claimedFill map[string]bool) (*entity.Event, bool) {
+	incoming := entity.StartKey(entity.NullableTime(sc.StartTime))
+	var nullRow *entity.Event
+	for _, ev := range cands {
+		evStart := entity.StartKey(ev.StartTime)
+		if evStart == incoming {
+			return ev, false
+		}
+		if evStart == "" && incoming != "" && !claimedFill[ev.ID] && nullRow == nil {
+			nullRow = ev
+		}
+	}
+	if nullRow != nil {
+		return nullRow, true
+	}
+	return nil, false
 }
 
 // venueKey returns a composite cache key for the batch-local venue map.

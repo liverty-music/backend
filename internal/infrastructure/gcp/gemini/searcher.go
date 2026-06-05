@@ -293,6 +293,15 @@ type EventDraft struct {
 	LocalDate string // raw <local_date> tag content (un-coerced).
 	StartTime string // raw <start_time> tag content (un-coerced).
 	OpenTime  string // raw <open_time> tag content (un-coerced).
+	// IsTour reports whether this draft originated from a <tour> block (as
+	// opposed to <standalone>). It drives SeriesType downstream (TOUR vs SINGLE).
+	IsTour bool
+	// TourGroup ties together all drafts from the same <tour> block so the
+	// caller can persist them under one Series. It is an intra-run handle:
+	// unique within a single parse only, NOT a cross-run series key (series
+	// identity is adopted from already-persisted member events downstream).
+	// Tour blocks are numbered from 1; standalone drafts carry 0.
+	TourGroup int
 }
 
 // step2InputEvent is the per-event payload sent to Step 2. It is a
@@ -371,9 +380,12 @@ func parseStep1Envelope(envelope string) []EventDraft {
 		return nil
 	}
 	var drafts []EventDraft
-	for _, tour := range env.Tours {
+	for i, tour := range env.Tours {
 		title := strings.TrimSpace(tour.Title)
 		srcURL := strings.TrimSpace(tour.SourceURL)
+		// Tour blocks are numbered from 1 so the handle never collides with
+		// the 0 reserved for standalone drafts.
+		groupID := i + 1
 		for _, ev := range tour.Events {
 			drafts = append(drafts, EventDraft{
 				Title:     title,
@@ -383,6 +395,8 @@ func parseStep1Envelope(envelope string) []EventDraft {
 				LocalDate: strings.TrimSpace(ev.LocalDate),
 				StartTime: strings.TrimSpace(ev.StartTime),
 				OpenTime:  strings.TrimSpace(ev.OpenTime),
+				IsTour:    true,
+				TourGroup: groupID,
 			})
 		}
 	}
@@ -395,6 +409,8 @@ func parseStep1Envelope(envelope string) []EventDraft {
 			LocalDate: strings.TrimSpace(sa.Event.LocalDate),
 			StartTime: strings.TrimSpace(sa.Event.StartTime),
 			OpenTime:  strings.TrimSpace(sa.Event.OpenTime),
+			IsTour:    false,
+			TourGroup: 0,
 		})
 	}
 	return drafts
@@ -1556,5 +1572,7 @@ func (s *ConcertSearcher) toScrapedConcert(
 		StartTime:       startTime,
 		OpenTime:        openTime,
 		SourceURL:       draft.SourceURL,
+		IsTour:          draft.IsTour,
+		TourGroup:       draft.TourGroup,
 	}
 }

@@ -126,11 +126,11 @@ CREATE TABLE IF NOT EXISTS series (
     source_url TEXT,
     merch_url TEXT,
     CONSTRAINT chk_series_title_not_empty CHECK (title <> ''),
-    CONSTRAINT chk_series_id_uuid_v5_or_v7 CHECK (substring(id::text, 15, 1) IN ('5', '7'))
+    CONSTRAINT chk_series_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE series IS 'Parent aggregation above events. Owns metadata shared across every event in a tour, festival, or multi-day single-venue run.';
-COMMENT ON COLUMN series.id IS 'Unique series identifier. UUIDv7 for synthetic (search-path) IDs; UUIDv5 for content-addressed deterministic IDs from auto-discovery (so a re-discovered concert produces the same series UUID and the events natural-key UPSERT deduplicates across runs).';
+COMMENT ON COLUMN series.id IS 'Unique series identifier (UUIDv7, application-generated). Series has no content-derived key: cross-run identity is established by adopting the series_id already carried by its member events (matched on the events physical natural key); a fresh UUIDv7 series is minted only when no member event yet exists.';
 COMMENT ON COLUMN series.title IS 'Series title shared across all member events (e.g. tour name, festival name)';
 COMMENT ON COLUMN series.type IS 'Classification of the series; drives presentation and notification grouping';
 COMMENT ON COLUMN series.source_url IS 'Optional series-level official URL (tour page, festival page); per-event URLs are not stored';
@@ -146,14 +146,14 @@ CREATE TABLE IF NOT EXISTS events (
     start_at TIMESTAMPTZ,
     open_at TIMESTAMPTZ,
     merkle_root BYTEA,
-    CONSTRAINT uq_events_natural_key UNIQUE (series_id, local_event_date, venue_id),
+    CONSTRAINT uq_events_natural_key UNIQUE NULLS NOT DISTINCT (venue_id, local_event_date, start_at),
     CONSTRAINT chk_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
 COMMENT ON TABLE events IS 'A single performance occurring on a specific date at a specific venue. Belongs to exactly one parent series.';
-COMMENT ON CONSTRAINT uq_events_natural_key ON events IS 'Prevents duplicate events for the same series at the same venue on the same date. Different series at the same venue on the same date are allowed.';
+COMMENT ON CONSTRAINT uq_events_natural_key ON events IS 'Physical identity of a performance: one row per (venue, local date, start time), independent of series or performing artist. start_at is part of the key so two shows at one venue on one date with different start times (matinee/evening) are distinct; NULLS NOT DISTINCT collapses two shows whose start time is not yet published. The same physical show discovered via different artists/series resolves to one row.';
 COMMENT ON COLUMN events.id IS 'Unique event identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN events.series_id IS 'Reference to the parent series that aggregates this event with any sibling events';
+COMMENT ON COLUMN events.series_id IS 'Reference to the parent series that aggregates this event with any sibling events. Not part of the natural key — series is a grouping parent, not a component of event identity.';
 COMMENT ON COLUMN events.venue_id IS 'Reference to the venue hosting the event';
 COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from the source, preserved separately from the normalized venue record';
 COMMENT ON COLUMN events.local_event_date IS 'Date of the event';

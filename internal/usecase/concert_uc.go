@@ -350,7 +350,9 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		if err != nil {
 			return nil, fmt.Errorf("generate synthetic series ID for search response: %w", err)
 		}
-		c := s.ToConcert(artistID, syntheticSeriesID.String(), "", "")
+		// Search-path Concerts are display-only DTOs (never persisted); the
+		// SeriesType is cosmetic here, so SINGLE is a safe default.
+		c := s.ToConcert(artistID, syntheticSeriesID.String(), "", "", entity.SeriesTypeSingle)
 		// Replace ToConcert's id-only Performer shell with the resolved
 		// Artist entity so the response carries a complete performer with
 		// Name and MBID (validated non-empty by the guard above).
