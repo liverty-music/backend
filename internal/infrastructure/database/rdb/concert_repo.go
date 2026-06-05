@@ -60,14 +60,37 @@ const (
 	insertEventPerformersQuery = `
 		INSERT INTO event_performers (event_id, artist_id)
 		SELECT e.id, perf.artist_id
-		FROM unnest($1::uuid[], $2::date[], $3::uuid[], $4::uuid[])
-			AS perf(series_id, local_event_date, venue_id, artist_id)
+		FROM unnest($1::uuid[], $2::date[], $3::timestamptz[], $4::uuid[])
+			AS perf(venue_id, local_event_date, start_at, artist_id)
 		JOIN events e
-			ON e.series_id = perf.series_id
+			ON e.venue_id = perf.venue_id
 			AND e.local_event_date = perf.local_event_date
-			AND e.venue_id = perf.venue_id
+			AND e.start_at IS NOT DISTINCT FROM perf.start_at
 		ON CONFLICT DO NOTHING
 		RETURNING event_id
+	`
+
+	// findEventsByVenueDateQuery returns existing events at any of the given
+	// (venue_id, local_event_date) pairs, zipped element-wise from the two
+	// array params. DISTINCT collapses duplicate input pairs. Projects only the
+	// fields discovery-time resolution needs (physical key + parent series).
+	findEventsByVenueDateQuery = `
+		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.local_event_date, e.start_at
+		FROM events e
+		JOIN unnest($1::uuid[], $2::date[]) AS pairs(venue_id, local_event_date)
+			ON e.venue_id = pairs.venue_id
+			AND e.local_event_date = pairs.local_event_date
+	`
+
+	// fillEventStartTimesQuery sets start_at / open_at on events by id, only
+	// where currently NULL (COALESCE never overwrites a known time). The three
+	// arrays are zipped element-wise.
+	fillEventStartTimesQuery = `
+		UPDATE events e
+		SET start_at = COALESCE(e.start_at, u.start_at),
+		    open_at  = COALESCE(e.open_at, u.open_at)
+		FROM unnest($1::uuid[], $2::timestamptz[], $3::timestamptz[]) AS u(id, start_at, open_at)
+		WHERE e.id = u.id
 	`
 
 	// listConcertsByArtistQuery returns concerts where the given artist appears
@@ -411,24 +434,24 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		return nil, nil
 	}
 
-	// Compact the slice first AND dedup by the events natural key
-	// `(series_id, local_event_date, venue_id)`. PostgreSQL rejects
-	// `INSERT ... ON CONFLICT DO UPDATE` when two rows in the same
+	// Compact the slice first AND dedup by the events physical natural key
+	// `(venue_id, local_event_date, start_at)` (NULLS NOT DISTINCT — an unknown
+	// start_at keys as empty so two unpublished-time rows collapse). PostgreSQL
+	// rejects `INSERT ... ON CONFLICT DO UPDATE` when two rows in the same
 	// statement target the same conflict row with:
 	//   ERROR: ON CONFLICT DO UPDATE command cannot affect row a second time
 	// This can fire on the discovery path when Gemini returns two scraped
 	// entries for the same physical venue under different ListedVenueNames
-	// (e.g. "Zepp" + "Zepp DiverCity"): FilterNew dedups on raw
-	// ListedVenueName so both survive, GetByListedName/Places resolves them
-	// to the same venue_id, the seriesID derivation (venue+date) then
-	// collapses them to identical keys → batch UPSERT crash, the tx rolls
-	// back, and the Pub/Sub consumer retries the message indefinitely.
-	// Today's only caller (concert_creation_uc.CreateFromDiscovered) emits
-	// one batch per Pub/Sub message and one message per artist, so every
-	// concert in a single Create call shares the same artist set — dropping
-	// duplicates by natural key cannot lose performer information. If a
-	// future caller batches concerts from multiple artists (a cross-artist
-	// admin path, say), it must merge duplicates' Performers into the kept
+	// (e.g. "Zepp" + "Zepp DiverCity"): FilterNew dedups on raw ListedVenueName
+	// so both survive, GetByListedName/Places resolves them to the same
+	// venue_id, and with an identical date+start they collapse to one key →
+	// batch UPSERT crash, the tx rolls back, and the Pub/Sub consumer retries
+	// the message indefinitely. Today's only caller
+	// (concert_creation_uc.CreateFromDiscovered) emits one batch per Pub/Sub
+	// message and one message per artist, so every concert in a single Create
+	// call shares the same artist set — dropping duplicates by natural key
+	// cannot lose performer information. If a future caller batches concerts
+	// from multiple artists, it must merge duplicates' Performers into the kept
 	// entry before invoking Create; the Warn log surfaces if that happens.
 	var valid []*entity.Concert
 	seenKey := make(map[string]struct{}, len(concerts))
@@ -436,12 +459,14 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		if c == nil {
 			continue
 		}
-		key := c.SeriesID + "|" + c.LocalDate.Format("2006-01-02") + "|" + c.VenueID
+		start := entity.StartKey(c.StartTime)
+		key := c.VenueID + "|" + c.LocalDate.Format("2006-01-02") + "|" + start
 		if _, dup := seenKey[key]; dup {
 			r.db.logger.Warn(ctx, "Create: dropping duplicate concert with identical natural key from same batch",
 				slog.String("concert_id", c.ID),
-				slog.String("series_id", c.SeriesID),
 				slog.String("venue_id", c.VenueID),
+				slog.String("local_date", c.LocalDate.Format("2006-01-02")),
+				slog.String("start_at", start),
 			)
 			continue
 		}
@@ -461,16 +486,17 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	startTimes := make([]*time.Time, n)
 	openTimes := make([]*time.Time, n)
 
-	// Flatten (series_id, local_event_date, venue_id, artist_id) tuples from
-	// each concert's Performers slice. The natural-key triple lets the
+	// Flatten (venue_id, local_event_date, start_at, artist_id) tuples from each
+	// concert's Performers slice. The physical-key triple lets the
 	// insertEventPerformersQuery JOIN onto the actual event row regardless of
 	// whether our input event UUID landed or lost the UPSERT race — this is
 	// what makes re-scrape lineup updates correctly attach to the existing
-	// event id instead of being silently dropped.
+	// event id instead of being silently dropped. start_at is matched with
+	// IS NOT DISTINCT FROM so it both disambiguates 昼夜2公演 and matches NULLs.
 	var (
-		performerSeriesIDs  []string
-		performerEventDates []time.Time
 		performerVenueIDs   []string
+		performerEventDates []time.Time
+		performerStartAts   []*time.Time
 		performerArtistIDs  []string
 	)
 
@@ -498,9 +524,9 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 			if p == nil || p.ID == "" {
 				return nil, apperr.New(codes.InvalidArgument, "performer ID must not be empty")
 			}
-			performerSeriesIDs = append(performerSeriesIDs, c.SeriesID)
-			performerEventDates = append(performerEventDates, c.LocalDate)
 			performerVenueIDs = append(performerVenueIDs, c.VenueID)
+			performerEventDates = append(performerEventDates, c.LocalDate)
+			performerStartAts = append(performerStartAts, c.StartTime)
 			performerArtistIDs = append(performerArtistIDs, p.ID)
 		}
 	}
@@ -556,7 +582,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	var linkedEventIDs []string
 	if len(performerArtistIDs) > 0 {
 		linkRows, err := tx.Query(ctx, insertEventPerformersQuery,
-			performerSeriesIDs, performerEventDates, performerVenueIDs, performerArtistIDs,
+			performerVenueIDs, performerEventDates, performerStartAts, performerArtistIDs,
 		)
 		if err != nil {
 			return nil, toAppErr(err, "failed to insert event_performers",
@@ -614,4 +640,49 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	)
 
 	return notifiableIDs, nil
+}
+
+// FindEventsByVenueAndDate implements entity.ConcertRepository. It returns
+// existing events at any of the supplied (venue_id, local_event_date) pairs,
+// projected to the fields discovery-time resolution needs.
+func (r *ConcertRepository) FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*entity.Event, error) {
+	if len(venueIDs) == 0 || len(dates) == 0 {
+		return nil, nil
+	}
+
+	rows, err := r.db.Pool.Query(ctx, findEventsByVenueDateQuery, venueIDs, dates)
+	if err != nil {
+		return nil, toAppErr(err, "failed to find events by venue and date")
+	}
+	defer rows.Close()
+
+	var events []*entity.Event
+	for rows.Next() {
+		var (
+			e       entity.Event
+			startAt *time.Time
+		)
+		if err := rows.Scan(&e.ID, &e.SeriesID, &e.VenueID, &e.LocalDate, &startAt); err != nil {
+			return nil, toAppErr(err, "failed to scan event by venue/date")
+		}
+		e.StartTime = startAt
+		events = append(events, &e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "events by venue/date iteration ended with error")
+	}
+	return events, nil
+}
+
+// FillEventStartTimes implements entity.ConcertRepository. It fills start_at /
+// open_at on existing events by id, using COALESCE so a known time is never
+// overwritten.
+func (r *ConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*time.Time) error {
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	if _, err := r.db.Pool.Exec(ctx, fillEventStartTimesQuery, eventIDs, startTimes, openTimes); err != nil {
+		return toAppErr(err, "failed to fill event start times", slog.Int("count", len(eventIDs)))
+	}
+	return nil
 }

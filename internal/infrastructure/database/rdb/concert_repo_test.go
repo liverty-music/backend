@@ -410,49 +410,12 @@ func TestConcertRepository_Create(t *testing.T) {
 			"non-NULL open_at must NOT be overwritten by a different non-NULL incoming value")
 	})
 
-	t.Run("natural key conflict — existing non-NULL start_at preserved against a different non-NULL incoming value (first-write-wins)", func(t *testing.T) {
-		setupFixtures(t)
-
-		listedVenue := "Zepp DiverCity"
-		seriesID := seedSeries(t, ctx, seriesRepo, "First Write Wins")
-
-		// First insert: confirmed start_at = startTime.
-		requireCreate(t, ctx, concertRepo, &entity.Concert{
-			Event: entity.Event{
-				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c09", VenueID: venueID,
-				SeriesID: seriesID, ListedVenueName: &listedVenue,
-				LocalDate: concertDate, StartTime: &startTime, OpenTime: &openTime,
-			},
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/9"},
-			Performers: []*entity.Artist{{ID: artistID}},
-		})
-
-		// Second insert: same natural key with a different non-NULL start_at.
-		// COALESCE(events.start_at, EXCLUDED.start_at) → keeps the first value
-		// because both are non-NULL. This pins the "first write wins" semantic
-		// — Gemini-driven re-scrapes do not silently overwrite a previously-
-		// confirmed time with a fresh extraction. Tradeoff: a known mis-scrape
-		// will not self-correct on a subsequent scrape (operator path covers
-		// that case).
-		laterStart := startTime.Add(2 * time.Hour)
-		_, err := concertRepo.Create(ctx, &entity.Concert{
-			Event: entity.Event{
-				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0a", VenueID: venueID,
-				SeriesID: seriesID, ListedVenueName: &listedVenue,
-				LocalDate: concertDate, StartTime: &laterStart, OpenTime: &openTime,
-			},
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/10"},
-			Performers: []*entity.Artist{{ID: artistID}},
-		})
-		require.NoError(t, err)
-
-		got, err := concertRepo.ListByArtist(ctx, artistID, false)
-		require.NoError(t, err)
-		require.Len(t, got, 1)
-		require.NotNil(t, got[0].StartTime)
-		require.True(t, got[0].StartTime.Equal(startTime),
-			"non-NULL start_at must NOT be overwritten by a different non-NULL incoming value")
-	})
+	// Note: a "different non-NULL start_at first-write-wins" subtest was removed
+	// here — under the physical natural key (venue_id, local_event_date,
+	// start_at), two different start times at the same venue/date are DISTINCT
+	// events (昼夜2公演), not a conflict. That behaviour is covered by
+	// TestConcertRepository_PhysicalNaturalKey; open_at first-write-wins (which
+	// is still a genuine same-key conflict) is covered by the open_at subtest above.
 
 	t.Run("co-headliner — second artist's discovery returns the existing event id via linkedEventIDs", func(t *testing.T) {
 		// Co-headliner notification path:
@@ -643,14 +606,14 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 	}
 }
 
-// TestConcertRepository_DifferentSeriesSameVenueDate verifies the second half
-// of the new natural-key contract: the (series_id, local_event_date, venue_id)
-// UNIQUE constraint only rejects duplicates within the same series — two
-// distinct series may legitimately have events at the same venue on the same
-// date (e.g. an afternoon TOUR stop and an evening FESTIVAL at the same arena).
-// Covers the "Different series at the same venue on the same date are allowed"
-// scenario from the event-management spec.
-func TestConcertRepository_DifferentSeriesSameVenueDate(t *testing.T) {
+// TestConcertRepository_PhysicalNaturalKey verifies the physical-identity
+// natural key (venue_id, local_event_date, start_at): the same physical show
+// collapses to one row regardless of series (so a tour-stop and a co-bill
+// classification of the same performance do not duplicate), while two shows at
+// the same venue and date with different start times stay distinct (昼夜2公演).
+// Covers the event-management "Event Natural Key Reflects Physical Identity"
+// scenarios.
+func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	ctx := context.Background()
 	concertRepo := rdb.NewConcertRepository(testDB)
 	artistRepo := rdb.NewArtistRepository(testDB)
@@ -660,6 +623,8 @@ func TestConcertRepository_DifferentSeriesSameVenueDate(t *testing.T) {
 	artistID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1a1"
 	venueID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1b1"
 	concertDate, _ := time.Parse("2006-01-02", "2026-08-15")
+	matinee := time.Date(2026, 8, 15, 13, 0, 0, 0, time.UTC)
+	evening := time.Date(2026, 8, 15, 18, 0, 0, 0, time.UTC)
 
 	cleanDatabase(t)
 	_, err := artistRepo.Create(ctx, &entity.Artist{
@@ -669,32 +634,41 @@ func TestConcertRepository_DifferentSeriesSameVenueDate(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Shared Arena"}))
 
-	tourSeriesID := seedSeries(t, ctx, seriesRepo, "Afternoon Tour Stop")
-	festivalSeriesID := seedSeries(t, ctx, seriesRepo, "Evening Festival")
-	require.NotEqual(t, tourSeriesID, festivalSeriesID)
+	seriesA := seedSeries(t, ctx, seriesRepo, "Series A")
+	seriesB := seedSeries(t, ctx, seriesRepo, "Series B")
+	require.NotEqual(t, seriesA, seriesB)
 
-	tourEventID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1c1"
-	festivalEventID := "018b2f19-e591-7d12-bf9e-f0e74f1bd1c2"
-
+	// Same (venue, date, start) under two different series → one physical event.
 	_, err = concertRepo.Create(ctx,
 		&entity.Concert{
-			Event:      entity.Event{ID: tourEventID, SeriesID: tourSeriesID, VenueID: venueID, LocalDate: concertDate},
-			Series:     &entity.Series{ID: tourSeriesID},
+			Event:      entity.Event{ID: "018b2f19-e591-7d12-bf9e-f0e74f1bd1c1", SeriesID: seriesA, VenueID: venueID, LocalDate: concertDate, StartTime: &evening},
+			Series:     &entity.Series{ID: seriesA},
 			Performers: []*entity.Artist{{ID: artistID}},
 		},
 		&entity.Concert{
-			Event:      entity.Event{ID: festivalEventID, SeriesID: festivalSeriesID, VenueID: venueID, LocalDate: concertDate},
-			Series:     &entity.Series{ID: festivalSeriesID},
+			Event:      entity.Event{ID: "018b2f19-e591-7d12-bf9e-f0e74f1bd1c2", SeriesID: seriesB, VenueID: venueID, LocalDate: concertDate, StartTime: &evening},
+			Series:     &entity.Series{ID: seriesB},
 			Performers: []*entity.Artist{{ID: artistID}},
 		},
 	)
-	require.NoError(t, err, "different series at the same venue+date must both succeed")
+	require.NoError(t, err)
 
 	got, err := concertRepo.ListByArtist(ctx, artistID, false)
 	require.NoError(t, err)
-	require.Len(t, got, 2, "both concerts must come back — natural key only collides within the same series")
-	gotEventIDs := []string{got[0].ID, got[1].ID}
-	assert.ElementsMatch(t, []string{tourEventID, festivalEventID}, gotEventIDs)
+	require.Len(t, got, 1, "same venue+date+start collapses to one event regardless of series")
+
+	// A second show at the same venue+date with a different start time (matinee)
+	// is a distinct event.
+	_, err = concertRepo.Create(ctx, &entity.Concert{
+		Event:      entity.Event{ID: "018b2f19-e591-7d12-bf9e-f0e74f1bd1c3", SeriesID: seriesA, VenueID: venueID, LocalDate: concertDate, StartTime: &matinee},
+		Series:     &entity.Series{ID: seriesA},
+		Performers: []*entity.Artist{{ID: artistID}},
+	})
+	require.NoError(t, err)
+
+	got, err = concertRepo.ListByArtist(ctx, artistID, false)
+	require.NoError(t, err)
+	require.Len(t, got, 2, "matinee and evening at the same venue+date are distinct events (昼夜2公演)")
 }
 
 // TestConcertRepository_ListedVenueName verifies that ListedVenueName is
