@@ -5,17 +5,18 @@ name: Deploy Backend
 #                         main runs this workflow (no paths: trigger gate).
 #                         A per-run "build vs inherit" decision over the
 #                         pushed range (event.before..sha) picks one of:
-#                           * build:   4× docker/build-push-action across the
+#                           * build:   7× docker/build-push-action across the
 #                                      strategy matrix (server, consumer,
-#                                      concert-discovery, artist-image-sync),
-#                                      pushing :latest, :main, :<sha>.
+#                                      concert-discovery, artist-image-sync,
+#                                      merch-discovery, sales-phase-discovery,
+#                                      sales-reminders), pushing :latest, :main, :<sha>.
 #                           * inherit: no rebuild — crane-copy the parent push
 #                                      tip's dev digest onto :<sha> (and
 #                                      re-point :main, :latest). Used when the
 #                                      push changed no build-relevant file
 #                                      (CI config / docs only).
 #  - release published -> retag dev AR digest into prod AR
-#                         (liverty-music-prod/backend). 4× `crane copy`
+#                         (liverty-music-prod/backend). 7× `crane copy`
 #                         across the matrix — no rebuild. Each matrix
 #                         entry resolves its own dev AR digest for
 #                         github.sha and promotes that exact digest to
@@ -23,7 +24,7 @@ name: Deploy Backend
 #
 # Per OpenSpec change `backend-symmetric-retag` (extending the
 # frontend `promote-prod-image-via-retag` archive to the backend's
-# 4-image matrix), the release path stops invoking `docker build`. The
+# multi-image matrix), the release path stops invoking `docker build`. The
 # prod image deployed is byte-identical to the dev image already
 # exercised under the same `:<sha>` tag. This trims ~6 min of redundant
 # rebuild per release event (4× ~90 s sequential build-push) down to
@@ -92,6 +93,10 @@ jobs:
             target: artist-image-sync
           - name: merch-discovery
             target: merch-discovery
+          - name: sales-phase-discovery
+            target: sales-phase-discovery
+          - name: sales-reminders
+            target: sales-reminders
     env:
       REGION: ${{ vars.REGION }}
       PROJECT_ID: ${{ vars.PROJECT_ID }}
@@ -318,7 +323,7 @@ jobs:
       # =====================================================================
       # Each matrix entry resolves the dev AR digest for its own
       # `<image>:<sha>` and copies it twice into prod AR under
-      # `:<release-tag>` and `:<sha>`. The 4 matrix entries run in parallel;
+      # `:<release-tag>` and `:<sha>`. The matrix entries run in parallel;
       # total wall-clock is bounded by the slowest single retag (~30 s).
       #
       # Source and destination FQDNs are written with the literal `backend`
