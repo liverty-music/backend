@@ -94,6 +94,20 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
+		Name: "SALES_PHASE",
+		// `>` (not `*`) because this domain has nested subjects:
+		// SALES_PHASE.discovered (one token) AND SALES_PHASE.reminder.due
+		// (two tokens). A single-token `SALES_PHASE.*` would not match the
+		// latter, so a subscriber would fail with "no stream matches subject".
+		Subjects:   []string{"SALES_PHASE.>"},
+		Retention:  nats.LimitsPolicy,
+		MaxAge:     7 * 24 * time.Hour,
+		Storage:    nats.FileStorage,
+		Discard:    nats.DiscardOld,
+		Replicas:   1,
+		Duplicates: 2 * time.Minute,
+	},
+	{
 		Name:       "POISON",
 		Subjects:   []string{"POISON.*"},
 		Retention:  nats.LimitsPolicy,
