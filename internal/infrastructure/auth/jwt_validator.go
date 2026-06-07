@@ -119,10 +119,72 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 		}
 	}
 
+	// Extract Zitadel project role names from the token.
+	//
+	// Zitadel includes role grants in up to two claim keys:
+	//   - "urn:zitadel:iam:org:project:roles"          (global, all projects)
+	//   - "urn:zitadel:iam:org:project:{projectId}:roles" (project-scoped)
+	//
+	// Each claim value is a JSON object whose keys are role names and whose
+	// values are org-id→domain maps (not used here). We collect every unique
+	// key across all matching claim keys into a deduplicated slice.
+	roles := extractZitadelRoles(token)
+
 	return &Claims{
 		Sub:           sub,
 		Email:         emailStr,
 		Name:          name,
 		EmailVerified: emailVerified,
+		Roles:         roles,
 	}, nil
+}
+
+// extractZitadelRoles scans all private claims on token for the two Zitadel
+// role claim shapes and returns a deduplicated slice of role name strings.
+// Returns nil when no role claims are present.
+//
+// Zitadel encodes role grants under two possible claim keys:
+//   - "urn:zitadel:iam:org:project:roles"              (global, all projects)
+//   - "urn:zitadel:iam:org:project:{projectId}:roles"  (project-scoped)
+//
+// Each value is a JSON object whose keys are role names; the inner values
+// (org-id → domain maps) are not consumed.
+func extractZitadelRoles(token jwt.Token) []string {
+	const globalRoleClaim = "urn:zitadel:iam:org:project:roles"
+	const projectRolePrefix = "urn:zitadel:iam:org:project:"
+	const projectRoleSuffix = ":roles"
+
+	seen := make(map[string]struct{})
+
+	// PrivateClaims returns all non-standard claims as a map keyed by claim name.
+	for key, val := range token.PrivateClaims() {
+		isGlobal := key == globalRoleClaim
+		isProjectScoped := !isGlobal &&
+			len(key) > len(projectRolePrefix)+len(projectRoleSuffix) &&
+			key[:len(projectRolePrefix)] == projectRolePrefix &&
+			key[len(key)-len(projectRoleSuffix):] == projectRoleSuffix
+
+		if !isGlobal && !isProjectScoped {
+			continue
+		}
+
+		// The claim value is a map[string]interface{} where keys are role names.
+		roleMap, ok := val.(map[string]any)
+		if !ok {
+			continue
+		}
+		for roleName := range roleMap {
+			seen[roleName] = struct{}{}
+		}
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	roles := make([]string, 0, len(seen))
+	for r := range seen {
+		roles = append(roles, r)
+	}
+	return roles
 }
