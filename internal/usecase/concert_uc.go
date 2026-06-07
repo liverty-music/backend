@@ -63,14 +63,15 @@ type ConcertUseCase interface {
 
 // concertUseCase implements the ConcertUseCase interface.
 type concertUseCase struct {
-	artistRepo       entity.ArtistRepository
-	concertRepo      entity.ConcertRepository
-	venueRepo        entity.VenueRepository
-	searchLogRepo    entity.SearchLogRepository
-	concertSearcher  entity.ConcertSearcher
-	centroidResolver CentroidResolver
-	publisher        EventPublisher
-	metrics          ConcertMetrics
+	artistRepo        entity.ArtistRepository
+	concertRepo       entity.ConcertRepository
+	venueRepo         entity.VenueRepository
+	searchLogRepo     entity.SearchLogRepository
+	stagedConcertRepo entity.StagedConcertRepository
+	concertSearcher   entity.ConcertSearcher
+	centroidResolver  CentroidResolver
+	publisher         EventPublisher
+	metrics           ConcertMetrics
 	// searchCacheTTL is how long a completed search is reused before a repeat
 	// external call is allowed. Configured per environment (prod runs longer).
 	searchCacheTTL time.Duration
@@ -99,6 +100,7 @@ func NewConcertUseCase(
 	concertRepo entity.ConcertRepository,
 	venueRepo entity.VenueRepository,
 	searchLogRepo entity.SearchLogRepository,
+	stagedConcertRepo entity.StagedConcertRepository,
 	concertSearcher entity.ConcertSearcher,
 	centroidResolver CentroidResolver,
 	publisher EventPublisher,
@@ -108,17 +110,18 @@ func NewConcertUseCase(
 	logger *logging.Logger,
 ) ConcertUseCase {
 	return &concertUseCase{
-		artistRepo:       artistRepo,
-		concertRepo:      concertRepo,
-		venueRepo:        venueRepo,
-		searchLogRepo:    searchLogRepo,
-		concertSearcher:  concertSearcher,
-		centroidResolver: centroidResolver,
-		publisher:        publisher,
-		metrics:          metrics,
-		searchCacheTTL:   searchCacheTTL,
-		discoveryWindow:  discoveryWindow,
-		logger:           logger,
+		artistRepo:        artistRepo,
+		concertRepo:       concertRepo,
+		venueRepo:         venueRepo,
+		searchLogRepo:     searchLogRepo,
+		stagedConcertRepo: stagedConcertRepo,
+		concertSearcher:   concertSearcher,
+		centroidResolver:  centroidResolver,
+		publisher:         publisher,
+		metrics:           metrics,
+		searchCacheTTL:    searchCacheTTL,
+		discoveryWindow:   discoveryWindow,
+		logger:            logger,
 	}
 }
 
@@ -270,10 +273,18 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		err = nil
 	}
 
-	// Get existing upcoming concerts for deduplication
+	// Get existing upcoming concerts for deduplication.
 	existing, err := uc.concertRepo.ListByArtist(ctx, artistID, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list existing concerts: %w", err)
+	}
+
+	// Fetch pending staged rows for this artist so that already-staged concerts
+	// are not re-staged. The rejection log is intentionally NOT consulted here:
+	// a rejected concert can always re-enter the queue on a subsequent run.
+	pendingKeys, err := uc.stagedConcertRepo.ListPendingDedupKeysByArtist(ctx, artistID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list pending staged concert keys: %w", err)
 	}
 
 	// Search new concerts via external API (deadline inherited from HandlerTimeout)
@@ -282,7 +293,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
 
-	// Deduplicate: one event per artist per date — CPU-bound O(n) set operations.
+	// Deduplicate against published concerts.
 	_, filterSpan := otel.Tracer("usecase/concert").Start(ctx, "FilterNewConcerts")
 	newScraped := entity.ScrapedConcerts(scraped).FilterNew(existing)
 	filterSpan.SetAttributes(
@@ -290,6 +301,24 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_
 		attribute.Int("filter.new_count", len(newScraped)),
 	)
 	filterSpan.End()
+
+	// Further deduplicate against pending staged rows. The staged dedup key
+	// uses (local_date, listed_venue_name) — the raw discovery-time identity —
+	// matching FilterNew's semantics.
+	if len(pendingKeys) > 0 {
+		pendingSet := make(map[string]bool, len(pendingKeys))
+		for _, k := range pendingKeys {
+			pendingSet[k.LocalDate.Format("2006-01-02")+"|"+k.ListedVenueName] = true
+		}
+		filtered := newScraped[:0]
+		for _, sc := range newScraped {
+			if pendingSet[sc.LocalDate.Format("2006-01-02")+"|"+sc.ListedVenueName] {
+				continue
+			}
+			filtered = append(filtered, sc)
+		}
+		newScraped = filtered
+	}
 
 	if filtered := len(scraped) - len(newScraped); filtered > 0 {
 		uc.logger.Debug(ctx, "filtered existing/duplicate events (same date)",

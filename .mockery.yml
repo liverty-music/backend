@@ -8,6 +8,8 @@ packages:
       ArtistUseCase:
       ArtistNameResolutionUseCase:
       ConcertUseCase:
+      ConcertCreationUseCase:
+      ConcertApprovalUseCase:
       MerchDiscoveryUseCase:
       UserUseCase:
       TicketUseCase:
@@ -51,6 +53,8 @@ packages:
       SalesPhaseRepository:
       SalesPhaseReminderRepository:
       SalesPhaseSearcher:
+      StagedConcertRepository:
+      RejectedConcertLogRepository:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:
