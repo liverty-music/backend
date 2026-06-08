@@ -395,6 +395,91 @@ COMMENT ON COLUMN sales_phase_reminders.sales_phase_id IS 'Reference to the sale
 COMMENT ON COLUMN sales_phase_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at apply_start_time), 2=APPLY_CLOSE_24H (24h before apply_end_time), 3=APPLY_CLOSE_1H (1h before apply_end_time), 4=RESULT_DAY (09:00 on lottery_result_time day). Payment-deadline stage deferred.';
 COMMENT ON COLUMN sales_phase_reminders.sent_at IS 'Timestamp when the reminder was dispatched';
 
+-- Staged concerts (approval queue)
+-- Concerts discovered by the Gemini search pipeline are held here in a pending
+-- state until a developer approves them in the admin console. Venue resolution
+-- (Google Places) runs at staging time and is denormalised onto the row so the
+-- reviewer can judge venue accuracy; the canonical venues row is created only on
+-- approval. This table holds only pending rows — both approve and reject delete
+-- the row, so a re-discovered concert can re-enter the queue after a rejection.
+CREATE TABLE IF NOT EXISTS staged_concerts (
+    id UUID PRIMARY KEY,
+    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    local_date DATE NOT NULL,
+    start_at TIMESTAMPTZ,
+    open_at TIMESTAMPTZ,
+    listed_venue_name TEXT NOT NULL,
+    admin_area TEXT,
+    source_url TEXT,
+    resolved_place_id TEXT,
+    resolved_venue_name TEXT,
+    resolved_admin_area TEXT,
+    resolved_latitude DOUBLE PRECISION,
+    resolved_longitude DOUBLE PRECISION,
+    discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_staged_concerts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+);
+
+COMMENT ON TABLE staged_concerts IS 'Approval queue for AI-discovered concerts. Holds only pending rows; approve publishes and deletes, reject logs and deletes. Re-discovery dedup consults this table plus published events, but never the rejection log.';
+COMMENT ON COLUMN staged_concerts.id IS 'Unique staged concert identifier (UUIDv7, application-generated). Exposed to the admin console as StagedConcertId.';
+COMMENT ON COLUMN staged_concerts.artist_id IS 'The performing artist this concert was discovered for.';
+COMMENT ON COLUMN staged_concerts.title IS 'Descriptive title extracted for the concert (e.g. tour or show name).';
+COMMENT ON COLUMN staged_concerts.local_date IS 'Scheduled calendar date of the concert in the venue local timezone.';
+COMMENT ON COLUMN staged_concerts.start_at IS 'Scheduled start time. NULL when the source did not state one.';
+COMMENT ON COLUMN staged_concerts.open_at IS 'Doors-open time. NULL when not announced.';
+COMMENT ON COLUMN staged_concerts.listed_venue_name IS 'Raw venue name exactly as scraped from the source, preserved for review.';
+COMMENT ON COLUMN staged_concerts.admin_area IS 'Administrative area extracted by Gemini for the concert. NULL when not extracted.';
+COMMENT ON COLUMN staged_concerts.source_url IS 'Source URL where the concert was found. NULL when not provided.';
+COMMENT ON COLUMN staged_concerts.resolved_place_id IS 'Google Places place id of the resolved venue. NULL when the listed name could not be resolved.';
+COMMENT ON COLUMN staged_concerts.resolved_venue_name IS 'Canonical venue name resolved via Google Places. NULL when unresolved.';
+COMMENT ON COLUMN staged_concerts.resolved_admin_area IS 'ISO 3166-2 admin area of the resolved venue. NULL when unresolved or indeterminate.';
+COMMENT ON COLUMN staged_concerts.resolved_latitude IS 'WGS 84 latitude of the resolved venue. NULL when unresolved.';
+COMMENT ON COLUMN staged_concerts.resolved_longitude IS 'WGS 84 longitude of the resolved venue. NULL when unresolved.';
+COMMENT ON COLUMN staged_concerts.discovered_at IS 'Timestamp when the discovery pipeline staged this concert. Used to order the review queue.';
+
+-- Rejected concerts log (append-only)
+-- Every rejection is recorded here for search-quality analysis. It is NEVER read
+-- by the discovery dedup path and so does not suppress future staging. artist_id
+-- has no foreign key so history survives artist deletion.
+CREATE TABLE IF NOT EXISTS rejected_concerts_log (
+    id UUID PRIMARY KEY,
+    artist_id UUID NOT NULL,
+    artist_name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    local_date DATE NOT NULL,
+    start_at TIMESTAMPTZ,
+    open_at TIMESTAMPTZ,
+    listed_venue_name TEXT NOT NULL,
+    admin_area TEXT,
+    source_url TEXT,
+    resolved_place_id TEXT,
+    resolved_venue_name TEXT,
+    resolved_admin_area TEXT,
+    reason TEXT NOT NULL,
+    reviewed_by TEXT,
+    rejected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_rejected_concerts_log_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+);
+
+COMMENT ON TABLE rejected_concerts_log IS 'Append-only audit of rejected staged concerts, used for searcher-quality analysis only. Not consulted by discovery dedup; never suppresses re-discovery.';
+COMMENT ON COLUMN rejected_concerts_log.id IS 'Unique log entry identifier (UUIDv7, application-generated).';
+COMMENT ON COLUMN rejected_concerts_log.artist_id IS 'The performing artist the rejected concert was discovered for. Intentionally not a foreign key so the log survives artist deletion.';
+COMMENT ON COLUMN rejected_concerts_log.artist_name IS 'Artist display name captured at rejection time for readability.';
+COMMENT ON COLUMN rejected_concerts_log.title IS 'Descriptive title of the rejected concert.';
+COMMENT ON COLUMN rejected_concerts_log.local_date IS 'Scheduled calendar date of the rejected concert.';
+COMMENT ON COLUMN rejected_concerts_log.start_at IS 'Scheduled start time of the rejected concert. NULL when unknown.';
+COMMENT ON COLUMN rejected_concerts_log.open_at IS 'Doors-open time of the rejected concert. NULL when unknown.';
+COMMENT ON COLUMN rejected_concerts_log.listed_venue_name IS 'Raw scraped venue name of the rejected concert.';
+COMMENT ON COLUMN rejected_concerts_log.admin_area IS 'Administrative area extracted for the rejected concert. NULL when not extracted.';
+COMMENT ON COLUMN rejected_concerts_log.source_url IS 'Source URL of the rejected concert. NULL when not provided.';
+COMMENT ON COLUMN rejected_concerts_log.resolved_place_id IS 'Google Places place id of the resolved venue at rejection time. NULL when unresolved.';
+COMMENT ON COLUMN rejected_concerts_log.resolved_venue_name IS 'Resolved canonical venue name at rejection time. NULL when unresolved.';
+COMMENT ON COLUMN rejected_concerts_log.resolved_admin_area IS 'Resolved admin area at rejection time. NULL when unresolved.';
+COMMENT ON COLUMN rejected_concerts_log.reason IS 'Reviewer-provided reason for rejecting the concert.';
+COMMENT ON COLUMN rejected_concerts_log.reviewed_by IS 'Identity (Zitadel subject) of the developer who rejected the concert. NULL when unavailable.';
+COMMENT ON COLUMN rejected_concerts_log.rejected_at IS 'Timestamp when the concert was rejected.';
+
 -- ============================================================
 -- Indexes
 -- ============================================================
@@ -471,3 +556,24 @@ COMMENT ON INDEX idx_sales_phase_reminders_user_id IS 'Optimizes lookup of all r
 
 CREATE INDEX IF NOT EXISTS idx_sales_phase_reminders_sales_phase_id ON sales_phase_reminders(sales_phase_id);
 COMMENT ON INDEX idx_sales_phase_reminders_sales_phase_id IS 'Optimizes lookup of all reminder records for a sales phase';
+
+-- Staged concerts indexes
+-- Two partial unique indexes form the NULL-safe natural key: when the venue
+-- resolved, dedup on the canonical place id; otherwise fall back to the raw
+-- listed venue name. They never overlap because the predicates are mutually
+-- exclusive on resolved_place_id IS [NOT] NULL.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_staged_concerts_by_place ON staged_concerts(artist_id, local_date, resolved_place_id) WHERE resolved_place_id IS NOT NULL;
+COMMENT ON INDEX uq_staged_concerts_by_place IS 'Natural-key dedup for resolved venues: one pending row per (artist, date, place id).';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_staged_concerts_by_listed_name ON staged_concerts(artist_id, local_date, listed_venue_name) WHERE resolved_place_id IS NULL;
+COMMENT ON INDEX uq_staged_concerts_by_listed_name IS 'Natural-key dedup fallback when the venue did not resolve: one pending row per (artist, date, raw listed name).';
+
+CREATE INDEX IF NOT EXISTS idx_staged_concerts_discovered_at ON staged_concerts(discovered_at);
+COMMENT ON INDEX idx_staged_concerts_discovered_at IS 'Orders the review queue by discovery time';
+
+-- Rejected concerts log indexes
+CREATE INDEX IF NOT EXISTS idx_rejected_concerts_log_artist_id ON rejected_concerts_log(artist_id);
+COMMENT ON INDEX idx_rejected_concerts_log_artist_id IS 'Supports per-artist analysis of repeated rejection patterns';
+
+CREATE INDEX IF NOT EXISTS idx_rejected_concerts_log_rejected_at ON rejected_concerts_log(rejected_at);
+COMMENT ON INDEX idx_rejected_concerts_log_rejected_at IS 'Supports time-windowed analysis of rejections';

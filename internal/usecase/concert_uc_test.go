@@ -17,6 +17,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // Default skip windows used to construct the use case in tests; they mirror the
@@ -28,14 +29,15 @@ const (
 
 // concertTestDeps holds all dependencies for ConcertUseCase tests.
 type concertTestDeps struct {
-	artistRepo       *mocks.MockArtistRepository
-	concertRepo      *mocks.MockConcertRepository
-	venueRepo        *mocks.MockVenueRepository
-	searchLogRepo    *mocks.MockSearchLogRepository
-	searcher         *mocks.MockConcertSearcher
-	centroidResolver usecase.CentroidResolver
-	publisher        *gochannel.GoChannel
-	uc               usecase.ConcertUseCase
+	artistRepo        *mocks.MockArtistRepository
+	concertRepo       *mocks.MockConcertRepository
+	venueRepo         *mocks.MockVenueRepository
+	searchLogRepo     *mocks.MockSearchLogRepository
+	stagedConcertRepo *mocks.MockStagedConcertRepository
+	searcher          *mocks.MockConcertSearcher
+	centroidResolver  usecase.CentroidResolver
+	publisher         *gochannel.GoChannel
+	uc                usecase.ConcertUseCase
 }
 
 // noopCentroidResolver is a test stub that always returns "not found".
@@ -52,15 +54,16 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 	logger := newTestLogger(t)
 	pub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 64}, watermill.NopLogger{})
 	d := &concertTestDeps{
-		artistRepo:       mocks.NewMockArtistRepository(t),
-		concertRepo:      mocks.NewMockConcertRepository(t),
-		venueRepo:        mocks.NewMockVenueRepository(t),
-		searchLogRepo:    mocks.NewMockSearchLogRepository(t),
-		searcher:         mocks.NewMockConcertSearcher(t),
-		centroidResolver: noopCentroidResolver{},
-		publisher:        pub,
+		artistRepo:        mocks.NewMockArtistRepository(t),
+		concertRepo:       mocks.NewMockConcertRepository(t),
+		venueRepo:         mocks.NewMockVenueRepository(t),
+		searchLogRepo:     mocks.NewMockSearchLogRepository(t),
+		stagedConcertRepo: mocks.NewMockStagedConcertRepository(t),
+		searcher:          mocks.NewMockConcertSearcher(t),
+		centroidResolver:  noopCentroidResolver{},
+		publisher:         pub,
 	}
-	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.searchLogRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, testSearchCacheTTL, testDiscoveryWindow, logger)
+	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.searchLogRepo, d.stagedConcertRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, testSearchCacheTTL, testDiscoveryWindow, logger)
 	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
@@ -268,6 +271,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 				d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
@@ -293,6 +297,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(site, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, artist, site, mock.AnythingOfType("time.Time")).Return(nil, nil).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			},
@@ -310,6 +315,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, apperr.ErrInternal).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusFailed).Return(nil).Once()
 			},
@@ -331,6 +337,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 				d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
@@ -357,6 +364,7 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(existing, nil).Once()
+				d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 				// Existing has a nil venue name; the (date, venue) key differs, so the
@@ -446,6 +454,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
@@ -503,6 +512,7 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
@@ -575,6 +585,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
@@ -610,6 +621,7 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(scraped, nil).Once()
 			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
@@ -785,6 +797,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(tt.existing, nil).Once()
+				d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
 				d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(tt.scraped, nil).Once()
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
 				// A published discovery records last_found_at; no publish → no MarkFound.
@@ -857,5 +870,95 @@ func TestConcertUseCase_ListWithProximity(t *testing.T) {
 		assert.Len(t, groups[0].Away, 1)
 		assert.Empty(t, groups[0].Home)
 		assert.Empty(t, groups[0].Nearby)
+	})
+}
+
+// TestSearchNewConcerts_StagedDedup verifies that concerts already pending in
+// staged_concerts are excluded from the discovery batch so they are not
+// re-staged, while the rejection log is intentionally NOT consulted (a rejected
+// concert can always re-enter the queue).
+func TestSearchNewConcerts_StagedDedup(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	artistID := "artist-1"
+	artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
+
+	concertDate := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	t.Run("concert matching a pending staged key is excluded from discovery", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			d := newConcertTestDeps(t)
+
+			pendingKey := entity.StagedConcertDedupKey{
+				LocalDate:       concertDate,
+				ListedVenueName: "Zepp Tokyo",
+			}
+
+			scraped := []*entity.ScrapedConcert{
+				// This one is already pending — must be excluded.
+				{Title: "Already Staged", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com/a"},
+				// This one is genuinely new — must pass.
+				{Title: "New Show", ListedVenueName: "Osaka Hall", LocalDate: concertDate, SourceURL: "https://example.com/b"},
+			}
+
+			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
+			require.NoError(t, err)
+
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			// Return the pending key — the "Already Staged" concert must be filtered out.
+			d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).
+				Return([]entity.StagedConcertDedupKey{pendingKey}, nil).Once()
+			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).
+				Return(scraped, nil).Once()
+			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
+
+			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			require.NoError(t, err)
+
+			// Only the genuinely new concert should be published.
+			got := receivePublishedConcerts(t, ctx, sub)
+			assert.Equal(t, 1, got, "pending staged concert must be excluded; only the new show should be published")
+		})
+	})
+
+	t.Run("pending staged keys do not suppress rejected concerts (rejection log not consulted)", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			d := newConcertTestDeps(t)
+
+			// No pending keys — empty slice means nothing is staged for this artist.
+			scraped := []*entity.ScrapedConcert{
+				{Title: "Previously Rejected", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com/rejected"},
+			}
+
+			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
+			require.NoError(t, err)
+
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			// No pending keys → rejection log not in the picture, the concert re-enters.
+			d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).
+				Return(nil, nil).Once()
+			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).
+				Return(scraped, nil).Once()
+			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
+
+			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			require.NoError(t, err)
+
+			got := receivePublishedConcerts(t, ctx, sub)
+			assert.Equal(t, 1, got, "previously rejected concert is not suppressed — it should be re-discovered")
+		})
 	})
 }

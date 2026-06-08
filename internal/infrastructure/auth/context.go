@@ -1,7 +1,13 @@
 // Package auth provides authentication and authorization infrastructure for the application.
 package auth
 
-import "context"
+import (
+	"context"
+	"errors"
+	"slices"
+
+	"connectrpc.com/connect"
+)
 
 // Claims represents JWT claims extracted from the token.
 type Claims struct {
@@ -15,6 +21,18 @@ type Claims struct {
 	// This is extracted from the email_verified private claim set by a Zitadel Action.
 	// Defaults to false when the claim is absent (fail-closed).
 	EmailVerified bool
+	// Roles is the list of Zitadel project role names the caller holds.
+	// Populated from both the global claim
+	// "urn:zitadel:iam:org:project:roles" and any project-scoped claim
+	// "urn:zitadel:iam:org:project:{id}:roles". Each claim is a JSON object
+	// whose keys are role names; the values (org-id→domain maps) are ignored.
+	// An empty slice means the token carries no role grants.
+	Roles []string
+}
+
+// HasRole reports whether the caller holds the named Zitadel project role.
+func (c *Claims) HasRole(role string) bool {
+	return slices.Contains(c.Roles, role)
 }
 
 // TokenValidator validates JWT tokens and returns the claims.
@@ -55,4 +73,20 @@ func GetUserID(ctx context.Context) (string, bool) {
 		return "", false
 	}
 	return claims.Sub, true
+}
+
+// RequireRole checks that the authenticated caller holds the named Zitadel
+// project role. It returns a PermissionDenied connect error when claims are
+// absent from the context or the role is not present in the token. Handlers
+// that are restricted to internal admin callers must invoke this at the start
+// of every method.
+func RequireRole(ctx context.Context, role string) error {
+	claims, ok := GetClaims(ctx)
+	if !ok || claims == nil {
+		return connect.NewError(connect.CodePermissionDenied, errors.New("caller is not authenticated"))
+	}
+	if !claims.HasRole(role) {
+		return connect.NewError(connect.CodePermissionDenied, errors.New("caller does not hold the required role: "+role))
+	}
+	return nil
 }

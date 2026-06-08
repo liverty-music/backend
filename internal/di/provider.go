@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	adminconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/v1/adminv1connect"
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	entryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/entry/v1/entryv1connect"
@@ -86,7 +87,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	followRepo := rdb.NewFollowRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db)
 	searchLogRepo := rdb.NewSearchLogRepository(db)
+	stagedConcertRepo := rdb.NewStagedConcertRepository(db)
+	rejectedConcertRepo := rdb.NewRejectedConcertLogRepository(db)
 	ticketRepo := rdb.NewTicketRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
@@ -189,7 +193,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, logger)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, stagedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	concertApprovalUC := usecase.NewConcertApprovalUseCase(stagedConcertRepo, rejectedConcertRepo, venueRepo, seriesRepo, concertRepo, artistRepo, eventPublisher, logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
@@ -249,6 +254,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// RPC handlers (protected by authn middleware)
 	handlers := []server.RPCHandlerFunc{
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return adminconnect.NewConcertModerationServiceHandler(
+				rpc.NewConcertModerationHandler(concertApprovalUC, logger),
+				opts...,
+			)
+		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return userconnect.NewUserServiceHandler(
 				rpc.NewUserHandler(userUC, emailVerifier, logger),
