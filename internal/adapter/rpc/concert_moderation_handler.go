@@ -7,7 +7,6 @@ import (
 	adminv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
@@ -19,29 +18,23 @@ var _ adminv1connect.ConcertModerationServiceHandler = (*ConcertModerationHandle
 // ConcertModerationHandler implements the ConcertModerationService Connect interface.
 // All methods require the caller to hold the "admin" Zitadel project role.
 type ConcertModerationHandler struct {
-	stagedConcertRepo      entity.StagedConcertRepository
-	artistRepo             entity.ArtistRepository
 	concertApprovalUseCase usecase.ConcertApprovalUseCase
 	logger                 *logging.Logger
 }
 
 // NewConcertModerationHandler creates a new concert moderation handler.
 func NewConcertModerationHandler(
-	stagedConcertRepo entity.StagedConcertRepository,
-	artistRepo entity.ArtistRepository,
 	concertApprovalUseCase usecase.ConcertApprovalUseCase,
 	logger *logging.Logger,
 ) *ConcertModerationHandler {
 	return &ConcertModerationHandler{
-		stagedConcertRepo:      stagedConcertRepo,
-		artistRepo:             artistRepo,
 		concertApprovalUseCase: concertApprovalUseCase,
 		logger:                 logger,
 	}
 }
 
 // ListPendingConcerts returns every staged concert currently awaiting review.
-// The performer artist is resolved per row so reviewers see full artist detail.
+// Performer resolution is delegated to the use case.
 func (h *ConcertModerationHandler) ListPendingConcerts(
 	ctx context.Context,
 	_ *connect.Request[adminv1.ListPendingConcertsRequest],
@@ -50,18 +43,14 @@ func (h *ConcertModerationHandler) ListPendingConcerts(
 		return nil, err
 	}
 
-	staged, err := h.stagedConcertRepo.ListPending(ctx)
+	reviews, err := h.concertApprovalUseCase.ListPending(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	pending := make([]*adminv1.PendingConcert, 0, len(staged))
-	for _, sc := range staged {
-		artist, err := h.artistRepo.Get(ctx, sc.ArtistID)
-		if err != nil {
-			return nil, err
-		}
-		pending = append(pending, mapper.PendingConcertToProto(sc, artist))
+	pending := make([]*adminv1.PendingConcert, 0, len(reviews))
+	for _, r := range reviews {
+		pending = append(pending, mapper.PendingConcertToProto(r.Staged, r.Performer))
 	}
 
 	return connect.NewResponse(&adminv1.ListPendingConcertsResponse{

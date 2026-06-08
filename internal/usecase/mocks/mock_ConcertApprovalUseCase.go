@@ -5,6 +5,7 @@ package mocks
 import (
 	context "context"
 
+	usecase "github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -64,6 +65,64 @@ func (_c *MockConcertApprovalUseCase_Approve_Call) Return(_a0 error) *MockConcer
 }
 
 func (_c *MockConcertApprovalUseCase_Approve_Call) RunAndReturn(run func(context.Context, string) error) *MockConcertApprovalUseCase_Approve_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListPending provides a mock function with given fields: ctx
+func (_m *MockConcertApprovalUseCase) ListPending(ctx context.Context) ([]*usecase.PendingConcertReview, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListPending")
+	}
+
+	var r0 []*usecase.PendingConcertReview
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]*usecase.PendingConcertReview, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []*usecase.PendingConcertReview); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*usecase.PendingConcertReview)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertApprovalUseCase_ListPending_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListPending'
+type MockConcertApprovalUseCase_ListPending_Call struct {
+	*mock.Call
+}
+
+// ListPending is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockConcertApprovalUseCase_Expecter) ListPending(ctx interface{}) *MockConcertApprovalUseCase_ListPending_Call {
+	return &MockConcertApprovalUseCase_ListPending_Call{Call: _e.mock.On("ListPending", ctx)}
+}
+
+func (_c *MockConcertApprovalUseCase_ListPending_Call) Run(run func(ctx context.Context)) *MockConcertApprovalUseCase_ListPending_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockConcertApprovalUseCase_ListPending_Call) Return(_a0 []*usecase.PendingConcertReview, _a1 error) *MockConcertApprovalUseCase_ListPending_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertApprovalUseCase_ListPending_Call) RunAndReturn(run func(context.Context) ([]*usecase.PendingConcertReview, error)) *MockConcertApprovalUseCase_ListPending_Call {
 	_c.Call.Return(run)
 	return _c
 }

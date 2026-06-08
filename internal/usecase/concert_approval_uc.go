@@ -9,12 +9,31 @@ import (
 	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
+
+// PendingConcertReview pairs a staged concert with its resolved performer
+// for presentation in the admin review queue.
+type PendingConcertReview struct {
+	// Staged is the staged concert row awaiting approval.
+	Staged *entity.StagedConcert
+	// Performer is the artist who will perform at the concert.
+	Performer *entity.Artist
+}
 
 // ConcertApprovalUseCase defines the interface for the admin-console approval
 // gate over AI-discovered concerts.
 type ConcertApprovalUseCase interface {
+	// ListPending returns all staged concerts currently awaiting review, each
+	// paired with the performing artist resolved per row. Results are ordered
+	// oldest-first (review-queue order).
+	//
+	// # Possible errors
+	//
+	//  - Internal: If the repository query or a per-row artist lookup fails.
+	ListPending(ctx context.Context) ([]*PendingConcertReview, error)
+
 	// Approve promotes a pending staged concert to a published event. It
 	// resolves or creates the venues row from the staged resolved fields, builds
 	// the Concert/Series/Event entities, inserts them, publishes CONCERT.created,
@@ -26,6 +45,9 @@ type ConcertApprovalUseCase interface {
 	//
 	//  - NotFound: If the staged concert does not exist (idempotent — treated as
 	//    success internally; callers should not distinguish this).
+	//  - FailedPrecondition: If an equivalent known-start event already covers
+	//    the same (venue, date) and the staged concert has no start time. The
+	//    staged row is preserved so a reviewer can reject it to clear the queue.
 	//  - Internal: If the venue, series, or event insert fails.
 	Approve(ctx context.Context, stagedID string) error
 
@@ -79,6 +101,29 @@ func NewConcertApprovalUseCase(
 	}
 }
 
+// ListPending returns all staged concerts awaiting review, each paired with
+// the resolved performing artist.
+func (uc *concertApprovalUseCase) ListPending(ctx context.Context) ([]*PendingConcertReview, error) {
+	staged, err := uc.stagedConcertRepo.ListPending(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list pending staged concerts: %w", err)
+	}
+
+	reviews := make([]*PendingConcertReview, 0, len(staged))
+	for _, sc := range staged {
+		artist, err := uc.artistRepo.Get(ctx, sc.ArtistID)
+		if err != nil {
+			return nil, fmt.Errorf("get artist %q for staged concert %q: %w", sc.ArtistID, sc.ID, err)
+		}
+		reviews = append(reviews, &PendingConcertReview{
+			Staged:    sc,
+			Performer: artist,
+		})
+	}
+
+	return reviews, nil
+}
+
 // Approve promotes a pending staged concert to a published event.
 func (uc *concertApprovalUseCase) Approve(ctx context.Context, stagedID string) error {
 	sc, err := uc.stagedConcertRepo.GetByID(ctx, stagedID)
@@ -116,27 +161,39 @@ func (uc *concertApprovalUseCase) Approve(ctx context.Context, stagedID string) 
 		return fmt.Errorf("build and insert concerts for staged concert %q: %w", stagedID, err)
 	}
 
+	// When zero events were inserted it means an equivalent known-start event
+	// already exists for this (venue, date) and the staged concert carries no
+	// start time. Deleting the staged row here would silently lose it with no
+	// recovery path. Instead, return FailedPrecondition so the caller surfaces
+	// the condition to the reviewer, who can then reject it to clear the queue.
+	if len(insertedIDs) == 0 {
+		uc.logger.Warn(ctx, "approve: equivalent event already exists — staged row preserved for manual rejection",
+			slog.String("artist_id", sc.ArtistID),
+			slog.String("staged_concert_id", stagedID),
+		)
+		return apperr.New(codes.FailedPrecondition,
+			"an equivalent event already exists for this venue and date; reject this entry to remove it from the queue")
+	}
+
 	uc.logger.Info(ctx, "staged concert approved and published",
 		slog.String("artist_id", sc.ArtistID),
 		slog.String("staged_concert_id", stagedID),
 		slog.Int("inserted", len(insertedIDs)),
 	)
 
-	// Publish CONCERT.created only when at least one event was genuinely inserted.
-	if len(insertedIDs) > 0 {
-		created := ConcertCreatedData{
-			ArtistID:   sc.ArtistID,
-			ConcertIDs: insertedIDs,
-		}
-		if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
-			uc.logger.Error(ctx, "failed to publish CONCERT.created after approval", err,
-				slog.String("staged_concert_id", stagedID),
-			)
-			// Non-fatal: event is persisted; notification will retry or be missed.
-		}
+	// Publish CONCERT.created for every genuinely inserted event.
+	created := ConcertCreatedData{
+		ArtistID:   sc.ArtistID,
+		ConcertIDs: insertedIDs,
+	}
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
+		uc.logger.Error(ctx, "failed to publish CONCERT.created after approval", err,
+			slog.String("staged_concert_id", stagedID),
+		)
+		// Non-fatal: event is persisted; notification will retry or be missed.
 	}
 
-	// Delete the staged row.
+	// Delete the staged row only after a successful insertion.
 	if err := uc.stagedConcertRepo.Delete(ctx, stagedID); err != nil {
 		return fmt.Errorf("delete staged concert after approval: %w", err)
 	}
@@ -259,10 +316,17 @@ func (uc *concertApprovalUseCase) createVenueFromStaged(ctx context.Context, sc 
 		name = *sc.ResolvedVenueName
 	}
 
+	// Prefer the resolved admin area when available; fall back to the
+	// Gemini-extracted scraped value so admin_area is never silently lost.
+	adminArea := sc.AdminArea
+	if sc.ResolvedAdminArea != nil {
+		adminArea = sc.ResolvedAdminArea
+	}
+
 	venue := &entity.Venue{
 		ID:              id.String(),
 		Name:            name,
-		AdminArea:       sc.ResolvedAdminArea,
+		AdminArea:       adminArea,
 		GooglePlaceID:   sc.ResolvedPlaceID,
 		ListedVenueName: &sc.ListedVenueName,
 	}

@@ -10,8 +10,8 @@ import (
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
+	"github.com/liverty-music/backend/internal/usecase"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -37,14 +37,12 @@ func noRoleCtx() context.Context {
 
 func newModerationHandler(
 	t *testing.T,
-	stagedRepo *entitymocks.MockStagedConcertRepository,
-	artistRepo *entitymocks.MockArtistRepository,
 	approvalUC *usecasemocks.MockConcertApprovalUseCase,
 ) *handler.ConcertModerationHandler {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return handler.NewConcertModerationHandler(stagedRepo, artistRepo, approvalUC, logger)
+	return handler.NewConcertModerationHandler(approvalUC, logger)
 }
 
 // ---------- ListPendingConcerts ----------
@@ -89,8 +87,7 @@ func TestConcertModerationHandler_ListPendingConcerts(t *testing.T) {
 		ctx context.Context
 	}
 	type dep struct {
-		stagedRepo func(*entitymocks.MockStagedConcertRepository)
-		artistRepo func(*entitymocks.MockArtistRepository)
+		approvalUC func(*usecasemocks.MockConcertApprovalUseCase)
 	}
 
 	tests := []struct {
@@ -105,11 +102,10 @@ func TestConcertModerationHandler_ListPendingConcerts(t *testing.T) {
 			name: "return pending concerts with resolved venue",
 			args: args{ctx: adminCtx()},
 			dep: dep{
-				stagedRepo: func(m *entitymocks.MockStagedConcertRepository) {
-					m.EXPECT().ListPending(mock.Anything).Return([]*entity.StagedConcert{stagedWithVenue}, nil).Once()
-				},
-				artistRepo: func(m *entitymocks.MockArtistRepository) {
-					m.EXPECT().Get(mock.Anything, "artist-1").Return(artistA, nil).Once()
+				approvalUC: func(m *usecasemocks.MockConcertApprovalUseCase) {
+					m.EXPECT().ListPending(mock.Anything).Return([]*usecase.PendingConcertReview{
+						{Staged: stagedWithVenue, Performer: artistA},
+					}, nil).Once()
 				},
 			},
 			check: func(t *testing.T, resp *connect.Response[adminv1.ListPendingConcertsResponse]) {
@@ -134,11 +130,10 @@ func TestConcertModerationHandler_ListPendingConcerts(t *testing.T) {
 			name: "return pending concerts without resolved venue",
 			args: args{ctx: adminCtx()},
 			dep: dep{
-				stagedRepo: func(m *entitymocks.MockStagedConcertRepository) {
-					m.EXPECT().ListPending(mock.Anything).Return([]*entity.StagedConcert{stagedNoVenue}, nil).Once()
-				},
-				artistRepo: func(m *entitymocks.MockArtistRepository) {
-					m.EXPECT().Get(mock.Anything, "artist-2").Return(artistB, nil).Once()
+				approvalUC: func(m *usecasemocks.MockConcertApprovalUseCase) {
+					m.EXPECT().ListPending(mock.Anything).Return([]*usecase.PendingConcertReview{
+						{Staged: stagedNoVenue, Performer: artistB},
+					}, nil).Once()
 				},
 			},
 			check: func(t *testing.T, resp *connect.Response[adminv1.ListPendingConcertsResponse]) {
@@ -154,8 +149,7 @@ func TestConcertModerationHandler_ListPendingConcerts(t *testing.T) {
 			name: "deny caller without admin role",
 			args: args{ctx: noRoleCtx()},
 			dep: dep{
-				stagedRepo: func(_ *entitymocks.MockStagedConcertRepository) {},
-				artistRepo: func(_ *entitymocks.MockArtistRepository) {},
+				approvalUC: func(_ *usecasemocks.MockConcertApprovalUseCase) {},
 			},
 			wantErr:  true,
 			wantCode: connect.CodePermissionDenied,
@@ -166,13 +160,10 @@ func TestConcertModerationHandler_ListPendingConcerts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			stagedRepo := entitymocks.NewMockStagedConcertRepository(t)
-			artistRepo := entitymocks.NewMockArtistRepository(t)
 			approvalUC := usecasemocks.NewMockConcertApprovalUseCase(t)
-			tt.dep.stagedRepo(stagedRepo)
-			tt.dep.artistRepo(artistRepo)
+			tt.dep.approvalUC(approvalUC)
 
-			h := newModerationHandler(t, stagedRepo, artistRepo, approvalUC)
+			h := newModerationHandler(t, approvalUC)
 			resp, err := h.ListPendingConcerts(tt.args.ctx, connect.NewRequest(&adminv1.ListPendingConcertsRequest{}))
 
 			if tt.wantErr {
@@ -233,12 +224,10 @@ func TestConcertModerationHandler_ApproveConcert(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			stagedRepo := entitymocks.NewMockStagedConcertRepository(t)
-			artistRepo := entitymocks.NewMockArtistRepository(t)
 			approvalUC := usecasemocks.NewMockConcertApprovalUseCase(t)
 			tt.dep.approvalUC(approvalUC)
 
-			h := newModerationHandler(t, stagedRepo, artistRepo, approvalUC)
+			h := newModerationHandler(t, approvalUC)
 			resp, err := h.ApproveConcert(tt.args.ctx, connect.NewRequest(&adminv1.ApproveConcertRequest{
 				StagedId: &entityv1.StagedConcertId{Value: tt.args.stagedID},
 			}))
@@ -303,12 +292,10 @@ func TestConcertModerationHandler_RejectConcert(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			stagedRepo := entitymocks.NewMockStagedConcertRepository(t)
-			artistRepo := entitymocks.NewMockArtistRepository(t)
 			approvalUC := usecasemocks.NewMockConcertApprovalUseCase(t)
 			tt.dep.approvalUC(approvalUC)
 
-			h := newModerationHandler(t, stagedRepo, artistRepo, approvalUC)
+			h := newModerationHandler(t, approvalUC)
 			resp, err := h.RejectConcert(tt.args.ctx, connect.NewRequest(&adminv1.RejectConcertRequest{
 				StagedId: &entityv1.StagedConcertId{Value: tt.args.stagedID},
 				Reason:   tt.args.reason,

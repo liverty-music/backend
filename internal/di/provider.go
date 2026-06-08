@@ -256,7 +256,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminconnect.NewConcertModerationServiceHandler(
-				rpc.NewConcertModerationHandler(stagedConcertRepo, artistRepo, concertApprovalUC, logger),
+				rpc.NewConcertModerationHandler(concertApprovalUC, logger),
 				opts...,
 			)
 		},
