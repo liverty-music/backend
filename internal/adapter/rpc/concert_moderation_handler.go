@@ -16,7 +16,10 @@ import (
 var _ adminv1connect.ConcertModerationServiceHandler = (*ConcertModerationHandler)(nil)
 
 // ConcertModerationHandler implements the ConcertModerationService Connect interface.
-// All methods require the caller to hold the "admin" Zitadel project role.
+//
+// Admin authorization is enforced at the admin server boundary by its server-wide
+// RequireRoleInterceptor (admin role), not by per-method checks here; the handler
+// is pure proto<->entity mapping. See internal/infrastructure/auth/authz.go.
 type ConcertModerationHandler struct {
 	concertApprovalUseCase usecase.ConcertApprovalUseCase
 	logger                 *logging.Logger
@@ -39,10 +42,6 @@ func (h *ConcertModerationHandler) ListPendingConcerts(
 	ctx context.Context,
 	_ *connect.Request[adminv1.ListPendingConcertsRequest],
 ) (*connect.Response[adminv1.ListPendingConcertsResponse], error) {
-	if err := auth.RequireRole(ctx, "admin"); err != nil {
-		return nil, err
-	}
-
 	reviews, err := h.concertApprovalUseCase.ListPending(ctx)
 	if err != nil {
 		return nil, err
@@ -65,10 +64,6 @@ func (h *ConcertModerationHandler) ApproveConcert(
 	ctx context.Context,
 	req *connect.Request[adminv1.ApproveConcertRequest],
 ) (*connect.Response[adminv1.ApproveConcertResponse], error) {
-	if err := auth.RequireRole(ctx, "admin"); err != nil {
-		return nil, err
-	}
-
 	stagedID := req.Msg.GetStagedId().GetValue()
 	if err := h.concertApprovalUseCase.Approve(ctx, stagedID); err != nil {
 		return nil, err
@@ -83,10 +78,6 @@ func (h *ConcertModerationHandler) RejectConcert(
 	ctx context.Context,
 	req *connect.Request[adminv1.RejectConcertRequest],
 ) (*connect.Response[adminv1.RejectConcertResponse], error) {
-	if err := auth.RequireRole(ctx, "admin"); err != nil {
-		return nil, err
-	}
-
 	claims, ok := auth.GetClaims(ctx)
 	reviewerSub := ""
 	if ok && claims != nil {

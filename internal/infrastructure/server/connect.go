@@ -43,6 +43,15 @@ type LongTimeoutRPCHandler struct {
 }
 
 // NewConnectServer creates a new Connect server instance.
+//
+// It is the shared factory for both the consumer and the admin Connect servers:
+// the two are built identically except for the port and CORS origins (carried by
+// serverCfg), the handler set (longTimeoutHandlers/handlerFuncs), and any
+// extraInterceptors. The consumer server passes no extra interceptors; the admin
+// server passes its boundary admin-authorization interceptor. extraInterceptors are
+// inserted after the claims bridge and before validation, preserving the
+// interceptor-chain-ordering invariants for both servers.
+//
 // longTimeoutHandlers are wrapped with their own http.TimeoutHandler instead of the default.
 func NewConnectServer(
 	serverCfg config.ServerSettings,
@@ -50,6 +59,7 @@ func NewConnectServer(
 	authFunc authn.AuthFunc,
 	rateLimiter *ratelimit.Limiter,
 	healthHandler HealthHandlerFunc,
+	extraInterceptors []connect.Interceptor,
 	longTimeoutHandlers []LongTimeoutRPCHandler,
 	handlerFuncs ...RPCHandlerFunc,
 ) *ConnectServer {
@@ -83,12 +93,21 @@ func NewConnectServer(
 	//                                   context from [1]. Inside [3] so access log still fires.
 	//   [6] claimsBridgeInterceptor        — Reads authn.infoKey (set by HTTP-layer authn.Middleware)
 	//                                        and writes auth.claimsKey for handlers.
+	//   [6b] extraInterceptors             — Optional per-server layers (e.g. the admin server's
+	//                                        REQUIRE-ADMIN authorization). Run after the claims bridge
+	//                                        so they see bridged claims, before validation.
 	//   [7] validationInterceptor          — Validates request proto via protovalidate. Innermost layer.
 	//
 	// Response path (innermost → outermost):
-	//   handler error (AppErr) → [7] pass → [6] pass → [5] pass (or catch panic) →
+	//   handler error (AppErr) → [7] pass → [6b] pass → [6] pass → [5] pass (or catch panic) →
 	//   [4] convert to *connect.Error → [3] log with correct status → [2] rate limit pass → [1] end span
 	//
+	// The claims bridge runs first so the bridged claims are visible to any
+	// extraInterceptors; validation runs last so it is innermost.
+	innerInterceptors := []connect.Interceptor{auth.ClaimsBridgeInterceptor{}}
+	innerInterceptors = append(innerInterceptors, extraInterceptors...)
+	innerInterceptors = append(innerInterceptors, validationInterceptor)
+
 	handlerOpts := []connect.HandlerOption{
 		connect.WithInterceptors(
 			tracingInterceptor,
@@ -97,10 +116,7 @@ func NewConnectServer(
 			apperr_connect.NewErrorHandlingInterceptor(logger),
 		),
 		newRecoverHandler(logger),
-		connect.WithInterceptors(
-			auth.ClaimsBridgeInterceptor{},
-			validationInterceptor,
-		),
+		connect.WithInterceptors(innerInterceptors...),
 	}
 
 	// Health check opts — minimal chain for Kubernetes probes.
