@@ -73,6 +73,8 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ConcertHandlerTimeout: 120 * time.Second,
 					IdleTimeout:           3 * time.Second,
 					AllowedOrigins:        nil,
+					AdminPort:             8090,
+					AdminAllowedOrigins:   nil,
 					RateLimit:             RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
 				},
 				Webhook: WebhookSettings{
@@ -116,6 +118,8 @@ func TestLoad_ServerConfig(t *testing.T) {
 				"SERVER_HANDLER_TIMEOUT":          "10s",
 				"SERVER_CONCERT_HANDLER_TIMEOUT":  "180s",
 				"SERVER_IDLE_TIMEOUT":             "45s",
+				"ADMIN_SERVER_PORT":               "9190",
+				"ADMIN_CORS_ALLOWED_ORIGINS":      "https://admin.example.com",
 				"DATABASE_NAME":                   "testdb",
 				"DATABASE_USER":                   "testuser",
 				"LOGGING_LEVEL":                   "debug",
@@ -164,6 +168,8 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ConcertHandlerTimeout: 180 * time.Second,
 					IdleTimeout:           45 * time.Second,
 					AllowedOrigins:        nil,
+					AdminPort:             9190,
+					AdminAllowedOrigins:   []string{"https://admin.example.com"},
 					RateLimit:             RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
 				},
 				Webhook: WebhookSettings{

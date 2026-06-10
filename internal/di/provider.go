@@ -252,14 +252,21 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		return grpchealth.NewHandler(healthChecker, opts...)
 	}
 
-	// RPC handlers (protected by authn middleware)
-	handlers := []server.RPCHandlerFunc{
+	// Admin RPC handlers — served ONLY by the dedicated admin server, whose
+	// server-wide RequireRoleInterceptor gates every procedure on the "admin"
+	// role. The consumer server below does NOT register these, so the admin
+	// surface cannot be reached via the consumer host.
+	adminHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminconnect.NewConcertModerationServiceHandler(
 				rpc.NewConcertModerationHandler(concertApprovalUC, logger),
 				opts...,
 			)
 		},
+	}
+
+	// Consumer RPC handlers (protected by authn middleware)
+	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return userconnect.NewUserServiceHandler(
 				rpc.NewUserHandler(userUC, emailVerifier, logger),
@@ -355,7 +362,20 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		AnonBurst: cfg.Server.RateLimit.AnonBurst,
 	}, time.Minute)
 
-	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, longTimeoutHandlers, handlers...)
+	// Consumer Connect server — all consumer services, no admin service, no
+	// extra interceptors.
+	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, nil, longTimeoutHandlers, handlers...)
+
+	// Admin Connect server — a second listener in the same binary on its own
+	// port and CORS allowlist, serving ONLY admin services. Its server-wide
+	// RequireRoleInterceptor (admin role) is the sole, structural authorization
+	// gate (handlers carry no per-method role check). It shares the auth func,
+	// rate limiter, and health checker with the consumer server.
+	adminServerCfg := cfg.Server
+	adminServerCfg.Port = cfg.Server.AdminPort
+	adminServerCfg.AllowedOrigins = cfg.Server.AdminAllowedOrigins
+	adminInterceptors := []connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}
+	adminSrv := server.NewConnectServer(adminServerCfg, logger, authFunc, rateLimiter, healthHandler, adminInterceptors, nil, adminHandlers...)
 
 	// Zitadel Actions v2 webhook listener — runs on a separate port so the
 	// webhook paths are unreachable via the public GKE Gateway. Validators
@@ -372,7 +392,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Register shutdown phases.
 	// Drain: health → NOT_SERVING, then servers drain in-flight requests,
 	// then cache cleanup goroutine stops.
-	shutdown.AddDrainPhase(healthChecker, srv, webhookSrv, rateLimiter, artistCache)
+	shutdown.AddDrainPhase(healthChecker, srv, adminSrv, webhookSrv, rateLimiter, artistCache)
 	shutdown.AddFlushPhase(publisher)
 	externalClosers := []io.Closer{lastfmClient, musicbrainzClient}
 	if sbtCloser != nil {
@@ -384,6 +404,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	return &App{
 		Server:          srv,
+		AdminServer:     adminSrv,
 		WebhookServer:   webhookSrv,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,

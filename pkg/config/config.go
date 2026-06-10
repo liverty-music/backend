@@ -174,6 +174,15 @@ type ServerSettings struct {
 	// Allowed CORS origins
 	AllowedOrigins []string `envconfig:"CORS_ALLOWED_ORIGINS"`
 
+	// AdminPort is the port for the dedicated admin Connect server (admin-scoped
+	// RPCs only). It runs as a second listener in the same backend binary on its
+	// own ingress host, governed independently of the consumer API.
+	AdminPort int `envconfig:"ADMIN_SERVER_PORT" default:"8090"`
+
+	// AdminAllowedOrigins is the CORS allowlist for the admin server (admin
+	// origins only), configured independently of AllowedOrigins.
+	AdminAllowedOrigins []string `envconfig:"ADMIN_CORS_ALLOWED_ORIGINS"`
+
 	// Rate limiting configuration
 	RateLimit RateLimitConfig `envconfig:""`
 }

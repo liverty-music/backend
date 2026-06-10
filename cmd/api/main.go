@@ -65,10 +65,18 @@ func run() error {
 	// separate goroutines. The webhook listener runs on a distinct port
 	// (default 9090) that is only exposed by the internal-only
 	// `server-webhook-svc` Service — not by the public Gateway.
-	errChan := make(chan error, 2)
+	errChan := make(chan error, 3)
 
 	go func() {
 		if err := app.Server.Start(); err != nil {
+			errChan <- err
+		}
+	}()
+
+	// Admin Connect server — second listener in this binary on its own port,
+	// exposed only via the internal admin Service / `api.admin.{env}` route.
+	go func() {
+		if err := app.AdminServer.Start(); err != nil {
 			errChan <- err
 		}
 	}()

@@ -27,13 +27,9 @@ func adminCtx() context.Context {
 	})
 }
 
-// noRoleCtx returns a context with claims but no admin role.
-func noRoleCtx() context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{
-		Sub:   "regular-sub-456",
-		Roles: []string{"viewer"},
-	})
-}
+// Admin-role enforcement lives in the admin server's boundary
+// RequireRoleInterceptor (see internal/infrastructure/auth/authz_test.go), not in
+// these handler methods, so these tests exercise only proto<->entity mapping.
 
 func newModerationHandler(
 	t *testing.T,
@@ -145,15 +141,6 @@ func TestConcertModerationHandler_ListPendingConcerts(t *testing.T) {
 				assert.Nil(t, pc.GetSourceUrl())
 			},
 		},
-		{
-			name: "deny caller without admin role",
-			args: args{ctx: noRoleCtx()},
-			dep: dep{
-				approvalUC: func(_ *usecasemocks.MockConcertApprovalUseCase) {},
-			},
-			wantErr:  true,
-			wantCode: connect.CodePermissionDenied,
-		},
 	}
 
 	for _, tt := range tests {
@@ -208,15 +195,6 @@ func TestConcertModerationHandler_ApproveConcert(t *testing.T) {
 					m.EXPECT().Approve(mock.Anything, "staged-abc").Return(nil).Once()
 				},
 			},
-		},
-		{
-			name: "deny caller without admin role",
-			args: args{ctx: noRoleCtx(), stagedID: "staged-abc"},
-			dep: dep{
-				approvalUC: func(_ *usecasemocks.MockConcertApprovalUseCase) {},
-			},
-			wantErr:  true,
-			wantCode: connect.CodePermissionDenied,
 		},
 	}
 
@@ -276,15 +254,6 @@ func TestConcertModerationHandler_RejectConcert(t *testing.T) {
 					m.EXPECT().Reject(mock.Anything, "staged-xyz", "wrong date", "admin-sub-123").Return(nil).Once()
 				},
 			},
-		},
-		{
-			name: "deny caller without admin role",
-			args: args{ctx: noRoleCtx(), stagedID: "staged-xyz", reason: "wrong date"},
-			dep: dep{
-				approvalUC: func(_ *usecasemocks.MockConcertApprovalUseCase) {},
-			},
-			wantErr:  true,
-			wantCode: connect.CodePermissionDenied,
 		},
 	}
 
