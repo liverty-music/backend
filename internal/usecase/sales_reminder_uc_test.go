@@ -389,7 +389,6 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 	phase := &entity.SalesPhase{
 		ID:                "phase-late",
 		SeriesID:          "series-late",
-		CoveredEventIDs:   []string{"event-001"},
 		Channel:           entity.SalesChannelPlayguide,
 		ProviderName:      "e+",
 		ApplyStartTime:    base.AddDate(0, 0, -30), // 30 days ago
@@ -400,23 +399,6 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 		DiscoveredTime: base.AddDate(0, 0, -60),
 	}
 
-	adminArea := "JP-13"
-	concert := &entity.Concert{
-		Event: entity.Event{
-			ID:       "event-001",
-			SeriesID: "series-late",
-			Venue: &entity.Venue{
-				ID:        "venue-001",
-				AdminArea: &adminArea,
-			},
-		},
-		Performers: []*entity.Artist{{ID: "artist-001", Name: "LateBand"}},
-	}
-	follower := &entity.Follower{
-		ArtistID: "artist-001",
-		User:     &entity.User{ID: "user-001", Home: nil},
-		Hype:     entity.HypeAway,
-	}
 	user := &entity.User{
 		ID:                "user-001",
 		PreferredLanguage: "en",
@@ -427,15 +409,14 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 
 	salesPhaseRepo := entitymocks.NewMockSalesPhaseRepository(t)
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
-	concertRepo := entitymocks.NewMockConcertRepository(t)
-	followRepo := entitymocks.NewMockFollowRepository(t)
+	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
 	userRepo := entitymocks.NewMockUserRepository(t)
 	pub := ucmocks.NewMockEventPublisher(t)
 
 	salesPhaseRepo.On("ListPhasesWithPendingMilestones", ctx, lookahead, usecase.ReminderScanLookbackMargin).
 		Return([]*entity.SalesPhase{phase}, nil)
-	concertRepo.On("ListByIDs", ctx, []string{"event-001"}).Return([]*entity.Concert{concert}, nil)
-	followRepo.On("ListFollowers", ctx, "artist-001").Return([]*entity.Follower{follower}, nil)
+	// Audience is resolved from Tracking journeys on the phase's series.
+	journeyRepo.On("ListUserIDsTrackingSeries", ctx, "series-late").Return([]string{"user-001"}, nil)
 	userRepo.On("Get", ctx, "user-001").Return(user, nil)
 
 	// Batch sent-check returns empty (none sent yet).
@@ -474,7 +455,7 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 	}
 
 	uc := usecase.NewSalesReminderUseCase(
-		salesPhaseRepo, reminderRepo, concertRepo, followRepo, userRepo,
+		salesPhaseRepo, reminderRepo, journeyRepo, userRepo,
 		pub, lookahead, logger,
 	)
 

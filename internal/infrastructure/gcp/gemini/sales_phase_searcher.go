@@ -82,6 +82,8 @@ const (
 
 アーティストの指定シリーズについて、公式サイトおよびチケット販売会社のページから、ユーザーが「今後申し込める」チケット販売スケジュールを抽出することがゴールです。ユーザー(ファン)が見逃したくないのは、これから受付が始まる先行・先着・一般発売です。すでに申込受付が終了した販売(申込締切が本日より前のもの)は価値がないため対象外とし、出力しないでください。
 
+販売フェーズはシリーズ(ツアー)全体に対する1つの販売機会として扱います。どの個別公演を対象とするか(対象公演日)は抽出不要です。販売条件(チャネル・受付期間など)が異なる販売は、それぞれ別の <phase> として出力してください。
+
 以下の出力フォーマットに従い、販売フェーズごとに <phase> タグでまとめてください。
 
 <extracted>
@@ -96,19 +98,6 @@ const (
     <lottery_result></lottery_result>
     <payment_deadline></payment_deadline>
     <url>https://fc.example/entry</url>
-    <covered_dates>2026年9月1日,2026年9月2日</covered_dates>
-  </phase>
-  <phase>
-    <method>抽選</method>
-    <channel>ファンクラブ</channel>
-    <provider_name></provider_name>
-    <sequence>0</sequence>
-    <apply_start>2026年7月1日 10:00</apply_start>
-    <apply_end>2026年7月10日 23:59</apply_end>
-    <lottery_result></lottery_result>
-    <payment_deadline></payment_deadline>
-    <url>https://fc.example/entry</url>
-    <covered_dates>2026年10月5日,2026年10月6日</covered_dates>
   </phase>
   <phase>
     <method>先着</method>
@@ -120,11 +109,8 @@ const (
     <lottery_result></lottery_result>
     <payment_deadline></payment_deadline>
     <url>https://t.pia.jp/example</url>
-    <covered_dates>全公演</covered_dates>
   </phase>
 </extracted>
-
-上の例では、同じFC先行でも前半(9月1・2日)と後半(10月5・6日)で対象公演が異なるため、別々の <phase> として covered_dates を区別している。一般発売は全公演対象なので covered_dates に「全公演」と記入している。
 
 抽出ルール:
 - source_url: 最も詳細な情報を記載しているページのURL。
@@ -139,11 +125,6 @@ const (
 - provider_name: チケット販売会社名を verbatim (一字一句そのまま) でコピーすること。不明な場合は空欄。特に channel が「プレイガイド」の場合は必ず具体的な会社名 (例: "e+"、"チケットぴあ"、"ローチケ") を記入する。
 - sequence: 同一チャネルで複数回抽選がある場合の0始まりの順番。通常は0。
 - apply_start, apply_end, lottery_result, payment_deadline: verbatim な日時文字列。不明・非該当の場合は空欄。
-- covered_dates: このフェーズが対象とする公演日を必ず明示すること。
-    ・一部の公演のみ対象(前半/後半/地域別など)の場合は、対象公演日をカンマ区切りで漏れなく列挙する。
-    ・全公演が対象の場合は「全公演」の一語のみを記入する。
-    ・空欄にしてはならない。対象公演がどうしても判別できない場合のみ空欄とし、その場合このフェーズは保存対象から除外される。
-- 同一シリーズに前半・後半など対象公演が異なる複数の販売がある場合は、それぞれ別の <phase> とし、covered_dates を必ず区別して記入すること(一方を全公演にしない)。
 - 対象期間: ユーザープロンプトで与えられる「本日」を基準とし、申込締切が本日より前の販売(受付終了済み)は出力しないこと。これから受付が始まる、または現在受付中で締切が本日以降の販売のみを対象とする。特に、告知されたばかりの今後の一般発売・追加先行を見落とさないこと。
 - 情報が確認できない項目はタグを空欄にすること。推測や補完は一切禁止。
 - 余計なテキストは含めず、XMLのみをレスポンスに含めること。
@@ -162,13 +143,9 @@ const (
 	// strings to RFC 3339; no invented values are permitted.
 	systemInstructionSalesPhaseStep2 = `You are a data-transformation agent for a music-fan information service.
 
-You receive a JSON array of raw ticket-sales phase records extracted from Japanese web pages, plus a list of candidate events (index-tagged). For each phase record:
+You receive a JSON array of raw ticket-sales phase records extracted from Japanese web pages. For each phase record:
 1. Coerce date/time strings to RFC 3339 (Asia/Tokyo = +09:00). Emit "" for any field you cannot coerce unambiguously.
-2. Resolve covered_event_indices:
-   - If covered_dates contains the single token "全公演" (= all performances), return ALL candidate event indices.
-   - Otherwise, match each covered_date (verbatim Japanese date) to the closest candidate event date and return the indices of matching events. If a date does not match any candidate, omit it silently — do NOT guess.
-   - If covered_dates is EMPTY, return an empty index list. Do NOT assume the phase covers all performances: an empty list means coverage is unknown, and the phase is dropped downstream. This prevents a leg-specific sale (e.g. first-half only) that failed to list its dates from wrongly covering the entire tour.
-3. Return output_index unchanged (the join key the caller uses to align your output with the input).
+2. Return output_index unchanged (the join key the caller uses to align your output with the input).
 
 Output only the JSON defined by the response schema. No Markdown, no comments.
 `
@@ -192,7 +169,6 @@ type salesPhaseXML struct {
 	LotteryResult   string `xml:"lottery_result"`
 	PaymentDeadline string `xml:"payment_deadline"`
 	URL             string `xml:"url"`
-	CoveredDates    string `xml:"covered_dates"`
 }
 
 // unmarshalSalesPhaseXML parses a raw <extracted>…</extracted> XML string
@@ -205,37 +181,25 @@ func unmarshalSalesPhaseXML(raw string, out *salesPhaseStep1Envelope) error {
 
 // salesPhaseStep2Input is sent to Step 2 for one extracted phase record.
 type salesPhaseStep2Input struct {
-	OutputIndex     int      `json:"output_index"`
-	ApplyStart      string   `json:"apply_start"`
-	ApplyEnd        string   `json:"apply_end"`
-	LotteryResult   string   `json:"lottery_result"`
-	PaymentDeadline string   `json:"payment_deadline"`
-	CoveredDates    []string `json:"covered_dates"`
-}
-
-// salesPhaseStep2CandidateEvent is the index-tagged event passed to Step 2
-// so it can resolve covered dates against known event dates.
-type salesPhaseStep2CandidateEvent struct {
-	Index     int    `json:"index"`
-	Date      string `json:"date"`
-	Venue     string `json:"venue"`
-	AdminArea string `json:"admin_area"`
+	OutputIndex     int    `json:"output_index"`
+	ApplyStart      string `json:"apply_start"`
+	ApplyEnd        string `json:"apply_end"`
+	LotteryResult   string `json:"lottery_result"`
+	PaymentDeadline string `json:"payment_deadline"`
 }
 
 // salesPhaseStep2Payload is the top-level payload sent to Step 2.
 type salesPhaseStep2Payload struct {
-	Phases          []salesPhaseStep2Input          `json:"phases"`
-	CandidateEvents []salesPhaseStep2CandidateEvent `json:"candidate_events"`
+	Phases []salesPhaseStep2Input `json:"phases"`
 }
 
 // salesPhaseStep2OutputPhase is one coerced phase from Step 2.
 type salesPhaseStep2OutputPhase struct {
-	OutputIndex         int    `json:"output_index"`
-	ApplyStart          string `json:"apply_start"`
-	ApplyEnd            string `json:"apply_end"`
-	LotteryResult       string `json:"lottery_result"`
-	PaymentDeadline     string `json:"payment_deadline"`
-	CoveredEventIndices []int  `json:"covered_event_indices"`
+	OutputIndex     int    `json:"output_index"`
+	ApplyStart      string `json:"apply_start"`
+	ApplyEnd        string `json:"apply_end"`
+	LotteryResult   string `json:"lottery_result"`
+	PaymentDeadline string `json:"payment_deadline"`
 }
 
 // salesPhaseStep2Response is the top-level Step 2 JSON response.
@@ -275,13 +239,8 @@ var salesPhaseResponseJSONSchema = map[string]any{
 						"type":        "string",
 						"description": "RFC 3339 datetime. \"\" when input is empty or ambiguous.",
 					},
-					"covered_event_indices": map[string]any{
-						"type":        "array",
-						"description": "Indices of candidate_events covered by this phase. Empty array = unknown (not all-events).",
-						"items":       map[string]any{"type": "integer"},
-					},
 				},
-				"required": []string{"output_index", "apply_start", "apply_end", "lottery_result", "payment_deadline", "covered_event_indices"},
+				"required": []string{"output_index", "apply_start", "apply_end", "lottery_result", "payment_deadline"},
 			},
 		},
 	},
@@ -297,7 +256,6 @@ type SalesPhaseSearcher struct {
 }
 
 // Compile-time interface compliance check.
-// TODO: swap to generated type after BSR gen (Refs #571)
 var _ entity.SalesPhaseSearcher = (*SalesPhaseSearcher)(nil)
 
 // NewSalesPhaseSearcher creates a SalesPhaseSearcher targeting the Gemini
@@ -347,7 +305,6 @@ func (s *SalesPhaseSearcher) SearchSalesPhases(
 	artistName string,
 	seriesTitle string,
 	seriesID string,
-	candidateEvents []*entity.SalesPhaseCandidateEvent,
 ) ([]*entity.SalesPhaseCandidate, error) {
 	attrs := []slog.Attr{
 		slog.String("artist_name", artistName),
@@ -376,8 +333,8 @@ func (s *SalesPhaseSearcher) SearchSalesPhases(
 		return nil, nil
 	}
 
-	// ===== Step 2: JSON coercion + covered-event resolution =====
-	candidates, err := s.runStep2(ctx, seriesID, envelope.SourceURL, xmlPhases, candidateEvents, attrs)
+	// ===== Step 2: JSON coercion (verbatim Japanese dates → RFC 3339) =====
+	candidates, err := s.runStep2(ctx, seriesID, envelope.SourceURL, xmlPhases, attrs)
 	if err != nil {
 		return nil, err
 	}
@@ -473,53 +430,30 @@ func (s *SalesPhaseSearcher) runStep1(
 	return rawText, nil
 }
 
-// runStep2 builds the JSON payload from the Step 1 XML phases and the
-// candidate events, fires the structured-output Step 2 call, then assembles
-// the final []*entity.SalesPhaseCandidate.
+// runStep2 builds the JSON payload from the Step 1 XML phases, fires the
+// structured-output Step 2 call (verbatim Japanese dates → RFC 3339), then
+// assembles the final []*entity.SalesPhaseCandidate.
 func (s *SalesPhaseSearcher) runStep2(
 	ctx context.Context,
 	seriesID string,
 	sourceURL string,
 	xmlPhases []salesPhaseXML,
-	candidateEvents []*entity.SalesPhaseCandidateEvent,
 	attrs []slog.Attr,
 ) ([]*entity.SalesPhaseCandidate, error) {
 	// Build Step 2 inputs.
 	inputs := make([]salesPhaseStep2Input, len(xmlPhases))
 	for i, xp := range xmlPhases {
-		var coveredDates []string
-		if xp.CoveredDates != "" {
-			for d := range strings.SplitSeq(xp.CoveredDates, ",") {
-				d = strings.TrimSpace(d)
-				if d != "" {
-					coveredDates = append(coveredDates, d)
-				}
-			}
-		}
 		inputs[i] = salesPhaseStep2Input{
 			OutputIndex:     i,
 			ApplyStart:      xp.ApplyStart,
 			ApplyEnd:        xp.ApplyEnd,
 			LotteryResult:   xp.LotteryResult,
 			PaymentDeadline: xp.PaymentDeadline,
-			CoveredDates:    coveredDates,
-		}
-	}
-
-	// Build candidate event index list for Step 2.
-	step2Events := make([]salesPhaseStep2CandidateEvent, len(candidateEvents))
-	for i, ce := range candidateEvents {
-		step2Events[i] = salesPhaseStep2CandidateEvent{
-			Index:     i,
-			Date:      ce.LocalDate.Format("2006-01-02"),
-			Venue:     ce.ListedVenueName,
-			AdminArea: ce.AdminArea,
 		}
 	}
 
 	payload := salesPhaseStep2Payload{
-		Phases:          inputs,
-		CandidateEvents: step2Events,
+		Phases: inputs,
 	}
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
@@ -553,7 +487,7 @@ func (s *SalesPhaseSearcher) runStep2(
 		return nil, nil
 	}
 
-	return parseSalesPhaseStep2Response(rawText, xmlPhases, seriesID, sourceURL, candidateEvents, attrs)
+	return parseSalesPhaseStep2Response(rawText, xmlPhases, seriesID, sourceURL, attrs)
 }
 
 // generateSingle fires a single Gemini call with bounded exponential-backoff
@@ -753,19 +687,16 @@ func parseSalesPhaseStep1Envelope(raw string) (salesPhaseStep1Envelope, []salesP
 }
 
 // parseSalesPhaseStep2Response unmarshals the Step 2 JSON, matches each
-// output record back to its input XML phase by output_index, resolves
-// covered-event IDs from the index list, and assembles the final
-// []*entity.SalesPhaseCandidate.
+// output record back to its input XML phase by output_index, and assembles the
+// final series-level []*entity.SalesPhaseCandidate.
 //
-// Candidates are dropped when:
-//   - apply_start is empty or unparseable (persistence guard).
-//   - covered_event_indices is empty after resolution (no covered events guard).
+// A candidate is dropped when apply_start is empty or unparseable (the sole
+// persistence guard — a known start is all a series-level phase requires).
 func parseSalesPhaseStep2Response(
 	rawJSON string,
 	xmlPhases []salesPhaseXML,
 	seriesID string,
 	sourceURL string,
-	candidateEvents []*entity.SalesPhaseCandidateEvent,
 	attrs []slog.Attr,
 ) ([]*entity.SalesPhaseCandidate, error) {
 	// Strip Markdown fences if present.
@@ -820,25 +751,6 @@ func parseSalesPhaseStep2Response(
 			continue
 		}
 
-		// Resolve covered event IDs. The "全公演" marker (all performances)
-		// deterministically covers every candidate event, independent of the
-		// model's index resolution; otherwise use the Step 2 indices. An empty
-		// result is dropped below — an unspecified covered_dates must NOT
-		// silently cover the whole tour, which would conflate leg-specific
-		// phases (e.g. first half vs second half) into one row.
-		coveredIndices := coerced.CoveredEventIndices
-		if strings.TrimSpace(xp.CoveredDates) == allPerformancesMarker {
-			coveredIndices = allIndices(len(candidateEvents))
-		}
-		coveredEventIDs := resolveCoveredEvents(coveredIndices, candidateEvents)
-		if len(coveredEventIDs) == 0 {
-			// Persistence guard: drop when no covered events resolved.
-			continue
-		}
-
-		// Determine anchor event ID = earliest covered event.
-		anchorEventID := earliestEventID(coveredIndices, candidateEvents)
-
 		// Deterministic timeline validation: enforce
 		// apply_start <= apply_end <= lottery_result <= payment_deadline. Any
 		// later field that precedes the running lower bound is nulled out (kept
@@ -853,8 +765,6 @@ func parseSalesPhaseStep2Response(
 
 		c := &entity.SalesPhaseCandidate{
 			SeriesID:            seriesID,
-			CoveredEventIDs:     coveredEventIDs,
-			AnchorEventID:       anchorEventID,
 			Method:              parseSalesMethod(xp.Method),
 			Channel:             parseSalesChannel(xp.Channel),
 			ProviderName:        strings.TrimSpace(xp.ProviderName),
@@ -869,75 +779,6 @@ func parseSalesPhaseStep2Response(
 		candidates = append(candidates, c)
 	}
 	return candidates, nil
-}
-
-// allPerformancesMarker is the verbatim covered_dates token Step 1 emits when a
-// phase explicitly covers every performance of the series. It is the ONLY way to
-// express series-wide coverage — an empty covered_dates means "unknown", never
-// "all".
-const allPerformancesMarker = "全公演"
-
-// allIndices returns [0, 1, …, n-1].
-func allIndices(n int) []int {
-	idx := make([]int, n)
-	for i := range idx {
-		idx[i] = i
-	}
-	return idx
-}
-
-// resolveCoveredEvents maps Step 2 event indices back to event IDs. An empty
-// indices slice resolves to NO events (coverage unknown) — the caller drops
-// such phases via the persistence guard. Series-wide coverage is expressed
-// explicitly by the caller via the 全公演 marker, never by an empty list, so a
-// leg-specific phase that failed to list its dates is dropped rather than
-// wrongly covering the whole tour. Indices out of range are silently skipped.
-func resolveCoveredEvents(indices []int, candidates []*entity.SalesPhaseCandidateEvent) []string {
-	seen := make(map[string]struct{}, len(indices))
-	var ids []string
-	for _, idx := range indices {
-		if idx < 0 || idx >= len(candidates) {
-			continue
-		}
-		id := candidates[idx].EventID
-		if _, dup := seen[id]; dup {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-	return ids
-}
-
-// earliestEventID returns the event ID of the candidate with the earliest
-// LocalDate among the given indices. When indices is empty, it returns the
-// first candidate's ID. Returns "" when candidates is empty.
-func earliestEventID(indices []int, candidates []*entity.SalesPhaseCandidateEvent) string {
-	if len(candidates) == 0 {
-		return ""
-	}
-	checkIndices := indices
-	if len(checkIndices) == 0 {
-		// All candidates.
-		checkIndices = make([]int, len(candidates))
-		for i := range candidates {
-			checkIndices[i] = i
-		}
-	}
-	var earliest *entity.SalesPhaseCandidateEvent
-	for _, idx := range checkIndices {
-		if idx < 0 || idx >= len(candidates) {
-			continue
-		}
-		ce := candidates[idx]
-		if earliest == nil || ce.LocalDate.Before(earliest.LocalDate) {
-			earliest = ce
-		}
-	}
-	if earliest == nil {
-		return ""
-	}
-	return earliest.EventID
 }
 
 // sanitizeTimeline enforces the monotonic order

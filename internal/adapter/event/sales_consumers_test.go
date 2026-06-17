@@ -36,9 +36,8 @@ func TestSalesPhaseAnnouncementConsumer_Handle(t *testing.T) {
 	t.Parallel()
 
 	validData := entity.SalesPhaseDiscoveredData{
-		PhaseID:         "phase-001",
-		SeriesID:        "series-001",
-		CoveredEventIDs: []string{"event-001"},
+		PhaseID:  "phase-001",
+		SeriesID: "series-001",
 	}
 
 	t.Run("delegates to use case on success", func(t *testing.T) {

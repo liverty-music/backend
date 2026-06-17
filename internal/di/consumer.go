@@ -71,6 +71,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	concertRepo := rdb.NewConcertRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	followRepo := rdb.NewFollowRepository(db)
+	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	salesReminderRepo := rdb.NewSalesPhaseReminderRepository(db)
 
 	// Infrastructure - Messaging
@@ -162,8 +163,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Sales-phase use cases for the two new consumers.
 	salesPhaseAnnouncementUC := usecase.NewSalesPhaseAnnouncementUseCase(
-		concertRepo,
-		followRepo,
+		ticketJourneyRepo,
 		pushSubRepo,
 		webpushSender,
 		pushMetrics,

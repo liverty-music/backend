@@ -80,22 +80,19 @@ const (
 	ReminderStageResultDay ReminderStage = 4
 )
 
-// SalesPhase represents a single ticket-sales window for a series.
+// SalesPhase represents a single ticket-sales window for a series. A phase
+// belongs to a series and applies to it as a whole — there is no per-event
+// coverage subset.
 //
-// The application layer uses covered-event overlap to converge re-discovered
-// phases onto existing rows; the surrogate ID is the only uniqueness key at
-// the database layer. AnchorEventID is the earliest covered event at insert
-// time and is immutable — it is never recomputed after the initial write.
+// The application layer converges re-discovered phases onto existing rows by
+// matching on (series_id, apply_start_time); the surrogate ID is the only
+// uniqueness key at the database layer and the stable handle reminders
+// reference.
 type SalesPhase struct {
 	// ID is the unique identifier for this phase (UUIDv7).
 	ID string
 	// SeriesID is the parent series that owns this sales phase.
 	SeriesID string
-	// AnchorEventID is the earliest covered event at insert time. Immutable.
-	AnchorEventID string
-	// CoveredEventIDs lists the event IDs covered by this phase within the series.
-	// Populated on read; replaced atomically on upsert.
-	CoveredEventIDs []string
 	// Method is the ticket acquisition mechanism (lottery vs. FCFS).
 	Method SalesMethod
 	// Channel is the distribution channel (FC, general, partner platform, etc.).
@@ -132,11 +129,6 @@ type SalesPhase struct {
 type SalesPhaseCandidate struct {
 	// SeriesID is the series this candidate belongs to.
 	SeriesID string
-	// CoveredEventIDs lists the event IDs resolved during extraction.
-	// Must contain at least one entry for the candidate to be persisted.
-	CoveredEventIDs []string
-	// AnchorEventID is the earliest covered event (set by the searcher).
-	AnchorEventID string
 	// Method, Channel, ProviderName, Sequence carry the structured sales data.
 	Method       SalesMethod
 	Channel      SalesChannel
@@ -162,11 +154,12 @@ type UpsertOutcome int8
 
 const (
 	// UpsertOutcomeSkipped means the candidate was dropped by the persistence
-	// guard (zero apply_start_time or empty covered events). No row was written.
+	// guard (zero apply_start_time). No row was written.
 	UpsertOutcomeSkipped UpsertOutcome = 0
 	// UpsertOutcomeInserted means a new sales_phases row was created.
 	UpsertOutcomeInserted UpsertOutcome = 1
-	// UpsertOutcomeUpdated means an existing overlapping row was updated in place.
+	// UpsertOutcomeUpdated means an existing row (matched on (series_id,
+	// apply_start_time)) was updated in place.
 	UpsertOutcomeUpdated UpsertOutcome = 2
 )
 
@@ -181,24 +174,23 @@ type SalesSeriesCandidate struct {
 	// ArtistName is a representative performing artist for this series, used
 	// in the search prompt.
 	ArtistName string
-	// CandidateEvents are the known upcoming events of the series, injected
-	// into Step 2 for covered-date resolution.
-	CandidateEvents []*SalesPhaseCandidateEvent
 }
 
 // SalesPhaseRepository defines the data access interface for [SalesPhase].
 type SalesPhaseRepository interface {
-	// Upsert performs a best-effort merge of the candidate into the existing
-	// phases for the series. Matching is based on covered-event overlap: if any
-	// covered event in the candidate is already recorded under an existing phase
-	// for the same series, that row is updated in-place (last-write-wins on
-	// timestamps, URL, and provider_name; covered events are replaced). When no
-	// overlap is found, a new row is inserted.
+	// Upsert converges the candidate onto an existing phase or inserts a new
+	// one. Matching is on (series_id, apply_start_time): when a row with the
+	// same series and the same apply_start_at exists, its descriptive fields
+	// (method, channel, provider_name, sequence, the other timestamps, url) are
+	// updated in place last-write-wins (return UpsertOutcomeUpdated); otherwise
+	// a new row with a fresh id is inserted (return UpsertOutcomeInserted).
+	// channel, sequence, and the other fields never participate in identity, so
+	// a reclassification across runs updates rather than forks a duplicate.
 	//
-	// The caller must ensure that candidate.ApplyStartTime is non-zero and
-	// candidate.CoveredEventIDs is non-empty; callers that do not should drop
-	// the candidate before calling Upsert. Upsert itself enforces the guard and
-	// returns ("", UpsertOutcomeSkipped, nil) when either condition fails.
+	// The caller must ensure candidate.ApplyStartTime is non-zero; callers that
+	// do not should drop the candidate before calling Upsert. Upsert itself
+	// enforces the guard and returns ("", UpsertOutcomeSkipped, nil) when it
+	// fails. Upsert is upsert-only: it never deletes existing rows.
 	//
 	// Returns the affected phase's surrogate ID alongside the outcome:
 	//   - On UpsertOutcomeInserted: the newly generated UUID.
@@ -207,7 +199,7 @@ type SalesPhaseRepository interface {
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: If a referenced series or event ID does not exist.
+	//  - FailedPrecondition: If the referenced series does not exist.
 	//  - InvalidArgument: If the candidate's SeriesID is empty.
 	Upsert(ctx context.Context, candidate *SalesPhaseCandidate) (string, UpsertOutcome, error)
 
@@ -215,8 +207,7 @@ type SalesPhaseRepository interface {
 	// least one reminder milestone still pending or recently due. A phase is
 	// included when its apply_start_at is no more than lookahead in the future
 	// AND the latest of its milestone timestamps (apply_start_at, apply_end_at,
-	// lottery_result_at) is no earlier than now minus lookbackMargin. Covered
-	// event IDs are populated for each returned phase.
+	// lottery_result_at) is no earlier than now minus lookbackMargin.
 	//
 	// This correctly includes a phase whose apply_start_at is weeks in the
 	// past but whose lottery_result_at is imminent — the old apply_start_at-
@@ -227,32 +218,20 @@ type SalesPhaseRepository interface {
 	//  - InvalidArgument: If lookahead is not positive or lookbackMargin is negative.
 	ListPhasesWithPendingMilestones(ctx context.Context, lookahead, lookbackMargin time.Duration) ([]*SalesPhase, error)
 
-	// GetBySeries returns all sales phases for the given series, with covered
-	// event IDs populated.
+	// GetBySeries returns all sales phases for the given series.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If seriesID is empty.
 	GetBySeries(ctx context.Context, seriesID string) ([]*SalesPhase, error)
-
-	// ReplaceCoveredEvents atomically replaces the set of covered events for the
-	// given phase. All existing event_sales_phases rows for the phase are deleted
-	// and re-inserted. Used when incremental coverage growth is detected for an
-	// already-matched phase.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If no phase with the given ID exists.
-	//  - FailedPrecondition: If any event ID is not valid for this phase's series.
-	ReplaceCoveredEvents(ctx context.Context, phaseID string, eventIDs []string) error
 }
 
 // SalesPhaseSearcher discovers upcoming ticket-sales phases for an artist's
 // series using an external grounded search.
 type SalesPhaseSearcher interface {
-	// SearchSalesPhases returns all sales-phase candidates found for the given
-	// artist name and series title. The returned candidates carry resolved
-	// covered-event IDs based on the provided candidate events.
+	// SearchSalesPhases returns all series-level sales-phase candidates found
+	// for the given artist name and series title. It does NOT resolve which
+	// individual events a phase covers — each candidate is a series-level record.
 	//
 	// An empty result with a nil error means the searcher found no phases (normal
 	// outcome). Only infrastructure failures return a non-nil error.
@@ -266,23 +245,7 @@ type SalesPhaseSearcher interface {
 		artistName string,
 		seriesTitle string,
 		seriesID string,
-		candidateEvents []*SalesPhaseCandidateEvent,
 	) ([]*SalesPhaseCandidate, error)
-}
-
-// SalesPhaseCandidateEvent is a lightweight view of an event within a series,
-// passed to the Gemini searcher so it can match extracted phases against known
-// event dates and venues.
-type SalesPhaseCandidateEvent struct {
-	// EventID is the stable identifier for the event.
-	EventID string
-	// LocalDate is the calendar date of the event (UTC midnight).
-	LocalDate time.Time
-	// ListedVenueName is the raw venue name as scraped.
-	ListedVenueName string
-	// AdminArea is the administrative area (prefecture / state) of the venue.
-	// Empty when unknown.
-	AdminArea string
 }
 
 // SalesPhaseReminderRepository persists the sent-log for sales-phase reminder

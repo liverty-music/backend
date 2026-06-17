@@ -26,73 +26,44 @@ func NewSalesPhaseRepository(db *Database) *SalesPhaseRepository {
 }
 
 const (
-	// findOverlappingPhaseQuery returns the ID of an existing sales_phases row
-	// for the given series whose covered event set overlaps with the supplied
-	// event IDs AND whose channel is compatible with the candidate's channel.
-	//
-	// Channel-compatibility rule ($3 = candidate channel smallint):
-	//   existing.channel = 0 (UNSPECIFIED)  → matches any candidate channel (reclassification converges)
-	//   candidate channel = 0 (UNSPECIFIED) → matches any existing channel (reclassification converges)
-	//   both determined and equal           → matches
-	//   both determined and different       → NO match (separate row for each channel)
-	//
-	// This prevents an FC presale (channel=1) and a general on-sale (channel=6)
-	// covering the same event from collapsing via last-write-wins.
-	//
-	// GROUP BY + ORDER BY implement the documented channel-preference: when both
-	// an UNSPECIFIED-channel row and a determined-channel row match (because
-	// UNSPECIFIED matches any candidate channel), BOOL_OR(sp.channel = $3)
-	// is true for the exact match and false for the UNSPECIFIED row, so the
-	// exact match sorts first. Without this preference LIMIT 1 on UUID order
-	// could pick the UNSPECIFIED row and overwrite it, orphaning the determined row.
-	findOverlappingPhaseQuery = `
-		SELECT sp.id
-		FROM sales_phases sp
-		JOIN event_sales_phases esp ON esp.sales_phase_id = sp.id
-		WHERE sp.series_id = $1
-		  AND esp.event_id = ANY($2::uuid[])
-		  AND (sp.channel = 0 OR $3::smallint = 0 OR sp.channel = $3::smallint)
-		GROUP BY sp.id
-		ORDER BY BOOL_OR(sp.channel = $3::smallint) DESC, sp.id ASC
+	// matchByApplyStartQuery returns the ID of the existing sales_phases row for
+	// the given series whose apply_start_at equals the candidate's. This is the
+	// convergence key: same series + same application start instant identify the
+	// same real sales window, independent of channel/sequence reclassification.
+	// apply_start_at is a timestamptz (absolute instant), so the equality is
+	// timezone-agnostic and correct for non-JST events.
+	matchByApplyStartQuery = `
+		SELECT id
+		FROM sales_phases
+		WHERE series_id = $1 AND apply_start_at = $2
+		ORDER BY id ASC
 		LIMIT 1
 	`
 
-	// updatePhaseQuery updates the mutable fields of an existing phase row.
-	// anchor_event_id is intentionally excluded — it is immutable after insert.
+	// updatePhaseQuery updates the descriptive (last-write-wins) fields of an
+	// existing phase row. series_id and apply_start_at (the identity) and
+	// discovered_at (the first-sight guard) are intentionally not updated.
 	updatePhaseQuery = `
 		UPDATE sales_phases
 		SET method              = $2,
 		    channel             = $3,
 		    provider_name       = $4,
 		    sequence            = $5,
-		    apply_start_at      = $6,
-		    apply_end_at        = $7,
-		    lottery_result_at   = $8,
-		    payment_deadline_at = $9,
-		    url                 = $10
+		    apply_end_at        = $6,
+		    lottery_result_at   = $7,
+		    payment_deadline_at = $8,
+		    url                 = $9
 		WHERE id = $1
-	`
-
-	// deleteEventSalesPhasesQuery removes all covered-event links for a phase.
-	deleteEventSalesPhasesQuery = `
-		DELETE FROM event_sales_phases WHERE sales_phase_id = $1
-	`
-
-	// insertEventSalesPhasesQuery bulk-inserts the covered event links for a phase.
-	insertEventSalesPhasesQuery = `
-		INSERT INTO event_sales_phases (sales_phase_id, event_id)
-		SELECT $1, unnest($2::uuid[])
-		ON CONFLICT DO NOTHING
 	`
 
 	// insertPhaseQuery inserts a new sales_phases row and returns the
 	// DB-generated discovered_at so the in-memory entity is fully populated.
 	insertPhaseQuery = `
 		INSERT INTO sales_phases (
-			id, series_id, anchor_event_id, method, channel, provider_name,
+			id, series_id, method, channel, provider_name,
 			sequence, apply_start_at, apply_end_at, lottery_result_at,
 			payment_deadline_at, url
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING discovered_at
 	`
 
@@ -121,7 +92,7 @@ const (
 	//
 	// $1 = lookahead seconds, $2 = lookback margin seconds.
 	listPhasesWithPendingMilestonesQuery = `
-		SELECT id, series_id, anchor_event_id, method, channel, provider_name,
+		SELECT id, series_id, method, channel, provider_name,
 		       sequence, apply_start_at, apply_end_at, lottery_result_at,
 		       payment_deadline_at, url, discovered_at
 		FROM sales_phases
@@ -136,32 +107,19 @@ const (
 
 	// getBySeriesQuery fetches all phases belonging to a series.
 	getBySeriesQuery = `
-		SELECT id, series_id, anchor_event_id, method, channel, provider_name,
+		SELECT id, series_id, method, channel, provider_name,
 		       sequence, apply_start_at, apply_end_at, lottery_result_at,
 		       payment_deadline_at, url, discovered_at
 		FROM sales_phases
 		WHERE series_id = $1
 		ORDER BY apply_start_at ASC
 	`
-
-	// listCoveredEventIDsQuery returns the covered event IDs for the given
-	// phase IDs, keyed by phase ID so the caller can populate each phase.
-	listCoveredEventIDsQuery = `
-		SELECT sales_phase_id, event_id
-		FROM event_sales_phases
-		WHERE sales_phase_id = ANY($1::uuid[])
-	`
-
-	// existsPhaseQuery confirms a phase row with the given ID exists.
-	existsPhaseQuery = `
-		SELECT 1 FROM sales_phases WHERE id = $1
-	`
 )
 
-// Upsert persists the candidate as either an update to an existing overlapping
-// phase or a new insert. It is a no-op when the candidate fails the persistence
-// guard (zero ApplyStartTime or empty CoveredEventIDs), returning
-// ("", UpsertOutcomeSkipped, nil).
+// Upsert converges the candidate onto an existing phase matched on
+// (series_id, apply_start_at) or inserts a new row. It is a no-op when the
+// candidate fails the persistence guard (zero ApplyStartTime), returning
+// ("", UpsertOutcomeSkipped, nil). It is upsert-only: it never deletes rows.
 //
 // Returns the affected phase ID alongside the outcome:
 //   - UpsertOutcomeInserted: the newly generated UUID.
@@ -175,115 +133,76 @@ func (r *SalesPhaseRepository) Upsert(ctx context.Context, candidate *entity.Sal
 		return "", entity.UpsertOutcomeSkipped, apperr.New(codes.InvalidArgument, "sales phase candidate SeriesID must not be empty")
 	}
 
-	// Persistence guard: skip unless apply_start_time is known AND at least
-	// one covered event is resolved.
+	// Persistence guard: skip unless apply_start_time is known. A known start is
+	// the sole persistence requirement.
 	if candidate.ApplyStartTime.IsZero() {
 		r.db.logger.Info(ctx, "sales_phase_repo: dropping candidate with zero apply_start_time",
 			slog.String("series_id", candidate.SeriesID),
 		)
 		return "", entity.UpsertOutcomeSkipped, nil
 	}
-	if len(candidate.CoveredEventIDs) == 0 {
-		r.db.logger.Info(ctx, "sales_phase_repo: dropping candidate with no covered events",
-			slog.String("series_id", candidate.SeriesID),
-		)
-		return "", entity.UpsertOutcomeSkipped, nil
-	}
 
-	// Attempt to find an existing phase for this series that overlaps on
-	// covered event IDs.
+	// Match an existing phase for this series on the application start instant.
 	var existingID string
-	err := r.db.Pool.QueryRow(ctx, findOverlappingPhaseQuery,
+	err := r.db.Pool.QueryRow(ctx, matchByApplyStartQuery,
 		candidate.SeriesID,
-		candidate.CoveredEventIDs,
-		int16(candidate.Channel),
+		candidate.ApplyStartTime,
 	).Scan(&existingID)
 
 	switch {
 	case err == nil:
-		// Overlapping phase found — update in-place (last-write-wins).
+		// Same (series_id, apply_start_at) — update descriptive fields in place.
 		if err := r.updateExisting(ctx, existingID, candidate); err != nil {
 			return "", entity.UpsertOutcomeSkipped, err
 		}
 		return existingID, entity.UpsertOutcomeUpdated, nil
 	case isNoRows(err):
-		// No overlap — insert a new phase row.
+		// No match — insert a new phase row.
 		newID := newPhaseID()
 		if err := r.insertNewWithID(ctx, newID, candidate); err != nil {
 			return "", entity.UpsertOutcomeSkipped, err
 		}
 		return newID, entity.UpsertOutcomeInserted, nil
 	default:
-		return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to query overlapping sales phase",
+		return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to match sales phase by apply_start_at",
 			slog.String("series_id", candidate.SeriesID),
 		)
 	}
 }
 
-// updateExisting applies last-write-wins logic to an existing phase row and
-// atomically replaces its covered-event links.
+// updateExisting applies last-write-wins logic to an existing phase row's
+// descriptive fields.
 func (r *SalesPhaseRepository) updateExisting(
 	ctx context.Context,
 	phaseID string,
 	c *entity.SalesPhaseCandidate,
 ) error {
-	tx, err := r.db.Pool.Begin(ctx)
-	if err != nil {
-		return toAppErr(err, "failed to begin transaction for sales phase update",
-			slog.String("phase_id", phaseID),
-		)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Update mutable phase fields.
-	_, err = tx.Exec(ctx, updatePhaseQuery,
+	_, err := r.db.Pool.Exec(ctx, updatePhaseQuery,
 		phaseID,
 		int16(c.Method),
 		int16(c.Channel),
 		nullableString(c.ProviderName),
 		c.Sequence,
-		c.ApplyStartTime,
 		nullableTime(c.ApplyEndTime),
 		nullableTime(c.LotteryResultTime),
 		nullableTime(c.PaymentDeadlineTime),
 		nullableString(c.URL),
 	)
 	if err != nil {
-		return toAppErr(err, "failed to update sales phase",
-			slog.String("phase_id", phaseID),
-		)
-	}
-
-	// Replace covered events atomically within the same transaction.
-	if err := replaceEventLinks(ctx, tx, phaseID, c.CoveredEventIDs); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit sales phase update", slog.String("phase_id", phaseID))
+		return toAppErr(err, "failed to update sales phase", slog.String("phase_id", phaseID))
 	}
 	return nil
 }
 
-// insertNewWithID inserts a fresh sales_phases row with the provided phaseID
-// and its covered-event links.
+// insertNewWithID inserts a fresh sales_phases row with the provided phaseID.
 func (r *SalesPhaseRepository) insertNewWithID(ctx context.Context, phaseID string, c *entity.SalesPhaseCandidate) error {
-	tx, err := r.db.Pool.Begin(ctx)
-	if err != nil {
-		return toAppErr(err, "failed to begin transaction for sales phase insert",
-			slog.String("series_id", c.SeriesID),
-		)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
 	// Use QueryRow to consume the RETURNING discovered_at. The value is discarded
 	// here because insertNewWithID doesn't return the full entity; the field is
 	// populated on subsequent reads via scanPhaseRows.
 	var discardDiscoveredAt time.Time
-	if err := tx.QueryRow(ctx, insertPhaseQuery,
+	if err := r.db.Pool.QueryRow(ctx, insertPhaseQuery,
 		phaseID,
 		c.SeriesID,
-		c.AnchorEventID,
 		int16(c.Method),
 		int16(c.Channel),
 		nullableString(c.ProviderName),
@@ -294,17 +213,7 @@ func (r *SalesPhaseRepository) insertNewWithID(ctx context.Context, phaseID stri
 		nullableTime(c.PaymentDeadlineTime),
 		nullableString(c.URL),
 	).Scan(&discardDiscoveredAt); err != nil {
-		return toAppErr(err, "failed to insert sales phase",
-			slog.String("series_id", c.SeriesID),
-		)
-	}
-
-	if err := replaceEventLinks(ctx, tx, phaseID, c.CoveredEventIDs); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit sales phase insert", slog.String("series_id", c.SeriesID))
+		return toAppErr(err, "failed to insert sales phase", slog.String("series_id", c.SeriesID))
 	}
 	return nil
 }
@@ -347,18 +256,10 @@ func (r *SalesPhaseRepository) ListPhasesWithPendingMilestones(ctx context.Conte
 	}
 	defer rows.Close()
 
-	phases, err := scanPhaseRows(rows)
-	if err != nil {
-		return nil, err
-	}
-	if err := r.populateCoveredEvents(ctx, phases); err != nil {
-		return nil, err
-	}
-	return phases, nil
+	return scanPhaseRows(rows)
 }
 
-// GetBySeries returns all sales phases for the given series with covered
-// event IDs populated.
+// GetBySeries returns all sales phases for the given series.
 func (r *SalesPhaseRepository) GetBySeries(ctx context.Context, seriesID string) ([]*entity.SalesPhase, error) {
 	if seriesID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "series ID must not be empty")
@@ -370,104 +271,10 @@ func (r *SalesPhaseRepository) GetBySeries(ctx context.Context, seriesID string)
 	}
 	defer rows.Close()
 
-	phases, err := scanPhaseRows(rows)
-	if err != nil {
-		return nil, err
-	}
-	if err := r.populateCoveredEvents(ctx, phases); err != nil {
-		return nil, err
-	}
-	return phases, nil
-}
-
-// ReplaceCoveredEvents atomically replaces the covered-event links for a phase.
-func (r *SalesPhaseRepository) ReplaceCoveredEvents(ctx context.Context, phaseID string, eventIDs []string) error {
-	if phaseID == "" {
-		return apperr.New(codes.InvalidArgument, "phase ID must not be empty")
-	}
-
-	// Confirm the phase exists.
-	var exists int
-	err := r.db.Pool.QueryRow(ctx, existsPhaseQuery, phaseID).Scan(&exists)
-	if err != nil {
-		if isNoRows(err) {
-			return apperr.New(codes.NotFound, "sales phase not found", slog.String("phase_id", phaseID))
-		}
-		return toAppErr(err, "failed to look up sales phase", slog.String("phase_id", phaseID))
-	}
-
-	tx, err := r.db.Pool.Begin(ctx)
-	if err != nil {
-		return toAppErr(err, "failed to begin transaction for replace covered events",
-			slog.String("phase_id", phaseID),
-		)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := replaceEventLinks(ctx, tx, phaseID, eventIDs); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return toAppErr(err, "failed to commit replace covered events", slog.String("phase_id", phaseID))
-	}
-	return nil
+	return scanPhaseRows(rows)
 }
 
 // ----- helpers -----
-
-// replaceEventLinks deletes all existing event_sales_phases rows for the
-// phase and inserts the new set. Must be called within a transaction.
-func replaceEventLinks(ctx context.Context, tx pgx.Tx, phaseID string, eventIDs []string) error {
-	if _, err := tx.Exec(ctx, deleteEventSalesPhasesQuery, phaseID); err != nil {
-		return toAppErr(err, "failed to delete event_sales_phases",
-			slog.String("phase_id", phaseID),
-		)
-	}
-	if len(eventIDs) == 0 {
-		return nil
-	}
-	if _, err := tx.Exec(ctx, insertEventSalesPhasesQuery, phaseID, eventIDs); err != nil {
-		return toAppErr(err, "failed to insert event_sales_phases",
-			slog.String("phase_id", phaseID),
-		)
-	}
-	return nil
-}
-
-// populateCoveredEvents fetches covered event IDs for all phases in a single
-// query and populates each phase's CoveredEventIDs field.
-func (r *SalesPhaseRepository) populateCoveredEvents(ctx context.Context, phases []*entity.SalesPhase) error {
-	if len(phases) == 0 {
-		return nil
-	}
-	ids := make([]string, len(phases))
-	byID := make(map[string]*entity.SalesPhase, len(phases))
-	for i, p := range phases {
-		ids[i] = p.ID
-		byID[p.ID] = p
-	}
-
-	rows, err := r.db.Pool.Query(ctx, listCoveredEventIDsQuery, ids)
-	if err != nil {
-		return toAppErr(err, "failed to list covered event IDs for sales phases")
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var phaseID, eventID string
-		if err := rows.Scan(&phaseID, &eventID); err != nil {
-			return toAppErr(err, "failed to scan covered event ID row")
-		}
-		if p, ok := byID[phaseID]; ok {
-			p.CoveredEventIDs = append(p.CoveredEventIDs, eventID)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return toAppErr(err, "covered event ID iteration ended with error")
-	}
-	return nil
-}
 
 // scanPhaseRows scans all rows returned by a sales_phases SELECT query into
 // a slice of SalesPhase entities.
@@ -486,7 +293,6 @@ func scanPhaseRows(rows pgx.Rows) ([]*entity.SalesPhase, error) {
 		if err := rows.Scan(
 			&p.ID,
 			&p.SeriesID,
-			&p.AnchorEventID,
 			&method,
 			&channel,
 			&providerName,

@@ -5,12 +5,17 @@ import (
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // TicketJourneyRepository implements entity.TicketJourneyRepository for PostgreSQL.
 type TicketJourneyRepository struct {
 	db *Database
 }
+
+// Compile-time interface compliance check.
+var _ entity.TicketJourneyRepository = (*TicketJourneyRepository)(nil)
 
 const (
 	ticketJourneyUpsertQuery = `
@@ -26,6 +31,16 @@ const (
 		SELECT event_id, status
 		FROM ticket_journeys
 		WHERE user_id = $1
+	`
+	// ticketJourneyListUserIDsTrackingSeriesQuery returns the distinct user IDs
+	// with a Tracking journey (status = 1) on any event of the given series.
+	// Joins ticket_journeys to events to resolve each tracked event's series.
+	ticketJourneyListUserIDsTrackingSeriesQuery = `
+		SELECT DISTINCT tj.user_id
+		FROM ticket_journeys tj
+		JOIN events e ON e.id = tj.event_id
+		WHERE e.series_id = $1
+		  AND tj.status = 1
 	`
 )
 
@@ -96,4 +111,31 @@ func (r *TicketJourneyRepository) ListByUser(ctx context.Context, userID string)
 		return nil, toAppErr(err, "error iterating ticket journey rows")
 	}
 	return journeys, nil
+}
+
+// ListUserIDsTrackingSeries returns the distinct user IDs with a Tracking
+// journey on any event of the given series.
+func (r *TicketJourneyRepository) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]string, error) {
+	if seriesID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "series ID must not be empty")
+	}
+
+	rows, err := r.db.Pool.Query(ctx, ticketJourneyListUserIDsTrackingSeriesQuery, seriesID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list user IDs tracking series", slog.String("series_id", seriesID))
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, toAppErr(err, "failed to scan tracking user ID")
+		}
+		userIDs = append(userIDs, userID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating tracking user ID rows")
+	}
+	return userIDs, nil
 }

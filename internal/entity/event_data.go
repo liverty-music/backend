@@ -172,11 +172,10 @@ type NotificationSubscribedData struct {
 type SalesPhaseDiscoveredData struct {
 	// PhaseID is the surrogate UUID of the newly inserted SalesPhase row.
 	PhaseID string `json:"phase_id"`
-	// SeriesID is the parent series of the phase.
+	// SeriesID is the parent series of the phase. The announcement consumer
+	// resolves its audience from the Tracking ticket journeys on this series'
+	// events.
 	SeriesID string `json:"series_id"`
-	// CoveredEventIDs are the event IDs covered by the phase, used by the
-	// consumer to resolve performers and followers.
-	CoveredEventIDs []string `json:"covered_event_ids"`
 }
 
 // SalesPhaseReminderDueData is the payload for SALES_PHASE.reminder.due events.

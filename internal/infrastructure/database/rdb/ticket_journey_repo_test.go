@@ -144,6 +144,57 @@ func TestTicketJourneyRepository_Delete(t *testing.T) {
 	}
 }
 
+func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	repo := rdb.NewTicketJourneyRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("returns only distinct users tracking any event of the series", func(t *testing.T) {
+		cleanDatabase(t)
+
+		artistID := seedArtist(t, "track-artist", "11112222-3333-4444-5555-666677778888")
+		venueID := seedVenue(t, "track-venue")
+		seriesID := seedSeriesOnly(t, "TrackTour")
+		eventA := seedEventForSeries(t, seriesID, venueID, artistID, "2026-09-01")
+		eventB := seedEventForSeries(t, seriesID, venueID, artistID, "2026-09-02")
+
+		// Another series whose tracking users must NOT leak in.
+		otherSeriesID := seedSeriesOnly(t, "OtherTour")
+		otherEvent := seedEventForSeries(t, otherSeriesID, venueID, artistID, "2026-10-01")
+
+		userTrackingA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
+		userTrackingB := seedUser(t, "track-b", "track-b@test.com", "ext-track-b")
+		userApplied := seedUser(t, "applied", "applied@test.com", "ext-applied")
+		userOther := seedUser(t, "other-series", "other@test.com", "ext-other")
+
+		// Tracking on series events → must be returned.
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userTrackingA, EventID: eventA, Status: entity.TicketJourneyStatusTracking}))
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userTrackingB, EventID: eventB, Status: entity.TicketJourneyStatusTracking}))
+		// Same user tracking two events of the same series → counted once.
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userTrackingA, EventID: eventB, Status: entity.TicketJourneyStatusTracking}))
+		// Applied (not Tracking) on a series event → must be excluded.
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userApplied, EventID: eventA, Status: entity.TicketJourneyStatusApplied}))
+		// Tracking on a different series → must be excluded.
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userOther, EventID: otherEvent, Status: entity.TicketJourneyStatusTracking}))
+
+		userIDs, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{userTrackingA, userTrackingB}, userIDs)
+	})
+
+	t.Run("returns empty when no one tracks the series", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "EmptyTrackTour")
+
+		userIDs, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Empty(t, userIDs)
+	})
+}
+
 func TestTicketJourneyRepository_ListByUser(t *testing.T) {
 	repo := rdb.NewTicketJourneyRepository(testDB)
 	ctx := context.Background()
