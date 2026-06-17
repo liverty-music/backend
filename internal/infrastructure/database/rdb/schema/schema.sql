@@ -323,14 +323,15 @@ COMMENT ON COLUMN push_subscriptions.p256dh IS 'ECDH public key for payload encr
 COMMENT ON COLUMN push_subscriptions.auth IS 'Authentication secret for payload encryption (Base64url-encoded)';
 
 -- Sales phases table
--- Represents a single ticket-sales window for a series (e.g. FC pre-sale, general
--- lottery, general on-sale). The surrogate id is the ONLY uniqueness key — there is
--- no compound unique constraint on (series_id, channel, sequence) because overlap-
--- based convergence is enforced at the application layer.
+-- Represents a single series-level ticket-sales window (e.g. FC pre-sale, general
+-- lottery, general on-sale). A phase applies to its series as a whole; there is no
+-- per-event coverage subset. The surrogate id is the ONLY uniqueness key — there is
+-- no compound unique constraint on (series_id, apply_start_at) because convergence
+-- on that pair is enforced at the application layer (a UNIQUE index MAY be added
+-- later as a safety net).
 CREATE TABLE IF NOT EXISTS sales_phases (
     id UUID PRIMARY KEY,
     series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
-    anchor_event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     method SMALLINT NOT NULL,
     channel SMALLINT NOT NULL,
     provider_name TEXT,
@@ -347,32 +348,19 @@ CREATE TABLE IF NOT EXISTS sales_phases (
     CONSTRAINT chk_sales_phases_sequence CHECK (sequence >= 0)
 );
 
-COMMENT ON TABLE sales_phases IS 'A single ticket-sales window for a series. The surrogate id is the only uniqueness key; application-layer overlap matching converges re-discovered phases onto existing rows.';
+COMMENT ON TABLE sales_phases IS 'A single series-level ticket-sales window. The surrogate id is the only uniqueness key; application-layer matching on (series_id, apply_start_at) converges re-discovered phases onto existing rows.';
 COMMENT ON COLUMN sales_phases.id IS 'Unique sales phase identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN sales_phases.series_id IS 'Reference to the parent series that owns this sales phase';
-COMMENT ON COLUMN sales_phases.anchor_event_id IS 'Earliest covered event at insert time; immutable — never recomputed after initial write. Used as a stable tiebreaker when matching on covered-event overlap.';
 COMMENT ON COLUMN sales_phases.method IS 'Sales method: 0=UNSPECIFIED, 1=LOTTERY, 2=FIRST_COME';
 COMMENT ON COLUMN sales_phases.channel IS 'Sales channel: 0=UNSPECIFIED, 1=FAN_CLUB, 2=OFFICIAL, 3=PLAYGUIDE, 4=CREDIT_CARD, 5=MOBILE_CARRIER, 6=GENERAL. Concrete play-guide provider names go in provider_name.';
 COMMENT ON COLUMN sales_phases.provider_name IS 'Verbatim provider name from the source (e.g. "e+", "ローチケ"). NULL when indeterminate.';
 COMMENT ON COLUMN sales_phases.sequence IS 'Ordinal within the same channel for phases that occur in multiple rounds (0-based). Does not uniquely identify a phase.';
-COMMENT ON COLUMN sales_phases.apply_start_at IS 'Start of the application or on-sale window (required). Must be known for a phase to be persisted.';
+COMMENT ON COLUMN sales_phases.apply_start_at IS 'Start of the application or on-sale window (required). Must be known for a phase to be persisted. Together with series_id it is the application-layer convergence key.';
 COMMENT ON COLUMN sales_phases.apply_end_at IS 'End of the application window (lottery) or close of on-sale (first-come). NULL when unknown.';
 COMMENT ON COLUMN sales_phases.lottery_result_at IS 'When lottery results are announced. NULL for first-come phases or when unknown.';
 COMMENT ON COLUMN sales_phases.payment_deadline_at IS 'Payment deadline after winning a lottery. NULL for first-come phases or when unknown.';
 COMMENT ON COLUMN sales_phases.url IS 'Direct URL to the sales page for this phase. NULL when not available.';
 COMMENT ON COLUMN sales_phases.discovered_at IS 'Timestamp when this sales phase row was first inserted. Used as the first-sight guard: stages whose natural trigger is before discovered_at are not fired.';
-
--- Event–sales-phase join table (M:N)
--- Links each sales phase to the specific events it covers within the series.
-CREATE TABLE IF NOT EXISTS event_sales_phases (
-    sales_phase_id UUID NOT NULL REFERENCES sales_phases(id) ON DELETE CASCADE,
-    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    PRIMARY KEY (sales_phase_id, event_id)
-);
-
-COMMENT ON TABLE event_sales_phases IS 'M:N join between sales_phases and events. Populated and replaced atomically by the repository on every upsert so incremental coverage growth is handled in-place without duplicating the phase row.';
-COMMENT ON COLUMN event_sales_phases.sales_phase_id IS 'Reference to the sales phase';
-COMMENT ON COLUMN event_sales_phases.event_id IS 'Reference to the covered event';
 
 -- Sales phase reminders sent-log
 -- Tracks which reminder stages have already been dispatched to each user for a
@@ -545,10 +533,6 @@ COMMENT ON INDEX idx_sales_phases_series_id IS 'Optimizes listing all sales phas
 
 CREATE INDEX IF NOT EXISTS idx_sales_phases_apply_start_at ON sales_phases(apply_start_at);
 COMMENT ON INDEX idx_sales_phases_apply_start_at IS 'Supports ListUpcomingByDueWindow queries that filter by apply_start_at range';
-
--- Event sales phases indexes
-CREATE INDEX IF NOT EXISTS idx_event_sales_phases_event_id ON event_sales_phases(event_id);
-COMMENT ON INDEX idx_event_sales_phases_event_id IS 'Optimizes lookup of all sales phases covering a given event';
 
 -- Sales phase reminders indexes
 CREATE INDEX IF NOT EXISTS idx_sales_phase_reminders_user_id ON sales_phase_reminders(user_id);

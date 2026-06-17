@@ -129,6 +129,65 @@ func (_c *MockTicketJourneyRepository_ListByUser_Call) RunAndReturn(run func(con
 	return _c
 }
 
+// ListUserIDsTrackingSeries provides a mock function with given fields: ctx, seriesID
+func (_m *MockTicketJourneyRepository) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]string, error) {
+	ret := _m.Called(ctx, seriesID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListUserIDsTrackingSeries")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]string, error)); ok {
+		return rf(ctx, seriesID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []string); ok {
+		r0 = rf(ctx, seriesID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, seriesID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListUserIDsTrackingSeries'
+type MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call struct {
+	*mock.Call
+}
+
+// ListUserIDsTrackingSeries is a helper method to define mock.On call
+//   - ctx context.Context
+//   - seriesID string
+func (_e *MockTicketJourneyRepository_Expecter) ListUserIDsTrackingSeries(ctx interface{}, seriesID interface{}) *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call {
+	return &MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call{Call: _e.mock.On("ListUserIDsTrackingSeries", ctx, seriesID)}
+}
+
+func (_c *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call) Run(run func(ctx context.Context, seriesID string)) *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call) Return(_a0 []string, _a1 error) *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call) RunAndReturn(run func(context.Context, string) ([]string, error)) *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Upsert provides a mock function with given fields: ctx, journey
 func (_m *MockTicketJourneyRepository) Upsert(ctx context.Context, journey *entity.TicketJourney) error {
 	ret := _m.Called(ctx, journey)

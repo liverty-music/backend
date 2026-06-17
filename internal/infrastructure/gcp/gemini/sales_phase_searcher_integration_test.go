@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -27,10 +26,6 @@ var jstLoc = func() *time.Location {
 
 func jst(y int, m time.Month, d, hh, mm int) time.Time {
 	return time.Date(y, m, d, hh, mm, 0, 0, jstLoc)
-}
-
-func eventDate(y int, m time.Month, d int) time.Time {
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 
 func fmtT(t time.Time) string {
@@ -81,22 +76,6 @@ func TestSalesPhaseSearcher_Vaundy_HORO_Integration(t *testing.T) {
 		seriesID    = "vaundy-horo-2026"
 	)
 
-	// Real event IDs + dates from the prod DB (Japan legs only — clearest
-	// Japanese-language sales schedule for grounding).
-	candidateEvents := []*entity.SalesPhaseCandidateEvent{
-		{EventID: "019e782c-6f58-7bf6-8a70-daacd48ce6a9", LocalDate: eventDate(2026, 9, 5), ListedVenueName: "幕張メッセ 9・11ホール", AdminArea: "JP-12"},
-		{EventID: "019e782c-704b-7d23-8831-d1f53ef6e040", LocalDate: eventDate(2026, 9, 6), ListedVenueName: "幕張メッセ 9・11ホール", AdminArea: "JP-12"},
-		{EventID: "019e826b-5390-7aa6-a944-98ed616294ea", LocalDate: eventDate(2026, 10, 24), ListedVenueName: "北九州メッセ", AdminArea: "JP-40"},
-		{EventID: "019e826b-53c4-7eb2-8238-b3fdeafda4af", LocalDate: eventDate(2026, 10, 25), ListedVenueName: "北九州メッセ", AdminArea: "JP-40"},
-	}
-
-	// Single source of truth for the assertion below: every covered event a
-	// candidate reports must resolve back to one of the events we provided.
-	validEventIDs := make([]string, len(candidateEvents))
-	for i, ce := range candidateEvents {
-		validEventIDs[i] = ce.EventID
-	}
-
 	// Ground truth: the three real Japan presales (matched by apply_start day).
 	groundTruth := []struct {
 		name  string
@@ -128,29 +107,24 @@ func TestSalesPhaseSearcher_Vaundy_HORO_Integration(t *testing.T) {
 			searcher, err := gemini.NewSalesPhaseSearcher(ctx, cfg, http.DefaultClient, logger)
 			require.NoError(t, err)
 
-			candidates, err := searcher.SearchSalesPhases(ctx, artistName, seriesTitle, seriesID, candidateEvents)
+			candidates, err := searcher.SearchSalesPhases(ctx, artistName, seriesTitle, seriesID)
 			require.NoError(t, err)
 
 			t.Logf("[thinking=%s] SearchSalesPhases returned %d candidates", thinking, len(candidates))
 			for i, c := range candidates {
-				t.Logf("  [%d] method=%v channel=%v provider=%q start=%s end=%s result=%s pay=%s covered=%v url=%q",
+				t.Logf("  [%d] method=%v channel=%v provider=%q start=%s end=%s result=%s pay=%s url=%q",
 					i, c.Method, c.Channel, c.ProviderName,
 					fmtT(c.ApplyStartTime), fmtT(c.ApplyEndTime),
 					fmtT(c.LotteryResultTime), fmtT(c.PaymentDeadlineTime),
-					c.CoveredEventIDs, c.URL,
+					c.URL,
 				)
 			}
 
-			// Structural guards (hard): every candidate must be persistable.
+			// Structural guards (hard): every candidate must be persistable as a
+			// series-level record (known apply_start + matching series).
 			for i, c := range candidates {
 				assert.False(t, c.ApplyStartTime.IsZero(), "candidate[%d]: ApplyStartTime must not be zero", i)
-				assert.NotEmpty(t, c.CoveredEventIDs, "candidate[%d]: CoveredEventIDs must not be empty", i)
-				assert.NotEmpty(t, c.AnchorEventID, "candidate[%d]: AnchorEventID must not be empty", i)
 				assert.Equal(t, seriesID, c.SeriesID, "candidate[%d]: SeriesID must match the input", i)
-				for _, evID := range c.CoveredEventIDs {
-					assert.Contains(t, validEventIDs, evID,
-						"candidate[%d]: covered event must resolve to a provided candidate", i)
-				}
 			}
 
 			// Accuracy vs ground truth — match by apply_start calendar day (JST).
@@ -204,7 +178,6 @@ func TestSalesPhaseSearcher_EmptyGrounding_Integration(t *testing.T) {
 		"zzzNonExistentArtistXXX",
 		"Nonexistent Tour 9999",
 		"test-series-empty",
-		nil,
 	)
 	require.NoError(t, err)
 	// We can only assert the contract (no error), not the count, because the

@@ -809,8 +809,10 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	err = venueRepo.Create(ctx, testVenue)
 	require.NoError(t, err)
 
-	futureDate, _ := time.Parse("2006-01-02", "2026-06-15")
-	pastDate, _ := time.Parse("2006-01-02", "2025-01-01")
+	// Relative to now so the "upcoming" filter stays correct over time (a
+	// hard-coded date silently becomes past once the wall clock passes it).
+	futureDate := time.Now().UTC().AddDate(0, 0, 30)
+	pastDate := time.Now().UTC().AddDate(-1, 0, 0)
 	startTime, _ := time.Parse("15:04", "20:00")
 	openTime, _ := time.Parse("15:04", "18:00")
 	startTime2, _ := time.Parse("15:04", "21:00")

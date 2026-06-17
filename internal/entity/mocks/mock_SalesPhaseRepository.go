@@ -143,54 +143,6 @@ func (_c *MockSalesPhaseRepository_ListPhasesWithPendingMilestones_Call) RunAndR
 	return _c
 }
 
-// ReplaceCoveredEvents provides a mock function with given fields: ctx, phaseID, eventIDs
-func (_m *MockSalesPhaseRepository) ReplaceCoveredEvents(ctx context.Context, phaseID string, eventIDs []string) error {
-	ret := _m.Called(ctx, phaseID, eventIDs)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReplaceCoveredEvents")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, []string) error); ok {
-		r0 = rf(ctx, phaseID, eventIDs)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockSalesPhaseRepository_ReplaceCoveredEvents_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplaceCoveredEvents'
-type MockSalesPhaseRepository_ReplaceCoveredEvents_Call struct {
-	*mock.Call
-}
-
-// ReplaceCoveredEvents is a helper method to define mock.On call
-//   - ctx context.Context
-//   - phaseID string
-//   - eventIDs []string
-func (_e *MockSalesPhaseRepository_Expecter) ReplaceCoveredEvents(ctx interface{}, phaseID interface{}, eventIDs interface{}) *MockSalesPhaseRepository_ReplaceCoveredEvents_Call {
-	return &MockSalesPhaseRepository_ReplaceCoveredEvents_Call{Call: _e.mock.On("ReplaceCoveredEvents", ctx, phaseID, eventIDs)}
-}
-
-func (_c *MockSalesPhaseRepository_ReplaceCoveredEvents_Call) Run(run func(ctx context.Context, phaseID string, eventIDs []string)) *MockSalesPhaseRepository_ReplaceCoveredEvents_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].([]string))
-	})
-	return _c
-}
-
-func (_c *MockSalesPhaseRepository_ReplaceCoveredEvents_Call) Return(_a0 error) *MockSalesPhaseRepository_ReplaceCoveredEvents_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockSalesPhaseRepository_ReplaceCoveredEvents_Call) RunAndReturn(run func(context.Context, string, []string) error) *MockSalesPhaseRepository_ReplaceCoveredEvents_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Upsert provides a mock function with given fields: ctx, candidate
 func (_m *MockSalesPhaseRepository) Upsert(ctx context.Context, candidate *entity.SalesPhaseCandidate) (string, entity.UpsertOutcome, error) {
 	ret := _m.Called(ctx, candidate)

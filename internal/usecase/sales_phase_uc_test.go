@@ -36,12 +36,10 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 	}
 
 	candidate := &entity.SalesPhaseCandidate{
-		SeriesID:        seriesID,
-		CoveredEventIDs: []string{eventID},
-		AnchorEventID:   eventID,
-		Method:          entity.SalesMethodLottery,
-		Channel:         entity.SalesChannelFanClub,
-		ApplyStartTime:  t0,
+		SeriesID:       seriesID,
+		Method:         entity.SalesMethodLottery,
+		Channel:        entity.SalesChannelFanClub,
+		ApplyStartTime: t0,
 	}
 
 	tests := []struct {
@@ -54,13 +52,12 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 			name: "new phase discovered → published once",
 			setupMocks: func(concertRepo *entitymocks.MockConcertRepository, repo *entitymocks.MockSalesPhaseRepository, searcher *entitymocks.MockSalesPhaseSearcher, pub *ucmocks.MockEventPublisher) {
 				concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				searcher.On("SearchSalesPhases", ctx, artist.Name, "TestTour 2026", seriesID, mock_candidate_events(eventID, upcomingConcert.LocalDate)).
+				searcher.On("SearchSalesPhases", ctx, artist.Name, "TestTour 2026", seriesID).
 					Return([]*entity.SalesPhaseCandidate{candidate}, nil)
 				repo.On("Upsert", ctx, candidate).Return("phase-111", entity.UpsertOutcomeInserted, nil)
 				pub.On("PublishEvent", ctx, entity.SubjectSalesPhaseDiscovered, entity.SalesPhaseDiscoveredData{
-					PhaseID:         "phase-111",
-					SeriesID:        seriesID,
-					CoveredEventIDs: []string{eventID},
+					PhaseID:  "phase-111",
+					SeriesID: seriesID,
 				}).Return(nil)
 			},
 			wantNewCount: 1,
@@ -69,7 +66,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 			name: "re-discovery → update, not re-announced",
 			setupMocks: func(concertRepo *entitymocks.MockConcertRepository, repo *entitymocks.MockSalesPhaseRepository, searcher *entitymocks.MockSalesPhaseSearcher, pub *ucmocks.MockEventPublisher) {
 				concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				searcher.On("SearchSalesPhases", ctx, artist.Name, "TestTour 2026", seriesID, mock_candidate_events(eventID, upcomingConcert.LocalDate)).
+				searcher.On("SearchSalesPhases", ctx, artist.Name, "TestTour 2026", seriesID).
 					Return([]*entity.SalesPhaseCandidate{candidate}, nil)
 				// UpsertOutcomeUpdated → no publish
 				repo.On("Upsert", ctx, candidate).Return("phase-111", entity.UpsertOutcomeUpdated, nil)
@@ -88,7 +85,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 			name: "searcher returns empty → nothing upserted",
 			setupMocks: func(concertRepo *entitymocks.MockConcertRepository, repo *entitymocks.MockSalesPhaseRepository, searcher *entitymocks.MockSalesPhaseSearcher, pub *ucmocks.MockEventPublisher) {
 				concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				searcher.On("SearchSalesPhases", ctx, artist.Name, "TestTour 2026", seriesID, mock_candidate_events(eventID, upcomingConcert.LocalDate)).
+				searcher.On("SearchSalesPhases", ctx, artist.Name, "TestTour 2026", seriesID).
 					Return([]*entity.SalesPhaseCandidate{}, nil)
 			},
 			wantNewCount: 0,
@@ -97,7 +94,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 			name: "upsert guard drops candidate → skipped outcome, nothing published",
 			setupMocks: func(concertRepo *entitymocks.MockConcertRepository, repo *entitymocks.MockSalesPhaseRepository, searcher *entitymocks.MockSalesPhaseSearcher, pub *ucmocks.MockEventPublisher) {
 				concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				searcher.On("SearchSalesPhases", ctx, artist.Name, "TestTour 2026", seriesID, mock_candidate_events(eventID, upcomingConcert.LocalDate)).
+				searcher.On("SearchSalesPhases", ctx, artist.Name, "TestTour 2026", seriesID).
 					Return([]*entity.SalesPhaseCandidate{candidate}, nil)
 				repo.On("Upsert", ctx, candidate).Return("", entity.UpsertOutcomeSkipped, nil)
 			},
@@ -126,13 +123,5 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantNewCount, got)
 		})
-	}
-}
-
-// mock_candidate_events builds the expected SalesPhaseCandidateEvent slice
-// from a single event for use in mock expectations.
-func mock_candidate_events(eventID string, localDate time.Time) []*entity.SalesPhaseCandidateEvent {
-	return []*entity.SalesPhaseCandidateEvent{
-		{EventID: eventID, LocalDate: localDate},
 	}
 }

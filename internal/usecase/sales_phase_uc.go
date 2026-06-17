@@ -80,12 +80,11 @@ func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	}
 
 	// Group concerts by series. We use a stable insertion-order slice so the
-	// series are processed in a deterministic order (by first encounter).
-	type seriesEntry struct {
-		candidate entity.SalesSeriesCandidate
-	}
+	// series are processed in a deterministic order (by first encounter). A
+	// phase is series-level, so we only need each series' identity — not its
+	// individual events.
 	order := make([]string, 0)
-	bySeriesID := make(map[string]*seriesEntry)
+	bySeriesID := make(map[string]*entity.SalesSeriesCandidate)
 
 	for _, c := range concerts {
 		if c.SeriesID == "" || c.Series == nil {
@@ -95,29 +94,14 @@ func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		if uc.window > 0 && c.LocalDate.After(time.Now().UTC().Add(uc.window)) {
 			continue
 		}
-		e, ok := bySeriesID[c.SeriesID]
-		if !ok {
-			e = &seriesEntry{
-				candidate: entity.SalesSeriesCandidate{
-					SeriesID:    c.SeriesID,
-					SeriesTitle: c.Series.Title,
-					ArtistName:  artist.Name,
-				},
+		if _, ok := bySeriesID[c.SeriesID]; !ok {
+			bySeriesID[c.SeriesID] = &entity.SalesSeriesCandidate{
+				SeriesID:    c.SeriesID,
+				SeriesTitle: c.Series.Title,
+				ArtistName:  artist.Name,
 			}
-			bySeriesID[c.SeriesID] = e
 			order = append(order, c.SeriesID)
 		}
-		ce := &entity.SalesPhaseCandidateEvent{
-			EventID:   c.ID,
-			LocalDate: c.LocalDate,
-		}
-		if c.ListedVenueName != nil {
-			ce.ListedVenueName = *c.ListedVenueName
-		}
-		if c.Venue != nil && c.Venue.AdminArea != nil {
-			ce.AdminArea = *c.Venue.AdminArea
-		}
-		e.candidate.CandidateEvents = append(e.candidate.CandidateEvents, ce)
 	}
 
 	if len(order) == 0 {
@@ -131,8 +115,7 @@ func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		if ctx.Err() != nil {
 			break
 		}
-		entry := bySeriesID[seriesID]
-		sc := entry.candidate
+		sc := bySeriesID[seriesID]
 
 		seriesAttrs := append(attrs,
 			slog.String("series_id", sc.SeriesID),
@@ -145,7 +128,6 @@ func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 			sc.ArtistName,
 			sc.SeriesTitle,
 			sc.SeriesID,
-			sc.CandidateEvents,
 		)
 		if err != nil {
 			uc.logger.Error(ctx, "sales_phase_discovery: searcher failed for series", err, seriesAttrs...)
@@ -160,7 +142,7 @@ func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 			phaseID, outcome, err := uc.salesPhaseRepo.Upsert(ctx, candidate)
 			if err != nil {
 				uc.logger.Error(ctx, "sales_phase_discovery: upsert failed", err,
-					append(seriesAttrs, slog.String("anchor_event_id", candidate.AnchorEventID))...)
+					append(seriesAttrs, slog.String("apply_start", candidate.ApplyStartTime.Format(time.RFC3339)))...)
 				continue
 			}
 			if outcome == entity.UpsertOutcomeInserted {
@@ -189,9 +171,8 @@ func (uc *salesPhaseDiscoveryUseCase) publishDiscovered(
 	attrs []slog.Attr,
 ) {
 	data := entity.SalesPhaseDiscoveredData{
-		PhaseID:         phaseID,
-		SeriesID:        c.SeriesID,
-		CoveredEventIDs: c.CoveredEventIDs,
+		PhaseID:  phaseID,
+		SeriesID: c.SeriesID,
 	}
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectSalesPhaseDiscovered, data); err != nil {
 		uc.logger.Warn(ctx, "sales_phase_discovery: failed to publish SALES_PHASE.discovered",

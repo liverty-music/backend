@@ -56,8 +56,7 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 	// Repositories
 	salesPhaseRepo := rdb.NewSalesPhaseRepository(db)
 	reminderRepo := rdb.NewSalesPhaseReminderRepository(db)
-	concertRepo := rdb.NewConcertRepository(db)
-	followRepo := rdb.NewFollowRepository(db)
+	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	userRepo := rdb.NewUserRepository(db)
 
 	// Messaging
@@ -78,8 +77,7 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 	salesReminderUC := usecase.NewSalesReminderUseCase(
 		salesPhaseRepo,
 		reminderRepo,
-		concertRepo,
-		followRepo,
+		ticketJourneyRepo,
 		userRepo,
 		eventPublisher,
 		cfg.GCP.SalesReminderScanWindow(),

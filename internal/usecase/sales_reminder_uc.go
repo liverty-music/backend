@@ -35,8 +35,7 @@ type SalesReminderUseCase interface {
 type salesReminderUseCase struct {
 	salesPhaseRepo entity.SalesPhaseRepository
 	reminderRepo   entity.SalesPhaseReminderRepository
-	concertRepo    entity.ConcertRepository
-	followRepo     entity.FollowRepository
+	journeyRepo    entity.TicketJourneyRepository
 	userRepo       entity.UserRepository
 	publisher      EventPublisher
 	// lookahead is the forward horizon passed to ListPhasesWithPendingMilestones.
@@ -58,8 +57,7 @@ const reminderScanLookbackMargin = 2 * time.Hour
 func NewSalesReminderUseCase(
 	salesPhaseRepo entity.SalesPhaseRepository,
 	reminderRepo entity.SalesPhaseReminderRepository,
-	concertRepo entity.ConcertRepository,
-	followRepo entity.FollowRepository,
+	journeyRepo entity.TicketJourneyRepository,
 	userRepo entity.UserRepository,
 	publisher EventPublisher,
 	lookahead time.Duration,
@@ -68,8 +66,7 @@ func NewSalesReminderUseCase(
 	return &salesReminderUseCase{
 		salesPhaseRepo: salesPhaseRepo,
 		reminderRepo:   reminderRepo,
-		concertRepo:    concertRepo,
-		followRepo:     followRepo,
+		journeyRepo:    journeyRepo,
 		userRepo:       userRepo,
 		publisher:      publisher,
 		lookahead:      lookahead,
@@ -127,8 +124,9 @@ func (uc *salesReminderUseCase) processPhase(ctx context.Context, phase *entity.
 		slog.String("series_id", phase.SeriesID),
 	}
 
-	// Resolve audience via the shared helper (covered events → performers → ShouldNotify).
-	_, userIDs, err := ResolveSalesPhaseAudience(ctx, phase, uc.concertRepo, uc.followRepo, attrs, uc.logger)
+	// Resolve audience via the shared helper: users with a Tracking journey on
+	// any event of the phase's series.
+	userIDs, err := ResolveSalesPhaseAudience(ctx, phase.SeriesID, uc.journeyRepo)
 	if err != nil {
 		return 0, err
 	}

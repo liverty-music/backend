@@ -44,7 +44,6 @@ func (h *SalesPhaseAnnouncementConsumer) Handle(msg *message.Message) error {
 	h.logger.Info(ctx, "sales_phase_announcement: processing",
 		slog.String("phase_id", data.PhaseID),
 		slog.String("series_id", data.SeriesID),
-		slog.Int("covered_event_count", len(data.CoveredEventIDs)),
 	)
 
 	if err := h.announcementUC.AnnounceDiscoveredPhase(ctx, data); err != nil {

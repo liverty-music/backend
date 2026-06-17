@@ -56,4 +56,20 @@ type TicketJourneyRepository interface {
 	//
 	//   - Internal: database query failure.
 	ListByUser(ctx context.Context, userID string) ([]*TicketJourney, error)
+
+	// ListUserIDsTrackingSeries returns the distinct user IDs that have a
+	// Tracking ticket journey ([TicketJourneyStatusTracking]) on any event of
+	// the given series. It is the reverse-lookup the sales-phase announcement
+	// and reminder paths use to resolve their audience from explicit fan intent
+	// (a Tracking journey is a "notify me about this sale" signal) rather than
+	// follower proximity. Fans in later lifecycle states (Applied/Paid/…) are
+	// intentionally excluded.
+	//
+	// An empty result (no one tracking) returns (nil, nil).
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: If seriesID is empty.
+	//   - Internal: database query failure.
+	ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]string, error)
 }

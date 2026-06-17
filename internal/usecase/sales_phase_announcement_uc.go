@@ -24,8 +24,7 @@ type SalesPhaseAnnouncementUseCase interface {
 }
 
 type salesPhaseAnnouncementUseCase struct {
-	concertRepo entity.ConcertRepository
-	followRepo  entity.FollowRepository
+	journeyRepo entity.TicketJourneyRepository
 	pushSubRepo entity.PushSubscriptionRepository
 	sender      entity.PushNotificationSender
 	metrics     PushMetrics
@@ -37,16 +36,14 @@ var _ SalesPhaseAnnouncementUseCase = (*salesPhaseAnnouncementUseCase)(nil)
 
 // NewSalesPhaseAnnouncementUseCase wires the announcement use case.
 func NewSalesPhaseAnnouncementUseCase(
-	concertRepo entity.ConcertRepository,
-	followRepo entity.FollowRepository,
+	journeyRepo entity.TicketJourneyRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
 	metrics PushMetrics,
 	logger *logging.Logger,
 ) *salesPhaseAnnouncementUseCase {
 	return &salesPhaseAnnouncementUseCase{
-		concertRepo: concertRepo,
-		followRepo:  followRepo,
+		journeyRepo: journeyRepo,
 		pushSubRepo: pushSubRepo,
 		sender:      sender,
 		metrics:     metrics,
@@ -56,28 +53,14 @@ func NewSalesPhaseAnnouncementUseCase(
 
 // AnnounceDiscoveredPhase implements [SalesPhaseAnnouncementUseCase].
 func (uc *salesPhaseAnnouncementUseCase) AnnounceDiscoveredPhase(ctx context.Context, data entity.SalesPhaseDiscoveredData) error {
-	attrs := []slog.Attr{
-		slog.String("phase_id", data.PhaseID),
-		slog.String("series_id", data.SeriesID),
-		slog.Int("covered_event_count", len(data.CoveredEventIDs)),
-	}
-
-	if len(data.CoveredEventIDs) == 0 {
-		uc.logger.Warn(ctx, "sales_phase_announcement: no covered events, skipping",
+	if data.SeriesID == "" {
+		uc.logger.Warn(ctx, "sales_phase_announcement: empty series_id, skipping",
 			slog.String("phase_id", data.PhaseID),
 		)
 		return nil
 	}
 
-	// Build a minimal SalesPhase so the shared audience resolver can work with
-	// the event payload (which only carries PhaseID + CoveredEventIDs).
-	phase := &entity.SalesPhase{
-		ID:              data.PhaseID,
-		SeriesID:        data.SeriesID,
-		CoveredEventIDs: data.CoveredEventIDs,
-	}
-
-	_, userIDs, err := ResolveSalesPhaseAudience(ctx, phase, uc.concertRepo, uc.followRepo, attrs, uc.logger)
+	userIDs, err := ResolveSalesPhaseAudience(ctx, data.SeriesID, uc.journeyRepo)
 	if err != nil {
 		return fmt.Errorf("sales_phase_announcement: resolve audience: %w", err)
 	}
@@ -97,9 +80,6 @@ func (uc *salesPhaseAnnouncementUseCase) AnnounceDiscoveredPhase(ctx context.Con
 	// (timezone, language) is intentionally omitted — it fires once
 	// immediately from the daytime job (no quiet-hours constraint) and a
 	// generic body suffices until a richer notification UX is designed.
-	//
-	// TODO: swap to generated type after BSR gen (Refs #571) — use the
-	// proto-generated series title from the phase once BSR types land.
 	payload := &entity.NotificationPayload{
 		Title: "New Ticket Sales Phase",
 		Body:  "A new ticket sales phase was announced. Check the details.",
