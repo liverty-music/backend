@@ -78,17 +78,18 @@ const (
 	//   クレジットカード → CREDIT_CARD (4)
 	//   携帯キャリア → MOBILE_CARRIER (5) — docomo/au/SoftBank presale
 	//   一般         → GENERAL (6)
-	systemInstructionSalesPhaseStep1 = `あなたは音楽ファン向けサービスの、チケット販売スケジュール抽出エージェントです。
+	systemInstructionSalesPhaseStep1 = `You are a ticket-sales schedule extraction agent for a music-fan service. The artist's pages are in Japanese.
 
-アーティストの指定シリーズについて、公式サイトおよびチケット販売会社のページから、ユーザーが「今後申し込める」チケット販売スケジュールを抽出することがゴールです。ユーザー(ファン)が見逃したくないのは、これから受付が始まる先行・先着・一般発売です。すでに申込受付が終了した販売(申込締切が本日より前のもの)は価値がないため対象外とし、出力しないでください。
+Goal: read the artist's OFFICIAL SITE (URL given in the user prompt) and the ticketing pages it links to, and extract the ticket sales a fan can still apply for. Do NOT answer from memory or guess — base every value strictly on the content of that URL. Fans care about upcoming presales, first-come sales, and general on-sales. Sales whose application window has already closed (application deadline before today) are out of scope; do not output them.
 
-販売フェーズはシリーズ(ツアー)全体に対する1つの販売機会として扱います。どの個別公演を対象とするか(対象公演日)は抽出不要です。販売条件(チャネル・受付期間など)が異なる販売は、それぞれ別の <phase> として出力してください。
+A sale phase is ONE series-level (whole-tour) sales opportunity. Every <phase> MUST carry a series_id identifying which series it belongs to. Use ONLY a value from the "known series" list in the user prompt; if you cannot confidently map a phase to one of those series, do NOT output it (never guess the mapping).
 
-以下の出力フォーマットに従い、販売フェーズごとに <phase> タグでまとめてください。
+Follow this exact XML output format, one <phase> per sales window:
 
 <extracted>
   <source_url>https://www.example.com/ticket</source_url>
   <phase>
+    <series_id>0190000000000000000000000000aaaa</series_id>
     <method>抽選</method>
     <channel>ファンクラブ</channel>
     <provider_name></provider_name>
@@ -99,44 +100,37 @@ const (
     <payment_deadline></payment_deadline>
     <url>https://fc.example/entry</url>
   </phase>
-  <phase>
-    <method>先着</method>
-    <channel>一般</channel>
-    <provider_name>チケットぴあ</provider_name>
-    <sequence>0</sequence>
-    <apply_start>2026年8月1日 10:00</apply_start>
-    <apply_end></apply_end>
-    <lottery_result></lottery_result>
-    <payment_deadline></payment_deadline>
-    <url>https://t.pia.jp/example</url>
-  </phase>
 </extracted>
 
-抽出ルール:
-- source_url: 最も詳細な情報を記載しているページのURL。
-- method: 「抽選」または「先着」。不明な場合は空欄。
-- channel: 以下の7種類のうちいずれか1つを記入。不明な場合は空欄。
-    「ファンクラブ」 — FC・ファンクラブ会員限定。
-    「公式」         — アーティスト/レーベルの公式サイトや公式アプリからの直販(FC枠以外)。
-    「プレイガイド」 — e+、チケットぴあ、ローチケ、CNプレイガイドなど第三者プレイガイド全般。具体的な会社名は provider_name に記入。
-    「クレジットカード」 — 特定クレジットカード会員向け先行。
-    「携帯キャリア」 — docomo・au・SoftBank などキャリア先行。
-    「一般」         — 会員資格・提携条件なしの一般発売。
-- provider_name: チケット販売会社名を verbatim (一字一句そのまま) でコピーすること。不明な場合は空欄。特に channel が「プレイガイド」の場合は必ず具体的な会社名 (例: "e+"、"チケットぴあ"、"ローチケ") を記入する。
-- sequence: 同一チャネルで複数回抽選がある場合の0始まりの順番。通常は0。
-- apply_start, apply_end, lottery_result, payment_deadline: verbatim な日時文字列。不明・非該当の場合は空欄。
-- 対象期間: ユーザープロンプトで与えられる「本日」を基準とし、申込締切が本日より前の販売(受付終了済み)は出力しないこと。これから受付が始まる、または現在受付中で締切が本日以降の販売のみを対象とする。特に、告知されたばかりの今後の一般発売・追加先行を見落とさないこと。
-- 情報が確認できない項目はタグを空欄にすること。推測や補完は一切禁止。
-- 余計なテキストは含めず、XMLのみをレスポンスに含めること。
+Extraction rules:
+- series_id: MUST be one of the values in the "known series" list; decide the match from the series title and event dates. If undecidable, omit the phase.
+- source_url: the URL of the page with the most detailed information.
+- method: write exactly "抽選" (lottery) or "先着" (first-come). Empty if unknown.
+- channel: write exactly ONE of these 7 Japanese tokens; empty if unknown:
+    "ファンクラブ" — fan-club members only.
+    "公式"         — direct sale from the artist/label official site or app (non-fan-club).
+    "プレイガイド" — any third-party play guide (e+, チケットぴあ, ローチケ, CN Playguide, …); put the concrete company name in provider_name.
+    "クレジットカード" — a specific credit-card-member presale.
+    "携帯キャリア" — a mobile-carrier presale (docomo/au/SoftBank).
+    "一般"         — general on-sale with no membership/affiliation gate.
+- provider_name: copy the ticketing company name verbatim. Empty if unknown. When channel is "プレイガイド", always fill in the concrete company name.
+- sequence: 0-based ordinal when the same channel runs multiple rounds. Usually 0.
+- apply_start, apply_end, lottery_result, payment_deadline: verbatim date/time strings as written on the page. Empty when unknown or not applicable.
+- Date scope: relative to the "today" given in the user prompt, do NOT output sales whose application deadline is before today. Only sales that are about to open or currently open with a deadline on/after today. If none qualify, return an empty <extracted> with no <phase>.
+- Leave a tag empty when the value cannot be confirmed. Never guess or fill in.
+- Respond with XML only; no extra text.
 `
 
-	// promptTemplateSalesPhaseStep1 is the per-call user prompt template.
-	// Placeholders: today (JST date), artist name, series title.
-	promptTemplateSalesPhaseStep1 = `本日: %s
-アーティスト名: %s
-シリーズ名: %s
+	// promptTemplateSalesPhaseStep1 is the per-artist user prompt template.
+	// Placeholders: today (JST date), artist name, official site URL, and the
+	// known-series list.
+	promptTemplateSalesPhaseStep1 = `Today: %s
+Artist: %s
+Official site: %s
+Known series (series_id: title / event dates):
+%s
 
-このシリーズについて、本日以降に申し込めるチケット販売スケジュールのみを抽出してください。申込締切が本日より前の販売(受付終了済み)は出力しないこと。これから受付が始まる先行・先着・一般発売、および現在受付中で締切が本日以降の販売を対象とし、今後の一般発売・追加先行を見落とさないでください。`
+Read the official site above and extract the ticket sales a fan can still apply for as of today. Tag each <phase> with its matching series_id, and omit any phase you cannot confidently map. If none qualify, return an empty <extracted>.`
 
 	// systemInstructionSalesPhaseStep2 instructs Step 2 to perform JSON
 	// coercion only — dates and times are normalised from verbatim Japanese
@@ -160,6 +154,7 @@ type salesPhaseStep1Envelope struct {
 }
 
 type salesPhaseXML struct {
+	SeriesID        string `xml:"series_id"`
 	Method          string `xml:"method"`
 	Channel         string `xml:"channel"`
 	ProviderName    string `xml:"provider_name"`
@@ -302,21 +297,31 @@ func NewSalesPhaseSearcher(
 // outcome). Only infrastructure failures return a non-nil error.
 func (s *SalesPhaseSearcher) SearchSalesPhases(
 	ctx context.Context,
-	artistName string,
-	seriesTitle string,
-	seriesID string,
+	in *entity.SalesPhaseSearchInput,
 ) ([]*entity.SalesPhaseCandidate, error) {
+	if in == nil || len(in.Series) == 0 {
+		return nil, nil
+	}
 	attrs := []slog.Attr{
-		slog.String("artist_name", artistName),
-		slog.String("series_title", seriesTitle),
-		slog.String("series_id", seriesID),
+		slog.String("artist_name", in.ArtistName),
+		slog.String("official_site_url", in.OfficialSiteURL),
+		slog.Int("series_count", len(in.Series)),
 		slog.String("model_extract", s.config.modelExtract()),
 		slog.String("model_parse", s.config.modelParse()),
 	}
 	s.logger.Info(ctx, "SalesPhaseSearcher: starting two-step extraction", attrs...)
 
+	// validSeriesIDs bounds the model's series_id attribution; a phase tagged
+	// with an unknown series_id is dropped rather than guessed.
+	validSeriesIDs := make(map[string]struct{}, len(in.Series))
+	for _, sr := range in.Series {
+		if sr != nil && sr.SeriesID != "" {
+			validSeriesIDs[sr.SeriesID] = struct{}{}
+		}
+	}
+
 	// ===== Step 1: Grounded search + verbatim extract =====
-	rawEnvelope, err := s.runStep1(ctx, artistName, seriesTitle, attrs)
+	rawEnvelope, err := s.runStep1(ctx, in, attrs)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +339,7 @@ func (s *SalesPhaseSearcher) SearchSalesPhases(
 	}
 
 	// ===== Step 2: JSON coercion (verbatim Japanese dates → RFC 3339) =====
-	candidates, err := s.runStep2(ctx, seriesID, envelope.SourceURL, xmlPhases, attrs)
+	candidates, err := s.runStep2(ctx, validSeriesIDs, envelope.SourceURL, xmlPhases, attrs)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +377,7 @@ func filterUpcomingPhases(candidates []*entity.SalesPhaseCandidate, now time.Tim
 // text. Returns ("", nil) on transient exhaustion (degrade gracefully).
 func (s *SalesPhaseSearcher) runStep1(
 	ctx context.Context,
-	artistName, seriesTitle string,
+	in *entity.SalesPhaseSearchInput,
 	attrs []slog.Attr,
 ) (string, error) {
 	now := time.Now().UTC().Truncate(time.Second)
@@ -381,24 +386,18 @@ func (s *SalesPhaseSearcher) runStep1(
 	// +09:00 zone is exact and avoids a tzdata dependency.
 	jst := time.FixedZone("JST", 9*60*60)
 	today := now.In(jst).Format("2006年1月2日")
-	prompt := fmt.Sprintf(promptTemplateSalesPhaseStep1, today, artistName, seriesTitle)
+	prompt := fmt.Sprintf(promptTemplateSalesPhaseStep1,
+		today, in.ArtistName, in.OfficialSiteURL, seriesList(in.Series, jst),
+	)
 	temperature := s.config.Temperature
 
-	// TODO(grounding): GoogleSearch is NOT firing for this searcher — live runs
-	// show usage.tool_use=0 and grounding.fired=false for BOTH gemini-3.1-flash-
-	// lite AND gemini-3.5-flash, so extraction is currently from model memory,
-	// not live search. Removing TimeRangeFilter did NOT restore grounding, so it
-	// is not the cause; root cause is at the GoogleSearch tool / SDK / model
-	// level (likely affects the concert searcher too). TimeRangeFilter is kept
-	// for source freshness once grounding is fixed.
-	searchTool := &genai.Tool{
-		GoogleSearch: &genai.GoogleSearch{
-			TimeRangeFilter: &genai.Interval{
-				StartTime: now.AddDate(0, -6, 0),
-				EndTime:   now,
-			},
-		},
-	}
+	// Grounding is driven by the seeded official-site URL through the URL-context
+	// tool (the model reads the real page instead of answering from memory);
+	// GoogleSearch is a fallback. We do NOT use TimeRangeFilter — it is unreliable
+	// (googleapis/python-genai#1207) and recency is not needed: the official site
+	// is a live full-state source and re-discovered phases converge idempotently
+	// on (series_id, apply_start_time).
+	searchTool := &genai.Tool{GoogleSearch: &genai.GoogleSearch{}}
 	urlCtxTool := &genai.Tool{URLContext: &genai.URLContext{}}
 
 	cfg := &genai.GenerateContentConfig{
@@ -435,7 +434,7 @@ func (s *SalesPhaseSearcher) runStep1(
 // assembles the final []*entity.SalesPhaseCandidate.
 func (s *SalesPhaseSearcher) runStep2(
 	ctx context.Context,
-	seriesID string,
+	validSeriesIDs map[string]struct{},
 	sourceURL string,
 	xmlPhases []salesPhaseXML,
 	attrs []slog.Attr,
@@ -487,7 +486,32 @@ func (s *SalesPhaseSearcher) runStep2(
 		return nil, nil
 	}
 
-	return parseSalesPhaseStep2Response(rawText, xmlPhases, seriesID, sourceURL, attrs)
+	return parseSalesPhaseStep2Response(rawText, xmlPhases, validSeriesIDs, sourceURL, attrs)
+}
+
+// seriesList renders the artist's known series as a prompt block keyed by
+// series_id, with each series' known event dates for disambiguation.
+func seriesList(series []*entity.SalesSeriesRef, tz *time.Location) string {
+	var b strings.Builder
+	for _, sr := range series {
+		if sr == nil || sr.SeriesID == "" {
+			continue
+		}
+		dates := make([]string, 0, len(sr.EventDates))
+		for _, d := range sr.EventDates {
+			dates = append(dates, d.In(tz).Format("2006-01-02"))
+		}
+		b.WriteString("- ")
+		b.WriteString(sr.SeriesID)
+		b.WriteString(": ")
+		b.WriteString(sr.Title)
+		if len(dates) > 0 {
+			b.WriteString(" / ")
+			b.WriteString(strings.Join(dates, ", "))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // generateSingle fires a single Gemini call with bounded exponential-backoff
@@ -695,7 +719,7 @@ func parseSalesPhaseStep1Envelope(raw string) (salesPhaseStep1Envelope, []salesP
 func parseSalesPhaseStep2Response(
 	rawJSON string,
 	xmlPhases []salesPhaseXML,
-	seriesID string,
+	validSeriesIDs map[string]struct{},
 	sourceURL string,
 	attrs []slog.Attr,
 ) ([]*entity.SalesPhaseCandidate, error) {
@@ -741,6 +765,13 @@ func parseSalesPhaseStep2Response(
 		coerced, ok := byIndex[i]
 		if !ok {
 			// Step 2 omitted this phase — skip.
+			continue
+		}
+
+		// Attribute the phase to a known series_id; drop if the model tagged it
+		// with an unknown/empty series (never guess).
+		seriesID := strings.TrimSpace(xp.SeriesID)
+		if _, ok := validSeriesIDs[seriesID]; !ok {
 			continue
 		}
 

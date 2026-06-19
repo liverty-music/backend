@@ -163,17 +163,31 @@ const (
 	UpsertOutcomeUpdated UpsertOutcome = 2
 )
 
-// SalesSeriesCandidate pairs a series with its candidate events for the
-// sales-phase discovery job. The job builds one of these per series and
-// passes it to the searcher.
-type SalesSeriesCandidate struct {
+// SalesSeriesRef identifies one of an artist's known upcoming series, supplied
+// to the searcher so it can attribute a discovered sale phase to the correct
+// series_id. The known event dates help the model disambiguate when an artist
+// has multiple concurrent tours.
+type SalesSeriesRef struct {
 	// SeriesID is the stable identifier of the series.
 	SeriesID string
-	// SeriesTitle is the display title used to ground the Gemini search.
-	SeriesTitle string
-	// ArtistName is a representative performing artist for this series, used
-	// in the search prompt.
+	// Title is the display title of the series (tour).
+	Title string
+	// EventDates are the known local dates of the series' upcoming events.
+	EventDates []time.Time
+}
+
+// SalesPhaseSearchInput is the per-artist input to the sales-phase searcher.
+// Discovery issues ONE grounded search per artist (not per series) to cut
+// grounding cost and to let the model see all of the artist's tours at once.
+type SalesPhaseSearchInput struct {
+	// ArtistName is the performing artist whose sales phases are searched.
 	ArtistName string
+	// OfficialSiteURL seeds the URL-context tool so the model reads the real
+	// page instead of answering from memory. Always present.
+	OfficialSiteURL string
+	// Series are the artist's known upcoming series; a discovered phase is
+	// attributed back to one of these series_ids (unmappable phases dropped).
+	Series []*SalesSeriesRef
 }
 
 // SalesPhaseRepository defines the data access interface for [SalesPhase].
@@ -226,26 +240,24 @@ type SalesPhaseRepository interface {
 	GetBySeries(ctx context.Context, seriesID string) ([]*SalesPhase, error)
 }
 
-// SalesPhaseSearcher discovers upcoming ticket-sales phases for an artist's
-// series using an external grounded search.
+// SalesPhaseSearcher discovers upcoming ticket-sales phases for an artist
+// using an external grounded search, issuing one call per artist.
 type SalesPhaseSearcher interface {
-	// SearchSalesPhases returns all series-level sales-phase candidates found
-	// for the given artist name and series title. It does NOT resolve which
-	// individual events a phase covers — each candidate is a series-level record.
+	// SearchSalesPhases issues a single grounded search for the artist in the
+	// input and returns the discovered series-level sale-phase candidates, each
+	// attributed to one of the input's series_ids. It does NOT resolve which
+	// individual events a phase covers, and it returns only series for which a
+	// phase was found (it does not echo back every input series).
 	//
 	// An empty result with a nil error means the searcher found no phases (normal
-	// outcome). Only infrastructure failures return a non-nil error.
+	// outcome, including "nothing new since input.Since"). Only infrastructure
+	// failures return a non-nil error.
 	//
 	// # Possible errors
 	//
 	//  - Unavailable: If the external search service is down.
 	//  - Internal: Unexpected failure during extraction or coercion.
-	SearchSalesPhases(
-		ctx context.Context,
-		artistName string,
-		seriesTitle string,
-		seriesID string,
-	) ([]*SalesPhaseCandidate, error)
+	SearchSalesPhases(ctx context.Context, in *SalesPhaseSearchInput) ([]*SalesPhaseCandidate, error)
 }
 
 // SalesPhaseReminderRepository persists the sent-log for sales-phase reminder

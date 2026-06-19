@@ -87,6 +87,7 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
 
 	xmlPhases := []salesPhaseXML{
 		{
+			SeriesID:     "series-a",
 			Method:       "抽選",
 			Channel:      "ファンクラブ",
 			ProviderName: "e+",
@@ -94,6 +95,7 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
 			URL:          "https://eplus.jp/example",
 		},
 		{
+			SeriesID:     "series-b",
 			Method:       "先着",
 			Channel:      "一般",
 			ProviderName: "ローチケ",
@@ -101,12 +103,14 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
 			URL:          "https://l-tike.com/example",
 		},
 	}
+	bothValid := map[string]struct{}{"series-a": {}, "series-b": {}}
+	onlyA := map[string]struct{}{"series-a": {}}
 
 	tests := []struct {
 		name      string
 		rawJSON   string
 		xmlPhases []salesPhaseXML
-		seriesID  string
+		valid     map[string]struct{}
 		sourceURL string
 		wantLen   int
 		wantErr   bool
@@ -132,7 +136,7 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
   ]
 }`,
 			xmlPhases: xmlPhases,
-			seriesID:  "series-111",
+			valid:     bothValid,
 			sourceURL: "https://example.com/ticket",
 			wantLen:   2,
 		},
@@ -150,7 +154,7 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
   ]
 }`,
 			xmlPhases: xmlPhases[:1],
-			seriesID:  "series-222",
+			valid:     onlyA,
 			sourceURL: "https://example.com/ticket",
 			wantLen:   1,
 		},
@@ -168,7 +172,7 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
   ]
 }`,
 			xmlPhases: xmlPhases[:1],
-			seriesID:  "series-444",
+			valid:     onlyA,
 			sourceURL: "https://example.com/ticket",
 			wantLen:   0,
 		},
@@ -176,7 +180,7 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
 			name:      "empty grounding: empty JSON produces no phases",
 			rawJSON:   `{"phases":[]}`,
 			xmlPhases: xmlPhases,
-			seriesID:  "series-555",
+			valid:     bothValid,
 			sourceURL: "",
 			wantLen:   0,
 		},
@@ -188,7 +192,7 @@ func TestParseSalesPhaseStep2Response(t *testing.T) {
 			got, err := parseSalesPhaseStep2Response(
 				tt.rawJSON,
 				tt.xmlPhases,
-				tt.seriesID,
+				tt.valid,
 				tt.sourceURL,
 				nil,
 			)
@@ -206,6 +210,7 @@ func TestParseSalesPhaseStep2Response_FieldShaping(t *testing.T) {
 	t.Parallel()
 
 	xmlPhases := []salesPhaseXML{{
+		SeriesID:     "series-001",
 		Method:       "抽選",
 		Channel:      "ファンクラブ",
 		ProviderName: "e+",
@@ -225,7 +230,7 @@ func TestParseSalesPhaseStep2Response_FieldShaping(t *testing.T) {
   ]
 }`
 
-	got, err := parseSalesPhaseStep2Response(rawJSON, xmlPhases, "series-001", "https://example.com", nil)
+	got, err := parseSalesPhaseStep2Response(rawJSON, xmlPhases, map[string]struct{}{"series-001": {}}, "https://example.com", nil)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 

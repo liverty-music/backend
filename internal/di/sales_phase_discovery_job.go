@@ -63,6 +63,7 @@ func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscov
 	// Repositories
 	followRepo := rdb.NewFollowRepository(db)
 	concertRepo := rdb.NewConcertRepository(db)
+	artistRepo := rdb.NewArtistRepository(db)
 	salesPhaseRepo := rdb.NewSalesPhaseRepository(db)
 
 	// Messaging
@@ -103,6 +104,7 @@ func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscov
 
 	salesPhaseDiscUC := usecase.NewSalesPhaseDiscoveryUseCase(
 		concertRepo,
+		artistRepo,
 		salesPhaseRepo,
 		searcher,
 		eventPublisher,
