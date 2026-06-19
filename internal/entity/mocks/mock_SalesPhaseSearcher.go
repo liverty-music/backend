@@ -22,9 +22,9 @@ func (_m *MockSalesPhaseSearcher) EXPECT() *MockSalesPhaseSearcher_Expecter {
 	return &MockSalesPhaseSearcher_Expecter{mock: &_m.Mock}
 }
 
-// SearchSalesPhases provides a mock function with given fields: ctx, artistName, seriesTitle, seriesID
-func (_m *MockSalesPhaseSearcher) SearchSalesPhases(ctx context.Context, artistName string, seriesTitle string, seriesID string) ([]*entity.SalesPhaseCandidate, error) {
-	ret := _m.Called(ctx, artistName, seriesTitle, seriesID)
+// SearchSalesPhases provides a mock function with given fields: ctx, in
+func (_m *MockSalesPhaseSearcher) SearchSalesPhases(ctx context.Context, in *entity.SalesPhaseSearchInput) ([]*entity.SalesPhaseCandidate, error) {
+	ret := _m.Called(ctx, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SearchSalesPhases")
@@ -32,19 +32,19 @@ func (_m *MockSalesPhaseSearcher) SearchSalesPhases(ctx context.Context, artistN
 
 	var r0 []*entity.SalesPhaseCandidate
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) ([]*entity.SalesPhaseCandidate, error)); ok {
-		return rf(ctx, artistName, seriesTitle, seriesID)
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.SalesPhaseSearchInput) ([]*entity.SalesPhaseCandidate, error)); ok {
+		return rf(ctx, in)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) []*entity.SalesPhaseCandidate); ok {
-		r0 = rf(ctx, artistName, seriesTitle, seriesID)
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.SalesPhaseSearchInput) []*entity.SalesPhaseCandidate); ok {
+		r0 = rf(ctx, in)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.SalesPhaseCandidate)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
-		r1 = rf(ctx, artistName, seriesTitle, seriesID)
+	if rf, ok := ret.Get(1).(func(context.Context, *entity.SalesPhaseSearchInput) error); ok {
+		r1 = rf(ctx, in)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -59,16 +59,14 @@ type MockSalesPhaseSearcher_SearchSalesPhases_Call struct {
 
 // SearchSalesPhases is a helper method to define mock.On call
 //   - ctx context.Context
-//   - artistName string
-//   - seriesTitle string
-//   - seriesID string
-func (_e *MockSalesPhaseSearcher_Expecter) SearchSalesPhases(ctx interface{}, artistName interface{}, seriesTitle interface{}, seriesID interface{}) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
-	return &MockSalesPhaseSearcher_SearchSalesPhases_Call{Call: _e.mock.On("SearchSalesPhases", ctx, artistName, seriesTitle, seriesID)}
+//   - in *entity.SalesPhaseSearchInput
+func (_e *MockSalesPhaseSearcher_Expecter) SearchSalesPhases(ctx interface{}, in interface{}) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
+	return &MockSalesPhaseSearcher_SearchSalesPhases_Call{Call: _e.mock.On("SearchSalesPhases", ctx, in)}
 }
 
-func (_c *MockSalesPhaseSearcher_SearchSalesPhases_Call) Run(run func(ctx context.Context, artistName string, seriesTitle string, seriesID string)) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
+func (_c *MockSalesPhaseSearcher_SearchSalesPhases_Call) Run(run func(ctx context.Context, in *entity.SalesPhaseSearchInput)) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+		run(args[0].(context.Context), args[1].(*entity.SalesPhaseSearchInput))
 	})
 	return _c
 }
@@ -78,7 +76,7 @@ func (_c *MockSalesPhaseSearcher_SearchSalesPhases_Call) Return(_a0 []*entity.Sa
 	return _c
 }
 
-func (_c *MockSalesPhaseSearcher_SearchSalesPhases_Call) RunAndReturn(run func(context.Context, string, string, string) ([]*entity.SalesPhaseCandidate, error)) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
+func (_c *MockSalesPhaseSearcher_SearchSalesPhases_Call) RunAndReturn(run func(context.Context, *entity.SalesPhaseSearchInput) ([]*entity.SalesPhaseCandidate, error)) *MockSalesPhaseSearcher_SearchSalesPhases_Call {
 	_c.Call.Return(run)
 	return _c
 }

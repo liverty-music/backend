@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -107,7 +108,11 @@ func TestSalesPhaseSearcher_Vaundy_HORO_Integration(t *testing.T) {
 			searcher, err := gemini.NewSalesPhaseSearcher(ctx, cfg, http.DefaultClient, logger)
 			require.NoError(t, err)
 
-			candidates, err := searcher.SearchSalesPhases(ctx, artistName, seriesTitle, seriesID)
+			candidates, err := searcher.SearchSalesPhases(ctx, &entity.SalesPhaseSearchInput{
+				ArtistName:      artistName,
+				OfficialSiteURL: "https://vaundy.jp/",
+				Series:          []*entity.SalesSeriesRef{{SeriesID: seriesID, Title: seriesTitle}},
+			})
 			require.NoError(t, err)
 
 			t.Logf("[thinking=%s] SearchSalesPhases returned %d candidates", thinking, len(candidates))
@@ -173,12 +178,11 @@ func TestSalesPhaseSearcher_EmptyGrounding_Integration(t *testing.T) {
 	searcher, err := gemini.NewSalesPhaseSearcher(ctx, cfg, http.DefaultClient, logger)
 	require.NoError(t, err)
 
-	candidates, err := searcher.SearchSalesPhases(
-		ctx,
-		"zzzNonExistentArtistXXX",
-		"Nonexistent Tour 9999",
-		"test-series-empty",
-	)
+	candidates, err := searcher.SearchSalesPhases(ctx, &entity.SalesPhaseSearchInput{
+		ArtistName:      "zzzNonExistentArtistXXX",
+		OfficialSiteURL: "https://example.com/nonexistent",
+		Series:          []*entity.SalesSeriesRef{{SeriesID: "test-series-empty", Title: "Nonexistent Tour 9999"}},
+	})
 	require.NoError(t, err)
 	// We can only assert the contract (no error), not the count, because the
 	// model might still hallucinate results for a totally unknown query.
