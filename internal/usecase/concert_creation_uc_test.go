@@ -110,6 +110,10 @@ type fakeConcertRepo struct {
 	// filledIDs / filledStarts capture FillEventStartTimes calls.
 	filledIDs    []string
 	filledStarts []*time.Time
+	// published holds concerts returned by List; admin tests seed this directly.
+	published []*entity.Concert
+	// deleteCalled records whether Delete was invoked; admin tests assert on this.
+	deleteCalled bool
 }
 
 func (r *fakeConcertRepo) ListByArtist(_ context.Context, _ string, _ bool) ([]*entity.Concert, error) {
@@ -161,6 +165,26 @@ func (r *fakeConcertRepo) Create(_ context.Context, concerts ...*entity.Concert)
 		}
 	}
 	return ids, nil
+}
+
+// List returns all concerts in the published slice. Implements the admin
+// catalog-listing half of entity.ConcertRepository.
+func (r *fakeConcertRepo) List(_ context.Context) ([]*entity.Concert, error) {
+	return r.published, nil
+}
+
+// Delete removes a concert from the published slice by event id. It is
+// idempotent: deleting an absent id is a no-op. Records the call so tests can
+// assert repo.Delete was (or was not) invoked.
+func (r *fakeConcertRepo) Delete(_ context.Context, eventID string) error {
+	r.deleteCalled = true
+	for i, c := range r.published {
+		if c.ID == eventID {
+			r.published = append(r.published[:i], r.published[i+1:]...)
+			return nil
+		}
+	}
+	return nil
 }
 
 // fakeStagedConcertRepo is an in-memory implementation for unit tests.
@@ -445,7 +469,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		require.NoError(t, err)
 
 		// Even though we have a publisher channel open, CreateFromDiscovered must
-		// not publish CONCERT.created — that is ConcertApprovalUseCase.Approve's job.
+		// not publish CONCERT.created — that is AdminConcertUseCase.Approve's job.
 		_ = messaging.NewEventPublisher(pub) // publisher not passed to uc
 
 		data := entity.ConcertDiscoveredData{

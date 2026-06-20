@@ -137,6 +137,23 @@ const (
 		ORDER BY e.local_event_date ASC
 	`
 
+	// listAllConcertsQuery returns every published concert with no audience
+	// filter, for the admin console's catalog management. Venue lat/lng are
+	// included (withCoords) so the shared scanConcertRow path is reused.
+	listAllConcertsQuery = `
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		       s.title, s.type, s.source_url, s.merch_url,
+		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		FROM events e
+		JOIN series s ON e.series_id = s.id
+		JOIN venues v ON e.venue_id = v.id
+		ORDER BY e.local_event_date ASC
+	`
+
+	// deleteEventQuery removes a published event by id. Rows referencing the
+	// event are removed by the schema's ON DELETE CASCADE foreign keys.
+	deleteEventQuery = `DELETE FROM events WHERE id = $1`
+
 	// listConcertsByIDsQuery includes venue lat/lng because NotifyNewConcerts
 	// feeds the result into HypeNearby.ShouldNotify, which calls ProximityTo
 	// on Venue.Coordinates. Without the coordinates, ProximityTo returns
@@ -413,6 +430,43 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 		return nil, err
 	}
 	return concerts, nil
+}
+
+// List retrieves every published concert with no audience filter. Venue lat/lng
+// are included for parity with the other proximity-aware list methods.
+func (r *ConcertRepository) List(ctx context.Context) ([]*entity.Concert, error) {
+	rows, err := r.db.Pool.Query(ctx, listAllConcertsQuery)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list all concerts")
+	}
+	defer rows.Close()
+
+	var concerts []*entity.Concert
+	for rows.Next() {
+		c, err := scanConcertRow(rows.Scan, true)
+		if err != nil {
+			return nil, err
+		}
+		concerts = append(concerts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
+	}
+
+	if err := r.hydratePerformers(ctx, concerts); err != nil {
+		return nil, err
+	}
+	return concerts, nil
+}
+
+// Delete removes a published event by id, cascading to all referencing rows via
+// the schema's foreign keys. Deleting a non-existent id is a no-op success
+// (idempotent) — a zero affected-row count is not treated as an error.
+func (r *ConcertRepository) Delete(ctx context.Context, eventID string) error {
+	if _, err := r.db.Pool.Exec(ctx, deleteEventQuery, eventID); err != nil {
+		return toAppErr(err, "failed to delete event", slog.String("event_id", eventID))
+	}
+	return nil
 }
 
 // Create persists one or more concerts using bulk insert with UPSERT semantics.

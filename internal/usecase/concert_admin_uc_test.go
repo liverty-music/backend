@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// --- test doubles for approval UC ---
+// --- test doubles for admin UC ---
 
 // fakeRejectedConcertLogRepo is an in-memory append-only log repo.
 type fakeRejectedConcertLogRepo struct {
@@ -27,7 +27,7 @@ func (r *fakeRejectedConcertLogRepo) Append(_ context.Context, log *entity.Rejec
 	return nil
 }
 
-// fakeArtistRepo is a minimal artist repository for approval tests.
+// fakeArtistRepo is a minimal artist repository for admin UC tests.
 type fakeArtistRepo struct {
 	artists map[string]*entity.Artist
 }
@@ -75,7 +75,7 @@ func (r *fakeArtistRepo) ListStaleOrMissingFanart(_ context.Context, _ time.Dura
 	return nil, nil
 }
 
-// approvalTestDeps bundles dependencies for ConcertApprovalUseCase tests.
+// approvalTestDeps bundles dependencies for AdminConcertUseCase tests.
 type approvalTestDeps struct {
 	stagedRepo  *fakeStagedConcertRepo
 	rejectedLog *fakeRejectedConcertLogRepo
@@ -86,7 +86,7 @@ type approvalTestDeps struct {
 	publisher   interface {
 		Subscribe(ctx context.Context, topic string) (<-chan *message.Message, error)
 	}
-	uc usecase.ConcertApprovalUseCase
+	uc usecase.AdminConcertUseCase
 }
 
 func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps {
@@ -101,14 +101,22 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		artistRepo:  newFakeArtistRepo(artist),
 		publisher:   pub,
 	}
-	d.uc = usecase.NewConcertApprovalUseCase(
-		d.stagedRepo,
-		d.rejectedLog,
+	// Pass nil for repos/deps that Approve/Reject/ListPending/List/Delete never touch:
+	// searchLogRepo, concertSearcher, centroidResolver, and metrics.
+	d.uc = usecase.NewConcertUseCase(
+		d.artistRepo,
+		d.concertRepo,
 		d.venueRepo,
 		d.seriesRepo,
-		d.concertRepo,
-		d.artistRepo,
+		nil, // searchLogRepo — not used by admin methods
+		d.stagedRepo,
+		d.rejectedLog,
+		nil, // concertSearcher — not used by admin methods
+		nil, // centroidResolver — not used by admin methods
 		messaging.NewEventPublisher(pub),
+		noopMetrics{},
+		0, // searchCacheTTL — not used by admin methods
+		0, // discoveryWindow — not used by admin methods
 		newTestLogger(t),
 	)
 	t.Cleanup(func() { _ = pub.Close() })
@@ -134,7 +142,7 @@ func seedStaged(d *approvalTestDeps, artistID string) *entity.StagedConcert {
 	return sc
 }
 
-func TestConcertApprovalUseCase_Approve(t *testing.T) {
+func TestAdminConcertUseCase_Approve(t *testing.T) {
 	t.Parallel()
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
@@ -268,7 +276,7 @@ func TestConcertApprovalUseCase_Approve(t *testing.T) {
 	})
 }
 
-func TestConcertApprovalUseCase_Reject(t *testing.T) {
+func TestAdminConcertUseCase_Reject(t *testing.T) {
 	t.Parallel()
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
@@ -318,4 +326,115 @@ func TestConcertApprovalUseCase_Reject(t *testing.T) {
 		require.Len(t, d.rejectedLog.entries, 1)
 		assert.Nil(t, d.rejectedLog.entries[0].ReviewedBy)
 	})
+}
+
+func TestAdminConcertUseCase_List(t *testing.T) {
+	t.Parallel()
+
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
+
+	t.Run("return all published concerts from the repo", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+
+		// Pre-seed two published concerts.
+		d.concertRepo.published = []*entity.Concert{
+			{
+				Event:      entity.Event{ID: "event-1"},
+				Series:     &entity.Series{ID: "series-1", Title: "Tour A"},
+				Performers: []*entity.Artist{artist},
+			},
+			{
+				Event:      entity.Event{ID: "event-2"},
+				Series:     &entity.Series{ID: "series-2", Title: "Tour B"},
+				Performers: []*entity.Artist{artist},
+			},
+		}
+
+		concerts, err := d.uc.List(context.Background())
+		require.NoError(t, err)
+		require.Len(t, concerts, 2)
+		assert.Equal(t, "event-1", concerts[0].ID)
+		assert.Equal(t, "event-2", concerts[1].ID)
+	})
+
+	t.Run("return empty slice when no published concerts exist", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		// No concerts seeded.
+
+		concerts, err := d.uc.List(context.Background())
+		require.NoError(t, err)
+		assert.Empty(t, concerts)
+	})
+}
+
+func TestAdminConcertUseCase_Delete(t *testing.T) {
+	t.Parallel()
+
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
+
+	type args struct {
+		eventID string
+	}
+	tests := []struct {
+		name       string
+		args       args
+		seedEvents []string // event IDs to pre-populate in fakeConcertRepo
+		wantErr    error
+		checkRepo  func(t *testing.T, repo *fakeConcertRepo)
+	}{
+		{
+			name:    "return InvalidArgument when event id is empty",
+			args:    args{eventID: ""},
+			wantErr: apperr.ErrInvalidArgument,
+			checkRepo: func(t *testing.T, repo *fakeConcertRepo) {
+				t.Helper()
+				// repo.Delete must never be called for an empty id.
+				assert.False(t, repo.deleteCalled, "repo.Delete must not be called for an empty event id")
+			},
+		},
+		{
+			name:       "call repo.Delete and succeed when event id is valid",
+			args:       args{eventID: "event-abc"},
+			seedEvents: []string{"event-abc"},
+			checkRepo: func(t *testing.T, repo *fakeConcertRepo) {
+				t.Helper()
+				assert.True(t, repo.deleteCalled, "repo.Delete must be called for a valid event id")
+				assert.Empty(t, repo.published, "published concert must have been removed")
+			},
+		},
+		{
+			name:       "succeed idempotently when event id is absent from repo",
+			args:       args{eventID: "event-nonexistent"},
+			seedEvents: nil,
+			checkRepo: func(t *testing.T, repo *fakeConcertRepo) {
+				t.Helper()
+				assert.True(t, repo.deleteCalled, "repo.Delete must still be called for an absent event id")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newApprovalTestDeps(t, artist)
+			for _, id := range tt.seedEvents {
+				d.concertRepo.published = append(d.concertRepo.published, &entity.Concert{
+					Event: entity.Event{ID: id},
+				})
+			}
+
+			err := d.uc.Delete(context.Background(), tt.args.eventID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			if tt.checkRepo != nil {
+				tt.checkRepo(t, d.concertRepo)
+			}
+		})
+	}
 }
