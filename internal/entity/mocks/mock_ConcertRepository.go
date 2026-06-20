@@ -97,6 +97,53 @@ func (_c *MockConcertRepository_Create_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
+// Delete provides a mock function with given fields: ctx, eventID
+func (_m *MockConcertRepository) Delete(ctx context.Context, eventID string) error {
+	ret := _m.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, eventID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockConcertRepository_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
+type MockConcertRepository_Delete_Call struct {
+	*mock.Call
+}
+
+// Delete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockConcertRepository_Expecter) Delete(ctx interface{}, eventID interface{}) *MockConcertRepository_Delete_Call {
+	return &MockConcertRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, eventID)}
+}
+
+func (_c *MockConcertRepository_Delete_Call) Run(run func(ctx context.Context, eventID string)) *MockConcertRepository_Delete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_Delete_Call) Return(_a0 error) *MockConcertRepository_Delete_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockConcertRepository_Delete_Call) RunAndReturn(run func(context.Context, string) error) *MockConcertRepository_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // FillEventStartTimes provides a mock function with given fields: ctx, eventIDs, startTimes, openTimes
 func (_m *MockConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes []*time.Time, openTimes []*time.Time) error {
 	ret := _m.Called(ctx, eventIDs, startTimes, openTimes)
@@ -202,6 +249,64 @@ func (_c *MockConcertRepository_FindEventsByVenueAndDate_Call) Return(_a0 []*ent
 }
 
 func (_c *MockConcertRepository_FindEventsByVenueAndDate_Call) RunAndReturn(run func(context.Context, []string, []time.Time) ([]*entity.Event, error)) *MockConcertRepository_FindEventsByVenueAndDate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// List provides a mock function with given fields: ctx
+func (_m *MockConcertRepository) List(ctx context.Context) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for List")
+	}
+
+	var r0 []*entity.Concert
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]*entity.Concert, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []*entity.Concert); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Concert)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertRepository_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type MockConcertRepository_List_Call struct {
+	*mock.Call
+}
+
+// List is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockConcertRepository_Expecter) List(ctx interface{}) *MockConcertRepository_List_Call {
+	return &MockConcertRepository_List_Call{Call: _e.mock.On("List", ctx)}
+}
+
+func (_c *MockConcertRepository_List_Call) Run(run func(ctx context.Context)) *MockConcertRepository_List_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_List_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertRepository_List_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertRepository_List_Call) RunAndReturn(run func(context.Context) ([]*entity.Concert, error)) *MockConcertRepository_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

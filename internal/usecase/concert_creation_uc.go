@@ -22,7 +22,7 @@ type ConcertCreationUseCase interface {
 	// stages the result in staged_concerts for admin review. Concerts whose
 	// venues cannot be resolved are skipped with a structured log. CONCERT.created
 	// is NOT published here; it is published only when a staged row is approved
-	// via ConcertApprovalUseCase.Approve.
+	// via AdminConcertUseCase.Approve.
 	CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error
 }
 
@@ -203,7 +203,7 @@ func (uc *concertCreationUseCase) resolvePlace(
 // event UUIDs, bulk-inserts series + events + performers, and returns the
 // event IDs of genuinely inserted concerts.
 //
-// This helper is shared by ConcertApprovalUseCase.Approve. It replicates the
+// This helper is shared by AdminConcertUseCase.Approve. It replicates the
 // Phase 2-4 logic from the pre-approval-gate CreateFromDiscovered, minus the
 // venue-resolution step (already done at staging time).
 //

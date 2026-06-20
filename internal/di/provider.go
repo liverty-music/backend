@@ -193,8 +193,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, logger)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, searchLogRepo, stagedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
-	concertApprovalUC := usecase.NewConcertApprovalUseCase(stagedConcertRepo, rejectedConcertRepo, venueRepo, seriesRepo, concertRepo, artistRepo, eventPublisher, logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, logger)
@@ -258,8 +257,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// surface cannot be reached via the consumer host.
 	adminHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminconnect.NewConcertModerationServiceHandler(
-				rpc.NewConcertModerationHandler(concertApprovalUC, logger),
+			return adminconnect.NewConcertServiceHandler(
+				rpc.NewAdminConcertHandler(concertUC, logger),
 				opts...,
 			)
 		},

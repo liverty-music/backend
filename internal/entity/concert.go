@@ -391,6 +391,17 @@ type ConcertRepository interface {
 	// The three slices are zipped element-wise; a nil time leaves the column
 	// unchanged. Idempotent: a no-op when eventIDs is empty.
 	FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*time.Time) error
+	// List retrieves every published concert with Series, Venue, and Performers
+	// hydrated, ordered by local_event_date ascending. Unlike ListByArtist /
+	// ListByFollower it applies no audience filter — it returns the whole
+	// published catalog for admin review and management.
+	List(ctx context.Context) ([]*Concert, error)
+	// Delete removes a published event by id. The delete cascades through the
+	// database's foreign keys to every row referencing the event (event_performers,
+	// concerts, tickets, ticket_journeys, ticket_emails, merkle_tree, and the
+	// parent series' sales_phases). It is idempotent: deleting an id that no
+	// longer exists is a no-op success.
+	Delete(ctx context.Context, eventID string) error
 }
 
 // ConcertSearcher defines the interface for searching concerts from external sources.

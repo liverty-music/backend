@@ -61,17 +61,22 @@ type ConcertUseCase interface {
 	SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error)
 }
 
-// concertUseCase implements the ConcertUseCase interface.
+// concertUseCase implements both the consumer-facing ConcertUseCase and the
+// admin-facing AdminConcertUseCase. A single implementation keeps concert read
+// logic in one place; the two interfaces segregate capabilities so the consumer
+// handler never sees the admin operations (approve/reject/delete).
 type concertUseCase struct {
-	artistRepo        entity.ArtistRepository
-	concertRepo       entity.ConcertRepository
-	venueRepo         entity.VenueRepository
-	searchLogRepo     entity.SearchLogRepository
-	stagedConcertRepo entity.StagedConcertRepository
-	concertSearcher   entity.ConcertSearcher
-	centroidResolver  CentroidResolver
-	publisher         EventPublisher
-	metrics           ConcertMetrics
+	artistRepo          entity.ArtistRepository
+	concertRepo         entity.ConcertRepository
+	venueRepo           entity.VenueRepository
+	seriesRepo          entity.SeriesRepository
+	searchLogRepo       entity.SearchLogRepository
+	stagedConcertRepo   entity.StagedConcertRepository
+	rejectedConcertRepo entity.RejectedConcertLogRepository
+	concertSearcher     entity.ConcertSearcher
+	centroidResolver    CentroidResolver
+	publisher           EventPublisher
+	metrics             ConcertMetrics
 	// searchCacheTTL is how long a completed search is reused before a repeat
 	// external call is allowed. Configured per environment (prod runs longer).
 	searchCacheTTL time.Duration
@@ -91,16 +96,22 @@ const pendingTimeout = 3 * time.Minute
 const statusUpdateTimeout = 5 * time.Second
 
 // Compile-time interface compliance check
-var _ ConcertUseCase = (*concertUseCase)(nil)
+var (
+	_ ConcertUseCase      = (*concertUseCase)(nil)
+	_ AdminConcertUseCase = (*concertUseCase)(nil)
+)
 
 // NewConcertUseCase creates a new concert use case.
-// It orchestrates concert searching, retrieval, and event publishing.
+// It orchestrates concert searching, retrieval, event publishing, and the
+// admin approval/management operations (approve, reject, list, delete).
 func NewConcertUseCase(
 	artistRepo entity.ArtistRepository,
 	concertRepo entity.ConcertRepository,
 	venueRepo entity.VenueRepository,
+	seriesRepo entity.SeriesRepository,
 	searchLogRepo entity.SearchLogRepository,
 	stagedConcertRepo entity.StagedConcertRepository,
+	rejectedConcertRepo entity.RejectedConcertLogRepository,
 	concertSearcher entity.ConcertSearcher,
 	centroidResolver CentroidResolver,
 	publisher EventPublisher,
@@ -108,20 +119,22 @@ func NewConcertUseCase(
 	searchCacheTTL time.Duration,
 	discoveryWindow time.Duration,
 	logger *logging.Logger,
-) ConcertUseCase {
+) *concertUseCase {
 	return &concertUseCase{
-		artistRepo:        artistRepo,
-		concertRepo:       concertRepo,
-		venueRepo:         venueRepo,
-		searchLogRepo:     searchLogRepo,
-		stagedConcertRepo: stagedConcertRepo,
-		concertSearcher:   concertSearcher,
-		centroidResolver:  centroidResolver,
-		publisher:         publisher,
-		metrics:           metrics,
-		searchCacheTTL:    searchCacheTTL,
-		discoveryWindow:   discoveryWindow,
-		logger:            logger,
+		artistRepo:          artistRepo,
+		concertRepo:         concertRepo,
+		venueRepo:           venueRepo,
+		seriesRepo:          seriesRepo,
+		searchLogRepo:       searchLogRepo,
+		stagedConcertRepo:   stagedConcertRepo,
+		rejectedConcertRepo: rejectedConcertRepo,
+		concertSearcher:     concertSearcher,
+		centroidResolver:    centroidResolver,
+		publisher:           publisher,
+		metrics:             metrics,
+		searchCacheTTL:      searchCacheTTL,
+		discoveryWindow:     discoveryWindow,
+		logger:              logger,
 	}
 }
 

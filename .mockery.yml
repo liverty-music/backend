@@ -9,7 +9,7 @@ packages:
       ArtistNameResolutionUseCase:
       ConcertUseCase:
       ConcertCreationUseCase:
-      ConcertApprovalUseCase:
+      AdminConcertUseCase:
       MerchDiscoveryUseCase:
       UserUseCase:
       TicketUseCase:

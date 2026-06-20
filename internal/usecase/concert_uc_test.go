@@ -29,15 +29,18 @@ const (
 
 // concertTestDeps holds all dependencies for ConcertUseCase tests.
 type concertTestDeps struct {
-	artistRepo        *mocks.MockArtistRepository
-	concertRepo       *mocks.MockConcertRepository
-	venueRepo         *mocks.MockVenueRepository
-	searchLogRepo     *mocks.MockSearchLogRepository
-	stagedConcertRepo *mocks.MockStagedConcertRepository
-	searcher          *mocks.MockConcertSearcher
-	centroidResolver  usecase.CentroidResolver
-	publisher         *gochannel.GoChannel
-	uc                usecase.ConcertUseCase
+	artistRepo          *mocks.MockArtistRepository
+	concertRepo         *mocks.MockConcertRepository
+	venueRepo           *mocks.MockVenueRepository
+	seriesRepo          *mocks.MockSeriesRepository
+	searchLogRepo       *mocks.MockSearchLogRepository
+	stagedConcertRepo   *mocks.MockStagedConcertRepository
+	rejectedConcertRepo *mocks.MockRejectedConcertLogRepository
+	searcher            *mocks.MockConcertSearcher
+	centroidResolver    usecase.CentroidResolver
+	publisher           *gochannel.GoChannel
+	uc                  usecase.ConcertUseCase
+	adminUC             usecase.AdminConcertUseCase
 }
 
 // noopCentroidResolver is a test stub that always returns "not found".
@@ -54,16 +57,20 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 	logger := newTestLogger(t)
 	pub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 64}, watermill.NopLogger{})
 	d := &concertTestDeps{
-		artistRepo:        mocks.NewMockArtistRepository(t),
-		concertRepo:       mocks.NewMockConcertRepository(t),
-		venueRepo:         mocks.NewMockVenueRepository(t),
-		searchLogRepo:     mocks.NewMockSearchLogRepository(t),
-		stagedConcertRepo: mocks.NewMockStagedConcertRepository(t),
-		searcher:          mocks.NewMockConcertSearcher(t),
-		centroidResolver:  noopCentroidResolver{},
-		publisher:         pub,
+		artistRepo:          mocks.NewMockArtistRepository(t),
+		concertRepo:         mocks.NewMockConcertRepository(t),
+		venueRepo:           mocks.NewMockVenueRepository(t),
+		seriesRepo:          mocks.NewMockSeriesRepository(t),
+		searchLogRepo:       mocks.NewMockSearchLogRepository(t),
+		stagedConcertRepo:   mocks.NewMockStagedConcertRepository(t),
+		rejectedConcertRepo: mocks.NewMockRejectedConcertLogRepository(t),
+		searcher:            mocks.NewMockConcertSearcher(t),
+		centroidResolver:    noopCentroidResolver{},
+		publisher:           pub,
 	}
-	d.uc = usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.searchLogRepo, d.stagedConcertRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, testSearchCacheTTL, testDiscoveryWindow, logger)
+	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, d.searchLogRepo, d.stagedConcertRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, testSearchCacheTTL, testDiscoveryWindow, logger)
+	d.uc = uc
+	d.adminUC = uc
 	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }

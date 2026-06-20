@@ -10,7 +10,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
-	"github.com/pannpers/go-logging/logging"
 )
 
 // PendingConcertReview pairs a staged concert with its resolved performer
@@ -22,9 +21,20 @@ type PendingConcertReview struct {
 	Performer *entity.Artist
 }
 
-// ConcertApprovalUseCase defines the interface for the admin-console approval
-// gate over AI-discovered concerts.
-type ConcertApprovalUseCase interface {
+// AdminConcertUseCase defines the admin-console operations over concerts: the
+// approval gate over AI-discovered concerts plus management of the published
+// catalog. It is the admin-facing counterpart to ConcertUseCase; both are
+// implemented by the same concertUseCase, so a consumer handler depending on
+// ConcertUseCase never gains the approve/reject/delete capabilities.
+type AdminConcertUseCase interface {
+	// List returns every published concert (no audience filter), each carrying
+	// its event id and performers, for catalog review and management.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database query failure.
+	List(ctx context.Context) ([]*entity.Concert, error)
+
 	// ListPending returns all staged concerts currently awaiting review, each
 	// paired with the performing artist resolved per row. Results are ordered
 	// oldest-first (review-queue order).
@@ -61,49 +71,45 @@ type ConcertApprovalUseCase interface {
 	//    success internally).
 	//  - Internal: If the log append or delete fails.
 	Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error
+
+	// Delete permanently removes a published concert by its event id. The delete
+	// cascades through the database's foreign keys to every referencing row. It
+	// is idempotent: deleting an id that no longer exists succeeds.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the event id is empty or malformed.
+	//  - Internal: If the delete fails.
+	Delete(ctx context.Context, eventID string) error
 }
 
-// concertApprovalUseCase implements ConcertApprovalUseCase.
-type concertApprovalUseCase struct {
-	stagedConcertRepo   entity.StagedConcertRepository
-	rejectedConcertRepo entity.RejectedConcertLogRepository
-	venueRepo           entity.VenueRepository
-	seriesRepo          entity.SeriesRepository
-	concertRepo         entity.ConcertRepository
-	artistRepo          entity.ArtistRepository
-	publisher           EventPublisher
-	logger              *logging.Logger
-}
-
-// Compile-time interface compliance check.
-var _ ConcertApprovalUseCase = (*concertApprovalUseCase)(nil)
-
-// NewConcertApprovalUseCase creates a new ConcertApprovalUseCase.
-func NewConcertApprovalUseCase(
-	stagedConcertRepo entity.StagedConcertRepository,
-	rejectedConcertRepo entity.RejectedConcertLogRepository,
-	venueRepo entity.VenueRepository,
-	seriesRepo entity.SeriesRepository,
-	concertRepo entity.ConcertRepository,
-	artistRepo entity.ArtistRepository,
-	publisher EventPublisher,
-	logger *logging.Logger,
-) ConcertApprovalUseCase {
-	return &concertApprovalUseCase{
-		stagedConcertRepo:   stagedConcertRepo,
-		rejectedConcertRepo: rejectedConcertRepo,
-		venueRepo:           venueRepo,
-		seriesRepo:          seriesRepo,
-		concertRepo:         concertRepo,
-		artistRepo:          artistRepo,
-		publisher:           publisher,
-		logger:              logger,
+// List returns every published concert for admin catalog management. Read logic
+// is shared with the consumer path through ConcertRepository; this method only
+// strips the audience filter.
+func (uc *concertUseCase) List(ctx context.Context) ([]*entity.Concert, error) {
+	concerts, err := uc.concertRepo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list published concerts: %w", err)
 	}
+	return concerts, nil
+}
+
+// Delete permanently removes a published concert by its event id, cascading to
+// all referencing rows. An empty id is rejected; deleting an absent id succeeds
+// (the repository treats a zero affected-row count as success).
+func (uc *concertUseCase) Delete(ctx context.Context, eventID string) error {
+	if eventID == "" {
+		return apperr.New(codes.InvalidArgument, "event id must not be empty")
+	}
+	if err := uc.concertRepo.Delete(ctx, eventID); err != nil {
+		return fmt.Errorf("delete concert %q: %w", eventID, err)
+	}
+	return nil
 }
 
 // ListPending returns all staged concerts awaiting review, each paired with
 // the resolved performing artist.
-func (uc *concertApprovalUseCase) ListPending(ctx context.Context) ([]*PendingConcertReview, error) {
+func (uc *concertUseCase) ListPending(ctx context.Context) ([]*PendingConcertReview, error) {
 	staged, err := uc.stagedConcertRepo.ListPending(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list pending staged concerts: %w", err)
@@ -125,7 +131,7 @@ func (uc *concertApprovalUseCase) ListPending(ctx context.Context) ([]*PendingCo
 }
 
 // Approve promotes a pending staged concert to a published event.
-func (uc *concertApprovalUseCase) Approve(ctx context.Context, stagedID string) error {
+func (uc *concertUseCase) Approve(ctx context.Context, stagedID string) error {
 	sc, err := uc.stagedConcertRepo.GetByID(ctx, stagedID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -203,7 +209,7 @@ func (uc *concertApprovalUseCase) Approve(ctx context.Context, stagedID string) 
 
 // Reject records the staged concert in the rejection log and deletes the
 // staged row.
-func (uc *concertApprovalUseCase) Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error {
+func (uc *concertUseCase) Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error {
 	sc, err := uc.stagedConcertRepo.GetByID(ctx, stagedID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -272,7 +278,7 @@ func (uc *concertApprovalUseCase) Reject(ctx context.Context, stagedID string, r
 // resolveOrCreateVenue finds an existing venues row by place_id (or listed
 // name when unresolved) or creates a new one from the staged resolved fields.
 // Returns the venues.id to use for event insertion.
-func (uc *concertApprovalUseCase) resolveOrCreateVenue(ctx context.Context, sc *entity.StagedConcert) (string, error) {
+func (uc *concertUseCase) resolveOrCreateVenue(ctx context.Context, sc *entity.StagedConcert) (string, error) {
 	// Step 1: if the venue was resolved via Google Places at staging time, look
 	// up an existing venues row by place_id first.
 	if sc.ResolvedPlaceID != nil {
@@ -303,7 +309,7 @@ func (uc *concertApprovalUseCase) resolveOrCreateVenue(ctx context.Context, sc *
 
 // createVenueFromStaged creates a new venues row from the denormalised fields
 // on the staged concert row.
-func (uc *concertApprovalUseCase) createVenueFromStaged(ctx context.Context, sc *entity.StagedConcert) (string, error) {
+func (uc *concertUseCase) createVenueFromStaged(ctx context.Context, sc *entity.StagedConcert) (string, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return "", fmt.Errorf("generate venue ID: %w", err)
