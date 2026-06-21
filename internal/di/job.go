@@ -90,6 +90,14 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	}
 
 	// Infrastructure - Messaging Publisher
+	//
+	// Fail fast in non-local environments: a missing NATS_URL would silently
+	// route published events to an in-process GoChannel that nothing consumes,
+	// dropping every event. Local development still falls back to the
+	// in-process GoChannel below.
+	if !cfg.IsLocal() && cfg.NATS.URL == "" {
+		return nil, fmt.Errorf("NATS_URL is required for the discovery job in non-local environments")
+	}
 	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
 		return nil, fmt.Errorf("ensure NATS streams: %w", err)
 	}
