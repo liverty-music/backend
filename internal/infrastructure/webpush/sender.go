@@ -15,6 +15,14 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
+// pushTTLSeconds is the Time-To-Live (in seconds) sent to the push service.
+// A non-zero TTL is essential: with TTL=0 (the webpush-go zero value) the push
+// service only delivers if the user agent is connected at that instant and
+// silently drops the message otherwise — yet still returns 201, so the failure
+// is invisible. 24h lets the push service store-and-forward across an offline
+// device (e.g. overnight) so a sales-phase announcement is not missed.
+const pushTTLSeconds = 24 * 60 * 60
+
 // Sender implements entity.PushNotificationSender using the webpush-go library.
 type Sender struct {
 	httpClient     *http.Client
@@ -50,6 +58,8 @@ func (s *Sender) Send(_ context.Context, payload []byte, sub *entity.PushSubscri
 		VAPIDPublicKey:  s.vapidPublicKey,
 		VAPIDPrivateKey: s.vapidPrivate,
 		Subscriber:      s.vapidContact,
+		TTL:             pushTTLSeconds,
+		Urgency:         wpush.UrgencyHigh,
 	})
 
 	if resp != nil {
