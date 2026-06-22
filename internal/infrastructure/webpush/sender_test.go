@@ -120,3 +120,24 @@ func TestSender_Send(t *testing.T) {
 		})
 	}
 }
+
+// TestSender_Send_DeliveryHeaders asserts the Send request carries a non-zero
+// TTL and a high Urgency so the push service stores and prioritizes the message
+// for offline devices instead of dropping it (the TTL=0 default).
+func TestSender_Send_DeliveryHeaders(t *testing.T) {
+	var gotTTL, gotUrgency string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTTL = r.Header.Get("TTL")
+		gotUrgency = r.Header.Get("Urgency")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+
+	sender := webpush.NewSender("testPublic", "testKey", "mailto:test@example.com")
+	sub := testSubscription(t, server.URL)
+
+	err := sender.Send(context.Background(), []byte("test payload"), sub)
+	assert.NoError(t, err)
+	assert.Equal(t, "86400", gotTTL, "TTL header must be 24h, not the 0 default")
+	assert.Equal(t, "high", gotUrgency, "Urgency header must be high")
+}
