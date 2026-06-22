@@ -1287,3 +1287,132 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Empty(t, got)
 	})
 }
+
+func TestConcertRepository_List(t *testing.T) {
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB)
+
+	concertDate, _ := time.Parse("2006-01-02", "2026-09-01")
+
+	t.Run("returns every published concert with no audience filter", func(t *testing.T) {
+		cleanDatabase(t)
+
+		artistID := newTestID(t)
+		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "List Test Band", MBID: newTestID(t)})
+		require.NoError(t, err)
+		venueID := newTestID(t)
+		require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "List Test Arena"}))
+
+		s1 := seedSeries(t, ctx, seriesRepo, "List Concert 1")
+		s2 := seedSeries(t, ctx, seriesRepo, "List Concert 2")
+		requireCreate(t, ctx, concertRepo,
+			&entity.Concert{
+				Event:      entity.Event{ID: newTestID(t), VenueID: venueID, SeriesID: s1, LocalDate: concertDate},
+				Series:     &entity.Series{ID: s1},
+				Performers: []*entity.Artist{{ID: artistID}},
+			},
+			&entity.Concert{
+				Event:      entity.Event{ID: newTestID(t), VenueID: venueID, SeriesID: s2, LocalDate: concertDate.AddDate(0, 0, 1)},
+				Series:     &entity.Series{ID: s2},
+				Performers: []*entity.Artist{{ID: artistID}},
+			},
+		)
+
+		got, err := concertRepo.List(ctx)
+		require.NoError(t, err)
+		assert.Len(t, got, 2, "List returns all published concerts regardless of audience")
+		// Series, Venue, and Performers are hydrated like the other list methods.
+		require.NotNil(t, got[0].Series)
+		require.NotNil(t, got[0].Venue)
+		assert.NotEmpty(t, got[0].Performers)
+	})
+
+	t.Run("returns empty when nothing is published", func(t *testing.T) {
+		cleanDatabase(t)
+
+		got, err := concertRepo.List(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+}
+
+func TestConcertRepository_Delete(t *testing.T) {
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB)
+
+	concertDate, _ := time.Parse("2006-01-02", "2026-10-10")
+
+	t.Run("removes the event and cascades to dependent rows", func(t *testing.T) {
+		cleanDatabase(t)
+
+		artistID := newTestID(t)
+		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Delete Test Band", MBID: newTestID(t)})
+		require.NoError(t, err)
+		venueID := newTestID(t)
+		require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Delete Test Arena"}))
+		seriesID := seedSeries(t, ctx, seriesRepo, "Delete Test Concert")
+
+		eventID := newTestID(t)
+		requireCreate(t, ctx, concertRepo, &entity.Concert{
+			Event:      entity.Event{ID: eventID, VenueID: venueID, SeriesID: seriesID, LocalDate: concertDate},
+			Series:     &entity.Series{ID: seriesID},
+			Performers: []*entity.Artist{{ID: artistID}},
+		})
+
+		// Seed a fan-owned dependent row to prove the cascade reaches it.
+		userID := newTestID(t)
+		_, err = testDB.Pool.Exec(ctx,
+			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			userID, "Delete Test Fan", "delete-fan@test.com", "ext-"+userID,
+		)
+		require.NoError(t, err)
+		_, err = testDB.Pool.Exec(ctx,
+			"INSERT INTO ticket_journeys (user_id, event_id, status) VALUES ($1, $2, 1)", // 1 = TRACKING
+			userID, eventID,
+		)
+		require.NoError(t, err)
+
+		// Sanity: the event and its dependents exist before deletion.
+		assert.Equal(t, 1, countRows(t, ctx, "events", eventID))
+		assert.Equal(t, 1, countRows(t, ctx, "event_performers", eventID))
+		assert.Equal(t, 1, countRows(t, ctx, "ticket_journeys", eventID))
+
+		require.NoError(t, concertRepo.Delete(ctx, eventID))
+
+		// The event is gone and the FK cascade removed every referencing row.
+		assert.Equal(t, 0, countRows(t, ctx, "events", eventID), "event removed")
+		assert.Equal(t, 0, countRows(t, ctx, "event_performers", eventID), "event_performers cascaded")
+		assert.Equal(t, 0, countRows(t, ctx, "ticket_journeys", eventID), "ticket_journeys cascaded")
+
+		got, err := concertRepo.List(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, got, "deleted concert no longer listed")
+	})
+
+	t.Run("is idempotent for a missing id", func(t *testing.T) {
+		cleanDatabase(t)
+		require.NoError(t, concertRepo.Delete(ctx, newTestID(t)), "deleting an absent event is a no-op success")
+	})
+}
+
+// countRows returns the number of rows in the given table referencing eventID
+// via its event_id / id column. Used to assert ON DELETE CASCADE behaviour.
+func countRows(t *testing.T, ctx context.Context, table, eventID string) int {
+	t.Helper()
+	col := "event_id"
+	if table == "events" {
+		col = "id"
+	}
+	var n int
+	err := testDB.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM "+table+" WHERE "+col+" = $1", eventID,
+	).Scan(&n)
+	require.NoError(t, err)
+	return n
+}
