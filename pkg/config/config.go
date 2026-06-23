@@ -817,4 +817,13 @@ type PostHogConfig struct {
 	// from GCP Secret Manager via the workload ConfigMap; left empty
 	// in local development to disable forwarding.
 	ProjectAPIKey string `envconfig:"POSTHOG_PROJECT_API_KEY"`
+
+	// PersonalAPIKey is the PostHog personal API key required for local
+	// feature-flag evaluation (periodic flag-definition sync). Unlike
+	// ProjectAPIKey it is a private credential and MUST be sourced from a
+	// secret, never a plaintext ConfigMap. Left empty in local
+	// development and whenever backend feature flags are not in use, in
+	// which case the FeatureFlagEvaluator is not constructed and all
+	// flags resolve to their call-site defaults.
+	PersonalAPIKey string `envconfig:"POSTHOG_PERSONAL_API_KEY"`
 }

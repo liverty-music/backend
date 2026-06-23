@@ -12,3 +12,12 @@ type Enqueuer = enqueuer
 // so tests can assert that injected trace_id properties land under the
 // expected key without duplicating the literal.
 const TracePropertyKey = tracePropertyKey
+
+// NewFeatureFlagEvaluatorWith exposes the unexported
+// newFeatureFlagEvaluatorWith constructor to tests so they can inject a
+// fake flag evaluator.
+var NewFeatureFlagEvaluatorWith = newFeatureFlagEvaluatorWith
+
+// FlagEvaluator re-exports the unexported flagEvaluator interface so tests
+// can declare a fake that satisfies it.
+type FlagEvaluator = flagEvaluator
