@@ -46,7 +46,7 @@ const (
 		JOIN followed_artists fa ON a.id = fa.artist_id
 	`
 	followListFollowersQuery = `
-		SELECT fa.user_id, fa.hype, COALESCE(h.level_1, '')
+		SELECT fa.user_id, fa.hype, COALESCE(h.level_1, ''), COALESCE(u.preferred_language, '')
 		FROM followed_artists fa
 		JOIN users u ON u.id = fa.user_id
 		LEFT JOIN homes h ON h.id = u.home_id
@@ -168,7 +168,8 @@ func (r *FollowRepository) ListAll(ctx context.Context) ([]*entity.Artist, error
 }
 
 // ListFollowers retrieves all followers of an artist with their hype level and home area.
-// User entities are partially populated with ID and Home for notification filtering.
+// User entities are partially populated with ID, Home, and PreferredLanguage for
+// notification filtering and copy localization.
 func (r *FollowRepository) ListFollowers(ctx context.Context, artistID string) ([]*entity.Follower, error) {
 	rows, err := r.db.Pool.Query(ctx, followListFollowersQuery, artistID)
 	if err != nil {
@@ -178,11 +179,11 @@ func (r *FollowRepository) ListFollowers(ctx context.Context, artistID string) (
 
 	var followers []*entity.Follower
 	for rows.Next() {
-		var userID, hype, homeLevel1 string
-		if err := rows.Scan(&userID, &hype, &homeLevel1); err != nil {
+		var userID, hype, homeLevel1, prefLang string
+		if err := rows.Scan(&userID, &hype, &homeLevel1, &prefLang); err != nil {
 			return nil, toAppErr(err, "failed to scan follower row")
 		}
-		user := &entity.User{ID: userID}
+		user := &entity.User{ID: userID, PreferredLanguage: prefLang}
 		if homeLevel1 != "" {
 			user.Home = &entity.Home{Level1: homeLevel1}
 		}

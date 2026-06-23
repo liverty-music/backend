@@ -247,8 +247,10 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		}
 	}
 
-	// 3. Filter followers by hype level and collect eligible user IDs.
+	// 3. Filter followers by hype level and collect eligible user IDs, recording
+	//    each recipient's resolved language for per-user copy localization.
 	var userIDs []string
+	langByUser := make(map[string]string)
 	for _, f := range followers {
 		// f.User may be nil if the join with users dropped a row (e.g.
 		// orphaned follow). Skip the whole follower in that case — the
@@ -262,6 +264,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 			continue
 		}
 		userIDs = append(userIDs, f.User.ID)
+		langByUser[f.User.ID] = f.User.PreferredLanguage
 	}
 	if len(userIDs) == 0 {
 		return nil
@@ -275,19 +278,33 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		return nil
 	}
 
-	// 4. Build the JSON notification payload.
-	payloadBytes, err := json.Marshal(entity.NewConcertNotificationPayload(artist, len(concerts)))
-	if err != nil {
-		return fmt.Errorf("failed to marshal push notification payload: %w", err)
+	// 4. Lazily build one JSON payload per distinct recipient language so copy is
+	//    localized without re-marshalling for every subscription (≤2 marshals for en+ja).
+	payloadByLang := make(map[string][]byte)
+	payloadFor := func(lang string) ([]byte, error) {
+		if b, ok := payloadByLang[lang]; ok {
+			return b, nil
+		}
+		b, err := json.Marshal(entity.NewConcertNotificationPayload(artist, len(concerts), lang))
+		if err != nil {
+			return nil, err
+		}
+		payloadByLang[lang] = b
+		return b, nil
 	}
 
-	// 5. Send a notification to each subscription.
+	// 5. Send a notification to each subscription in the recipient's language.
 	for _, sub := range subs {
 		// Honour context cancellation before each outbound request.
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		payloadBytes, err := payloadFor(langByUser[sub.UserID])
+		if err != nil {
+			return fmt.Errorf("failed to marshal push notification payload: %w", err)
 		}
 
 		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {

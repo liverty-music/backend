@@ -473,6 +473,41 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 				assert.Nil(t, noHomeFollower.User.Home)
 			},
 		},
+		{
+			name: "populates preferred_language, empty when unset",
+			setup: func() string {
+				cleanDatabase(t)
+				artistID := seedArtist(t, "Lang Artist", "a5000000-0000-0000-0000-000000000003")
+
+				// User with a preferred language set.
+				jaUserID := seedUser(t, "JA User", "ja@test.com", "ext-ja-01")
+				_, err := testDB.Pool.Exec(ctx,
+					`UPDATE users SET preferred_language = $1 WHERE id = $2`,
+					"ja", jaUserID,
+				)
+				require.NoError(t, err)
+				err = followRepo.Follow(ctx, jaUserID, artistID)
+				require.NoError(t, err)
+
+				// User without a preferred language (left NULL by seedUser).
+				unsetUserID := seedUser(t, "Unset User", "unset@test.com", "ext-unset-01")
+				err = followRepo.Follow(ctx, unsetUserID, artistID)
+				require.NoError(t, err)
+
+				return artistID
+			},
+			check: func(t *testing.T, got []*entity.Follower) {
+				t.Helper()
+				require.Len(t, got, 2)
+
+				var langs []string
+				for _, f := range got {
+					langs = append(langs, f.User.PreferredLanguage)
+				}
+				assert.Contains(t, langs, "ja", "expected the ja user's language to be populated")
+				assert.Contains(t, langs, "", "expected the unset user to yield an empty language")
+			},
+		},
 	}
 
 	for _, tt := range tests {

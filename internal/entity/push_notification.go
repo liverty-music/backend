@@ -18,13 +18,28 @@ type NotificationPayload struct {
 }
 
 // NewConcertNotificationPayload constructs the push notification payload for newly
-// discovered concerts for the given artist.
-func NewConcertNotificationPayload(artist *Artist, concertCount int) *NotificationPayload {
+// discovered concerts for the given artist. The body is localized to lang; an empty
+// or unsupported lang falls back to English. Title, URL, and Tag are language-independent.
+func NewConcertNotificationPayload(artist *Artist, concertCount int, lang string) *NotificationPayload {
 	return &NotificationPayload{
 		Title: artist.Name,
-		Body:  fmt.Sprintf("%d new concerts found", concertCount),
+		Body:  concertNotificationBody(concertCount, lang),
 		URL:   fmt.Sprintf("/concerts?artist=%s", artist.ID),
 		Tag:   fmt.Sprintf("concert-%s", artist.ID),
+	}
+}
+
+// concertNotificationBody renders the new-concert count in the given language,
+// falling back to English for empty or unsupported codes.
+func concertNotificationBody(concertCount int, lang string) string {
+	switch lang {
+	case "ja":
+		return fmt.Sprintf("新しいライブが%d件見つかりました", concertCount)
+	default:
+		if concertCount == 1 {
+			return "1 new concert found"
+		}
+		return fmt.Sprintf("%d new concerts found", concertCount)
 	}
 }
 

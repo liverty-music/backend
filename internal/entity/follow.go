@@ -158,9 +158,9 @@ type FollowRepository interface {
 	ListAll(ctx context.Context) ([]*Artist, error)
 
 	// ListFollowers retrieves all users following the given artist along with
-	// their hype level. User entities are partially populated with ID and Home
-	// for notification filtering. Returns an empty slice when no users follow
-	// the artist.
+	// their hype level. User entities are partially populated with ID, Home, and
+	// PreferredLanguage for notification filtering and copy localization. Returns
+	// an empty slice when no users follow the artist.
 	//
 	// # Possible errors:
 	//
