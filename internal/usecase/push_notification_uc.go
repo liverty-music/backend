@@ -224,8 +224,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	// about — short-circuit before the hype loop. Without this guard,
 	// HypeAway.ShouldNotify returns true unconditionally and every
 	// HypeAway follower receives a push with a "0 new concerts" payload
-	// (NewConcertNotificationPayload formats the count from
-	// len(concerts)).
+	// (concertNotificationBody formats the count from len(concerts)).
 	if len(concerts) == 0 {
 		return nil
 	}
@@ -247,8 +246,10 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		}
 	}
 
-	// 3. Filter followers by hype level and collect eligible user IDs.
+	// 3. Filter followers by hype level and collect eligible user IDs, recording
+	//    each recipient's resolved language for per-user copy localization.
 	var userIDs []string
+	langByUser := make(map[string]string)
 	for _, f := range followers {
 		// f.User may be nil if the join with users dropped a row (e.g.
 		// orphaned follow). Skip the whole follower in that case — the
@@ -262,6 +263,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 			continue
 		}
 		userIDs = append(userIDs, f.User.ID)
+		langByUser[f.User.ID] = f.User.PreferredLanguage
 	}
 	if len(userIDs) == 0 {
 		return nil
@@ -275,19 +277,38 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		return nil
 	}
 
-	// 4. Build the JSON notification payload.
-	payloadBytes, err := json.Marshal(entity.NewConcertNotificationPayload(artist, len(concerts)))
-	if err != nil {
-		return fmt.Errorf("failed to marshal push notification payload: %w", err)
+	// 4. Lazily build one JSON payload per distinct recipient language so copy is
+	//    localized without re-marshalling for every subscription (≤2 marshals for en+ja).
+	payloadByLang := make(map[string][]byte)
+	payloadFor := func(lang string) ([]byte, error) {
+		if b, ok := payloadByLang[lang]; ok {
+			return b, nil
+		}
+		b, err := json.Marshal(&entity.NotificationPayload{
+			Title: artist.Name,
+			Body:  concertNotificationBody(len(concerts), lang),
+			URL:   fmt.Sprintf("/concerts?artist=%s", artist.ID),
+			Tag:   fmt.Sprintf("concert-%s", artist.ID),
+		})
+		if err != nil {
+			return nil, err
+		}
+		payloadByLang[lang] = b
+		return b, nil
 	}
 
-	// 5. Send a notification to each subscription.
+	// 5. Send a notification to each subscription in the recipient's language.
 	for _, sub := range subs {
 		// Honour context cancellation before each outbound request.
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		payloadBytes, err := payloadFor(langByUser[sub.UserID])
+		if err != nil {
+			return fmt.Errorf("failed to marshal push notification payload: %w", err)
 		}
 
 		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {
@@ -314,4 +335,18 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	}
 
 	return nil
+}
+
+// concertNotificationBody renders the new-concert count in the recipient's
+// language, falling back to English for empty or unsupported codes.
+func concertNotificationBody(concertCount int, lang string) string {
+	switch lang {
+	case "ja":
+		return fmt.Sprintf("新しいライブが%d件見つかりました", concertCount)
+	default:
+		if concertCount == 1 {
+			return "1 new concert found"
+		}
+		return fmt.Sprintf("%d new concerts found", concertCount)
+	}
 }

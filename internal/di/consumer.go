@@ -73,6 +73,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	followRepo := rdb.NewFollowRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	salesReminderRepo := rdb.NewSalesPhaseReminderRepository(db)
+	userRepo := rdb.NewUserRepository(db)
 
 	// Infrastructure - Messaging
 	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
@@ -163,6 +164,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Sales-phase use cases for the two new consumers.
 	salesPhaseAnnouncementUC := usecase.NewSalesPhaseAnnouncementUseCase(
+		userRepo,
 		ticketJourneyRepo,
 		pushSubRepo,
 		webpushSender,

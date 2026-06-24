@@ -2,6 +2,8 @@ package usecase_test
 
 import (
 	"context"
+	"encoding/json"
+	"sync"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -720,4 +722,98 @@ func TestNotifyNewConcerts_MixedSenderResults(t *testing.T) {
 
 	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}})
 	assert.NoError(t, err)
+}
+
+func TestNotifyNewConcerts_LocalizesBodyPerRecipient(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	d := newPushNotificationTestDeps(t)
+
+	tokyoArea := "JP-13"
+	concerts := []*entity.Concert{
+		{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+	}
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	followers := []*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-ja", PreferredLanguage: "ja"}, Hype: entity.HypeAway},
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-en", PreferredLanguage: "en"}, Hype: entity.HypeAway},
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-unset"}, Hype: entity.HypeAway},
+	}
+	subs := []*entity.PushSubscription{
+		{UserID: "user-ja", Endpoint: "https://push.example.com/ja"},
+		{UserID: "user-en", Endpoint: "https://push.example.com/en"},
+		{UserID: "user-unset", Endpoint: "https://push.example.com/unset"},
+	}
+
+	d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(concerts, nil).Once()
+	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+	d.pushSubRepo.EXPECT().ListByUserIDs(ctx, []string{"user-ja", "user-en", "user-unset"}).Return(subs, nil).Once()
+
+	var mu sync.Mutex
+	bodyByEndpoint := make(map[string]string)
+	d.sender.sendFn = func(_ context.Context, payload []byte, sub *entity.PushSubscription) error {
+		var p entity.NotificationPayload
+		if err := json.Unmarshal(payload, &p); err != nil {
+			return err
+		}
+		mu.Lock()
+		bodyByEndpoint[sub.Endpoint] = p.Body
+		mu.Unlock()
+		return nil
+	}
+
+	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}})
+	assert.NoError(t, err)
+
+	assert.Equal(t, "新しいライブが1件見つかりました", bodyByEndpoint["https://push.example.com/ja"])
+	assert.Equal(t, "1 new concert found", bodyByEndpoint["https://push.example.com/en"])
+	assert.Equal(t, "1 new concert found", bodyByEndpoint["https://push.example.com/unset"], "unset language falls back to en")
+}
+
+func TestNotifyNewConcerts_PluralBodyPerLanguage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	d := newPushNotificationTestDeps(t)
+
+	tokyoArea := "JP-13"
+	concerts := []*entity.Concert{
+		{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{Event: entity.Event{ID: "c2", Venue: &entity.Venue{AdminArea: &tokyoArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+	}
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	followers := []*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-ja", PreferredLanguage: "ja"}, Hype: entity.HypeAway},
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-en", PreferredLanguage: "en"}, Hype: entity.HypeAway},
+	}
+	subs := []*entity.PushSubscription{
+		{UserID: "user-ja", Endpoint: "https://push.example.com/ja"},
+		{UserID: "user-en", Endpoint: "https://push.example.com/en"},
+	}
+
+	d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1", "c2"}).Return(concerts, nil).Once()
+	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+	d.pushSubRepo.EXPECT().ListByUserIDs(ctx, []string{"user-ja", "user-en"}).Return(subs, nil).Once()
+
+	var mu sync.Mutex
+	bodyByEndpoint := make(map[string]string)
+	d.sender.sendFn = func(_ context.Context, payload []byte, sub *entity.PushSubscription) error {
+		var p entity.NotificationPayload
+		if err := json.Unmarshal(payload, &p); err != nil {
+			return err
+		}
+		mu.Lock()
+		bodyByEndpoint[sub.Endpoint] = p.Body
+		mu.Unlock()
+		return nil
+	}
+
+	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2"}})
+	assert.NoError(t, err)
+
+	assert.Equal(t, "新しいライブが2件見つかりました", bodyByEndpoint["https://push.example.com/ja"])
+	assert.Equal(t, "2 new concerts found", bodyByEndpoint["https://push.example.com/en"], "plural form for N>1")
 }
