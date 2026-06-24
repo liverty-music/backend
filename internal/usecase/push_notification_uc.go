@@ -224,8 +224,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	// about — short-circuit before the hype loop. Without this guard,
 	// HypeAway.ShouldNotify returns true unconditionally and every
 	// HypeAway follower receives a push with a "0 new concerts" payload
-	// (NewConcertNotificationPayload formats the count from
-	// len(concerts)).
+	// (concertNotificationBody formats the count from len(concerts)).
 	if len(concerts) == 0 {
 		return nil
 	}
@@ -285,7 +284,12 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		if b, ok := payloadByLang[lang]; ok {
 			return b, nil
 		}
-		b, err := json.Marshal(entity.NewConcertNotificationPayload(artist, len(concerts), lang))
+		b, err := json.Marshal(&entity.NotificationPayload{
+			Title: artist.Name,
+			Body:  concertNotificationBody(len(concerts), lang),
+			URL:   fmt.Sprintf("/concerts?artist=%s", artist.ID),
+			Tag:   fmt.Sprintf("concert-%s", artist.ID),
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -331,4 +335,18 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	}
 
 	return nil
+}
+
+// concertNotificationBody renders the new-concert count in the recipient's
+// language, falling back to English for empty or unsupported codes.
+func concertNotificationBody(concertCount int, lang string) string {
+	switch lang {
+	case "ja":
+		return fmt.Sprintf("新しいライブが%d件見つかりました", concertCount)
+	default:
+		if concertCount == 1 {
+			return "1 new concert found"
+		}
+		return fmt.Sprintf("%d new concerts found", concertCount)
+	}
 }
