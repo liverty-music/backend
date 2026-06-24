@@ -813,6 +813,137 @@ func TestAnalyticsConsumer_HandleEntryZkProofRejected(t *testing.T) {
 	}
 }
 
+// TestAnalyticsConsumer_HandleTicketJourneyStatusChanged covers
+// TICKET_JOURNEY.status_changed → ticket.journey.status.changed routing.
+// Properties: event_id, from_status, to_status. from_status is "UNSPECIFIED"
+// when no prior journey existed.
+func TestAnalyticsConsumer_HandleTicketJourneyStatusChanged(t *testing.T) {
+	t.Parallel()
+
+	const (
+		validUserID  = "11111111-2222-3333-4444-555555555555"
+		validEventID = "550e8400-e29b-41d4-a716-446655440000"
+	)
+
+	type args struct {
+		data entity.TicketJourneyStatusChangedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards ticket.journey.status.changed with event_id + from_status + to_status",
+			args: args{data: entity.TicketJourneyStatusChangedData{
+				UserID:     validUserID,
+				EventID:    validEventID,
+				FromStatus: "UNSPECIFIED",
+				ToStatus:   "TRACKING",
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "forwards when from_status is a named status (non-first transition)",
+			args: args{data: entity.TicketJourneyStatusChangedData{
+				UserID:     validUserID,
+				EventID:    validEventID,
+				FromStatus: "TRACKING",
+				ToStatus:   "APPLIED",
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.TicketJourneyStatusChangedData{
+				UserID:     validUserID,
+				EventID:    validEventID,
+				FromStatus: "UNSPECIFIED",
+				ToStatus:   "TRACKING",
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			args: args{data: entity.TicketJourneyStatusChangedData{
+				UserID:     "",
+				EventID:    validEventID,
+				FromStatus: "UNSPECIFIED",
+				ToStatus:   "TRACKING",
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.TicketJourneyStatusChangedData{
+				UserID:     validUserID,
+				EventID:    validEventID,
+				FromStatus: "UNPAID",
+				ToStatus:   "PAID",
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.UserID,
+							usecase.EventTicketJourneyStatusChanged,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["event_id"] == tt.args.data.EventID &&
+									props["from_status"] == tt.args.data.FromStatus &&
+									props["to_status"] == tt.args.data.ToStatus
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleTicketJourneyStatusChanged(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 // TestAnalyticsConsumer_HandleUserCreated_BadPayload covers the
 // CloudEvent decode failure path separately because constructing an
 // invalid JSON payload with the same table shape would obscure the

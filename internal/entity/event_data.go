@@ -25,6 +25,11 @@ const (
 	// SubjectSalesPhaseReminderDue is published by the reminder scan for each
 	// (user, phase, stage) triple that became due and has not yet been sent.
 	SubjectSalesPhaseReminderDue = "SALES_PHASE.reminder.due"
+	// SubjectTicketJourneyStatusChanged is published by SetStatus after a
+	// successful upsert when the new status differs from the prior one (or
+	// when no prior journey existed). It drives the
+	// ticket.journey.status.changed analytics event.
+	SubjectTicketJourneyStatusChanged = "TICKET_JOURNEY.status_changed"
 )
 
 // EntryRejectionReason enumerates the legitimate causes for a
@@ -192,4 +197,23 @@ type SalesPhaseReminderDueData struct {
 	// Built per-recipient so times render in the user's timezone and copy
 	// is selected by preferred_language.
 	Payload *NotificationPayload `json:"payload"`
+}
+
+// TicketJourneyStatusChangedData is the payload for TICKET_JOURNEY.status_changed.
+// Mapped to the catalogue event ticket.journey.status.changed by the
+// analytics-consumer. Published by TicketJourneyUseCase.SetStatus after a
+// successful upsert when the incoming status differs from the stored one.
+// When no prior journey existed, FromStatus is "UNSPECIFIED" (the zero-value
+// sentinel of TicketJourneyStatus.String()).
+type TicketJourneyStatusChangedData struct {
+	// UserID is the platform-internal user identifier of the fan.
+	// Used as the PostHog distinct_id.
+	UserID string `json:"user_id"`
+	// EventID is the internal UUID of the live event being tracked.
+	EventID string `json:"event_id"`
+	// FromStatus is the TicketJourneyStatus name before the change, or
+	// "UNSPECIFIED" when the journey did not exist prior to this call.
+	FromStatus string `json:"from_status"`
+	// ToStatus is the TicketJourneyStatus name after the successful upsert.
+	ToStatus string `json:"to_status"`
 }
