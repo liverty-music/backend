@@ -18,6 +18,26 @@ const (
 	TicketJourneyStatusPaid TicketJourneyStatus = 5
 )
 
+// String returns the lowercase name of the status for use in analytics event
+// properties. The zero value (no prior journey) returns "UNSPECIFIED" as the
+// sentinel used by the ticket.journey.status.changed event's from_status field.
+func (s TicketJourneyStatus) String() string {
+	switch s {
+	case TicketJourneyStatusTracking:
+		return "TRACKING"
+	case TicketJourneyStatusApplied:
+		return "APPLIED"
+	case TicketJourneyStatusLost:
+		return "LOST"
+	case TicketJourneyStatusUnpaid:
+		return "UNPAID"
+	case TicketJourneyStatusPaid:
+		return "PAID"
+	default:
+		return "UNSPECIFIED"
+	}
+}
+
 // IsValid reports whether s is a recognized TicketJourneyStatus value.
 func (s TicketJourneyStatus) IsValid() bool {
 	return s >= TicketJourneyStatusTracking && s <= TicketJourneyStatusPaid
@@ -35,6 +55,14 @@ type TicketJourney struct {
 
 // TicketJourneyRepository defines the persistence layer operations for ticket journeys.
 type TicketJourneyRepository interface {
+	// Get retrieves the ticket journey for the given user and event.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no journey exists for the (userID, eventID) pair.
+	//   - Internal: database query failure.
+	Get(ctx context.Context, userID, eventID string) (*TicketJourney, error)
+
 	// Upsert creates or updates a ticket journey for the given user and event.
 	//
 	// # Possible errors:

@@ -18,6 +18,11 @@ type TicketJourneyRepository struct {
 var _ entity.TicketJourneyRepository = (*TicketJourneyRepository)(nil)
 
 const (
+	ticketJourneyGetQuery = `
+		SELECT event_id, status
+		FROM ticket_journeys
+		WHERE user_id = $1 AND event_id = $2
+	`
 	ticketJourneyUpsertQuery = `
 		INSERT INTO ticket_journeys (user_id, event_id, status)
 		VALUES ($1, $2, $3)
@@ -47,6 +52,25 @@ const (
 // NewTicketJourneyRepository creates a new ticket journey repository instance.
 func NewTicketJourneyRepository(db *Database) *TicketJourneyRepository {
 	return &TicketJourneyRepository{db: db}
+}
+
+// Get retrieves a single ticket journey by user and event IDs.
+// Returns apperr.ErrNotFound when no journey exists for the pair.
+func (r *TicketJourneyRepository) Get(ctx context.Context, userID, eventID string) (*entity.TicketJourney, error) {
+	row := r.db.Pool.QueryRow(ctx, ticketJourneyGetQuery, userID, eventID)
+	var gotEventID string
+	var status int16
+	if err := row.Scan(&gotEventID, &status); err != nil {
+		return nil, toAppErr(err, "failed to get ticket journey",
+			slog.String("user_id", userID),
+			slog.String("event_id", eventID),
+		)
+	}
+	return &entity.TicketJourney{
+		UserID:  userID,
+		EventID: gotEventID,
+		Status:  entity.TicketJourneyStatus(status),
+	}, nil
 }
 
 // Upsert creates or updates a ticket journey for the given user and event.

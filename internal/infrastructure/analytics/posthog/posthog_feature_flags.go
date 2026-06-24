@@ -27,7 +27,7 @@ const defaultFlagPollingInterval = 5 * time.Minute
 // implementing the full posthog.Client surface, mirroring the enqueuer
 // pattern in posthog_client.go.
 type flagEvaluator interface {
-	GetFeatureFlag(posthogsdk.FeatureFlagPayload) (interface{}, error)
+	GetFeatureFlag(posthogsdk.FeatureFlagPayload) (any, error)
 	Close() error
 }
 

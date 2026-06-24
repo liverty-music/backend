@@ -59,7 +59,7 @@ const (
 	EventConcertRecommendationServed AnalyticsEventName = "concert.recommendation.served"
 )
 
-// Ticket lottery and purchase events emitted from the backend.
+// Ticket journey and purchase events emitted from the backend.
 const (
 	// EventTicketLotteryEntryAccepted is recorded after a lottery entry
 	// passes validation and is persisted. Paired with the frontend
@@ -84,6 +84,13 @@ const (
 	// EventTicketPurchaseFailed is recorded when a purchase attempt is
 	// rejected by the payment provider or backend validation.
 	EventTicketPurchaseFailed AnalyticsEventName = "ticket.purchase.failed"
+
+	// EventTicketJourneyStatusChanged is recorded after a fan's ticket
+	// journey status is successfully updated via SetStatus. It is
+	// suppressed when the incoming status equals the stored status
+	// (no-op upsert) to avoid noise in downstream funnels.
+	// Properties: event_id, from_status, to_status.
+	EventTicketJourneyStatusChanged AnalyticsEventName = "ticket.journey.status.changed"
 )
 
 // Entry verification events emitted from the backend, including the
@@ -134,6 +141,7 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventTicketLotteryResultAssigned:     {},
 	EventTicketPurchaseCompleted:         {},
 	EventTicketPurchaseFailed:            {},
+	EventTicketJourneyStatusChanged:      {},
 	EventEntryZkProofVerified:            {},
 	EventEntryZkProofRejected:            {},
 	EventNotificationSubscribed:          {},

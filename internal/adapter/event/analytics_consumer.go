@@ -409,6 +409,60 @@ func (c *AnalyticsConsumer) HandleEntryZkProofRejected(msg *message.Message) err
 	return nil
 }
 
+// HandleTicketJourneyStatusChanged forwards the TICKET_JOURNEY.status_changed
+// NATS subject as the catalogue event
+// usecase.EventTicketJourneyStatusChanged. Properties: event_id,
+// from_status, to_status. from_status is "UNSPECIFIED" when no prior
+// journey existed (first-time SetStatus call for the (user, event) pair).
+func (c *AnalyticsConsumer) HandleTicketJourneyStatusChanged(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.TicketJourneyStatusChangedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse TICKET_JOURNEY.status_changed event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse TICKET_JOURNEY.status_changed event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventTicketJourneyStatusChanged)),
+			slog.String("user_id", data.UserID),
+			slog.String("event_id", data.EventID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.UserID == "" {
+		c.logger.Warn(ctx, "TICKET_JOURNEY.status_changed event missing user_id, skipping forward",
+			slog.String("event_id", data.EventID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"event_id":    data.EventID,
+		"from_status": data.FromStatus,
+		"to_status":   data.ToStatus,
+	}
+
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventTicketJourneyStatusChanged, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventTicketJourneyStatusChanged)),
+			slog.String("user_id", data.UserID),
+			slog.String("event_id", data.EventID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // recordLag emits analytics_consumer_lag_seconds derived from the
 // CloudEvent's `ce_time` metadata. Missing or unparseable timestamps
 // are silently skipped — the metric is best-effort and downstream

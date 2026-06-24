@@ -282,6 +282,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	router.AddConsumerHandler(
+		"forward-ticket-journey-status-changed-to-analytics",
+		entity.SubjectTicketJourneyStatusChanged,
+		subscriber,
+		analyticsConsumer.HandleTicketJourneyStatusChanged,
+	)
+
+	router.AddConsumerHandler(
 		"log-poison-queue",
 		messaging.PoisonQueueSubject,
 		subscriber,

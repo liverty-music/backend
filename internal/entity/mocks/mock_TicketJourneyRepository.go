@@ -70,6 +70,66 @@ func (_c *MockTicketJourneyRepository_Delete_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// Get provides a mock function with given fields: ctx, userID, eventID
+func (_m *MockTicketJourneyRepository) Get(ctx context.Context, userID string, eventID string) (*entity.TicketJourney, error) {
+	ret := _m.Called(ctx, userID, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Get")
+	}
+
+	var r0 *entity.TicketJourney
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*entity.TicketJourney, error)); ok {
+		return rf(ctx, userID, eventID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *entity.TicketJourney); ok {
+		r0 = rf(ctx, userID, eventID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.TicketJourney)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, userID, eventID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockTicketJourneyRepository_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
+type MockTicketJourneyRepository_Get_Call struct {
+	*mock.Call
+}
+
+// Get is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - eventID string
+func (_e *MockTicketJourneyRepository_Expecter) Get(ctx interface{}, userID interface{}, eventID interface{}) *MockTicketJourneyRepository_Get_Call {
+	return &MockTicketJourneyRepository_Get_Call{Call: _e.mock.On("Get", ctx, userID, eventID)}
+}
+
+func (_c *MockTicketJourneyRepository_Get_Call) Run(run func(ctx context.Context, userID string, eventID string)) *MockTicketJourneyRepository_Get_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockTicketJourneyRepository_Get_Call) Return(_a0 *entity.TicketJourney, _a1 error) *MockTicketJourneyRepository_Get_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockTicketJourneyRepository_Get_Call) RunAndReturn(run func(context.Context, string, string) (*entity.TicketJourney, error)) *MockTicketJourneyRepository_Get_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByUser provides a mock function with given fields: ctx, userID
 func (_m *MockTicketJourneyRepository) ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error) {
 	ret := _m.Called(ctx, userID)

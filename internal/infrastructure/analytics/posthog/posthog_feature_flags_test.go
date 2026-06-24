@@ -19,14 +19,14 @@ import (
 // the Close path. It satisfies posthog.FlagEvaluator.
 type fakeFlagEvaluator struct {
 	mu         sync.Mutex
-	result     interface{}
+	result     any
 	getErr     error
 	getCalls   int
 	closeErr   error
 	closeCalls int
 }
 
-func (f *fakeFlagEvaluator) GetFeatureFlag(posthogsdk.FeatureFlagPayload) (interface{}, error) {
+func (f *fakeFlagEvaluator) GetFeatureFlag(posthogsdk.FeatureFlagPayload) (any, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.getCalls++
@@ -141,7 +141,7 @@ func TestFeatureFlagEvaluator_IsEnabled(t *testing.T) {
 		key        string
 		distinctID string
 		def        bool
-		result     interface{}
+		result     any
 		getErr     error
 		want       bool
 		wantCalls  int
@@ -195,7 +195,7 @@ func TestFeatureFlagEvaluator_Variant(t *testing.T) {
 		key        string
 		distinctID string
 		def        string
-		result     interface{}
+		result     any
 		getErr     error
 		want       string
 		wantCalls  int
