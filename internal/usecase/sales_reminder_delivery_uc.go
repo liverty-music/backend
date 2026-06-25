@@ -33,6 +33,7 @@ type salesReminderDeliveryUseCase struct {
 	reminderRepo entity.SalesPhaseReminderRepository
 	pushSubRepo  entity.PushSubscriptionRepository
 	sender       entity.PushNotificationSender
+	publisher    EventPublisher
 	metrics      PushMetrics
 	logger       *logging.Logger
 }
@@ -45,6 +46,7 @@ func NewSalesReminderDeliveryUseCase(
 	reminderRepo entity.SalesPhaseReminderRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
+	publisher EventPublisher,
 	metrics PushMetrics,
 	logger *logging.Logger,
 ) *salesReminderDeliveryUseCase {
@@ -52,8 +54,34 @@ func NewSalesReminderDeliveryUseCase(
 		reminderRepo: reminderRepo,
 		pushSubRepo:  pushSubRepo,
 		sender:       sender,
+		publisher:    publisher,
 		metrics:      metrics,
 		logger:       logger,
+	}
+}
+
+// publishDeliveryOutcome emits a sales_reminder.delivered analytics event for
+// the given terminal outcome. Failures are logged and never propagated — the
+// analytics publish must not affect DeliverReminder's return value or the
+// once-only RecordSent semantics.
+func (uc *salesReminderDeliveryUseCase) publishDeliveryOutcome(
+	ctx context.Context,
+	data entity.SalesPhaseReminderDueData,
+	stage entity.ReminderStage,
+	deliveryStatus string,
+) {
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectSalesReminderDelivered, entity.SalesReminderDeliveredData{
+		UserID:         data.UserID,
+		PhaseStage:     stage.String(),
+		DeliveryStatus: deliveryStatus,
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish SALES_REMINDER.delivered event", err,
+			slog.String("user_id", data.UserID),
+			slog.String("phase_id", data.PhaseID),
+			slog.String("stage", stage.String()),
+			slog.String("delivery_status", deliveryStatus),
+		)
+		// Non-fatal: DeliverReminder's return value and RecordSent semantics are unchanged.
 	}
 }
 
@@ -67,7 +95,7 @@ func (uc *salesReminderDeliveryUseCase) DeliverReminder(ctx context.Context, dat
 	}
 
 	// Once-only guard: re-check AlreadySent to prevent double-send on
-	// at-least-once broker replay.
+	// at-least-once broker replay. Not a terminal delivery outcome — no analytics emit.
 	already, err := uc.reminderRepo.AlreadySent(ctx, data.UserID, data.PhaseID, stage)
 	if err != nil {
 		return fmt.Errorf("sales_reminder_delivery: AlreadySent check: %w", err)
@@ -84,9 +112,13 @@ func (uc *salesReminderDeliveryUseCase) DeliverReminder(ctx context.Context, dat
 	if len(subs) == 0 {
 		// No subscriptions — record sent so the next scan does not retry.
 		_ = uc.reminderRepo.RecordSent(ctx, data.UserID, data.PhaseID, stage)
+		// Terminal delivery outcome: user had no push subscriptions.
+		uc.publishDeliveryOutcome(ctx, data, stage, "no_subscription")
 		return nil
 	}
 
+	// nil Payload is a defensive skip — publisher should never emit this. Not
+	// a terminal delivery outcome because no send was attempted.
 	if data.Payload == nil {
 		uc.logger.Warn(ctx, "sales_reminder_delivery: nil payload, skipping", attrs...)
 		return nil
@@ -127,6 +159,11 @@ func (uc *salesReminderDeliveryUseCase) DeliverReminder(ctx context.Context, dat
 			uc.logger.Error(ctx, "sales_reminder_delivery: RecordSent failed", err, attrs...)
 			// Non-fatal: next scan will re-check via ListSentStages / AlreadySent.
 		}
+		// Terminal delivery outcome: at least one subscription accepted the push.
+		uc.publishDeliveryOutcome(ctx, data, stage, "delivered")
+	} else {
+		// Terminal delivery outcome: all send attempts were rejected (gone or error).
+		uc.publishDeliveryOutcome(ctx, data, stage, "failed")
 	}
 	return nil
 }

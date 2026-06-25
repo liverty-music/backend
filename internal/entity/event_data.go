@@ -36,6 +36,12 @@ const (
 	// ticket.mint.completed analytics event (SBT issuance / ticket-activation
 	// funnel).
 	SubjectTicketMintCompleted = "TICKET.mint_completed"
+	// SubjectSalesReminderDelivered is published by
+	// salesReminderDeliveryUseCase.DeliverReminder at every terminal delivery
+	// outcome (delivered, no_subscription, failed). It drives the
+	// sales_reminder.delivered analytics event so push-delivery reach and
+	// failure rates can be tracked per stage in PostHog.
+	SubjectSalesReminderDelivered = "SALES_REMINDER.delivered"
 	// SubjectTicketEmailParsed is published by TicketEmailUseCase.Create on
 	// both parse-success and parse-failure paths. It drives the
 	// ticket.email.parsed analytics event (email-ingestion data quality,
@@ -257,6 +263,24 @@ type TicketEmailParsedData struct {
 	// FieldCount is the number of non-nil optional fields extracted by the
 	// parser on success. Zero on failure.
 	FieldCount int `json:"field_count"`
+}
+
+// SalesReminderDeliveredData is the payload for SALES_REMINDER.delivered.
+// Mapped to the catalogue event sales_reminder.delivered by the
+// analytics-consumer. Published by salesReminderDeliveryUseCase.DeliverReminder
+// at every terminal delivery outcome so push-delivery reach and failure rates can
+// be tracked per stage in PostHog.
+type SalesReminderDeliveredData struct {
+	// UserID is the platform-internal user identifier of the reminder recipient.
+	// Used as the PostHog distinct_id.
+	UserID string `json:"user_id"`
+	// PhaseStage is the string name of the ReminderStage (e.g. "APPLY_OPEN").
+	PhaseStage string `json:"phase_stage"`
+	// DeliveryStatus is one of "delivered", "no_subscription", or "failed".
+	// "delivered" means the push was accepted by at least one subscription.
+	// "no_subscription" means the user had no registered push subscriptions.
+	// "failed" means all send attempts were rejected (410 Gone or send error).
+	DeliveryStatus string `json:"delivery_status"`
 }
 
 // TicketJourneyStatusChangedData is the payload for TICKET_JOURNEY.status_changed.

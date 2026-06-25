@@ -80,6 +80,24 @@ const (
 	ReminderStageResultDay ReminderStage = 4
 )
 
+// String returns the uppercase name of the stage for use in analytics event
+// properties (e.g. "APPLY_OPEN"). The zero value and any unrecognised int16
+// return "UNSPECIFIED".
+func (s ReminderStage) String() string {
+	switch s {
+	case ReminderStageApplyOpen:
+		return "APPLY_OPEN"
+	case ReminderStageApplyClose24H:
+		return "APPLY_CLOSE_24H"
+	case ReminderStageApplyClose1H:
+		return "APPLY_CLOSE_1H"
+	case ReminderStageResultDay:
+		return "RESULT_DAY"
+	default:
+		return "UNSPECIFIED"
+	}
+}
+
 // SalesPhase represents a single ticket-sales window for a series. A phase
 // belongs to a series and applies to it as a whole — there is no per-event
 // coverage subset.
