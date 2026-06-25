@@ -91,6 +91,18 @@ const (
 	// (no-op upsert) to avoid noise in downstream funnels.
 	// Properties: event_id, from_status, to_status.
 	EventTicketJourneyStatusChanged AnalyticsEventName = "ticket.journey.status.changed"
+
+	// EventTicketMintCompleted is recorded after a soulbound ticket is
+	// successfully minted on-chain and persisted in the database. Feeds the
+	// SBT issuance / ticket-activation funnel in PostHog.
+	// Properties: event_id.
+	EventTicketMintCompleted AnalyticsEventName = "ticket.mint.completed"
+
+	// EventTicketEmailParsed is recorded by TicketEmailUseCase.Create on
+	// both parse-success and parse-failure paths. Feeds the email-ingestion
+	// data quality and parser robustness dashboards in PostHog.
+	// Properties: email_type, parse_status, field_count.
+	EventTicketEmailParsed AnalyticsEventName = "ticket.email.parsed"
 )
 
 // Entry verification events emitted from the backend, including the
@@ -142,6 +154,8 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventTicketPurchaseCompleted:         {},
 	EventTicketPurchaseFailed:            {},
 	EventTicketJourneyStatusChanged:      {},
+	EventTicketMintCompleted:             {},
+	EventTicketEmailParsed:               {},
 	EventEntryZkProofVerified:            {},
 	EventEntryZkProofRejected:            {},
 	EventNotificationSubscribed:          {},

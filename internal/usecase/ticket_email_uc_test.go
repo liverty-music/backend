@@ -3,12 +3,14 @@ package usecase_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +23,7 @@ type ticketEmailTestDeps struct {
 	emailRepo   *mocks.MockTicketEmailRepository
 	journeyRepo *mocks.MockTicketJourneyRepository
 	parser      *mocks.MockTicketEmailParser
+	publisher   *ucmocks.MockEventPublisher
 	uc          usecase.TicketEmailUseCase
 }
 
@@ -30,8 +33,9 @@ func newTicketEmailTestDeps(t *testing.T) *ticketEmailTestDeps {
 		emailRepo:   mocks.NewMockTicketEmailRepository(t),
 		journeyRepo: mocks.NewMockTicketJourneyRepository(t),
 		parser:      mocks.NewMockTicketEmailParser(t),
+		publisher:   ucmocks.NewMockEventPublisher(t),
 	}
-	d.uc = usecase.NewTicketEmailUseCase(d.emailRepo, d.journeyRepo, d.parser, newTestLogger(t))
+	d.uc = usecase.NewTicketEmailUseCase(d.emailRepo, d.journeyRepo, d.parser, d.publisher, newTestLogger(t))
 	return d
 }
 
@@ -102,6 +106,15 @@ func TestTicketEmailUseCase_Create(t *testing.T) {
 					Create(ctx, mock.AnythingOfType("*entity.NewTicketEmail")).
 					Return(sampleTicketEmail("te-2", userID, eventID2, entity.TicketEmailTypeLotteryInfo), nil).
 					Once()
+				d.publisher.EXPECT().
+					PublishEvent(ctx, entity.SubjectTicketEmailParsed, mock.MatchedBy(func(data entity.TicketEmailParsedData) bool {
+						return data.UserID == userID &&
+							data.EmailType == "LOTTERY_INFO" &&
+							data.ParseStatus == "success" &&
+							data.FieldCount == parsed.FieldCount()
+					})).
+					Return(nil).
+					Once()
 			},
 			wantCount: 2,
 		},
@@ -113,19 +126,28 @@ func TestTicketEmailUseCase_Create(t *testing.T) {
 			rawBody:   rawBody,
 			setup: func(t *testing.T, d *ticketEmailTestDeps) {
 				t.Helper()
+				parsed := sampleParsedData()
 				d.parser.EXPECT().
 					Parse(ctx, rawBody, entity.TicketEmailTypeLotteryResult).
-					Return(sampleParsedData(), nil).
+					Return(parsed, nil).
 					Once()
 				d.emailRepo.EXPECT().
 					Create(ctx, mock.AnythingOfType("*entity.NewTicketEmail")).
 					Return(sampleTicketEmail("te-3", userID, eventID1, entity.TicketEmailTypeLotteryResult), nil).
 					Once()
+				d.publisher.EXPECT().
+					PublishEvent(ctx, entity.SubjectTicketEmailParsed, mock.MatchedBy(func(data entity.TicketEmailParsedData) bool {
+						return data.UserID == userID &&
+							data.EmailType == "LOTTERY_RESULT" &&
+							data.ParseStatus == "success"
+					})).
+					Return(nil).
+					Once()
 			},
 			wantCount: 1,
 		},
 		{
-			name:      "propagates parser error without persisting",
+			name:      "propagates parser error without persisting, publishes failure event",
 			userID:    userID,
 			eventIDs:  []string{eventID1},
 			emailType: entity.TicketEmailTypeLotteryInfo,
@@ -135,6 +157,15 @@ func TestTicketEmailUseCase_Create(t *testing.T) {
 				d.parser.EXPECT().
 					Parse(ctx, rawBody, entity.TicketEmailTypeLotteryInfo).
 					Return(nil, apperr.New(codes.Internal, "gemini error")).
+					Once()
+				d.publisher.EXPECT().
+					PublishEvent(ctx, entity.SubjectTicketEmailParsed, mock.MatchedBy(func(data entity.TicketEmailParsedData) bool {
+						return data.UserID == userID &&
+							data.EmailType == "LOTTERY_INFO" &&
+							data.ParseStatus == "failure" &&
+							data.FieldCount == 0
+					})).
+					Return(nil).
 					Once()
 			},
 			wantErr: apperr.ErrInternal,
@@ -154,6 +185,50 @@ func TestTicketEmailUseCase_Create(t *testing.T) {
 				d.emailRepo.EXPECT().
 					Create(ctx, mock.AnythingOfType("*entity.NewTicketEmail")).
 					Return(nil, apperr.New(codes.Internal, "db error")).
+					Once()
+				// publish is not reached when the repo Create fails mid-loop
+			},
+			wantErr: apperr.ErrInternal,
+		},
+		{
+			name:      "publish error is non-fatal on success path",
+			userID:    userID,
+			eventIDs:  []string{eventID1},
+			emailType: entity.TicketEmailTypeLotteryInfo,
+			rawBody:   rawBody,
+			setup: func(t *testing.T, d *ticketEmailTestDeps) {
+				t.Helper()
+				parsed := sampleParsedData()
+				d.parser.EXPECT().
+					Parse(ctx, rawBody, entity.TicketEmailTypeLotteryInfo).
+					Return(parsed, nil).
+					Once()
+				d.emailRepo.EXPECT().
+					Create(ctx, mock.AnythingOfType("*entity.NewTicketEmail")).
+					Return(sampleTicketEmail("te-4", userID, eventID1, entity.TicketEmailTypeLotteryInfo), nil).
+					Once()
+				d.publisher.EXPECT().
+					PublishEvent(ctx, entity.SubjectTicketEmailParsed, mock.Anything).
+					Return(errors.New("nats unavailable")).
+					Once()
+			},
+			wantCount: 1,
+		},
+		{
+			name:      "publish error on parse failure is non-fatal",
+			userID:    userID,
+			eventIDs:  []string{eventID1},
+			emailType: entity.TicketEmailTypeLotteryInfo,
+			rawBody:   rawBody,
+			setup: func(t *testing.T, d *ticketEmailTestDeps) {
+				t.Helper()
+				d.parser.EXPECT().
+					Parse(ctx, rawBody, entity.TicketEmailTypeLotteryInfo).
+					Return(nil, apperr.New(codes.Internal, "gemini error")).
+					Once()
+				d.publisher.EXPECT().
+					PublishEvent(ctx, entity.SubjectTicketEmailParsed, mock.Anything).
+					Return(errors.New("nats unavailable")).
 					Once()
 			},
 			wantErr: apperr.ErrInternal,

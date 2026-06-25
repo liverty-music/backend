@@ -137,28 +137,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Initialize the shutdown package for phased resource teardown.
 	shutdown.Init(logger)
 
-	// Infrastructure - Blockchain (optional; skipped when config is absent)
-	var ticketUC usecase.TicketUseCase
-	var sbtCloser io.Closer
-	if cfg.Blockchain.RPCURL != "" && cfg.Blockchain.DeployerPrivateKey != "" && cfg.Blockchain.TicketSBTAddress != "" {
-		sbtClient, err := ticketsbt.NewClient(
-			ctx,
-			cfg.Blockchain.RPCURL,
-			cfg.Blockchain.DeployerPrivateKey,
-			cfg.Blockchain.TicketSBTAddress,
-			cfg.Blockchain.ChainID,
-			logger,
-		)
-		if err != nil {
-			return nil, err
-		}
-		sbtCloser = sbtClient
-		ticketUC = usecase.NewTicketUseCase(ticketRepo, sbtClient, infratelemetry.NewOTelMintMetrics(), logger)
-	} else {
-		logger.Warn(ctx, "⚠️  Blockchain config absent, ticket minting is disabled")
-		_ = ticketRepo // referenced when blockchain is enabled; suppress unused warning
-	}
-
 	// Infrastructure - Messaging Publisher
 	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
 		return nil, fmt.Errorf("ensure NATS streams: %w", err)
@@ -191,6 +169,29 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
+
+	// Infrastructure - Blockchain (optional; skipped when config is absent)
+	var ticketUC usecase.TicketUseCase
+	var sbtCloser io.Closer
+	if cfg.Blockchain.RPCURL != "" && cfg.Blockchain.DeployerPrivateKey != "" && cfg.Blockchain.TicketSBTAddress != "" {
+		sbtClient, err := ticketsbt.NewClient(
+			ctx,
+			cfg.Blockchain.RPCURL,
+			cfg.Blockchain.DeployerPrivateKey,
+			cfg.Blockchain.TicketSBTAddress,
+			cfg.Blockchain.ChainID,
+			logger,
+		)
+		if err != nil {
+			return nil, err
+		}
+		sbtCloser = sbtClient
+		ticketUC = usecase.NewTicketUseCase(ticketRepo, sbtClient, infratelemetry.NewOTelMintMetrics(), eventPublisher, logger)
+	} else {
+		logger.Warn(ctx, "⚠️  Blockchain config absent, ticket minting is disabled")
+		_ = ticketRepo // referenced when blockchain is enabled; suppress unused warning
+	}
+
 	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
@@ -199,7 +200,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	var ticketEmailUC usecase.TicketEmailUseCase
 	if emailParser != nil {
-		ticketEmailUC = usecase.NewTicketEmailUseCase(ticketEmailRepo, ticketJourneyRepo, emailParser, logger)
+		ticketEmailUC = usecase.NewTicketEmailUseCase(ticketEmailRepo, ticketJourneyRepo, emailParser, eventPublisher, logger)
 	} else {
 		_ = ticketEmailRepo // referenced when email parser is enabled; suppress unused warning
 	}
