@@ -614,6 +614,60 @@ func (c *AnalyticsConsumer) HandleTicketEmailParsed(msg *message.Message) error 
 	return nil
 }
 
+// HandleSalesReminderDelivered forwards the SALES_REMINDER.delivered NATS
+// subject as the catalogue event usecase.EventSalesReminderDelivered.
+// Properties: phase_stage, delivery_status. The distinct_id is the platform
+// UserID from the payload.
+func (c *AnalyticsConsumer) HandleSalesReminderDelivered(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.SalesReminderDeliveredData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse SALES_REMINDER.delivered event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse SALES_REMINDER.delivered event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventSalesReminderDelivered)),
+			slog.String("user_id", data.UserID),
+			slog.String("phase_stage", data.PhaseStage),
+			slog.String("delivery_status", data.DeliveryStatus),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.UserID == "" {
+		c.logger.Warn(ctx, "SALES_REMINDER.delivered event missing user_id, skipping forward",
+			slog.String("phase_stage", data.PhaseStage),
+			slog.String("delivery_status", data.DeliveryStatus),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"phase_stage":     data.PhaseStage,
+		"delivery_status": data.DeliveryStatus,
+	}
+
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventSalesReminderDelivered, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventSalesReminderDelivered)),
+			slog.String("user_id", data.UserID),
+			slog.String("phase_stage", data.PhaseStage),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // recordLag emits analytics_consumer_lag_seconds derived from the
 // CloudEvent's `ce_time` metadata. Missing or unparseable timestamps
 // are silently skipped — the metric is best-effort and downstream

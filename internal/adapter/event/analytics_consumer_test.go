@@ -1290,6 +1290,122 @@ func TestAnalyticsConsumer_HandleTicketEmailParsed(t *testing.T) {
 	}
 }
 
+// TestAnalyticsConsumer_HandleSalesReminderDelivered covers
+// SALES_REMINDER.delivered → sales_reminder.delivered routing.
+// Properties: phase_stage, delivery_status. Distinct_id is the platform UserID.
+func TestAnalyticsConsumer_HandleSalesReminderDelivered(t *testing.T) {
+	t.Parallel()
+
+	const (
+		validUserID = "11111111-2222-3333-4444-555555555555"
+		validStage  = "APPLY_OPEN"
+		validStatus = "delivered"
+	)
+
+	type args struct {
+		data entity.SalesReminderDeliveredData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards sales_reminder.delivered with phase_stage and delivery_status",
+			args: args{data: entity.SalesReminderDeliveredData{
+				UserID:         validUserID,
+				PhaseStage:     validStage,
+				DeliveryStatus: validStatus,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil (local dev)",
+			args: args{data: entity.SalesReminderDeliveredData{
+				UserID:         validUserID,
+				PhaseStage:     validStage,
+				DeliveryStatus: "no_subscription",
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			args: args{data: entity.SalesReminderDeliveredData{
+				UserID:         "",
+				PhaseStage:     validStage,
+				DeliveryStatus: "failed",
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.SalesReminderDeliveredData{
+				UserID:         validUserID,
+				PhaseStage:     validStage,
+				DeliveryStatus: validStatus,
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.UserID,
+							usecase.EventSalesReminderDelivered,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["phase_stage"] == tt.args.data.PhaseStage &&
+									props["delivery_status"] == tt.args.data.DeliveryStatus
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleSalesReminderDelivered(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 // TestAnalyticsConsumer_HandleUserCreated_BadPayload covers the
 // CloudEvent decode failure path separately because constructing an
 // invalid JSON payload with the same table shape would obscure the

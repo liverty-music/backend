@@ -175,6 +175,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		salesReminderRepo,
 		pushSubRepo,
 		webpushSender,
+		eventPublisher,
 		pushMetrics,
 		logger,
 	)
@@ -307,6 +308,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		entity.SubjectTicketEmailParsed,
 		subscriber,
 		analyticsConsumer.HandleTicketEmailParsed,
+	)
+
+	router.AddConsumerHandler(
+		"forward-sales-reminder-delivered-to-analytics",
+		entity.SubjectSalesReminderDelivered,
+		subscriber,
+		analyticsConsumer.HandleSalesReminderDelivered,
 	)
 
 	router.AddConsumerHandler(

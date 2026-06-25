@@ -105,6 +105,15 @@ const (
 	EventTicketEmailParsed AnalyticsEventName = "ticket.email.parsed"
 )
 
+// Sales reminder delivery events emitted from the backend.
+const (
+	// EventSalesReminderDelivered is recorded at every terminal delivery
+	// outcome of a sales-phase push reminder. It feeds reach and failure-rate
+	// dashboards per phase stage in PostHog.
+	// Properties: phase_stage, delivery_status.
+	EventSalesReminderDelivered AnalyticsEventName = "sales_reminder.delivered"
+)
+
 // Entry verification events emitted from the backend, including the
 // zero-knowledge-proof check at venue gates.
 const (
@@ -167,6 +176,7 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventNotificationSubscribed:          {},
 	EventNotificationUnsubscribed:        {},
 	EventNotificationDelivered:           {},
+	EventSalesReminderDelivered:          {},
 }
 
 // IsKnownEvent reports whether name is registered in the backend event
