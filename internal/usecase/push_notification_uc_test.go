@@ -245,15 +245,40 @@ func TestPushNotificationUseCase_Delete(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "delete subscription successfully",
-			args: args{userID: "user-1", endpoint: "https://push.example.com/sub"},
+			name: "delete subscription successfully and publish analytics event",
+			args: args{userID: "user-1", endpoint: "https://fcm.googleapis.com/sub/abc"},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
 				d.pushSubRepo.EXPECT().
-					Delete(ctx, "user-1", "https://push.example.com/sub").
+					Delete(ctx, "user-1", "https://fcm.googleapis.com/sub/abc").
 					Return(nil).
 					Once()
+				d.publisher.EXPECT().
+					PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, entity.NotificationUnsubscribedData{
+						UserID:     "user-1",
+						DeviceType: "android",
+					}).
+					Return(nil).Once()
 			},
+			wantErr: nil,
+		},
+		{
+			name: "publish error is non-fatal when repository delete succeeds",
+			args: args{userID: "user-1", endpoint: "https://web.push.apple.com/sub/abc"},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.pushSubRepo.EXPECT().
+					Delete(ctx, "user-1", "https://web.push.apple.com/sub/abc").
+					Return(nil).
+					Once()
+				d.publisher.EXPECT().
+					PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, entity.NotificationUnsubscribedData{
+						UserID:     "user-1",
+						DeviceType: "apple",
+					}).
+					Return(apperr.ErrInternal).Once()
+			},
+			// Publish error must not propagate — Delete returns nil.
 			wantErr: nil,
 		},
 		{
@@ -265,6 +290,7 @@ func TestPushNotificationUseCase_Delete(t *testing.T) {
 					Delete(ctx, "user-1", "https://push.example.com/sub").
 					Return(apperr.ErrInternal).
 					Once()
+				// No PublishEvent expected — repo failure prevents reaching the publish call.
 			},
 			wantErr: apperr.ErrInternal,
 		},
@@ -646,6 +672,27 @@ func notifySenderTestDeps(t *testing.T, subs []*entity.PushSubscription) *pushNo
 	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 	d.pushSubRepo.EXPECT().ListByUserIDs(ctx, []string{"user-1"}).Return(subs, nil).Once()
 	return d
+}
+
+// TestNotifyNewConcerts_SenderGone_DoesNotPublishUnsubscribedEvent asserts that
+// the 410 Gone auto-cleanup path inside NotifyNewConcerts does NOT emit
+// notification.unsubscribed. That event is user-churn signal and must only
+// come from the user-initiated Delete method.
+func TestNotifyNewConcerts_SenderGone_DoesNotPublishUnsubscribedEvent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	sub := &entity.PushSubscription{UserID: "user-1", Endpoint: "https://push.example.com/gone"}
+	d := notifySenderTestDeps(t, []*entity.PushSubscription{sub})
+	d.sender.sendFn = func(_ context.Context, _ []byte, _ *entity.PushSubscription) error {
+		return apperr.ErrNotFound
+	}
+	d.pushSubRepo.EXPECT().Delete(ctx, "user-1", "https://push.example.com/gone").Return(nil).Once()
+	// No d.publisher.EXPECT().PublishEvent(...) — the mock will fail the test
+	// if PublishEvent is called unexpectedly (testify/mock assertion on cleanup).
+
+	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}})
+	assert.NoError(t, err)
 }
 
 func TestNotifyNewConcerts_SenderGone_DeletesSubscription(t *testing.T) {

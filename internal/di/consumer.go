@@ -268,6 +268,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	router.AddConsumerHandler(
+		"forward-notification-unsubscribed-to-analytics",
+		entity.SubjectNotificationUnsubscribed,
+		subscriber,
+		analyticsConsumer.HandleNotificationUnsubscribed,
+	)
+
+	router.AddConsumerHandler(
 		"forward-entry-zk-proof-verified-to-analytics",
 		entity.SubjectEntryZkProofVerified,
 		subscriber,

@@ -130,10 +130,25 @@ func (uc *pushNotificationUseCase) Get(ctx context.Context, userID, endpoint str
 
 // Delete removes the push subscription matching the (userID, endpoint) pair.
 // Other browsers registered by the same user remain active. Idempotent.
+// On success, a notification.unsubscribed analytics event is published
+// non-fatally — a publish error is logged but does not change the return
+// behaviour. The auto-cleanup path inside NotifyNewConcerts (410 Gone) does
+// NOT call this method and therefore does NOT emit the analytics event.
 func (uc *pushNotificationUseCase) Delete(ctx context.Context, userID, endpoint string) error {
 	if err := uc.pushSubRepo.Delete(ctx, userID, endpoint); err != nil {
 		return fmt.Errorf("failed to delete push subscription: %w", err)
 	}
+
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, entity.NotificationUnsubscribedData{
+		UserID:     userID,
+		DeviceType: entity.DeviceTypeFromEndpoint(endpoint),
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish NOTIFICATION.unsubscribed event", err,
+			slog.String("user_id", userID),
+		)
+		// Non-fatal: the subscription is already deleted.
+	}
+
 	return nil
 }
 

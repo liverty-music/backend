@@ -126,6 +126,12 @@ const (
 	// subscription has been persisted against the user record.
 	EventNotificationSubscribed AnalyticsEventName = "notification.subscribed"
 
+	// EventNotificationUnsubscribed is recorded after a user-initiated
+	// Web Push subscription has been removed via PushNotificationUseCase.Delete.
+	// Auto-cleanup on 410 Gone (send-loop expiry) intentionally does NOT
+	// emit this event — that is subscription expiry, not user churn.
+	EventNotificationUnsubscribed AnalyticsEventName = "notification.unsubscribed"
+
 	// EventNotificationDelivered is recorded when the push provider
 	// accepts a notification for delivery. The frontend records the
 	// downstream open/dismiss separately.
@@ -159,6 +165,7 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventEntryZkProofVerified:            {},
 	EventEntryZkProofRejected:            {},
 	EventNotificationSubscribed:          {},
+	EventNotificationUnsubscribed:        {},
 	EventNotificationDelivered:           {},
 }
 

@@ -305,6 +305,55 @@ func (c *AnalyticsConsumer) HandleNotificationSubscribed(msg *message.Message) e
 	return nil
 }
 
+// HandleNotificationUnsubscribed forwards the NOTIFICATION.unsubscribed
+// NATS subject as the catalogue event
+// usecase.EventNotificationUnsubscribed. Properties: device_type
+// (classifier output from the endpoint host; the endpoint itself is
+// never forwarded). Only user-initiated unsubscriptions emit this event;
+// the auto-cleanup path on 410 Gone does not.
+func (c *AnalyticsConsumer) HandleNotificationUnsubscribed(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.NotificationUnsubscribedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse NOTIFICATION.unsubscribed event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse NOTIFICATION.unsubscribed event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventNotificationUnsubscribed)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.UserID == "" {
+		c.logger.Warn(ctx, "NOTIFICATION.unsubscribed event missing user_id, skipping forward")
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"device_type": data.DeviceType,
+	}
+
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventNotificationUnsubscribed, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventNotificationUnsubscribed)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // HandleEntryZkProofVerified forwards the ENTRY.zk_proof_verified
 // NATS subject as the catalogue event usecase.EventEntryZkProofVerified.
 // The distinct_id is the nullifier hash hex — anonymous-by-design per
