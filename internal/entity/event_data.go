@@ -16,6 +16,7 @@ const (
 	SubjectUserCreated                  = "USER.created"
 	SubjectUserPreferredLanguageUpdated = "USER.preferred_language_updated"
 	SubjectNotificationSubscribed       = "NOTIFICATION.subscribed"
+	SubjectNotificationUnsubscribed     = "NOTIFICATION.unsubscribed"
 	SubjectEntryZkProofVerified         = "ENTRY.zk_proof_verified"
 	SubjectEntryZkProofRejected         = "ENTRY.zk_proof_rejected"
 	// SubjectSalesPhaseDiscovered is published when a brand-new sales phase row
@@ -177,6 +178,22 @@ type NotificationSubscribedData struct {
 	// (Mozilla autopush), "windows" (WNS), "other". The endpoint URL itself
 	// is sensitive and is NOT included in the payload — the host classifier
 	// is the only signal forwarded to PostHog.
+	DeviceType string `json:"device_type"`
+}
+
+// NotificationUnsubscribedData is the payload for NOTIFICATION.unsubscribed.
+// Mapped to the catalogue event notification.unsubscribed by the
+// analytics-consumer. Published by PushNotificationUseCase.Delete after the
+// repository removes a user-initiated Web Push subscription record. The
+// endpoint URL itself is sensitive and is NOT included; only the classifier
+// output is forwarded to PostHog.
+type NotificationUnsubscribedData struct {
+	// UserID is the platform-internal user identifier of the subscriber.
+	// Used as the PostHog distinct_id.
+	UserID string `json:"user_id"`
+	// DeviceType is the browser/OS family derived from the push endpoint
+	// host. Values: "android" (FCM), "apple" (Web Push for Safari), "firefox"
+	// (Mozilla autopush), "windows" (WNS), "other". See DeviceTypeFromEndpoint.
 	DeviceType string `json:"device_type"`
 }
 
