@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -35,6 +36,7 @@ type ticketEmailUseCase struct {
 	emailRepo   entity.TicketEmailRepository
 	journeyRepo entity.TicketJourneyRepository
 	parser      entity.TicketEmailParser
+	publisher   EventPublisher
 	logger      *logging.Logger
 }
 
@@ -43,13 +45,34 @@ func NewTicketEmailUseCase(
 	emailRepo entity.TicketEmailRepository,
 	journeyRepo entity.TicketJourneyRepository,
 	parser entity.TicketEmailParser,
+	publisher EventPublisher,
 	logger *logging.Logger,
 ) TicketEmailUseCase {
 	return &ticketEmailUseCase{
 		emailRepo:   emailRepo,
 		journeyRepo: journeyRepo,
 		parser:      parser,
+		publisher:   publisher,
 		logger:      logger,
+	}
+}
+
+// publishEmailParsed emits the ticket.email.parsed analytics event. It is
+// non-fatal: publish failures are logged and do not alter the caller's return
+// value.
+func (uc *ticketEmailUseCase) publishEmailParsed(ctx context.Context, userID string, emailType entity.TicketEmailType, parseStatus string, fieldCount int) {
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectTicketEmailParsed, entity.TicketEmailParsedData{
+		UserID:      userID,
+		EmailType:   emailType.String(),
+		ParseStatus: parseStatus,
+		FieldCount:  fieldCount,
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish TICKET_EMAIL.parsed event", err,
+			slog.String("user_id", userID),
+			slog.String("email_type", emailType.String()),
+			slog.String("parse_status", parseStatus),
+		)
+		// Non-fatal: the operation result is unaffected.
 	}
 }
 
@@ -57,6 +80,7 @@ func NewTicketEmailUseCase(
 func (uc *ticketEmailUseCase) Create(ctx context.Context, userID string, eventIDs []string, emailType entity.TicketEmailType, rawBody string) ([]*entity.TicketEmail, error) {
 	parsed, err := uc.parser.Parse(ctx, rawBody, emailType)
 	if err != nil {
+		uc.publishEmailParsed(ctx, userID, emailType, "failure", 0)
 		return nil, err
 	}
 
@@ -76,6 +100,8 @@ func (uc *ticketEmailUseCase) Create(ctx context.Context, userID string, eventID
 		}
 		results = append(results, created)
 	}
+
+	uc.publishEmailParsed(ctx, userID, emailType, "success", parsed.FieldCount())
 
 	return results, nil
 }

@@ -21,6 +21,19 @@ func (t TicketEmailType) IsValid() bool {
 	return t >= TicketEmailTypeLotteryInfo && t <= TicketEmailTypeLotteryResult
 }
 
+// String returns the uppercase enum-name of the type for use in analytics
+// event properties. The zero value returns "UNSPECIFIED".
+func (t TicketEmailType) String() string {
+	switch t {
+	case TicketEmailTypeLotteryInfo:
+		return "LOTTERY_INFO"
+	case TicketEmailTypeLotteryResult:
+		return "LOTTERY_RESULT"
+	default:
+		return "UNSPECIFIED"
+	}
+}
+
 // TicketEmail represents an imported ticket-related email parsed by Gemini Flash.
 type TicketEmail struct {
 	// ID is the unique identifier (UUIDv7).

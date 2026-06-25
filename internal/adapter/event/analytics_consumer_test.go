@@ -944,6 +944,244 @@ func TestAnalyticsConsumer_HandleTicketJourneyStatusChanged(t *testing.T) {
 	}
 }
 
+// TestAnalyticsConsumer_HandleTicketMintCompleted covers
+// TICKET.mint_completed → ticket.mint.completed routing.
+// Property: event_id. Distinct_id is the platform UserID.
+func TestAnalyticsConsumer_HandleTicketMintCompleted(t *testing.T) {
+	t.Parallel()
+
+	const (
+		validUserID  = "11111111-2222-3333-4444-555555555555"
+		validEventID = "550e8400-e29b-41d4-a716-446655440000"
+	)
+
+	type args struct {
+		data entity.TicketMintCompletedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards ticket.mint.completed with event_id property",
+			args: args{data: entity.TicketMintCompletedData{
+				UserID:  validUserID,
+				EventID: validEventID,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.TicketMintCompletedData{
+				UserID:  validUserID,
+				EventID: validEventID,
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			args: args{data: entity.TicketMintCompletedData{
+				UserID:  "",
+				EventID: validEventID,
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.TicketMintCompletedData{
+				UserID:  validUserID,
+				EventID: validEventID,
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.UserID,
+							usecase.EventTicketMintCompleted,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["event_id"] == tt.args.data.EventID
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleTicketMintCompleted(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyticsConsumer_HandleTicketEmailParsed covers
+// TICKET_EMAIL.parsed → ticket.email.parsed routing.
+// Properties: email_type, parse_status, field_count.
+// Emitted on both success and failure parser outcomes.
+func TestAnalyticsConsumer_HandleTicketEmailParsed(t *testing.T) {
+	t.Parallel()
+
+	const validUserID = "11111111-2222-3333-4444-555555555555"
+
+	type args struct {
+		data entity.TicketEmailParsedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards ticket.email.parsed with all three properties on success",
+			args: args{data: entity.TicketEmailParsedData{
+				UserID:      validUserID,
+				EmailType:   "LOTTERY_INFO",
+				ParseStatus: "success",
+				FieldCount:  4,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "forwards ticket.email.parsed with field_count=0 on failure",
+			args: args{data: entity.TicketEmailParsedData{
+				UserID:      validUserID,
+				EmailType:   "LOTTERY_RESULT",
+				ParseStatus: "failure",
+				FieldCount:  0,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.TicketEmailParsedData{
+				UserID:      validUserID,
+				EmailType:   "LOTTERY_INFO",
+				ParseStatus: "success",
+				FieldCount:  2,
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			args: args{data: entity.TicketEmailParsedData{
+				UserID:      "",
+				EmailType:   "LOTTERY_INFO",
+				ParseStatus: "success",
+				FieldCount:  1,
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.TicketEmailParsedData{
+				UserID:      validUserID,
+				EmailType:   "LOTTERY_INFO",
+				ParseStatus: "success",
+				FieldCount:  3,
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.UserID,
+							usecase.EventTicketEmailParsed,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["email_type"] == tt.args.data.EmailType &&
+									props["parse_status"] == tt.args.data.ParseStatus &&
+									props["field_count"] == tt.args.data.FieldCount
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleTicketEmailParsed(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 // TestAnalyticsConsumer_HandleUserCreated_BadPayload covers the
 // CloudEvent decode failure path separately because constructing an
 // invalid JSON payload with the same table shape would obscure the

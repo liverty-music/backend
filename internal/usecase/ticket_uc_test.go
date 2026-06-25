@@ -8,6 +8,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
+	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -19,10 +20,21 @@ type noopMintMetrics struct{}
 func (noopMintMetrics) RecordDuration(context.Context, float64, string) {}
 func (noopMintMetrics) RecordTotal(context.Context, string)             {}
 
+// newTestTicketUC builds a TicketUseCase for tests that do NOT reach the
+// publish path (validation, error, idempotency-by-existing-DB-record, etc.).
+// Pass nil for publisher when the test never reaches a successful persist.
 func newTestTicketUC(t *testing.T, repo *mocks.MockTicketRepository, minter *mocks.MockTicketMinter) usecase.TicketUseCase {
 	t.Helper()
 	logger := newTestLogger(t)
-	return usecase.NewTicketUseCase(repo, minter, noopMintMetrics{}, logger)
+	return usecase.NewTicketUseCase(repo, minter, noopMintMetrics{}, nil, logger)
+}
+
+// newTestTicketUCWithPublisher builds a TicketUseCase for tests that reach a
+// successful persist — the publisher mock must have an expectation set up by
+// the caller.
+func newTestTicketUCWithPublisher(t *testing.T, repo *mocks.MockTicketRepository, minter *mocks.MockTicketMinter, publisher *ucmocks.MockEventPublisher) usecase.TicketUseCase {
+	t.Helper()
+	return usecase.NewTicketUseCase(repo, minter, noopMintMetrics{}, publisher, newTestLogger(t))
 }
 
 func TestMintTicket_Validation(t *testing.T) {
@@ -40,7 +52,7 @@ func TestMintTicket_Validation(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			uc := usecase.NewTicketUseCase(nil, nil, noopMintMetrics{}, logger)
+			uc := usecase.NewTicketUseCase(nil, nil, noopMintMetrics{}, nil, logger)
 			_, err := uc.MintTicket(context.Background(), tc.params)
 			assert.Error(t, err)
 			assert.True(t, errors.Is(err, apperr.ErrInvalidArgument), "expected InvalidArgument, got %v", err)
@@ -52,6 +64,7 @@ func TestMintTicket_IdempotencyDB(t *testing.T) {
 	t.Parallel()
 
 	// When a ticket already exists in the DB, return it without minting.
+	// The early-return path does not publish — publisher is nil.
 	repo := mocks.NewMockTicketRepository(t)
 	minter := mocks.NewMockTicketMinter(t)
 	uc := newTestTicketUC(t, repo, minter)
@@ -76,7 +89,8 @@ func TestMintTicket_HappyPath(t *testing.T) {
 
 	repo := mocks.NewMockTicketRepository(t)
 	minter := mocks.NewMockTicketMinter(t)
-	uc := newTestTicketUC(t, repo, minter)
+	publisher := ucmocks.NewMockEventPublisher(t)
+	uc := newTestTicketUCWithPublisher(t, repo, minter, publisher)
 
 	created := &entity.Ticket{ID: "ticket-2", EventID: "event-1", UserID: "user-1", TokenID: 99}
 
@@ -87,6 +101,12 @@ func TestMintTicket_HappyPath(t *testing.T) {
 	repo.EXPECT().Create(anyCtx, mock.MatchedBy(func(p *entity.NewTicket) bool {
 		return p.EventID == "event-1" && p.UserID == "user-1" && p.TxHash == "0xdeadbeef"
 	})).Return(created, nil)
+	publisher.EXPECT().
+		PublishEvent(anyCtx, entity.SubjectTicketMintCompleted, mock.MatchedBy(func(data entity.TicketMintCompletedData) bool {
+			return data.UserID == "user-1" && data.EventID == "event-1"
+		})).
+		Return(nil).
+		Once()
 
 	got, err := uc.MintTicket(context.Background(), &usecase.MintTicketParams{
 		EventID:          "event-1",
@@ -102,6 +122,7 @@ func TestMintTicket_EventNotFound(t *testing.T) {
 	t.Parallel()
 
 	// When the event does not exist, return NotFound before on-chain mint.
+	// Never reaches persist, so publisher is nil.
 	repo := mocks.NewMockTicketRepository(t)
 	minter := mocks.NewMockTicketMinter(t)
 	uc := newTestTicketUC(t, repo, minter)
@@ -127,7 +148,8 @@ func TestMintTicket_AlreadyMintedOwnerMatches(t *testing.T) {
 	// Token is on-chain but no DB record — owner matches → reconcile and save.
 	repo := mocks.NewMockTicketRepository(t)
 	minter := mocks.NewMockTicketMinter(t)
-	uc := newTestTicketUC(t, repo, minter)
+	publisher := ucmocks.NewMockEventPublisher(t)
+	uc := newTestTicketUCWithPublisher(t, repo, minter, publisher)
 
 	recipient := "0xaAbBcCdDeEfF0011223344556677889900aAbBcC"
 	created := &entity.Ticket{ID: "ticket-3", EventID: "event-1", UserID: "user-1"}
@@ -140,6 +162,12 @@ func TestMintTicket_AlreadyMintedOwnerMatches(t *testing.T) {
 	repo.EXPECT().Create(anyCtx, mock.MatchedBy(func(p *entity.NewTicket) bool {
 		return p.EventID == "event-1" && p.UserID == "user-1"
 	})).Return(created, nil)
+	publisher.EXPECT().
+		PublishEvent(anyCtx, entity.SubjectTicketMintCompleted, mock.MatchedBy(func(data entity.TicketMintCompletedData) bool {
+			return data.UserID == "user-1" && data.EventID == "event-1"
+		})).
+		Return(nil).
+		Once()
 
 	got, err := uc.MintTicket(context.Background(), &usecase.MintTicketParams{
 		EventID:          "event-1",
@@ -156,6 +184,7 @@ func TestMintTicket_AlreadyMintedOwnerMismatch(t *testing.T) {
 	t.Parallel()
 
 	// Token is on-chain but owned by a different address → PermissionDenied.
+	// Never reaches persist, so publisher is nil.
 	repo := mocks.NewMockTicketRepository(t)
 	minter := mocks.NewMockTicketMinter(t)
 	uc := newTestTicketUC(t, repo, minter)
@@ -178,10 +207,13 @@ func TestMintTicket_AlreadyMintedOwnerMismatch(t *testing.T) {
 func TestMintTicket_ConcurrentMintIdempotency(t *testing.T) {
 	t.Parallel()
 
-	// If Create returns AlreadyExists (concurrent mint), fetch and return the existing record.
+	// If Create returns AlreadyExists (concurrent mint), fetch and return the
+	// existing record. persistTicket returns the existing ticket, so publish
+	// is still invoked.
 	repo := mocks.NewMockTicketRepository(t)
 	minter := mocks.NewMockTicketMinter(t)
-	uc := newTestTicketUC(t, repo, minter)
+	publisher := ucmocks.NewMockEventPublisher(t)
+	uc := newTestTicketUCWithPublisher(t, repo, minter, publisher)
 
 	existing := &entity.Ticket{ID: "ticket-4", EventID: "event-1", UserID: "user-1"}
 
@@ -191,6 +223,12 @@ func TestMintTicket_ConcurrentMintIdempotency(t *testing.T) {
 	minter.EXPECT().Mint(anyCtx, mock.Anything, mock.AnythingOfType("uint64")).Return("0xdeadbeef", nil)
 	repo.EXPECT().Create(anyCtx, mock.Anything).Return(nil, apperr.ErrAlreadyExists)
 	repo.EXPECT().GetByEventAndUser(anyCtx, "event-1", "user-1").Return(existing, nil).Once()
+	publisher.EXPECT().
+		PublishEvent(anyCtx, entity.SubjectTicketMintCompleted, mock.MatchedBy(func(data entity.TicketMintCompletedData) bool {
+			return data.UserID == "user-1" && data.EventID == "event-1"
+		})).
+		Return(nil).
+		Once()
 
 	got, err := uc.MintTicket(context.Background(), &usecase.MintTicketParams{
 		EventID:          "event-1",
@@ -206,6 +244,7 @@ func TestMintTicket_IsTokenMintedError(t *testing.T) {
 	t.Parallel()
 
 	// RPC error from IsTokenMinted should be propagated as Internal.
+	// Never reaches persist, so publisher is nil.
 	repo := mocks.NewMockTicketRepository(t)
 	minter := mocks.NewMockTicketMinter(t)
 	uc := newTestTicketUC(t, repo, minter)
@@ -222,4 +261,37 @@ func TestMintTicket_IsTokenMintedError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperr.ErrInternal), "expected Internal, got %v", err)
+}
+
+// TestMintTicket_PublishNonFatal verifies that a publish failure does not
+// cause MintTicket to return an error — the ticket is already persisted and
+// must be returned to the caller.
+func TestMintTicket_PublishNonFatal(t *testing.T) {
+	t.Parallel()
+
+	repo := mocks.NewMockTicketRepository(t)
+	minter := mocks.NewMockTicketMinter(t)
+	publisher := ucmocks.NewMockEventPublisher(t)
+	uc := newTestTicketUCWithPublisher(t, repo, minter, publisher)
+
+	created := &entity.Ticket{ID: "ticket-5", EventID: "event-1", UserID: "user-1", TokenID: 77}
+
+	repo.EXPECT().GetByEventAndUser(anyCtx, "event-1", "user-1").Return(nil, apperr.ErrNotFound)
+	repo.EXPECT().EventExists(anyCtx, "event-1").Return(true, nil)
+	minter.EXPECT().IsTokenMinted(anyCtx, mock.AnythingOfType("uint64")).Return(false, nil)
+	minter.EXPECT().Mint(anyCtx, "0xaAbBcCdDeEfF0011223344556677889900aAbBcC", mock.AnythingOfType("uint64")).Return("0xdeadbeef", nil)
+	repo.EXPECT().Create(anyCtx, mock.Anything).Return(created, nil)
+	publisher.EXPECT().
+		PublishEvent(anyCtx, entity.SubjectTicketMintCompleted, mock.Anything).
+		Return(errors.New("nats unavailable")).
+		Once()
+
+	got, err := uc.MintTicket(context.Background(), &usecase.MintTicketParams{
+		EventID:          "event-1",
+		UserID:           "user-1",
+		RecipientAddress: "0xaAbBcCdDeEfF0011223344556677889900aAbBcC",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, created, got)
 }

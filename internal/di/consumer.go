@@ -289,6 +289,20 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	router.AddConsumerHandler(
+		"forward-ticket-mint-completed-to-analytics",
+		entity.SubjectTicketMintCompleted,
+		subscriber,
+		analyticsConsumer.HandleTicketMintCompleted,
+	)
+
+	router.AddConsumerHandler(
+		"forward-ticket-email-parsed-to-analytics",
+		entity.SubjectTicketEmailParsed,
+		subscriber,
+		analyticsConsumer.HandleTicketEmailParsed,
+	)
+
+	router.AddConsumerHandler(
 		"log-poison-queue",
 		messaging.PoisonQueueSubject,
 		subscriber,

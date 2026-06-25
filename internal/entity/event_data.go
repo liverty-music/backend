@@ -30,6 +30,16 @@ const (
 	// when no prior journey existed). It drives the
 	// ticket.journey.status.changed analytics event.
 	SubjectTicketJourneyStatusChanged = "TICKET_JOURNEY.status_changed"
+	// SubjectTicketMintCompleted is published by TicketUseCase.MintTicket after
+	// a ticket is successfully minted and persisted. It drives the
+	// ticket.mint.completed analytics event (SBT issuance / ticket-activation
+	// funnel).
+	SubjectTicketMintCompleted = "TICKET.mint_completed"
+	// SubjectTicketEmailParsed is published by TicketEmailUseCase.Create on
+	// both parse-success and parse-failure paths. It drives the
+	// ticket.email.parsed analytics event (email-ingestion data quality,
+	// parser robustness).
+	SubjectTicketEmailParsed = "TICKET_EMAIL.parsed"
 )
 
 // EntryRejectionReason enumerates the legitimate causes for a
@@ -197,6 +207,39 @@ type SalesPhaseReminderDueData struct {
 	// Built per-recipient so times render in the user's timezone and copy
 	// is selected by preferred_language.
 	Payload *NotificationPayload `json:"payload"`
+}
+
+// TicketMintCompletedData is the payload for TICKET.mint_completed.
+// Mapped to the catalogue event ticket.mint.completed by the
+// analytics-consumer. Published by TicketUseCase.MintTicket after a ticket is
+// successfully minted and persisted. Drives the SBT issuance /
+// ticket-activation funnel in PostHog.
+type TicketMintCompletedData struct {
+	// UserID is the platform-internal user identifier of the ticket recipient.
+	// Used as the PostHog distinct_id.
+	UserID string `json:"user_id"`
+	// EventID is the internal UUID of the live event for which the ticket was minted.
+	EventID string `json:"event_id"`
+}
+
+// TicketEmailParsedData is the payload for TICKET_EMAIL.parsed.
+// Mapped to the catalogue event ticket.email.parsed by the
+// analytics-consumer. Published by TicketEmailUseCase.Create on both
+// parse-success and parse-failure paths so email-ingestion data quality and
+// parser robustness can be measured in PostHog.
+type TicketEmailParsedData struct {
+	// UserID is the platform-internal user identifier of the fan who imported
+	// the email. Used as the PostHog distinct_id.
+	UserID string `json:"user_id"`
+	// EmailType is the string name of the TicketEmailType enum value (e.g.
+	// "LOTTERY_INFO", "LOTTERY_RESULT").
+	EmailType string `json:"email_type"`
+	// ParseStatus is "success" when the parser returned no error, "failure"
+	// otherwise.
+	ParseStatus string `json:"parse_status"`
+	// FieldCount is the number of non-nil optional fields extracted by the
+	// parser on success. Zero on failure.
+	FieldCount int `json:"field_count"`
 }
 
 // TicketJourneyStatusChangedData is the payload for TICKET_JOURNEY.status_changed.

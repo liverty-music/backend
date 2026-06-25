@@ -57,6 +57,7 @@ type MintTicketParams struct {
 type ticketUseCase struct {
 	ticketRepo  entity.TicketRepository
 	minter      entity.TicketMinter
+	publisher   EventPublisher
 	logger      *logging.Logger
 	mintMetrics MintMetrics
 }
@@ -69,11 +70,13 @@ func NewTicketUseCase(
 	ticketRepo entity.TicketRepository,
 	minter entity.TicketMinter,
 	mintMetrics MintMetrics,
+	publisher EventPublisher,
 	logger *logging.Logger,
 ) TicketUseCase {
 	return &ticketUseCase{
 		ticketRepo:  ticketRepo,
 		minter:      minter,
+		publisher:   publisher,
 		logger:      logger,
 		mintMetrics: mintMetrics,
 	}
@@ -230,7 +233,25 @@ func (uc *ticketUseCase) MintTicket(ctx context.Context, params *MintTicketParam
 	uc.mintMetrics.RecordDuration(ctx, mintElapsed, "success")
 	uc.mintMetrics.RecordTotal(ctx, "success")
 
-	return uc.persistTicket(ctx, params, tokenID, txHash)
+	ticket, err := uc.persistTicket(ctx, params, tokenID, txHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Publish non-fatally: the ticket is already persisted so an analytics
+	// failure must not roll back or surface as an error to the caller.
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectTicketMintCompleted, entity.TicketMintCompletedData{
+		UserID:  params.UserID,
+		EventID: params.EventID,
+	}); err != nil {
+		uc.logger.Error(ctx, "failed to publish TICKET.mint_completed event", err,
+			slog.String("user_id", params.UserID),
+			slog.String("event_id", params.EventID),
+		)
+		// Non-fatal: the ticket is already persisted.
+	}
+
+	return ticket, nil
 }
 
 // GetTicket retrieves a ticket by ID.

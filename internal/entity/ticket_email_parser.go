@@ -18,6 +18,32 @@ type ParsedEmailData struct {
 	PaymentDeadline *string `json:"payment_deadline,omitempty"`
 }
 
+// FieldCount returns the number of non-nil optional fields that the parser
+// successfully extracted. Used as the field_count property on the
+// ticket.email.parsed analytics event to quantify parse yield.
+func (p *ParsedEmailData) FieldCount() int {
+	n := 0
+	if p.LotteryStart != nil {
+		n++
+	}
+	if p.LotteryEnd != nil {
+		n++
+	}
+	if p.ApplicationURL != nil {
+		n++
+	}
+	if p.LotteryResult != nil {
+		n++
+	}
+	if p.PaymentStatus != nil {
+		n++
+	}
+	if p.PaymentDeadline != nil {
+		n++
+	}
+	return n
+}
+
 // JourneyStatus maps the parsed email data to a TicketJourneyStatus based on
 // the email type and the raw values returned by the AI parser.
 //
