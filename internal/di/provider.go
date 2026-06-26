@@ -205,14 +205,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		_ = ticketEmailRepo // referenced when email parser is enabled; suppress unused warning
 	}
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
+	notificationRepo := rdb.NewNotificationRepository(db)
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, businessMetrics, logger)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		concertRepo,
 		followRepo,
 		pushSubRepo,
-		webpushSender,
 		eventPublisher,
-		businessMetrics,
+		notificationUC,
 		logger,
 	)
 	// Auth - JWT Validator and Interceptor

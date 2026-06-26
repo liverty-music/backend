@@ -2,40 +2,36 @@ package usecase
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
 
 // SalesReminderDeliveryUseCase delivers a single reminder event to the target
 // user's push subscriptions, enforcing once-only delivery semantics.
 type SalesReminderDeliveryUseCase interface {
-	// DeliverReminder delivers the reminder described by data to the user's push
-	// subscriptions. It enforces the once-only contract via AlreadySent / RecordSent
-	// on the sent-log, and cleans up gone subscriptions.
+	// DeliverReminder delivers the reminder described by data by dispatching it
+	// through the notification service (which records the notification, sends to
+	// the user's push subscriptions, and cleans up gone endpoints). It enforces
+	// the once-only contract via AlreadySent / RecordSent on the sent-log.
 	//
 	// Semantics preserved from the previous consumer implementation:
 	//   - AlreadySent guard fires first (at-least-once broker replay protection).
-	//   - No subscriptions → record sent (suppress future re-delivery), return nil.
 	//   - nil Payload → warn and return nil (defensive; publisher should never emit this).
-	//   - RecordSent is called ONLY when at least one push succeeded. Total failure
-	//     leaves the sent-log empty so the next scan can retry.
-	//   - 410 Gone subscriptions are deleted inline.
+	//   - No push subscription → record sent (suppress future re-delivery), return nil.
+	//   - RecordSent is called ONLY when the notification was delivered (or there
+	//     was no device to deliver to). A transient send failure leaves the
+	//     sent-log empty so the next scan can retry.
 	DeliverReminder(ctx context.Context, data entity.SalesPhaseReminderDueData) error
 }
 
 type salesReminderDeliveryUseCase struct {
-	reminderRepo entity.SalesPhaseReminderRepository
-	pushSubRepo  entity.PushSubscriptionRepository
-	sender       entity.PushNotificationSender
-	publisher    EventPublisher
-	metrics      PushMetrics
-	logger       *logging.Logger
+	reminderRepo   entity.SalesPhaseReminderRepository
+	notificationUC NotificationUseCase
+	publisher      EventPublisher
+	logger         *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -44,19 +40,15 @@ var _ SalesReminderDeliveryUseCase = (*salesReminderDeliveryUseCase)(nil)
 // NewSalesReminderDeliveryUseCase wires the reminder delivery use case.
 func NewSalesReminderDeliveryUseCase(
 	reminderRepo entity.SalesPhaseReminderRepository,
-	pushSubRepo entity.PushSubscriptionRepository,
-	sender entity.PushNotificationSender,
+	notificationUC NotificationUseCase,
 	publisher EventPublisher,
-	metrics PushMetrics,
 	logger *logging.Logger,
 ) *salesReminderDeliveryUseCase {
 	return &salesReminderDeliveryUseCase{
-		reminderRepo: reminderRepo,
-		pushSubRepo:  pushSubRepo,
-		sender:       sender,
-		publisher:    publisher,
-		metrics:      metrics,
-		logger:       logger,
+		reminderRepo:   reminderRepo,
+		notificationUC: notificationUC,
+		publisher:      publisher,
+		logger:         logger,
 	}
 }
 
@@ -105,64 +97,42 @@ func (uc *salesReminderDeliveryUseCase) DeliverReminder(ctx context.Context, dat
 		return nil
 	}
 
-	subs, err := uc.pushSubRepo.ListByUserIDs(ctx, []string{data.UserID})
-	if err != nil {
-		return fmt.Errorf("sales_reminder_delivery: list subscriptions: %w", err)
-	}
-	if len(subs) == 0 {
-		// No subscriptions — record sent so the next scan does not retry.
-		_ = uc.reminderRepo.RecordSent(ctx, data.UserID, data.PhaseID, stage)
-		// Terminal delivery outcome: user had no push subscriptions.
-		uc.publishDeliveryOutcome(ctx, data, stage, "no_subscription")
-		return nil
-	}
-
 	// nil Payload is a defensive skip — publisher should never emit this. Not
-	// a terminal delivery outcome because no send was attempted.
+	// a terminal delivery outcome because no send was attempted, and not an error
+	// (returning one would poison-loop the message on at-least-once redelivery).
 	if data.Payload == nil {
 		uc.logger.Warn(ctx, "sales_reminder_delivery: nil payload, skipping", attrs...)
 		return nil
 	}
-	payloadBytes, err := json.Marshal(data.Payload)
+
+	// Record and dispatch through the notification service: it creates the
+	// durable record, resolves the user's push subscriptions, sends, cleans up
+	// gone endpoints, and records the delivery outcome. A record-create failure
+	// (no record => no send) surfaces here so the at-least-once retry re-drives it.
+	n, err := uc.notificationUC.Notify(ctx, data.UserID, entity.NotificationTypeSalesReminder, data.Payload)
 	if err != nil {
-		return fmt.Errorf("sales_reminder_delivery: marshal payload: %w", err)
+		return fmt.Errorf("sales_reminder_delivery: notify: %w", err)
 	}
 
-	var atLeastOneSuccess bool
-	for _, sub := range subs {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {
-			if errors.Is(err, apperr.ErrNotFound) {
-				uc.metrics.RecordPushSend(ctx, "gone")
-				if delErr := uc.pushSubRepo.Delete(ctx, sub.UserID, sub.Endpoint); delErr != nil {
-					uc.logger.Error(ctx, "sales_reminder_delivery: delete stale sub failed", delErr,
-						append(attrs, slog.String("endpoint", sub.Endpoint))...)
-				}
-			} else {
-				uc.metrics.RecordPushSend(ctx, "error")
-				uc.logger.Error(ctx, "sales_reminder_delivery: send failed", err, attrs...)
-			}
-		} else {
-			uc.metrics.RecordPushSend(ctx, "success")
-			atLeastOneSuccess = true
-		}
-	}
-
-	// Record sent only when at least one subscription accepted the delivery.
-	// Total failure leaves the sent-log empty so the next scan can retry.
-	if atLeastOneSuccess {
+	switch {
+	case n.DeliveryStatus == entity.NotificationDeliveryStatusDelivered:
+		// At least one subscription accepted the push. Record sent so the next
+		// scan does not re-deliver, then emit the terminal delivered outcome.
 		if err := uc.reminderRepo.RecordSent(ctx, data.UserID, data.PhaseID, stage); err != nil {
 			uc.logger.Error(ctx, "sales_reminder_delivery: RecordSent failed", err, attrs...)
 			// Non-fatal: next scan will re-check via ListSentStages / AlreadySent.
 		}
-		// Terminal delivery outcome: at least one subscription accepted the push.
 		uc.publishDeliveryOutcome(ctx, data, stage, "delivered")
-	} else {
-		// Terminal delivery outcome: all send attempts were rejected (gone or error).
+	case n.FailureReason == NotificationFailureReasonNoSubscription:
+		// The user has no push device to deliver to — nothing to retry. Record
+		// sent to suppress future re-delivery and emit the no_subscription outcome.
+		if err := uc.reminderRepo.RecordSent(ctx, data.UserID, data.PhaseID, stage); err != nil {
+			uc.logger.Error(ctx, "sales_reminder_delivery: RecordSent failed", err, attrs...)
+		}
+		uc.publishDeliveryOutcome(ctx, data, stage, "no_subscription")
+	default:
+		// Transient send failure — leave the sent-log empty so the next scan
+		// retries, and emit the terminal failed outcome.
 		uc.publishDeliveryOutcome(ctx, data, stage, "failed")
 	}
 	return nil

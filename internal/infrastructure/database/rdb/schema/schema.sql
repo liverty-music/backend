@@ -322,6 +322,41 @@ COMMENT ON COLUMN push_subscriptions.endpoint IS 'Push service endpoint URL prov
 COMMENT ON COLUMN push_subscriptions.p256dh IS 'ECDH public key for payload encryption (Base64url-encoded)';
 COMMENT ON COLUMN push_subscriptions.auth IS 'Authentication secret for payload encryption (Base64url-encoded)';
 
+-- Notifications log
+-- One row per logical user-facing notification (new-concert alert, sales reminder,
+-- sales-phase announcement, ...). The record is the source of truth for delivery
+-- auditing and the in-app inbox: it is created (queued) before the channel send and
+-- then updated to delivered/failed with the outcome in hand. Per-channel delivery
+-- state is kept inline because web push is the only channel today; a normalised
+-- notification_deliveries child table can be added additively when a second channel
+-- (email / in-app) arrives.
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    delivery_status TEXT NOT NULL DEFAULT 'queued',
+    failure_reason TEXT,
+    queued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    delivered_at TIMESTAMPTZ,
+    read_at TIMESTAMPTZ,
+    dismissed_at TIMESTAMPTZ,
+    CONSTRAINT chk_notifications_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_notifications_delivery_status CHECK (delivery_status IN ('queued', 'delivered', 'failed'))
+);
+
+COMMENT ON TABLE notifications IS 'Notification log: one durable record per user-facing notification, with per-channel delivery state (queued/delivered/failed) and per-user read/dismiss state. Source of truth for delivery auditing and the in-app inbox.';
+COMMENT ON COLUMN notifications.id IS 'Unique notification identifier (UUIDv7, application-generated). Propagated into the push payload data.notification_id as the end-to-end correlation key.';
+COMMENT ON COLUMN notifications.user_id IS 'Reference to the recipient user';
+COMMENT ON COLUMN notifications.type IS 'Notification type: new_concerts, sales_reminder, sales_phase_announcement';
+COMMENT ON COLUMN notifications.payload IS 'Rendered notification payload (title, body, url, tag) as delivered to the channel';
+COMMENT ON COLUMN notifications.delivery_status IS 'Web-push channel delivery state: queued (on creation), delivered (push service accepted the send), or failed';
+COMMENT ON COLUMN notifications.failure_reason IS 'Human-readable reason set when delivery_status is failed; NULL otherwise';
+COMMENT ON COLUMN notifications.queued_at IS 'Timestamp when the notification record was created in the queued state';
+COMMENT ON COLUMN notifications.delivered_at IS 'Timestamp when the channel accepted the send; NULL until delivered';
+COMMENT ON COLUMN notifications.read_at IS 'Timestamp when the user marked the notification read; NULL until read';
+COMMENT ON COLUMN notifications.dismissed_at IS 'Timestamp when the user dismissed the notification; NULL until dismissed';
+
 -- Sales phases table
 -- Represents a single series-level ticket-sales window (e.g. FC pre-sale, general
 -- lottery, general on-sale). A phase applies to its series as a whole; there is no
@@ -526,6 +561,10 @@ COMMENT ON INDEX idx_ticket_emails_user_event IS 'Optimizes lookup of imported e
 
 -- Push subscriptions indexes
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);
+
+-- Notifications indexes
+CREATE INDEX IF NOT EXISTS idx_notifications_user_queued ON notifications(user_id, queued_at DESC);
+COMMENT ON INDEX idx_notifications_user_queued IS 'Optimizes the inbox query: a user''s notifications most-recent-first';
 
 -- Sales phases indexes
 CREATE INDEX IF NOT EXISTS idx_sales_phases_series_id ON sales_phases(series_id);

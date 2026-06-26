@@ -75,3 +75,4 @@ configMapGenerator:
   - migrations/20260605120000_rework_event_natural_key_and_series_id.sql
   - migrations/20260607120000_add_concert_approval_queue_tables.sql
   - migrations/20260617120000_simplify_sales_phase_model.sql
+  - migrations/20260626120000_add_notifications_table.sql
