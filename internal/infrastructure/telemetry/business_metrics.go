@@ -41,7 +41,12 @@ func NewBusinessMetrics() *BusinessMetrics {
 	}
 }
 
-// RecordConcertSearch increments the concert search counter.
+// RecordConcertSearch increments the concert.search.count counter, tagging
+// the run outcome via the status attribute. Accepted values are "success"
+// (the run discovered at least one new concert), "zero_results" (the run
+// completed without error but found no new concerts), and "error" (the run
+// failed). The zero_results outcome distinguishes a fruitless-but-healthy
+// run — quota burned, nothing found — from a fruitful one.
 func (m *BusinessMetrics) RecordConcertSearch(ctx context.Context, status string) {
 	m.concertSearch.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
 }
