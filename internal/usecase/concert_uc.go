@@ -240,12 +240,19 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 // unnecessary publish/UPSERT round-trips for re-scrapes; the DB natural key
 // is the source of truth and uses the resolved `venue_id` instead of the raw
 // listed name, so the application key is a best-effort upstream filter.
-func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (_ []*entity.Concert, err error) {
+func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (result []*entity.Concert, err error) {
 	defer func() {
-		if err != nil {
+		switch {
+		case err != nil:
 			uc.markSearchFailed(ctx, artistID)
 			uc.metrics.RecordConcertSearch(ctx, "error")
-		} else {
+		case len(result) == 0:
+			// A healthy run that discovered nothing new — distinct from a
+			// fruitful run so pipeline-health views can spot quota burned
+			// for no yield.
+			uc.markSearchCompleted(ctx, artistID)
+			uc.metrics.RecordConcertSearch(ctx, "zero_results")
+		default:
 			uc.markSearchCompleted(ctx, artistID)
 			uc.metrics.RecordConcertSearch(ctx, "success")
 		}

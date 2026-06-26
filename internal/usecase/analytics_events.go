@@ -17,10 +17,6 @@ type AnalyticsEventName string
 
 // Account lifecycle events emitted from the backend.
 const (
-	// EventAccountSignupCompleted is recorded when a new user record has
-	// been persisted after Zitadel returns a successful signup callback.
-	EventAccountSignupCompleted AnalyticsEventName = "account.signup.completed"
-
 	// EventAccountLogin is recorded when an existing user successfully
 	// completes the OIDC authentication callback.
 	EventAccountLogin AnalyticsEventName = "account.login"
@@ -48,15 +44,6 @@ const (
 	// EventArtistUnfollowCompleted is recorded after the corresponding
 	// follow relationship has been removed.
 	EventArtistUnfollowCompleted AnalyticsEventName = "artist.unfollow.completed"
-)
-
-// Concert and recommendation events emitted from the backend.
-const (
-	// EventConcertRecommendationServed is recorded when the backend
-	// computes a recommendation set for a user. This is the truth source
-	// for recommendation impressions; the frontend records click-through
-	// separately via concert.recommendation.clicked.
-	EventConcertRecommendationServed AnalyticsEventName = "concert.recommendation.served"
 )
 
 // Ticket journey and purchase events emitted from the backend.
@@ -155,14 +142,12 @@ const (
 // The map is populated lazily-once at package init via the const groups
 // above; every new constant MUST be added here in the same commit.
 var knownBackendEvents = map[AnalyticsEventName]struct{}{
-	EventAccountSignupCompleted:          {},
 	EventAccountLogin:                    {},
 	EventAccountPreferredLanguageUpdated: {},
 	EventUserCreated:                     {},
 	EventUserDeleted:                     {},
 	EventArtistFollowCompleted:           {},
 	EventArtistUnfollowCompleted:         {},
-	EventConcertRecommendationServed:     {},
 	EventTicketLotteryEntryAccepted:      {},
 	EventTicketLotteryEntryRejected:      {},
 	EventTicketLotteryResultAssigned:     {},
