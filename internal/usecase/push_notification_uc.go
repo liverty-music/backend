@@ -2,8 +2,6 @@ package usecase
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -46,25 +44,29 @@ type PushNotificationUseCase interface {
 	// hydrates the artist and concert entities internally, applies hype-level
 	// filtering, and dispatches push notifications to all eligible followers.
 	//
-	// Per-subscription delivery errors (including 410 Gone responses) are handled
-	// internally and do not cause the method to return an error.
+	// Each eligible recipient is dispatched through the notification service, so
+	// a durable record and a delivery outcome exist per recipient. Per-channel
+	// delivery errors (including 410 Gone responses) are recorded as failed by
+	// the service and do not cause the method to return an error; only a
+	// notification record-creation failure (which suppresses the send) is
+	// surfaced, so the consumer's at-least-once retry re-drives the batch.
 	//
 	// # Possible errors
 	//
-	//   - Internal: failure to look up artist, concerts, followers, or subscriptions.
+	//   - Internal: failure to look up artist, concerts, or followers, or to
+	//     create a notification record.
 	NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error
 }
 
 // pushNotificationUseCase implements PushNotificationUseCase.
 type pushNotificationUseCase struct {
-	artistRepo  entity.ArtistRepository
-	concertRepo entity.ConcertRepository
-	followRepo  entity.FollowRepository
-	pushSubRepo entity.PushSubscriptionRepository
-	sender      entity.PushNotificationSender
-	publisher   EventPublisher
-	metrics     PushMetrics
-	logger      *logging.Logger
+	artistRepo     entity.ArtistRepository
+	concertRepo    entity.ConcertRepository
+	followRepo     entity.FollowRepository
+	pushSubRepo    entity.PushSubscriptionRepository
+	publisher      EventPublisher
+	notificationUC NotificationUseCase
+	logger         *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -76,20 +78,18 @@ func NewPushNotificationUseCase(
 	concertRepo entity.ConcertRepository,
 	followRepo entity.FollowRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
-	sender entity.PushNotificationSender,
 	publisher EventPublisher,
-	metrics PushMetrics,
+	notificationUC NotificationUseCase,
 	logger *logging.Logger,
 ) PushNotificationUseCase {
 	return &pushNotificationUseCase{
-		artistRepo:  artistRepo,
-		concertRepo: concertRepo,
-		followRepo:  followRepo,
-		pushSubRepo: pushSubRepo,
-		sender:      sender,
-		publisher:   publisher,
-		metrics:     metrics,
-		logger:      logger,
+		artistRepo:     artistRepo,
+		concertRepo:    concertRepo,
+		followRepo:     followRepo,
+		pushSubRepo:    pushSubRepo,
+		publisher:      publisher,
+		notificationUC: notificationUC,
+		logger:         logger,
 	}
 }
 
@@ -284,68 +284,30 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		return nil
 	}
 
-	subs, err := uc.pushSubRepo.ListByUserIDs(ctx, userIDs)
-	if err != nil {
-		return fmt.Errorf("failed to list push subscriptions: %w", err)
-	}
-	if len(subs) == 0 {
-		return nil
-	}
-
-	// 4. Lazily build one JSON payload per distinct recipient language so copy is
-	//    localized without re-marshalling for every subscription (≤2 marshals for en+ja).
-	payloadByLang := make(map[string][]byte)
-	payloadFor := func(lang string) ([]byte, error) {
-		if b, ok := payloadByLang[lang]; ok {
-			return b, nil
-		}
-		b, err := json.Marshal(&entity.NotificationPayload{
-			Title: artist.Name,
-			Body:  concertNotificationBody(len(concerts), lang),
-			URL:   fmt.Sprintf("/concerts?artist=%s", artist.ID),
-			Tag:   fmt.Sprintf("concert-%s", artist.ID),
-		})
-		if err != nil {
-			return nil, err
-		}
-		payloadByLang[lang] = b
-		return b, nil
-	}
-
-	// 5. Send a notification to each subscription in the recipient's language.
-	for _, sub := range subs {
-		// Honour context cancellation before each outbound request.
+	// 4. Record and dispatch one notification per eligible recipient through the
+	//    notification service, so every recipient gets a durable record and a
+	//    delivery outcome. The service resolves each recipient's push
+	//    subscriptions, performs the send, cleans up gone (410) endpoints, and
+	//    records delivered/failed. Copy is localized per recipient by language.
+	for _, userID := range userIDs {
+		// Honour context cancellation before each recipient.
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		payloadBytes, err := payloadFor(langByUser[sub.UserID])
-		if err != nil {
-			return fmt.Errorf("failed to marshal push notification payload: %w", err)
+		payload := &entity.NotificationPayload{
+			Title: artist.Name,
+			Body:  concertNotificationBody(len(concerts), langByUser[userID]),
+			URL:   fmt.Sprintf("/concerts?artist=%s", artist.ID),
+			Tag:   fmt.Sprintf("concert-%s", artist.ID),
 		}
-
-		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {
-			if errors.Is(err, apperr.ErrNotFound) {
-				uc.metrics.RecordPushSend(ctx, "gone")
-				// Scoped cleanup: delete only the dead (userID, endpoint) pair, not
-				// every subscription that happens to share the endpoint URL.
-				if delErr := uc.pushSubRepo.Delete(ctx, sub.UserID, sub.Endpoint); delErr != nil {
-					uc.logger.Error(ctx, "failed to delete stale push subscription", delErr,
-						slog.String("user_id", sub.UserID),
-						slog.String("endpoint", sub.Endpoint),
-					)
-				}
-			} else {
-				uc.metrics.RecordPushSend(ctx, "error")
-				uc.logger.Error(ctx, "failed to send push notification", err,
-					slog.String("user_id", sub.UserID),
-					slog.String("artist_id", artist.ID),
-				)
-			}
-		} else {
-			uc.metrics.RecordPushSend(ctx, "success")
+		if _, err := uc.notificationUC.Notify(ctx, userID, entity.NotificationTypeNewConcerts, payload); err != nil {
+			// Record-create failure ("no record => no send"): surface so the
+			// consumer's at-least-once retry re-drives the batch. Repeat web
+			// pushes are deduplicated browser-side by the per-artist Tag.
+			return fmt.Errorf("failed to notify user %s of new concerts for artist %s: %w", userID, artist.ID, err)
 		}
 	}
 

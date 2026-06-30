@@ -125,14 +125,15 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// Use Cases
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	eventPublisher := messaging.NewEventPublisher(publisher)
+	notificationRepo := rdb.NewNotificationRepository(db)
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, infratelemetry.NewBusinessMetrics(), logger)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		concertRepo,
 		followRepo,
 		pushSubRepo,
-		webpushSender,
 		eventPublisher,
-		infratelemetry.NewBusinessMetrics(),
+		notificationUC,
 		logger,
 	)
 	stagedConcertRepo := rdb.NewStagedConcertRepository(db)
@@ -160,23 +161,18 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		analyticsClient = ac
 	}
 
-	pushMetrics := infratelemetry.NewBusinessMetrics()
-
-	// Sales-phase use cases for the two new consumers.
+	// Sales-phase use cases for the two new consumers. Both dispatch through the
+	// notification service so every announcement / reminder gets a durable record.
 	salesPhaseAnnouncementUC := usecase.NewSalesPhaseAnnouncementUseCase(
 		userRepo,
 		ticketJourneyRepo,
-		pushSubRepo,
-		webpushSender,
-		pushMetrics,
+		notificationUC,
 		logger,
 	)
 	salesReminderDeliveryUC := usecase.NewSalesReminderDeliveryUseCase(
 		salesReminderRepo,
-		pushSubRepo,
-		webpushSender,
+		notificationUC,
 		eventPublisher,
-		pushMetrics,
 		logger,
 	)
 

@@ -28,6 +28,7 @@ packages:
       SalesPhaseDiscoveryUseCase:
       SalesPhaseAnnouncementUseCase:
       SalesReminderDeliveryUseCase:
+      NotificationUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -56,6 +57,7 @@ packages:
       SalesPhaseSearcher:
       StagedConcertRepository:
       RejectedConcertLogRepository:
+      NotificationRepository:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:

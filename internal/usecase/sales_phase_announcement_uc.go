@@ -2,13 +2,10 @@ package usecase
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -24,12 +21,10 @@ type SalesPhaseAnnouncementUseCase interface {
 }
 
 type salesPhaseAnnouncementUseCase struct {
-	userRepo    entity.UserRepository
-	journeyRepo entity.TicketJourneyRepository
-	pushSubRepo entity.PushSubscriptionRepository
-	sender      entity.PushNotificationSender
-	metrics     PushMetrics
-	logger      *logging.Logger
+	userRepo       entity.UserRepository
+	journeyRepo    entity.TicketJourneyRepository
+	notificationUC NotificationUseCase
+	logger         *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -39,18 +34,14 @@ var _ SalesPhaseAnnouncementUseCase = (*salesPhaseAnnouncementUseCase)(nil)
 func NewSalesPhaseAnnouncementUseCase(
 	userRepo entity.UserRepository,
 	journeyRepo entity.TicketJourneyRepository,
-	pushSubRepo entity.PushSubscriptionRepository,
-	sender entity.PushNotificationSender,
-	metrics PushMetrics,
+	notificationUC NotificationUseCase,
 	logger *logging.Logger,
 ) *salesPhaseAnnouncementUseCase {
 	return &salesPhaseAnnouncementUseCase{
-		userRepo:    userRepo,
-		journeyRepo: journeyRepo,
-		pushSubRepo: pushSubRepo,
-		sender:      sender,
-		metrics:     metrics,
-		logger:      logger,
+		userRepo:       userRepo,
+		journeyRepo:    journeyRepo,
+		notificationUC: notificationUC,
+		logger:         logger,
 	}
 }
 
@@ -86,64 +77,33 @@ func (uc *salesPhaseAnnouncementUseCase) AnnounceDiscoveredPhase(ctx context.Con
 		langByUser[uid] = u.PreferredLanguage
 	}
 
-	subs, err := uc.pushSubRepo.ListByUserIDs(ctx, userIDs)
-	if err != nil {
-		return fmt.Errorf("sales_phase_announcement: list subscriptions: %w", err)
-	}
-	if len(subs) == 0 {
-		return nil
-	}
-
 	url := fmt.Sprintf("/series/%s", data.SeriesID)
 	tag := fmt.Sprintf("sales-phase-%s", data.PhaseID)
 
-	// Build at most one payload per distinct recipient language. This announcement
-	// fires once immediately from the daytime job (no quiet-hours constraint); only
-	// the copy is personalised, by the recipient's preferred language (default en).
-	payloadByLang := make(map[string][]byte)
-	payloadFor := func(lang string) ([]byte, error) {
-		if b, ok := payloadByLang[lang]; ok {
-			return b, nil
-		}
-		b, err := json.Marshal(&entity.NotificationPayload{
-			Title: announcementTitle(lang),
-			Body:  announcementBody(lang),
-			URL:   url,
-			Tag:   tag,
-		})
-		if err != nil {
-			return nil, err
-		}
-		payloadByLang[lang] = b
-		return b, nil
-	}
-
-	for _, sub := range subs {
+	// Record and dispatch one announcement per audience member through the
+	// notification service, so every recipient gets a durable record and a
+	// delivery outcome. This announcement fires once immediately from the daytime
+	// job (no quiet-hours constraint); only the copy is personalised, by the
+	// recipient's preferred language (default en).
+	for _, userID := range userIDs {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		payloadBytes, err := payloadFor(langByUser[sub.UserID])
-		if err != nil {
-			return fmt.Errorf("sales_phase_announcement: marshal payload: %w", err)
+
+		lang := langByUser[userID]
+		payload := &entity.NotificationPayload{
+			Title: announcementTitle(lang),
+			Body:  announcementBody(lang),
+			URL:   url,
+			Tag:   tag,
 		}
-		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {
-			if errors.Is(err, apperr.ErrNotFound) {
-				uc.metrics.RecordPushSend(ctx, "gone")
-				if delErr := uc.pushSubRepo.Delete(ctx, sub.UserID, sub.Endpoint); delErr != nil {
-					uc.logger.Error(ctx, "sales_phase_announcement: delete stale sub failed", delErr,
-						slog.String("user_id", sub.UserID),
-					)
-				}
-			} else {
-				uc.metrics.RecordPushSend(ctx, "error")
-				uc.logger.Error(ctx, "sales_phase_announcement: send failed", err,
-					slog.String("user_id", sub.UserID),
-				)
-			}
-		} else {
-			uc.metrics.RecordPushSend(ctx, "success")
+		if _, err := uc.notificationUC.Notify(ctx, userID, entity.NotificationTypeSalesPhaseAnnouncement, payload); err != nil {
+			// Record-create failure ("no record => no send"): surface so the
+			// consumer's at-least-once retry re-drives the batch. Repeat pushes
+			// are deduplicated browser-side by the per-phase Tag.
+			return fmt.Errorf("sales_phase_announcement: notify user %s: %w", userID, err)
 		}
 	}
 	return nil
