@@ -166,10 +166,12 @@ func (uc *notificationUseCase) dispatch(ctx context.Context, n *entity.Notificat
 		lastErr           string
 	)
 	for _, sub := range subs {
-		select {
-		case <-ctx.Done():
-			lastErr = ctx.Err().Error()
-		default:
+		// Stop dispatching the moment the context is cancelled: record the cause
+		// and break so no further sends are issued. Any sends already accepted
+		// keep the notification's delivered outcome; otherwise it is failed.
+		if err := ctx.Err(); err != nil {
+			lastErr = err.Error()
+			break
 		}
 
 		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {

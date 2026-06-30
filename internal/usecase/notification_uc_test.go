@@ -161,6 +161,38 @@ func TestNotify_NoSubscriptionRecordedAsFailed(t *testing.T) {
 	sender.AssertNotCalled(t, "Send")
 }
 
+// Cancellation path: a context cancelled before dispatch short-circuits the send
+// loop — the record still exists (created first) and is recorded failed, but no
+// push is sent.
+func TestNotify_ContextCancelledStopsDispatch(t *testing.T) {
+	t.Parallel()
+
+	notifRepo := entitymocks.NewMockNotificationRepository(t)
+	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
+	sender := entitymocks.NewMockPushNotificationSender(t)
+
+	notifRepo.EXPECT().
+		Create(anyCtx, mock.Anything).
+		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-cancel" }).
+		Return(nil)
+	pushSubRepo.EXPECT().
+		ListByUserIDs(anyCtx, []string{"user-1"}).
+		Return([]*entity.PushSubscription{sub("user-1", "https://push/1")}, nil)
+	notifRepo.EXPECT().
+		UpdateDelivery(anyCtx, "id-cancel", entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), mock.MatchedBy(func(s string) bool { return s != "" })).
+		Return(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender)
+	n, err := uc.Notify(ctx, "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+
+	require.NoError(t, err)
+	assert.Equal(t, entity.NotificationDeliveryStatusFailed, n.DeliveryStatus)
+	sender.AssertNotCalled(t, "Send")
+}
+
 // Record-failure path: when the record cannot be created, NO send is attempted
 // and the error surfaces ("no record => no send").
 func TestNotify_RecordFailureDoesNotSend(t *testing.T) {
