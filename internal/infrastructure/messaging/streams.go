@@ -108,6 +108,54 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
+		// Carries SALES_REMINDER.delivered (sales-phase push reminder delivery
+		// outcomes), consumed by the analytics consumer.
+		Name:       "SALES_REMINDER",
+		Subjects:   []string{"SALES_REMINDER.*"},
+		Retention:  nats.LimitsPolicy,
+		MaxAge:     7 * 24 * time.Hour,
+		Storage:    nats.FileStorage,
+		Discard:    nats.DiscardOld,
+		Replicas:   1,
+		Duplicates: 2 * time.Minute,
+	},
+	{
+		// Carries TICKET.mint_completed (soulbound-ticket mint outcomes),
+		// consumed by the analytics consumer.
+		Name:       "TICKET",
+		Subjects:   []string{"TICKET.*"},
+		Retention:  nats.LimitsPolicy,
+		MaxAge:     7 * 24 * time.Hour,
+		Storage:    nats.FileStorage,
+		Discard:    nats.DiscardOld,
+		Replicas:   1,
+		Duplicates: 2 * time.Minute,
+	},
+	{
+		// Carries TICKET_JOURNEY.status_changed (fan interest-tier
+		// transitions), consumed by the analytics consumer.
+		Name:       "TICKET_JOURNEY",
+		Subjects:   []string{"TICKET_JOURNEY.*"},
+		Retention:  nats.LimitsPolicy,
+		MaxAge:     7 * 24 * time.Hour,
+		Storage:    nats.FileStorage,
+		Discard:    nats.DiscardOld,
+		Replicas:   1,
+		Duplicates: 2 * time.Minute,
+	},
+	{
+		// Carries TICKET_EMAIL.parsed (ticket-email ingestion outcomes),
+		// consumed by the analytics consumer.
+		Name:       "TICKET_EMAIL",
+		Subjects:   []string{"TICKET_EMAIL.*"},
+		Retention:  nats.LimitsPolicy,
+		MaxAge:     7 * 24 * time.Hour,
+		Storage:    nats.FileStorage,
+		Discard:    nats.DiscardOld,
+		Replicas:   1,
+		Duplicates: 2 * time.Minute,
+	},
+	{
 		Name:       "POISON",
 		Subjects:   []string{"POISON.*"},
 		Retention:  nats.LimitsPolicy,
