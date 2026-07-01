@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/liverty-music/backend/pkg/config"
@@ -165,6 +166,52 @@ var streams = []nats.StreamConfig{
 		Replicas:   1,
 		Duplicates: 2 * time.Minute,
 	},
+}
+
+// SubjectCoveredByStream reports whether the given concrete NATS subject is
+// captured by at least one configured JetStream stream. A JetStream consumer
+// can only bind to a subject that some stream's subject filter matches; a
+// subscription to an uncovered subject fails at startup with "no stream
+// matches subject" and crashloops the consumer. This is the recurring class of
+// bug that occurs when a new publisher/subscription is added for a fresh event
+// domain without adding its paired stream to the streams list above.
+//
+// Matching follows NATS token semantics: subjects are '.'-delimited; a '*'
+// token matches exactly one token, and a trailing '>' matches one or more
+// remaining tokens.
+func SubjectCoveredByStream(subject string) bool {
+	for _, s := range streams {
+		for _, filter := range s.Subjects {
+			if subjectMatches(filter, subject) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// subjectMatches implements NATS subject-filter matching for a single filter
+// against a concrete subject.
+func subjectMatches(filter, subject string) bool {
+	filterTokens := strings.Split(filter, ".")
+	subjectTokens := strings.Split(subject, ".")
+
+	for i, ft := range filterTokens {
+		// A trailing '>' matches all remaining subject tokens (at least one).
+		if ft == ">" {
+			return i < len(subjectTokens)
+		}
+		if i >= len(subjectTokens) {
+			return false
+		}
+		// '*' matches exactly one token; otherwise require an exact match.
+		if ft != "*" && ft != subjectTokens[i] {
+			return false
+		}
+	}
+
+	// No '>' wildcard consumed the tail, so token counts must match exactly.
+	return len(filterTokens) == len(subjectTokens)
 }
 
 // EnsureStreams connects to NATS and creates or updates the required
