@@ -110,6 +110,51 @@ func (c *AnalyticsConsumer) HandleUserCreated(msg *message.Message) error {
 	return nil
 }
 
+// HandleAccountLogin forwards the ACCOUNT.login NATS subject as the
+// catalogue event usecase.EventAccountLogin. The subject is published once
+// per user-initiated login (Zitadel CreateSession), never on a token
+// refresh, so this event is a returning/active-user signal. No properties
+// are attached: the distinct_id (platform UserID) is the whole payload, and
+// no PII (email, sub) is ever forwarded.
+func (c *AnalyticsConsumer) HandleAccountLogin(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.AccountLoginData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse ACCOUNT.login event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse ACCOUNT.login event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventAccountLogin)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.UserID == "" {
+		c.logger.Warn(ctx, "ACCOUNT.login event missing user_id, skipping forward")
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventAccountLogin, usecase.AnalyticsProperties{}); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventAccountLogin)),
+			slog.String("user_id", data.UserID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // HandleUserPreferredLanguageUpdated forwards the
 // USER.preferred_language_updated NATS subject as the catalogue event
 // usecase.EventAccountPreferredLanguageUpdated. Properties: from_locale,

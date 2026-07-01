@@ -17,8 +17,12 @@ type AnalyticsEventName string
 
 // Account lifecycle events emitted from the backend.
 const (
-	// EventAccountLogin is recorded when an existing user successfully
-	// completes the OIDC authentication callback.
+	// EventAccountLogin is recorded once per user-initiated login, sourced
+	// from the Zitadel CreateSession Actions v2 webhook. It is never recorded
+	// on a silent token refresh (the refresh_token grant does not create a
+	// session), so it is a returning/active-user retention signal. Signup is
+	// represented by EventUserCreated, not a separate account.signup.completed
+	// event.
 	EventAccountLogin AnalyticsEventName = "account.login"
 
 	// EventAccountPreferredLanguageUpdated is recorded when a user's
