@@ -49,6 +49,33 @@ const (
 	SubjectTicketEmailParsed = "TICKET_EMAIL.parsed"
 )
 
+// AllSubjects is the canonical catalogue of every domain-event NATS subject
+// the system publishes and consumes. It is the single source of truth for
+// coverage checks: a subject added above MUST be added here too, and the
+// stream-coverage test then guarantees each one is captured by a configured
+// JetStream stream (see messaging.SubjectCoveredByStream). This closes the
+// recurring "added a publisher/subscription without its paired stream" gap
+// that fails a consumer at startup with "no stream matches subject".
+var AllSubjects = []string{
+	SubjectConcertDiscovered,
+	SubjectConcertCreated,
+	SubjectArtistCreated,
+	SubjectArtistFollowed,
+	SubjectArtistUnfollowed,
+	SubjectUserCreated,
+	SubjectUserPreferredLanguageUpdated,
+	SubjectNotificationSubscribed,
+	SubjectNotificationUnsubscribed,
+	SubjectEntryZkProofVerified,
+	SubjectEntryZkProofRejected,
+	SubjectSalesPhaseDiscovered,
+	SubjectSalesPhaseReminderDue,
+	SubjectTicketJourneyStatusChanged,
+	SubjectTicketMintCompleted,
+	SubjectSalesReminderDelivered,
+	SubjectTicketEmailParsed,
+}
+
 // EntryRejectionReason enumerates the legitimate causes for a
 // zk-proof entry rejection. Carried on the entry.zk_proof.rejected
 // analytics event so operations dashboards can break down
