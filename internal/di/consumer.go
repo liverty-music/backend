@@ -244,6 +244,13 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	)
 
 	router.AddConsumerHandler(
+		"forward-account-login-to-analytics",
+		entity.SubjectAccountLogin,
+		subscriber,
+		analyticsConsumer.HandleAccountLogin,
+	)
+
+	router.AddConsumerHandler(
 		"forward-artist-followed-to-analytics",
 		entity.SubjectArtistFollowed,
 		subscriber,

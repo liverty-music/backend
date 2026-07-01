@@ -604,6 +604,12 @@ type WebhookSettings struct {
 	// delivered to `POST /pre-access-token`. Must match the audience
 	// registered on the corresponding Zitadel Target.
 	PreAccessTokenAudience string `envconfig:"WEBHOOK_PRE_ACCESS_TOKEN_AUDIENCE" default:"urn:liverty-music:webhook:pre-access-token"`
+
+	// CreateSessionAudience is the expected `aud` claim for webhook JWTs
+	// delivered to `POST /create-session` (the account.login source). Must
+	// match the audience registered on the corresponding Zitadel CreateSession
+	// Target.
+	CreateSessionAudience string `envconfig:"WEBHOOK_CREATE_SESSION_AUDIENCE" default:"urn:liverty-music:webhook:create-session"`
 }
 
 // Loadable constrains the config types that can be loaded from environment variables.
@@ -740,6 +746,10 @@ func (c *ServerConfig) Validate() error {
 
 	if c.Webhook.PreAccessTokenAudience == "" {
 		return fmt.Errorf("webhook pre-access-token audience is required")
+	}
+
+	if c.Webhook.CreateSessionAudience == "" {
+		return fmt.Errorf("webhook create-session audience is required")
 	}
 
 	return nil

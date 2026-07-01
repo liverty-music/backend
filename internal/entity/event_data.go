@@ -53,6 +53,14 @@ const (
 	// ticket.email.parsed analytics event (email-ingestion data quality,
 	// parser robustness).
 	SubjectTicketEmailParsed = "TICKET_EMAIL.parsed"
+	// SubjectAccountLogin is published by the CreateSession webhook handler
+	// once per user-initiated login (a Zitadel session creation). It drives
+	// the account.login analytics event (returning / active-user retention
+	// cohorts). The OIDC refresh_token grant reuses the existing session and
+	// never calls CreateSession, so this subject is never published on a
+	// silent token refresh — login-specific by construction. Uses a new
+	// ACCOUNT.* JetStream stream.
+	SubjectAccountLogin = "ACCOUNT.login"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -81,6 +89,7 @@ var AllSubjects = []string{
 	SubjectTicketMintCompleted,
 	SubjectSalesReminderDelivered,
 	SubjectTicketEmailParsed,
+	SubjectAccountLogin,
 }
 
 // EntryRejectionReason enumerates the legitimate causes for a
@@ -123,6 +132,16 @@ type UserCreatedData struct {
 	ExternalID string `json:"external_id"`
 	// Email is the user's email address.
 	Email string `json:"email"`
+}
+
+// AccountLoginData is the payload for ACCOUNT.login events.
+// Mapped to the catalogue event account.login by the analytics-consumer.
+// Published by the CreateSession webhook handler once per user-initiated
+// login, after the Zitadel sub has been resolved to the platform UserID.
+type AccountLoginData struct {
+	// UserID is the platform-internal user identifier (UUID). Used as the
+	// PostHog distinct_id. Never the Zitadel sub, which Enqueue rejects.
+	UserID string `json:"user_id"`
 }
 
 // ArtistCreatedData is the payload for artist.created events.

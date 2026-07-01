@@ -145,6 +145,97 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 	}
 }
 
+// TestAnalyticsConsumer_HandleAccountLogin covers the routing/validation
+// surface of the ACCOUNT.login handler. account.login carries no properties —
+// the distinct_id (platform UserID) is the whole signal.
+func TestAnalyticsConsumer_HandleAccountLogin(t *testing.T) {
+	t.Parallel()
+
+	const validUserID = "11111111-2222-3333-4444-555555555555"
+
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		data      entity.AccountLoginData
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards account.login when client + UserID present",
+			data: entity.AccountLoginData{UserID: validUserID},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name:      "skips forward when client is nil (local dev)",
+			data:      entity.AccountLoginData{UserID: validUserID},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			data: entity.AccountLoginData{UserID: ""},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			data: entity.AccountLoginData{UserID: validUserID},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			if !tt.nilClient {
+				clientMock := ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.data.UserID,
+							usecase.EventAccountLogin,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return len(props) == 0
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleAccountLogin(makeAnalyticsMsg(t, tt.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 // TestAnalyticsConsumer_HandleUserPreferredLanguageUpdated covers
 // USER.preferred_language_updated → account.preferred_language.updated
 // routing. Properties from_locale and to_locale travel verbatim.
