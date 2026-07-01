@@ -17,8 +17,14 @@ const (
 	SubjectUserPreferredLanguageUpdated = "USER.preferred_language_updated"
 	SubjectNotificationSubscribed       = "NOTIFICATION.subscribed"
 	SubjectNotificationUnsubscribed     = "NOTIFICATION.unsubscribed"
-	SubjectEntryZkProofVerified         = "ENTRY.zk_proof_verified"
-	SubjectEntryZkProofRejected         = "ENTRY.zk_proof_rejected"
+	// SubjectNotificationDelivered is published by NotificationUseCase once per
+	// notification whose channel send reached the delivered state. It drives the
+	// notification.delivered analytics event so push-delivery reach can be
+	// tracked in PostHog, keyed by notification_id. Matches the existing
+	// NOTIFICATION.* JetStream stream — no new stream required.
+	SubjectNotificationDelivered = "NOTIFICATION.delivered"
+	SubjectEntryZkProofVerified  = "ENTRY.zk_proof_verified"
+	SubjectEntryZkProofRejected  = "ENTRY.zk_proof_rejected"
 	// SubjectSalesPhaseDiscovered is published when a brand-new sales phase row
 	// is inserted. Re-discovery of an existing phase (UpsertOutcomeUpdated)
 	// must NOT publish this event.
@@ -66,6 +72,7 @@ var AllSubjects = []string{
 	SubjectUserPreferredLanguageUpdated,
 	SubjectNotificationSubscribed,
 	SubjectNotificationUnsubscribed,
+	SubjectNotificationDelivered,
 	SubjectEntryZkProofVerified,
 	SubjectEntryZkProofRejected,
 	SubjectSalesPhaseDiscovered,
@@ -228,6 +235,23 @@ type NotificationUnsubscribedData struct {
 	// host. Values: "android" (FCM), "apple" (Web Push for Safari), "firefox"
 	// (Mozilla autopush), "windows" (WNS), "other". See DeviceTypeFromEndpoint.
 	DeviceType string `json:"device_type"`
+}
+
+// NotificationDeliveredData is the payload for NOTIFICATION.delivered.
+// Mapped to the catalogue event notification.delivered by the
+// analytics-consumer. Published by NotificationUseCase once per notification
+// whose channel send reached the delivered state, so push-delivery reach is
+// measurable in PostHog keyed by notification_id. A failed delivery does NOT
+// publish this event.
+type NotificationDeliveredData struct {
+	// UserID is the platform-internal user identifier of the recipient.
+	// Used as the PostHog distinct_id.
+	UserID string `json:"user_id"`
+	// NotificationID is the stored notification record id, the end-to-end
+	// correlation key shared with the client open/dismiss events.
+	NotificationID string `json:"notification_id"`
+	// Type is the string name of the NotificationType (e.g. "new_concerts").
+	Type string `json:"type"`
 }
 
 // SalesPhaseDiscoveredData is the payload for SALES_PHASE.discovered events.

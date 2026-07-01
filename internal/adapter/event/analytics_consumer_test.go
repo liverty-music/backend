@@ -697,6 +697,127 @@ func TestAnalyticsConsumer_HandleNotificationUnsubscribed(t *testing.T) {
 	}
 }
 
+// TestAnalyticsConsumer_HandleNotificationDelivered covers
+// NOTIFICATION.delivered → notification.delivered routing.
+// Distinct_id is the recipient UserID; properties: notification_id, type.
+func TestAnalyticsConsumer_HandleNotificationDelivered(t *testing.T) {
+	t.Parallel()
+
+	const validUserID = "11111111-2222-3333-4444-555555555555"
+
+	type args struct {
+		data entity.NotificationDeliveredData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards with notification_id + type when client + UserID present",
+			args: args{data: entity.NotificationDeliveredData{
+				UserID:         validUserID,
+				NotificationID: "01890000-0000-7000-8000-000000000abc",
+				Type:           "new_concerts",
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil",
+			args: args{data: entity.NotificationDeliveredData{
+				UserID:         validUserID,
+				NotificationID: "01890000-0000-7000-8000-000000000abc",
+				Type:           "new_concerts",
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when UserID is empty",
+			args: args{data: entity.NotificationDeliveredData{
+				UserID:         "",
+				NotificationID: "01890000-0000-7000-8000-000000000abc",
+				Type:           "new_concerts",
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "skips forward when notification_id is empty",
+			args: args{data: entity.NotificationDeliveredData{
+				UserID:         validUserID,
+				NotificationID: "",
+				Type:           "new_concerts",
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.NotificationDeliveredData{
+				UserID:         validUserID,
+				NotificationID: "01890000-0000-7000-8000-000000000abc",
+				Type:           "sales_phase_announcement",
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.UserID,
+							usecase.EventNotificationDelivered,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["notification_id"] == tt.args.data.NotificationID &&
+									props["type"] == tt.args.data.Type
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleNotificationDelivered(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 // TestAnalyticsConsumer_HandleEntryZkProofVerified covers
 // ENTRY.zk_proof_verified routing. Distinct_id is the nullifier hash
 // hex (anonymous per ZK guarantee); event_id is a property.

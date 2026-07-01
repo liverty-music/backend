@@ -297,12 +297,12 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		default:
 		}
 
-		payload := &entity.NotificationPayload{
-			Title: artist.Name,
-			Body:  concertNotificationBody(len(concerts), langByUser[userID]),
-			URL:   fmt.Sprintf("/concerts?artist=%s", artist.ID),
-			Tag:   fmt.Sprintf("concert-%s", artist.ID),
-		}
+		payload := entity.NewNotificationPayload(
+			artist.Name,
+			concertNotificationBody(len(concerts), langByUser[userID]),
+			fmt.Sprintf("/concerts?artist=%s", artist.ID),
+			fmt.Sprintf("concert-%s", artist.ID),
+		)
 		if _, err := uc.notificationUC.Notify(ctx, userID, entity.NotificationTypeNewConcerts, payload); err != nil {
 			// Record-create failure ("no record => no send"): surface so the
 			// consumer's at-least-once retry re-drives the batch. Repeat web

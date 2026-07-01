@@ -92,12 +92,7 @@ func TestSalesReminderConsumer_Handle(t *testing.T) {
 		UserID:  "user-001",
 		PhaseID: "phase-001",
 		Stage:   int16(entity.ReminderStageApplyOpen),
-		Payload: &entity.NotificationPayload{
-			Title: "Ticket Sales Open",
-			Body:  "Sales open now",
-			URL:   "/series/s1",
-			Tag:   "tag-1",
-		},
+		Payload: entity.NewNotificationPayload("Ticket Sales Open", "Sales open now", "/series/s1", "tag-1"),
 	}
 
 	t.Run("delegates to use case on success", func(t *testing.T) {

@@ -93,12 +93,12 @@ func (uc *salesPhaseAnnouncementUseCase) AnnounceDiscoveredPhase(ctx context.Con
 		}
 
 		lang := langByUser[userID]
-		payload := &entity.NotificationPayload{
-			Title: announcementTitle(lang),
-			Body:  announcementBody(lang),
-			URL:   url,
-			Tag:   tag,
-		}
+		payload := entity.NewNotificationPayload(
+			announcementTitle(lang),
+			announcementBody(lang),
+			url,
+			tag,
+		)
 		if _, err := uc.notificationUC.Notify(ctx, userID, entity.NotificationTypeSalesPhaseAnnouncement, payload); err != nil {
 			// Record-create failure ("no record => no send"): surface so the
 			// consumer's at-least-once retry re-drives the batch. Repeat pushes

@@ -359,38 +359,38 @@ func buildReminderPayload(phase *entity.SalesPhase, stage entity.ReminderStage, 
 	switch stage {
 	case entity.ReminderStageApplyOpen:
 		timeStr := formatLocalTime(phase.ApplyStartTime, tz, lang)
-		return &entity.NotificationPayload{
-			Title: stageTitle(lang, "apply_open"),
-			Body:  fmt.Sprintf(stageBody(lang, "apply_open"), channelLabel, timeStr),
-			URL:   url,
-			Tag:   tag,
-		}
+		return entity.NewNotificationPayload(
+			stageTitle(lang, "apply_open"),
+			fmt.Sprintf(stageBody(lang, "apply_open"), channelLabel, timeStr),
+			url,
+			tag,
+		)
 	case entity.ReminderStageApplyClose24H:
 		timeStr := formatLocalTime(phase.ApplyEndTime, tz, lang)
-		return &entity.NotificationPayload{
-			Title: stageTitle(lang, "apply_close_24h"),
-			Body:  fmt.Sprintf(stageBody(lang, "apply_close_24h"), channelLabel, timeStr),
-			URL:   url,
-			Tag:   tag,
-		}
+		return entity.NewNotificationPayload(
+			stageTitle(lang, "apply_close_24h"),
+			fmt.Sprintf(stageBody(lang, "apply_close_24h"), channelLabel, timeStr),
+			url,
+			tag,
+		)
 	case entity.ReminderStageApplyClose1H:
 		timeStr := formatLocalTime(phase.ApplyEndTime, tz, lang)
-		return &entity.NotificationPayload{
-			Title: stageTitle(lang, "apply_close_1h"),
-			Body:  fmt.Sprintf(stageBody(lang, "apply_close_1h"), channelLabel, timeStr),
-			URL:   url,
-			Tag:   tag,
-		}
+		return entity.NewNotificationPayload(
+			stageTitle(lang, "apply_close_1h"),
+			fmt.Sprintf(stageBody(lang, "apply_close_1h"), channelLabel, timeStr),
+			url,
+			tag,
+		)
 	case entity.ReminderStageResultDay:
 		timeStr := formatLocalTime(phase.LotteryResultTime, tz, lang)
-		return &entity.NotificationPayload{
-			Title: stageTitle(lang, "result_day"),
-			Body:  fmt.Sprintf(stageBody(lang, "result_day"), channelLabel, timeStr),
-			URL:   url,
-			Tag:   tag,
-		}
+		return entity.NewNotificationPayload(
+			stageTitle(lang, "result_day"),
+			fmt.Sprintf(stageBody(lang, "result_day"), channelLabel, timeStr),
+			url,
+			tag,
+		)
 	default:
-		return &entity.NotificationPayload{URL: url, Tag: tag}
+		return entity.NewNotificationPayload("", "", url, tag)
 	}
 }
 

@@ -207,7 +207,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	notificationRepo := rdb.NewNotificationRepository(db)
-	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, businessMetrics, logger)
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		concertRepo,
