@@ -126,7 +126,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	notificationRepo := rdb.NewNotificationRepository(db)
-	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, infratelemetry.NewBusinessMetrics(), logger)
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, infratelemetry.NewBusinessMetrics(), logger)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		concertRepo,
@@ -269,6 +269,15 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		entity.SubjectNotificationUnsubscribed,
 		subscriber,
 		analyticsConsumer.HandleNotificationUnsubscribed,
+	)
+
+	// NOTIFICATION.delivered matches the existing NOTIFICATION.* stream
+	// (see messaging.streams) — no new JetStream stream is required.
+	router.AddConsumerHandler(
+		"forward-notification-delivered-to-analytics",
+		entity.SubjectNotificationDelivered,
+		subscriber,
+		analyticsConsumer.HandleNotificationDelivered,
 	)
 
 	router.AddConsumerHandler(

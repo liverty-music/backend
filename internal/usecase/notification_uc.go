@@ -70,6 +70,7 @@ type notificationUseCase struct {
 	notificationRepo entity.NotificationRepository
 	pushSubRepo      entity.PushSubscriptionRepository
 	sender           entity.PushNotificationSender
+	publisher        EventPublisher
 	metrics          PushMetrics
 	logger           *logging.Logger
 }
@@ -77,11 +78,15 @@ type notificationUseCase struct {
 // Compile-time interface compliance check.
 var _ NotificationUseCase = (*notificationUseCase)(nil)
 
-// NewNotificationUseCase wires the notification use case.
+// NewNotificationUseCase wires the notification use case. publisher is used to
+// emit the non-fatal NOTIFICATION.delivered analytics event at the delivered
+// transition; analytics must never affect delivery, so publish failures are
+// logged and swallowed.
 func NewNotificationUseCase(
 	notificationRepo entity.NotificationRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	sender entity.PushNotificationSender,
+	publisher EventPublisher,
 	metrics PushMetrics,
 	logger *logging.Logger,
 ) NotificationUseCase {
@@ -89,6 +94,7 @@ func NewNotificationUseCase(
 		notificationRepo: notificationRepo,
 		pushSubRepo:      pushSubRepo,
 		sender:           sender,
+		publisher:        publisher,
 		metrics:          metrics,
 		logger:           logger,
 	}
@@ -133,6 +139,24 @@ func (uc *notificationUseCase) Notify(ctx context.Context, userID string, typ en
 	n.DeliveryStatus = status
 	n.DeliverTime = deliveredAt
 	n.FailureReason = reason
+
+	// 5. Emit the delivered analytics event exactly once per notification, only
+	//    when the send actually reached the delivered state. Non-fatal by design:
+	//    analytics must never affect the delivery outcome, so a publish failure is
+	//    logged and swallowed (mirrors the notification.subscribed emit).
+	if status == entity.NotificationDeliveryStatusDelivered {
+		if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationDelivered, entity.NotificationDeliveredData{
+			UserID:         userID,
+			NotificationID: n.ID,
+			Type:           string(typ),
+		}); err != nil {
+			uc.logger.Error(ctx, "failed to publish NOTIFICATION.delivered event", err,
+				slog.String("notification_id", n.ID),
+				slog.String("user_id", userID),
+			)
+		}
+	}
+
 	return n, nil
 }
 

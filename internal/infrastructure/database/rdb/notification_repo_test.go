@@ -14,14 +14,9 @@ import (
 
 func newTestNotification(userID string, typ entity.NotificationType) *entity.Notification {
 	return &entity.Notification{
-		UserID: userID,
-		Type:   typ,
-		Payload: &entity.NotificationPayload{
-			Title: "Test Artist",
-			Body:  "1 new concert found",
-			URL:   "/concerts?artist=abc",
-			Tag:   "concert-abc",
-		},
+		UserID:  userID,
+		Type:    typ,
+		Payload: entity.NewNotificationPayload("Test Artist", "1 new concert found", "/concerts?artist=abc", "concert-abc"),
 	}
 }
 

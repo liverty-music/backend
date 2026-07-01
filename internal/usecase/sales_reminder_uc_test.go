@@ -343,7 +343,7 @@ func TestBuildReminderPayload(t *testing.T) {
 		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageApplyOpen, userEN)
 		assert.Equal(t, "Ticket Sales Open", p.Title)
 		assert.Contains(t, p.Body, "Fan Club")
-		assert.Equal(t, "https://eplus.jp/example", p.URL)
+		assert.Equal(t, "https://eplus.jp/example", p.Data[entity.NotificationDataKeyURL])
 		assert.Equal(t, "sales-phase-phase-001-stage-1", p.Tag)
 	})
 	t.Run("APPLY_OPEN ja", func(t *testing.T) {
@@ -366,7 +366,7 @@ func TestBuildReminderPayload(t *testing.T) {
 		t.Parallel()
 		noURL := &entity.SalesPhase{ID: "p2", SeriesID: "s2", Channel: entity.SalesChannelGeneral}
 		p := usecase.ExportedBuildReminderPayload(noURL, entity.ReminderStageApplyOpen, userEN)
-		assert.Equal(t, "/series/s2", p.URL)
+		assert.Equal(t, "/series/s2", p.Data[entity.NotificationDataKeyURL])
 	})
 }
 

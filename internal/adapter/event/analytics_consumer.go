@@ -354,6 +354,70 @@ func (c *AnalyticsConsumer) HandleNotificationUnsubscribed(msg *message.Message)
 	return nil
 }
 
+// HandleNotificationDelivered forwards the NOTIFICATION.delivered NATS
+// subject as the catalogue event usecase.EventNotificationDelivered.
+// Properties: notification_id, type. The distinct_id is the recipient's
+// platform UserID. Fired once per notification whose channel send reached
+// the delivered state, so push-delivery reach is measurable in PostHog.
+func (c *AnalyticsConsumer) HandleNotificationDelivered(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.NotificationDeliveredData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse NOTIFICATION.delivered event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse NOTIFICATION.delivered event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventNotificationDelivered)),
+			slog.String("user_id", data.UserID),
+			slog.String("notification_id", data.NotificationID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.UserID == "" {
+		c.logger.Warn(ctx, "NOTIFICATION.delivered event missing user_id, skipping forward",
+			slog.String("notification_id", data.NotificationID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	if data.NotificationID == "" {
+		c.logger.Warn(ctx, "NOTIFICATION.delivered event missing notification_id, skipping forward",
+			slog.String("user_id", data.UserID),
+		)
+		// Reuse the empty-user_id status label to keep the metric label set
+		// (and Prometheus cardinality) fixed: "missing correlation key" is the
+		// semantic match regardless of which key is absent.
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"notification_id": data.NotificationID,
+		"type":            data.Type,
+	}
+
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventNotificationDelivered, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventNotificationDelivered)),
+			slog.String("user_id", data.UserID),
+			slog.String("notification_id", data.NotificationID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // HandleEntryZkProofVerified forwards the ENTRY.zk_proof_verified
 // NATS subject as the catalogue event usecase.EventEntryZkProofVerified.
 // The distinct_id is the nullifier hash hex — anonymous-by-design per

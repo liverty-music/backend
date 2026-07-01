@@ -66,7 +66,7 @@ func TestAnnounceDiscoveredPhase_LocalizesCopyPerRecipient(t *testing.T) {
 		Notify(anyCtx, "user-ja", entity.NotificationTypeSalesPhaseAnnouncement,
 			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
 				return p.Title == "チケット販売情報の新着" &&
-					p.URL == "/series/series-1" &&
+					p.Data[entity.NotificationDataKeyURL] == "/series/series-1" &&
 					p.Tag == "sales-phase-phase-1"
 			})).
 		Return(deliveredNotif(), nil).
@@ -75,7 +75,7 @@ func TestAnnounceDiscoveredPhase_LocalizesCopyPerRecipient(t *testing.T) {
 		Notify(anyCtx, "user-en", entity.NotificationTypeSalesPhaseAnnouncement,
 			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
 				return p.Title == "New Ticket Sales Phase" &&
-					p.URL == "/series/series-1" &&
+					p.Data[entity.NotificationDataKeyURL] == "/series/series-1" &&
 					p.Tag == "sales-phase-phase-1"
 			})).
 		Return(deliveredNotif(), nil).
@@ -85,7 +85,7 @@ func TestAnnounceDiscoveredPhase_LocalizesCopyPerRecipient(t *testing.T) {
 			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
 				// Unset language falls back to English.
 				return p.Title == "New Ticket Sales Phase" &&
-					p.URL == "/series/series-1" &&
+					p.Data[entity.NotificationDataKeyURL] == "/series/series-1" &&
 					p.Tag == "sales-phase-phase-1"
 			})).
 		Return(deliveredNotif(), nil).
