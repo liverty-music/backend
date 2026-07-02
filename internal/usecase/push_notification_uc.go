@@ -300,7 +300,11 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		payload := entity.NewNotificationPayload(
 			artist.Name,
 			concertNotificationBody(len(concerts), langByUser[userID]),
-			fmt.Sprintf("/concerts?artist=%s", artist.ID),
+			// Deep-link to the dashboard (the fan's home, which lists their
+			// followed-artist concerts). The former "/concerts?artist=<id>" had
+			// no matching frontend route and 404'd on tap; there is no per-artist
+			// concert list route yet, so land on the dashboard.
+			"/dashboard",
 			fmt.Sprintf("concert-%s", artist.ID),
 		)
 		if _, err := uc.notificationUC.Notify(ctx, userID, entity.NotificationTypeNewConcerts, payload); err != nil {
