@@ -53,13 +53,13 @@ const (
 	// ticket.email.parsed analytics event (email-ingestion data quality,
 	// parser robustness).
 	SubjectTicketEmailParsed = "TICKET_EMAIL.parsed"
-	// SubjectAccountLogin is published by the CreateSession webhook handler
-	// once per user-initiated login (a Zitadel session creation). It drives
-	// the account.login analytics event (returning / active-user retention
-	// cohorts). The OIDC refresh_token grant reuses the existing session and
-	// never calls CreateSession, so this subject is never published on a
-	// silent token refresh — login-specific by construction. Uses a new
-	// ACCOUNT.* JetStream stream.
+	// SubjectAccountLogin is published by the login-event webhook handler once
+	// per user-initiated login, bound to the Zitadel session.user.checked
+	// event. It drives the account.login analytics event (returning /
+	// active-user retention cohorts). The OIDC refresh_token grant touches only
+	// the oidc_session aggregate and never emits session.user.checked, so this
+	// subject is never published on a silent token refresh — login-specific by
+	// construction. Uses a new ACCOUNT.* JetStream stream.
 	SubjectAccountLogin = "ACCOUNT.login"
 )
 
@@ -136,7 +136,7 @@ type UserCreatedData struct {
 
 // AccountLoginData is the payload for ACCOUNT.login events.
 // Mapped to the catalogue event account.login by the analytics-consumer.
-// Published by the CreateSession webhook handler once per user-initiated
+// Published by the login-event webhook handler once per user-initiated
 // login, after the Zitadel sub has been resolved to the platform UserID.
 type AccountLoginData struct {
 	// UserID is the platform-internal user identifier (UUID). Used as the

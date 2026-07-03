@@ -393,19 +393,19 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		jwtValidator.NewWebhookValidator(cfg.Webhook.PreAccessTokenAudience),
 		logger,
 	)
-	// CreateSession Actions v2 handler — emits account.login once per
-	// user-initiated login (session creation), never on token refresh. Shares
-	// the JWKS cache; publishes a best-effort ACCOUNT.login event and never
-	// fails login.
-	createSessionHandler := webhook.NewCreateSessionHandler(
-		jwtValidator.NewWebhookValidator(cfg.Webhook.CreateSessionAudience),
+	// Login-event Actions v2 handler — bound to the event execution on
+	// session.user.checked; emits account.login once per interactive login,
+	// never on token refresh or a machine grant. Shares the JWKS cache;
+	// publishes a best-effort ACCOUNT.login event and never fails login.
+	loginEventHandler := webhook.NewLoginEventHandler(
+		jwtValidator.NewWebhookValidator(cfg.Webhook.LoginEventAudience),
 		userUC,
 		eventPublisher,
 		logger,
 	)
 	webhookSrv := server.NewWebhookServer(cfg.Webhook, logger, map[string]http.Handler{
-		"/pre-access-token": preAccessTokenHandler,
-		"/create-session":   createSessionHandler,
+		"/pre-access-token":    preAccessTokenHandler,
+		"/account-login-event": loginEventHandler,
 	})
 
 	// Register shutdown phases.
