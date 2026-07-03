@@ -112,7 +112,7 @@ func (c *AnalyticsConsumer) HandleUserCreated(msg *message.Message) error {
 
 // HandleAccountLogin forwards the ACCOUNT.login NATS subject as the
 // catalogue event usecase.EventAccountLogin. The subject is published once
-// per user-initiated login (Zitadel CreateSession), never on a token
+// per user-initiated login (Zitadel session.user.checked), never on a token
 // refresh, so this event is a returning/active-user signal. No properties
 // are attached: the distinct_id (platform UserID) is the whole payload, and
 // no PII (email, sub) is ever forwarded.
