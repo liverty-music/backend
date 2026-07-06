@@ -9,8 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/zitadel/zitadel-go/v3/pkg/actions"
+
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -43,32 +44,38 @@ type eventPublisher interface {
 // the response, so it can never affect login. The handler emits `account.login`
 // once per interactive login.
 //
+// The Target is provisioned with PAYLOAD_TYPE_JSON (the Zitadel-recommended
+// default): the body is the raw event JSON, signed with an HMAC `ZITADEL-Signature`
+// header the handler verifies with the Target's signing key. (PAYLOAD_TYPE_JWT
+// is not used because an event-execution JWT target requires an active instance
+// web key, which this instance does not have — it fails with Errors.WebKey.NoActive.)
+//
 // The analytics path is best-effort and non-fatal: it resolves the login user
 // to the platform UserID and publishes an `ACCOUNT.login` domain event, but
 // ALWAYS returns 200 with an empty JSON body — a wrong event type, a missing
 // user identifier, a failed lookup, or a publish error is logged and skipped.
 type LoginEventHandler struct {
-	validator *auth.WebhookValidator
-	users     userResolver
-	publisher eventPublisher
-	logger    *logging.Logger
+	signingKey string
+	users      userResolver
+	publisher  eventPublisher
+	logger     *logging.Logger
 }
 
-// NewLoginEventHandler constructs a handler bound to the given validator, user
-// resolver, and event publisher. The validator's audience MUST be the
-// webhook-specific audience registered on the Zitadel login-event Target.
+// NewLoginEventHandler constructs a handler bound to the given Target signing
+// key, user resolver, and event publisher. The signing key MUST match the key
+// Zitadel generated for the login-event Target.
 func NewLoginEventHandler(
-	validator *auth.WebhookValidator,
+	signingKey string,
 	users userResolver,
 	publisher eventPublisher,
 	logger *logging.Logger,
 ) *LoginEventHandler {
-	return &LoginEventHandler{validator: validator, users: users, publisher: publisher, logger: logger}
+	return &LoginEventHandler{signingKey: signingKey, users: users, publisher: publisher, logger: logger}
 }
 
 // eventExecutionPayload captures the subset of the Actions v2 event-execution
-// payload this handler consumes. The top-level `userID` is the event EDITOR
-// (for session.user.checked, the Login-UI service user), NOT the person
+// JSON payload this handler consumes. The top-level `userID` is the event
+// EDITOR (for session.user.checked, the Login-UI service user), NOT the person
 // logging in — the login user lives inside `event_payload`, which is
 // base64-encoded. Unknown fields are ignored.
 type eventExecutionPayload struct {
@@ -104,28 +111,19 @@ func (h *LoginEventHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.validator.ValidateWebhookToken(ctx, string(body))
-	if err != nil {
-		h.logger.Warn(ctx, "login-event: webhook JWT validation failed",
+	// Verify the HMAC ZITADEL-Signature header against the raw JSON body using
+	// the Target's signing key. This is the security boundary alongside the
+	// private, internal-only webhook listener.
+	if err := actions.ValidateRequestPayload(body, &r.Header, h.signingKey); err != nil {
+		h.logger.Warn(ctx, "login-event: webhook signature validation failed",
 			slog.String("error", err.Error()),
 		)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// Private claims carry the Actions v2 event payload. Round-trip through
-	// JSON so we can decode the nested, base64-encoded `event_payload` without
-	// walking the claim map manually.
-	rawClaims, err := json.Marshal(token.PrivateClaims())
-	if err != nil {
-		// A verified token whose claims cannot be re-marshalled is not worth
-		// failing login over; log and return success without emitting.
-		h.logger.Error(ctx, "login-event: failed to marshal private claims", err)
-		h.writeOK(ctx, w)
-		return
-	}
 	var payload eventExecutionPayload
-	if err := json.Unmarshal(rawClaims, &payload); err != nil {
+	if err := json.Unmarshal(body, &payload); err != nil {
 		h.logger.Error(ctx, "login-event: failed to unmarshal payload", err)
 		h.writeOK(ctx, w)
 		return

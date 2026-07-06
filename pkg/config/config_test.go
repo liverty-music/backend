@@ -15,7 +15,6 @@ func validWebhookSettings() WebhookSettings {
 	return WebhookSettings{
 		Port:                   9090,
 		PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
-		LoginEventAudience:     "urn:liverty-music:webhook:login-event",
 	}
 }
 
@@ -85,7 +84,6 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ReadTimeout:            5 * time.Second,
 					IdleTimeout:            30 * time.Second,
 					PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
-					LoginEventAudience:     "urn:liverty-music:webhook:login-event",
 				},
 				GCP: GCPConfig{
 					ProjectID:               "test-project",
@@ -181,7 +179,6 @@ func TestLoad_ServerConfig(t *testing.T) {
 					ReadTimeout:            5 * time.Second,
 					IdleTimeout:            30 * time.Second,
 					PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
-					LoginEventAudience:     "urn:liverty-music:webhook:login-event",
 				},
 				GCP: GCPConfig{
 					ProjectID:               "custom-project",

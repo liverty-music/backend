@@ -395,10 +395,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	)
 	// Login-event Actions v2 handler — bound to the event execution on
 	// session.user.checked; emits account.login once per interactive login,
-	// never on token refresh or a machine grant. Shares the JWKS cache;
-	// publishes a best-effort ACCOUNT.login event and never fails login.
+	// never on token refresh or a machine grant. The Target is PAYLOAD_TYPE_JSON,
+	// so the handler verifies the HMAC ZITADEL-Signature with the Target's signing
+	// key. Publishes a best-effort ACCOUNT.login event and never fails login.
 	loginEventHandler := webhook.NewLoginEventHandler(
-		jwtValidator.NewWebhookValidator(cfg.Webhook.LoginEventAudience),
+		cfg.Webhook.LoginEventSigningKey,
 		userUC,
 		eventPublisher,
 		logger,
