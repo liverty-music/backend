@@ -605,11 +605,14 @@ type WebhookSettings struct {
 	// registered on the corresponding Zitadel Target.
 	PreAccessTokenAudience string `envconfig:"WEBHOOK_PRE_ACCESS_TOKEN_AUDIENCE" default:"urn:liverty-music:webhook:pre-access-token"`
 
-	// LoginEventAudience is the expected `aud` claim for webhook JWTs delivered
-	// to `POST /account-login-event` (the account.login source). Must match the
-	// audience registered on the corresponding Zitadel login-event Target (the
-	// Actions v2 event execution on session.user.checked).
-	LoginEventAudience string `envconfig:"WEBHOOK_LOGIN_EVENT_AUDIENCE" default:"urn:liverty-music:webhook:login-event"`
+	// LoginEventSigningKey is the HMAC signing key for the login-event Target
+	// (`POST /account-login-event`, the account.login source). The Target uses
+	// PAYLOAD_TYPE_JSON; Zitadel signs each body with this key and the handler
+	// verifies the `ZITADEL-Signature` header against it. Sourced from a secret
+	// (Zitadel generates it at Target creation). Left un-validated/optional so a
+	// boot before the secret is synced degrades gracefully (the handler rejects
+	// unverifiable requests) rather than crash-looping.
+	LoginEventSigningKey string `envconfig:"WEBHOOK_LOGIN_EVENT_SIGNING_KEY"`
 }
 
 // Loadable constrains the config types that can be loaded from environment variables.
@@ -746,10 +749,6 @@ func (c *ServerConfig) Validate() error {
 
 	if c.Webhook.PreAccessTokenAudience == "" {
 		return fmt.Errorf("webhook pre-access-token audience is required")
-	}
-
-	if c.Webhook.LoginEventAudience == "" {
-		return fmt.Errorf("webhook login-event audience is required")
 	}
 
 	return nil
