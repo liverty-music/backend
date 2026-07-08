@@ -30,7 +30,6 @@ type SalesReminderDeliveryUseCase interface {
 type salesReminderDeliveryUseCase struct {
 	reminderRepo   entity.SalesPhaseReminderRepository
 	notificationUC NotificationUseCase
-	publisher      EventPublisher
 	logger         *logging.Logger
 }
 
@@ -41,40 +40,41 @@ var _ SalesReminderDeliveryUseCase = (*salesReminderDeliveryUseCase)(nil)
 func NewSalesReminderDeliveryUseCase(
 	reminderRepo entity.SalesPhaseReminderRepository,
 	notificationUC NotificationUseCase,
-	publisher EventPublisher,
 	logger *logging.Logger,
 ) *salesReminderDeliveryUseCase {
 	return &salesReminderDeliveryUseCase{
 		reminderRepo:   reminderRepo,
 		notificationUC: notificationUC,
-		publisher:      publisher,
 		logger:         logger,
 	}
 }
 
-// publishDeliveryOutcome emits a sales_reminder.delivered analytics event for
-// the given terminal outcome. Failures are logged and never propagated — the
-// analytics publish must not affect DeliverReminder's return value or the
-// once-only RecordSent semantics.
-func (uc *salesReminderDeliveryUseCase) publishDeliveryOutcome(
+// logDeliveryOutcome records a structured log line for a terminal reminder
+// delivery outcome. Reach is now tracked in product analytics via
+// notification.delivered (type = "sales_reminder"); this log preserves the
+// delivery-reliability visibility (no_subscription / failed per phase stage)
+// that operational telemetry needs, replacing the removed
+// sales_reminder.delivered analytics event. A log-based metric keys on the
+// stable message "sales_reminder delivery outcome" and the `outcome` /
+// `phase_stage` fields. Non-success outcomes are logged at Warn so they
+// surface without a metric; the success case stays at Info.
+func (uc *salesReminderDeliveryUseCase) logDeliveryOutcome(
 	ctx context.Context,
 	data entity.SalesPhaseReminderDueData,
 	stage entity.ReminderStage,
-	deliveryStatus string,
+	outcome string,
 ) {
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectSalesReminderDelivered, entity.SalesReminderDeliveredData{
-		UserID:         data.UserID,
-		PhaseStage:     stage.String(),
-		DeliveryStatus: deliveryStatus,
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish SALES_REMINDER.delivered event", err,
-			slog.String("user_id", data.UserID),
-			slog.String("phase_id", data.PhaseID),
-			slog.String("stage", stage.String()),
-			slog.String("delivery_status", deliveryStatus),
-		)
-		// Non-fatal: DeliverReminder's return value and RecordSent semantics are unchanged.
+	attrs := []slog.Attr{
+		slog.String("outcome", outcome),
+		slog.String("phase_stage", stage.String()),
+		slog.String("user_id", data.UserID),
+		slog.String("phase_id", data.PhaseID),
 	}
+	if outcome == "delivered" {
+		uc.logger.Info(ctx, "sales_reminder delivery outcome", attrs...)
+		return
+	}
+	uc.logger.Warn(ctx, "sales_reminder delivery outcome", attrs...)
 }
 
 // DeliverReminder implements [SalesReminderDeliveryUseCase].
@@ -117,23 +117,23 @@ func (uc *salesReminderDeliveryUseCase) DeliverReminder(ctx context.Context, dat
 	switch {
 	case n.DeliveryStatus == entity.NotificationDeliveryStatusDelivered:
 		// At least one subscription accepted the push. Record sent so the next
-		// scan does not re-deliver, then emit the terminal delivered outcome.
+		// scan does not re-deliver, then log the terminal delivered outcome.
 		if err := uc.reminderRepo.RecordSent(ctx, data.UserID, data.PhaseID, stage); err != nil {
 			uc.logger.Error(ctx, "sales_reminder_delivery: RecordSent failed", err, attrs...)
 			// Non-fatal: next scan will re-check via ListSentStages / AlreadySent.
 		}
-		uc.publishDeliveryOutcome(ctx, data, stage, "delivered")
+		uc.logDeliveryOutcome(ctx, data, stage, "delivered")
 	case n.FailureReason == NotificationFailureReasonNoSubscription:
 		// The user has no push device to deliver to — nothing to retry. Record
-		// sent to suppress future re-delivery and emit the no_subscription outcome.
+		// sent to suppress future re-delivery and log the no_subscription outcome.
 		if err := uc.reminderRepo.RecordSent(ctx, data.UserID, data.PhaseID, stage); err != nil {
 			uc.logger.Error(ctx, "sales_reminder_delivery: RecordSent failed", err, attrs...)
 		}
-		uc.publishDeliveryOutcome(ctx, data, stage, "no_subscription")
+		uc.logDeliveryOutcome(ctx, data, stage, "no_subscription")
 	default:
 		// Transient send failure — leave the sent-log empty so the next scan
-		// retries, and emit the terminal failed outcome.
-		uc.publishDeliveryOutcome(ctx, data, stage, "failed")
+		// retries, and log the terminal failed outcome.
+		uc.logDeliveryOutcome(ctx, data, stage, "failed")
 	}
 	return nil
 }

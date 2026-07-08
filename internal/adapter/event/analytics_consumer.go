@@ -111,8 +111,8 @@ func (c *AnalyticsConsumer) HandleUserCreated(msg *message.Message) error {
 }
 
 // HandleAccountLogin forwards the ACCOUNT.login NATS subject as the
-// catalogue event usecase.EventAccountLogin. The subject is published once
-// per user-initiated login (Zitadel session.user.checked), never on a token
+// catalogue event usecase.EventAccountSignin. The subject is published once
+// per user-initiated sign-in (Zitadel session.user.checked), never on a token
 // refresh, so this event is a returning/active-user signal. No properties
 // are attached: the distinct_id (platform UserID) is the whole payload, and
 // no PII (email, sub) is ever forwarded.
@@ -129,7 +129,7 @@ func (c *AnalyticsConsumer) HandleAccountLogin(msg *message.Message) error {
 
 	if c.client == nil {
 		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
-			slog.String("event", string(usecase.EventAccountLogin)),
+			slog.String("event", string(usecase.EventAccountSignin)),
 			slog.String("user_id", data.UserID),
 		)
 		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
@@ -142,57 +142,9 @@ func (c *AnalyticsConsumer) HandleAccountLogin(msg *message.Message) error {
 		return nil
 	}
 
-	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventAccountLogin, usecase.AnalyticsProperties{}); err != nil {
+	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventAccountSignin, usecase.AnalyticsProperties{}); err != nil {
 		c.logger.Error(ctx, "failed to enqueue analytics event", err,
-			slog.String("event", string(usecase.EventAccountLogin)),
-			slog.String("user_id", data.UserID),
-		)
-		c.metrics.RecordMessage(ctx, statusEnqueueError)
-		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
-	}
-
-	c.metrics.RecordMessage(ctx, statusForwarded)
-	return nil
-}
-
-// HandleUserPreferredLanguageUpdated forwards the
-// USER.preferred_language_updated NATS subject as the catalogue event
-// usecase.EventAccountPreferredLanguageUpdated. Properties: from_locale,
-// to_locale (per specification/docs/analytics/event-catalog.md).
-func (c *AnalyticsConsumer) HandleUserPreferredLanguageUpdated(msg *message.Message) error {
-	ctx := msg.Context()
-	defer c.recordLag(ctx, msg)
-
-	var data entity.UserPreferredLanguageUpdatedData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		c.logger.Error(ctx, "failed to parse USER.preferred_language_updated event", err)
-		c.metrics.RecordMessage(ctx, statusSkippedParseError)
-		return apperr.Wrap(err, codes.Internal, "parse USER.preferred_language_updated event")
-	}
-
-	if c.client == nil {
-		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
-			slog.String("event", string(usecase.EventAccountPreferredLanguageUpdated)),
-			slog.String("user_id", data.UserID),
-		)
-		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
-		return nil
-	}
-
-	if data.UserID == "" {
-		c.logger.Warn(ctx, "USER.preferred_language_updated event missing user_id, skipping forward")
-		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
-		return nil
-	}
-
-	properties := usecase.AnalyticsProperties{
-		"from_locale": data.FromLocale,
-		"to_locale":   data.ToLocale,
-	}
-
-	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventAccountPreferredLanguageUpdated, properties); err != nil {
-		c.logger.Error(ctx, "failed to enqueue analytics event", err,
-			slog.String("event", string(usecase.EventAccountPreferredLanguageUpdated)),
+			slog.String("event", string(usecase.EventAccountSignin)),
 			slog.String("user_id", data.UserID),
 		)
 		c.metrics.RecordMessage(ctx, statusEnqueueError)
@@ -714,60 +666,6 @@ func (c *AnalyticsConsumer) HandleTicketEmailParsed(msg *message.Message) error 
 		c.logger.Error(ctx, "failed to enqueue analytics event", err,
 			slog.String("event", string(usecase.EventTicketEmailParsed)),
 			slog.String("user_id", data.UserID),
-		)
-		c.metrics.RecordMessage(ctx, statusEnqueueError)
-		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
-	}
-
-	c.metrics.RecordMessage(ctx, statusForwarded)
-	return nil
-}
-
-// HandleSalesReminderDelivered forwards the SALES_REMINDER.delivered NATS
-// subject as the catalogue event usecase.EventSalesReminderDelivered.
-// Properties: phase_stage, delivery_status. The distinct_id is the platform
-// UserID from the payload.
-func (c *AnalyticsConsumer) HandleSalesReminderDelivered(msg *message.Message) error {
-	ctx := msg.Context()
-	defer c.recordLag(ctx, msg)
-
-	var data entity.SalesReminderDeliveredData
-	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		c.logger.Error(ctx, "failed to parse SALES_REMINDER.delivered event", err)
-		c.metrics.RecordMessage(ctx, statusSkippedParseError)
-		return apperr.Wrap(err, codes.Internal, "parse SALES_REMINDER.delivered event")
-	}
-
-	if c.client == nil {
-		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
-			slog.String("event", string(usecase.EventSalesReminderDelivered)),
-			slog.String("user_id", data.UserID),
-			slog.String("phase_stage", data.PhaseStage),
-			slog.String("delivery_status", data.DeliveryStatus),
-		)
-		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
-		return nil
-	}
-
-	if data.UserID == "" {
-		c.logger.Warn(ctx, "SALES_REMINDER.delivered event missing user_id, skipping forward",
-			slog.String("phase_stage", data.PhaseStage),
-			slog.String("delivery_status", data.DeliveryStatus),
-		)
-		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
-		return nil
-	}
-
-	properties := usecase.AnalyticsProperties{
-		"phase_stage":     data.PhaseStage,
-		"delivery_status": data.DeliveryStatus,
-	}
-
-	if err := c.client.Enqueue(ctx, data.UserID, usecase.EventSalesReminderDelivered, properties); err != nil {
-		c.logger.Error(ctx, "failed to enqueue analytics event", err,
-			slog.String("event", string(usecase.EventSalesReminderDelivered)),
-			slog.String("user_id", data.UserID),
-			slog.String("phase_stage", data.PhaseStage),
 		)
 		c.metrics.RecordMessage(ctx, statusEnqueueError)
 		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")

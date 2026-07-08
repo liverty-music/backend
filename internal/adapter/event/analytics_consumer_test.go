@@ -146,7 +146,7 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 }
 
 // TestAnalyticsConsumer_HandleAccountLogin covers the routing/validation
-// surface of the ACCOUNT.login handler. account.login carries no properties —
+// surface of the ACCOUNT.login handler. account.signin carries no properties —
 // the distinct_id (platform UserID) is the whole signal.
 func TestAnalyticsConsumer_HandleAccountLogin(t *testing.T) {
 	t.Parallel()
@@ -166,7 +166,7 @@ func TestAnalyticsConsumer_HandleAccountLogin(t *testing.T) {
 		nilClient bool
 	}{
 		{
-			name: "forwards account.login when client + UserID present",
+			name: "forwards account.signin when client + UserID present",
 			data: entity.AccountLoginData{UserID: validUserID},
 			want: want{expectEnqueue: true, expectStatus: "forwarded"},
 		},
@@ -206,7 +206,7 @@ func TestAnalyticsConsumer_HandleAccountLogin(t *testing.T) {
 						Enqueue(
 							mock.Anything,
 							tt.data.UserID,
-							usecase.EventAccountLogin,
+							usecase.EventAccountSignin,
 							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
 								return len(props) == 0
 							}),
@@ -226,124 +226,6 @@ func TestAnalyticsConsumer_HandleAccountLogin(t *testing.T) {
 
 			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
 			err := handler.HandleAccountLogin(makeAnalyticsMsg(t, tt.data))
-
-			if tt.want.err != nil {
-				assert.ErrorIs(t, err, tt.want.err)
-				return
-			}
-			assert.NoError(t, err)
-		})
-	}
-}
-
-// TestAnalyticsConsumer_HandleUserPreferredLanguageUpdated covers
-// USER.preferred_language_updated → account.preferred_language.updated
-// routing. Properties from_locale and to_locale travel verbatim.
-func TestAnalyticsConsumer_HandleUserPreferredLanguageUpdated(t *testing.T) {
-	t.Parallel()
-
-	const validUserID = "11111111-2222-3333-4444-555555555555"
-
-	type args struct {
-		data entity.UserPreferredLanguageUpdatedData
-	}
-	type want struct {
-		err              error
-		expectEnqueueErr error
-		expectEnqueue    bool
-		expectStatus     string
-	}
-	tests := []struct {
-		name      string
-		args      args
-		want      want
-		nilClient bool
-	}{
-		{
-			name: "forwards with both locales when client + UserID present",
-			args: args{data: entity.UserPreferredLanguageUpdatedData{
-				UserID:     validUserID,
-				FromLocale: "ja",
-				ToLocale:   "en",
-			}},
-			want: want{expectEnqueue: true, expectStatus: "forwarded"},
-		},
-		{
-			name: "forwards with empty from_locale when prior was unset",
-			args: args{data: entity.UserPreferredLanguageUpdatedData{
-				UserID:     validUserID,
-				FromLocale: "",
-				ToLocale:   "ja",
-			}},
-			want: want{expectEnqueue: true, expectStatus: "forwarded"},
-		},
-		{
-			name: "skips forward when client is nil",
-			args: args{data: entity.UserPreferredLanguageUpdatedData{
-				UserID:   validUserID,
-				ToLocale: "ja",
-			}},
-			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
-			nilClient: true,
-		},
-		{
-			name: "skips forward when UserID is empty",
-			args: args{data: entity.UserPreferredLanguageUpdatedData{
-				UserID:   "",
-				ToLocale: "ja",
-			}},
-			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
-		},
-		{
-			name: "wraps Enqueue error as apperr.ErrInternal",
-			args: args{data: entity.UserPreferredLanguageUpdatedData{
-				UserID:   validUserID,
-				ToLocale: "ja",
-			}},
-			want: want{
-				expectEnqueue:    true,
-				expectEnqueueErr: errors.New("queue full"),
-				err:              apperr.ErrInternal,
-				expectStatus:     "enqueue_error",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var client usecase.AnalyticsClient
-			var clientMock *ucmocks.MockAnalyticsClient
-			if !tt.nilClient {
-				clientMock = ucmocks.NewMockAnalyticsClient(t)
-				client = clientMock
-				if tt.want.expectEnqueue {
-					clientMock.EXPECT().
-						Enqueue(
-							mock.Anything,
-							tt.args.data.UserID,
-							usecase.EventAccountPreferredLanguageUpdated,
-							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
-								return props["from_locale"] == tt.args.data.FromLocale &&
-									props["to_locale"] == tt.args.data.ToLocale
-							}),
-						).
-						Return(tt.want.expectEnqueueErr).
-						Once()
-				}
-			}
-
-			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
-			metricsMock.EXPECT().
-				RecordMessage(mock.Anything, tt.want.expectStatus).
-				Once()
-			metricsMock.EXPECT().
-				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
-				Once()
-
-			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
-			err := handler.HandleUserPreferredLanguageUpdated(makeAnalyticsMsg(t, tt.args.data))
 
 			if tt.want.err != nil {
 				assert.ErrorIs(t, err, tt.want.err)
@@ -1492,122 +1374,6 @@ func TestAnalyticsConsumer_HandleTicketEmailParsed(t *testing.T) {
 
 			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
 			err := handler.HandleTicketEmailParsed(makeAnalyticsMsg(t, tt.args.data))
-
-			if tt.want.err != nil {
-				assert.ErrorIs(t, err, tt.want.err)
-				return
-			}
-			assert.NoError(t, err)
-		})
-	}
-}
-
-// TestAnalyticsConsumer_HandleSalesReminderDelivered covers
-// SALES_REMINDER.delivered → sales_reminder.delivered routing.
-// Properties: phase_stage, delivery_status. Distinct_id is the platform UserID.
-func TestAnalyticsConsumer_HandleSalesReminderDelivered(t *testing.T) {
-	t.Parallel()
-
-	const (
-		validUserID = "11111111-2222-3333-4444-555555555555"
-		validStage  = "APPLY_OPEN"
-		validStatus = "delivered"
-	)
-
-	type args struct {
-		data entity.SalesReminderDeliveredData
-	}
-	type want struct {
-		err              error
-		expectEnqueueErr error
-		expectEnqueue    bool
-		expectStatus     string
-	}
-	tests := []struct {
-		name      string
-		args      args
-		want      want
-		nilClient bool
-	}{
-		{
-			name: "forwards sales_reminder.delivered with phase_stage and delivery_status",
-			args: args{data: entity.SalesReminderDeliveredData{
-				UserID:         validUserID,
-				PhaseStage:     validStage,
-				DeliveryStatus: validStatus,
-			}},
-			want: want{expectEnqueue: true, expectStatus: "forwarded"},
-		},
-		{
-			name: "skips forward when client is nil (local dev)",
-			args: args{data: entity.SalesReminderDeliveredData{
-				UserID:         validUserID,
-				PhaseStage:     validStage,
-				DeliveryStatus: "no_subscription",
-			}},
-			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
-			nilClient: true,
-		},
-		{
-			name: "skips forward when UserID is empty",
-			args: args{data: entity.SalesReminderDeliveredData{
-				UserID:         "",
-				PhaseStage:     validStage,
-				DeliveryStatus: "failed",
-			}},
-			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
-		},
-		{
-			name: "wraps Enqueue error as apperr.ErrInternal",
-			args: args{data: entity.SalesReminderDeliveredData{
-				UserID:         validUserID,
-				PhaseStage:     validStage,
-				DeliveryStatus: validStatus,
-			}},
-			want: want{
-				expectEnqueue:    true,
-				expectEnqueueErr: errors.New("queue full"),
-				err:              apperr.ErrInternal,
-				expectStatus:     "enqueue_error",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var client usecase.AnalyticsClient
-			var clientMock *ucmocks.MockAnalyticsClient
-			if !tt.nilClient {
-				clientMock = ucmocks.NewMockAnalyticsClient(t)
-				client = clientMock
-				if tt.want.expectEnqueue {
-					clientMock.EXPECT().
-						Enqueue(
-							mock.Anything,
-							tt.args.data.UserID,
-							usecase.EventSalesReminderDelivered,
-							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
-								return props["phase_stage"] == tt.args.data.PhaseStage &&
-									props["delivery_status"] == tt.args.data.DeliveryStatus
-							}),
-						).
-						Return(tt.want.expectEnqueueErr).
-						Once()
-				}
-			}
-
-			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
-			metricsMock.EXPECT().
-				RecordMessage(mock.Anything, tt.want.expectStatus).
-				Once()
-			metricsMock.EXPECT().
-				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
-				Once()
-
-			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
-			err := handler.HandleSalesReminderDelivered(makeAnalyticsMsg(t, tt.args.data))
 
 			if tt.want.err != nil {
 				assert.ErrorIs(t, err, tt.want.err)

@@ -41,8 +41,9 @@ type eventPublisher interface {
 // Unlike a request/response (method) execution — whose webhook return REPLACES
 // the API payload and previously broke sign-in — an event execution is
 // fire-and-forget: it fires after the event is persisted and Zitadel ignores
-// the response, so it can never affect login. The handler emits `account.login`
-// once per interactive login.
+// the response, so it can never affect login. The handler publishes the
+// `ACCOUNT.login` subject once per interactive login, which the analytics
+// consumer forwards as the `account.signin` event.
 //
 // The Target is provisioned with PAYLOAD_TYPE_JSON (the Zitadel-recommended
 // default): the body is the raw event JSON, signed with an HMAC `ZITADEL-Signature`

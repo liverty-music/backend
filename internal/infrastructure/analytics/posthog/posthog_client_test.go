@@ -198,7 +198,7 @@ func TestAnalyticsClient_Enqueue(t *testing.T) {
 			name: "forwards a known event with properties",
 			args: args{
 				distinctID: validUUID,
-				eventName:  usecase.EventTicketPurchaseCompleted,
+				eventName:  usecase.EventTicketMintCompleted,
 				properties: usecase.AnalyticsProperties{
 					"ticket_id":    "ticket-42",
 					"concert_id":   "concert-7",
@@ -211,7 +211,7 @@ func TestAnalyticsClient_Enqueue(t *testing.T) {
 				captured := fake.Captured()
 				require.Len(t, captured, 1)
 				assert.Equal(t, validUUID, captured[0].DistinctId)
-				assert.Equal(t, string(usecase.EventTicketPurchaseCompleted), captured[0].Event)
+				assert.Equal(t, string(usecase.EventTicketMintCompleted), captured[0].Event)
 				assert.Equal(t, "ticket-42", captured[0].Properties["ticket_id"])
 				assert.Equal(t, "concert-7", captured[0].Properties["concert_id"])
 				assert.Equal(t, "3000-4999", captured[0].Properties["price_bucket"])

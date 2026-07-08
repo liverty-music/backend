@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -21,13 +20,11 @@ func buildDeliveryUC(
 	t *testing.T,
 	reminderRepo *entitymocks.MockSalesPhaseReminderRepository,
 	notificationUC *ucmocks.MockNotificationUseCase,
-	publisher *ucmocks.MockEventPublisher,
 ) usecase.SalesReminderDeliveryUseCase {
 	t.Helper()
 	return usecase.NewSalesReminderDeliveryUseCase(
 		reminderRepo,
 		notificationUC,
-		publisher,
 		newTestLogger(t),
 	)
 }
@@ -48,60 +45,55 @@ func validDueData(stage entity.ReminderStage) entity.SalesPhaseReminderDueData {
 	}
 }
 
-// ---- AlreadySent guard (no analytics emit expected) ----
+// ---- AlreadySent guard (no send expected) ----
 
-// TestDeliverReminder_AlreadySentSkipsWithoutEmit verifies that the AlreadySent
-// dedup guard returns nil without emitting an analytics event.
-func TestDeliverReminder_AlreadySentSkipsWithoutEmit(t *testing.T) {
+// TestDeliverReminder_AlreadySentSkipsWithoutSend verifies that the AlreadySent
+// dedup guard returns nil without attempting a notification send.
+func TestDeliverReminder_AlreadySentSkipsWithoutSend(t *testing.T) {
 	t.Parallel()
 
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	notificationUC := ucmocks.NewMockNotificationUseCase(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
 
 	reminderRepo.EXPECT().
 		AlreadySent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyOpen).
 		Return(true, nil)
 
-	uc := buildDeliveryUC(t, reminderRepo, notificationUC, publisher)
+	uc := buildDeliveryUC(t, reminderRepo, notificationUC)
 	err := uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
 
 	require.NoError(t, err)
-	publisher.AssertNotCalled(t, "PublishEvent")
 	notificationUC.AssertNotCalled(t, "Notify")
 }
 
-// ---- Infra-error returns (no analytics emit expected) ----
+// ---- Infra-error returns ----
 
-// TestDeliverReminder_AlreadySentErrorReturnsErrWithoutEmit verifies that an
-// AlreadySent repository error propagates and does not emit analytics.
-func TestDeliverReminder_AlreadySentErrorReturnsErrWithoutEmit(t *testing.T) {
+// TestDeliverReminder_AlreadySentErrorReturnsErr verifies that an AlreadySent
+// repository error propagates and does not attempt a send.
+func TestDeliverReminder_AlreadySentErrorReturnsErr(t *testing.T) {
 	t.Parallel()
 
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	notificationUC := ucmocks.NewMockNotificationUseCase(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
 
 	reminderRepo.EXPECT().
 		AlreadySent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyOpen).
 		Return(false, errors.New("db error"))
 
-	uc := buildDeliveryUC(t, reminderRepo, notificationUC, publisher)
+	uc := buildDeliveryUC(t, reminderRepo, notificationUC)
 	err := uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
 
 	require.Error(t, err)
-	publisher.AssertNotCalled(t, "PublishEvent")
 	notificationUC.AssertNotCalled(t, "Notify")
 }
 
-// TestDeliverReminder_NotifyErrorReturnsErrWithoutEmit verifies that a Notify
-// error propagates and does not emit analytics.
-func TestDeliverReminder_NotifyErrorReturnsErrWithoutEmit(t *testing.T) {
+// TestDeliverReminder_NotifyErrorReturnsErr verifies that a Notify error
+// propagates.
+func TestDeliverReminder_NotifyErrorReturnsErr(t *testing.T) {
 	t.Parallel()
 
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	notificationUC := ucmocks.NewMockNotificationUseCase(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
 
 	reminderRepo.EXPECT().
 		AlreadySent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyOpen).
@@ -110,23 +102,21 @@ func TestDeliverReminder_NotifyErrorReturnsErrWithoutEmit(t *testing.T) {
 		Notify(anyCtx, "user-001", entity.NotificationTypeSalesReminder, validPayload()).
 		Return(nil, errors.New("record creation failed"))
 
-	uc := buildDeliveryUC(t, reminderRepo, notificationUC, publisher)
+	uc := buildDeliveryUC(t, reminderRepo, notificationUC)
 	err := uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
 
 	require.Error(t, err)
-	publisher.AssertNotCalled(t, "PublishEvent")
 }
 
-// ---- nil-payload defensive skip (no analytics emit expected) ----
+// ---- nil-payload defensive skip ----
 
-// TestDeliverReminder_NilPayloadSkipsWithoutEmit verifies the nil-payload
-// defensive guard returns nil without emitting analytics — no send was attempted.
-func TestDeliverReminder_NilPayloadSkipsWithoutEmit(t *testing.T) {
+// TestDeliverReminder_NilPayloadSkips verifies the nil-payload defensive guard
+// returns nil without attempting a send — no send was attempted.
+func TestDeliverReminder_NilPayloadSkips(t *testing.T) {
 	t.Parallel()
 
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	notificationUC := ucmocks.NewMockNotificationUseCase(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
 
 	reminderRepo.EXPECT().
 		AlreadySent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyOpen).
@@ -138,25 +128,22 @@ func TestDeliverReminder_NilPayloadSkipsWithoutEmit(t *testing.T) {
 		Stage:   int16(entity.ReminderStageApplyOpen),
 		Payload: nil, // defensive skip
 	}
-	uc := buildDeliveryUC(t, reminderRepo, notificationUC, publisher)
+	uc := buildDeliveryUC(t, reminderRepo, notificationUC)
 	err := uc.DeliverReminder(context.Background(), data)
 
 	require.NoError(t, err)
-	publisher.AssertNotCalled(t, "PublishEvent")
 	notificationUC.AssertNotCalled(t, "Notify")
 }
 
 // ---- Terminal delivery outcome: no_subscription ----
 
-// TestDeliverReminder_NoSubscriptionEmitsNoSubscription verifies that
-// delivery_status="no_subscription" is emitted when the notification service
-// reports no active push subscription for the user.
-func TestDeliverReminder_NoSubscriptionEmitsNoSubscription(t *testing.T) {
+// TestDeliverReminder_NoSubscriptionRecordsSent verifies that a no-subscription
+// outcome records sent (suppressing future re-delivery) and returns nil.
+func TestDeliverReminder_NoSubscriptionRecordsSent(t *testing.T) {
 	t.Parallel()
 
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	notificationUC := ucmocks.NewMockNotificationUseCase(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
 
 	reminderRepo.EXPECT().
 		AlreadySent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyClose24H).
@@ -171,19 +158,9 @@ func TestDeliverReminder_NoSubscriptionEmitsNoSubscription(t *testing.T) {
 	reminderRepo.EXPECT().
 		RecordSent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyClose24H).
 		Return(nil).
-		Maybe()
-	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectSalesReminderDelivered,
-			mock.MatchedBy(func(d entity.SalesReminderDeliveredData) bool {
-				return d.UserID == "user-001" &&
-					d.PhaseStage == "APPLY_CLOSE_24H" &&
-					d.DeliveryStatus == "no_subscription"
-			}),
-		).
-		Return(nil).
 		Once()
 
-	uc := buildDeliveryUC(t, reminderRepo, notificationUC, publisher)
+	uc := buildDeliveryUC(t, reminderRepo, notificationUC)
 	err := uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyClose24H))
 
 	require.NoError(t, err)
@@ -191,14 +168,13 @@ func TestDeliverReminder_NoSubscriptionEmitsNoSubscription(t *testing.T) {
 
 // ---- Terminal delivery outcome: delivered ----
 
-// TestDeliverReminder_SuccessfulSendEmitsDelivered verifies that
-// delivery_status="delivered" is emitted after a successful notification.
-func TestDeliverReminder_SuccessfulSendEmitsDelivered(t *testing.T) {
+// TestDeliverReminder_SuccessfulSendRecordsSent verifies that a successful
+// notification records sent and returns nil.
+func TestDeliverReminder_SuccessfulSendRecordsSent(t *testing.T) {
 	t.Parallel()
 
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	notificationUC := ucmocks.NewMockNotificationUseCase(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
 
 	reminderRepo.EXPECT().
 		AlreadySent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyOpen).
@@ -211,18 +187,8 @@ func TestDeliverReminder_SuccessfulSendEmitsDelivered(t *testing.T) {
 	reminderRepo.EXPECT().
 		RecordSent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyOpen).
 		Return(nil)
-	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectSalesReminderDelivered,
-			mock.MatchedBy(func(d entity.SalesReminderDeliveredData) bool {
-				return d.UserID == "user-001" &&
-					d.PhaseStage == "APPLY_OPEN" &&
-					d.DeliveryStatus == "delivered"
-			}),
-		).
-		Return(nil).
-		Once()
 
-	uc := buildDeliveryUC(t, reminderRepo, notificationUC, publisher)
+	uc := buildDeliveryUC(t, reminderRepo, notificationUC)
 	err := uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
 
 	require.NoError(t, err)
@@ -230,16 +196,14 @@ func TestDeliverReminder_SuccessfulSendEmitsDelivered(t *testing.T) {
 
 // ---- Terminal delivery outcome: failed ----
 
-// TestDeliverReminder_TransientFailureEmitsFailed verifies that
-// delivery_status="failed" is emitted when the notification service reports a
-// transient failure (not the no-subscription sentinel), and RecordSent is NOT
-// called so the next scan can retry.
-func TestDeliverReminder_TransientFailureEmitsFailed(t *testing.T) {
+// TestDeliverReminder_TransientFailureDoesNotRecordSent verifies that on a
+// transient failure (not the no-subscription sentinel) RecordSent is NOT called
+// so the next scan can retry, and no error is returned.
+func TestDeliverReminder_TransientFailureDoesNotRecordSent(t *testing.T) {
 	t.Parallel()
 
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	notificationUC := ucmocks.NewMockNotificationUseCase(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
 
 	reminderRepo.EXPECT().
 		AlreadySent(anyCtx, "user-001", "phase-001", entity.ReminderStageResultDay).
@@ -252,64 +216,20 @@ func TestDeliverReminder_TransientFailureEmitsFailed(t *testing.T) {
 			FailureReason:  "push service unavailable",
 		}, nil)
 	// RecordSent must NOT be called — leave the sent-log empty so the next scan retries.
-	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectSalesReminderDelivered,
-			mock.MatchedBy(func(d entity.SalesReminderDeliveredData) bool {
-				return d.UserID == "user-001" &&
-					d.PhaseStage == "RESULT_DAY" &&
-					d.DeliveryStatus == "failed"
-			}),
-		).
-		Return(nil).
-		Once()
 
-	uc := buildDeliveryUC(t, reminderRepo, notificationUC, publisher)
+	uc := buildDeliveryUC(t, reminderRepo, notificationUC)
 	err := uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageResultDay))
 
 	// Total failure is not returned as an error — the next scan will retry.
 	require.NoError(t, err)
+	reminderRepo.AssertNotCalled(t, "RecordSent")
 }
 
-// ---- Publish non-fatal ----
+// ---- phase_stage coverage across stages ----
 
-// TestDeliverReminder_PublishErrorIsNonFatal verifies that a PublishEvent
-// failure does not change DeliverReminder's return value or the once-only
-// RecordSent semantics.
-func TestDeliverReminder_PublishErrorIsNonFatal(t *testing.T) {
-	t.Parallel()
-
-	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
-	notificationUC := ucmocks.NewMockNotificationUseCase(t)
-	publisher := ucmocks.NewMockEventPublisher(t)
-
-	reminderRepo.EXPECT().
-		AlreadySent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyOpen).
-		Return(false, nil)
-	notificationUC.EXPECT().
-		Notify(anyCtx, "user-001", entity.NotificationTypeSalesReminder, mock.Anything).
-		Return(&entity.Notification{
-			DeliveryStatus: entity.NotificationDeliveryStatusDelivered,
-		}, nil)
-	reminderRepo.EXPECT().
-		RecordSent(anyCtx, "user-001", "phase-001", entity.ReminderStageApplyOpen).
-		Return(nil)
-	publisher.EXPECT().
-		PublishEvent(anyCtx, entity.SubjectSalesReminderDelivered, mock.Anything).
-		Return(errors.New("nats unavailable")).
-		Once()
-
-	uc := buildDeliveryUC(t, reminderRepo, notificationUC, publisher)
-	err := uc.DeliverReminder(context.Background(), validDueData(entity.ReminderStageApplyOpen))
-
-	// Publish failure must NOT be returned — push delivered, RecordSent was called.
-	require.NoError(t, err)
-}
-
-// ---- phase_stage string form ----
-
-// TestDeliverReminder_PhaseStageStrings verifies that each ReminderStage value
-// serialises to the expected string in the published payload.
-func TestDeliverReminder_PhaseStageStrings(t *testing.T) {
+// TestDeliverReminder_AllStagesDeliver verifies that DeliverReminder handles
+// each ReminderStage value on the delivered path without error.
+func TestDeliverReminder_AllStagesDeliver(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -328,7 +248,6 @@ func TestDeliverReminder_PhaseStageStrings(t *testing.T) {
 
 			reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 			notificationUC := ucmocks.NewMockNotificationUseCase(t)
-			publisher := ucmocks.NewMockEventPublisher(t)
 
 			reminderRepo.EXPECT().
 				AlreadySent(anyCtx, "user-001", "phase-001", tt.stage).
@@ -341,17 +260,8 @@ func TestDeliverReminder_PhaseStageStrings(t *testing.T) {
 			reminderRepo.EXPECT().
 				RecordSent(anyCtx, "user-001", "phase-001", tt.stage).
 				Return(nil)
-			publisher.EXPECT().
-				PublishEvent(anyCtx, entity.SubjectSalesReminderDelivered,
-					mock.MatchedBy(func(d entity.SalesReminderDeliveredData) bool {
-						assert.Equal(t, tt.wantStage, d.PhaseStage, "unexpected phase_stage")
-						return d.PhaseStage == tt.wantStage
-					}),
-				).
-				Return(nil).
-				Once()
 
-			uc := buildDeliveryUC(t, reminderRepo, notificationUC, publisher)
+			uc := buildDeliveryUC(t, reminderRepo, notificationUC)
 			err := uc.DeliverReminder(context.Background(), validDueData(tt.stage))
 			require.NoError(t, err)
 		})

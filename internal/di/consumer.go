@@ -172,7 +172,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	salesReminderDeliveryUC := usecase.NewSalesReminderDeliveryUseCase(
 		salesReminderRepo,
 		notificationUC,
-		eventPublisher,
 		logger,
 	)
 
@@ -234,13 +233,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		entity.SubjectUserCreated,
 		subscriber,
 		analyticsConsumer.HandleUserCreated,
-	)
-
-	router.AddConsumerHandler(
-		"forward-user-preferred-language-updated-to-analytics",
-		entity.SubjectUserPreferredLanguageUpdated,
-		subscriber,
-		analyticsConsumer.HandleUserPreferredLanguageUpdated,
 	)
 
 	router.AddConsumerHandler(
@@ -320,13 +312,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		entity.SubjectTicketEmailParsed,
 		subscriber,
 		analyticsConsumer.HandleTicketEmailParsed,
-	)
-
-	router.AddConsumerHandler(
-		"forward-sales-reminder-delivered-to-analytics",
-		entity.SubjectSalesReminderDelivered,
-		subscriber,
-		analyticsConsumer.HandleSalesReminderDelivered,
 	)
 
 	router.AddConsumerHandler(

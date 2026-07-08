@@ -17,26 +17,20 @@ type AnalyticsEventName string
 
 // Account lifecycle events emitted from the backend.
 const (
-	// EventAccountLogin is recorded once per user-initiated login, sourced
-	// from the Zitadel session.user.checked Actions v2 event webhook. It is
-	// never recorded on a silent token refresh (which touches only the
-	// oidc_session aggregate), so it is a returning/active-user retention
-	// signal. Signup is
-	// represented by EventUserCreated, not a separate account.signup.completed
-	// event.
-	EventAccountLogin AnalyticsEventName = "account.login"
-
-	// EventAccountPreferredLanguageUpdated is recorded when a user's
-	// preferred display language is changed via UpdatePreferredLanguage.
-	EventAccountPreferredLanguageUpdated AnalyticsEventName = "account.preferred_language.updated"
+	// EventAccountSignin is recorded once per user-initiated sign-in, sourced
+	// from the Zitadel session.user.checked Actions v2 event webhook (NATS
+	// transport subject ACCOUNT.login). It is never recorded on a silent token
+	// refresh (which touches only the oidc_session aggregate), so it is a
+	// returning/active-user retention signal. Signup is represented by
+	// EventUserCreated, not a separate account.signup.completed event.
+	//
+	// Named account.signin (renamed from account.login while it had zero
+	// production history) for vocabulary consistency with the account.* namespace.
+	EventAccountSignin AnalyticsEventName = "account.signin"
 
 	// EventUserCreated is recorded when the backend creates a User record
 	// for the first time, either through self-signup or admin provisioning.
 	EventUserCreated AnalyticsEventName = "user.created"
-
-	// EventUserDeleted is recorded when a User record is permanently
-	// removed from the platform.
-	EventUserDeleted AnalyticsEventName = "user.deleted"
 )
 
 // Artist engagement events emitted from the backend after persistence.
@@ -53,30 +47,6 @@ const (
 
 // Ticket journey and purchase events emitted from the backend.
 const (
-	// EventTicketLotteryEntryAccepted is recorded after a lottery entry
-	// passes validation and is persisted. Paired with the frontend
-	// ticket.lottery.entry.submitted to measure the intent-to-acceptance gap.
-	EventTicketLotteryEntryAccepted AnalyticsEventName = "ticket.lottery.entry.accepted"
-
-	// EventTicketLotteryEntryRejected is recorded when a lottery entry
-	// fails validation (duplicate, closed window, etc.). Paired with
-	// ticket.lottery.entry.submitted.
-	EventTicketLotteryEntryRejected AnalyticsEventName = "ticket.lottery.entry.rejected"
-
-	// EventTicketLotteryResultAssigned is recorded when the lottery draw
-	// completes and a result (WON or LOST) is recorded against the entry.
-	EventTicketLotteryResultAssigned AnalyticsEventName = "ticket.lottery.result.assigned"
-
-	// EventTicketPurchaseCompleted is the trust-critical event recorded
-	// when a payment provider confirms a successful ticket purchase. The
-	// frontend emits a paired ticket.purchase.initiated at the moment the
-	// user starts the purchase flow.
-	EventTicketPurchaseCompleted AnalyticsEventName = "ticket.purchase.completed"
-
-	// EventTicketPurchaseFailed is recorded when a purchase attempt is
-	// rejected by the payment provider or backend validation.
-	EventTicketPurchaseFailed AnalyticsEventName = "ticket.purchase.failed"
-
 	// EventTicketJourneyStatusChanged is recorded after a fan's ticket
 	// journey status is successfully updated via SetStatus. It is
 	// suppressed when the incoming status equals the stored status
@@ -95,15 +65,6 @@ const (
 	// data quality and parser robustness dashboards in PostHog.
 	// Properties: email_type, parse_status, field_count.
 	EventTicketEmailParsed AnalyticsEventName = "ticket.email.parsed"
-)
-
-// Sales reminder delivery events emitted from the backend.
-const (
-	// EventSalesReminderDelivered is recorded at every terminal delivery
-	// outcome of a sales-phase push reminder. It feeds reach and failure-rate
-	// dashboards per phase stage in PostHog.
-	// Properties: phase_stage, delivery_status.
-	EventSalesReminderDelivered AnalyticsEventName = "sales_reminder.delivered"
 )
 
 // Entry verification events emitted from the backend, including the
@@ -147,26 +108,18 @@ const (
 // The map is populated lazily-once at package init via the const groups
 // above; every new constant MUST be added here in the same commit.
 var knownBackendEvents = map[AnalyticsEventName]struct{}{
-	EventAccountLogin:                    {},
-	EventAccountPreferredLanguageUpdated: {},
-	EventUserCreated:                     {},
-	EventUserDeleted:                     {},
-	EventArtistFollowCompleted:           {},
-	EventArtistUnfollowCompleted:         {},
-	EventTicketLotteryEntryAccepted:      {},
-	EventTicketLotteryEntryRejected:      {},
-	EventTicketLotteryResultAssigned:     {},
-	EventTicketPurchaseCompleted:         {},
-	EventTicketPurchaseFailed:            {},
-	EventTicketJourneyStatusChanged:      {},
-	EventTicketMintCompleted:             {},
-	EventTicketEmailParsed:               {},
-	EventEntryZkProofVerified:            {},
-	EventEntryZkProofRejected:            {},
-	EventNotificationSubscribed:          {},
-	EventNotificationUnsubscribed:        {},
-	EventNotificationDelivered:           {},
-	EventSalesReminderDelivered:          {},
+	EventAccountSignin:              {},
+	EventUserCreated:                {},
+	EventArtistFollowCompleted:      {},
+	EventArtistUnfollowCompleted:    {},
+	EventTicketJourneyStatusChanged: {},
+	EventTicketMintCompleted:        {},
+	EventTicketEmailParsed:          {},
+	EventEntryZkProofVerified:       {},
+	EventEntryZkProofRejected:       {},
+	EventNotificationSubscribed:     {},
+	EventNotificationUnsubscribed:   {},
+	EventNotificationDelivered:      {},
 }
 
 // IsKnownEvent reports whether name is registered in the backend event
