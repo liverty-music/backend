@@ -119,18 +119,6 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
-		// Carries SALES_REMINDER.delivered (sales-phase push reminder delivery
-		// outcomes), consumed by the analytics consumer.
-		Name:       "SALES_REMINDER",
-		Subjects:   []string{"SALES_REMINDER.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
 		// Carries TICKET.mint_completed (soulbound-ticket mint outcomes),
 		// consumed by the analytics consumer.
 		Name:       "TICKET",

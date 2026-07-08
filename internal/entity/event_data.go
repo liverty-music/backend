@@ -8,15 +8,14 @@ package entity
 // lowercase catalogue event name (see specification/docs/analytics/
 // event-catalog.md) at the Handle method that subscribes to it.
 const (
-	SubjectConcertDiscovered            = "CONCERT.discovered"
-	SubjectConcertCreated               = "CONCERT.created"
-	SubjectArtistCreated                = "ARTIST.created"
-	SubjectArtistFollowed               = "ARTIST.followed"
-	SubjectArtistUnfollowed             = "ARTIST.unfollowed"
-	SubjectUserCreated                  = "USER.created"
-	SubjectUserPreferredLanguageUpdated = "USER.preferred_language_updated"
-	SubjectNotificationSubscribed       = "NOTIFICATION.subscribed"
-	SubjectNotificationUnsubscribed     = "NOTIFICATION.unsubscribed"
+	SubjectConcertDiscovered        = "CONCERT.discovered"
+	SubjectConcertCreated           = "CONCERT.created"
+	SubjectArtistCreated            = "ARTIST.created"
+	SubjectArtistFollowed           = "ARTIST.followed"
+	SubjectArtistUnfollowed         = "ARTIST.unfollowed"
+	SubjectUserCreated              = "USER.created"
+	SubjectNotificationSubscribed   = "NOTIFICATION.subscribed"
+	SubjectNotificationUnsubscribed = "NOTIFICATION.unsubscribed"
 	// SubjectNotificationDelivered is published by NotificationUseCase once per
 	// notification whose channel send reached the delivered state. It drives the
 	// notification.delivered analytics event so push-delivery reach can be
@@ -42,12 +41,6 @@ const (
 	// ticket.mint.completed analytics event (SBT issuance / ticket-activation
 	// funnel).
 	SubjectTicketMintCompleted = "TICKET.mint_completed"
-	// SubjectSalesReminderDelivered is published by
-	// salesReminderDeliveryUseCase.DeliverReminder at every terminal delivery
-	// outcome (delivered, no_subscription, failed). It drives the
-	// sales_reminder.delivered analytics event so push-delivery reach and
-	// failure rates can be tracked per stage in PostHog.
-	SubjectSalesReminderDelivered = "SALES_REMINDER.delivered"
 	// SubjectTicketEmailParsed is published by TicketEmailUseCase.Create on
 	// both parse-success and parse-failure paths. It drives the
 	// ticket.email.parsed analytics event (email-ingestion data quality,
@@ -55,7 +48,7 @@ const (
 	SubjectTicketEmailParsed = "TICKET_EMAIL.parsed"
 	// SubjectAccountLogin is published by the login-event webhook handler once
 	// per user-initiated login, bound to the Zitadel session.user.checked
-	// event. It drives the account.login analytics event (returning /
+	// event. It drives the account.signin analytics event (returning /
 	// active-user retention cohorts). The OIDC refresh_token grant touches only
 	// the oidc_session aggregate and never emits session.user.checked, so this
 	// subject is never published on a silent token refresh — login-specific by
@@ -77,7 +70,6 @@ var AllSubjects = []string{
 	SubjectArtistFollowed,
 	SubjectArtistUnfollowed,
 	SubjectUserCreated,
-	SubjectUserPreferredLanguageUpdated,
 	SubjectNotificationSubscribed,
 	SubjectNotificationUnsubscribed,
 	SubjectNotificationDelivered,
@@ -87,7 +79,6 @@ var AllSubjects = []string{
 	SubjectSalesPhaseReminderDue,
 	SubjectTicketJourneyStatusChanged,
 	SubjectTicketMintCompleted,
-	SubjectSalesReminderDelivered,
 	SubjectTicketEmailParsed,
 	SubjectAccountLogin,
 }
@@ -135,9 +126,10 @@ type UserCreatedData struct {
 }
 
 // AccountLoginData is the payload for ACCOUNT.login events.
-// Mapped to the catalogue event account.login by the analytics-consumer.
-// Published by the login-event webhook handler once per user-initiated
-// login, after the Zitadel sub has been resolved to the platform UserID.
+// Mapped to the catalogue event account.signin by the analytics-consumer
+// (the NATS transport subject stays ACCOUNT.login). Published by the
+// login-event webhook handler once per user-initiated sign-in, after the
+// Zitadel sub has been resolved to the platform UserID.
 type AccountLoginData struct {
 	// UserID is the platform-internal user identifier (UUID). Used as the
 	// PostHog distinct_id. Never the Zitadel sub, which Enqueue rejects.
@@ -153,22 +145,6 @@ type ArtistCreatedData struct {
 	ArtistName string `json:"artist_name"`
 	// MBID is the MusicBrainz identifier for canonical identity.
 	MBID string `json:"mbid"`
-}
-
-// UserPreferredLanguageUpdatedData is the payload for USER.preferred_language_updated.
-// Mapped to the catalogue event account.preferred_language.updated by the
-// analytics-consumer. Published by UserUseCase.UpdatePreferredLanguage after
-// the repository confirms the change.
-type UserPreferredLanguageUpdatedData struct {
-	// UserID is the platform-internal user identifier (UUID). Used as the
-	// PostHog distinct_id.
-	UserID string `json:"user_id"`
-	// FromLocale is the ISO 639-1 language code before the change. Empty
-	// when the user had no preferred language set previously (legacy rows
-	// pending backfill — see entity.User.PreferredLanguage docstring).
-	FromLocale string `json:"from_locale"`
-	// ToLocale is the ISO 639-1 language code after the change.
-	ToLocale string `json:"to_locale"`
 }
 
 // ArtistFollowedData is the payload for ARTIST.followed.
@@ -333,24 +309,6 @@ type TicketEmailParsedData struct {
 	// FieldCount is the number of non-nil optional fields extracted by the
 	// parser on success. Zero on failure.
 	FieldCount int `json:"field_count"`
-}
-
-// SalesReminderDeliveredData is the payload for SALES_REMINDER.delivered.
-// Mapped to the catalogue event sales_reminder.delivered by the
-// analytics-consumer. Published by salesReminderDeliveryUseCase.DeliverReminder
-// at every terminal delivery outcome so push-delivery reach and failure rates can
-// be tracked per stage in PostHog.
-type SalesReminderDeliveredData struct {
-	// UserID is the platform-internal user identifier of the reminder recipient.
-	// Used as the PostHog distinct_id.
-	UserID string `json:"user_id"`
-	// PhaseStage is the string name of the ReminderStage (e.g. "APPLY_OPEN").
-	PhaseStage string `json:"phase_stage"`
-	// DeliveryStatus is one of "delivered", "no_subscription", or "failed".
-	// "delivered" means the push was accepted by at least one subscription.
-	// "no_subscription" means the user had no registered push subscriptions.
-	// "failed" means all send attempts were rejected (410 Gone or send error).
-	DeliveryStatus string `json:"delivery_status"`
 }
 
 // TicketJourneyStatusChangedData is the payload for TICKET_JOURNEY.status_changed.

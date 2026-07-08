@@ -208,11 +208,6 @@ func (uc *userUseCase) GetByExternalID(ctx context.Context, externalID string) (
 // the repository — mirrors UpdateHome's `home.Validate()` posture so that
 // non-RPC callers (integration tests, future internal handlers, scripts)
 // don't bypass the wire-layer protovalidate constraint.
-//
-// Captures the prior PreferredLanguage value via a pre-update Get so the
-// USER.preferred_language_updated event can carry both from_locale and
-// to_locale. The extra read is acceptable: this operation is rare and the
-// event's analytical value depends on the locale-transition pair.
 func (uc *userUseCase) UpdatePreferredLanguage(ctx context.Context, id, lang string) (*entity.User, error) {
 	if id == "" {
 		return nil, apperr.New(codes.InvalidArgument, "user id is required")
@@ -221,13 +216,6 @@ func (uc *userUseCase) UpdatePreferredLanguage(ctx context.Context, id, lang str
 		return nil, apperr.New(codes.InvalidArgument,
 			"preferred_language must match ISO 639-1 (^[a-z]{2}$)",
 			slog.String("preferred_language", lang),
-		)
-	}
-
-	prior, err := uc.userRepo.Get(ctx, id)
-	if err != nil {
-		return nil, apperr.Wrap(err, codes.NotFound, "failed to load user for preferred-language update",
-			slog.String("user_id", id),
 		)
 	}
 
@@ -240,17 +228,6 @@ func (uc *userUseCase) UpdatePreferredLanguage(ctx context.Context, id, lang str
 		slog.String("user_id", id),
 		slog.String("preferred_language", lang),
 	)
-
-	if err := uc.publishEvent(ctx, entity.SubjectUserPreferredLanguageUpdated, entity.UserPreferredLanguageUpdatedData{
-		UserID:     user.ID,
-		FromLocale: prior.PreferredLanguage,
-		ToLocale:   user.PreferredLanguage,
-	}); err != nil {
-		uc.logger.Error(ctx, "failed to publish USER.preferred_language_updated event", err,
-			slog.String("user_id", user.ID),
-		)
-		// Non-fatal: the language change is already persisted.
-	}
 
 	return user, nil
 }
