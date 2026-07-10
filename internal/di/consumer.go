@@ -37,6 +37,10 @@ type ConsumerApp struct {
 	Router          *message.Router
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
+	// Health reflects whether the consumer is actively consuming (NATS
+	// connected + all durables bound + router running). The entry point wires
+	// it into the liveness probe so a wedged pod is restarted.
+	Health *messaging.ConsumerHealth
 }
 
 // InitializeConsumerApp creates a ConsumerApp with all event handler dependencies wired.
@@ -93,7 +97,11 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
 
-	subscriber, err := messaging.NewSubscriber(cfg.NATS, wmLogger, goChannel)
+	// consumerHealth reflects real consumption into the liveness probe: the NATS
+	// subscriber updates connection + per-topic bound state, and the router
+	// probe (set below) reports whether the router is running.
+	consumerHealth := messaging.NewConsumerHealth()
+	subscriber, err := messaging.NewSubscriber(cfg.NATS, wmLogger, goChannel, consumerHealth)
 	if err != nil {
 		return nil, fmt.Errorf("create messaging subscriber: %w", err)
 	}
@@ -192,6 +200,16 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create messaging router: %w", err)
 	}
+
+	// IsClosed reports true only after the router has been closed — including
+	// when watermill closes it because all handlers stopped (a wedge). It stays
+	// false during the pre-start window (the entry point runs the router in a
+	// goroutine after wiring), so this probe does not false-negative at boot;
+	// readiness gates traffic during initialization. A closed router makes
+	// liveness unhealthy so Kubernetes restarts the wedged pod.
+	consumerHealth.SetRouterProbe(func() bool {
+		return !router.IsClosed()
+	})
 
 	router.AddConsumerHandler(
 		"create-concerts",
@@ -350,5 +368,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		Router:          router,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,
+		Health:          consumerHealth,
 	}, nil
 }

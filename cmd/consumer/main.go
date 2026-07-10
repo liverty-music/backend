@@ -86,6 +86,11 @@ func run() error {
 	}
 
 	healthSrv.SetReady()
+	// Now that the router and subscriber exist, make /healthz reflect real
+	// consumption: unhealthy when the router has stopped, the NATS connection is
+	// down, or any expected durable is unbound. This lets Kubernetes restart a
+	// wedged pod instead of leaving it Running while it consumes nothing.
+	healthSrv.SetLiveness(app.Health.Live)
 	shutdown.AddDrainPhase(healthSrv)
 
 	app.Logger.Info(ctx, "consumer router starting")
