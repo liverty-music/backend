@@ -24,22 +24,34 @@ func (_m *MockAdminConcertUseCase) EXPECT() *MockAdminConcertUseCase_Expecter {
 	return &MockAdminConcertUseCase_Expecter{mock: &_m.Mock}
 }
 
-// Approve provides a mock function with given fields: ctx, stagedID
-func (_m *MockAdminConcertUseCase) Approve(ctx context.Context, stagedID string) error {
-	ret := _m.Called(ctx, stagedID)
+// Approve provides a mock function with given fields: ctx, stagedID, resolution, reviewerID
+func (_m *MockAdminConcertUseCase) Approve(ctx context.Context, stagedID string, resolution usecase.ApproveResolution, reviewerID string) (*usecase.ApproveResult, error) {
+	ret := _m.Called(ctx, stagedID, resolution, reviewerID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Approve")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, stagedID)
+	var r0 *usecase.ApproveResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, usecase.ApproveResolution, string) (*usecase.ApproveResult, error)); ok {
+		return rf(ctx, stagedID, resolution, reviewerID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, usecase.ApproveResolution, string) *usecase.ApproveResult); ok {
+		r0 = rf(ctx, stagedID, resolution, reviewerID)
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*usecase.ApproveResult)
+		}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string, usecase.ApproveResolution, string) error); ok {
+		r1 = rf(ctx, stagedID, resolution, reviewerID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockAdminConcertUseCase_Approve_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Approve'
@@ -50,23 +62,25 @@ type MockAdminConcertUseCase_Approve_Call struct {
 // Approve is a helper method to define mock.On call
 //   - ctx context.Context
 //   - stagedID string
-func (_e *MockAdminConcertUseCase_Expecter) Approve(ctx interface{}, stagedID interface{}) *MockAdminConcertUseCase_Approve_Call {
-	return &MockAdminConcertUseCase_Approve_Call{Call: _e.mock.On("Approve", ctx, stagedID)}
+//   - resolution usecase.ApproveResolution
+//   - reviewerID string
+func (_e *MockAdminConcertUseCase_Expecter) Approve(ctx interface{}, stagedID interface{}, resolution interface{}, reviewerID interface{}) *MockAdminConcertUseCase_Approve_Call {
+	return &MockAdminConcertUseCase_Approve_Call{Call: _e.mock.On("Approve", ctx, stagedID, resolution, reviewerID)}
 }
 
-func (_c *MockAdminConcertUseCase_Approve_Call) Run(run func(ctx context.Context, stagedID string)) *MockAdminConcertUseCase_Approve_Call {
+func (_c *MockAdminConcertUseCase_Approve_Call) Run(run func(ctx context.Context, stagedID string, resolution usecase.ApproveResolution, reviewerID string)) *MockAdminConcertUseCase_Approve_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(usecase.ApproveResolution), args[3].(string))
 	})
 	return _c
 }
 
-func (_c *MockAdminConcertUseCase_Approve_Call) Return(_a0 error) *MockAdminConcertUseCase_Approve_Call {
-	_c.Call.Return(_a0)
+func (_c *MockAdminConcertUseCase_Approve_Call) Return(_a0 *usecase.ApproveResult, _a1 error) *MockAdminConcertUseCase_Approve_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockAdminConcertUseCase_Approve_Call) RunAndReturn(run func(context.Context, string) error) *MockAdminConcertUseCase_Approve_Call {
+func (_c *MockAdminConcertUseCase_Approve_Call) RunAndReturn(run func(context.Context, string, usecase.ApproveResolution, string) (*usecase.ApproveResult, error)) *MockAdminConcertUseCase_Approve_Call {
 	_c.Call.Return(run)
 	return _c
 }

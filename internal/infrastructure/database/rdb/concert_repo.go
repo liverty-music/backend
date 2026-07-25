@@ -740,3 +740,19 @@ func (r *ConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []
 	}
 	return nil
 }
+
+const updateEventListedVenueNameQuery = `
+	UPDATE events
+	SET listed_venue_name = $2
+	WHERE id = $1
+`
+
+// UpdateEventListedVenueName implements entity.ConcertRepository. It overwrites
+// the listed_venue_name display field of an existing event, leaving venue_id and
+// google_place_id untouched. A missing id updates zero rows and is a no-op.
+func (r *ConcertRepository) UpdateEventListedVenueName(ctx context.Context, eventID string, listedVenueName string) error {
+	if _, err := r.db.Pool.Exec(ctx, updateEventListedVenueNameQuery, eventID, listedVenueName); err != nil {
+		return toAppErr(err, "failed to update event listed venue name", slog.String("event_id", eventID))
+	}
+	return nil
+}

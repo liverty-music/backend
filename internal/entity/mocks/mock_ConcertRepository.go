@@ -548,6 +548,54 @@ func (_c *MockConcertRepository_ListByIDs_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
+// UpdateEventListedVenueName provides a mock function with given fields: ctx, eventID, listedVenueName
+func (_m *MockConcertRepository) UpdateEventListedVenueName(ctx context.Context, eventID string, listedVenueName string) error {
+	ret := _m.Called(ctx, eventID, listedVenueName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateEventListedVenueName")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, eventID, listedVenueName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockConcertRepository_UpdateEventListedVenueName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateEventListedVenueName'
+type MockConcertRepository_UpdateEventListedVenueName_Call struct {
+	*mock.Call
+}
+
+// UpdateEventListedVenueName is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+//   - listedVenueName string
+func (_e *MockConcertRepository_Expecter) UpdateEventListedVenueName(ctx interface{}, eventID interface{}, listedVenueName interface{}) *MockConcertRepository_UpdateEventListedVenueName_Call {
+	return &MockConcertRepository_UpdateEventListedVenueName_Call{Call: _e.mock.On("UpdateEventListedVenueName", ctx, eventID, listedVenueName)}
+}
+
+func (_c *MockConcertRepository_UpdateEventListedVenueName_Call) Run(run func(ctx context.Context, eventID string, listedVenueName string)) *MockConcertRepository_UpdateEventListedVenueName_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_UpdateEventListedVenueName_Call) Return(_a0 error) *MockConcertRepository_UpdateEventListedVenueName_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockConcertRepository_UpdateEventListedVenueName_Call) RunAndReturn(run func(context.Context, string, string) error) *MockConcertRepository_UpdateEventListedVenueName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockConcertRepository creates a new instance of MockConcertRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockConcertRepository(t interface {
