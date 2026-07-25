@@ -2,8 +2,10 @@ package rdb_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
@@ -59,14 +61,19 @@ func TestVenueRepository_Create(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "duplicate venue ID",
+			// Untargeted ON CONFLICT DO NOTHING also absorbs a primary-key
+			// collision; with no place_id or listed_venue_name to re-SELECT on,
+			// there is no surviving natural-key row to return, so Create surfaces
+			// Internal rather than silently returning an empty id. (A real UUIDv7
+			// never collides, so this only guards the degenerate path.)
+			name: "duplicate venue ID with no natural key",
 			args: args{
 				venue: &entity.Venue{
 					ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e1",
 					Name: "Duplicate Arena",
 				},
 			},
-			wantErr: apperr.ErrAlreadyExists,
+			wantErr: apperr.ErrInternal,
 		},
 		{
 			name: "empty venue name",
@@ -82,7 +89,7 @@ func TestVenueRepository_Create(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := repo.Create(ctx, tt.args.venue)
+			_, err := repo.Create(ctx, tt.args.venue)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				return
@@ -101,14 +108,20 @@ func TestVenueRepository_Get(t *testing.T) {
 		ID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49e3",
 		Name: "Get Test Arena",
 	}
-	require.NoError(t, repo.Create(ctx, testVenue))
+	{
+		_, cErr := repo.Create(ctx, testVenue)
+		require.NoError(t, cErr)
+	}
 
 	testVenueWithAdminArea := &entity.Venue{
 		ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49e6",
 		Name:      "Zepp Tokyo",
 		AdminArea: new("JP-13"),
 	}
-	require.NoError(t, repo.Create(ctx, testVenueWithAdminArea))
+	{
+		_, cErr := repo.Create(ctx, testVenueWithAdminArea)
+		require.NoError(t, cErr)
+	}
 
 	tests := []struct {
 		name    string
@@ -183,7 +196,10 @@ func TestVenueRepository_GetByListedName(t *testing.T) {
 		GooglePlaceID:   new("ChIJbudokan001"),
 		ListedVenueName: &listedName,
 	}
-	require.NoError(t, repo.Create(ctx, seededWithArea))
+	{
+		_, cErr := repo.Create(ctx, seededWithArea)
+		require.NoError(t, cErr)
+	}
 
 	// Seed: venue with listed_venue_name and NULL admin_area.
 	listedNameNoArea := "Zepp DiverCity"
@@ -193,7 +209,10 @@ func TestVenueRepository_GetByListedName(t *testing.T) {
 		GooglePlaceID:   new("ChIJzepp001"),
 		ListedVenueName: &listedNameNoArea,
 	}
-	require.NoError(t, repo.Create(ctx, seededNoArea))
+	{
+		_, cErr := repo.Create(ctx, seededNoArea)
+		require.NoError(t, cErr)
+	}
 
 	type args struct {
 		listedVenueName string
@@ -253,7 +272,10 @@ func TestVenueRepository_GetByPlaceID(t *testing.T) {
 		Name:          "Place ID Test Arena",
 		GooglePlaceID: new("ChIJtest456"),
 	}
-	require.NoError(t, repo.Create(ctx, seededVenue))
+	{
+		_, cErr := repo.Create(ctx, seededVenue)
+		require.NoError(t, cErr)
+	}
 
 	type args struct {
 		placeID string
@@ -294,4 +316,140 @@ func TestVenueRepository_GetByPlaceID(t *testing.T) {
 			assert.Equal(t, *tt.want.GooglePlaceID, *got.GooglePlaceID)
 		})
 	}
+}
+
+// countVenuesByListedName returns how many venue rows carry the given
+// listed_venue_name — used to assert get-or-create never splits a venue.
+func countVenuesByListedName(t *testing.T, ctx context.Context, listedName string) int {
+	t.Helper()
+	var n int
+	err := testDB.Pool.QueryRow(ctx,
+		"SELECT count(*) FROM venues WHERE listed_venue_name = $1", listedName).Scan(&n)
+	require.NoError(t, err)
+	return n
+}
+
+func TestVenueRepository_Create_GetOrCreate(t *testing.T) {
+	cleanDatabase(t)
+	repo := rdb.NewVenueRepository(testDB)
+	ctx := context.Background()
+
+	// A physical venue that Google Places resolved with two different CIDs across
+	// discovery runs (the observed 和歌山ビッグホエール case).
+	const listedName = "和歌山ビッグホエール"
+	existing := &entity.Venue{
+		ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4a01",
+		Name:            "Wakayama Big Whale",
+		AdminArea:       new("JP-30"),
+		GooglePlaceID:   new("CID-A"),
+		ListedVenueName: new(listedName),
+	}
+	firstID, err := repo.Create(ctx, existing)
+	require.NoError(t, err)
+	assert.Equal(t, existing.ID, firstID)
+
+	t.Run("different place_id resolves to the existing row", func(t *testing.T) {
+		// Same (listed_venue_name, admin_area) but a DIFFERENT place_id — the
+		// insert conflicts on idx_venues_listed_name_admin_area and re-SELECTs.
+		gotID, err := repo.Create(ctx, &entity.Venue{
+			ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4a02",
+			Name:            "Wakayama Big Whale (dup)",
+			AdminArea:       new("JP-30"),
+			GooglePlaceID:   new("CID-B"),
+			ListedVenueName: new(listedName),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, existing.ID, gotID)
+		assert.Equal(t, 1, countVenuesByListedName(t, ctx, listedName))
+	})
+}
+
+func TestVenueRepository_Create_ConcurrentSingleRow(t *testing.T) {
+	cleanDatabase(t)
+	repo := rdb.NewVenueRepository(testDB)
+	ctx := context.Background()
+
+	const listedName = "Concurrent Hall"
+	const n = 8
+	ids := make([]string, n)
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// Distinct primary keys, identical (listed_venue_name, admin_area),
+			// no place_id: exactly one insert wins; the rest re-SELECT the winner.
+			id, err := repo.Create(ctx, &entity.Venue{
+				ID:              uuid.Must(uuid.NewV7()).String(),
+				Name:            "Concurrent Hall Canonical",
+				AdminArea:       new("JP-13"),
+				ListedVenueName: new(listedName),
+			})
+			ids[i] = id
+			errs[i] = err
+		}(i)
+	}
+	wg.Wait()
+
+	for i := range n {
+		require.NoError(t, errs[i])
+		assert.Equal(t, ids[0], ids[i], "every concurrent create must resolve to the same surviving row")
+	}
+	assert.Equal(t, 1, countVenuesByListedName(t, ctx, listedName))
+}
+
+func TestVenueRepository_BackfillPlaceID(t *testing.T) {
+	cleanDatabase(t)
+	repo := rdb.NewVenueRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("fills a NULL place_id and never overwrites a non-NULL one", func(t *testing.T) {
+		v := &entity.Venue{
+			ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4b01",
+			Name:            "Backfill Hall",
+			ListedVenueName: new("Backfill Hall Listed"),
+		}
+		_, err := repo.Create(ctx, v)
+		require.NoError(t, err)
+
+		require.NoError(t, repo.BackfillPlaceID(ctx, v.ID, "CID-FILL"))
+		got, err := repo.Get(ctx, v.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got.GooglePlaceID)
+		assert.Equal(t, "CID-FILL", *got.GooglePlaceID)
+
+		// Second backfill is a no-op: the WHERE guard skips a non-NULL row.
+		require.NoError(t, repo.BackfillPlaceID(ctx, v.ID, "CID-OTHER"))
+		got, err = repo.Get(ctx, v.ID)
+		require.NoError(t, err)
+		require.NotNil(t, got.GooglePlaceID)
+		assert.Equal(t, "CID-FILL", *got.GooglePlaceID)
+	})
+
+	t.Run("degrades to a no-op when the place_id already belongs to another venue", func(t *testing.T) {
+		owner := &entity.Venue{
+			ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4b02",
+			Name:            "Owner Hall",
+			GooglePlaceID:   new("CID-TAKEN"),
+			ListedVenueName: new("Owner Hall Listed"),
+		}
+		_, err := repo.Create(ctx, owner)
+		require.NoError(t, err)
+
+		orphan := &entity.Venue{
+			ID:              "018b2f19-e591-7d12-bf9e-f0e74f1b4b03",
+			Name:            "Orphan Hall",
+			ListedVenueName: new("Orphan Hall Listed"),
+		}
+		_, err = repo.Create(ctx, orphan)
+		require.NoError(t, err)
+
+		// Backfilling the taken place_id would violate idx_venues_google_place_id;
+		// the unique violation is swallowed and the orphan keeps its NULL place_id.
+		require.NoError(t, repo.BackfillPlaceID(ctx, orphan.ID, "CID-TAKEN"))
+		got, err := repo.Get(ctx, orphan.ID)
+		require.NoError(t, err)
+		assert.Nil(t, got.GooglePlaceID)
+	})
 }

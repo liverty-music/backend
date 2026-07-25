@@ -511,6 +511,45 @@ func TestScrapedConcerts_FilterNew(t *testing.T) {
 			},
 		},
 		{
+			name: "venue-name drift against existing is deduped (admin-area prefix)",
+			args: args{
+				scraped: entity.ScrapedConcerts{
+					{LocalDate: date1, ListedVenueName: "大阪・フェスティバルホール", Title: "Drifted"},
+				},
+				existing: []*entity.Concert{
+					{Event: entity.Event{LocalDate: date1, ListedVenueName: new("フェスティバルホール")}},
+				},
+			},
+			want: nil,
+		},
+		{
+			name: "genuinely different venue on the same date stays distinct",
+			args: args{
+				scraped: entity.ScrapedConcerts{
+					{LocalDate: date1, ListedVenueName: "大阪城ホール", Title: "Different"},
+				},
+				existing: []*entity.Concert{
+					{Event: entity.Event{LocalDate: date1, ListedVenueName: new("フェスティバルホール")}},
+				},
+			},
+			want: entity.ScrapedConcerts{
+				{LocalDate: date1, ListedVenueName: "大阪城ホール", Title: "Different"},
+			},
+		},
+		{
+			name: "within-batch venue-name drift is deduped (performance prefix)",
+			args: args{
+				scraped: entity.ScrapedConcerts{
+					{LocalDate: date1, ListedVenueName: "フェスティバルホール", Title: "First"},
+					{LocalDate: date1, ListedVenueName: "大阪公演 ＠フェスティバルホール", Title: "Drifted"},
+				},
+				existing: []*entity.Concert{},
+			},
+			want: entity.ScrapedConcerts{
+				{LocalDate: date1, ListedVenueName: "フェスティバルホール", Title: "First"},
+			},
+		},
+		{
 			name: "preserve original order of scraped concerts",
 			args: args{
 				scraped:  entity.ScrapedConcerts{sc1, sc2, sc3},

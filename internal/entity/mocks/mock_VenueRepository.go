@@ -22,22 +22,80 @@ func (_m *MockVenueRepository) EXPECT() *MockVenueRepository_Expecter {
 	return &MockVenueRepository_Expecter{mock: &_m.Mock}
 }
 
+// BackfillPlaceID provides a mock function with given fields: ctx, venueID, placeID
+func (_m *MockVenueRepository) BackfillPlaceID(ctx context.Context, venueID string, placeID string) error {
+	ret := _m.Called(ctx, venueID, placeID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for BackfillPlaceID")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, venueID, placeID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockVenueRepository_BackfillPlaceID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BackfillPlaceID'
+type MockVenueRepository_BackfillPlaceID_Call struct {
+	*mock.Call
+}
+
+// BackfillPlaceID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - venueID string
+//   - placeID string
+func (_e *MockVenueRepository_Expecter) BackfillPlaceID(ctx interface{}, venueID interface{}, placeID interface{}) *MockVenueRepository_BackfillPlaceID_Call {
+	return &MockVenueRepository_BackfillPlaceID_Call{Call: _e.mock.On("BackfillPlaceID", ctx, venueID, placeID)}
+}
+
+func (_c *MockVenueRepository_BackfillPlaceID_Call) Run(run func(ctx context.Context, venueID string, placeID string)) *MockVenueRepository_BackfillPlaceID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockVenueRepository_BackfillPlaceID_Call) Return(_a0 error) *MockVenueRepository_BackfillPlaceID_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockVenueRepository_BackfillPlaceID_Call) RunAndReturn(run func(context.Context, string, string) error) *MockVenueRepository_BackfillPlaceID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function with given fields: ctx, venue
-func (_m *MockVenueRepository) Create(ctx context.Context, venue *entity.Venue) error {
+func (_m *MockVenueRepository) Create(ctx context.Context, venue *entity.Venue) (string, error) {
 	ret := _m.Called(ctx, venue)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *entity.Venue) error); ok {
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.Venue) (string, error)); ok {
+		return rf(ctx, venue)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.Venue) string); ok {
 		r0 = rf(ctx, venue)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(string)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, *entity.Venue) error); ok {
+		r1 = rf(ctx, venue)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockVenueRepository_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
@@ -59,12 +117,12 @@ func (_c *MockVenueRepository_Create_Call) Run(run func(ctx context.Context, ven
 	return _c
 }
 
-func (_c *MockVenueRepository_Create_Call) Return(_a0 error) *MockVenueRepository_Create_Call {
-	_c.Call.Return(_a0)
+func (_c *MockVenueRepository_Create_Call) Return(_a0 string, _a1 error) *MockVenueRepository_Create_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockVenueRepository_Create_Call) RunAndReturn(run func(context.Context, *entity.Venue) error) *MockVenueRepository_Create_Call {
+func (_c *MockVenueRepository_Create_Call) RunAndReturn(run func(context.Context, *entity.Venue) (string, error)) *MockVenueRepository_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }

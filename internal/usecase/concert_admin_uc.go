@@ -275,10 +275,25 @@ func (uc *concertUseCase) Reject(ctx context.Context, stagedID string, reason st
 	return nil
 }
 
-// resolveOrCreateVenue finds an existing venues row by place_id (or listed
-// name when unresolved) or creates a new one from the staged resolved fields.
-// Returns the venues.id to use for event insertion.
+// resolveVenueAdminArea derives the admin_area used for BOTH the
+// (listed_venue_name, admin_area) lookup and the venue insert, preferring the
+// Places-resolved value and falling back to the Gemini-extracted scraped value.
+// The lookup and insert MUST use the same derivation, else a miss-then-collide
+// asymmetry re-appears (lookup on the raw value, insert on the resolved value).
+func resolveVenueAdminArea(sc *entity.StagedConcert) *string {
+	if sc.ResolvedAdminArea != nil {
+		return sc.ResolvedAdminArea
+	}
+	return sc.AdminArea
+}
+
+// resolveOrCreateVenue is an idempotent get-or-create over the venues row,
+// place_id-authoritative: resolve by place_id, then by (listed_venue_name,
+// admin_area), and only create when neither matches. Returns the venues.id to
+// use for event insertion.
 func (uc *concertUseCase) resolveOrCreateVenue(ctx context.Context, sc *entity.StagedConcert) (string, error) {
+	adminArea := resolveVenueAdminArea(sc)
+
 	// Step 1: if the venue was resolved via Google Places at staging time, look
 	// up an existing venues row by place_id first.
 	if sc.ResolvedPlaceID != nil {
@@ -289,21 +304,30 @@ func (uc *concertUseCase) resolveOrCreateVenue(ctx context.Context, sc *entity.S
 		if !errors.Is(err, apperr.ErrNotFound) {
 			return "", fmt.Errorf("get venue by place ID: %w", err)
 		}
-		// Not found — create a new venues row from the staged resolved fields.
-		return uc.createVenueFromStaged(ctx, sc)
+		// place_id miss: fall through to the listed-name lookup. Google Places can
+		// return a DIFFERENT place_id for a venue that already exists under
+		// (listed_venue_name, admin_area), so creating here would collide on
+		// idx_venues_listed_name_admin_area (the observed 和歌山ビッグホエール case).
 	}
 
-	// Step 2: unresolved venue — try to find by listed name.
-	existing, err := uc.venueRepo.GetByListedName(ctx, sc.ListedVenueName, sc.AdminArea)
+	// Step 2: look up by (listed_venue_name, admin_area).
+	existing, err := uc.venueRepo.GetByListedName(ctx, sc.ListedVenueName, adminArea)
 	if err == nil {
+		// Backfill place_id when the found venue lacks one and the staged row
+		// carries a resolved value — never overwrite a non-NULL place_id.
+		if sc.ResolvedPlaceID != nil && existing.GooglePlaceID == nil {
+			if err := uc.venueRepo.BackfillPlaceID(ctx, existing.ID, *sc.ResolvedPlaceID); err != nil {
+				return "", fmt.Errorf("backfill venue place ID: %w", err)
+			}
+		}
 		return existing.ID, nil
 	}
 	if !errors.Is(err, apperr.ErrNotFound) {
 		return "", fmt.Errorf("get venue by listed name: %w", err)
 	}
 
-	// No existing venue found and no resolved place ID — create a minimal
-	// venues row with only the raw listed name.
+	// Step 3: neither key matched — create. Create absorbs a concurrent-insert
+	// conflict on either index and re-SELECTs the survivor.
 	return uc.createVenueFromStaged(ctx, sc)
 }
 
@@ -322,17 +346,10 @@ func (uc *concertUseCase) createVenueFromStaged(ctx context.Context, sc *entity.
 		name = *sc.ResolvedVenueName
 	}
 
-	// Prefer the resolved admin area when available; fall back to the
-	// Gemini-extracted scraped value so admin_area is never silently lost.
-	adminArea := sc.AdminArea
-	if sc.ResolvedAdminArea != nil {
-		adminArea = sc.ResolvedAdminArea
-	}
-
 	venue := &entity.Venue{
 		ID:              id.String(),
 		Name:            name,
-		AdminArea:       adminArea,
+		AdminArea:       resolveVenueAdminArea(sc),
 		GooglePlaceID:   sc.ResolvedPlaceID,
 		ListedVenueName: &sc.ListedVenueName,
 	}
@@ -343,16 +360,19 @@ func (uc *concertUseCase) createVenueFromStaged(ctx context.Context, sc *entity.
 		}
 	}
 
-	if err := uc.venueRepo.Create(ctx, venue); err != nil {
+	// Create returns the surviving row id: the one we generated on a real insert,
+	// or an existing row's id when a concurrent create won the race.
+	venueID, err := uc.venueRepo.Create(ctx, venue)
+	if err != nil {
 		return "", fmt.Errorf("create venue from staged concert: %w", err)
 	}
 
 	uc.logger.Info(ctx, "created venue from staged concert",
-		slog.String("venue_id", venue.ID),
+		slog.String("venue_id", venueID),
 		slog.String("venue_name", name),
 	)
 
-	return venue.ID, nil
+	return venueID, nil
 }
 
 // stagedToScraped converts a StagedConcert back into a ScrapedConcert so the

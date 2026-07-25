@@ -49,12 +49,24 @@ type VenuePlaceSearcher interface {
 
 // VenueRepository defines the data access interface for Venues.
 type VenueRepository interface {
-	// Create creates a new venue.
+	// Create inserts a new venue and returns the id of the surviving row. It is an
+	// idempotent get-or-create: the insert absorbs a conflict on either
+	// place_id or (listed_venue_name, admin_area) and re-SELECTs the existing row,
+	// so a lost race never surfaces a unique violation to the caller.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: If the venue name is invalid.
-	Create(ctx context.Context, venue *Venue) error
+	Create(ctx context.Context, venue *Venue) (string, error)
+
+	// BackfillPlaceID sets google_place_id on a venue that currently has none.
+	// It is a no-op when the row already carries a non-NULL place_id or when a
+	// concurrent backfill already set the value.
+	//
+	// # Possible errors
+	//
+	//  - Internal: If the update fails for a reason other than a benign race.
+	BackfillPlaceID(ctx context.Context, venueID, placeID string) error
 
 	// Get retrieves a venue by ID.
 	//

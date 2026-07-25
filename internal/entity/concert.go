@@ -162,7 +162,10 @@ type ScrapedConcerts []*ScrapedConcert
 // (multiple scraped rows for the same key in the receiver). The key uses
 // ListedVenueName rather than the resolved venue_id because scraped concerts
 // have not yet been venue-resolved; ListedVenueName is the upstream identity
-// that survives both sides of the comparison.
+// that survives both sides of the comparison. The name component is compared
+// through NormalizeVenueName so Gemini's formatting drift across runs
+// (full/half-width, whitespace, "大阪・"/"大阪公演 ＠" location prefixes) does not
+// defeat the match; the (date, start_at) components are unchanged.
 //
 // start_time disambiguates within a (date, venue), but asymmetrically so the
 // downstream resolution stays correct:
@@ -205,7 +208,7 @@ func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
 		if ex.ListedVenueName == nil {
 			continue
 		}
-		mark(vdKey{date: ex.LocalDate.Format("2006-01-02"), venue: *ex.ListedVenueName}, StartKey(ex.StartTime))
+		mark(vdKey{date: ex.LocalDate.Format("2006-01-02"), venue: NormalizeVenueName(*ex.ListedVenueName)}, StartKey(ex.StartTime))
 	}
 
 	var result ScrapedConcerts
@@ -220,7 +223,7 @@ func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
 		if s.ListedVenueName == "" {
 			continue
 		}
-		k := vdKey{date: s.LocalDate.Format("2006-01-02"), venue: s.ListedVenueName}
+		k := vdKey{date: s.LocalDate.Format("2006-01-02"), venue: NormalizeVenueName(s.ListedVenueName)}
 		start := StartKey(NullableTime(s.StartTime))
 		var dup bool
 		if start == "" {
