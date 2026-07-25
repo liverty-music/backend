@@ -198,7 +198,7 @@ func (h *LoginEventHandler) emitAccountLogin(ctx context.Context, sub string) {
 		return
 	}
 
-	if err := h.publisher.PublishEvent(ctx, entity.SubjectAccountLogin, entity.AccountLoginData{UserID: user.ID}); err != nil {
+	if err := h.publisher.PublishEvent(ctx, entity.SubjectUserLoggedIn, entity.UserLoggedInData{UserID: user.ID}); err != nil {
 		h.logger.Error(ctx, "login-event: failed to publish ACCOUNT.login", err)
 	}
 }

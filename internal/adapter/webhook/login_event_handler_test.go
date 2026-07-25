@@ -99,9 +99,9 @@ func TestLoginEventHandler_UserInitiatedLogin_EmitsAccountLoginOnce(t *testing.T
 	assert.Equal(t, "zitadel-sub-123", users.lastExtID)
 	// ...and exactly one ACCOUNT.login was published carrying that UserID.
 	require.Equal(t, 1, pub.calls)
-	assert.Equal(t, entity.SubjectAccountLogin, pub.subject)
-	data, ok := pub.data.(entity.AccountLoginData)
-	require.True(t, ok, "published data must be entity.AccountLoginData")
+	assert.Equal(t, entity.SubjectUserLoggedIn, pub.subject)
+	data, ok := pub.data.(entity.UserLoggedInData)
+	require.True(t, ok, "published data must be entity.UserLoggedInData")
 	assert.Equal(t, "platform-uuid-1", data.UserID)
 }
 

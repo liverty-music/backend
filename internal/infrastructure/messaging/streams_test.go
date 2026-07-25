@@ -32,8 +32,9 @@ func TestAllSubjectsCoveredByStream(t *testing.T) {
 }
 
 // TestSubjectCoveredByStream exercises the NATS token-matching semantics
-// directly, including the '*' (single token) vs '>' (trailing tokens) nuance
-// that made SALES_PHASE.reminder.due require a '>' filter.
+// directly, including the '*' (single token) vs '>' (trailing tokens) nuance.
+// Both SALES_PHASE subjects are now two-token (reminder_due, not
+// reminder.due), so the stream filter is a plain SALES_PHASE.*.
 func TestSubjectCoveredByStream(t *testing.T) {
 	t.Parallel()
 
@@ -48,12 +49,12 @@ func TestSubjectCoveredByStream(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "nested subject matched by <domain>.> stream",
-			subject: "SALES_PHASE.reminder.due",
+			name:    "two-token SALES_PHASE.reminder_due matched by <domain>.* stream",
+			subject: "SALES_PHASE.reminder_due",
 			want:    true,
 		},
 		{
-			name:    "single-token subject matched by <domain>.> stream",
+			name:    "two-token SALES_PHASE.discovered matched by <domain>.* stream",
 			subject: "SALES_PHASE.discovered",
 			want:    true,
 		},
