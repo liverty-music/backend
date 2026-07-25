@@ -22,6 +22,23 @@ func TestNormalizeVenueName(t *testing.T) {
 			want: "フェスティバルホール",
 		},
 		{
+			name: "full-form prefecture dot prefix is stripped",
+			in:   "大阪府・フェスティバルホール",
+			want: "フェスティバルホール",
+		},
+		{
+			// A ≤6-rune FACILITY name before a middle dot must be preserved — only
+			// prefecture tokens are stripped, not any short token.
+			name: "short non-prefecture facility name before a dot is preserved",
+			in:   "東京文化会館・大ホール",
+			want: "東京文化会館・大ホール",
+		},
+		{
+			name: "another short facility name before a dot is preserved",
+			in:   "杉並公会堂・大ホール",
+			want: "杉並公会堂・大ホール",
+		},
+		{
 			name: "full-width performance prefix is stripped",
 			in:   "大阪公演 ＠フェスティバルホール",
 			want: "フェスティバルホール",

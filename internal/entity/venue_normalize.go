@@ -17,11 +17,34 @@ var (
 	// already folded the full-width ＠ to an ASCII @ by the time this runs.
 	venuePerformancePrefixRE = regexp.MustCompile(`^.*?公演\s*@\s*`)
 
-	// venueAreaPrefixRE strips a single leading "〈admin_area〉・" prefix, e.g.
-	// "大阪・フェスティバルホール" → "フェスティバルホール". The prefix is bounded
-	// to a short token so it targets prefecture/city names and does not eat venue
-	// names that legitimately embed a middle dot.
-	venueAreaPrefixRE = regexp.MustCompile(`^[^・]{1,6}・`)
+	// japanesePrefectureBases are the 47 prefecture names without their
+	// 都/道/府/県 suffix (北海道 keeps its 道 as it has no bare form). The
+	// admin-area prefix strip fires ONLY for these tokens, so a venue whose own
+	// name embeds a middle dot after a non-prefecture token — e.g.
+	// "東京文化会館・大ホール" or "杉並公会堂・大ホール" — is preserved rather than
+	// truncated to a generic residue like "大ホール". Truncating those would
+	// silently collapse distinct same-date venues into one dedup key and, on the
+	// pending-staged path (which ignores start time), drop a genuinely-new concert
+	// with no DB-level safety net.
+	japanesePrefectureBases = []string{
+		"北海道",
+		"青森", "岩手", "宮城", "秋田", "山形", "福島",
+		"茨城", "栃木", "群馬", "埼玉", "千葉", "東京", "神奈川",
+		"新潟", "富山", "石川", "福井", "山梨", "長野",
+		"岐阜", "静岡", "愛知", "三重",
+		"滋賀", "京都", "大阪", "兵庫", "奈良", "和歌山",
+		"鳥取", "島根", "岡山", "広島", "山口",
+		"徳島", "香川", "愛媛", "高知",
+		"福岡", "佐賀", "長崎", "熊本", "大分", "宮崎", "鹿児島", "沖縄",
+	}
+
+	// venueAreaPrefixRE strips a single leading "〈prefecture〉・" prefix, e.g.
+	// "大阪・フェスティバルホール" → "フェスティバルホール" and
+	// "大阪府・フェスティバルホール" → "フェスティバルホール". The optional
+	// [都道府県] suffix lets a base match with or without its administrative
+	// suffix; the strip requires the prefecture token to be immediately followed
+	// by the middle dot, so non-prefecture facility names are never touched.
+	venueAreaPrefixRE = regexp.MustCompile(`^(?:` + strings.Join(japanesePrefectureBases, "|") + `)[都道府県]?・`)
 )
 
 // NormalizeVenueName canonicalizes a scraped venue name for dedup comparison so
