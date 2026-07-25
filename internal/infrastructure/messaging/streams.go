@@ -85,16 +85,6 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
-		Name:       "ACCOUNT",
-		Subjects:   []string{"ACCOUNT.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
 		Name:       "ENTRY",
 		Subjects:   []string{"ENTRY.*"},
 		Retention:  nats.LimitsPolicy,
@@ -106,11 +96,10 @@ var streams = []nats.StreamConfig{
 	},
 	{
 		Name: "SALES_PHASE",
-		// `>` (not `*`) because this domain has nested subjects:
-		// SALES_PHASE.discovered (one token) AND SALES_PHASE.reminder.due
-		// (two tokens). A single-token `SALES_PHASE.*` would not match the
-		// latter, so a subscriber would fail with "no stream matches subject".
-		Subjects:   []string{"SALES_PHASE.>"},
+		// Both subjects are two-token (SALES_PHASE.discovered,
+		// SALES_PHASE.reminder_due), so a single-token `SALES_PHASE.*` matches
+		// them all.
+		Subjects:   []string{"SALES_PHASE.*"},
 		Retention:  nats.LimitsPolicy,
 		MaxAge:     7 * 24 * time.Hour,
 		Storage:    nats.FileStorage,
@@ -255,16 +244,22 @@ func EnsureStreams(ctx context.Context, cfg config.NATSConfig) error {
 
 // connectWithRetry attempts to connect to NATS with exponential backoff.
 // It returns the first successful connection or the last error if the
-// context is cancelled or all attempts are exhausted.
-func connectWithRetry(ctx context.Context, url string) (*nats.Conn, error) {
+// context is cancelled or all attempts are exhausted. Extra options are
+// appended after the baseline reconnect/timeout options so callers may
+// register connection lifecycle handlers (e.g. DisconnectErrHandler) on the
+// connection that is ultimately returned.
+func connectWithRetry(ctx context.Context, url string, extra ...nats.Option) (*nats.Conn, error) {
 	var lastErr error
 
+	baseOpts := []nats.Option{
+		nats.MaxReconnects(-1),
+		nats.ReconnectWait(time.Second),
+		nats.Timeout(natsConnectTimeout),
+	}
+	opts := append(baseOpts, extra...)
+
 	for attempt := range connectBackoff {
-		nc, err := nats.Connect(url,
-			nats.MaxReconnects(-1),
-			nats.ReconnectWait(time.Second),
-			nats.Timeout(natsConnectTimeout),
-		)
+		nc, err := nats.Connect(url, opts...)
 		if err == nil {
 			if attempt > 0 {
 				slog.Info("NATS connection established after retry",
@@ -294,11 +289,7 @@ func connectWithRetry(ctx context.Context, url string) (*nats.Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w (after %d attempts, last: %w)", context.Cause(ctx), len(connectBackoff), lastErr)
 	}
-	nc, err := nats.Connect(url,
-		nats.MaxReconnects(-1),
-		nats.ReconnectWait(time.Second),
-		nats.Timeout(natsConnectTimeout),
-	)
+	nc, err := nats.Connect(url, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("%w (after %d attempts)", err, len(connectBackoff)+1)
 	}

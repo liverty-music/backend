@@ -30,7 +30,9 @@ const (
 	SubjectSalesPhaseDiscovered = "SALES_PHASE.discovered"
 	// SubjectSalesPhaseReminderDue is published by the reminder scan for each
 	// (user, phase, stage) triple that became due and has not yet been sent.
-	SubjectSalesPhaseReminderDue = "SALES_PHASE.reminder.due"
+	// Two tokens (reminder_due, not reminder.due) so the SALES_PHASE stream
+	// filter can be a plain `SALES_PHASE.*`.
+	SubjectSalesPhaseReminderDue = "SALES_PHASE.reminder_due"
 	// SubjectTicketJourneyStatusChanged is published by SetStatus after a
 	// successful upsert when the new status differs from the prior one (or
 	// when no prior journey existed). It drives the
@@ -46,14 +48,15 @@ const (
 	// ticket.email.parsed analytics event (email-ingestion data quality,
 	// parser robustness).
 	SubjectTicketEmailParsed = "TICKET_EMAIL.parsed"
-	// SubjectAccountLogin is published by the login-event webhook handler once
+	// SubjectUserLoggedIn is published by the login-event webhook handler once
 	// per user-initiated login, bound to the Zitadel session.user.checked
 	// event. It drives the account.signin analytics event (returning /
 	// active-user retention cohorts). The OIDC refresh_token grant touches only
 	// the oidc_session aggregate and never emits session.user.checked, so this
 	// subject is never published on a silent token refresh — login-specific by
-	// construction. Uses a new ACCOUNT.* JetStream stream.
-	SubjectAccountLogin = "ACCOUNT.login"
+	// construction. Modelled as a USER-domain event (USER.* stream), not a
+	// separate ACCOUNT stream.
+	SubjectUserLoggedIn = "USER.logged_in"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -80,7 +83,7 @@ var AllSubjects = []string{
 	SubjectTicketJourneyStatusChanged,
 	SubjectTicketMintCompleted,
 	SubjectTicketEmailParsed,
-	SubjectAccountLogin,
+	SubjectUserLoggedIn,
 }
 
 // EntryRejectionReason enumerates the legitimate causes for a
@@ -125,12 +128,12 @@ type UserCreatedData struct {
 	Email string `json:"email"`
 }
 
-// AccountLoginData is the payload for ACCOUNT.login events.
+// UserLoggedInData is the payload for USER.logged_in events.
 // Mapped to the catalogue event account.signin by the analytics-consumer
-// (the NATS transport subject stays ACCOUNT.login). Published by the
+// (the NATS transport subject is USER.logged_in). Published by the
 // login-event webhook handler once per user-initiated sign-in, after the
 // Zitadel sub has been resolved to the platform UserID.
-type AccountLoginData struct {
+type UserLoggedInData struct {
 	// UserID is the platform-internal user identifier (UUID). Used as the
 	// PostHog distinct_id. Never the Zitadel sub, which Enqueue rejects.
 	UserID string `json:"user_id"`

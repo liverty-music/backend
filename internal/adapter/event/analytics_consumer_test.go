@@ -145,10 +145,10 @@ func TestAnalyticsConsumer_HandleUserCreated(t *testing.T) {
 	}
 }
 
-// TestAnalyticsConsumer_HandleAccountLogin covers the routing/validation
-// surface of the ACCOUNT.login handler. account.signin carries no properties —
+// TestAnalyticsConsumer_HandleUserLoggedIn covers the routing/validation
+// surface of the USER.logged_in handler. account.signin carries no properties —
 // the distinct_id (platform UserID) is the whole signal.
-func TestAnalyticsConsumer_HandleAccountLogin(t *testing.T) {
+func TestAnalyticsConsumer_HandleUserLoggedIn(t *testing.T) {
 	t.Parallel()
 
 	const validUserID = "11111111-2222-3333-4444-555555555555"
@@ -161,29 +161,29 @@ func TestAnalyticsConsumer_HandleAccountLogin(t *testing.T) {
 	}
 	tests := []struct {
 		name      string
-		data      entity.AccountLoginData
+		data      entity.UserLoggedInData
 		want      want
 		nilClient bool
 	}{
 		{
 			name: "forwards account.signin when client + UserID present",
-			data: entity.AccountLoginData{UserID: validUserID},
+			data: entity.UserLoggedInData{UserID: validUserID},
 			want: want{expectEnqueue: true, expectStatus: "forwarded"},
 		},
 		{
 			name:      "skips forward when client is nil (local dev)",
-			data:      entity.AccountLoginData{UserID: validUserID},
+			data:      entity.UserLoggedInData{UserID: validUserID},
 			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
 			nilClient: true,
 		},
 		{
 			name: "skips forward when UserID is empty",
-			data: entity.AccountLoginData{UserID: ""},
+			data: entity.UserLoggedInData{UserID: ""},
 			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
 		},
 		{
 			name: "wraps Enqueue error as apperr.ErrInternal",
-			data: entity.AccountLoginData{UserID: validUserID},
+			data: entity.UserLoggedInData{UserID: validUserID},
 			want: want{
 				expectEnqueue:    true,
 				expectEnqueueErr: errors.New("queue full"),
@@ -225,7 +225,7 @@ func TestAnalyticsConsumer_HandleAccountLogin(t *testing.T) {
 				Once()
 
 			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
-			err := handler.HandleAccountLogin(makeAnalyticsMsg(t, tt.data))
+			err := handler.HandleUserLoggedIn(makeAnalyticsMsg(t, tt.data))
 
 			if tt.want.err != nil {
 				assert.ErrorIs(t, err, tt.want.err)

@@ -110,21 +110,21 @@ func (c *AnalyticsConsumer) HandleUserCreated(msg *message.Message) error {
 	return nil
 }
 
-// HandleAccountLogin forwards the ACCOUNT.login NATS subject as the
+// HandleUserLoggedIn forwards the USER.logged_in NATS subject as the
 // catalogue event usecase.EventAccountSignin. The subject is published once
 // per user-initiated sign-in (Zitadel session.user.checked), never on a token
 // refresh, so this event is a returning/active-user signal. No properties
 // are attached: the distinct_id (platform UserID) is the whole payload, and
 // no PII (email, sub) is ever forwarded.
-func (c *AnalyticsConsumer) HandleAccountLogin(msg *message.Message) error {
+func (c *AnalyticsConsumer) HandleUserLoggedIn(msg *message.Message) error {
 	ctx := msg.Context()
 	defer c.recordLag(ctx, msg)
 
-	var data entity.AccountLoginData
+	var data entity.UserLoggedInData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		c.logger.Error(ctx, "failed to parse ACCOUNT.login event", err)
+		c.logger.Error(ctx, "failed to parse USER.logged_in event", err)
 		c.metrics.RecordMessage(ctx, statusSkippedParseError)
-		return apperr.Wrap(err, codes.Internal, "parse ACCOUNT.login event")
+		return apperr.Wrap(err, codes.Internal, "parse USER.logged_in event")
 	}
 
 	if c.client == nil {
@@ -137,7 +137,7 @@ func (c *AnalyticsConsumer) HandleAccountLogin(msg *message.Message) error {
 	}
 
 	if data.UserID == "" {
-		c.logger.Warn(ctx, "ACCOUNT.login event missing user_id, skipping forward")
+		c.logger.Warn(ctx, "USER.logged_in event missing user_id, skipping forward")
 		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
 		return nil
 	}

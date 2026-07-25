@@ -43,6 +43,15 @@ type ConsumerApp struct {
 	Health *messaging.ConsumerHealth
 }
 
+// behaviorEntry pairs a behavior name with the subject it subscribes to and
+// the handler function that processes messages. One entry = one JetStream
+// durable consumer with durable == deliver_group == behavior name.
+type behaviorEntry struct {
+	behavior string
+	subject  string
+	handler  message.NoPublishHandlerFunc
+}
+
 // InitializeConsumerApp creates a ConsumerApp with all event handler dependencies wired.
 func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	cfg, err := config.Load[config.ConsumerConfig]()
@@ -98,13 +107,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	}
 
 	// consumerHealth reflects real consumption into the liveness probe: the NATS
-	// subscriber updates connection + per-topic bound state, and the router
+	// subscriber updates connection + per-behavior bound state, and the router
 	// probe (set below) reports whether the router is running.
 	consumerHealth := messaging.NewConsumerHealth()
-	subscriber, err := messaging.NewSubscriber(cfg.NATS, wmLogger, goChannel, consumerHealth)
-	if err != nil {
-		return nil, fmt.Errorf("create messaging subscriber: %w", err)
-	}
 
 	// Infrastructure - Google Maps Places API (required for venue resolution).
 	// Uses OAuth via ADC (Workload Identity in GKE).
@@ -195,6 +200,35 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	salesPhaseAnnouncementConsumer := event.NewSalesPhaseAnnouncementConsumer(salesPhaseAnnouncementUC, logger)
 	salesReminderConsumer := event.NewSalesReminderConsumer(salesReminderDeliveryUC, logger)
 
+	// behaviorTable is the canonical behavior → subject → handler mapping.
+	// Each row becomes one independent JetStream durable consumer with
+	// durable == deliver_group == behavior name. Two rows on the same subject
+	// (e.g. SubjectArtistCreated, SubjectUserCreated) produce independent
+	// durables — each receives every message on that subject — which is the
+	// fan-out fix the old single shared-group subscriber broke.
+	behaviorTable := []behaviorEntry{
+		{"ingest-concert", entity.SubjectConcertDiscovered, concertConsumer.Handle},
+		{"notify-concert", entity.SubjectConcertCreated, notificationConsumer.Handle},
+		{"resolve-artist-name", entity.SubjectArtistCreated, artistNameConsumer.Handle},
+		{"resolve-artist-image", entity.SubjectArtistCreated, artistImageConsumer.Handle},
+		{"verify-user-email", entity.SubjectUserCreated, userConsumer.Handle},
+		{"track-user-created", entity.SubjectUserCreated, analyticsConsumer.HandleUserCreated},
+		{"track-user-logged-in", entity.SubjectUserLoggedIn, analyticsConsumer.HandleUserLoggedIn},
+		{"track-artist-followed", entity.SubjectArtistFollowed, analyticsConsumer.HandleArtistFollowed},
+		{"track-artist-unfollowed", entity.SubjectArtistUnfollowed, analyticsConsumer.HandleArtistUnfollowed},
+		{"track-notification-subscribed", entity.SubjectNotificationSubscribed, analyticsConsumer.HandleNotificationSubscribed},
+		{"track-notification-unsubscribed", entity.SubjectNotificationUnsubscribed, analyticsConsumer.HandleNotificationUnsubscribed},
+		{"track-notification-delivered", entity.SubjectNotificationDelivered, analyticsConsumer.HandleNotificationDelivered},
+		{"track-entry-verified", entity.SubjectEntryZkProofVerified, analyticsConsumer.HandleEntryZkProofVerified},
+		{"track-entry-rejected", entity.SubjectEntryZkProofRejected, analyticsConsumer.HandleEntryZkProofRejected},
+		{"track-ticket-journey", entity.SubjectTicketJourneyStatusChanged, analyticsConsumer.HandleTicketJourneyStatusChanged},
+		{"track-ticket-mint", entity.SubjectTicketMintCompleted, analyticsConsumer.HandleTicketMintCompleted},
+		{"track-ticket-email", entity.SubjectTicketEmailParsed, analyticsConsumer.HandleTicketEmailParsed},
+		{"log-poison", messaging.PoisonQueueSubject, poisonConsumer.Handle},
+		{"notify-sales-phase", entity.SubjectSalesPhaseDiscovered, salesPhaseAnnouncementConsumer.Handle},
+		{"notify-sales-reminder", entity.SubjectSalesPhaseReminderDue, salesReminderConsumer.Handle},
+	}
+
 	// Router
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
 	if err != nil {
@@ -211,147 +245,49 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		return !router.IsClosed()
 	})
 
-	router.AddConsumerHandler(
-		"create-concerts",
-		entity.SubjectConcertDiscovered,
-		subscriber,
-		concertConsumer.Handle,
-	)
+	if cfg.NATS.URL == "" {
+		// Local development: use the single GoChannel subscriber for all
+		// handlers. Fan-out and durable isolation are not relevant locally —
+		// all handlers run in-process against the same in-memory channel.
+		for _, e := range behaviorTable {
+			router.AddConsumerHandler(e.behavior, e.subject, goChannel, e.handler)
+		}
+	} else {
+		// Production NATS path.
+		//
+		// Step 1: delete stale durables before the router subscribes so we do
+		// not leave old consumer_* prefixed, shared-group, or orphaned
+		// durables that would misbind new per-behavior subscriptions.
+		desiredBehaviors := make([]string, 0, len(behaviorTable))
+		for _, e := range behaviorTable {
+			desiredBehaviors = append(desiredBehaviors, e.behavior)
+		}
+		if err := messaging.ReconcileConsumers(ctx, cfg.NATS, desiredBehaviors, logger.Slog()); err != nil {
+			return nil, fmt.Errorf("reconcile NATS consumers: %w", err)
+		}
 
-	router.AddConsumerHandler(
-		"notify-fans",
-		entity.SubjectConcertCreated,
-		subscriber,
-		notificationConsumer.Handle,
-	)
+		// Step 2: open the long-lived shared *nats.Conn. One TCP connection
+		// serves all ~20 durables; per-handler isolation comes from distinct
+		// durable names and deliver groups, not separate connections.
+		sharedConn, err := messaging.ConnectNATS(ctx, cfg.NATS, consumerHealth)
+		if err != nil {
+			return nil, fmt.Errorf("connect shared NATS connection: %w", err)
+		}
+		// Drain the shared connection during shutdown (after the router has
+		// stopped consuming) so in-flight acks flush before the process exits.
+		shutdown.AddExternalPhase(messaging.NATSConnCloser(sharedConn))
 
-	router.AddConsumerHandler(
-		"resolve-artist-name",
-		entity.SubjectArtistCreated,
-		subscriber,
-		artistNameConsumer.Handle,
-	)
-
-	router.AddConsumerHandler(
-		"resolve-artist-image",
-		entity.SubjectArtistCreated,
-		subscriber,
-		artistImageConsumer.Handle,
-	)
-
-	router.AddConsumerHandler(
-		"send-email-verification",
-		entity.SubjectUserCreated,
-		subscriber,
-		userConsumer.Handle,
-	)
-
-	router.AddConsumerHandler(
-		"forward-user-created-to-analytics",
-		entity.SubjectUserCreated,
-		subscriber,
-		analyticsConsumer.HandleUserCreated,
-	)
-
-	router.AddConsumerHandler(
-		"forward-account-login-to-analytics",
-		entity.SubjectAccountLogin,
-		subscriber,
-		analyticsConsumer.HandleAccountLogin,
-	)
-
-	router.AddConsumerHandler(
-		"forward-artist-followed-to-analytics",
-		entity.SubjectArtistFollowed,
-		subscriber,
-		analyticsConsumer.HandleArtistFollowed,
-	)
-
-	router.AddConsumerHandler(
-		"forward-artist-unfollowed-to-analytics",
-		entity.SubjectArtistUnfollowed,
-		subscriber,
-		analyticsConsumer.HandleArtistUnfollowed,
-	)
-
-	router.AddConsumerHandler(
-		"forward-notification-subscribed-to-analytics",
-		entity.SubjectNotificationSubscribed,
-		subscriber,
-		analyticsConsumer.HandleNotificationSubscribed,
-	)
-
-	router.AddConsumerHandler(
-		"forward-notification-unsubscribed-to-analytics",
-		entity.SubjectNotificationUnsubscribed,
-		subscriber,
-		analyticsConsumer.HandleNotificationUnsubscribed,
-	)
-
-	// NOTIFICATION.delivered matches the existing NOTIFICATION.* stream
-	// (see messaging.streams) — no new JetStream stream is required.
-	router.AddConsumerHandler(
-		"forward-notification-delivered-to-analytics",
-		entity.SubjectNotificationDelivered,
-		subscriber,
-		analyticsConsumer.HandleNotificationDelivered,
-	)
-
-	router.AddConsumerHandler(
-		"forward-entry-zk-proof-verified-to-analytics",
-		entity.SubjectEntryZkProofVerified,
-		subscriber,
-		analyticsConsumer.HandleEntryZkProofVerified,
-	)
-
-	router.AddConsumerHandler(
-		"forward-entry-zk-proof-rejected-to-analytics",
-		entity.SubjectEntryZkProofRejected,
-		subscriber,
-		analyticsConsumer.HandleEntryZkProofRejected,
-	)
-
-	router.AddConsumerHandler(
-		"forward-ticket-journey-status-changed-to-analytics",
-		entity.SubjectTicketJourneyStatusChanged,
-		subscriber,
-		analyticsConsumer.HandleTicketJourneyStatusChanged,
-	)
-
-	router.AddConsumerHandler(
-		"forward-ticket-mint-completed-to-analytics",
-		entity.SubjectTicketMintCompleted,
-		subscriber,
-		analyticsConsumer.HandleTicketMintCompleted,
-	)
-
-	router.AddConsumerHandler(
-		"forward-ticket-email-parsed-to-analytics",
-		entity.SubjectTicketEmailParsed,
-		subscriber,
-		analyticsConsumer.HandleTicketEmailParsed,
-	)
-
-	router.AddConsumerHandler(
-		"log-poison-queue",
-		messaging.PoisonQueueSubject,
-		subscriber,
-		poisonConsumer.Handle,
-	)
-
-	router.AddConsumerHandler(
-		"announce-sales-phase",
-		entity.SubjectSalesPhaseDiscovered,
-		subscriber,
-		salesPhaseAnnouncementConsumer.Handle,
-	)
-
-	router.AddConsumerHandler(
-		"send-sales-phase-reminder",
-		entity.SubjectSalesPhaseReminderDue,
-		subscriber,
-		salesReminderConsumer.Handle,
-	)
+		// Step 3: create one per-behavior watermill subscriber for each entry
+		// and register it with the router. Each subscriber binds to the
+		// behavior-named durable, so the router sees 20 independent cursors.
+		for _, e := range behaviorTable {
+			sub, err := messaging.NewBehaviorSubscriber(sharedConn, e.behavior, wmLogger, consumerHealth)
+			if err != nil {
+				return nil, fmt.Errorf("create subscriber for behavior %q: %w", e.behavior, err)
+			}
+			router.AddConsumerHandler(e.behavior, e.subject, sub, e.handler)
+		}
+	}
 
 	// Register shutdown phases.
 	shutdown.Init(logger)
