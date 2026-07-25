@@ -28,9 +28,22 @@ func newFakeVenueRepo() *fakeVenueRepo {
 	return &fakeVenueRepo{venues: make(map[string]*entity.Venue)}
 }
 
-func (r *fakeVenueRepo) Create(_ context.Context, v *entity.Venue) error {
+func (r *fakeVenueRepo) Create(_ context.Context, v *entity.Venue) (string, error) {
 	r.venues[v.Name] = v
 	r.created = append(r.created, v)
+	return v.ID, nil
+}
+
+func (r *fakeVenueRepo) BackfillPlaceID(_ context.Context, venueID, placeID string) error {
+	for _, v := range r.venues {
+		if v.ID == venueID {
+			if v.GooglePlaceID == nil {
+				pid := placeID
+				v.GooglePlaceID = &pid
+			}
+			return nil
+		}
+	}
 	return nil
 }
 

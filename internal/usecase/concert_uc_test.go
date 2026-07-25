@@ -935,6 +935,48 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 		})
 	})
 
+	t.Run("drifted venue name still matches a pending staged key via normalization", func(t *testing.T) {
+		t.Parallel()
+		synctest.Test(t, func(t *testing.T) {
+			d := newConcertTestDeps(t)
+
+			// The pending staged row was captured under the canonical name; this
+			// run's scrape drifted to a prefixed spelling of the same venue.
+			pendingKey := entity.StagedConcertDedupKey{
+				LocalDate:       concertDate,
+				ListedVenueName: "フェスティバルホール",
+			}
+
+			scraped := []*entity.ScrapedConcert{
+				// Same physical venue, drifted name — must be excluded via normalization.
+				{Title: "Drifted Staged", ListedVenueName: "大阪・フェスティバルホール", LocalDate: concertDate, SourceURL: "https://example.com/a"},
+				// Genuinely new — must pass.
+				{Title: "New Show", ListedVenueName: "Osaka Hall", LocalDate: concertDate, SourceURL: "https://example.com/b"},
+			}
+
+			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
+			require.NoError(t, err)
+
+			d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+			d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).
+				Return([]entity.StagedConcertDedupKey{pendingKey}, nil).Once()
+			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).
+				Return(scraped, nil).Once()
+			d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+			d.searchLogRepo.EXPECT().MarkFound(mock.Anything, artistID).Return(nil).Once()
+
+			_, err = d.uc.SearchNewConcerts(ctx, artistID)
+			require.NoError(t, err)
+
+			got := receivePublishedConcerts(t, ctx, sub)
+			assert.Equal(t, 1, got, "drifted-name re-discovery must dedup against the pending staged row; only the new show publishes")
+		})
+	})
+
 	t.Run("pending staged keys do not suppress rejected concerts (rejection log not consulted)", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {

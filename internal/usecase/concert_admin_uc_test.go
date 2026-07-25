@@ -223,6 +223,121 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		assert.Equal(t, "venue-existing", d.concertRepo.created[0].VenueID)
 	})
 
+	t.Run("approve resolves an existing venue by listed name when place_id differs", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		// Existing venue already carries a place_id (P1) — Google Places resolved a
+		// DIFFERENT place_id (P2) for the same physical venue on this discovery.
+		existingPlaceID := "place-P1"
+		existingVenue := &entity.Venue{
+			ID:              "venue-existing",
+			Name:            "Venue ABC Canonical",
+			AdminArea:       new("JP-27"),
+			GooglePlaceID:   &existingPlaceID,
+			ListedVenueName: new("Venue ABC"),
+		}
+		d.venueRepo.venues["Venue ABC Canonical"] = existingVenue
+
+		differentPlaceID := "place-P2"
+		venueName := "Venue ABC Canonical"
+		sc := &entity.StagedConcert{
+			ID:                "staged-diff-placeid",
+			ArtistID:          artist.ID,
+			Title:             "Approval Test Concert",
+			LocalDate:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+			ListedVenueName:   "Venue ABC",
+			AdminArea:         new("JP-27"),
+			ResolvedPlaceID:   &differentPlaceID,
+			ResolvedVenueName: &venueName,
+			ResolvedAdminArea: new("JP-27"),
+		}
+		d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
+
+		err := d.uc.Approve(context.Background(), sc.ID)
+		require.NoError(t, err)
+
+		// Venue was reused via the listed-name fallback, not re-created.
+		assert.Empty(t, d.venueRepo.created)
+		require.Len(t, d.concertRepo.created, 1)
+		assert.Equal(t, "venue-existing", d.concertRepo.created[0].VenueID)
+		// A non-NULL place_id is never overwritten by the backfill.
+		require.NotNil(t, existingVenue.GooglePlaceID)
+		assert.Equal(t, "place-P1", *existingVenue.GooglePlaceID)
+	})
+
+	t.Run("approve backfills a NULL place_id on the resolved venue", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		// Existing venue was created before Places resolution — its place_id is NULL.
+		existingVenue := &entity.Venue{
+			ID:              "venue-existing",
+			Name:            "Venue ABC Canonical",
+			AdminArea:       new("JP-27"),
+			ListedVenueName: new("Venue ABC"),
+		}
+		d.venueRepo.venues["Venue ABC Canonical"] = existingVenue
+
+		resolvedPlaceID := "place-P2"
+		venueName := "Venue ABC Canonical"
+		sc := &entity.StagedConcert{
+			ID:                "staged-backfill",
+			ArtistID:          artist.ID,
+			Title:             "Approval Test Concert",
+			LocalDate:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+			ListedVenueName:   "Venue ABC",
+			AdminArea:         new("JP-27"),
+			ResolvedPlaceID:   &resolvedPlaceID,
+			ResolvedVenueName: &venueName,
+			ResolvedAdminArea: new("JP-27"),
+		}
+		d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
+
+		err := d.uc.Approve(context.Background(), sc.ID)
+		require.NoError(t, err)
+
+		// Venue reused, and its NULL place_id was backfilled from the staged row.
+		assert.Empty(t, d.venueRepo.created)
+		require.NotNil(t, existingVenue.GooglePlaceID)
+		assert.Equal(t, "place-P2", *existingVenue.GooglePlaceID)
+	})
+
+	t.Run("approve uses the resolved admin_area symmetrically for the listed-name lookup", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		// Existing venue lives under the RESOLVED admin_area (JP-27).
+		existingVenue := &entity.Venue{
+			ID:              "venue-existing",
+			Name:            "Venue ABC Canonical",
+			AdminArea:       new("JP-27"),
+			ListedVenueName: new("Venue ABC"),
+		}
+		d.venueRepo.venues["Venue ABC Canonical"] = existingVenue
+
+		// Staged row's raw admin_area (JP-99) disagrees with the resolved one
+		// (JP-27); the lookup MUST use the resolved value to find the venue. No
+		// place_id is set so resolution goes straight to the listed-name lookup.
+		venueName := "Venue ABC Canonical"
+		sc := &entity.StagedConcert{
+			ID:                "staged-admin-symmetry",
+			ArtistID:          artist.ID,
+			Title:             "Approval Test Concert",
+			LocalDate:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+			ListedVenueName:   "Venue ABC",
+			AdminArea:         new("JP-99"),
+			ResolvedVenueName: &venueName,
+			ResolvedAdminArea: new("JP-27"),
+		}
+		d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
+
+		err := d.uc.Approve(context.Background(), sc.ID)
+		require.NoError(t, err)
+
+		// Reused via the resolved admin_area, not re-created under the raw one.
+		assert.Empty(t, d.venueRepo.created)
+		require.Len(t, d.concertRepo.created, 1)
+		assert.Equal(t, "venue-existing", d.concertRepo.created[0].VenueID)
+	})
+
 	t.Run("CONCERT.created is published ONLY from Approve, never from CreateFromDiscovered", func(t *testing.T) {
 		t.Parallel()
 		// This test verifies the architectural guarantee: the discovery path

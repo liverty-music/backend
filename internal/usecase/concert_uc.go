@@ -322,17 +322,18 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 	)
 	filterSpan.End()
 
-	// Further deduplicate against pending staged rows. The staged dedup key
-	// uses (local_date, listed_venue_name) — the raw discovery-time identity —
-	// matching FilterNew's semantics.
+	// Further deduplicate against pending staged rows. The staged dedup key uses
+	// (local_date, normalized listed_venue_name), matching FilterNew's semantics:
+	// the venue name is compared through entity.NormalizeVenueName on both sides so
+	// name drift across runs does not re-stage an already-pending concert.
 	if len(pendingKeys) > 0 {
 		pendingSet := make(map[string]bool, len(pendingKeys))
 		for _, k := range pendingKeys {
-			pendingSet[k.LocalDate.Format("2006-01-02")+"|"+k.ListedVenueName] = true
+			pendingSet[k.LocalDate.Format("2006-01-02")+"|"+entity.NormalizeVenueName(k.ListedVenueName)] = true
 		}
 		filtered := newScraped[:0]
 		for _, sc := range newScraped {
-			if pendingSet[sc.LocalDate.Format("2006-01-02")+"|"+sc.ListedVenueName] {
+			if pendingSet[sc.LocalDate.Format("2006-01-02")+"|"+entity.NormalizeVenueName(sc.ListedVenueName)] {
 				continue
 			}
 			filtered = append(filtered, sc)

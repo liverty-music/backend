@@ -66,7 +66,10 @@ func TestConcertRepository_Create(t *testing.T) {
 		cleanDatabase(t)
 		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Concert Test Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49a1"})
 		require.NoError(t, err)
-		require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Concert Test Arena"}))
+		{
+			_, cErr := venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Concert Test Arena"})
+			require.NoError(t, cErr)
+		}
 	}
 
 	t.Run("create valid concert", func(t *testing.T) {
@@ -573,7 +576,10 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 		&entity.Artist{ID: opener, Name: "Opening Act", MBID: "33333333-4444-5555-6666-777777777ccc"},
 	)
 	require.NoError(t, err)
-	require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Co-Headliner Arena"}))
+	{
+		_, cErr := venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Co-Headliner Arena"})
+		require.NoError(t, cErr)
+	}
 	seriesID := seedSeries(t, ctx, seriesRepo, "Triple Bill")
 
 	_, err = concertRepo.Create(ctx, &entity.Concert{
@@ -632,7 +638,10 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 		MBID: "44444444-5555-6666-7777-888888888ddd",
 	})
 	require.NoError(t, err)
-	require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Shared Arena"}))
+	{
+		_, cErr := venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Shared Arena"})
+		require.NoError(t, cErr)
+	}
 
 	seriesA := seedSeries(t, ctx, seriesRepo, "Series A")
 	seriesB := seedSeries(t, ctx, seriesRepo, "Series B")
@@ -762,7 +771,10 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 			_, err := artistRepo.Create(ctx, artist)
 			require.NoError(t, err)
 			venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
-			require.NoError(t, venueRepo.Create(ctx, venue))
+			{
+				_, cErr := venueRepo.Create(ctx, venue)
+				require.NoError(t, cErr)
+			}
 
 			tt.setup(t, artist.ID, venue.ID)
 
@@ -806,7 +818,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	require.NoError(t, err)
 	_, err = artistRepo.Create(ctx, testArtist2)
 	require.NoError(t, err)
-	err = venueRepo.Create(ctx, testVenue)
+	_, err = venueRepo.Create(ctx, testVenue)
 	require.NoError(t, err)
 
 	// Relative to now so the "upcoming" filter stays correct over time (a
@@ -990,7 +1002,10 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
-		require.NoError(t, venueRepo.Create(ctx, venue))
+		{
+			_, cErr := venueRepo.Create(ctx, venue)
+			require.NoError(t, cErr)
+		}
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
 
@@ -1022,7 +1037,10 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 		_, err := artistRepo.Create(ctx, artist)
 		require.NoError(t, err)
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b4bb1", Name: "VenueName Test Arena"}
-		require.NoError(t, venueRepo.Create(ctx, venue))
+		{
+			_, cErr := venueRepo.Create(ctx, venue)
+			require.NoError(t, cErr)
+		}
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-12-31")
 
@@ -1071,7 +1089,10 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 			Name:        "Multi Venue",
 			Coordinates: &entity.Coordinates{Latitude: 33.5904, Longitude: 130.4017},
 		}
-		require.NoError(t, venueRepo.Create(ctx, venue))
+		{
+			_, cErr := venueRepo.Create(ctx, venue)
+			require.NoError(t, cErr)
+		}
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-10-01")
 		startTime, _ := time.Parse("15:04", "19:00")
@@ -1133,7 +1154,10 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 		require.NoError(t, err)
 
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6012", Name: "No Coord Venue"}
-		require.NoError(t, venueRepo.Create(ctx, venue))
+		{
+			_, cErr := venueRepo.Create(ctx, venue)
+			require.NoError(t, cErr)
+		}
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-11-01")
 		sid := seedSeries(t, ctx, seriesRepo, "No Coord Concert")
@@ -1180,7 +1204,10 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		require.NoError(t, err)
 
 		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5021", Name: "Follower Test Venue"}
-		require.NoError(t, venueRepo.Create(ctx, venue))
+		{
+			_, cErr := venueRepo.Create(ctx, venue)
+			require.NoError(t, cErr)
+		}
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-08-01")
 		startTime, _ := time.Parse("15:04", "19:00")
@@ -1244,7 +1271,10 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			Name:        "Enriched Venue",
 			Coordinates: &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917},
 		}
-		require.NoError(t, venueRepo.Create(ctx, venue))
+		{
+			_, cErr := venueRepo.Create(ctx, venue)
+			require.NoError(t, cErr)
+		}
 
 		concertDate, _ := time.Parse("2006-01-02", "2026-09-01")
 		sid := seedSeries(t, ctx, seriesRepo, "Coord Concert")
@@ -1304,7 +1334,10 @@ func TestConcertRepository_List(t *testing.T) {
 		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "List Test Band", MBID: newTestID(t)})
 		require.NoError(t, err)
 		venueID := newTestID(t)
-		require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "List Test Arena"}))
+		{
+			_, cErr := venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "List Test Arena"})
+			require.NoError(t, cErr)
+		}
 
 		s1 := seedSeries(t, ctx, seriesRepo, "List Concert 1")
 		s2 := seedSeries(t, ctx, seriesRepo, "List Concert 2")
@@ -1355,7 +1388,10 @@ func TestConcertRepository_Delete(t *testing.T) {
 		_, err := artistRepo.Create(ctx, &entity.Artist{ID: artistID, Name: "Delete Test Band", MBID: newTestID(t)})
 		require.NoError(t, err)
 		venueID := newTestID(t)
-		require.NoError(t, venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Delete Test Arena"}))
+		{
+			_, cErr := venueRepo.Create(ctx, &entity.Venue{ID: venueID, Name: "Delete Test Arena"})
+			require.NoError(t, cErr)
+		}
 		seriesID := seedSeries(t, ctx, seriesRepo, "Delete Test Concert")
 
 		eventID := newTestID(t)
