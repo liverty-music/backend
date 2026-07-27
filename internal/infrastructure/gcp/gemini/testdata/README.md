@@ -21,6 +21,16 @@ GEMINI_AB_EVAL=1 GCP_PROJECT_ID=<dev-project> \
   ./internal/infrastructure/gcp/gemini/...
 ```
 
+Cost-optimization run (Vaundy only, extract `gemini-3.6-flash`, thinking `low`/`medium`,
+single consolidated Step 1 slice — 2 thinking × 3 reps = 6 cells):
+
+```bash
+GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_ARTISTS=Vaundy GCP_PROJECT_ID=<dev-project> \
+  go test -tags=integration -timeout=1h -v \
+  -run TestConcertSearcher_ABEval \
+  ./internal/infrastructure/gcp/gemini/...
+```
+
 Smoke run (1 cell, ~$0.01, ~2 min — for auth + API sanity check):
 
 ```bash
@@ -36,14 +46,33 @@ Prerequisites:
 - Vertex AI + Google Search grounding enabled on the project.
 - Project has budget for the run (grounding is free under 5,000/month).
 
+## Latest result (2026-07-27, optimize-concert-searcher-cost)
+
+Run: `gemini-3.6-flash` extract / `gemini-3.1-flash-lite` parse, single consolidated
+Step 1 slice, Vaundy + SUPER BEAVER, thinking `{low, medium}` × 3 reps.
+
+| Artist | thinking | recall_public (mean) | note |
+|---|---|---|---|
+| SUPER BEAVER | low | 0.97 | good |
+| SUPER BEAVER | medium | 0.99 | near-perfect |
+| Vaundy | low | 0.77 | unstable — one run 0.61, **dropped the 2028 tour tail (10 dates)** |
+| Vaundy | medium | 0.89 | stable; only misses = 2 "会場未定/TBD" placeholder venues (fixture artifact) |
+
+**Decision: thinking = `medium`.** `low` truncates long tours; `medium` enumerates them
+fully. All cells returned `webSearchQueries = 0` (grounding stays invisible on 3.6-flash),
+and the harness cost is `$0` — the search-query fan-out is not observable here and must be
+verified post-deploy via the "search query gemini 3 paid" billing SKU.
+
 ## Matrix axes (full run)
 
 | Axis | Values |
 |---|---|
-| Model | `gemini-3.1-flash-lite` |
-| Temperature | 0.2, 0.5, 1.0 |
-| ThinkingLevel | `medium`, `high` |
-| Artist | UVERworld, Vaundy, SUPER BEAVER |
+| Extract model (Step 1) | `gemini-3.6-flash` (cell.Model) |
+| Parse model (Step 2) | `gemini-3.1-flash-lite` (fixed) |
+| Step 1 slices | 1 (consolidated tours + standalones, open-ended window) |
+| Temperature | 1.0 |
+| ThinkingLevel | `low`, `medium` |
+| Artist | UVERworld, Vaundy, SUPER BEAVER (filter to Vaundy for the cost run) |
 | Repetitions | 3 |
 
 Excluded by design: Gemini 3 Flash Preview (unstable under grounding load —

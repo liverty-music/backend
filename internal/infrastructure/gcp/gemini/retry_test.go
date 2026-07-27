@@ -80,11 +80,10 @@ func TestSearch_RetryOnTransientError(t *testing.T) {
 	assert.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "Retry Success Tour", got[0].Title)
-	// Step 1 fans out into 3 parallel slices. The first request (whichever
-	// slice wins the race) returns 503 and retries once; the other two
-	// slices succeed on their first attempt. Step 2 parses the merged
-	// envelope. Total: 3 slice calls + 1 retry + 1 parse = 5.
-	assert.Equal(t, int32(5), callCount.Load(), "3 slices + 1 retry + Step 2 = 5 calls")
+	// Step 1 runs a single grounded slice. The first request returns 503
+	// and retries once; the retry succeeds. Step 2 parses the envelope.
+	// Total: 1 (503) + 1 (retry success) + 1 (parse) = 3 calls.
+	assert.Equal(t, int32(3), callCount.Load(), "1 slice + 1 retry + Step 2 = 3 calls")
 }
 
 func TestSearch_AllRetriesExhausted(t *testing.T) {
@@ -124,11 +123,11 @@ func TestSearch_AllRetriesExhausted(t *testing.T) {
 	// exhaustion at the slice level; fail hard only on permanent errors".
 	assert.NoError(t, err)
 	assert.Empty(t, got)
-	// 3 parallel slices × 3 retries each = 9 total slice attempts. Step 2
-	// is skipped because every slice exhausts retries (empty envelope set →
+	// 1 grounded slice × 3 retries = 3 total slice attempts. Step 2 is
+	// skipped because the slice exhausts retries (empty envelope set →
 	// runStep1Grounded returns "" → runStep2Parse short-circuits on the
 	// empty draft list).
-	assert.Equal(t, int32(9), callCount.Load(), "3 slices × 3 retries = 9 calls")
+	assert.Equal(t, int32(3), callCount.Load(), "1 slice × 3 retries = 3 calls")
 }
 
 func TestSearch_NonRetryableErrorStopsImmediately(t *testing.T) {
@@ -162,10 +161,10 @@ func TestSearch_NonRetryableErrorStopsImmediately(t *testing.T) {
 	assert.Nil(t, got)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	// All 3 parallel Step 1 slices hit the 400. Permanent errors abort
-	// each slice immediately (no retries). Step 2 is skipped because
-	// runStep1Grounded surfaces the first error. Total: 3 calls.
-	assert.Equal(t, int32(3), callCount.Load(), "3 slices × 1 (non-retryable) = 3 calls")
+	// The single Step 1 slice hits the 400. Permanent errors abort the
+	// slice immediately (no retries). Step 2 is skipped because
+	// runStep1Grounded surfaces the error. Total: 1 call.
+	assert.Equal(t, int32(1), callCount.Load(), "1 slice × 1 (non-retryable) = 1 call")
 }
 
 func TestSearch_ContextCancellationStopsRetry(t *testing.T) {
@@ -201,7 +200,7 @@ func TestSearch_ContextCancellationStopsRetry(t *testing.T) {
 
 	assert.Nil(t, got)
 	assert.Error(t, err)
-	// 3 slices × 3 retries would be 9 calls if backoff ran to completion.
-	// Context cancellation during backoff stops some retries.
-	assert.Less(t, callCount.Load(), int32(9), "should not exhaust all retries when context is cancelled")
+	// 1 slice × 3 retries would be 3 calls if backoff ran to completion.
+	// Context cancellation during the first backoff stops further retries.
+	assert.Less(t, callCount.Load(), int32(3), "should not exhaust all retries when context is cancelled")
 }

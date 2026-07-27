@@ -441,6 +441,18 @@ func TestGCPConfig_ParserModelResolution(t *testing.T) {
 	}
 }
 
+func TestGCPConfig_SearchModelExtractResolution(t *testing.T) {
+	t.Run("env override takes precedence", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchModelExtract: "gemini-3.5-flash"}
+		assert.Equal(t, "gemini-3.5-flash", c.SearchModelExtract())
+	})
+	t.Run("default applied when unset", func(t *testing.T) {
+		c := GCPConfig{}
+		assert.Equal(t, defaultSearchModelExtract, c.SearchModelExtract())
+		assert.Equal(t, "gemini-3.6-flash", c.SearchModelExtract())
+	})
+}
+
 func TestGCPConfig_SearchCacheTTLResolution(t *testing.T) {
 	t.Run("env override takes precedence", func(t *testing.T) {
 		c := GCPConfig{GeminiSearchCacheTTL: 72 * time.Hour}
