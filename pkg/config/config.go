@@ -301,7 +301,7 @@ type GCPConfig struct {
 	// there is no shared workload-wide fallback.
 	//
 	// Step defaults:
-	//   - Step 1 (grounded extract, GoogleSearch + URLContext, no schema): gemini-3.5-flash
+	//   - Step 1 (grounded extract, GoogleSearch + URLContext, no schema): gemini-3.6-flash
 	//   - Step 2 (JSON coerce, responseJsonSchema, no tools): gemini-3.1-flash-lite
 	GeminiSearchModelExtract string `envconfig:"GCP_GEMINI_SEARCH_MODEL_EXTRACT"`
 	GeminiSearchModelParse   string `envconfig:"GCP_GEMINI_SEARCH_MODEL_PARSE"`
@@ -382,7 +382,7 @@ type GCPConfig struct {
 // flash's reliability with those tools; Step 2 is a pure text-to-JSON
 // coercion with no tools where lite is cheap and reliable.
 const (
-	defaultSearchModelExtract = "gemini-3.5-flash"
+	defaultSearchModelExtract = "gemini-3.6-flash"
 	defaultSearchModelParse   = "gemini-3.1-flash-lite"
 )
 

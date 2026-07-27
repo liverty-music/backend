@@ -100,14 +100,20 @@ func thinkingLevelFromConfig(level string) genai.ThinkingLevel {
 }
 
 const (
-	// systemInstructionStep1Tour is the Step 1 system instruction used by
-	// the tour-focused slices. Workflow-style (numbered steps); each tour
-	// has a single <source_url> child.
-	systemInstructionStep1Tour = `あなたはライブ音楽情報システム向けのデータ抽出エージェントです。下記の手順に従って、音楽ファンに提供するための、正確な公式情報を抽出することがゴールです。
+	// systemInstructionStep1 is the single consolidated Step 1 system
+	// instruction. It extracts both tours and standalones in one grounded
+	// call (English; url_context + google_search), including off-domain tour
+	// pages, and excludes multi-artist festivals.
+	systemInstructionStep1 = `You are a data-extraction agent for a live-music information system. Your goal is to extract accurate official concert information to serve music fans. Follow the workflow below.
 
-1. 対象アーティストの公式サイトから、指定の期間内に開催される全てのツアー詳細ページを探索。複数ある場合も漏れが無いように。
+1. Starting from the artist's official-site host, use the url_context and google_search tools to comprehensively discover the artist's tour and concert pages. A tour may have a dedicated page on a domain different from the official site — include those too so nothing is missed.
 
-2. 全てのツアー日程の正確な情報を読み込み、下記の出力フォーマットで指定されたフィールドに値をセット。
+2. Extract both of the following that take place on or after the given start date:
+   - Tours: multi-venue / multi-date runs. Emit one <tour> block per tour, with one <event> per date.
+   - Standalone shows: solo one-off shows, fan-club-only shows, and 2-4 act named co-headliner bills (対バン). Emit one <standalone> block with a single <event>.
+   Exclude music festivals that have a multi-artist lineup (events where the target artist is only one of many performers). A 2-4 act named co-headliner bill is NOT a festival and MUST be extracted as a standalone.
+
+3. Read each page's exact information and set the fields in the output format below.
 
 <extracted>
   <tour>
@@ -120,42 +126,7 @@ const (
       <open_time>開場 17:00</open_time>
       <start_time>開演 18:00</start_time>
     </event>
-    <event>
-      <venue>大阪府・Zepp Osaka Bayside</venue>
-      <country>JP</country>
-      <local_date>2026.3.16(日)</local_date>
-      <open_time>17:00</open_time>
-      <start_time>18:00</start_time>
-    </event>
   </tour>
-  <tour>...</tour>
-</extracted>
-
-抽出ルール:
-- source_url: そのツアー用の特設ページ、もしくは最も詳細な情報を記載しているページのURL。
-- country: コンサート開催予定の国コード (ISO 3166-1 alpha-2)。
-- country 以外は必ず、verbatim (一字一句そのまま) でコピーすること。
-- ページに該当する情報が記載されていない場合は、タグを空のままにすること。
-- local_date に年表記が無い場合 (例: "01.16. sat" や "8月7日" のように MM.DD のみ) は、ページ context (tour title の年表記、ページ見出しの開催年度、ツアー会期の前後関係など) から年を推定し、verbatim な日付の先頭に年を付加して emit する。 例: tour title が "TOUR 2026-2027" で 1月-3月 の日程が翌年に該当する場合、"2027.01.16. sat" のように年を補う。
-
-3. venue, local_date, start_time の3つのフィールドが同じコンサートは重複と判定し、除外する。
-
-4. 指定期間中の全てのツアーの全ての日程がMECEで抽出できていることをチェック。
-
-5. 余計なテキストは含めず、XMLのみをレスポンスに含める。
-`
-
-	// systemInstructionStep1Standalone is the Step 1 system instruction
-	// used by the standalone-focused slice. Mirrors the tour instruction
-	// in workflow shape; the inner <event> appears exactly once per
-	// <standalone>.
-	systemInstructionStep1Standalone = `あなたはライブ音楽情報システム向けのデータ抽出エージェントです。下記の手順に従って、音楽ファンに提供するための、正確な公式情報を抽出することがゴールです。
-
-1. 対象アーティストの公式サイトから、指定の期間内に開催される全ての単発公演の告知ページを探索。複数ある場合も漏れが無いように。
-
-2. 全ての公演の正確な情報を読み込み、下記の出力フォーマットで指定されたフィールドに値をセット。
-
-<extracted>
   <standalone>
     <title>UVERworld 武道館単独公演 2026</title>
     <source_url>https://www.uverworld.jp/news/detail/budokan</source_url>
@@ -167,21 +138,20 @@ const (
       <start_time>19:00</start_time>
     </event>
   </standalone>
-  <standalone>...</standalone>
 </extracted>
 
-抽出ルール:
-- source_url: その公演用の特設ページ、もしくは最も詳細な情報を記載しているページのURL。
-- country: コンサート開催予定の国コード (ISO 3166-1 alpha-2)。
-- country 以外は必ず、verbatim (一字一句そのまま) でコピーすること。
-- ページに該当する情報が記載されていない場合は、タグを空のままにすること。
-- local_date に年表記が無い場合 (例: "01.16. sat" や "8月7日" のように MM.DD のみ) は、ページ context (公演タイトルの年表記、ページ見出しの開催年度など) から年を推定し、verbatim な日付の先頭に年を付加して emit する。 例: タイトルが "武道館単独公演 2027" で日付が "01.16. sat" の場合、"2027.01.16. sat" のように年を補う。
+Extraction rules:
+- source_url: the dedicated page for that tour/show, or the page with the most detailed information.
+- country: the ISO 3166-1 alpha-2 code of the country where the concert is held.
+- Every field except country MUST be copied verbatim (character for character).
+- Leave a tag empty when the page does not provide that information.
+- When local_date has no year (e.g. "01.16. sat" or "8月7日", i.e. only MM.DD), infer the year from page context (the year in the title, the heading's event year, the sequence of the run's dates) and prepend it to the verbatim date. Example: if the title is "TOUR 2026-2027" and the January-March dates fall in the following year, emit "2027.01.16. sat".
 
-3. venue, local_date, start_time の3つのフィールドが同じコンサートは重複と判定し、除外する。
+4. Treat concerts that share the same venue, local_date, and start_time as duplicates and drop them.
 
-4. 指定期間中の全ての単発公演がMECEで抽出できていることをチェック。
+5. Verify that every tour and standalone on or after the start date is covered (MECE).
 
-5. 余計なテキストは含めず、XMLのみをレスポンスに含める。
+6. Respond with the XML only — no extra text.
 `
 
 	// systemInstructionStep2Parse is the Step 2 system instruction. Static
@@ -195,19 +165,12 @@ You receive a JSON array of input events with raw venue, country, and date/time 
 3. Output only the JSON defined by the schema. No Markdown decoration or comments.
 `
 
-	// promptTemplateStep1Tour carries the per-call variables for a Step 1
-	// tour slice. Placeholders (4): from_date (YYYY-MM-DD), to_date
-	// (YYYY-MM-DD), artist name, official site host.
-	promptTemplateStep1Tour = `開催日が %s から %s に含まれる %s のツアーを全て抽出して。音楽フェスと単発公演は除外して。
+	// promptTemplateStep1 carries the per-call variables for the single Step 1
+	// slice. Placeholders (3): from_date (YYYY-MM-DD), artist name, official
+	// site host. The discovery window is open-ended (no end date).
+	promptTemplateStep1 = `Extract all tours and standalone shows taking place on or after %s for %s. Exclude music festivals with a multi-artist lineup.
 
-公式サイト host: %s
-`
-
-	// promptTemplateStep1Standalone carries the per-call variables for a
-	// Step 1 standalone slice. Same 4 placeholders as the tour template.
-	promptTemplateStep1Standalone = `開催日が %s から %s に含まれる %s の単発公演 (ソロ単独ライブ、ファンクラブ限定ライブ、2-4組の named co-headliner との対バン) を全て抽出して。音楽フェスとツアーは除外して。
-
-公式サイト host: %s
+Official site host: %s
 `
 
 	// Step 2's prompt body is the JSON list payload itself (output of
@@ -676,52 +639,27 @@ func mirrorStep2(md *SearchMetadata, pm *PassMetadata) {
 type Step1Slice struct {
 	// Name is a stable identifier used in logs and per-slice metadata.
 	Name string
-	// SystemInstruction selects the tour-only or standalone-only Step 1
-	// system instruction.
+	// SystemInstruction is the Step 1 system instruction for this slice.
 	SystemInstruction string
-	// PromptTemplate is the per-slice prompt template (tour or standalone
-	// variant). It carries 4 %s placeholders in order: from_date, to_date,
-	// artist name, official site host.
+	// PromptTemplate is the Step 1 prompt template. It carries 3 %s
+	// placeholders in order: from_date, artist name, official site host.
 	PromptTemplate string
 	// FromMonthsOffset is the offset in calendar months added to the
 	// base date (time.Now()) to compute the slice's from_date.
 	FromMonthsOffset int
-	// ToMonthsOffset is the offset in calendar months added to the base
-	// date to compute the slice's to_date.
-	ToMonthsOffset int
 }
 
-// defaultStep1Slices is the three-slice split used by SearchExt:
-//  1. Tours opening within the next 12 months.
-//  2. Tours opening between 12 and 24 months from now.
-//  3. Upcoming one-off / standalone shows (any time in the next 24 months).
-//
-// Each slice's prompt narrows the open-date window so the model can
-// focus on a single bucket per call. Cross-slice duplicates (e.g. the
-// same tour discovered by both tour slices on a boundary date) are
-// removed downstream by parseStep2Response's (local_date, venue,
-// start_time) dedup.
+// defaultStep1Slices is the single grounded slice used by SearchExt. One
+// call extracts both tours and standalones from the base date onward
+// (open-ended window). The fan-out mechanism is retained so the slice
+// count stays configurable, but the default is one. Duplicates are removed
+// downstream by parseStep2Response's (local_date, venue, start_time) dedup.
 var defaultStep1Slices = []Step1Slice{
 	{
-		Name:              "tours_near",
-		SystemInstruction: systemInstructionStep1Tour,
-		PromptTemplate:    promptTemplateStep1Tour,
+		Name:              "all",
+		SystemInstruction: systemInstructionStep1,
+		PromptTemplate:    promptTemplateStep1,
 		FromMonthsOffset:  0,
-		ToMonthsOffset:    12,
-	},
-	{
-		Name:              "tours_far",
-		SystemInstruction: systemInstructionStep1Tour,
-		PromptTemplate:    promptTemplateStep1Tour,
-		FromMonthsOffset:  12,
-		ToMonthsOffset:    24,
-	},
-	{
-		Name:              "standalones",
-		SystemInstruction: systemInstructionStep1Standalone,
-		PromptTemplate:    promptTemplateStep1Standalone,
-		FromMonthsOffset:  0,
-		ToMonthsOffset:    24,
 	},
 }
 
@@ -805,8 +743,7 @@ func (s *ConcertSearcher) runStep1Slice(
 	attrs []slog.Attr,
 ) (string, *PassMetadata, error) {
 	from := baseDate.AddDate(0, slice.FromMonthsOffset, 0).Format("2006-01-02")
-	to := baseDate.AddDate(0, slice.ToMonthsOffset, 0).Format("2006-01-02")
-	prompt := fmt.Sprintf(slice.PromptTemplate, from, to, artistName, officialSiteHost)
+	prompt := fmt.Sprintf(slice.PromptTemplate, from, artistName, officialSiteHost)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	searchTool := &genai.Tool{

@@ -62,7 +62,7 @@ func TestLoadGroundTruth_FixtureWellFormed(t *testing.T) {
 	gt, err := gemini.LoadGroundTruth()
 	require.NoError(t, err)
 
-	assert.Equal(t, "2026-05-20", gt.EvaluationFrom)
+	assert.Equal(t, "2026-07-27", gt.EvaluationFrom)
 	assert.NotEmpty(t, gt.CapturedAt)
 	require.Len(t, gt.Artists, 4, "fixture must cover 4 artists")
 

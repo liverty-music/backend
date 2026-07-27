@@ -39,10 +39,12 @@ const (
 
 // abMatrix returns the Cartesian product of the matrix axes plus repetitions.
 //
-// Current run is a tuning matrix on the most complex artist (Vaundy):
-//   - Models: 3.1-flash-lite, 3.5-flash (3-flash-preview dropped — dominated)
+// Current run is a cost-optimization tuning matrix on the most complex
+// artist (Vaundy), using the single consolidated Step 1 slice:
+//   - Extract model: gemini-3.6-flash (cell.Model); parse model fixed to
+//     gemini-3.1-flash-lite (see the parseModel default below).
 //   - Temperature: 1.0 (fixed — prior 54-cell run showed monotonic gain to 1.0)
-//   - Thinking: medium, high (re-comparing now that prompt + schema changed)
+//   - Thinking: low, medium (extract-step tuning to reduce query fan-out cost)
 //   - Artists: filtered to Vaundy via GEMINI_AB_EVAL_ARTISTS (largest fixture,
 //     most tour/standalone/festival edge cases)
 //   - Repetitions: 3 (more samples per cell since artist count is small)
@@ -87,8 +89,7 @@ func abMatrix(artists []gemini.GroundTruthArtist) []abCell {
 		}}
 	}
 	models := []string{
-		"gemini-3.1-flash-lite",
-		"gemini-3.5-flash",
+		"gemini-3.6-flash",
 	}
 	if filter := strings.TrimSpace(os.Getenv(abEvalModelsEnvVar)); filter != "" {
 		want := map[string]bool{}
@@ -105,7 +106,7 @@ func abMatrix(artists []gemini.GroundTruthArtist) []abCell {
 	}
 
 	temps := []float32{1.0}
-	thinks := []string{"medium", "high"}
+	thinks := []string{"low", "medium"}
 	const reps = 3
 
 	var cells []abCell
@@ -343,16 +344,16 @@ func runCell(
 		Repetition:    cell.Repetition,
 	}
 
-	// In the matrix harness, cell.Model and cell.Thinking are applied
-	// uniformly across both steps unless per-step env overrides are set.
-	// Production wire-up sets these independently via
-	// GCP_GEMINI_SEARCH_MODEL_{DISCOVERY,EXTRACT,PARSE} (and the future
-	// equivalents for thinking).
+	// In the matrix harness, cell.Model sets the Step 1 (extract) model —
+	// the axis under test. The Step 2 (parse) model is fixed to
+	// gemini-3.1-flash-lite (matching the production default), independent of
+	// the extract axis, since only the extract step is being tuned. Both are
+	// overridable via GEMINI_AB_EVAL_MODEL_{EXTRACT,PARSE}.
 	extractModel := cell.Model
 	if m := strings.TrimSpace(os.Getenv(abEvalModelExtractEnvVar)); m != "" {
 		extractModel = m
 	}
-	parseModel := cell.Model
+	parseModel := "gemini-3.1-flash-lite"
 	if m := strings.TrimSpace(os.Getenv(abEvalModelParseEnvVar)); m != "" {
 		parseModel = m
 	}
