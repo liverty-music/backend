@@ -1452,3 +1452,52 @@ func countRows(t *testing.T, ctx context.Context, table, eventID string) int {
 	require.NoError(t, err)
 	return n
 }
+
+func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB)
+
+	t.Run("overwrites listed_venue_name on an existing event", func(t *testing.T) {
+		cleanDatabase(t)
+
+		artist := &entity.Artist{ID: newTestID(t), Name: "Adopt Test Band", MBID: newTestID(t)}
+		_, err := artistRepo.Create(ctx, artist)
+		require.NoError(t, err)
+		venue := &entity.Venue{ID: newTestID(t), Name: "Adopt Test Arena"}
+		_, err = venueRepo.Create(ctx, venue)
+		require.NoError(t, err)
+
+		concertDate, _ := time.Parse("2006-01-02", "2026-11-30")
+		oldName := "Old Display Name"
+		sid := seedSeries(t, ctx, seriesRepo, "Adopt Concert")
+		eventID := newTestID(t)
+		_, err = concertRepo.Create(ctx, &entity.Concert{
+			Event: entity.Event{
+				ID:              eventID,
+				VenueID:         venue.ID,
+				SeriesID:        sid,
+				ListedVenueName: &oldName,
+				LocalDate:       concertDate,
+			},
+			Series:     &entity.Series{ID: sid, SourceURL: "https://example.com/adopt"},
+			Performers: []*entity.Artist{{ID: artist.ID}},
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, concertRepo.UpdateEventListedVenueName(ctx, eventID, "New Display Name"))
+
+		got, err := concertRepo.ListByArtist(ctx, artist.ID, false)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].ListedVenueName)
+		assert.Equal(t, "New Display Name", *got[0].ListedVenueName)
+	})
+
+	t.Run("missing id is a no-op success", func(t *testing.T) {
+		cleanDatabase(t)
+		require.NoError(t, concertRepo.UpdateEventListedVenueName(ctx, newTestID(t), "Whatever"))
+	})
+}

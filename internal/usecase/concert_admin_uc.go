@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
@@ -19,6 +20,63 @@ type PendingConcertReview struct {
 	Staged *entity.StagedConcert
 	// Performer is the artist who will perform at the concert.
 	Performer *entity.Artist
+}
+
+// ApproveResolution selects how Approve reconciles a staged concert that
+// duplicates an already-published event. It mirrors the admin Approve RPC's
+// Resolution enum but is defined in the usecase layer so the business logic does
+// not depend on the generated proto types.
+type ApproveResolution int
+
+const (
+	// ApproveResolutionUnspecified makes Approve return a DuplicateConflict
+	// (without mutating state) when it detects a duplicate; otherwise it publishes.
+	ApproveResolutionUnspecified ApproveResolution = iota
+	// ApproveResolutionKeepExisting logs the staged row to the rejection log with a
+	// duplicate reason and clears it, leaving the existing event unchanged.
+	ApproveResolutionKeepExisting
+	// ApproveResolutionAdoptStaged overwrites the existing event's display fields
+	// from the staged row (listed venue name, and NULL-only start/open fill) and
+	// clears the staged row.
+	ApproveResolutionAdoptStaged
+)
+
+// ApproveResult is the outcome of an approval attempt. A nil Conflict means the
+// concert was published (or reconciled) and the staged row cleared. A non-nil
+// Conflict means a duplicate was detected with no resolution chosen: no state was
+// mutated and the caller must re-invoke Approve with a resolution.
+type ApproveResult struct {
+	// Conflict is set only on an unresolved duplicate; nil otherwise.
+	Conflict *DuplicateConflict
+}
+
+// DuplicateConflict describes a staged concert that maps onto an already-published
+// event, carrying both records so the reviewer can choose a resolution.
+type DuplicateConflict struct {
+	// Existing is the already-published event's display-field preview.
+	Existing *ExistingEventDisplay
+	// Staged is the staged concert the reviewer proposed to publish.
+	Staged *entity.StagedConcert
+	// StagedPerformer is the artist the staged concert was discovered for.
+	StagedPerformer *entity.Artist
+}
+
+// ExistingEventDisplay is the display-field preview of an already-published event
+// that a staged concert collides with. Venue identity is intentionally omitted —
+// reconciliation never changes it.
+type ExistingEventDisplay struct {
+	// EventID is the unique identifier of the already-published event.
+	EventID string
+	// Title is the descriptive title of the existing event (from its series).
+	Title string
+	// ListedVenueName is the venue name currently stored on the existing event.
+	ListedVenueName string
+	// LocalDate is the local calendar date of the existing event.
+	LocalDate time.Time
+	// StartTime is the existing event's start time; nil when unknown.
+	StartTime *time.Time
+	// OpenTime is the existing event's door-open time; nil when unknown.
+	OpenTime *time.Time
 }
 
 // AdminConcertUseCase defines the admin-console operations over concerts: the
@@ -44,22 +102,32 @@ type AdminConcertUseCase interface {
 	//  - Internal: If the repository query or a per-row artist lookup fails.
 	ListPending(ctx context.Context) ([]*PendingConcertReview, error)
 
-	// Approve promotes a pending staged concert to a published event. It
-	// resolves or creates the venues row from the staged resolved fields, builds
-	// the Concert/Series/Event entities, inserts them, publishes CONCERT.created,
-	// and deletes the staged row. The operation is idempotent: if the staged row
-	// is already gone (e.g. double-click), the method returns success without
-	// duplicating.
+	// Approve promotes a pending staged concert to a published event. It resolves
+	// or creates the venues row, and — when the staged concert does not duplicate
+	// an existing event — builds the Concert/Series/Event entities, inserts them,
+	// publishes CONCERT.created, and deletes the staged row. The operation is
+	// idempotent: if the staged row is already gone (e.g. double-click) the method
+	// returns a non-conflict success without duplicating.
+	//
+	// When the staged concert maps onto an already-published event at the resolved
+	// (venue, date, start time), the behavior depends on resolution:
+	//   - ApproveResolutionUnspecified: returns an ApproveResult whose Conflict is
+	//     set to the existing event's display fields plus the staged preview; NO
+	//     state is mutated.
+	//   - ApproveResolutionKeepExisting: records the staged row in the rejection log
+	//     (attributed to reviewerID) with a duplicate reason and clears it, leaving
+	//     the existing event unchanged.
+	//   - ApproveResolutionAdoptStaged: overwrites the existing event's listed venue
+	//     name and fills its start/open time only where currently NULL, leaving
+	//     venue identity and the shared series title unchanged, then clears the
+	//     staged row.
+	//
+	// reviewerID is the calling reviewer's identity (used only by KeepExisting).
 	//
 	// # Possible errors
 	//
-	//  - NotFound: If the staged concert does not exist (idempotent — treated as
-	//    success internally; callers should not distinguish this).
-	//  - FailedPrecondition: If an equivalent known-start event already covers
-	//    the same (venue, date) and the staged concert has no start time. The
-	//    staged row is preserved so a reviewer can reject it to clear the queue.
-	//  - Internal: If the venue, series, or event insert fails.
-	Approve(ctx context.Context, stagedID string) error
+	//  - Internal: If the venue, series, or event mutation fails.
+	Approve(ctx context.Context, stagedID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error)
 
 	// Reject records the staged concert in the rejection log and deletes the
 	// staged row. It is idempotent: if the staged row is already gone, the
@@ -130,30 +198,44 @@ func (uc *concertUseCase) ListPending(ctx context.Context) ([]*PendingConcertRev
 	return reviews, nil
 }
 
-// Approve promotes a pending staged concert to a published event.
-func (uc *concertUseCase) Approve(ctx context.Context, stagedID string) error {
+// Approve promotes a pending staged concert to a published event, reconciling a
+// duplicate existing event per the resolution when one is detected.
+func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
 	sc, err := uc.stagedConcertRepo.GetByID(ctx, stagedID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Idempotent: staged row already gone (already approved or rejected).
+			// This also covers the second phase of a two-call reconcile where the
+			// first call already cleared the row.
 			uc.logger.Info(ctx, "approve: staged concert already gone — treating as success",
 				slog.String("staged_concert_id", stagedID),
 			)
-			return nil
+			return &ApproveResult{}, nil
 		}
-		return fmt.Errorf("get staged concert: %w", err)
+		return nil, fmt.Errorf("get staged concert: %w", err)
 	}
 
 	// Resolve or create the venues row from the staged resolved fields.
 	venueID, err := uc.resolveOrCreateVenue(ctx, sc)
 	if err != nil {
-		return fmt.Errorf("resolve or create venue for staged concert %q: %w", stagedID, err)
+		return nil, fmt.Errorf("resolve or create venue for staged concert %q: %w", stagedID, err)
 	}
 
-	// Convert the staged row back into a ScrapedConcert so buildAndInsertConcerts
-	// can run the same series-adoption + fill + bulk-insert logic.
-	scraped := stagedToScraped(sc)
+	// Detect a duplicate existing event at the resolved (venue, date, start time)
+	// BEFORE any event mutation, so an unresolved conflict returns without side
+	// effects. Re-checked on every call, so a two-phase reconcile re-validates.
+	conflictEvent, err := uc.detectDuplicateEvent(ctx, sc, venueID)
+	if err != nil {
+		return nil, fmt.Errorf("detect duplicate event for staged concert %q: %w", stagedID, err)
+	}
+	if conflictEvent != nil {
+		return uc.reconcileDuplicate(ctx, sc, conflictEvent, resolution, reviewerID)
+	}
 
+	// No duplicate — publish normally. buildAndInsertConcerts also handles the
+	// fill case (a known-start staged row filling an existing unknown-start row),
+	// which legitimately inserts nothing; that is a success, not a conflict.
+	scraped := stagedToScraped(sc)
 	insertedIDs, err := buildAndInsertConcerts(
 		ctx,
 		sc.ArtistID,
@@ -164,21 +246,27 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string) error {
 		uc.logger,
 	)
 	if err != nil {
-		return fmt.Errorf("build and insert concerts for staged concert %q: %w", stagedID, err)
+		return nil, fmt.Errorf("build and insert concerts for staged concert %q: %w", stagedID, err)
 	}
 
-	// When zero events were inserted it means an equivalent known-start event
-	// already exists for this (venue, date) and the staged concert carries no
-	// start time. Deleting the staged row here would silently lose it with no
-	// recovery path. Instead, return FailedPrecondition so the caller surfaces
-	// the condition to the reviewer, who can then reject it to clear the queue.
-	if len(insertedIDs) == 0 {
-		uc.logger.Warn(ctx, "approve: equivalent event already exists — staged row preserved for manual rejection",
-			slog.String("artist_id", sc.ArtistID),
-			slog.String("staged_concert_id", stagedID),
-		)
-		return apperr.New(codes.FailedPrecondition,
-			"an equivalent event already exists for this venue and date; reject this entry to remove it from the queue")
+	// Publish CONCERT.created only for genuinely inserted events (a fill inserts
+	// nothing but still updates an existing row, which needs no new-concert event).
+	if len(insertedIDs) > 0 {
+		created := ConcertCreatedData{
+			ArtistID:   sc.ArtistID,
+			ConcertIDs: insertedIDs,
+		}
+		if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
+			uc.logger.Error(ctx, "failed to publish CONCERT.created after approval", err,
+				slog.String("staged_concert_id", stagedID),
+			)
+			// Non-fatal: event is persisted; notification will retry or be missed.
+		}
+	}
+
+	// Delete the staged row only after a successful publish/fill.
+	if err := uc.stagedConcertRepo.Delete(ctx, stagedID); err != nil {
+		return nil, fmt.Errorf("delete staged concert after approval: %w", err)
 	}
 
 	uc.logger.Info(ctx, "staged concert approved and published",
@@ -187,24 +275,124 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string) error {
 		slog.Int("inserted", len(insertedIDs)),
 	)
 
-	// Publish CONCERT.created for every genuinely inserted event.
-	created := ConcertCreatedData{
-		ArtistID:   sc.ArtistID,
-		ConcertIDs: insertedIDs,
+	return &ApproveResult{}, nil
+}
+
+// detectDuplicateEvent returns the already-published event a staged concert
+// duplicates at the resolved (venue, date, start time), or nil when the concert
+// is genuinely new or merely fills an existing unknown-start row. It mirrors the
+// two zero-insert paths the creation path would otherwise hit:
+//   - an exact-start match (equal StartKey, including both-unknown), and
+//   - an unknown-start staged row when a known-start row already covers the slot.
+//
+// The fill case (known-start staged onto an unknown-start existing row) is NOT a
+// duplicate: it proceeds to the creation path, which fills the existing row.
+func (uc *concertUseCase) detectDuplicateEvent(ctx context.Context, sc *entity.StagedConcert, venueID string) (*entity.Event, error) {
+	events, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
+	if err != nil {
+		return nil, fmt.Errorf("find existing events: %w", err)
 	}
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
-		uc.logger.Error(ctx, "failed to publish CONCERT.created after approval", err,
-			slog.String("staged_concert_id", stagedID),
+
+	scraped := stagedToScraped(sc)
+	match, isFill := resolveExistingEvent(events, scraped, map[string]bool{})
+	if match != nil && !isFill {
+		// Exact-start duplicate (or both-unknown at the same venue/date).
+		return match, nil
+	}
+	if scraped.StartTime.IsZero() {
+		// Unknown-start staged row: a duplicate iff any known-start row exists here.
+		for _, ev := range events {
+			if ev.StartTime != nil && !ev.StartTime.IsZero() {
+				return ev, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// reconcileDuplicate applies the reviewer's resolution to a detected duplicate.
+func (uc *concertUseCase) reconcileDuplicate(ctx context.Context, sc *entity.StagedConcert, existing *entity.Event, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
+	switch resolution {
+	case ApproveResolutionKeepExisting:
+		reason := fmt.Sprintf("duplicate of existing event %s", existing.ID)
+		if err := uc.appendRejectionLog(ctx, sc, reason, reviewerID); err != nil {
+			return nil, fmt.Errorf("keep-existing: append rejection log: %w", err)
+		}
+		if err := uc.stagedConcertRepo.Delete(ctx, sc.ID); err != nil {
+			return nil, fmt.Errorf("keep-existing: delete staged concert: %w", err)
+		}
+		uc.logger.Info(ctx, "duplicate reconciled: kept existing event, staged row logged and cleared",
+			slog.String("staged_concert_id", sc.ID),
+			slog.String("existing_event_id", existing.ID),
 		)
-		// Non-fatal: event is persisted; notification will retry or be missed.
+		return &ApproveResult{}, nil
+
+	case ApproveResolutionAdoptStaged:
+		// Overwrite the display venue name and fill start/open only where NULL
+		// (COALESCE), leaving venue identity and the shared series title untouched.
+		if err := uc.concertRepo.UpdateEventListedVenueName(ctx, existing.ID, sc.ListedVenueName); err != nil {
+			return nil, fmt.Errorf("adopt-staged: update listed venue name: %w", err)
+		}
+		if err := uc.concertRepo.FillEventStartTimes(ctx,
+			[]string{existing.ID},
+			[]*time.Time{sc.StartTime},
+			[]*time.Time{sc.OpenTime},
+		); err != nil {
+			return nil, fmt.Errorf("adopt-staged: fill start/open times: %w", err)
+		}
+		if err := uc.stagedConcertRepo.Delete(ctx, sc.ID); err != nil {
+			return nil, fmt.Errorf("adopt-staged: delete staged concert: %w", err)
+		}
+		uc.logger.Info(ctx, "duplicate reconciled: adopted staged display fields onto existing event",
+			slog.String("staged_concert_id", sc.ID),
+			slog.String("existing_event_id", existing.ID),
+		)
+		return &ApproveResult{}, nil
+
+	default:
+		// Unspecified: surface the conflict for reviewer choice; do not mutate.
+		conflict, err := uc.buildDuplicateConflict(ctx, sc, existing)
+		if err != nil {
+			return nil, err
+		}
+		uc.logger.Info(ctx, "approve: duplicate event detected — returning conflict for reviewer choice",
+			slog.String("staged_concert_id", sc.ID),
+			slog.String("existing_event_id", existing.ID),
+		)
+		return &ApproveResult{Conflict: conflict}, nil
+	}
+}
+
+// buildDuplicateConflict assembles the conflict DTO: the existing event's display
+// fields (its title resolved from the shared series) plus the staged preview and
+// its performer.
+func (uc *concertUseCase) buildDuplicateConflict(ctx context.Context, sc *entity.StagedConcert, existing *entity.Event) (*DuplicateConflict, error) {
+	series, err := uc.seriesRepo.Get(ctx, existing.SeriesID)
+	if err != nil {
+		return nil, fmt.Errorf("get series for duplicate conflict: %w", err)
+	}
+	performer, err := uc.artistRepo.Get(ctx, sc.ArtistID)
+	if err != nil {
+		return nil, fmt.Errorf("get performer for duplicate conflict: %w", err)
 	}
 
-	// Delete the staged row only after a successful insertion.
-	if err := uc.stagedConcertRepo.Delete(ctx, stagedID); err != nil {
-		return fmt.Errorf("delete staged concert after approval: %w", err)
+	listedName := ""
+	if existing.ListedVenueName != nil {
+		listedName = *existing.ListedVenueName
 	}
 
-	return nil
+	return &DuplicateConflict{
+		Existing: &ExistingEventDisplay{
+			EventID:         existing.ID,
+			Title:           series.Title,
+			ListedVenueName: listedName,
+			LocalDate:       existing.LocalDate,
+			StartTime:       existing.StartTime,
+			OpenTime:        existing.OpenTime,
+		},
+		Staged:          sc,
+		StagedPerformer: performer,
+	}, nil
 }
 
 // Reject records the staged concert in the rejection log and deletes the
@@ -222,8 +410,28 @@ func (uc *concertUseCase) Reject(ctx context.Context, stagedID string, reason st
 		return fmt.Errorf("get staged concert: %w", err)
 	}
 
-	// Fetch the artist name for the log — it is captured at rejection time for
-	// readability even if the artist is later deleted.
+	if err := uc.appendRejectionLog(ctx, sc, reason, reviewedBy); err != nil {
+		return err
+	}
+
+	if err := uc.stagedConcertRepo.Delete(ctx, stagedID); err != nil {
+		return fmt.Errorf("delete staged concert after rejection: %w", err)
+	}
+
+	uc.logger.Info(ctx, "staged concert rejected and logged",
+		slog.String("artist_id", sc.ArtistID),
+		slog.String("staged_concert_id", stagedID),
+		slog.String("reason", reason),
+	)
+
+	return nil
+}
+
+// appendRejectionLog captures a staged concert in the rejection log with the
+// given reason and reviewer identity. The artist name is snapshotted at write
+// time for readability even if the artist is later deleted. Shared by Reject and
+// the approval keep-existing reconciliation.
+func (uc *concertUseCase) appendRejectionLog(ctx context.Context, sc *entity.StagedConcert, reason, reviewedBy string) error {
 	artist, err := uc.artistRepo.Get(ctx, sc.ArtistID)
 	if err != nil {
 		return fmt.Errorf("get artist for rejection log: %w", err)
@@ -261,17 +469,6 @@ func (uc *concertUseCase) Reject(ctx context.Context, stagedID string, reason st
 	if err := uc.rejectedConcertRepo.Append(ctx, logEntry); err != nil {
 		return fmt.Errorf("append rejection log: %w", err)
 	}
-
-	if err := uc.stagedConcertRepo.Delete(ctx, stagedID); err != nil {
-		return fmt.Errorf("delete staged concert after rejection: %w", err)
-	}
-
-	uc.logger.Info(ctx, "staged concert rejected and logged",
-		slog.String("artist_id", sc.ArtistID),
-		slog.String("staged_concert_id", stagedID),
-		slog.String("reason", reason),
-	)
-
 	return nil
 }
 

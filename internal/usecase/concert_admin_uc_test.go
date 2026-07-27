@@ -156,7 +156,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
 		require.NoError(t, err)
 
-		err = d.uc.Approve(ctx, sc.ID)
+		_, err = d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// Concert was created.
@@ -192,7 +192,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		d := newApprovalTestDeps(t, artist)
 		// Do NOT seed — staged row does not exist.
 
-		err := d.uc.Approve(context.Background(), "staged-nonexistent")
+		_, err := d.uc.Approve(context.Background(), "staged-nonexistent", usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// No concerts or venues created.
@@ -214,7 +214,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 
 		sc := seedStaged(d, artist.ID)
 
-		err := d.uc.Approve(context.Background(), sc.ID)
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// Venue was reused, not re-created.
@@ -253,7 +253,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		}
 		d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
 
-		err := d.uc.Approve(context.Background(), sc.ID)
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// Venue was reused via the listed-name fallback, not re-created.
@@ -292,7 +292,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		}
 		d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
 
-		err := d.uc.Approve(context.Background(), sc.ID)
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// Venue reused, and its NULL place_id was backfilled from the staged row.
@@ -329,7 +329,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		}
 		d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
 
-		err := d.uc.Approve(context.Background(), sc.ID)
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		// Reused via the resolved admin_area, not re-created under the raw one.
@@ -379,7 +379,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		approvalCreatedCh, err := approvalDeps.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
 		require.NoError(t, err)
 
-		err = approvalDeps.uc.Approve(ctx, stagedRepo.upserted[0].ID)
+		_, err = approvalDeps.uc.Approve(ctx, stagedRepo.upserted[0].ID, usecase.ApproveResolutionUnspecified, "")
 		require.NoError(t, err)
 
 		select {
@@ -388,6 +388,124 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("expected CONCERT.created from Approve but got none")
 		}
+	})
+}
+
+// seedConflict wires a staged concert that duplicates an already-published event
+// at the same (venue, date, start time): the venue is pre-seeded so it resolves
+// to a known id, and an existing known-start event plus its series are seeded.
+func seedConflict(d *approvalTestDeps, artistID string) *entity.StagedConcert {
+	d.venueRepo.venues["Venue One"] = &entity.Venue{
+		ID:              "venue-1",
+		Name:            "Venue One",
+		ListedVenueName: new("Venue ABC"),
+	}
+	start := time.Date(2026, 8, 1, 19, 0, 0, 0, time.UTC)
+	d.concertRepo.existing = map[string][]*entity.Event{
+		"venue-1|2026-08-01": {{
+			ID:              "event-1",
+			SeriesID:        "series-1",
+			VenueID:         "venue-1",
+			LocalDate:       time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+			StartTime:       &start,
+			ListedVenueName: new("Old Listed Name"),
+		}},
+	}
+	d.seriesRepo.byID = map[string]*entity.Series{
+		"series-1": {ID: "series-1", Title: "Existing Title"},
+	}
+	sc := &entity.StagedConcert{
+		ID:              "staged-dup",
+		ArtistID:        artistID,
+		Title:           "Staged Title",
+		LocalDate:       time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		ListedVenueName: "Venue ABC",
+		StartTime:       &start,
+	}
+	d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
+	return sc
+}
+
+func TestAdminConcertUseCase_Approve_Reconciliation(t *testing.T) {
+	t.Parallel()
+
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
+
+	t.Run("unresolved duplicate returns a conflict and does not mutate", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		sc := seedConflict(d, artist.ID)
+
+		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionUnspecified, "reviewer-1")
+		require.NoError(t, err)
+
+		require.NotNil(t, result.Conflict)
+		assert.Equal(t, "event-1", result.Conflict.Existing.EventID)
+		assert.Equal(t, "Existing Title", result.Conflict.Existing.Title)
+		assert.Equal(t, "Old Listed Name", result.Conflict.Existing.ListedVenueName)
+		require.NotNil(t, result.Conflict.Staged)
+		assert.Equal(t, "staged-dup", result.Conflict.Staged.ID)
+		require.NotNil(t, result.Conflict.StagedPerformer)
+
+		// No mutation: staged row preserved, nothing created/logged/updated.
+		assert.Len(t, d.stagedRepo.upserted, 1)
+		assert.Empty(t, d.concertRepo.created)
+		assert.Empty(t, d.rejectedLog.entries)
+		assert.Empty(t, d.concertRepo.updatedListedNames)
+	})
+
+	t.Run("KEEP_EXISTING logs the staged row and clears it, leaving the event unchanged", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		sc := seedConflict(d, artist.ID)
+
+		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionKeepExisting, "reviewer-1")
+		require.NoError(t, err)
+		assert.Nil(t, result.Conflict)
+
+		// Staged row logged (with the reviewer) and cleared; event untouched.
+		require.Len(t, d.rejectedLog.entries, 1)
+		assert.Contains(t, d.rejectedLog.entries[0].Reason, "duplicate")
+		require.NotNil(t, d.rejectedLog.entries[0].ReviewedBy)
+		assert.Equal(t, "reviewer-1", *d.rejectedLog.entries[0].ReviewedBy)
+		assert.Empty(t, d.stagedRepo.upserted)
+		assert.Empty(t, d.concertRepo.created)
+		assert.Empty(t, d.concertRepo.updatedListedNames)
+	})
+
+	t.Run("ADOPT_STAGED overwrites the display fields and clears the staged row", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		sc := seedConflict(d, artist.ID)
+
+		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionAdoptStaged, "reviewer-1")
+		require.NoError(t, err)
+		assert.Nil(t, result.Conflict)
+
+		// Existing event's listed name overwritten from the staged row; start/open
+		// filled via COALESCE; staged row cleared; nothing logged or newly created.
+		assert.Equal(t, "Venue ABC", d.concertRepo.updatedListedNames["event-1"])
+		assert.Contains(t, d.concertRepo.filledIDs, "event-1")
+		assert.Empty(t, d.stagedRepo.upserted)
+		assert.Empty(t, d.concertRepo.created)
+		assert.Empty(t, d.rejectedLog.entries)
+	})
+
+	t.Run("second reconcile call is idempotent once the staged row is gone", func(t *testing.T) {
+		t.Parallel()
+		d := newApprovalTestDeps(t, artist)
+		sc := seedConflict(d, artist.ID)
+
+		_, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionKeepExisting, "reviewer-1")
+		require.NoError(t, err)
+
+		// Second call: staged row already cleared → non-conflict success.
+		result, err := d.uc.Approve(context.Background(), sc.ID, usecase.ApproveResolutionAdoptStaged, "reviewer-1")
+		require.NoError(t, err)
+		assert.Nil(t, result.Conflict)
+		// No second log entry, no event mutation.
+		assert.Len(t, d.rejectedLog.entries, 1)
+		assert.Empty(t, d.concertRepo.updatedListedNames)
 	})
 }
 

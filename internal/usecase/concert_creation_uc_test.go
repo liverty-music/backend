@@ -82,6 +82,9 @@ func (r *fakeVenueRepo) GetByListedName(_ context.Context, listedVenueName strin
 
 type fakeSeriesRepo struct {
 	created []*entity.Series
+	// byID lets tests seed series so Get resolves a title (e.g. for the
+	// duplicate-conflict preview). Nil map → Get returns NotFound.
+	byID map[string]*entity.Series
 }
 
 func (r *fakeSeriesRepo) Create(_ context.Context, series ...*entity.Series) ([]string, error) {
@@ -95,7 +98,10 @@ func (r *fakeSeriesRepo) Create(_ context.Context, series ...*entity.Series) ([]
 	return ids, nil
 }
 
-func (r *fakeSeriesRepo) Get(_ context.Context, _ string) (*entity.Series, error) {
+func (r *fakeSeriesRepo) Get(_ context.Context, id string) (*entity.Series, error) {
+	if s, ok := r.byID[id]; ok {
+		return s, nil
+	}
 	return nil, apperr.New(codes.NotFound, "series not found")
 }
 
@@ -123,6 +129,9 @@ type fakeConcertRepo struct {
 	// filledIDs / filledStarts capture FillEventStartTimes calls.
 	filledIDs    []string
 	filledStarts []*time.Time
+	// updatedListedNames maps eventID → the listed_venue_name written via
+	// UpdateEventListedVenueName; adopt-staged tests assert on this.
+	updatedListedNames map[string]string
 	// published holds concerts returned by List; admin tests seed this directly.
 	published []*entity.Concert
 	// deleteCalled records whether Delete was invoked; admin tests assert on this.
@@ -154,6 +163,14 @@ func (r *fakeConcertRepo) FindEventsByVenueAndDate(_ context.Context, venueIDs [
 func (r *fakeConcertRepo) FillEventStartTimes(_ context.Context, eventIDs []string, startTimes, _ []*time.Time) error {
 	r.filledIDs = append(r.filledIDs, eventIDs...)
 	r.filledStarts = append(r.filledStarts, startTimes...)
+	return nil
+}
+
+func (r *fakeConcertRepo) UpdateEventListedVenueName(_ context.Context, eventID string, listedVenueName string) error {
+	if r.updatedListedNames == nil {
+		r.updatedListedNames = make(map[string]string)
+	}
+	r.updatedListedNames[eventID] = listedVenueName
 	return nil
 }
 

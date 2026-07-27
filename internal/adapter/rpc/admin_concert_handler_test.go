@@ -289,7 +289,8 @@ func TestAdminConcertHandler_Approve(t *testing.T) {
 			args: args{ctx: adminCtx(), stagedID: "staged-abc"},
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
-					m.EXPECT().Approve(mock.Anything, "staged-abc").Return(nil).Once()
+					m.EXPECT().Approve(mock.Anything, "staged-abc", usecase.ApproveResolutionUnspecified, mock.Anything).
+						Return(&usecase.ApproveResult{}, nil).Once()
 				},
 			},
 		},
