@@ -1084,6 +1084,18 @@ func (s *ConcertSearcher) executePass(
 		pm.FinishMessage = candidate.FinishMessage
 		pm.AvgLogprobs = candidate.AvgLogprobs
 
+		// CAVEAT: these grounding metrics UNDER-REPORT actual grounding on
+		// gemini-3.x. On gemini-3.6-flash they come back 0/empty
+		// (WebSearchQueries, GroundingChunks, URLContextMetadata, and
+		// ToolUsePromptTokenCount) even when grounding DID execute — proven in
+		// prod 2026-07-27 when the searcher extracted YOASOBI's North America
+		// Tour 2026 (announced 2026-04-15, after the model's March-2026 training
+		// cutoff, so impossible from memory) with tool_use=0. Do NOT infer
+		// "ungrounded / memory-based / hallucinating" from these zero values;
+		// verify grounding via result freshness (post-cutoff data) instead.
+		// (Billing corollary: 3.5-flash bills grounding as per-search-query
+		// fan-out, 3.6-flash as cheap tokens — hence the cost drop with no
+		// quality loss.)
 		if g := candidate.GroundingMetadata; g != nil {
 			pm.WebSearchQueriesList = g.WebSearchQueries
 			pm.WebSearchQueries = len(g.WebSearchQueries)
