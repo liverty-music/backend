@@ -358,10 +358,10 @@ type GCPConfig struct {
 	MerchDiscoveryWindow time.Duration `envconfig:"GCP_MERCH_DISCOVERY_WINDOW"`
 
 	// Thinking level for the merch-url search. Empty falls back to
-	// defaultMerchThinkingLevel ("high"). Live A/B showed Flash-Lite only obeys
-	// the "never fabricate an ID-bearing deep link; fall back to the stable
-	// store-top URL" rule at "high"; "low"/"medium" hallucinate a category_id.
-	// Accepted: "", minimal, low, medium, high.
+	// defaultMerchThinkingLevel ("medium"). gemini-3.6-flash at "medium" returns
+	// the stable ID-free official store URL and never fabricates an ID-bearing
+	// deep link; Flash-Lite needed "high" for the same rule (and still
+	// under-grounded). Accepted: "", minimal, low, medium, high.
 	GeminiMerchThinkingLevel string `envconfig:"GCP_GEMINI_MERCH_THINKING_LEVEL"`
 
 	// Look-ahead window for the sales-phase discovery job. A series is
@@ -395,16 +395,17 @@ const (
 	defaultSearchDiscoveryWindow = 14 * 24 * time.Hour
 )
 
-// Defaults for the merch-url discovery job. Flash-Lite is the cheapest model
-// that handles the single best-URL lookup well; the 60-day window matches when
-// tour merch is typically announced relative to the earliest event.
+// Defaults for the merch-url discovery job. gemini-3.6-flash grounds reliably
+// at "medium" thinking; the 60-day window matches when tour merch is typically
+// announced relative to the earliest event.
 const (
-	defaultMerchModel           = "gemini-3.1-flash-lite"
+	defaultMerchModel           = "gemini-3.6-flash"
 	defaultMerchDiscoveryWindow = 60 * 24 * time.Hour
-	// defaultMerchThinkingLevel is "high": only at "high" does Flash-Lite
-	// reliably return the stable ID-free official store URL instead of a
-	// fabricated category_id deep link (verified 5/5 in live A/B).
-	defaultMerchThinkingLevel = "high"
+	// defaultMerchThinkingLevel is "medium": live A/B (2026-07-27) showed
+	// gemini-3.6-flash at "medium" returns the stable ID-free official store URL
+	// (e.g. store.plusmember.jp/yorushika/), whereas Flash-Lite fabricated a
+	// category_id deep link at low/medium and only behaved at "high".
+	defaultMerchThinkingLevel = "medium"
 )
 
 // Defaults for the sales-phase discovery and reminder jobs.
