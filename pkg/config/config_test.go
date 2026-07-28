@@ -453,6 +453,24 @@ func TestGCPConfig_SearchModelExtractResolution(t *testing.T) {
 	})
 }
 
+func TestGCPConfig_MerchModelAndThinkingResolution(t *testing.T) {
+	t.Run("merch model default applied when unset", func(t *testing.T) {
+		c := GCPConfig{}
+		assert.Equal(t, defaultMerchModel, c.MerchModel())
+		assert.Equal(t, "gemini-3.6-flash", c.MerchModel())
+	})
+	t.Run("merch thinking default applied when unset", func(t *testing.T) {
+		c := GCPConfig{}
+		assert.Equal(t, defaultMerchThinkingLevel, c.MerchThinking())
+		assert.Equal(t, "medium", c.MerchThinking())
+	})
+	t.Run("merch env overrides take precedence", func(t *testing.T) {
+		c := GCPConfig{GeminiMerchModel: "gemini-3.1-flash-lite", GeminiMerchThinkingLevel: "high"}
+		assert.Equal(t, "gemini-3.1-flash-lite", c.MerchModel())
+		assert.Equal(t, "high", c.MerchThinking())
+	})
+}
+
 func TestGCPConfig_SearchCacheTTLResolution(t *testing.T) {
 	t.Run("env override takes precedence", func(t *testing.T) {
 		c := GCPConfig{GeminiSearchCacheTTL: 72 * time.Hour}

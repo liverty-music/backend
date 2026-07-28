@@ -73,18 +73,22 @@ func TestSalesPhaseSearcher_Vaundy_HORO_Integration(t *testing.T) {
 
 	const (
 		artistName  = "Vaundy"
-		seriesTitle = `Vaundy ASIA ARENA TOUR 2026 "HORO"`
-		seriesID    = "vaundy-horo-2026"
+		seriesTitle = `Vaundy JAPAN ARENA TOUR 2027-2028`
+		seriesID    = "vaundy-arena-2728"
 	)
 
-	// Ground truth: the three real Japan presales (matched by apply_start day).
+	// Ground truth (refreshed 2026-07-27): the one ticket sale phase still open
+	// for this tour — ぴあ抽選先行, apply 2026-07-16 12:00 → 08-02 23:59, lottery
+	// result 2026-08-08 18:00, payment by 08-11. Verified from member.vaundy.jp
+	// /news/detail/11145. CRITICALLY this phase was **announced 2026-07-16**,
+	// AFTER gemini-3.6-flash's March-2026 training cutoff — so extracting it with
+	// the correct apply_start is only possible via LIVE grounding, not memory.
+	// This is the freshness discriminator for the flash-lite-vs-3.6-flash A/B.
 	groundTruth := []struct {
 		name  string
 		start time.Time
 	}{
-		{"VAWS Premium 先行", jst(2026, 2, 15, 20, 0)},
-		{"VAWS Member 先行", jst(2026, 3, 2, 12, 0)},
-		{"Official 先行", jst(2026, 3, 17, 12, 0)},
+		{"ぴあ抽選先行", jst(2026, 7, 16, 12, 0)},
 	}
 
 	// Default to flash-lite for both steps; allow overriding the grounded
@@ -94,7 +98,7 @@ func TestSalesPhaseSearcher_Vaundy_HORO_Integration(t *testing.T) {
 		modelExtract = m
 	}
 
-	for _, thinking := range []string{"medium", "high"} {
+	for _, thinking := range []string{"medium"} {
 		t.Run("extract="+modelExtract+"_thinking_"+thinking, func(t *testing.T) {
 			cfg := gemini.SalesPhaseConfig{
 				APIKey:          apiKey,

@@ -251,8 +251,11 @@ func defaultMerchCases() []merchCase {
 			},
 		},
 		{
+			// Refreshed 2026-07-27 to the current tour. Vaundy has no tour-specific
+			// goods page, so the official EC store (store.plusmember.jp/vaundy) or
+			// an official-host page is the expected resolution.
 			artist:      "Vaundy",
-			series:      `Vaundy DOME TOUR 2026 "SILENCE"`,
+			series:      `Vaundy JAPAN ARENA TOUR 2027-2028`,
 			expectFound: true,
 			officialHosts: []string{
 				"vaundy.jp", "member.vaundy.jp",
