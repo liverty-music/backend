@@ -28,6 +28,8 @@ func main() {
 	if err := run(); err != nil {
 		logger, _ := logging.New()
 		logger.Error(context.Background(), "sales-phase-discovery job failed", err)
+		// Exit 0 (no os.Exit(1)): a systemic failure should not make the
+		// CronJob retry into the same fault. Monitoring relies on ERROR logs.
 	}
 }
 
