@@ -1,11 +1,12 @@
 // Package main provides a one-time migration job that normalizes listed_venue_name
-// values in staged_concerts and events tables by applying entity.NormalizeVenueName.
+// values in venues, staged_concerts, and events tables by applying entity.NormalizeVenueName.
 package main
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/signal"
 	"sort"
 	"syscall"
@@ -22,6 +23,7 @@ func main() {
 	if err := run(); err != nil {
 		logger, _ := logging.New()
 		logger.Error(context.Background(), "normalize-venue-names migration failed", err)
+		os.Exit(1)
 	}
 }
 
@@ -51,13 +53,22 @@ func run() error {
 	shutdown.Init(logger)
 	shutdown.AddDatastorePhase(db)
 
-	// Run both tables inside a single transaction so a mid-migration crash
-	// leaves neither table in a partially-normalized state.
+	// Run all three tables inside a single transaction so a mid-migration crash
+	// leaves no table in a partially-normalized state.
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin migration transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// venues must be normalized first: resolveOrCreateVenue looks up venues by
+	// their listed_venue_name, so an un-normalized venues row would cause a miss
+	// after staged_concerts is normalized (new concerts stage with a normalized
+	// name that no longer matches the old raw-value venues row).
+	venuesUpdated, err := normalizeVenues(ctx, tx, logger)
+	if err != nil {
+		return fmt.Errorf("normalize venues: %w", err)
+	}
 
 	stagedUpdated, stagedDeleted, err := normalizeStagedConcerts(ctx, tx, logger)
 	if err != nil {
@@ -74,12 +85,54 @@ func run() error {
 	}
 
 	logger.Info(ctx, "normalize-venue-names migration complete",
+		slog.Int("venues_updated", venuesUpdated),
 		slog.Int("staged_concerts_updated", stagedUpdated),
 		slog.Int("staged_concerts_deleted_duplicates", stagedDeleted),
 		slog.Int("events_updated", eventsUpdated),
 	)
 
 	return nil
+}
+
+// normalizeVenues normalizes listed_venue_name in venues. This must run before
+// staged_concerts so that the GetByListedName SQL equality lookup keeps working
+// after the write-path normalization is deployed: a staged concert with a
+// normalized name must find its existing venue row by the same normalized key.
+func normalizeVenues(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (int, error) {
+	rows, err := tx.Query(ctx, `SELECT id, listed_venue_name FROM venues WHERE listed_venue_name IS NOT NULL`)
+	if err != nil {
+		return 0, fmt.Errorf("query venues: %w", err)
+	}
+
+	type row struct {
+		id   string
+		name string
+	}
+	var toUpdate []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.name); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan venues row: %w", err)
+		}
+		normalized := entity.NormalizeVenueName(r.name)
+		if normalized != r.name {
+			toUpdate = append(toUpdate, row{id: r.id, name: normalized})
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("iterate venues rows: %w", err)
+	}
+
+	for _, r := range toUpdate {
+		if _, err := tx.Exec(ctx, `UPDATE venues SET listed_venue_name = $1 WHERE id = $2`, r.name, r.id); err != nil {
+			return 0, fmt.Errorf("update venues row %s: %w", r.id, err)
+		}
+	}
+
+	logger.Info(ctx, "venues normalization prepared", slog.Int("to_update", len(toUpdate)))
+	return len(toUpdate), nil
 }
 
 // normalizeStagedConcerts normalizes listed_venue_name in staged_concerts.
