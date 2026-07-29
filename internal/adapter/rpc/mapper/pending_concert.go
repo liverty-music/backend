@@ -32,6 +32,10 @@ func PendingConcertToProto(sc *entity.StagedConcert, performer *entity.Artist) *
 		proto.StartTime = &entityv1.StartTime{Value: timestamppb.New(*sc.StartTime)}
 	}
 
+	if sc.OpenTime != nil {
+		proto.OpenTime = &entityv1.OpenTime{Value: timestamppb.New(*sc.OpenTime)}
+	}
+
 	if sc.ResolvedPlaceID != nil || sc.ResolvedVenueName != nil {
 		proto.ResolvedVenue = resolvedVenueToProto(sc)
 	}

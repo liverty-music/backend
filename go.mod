@@ -18,8 +18,8 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.20.0-20260725094030-77573c77fc22.1
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260725094030-77573c77fc22.1
+	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.20.0-20260729065116-128371dca6a5.1
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.11-20260729065116-128371dca6a5.1
 	cloud.google.com/go/cloudsqlconn v1.20.0
 	connectrpc.com/authn v0.2.0
 	connectrpc.com/connect v1.20.0
