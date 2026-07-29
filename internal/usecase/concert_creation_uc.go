@@ -70,6 +70,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	newPlaces := make(map[placeKey]*entity.VenuePlace)
 
 	for _, sc := range data.Concerts {
+		sc.ListedVenueName = entity.NormalizeVenueName(sc.ListedVenueName)
 		if sc.ListedVenueName == "" {
 			uc.logger.Warn(ctx, "skipping staged concert: empty venue name from Gemini",
 				slog.String("artist_id", data.ArtistID),
@@ -93,12 +94,12 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			return fmt.Errorf("resolve venue %q: %w", sc.ListedVenueName, err)
 		}
 
-		// A nil place means Google Places could not resolve the venue. We still
-		// stage the concert (with its resolved-venue preview absent) so a
-		// developer can review a venue the searcher could not resolve.
-		if place != nil {
-			newPlaces[venueKey(sc.ListedVenueName, sc.AdminArea)] = place
-		} else {
+		// Cache the result (nil or not) so subsequent concerts in the same batch
+		// with the same normalized venue name skip the Places API entirely.
+		// A nil entry means "already tried, not found" — the concert is still staged
+		// for review with the resolved-venue preview absent.
+		newPlaces[venueKey(sc.ListedVenueName, sc.AdminArea)] = place
+		if place == nil {
 			uc.logger.Info(ctx, "staging concert with unresolved venue for review",
 				slog.String("artist_id", data.ArtistID),
 				slog.String("title", sc.Title),
