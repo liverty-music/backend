@@ -40,7 +40,8 @@ type Place struct {
 
 // textSearchRequest is the JSON body for the Places Text Search (New) API.
 type textSearchRequest struct {
-	TextQuery string `json:"textQuery"`
+	TextQuery    string `json:"textQuery"`
+	LanguageCode string `json:"languageCode,omitempty"`
 }
 
 // textSearchResponse is the JSON response from the Places Text Search (New) API.
@@ -94,7 +95,10 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 		query = fmt.Sprintf("%s %s", name, adminArea)
 	}
 
-	body, err := json.Marshal(textSearchRequest{TextQuery: query})
+	body, err := json.Marshal(textSearchRequest{
+		TextQuery:    query,
+		LanguageCode: adminAreaToLanguage(adminArea),
+	})
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Internal, "failed to marshal google maps request body")
 	}
