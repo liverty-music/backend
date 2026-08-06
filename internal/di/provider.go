@@ -242,7 +242,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		"/" + artistconnect.ArtistServiceName + "/Search":              true,
 		"/" + concertconnect.ConcertServiceName + "/List":              true,
 		"/" + concertconnect.ConcertServiceName + "/SearchNewConcerts": true,
-		"/" + concertconnect.ConcertServiceName + "/ListWithProximity": true,
+		"/" + concertconnect.ConcertServiceName + "/ListByArtists":     true,
+		"/" + concertconnect.ConcertServiceName + "/ListByLocation":    true,
 	}
 
 	authFunc := auth.NewAuthFunc(jwtValidator, publicProcedures)

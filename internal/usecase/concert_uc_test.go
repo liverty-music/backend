@@ -823,7 +823,7 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 	}
 }
 
-func TestConcertUseCase_ListWithProximity(t *testing.T) {
+func TestConcertUseCase_ListByArtists(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -855,7 +855,7 @@ func TestConcertUseCase_ListWithProximity(t *testing.T) {
 
 		d.concertRepo.EXPECT().ListByArtists(ctx, []string{"a1", "a2"}).Return(concerts, nil).Once()
 
-		groups, err := d.uc.ListWithProximity(ctx, []string{"a1", "a2"}, home)
+		groups, err := d.uc.ListByArtists(ctx, []string{"a1", "a2"}, home)
 		assert.NoError(t, err)
 		assert.Len(t, groups, 1, "same date should produce 1 group")
 		assert.Len(t, groups[0].Home, 1, "JP-40 venue should be HOME")
@@ -871,12 +871,64 @@ func TestConcertUseCase_ListWithProximity(t *testing.T) {
 		}
 		d.concertRepo.EXPECT().ListByArtists(ctx, []string{"a1"}).Return(concerts, nil).Once()
 
-		groups, err := d.uc.ListWithProximity(ctx, []string{"a1"}, nil)
+		groups, err := d.uc.ListByArtists(ctx, []string{"a1"}, nil)
 		assert.NoError(t, err)
 		assert.Len(t, groups, 1)
 		assert.Len(t, groups[0].Away, 1)
 		assert.Empty(t, groups[0].Home)
 		assert.Empty(t, groups[0].Nearby)
+	})
+}
+
+func TestConcertUseCase_ListByLocation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	from := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	// Fukuoka reference point (JP-40).
+	location := &entity.GeoLocation{Latitude: 33.5904, Longitude: 130.4017, AdminArea: "JP-40"}
+
+	t.Run("classifies HOME/NEARBY and strips AWAY-only date groups", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+
+		date1 := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
+		date2 := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+		// Kumamoto is ~100 km from Fukuoka → NEARBY.
+		kumamoto := &entity.Coordinates{Latitude: 32.8032, Longitude: 130.7079}
+		// Tokyo is ~880 km from Fukuoka with a different admin_area → AWAY.
+		tokyo := &entity.Coordinates{Latitude: 35.6894, Longitude: 139.6917}
+
+		concerts := []*entity.Concert{
+			// date1: one HOME (admin_area match) + one NEARBY → group kept.
+			{Event: entity.Event{ID: "home1", LocalDate: date1, Venue: &entity.Venue{AdminArea: new("JP-40")}}},
+			{Event: entity.Event{ID: "near1", LocalDate: date1, Venue: &entity.Venue{AdminArea: new("JP-43"), Coordinates: kumamoto}}},
+			// date2: only an AWAY venue → entire group must be stripped. It reaches
+			// the use case because the bounding-box pre-filter is coarse.
+			{Event: entity.Event{ID: "away1", LocalDate: date2, Venue: &entity.Venue{AdminArea: new("JP-13"), Coordinates: tokyo}}},
+		}
+
+		d.concertRepo.EXPECT().ListByLocation(ctx, location, from, to).Return(concerts, nil).Once()
+
+		groups, err := d.uc.ListByLocation(ctx, location, from, to)
+		assert.NoError(t, err)
+		assert.Len(t, groups, 1, "only date1 has HOME/NEARBY concerts; date2 (AWAY-only) is stripped")
+		assert.Len(t, groups[0].Home, 1, "JP-40 venue is HOME")
+		assert.Len(t, groups[0].Nearby, 1, "Kumamoto venue within 200km is NEARBY")
+		assert.Empty(t, groups[0].Away, "AWAY must never be surfaced in the All Nearby response")
+	})
+
+	t.Run("rejects a date range exceeding 30 days", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+
+		tooFar := from.AddDate(0, 0, 31)
+
+		groups, err := d.uc.ListByLocation(ctx, location, from, tooFar)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		assert.Nil(t, groups)
 	})
 }
 

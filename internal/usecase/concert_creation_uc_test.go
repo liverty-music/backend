@@ -182,6 +182,10 @@ func (r *fakeConcertRepo) ListByArtists(_ context.Context, _ []string) ([]*entit
 	return nil, nil
 }
 
+func (r *fakeConcertRepo) ListByLocation(_ context.Context, _ *entity.GeoLocation, _, _ time.Time) ([]*entity.Concert, error) {
+	return nil, nil
+}
+
 func (r *fakeConcertRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Concert, error) {
 	return nil, nil
 }

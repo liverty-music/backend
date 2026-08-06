@@ -72,10 +72,10 @@ func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[
 	}), nil
 }
 
-// ListWithProximity returns concerts for the specified artists, grouped by date
+// ListByArtists returns concerts for the specified artists, grouped by date
 // and classified by geographic proximity to the caller's home area.
 // Authentication is not required.
-func (h *ConcertHandler) ListWithProximity(ctx context.Context, req *connect.Request[concertv1.ListWithProximityRequest]) (*connect.Response[concertv1.ListWithProximityResponse], error) {
+func (h *ConcertHandler) ListByArtists(ctx context.Context, req *connect.Request[concertv1.ListByArtistsRequest]) (*connect.Response[concertv1.ListByArtistsResponse], error) {
 	ids := req.Msg.GetArtistIds()
 	artistIDs := make([]string, 0, len(ids))
 	for _, id := range ids {
@@ -84,12 +84,30 @@ func (h *ConcertHandler) ListWithProximity(ctx context.Context, req *connect.Req
 
 	home := mapper.ProtoHomeToEntity(req.Msg.GetHome())
 
-	groups, err := h.concertUseCase.ListWithProximity(ctx, artistIDs, home)
+	groups, err := h.concertUseCase.ListByArtists(ctx, artistIDs, home)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&concertv1.ListWithProximityResponse{
+	return connect.NewResponse(&concertv1.ListByArtistsResponse{
+		Groups: mapper.ProximityGroupsToProto(groups),
+	}), nil
+}
+
+// ListByLocation returns all concerts near the given reference point within a
+// date range, grouped by date and classified by proximity (HOME/NEARBY only).
+// Authentication is not required.
+func (h *ConcertHandler) ListByLocation(ctx context.Context, req *connect.Request[concertv1.ListByLocationRequest]) (*connect.Response[concertv1.ListByLocationResponse], error) {
+	location := mapper.ProtoGeoLocationToEntity(req.Msg.GetLocation())
+	from := mapper.DateToTime(req.Msg.GetFrom().GetValue())
+	to := mapper.DateToTime(req.Msg.GetTo().GetValue())
+
+	groups, err := h.concertUseCase.ListByLocation(ctx, location, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&concertv1.ListByLocationResponse{
 		Groups: mapper.ProximityGroupsToProto(groups),
 	}), nil
 }

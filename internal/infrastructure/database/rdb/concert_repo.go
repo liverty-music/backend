@@ -137,6 +137,29 @@ const (
 		ORDER BY e.local_event_date ASC
 	`
 
+	// listConcertsByLocationQuery returns candidate concerts in a date range whose
+	// venue is a coarse spatial match for a reference point. The bounding box on
+	// v.latitude / v.longitude is a cheap pre-filter that avoids a full-table scan;
+	// the OR on v.admin_area guarantees HOME-tier venues are never missed even when
+	// their coordinates fall outside the box (or are NULL). The precise Haversine
+	// 200 km cut and HOME/NEARBY classification happen in the use-case layer.
+	// Venue lat/lng are included (withCoords) so that classification can run.
+	// Params: $1 from, $2 to, $3 latMin, $4 latMax, $5 lngMin, $6 lngMax, $7 admin_area.
+	listConcertsByLocationQuery = `
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		       s.title, s.type, s.source_url, s.merch_url,
+		       v.id, v.name, v.admin_area, v.latitude, v.longitude
+		FROM events e
+		JOIN series s ON e.series_id = s.id
+		JOIN venues v ON e.venue_id = v.id
+		WHERE e.local_event_date BETWEEN $1 AND $2
+		  AND (
+		    (v.latitude BETWEEN $3 AND $4 AND v.longitude BETWEEN $5 AND $6)
+		    OR v.admin_area = $7
+		  )
+		ORDER BY e.local_event_date ASC
+	`
+
 	// listAllConcertsQuery returns every published concert with no audience
 	// filter, for the admin console's catalog management. Venue lat/lng are
 	// included (withCoords) so the shared scanConcertRow path is reused.
@@ -411,6 +434,57 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 	rows, err := r.db.Pool.Query(ctx, listConcertsByArtistsQuery, artistIDs)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by artists")
+	}
+	defer rows.Close()
+
+	var concerts []*entity.Concert
+	for rows.Next() {
+		c, err := scanConcertRow(rows.Scan, true)
+		if err != nil {
+			return nil, err
+		}
+		concerts = append(concerts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "concert row iteration ended with error")
+	}
+
+	if err := r.hydratePerformers(ctx, concerts); err != nil {
+		return nil, err
+	}
+	return concerts, nil
+}
+
+// Bounding-box half-margins (in degrees) around a reference point, used to
+// pre-filter venue rows before the precise Haversine 200 km cut. The latitude
+// margin covers ~200 km (1° lat ≈ 111 km). The longitude margin is deliberately
+// generous: 1° lon shrinks with latitude (cos φ), so ±2.6° is conservative enough
+// to still span 200 km at Japan's northern extremes (Hokkaido, 43°N+); the tighter
+// ±2.3° is insufficient above ~38.6°N. Over-selecting here is harmless — the
+// use-case Haversine filter removes any venue that is inside the box but beyond
+// 200 km.
+const (
+	boundingBoxLatMargin = 1.8
+	boundingBoxLngMargin = 2.6
+)
+
+// ListByLocation retrieves candidate concerts in [from, to] whose venue is a
+// coarse spatial match for the reference point (inside the bounding box OR sharing
+// its admin_area). Venue lat/lng are included so the use-case layer can apply the
+// precise Haversine 200 km cut and HOME/NEARBY classification.
+func (r *ConcertRepository) ListByLocation(ctx context.Context, location *entity.GeoLocation, from, to time.Time) ([]*entity.Concert, error) {
+	latMin := location.Latitude - boundingBoxLatMargin
+	latMax := location.Latitude + boundingBoxLatMargin
+	lngMin := location.Longitude - boundingBoxLngMargin
+	lngMax := location.Longitude + boundingBoxLngMargin
+
+	rows, err := r.db.Pool.Query(ctx, listConcertsByLocationQuery,
+		from, to, latMin, latMax, lngMin, lngMax, location.AdminArea,
+	)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list concerts by location",
+			slog.String("admin_area", location.AdminArea),
+		)
 	}
 	defer rows.Close()
 
