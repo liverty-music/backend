@@ -85,33 +85,11 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
-		Name:       "ENTRY",
-		Subjects:   []string{"ENTRY.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
 		Name: "SALES_PHASE",
 		// Both subjects are two-token (SALES_PHASE.discovered,
 		// SALES_PHASE.reminder_due), so a single-token `SALES_PHASE.*` matches
 		// them all.
 		Subjects:   []string{"SALES_PHASE.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
-		// Carries TICKET.mint_completed (soulbound-ticket mint outcomes),
-		// consumed by the analytics consumer.
-		Name:       "TICKET",
-		Subjects:   []string{"TICKET.*"},
 		Retention:  nats.LimitsPolicy,
 		MaxAge:     7 * 24 * time.Hour,
 		Storage:    nats.FileStorage,

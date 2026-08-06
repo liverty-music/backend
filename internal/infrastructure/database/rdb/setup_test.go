@@ -154,9 +154,6 @@ func seedEvent(t *testing.T, venueID, artistID, title, date string) string {
 func cleanTables(db *rdb.Database) {
 	ctx := context.Background()
 	tables := []string{
-		"nullifiers",
-		"merkle_tree",
-		"tickets",
 		"ticket_emails",
 		"ticket_journeys",
 		"push_subscriptions",

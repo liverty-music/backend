@@ -45,7 +45,7 @@ func TestSubjectCoveredByStream(t *testing.T) {
 	}{
 		{
 			name:    "single-token subject matched by <domain>.* stream",
-			subject: "TICKET.mint_completed",
+			subject: "TICKET_JOURNEY.status_changed",
 			want:    true,
 		},
 		{
@@ -65,12 +65,12 @@ func TestSubjectCoveredByStream(t *testing.T) {
 		},
 		{
 			name:    "nested subject is NOT covered by a single-token .* filter",
-			subject: "TICKET.mint.completed",
+			subject: "TICKET_JOURNEY.status.changed",
 			want:    false,
 		},
 		{
 			name:    "domain prefix alone (no event token) is not covered",
-			subject: "TICKET",
+			subject: "TICKET_JOURNEY",
 			want:    false,
 		},
 	}

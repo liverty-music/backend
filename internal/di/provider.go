@@ -3,7 +3,6 @@ package di
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -11,11 +10,9 @@ import (
 	adminconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/v1/adminv1connect"
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
-	entryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/entry/v1/entryv1connect"
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
-	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketemailconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_email/v1/ticket_emailv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
@@ -27,12 +24,9 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/webhook"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
-	"github.com/liverty-music/backend/internal/infrastructure/blockchain/safe"
-	"github.com/liverty-music/backend/internal/infrastructure/blockchain/ticketsbt"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
-	inframerkle "github.com/liverty-music/backend/internal/infrastructure/merkle"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -41,7 +35,6 @@ import (
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
-	"github.com/liverty-music/backend/internal/infrastructure/zkp"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/liverty-music/backend/pkg/config"
@@ -92,7 +85,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	searchLogRepo := rdb.NewSearchLogRepository(db)
 	stagedConcertRepo := rdb.NewStagedConcertRepository(db)
 	rejectedConcertRepo := rdb.NewRejectedConcertLogRepository(db)
-	ticketRepo := rdb.NewTicketRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	ticketEmailRepo := rdb.NewTicketEmailRepository(db)
@@ -170,28 +162,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
-
-	// Infrastructure - Blockchain (optional; skipped when config is absent)
-	var ticketUC usecase.TicketUseCase
-	var sbtCloser io.Closer
-	if cfg.Blockchain.RPCURL != "" && cfg.Blockchain.DeployerPrivateKey != "" && cfg.Blockchain.TicketSBTAddress != "" {
-		sbtClient, err := ticketsbt.NewClient(
-			ctx,
-			cfg.Blockchain.RPCURL,
-			cfg.Blockchain.DeployerPrivateKey,
-			cfg.Blockchain.TicketSBTAddress,
-			cfg.Blockchain.ChainID,
-			logger,
-		)
-		if err != nil {
-			return nil, err
-		}
-		sbtCloser = sbtClient
-		ticketUC = usecase.NewTicketUseCase(ticketRepo, sbtClient, infratelemetry.NewOTelMintMetrics(), eventPublisher, logger)
-	} else {
-		logger.Warn(ctx, "⚠️  Blockchain config absent, ticket minting is disabled")
-		_ = ticketRepo // referenced when blockchain is enabled; suppress unused warning
-	}
 
 	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, logger)
 	centroidResolver := geo.NewCentroidResolver()
@@ -307,16 +277,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 	}
 
-	if ticketUC != nil {
-		safePredictor := safe.NewPredictor(cfg.Blockchain.SafeProxyFactory, cfg.Blockchain.SafeInitCodeHash)
-		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return ticketconnect.NewTicketServiceHandler(
-				rpc.NewTicketHandler(ticketUC, userRepo, safePredictor, logger),
-				opts...,
-			)
-		})
-	}
-
 	if ticketEmailUC != nil {
 		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketemailconnect.NewTicketEmailServiceHandler(
@@ -324,29 +284,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		})
-	}
-
-	// Infrastructure - ZKP Verification (optional; skipped when config is absent)
-	if cfg.ZKP.VerificationKeyPath != "" {
-		verifier, err := zkp.NewVerifier(cfg.ZKP.VerificationKeyPath)
-		if err != nil {
-			return nil, err
-		}
-
-		nullifierRepo := rdb.NewNullifierRepository(db)
-		merkleTreeRepo := rdb.NewMerkleTreeRepository(db)
-		eventEntryRepo := rdb.NewEventEntryRepository(db)
-		merkleBuilder := inframerkle.NewBuilder(usecase.DefaultTreeDepth)
-
-		entryUC := usecase.NewEntryUseCase(verifier, nullifierRepo, merkleTreeRepo, merkleBuilder, eventEntryRepo, ticketRepo, eventPublisher, logger)
-		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return entryconnect.NewEntryServiceHandler(
-				rpc.NewEntryHandler(entryUC, userRepo, logger),
-				opts...,
-			)
-		})
-	} else {
-		logger.Warn(ctx, "⚠️  ZKP verification key not configured, entry verification is disabled")
 	}
 
 	// ConcertService requires a longer handler timeout because Gemini API + Google Search
@@ -414,11 +351,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// then cache cleanup goroutine stops.
 	shutdown.AddDrainPhase(healthChecker, srv, adminSrv, webhookSrv, rateLimiter, artistCache)
 	shutdown.AddFlushPhase(publisher)
-	externalClosers := []io.Closer{lastfmClient, musicbrainzClient}
-	if sbtCloser != nil {
-		externalClosers = append(externalClosers, sbtCloser)
-	}
-	shutdown.AddExternalPhase(externalClosers...)
+	shutdown.AddExternalPhase(lastfmClient, musicbrainzClient)
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 

@@ -45,7 +45,7 @@ const (
 	EventArtistUnfollowCompleted AnalyticsEventName = "artist.unfollow.completed"
 )
 
-// Ticket journey and purchase events emitted from the backend.
+// Ticket journey and email events emitted from the backend.
 const (
 	// EventTicketJourneyStatusChanged is recorded after a fan's ticket
 	// journey status is successfully updated via SetStatus. It is
@@ -54,29 +54,11 @@ const (
 	// Properties: event_id, from_status, to_status.
 	EventTicketJourneyStatusChanged AnalyticsEventName = "ticket.journey.status.changed"
 
-	// EventTicketMintCompleted is recorded after a soulbound ticket is
-	// successfully minted on-chain and persisted in the database. Feeds the
-	// SBT issuance / ticket-activation funnel in PostHog.
-	// Properties: event_id.
-	EventTicketMintCompleted AnalyticsEventName = "ticket.mint.completed"
-
 	// EventTicketEmailParsed is recorded by TicketEmailUseCase.Create on
 	// both parse-success and parse-failure paths. Feeds the email-ingestion
 	// data quality and parser robustness dashboards in PostHog.
 	// Properties: email_type, parse_status, field_count.
 	EventTicketEmailParsed AnalyticsEventName = "ticket.email.parsed"
-)
-
-// Entry verification events emitted from the backend, including the
-// zero-knowledge-proof check at venue gates.
-const (
-	// EventEntryZkProofVerified is recorded when a fan's Groth16 proof
-	// passes verification against the published Merkle root for the event.
-	EventEntryZkProofVerified AnalyticsEventName = "entry.zk_proof.verified"
-
-	// EventEntryZkProofRejected is recorded when proof verification fails
-	// for any reason (invalid proof, wrong event, expired commitment).
-	EventEntryZkProofRejected AnalyticsEventName = "entry.zk_proof.rejected"
 )
 
 // Notification lifecycle events emitted from the backend. The underlying
@@ -113,10 +95,7 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventArtistFollowCompleted:      {},
 	EventArtistUnfollowCompleted:    {},
 	EventTicketJourneyStatusChanged: {},
-	EventTicketMintCompleted:        {},
 	EventTicketEmailParsed:          {},
-	EventEntryZkProofVerified:       {},
-	EventEntryZkProofRejected:       {},
 	EventNotificationSubscribed:     {},
 	EventNotificationUnsubscribed:   {},
 	EventNotificationDelivered:      {},

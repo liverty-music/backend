@@ -76,3 +76,4 @@ configMapGenerator:
   - migrations/20260607120000_add_concert_approval_queue_tables.sql
   - migrations/20260617120000_simplify_sales_phase_model.sql
   - migrations/20260626120000_add_notifications_table.sql
+  - migrations/20260806120000_drop_blockchain_ticket_system.sql

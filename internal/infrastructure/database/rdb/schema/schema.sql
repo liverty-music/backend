@@ -15,10 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
     country TEXT,
     time_zone TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    safe_address TEXT,
     home_id UUID,
-    CONSTRAINT users_safe_address_unique UNIQUE (safe_address),
-    CONSTRAINT chk_safe_address_format CHECK (safe_address IS NULL OR safe_address ~ '^0x[0-9a-fA-F]{40}$'),
     CONSTRAINT chk_users_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
@@ -31,7 +28,6 @@ COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g
 COMMENT ON COLUMN users.country IS 'User country code (ISO 3166-1 alpha-2)';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
 COMMENT ON COLUMN users.is_active IS 'Whether the user account is active';
-COMMENT ON COLUMN users.safe_address IS 'Predicted Safe (ERC-4337) address derived deterministically from users.id via CREATE2';
 COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes table. NULL when home is not set.';
 
 -- Homes table
@@ -145,7 +141,6 @@ CREATE TABLE IF NOT EXISTS events (
     local_event_date DATE NOT NULL,
     start_at TIMESTAMPTZ,
     open_at TIMESTAMPTZ,
-    merkle_root BYTEA,
     CONSTRAINT uq_events_natural_key UNIQUE NULLS NOT DISTINCT (venue_id, local_event_date, start_at),
     CONSTRAINT chk_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
@@ -159,7 +154,6 @@ COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from th
 COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
 COMMENT ON COLUMN events.start_at IS 'Event start time (absolute)';
 COMMENT ON COLUMN events.open_at IS 'Doors open time (absolute), if available';
-COMMENT ON COLUMN events.merkle_root IS 'Merkle tree root hash for ZKP identity set; NULL for non-ticket events';
 
 -- Concerts table
 CREATE TABLE IF NOT EXISTS concerts (
@@ -208,57 +202,6 @@ COMMENT ON COLUMN latest_search_logs.artist_id IS 'Reference to the artist that 
 COMMENT ON COLUMN latest_search_logs.searched_at IS 'Timestamp of the most recent external search';
 COMMENT ON COLUMN latest_search_logs.status IS 'Search job status: pending, completed, or failed';
 COMMENT ON COLUMN latest_search_logs.last_found_at IS 'Timestamp of the most recent search that discovered at least one new concert; NULL if none ever found';
-
--- Tickets table (Soulbound Ticket ERC-5192)
-CREATE TABLE IF NOT EXISTS tickets (
-    id UUID PRIMARY KEY,
-    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_id NUMERIC(78, 0) NOT NULL,
-    tx_hash TEXT NOT NULL,
-    minted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_tickets_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
-);
-
-COMMENT ON TABLE tickets IS 'Soulbound Ticket (ERC-5192) ownership records linking users to event tokens on-chain';
-COMMENT ON COLUMN tickets.id IS 'Unique ticket identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN tickets.event_id IS 'Reference to the event this ticket grants entry to';
-COMMENT ON COLUMN tickets.user_id IS 'Reference to the ticket holder';
-COMMENT ON COLUMN tickets.token_id IS 'On-chain ERC-721 token ID minted on Base Sepolia';
-COMMENT ON COLUMN tickets.tx_hash IS 'Blockchain transaction hash of the mint operation';
-COMMENT ON COLUMN tickets.minted_at IS 'Timestamp when the ticket was minted on-chain';
-
--- Merkle tree nodes table for ZKP identity set per event
-CREATE TABLE IF NOT EXISTS merkle_tree (
-    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    depth INT NOT NULL,
-    node_index INT NOT NULL,
-    hash BYTEA NOT NULL,
-    PRIMARY KEY (event_id, depth, node_index),
-    CONSTRAINT chk_merkle_depth_positive CHECK (depth >= 0),
-    CONSTRAINT chk_merkle_index_positive CHECK (node_index >= 0),
-    CONSTRAINT chk_merkle_hash_size CHECK (octet_length(hash) = 32)
-);
-
-COMMENT ON TABLE merkle_tree IS 'Merkle tree nodes for ZKP identity set per event; canonical tree maintained by backend';
-COMMENT ON COLUMN merkle_tree.event_id IS 'Reference to the event this Merkle tree belongs to';
-COMMENT ON COLUMN merkle_tree.depth IS 'Tree depth level (0 = leaves, max = root)';
-COMMENT ON COLUMN merkle_tree.node_index IS 'Node position at the given depth level';
-COMMENT ON COLUMN merkle_tree.hash IS 'Poseidon hash value of the node';
-
--- Nullifiers table for double-entry prevention
-CREATE TABLE IF NOT EXISTS nullifiers (
-    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    nullifier_hash BYTEA NOT NULL,
-    used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (event_id, nullifier_hash),
-    CONSTRAINT chk_nullifier_hash_size CHECK (octet_length(nullifier_hash) = 32)
-);
-
-COMMENT ON TABLE nullifiers IS 'Used ZKP nullifier hashes for preventing double entry at events';
-COMMENT ON COLUMN nullifiers.event_id IS 'Reference to the event this nullifier was used at';
-COMMENT ON COLUMN nullifiers.nullifier_hash IS 'The nullifier hash from the ZK proof; unique per event to prevent reuse';
-COMMENT ON COLUMN nullifiers.used_at IS 'Timestamp when the nullifier was consumed for event entry';
 
 -- Ticket journeys table (user-managed ticket acquisition tracking)
 CREATE TABLE IF NOT EXISTS ticket_journeys (
@@ -546,11 +489,6 @@ COMMENT ON INDEX idx_followed_artists_user_id IS 'Optimizes retrieval of all fol
 
 CREATE INDEX IF NOT EXISTS idx_followed_artists_artist_id ON followed_artists(artist_id);
 COMMENT ON INDEX idx_followed_artists_artist_id IS 'Optimizes finding all followers of an artist';
-
--- Tickets indexes
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_event_user ON tickets(event_id, user_id);
-CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_token_id ON tickets(token_id);
 
 -- Ticket journeys indexes
 CREATE INDEX IF NOT EXISTS idx_ticket_journeys_event_id ON ticket_journeys(event_id);
