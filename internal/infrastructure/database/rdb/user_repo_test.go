@@ -537,67 +537,6 @@ func TestUserRepository_Delete(t *testing.T) {
 	}
 }
 
-func TestUserRepository_UpdateSafeAddress(t *testing.T) {
-	repo := rdb.NewUserRepository(testDB)
-	ctx := context.Background()
-
-	tests := []struct {
-		name        string
-		setup       func() string // returns user ID
-		safeAddress string
-		wantErr     error
-	}{
-		{
-			name: "updates safe address",
-			setup: func() string {
-				cleanDatabase(t)
-				user, err := repo.Create(ctx, newTestUser("ext-safe-1", "safe@example.com", "SafeAddr"))
-				require.NoError(t, err)
-				return user.ID
-			},
-			safeAddress: "0x1234567890abcdef1234567890abcdef12345678",
-			wantErr:     nil,
-		},
-		{
-			name: "empty ID returns error",
-			setup: func() string {
-				return ""
-			},
-			safeAddress: "0xabc",
-			wantErr:     apperr.ErrInvalidArgument,
-		},
-		{
-			name: "non-existent user returns not found",
-			setup: func() string {
-				cleanDatabase(t)
-				return "00000000-0000-0000-0000-000000000000"
-			},
-			safeAddress: "0xabc",
-			wantErr:     apperr.ErrNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			id := tt.setup()
-
-			err := repo.UpdateSafeAddress(ctx, id, tt.safeAddress)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-
-			require.NoError(t, err)
-
-			// Verify safe address was updated
-			user, err := repo.Get(ctx, id)
-			require.NoError(t, err)
-			assert.Equal(t, tt.safeAddress, user.SafeAddress)
-		})
-	}
-}
-
 func TestUserRepository_UpdateHome(t *testing.T) {
 	repo := rdb.NewUserRepository(testDB)
 	ctx := context.Background()

@@ -20,7 +20,7 @@ type UserRepository struct {
 }
 
 const (
-	userColumns = `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, COALESCE(u.safe_address, ''), u.is_active`
+	userColumns = `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, u.is_active`
 
 	homeColumns = `h.id, h.country_code, h.level_1, h.level_2, h.centroid_latitude, h.centroid_longitude`
 
@@ -68,10 +68,6 @@ const (
 		LEFT JOIN homes h ON u.home_id = h.id
 		ORDER BY u.id
 		LIMIT $1 OFFSET $2
-	`
-
-	updateSafeAddressQuery = `
-		UPDATE users SET safe_address = $2 WHERE id = $1
 	`
 
 	// Atomic UPDATE + SELECT in a single statement so the read-after-write
@@ -139,17 +135,15 @@ func nullStringFromEmpty(s string) sql.NullString {
 
 // scanUser scans a user row with optional home columns from a LEFT JOIN.
 //
-// Every nullable users column (preferred_language, country, time_zone,
-// safe_address) is scanned into a sql.NullString intermediate, then assigned
+// Every nullable users column (preferred_language, country, time_zone)
+// is scanned into a sql.NullString intermediate, then assigned
 // to the entity field via .String when .Valid. pgx errors out when scanning
-// SQL NULL into a non-nullable Go destination (a bare string); the four
+// SQL NULL into a non-nullable Go destination (a bare string); the three
 // columns above are nullable per schema and at least one
 // (preferred_language) is regularly NULL on legacy rows after the
 // persist-user-language migration, so the intermediate-local pattern
 // protects every read path that shares this scanner (Get, GetByExternalID,
-// GetByEmail, Update, UpdatePreferredLanguage, UpdateHome's re-fetch,
-// List). safe_address remains COALESCE'd at the SQL boundary for
-// historical reasons; the scan path is defensive in either case.
+// GetByEmail, Update, UpdatePreferredLanguage, UpdateHome's re-fetch, List).
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
 	var preferredLanguage, country, timeZone sql.NullString
@@ -159,7 +153,7 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	err := scanner.Scan(
 		&user.ID, &user.ExternalID, &user.Email, &user.Name,
 		&preferredLanguage, &country, &timeZone,
-		&user.SafeAddress, &user.IsActive,
+		&user.IsActive,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
 	if err != nil {
@@ -391,30 +385,6 @@ func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*entity
 	}
 
 	return users, nil
-}
-
-// UpdateSafeAddress sets the predicted Safe address for a user.
-func (r *UserRepository) UpdateSafeAddress(ctx context.Context, id, safeAddress string) error {
-	if id == "" {
-		return apperr.New(codes.InvalidArgument, "user ID cannot be empty")
-	}
-
-	result, err := r.db.Pool.Exec(ctx, updateSafeAddressQuery, id, safeAddress)
-	if err != nil {
-		return toAppErr(err, "failed to update safe address", slog.String("user_id", id))
-	}
-
-	if result.RowsAffected() == 0 {
-		return apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
-	}
-
-	r.db.logger.Info(ctx, "user updated",
-		slog.String("entityType", "user"),
-		slog.String("userID", id),
-		slog.String("field", "safeAddress"),
-	)
-
-	return nil
 }
 
 // UpdatePreferredLanguage sets the user's preferred display language.

@@ -6,7 +6,7 @@
 //
 // Each backend workload loads only the environment variables it needs:
 //
-//	// API server — loads all fields including JWT, Blockchain, ZKP
+//	// API server — loads all fields including JWT and VAPID
 //	cfg, err := config.Load[config.ServerConfig]()
 //
 //	// CronJob — loads base fields plus GCP and NATS
@@ -82,12 +82,6 @@ type ServerConfig struct {
 
 	// VAPID configuration for Web Push notifications
 	VAPID VAPIDConfig `envconfig:""`
-
-	// Blockchain configuration
-	Blockchain BlockchainConfig `envconfig:""`
-
-	// ZKP configuration
-	ZKP ZKPConfig `envconfig:""`
 
 	// ZitadelMachineKeyForBackendAppPath is the file path to the
 	// `backend-app` Zitadel MachineUser's private key JSON, mounted
@@ -510,31 +504,6 @@ func (c *GCPConfig) ParserModel() string {
 	return c.GeminiModel
 }
 
-// BlockchainConfig holds configuration for EVM interactions and the TicketSBT contract.
-type BlockchainConfig struct {
-	// RPCURL is the JSON-RPC endpoint URL for the target EVM chain.
-	RPCURL string `envconfig:"BLOCKCHAIN_RPC_URL"`
-
-	// ChainID is the EIP-155 chain ID used for transaction signing.
-	// Examples: 84532 (Base Sepolia), 8453 (Base Mainnet).
-	ChainID int64 `envconfig:"CHAIN_ID" default:"84532"`
-
-	// DeployerPrivateKey is the hex-encoded private key of the backend service EOA
-	// that holds MINTER_ROLE on the TicketSBT contract.
-	DeployerPrivateKey string `envconfig:"BLOCKCHAIN_DEPLOYER_PRIVATE_KEY"`
-
-	// TicketSBTAddress is the deployed TicketSBT contract address.
-	TicketSBTAddress string `envconfig:"TICKET_SBT_ADDRESS"`
-
-	// SafeProxyFactory is the canonical Safe{Wallet} ProxyFactory contract address.
-	// Default: Safe v1.4.1 canonical deployment on all EVM chains.
-	SafeProxyFactory string `envconfig:"SAFE_PROXY_FACTORY" default:"0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67"`
-
-	// SafeInitCodeHash is keccak256(SafeProxy creation bytecode ++ abi.encode(Safe singleton)).
-	// Default: Safe v1.4.1 canonical init code hash.
-	SafeInitCodeHash string `envconfig:"SAFE_INIT_CODE_HASH" default:"0x52bede2892dc6ee239117844c91b0bdd458c318980592ab4152f5ea44af17f34"`
-}
-
 // VAPIDConfig holds the Web Push VAPID key pair and contact information.
 type VAPIDConfig struct {
 	// PublicKey is the VAPID public key used by the browser to identify the push service.
@@ -545,13 +514,6 @@ type VAPIDConfig struct {
 
 	// Contact is the mailto: URI sent to push services for administrative contact.
 	Contact string `envconfig:"VAPID_CONTACT" default:"mailto:pepperoni9@gmail.com"`
-}
-
-// ZKPConfig holds configuration for zero-knowledge proof verification.
-type ZKPConfig struct {
-	// VerificationKeyPath is the file path to the snarkjs verification_key.json.
-	// When empty, ZKP-based entry verification is disabled.
-	VerificationKeyPath string `envconfig:"ZKP_VERIFICATION_KEY_PATH"`
 }
 
 // NATSConfig holds configuration for NATS JetStream event messaging.

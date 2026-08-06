@@ -22,8 +22,6 @@ const (
 	// tracked in PostHog, keyed by notification_id. Matches the existing
 	// NOTIFICATION.* JetStream stream — no new stream required.
 	SubjectNotificationDelivered = "NOTIFICATION.delivered"
-	SubjectEntryZkProofVerified  = "ENTRY.zk_proof_verified"
-	SubjectEntryZkProofRejected  = "ENTRY.zk_proof_rejected"
 	// SubjectSalesPhaseDiscovered is published when a brand-new sales phase row
 	// is inserted. Re-discovery of an existing phase (UpsertOutcomeUpdated)
 	// must NOT publish this event.
@@ -38,11 +36,6 @@ const (
 	// when no prior journey existed). It drives the
 	// ticket.journey.status.changed analytics event.
 	SubjectTicketJourneyStatusChanged = "TICKET_JOURNEY.status_changed"
-	// SubjectTicketMintCompleted is published by TicketUseCase.MintTicket after
-	// a ticket is successfully minted and persisted. It drives the
-	// ticket.mint.completed analytics event (SBT issuance / ticket-activation
-	// funnel).
-	SubjectTicketMintCompleted = "TICKET.mint_completed"
 	// SubjectTicketEmailParsed is published by TicketEmailUseCase.Create on
 	// both parse-success and parse-failure paths. It drives the
 	// ticket.email.parsed analytics event (email-ingestion data quality,
@@ -76,31 +69,12 @@ var AllSubjects = []string{
 	SubjectNotificationSubscribed,
 	SubjectNotificationUnsubscribed,
 	SubjectNotificationDelivered,
-	SubjectEntryZkProofVerified,
-	SubjectEntryZkProofRejected,
 	SubjectSalesPhaseDiscovered,
 	SubjectSalesPhaseReminderDue,
 	SubjectTicketJourneyStatusChanged,
-	SubjectTicketMintCompleted,
 	SubjectTicketEmailParsed,
 	SubjectUserLoggedIn,
 }
-
-// EntryRejectionReason enumerates the legitimate causes for a
-// zk-proof entry rejection. Carried on the entry.zk_proof.rejected
-// analytics event so operations dashboards can break down
-// check-in-failure rate by cause. Parse-error and event-id-mismatch
-// paths return errors instead of rejections and intentionally do NOT
-// fire the analytics event — those are attacks or upstream bugs, not
-// legitimate user attempts.
-type EntryRejectionReason string
-
-// Legitimate entry.zk_proof.rejected reasons.
-const (
-	EntryRejectionMerkleRootMismatch EntryRejectionReason = "merkle_root_mismatch"
-	EntryRejectionAlreadyCheckedIn   EntryRejectionReason = "already_checked_in"
-	EntryRejectionProofInvalid       EntryRejectionReason = "proof_invalid"
-)
 
 // ConcertDiscoveredData is the payload for concert.discovered.v1 events.
 // It carries the full batch of scraped concerts for one artist (post-deduplication).
@@ -172,32 +146,6 @@ type ArtistUnfollowedData struct {
 	UserID string `json:"user_id"`
 	// ArtistID is the internal UUID of the unfollowed artist.
 	ArtistID string `json:"artist_id"`
-}
-
-// EntryZkProofVerifiedData is the payload for ENTRY.zk_proof_verified.
-// Mapped to the catalogue event entry.zk_proof.verified by the
-// analytics-consumer. Published by EntryUseCase.VerifyEntry after a
-// successful proof verification and nullifier insertion.
-//
-// NullifierHashHex (hex of the on-wire nullifier) serves as the PostHog
-// distinct_id: it is stable per (ticket, event) pair, intentionally
-// non-reversible to a user identity by ZK guarantee, and already on the
-// public-signals wire so forwarding it leaks no new information.
-type EntryZkProofVerifiedData struct {
-	// NullifierHashHex is the hex-encoded nullifier hash. Used as
-	// PostHog distinct_id.
-	NullifierHashHex string `json:"nullifier_hash_hex"`
-	// EventID is the internal UUID of the live event.
-	EventID string `json:"event_id"`
-}
-
-// EntryZkProofRejectedData is the payload for ENTRY.zk_proof_rejected.
-// Mapped to the catalogue event entry.zk_proof.rejected. Reason takes
-// one of the EntryRejection* constants.
-type EntryZkProofRejectedData struct {
-	NullifierHashHex string               `json:"nullifier_hash_hex"`
-	EventID          string               `json:"event_id"`
-	Reason           EntryRejectionReason `json:"reason"`
 }
 
 // NotificationSubscribedData is the payload for NOTIFICATION.subscribed.
@@ -279,19 +227,6 @@ type SalesPhaseReminderDueData struct {
 	// Built per-recipient so times render in the user's timezone and copy
 	// is selected by preferred_language.
 	Payload *NotificationPayload `json:"payload"`
-}
-
-// TicketMintCompletedData is the payload for TICKET.mint_completed.
-// Mapped to the catalogue event ticket.mint.completed by the
-// analytics-consumer. Published by TicketUseCase.MintTicket after a ticket is
-// successfully minted and persisted. Drives the SBT issuance /
-// ticket-activation funnel in PostHog.
-type TicketMintCompletedData struct {
-	// UserID is the platform-internal user identifier of the ticket recipient.
-	// Used as the PostHog distinct_id.
-	UserID string `json:"user_id"`
-	// EventID is the internal UUID of the live event for which the ticket was minted.
-	EventID string `json:"event_id"`
 }
 
 // TicketEmailParsedData is the payload for TICKET_EMAIL.parsed.
