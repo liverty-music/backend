@@ -42,13 +42,24 @@ type ConcertUseCase interface {
 	//  - NotFound: If the user does not exist.
 	ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home) ([]*entity.ProximityGroup, error)
 
-	// ListWithProximity returns concerts for the specified artists, grouped by date
+	// ListByArtists returns concerts for the specified artists, grouped by date
 	// and classified by proximity to the given home.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database query failure.
-	ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error)
+	ListByArtists(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error)
+
+	// ListByLocation returns all concerts near the given reference point whose
+	// local_event_date falls within [from, to], grouped by date and classified by
+	// proximity. Only HOME and NEARBY concerts are returned; AWAY-only date groups
+	// are omitted entirely.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the date range exceeds the maximum window.
+	//  - Internal: database query failure.
+	ListByLocation(ctx context.Context, location *entity.GeoLocation, from, to time.Time) ([]*entity.ProximityGroup, error)
 
 	// SearchNewConcerts discovers new concerts for the given artist synchronously.
 	// It returns the newly discovered concerts after deduplication against
@@ -164,9 +175,9 @@ func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, userID stri
 	return entity.GroupByDateAndProximity(concerts, home), nil
 }
 
-// ListWithProximity returns concerts for the specified artists, grouped by date
+// ListByArtists returns concerts for the specified artists, grouped by date
 // and classified by proximity to the given home.
-func (uc *concertUseCase) ListWithProximity(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error) {
+func (uc *concertUseCase) ListByArtists(ctx context.Context, artistIDs []string, home *entity.Home) ([]*entity.ProximityGroup, error) {
 	if home != nil && home.Centroid == nil {
 		if lat, lng, err := uc.centroidResolver.ResolveCentroid(home); err == nil {
 			home.Centroid = &entity.Coordinates{Latitude: lat, Longitude: lng}
@@ -179,6 +190,49 @@ func (uc *concertUseCase) ListWithProximity(ctx context.Context, artistIDs []str
 	}
 
 	return entity.GroupByDateAndProximity(concerts, home), nil
+}
+
+// maxLocationDateRange is the maximum span of a ListByLocation date range. The
+// proto message-level CEL constraint only enforces from <= to (protovalidate CEL
+// has no calendar-day arithmetic for google.type.Date), so the 30-day cap is
+// enforced here in the use case.
+const maxLocationDateRange = 30 * 24 * time.Hour
+
+// ListByLocation returns all concerts near the given reference point within
+// [from, to], grouped by date and classified by proximity. It classifies via the
+// shared GroupByDateAndProximity using a transient Home adapted from the reference
+// point, then strips AWAY-only date groups so only HOME/NEARBY concerts surface.
+func (uc *concertUseCase) ListByLocation(ctx context.Context, location *entity.GeoLocation, from, to time.Time) ([]*entity.ProximityGroup, error) {
+	if to.Sub(from) > maxLocationDateRange {
+		return nil, apperr.New(codes.InvalidArgument,
+			"date range must not exceed 30 days",
+			slog.Time("from", from),
+			slog.Time("to", to),
+		)
+	}
+
+	concerts, err := uc.concertRepo.ListByLocation(ctx, location, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("list concerts by location: %w", err)
+	}
+
+	// Adapt the reference point into a transient Home so the shared proximity
+	// classifier can run; then drop date groups that ended up with no HOME or
+	// NEARBY concerts (the bounding-box pre-filter admits venues up to ~200 km+
+	// away that the Haversine cut then reclassifies as AWAY).
+	groups := entity.GroupByDateAndProximity(concerts, location.AsHome())
+
+	nearby := groups[:0]
+	for _, g := range groups {
+		if len(g.Home)+len(g.Nearby) == 0 {
+			continue
+		}
+		// AWAY is never surfaced in the All Nearby view; clear it so the response
+		// mapper cannot leak beyond-200 km venues that shared the bounding box.
+		g.Away = nil
+		nearby = append(nearby, g)
+	}
+	return nearby, nil
 }
 
 // SearchNewConcerts discovers new concerts for the given artist synchronously.

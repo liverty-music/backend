@@ -345,6 +345,14 @@ type ConcertRepository interface {
 	// event_performers, in a single query. Venue coordinates are included for
 	// proximity classification. Results are ordered by local_event_date ascending.
 	ListByArtists(ctx context.Context, artistIDs []string) ([]*Concert, error)
+	// ListByLocation retrieves candidate concerts whose local_event_date falls
+	// within [from, to] and whose venue is a coarse spatial match for the given
+	// reference point: either inside a bounding box around the point's
+	// coordinates OR sharing the point's admin_area. The bounding box is a
+	// pre-filter to avoid a full-table scan; the precise Haversine 200 km cut is
+	// applied by the use-case layer. Venue coordinates are included for that
+	// classification. Results are ordered by local_event_date ascending.
+	ListByLocation(ctx context.Context, location *GeoLocation, from, to time.Time) ([]*Concert, error)
 	// Create persists one or more concerts using bulk insert with UPSERT semantics.
 	//
 	// Each concert must already carry an embedded Series whose row has been

@@ -143,3 +143,28 @@ func TimeToDate(t time.Time) *date.Date {
 		Day:   int32(t.Day()),
 	}
 }
+
+// DateToTime converts a google.type.Date proto to a time.Time at midnight UTC.
+// A nil input yields the zero time. The date is a calendar date (venue-local, per
+// LocalDate semantics); UTC midnight is a canonical, timezone-neutral anchor for
+// the SQL date-range comparison, which compares against the DATE column
+// local_event_date.
+func DateToTime(d *date.Date) time.Time {
+	if d == nil {
+		return time.Time{}
+	}
+	return time.Date(int(d.GetYear()), time.Month(d.GetMonth()), int(d.GetDay()), 0, 0, 0, 0, time.UTC)
+}
+
+// ProtoGeoLocationToEntity converts a liverty_music.entity.v1.GeoLocation proto to
+// the domain GeoLocation. Returns nil when the input is nil.
+func ProtoGeoLocationToEntity(pb *entityv1.GeoLocation) *entity.GeoLocation {
+	if pb == nil {
+		return nil
+	}
+	return &entity.GeoLocation{
+		Latitude:  pb.GetLatitude(),
+		Longitude: pb.GetLongitude(),
+		AdminArea: pb.GetAdminArea(),
+	}
+}

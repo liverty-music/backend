@@ -548,6 +548,67 @@ func (_c *MockConcertRepository_ListByIDs_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
+// ListByLocation provides a mock function with given fields: ctx, location, from, to
+func (_m *MockConcertRepository) ListByLocation(ctx context.Context, location *entity.GeoLocation, from time.Time, to time.Time) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx, location, from, to)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByLocation")
+	}
+
+	var r0 []*entity.Concert
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.GeoLocation, time.Time, time.Time) ([]*entity.Concert, error)); ok {
+		return rf(ctx, location, from, to)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.GeoLocation, time.Time, time.Time) []*entity.Concert); ok {
+		r0 = rf(ctx, location, from, to)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Concert)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *entity.GeoLocation, time.Time, time.Time) error); ok {
+		r1 = rf(ctx, location, from, to)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertRepository_ListByLocation_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByLocation'
+type MockConcertRepository_ListByLocation_Call struct {
+	*mock.Call
+}
+
+// ListByLocation is a helper method to define mock.On call
+//   - ctx context.Context
+//   - location *entity.GeoLocation
+//   - from time.Time
+//   - to time.Time
+func (_e *MockConcertRepository_Expecter) ListByLocation(ctx interface{}, location interface{}, from interface{}, to interface{}) *MockConcertRepository_ListByLocation_Call {
+	return &MockConcertRepository_ListByLocation_Call{Call: _e.mock.On("ListByLocation", ctx, location, from, to)}
+}
+
+func (_c *MockConcertRepository_ListByLocation_Call) Run(run func(ctx context.Context, location *entity.GeoLocation, from time.Time, to time.Time)) *MockConcertRepository_ListByLocation_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*entity.GeoLocation), args[2].(time.Time), args[3].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_ListByLocation_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertRepository_ListByLocation_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertRepository_ListByLocation_Call) RunAndReturn(run func(context.Context, *entity.GeoLocation, time.Time, time.Time) ([]*entity.Concert, error)) *MockConcertRepository_ListByLocation_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateEventListedVenueName provides a mock function with given fields: ctx, eventID, listedVenueName
 func (_m *MockConcertRepository) UpdateEventListedVenueName(ctx context.Context, eventID string, listedVenueName string) error {
 	ret := _m.Called(ctx, eventID, listedVenueName)
