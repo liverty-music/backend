@@ -61,22 +61,23 @@ func TestHype_IsValid(t *testing.T) {
 	}
 }
 
-func TestHype_ShouldNotify(t *testing.T) {
-	t.Parallel()
-
+// hypeTestFixture builds the shared home + per-proximity concerts used by both
+// the MatchingConcerts and ShouldNotify tests. Concerts carry stable IDs so the
+// subset assertions can check identity, not just length.
+func hypeTestFixture() (tokyoHome *entity.Home, tokyo, yokohama, osaka *entity.Concert) {
 	// Tokyo (JP-13): lat 35.6762, lng 139.6503
 	tokyoLevel1 := "JP-13"
 	tokyoCentroid := &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}
 
 	// Yokohama (JP-14): lat 35.4437, lng 139.6380 — ~30 km from Tokyo (NEARBY)
 	yokohamaLevel1 := "JP-14"
-	yokohama := &entity.Coordinates{Latitude: 35.4437, Longitude: 139.6380}
+	yokohamaCoords := &entity.Coordinates{Latitude: 35.4437, Longitude: 139.6380}
 
 	// Osaka (JP-27): lat 34.6937, lng 135.5023 — ~400 km from Tokyo (AWAY)
 	osakaLevel1 := "JP-27"
-	osaka := &entity.Coordinates{Latitude: 34.6937, Longitude: 135.5023}
+	osakaCoords := &entity.Coordinates{Latitude: 34.6937, Longitude: 135.5023}
 
-	tokyoHome := &entity.Home{
+	tokyoHome = &entity.Home{
 		CountryCode: "JP",
 		Level1:      tokyoLevel1,
 		Centroid:    tokyoCentroid,
@@ -85,8 +86,9 @@ func TestHype_ShouldNotify(t *testing.T) {
 	date := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 
 	// A concert at a Tokyo venue (HOME proximity).
-	tokyoConcert := &entity.Concert{
+	tokyo = &entity.Concert{
 		Event: entity.Event{
+			ID:        "concert-tokyo",
 			LocalDate: date,
 			Venue: &entity.Venue{
 				AdminArea:   &tokyoLevel1,
@@ -96,141 +98,120 @@ func TestHype_ShouldNotify(t *testing.T) {
 	}
 
 	// A concert at a Yokohama venue — no admin-area match but within 200 km (NEARBY).
-	yokohamaConcert := &entity.Concert{
+	yokohama = &entity.Concert{
 		Event: entity.Event{
+			ID:        "concert-yokohama",
 			LocalDate: date,
 			Venue: &entity.Venue{
 				AdminArea:   &yokohamaLevel1,
-				Coordinates: yokohama,
+				Coordinates: yokohamaCoords,
 			},
 		},
 	}
 
 	// A concert at an Osaka venue — no admin-area match and >200 km (AWAY).
-	osakaConcert := &entity.Concert{
+	osaka = &entity.Concert{
 		Event: entity.Event{
+			ID:        "concert-osaka",
 			LocalDate: date,
 			Venue: &entity.Venue{
 				AdminArea:   &osakaLevel1,
-				Coordinates: osaka,
+				Coordinates: osakaCoords,
 			},
 		},
 	}
+	return tokyoHome, tokyo, yokohama, osaka
+}
 
-	type args struct {
-		hype       entity.Hype
-		home       *entity.Home
-		venueAreas map[string]struct{}
-		concerts   []*entity.Concert
-	}
+func TestHype_MatchingConcerts(t *testing.T) {
+	t.Parallel()
+
+	tokyoHome, tokyo, yokohama, osaka := hypeTestFixture()
+	all := []*entity.Concert{tokyo, yokohama, osaka}
+
 	tests := []struct {
-		name string
-		args args
-		want bool
+		name     string
+		hype     entity.Hype
+		home     *entity.Home
+		concerts []*entity.Concert
+		want     []*entity.Concert
 	}{
 		{
-			name: "return false for HypeWatch regardless of home",
-			args: args{
-				hype:       entity.HypeWatch,
-				home:       tokyoHome,
-				venueAreas: map[string]struct{}{tokyoLevel1: {}},
-				concerts:   []*entity.Concert{tokyoConcert},
-			},
-			want: false,
+			name:     "HypeWatch matches nothing",
+			hype:     entity.HypeWatch,
+			home:     tokyoHome,
+			concerts: all,
+			want:     nil,
 		},
 		{
-			name: "return true for HypeHome when home level1 matches venue area",
-			args: args{
-				hype:       entity.HypeHome,
-				home:       tokyoHome,
-				venueAreas: map[string]struct{}{tokyoLevel1: {}},
-				concerts:   []*entity.Concert{tokyoConcert},
-			},
-			want: true,
+			name:     "HypeHome selects only in-area concerts",
+			hype:     entity.HypeHome,
+			home:     tokyoHome,
+			concerts: all,
+			want:     []*entity.Concert{tokyo},
 		},
 		{
-			name: "return false for HypeHome when home level1 does not match any venue area",
-			args: args{
-				hype:       entity.HypeHome,
-				home:       tokyoHome,
-				venueAreas: map[string]struct{}{osakaLevel1: {}},
-				concerts:   []*entity.Concert{osakaConcert},
-			},
-			want: false,
+			name:     "HypeHome matches nothing when no concert is in-area",
+			hype:     entity.HypeHome,
+			home:     tokyoHome,
+			concerts: []*entity.Concert{yokohama, osaka},
+			want:     nil,
 		},
 		{
-			name: "return false for HypeHome when home is nil",
-			args: args{
-				hype:       entity.HypeHome,
-				home:       nil,
-				venueAreas: map[string]struct{}{tokyoLevel1: {}},
-				concerts:   []*entity.Concert{tokyoConcert},
-			},
-			want: false,
+			name:     "HypeHome matches nothing when home is nil",
+			hype:     entity.HypeHome,
+			home:     nil,
+			concerts: all,
+			want:     nil,
 		},
 		{
-			name: "return false for HypeHome when home level1 is empty",
-			args: args{
-				hype: entity.HypeHome,
-				home: &entity.Home{
-					CountryCode: "JP",
-					Level1:      "",
-					Centroid:    tokyoCentroid,
-				},
-				venueAreas: map[string]struct{}{tokyoLevel1: {}},
-				concerts:   []*entity.Concert{tokyoConcert},
-			},
-			want: false,
+			name:     "HypeHome matches nothing when home level1 is empty",
+			hype:     entity.HypeHome,
+			home:     &entity.Home{CountryCode: "JP", Level1: ""},
+			concerts: all,
+			want:     nil,
 		},
 		{
-			name: "return true for HypeNearby when a concert is nearby",
-			args: args{
-				hype:       entity.HypeNearby,
-				home:       tokyoHome,
-				venueAreas: map[string]struct{}{yokohamaLevel1: {}},
-				concerts:   []*entity.Concert{yokohamaConcert},
-			},
-			want: true,
+			name:     "HypeNearby selects in-area and in-range concerts",
+			hype:     entity.HypeNearby,
+			home:     tokyoHome,
+			concerts: all,
+			want:     []*entity.Concert{tokyo, yokohama},
 		},
 		{
-			name: "return false for HypeNearby when all concerts are away",
-			args: args{
-				hype:       entity.HypeNearby,
-				home:       tokyoHome,
-				venueAreas: map[string]struct{}{osakaLevel1: {}},
-				concerts:   []*entity.Concert{osakaConcert},
-			},
-			want: false,
+			name:     "HypeNearby matches nothing when all concerts are away",
+			hype:     entity.HypeNearby,
+			home:     tokyoHome,
+			concerts: []*entity.Concert{osaka},
+			want:     nil,
 		},
 		{
-			name: "return false for HypeNearby when home is nil",
-			args: args{
-				hype:       entity.HypeNearby,
-				home:       nil,
-				venueAreas: map[string]struct{}{yokohamaLevel1: {}},
-				concerts:   []*entity.Concert{yokohamaConcert},
-			},
-			want: false,
+			name:     "HypeNearby matches nothing when home is nil",
+			hype:     entity.HypeNearby,
+			home:     nil,
+			concerts: all,
+			want:     nil,
 		},
 		{
-			name: "return true for HypeAway regardless of proximity",
-			args: args{
-				hype:       entity.HypeAway,
-				home:       tokyoHome,
-				venueAreas: map[string]struct{}{osakaLevel1: {}},
-				concerts:   []*entity.Concert{osakaConcert},
-			},
-			want: true,
+			name:     "HypeAway selects all concerts",
+			hype:     entity.HypeAway,
+			home:     tokyoHome,
+			concerts: all,
+			want:     []*entity.Concert{tokyo, yokohama, osaka},
 		},
 		{
-			name: "return false for unknown hype value",
-			args: args{
-				hype:       entity.Hype("unknown"),
-				home:       tokyoHome,
-				venueAreas: map[string]struct{}{tokyoLevel1: {}},
-				concerts:   []*entity.Concert{tokyoConcert},
-			},
-			want: false,
+			name:     "HypeAway matches nothing for an empty batch",
+			hype:     entity.HypeAway,
+			home:     tokyoHome,
+			concerts: nil,
+			want:     nil,
+		},
+		{
+			name:     "unknown hype matches nothing",
+			hype:     entity.Hype("unknown"),
+			home:     tokyoHome,
+			concerts: all,
+			want:     nil,
 		},
 	}
 
@@ -238,7 +219,66 @@ func TestHype_ShouldNotify(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.args.hype.ShouldNotify(tt.args.home, tt.args.venueAreas, tt.args.concerts)
+			got := tt.hype.MatchingConcerts(tt.home, tt.concerts)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestHype_ShouldNotify(t *testing.T) {
+	t.Parallel()
+
+	tokyoHome, tokyo, _, osaka := hypeTestFixture()
+
+	tests := []struct {
+		name     string
+		hype     entity.Hype
+		home     *entity.Home
+		concerts []*entity.Concert
+		want     bool
+	}{
+		{
+			name:     "false for HypeWatch",
+			hype:     entity.HypeWatch,
+			home:     tokyoHome,
+			concerts: []*entity.Concert{tokyo},
+			want:     false,
+		},
+		{
+			name:     "true for HypeHome with an in-area concert",
+			hype:     entity.HypeHome,
+			home:     tokyoHome,
+			concerts: []*entity.Concert{tokyo},
+			want:     true,
+		},
+		{
+			name:     "false for HypeHome with only out-of-area concerts",
+			hype:     entity.HypeHome,
+			home:     tokyoHome,
+			concerts: []*entity.Concert{osaka},
+			want:     false,
+		},
+		{
+			name:     "true for HypeAway with any concert",
+			hype:     entity.HypeAway,
+			home:     tokyoHome,
+			concerts: []*entity.Concert{osaka},
+			want:     true,
+		},
+		{
+			name:     "false for unknown hype",
+			hype:     entity.Hype("unknown"),
+			home:     tokyoHome,
+			concerts: []*entity.Concert{tokyo},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tt.hype.ShouldNotify(tt.home, tt.concerts)
 			assert.Equal(t, tt.want, got)
 		})
 	}

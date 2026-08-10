@@ -156,11 +156,16 @@ func (uc *pushNotificationUseCase) Delete(ctx context.Context, userID, endpoint 
 // filtered by each follower's hype level. Only the concerts identified in data
 // are used for hype filtering and payload computation.
 //
-// Filtering rules:
-//   - WATCH: no notification.
-//   - HOME: notify only when at least one concert venue adminArea matches the follower's home.
-//   - NEARBY: notify only when at least one concert venue is within 200km of the follower's home centroid.
-//   - AWAY: always notify.
+// For each follower the new-concert set is narrowed to that recipient's
+// hype-matched subset (see [entity.Hype.MatchingConcerts]):
+//   - WATCH: empty subset → no notification.
+//   - HOME: concerts whose venue adminArea matches the follower's home area.
+//   - NEARBY: concerts within 200km of the follower's home centroid.
+//   - AWAY: all concerts.
+//
+// A recipient is notified only when their subset is non-empty. The body count is
+// the subset size, and the deep-link (data.url) targets the earliest concert of
+// the subset (local date asc, tie-broken by start time asc).
 //
 // Individual delivery failures are logged but do not cause the method to return an error.
 func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error {
@@ -221,10 +226,10 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 
 	// Drop orphan concerts from the working slice. The membership check
 	// skipped them above so they don't abort the batch, but if they
-	// stayed in `concerts` they would still feed venueAreas and the
-	// ShouldNotify input — qualifying a follower for HypeHome /
-	// HypeNearby on a concert whose performer membership was never
-	// confirmed (orphan event_performers state).
+	// stayed in `concerts` they would still feed MatchingConcerts —
+	// qualifying a follower for HypeHome / HypeNearby (or padding the
+	// HypeAway count and deep-link) on a concert whose performer
+	// membership was never confirmed (orphan event_performers state).
 	if len(orphanConcerts) > 0 {
 		kept := concerts[:0]
 		for _, c := range concerts {
@@ -237,9 +242,9 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 
 	// If every concert was an orphan, there's nothing real to notify
 	// about — short-circuit before the hype loop. Without this guard,
-	// HypeAway.ShouldNotify returns true unconditionally and every
-	// HypeAway follower receives a push with a "0 new concerts" payload
-	// (concertNotificationBody formats the count from len(concerts)).
+	// HypeAway.MatchingConcerts would return an empty subset for every
+	// recipient (so no push is sent), but short-circuiting here also skips
+	// the follower lookup entirely.
 	if len(concerts) == 0 {
 		return nil
 	}
@@ -253,43 +258,18 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		return nil
 	}
 
-	// 2. Collect unique venue admin areas from concerts for HOME filtering.
-	venueAreas := make(map[string]struct{})
-	for _, c := range concerts {
-		if c.Venue != nil && c.Venue.AdminArea != nil {
-			venueAreas[*c.Venue.AdminArea] = struct{}{}
-		}
-	}
-
-	// 3. Filter followers by hype level and collect eligible user IDs, recording
-	//    each recipient's resolved language for per-user copy localization.
-	var userIDs []string
-	langByUser := make(map[string]string)
+	// 2. For each follower, narrow the new-concert set to that recipient's
+	//    hype-matched subset, then record and dispatch one notification per
+	//    eligible recipient through the notification service. Every recipient
+	//    gets a durable record and a delivery outcome; the service resolves each
+	//    recipient's push subscriptions, performs the send, cleans up gone (410)
+	//    endpoints, and records delivered/failed.
+	//
+	//    Both the body count and the deep-link target are computed from the
+	//    per-recipient subset — never from the unfiltered new-concert set — so a
+	//    home-hype fan sees an area-accurate count and lands on a concert that
+	//    actually matched their hype tier.
 	for _, f := range followers {
-		// f.User may be nil if the join with users dropped a row (e.g.
-		// orphaned follow). Skip the whole follower in that case — the
-		// subsequent f.User.ID dereference would panic for any non-Watch
-		// hype tier because HypeAway.ShouldNotify always returns true and
-		// HypeHome may return true without ever reading f.User.Home.
-		if f.User == nil {
-			continue
-		}
-		if !f.Hype.ShouldNotify(f.User.Home, venueAreas, concerts) {
-			continue
-		}
-		userIDs = append(userIDs, f.User.ID)
-		langByUser[f.User.ID] = f.User.PreferredLanguage
-	}
-	if len(userIDs) == 0 {
-		return nil
-	}
-
-	// 4. Record and dispatch one notification per eligible recipient through the
-	//    notification service, so every recipient gets a durable record and a
-	//    delivery outcome. The service resolves each recipient's push
-	//    subscriptions, performs the send, cleans up gone (410) endpoints, and
-	//    records delivered/failed. Copy is localized per recipient by language.
-	for _, userID := range userIDs {
 		// Honour context cancellation before each recipient.
 		select {
 		case <-ctx.Done():
@@ -297,21 +277,40 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		default:
 		}
 
+		// f.User may be nil if the join with users dropped a row (e.g. an
+		// orphaned follow). Skip the whole follower in that case — the
+		// MatchingConcerts call reads f.User.Home and the dispatch reads
+		// f.User.ID, both of which would panic on a nil user.
+		if f.User == nil {
+			continue
+		}
+
+		subset := f.Hype.MatchingConcerts(f.User.Home, concerts)
+		if len(subset) == 0 {
+			continue
+		}
+
+		earliest := entity.EarliestConcert(subset)
+		if earliest == nil {
+			// Defensive: a non-empty subset should always yield an earliest
+			// concert. Skip rather than emit a notification with no deep-link.
+			continue
+		}
+
 		payload := entity.NewNotificationPayload(
 			artist.Name,
-			concertNotificationBody(len(concerts), langByUser[userID]),
-			// Deep-link to the dashboard (the fan's home, which lists their
-			// followed-artist concerts). The former "/concerts?artist=<id>" had
-			// no matching frontend route and 404'd on tap; there is no per-artist
-			// concert list route yet, so land on the dashboard.
-			"/dashboard",
+			concertNotificationBody(len(subset), f.User.PreferredLanguage),
+			// Deep-link to the earliest hype-matched concert. The frontend's
+			// canonical concert-detail URL routes to the dashboard and opens the
+			// concert's detail sheet, filtered to its artist.
+			fmt.Sprintf("/concerts/%s", earliest.ID),
 			fmt.Sprintf("concert-%s", artist.ID),
 		)
-		if _, err := uc.notificationUC.Notify(ctx, userID, entity.NotificationTypeNewConcerts, payload); err != nil {
+		if _, err := uc.notificationUC.Notify(ctx, f.User.ID, entity.NotificationTypeNewConcerts, payload); err != nil {
 			// Record-create failure ("no record => no send"): surface so the
 			// consumer's at-least-once retry re-drives the batch. Repeat web
 			// pushes are deduplicated browser-side by the per-artist Tag.
-			return fmt.Errorf("failed to notify user %s of new concerts for artist %s: %w", userID, artist.ID, err)
+			return fmt.Errorf("failed to notify user %s of new concerts for artist %s: %w", f.User.ID, artist.ID, err)
 		}
 	}
 

@@ -40,48 +40,71 @@ func (h Hype) IsValid() bool {
 	}
 }
 
-// ShouldNotify reports whether a follower with hype level h should receive a
-// push notification for a newly discovered concert, given the follower's home
-// area, the venue's admin areas, and the list of concerts.
+// MatchingConcerts narrows a batch of newly created concerts to the subset that
+// satisfies this hype level's predicate for a follower with the given home area.
+// The subset drives both the notification body count and the deep-link target,
+// so it must reflect exactly what the recipient's hype tier promised them.
 //
-// Decision rules (evaluated in order):
-//  1. HypeWatch → false (dashboard-only, no push).
-//  2. HypeHome → true only when home is non-nil, home.Level1 is non-empty, and
-//     home.Level1 exists in venueAreas.
-//  3. HypeNearby → true only when home is non-nil and at least one concert in
-//     concerts has proximity ProximityHome or ProximityNearby relative to home.
-//  4. HypeAway → true (all concerts nationwide).
-//  5. Anything else → false.
-func (h Hype) ShouldNotify(home *Home, venueAreas map[string]struct{}, concerts []*Concert) bool {
+// Selection rules:
+//  1. HypeWatch → empty (dashboard-only, no push).
+//  2. HypeHome → concerts whose venue admin area matches the recipient's home
+//     area (ProximityHome); empty when home is nil or home.Level1 is empty.
+//  3. HypeNearby → concerts within range of the home centroid (ProximityHome or
+//     ProximityNearby); empty when home is nil.
+//  4. HypeAway → all concerts nationwide.
+//  5. Anything else → empty.
+//
+// The returned slice preserves the input order and shares no backing array with
+// concerts, so callers may sort or filter it freely. Returns nil (not a zero
+// slice) when nothing matches.
+func (h Hype) MatchingConcerts(home *Home, concerts []*Concert) []*Concert {
 	switch h {
 	case HypeWatch:
-		return false
+		return nil
 
 	case HypeHome:
 		if home == nil || home.Level1 == "" {
-			return false
+			return nil
 		}
-		_, ok := venueAreas[home.Level1]
-		return ok
+		var matched []*Concert
+		for _, c := range concerts {
+			if c.ProximityTo(home) == ProximityHome {
+				matched = append(matched, c)
+			}
+		}
+		return matched
 
 	case HypeNearby:
 		if home == nil {
-			return false
+			return nil
 		}
+		var matched []*Concert
 		for _, c := range concerts {
-			p := c.ProximityTo(home)
-			if p == ProximityHome || p == ProximityNearby {
-				return true
+			if p := c.ProximityTo(home); p == ProximityHome || p == ProximityNearby {
+				matched = append(matched, c)
 			}
 		}
-		return false
+		return matched
 
 	case HypeAway:
-		return true
+		if len(concerts) == 0 {
+			return nil
+		}
+		matched := make([]*Concert, len(concerts))
+		copy(matched, concerts)
+		return matched
 
 	default:
-		return false
+		return nil
 	}
+}
+
+// ShouldNotify reports whether a follower with hype level h should receive a
+// push notification for the given newly created concerts, given the follower's
+// home area. It is defined as "the hype-matched subset is non-empty" — see
+// [Hype.MatchingConcerts] for the per-tier predicate.
+func (h Hype) ShouldNotify(home *Home, concerts []*Concert) bool {
+	return len(h.MatchingConcerts(home, concerts)) > 0
 }
 
 // Follow represents the write model for a user-artist follow relationship.
