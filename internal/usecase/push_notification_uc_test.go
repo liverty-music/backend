@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
@@ -740,5 +741,88 @@ func TestNotifyNewConcerts_PluralBodyPerLanguage(t *testing.T) {
 		Once()
 
 	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2"}})
+	assert.NoError(t, err)
+}
+
+// payloadURL extracts the deep-link URL from a notification payload's data map.
+func payloadURL(p *entity.NotificationPayload) string {
+	return p.Data[entity.NotificationDataKeyURL]
+}
+
+// TestNotifyNewConcerts_DeepLinksToEarliestMatched verifies that an AWAY
+// recipient's notification deep-links to the earliest concert of the batch,
+// regardless of the order the concerts arrive in.
+func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	d := newPushNotificationTestDeps(t)
+
+	tokyoArea := "JP-13"
+	date := func(day int) time.Time { return time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC) }
+	// The later concert is listed first to prove ordering is by date, not slice order.
+	concerts := []*entity.Concert{
+		{Event: entity.Event{ID: "c-late", LocalDate: date(10), Venue: &entity.Venue{AdminArea: &tokyoArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{Event: entity.Event{ID: "c-early", LocalDate: date(3), Venue: &entity.Venue{AdminArea: &tokyoArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+	}
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	followers := []*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-away"}, Hype: entity.HypeAway},
+	}
+
+	d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c-late", "c-early"}).Return(concerts, nil).Once()
+	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+
+	deliveredNotif := &entity.Notification{ID: "notif-1", DeliveryStatus: entity.NotificationDeliveryStatusDelivered}
+	d.notificationUC.EXPECT().
+		Notify(anyCtx, "user-away", entity.NotificationTypeNewConcerts,
+			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
+				return payloadURL(p) == "/concerts/c-early" && p.Body == "2 new concerts found"
+			})).
+		Return(deliveredNotif, nil).
+		Once()
+
+	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c-late", "c-early"}})
+	assert.NoError(t, err)
+}
+
+// TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink verifies the spec's
+// home-hype scenario: with 3 new concerts (1 in JP-13, 2 in JP-40), a home
+// recipient in JP-13 sees a count of 1 and deep-links to the in-area concert —
+// never the earlier, out-of-area JP-40 concert.
+func TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	d := newPushNotificationTestDeps(t)
+
+	tokyoArea := "JP-13"
+	aichiArea := "JP-40"
+	date := func(day int) time.Time { return time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC) }
+	concerts := []*entity.Concert{
+		{Event: entity.Event{ID: "aichi-early", LocalDate: date(1), Venue: &entity.Venue{AdminArea: &aichiArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{Event: entity.Event{ID: "tokyo-later", LocalDate: date(5), Venue: &entity.Venue{AdminArea: &tokyoArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{Event: entity.Event{ID: "aichi-early2", LocalDate: date(2), Venue: &entity.Venue{AdminArea: &aichiArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+	}
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	followers := []*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-home-tokyo", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeHome},
+	}
+
+	d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"aichi-early", "tokyo-later", "aichi-early2"}).Return(concerts, nil).Once()
+	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+
+	deliveredNotif := &entity.Notification{ID: "notif-1", DeliveryStatus: entity.NotificationDeliveryStatusDelivered}
+	d.notificationUC.EXPECT().
+		Notify(anyCtx, "user-home-tokyo", entity.NotificationTypeNewConcerts,
+			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
+				return payloadURL(p) == "/concerts/tokyo-later" && p.Body == "1 new concert found"
+			})).
+		Return(deliveredNotif, nil).
+		Once()
+
+	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"aichi-early", "tokyo-later", "aichi-early2"}})
 	assert.NoError(t, err)
 }

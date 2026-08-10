@@ -278,6 +278,47 @@ func (c *Concert) ProximityTo(home *Home) Proximity {
 	return ProximityAway
 }
 
+// EarliestConcert returns the earliest concert in the slice, ordered by local
+// date ascending and tie-broken by start time ascending. A known start time
+// precedes an unknown (nil) one on the same date; any remaining tie is broken by
+// ID so the result is deterministic. Nil elements are skipped. Returns nil for
+// an empty slice or a slice of only nil elements.
+//
+// This is the deep-link target for a new-concert push notification: the earliest
+// concert of the recipient's hype-matched subset.
+func EarliestConcert(concerts []*Concert) *Concert {
+	var earliest *Concert
+	for _, c := range concerts {
+		if c == nil {
+			continue
+		}
+		if earliest == nil || concertEarlier(c, earliest) {
+			earliest = c
+		}
+	}
+	return earliest
+}
+
+// concertEarlier reports whether concert a sorts before concert b under the
+// [EarliestConcert] ordering: local date asc, then start time asc (known before
+// unknown), then ID asc as a stable final tie-break.
+func concertEarlier(a, b *Concert) bool {
+	if !a.LocalDate.Equal(b.LocalDate) {
+		return a.LocalDate.Before(b.LocalDate)
+	}
+	switch as, bs := a.StartTime, b.StartTime; {
+	case as != nil && bs != nil:
+		if !as.Equal(*bs) {
+			return as.Before(*bs)
+		}
+	case as != nil && bs == nil:
+		return true
+	case as == nil && bs != nil:
+		return false
+	}
+	return a.ID < b.ID
+}
+
 // ProximityGroup contains concerts for a single calendar date, classified into
 // three geographic proximity buckets relative to the user's home area.
 type ProximityGroup struct {

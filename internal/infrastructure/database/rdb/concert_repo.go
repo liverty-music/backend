@@ -178,7 +178,7 @@ const (
 	deleteEventQuery = `DELETE FROM events WHERE id = $1`
 
 	// listConcertsByIDsQuery includes venue lat/lng because NotifyNewConcerts
-	// feeds the result into HypeNearby.ShouldNotify, which calls ProximityTo
+	// feeds the result into HypeNearby.MatchingConcerts, which calls ProximityTo
 	// on Venue.Coordinates. Without the coordinates, ProximityTo returns
 	// ProximityAway for every concert and HypeNearby followers are silently
 	// excluded from every new-concert push notification.
