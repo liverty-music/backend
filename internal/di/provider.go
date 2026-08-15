@@ -183,6 +183,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		organizerProvisioner = infrazitadel.NewNoopOrganizerProvisioner(logger)
 	}
 	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, eventPublisher, businessMetrics, logger)
+	// Run the provisioning reconciler only where the real provisioner credential
+	// is mounted (the isolated admin workload); it completes any organizer left
+	// in the provisioning state after a partial failure.
+	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
+		startOrganizerReconciler(ctx, organizerUC, logger)
+	}
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	var ticketEmailUC usecase.TicketEmailUseCase
