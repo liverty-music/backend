@@ -2,12 +2,14 @@ module github.com/liverty-music/backend
 
 go 1.26
 
-// Pin the minimum toolchain to 1.26.5, which fixes the Go stdlib advisory
-// GO-2026-5856 (crypto/tls) flagged by govulncheck — reachable via
-// pkg/httpx/retry.go — on top of the earlier GO-2026-5037 (crypto/x509) and
-// GO-2026-5039 (net/textproto). Every `go` invocation (local, CI) uses at
+// Pin the minimum toolchain to 1.26.6, which fixes the Go stdlib advisories
+// flagged by govulncheck: GO-2026-6089/GO-2026-5026 (net/http),
+// GO-2026-6090 (crypto/tls), GO-2026-6091 (html/template), GO-2026-6218
+// (net/url), GO-2026-6088 (encoding/xml) and GO-2026-5972 (encoding/asn1) —
+// on top of the earlier GO-2026-5856 (crypto/tls), GO-2026-5037 (crypto/x509)
+// and GO-2026-5039 (net/textproto). Every `go` invocation (local, CI) uses at
 // least this toolchain.
-toolchain go1.26.5
+toolchain go1.26.6
 
 tool (
 	github.com/bufbuild/buf/cmd/buf
