@@ -82,6 +82,20 @@ const (
 	EventNotificationDelivered AnalyticsEventName = "notification.delivered"
 )
 
+// Organizer lifecycle events emitted from the backend.
+const (
+	// EventOrganizerCreated is recorded after an organizer tenant is fully
+	// provisioned and the row flips to active. It is an admin-actor / group
+	// event keyed on organizer_id in PostHog; no fan distinct_id is present.
+	// Properties: organizer_id.
+	EventOrganizerCreated AnalyticsEventName = "organizer.created"
+
+	// EventOrganizerArtistAssociated is recorded after an artist is linked to
+	// an organizer. It is an admin-actor / group event keyed on organizer_id in
+	// PostHog; no fan distinct_id is present. Properties: organizer_id, artist_id.
+	EventOrganizerArtistAssociated AnalyticsEventName = "organizer.artist.associated"
+)
+
 // knownBackendEvents is the allowlist of AnalyticsEventName constants
 // emitted from the backend. AnalyticsClient implementations consult this
 // via IsKnownEvent to reject typos at the call site, satisfying the
@@ -99,6 +113,8 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventNotificationSubscribed:     {},
 	EventNotificationUnsubscribed:   {},
 	EventNotificationDelivered:      {},
+	EventOrganizerCreated:           {},
+	EventOrganizerArtistAssociated:  {},
 }
 
 // IsKnownEvent reports whether name is registered in the backend event

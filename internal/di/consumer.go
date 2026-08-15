@@ -221,6 +221,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"track-notification-delivered", entity.SubjectNotificationDelivered, analyticsConsumer.HandleNotificationDelivered},
 		{"track-ticket-journey", entity.SubjectTicketJourneyStatusChanged, analyticsConsumer.HandleTicketJourneyStatusChanged},
 		{"track-ticket-email", entity.SubjectTicketEmailParsed, analyticsConsumer.HandleTicketEmailParsed},
+		{"analytics-organizer-created", entity.SubjectOrganizerCreated, analyticsConsumer.HandleOrganizerCreated},
+		{"analytics-organizer-artist-associated", entity.SubjectOrganizerArtistAssociated, analyticsConsumer.HandleOrganizerArtistAssociated},
 		{"log-poison", messaging.PoisonQueueSubject, poisonConsumer.Handle},
 		{"notify-sales-phase", entity.SubjectSalesPhaseDiscovered, salesPhaseAnnouncementConsumer.Handle},
 		{"notify-sales-reminder", entity.SubjectSalesPhaseReminderDue, salesReminderConsumer.Handle},

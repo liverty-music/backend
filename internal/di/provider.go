@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	adminorganizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
 	adminconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/v1/adminv1connect"
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
@@ -88,6 +89,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	ticketEmailRepo := rdb.NewTicketEmailRepository(db)
+	organizerRepo := rdb.NewOrganizerRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -167,6 +169,26 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
+	// Organizer tenant provisioner: the real Zitadel Management-API client when the
+	// dedicated organizer-provisioner credential is mounted (isolated admin
+	// workload), otherwise a no-op for local dev (no live Zitadel).
+	var organizerProvisioner usecase.OrganizerProvisioner
+	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
+		op, err := infrazitadel.NewOrganizerProvisioner(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create organizer provisioner: %w", err)
+		}
+		organizerProvisioner = op
+	} else {
+		organizerProvisioner = infrazitadel.NewNoopOrganizerProvisioner(logger)
+	}
+	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, eventPublisher, businessMetrics, logger)
+	// Run the provisioning reconciler only where the real provisioner credential
+	// is mounted (the isolated admin workload); it completes any organizer left
+	// in the provisioning state after a partial failure.
+	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
+		startOrganizerReconciler(ctx, organizerUC, logger)
+	}
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	var ticketEmailUC usecase.TicketEmailUseCase
@@ -233,6 +255,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminconnect.NewConcertServiceHandler(
 				rpc.NewAdminConcertHandler(concertUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return adminorganizerconnect.NewOrganizerServiceHandler(
+				rpc.NewAdminOrganizerHandler(organizerUC, logger),
 				opts...,
 			)
 		},

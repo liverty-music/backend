@@ -538,3 +538,46 @@ COMMENT ON INDEX idx_rejected_concerts_log_artist_id IS 'Supports per-artist ana
 
 CREATE INDEX IF NOT EXISTS idx_rejected_concerts_log_rejected_at ON rejected_concerts_log(rejected_at);
 COMMENT ON INDEX idx_rejected_concerts_log_rejected_at IS 'Supports time-windowed analysis of rejections';
+
+-- Organizers: the vetted seller an admin creates to represent artists. Existence
+-- is the vetting (no verified flag). status is the operational lifecycle
+-- (1=provisioning, 2=active, 3=deactivated); zitadel_org_id links the token
+-- tenant to this row and is set once tenant provisioning completes.
+CREATE TABLE IF NOT EXISTS organizers (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    operator_email TEXT NOT NULL,
+    zitadel_org_id TEXT,
+    status SMALLINT NOT NULL,
+    CONSTRAINT chk_organizers_name_non_empty CHECK (name <> ''),
+    CONSTRAINT chk_organizers_operator_email_non_empty CHECK (operator_email <> ''),
+    CONSTRAINT chk_organizers_status CHECK (status BETWEEN 1 AND 3),
+    CONSTRAINT chk_organizers_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+);
+COMMENT ON TABLE organizers IS 'Vetted sellers (label / agency / promoter / self-publishing artist) that represent artists';
+COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / promoter / self-publishing artist)';
+COMMENT ON COLUMN organizers.operator_email IS 'Email of the operator who administers this organizer; seeded as the initial Zitadel owner user';
+COMMENT ON COLUMN organizers.zitadel_org_id IS 'Zitadel tenant organization ID; NULL until provisioning completes';
+COMMENT ON COLUMN organizers.status IS 'Lifecycle state: 1=provisioning, 2=active, 3=deactivated';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_zitadel_org_id ON organizers(zitadel_org_id) WHERE zitadel_org_id IS NOT NULL;
+COMMENT ON INDEX uq_organizers_zitadel_org_id IS 'One Zitadel tenant org maps to at most one Organizer; NULL while provisioning';
+
+-- Organizer-artist association: an organizer represents many artists, and each
+-- artist is represented by at most one organizer (uq_organizer_artists_artist_id).
+-- Deactivation and disassociation delete rows, freeing the artist for re-association.
+CREATE TABLE IF NOT EXISTS organizer_artists (
+    organizer_id UUID NOT NULL REFERENCES organizers(id) ON DELETE CASCADE,
+    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    PRIMARY KEY (organizer_id, artist_id)
+);
+COMMENT ON TABLE organizer_artists IS 'Links an organizer to the artists it represents';
+COMMENT ON COLUMN organizer_artists.organizer_id IS 'Organizer that represents the artist';
+COMMENT ON COLUMN organizer_artists.artist_id IS 'Artist represented by the organizer';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_organizer_artists_artist_id ON organizer_artists(artist_id);
+COMMENT ON INDEX uq_organizer_artists_artist_id IS 'Each artist is represented by at most one organizer';
+
+CREATE INDEX IF NOT EXISTS idx_organizer_artists_organizer_id ON organizer_artists(organizer_id);
+COMMENT ON INDEX idx_organizer_artists_organizer_id IS 'Optimizes listing the artists an organizer represents';

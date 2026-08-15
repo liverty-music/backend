@@ -521,6 +521,107 @@ func (c *AnalyticsConsumer) HandleTicketEmailParsed(msg *message.Message) error 
 	return nil
 }
 
+// HandleOrganizerCreated forwards the ORGANIZER.created NATS subject as the
+// catalogue event usecase.EventOrganizerCreated. It is an admin-actor / group
+// event keyed on organizer_id in PostHog; the organizer_id UUID is used as
+// the PostHog distinctID (no fan distinct_id is present for this event).
+// Properties: organizer_id.
+func (c *AnalyticsConsumer) HandleOrganizerCreated(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.OrganizerCreatedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse ORGANIZER.created event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse ORGANIZER.created event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventOrganizerCreated)),
+			slog.String("organizer_id", data.OrganizerID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.OrganizerID == "" {
+		c.logger.Warn(ctx, "ORGANIZER.created event missing organizer_id, skipping forward")
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"organizer_id": data.OrganizerID,
+	}
+
+	if err := c.client.Enqueue(ctx, data.OrganizerID, usecase.EventOrganizerCreated, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventOrganizerCreated)),
+			slog.String("organizer_id", data.OrganizerID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
+// HandleOrganizerArtistAssociated forwards the ORGANIZER.artist_associated NATS
+// subject as the catalogue event usecase.EventOrganizerArtistAssociated. It is
+// an admin-actor / group event keyed on organizer_id in PostHog; the
+// organizer_id UUID is used as the PostHog distinctID (no fan distinct_id is
+// present for this event). Properties: organizer_id, artist_id.
+func (c *AnalyticsConsumer) HandleOrganizerArtistAssociated(msg *message.Message) error {
+	ctx := msg.Context()
+	defer c.recordLag(ctx, msg)
+
+	var data entity.OrganizerArtistAssociatedData
+	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
+		c.logger.Error(ctx, "failed to parse ORGANIZER.artist_associated event", err)
+		c.metrics.RecordMessage(ctx, statusSkippedParseError)
+		return apperr.Wrap(err, codes.Internal, "parse ORGANIZER.artist_associated event")
+	}
+
+	if c.client == nil {
+		c.logger.Warn(ctx, "analytics client not configured, skipping forward",
+			slog.String("event", string(usecase.EventOrganizerArtistAssociated)),
+			slog.String("organizer_id", data.OrganizerID),
+			slog.String("artist_id", data.ArtistID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedNilClient)
+		return nil
+	}
+
+	if data.OrganizerID == "" {
+		c.logger.Warn(ctx, "ORGANIZER.artist_associated event missing organizer_id, skipping forward",
+			slog.String("artist_id", data.ArtistID),
+		)
+		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
+		return nil
+	}
+
+	properties := usecase.AnalyticsProperties{
+		"organizer_id": data.OrganizerID,
+		"artist_id":    data.ArtistID,
+	}
+
+	if err := c.client.Enqueue(ctx, data.OrganizerID, usecase.EventOrganizerArtistAssociated, properties); err != nil {
+		c.logger.Error(ctx, "failed to enqueue analytics event", err,
+			slog.String("event", string(usecase.EventOrganizerArtistAssociated)),
+			slog.String("organizer_id", data.OrganizerID),
+			slog.String("artist_id", data.ArtistID),
+		)
+		c.metrics.RecordMessage(ctx, statusEnqueueError)
+		return apperr.Wrap(err, codes.Internal, "enqueue analytics event")
+	}
+
+	c.metrics.RecordMessage(ctx, statusForwarded)
+	return nil
+}
+
 // recordLag emits analytics_consumer_lag_seconds derived from the
 // CloudEvent's `ce_time` metadata. Missing or unparseable timestamps
 // are silently skipped — the metric is best-effort and downstream
