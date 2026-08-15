@@ -166,9 +166,9 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 				Performers: []*entity.Artist{{ID: "a2"}},
 			},
 		}
-		d.concertRepo.EXPECT().ListByFollower(ctx, "user-1").Return(concerts, nil).Once()
+		d.concertRepo.EXPECT().ListByFollower(ctx, "user-1", (*time.Time)(nil)).Return(concerts, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-1", home)
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-1", home, nil)
 		assert.NoError(t, err)
 		assert.Len(t, groups, 2)
 
@@ -196,9 +196,9 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		concerts := []*entity.Concert{
 			{Event: entity.Event{ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: new("JP-13"), Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng}}}},
 		}
-		d.concertRepo.EXPECT().ListByFollower(ctx, "user-2").Return(concerts, nil).Once()
+		d.concertRepo.EXPECT().ListByFollower(ctx, "user-2", (*time.Time)(nil)).Return(concerts, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-2", nil)
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-2", nil, nil)
 		assert.NoError(t, err)
 		assert.Len(t, groups, 1)
 		assert.Len(t, groups[0].Home, 0)
@@ -211,9 +211,22 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		d := newConcertTestDeps(t)
 
 		home := &entity.Home{Level1: "JP-13"}
-		d.concertRepo.EXPECT().ListByFollower(ctx, "user-3").Return(nil, nil).Once()
+		d.concertRepo.EXPECT().ListByFollower(ctx, "user-3", (*time.Time)(nil)).Return(nil, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-3", home)
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-3", home, nil)
+		assert.NoError(t, err)
+		assert.Nil(t, groups)
+	})
+
+	t.Run("threads an explicit past from through to the repository", func(t *testing.T) {
+		t.Parallel()
+		d := newConcertTestDeps(t)
+
+		home := &entity.Home{Level1: "JP-13"}
+		past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		d.concertRepo.EXPECT().ListByFollower(ctx, "user-4", &past).Return(nil, nil).Once()
+
+		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-4", home, &past)
 		assert.NoError(t, err)
 		assert.Nil(t, groups)
 	})

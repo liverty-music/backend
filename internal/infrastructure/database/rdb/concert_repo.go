@@ -196,6 +196,11 @@ const (
 	// listConcertsByFollowerQuery joins followed_artists via event_performers.
 	// Distinct is required because an event could have multiple performers that
 	// are all followed by the same user; we want one row per event.
+	//
+	// The $2 lower bound defaults to CURRENT_DATE via COALESCE, so callers that
+	// pass a nil from get today-onward concerts; a non-nil from (including a past
+	// date) widens the range to that date. The from boundary is client-supplied
+	// to anchor "today" to the caller's timezone (server runs in UTC).
 	listConcertsByFollowerQuery = `
 		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url, s.merch_url,
@@ -206,6 +211,7 @@ const (
 		JOIN event_performers ep ON ep.event_id = e.id
 		JOIN followed_artists fa ON fa.artist_id = ep.artist_id
 		WHERE fa.user_id = $1
+		  AND e.local_event_date >= COALESCE($2, CURRENT_DATE)
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -401,10 +407,11 @@ func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*ent
 	return concerts, nil
 }
 
-// ListByFollower retrieves all concerts featuring artists the user follows.
-// Venue lat/lng are included for proximity classification.
-func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error) {
-	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID)
+// ListByFollower retrieves all concerts featuring artists the user follows whose
+// local event date is on or after from. A nil from defaults to CURRENT_DATE
+// (today onward). Venue lat/lng are included for proximity classification.
+func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error) {
+	rows, err := r.db.Pool.Query(ctx, listConcertsByFollowerQuery, userID, from)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list concerts by follower", slog.String("user_id", userID))
 	}

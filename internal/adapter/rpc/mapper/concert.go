@@ -156,6 +156,19 @@ func DateToTime(d *date.Date) time.Time {
 	return time.Date(int(d.GetYear()), time.Month(d.GetMonth()), int(d.GetDay()), 0, 0, 0, 0, time.UTC)
 }
 
+// DateToTimePtr converts an optional google.type.Date proto to a *time.Time at
+// midnight UTC, preserving the absent case as nil. Unlike DateToTime (which maps
+// nil to the zero time), this distinguishes "no date provided" from a real date,
+// so callers can bind SQL NULL and let a COALESCE default (e.g. CURRENT_DATE)
+// take effect for the today-onward ListByFollower behavior.
+func DateToTimePtr(d *date.Date) *time.Time {
+	if d == nil {
+		return nil
+	}
+	t := DateToTime(d)
+	return &t
+}
+
 // ProtoGeoLocationToEntity converts a liverty_music.entity.v1.GeoLocation proto to
 // the domain GeoLocation. Returns nil when the input is nil.
 func ProtoGeoLocationToEntity(pb *entityv1.GeoLocation) *entity.GeoLocation {

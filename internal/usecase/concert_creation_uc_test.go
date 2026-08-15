@@ -174,7 +174,7 @@ func (r *fakeConcertRepo) UpdateEventListedVenueName(_ context.Context, eventID 
 	return nil
 }
 
-func (r *fakeConcertRepo) ListByFollower(_ context.Context, _ string) ([]*entity.Concert, error) {
+func (r *fakeConcertRepo) ListByFollower(_ context.Context, _ string, _ *time.Time) ([]*entity.Concert, error) {
 	return nil, nil
 }
 

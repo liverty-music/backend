@@ -379,9 +379,10 @@ type ConcertRepository interface {
 	//
 	//  - InvalidArgument: If the artist ID is empty.
 	ListByArtist(ctx context.Context, artistID string, upcomingOnly bool) ([]*Concert, error)
-	// ListByFollower retrieves all concerts for artists followed by the given user,
-	// ordered by local_event_date ascending.
-	ListByFollower(ctx context.Context, userID string) ([]*Concert, error)
+	// ListByFollower retrieves concerts for artists followed by the given user
+	// whose local event date is on or after from, ordered by local_event_date
+	// ascending. A nil from defaults to the current date (today onward).
+	ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*Concert, error)
 	// ListByArtists retrieves concerts where any of the given artists appear in
 	// event_performers, in a single query. Venue coordinates are included for
 	// proximity classification. Results are ordered by local_event_date ascending.
