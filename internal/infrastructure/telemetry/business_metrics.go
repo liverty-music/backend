@@ -13,14 +13,16 @@ import (
 var _ usecase.ConcertMetrics = (*BusinessMetrics)(nil)
 var _ usecase.FollowMetrics = (*BusinessMetrics)(nil)
 var _ usecase.PushMetrics = (*BusinessMetrics)(nil)
+var _ usecase.OrganizerMetrics = (*BusinessMetrics)(nil)
 
 // BusinessMetrics provides OTel counters for key business operations.
 // It is injected into use cases that need to record business-level metrics.
 type BusinessMetrics struct {
-	concertSearch   metric.Int64Counter
-	follow          metric.Int64Counter
-	pushSend        metric.Int64Counter
-	deliveryOutcome metric.Int64Counter
+	concertSearch        metric.Int64Counter
+	follow               metric.Int64Counter
+	pushSend             metric.Int64Counter
+	deliveryOutcome      metric.Int64Counter
+	organizerProvisioned metric.Int64Counter
 }
 
 // NewBusinessMetrics creates a new BusinessMetrics with registered OTel instruments.
@@ -38,11 +40,15 @@ func NewBusinessMetrics() *BusinessMetrics {
 	deliveryOutcome, _ := meter.Int64Counter("notification.delivery.count",
 		metric.WithDescription("Per-notification delivery outcomes by outcome and failure reason"),
 	)
+	organizerProvisioned, _ := meter.Int64Counter("organizer.provisioning.count",
+		metric.WithDescription("Organizer tenant provisioning outcomes by status (success/failed)"),
+	)
 	return &BusinessMetrics{
-		concertSearch:   concertSearch,
-		follow:          follow,
-		pushSend:        pushSend,
-		deliveryOutcome: deliveryOutcome,
+		concertSearch:        concertSearch,
+		follow:               follow,
+		pushSend:             pushSend,
+		deliveryOutcome:      deliveryOutcome,
+		organizerProvisioned: organizerProvisioned,
 	}
 }
 
@@ -73,4 +79,10 @@ func (m *BusinessMetrics) RecordDeliveryOutcome(ctx context.Context, outcome, fa
 		attribute.String("outcome", outcome),
 		attribute.String("failure_reason", failureReason),
 	))
+}
+
+// RecordOrganizerProvisioning increments the organizer.provisioning.count
+// counter, tagging the outcome via the status attribute ("success" / "failed").
+func (m *BusinessMetrics) RecordOrganizerProvisioning(ctx context.Context, status string) {
+	m.organizerProvisioned.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
 }

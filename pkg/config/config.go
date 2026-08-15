@@ -90,6 +90,20 @@ type ServerConfig struct {
 	// are unavailable).
 	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
 
+	// ZitadelMachineKeyForOrganizerProvisionerPath is the file path to the
+	// `organizer-provisioner` Zitadel MachineUser's private key JSON, mounted
+	// from GSM secret `zitadel-machine-key-for-organizer-provisioner`. This
+	// credential grants IAM_ORG_MANAGER (tenant org creation + cross-org
+	// grants) and is mounted only into the isolated admin workload
+	// (`admin-console-api`), never the consumer surface. When empty, organizer
+	// tenant provisioning is disabled.
+	ZitadelMachineKeyForOrganizerProvisionerPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH"`
+
+	// OrganizerConsoleProjectID is the Zitadel `organizer-console` project id,
+	// Project-Granted to each Organizer tenant org and used as the role
+	// container (the `owner` role) when seeding the initial operator.
+	OrganizerConsoleProjectID string `envconfig:"ORGANIZER_CONSOLE_PROJECT_ID"`
+
 	// LastFM API Key
 	LastFMAPIKey string `envconfig:"LASTFM_API_KEY"`
 }
