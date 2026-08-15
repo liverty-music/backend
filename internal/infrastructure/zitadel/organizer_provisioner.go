@@ -153,6 +153,7 @@ func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID,
 func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelOrgID string) error {
 	orgCtx := middleware.SetOrgID(ctx, zitadelOrgID)
 
+	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	resp, err := p.mgmt.ListUsers(orgCtx, &mgmtpb.ListUsersRequest{
 		Queries: []*userpb.SearchQuery{
 			{
@@ -169,6 +170,7 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelO
 	}
 
 	for _, u := range resp.GetResult() {
+		//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 		_, err := p.mgmt.DeactivateUser(orgCtx, &mgmtpb.DeactivateUserRequest{
 			Id: u.GetId(),
 		})
@@ -190,6 +192,7 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelO
 // ensureOrg creates the tenant org if it does not already exist. On an
 // AlreadyExists response it queries for the org by name and returns its id.
 func (p *OrganizerProvisioner) ensureOrg(ctx context.Context, orgName string) (string, error) {
+	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	resp, err := p.mgmt.AddOrg(ctx, &mgmtpb.AddOrgRequest{Name: orgName})
 	if err == nil {
 		return resp.GetId(), nil
@@ -200,6 +203,7 @@ func (p *OrganizerProvisioner) ensureOrg(ctx context.Context, orgName string) (s
 
 	// Org already exists — find it by its deterministic domain name which
 	// Zitadel derives from the org name.
+	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	existing, err := p.mgmt.GetOrgByDomainGlobal(ctx, &mgmtpb.GetOrgByDomainGlobalRequest{
 		Domain: orgNameToDomain(orgName),
 	})
@@ -231,6 +235,7 @@ func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context) error {
 // because the project lives in the provisioner's org. On AlreadyExists, the
 // existing grant satisfies the requirement.
 func (p *OrganizerProvisioner) ensureProjectGrant(ctx context.Context, tenantOrgID string) error {
+	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	_, err := p.mgmt.AddProjectGrant(ctx, &mgmtpb.AddProjectGrantRequest{
 		ProjectId:    p.organizerConsoleProjectID,
 		GrantedOrgId: tenantOrgID,
@@ -256,6 +261,7 @@ func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, operat
 		return "", err
 	}
 
+	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	if _, err := p.mgmt.SendPasswordlessRegistration(orgCtx, &mgmtpb.SendPasswordlessRegistrationRequest{
 		UserId: userID,
 	}); err != nil {
@@ -271,6 +277,7 @@ func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, operat
 // ensureHumanUser creates the operator human user, or returns the id of the
 // existing user when one with operatorEmail is already present (idempotent).
 func (p *OrganizerProvisioner) ensureHumanUser(orgCtx context.Context, operatorEmail string) (string, error) {
+	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	addResp, err := p.mgmt.AddHumanUser(orgCtx, &mgmtpb.AddHumanUserRequest{
 		UserName: operatorEmail,
 		Profile: &mgmtpb.AddHumanUserRequest_Profile{
@@ -301,6 +308,7 @@ func (p *OrganizerProvisioner) ensureHumanUser(orgCtx context.Context, operatorE
 // ensureUserGrant grants the operator the owner role on the organizer-console
 // project. On AlreadyExists the existing grant is sufficient.
 func (p *OrganizerProvisioner) ensureUserGrant(orgCtx context.Context, operatorID string) error {
+	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	_, err := p.mgmt.AddUserGrant(orgCtx, &mgmtpb.AddUserGrantRequest{
 		UserId:    operatorID,
 		ProjectId: p.organizerConsoleProjectID,
@@ -315,6 +323,7 @@ func (p *OrganizerProvisioner) ensureUserGrant(orgCtx context.Context, operatorI
 // findUserByEmail searches for a human user by email address in the current
 // org context and returns the first match's id.
 func (p *OrganizerProvisioner) findUserByEmail(orgCtx context.Context, email string) (string, error) {
+	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 	resp, err := p.mgmt.ListUsers(orgCtx, &mgmtpb.ListUsersRequest{
 		Queries: []*userpb.SearchQuery{
 			{

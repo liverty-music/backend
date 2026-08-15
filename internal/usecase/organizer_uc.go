@@ -105,6 +105,10 @@ func NewOrganizerUseCase(
 	}
 }
 
+// Create registers a new Organizer and synchronously provisions its Zitadel
+// tenant. On partial provisioning failure the row is left in the provisioning
+// state and the error is returned; the reconciler completes the saga on the
+// next sweep.
 func (uc *organizerUseCase) Create(ctx context.Context, name, operatorEmail string) (*entity.Organizer, error) {
 	// Step 1: insert the organizers row in the provisioning state, capturing the
 	// operator email so the reconciler can complete provisioning after a failure.
@@ -167,6 +171,10 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 	return nil
 }
 
+// ReconcileProvisioning retries the Zitadel provisioning saga for every
+// Organizer stuck in the provisioning state. Per-organizer failures are
+// logged and skipped so one bad row does not stall the sweep. Safe to call
+// repeatedly — completeProvisioning is idempotent.
 func (uc *organizerUseCase) ReconcileProvisioning(ctx context.Context) error {
 	stuck, err := uc.organizerRepo.ListByStatus(ctx, entity.OrganizerStatusProvisioning)
 	if err != nil {
@@ -187,14 +195,19 @@ func (uc *organizerUseCase) ReconcileProvisioning(ctx context.Context) error {
 	return nil
 }
 
+// Get returns the Organizer with the given id. Returns NotFound when no
+// organizer with that id exists.
 func (uc *organizerUseCase) Get(ctx context.Context, id string) (*entity.Organizer, error) {
 	return uc.organizerRepo.Get(ctx, id)
 }
 
+// List returns every Organizer regardless of status.
 func (uc *organizerUseCase) List(ctx context.Context) ([]*entity.Organizer, error) {
 	return uc.organizerRepo.List(ctx)
 }
 
+// ListArtists returns the artists represented by an Organizer. Returns
+// NotFound when no organizer with the given id exists.
 func (uc *organizerUseCase) ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
 	if _, err := uc.organizerRepo.Get(ctx, organizerID); err != nil {
 		return nil, err
@@ -202,6 +215,10 @@ func (uc *organizerUseCase) ListArtists(ctx context.Context, organizerID string)
 	return uc.organizerRepo.ListArtists(ctx, organizerID)
 }
 
+// AssociateArtist links an existing artist to an Organizer. Returns
+// NotFound if either the organizer or the artist does not exist,
+// AlreadyExists if the artist is already represented by any organizer, and
+// FailedPrecondition if the organizer is deactivated.
 func (uc *organizerUseCase) AssociateArtist(ctx context.Context, organizerID, artistID string) error {
 	org, err := uc.organizerRepo.Get(ctx, organizerID)
 	if err != nil {
@@ -232,6 +249,9 @@ func (uc *organizerUseCase) AssociateArtist(ctx context.Context, organizerID, ar
 	return nil
 }
 
+// DisassociateArtist removes the link between an Organizer and an artist
+// (idempotent at the DB level). Returns NotFound if the organizer does not
+// exist and FailedPrecondition if it is deactivated.
 func (uc *organizerUseCase) DisassociateArtist(ctx context.Context, organizerID, artistID string) error {
 	org, err := uc.organizerRepo.Get(ctx, organizerID)
 	if err != nil {
@@ -243,6 +263,11 @@ func (uc *organizerUseCase) DisassociateArtist(ctx context.Context, organizerID,
 	return uc.organizerRepo.DisassociateArtist(ctx, organizerID, artistID)
 }
 
+// Deactivate turns an Organizer off: it deactivates all Zitadel operators in
+// the tenant, releases artist associations so they can be re-associated
+// elsewhere, and marks the Organizer deactivated. The operation is idempotent
+// — calling it on an already-deactivated organizer returns nil. Returns
+// NotFound if the organizer does not exist.
 func (uc *organizerUseCase) Deactivate(ctx context.Context, organizerID string) error {
 	org, err := uc.organizerRepo.Get(ctx, organizerID)
 	if err != nil {

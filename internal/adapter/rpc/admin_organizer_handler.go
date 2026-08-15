@@ -23,6 +23,8 @@ func NewAdminOrganizerHandler(organizerUseCase usecase.OrganizerUseCase, logger 
 	return &AdminOrganizerHandler{organizerUseCase: organizerUseCase, logger: logger}
 }
 
+// Create registers a new Organizer and provisions its Zitadel tenant, then
+// returns the persisted record.
 func (h *AdminOrganizerHandler) Create(
 	ctx context.Context,
 	req *connect.Request[organizerv1.CreateRequest],
@@ -34,6 +36,9 @@ func (h *AdminOrganizerHandler) Create(
 	return connect.NewResponse(&organizerv1.CreateResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
 }
 
+// AssociateArtist links an existing artist to an Organizer. Returns
+// AlreadyExists if the artist is already represented by an organizer and
+// NotFound if either the organizer or the artist does not exist.
 func (h *AdminOrganizerHandler) AssociateArtist(
 	ctx context.Context,
 	req *connect.Request[organizerv1.AssociateArtistRequest],
@@ -44,6 +49,8 @@ func (h *AdminOrganizerHandler) AssociateArtist(
 	return connect.NewResponse(&organizerv1.AssociateArtistResponse{}), nil
 }
 
+// DisassociateArtist removes the link between an Organizer and an artist
+// (idempotent). Returns NotFound if the organizer does not exist.
 func (h *AdminOrganizerHandler) DisassociateArtist(
 	ctx context.Context,
 	req *connect.Request[organizerv1.DisassociateArtistRequest],
@@ -54,6 +61,7 @@ func (h *AdminOrganizerHandler) DisassociateArtist(
 	return connect.NewResponse(&organizerv1.DisassociateArtistResponse{}), nil
 }
 
+// List returns every Organizer regardless of status.
 func (h *AdminOrganizerHandler) List(
 	ctx context.Context,
 	_ *connect.Request[organizerv1.ListRequest],
@@ -65,6 +73,8 @@ func (h *AdminOrganizerHandler) List(
 	return connect.NewResponse(&organizerv1.ListResponse{Organizers: mapper.OrganizersToProto(organizers)}), nil
 }
 
+// Get returns a single Organizer by id. Returns NotFound when no organizer
+// with the given id exists.
 func (h *AdminOrganizerHandler) Get(
 	ctx context.Context,
 	req *connect.Request[organizerv1.GetRequest],
@@ -76,6 +86,8 @@ func (h *AdminOrganizerHandler) Get(
 	return connect.NewResponse(&organizerv1.GetResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
 }
 
+// ListArtists returns the artists represented by an Organizer. Returns
+// NotFound when no organizer with the given id exists.
 func (h *AdminOrganizerHandler) ListArtists(
 	ctx context.Context,
 	req *connect.Request[organizerv1.ListArtistsRequest],
@@ -87,6 +99,9 @@ func (h *AdminOrganizerHandler) ListArtists(
 	return connect.NewResponse(&organizerv1.ListArtistsResponse{Artists: mapper.ArtistsToProto(artists)}), nil
 }
 
+// Deactivate turns an Organizer off: deactivates its Zitadel operators,
+// releases artist associations, and marks the Organizer deactivated
+// (idempotent). Returns NotFound when no organizer with the given id exists.
 func (h *AdminOrganizerHandler) Deactivate(
 	ctx context.Context,
 	req *connect.Request[organizerv1.DeactivateRequest],

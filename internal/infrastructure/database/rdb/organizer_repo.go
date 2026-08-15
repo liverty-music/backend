@@ -74,6 +74,10 @@ func scanOrganizer(scan func(dest ...any) error) (*entity.Organizer, error) {
 	return &o, nil
 }
 
+// Create inserts a new Organizer row and returns the persisted record. The ID
+// is generated from the entity if absent. zitadel_org_id is stored as NULL
+// until provisioning completes, satisfying the partial unique index that only
+// covers non-NULL values.
 func (r *OrganizerRepository) Create(ctx context.Context, o *entity.Organizer) (*entity.Organizer, error) {
 	if o.ID == "" {
 		o.ID = entity.NewOrganizer(o.Name).ID
@@ -96,6 +100,8 @@ func (r *OrganizerRepository) Create(ctx context.Context, o *entity.Organizer) (
 	return created, nil
 }
 
+// Get retrieves a single Organizer by its id. Returns NotFound when no row
+// matches.
 func (r *OrganizerRepository) Get(ctx context.Context, id string) (*entity.Organizer, error) {
 	row := r.db.Pool.QueryRow(ctx, getOrganizerQuery, id)
 	o, err := scanOrganizer(row.Scan)
@@ -105,6 +111,7 @@ func (r *OrganizerRepository) Get(ctx context.Context, id string) (*entity.Organ
 	return o, nil
 }
 
+// List returns all Organizers ordered alphabetically by name.
 func (r *OrganizerRepository) List(ctx context.Context) ([]*entity.Organizer, error) {
 	rows, err := r.db.Pool.Query(ctx, listOrganizersQuery)
 	if err != nil {
@@ -126,6 +133,9 @@ func (r *OrganizerRepository) List(ctx context.Context) ([]*entity.Organizer, er
 	return organizers, nil
 }
 
+// ListByStatus returns all Organizers whose status matches the given value,
+// ordered alphabetically by name. Used by the reconciler to find rows stuck
+// in the provisioning state.
 func (r *OrganizerRepository) ListByStatus(ctx context.Context, status entity.OrganizerStatus) ([]*entity.Organizer, error) {
 	rows, err := r.db.Pool.Query(ctx, listOrganizersByStatusQuery, int16(status))
 	if err != nil {
@@ -147,6 +157,9 @@ func (r *OrganizerRepository) ListByStatus(ctx context.Context, status entity.Or
 	return organizers, nil
 }
 
+// SetZitadelOrgID persists the Zitadel org id on the Organizer row after
+// successful tenant provisioning. Returns NotFound when the organizer no
+// longer exists.
 func (r *OrganizerRepository) SetZitadelOrgID(ctx context.Context, id, zitadelOrgID string) error {
 	tag, err := r.db.Pool.Exec(ctx, setOrganizerZitadelOrgIDQuery, id, zitadelOrgID)
 	if err != nil {
@@ -158,6 +171,8 @@ func (r *OrganizerRepository) SetZitadelOrgID(ctx context.Context, id, zitadelOr
 	return nil
 }
 
+// SetStatus updates the lifecycle status of an Organizer. Returns NotFound
+// when the organizer no longer exists.
 func (r *OrganizerRepository) SetStatus(ctx context.Context, id string, status entity.OrganizerStatus) error {
 	tag, err := r.db.Pool.Exec(ctx, setOrganizerStatusQuery, id, int16(status))
 	if err != nil {
@@ -169,6 +184,10 @@ func (r *OrganizerRepository) SetStatus(ctx context.Context, id string, status e
 	return nil
 }
 
+// AssociateArtist inserts a row into organizer_artists to link an artist to an
+// Organizer. The unique index on artist_id ensures an artist can only be
+// represented by one organizer at a time; a duplicate insert is mapped to
+// AlreadyExists by toAppErr.
 func (r *OrganizerRepository) AssociateArtist(ctx context.Context, organizerID, artistID string) error {
 	// The unique index on artist_id rejects an already-represented artist with a
 	// unique violation, which toAppErr maps to AlreadyExists.
@@ -179,6 +198,9 @@ func (r *OrganizerRepository) AssociateArtist(ctx context.Context, organizerID, 
 	return nil
 }
 
+// DisassociateArtist removes the link between an Organizer and an artist.
+// The operation is idempotent: removing a non-existent association affects
+// zero rows and succeeds without error.
 func (r *OrganizerRepository) DisassociateArtist(ctx context.Context, organizerID, artistID string) error {
 	// Idempotent: removing a non-existent association affects zero rows and succeeds.
 	if _, err := r.db.Pool.Exec(ctx, deleteOrganizerArtistQuery, organizerID, artistID); err != nil {
@@ -188,6 +210,8 @@ func (r *OrganizerRepository) DisassociateArtist(ctx context.Context, organizerI
 	return nil
 }
 
+// ListArtists returns the artists linked to an Organizer via organizer_artists,
+// ordered alphabetically by name.
 func (r *OrganizerRepository) ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
 	rows, err := r.db.Pool.Query(ctx, listOrganizerArtistsQuery, organizerID)
 	if err != nil {
@@ -209,6 +233,9 @@ func (r *OrganizerRepository) ListArtists(ctx context.Context, organizerID strin
 	return artists, nil
 }
 
+// FreeArtists removes all artist associations for an Organizer so those
+// artists can be re-associated with another organizer. Called during
+// Deactivate to release the organizer's exclusive hold on each artist.
 func (r *OrganizerRepository) FreeArtists(ctx context.Context, organizerID string) error {
 	if _, err := r.db.Pool.Exec(ctx, deleteOrganizerArtistsQuery, organizerID); err != nil {
 		return toAppErr(err, "failed to free organizer artists", slog.String("organizer_id", organizerID))

@@ -555,6 +555,11 @@ CREATE TABLE IF NOT EXISTS organizers (
     CONSTRAINT chk_organizers_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 COMMENT ON TABLE organizers IS 'Vetted sellers (label / agency / promoter / self-publishing artist) that represent artists';
+COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / promoter / self-publishing artist)';
+COMMENT ON COLUMN organizers.operator_email IS 'Email of the operator who administers this organizer; seeded as the initial Zitadel owner user';
+COMMENT ON COLUMN organizers.zitadel_org_id IS 'Zitadel tenant organization ID; NULL until provisioning completes';
+COMMENT ON COLUMN organizers.status IS 'Lifecycle state: 1=provisioning, 2=active, 3=deactivated';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_zitadel_org_id ON organizers(zitadel_org_id) WHERE zitadel_org_id IS NOT NULL;
 COMMENT ON INDEX uq_organizers_zitadel_org_id IS 'One Zitadel tenant org maps to at most one Organizer; NULL while provisioning';
@@ -568,6 +573,8 @@ CREATE TABLE IF NOT EXISTS organizer_artists (
     PRIMARY KEY (organizer_id, artist_id)
 );
 COMMENT ON TABLE organizer_artists IS 'Links an organizer to the artists it represents';
+COMMENT ON COLUMN organizer_artists.organizer_id IS 'Organizer that represents the artist';
+COMMENT ON COLUMN organizer_artists.artist_id IS 'Artist represented by the organizer';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_organizer_artists_artist_id ON organizer_artists(artist_id);
 COMMENT ON INDEX uq_organizer_artists_artist_id IS 'Each artist is represented by at most one organizer';
