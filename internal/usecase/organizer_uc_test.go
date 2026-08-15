@@ -20,6 +20,7 @@ type organizerTestDeps struct {
 	orgRepo     *mocks.MockOrganizerRepository
 	artistRepo  *mocks.MockArtistRepository
 	provisioner *mocks.MockOrganizerProvisioner
+	publisher   *ucmocks.MockEventPublisher
 	metrics     *ucmocks.MockOrganizerMetrics
 	uc          usecase.OrganizerUseCase
 }
@@ -30,12 +31,14 @@ func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 		orgRepo:     mocks.NewMockOrganizerRepository(t),
 		artistRepo:  mocks.NewMockArtistRepository(t),
 		provisioner: mocks.NewMockOrganizerProvisioner(t),
+		publisher:   ucmocks.NewMockEventPublisher(t),
 		metrics:     ucmocks.NewMockOrganizerMetrics(t),
 	}
 	d.uc = usecase.NewOrganizerUseCase(
 		d.orgRepo,
 		d.artistRepo,
 		d.provisioner,
+		d.publisher,
 		d.metrics,
 		newTestLogger(t),
 	)
@@ -91,6 +94,10 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 					Once()
 				d.orgRepo.EXPECT().
 					SetStatus(mock.Anything, "org-1", entity.OrganizerStatusActive).
+					Return(nil).
+					Once()
+				d.publisher.EXPECT().
+					PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: "org-1"}).
 					Return(nil).
 					Once()
 			},
@@ -344,6 +351,10 @@ func TestOrganizerUseCase_AssociateArtist(t *testing.T) {
 					Once()
 				d.orgRepo.EXPECT().
 					AssociateArtist(ctx, "org-1", "artist-1").
+					Return(nil).
+					Once()
+				d.publisher.EXPECT().
+					PublishEvent(mock.Anything, entity.SubjectOrganizerArtistAssociated, entity.OrganizerArtistAssociatedData{OrganizerID: "org-1", ArtistID: "artist-1"}).
 					Return(nil).
 					Once()
 			},
@@ -659,6 +670,7 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 			d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
 			d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, o.ID, "z-"+o.ID).Return(nil).Once()
 			d.orgRepo.EXPECT().SetStatus(mock.Anything, o.ID, entity.OrganizerStatusActive).Return(nil).Once()
+			d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: o.ID}).Return(nil).Once()
 		}
 
 		assert.NoError(t, d.uc.ReconcileProvisioning(ctx))
@@ -682,6 +694,7 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 		d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
 		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, "org-ok", "z-ok").Return(nil).Once()
 		d.orgRepo.EXPECT().SetStatus(mock.Anything, "org-ok", entity.OrganizerStatusActive).Return(nil).Once()
+		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: "org-ok"}).Return(nil).Once()
 
 		// Per-organizer failures are logged and skipped, not returned.
 		assert.NoError(t, d.uc.ReconcileProvisioning(ctx))

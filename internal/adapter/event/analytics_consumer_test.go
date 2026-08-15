@@ -1074,3 +1074,220 @@ func TestAnalyticsConsumer_HandleUserCreated_BadPayload(t *testing.T) {
 	// The client mock has no EXPECT() calls — assertExpectations on
 	// Cleanup would fail if Enqueue had been invoked.
 }
+
+// TestAnalyticsConsumer_HandleOrganizerCreated covers ORGANIZER.created →
+// organizer.created routing. This is an admin-actor / group event: the
+// organizer_id UUID is used as the PostHog distinctID; no fan user is present.
+// Properties: organizer_id.
+func TestAnalyticsConsumer_HandleOrganizerCreated(t *testing.T) {
+	t.Parallel()
+
+	// A valid UUIDv7 as the organizer ID (posthog Enqueue validates UUID format).
+	const validOrganizerID = "01932fee-0000-7000-8000-000000000001"
+
+	type args struct {
+		data entity.OrganizerCreatedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards organizer.created with organizer_id as distinctID",
+			args: args{data: entity.OrganizerCreatedData{
+				OrganizerID: validOrganizerID,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil (local dev)",
+			args: args{data: entity.OrganizerCreatedData{
+				OrganizerID: validOrganizerID,
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when OrganizerID is empty",
+			args: args{data: entity.OrganizerCreatedData{
+				OrganizerID: "",
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.OrganizerCreatedData{
+				OrganizerID: validOrganizerID,
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.OrganizerID,
+							usecase.EventOrganizerCreated,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["organizer_id"] == tt.args.data.OrganizerID
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleOrganizerCreated(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyticsConsumer_HandleOrganizerArtistAssociated covers
+// ORGANIZER.artist_associated → organizer.artist.associated routing.
+// Admin-actor / group event: organizer_id UUID is the PostHog distinctID.
+// Properties: organizer_id, artist_id.
+func TestAnalyticsConsumer_HandleOrganizerArtistAssociated(t *testing.T) {
+	t.Parallel()
+
+	const (
+		validOrganizerID = "01932fee-0000-7000-8000-000000000001"
+		validArtistID    = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	)
+
+	type args struct {
+		data entity.OrganizerArtistAssociatedData
+	}
+	type want struct {
+		err              error
+		expectEnqueueErr error
+		expectEnqueue    bool
+		expectStatus     string
+	}
+	tests := []struct {
+		name      string
+		args      args
+		want      want
+		nilClient bool
+	}{
+		{
+			name: "forwards organizer.artist.associated with organizer_id and artist_id",
+			args: args{data: entity.OrganizerArtistAssociatedData{
+				OrganizerID: validOrganizerID,
+				ArtistID:    validArtistID,
+			}},
+			want: want{expectEnqueue: true, expectStatus: "forwarded"},
+		},
+		{
+			name: "skips forward when client is nil (local dev)",
+			args: args{data: entity.OrganizerArtistAssociatedData{
+				OrganizerID: validOrganizerID,
+				ArtistID:    validArtistID,
+			}},
+			want:      want{expectEnqueue: false, expectStatus: "skipped_nil_client"},
+			nilClient: true,
+		},
+		{
+			name: "skips forward when OrganizerID is empty",
+			args: args{data: entity.OrganizerArtistAssociatedData{
+				OrganizerID: "",
+				ArtistID:    validArtistID,
+			}},
+			want: want{expectEnqueue: false, expectStatus: "skipped_empty_user_id"},
+		},
+		{
+			name: "wraps Enqueue error as apperr.ErrInternal",
+			args: args{data: entity.OrganizerArtistAssociatedData{
+				OrganizerID: validOrganizerID,
+				ArtistID:    validArtistID,
+			}},
+			want: want{
+				expectEnqueue:    true,
+				expectEnqueueErr: errors.New("queue full"),
+				err:              apperr.ErrInternal,
+				expectStatus:     "enqueue_error",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var client usecase.AnalyticsClient
+			var clientMock *ucmocks.MockAnalyticsClient
+			if !tt.nilClient {
+				clientMock = ucmocks.NewMockAnalyticsClient(t)
+				client = clientMock
+				if tt.want.expectEnqueue {
+					clientMock.EXPECT().
+						Enqueue(
+							mock.Anything,
+							tt.args.data.OrganizerID,
+							usecase.EventOrganizerArtistAssociated,
+							mock.MatchedBy(func(props usecase.AnalyticsProperties) bool {
+								return props["organizer_id"] == tt.args.data.OrganizerID &&
+									props["artist_id"] == tt.args.data.ArtistID
+							}),
+						).
+						Return(tt.want.expectEnqueueErr).
+						Once()
+				}
+			}
+
+			metricsMock := ucmocks.NewMockAnalyticsConsumerMetrics(t)
+			metricsMock.EXPECT().
+				RecordMessage(mock.Anything, tt.want.expectStatus).
+				Once()
+			metricsMock.EXPECT().
+				RecordLag(mock.Anything, mock.MatchedBy(func(s float64) bool { return s >= 0 })).
+				Once()
+
+			handler := event.NewAnalyticsConsumer(client, metricsMock, newTestLogger(t))
+			err := handler.HandleOrganizerArtistAssociated(makeAnalyticsMsg(t, tt.args.data))
+
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}

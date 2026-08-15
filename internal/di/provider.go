@@ -182,7 +182,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	} else {
 		organizerProvisioner = infrazitadel.NewNoopOrganizerProvisioner(logger)
 	}
-	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, businessMetrics, logger)
+	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, eventPublisher, businessMetrics, logger)
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	var ticketEmailUC usecase.TicketEmailUseCase

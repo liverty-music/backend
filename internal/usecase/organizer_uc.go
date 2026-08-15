@@ -81,6 +81,7 @@ type organizerUseCase struct {
 	organizerRepo entity.OrganizerRepository
 	artistRepo    entity.ArtistRepository
 	provisioner   entity.OrganizerProvisioner
+	publisher     EventPublisher
 	metrics       OrganizerMetrics
 	logger        *logging.Logger
 }
@@ -90,6 +91,7 @@ func NewOrganizerUseCase(
 	organizerRepo entity.OrganizerRepository,
 	artistRepo entity.ArtistRepository,
 	provisioner entity.OrganizerProvisioner,
+	publisher EventPublisher,
 	metrics OrganizerMetrics,
 	logger *logging.Logger,
 ) OrganizerUseCase {
@@ -97,6 +99,7 @@ func NewOrganizerUseCase(
 		organizerRepo: organizerRepo,
 		artistRepo:    artistRepo,
 		provisioner:   provisioner,
+		publisher:     publisher,
 		metrics:       metrics,
 		logger:        logger,
 	}
@@ -151,6 +154,16 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 		slog.String("organizer_id", org.ID),
 		slog.String("zitadel_org_id", zitadelOrgID),
 	)
+
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{
+		OrganizerID: org.ID,
+	}); err != nil {
+		uc.logger.Warn(ctx, "failed to publish ORGANIZER.created event",
+			slog.String("organizer_id", org.ID),
+			slog.Any("error", err),
+		)
+		// Non-fatal: the organizer is already active in the database.
+	}
 	return nil
 }
 
@@ -201,7 +214,22 @@ func (uc *organizerUseCase) AssociateArtist(ctx context.Context, organizerID, ar
 	if _, err := uc.artistRepo.Get(ctx, artistID); err != nil {
 		return err
 	}
-	return uc.organizerRepo.AssociateArtist(ctx, organizerID, artistID)
+	if err := uc.organizerRepo.AssociateArtist(ctx, organizerID, artistID); err != nil {
+		return err
+	}
+
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerArtistAssociated, entity.OrganizerArtistAssociatedData{
+		OrganizerID: organizerID,
+		ArtistID:    artistID,
+	}); err != nil {
+		uc.logger.Warn(ctx, "failed to publish ORGANIZER.artist_associated event",
+			slog.String("organizer_id", organizerID),
+			slog.String("artist_id", artistID),
+			slog.Any("error", err),
+		)
+		// Non-fatal: the association is already persisted in the database.
+	}
+	return nil
 }
 
 func (uc *organizerUseCase) DisassociateArtist(ctx context.Context, organizerID, artistID string) error {

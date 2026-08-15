@@ -50,6 +50,21 @@ const (
 	// construction. Modelled as a USER-domain event (USER.* stream), not a
 	// separate ACCOUNT stream.
 	SubjectUserLoggedIn = "USER.logged_in"
+	// SubjectOrganizerCreated is published by OrganizerUseCase.Create after the
+	// Zitadel tenant is provisioned and the organizer row is flipped to active.
+	// It drives the organizer.created analytics event (admin-actor / group event
+	// keyed on organizer_id; no fan distinct_id). Two tokens (created, not
+	// org.created) so the ORGANIZER.* stream filter matches with a plain
+	// single-token wildcard — same rationale as SubjectSalesPhaseReminderDue.
+	SubjectOrganizerCreated = "ORGANIZER.created"
+	// SubjectOrganizerArtistAssociated is published by OrganizerUseCase.AssociateArtist
+	// after the repository persists the artist link. It drives the
+	// organizer.artist.associated analytics event (admin-actor / group event
+	// keyed on organizer_id; no fan distinct_id). The event token uses an
+	// underscore (artist_associated, not artist.associated) so the subject stays
+	// two tokens and the plain ORGANIZER.* filter on the JetStream stream
+	// captures it without a deeper wildcard.
+	SubjectOrganizerArtistAssociated = "ORGANIZER.artist_associated"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -74,6 +89,8 @@ var AllSubjects = []string{
 	SubjectTicketJourneyStatusChanged,
 	SubjectTicketEmailParsed,
 	SubjectUserLoggedIn,
+	SubjectOrganizerCreated,
+	SubjectOrganizerArtistAssociated,
 }
 
 // ConcertDiscoveredData is the payload for concert.discovered.v1 events.
@@ -247,6 +264,28 @@ type TicketEmailParsedData struct {
 	// FieldCount is the number of non-nil optional fields extracted by the
 	// parser on success. Zero on failure.
 	FieldCount int `json:"field_count"`
+}
+
+// OrganizerCreatedData is the payload for ORGANIZER.created.
+// Mapped to the catalogue event organizer.created by the analytics-consumer.
+// Published by OrganizerUseCase.completeProvisioning after the organizer row is
+// flipped to active. Keyed by organizer_id in PostHog (admin-actor group event;
+// no fan distinct_id is present).
+type OrganizerCreatedData struct {
+	// OrganizerID is the platform-internal UUID of the newly provisioned organizer.
+	OrganizerID string `json:"organizer_id"`
+}
+
+// OrganizerArtistAssociatedData is the payload for ORGANIZER.artist_associated.
+// Mapped to the catalogue event organizer.artist.associated by the
+// analytics-consumer. Published by OrganizerUseCase.AssociateArtist after the
+// repository persists the artist link. Keyed by organizer_id in PostHog
+// (admin-actor group event; no fan distinct_id is present).
+type OrganizerArtistAssociatedData struct {
+	// OrganizerID is the platform-internal UUID of the organizer.
+	OrganizerID string `json:"organizer_id"`
+	// ArtistID is the internal UUID of the associated artist.
+	ArtistID string `json:"artist_id"`
 }
 
 // TicketJourneyStatusChangedData is the payload for TICKET_JOURNEY.status_changed.
