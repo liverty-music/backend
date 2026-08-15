@@ -31,6 +31,7 @@ packages:
       NotificationUseCase:
       OrganizerUseCase:
       OrganizerMetrics:
+      OrganizerProvisioner:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -61,7 +62,6 @@ packages:
       RejectedConcertLogRepository:
       NotificationRepository:
       OrganizerRepository:
-      OrganizerProvisioner:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:

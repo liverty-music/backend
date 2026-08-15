@@ -4,12 +4,12 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
 
 // Compile-time interface compliance check.
-var _ entity.OrganizerProvisioner = (*NoopOrganizerProvisioner)(nil)
+var _ usecase.OrganizerProvisioner = (*NoopOrganizerProvisioner)(nil)
 
 // NoopOrganizerProvisioner is used when no organizer-provisioner credential is
 // configured (local development, where there is no live Zitadel). It performs no

@@ -172,7 +172,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Organizer tenant provisioner: the real Zitadel Management-API client when the
 	// dedicated organizer-provisioner credential is mounted (isolated admin
 	// workload), otherwise a no-op for local dev (no live Zitadel).
-	var organizerProvisioner entity.OrganizerProvisioner
+	var organizerProvisioner usecase.OrganizerProvisioner
 	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
 		op, err := infrazitadel.NewOrganizerProvisioner(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
 		if err != nil {

@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 
-	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -30,7 +30,7 @@ import (
 const organizerConsoleRoleOwner = "owner"
 
 // Compile-time interface compliance check.
-var _ entity.OrganizerProvisioner = (*OrganizerProvisioner)(nil)
+var _ usecase.OrganizerProvisioner = (*OrganizerProvisioner)(nil)
 
 // OrganizerProvisioner provisions an Organizer's isolated Zitadel tenant via
 // the Management API using the organizer-provisioner machine user credential.
@@ -93,7 +93,7 @@ func NewOrganizerProvisioner(
 // after a partial failure completes without creating duplicates.
 //
 // The provisioning saga, keyed on organizerID:
-//  1. Create or find the tenant org (deterministic name: "org-" + organizerID[:8]).
+//  1. Create or find the tenant org (deterministic name: "org-" + organizerID).
 //  2. Set a passkey-primary custom login policy on the tenant org.
 //  3. Project-grant the organizer-console project to the tenant org.
 //  4. Create the initial operator human user (existence-checked by email).
@@ -351,14 +351,15 @@ func (p *OrganizerProvisioner) findUserByEmail(orgCtx context.Context, email str
 	return resp.GetResult()[0].GetId(), nil
 }
 
-// tenantOrgName derives a deterministic, short org name from the organizerID so
-// that retries always resolve to the same Zitadel org.
+// tenantOrgName derives a deterministic org name from the full organizerID so
+// that retries always resolve to the same Zitadel org AND distinct organizers
+// never collide. The organizerID is a UUIDv7, whose first 48 bits are a
+// millisecond timestamp — so a truncated prefix would be identical for any two
+// organizers created within the same ~65s window, making AddOrg return
+// AlreadyExists for the second and resolving it into the first organizer's
+// tenant (cross-tenant owner grant). Using the full id keeps the name unique.
 func tenantOrgName(organizerID string) string {
-	suffix := organizerID
-	if len(suffix) > 8 {
-		suffix = suffix[:8]
-	}
-	return "org-" + suffix
+	return "org-" + organizerID
 }
 
 // orgNameToDomain converts an org name to the Zitadel-style domain used with

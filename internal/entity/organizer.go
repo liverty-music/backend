@@ -75,6 +75,12 @@ type OrganizerRepository interface {
 	//   - NotFound: no organizer with the id exists.
 	SetStatus(ctx context.Context, id string, status OrganizerStatus) error
 
+	// CompareAndSetStatus atomically transitions status from `from` to `to`. It
+	// reports whether the transition was applied — false means the current status
+	// was not `from` (e.g. a concurrent Deactivate superseded it), which the
+	// caller must not treat as its own success.
+	CompareAndSetStatus(ctx context.Context, id string, from, to OrganizerStatus) (bool, error)
+
 	// AssociateArtist links an existing artist to the organizer. Existence of the
 	// organizer and artist is validated by the caller; this enforces the
 	// at-most-one-organizer-per-artist rule.
@@ -93,19 +99,4 @@ type OrganizerRepository interface {
 	// FreeArtists removes all of the organizer's artist associations, freeing them
 	// for re-association. Used by deactivation.
 	FreeArtists(ctx context.Context, organizerID string) error
-}
-
-// OrganizerProvisioner provisions and tears down an Organizer's isolated Zitadel
-// tenant. It is implemented by the Zitadel Management-API client.
-type OrganizerProvisioner interface {
-	// ProvisionTenant is idempotent and compensating: keyed on organizerID, it
-	// creates the tenant org (if absent) with a passkey-primary login policy,
-	// project-grants organizer-console, and seeds the initial operator as owner
-	// with a passkey-registration init link. It returns the Zitadel org id. A
-	// retry after a partial failure completes the remaining steps without
-	// creating a duplicate org and never leaves the operator without an owner grant.
-	ProvisionTenant(ctx context.Context, organizerID, name, operatorEmail string) (zitadelOrgID string, err error)
-
-	// DeactivateOperators deactivates every operator in the Organizer's tenant org.
-	DeactivateOperators(ctx context.Context, zitadelOrgID string) error
 }

@@ -40,6 +40,9 @@ const (
 	setOrganizerStatusQuery = `
 		UPDATE organizers SET status = $2 WHERE id = $1
 	`
+	compareAndSetOrganizerStatusQuery = `
+		UPDATE organizers SET status = $3 WHERE id = $1 AND status = $2
+	`
 	insertOrganizerArtistQuery = `
 		INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)
 	`
@@ -182,6 +185,21 @@ func (r *OrganizerRepository) SetStatus(ctx context.Context, id string, status e
 		return apperr.New(codes.NotFound, "organizer not found")
 	}
 	return nil
+}
+
+// CompareAndSetStatus atomically transitions status from `from` to `to`, and
+// reports whether the transition was applied. A false result means the current
+// status was not `from` (e.g. a concurrent Deactivate already moved the row) —
+// the caller must not treat that as its own success. The row must still exist.
+func (r *OrganizerRepository) CompareAndSetStatus(ctx context.Context, id string, from, to entity.OrganizerStatus) (bool, error) {
+	tag, err := r.db.Pool.Exec(ctx, compareAndSetOrganizerStatusQuery, id, int16(from), int16(to))
+	if err != nil {
+		return false, toAppErr(err, "failed to compare-and-set organizer status", slog.String("id", id))
+	}
+	// 0 rows affected means the row either does not exist or is no longer in the
+	// `from` status. Both mean the intended transition did not apply; the caller
+	// treats it as "superseded" and skips, so it need not be distinguished here.
+	return tag.RowsAffected() > 0, nil
 }
 
 // AssociateArtist inserts a row into organizer_artists to link an artist to an

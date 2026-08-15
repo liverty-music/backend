@@ -80,7 +80,7 @@ type OrganizerUseCase interface {
 type organizerUseCase struct {
 	organizerRepo entity.OrganizerRepository
 	artistRepo    entity.ArtistRepository
-	provisioner   entity.OrganizerProvisioner
+	provisioner   OrganizerProvisioner
 	publisher     EventPublisher
 	metrics       OrganizerMetrics
 	logger        *logging.Logger
@@ -90,7 +90,7 @@ type organizerUseCase struct {
 func NewOrganizerUseCase(
 	organizerRepo entity.OrganizerRepository,
 	artistRepo entity.ArtistRepository,
-	provisioner entity.OrganizerProvisioner,
+	provisioner OrganizerProvisioner,
 	publisher EventPublisher,
 	metrics OrganizerMetrics,
 	logger *logging.Logger,
@@ -147,8 +147,22 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 	if err := uc.organizerRepo.SetZitadelOrgID(ctx, org.ID, zitadelOrgID); err != nil {
 		return err
 	}
-	if err := uc.organizerRepo.SetStatus(ctx, org.ID, entity.OrganizerStatusActive); err != nil {
+	// Flip to active only if the row is still provisioning. A concurrent
+	// Deactivate (which does not guard against an in-flight saga) may have moved
+	// the row to deactivated during the multi-second ProvisionTenant window; an
+	// unconditional flip would silently clobber that, leaving an "active" row
+	// whose operators are disabled and whose artists were freed — and which the
+	// reconciler (provisioning-only) never revisits. Treat a superseded row as a
+	// no-op: deactivation wins.
+	activated, err := uc.organizerRepo.CompareAndSetStatus(ctx, org.ID, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive)
+	if err != nil {
 		return err
+	}
+	if !activated {
+		uc.logger.Info(ctx, "organizer provisioning superseded before activation; skipping",
+			slog.String("organizer_id", org.ID),
+		)
+		return nil
 	}
 
 	org.ZitadelOrgID = zitadelOrgID

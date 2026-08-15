@@ -19,7 +19,7 @@ import (
 type organizerTestDeps struct {
 	orgRepo     *mocks.MockOrganizerRepository
 	artistRepo  *mocks.MockArtistRepository
-	provisioner *mocks.MockOrganizerProvisioner
+	provisioner *ucmocks.MockOrganizerProvisioner
 	publisher   *ucmocks.MockEventPublisher
 	metrics     *ucmocks.MockOrganizerMetrics
 	uc          usecase.OrganizerUseCase
@@ -30,7 +30,7 @@ func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 	d := &organizerTestDeps{
 		orgRepo:     mocks.NewMockOrganizerRepository(t),
 		artistRepo:  mocks.NewMockArtistRepository(t),
-		provisioner: mocks.NewMockOrganizerProvisioner(t),
+		provisioner: ucmocks.NewMockOrganizerProvisioner(t),
 		publisher:   ucmocks.NewMockEventPublisher(t),
 		metrics:     ucmocks.NewMockOrganizerMetrics(t),
 	}
@@ -93,8 +93,8 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 					Return(nil).
 					Once()
 				d.orgRepo.EXPECT().
-					SetStatus(mock.Anything, "org-1", entity.OrganizerStatusActive).
-					Return(nil).
+					CompareAndSetStatus(mock.Anything, "org-1", entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).
+					Return(true, nil).
 					Once()
 				d.publisher.EXPECT().
 					PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: "org-1"}).
@@ -137,6 +137,47 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 				// SetZitadelOrgID and SetStatus(active) must NOT be called.
 			},
 			wantErr: apperr.ErrInternal,
+		},
+		{
+			name: "do not clobber a concurrent deactivation when activation is superseded",
+			args: args{
+				name:          "Raced Corp",
+				operatorEmail: "op@raced.com",
+			},
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				provisioning := &entity.Organizer{
+					ID:            "org-1",
+					Name:          "Raced Corp",
+					OperatorEmail: "op@raced.com",
+					Status:        entity.OrganizerStatusProvisioning,
+				}
+				d.orgRepo.EXPECT().
+					Create(ctx, mock.AnythingOfType("*entity.Organizer")).
+					Return(provisioning, nil).
+					Once()
+				d.provisioner.EXPECT().
+					ProvisionTenant(mock.Anything, "org-1", "Raced Corp", "op@raced.com").
+					Return("zitadel-org-1", nil).
+					Once()
+				d.orgRepo.EXPECT().
+					SetZitadelOrgID(mock.Anything, "org-1", "zitadel-org-1").
+					Return(nil).
+					Once()
+				// A concurrent Deactivate already moved the row out of provisioning,
+				// so the CAS does not apply. The saga must NOT record success, emit
+				// organizer.created, or force the row back to active.
+				d.orgRepo.EXPECT().
+					CompareAndSetStatus(mock.Anything, "org-1", entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).
+					Return(false, nil).
+					Once()
+			},
+			want: func(t *testing.T, got *entity.Organizer) {
+				t.Helper()
+				// The returned row is the untouched provisioning record — the saga
+				// deferred to the concurrent deactivation instead of overwriting it.
+				assert.Equal(t, entity.OrganizerStatusProvisioning, got.Status)
+			},
 		},
 		{
 			name: "return error when repository Create fails",
@@ -669,7 +710,7 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 			d.provisioner.EXPECT().ProvisionTenant(mock.Anything, o.ID, o.Name, o.OperatorEmail).Return("z-"+o.ID, nil).Once()
 			d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
 			d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, o.ID, "z-"+o.ID).Return(nil).Once()
-			d.orgRepo.EXPECT().SetStatus(mock.Anything, o.ID, entity.OrganizerStatusActive).Return(nil).Once()
+			d.orgRepo.EXPECT().CompareAndSetStatus(mock.Anything, o.ID, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).Return(true, nil).Once()
 			d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: o.ID}).Return(nil).Once()
 		}
 
@@ -693,7 +734,7 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-ok", "Ok", "y@ok.com").Return("z-ok", nil).Once()
 		d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
 		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, "org-ok", "z-ok").Return(nil).Once()
-		d.orgRepo.EXPECT().SetStatus(mock.Anything, "org-ok", entity.OrganizerStatusActive).Return(nil).Once()
+		d.orgRepo.EXPECT().CompareAndSetStatus(mock.Anything, "org-ok", entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).Return(true, nil).Once()
 		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: "org-ok"}).Return(nil).Once()
 
 		// Per-organizer failures are logged and skipped, not returned.
