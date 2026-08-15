@@ -294,9 +294,10 @@ func newTestLogger(t *testing.T) *logging.Logger {
 // for use in unit tests that do not assert on metric recording.
 type noopMetrics struct{}
 
-func (noopMetrics) RecordConcertSearch(_ context.Context, _ string) {}
-func (noopMetrics) RecordFollow(_ context.Context, _ string)        {}
-func (noopMetrics) RecordPushSend(_ context.Context, _ string)      {}
+func (noopMetrics) RecordConcertSearch(_ context.Context, _ string)      {}
+func (noopMetrics) RecordFollow(_ context.Context, _ string)             {}
+func (noopMetrics) RecordPushSend(_ context.Context, _ string)           {}
+func (noopMetrics) RecordDeliveryOutcome(_ context.Context, _, _ string) {}
 
 // --- tests ---
 

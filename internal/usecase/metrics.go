@@ -14,7 +14,16 @@ type FollowMetrics interface {
 
 // PushMetrics records observability signals for push notification send operations.
 type PushMetrics interface {
+	// RecordPushSend increments the per-endpoint send counter, tagging the send
+	// outcome via status ("success", "error", "gone").
 	RecordPushSend(ctx context.Context, status string)
+
+	// RecordDeliveryOutcome increments the per-notification delivery-outcome
+	// counter. outcome is the terminal delivery status ("delivered" or "failed")
+	// and failureReason is a low-cardinality category ("none" on success, or one
+	// of the bounded delivery-failure categories) so the signal stays cheap to
+	// aggregate and safe to alert on.
+	RecordDeliveryOutcome(ctx context.Context, outcome, failureReason string)
 }
 
 // AnalyticsConsumerMetrics records observability signals for the
