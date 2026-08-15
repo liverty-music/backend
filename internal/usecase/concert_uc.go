@@ -27,20 +27,23 @@ type ConcertUseCase interface {
 	//  - Internal: database query failure.
 	ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error)
 
-	// ListByFollower returns all concerts for artists followed by the given user.
+	// ListByFollower returns concerts for artists followed by the given user whose
+	// local event date is on or after from. A nil from defaults to today onward.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If the user does not exist.
-	ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error)
+	ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error)
 
 	// ListByFollowerGrouped returns concerts for followed artists, grouped by date
 	// and classified into home/nearby/away lanes based on proximity to the user's home.
+	// Only concerts whose local event date is on or after from are included; a nil
+	// from defaults to today onward.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If the user does not exist.
-	ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home) ([]*entity.ProximityGroup, error)
+	ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error)
 
 	// ListByArtists returns concerts for the specified artists, grouped by date
 	// and classified by proximity to the given home.
@@ -159,15 +162,17 @@ func (uc *concertUseCase) ListByArtist(ctx context.Context, artistID string) ([]
 	return concerts, nil
 }
 
-// ListByFollower returns all concerts for artists followed by the given user.
-func (uc *concertUseCase) ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error) {
-	return uc.concertRepo.ListByFollower(ctx, userID)
+// ListByFollower returns concerts for artists followed by the given user whose
+// local event date is on or after from (nil defaults to today onward).
+func (uc *concertUseCase) ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error) {
+	return uc.concertRepo.ListByFollower(ctx, userID, from)
 }
 
 // ListByFollowerGrouped returns concerts for followed artists, grouped by date
 // and classified into home/nearby/away lanes based on proximity to the user's home.
-func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home) ([]*entity.ProximityGroup, error) {
-	concerts, err := uc.concertRepo.ListByFollower(ctx, userID)
+// A nil from defaults to today onward; a past from widens the range into the past.
+func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error) {
+	concerts, err := uc.concertRepo.ListByFollower(ctx, userID, from)
 	if err != nil {
 		return nil, err
 	}

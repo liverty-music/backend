@@ -143,9 +143,9 @@ func (_c *MockConcertUseCase_ListByArtists_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// ListByFollower provides a mock function with given fields: ctx, userID
-func (_m *MockConcertUseCase) ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error) {
-	ret := _m.Called(ctx, userID)
+// ListByFollower provides a mock function with given fields: ctx, userID, from
+func (_m *MockConcertUseCase) ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx, userID, from)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByFollower")
@@ -153,19 +153,19 @@ func (_m *MockConcertUseCase) ListByFollower(ctx context.Context, userID string)
 
 	var r0 []*entity.Concert
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Concert, error)); ok {
-		return rf(ctx, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, *time.Time) ([]*entity.Concert, error)); ok {
+		return rf(ctx, userID, from)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Concert); ok {
-		r0 = rf(ctx, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, *time.Time) []*entity.Concert); ok {
+		r0 = rf(ctx, userID, from)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Concert)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, string, *time.Time) error); ok {
+		r1 = rf(ctx, userID, from)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -181,13 +181,14 @@ type MockConcertUseCase_ListByFollower_Call struct {
 // ListByFollower is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID string
-func (_e *MockConcertUseCase_Expecter) ListByFollower(ctx interface{}, userID interface{}) *MockConcertUseCase_ListByFollower_Call {
-	return &MockConcertUseCase_ListByFollower_Call{Call: _e.mock.On("ListByFollower", ctx, userID)}
+//   - from *time.Time
+func (_e *MockConcertUseCase_Expecter) ListByFollower(ctx interface{}, userID interface{}, from interface{}) *MockConcertUseCase_ListByFollower_Call {
+	return &MockConcertUseCase_ListByFollower_Call{Call: _e.mock.On("ListByFollower", ctx, userID, from)}
 }
 
-func (_c *MockConcertUseCase_ListByFollower_Call) Run(run func(ctx context.Context, userID string)) *MockConcertUseCase_ListByFollower_Call {
+func (_c *MockConcertUseCase_ListByFollower_Call) Run(run func(ctx context.Context, userID string, from *time.Time)) *MockConcertUseCase_ListByFollower_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(*time.Time))
 	})
 	return _c
 }
@@ -197,14 +198,14 @@ func (_c *MockConcertUseCase_ListByFollower_Call) Return(_a0 []*entity.Concert, 
 	return _c
 }
 
-func (_c *MockConcertUseCase_ListByFollower_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Concert, error)) *MockConcertUseCase_ListByFollower_Call {
+func (_c *MockConcertUseCase_ListByFollower_Call) RunAndReturn(run func(context.Context, string, *time.Time) ([]*entity.Concert, error)) *MockConcertUseCase_ListByFollower_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ListByFollowerGrouped provides a mock function with given fields: ctx, userID, home
-func (_m *MockConcertUseCase) ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home) ([]*entity.ProximityGroup, error) {
-	ret := _m.Called(ctx, userID, home)
+// ListByFollowerGrouped provides a mock function with given fields: ctx, userID, home, from
+func (_m *MockConcertUseCase) ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error) {
+	ret := _m.Called(ctx, userID, home, from)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByFollowerGrouped")
@@ -212,19 +213,19 @@ func (_m *MockConcertUseCase) ListByFollowerGrouped(ctx context.Context, userID 
 
 	var r0 []*entity.ProximityGroup
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) ([]*entity.ProximityGroup, error)); ok {
-		return rf(ctx, userID, home)
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home, *time.Time) ([]*entity.ProximityGroup, error)); ok {
+		return rf(ctx, userID, home, from)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home) []*entity.ProximityGroup); ok {
-		r0 = rf(ctx, userID, home)
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Home, *time.Time) []*entity.ProximityGroup); ok {
+		r0 = rf(ctx, userID, home, from)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.ProximityGroup)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, *entity.Home) error); ok {
-		r1 = rf(ctx, userID, home)
+	if rf, ok := ret.Get(1).(func(context.Context, string, *entity.Home, *time.Time) error); ok {
+		r1 = rf(ctx, userID, home, from)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -241,13 +242,14 @@ type MockConcertUseCase_ListByFollowerGrouped_Call struct {
 //   - ctx context.Context
 //   - userID string
 //   - home *entity.Home
-func (_e *MockConcertUseCase_Expecter) ListByFollowerGrouped(ctx interface{}, userID interface{}, home interface{}) *MockConcertUseCase_ListByFollowerGrouped_Call {
-	return &MockConcertUseCase_ListByFollowerGrouped_Call{Call: _e.mock.On("ListByFollowerGrouped", ctx, userID, home)}
+//   - from *time.Time
+func (_e *MockConcertUseCase_Expecter) ListByFollowerGrouped(ctx interface{}, userID interface{}, home interface{}, from interface{}) *MockConcertUseCase_ListByFollowerGrouped_Call {
+	return &MockConcertUseCase_ListByFollowerGrouped_Call{Call: _e.mock.On("ListByFollowerGrouped", ctx, userID, home, from)}
 }
 
-func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Run(run func(ctx context.Context, userID string, home *entity.Home)) *MockConcertUseCase_ListByFollowerGrouped_Call {
+func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Run(run func(ctx context.Context, userID string, home *entity.Home, from *time.Time)) *MockConcertUseCase_ListByFollowerGrouped_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(*entity.Home))
+		run(args[0].(context.Context), args[1].(string), args[2].(*entity.Home), args[3].(*time.Time))
 	})
 	return _c
 }
@@ -257,7 +259,7 @@ func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) Return(_a0 []*entity.Pr
 	return _c
 }
 
-func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) RunAndReturn(run func(context.Context, string, *entity.Home) ([]*entity.ProximityGroup, error)) *MockConcertUseCase_ListByFollowerGrouped_Call {
+func (_c *MockConcertUseCase_ListByFollowerGrouped_Call) RunAndReturn(run func(context.Context, string, *entity.Home, *time.Time) ([]*entity.ProximityGroup, error)) *MockConcertUseCase_ListByFollowerGrouped_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -1185,6 +1185,10 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB)
 
+	// epoch is an explicit far-past lower bound so these follower/coordinate
+	// assertions stay independent of CURRENT_DATE (the default when from is nil).
+	epoch := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
 	t.Run("returns concerts for followed artists", func(t *testing.T) {
 		cleanDatabase(t)
 
@@ -1242,7 +1246,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByFollower(ctx, userID)
+		got, err := concertRepo.ListByFollower(ctx, userID, &epoch)
 		assert.NoError(t, err)
 		require.Len(t, got, 1, "should only return concerts for followed artists")
 		require.NotNil(t, got[0].Series)
@@ -1293,7 +1297,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByFollower(ctx, userID)
+		got, err := concertRepo.ListByFollower(ctx, userID, &epoch)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].Venue)
@@ -1312,9 +1316,82 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		got, err := concertRepo.ListByFollower(ctx, userID)
+		got, err := concertRepo.ListByFollower(ctx, userID, nil)
 		assert.NoError(t, err)
 		assert.Empty(t, got)
+	})
+
+	t.Run("default (nil from) returns only concerts on or after today", func(t *testing.T) {
+		cleanDatabase(t)
+
+		userID := "018b2f19-e591-7d12-bf9e-f0e74f1b5004"
+		_, err := testDB.Pool.Exec(ctx,
+			"INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)",
+			userID, "Date User", "date@test.com", "ext-user-004",
+		)
+		require.NoError(t, err)
+
+		artist := &entity.Artist{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5014", Name: "Date Band", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5014"}
+		_, err = artistRepo.Create(ctx, artist)
+		require.NoError(t, err)
+
+		venue := &entity.Venue{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5024", Name: "Date Venue"}
+		{
+			_, cErr := venueRepo.Create(ctx, venue)
+			require.NoError(t, cErr)
+		}
+
+		// Seed one past and one future concert relative to CURRENT_DATE.
+		today := time.Now().UTC().Truncate(24 * time.Hour)
+		pastDate := today.AddDate(0, 0, -10)
+		futureDate := today.AddDate(0, 0, 10)
+
+		sPast := seedSeries(t, ctx, seriesRepo, "Past Concert")
+		sFuture := seedSeries(t, ctx, seriesRepo, "Future Concert")
+		requireCreate(t, ctx, concertRepo,
+			&entity.Concert{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5051", VenueID: venue.ID,
+					SeriesID: sPast, LocalDate: pastDate,
+				},
+				Series:     &entity.Series{ID: sPast, Title: "Past Concert"},
+				Performers: []*entity.Artist{{ID: artist.ID}},
+			},
+			&entity.Concert{
+				Event: entity.Event{
+					ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5052", VenueID: venue.ID,
+					SeriesID: sFuture, LocalDate: futureDate,
+				},
+				Series:     &entity.Series{ID: sFuture, Title: "Future Concert"},
+				Performers: []*entity.Artist{{ID: artist.ID}},
+			},
+		)
+
+		_, err = testDB.Pool.Exec(ctx,
+			"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",
+			userID, artist.ID,
+		)
+		require.NoError(t, err)
+
+		// Default (nil from): only the future concert.
+		got, err := concertRepo.ListByFollower(ctx, userID, nil)
+		require.NoError(t, err)
+		require.Len(t, got, 1, "nil from should default to today onward")
+		assert.Equal(t, "Future Concert", got[0].Series.Title)
+
+		// Explicit past from: both concerts, ordered by date ascending.
+		past := pastDate.AddDate(0, 0, -1)
+		got, err = concertRepo.ListByFollower(ctx, userID, &past)
+		require.NoError(t, err)
+		require.Len(t, got, 2, "past from should include past concerts")
+		assert.Equal(t, "Past Concert", got[0].Series.Title)
+		assert.Equal(t, "Future Concert", got[1].Series.Title)
+
+		// From after all concerts: empty list, not an error.
+		afterAll := futureDate.AddDate(0, 0, 1)
+		got, err = concertRepo.ListByFollower(ctx, userID, &afterAll)
+		require.NoError(t, err)
+		assert.Empty(t, got, "from after all concerts should return empty, not error")
 	})
 }
 

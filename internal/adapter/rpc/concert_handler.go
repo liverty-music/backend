@@ -51,7 +51,7 @@ func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[concertv
 
 // ListByFollower returns all concerts for artists followed by the authenticated user,
 // grouped by date and classified into geographic proximity lanes.
-func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[concertv1.ListByFollowerRequest]) (*connect.Response[concertv1.ListByFollowerResponse], error) {
+func (h *ConcertHandler) ListByFollower(ctx context.Context, req *connect.Request[concertv1.ListByFollowerRequest]) (*connect.Response[concertv1.ListByFollowerResponse], error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,12 @@ func (h *ConcertHandler) ListByFollower(ctx context.Context, _ *connect.Request[
 		return nil, err
 	}
 
-	groups, err := h.concertUseCase.ListByFollowerGrouped(ctx, user.ID, user.Home)
+	// Optional lower bound. A nil from (field omitted) defaults to today-onward
+	// via the repository's COALESCE(..., CURRENT_DATE); a client-supplied date
+	// widens the window into the past.
+	from := mapper.DateToTimePtr(req.Msg.GetFrom().GetValue())
+
+	groups, err := h.concertUseCase.ListByFollowerGrouped(ctx, user.ID, user.Home, from)
 	if err != nil {
 		return nil, err
 	}

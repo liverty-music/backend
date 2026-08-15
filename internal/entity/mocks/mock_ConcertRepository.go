@@ -430,9 +430,9 @@ func (_c *MockConcertRepository_ListByArtists_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// ListByFollower provides a mock function with given fields: ctx, userID
-func (_m *MockConcertRepository) ListByFollower(ctx context.Context, userID string) ([]*entity.Concert, error) {
-	ret := _m.Called(ctx, userID)
+// ListByFollower provides a mock function with given fields: ctx, userID, from
+func (_m *MockConcertRepository) ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx, userID, from)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListByFollower")
@@ -440,19 +440,19 @@ func (_m *MockConcertRepository) ListByFollower(ctx context.Context, userID stri
 
 	var r0 []*entity.Concert
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Concert, error)); ok {
-		return rf(ctx, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, *time.Time) ([]*entity.Concert, error)); ok {
+		return rf(ctx, userID, from)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Concert); ok {
-		r0 = rf(ctx, userID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, *time.Time) []*entity.Concert); ok {
+		r0 = rf(ctx, userID, from)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Concert)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, userID)
+	if rf, ok := ret.Get(1).(func(context.Context, string, *time.Time) error); ok {
+		r1 = rf(ctx, userID, from)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -468,13 +468,14 @@ type MockConcertRepository_ListByFollower_Call struct {
 // ListByFollower is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID string
-func (_e *MockConcertRepository_Expecter) ListByFollower(ctx interface{}, userID interface{}) *MockConcertRepository_ListByFollower_Call {
-	return &MockConcertRepository_ListByFollower_Call{Call: _e.mock.On("ListByFollower", ctx, userID)}
+//   - from *time.Time
+func (_e *MockConcertRepository_Expecter) ListByFollower(ctx interface{}, userID interface{}, from interface{}) *MockConcertRepository_ListByFollower_Call {
+	return &MockConcertRepository_ListByFollower_Call{Call: _e.mock.On("ListByFollower", ctx, userID, from)}
 }
 
-func (_c *MockConcertRepository_ListByFollower_Call) Run(run func(ctx context.Context, userID string)) *MockConcertRepository_ListByFollower_Call {
+func (_c *MockConcertRepository_ListByFollower_Call) Run(run func(ctx context.Context, userID string, from *time.Time)) *MockConcertRepository_ListByFollower_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(*time.Time))
 	})
 	return _c
 }
@@ -484,7 +485,7 @@ func (_c *MockConcertRepository_ListByFollower_Call) Return(_a0 []*entity.Concer
 	return _c
 }
 
-func (_c *MockConcertRepository_ListByFollower_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Concert, error)) *MockConcertRepository_ListByFollower_Call {
+func (_c *MockConcertRepository_ListByFollower_Call) RunAndReturn(run func(context.Context, string, *time.Time) ([]*entity.Concert, error)) *MockConcertRepository_ListByFollower_Call {
 	_c.Call.Return(run)
 	return _c
 }

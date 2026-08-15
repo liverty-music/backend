@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/type/date"
 )
 
 func TestConcertHandler_List(t *testing.T) {
@@ -276,9 +277,43 @@ func TestConcertHandler_ListByFollower(t *testing.T) {
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 		user := &entity.User{ID: internalUserID}
 		userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
-		concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID, user.Home).Return([]*entity.ProximityGroup{}, nil).Once()
+		concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID, user.Home, mock.Anything).Return([]*entity.ProximityGroup{}, nil).Once()
 
 		req := connect.NewRequest(&concertv1.ListByFollowerRequest{})
+
+		resp, err := h.ListByFollower(ctx, req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("threads the request from date to the use case", func(t *testing.T) {
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
+		concertUC := mocks.NewMockConcertUseCase(t)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, logger)
+
+		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
+		user := &entity.User{ID: internalUserID}
+		userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+
+		// A client-supplied from must reach the use case mapped to a UTC-midnight
+		// *time.Time; the getter chain is nil-safe when the field is omitted.
+		wantFrom := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+		concertUC.EXPECT().
+			ListByFollowerGrouped(mock.Anything, internalUserID, user.Home,
+				mock.MatchedBy(func(from *time.Time) bool {
+					return from != nil && from.Equal(wantFrom)
+				})).
+			Return([]*entity.ProximityGroup{}, nil).Once()
+
+		req := connect.NewRequest(&concertv1.ListByFollowerRequest{
+			From: &entityv1.LocalDate{Value: &date.Date{Year: 2020, Month: 1, Day: 1}},
+		})
 
 		resp, err := h.ListByFollower(ctx, req)
 
