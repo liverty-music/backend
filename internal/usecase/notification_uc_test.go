@@ -1,13 +1,17 @@
 package usecase_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -17,6 +21,35 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 )
+
+// deliveryOutcomeCall captures one RecordDeliveryOutcome invocation.
+type deliveryOutcomeCall struct{ outcome, reason string }
+
+// captureMetrics is a PushMetrics spy that records delivery-outcome calls so a
+// test can assert the operational signal was emitted with the right labels.
+type captureMetrics struct {
+	outcomes []deliveryOutcomeCall
+}
+
+func (m *captureMetrics) RecordPushSend(_ context.Context, _ string) {}
+
+func (m *captureMetrics) RecordDeliveryOutcome(_ context.Context, outcome, reason string) {
+	m.outcomes = append(m.outcomes, deliveryOutcomeCall{outcome: outcome, reason: reason})
+}
+
+// newCaptureLogger returns a JSON logger writing into the returned buffer so a
+// test can assert on emitted log lines.
+func newCaptureLogger(t *testing.T) (*logging.Logger, *bytes.Buffer) {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	logger, err := logging.New(
+		logging.WithFormat(logging.FormatJSON),
+		logging.WithLevel(slog.LevelInfo),
+		logging.WithWriter(buf),
+	)
+	require.NoError(t, err)
+	return logger, buf
+}
 
 func buildNotificationUC(
 	t *testing.T,
@@ -241,6 +274,81 @@ func TestNotify_NilPayloadRejected(t *testing.T) {
 
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	notifRepo.AssertNotCalled(t, "Create")
+}
+
+// Observability: a failed delivery emits the WARNING log (with the bounded
+// failure_reason label) AND the delivery-outcome metric, so the failure is
+// detectable without querying the notifications table.
+func TestNotify_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
+	t.Parallel()
+
+	notifRepo := entitymocks.NewMockNotificationRepository(t)
+	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
+	sender := entitymocks.NewMockPushNotificationSender(t)
+
+	notifRepo.EXPECT().
+		Create(anyCtx, mock.Anything).
+		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-obs" }).
+		Return(nil)
+	// No subscriptions ⇒ failed with the "no active push subscription" reason.
+	pushSubRepo.EXPECT().
+		ListByUserIDs(anyCtx, []string{"user-1"}).
+		Return([]*entity.PushSubscription{}, nil)
+	notifRepo.EXPECT().
+		UpdateDelivery(anyCtx, "id-obs", entity.NotificationDeliveryStatusFailed, (*time.Time)(nil), "no active push subscription").
+		Return(nil)
+
+	metrics := &captureMetrics{}
+	logger, buf := newCaptureLogger(t)
+	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t), metrics, logger)
+
+	_, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	require.NoError(t, err)
+
+	// Metric: failed outcome with the bounded no_subscription reason.
+	require.Contains(t, metrics.outcomes, deliveryOutcomeCall{outcome: "failed", reason: "no_subscription"})
+
+	// Log: a WARNING line naming the failure and carrying the bounded label.
+	logs := buf.String()
+	assert.Contains(t, logs, `"level":"WARN"`)
+	assert.Contains(t, logs, "notification delivery failed")
+	assert.Contains(t, logs, `"failure_reason":"no_subscription"`)
+	assert.Contains(t, logs, `"notification_id":"id-obs"`)
+}
+
+// Observability: the success path stays quiet — it emits the delivered metric
+// but produces no WARNING delivery-failure log.
+func TestNotify_SuccessEmitsNoWarningLog(t *testing.T) {
+	t.Parallel()
+
+	notifRepo := entitymocks.NewMockNotificationRepository(t)
+	pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
+	sender := entitymocks.NewMockPushNotificationSender(t)
+
+	notifRepo.EXPECT().
+		Create(anyCtx, mock.Anything).
+		Run(func(_ context.Context, n *entity.Notification) { n.ID = "id-ok" }).
+		Return(nil)
+	pushSubRepo.EXPECT().
+		ListByUserIDs(anyCtx, []string{"user-1"}).
+		Return([]*entity.PushSubscription{sub("user-1", "https://push/1")}, nil)
+	sender.EXPECT().Send(anyCtx, mock.Anything, mock.Anything).Return(nil)
+	notifRepo.EXPECT().
+		UpdateDelivery(anyCtx, "id-ok", entity.NotificationDeliveryStatusDelivered, mock.AnythingOfType("*time.Time"), "").
+		Return(nil)
+	publisher := ucmocks.NewMockEventPublisher(t)
+	publisher.EXPECT().PublishEvent(anyCtx, entity.SubjectNotificationDelivered, mock.Anything).Return(nil).Once()
+
+	metrics := &captureMetrics{}
+	logger, buf := newCaptureLogger(t)
+	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, publisher, metrics, logger)
+
+	_, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	require.NoError(t, err)
+
+	require.Contains(t, metrics.outcomes, deliveryOutcomeCall{outcome: "delivered", reason: "none"})
+	assert.NotContains(t, buf.String(), "notification delivery failed")
+	assert.False(t, strings.Contains(buf.String(), `"level":"WARN"`), "success path must not warn")
 }
 
 // Read idempotency: MarkRead loads the record, confirms ownership, and delegates

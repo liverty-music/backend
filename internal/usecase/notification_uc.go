@@ -65,6 +65,20 @@ type NotificationUseCase interface {
 // not worth retrying) from a transient send error.
 const NotificationFailureReasonNoSubscription = "no active push subscription"
 
+// Bounded delivery-failure categories. They are the *label* attached to the
+// delivery-outcome metric and the WARNING failure log, kept deliberately small so
+// the signal stays low-cardinality and safe for a log-based-metric alert (the raw
+// reason string carries the unbounded diagnostic detail separately).
+const (
+	deliveryFailureReasonNone           = "none"
+	deliveryFailureReasonNoSubscription = "no_subscription"
+	deliveryFailureReasonGone           = "gone"
+	deliveryFailureReasonSendError      = "send_error"
+	deliveryFailureReasonListFailed     = "list_failed"
+	deliveryFailureReasonMarshalFailed  = "marshal_failed"
+	deliveryFailureReasonCancelled      = "cancelled"
+)
+
 // notificationUseCase implements NotificationUseCase.
 type notificationUseCase struct {
 	notificationRepo entity.NotificationRepository
@@ -126,7 +140,24 @@ func (uc *notificationUseCase) Notify(ctx context.Context, userID string, typ en
 	payload.Data[entity.NotificationDataKeyNotificationID] = n.ID
 
 	// 3. Dispatch to the web-push channel and 4. record the outcome.
-	status, deliveredAt, reason := uc.dispatch(ctx, n, payload)
+	status, deliveredAt, reason, reasonCategory := uc.dispatch(ctx, n, payload)
+
+	// Surface the outcome as an operational signal so a systemic delivery failure
+	// is detectable without querying the notifications table. The metric is emitted
+	// for every outcome (the alert needs a failed-vs-total ratio); a failed
+	// delivery is additionally logged at WARNING, with the bounded failure_reason
+	// as a label and the unbounded detail kept separate for debugging.
+	uc.metrics.RecordDeliveryOutcome(ctx, string(status), reasonCategory)
+	if status == entity.NotificationDeliveryStatusFailed {
+		uc.logger.Warn(ctx, "notification delivery failed",
+			slog.String("notification_id", n.ID),
+			slog.String("user_id", userID),
+			slog.String("notification_type", string(typ)),
+			slog.String("failure_reason", reasonCategory),
+			slog.String("failure_detail", reason),
+		)
+	}
+
 	if err := uc.notificationRepo.UpdateDelivery(ctx, n.ID, status, deliveredAt, reason); err != nil {
 		// Non-fatal: the send has already happened (or failed) and the record
 		// exists. The delivery-state column may lag but the notification is not
@@ -163,31 +194,33 @@ func (uc *notificationUseCase) Notify(ctx context.Context, userID string, typ en
 // dispatch sends the rendered payload to every web-push subscription the user
 // has, cleaning up gone (410) subscriptions, and returns the terminal delivery
 // outcome: delivered when at least one send was accepted, otherwise failed (with
-// a reason). It never returns an error — a failed dispatch is a recorded outcome,
-// not a lost notification.
-func (uc *notificationUseCase) dispatch(ctx context.Context, n *entity.Notification, payload *entity.NotificationPayload) (entity.NotificationDeliveryStatus, *time.Time, string) {
+// a human-readable reason and a bounded reason category for metric/log labels).
+// It never returns an error — a failed dispatch is a recorded outcome, not a lost
+// notification.
+func (uc *notificationUseCase) dispatch(ctx context.Context, n *entity.Notification, payload *entity.NotificationPayload) (status entity.NotificationDeliveryStatus, deliveredAt *time.Time, reason, reasonCategory string) {
 	subs, err := uc.pushSubRepo.ListByUserIDs(ctx, []string{n.UserID})
 	if err != nil {
 		uc.logger.Error(ctx, "failed to list push subscriptions for notification", err,
 			slog.String("notification_id", n.ID),
 			slog.String("user_id", n.UserID),
 		)
-		return entity.NotificationDeliveryStatusFailed, nil, "failed to list push subscriptions: " + err.Error()
+		return entity.NotificationDeliveryStatusFailed, nil, "failed to list push subscriptions: " + err.Error(), deliveryFailureReasonListFailed
 	}
 	if len(subs) == 0 {
 		// The record still exists for the in-app inbox; the push channel simply
 		// had no endpoint to deliver to. Recorded as failed for delivery audit.
-		return entity.NotificationDeliveryStatusFailed, nil, NotificationFailureReasonNoSubscription
+		return entity.NotificationDeliveryStatusFailed, nil, NotificationFailureReasonNoSubscription, deliveryFailureReasonNoSubscription
 	}
 
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		return entity.NotificationDeliveryStatusFailed, nil, "failed to marshal payload: " + err.Error()
+		return entity.NotificationDeliveryStatusFailed, nil, "failed to marshal payload: " + err.Error(), deliveryFailureReasonMarshalFailed
 	}
 
 	var (
 		atLeastOneSuccess bool
 		lastErr           string
+		lastCategory      string
 	)
 	for _, sub := range subs {
 		// Stop dispatching the moment the context is cancelled: record the cause
@@ -195,6 +228,7 @@ func (uc *notificationUseCase) dispatch(ctx context.Context, n *entity.Notificat
 		// keep the notification's delivered outcome; otherwise it is failed.
 		if err := ctx.Err(); err != nil {
 			lastErr = err.Error()
+			lastCategory = deliveryFailureReasonCancelled
 			break
 		}
 
@@ -209,6 +243,7 @@ func (uc *notificationUseCase) dispatch(ctx context.Context, n *entity.Notificat
 					)
 				}
 				lastErr = "push subscription gone (410)"
+				lastCategory = deliveryFailureReasonGone
 			} else {
 				uc.metrics.RecordPushSend(ctx, "error")
 				uc.logger.Error(ctx, "failed to send push notification", err,
@@ -216,6 +251,7 @@ func (uc *notificationUseCase) dispatch(ctx context.Context, n *entity.Notificat
 					slog.String("user_id", sub.UserID),
 				)
 				lastErr = err.Error()
+				lastCategory = deliveryFailureReasonSendError
 			}
 		} else {
 			uc.metrics.RecordPushSend(ctx, "success")
@@ -225,9 +261,9 @@ func (uc *notificationUseCase) dispatch(ctx context.Context, n *entity.Notificat
 
 	if atLeastOneSuccess {
 		now := time.Now().UTC()
-		return entity.NotificationDeliveryStatusDelivered, &now, ""
+		return entity.NotificationDeliveryStatusDelivered, &now, "", deliveryFailureReasonNone
 	}
-	return entity.NotificationDeliveryStatusFailed, nil, lastErr
+	return entity.NotificationDeliveryStatusFailed, nil, lastErr, lastCategory
 }
 
 // MarkRead implements [NotificationUseCase].

@@ -246,6 +246,10 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	// recipient (so no push is sent), but short-circuiting here also skips
 	// the follower lookup entirely.
 	if len(concerts) == 0 {
+		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no deliverable concerts",
+			slog.String("artist_id", data.ArtistID),
+			slog.String("reason", "no_deliverable_concerts"),
+		)
 		return nil
 	}
 
@@ -255,6 +259,10 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		return fmt.Errorf("failed to list followers for artist %s: %w", artist.ID, err)
 	}
 	if len(followers) == 0 {
+		uc.logger.Info(ctx, "new-concert fan-out sent nothing: artist has no followers",
+			slog.String("artist_id", artist.ID),
+			slog.String("reason", "no_followers"),
+		)
 		return nil
 	}
 
@@ -269,6 +277,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	//    per-recipient subset — never from the unfiltered new-concert set — so a
 	//    home-hype fan sees an area-accurate count and lands on a concert that
 	//    actually matched their hype tier.
+	dispatched := 0
 	for _, f := range followers {
 		// Honour context cancellation before each recipient.
 		select {
@@ -312,6 +321,19 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 			// pushes are deduplicated browser-side by the per-artist Tag.
 			return fmt.Errorf("failed to notify user %s of new concerts for artist %s: %w", f.User.ID, artist.ID, err)
 		}
+		dispatched++
+	}
+
+	// The artist has followers, but none was eligible after hype filtering (every
+	// recipient's matched subset was empty). Log the empty outcome so "processed
+	// the event but sent nothing" is diagnosable from logs alone, rather than
+	// returning silently.
+	if dispatched == 0 {
+		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no eligible recipients after hype filtering",
+			slog.String("artist_id", artist.ID),
+			slog.String("reason", "no_eligible_recipients"),
+			slog.Int("follower_count", len(followers)),
+		)
 	}
 
 	return nil

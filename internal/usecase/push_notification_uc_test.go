@@ -10,8 +10,10 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // pushNotificationTestDeps holds all dependencies for PushNotificationUseCase tests.
@@ -742,6 +744,94 @@ func TestNotifyNewConcerts_PluralBodyPerLanguage(t *testing.T) {
 
 	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2"}})
 	assert.NoError(t, err)
+}
+
+// newPushNotificationUCWithLogger builds the use case with a capture logger so a
+// test can assert on the zero-recipient early-return logs.
+func newPushNotificationUCWithLogger(t *testing.T, d *pushNotificationTestDeps, logger *logging.Logger) usecase.PushNotificationUseCase {
+	t.Helper()
+	return usecase.NewPushNotificationUseCase(
+		d.artistRepo,
+		d.concertRepo,
+		d.followRepo,
+		d.pushSubRepo,
+		d.publisher,
+		d.notificationUC,
+		logger,
+	)
+}
+
+// TestNotifyNewConcerts_ZeroRecipientPathsAreLogged verifies each zero-dispatch
+// early-return emits a diagnostic log with its reason and the artist id, instead
+// of returning silently.
+func TestNotifyNewConcerts_ZeroRecipientPathsAreLogged(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tokyoArea := "JP-13"
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	concert := []*entity.Concert{
+		{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+	}
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, d *pushNotificationTestDeps)
+		wantReason string
+	}{
+		{
+			name: "no followers",
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(concert, nil).Once()
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return([]*entity.Follower{}, nil).Once()
+			},
+			wantReason: `"reason":"no_followers"`,
+		},
+		{
+			name: "no eligible recipients after hype filtering",
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(concert, nil).Once()
+				// A WATCH follower is never eligible ⇒ zero dispatches.
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return([]*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-watch"}, Hype: entity.HypeWatch},
+				}, nil).Once()
+			},
+			wantReason: `"reason":"no_eligible_recipients"`,
+		},
+		{
+			name: "no deliverable concerts (all orphans)",
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+				// The only concert has no performers ⇒ dropped as an orphan ⇒ empty set.
+				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return([]*entity.Concert{
+					{Event: entity.Event{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}}},
+				}, nil).Once()
+			},
+			wantReason: `"reason":"no_deliverable_concerts"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newPushNotificationTestDeps(t)
+			tt.setup(t, d)
+			logger, buf := newCaptureLogger(t)
+			uc := newPushNotificationUCWithLogger(t, d, logger)
+
+			err := uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}})
+			require.NoError(t, err)
+
+			logs := buf.String()
+			assert.Contains(t, logs, tt.wantReason)
+			assert.Contains(t, logs, `"artist_id":"artist-1"`)
+		})
+	}
 }
 
 // payloadURL extracts the deep-link URL from a notification payload's data map.

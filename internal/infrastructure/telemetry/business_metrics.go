@@ -17,9 +17,10 @@ var _ usecase.PushMetrics = (*BusinessMetrics)(nil)
 // BusinessMetrics provides OTel counters for key business operations.
 // It is injected into use cases that need to record business-level metrics.
 type BusinessMetrics struct {
-	concertSearch metric.Int64Counter
-	follow        metric.Int64Counter
-	pushSend      metric.Int64Counter
+	concertSearch   metric.Int64Counter
+	follow          metric.Int64Counter
+	pushSend        metric.Int64Counter
+	deliveryOutcome metric.Int64Counter
 }
 
 // NewBusinessMetrics creates a new BusinessMetrics with registered OTel instruments.
@@ -34,10 +35,14 @@ func NewBusinessMetrics() *BusinessMetrics {
 	pushSend, _ := meter.Int64Counter("push_notification.send.count",
 		metric.WithDescription("Push notification send operations by status"),
 	)
+	deliveryOutcome, _ := meter.Int64Counter("notification.delivery.count",
+		metric.WithDescription("Per-notification delivery outcomes by outcome and failure reason"),
+	)
 	return &BusinessMetrics{
-		concertSearch: concertSearch,
-		follow:        follow,
-		pushSend:      pushSend,
+		concertSearch:   concertSearch,
+		follow:          follow,
+		pushSend:        pushSend,
+		deliveryOutcome: deliveryOutcome,
 	}
 }
 
@@ -59,4 +64,13 @@ func (m *BusinessMetrics) RecordFollow(ctx context.Context, action string) {
 // RecordPushSend increments the push notification send counter.
 func (m *BusinessMetrics) RecordPushSend(ctx context.Context, status string) {
 	m.pushSend.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
+}
+
+// RecordDeliveryOutcome increments the per-notification delivery-outcome counter,
+// tagged by the terminal outcome and a low-cardinality failure-reason category.
+func (m *BusinessMetrics) RecordDeliveryOutcome(ctx context.Context, outcome, failureReason string) {
+	m.deliveryOutcome.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("outcome", outcome),
+		attribute.String("failure_reason", failureReason),
+	))
 }
