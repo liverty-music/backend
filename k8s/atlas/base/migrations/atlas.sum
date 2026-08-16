@@ -1,4 +1,4 @@
-h1:zduU72dCB6l3IoDk3etUr7D3V4TUwNd7F7UV7C8gP2k=
+h1:pOmmoc/OrQVIljcCxgTs9vNVU3Yjbt/ilQwbtmVoDFw=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -64,3 +64,4 @@ h1:zduU72dCB6l3IoDk3etUr7D3V4TUwNd7F7UV7C8gP2k=
 20260626120000_add_notifications_table.sql h1:m/TskL3nQi5UgrWCUA/UMCqy5yZFWfm2H+SggBKi7UM=
 20260806120000_drop_blockchain_ticket_system.sql h1:7f7lEDxxiZQn/V2+zPk928uG+W+SQemC/drYcTSaUiY=
 20260814010000_create_organizer_tables.sql h1:hhBH/diKbOZA+4H2rrm/e0cK1tismOG6BXTk1699WYQ=
+20260816000000_grant_admin_console_api_app_schema.sql h1:f3YziWG8dBlnfO74CtQHZT8D3ObjLviy6uqm33sB1Jg=
