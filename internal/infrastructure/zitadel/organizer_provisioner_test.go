@@ -57,6 +57,11 @@ type stubMgmt struct {
 	deactivateUserCallIDs []string
 	// deactivateUserErrs maps user id → error; nil entry means success.
 	deactivateUserErrs map[string]error
+
+	// removeUserCallIDs records the user ids passed to RemoveUser.
+	removeUserCallIDs []string
+	// removeUserErrs maps user id → error; nil entry means success.
+	removeUserErrs map[string]error
 }
 
 func (s *stubMgmt) AddOrg(_ context.Context, in *mgmtpb.AddOrgRequest, _ ...grpc.CallOption) (*mgmtpb.AddOrgResponse, error) {
@@ -101,6 +106,16 @@ func (s *stubMgmt) DeactivateUser(_ context.Context, in *mgmtpb.DeactivateUserRe
 		}
 	}
 	return &mgmtpb.DeactivateUserResponse{}, nil
+}
+
+func (s *stubMgmt) RemoveUser(_ context.Context, in *mgmtpb.RemoveUserRequest, _ ...grpc.CallOption) (*mgmtpb.RemoveUserResponse, error) {
+	s.removeUserCallIDs = append(s.removeUserCallIDs, in.GetId())
+	if s.removeUserErrs != nil {
+		if err, ok := s.removeUserErrs[in.GetId()]; ok {
+			return nil, err
+		}
+	}
+	return &mgmtpb.RemoveUserResponse{}, nil
 }
 
 // newTestProvisioner builds an OrganizerProvisioner wired to the given stub
@@ -256,12 +271,43 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name          string
-		zitadelOrgID  string
-		stub          *stubMgmt
-		wantErr       bool
-		wantCallCount int
+		name            string
+		zitadelOrgID    string
+		stub            *stubMgmt
+		wantErr         bool
+		wantCallCount   int
+		wantRemoveCount int
 	}{
+		{
+			name:         "initial-state operator is removed, active operator is deactivated",
+			zitadelOrgID: "zitadel-org-mixed",
+			stub: &stubMgmt{
+				listUsersResp: &mgmtpb.ListUsersResponse{
+					Result: []*userpb.User{
+						{Id: "user-initial", State: userpb.UserState_USER_STATE_INITIAL},
+						{Id: "user-active", State: userpb.UserState_USER_STATE_ACTIVE},
+					},
+				},
+			},
+			wantCallCount:   1, // only the active user hits DeactivateUser
+			wantRemoveCount: 1, // the initial user is deleted instead
+		},
+		{
+			name:         "RemoveUser NotFound on an initial operator is idempotent",
+			zitadelOrgID: "zitadel-org-1",
+			stub: &stubMgmt{
+				listUsersResp: &mgmtpb.ListUsersResponse{
+					Result: []*userpb.User{
+						{Id: "user-gone", State: userpb.UserState_USER_STATE_INITIAL},
+					},
+				},
+				removeUserErrs: map[string]error{
+					"user-gone": grpcstatus.Error(grpccodes.NotFound, "user not found"),
+				},
+			},
+			wantErr:         false,
+			wantRemoveCount: 1,
+		},
 		{
 			name:         "deactivate all users returned by ListUsers",
 			zitadelOrgID: "zitadel-org-1",
@@ -339,6 +385,7 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Len(t, tt.stub.deactivateUserCallIDs, tt.wantCallCount)
+			assert.Len(t, tt.stub.removeUserCallIDs, tt.wantRemoveCount)
 		})
 	}
 }

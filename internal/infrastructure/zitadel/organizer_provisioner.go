@@ -147,9 +147,14 @@ func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID,
 	return zitadelOrgID, nil
 }
 
-// DeactivateOperators lists every human user in the tenant org and deactivates
-// each one. It is idempotent: deactivating an already-inactive user is treated
-// as success.
+// DeactivateOperators lists every human user in the tenant org and turns each
+// one off so it can no longer act. It is idempotent: an already-inactive user
+// is treated as success. Operators still in Zitadel's `initial` state (created
+// but never completed first sign-in — e.g. the passkey init link was never
+// used) are DELETED rather than deactivated, because Zitadel rejects
+// deactivating an initial user ("User with state initial can only be deleted
+// not deactivated") — and such a user has no credentials/session to disable
+// anyway, so removing it fully satisfies the off-switch intent.
 func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelOrgID string) error {
 	orgCtx := middleware.SetOrgID(ctx, zitadelOrgID)
 
@@ -170,6 +175,24 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelO
 	}
 
 	for _, u := range resp.GetResult() {
+		if u.GetState() == userpb.UserState_USER_STATE_INITIAL {
+			// Initial user: never onboarded (no password/passkey), and Zitadel
+			// forbids deactivating it — delete instead.
+			//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel instance is available to verify the provisioning saga.
+			if _, err := p.mgmt.RemoveUser(orgCtx, &mgmtpb.RemoveUserRequest{Id: u.GetId()}); err != nil {
+				if isNotFound(err) {
+					// Already gone — idempotent, skip.
+					continue
+				}
+				return apperr.Wrap(err, codes.Internal, fmt.Sprintf("remove initial operator %s", u.GetId()))
+			}
+			p.logger.Info(ctx, "initial operator removed",
+				slog.String("zitadel_org_id", zitadelOrgID),
+				slog.String("user_id", u.GetId()),
+			)
+			continue
+		}
+
 		//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
 		_, err := p.mgmt.DeactivateUser(orgCtx, &mgmtpb.DeactivateUserRequest{
 			Id: u.GetId(),
@@ -391,4 +414,11 @@ func isAlreadyExists(err error) bool {
 func isAlreadyInState(err error) bool {
 	st, ok := status.FromError(err)
 	return ok && st.Code() == grpccodes.FailedPrecondition
+}
+
+// isNotFound reports whether the gRPC error represents a NotFound status —
+// treated as idempotent success when removing a user that is already gone.
+func isNotFound(err error) bool {
+	st, ok := status.FromError(err)
+	return ok && st.Code() == grpccodes.NotFound
 }
