@@ -13,24 +13,36 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// ConcertCreationUseCase defines the interface for processing discovered concert
-// batches. It resolves venues, stages concerts for approval, and does NOT
-// publish CONCERT.created directly — that happens on Approve.
+// ConcertCreationUseCase processes discovered concert batches. It resolves each
+// concert's venue and branches the outcome: a genuinely new concert at a resolved
+// venue is auto-published, a same-slot conflict or an unresolved venue is staged
+// for admin review, and a suppressed natural key is skipped entirely.
 type ConcertCreationUseCase interface {
 	// CreateFromDiscovered processes a batch of scraped concerts for a single
-	// artist. For each concert it resolves a venue via Google Places API and
-	// stages the result in staged_concerts for admin review. Concerts whose
-	// venues cannot be resolved are skipped with a structured log. CONCERT.created
-	// is NOT published here; it is published only when a staged row is approved
-	// via AdminConcertUseCase.Approve.
+	// artist. For each concert it resolves a venue via Google Places API, then:
+	//   - unresolved venue → staged for review (no venues row, no publish);
+	//   - resolved venue whose natural key is suppressed → skipped (no publish,
+	//     no stage), so an operator's deletion is not undone by re-discovery;
+	//   - resolved venue with a same-slot conflict → staged for reconciliation
+	//     (no publish), resolved later via AdminConcertUseCase.Approve;
+	//   - resolved venue, genuinely new → auto-published: the
+	//     series/events/event_performers rows are inserted and CONCERT.created is
+	//     published so follower notifications fire immediately.
 	CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error
 }
 
-// concertCreationUseCase implements ConcertCreationUseCase.
+// concertCreationUseCase implements ConcertCreationUseCase. It reuses the
+// package-level venue/duplicate helpers shared with AdminConcertUseCase.Approve
+// so discovery and approval agree on venue resolution and conflict detection.
 type concertCreationUseCase struct {
-	stagedConcertRepo entity.StagedConcertRepository
-	placeSearcher     entity.VenuePlaceSearcher
-	logger            *logging.Logger
+	stagedConcertRepo     entity.StagedConcertRepository
+	venueRepo             entity.VenueRepository
+	concertRepo           entity.ConcertRepository
+	seriesRepo            entity.SeriesRepository
+	suppressedConcertRepo entity.SuppressedConcertRepository
+	placeSearcher         entity.VenuePlaceSearcher
+	publisher             EventPublisher
+	logger                *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -40,29 +52,42 @@ var _ ConcertCreationUseCase = (*concertCreationUseCase)(nil)
 // placeSearcher must not be nil; panics if not provided.
 func NewConcertCreationUseCase(
 	stagedConcertRepo entity.StagedConcertRepository,
+	venueRepo entity.VenueRepository,
+	concertRepo entity.ConcertRepository,
+	seriesRepo entity.SeriesRepository,
+	suppressedConcertRepo entity.SuppressedConcertRepository,
 	placeSearcher entity.VenuePlaceSearcher,
+	publisher EventPublisher,
 	logger *logging.Logger,
 ) ConcertCreationUseCase {
 	if placeSearcher == nil {
 		panic("placeSearcher is required")
 	}
 	return &concertCreationUseCase{
-		stagedConcertRepo: stagedConcertRepo,
-		placeSearcher:     placeSearcher,
-		logger:            logger,
+		stagedConcertRepo:     stagedConcertRepo,
+		venueRepo:             venueRepo,
+		concertRepo:           concertRepo,
+		seriesRepo:            seriesRepo,
+		suppressedConcertRepo: suppressedConcertRepo,
+		placeSearcher:         placeSearcher,
+		publisher:             publisher,
+		logger:                logger,
 	}
 }
 
-// CreateFromDiscovered processes a discovered concert batch: resolves venues
-// and stages each concert for admin approval.
+// CreateFromDiscovered processes a discovered concert batch, resolving each
+// concert's venue and branching between auto-publish, staging, and suppression.
 //
-// Venue resolution strategy (same as before):
-//  1. Call Google Places API to get canonical place_id, name, and coordinates.
-//  2. If NotFound, skip the concert with a Warn.
-//  3. Denormalise the resolved venue fields onto the staged_concerts row.
-//
-// No venues row is created here. No events, series, or performers are
-// inserted. No CONCERT.created event is published.
+// Per concert:
+//  1. Resolve the venue via Google Places (batch-local cache avoids repeat calls).
+//  2. Unresolved venue → stage for review (no venues row, no publish): an
+//     unresolved venue is inherently unconfident, so it keeps the human gate.
+//  3. Resolve/create the venues row, then consult the suppression set — a
+//     deleted-then-rediscovered natural key is skipped entirely.
+//  4. Same-slot conflict → stage for reconciliation (no publish).
+//  5. Genuinely new → auto-publish (insert series/events/performers) and publish
+//     CONCERT.created. The known-start fill of an existing unknown-start row
+//     inserts nothing and publishes no new-concert event.
 func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error {
 	// Batch-local place cache: (listed_venue_name, admin_area) → *VenuePlace.
 	// Avoids redundant Places API calls for the same venue within one batch.
@@ -72,7 +97,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	for _, sc := range data.Concerts {
 		sc.ListedVenueName = entity.NormalizeVenueName(sc.ListedVenueName)
 		if sc.ListedVenueName == "" {
-			uc.logger.Warn(ctx, "skipping staged concert: empty venue name from Gemini",
+			uc.logger.Warn(ctx, "skipping discovered concert: empty venue name from Gemini",
 				slog.String("artist_id", data.ArtistID),
 				slog.String("title", sc.Title),
 				slog.Any("admin_area", sc.AdminArea),
@@ -81,7 +106,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			continue
 		}
 		if sc.Title == "" {
-			uc.logger.Warn(ctx, "skipping staged concert: empty title from Gemini",
+			uc.logger.Warn(ctx, "skipping discovered concert: empty title from Gemini",
 				slog.String("artist_id", data.ArtistID),
 				slog.String("listed_venue_name", sc.ListedVenueName),
 				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
@@ -93,38 +118,101 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		if err != nil {
 			return fmt.Errorf("resolve venue %q: %w", sc.ListedVenueName, err)
 		}
-
 		// Cache the result (nil or not) so subsequent concerts in the same batch
 		// with the same normalized venue name skip the Places API entirely.
-		// A nil entry means "already tried, not found" — the concert is still staged
-		// for review with the resolved-venue preview absent.
 		newPlaces[venueKey(sc.ListedVenueName, sc.AdminArea)] = place
-		if place == nil {
-			uc.logger.Info(ctx, "staging concert with unresolved venue for review",
-				slog.String("artist_id", data.ArtistID),
-				slog.String("title", sc.Title),
-				slog.String("listed_venue_name", sc.ListedVenueName),
-				slog.Any("admin_area", sc.AdminArea),
-				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
-			)
-		}
 
 		id, err := uuid.NewV7()
 		if err != nil {
 			return fmt.Errorf("generate staged concert ID: %w", err)
 		}
-
 		staged := buildStagedConcert(id.String(), data.ArtistID, sc, place)
 
-		if err := uc.stagedConcertRepo.Upsert(ctx, staged); err != nil {
-			return fmt.Errorf("upsert staged concert %q: %w", sc.Title, err)
+		// Unresolved venue → stage for review. Auto-publishing here would mint a
+		// coordinate-less venue from the raw name and publish it unreviewed.
+		if place == nil {
+			if err := uc.stagedConcertRepo.Upsert(ctx, staged); err != nil {
+				return fmt.Errorf("upsert staged concert (unresolved venue) %q: %w", sc.Title, err)
+			}
+			uc.logger.Info(ctx, "staged concert with unresolved venue for review",
+				slog.String("artist_id", data.ArtistID),
+				slog.String("staged_concert_id", staged.ID),
+				slog.String("listed_venue_name", sc.ListedVenueName),
+				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
+			)
+			continue
 		}
 
-		uc.logger.Info(ctx, "staged concert queued for approval",
+		// Resolved venue: resolve or create the venues row (created only here, on
+		// the path that may auto-publish — never for a conflict or unresolved row).
+		venueID, err := resolveOrCreateVenue(ctx, staged, uc.venueRepo, uc.logger)
+		if err != nil {
+			return fmt.Errorf("resolve or create venue for %q: %w", sc.Title, err)
+		}
+
+		// Suppression gate: a deleted-then-rediscovered slot is skipped entirely so
+		// an operator's deletion is not undone by the next discovery run.
+		suppressed, err := uc.suppressedConcertRepo.Exists(ctx, venueID, staged.LocalDate, staged.StartTime)
+		if err != nil {
+			return fmt.Errorf("check suppression for %q: %w", sc.Title, err)
+		}
+		if suppressed {
+			uc.logger.Info(ctx, "skipping suppressed concert (deleted by operator)",
+				slog.String("artist_id", data.ArtistID),
+				slog.String("venue_id", venueID),
+				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
+			)
+			continue
+		}
+
+		// Same-slot conflict → stage for reconciliation (no publish).
+		conflict, err := detectDuplicateEvent(ctx, staged, venueID, uc.concertRepo)
+		if err != nil {
+			return fmt.Errorf("detect duplicate event for %q: %w", sc.Title, err)
+		}
+		if conflict != nil {
+			if err := uc.stagedConcertRepo.Upsert(ctx, staged); err != nil {
+				return fmt.Errorf("upsert staged concert (conflict) %q: %w", sc.Title, err)
+			}
+			uc.logger.Info(ctx, "staged conflicting concert for reconciliation",
+				slog.String("artist_id", data.ArtistID),
+				slog.String("staged_concert_id", staged.ID),
+				slog.String("existing_event_id", conflict.ID),
+				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
+			)
+			continue
+		}
+
+		// Genuinely new at a resolved venue → auto-publish. buildAndInsertConcerts
+		// also covers the known-start fill (fills an existing unknown-start row and
+		// inserts nothing); that path publishes no new-concert event.
+		insertedIDs, err := buildAndInsertConcerts(ctx, data.ArtistID, sc, venueID, uc.seriesRepo, uc.concertRepo, uc.logger)
+		if err != nil {
+			return fmt.Errorf("auto-publish concert %q: %w", sc.Title, err)
+		}
+		if len(insertedIDs) == 0 {
+			uc.logger.Info(ctx, "filled existing event start time (no new concert published)",
+				slog.String("artist_id", data.ArtistID),
+				slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
+			)
+			continue
+		}
+
+		created := ConcertCreatedData{
+			ArtistID:   data.ArtistID,
+			ConcertIDs: insertedIDs,
+		}
+		if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
+			uc.logger.Error(ctx, "failed to publish CONCERT.created after auto-publish", err,
+				slog.String("artist_id", data.ArtistID),
+			)
+			// Non-fatal: events are persisted; a missed notification retries next run.
+		}
+
+		uc.logger.Info(ctx, "auto-published new concert",
 			slog.String("artist_id", data.ArtistID),
-			slog.String("staged_concert_id", staged.ID),
-			slog.String("title", sc.Title),
 			slog.String("local_date", sc.LocalDate.Format("2006-01-02")),
+			slog.Int("inserted", len(insertedIDs)),
 		)
 	}
 

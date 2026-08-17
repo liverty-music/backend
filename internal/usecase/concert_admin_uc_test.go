@@ -338,52 +338,31 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		assert.Equal(t, "venue-existing", d.concertRepo.created[0].VenueID)
 	})
 
-	t.Run("CONCERT.created is published ONLY from Approve, never from CreateFromDiscovered", func(t *testing.T) {
+	t.Run("Approve publishes CONCERT.created when it publishes a new event", func(t *testing.T) {
 		t.Parallel()
-		// This test verifies the architectural guarantee: the discovery path
-		// (CreateFromDiscovered) must never publish CONCERT.created; only Approve does.
-
-		// CreateFromDiscovered side: stage without publishing.
-		stagedRepo := &fakeStagedConcertRepo{}
-		ps := newStubPlaceSearcher()
-		ps.places["Hall X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Hall X Canonical"}
-		discoveryUC := usecase.NewConcertCreationUseCase(stagedRepo, ps, newTestLogger(t))
-
-		pubForDiscovery := newGoChannelPub(t)
+		// Approve reconciliation still publishes CONCERT.created for a staged
+		// conflict resolved to a new event. (Discovery-time auto-publish and its
+		// CONCERT.created emission are covered by the creation use-case suite.)
+		d := newApprovalTestDeps(t, artist)
 		ctx := context.Background()
-		createdCh, err := pubForDiscovery.Subscribe(ctx, entity.SubjectConcertCreated)
+
+		createdCh, err := d.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
 		require.NoError(t, err)
 
-		data := entity.ConcertDiscoveredData{
-			ArtistID: "artist-1",
-			Concerts: entity.ScrapedConcerts{
-				{Title: "Show", ListedVenueName: "Hall X", LocalDate: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), SourceURL: "https://example.com"},
-			},
+		sc := &entity.StagedConcert{
+			ID:              "staged-approve-publish",
+			ArtistID:        artist.ID,
+			Title:           "Show",
+			ListedVenueName: "Hall X",
+			LocalDate:       time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 		}
-		require.NoError(t, discoveryUC.CreateFromDiscovered(ctx, data))
+		d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
 
-		// One row staged.
-		assert.Len(t, stagedRepo.upserted, 1)
+		_, err = d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+		require.NoError(t, err)
 
-		// No CONCERT.created from discovery.
 		select {
 		case msg := <-createdCh:
-			t.Fatalf("unexpected CONCERT.created published by discovery path: %s", msg.Payload)
-		case <-time.After(50 * time.Millisecond):
-			// Correct.
-		}
-
-		// Now approve: CONCERT.created should be published.
-		approvalDeps := newApprovalTestDeps(t, artist)
-		approvalDeps.stagedRepo.upserted = stagedRepo.upserted
-		approvalCreatedCh, err := approvalDeps.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
-		require.NoError(t, err)
-
-		_, err = approvalDeps.uc.Approve(ctx, stagedRepo.upserted[0].ID, usecase.ApproveResolutionUnspecified, "")
-		require.NoError(t, err)
-
-		select {
-		case msg := <-approvalCreatedCh:
 			msg.Ack()
 		case <-time.After(2 * time.Second):
 			t.Fatal("expected CONCERT.created from Approve but got none")
@@ -623,17 +602,18 @@ func TestAdminConcertUseCase_Delete(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument,
 			checkRepo: func(t *testing.T, repo *fakeConcertRepo) {
 				t.Helper()
-				// repo.Delete must never be called for an empty id.
-				assert.False(t, repo.deleteCalled, "repo.Delete must not be called for an empty event id")
+				// The delete-and-suppress path must never run for an empty id.
+				assert.False(t, repo.deleteAndSuppressCalled, "repo.DeleteAndSuppress must not be called for an empty event id")
 			},
 		},
 		{
-			name:       "call repo.Delete and succeed when event id is valid",
+			name:       "delete-and-suppress and succeed when event id is valid",
 			args:       args{eventID: "event-abc"},
 			seedEvents: []string{"event-abc"},
 			checkRepo: func(t *testing.T, repo *fakeConcertRepo) {
 				t.Helper()
-				assert.True(t, repo.deleteCalled, "repo.Delete must be called for a valid event id")
+				assert.True(t, repo.deleteAndSuppressCalled, "repo.DeleteAndSuppress must be called for a valid event id")
+				assert.Contains(t, repo.suppressedEventIDs, "event-abc", "the deleted event's key must be suppressed")
 				assert.Empty(t, repo.published, "published concert must have been removed")
 			},
 		},
@@ -643,7 +623,8 @@ func TestAdminConcertUseCase_Delete(t *testing.T) {
 			seedEvents: nil,
 			checkRepo: func(t *testing.T, repo *fakeConcertRepo) {
 				t.Helper()
-				assert.True(t, repo.deleteCalled, "repo.Delete must still be called for an absent event id")
+				assert.True(t, repo.deleteAndSuppressCalled, "repo.DeleteAndSuppress must still be called for an absent event id")
+				assert.Empty(t, repo.suppressedEventIDs, "no suppression is recorded for an absent event")
 			},
 		},
 	}

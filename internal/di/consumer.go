@@ -150,7 +150,19 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		logger,
 	)
 	stagedConcertRepo := rdb.NewStagedConcertRepository(db)
-	concertCreationUC := usecase.NewConcertCreationUseCase(stagedConcertRepo, placeSearcher, logger)
+	venueRepo := rdb.NewVenueRepository(db)
+	seriesRepo := rdb.NewSeriesRepository(db)
+	suppressedConcertRepo := rdb.NewSuppressedConcertRepository(db)
+	concertCreationUC := usecase.NewConcertCreationUseCase(
+		stagedConcertRepo,
+		venueRepo,
+		concertRepo,
+		seriesRepo,
+		suppressedConcertRepo,
+		placeSearcher,
+		eventPublisher,
+		logger,
+	)
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 

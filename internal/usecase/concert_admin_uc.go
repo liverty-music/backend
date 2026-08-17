@@ -11,6 +11,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // PendingConcertReview pairs a staged concert with its resolved performer
@@ -163,13 +164,15 @@ func (uc *concertUseCase) List(ctx context.Context) ([]*entity.Concert, error) {
 }
 
 // Delete permanently removes a published concert by its event id, cascading to
-// all referencing rows. An empty id is rejected; deleting an absent id succeeds
-// (the repository treats a zero affected-row count as success).
+// all referencing rows, and records a suppression entry from the deleted event's
+// natural key so a later discovery run does not re-create it. An empty id is
+// rejected; deleting an absent id succeeds and records no suppression (the
+// repository writes suppression only for a row that actually existed).
 func (uc *concertUseCase) Delete(ctx context.Context, eventID string) error {
 	if eventID == "" {
 		return apperr.New(codes.InvalidArgument, "event id must not be empty")
 	}
-	if err := uc.concertRepo.Delete(ctx, eventID); err != nil {
+	if err := uc.concertRepo.DeleteAndSuppress(ctx, eventID); err != nil {
 		return fmt.Errorf("delete concert %q: %w", eventID, err)
 	}
 	return nil
@@ -216,7 +219,7 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resoluti
 	}
 
 	// Resolve or create the venues row from the staged resolved fields.
-	venueID, err := uc.resolveOrCreateVenue(ctx, sc)
+	venueID, err := resolveOrCreateVenue(ctx, sc, uc.venueRepo, uc.logger)
 	if err != nil {
 		return nil, fmt.Errorf("resolve or create venue for staged concert %q: %w", stagedID, err)
 	}
@@ -224,7 +227,7 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resoluti
 	// Detect a duplicate existing event at the resolved (venue, date, start time)
 	// BEFORE any event mutation, so an unresolved conflict returns without side
 	// effects. Re-checked on every call, so a two-phase reconcile re-validates.
-	conflictEvent, err := uc.detectDuplicateEvent(ctx, sc, venueID)
+	conflictEvent, err := detectDuplicateEvent(ctx, sc, venueID, uc.concertRepo)
 	if err != nil {
 		return nil, fmt.Errorf("detect duplicate event for staged concert %q: %w", stagedID, err)
 	}
@@ -287,8 +290,8 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resoluti
 //
 // The fill case (known-start staged onto an unknown-start existing row) is NOT a
 // duplicate: it proceeds to the creation path, which fills the existing row.
-func (uc *concertUseCase) detectDuplicateEvent(ctx context.Context, sc *entity.StagedConcert, venueID string) (*entity.Event, error) {
-	events, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
+func detectDuplicateEvent(ctx context.Context, sc *entity.StagedConcert, venueID string, concertRepo entity.ConcertRepository) (*entity.Event, error) {
+	events, err := concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
 	if err != nil {
 		return nil, fmt.Errorf("find existing events: %w", err)
 	}
@@ -488,13 +491,13 @@ func resolveVenueAdminArea(sc *entity.StagedConcert) *string {
 // place_id-authoritative: resolve by place_id, then by (listed_venue_name,
 // admin_area), and only create when neither matches. Returns the venues.id to
 // use for event insertion.
-func (uc *concertUseCase) resolveOrCreateVenue(ctx context.Context, sc *entity.StagedConcert) (string, error) {
+func resolveOrCreateVenue(ctx context.Context, sc *entity.StagedConcert, venueRepo entity.VenueRepository, logger *logging.Logger) (string, error) {
 	adminArea := resolveVenueAdminArea(sc)
 
 	// Step 1: if the venue was resolved via Google Places at staging time, look
 	// up an existing venues row by place_id first.
 	if sc.ResolvedPlaceID != nil {
-		existing, err := uc.venueRepo.GetByPlaceID(ctx, *sc.ResolvedPlaceID)
+		existing, err := venueRepo.GetByPlaceID(ctx, *sc.ResolvedPlaceID)
 		if err == nil {
 			return existing.ID, nil
 		}
@@ -508,12 +511,12 @@ func (uc *concertUseCase) resolveOrCreateVenue(ctx context.Context, sc *entity.S
 	}
 
 	// Step 2: look up by (listed_venue_name, admin_area).
-	existing, err := uc.venueRepo.GetByListedName(ctx, sc.ListedVenueName, adminArea)
+	existing, err := venueRepo.GetByListedName(ctx, sc.ListedVenueName, adminArea)
 	if err == nil {
 		// Backfill place_id when the found venue lacks one and the staged row
 		// carries a resolved value — never overwrite a non-NULL place_id.
 		if sc.ResolvedPlaceID != nil && existing.GooglePlaceID == nil {
-			if err := uc.venueRepo.BackfillPlaceID(ctx, existing.ID, *sc.ResolvedPlaceID); err != nil {
+			if err := venueRepo.BackfillPlaceID(ctx, existing.ID, *sc.ResolvedPlaceID); err != nil {
 				return "", fmt.Errorf("backfill venue place ID: %w", err)
 			}
 		}
@@ -525,12 +528,12 @@ func (uc *concertUseCase) resolveOrCreateVenue(ctx context.Context, sc *entity.S
 
 	// Step 3: neither key matched — create. Create absorbs a concurrent-insert
 	// conflict on either index and re-SELECTs the survivor.
-	return uc.createVenueFromStaged(ctx, sc)
+	return createVenueFromStaged(ctx, sc, venueRepo, logger)
 }
 
 // createVenueFromStaged creates a new venues row from the denormalised fields
 // on the staged concert row.
-func (uc *concertUseCase) createVenueFromStaged(ctx context.Context, sc *entity.StagedConcert) (string, error) {
+func createVenueFromStaged(ctx context.Context, sc *entity.StagedConcert, venueRepo entity.VenueRepository, logger *logging.Logger) (string, error) {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return "", fmt.Errorf("generate venue ID: %w", err)
@@ -559,12 +562,12 @@ func (uc *concertUseCase) createVenueFromStaged(ctx context.Context, sc *entity.
 
 	// Create returns the surviving row id: the one we generated on a real insert,
 	// or an existing row's id when a concurrent create won the race.
-	venueID, err := uc.venueRepo.Create(ctx, venue)
+	venueID, err := venueRepo.Create(ctx, venue)
 	if err != nil {
 		return "", fmt.Errorf("create venue from staged concert: %w", err)
 	}
 
-	uc.logger.Info(ctx, "created venue from staged concert",
+	logger.Info(ctx, "created venue from staged concert",
 		slog.String("venue_id", venueID),
 		slog.String("venue_name", name),
 	)
