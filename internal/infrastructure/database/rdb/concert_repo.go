@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -176,6 +177,23 @@ const (
 	// deleteEventQuery removes a published event by id. Rows referencing the
 	// event are removed by the schema's ON DELETE CASCADE foreign keys.
 	deleteEventQuery = `DELETE FROM events WHERE id = $1`
+
+	// deleteEventAndSuppressQuery deletes a published event (cascading via the
+	// schema's foreign keys) and, in the same statement, records a suppression
+	// entry from the deleted row's own natural key so a later discovery run does
+	// not re-create it. The CTE couples the two effects atomically: when the event
+	// id no longer exists the DELETE returns no row and the INSERT selects nothing,
+	// so a missing event records no suppression. ON CONFLICT absorbs a repeated
+	// suppression of the same natural key.
+	deleteEventAndSuppressQuery = `
+		WITH deleted AS (
+			DELETE FROM events WHERE id = $1
+			RETURNING venue_id, local_event_date, start_at
+		)
+		INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_at)
+		SELECT $2, venue_id, local_event_date, start_at FROM deleted
+		ON CONFLICT ON CONSTRAINT uq_suppressed_concerts_natural_key DO NOTHING
+	`
 
 	// listConcertsByIDsQuery includes venue lat/lng because NotifyNewConcerts
 	// feeds the result into HypeNearby.MatchingConcerts, which calls ProximityTo
@@ -546,6 +564,19 @@ func (r *ConcertRepository) List(ctx context.Context) ([]*entity.Concert, error)
 func (r *ConcertRepository) Delete(ctx context.Context, eventID string) error {
 	if _, err := r.db.Pool.Exec(ctx, deleteEventQuery, eventID); err != nil {
 		return toAppErr(err, "failed to delete event", slog.String("event_id", eventID))
+	}
+	return nil
+}
+
+// DeleteAndSuppress deletes a published event and records a suppression entry
+// derived from the deleted row, atomically in one statement.
+func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID string) error {
+	suppressionID, err := uuid.NewV7()
+	if err != nil {
+		return apperr.New(codes.Internal, "failed to generate suppression id", slog.String("event_id", eventID))
+	}
+	if _, err := r.db.Pool.Exec(ctx, deleteEventAndSuppressQuery, eventID, suppressionID.String()); err != nil {
+		return toAppErr(err, "failed to delete event and record suppression", slog.String("event_id", eventID))
 	}
 	return nil
 }

@@ -60,6 +60,7 @@ packages:
       SalesPhaseSearcher:
       StagedConcertRepository:
       RejectedConcertLogRepository:
+      SuppressedConcertRepository:
       NotificationRepository:
       OrganizerRepository:
   github.com/liverty-music/backend/internal/infrastructure/auth:

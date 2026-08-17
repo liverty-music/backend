@@ -460,6 +460,15 @@ type ConcertRepository interface {
 	// parent series' sales_phases). It is idempotent: deleting an id that no
 	// longer exists is a no-op success.
 	Delete(ctx context.Context, eventID string) error
+	// DeleteAndSuppress removes a published event by id (cascading exactly like
+	// Delete) and, in the same statement, records a suppression entry derived from
+	// the deleted event's own natural key (venue_id, local_event_date, start_at) so
+	// a later discovery run does not auto-publish or re-stage it. The two effects
+	// are atomic: the suppression row is written only for an event that actually
+	// existed and was deleted. It is idempotent: deleting an id that no longer
+	// exists is a no-op success that records no suppression, and a repeated
+	// suppression of the same key is absorbed.
+	DeleteAndSuppress(ctx context.Context, eventID string) error
 }
 
 // ConcertSearcher defines the interface for searching concerts from external sources.

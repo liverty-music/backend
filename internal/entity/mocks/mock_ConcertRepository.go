@@ -144,6 +144,53 @@ func (_c *MockConcertRepository_Delete_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
+// DeleteAndSuppress provides a mock function with given fields: ctx, eventID
+func (_m *MockConcertRepository) DeleteAndSuppress(ctx context.Context, eventID string) error {
+	ret := _m.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAndSuppress")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, eventID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockConcertRepository_DeleteAndSuppress_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteAndSuppress'
+type MockConcertRepository_DeleteAndSuppress_Call struct {
+	*mock.Call
+}
+
+// DeleteAndSuppress is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockConcertRepository_Expecter) DeleteAndSuppress(ctx interface{}, eventID interface{}) *MockConcertRepository_DeleteAndSuppress_Call {
+	return &MockConcertRepository_DeleteAndSuppress_Call{Call: _e.mock.On("DeleteAndSuppress", ctx, eventID)}
+}
+
+func (_c *MockConcertRepository_DeleteAndSuppress_Call) Run(run func(ctx context.Context, eventID string)) *MockConcertRepository_DeleteAndSuppress_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_DeleteAndSuppress_Call) Return(_a0 error) *MockConcertRepository_DeleteAndSuppress_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockConcertRepository_DeleteAndSuppress_Call) RunAndReturn(run func(context.Context, string) error) *MockConcertRepository_DeleteAndSuppress_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // FillEventStartTimes provides a mock function with given fields: ctx, eventIDs, startTimes, openTimes
 func (_m *MockConcertRepository) FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes []*time.Time, openTimes []*time.Time) error {
 	ret := _m.Called(ctx, eventIDs, startTimes, openTimes)

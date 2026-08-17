@@ -79,3 +79,4 @@ configMapGenerator:
   - migrations/20260806120000_drop_blockchain_ticket_system.sql
   - migrations/20260814010000_create_organizer_tables.sql
   - migrations/20260816000000_grant_admin_console_api_app_schema.sql
+  - migrations/20260817000000_add_suppressed_concerts.sql

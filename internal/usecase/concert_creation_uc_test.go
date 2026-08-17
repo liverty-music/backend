@@ -134,8 +134,10 @@ type fakeConcertRepo struct {
 	updatedListedNames map[string]string
 	// published holds concerts returned by List; admin tests seed this directly.
 	published []*entity.Concert
-	// deleteCalled records whether Delete was invoked; admin tests assert on this.
-	deleteCalled bool
+	// deleteAndSuppressCalled records whether DeleteAndSuppress was invoked, and
+	// suppressedEventIDs captures the ids passed; admin Delete tests assert on these.
+	deleteAndSuppressCalled bool
+	suppressedEventIDs      []string
 }
 
 func (r *fakeConcertRepo) ListByArtist(_ context.Context, _ string, _ bool) ([]*entity.Concert, error) {
@@ -211,9 +213,23 @@ func (r *fakeConcertRepo) List(_ context.Context) ([]*entity.Concert, error) {
 // idempotent: deleting an absent id is a no-op. Records the call so tests can
 // assert repo.Delete was (or was not) invoked.
 func (r *fakeConcertRepo) Delete(_ context.Context, eventID string) error {
-	r.deleteCalled = true
 	for i, c := range r.published {
 		if c.ID == eventID {
+			r.published = append(r.published[:i], r.published[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+// DeleteAndSuppress removes a published concert and records the suppression by
+// event id. It mirrors Delete's idempotent removal and records the call so admin
+// Delete tests can assert the suppression path was taken.
+func (r *fakeConcertRepo) DeleteAndSuppress(_ context.Context, eventID string) error {
+	r.deleteAndSuppressCalled = true
+	for i, c := range r.published {
+		if c.ID == eventID {
+			r.suppressedEventIDs = append(r.suppressedEventIDs, eventID)
 			r.published = append(r.published[:i], r.published[i+1:]...)
 			return nil
 		}
@@ -256,6 +272,47 @@ func (r *fakeStagedConcertRepo) Delete(_ context.Context, id string) error {
 
 func (r *fakeStagedConcertRepo) ListPendingDedupKeysByArtist(_ context.Context, _ string) ([]entity.StagedConcertDedupKey, error) {
 	return nil, nil
+}
+
+// fakeSuppressedConcertRepo is an in-memory suppression set for unit tests. Tests
+// seed suppressed keys via suppress(); the consumer's Exists gate reads them.
+type fakeSuppressedConcertRepo struct {
+	keys     map[string]bool
+	inserted []*entity.SuppressedConcert
+}
+
+func newFakeSuppressedConcertRepo() *fakeSuppressedConcertRepo {
+	return &fakeSuppressedConcertRepo{keys: make(map[string]bool)}
+}
+
+// suppressedKey mirrors the (venue_id, local_date, start_at) natural key with a
+// NULL-safe start component so a nil start collapses onto the same slot.
+func suppressedKey(venueID string, localDate time.Time, startTime *time.Time) string {
+	start := ""
+	if startTime != nil && !startTime.IsZero() {
+		start = startTime.UTC().Format(time.RFC3339)
+	}
+	return venueID + "|" + localDate.Format("2006-01-02") + "|" + start
+}
+
+// suppress seeds a suppressed natural key for the test.
+func (r *fakeSuppressedConcertRepo) suppress(venueID string, localDate time.Time, startTime *time.Time) {
+	r.keys[suppressedKey(venueID, localDate, startTime)] = true
+}
+
+func (r *fakeSuppressedConcertRepo) Insert(_ context.Context, sc *entity.SuppressedConcert) error {
+	r.inserted = append(r.inserted, sc)
+	r.keys[suppressedKey(sc.VenueID, sc.LocalEventDate, sc.StartTime)] = true
+	return nil
+}
+
+func (r *fakeSuppressedConcertRepo) Exists(_ context.Context, venueID string, localDate time.Time, startTime *time.Time) (bool, error) {
+	return r.keys[suppressedKey(venueID, localDate, startTime)], nil
+}
+
+func (r *fakeSuppressedConcertRepo) Delete(_ context.Context, venueID string, localDate time.Time, startTime *time.Time) error {
+	delete(r.keys, suppressedKey(venueID, localDate, startTime))
+	return nil
 }
 
 // stubPlaceSearcher returns pre-configured results keyed by venue name.
@@ -307,224 +364,217 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 	startTime := time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC)
 
-	t.Run("stages concerts with resolved venue fields from Places API", func(t *testing.T) {
+	// creationHarness bundles the usecase with its fakes and the publisher so a
+	// test can assert on auto-publish, staging, suppression, and CONCERT.created.
+	type creationHarness struct {
+		uc         usecase.ConcertCreationUseCase
+		staged     *fakeStagedConcertRepo
+		venue      *fakeVenueRepo
+		concert    *fakeConcertRepo
+		series     *fakeSeriesRepo
+		suppressed *fakeSuppressedConcertRepo
+		place      *stubPlaceSearcher
+		pub        *gochannel.GoChannel
+	}
+	build := func(t *testing.T) *creationHarness {
+		t.Helper()
+		h := &creationHarness{
+			staged:     &fakeStagedConcertRepo{},
+			venue:      newFakeVenueRepo(),
+			concert:    &fakeConcertRepo{},
+			series:     &fakeSeriesRepo{},
+			suppressed: newFakeSuppressedConcertRepo(),
+			place:      newStubPlaceSearcher(),
+			pub:        newGoChannelPub(t),
+		}
+		h.uc = usecase.NewConcertCreationUseCase(
+			h.staged, h.venue, h.concert, h.series, h.suppressed,
+			h.place, messaging.NewEventPublisher(h.pub), newTestLogger(t),
+		)
+		return h
+	}
+
+	// seedVenue registers an existing venues row keyed by place id so
+	// resolveOrCreateVenue returns a known id (letting tests seed existing events
+	// at that venue without minting a fresh uuid they cannot predict).
+	seedVenue := func(h *creationHarness, venueID, listedName, placeID string) {
+		pid := placeID
+		ln := listedName
+		h.venue.venues[listedName] = &entity.Venue{
+			ID:              venueID,
+			Name:            listedName,
+			GooglePlaceID:   &pid,
+			ListedVenueName: &ln,
+		}
+	}
+
+	expectNoPublish := func(t *testing.T, h *creationHarness) {
+		t.Helper()
+		ch, err := h.pub.Subscribe(context.Background(), "CONCERT.created")
+		require.NoError(t, err)
+		select {
+		case msg := <-ch:
+			t.Fatalf("unexpected CONCERT.created published: %s", msg.Payload)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	t.Run("auto-publishes a genuinely new concert at a resolved venue and emits CONCERT.created", func(t *testing.T) {
 		t.Parallel()
-		stagedRepo := &fakeStagedConcertRepo{}
-		ps := newStubPlaceSearcher()
-		ps.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X Canonical"}
-		ps.places["Venue Y"] = &entity.VenuePlace{ExternalID: "place-y", Name: "Venue Y Canonical"}
-		uc := usecase.NewConcertCreationUseCase(stagedRepo, ps, newTestLogger(t))
+		h := build(t)
+		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X Canonical"}
+		ch, err := h.pub.Subscribe(context.Background(), "CONCERT.created")
+		require.NoError(t, err)
 
 		data := entity.ConcertDiscoveredData{
-			ArtistID:   "artist-1",
-			ArtistName: "Test Artist",
+			ArtistID: "artist-1",
 			Concerts: entity.ScrapedConcerts{
-				{
-					Title:           "Concert A",
-					ListedVenueName: "Venue X",
-					LocalDate:       localDate,
-					StartTime:       startTime,
-					SourceURL:       "https://example.com/a",
-				},
-				{
-					Title:           "Concert B",
-					ListedVenueName: "Venue Y",
-					LocalDate:       localDate,
-					SourceURL:       "https://example.com/b",
-				},
+				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
 			},
 		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		err := uc.CreateFromDiscovered(context.Background(), data)
-		require.NoError(t, err)
-
-		assert.Len(t, stagedRepo.upserted, 2)
-		assert.Equal(t, "Concert A", stagedRepo.upserted[0].Title)
-		assert.Equal(t, "artist-1", stagedRepo.upserted[0].ArtistID)
-		require.NotNil(t, stagedRepo.upserted[0].ResolvedPlaceID)
-		assert.Equal(t, "place-x", *stagedRepo.upserted[0].ResolvedPlaceID)
-		require.NotNil(t, stagedRepo.upserted[0].ResolvedVenueName)
-		assert.Equal(t, "Venue X Canonical", *stagedRepo.upserted[0].ResolvedVenueName)
-		require.NotNil(t, stagedRepo.upserted[0].StartTime)
-		assert.True(t, stagedRepo.upserted[0].StartTime.Equal(startTime))
-	})
-
-	t.Run("stages concerts with unresolved venue for review (resolved fields absent)", func(t *testing.T) {
-		t.Parallel()
-		stagedRepo := &fakeStagedConcertRepo{}
-		ps := newStubPlaceSearcher()
-		ps.places["Known Venue"] = &entity.VenuePlace{ExternalID: "place-known", Name: "Known Venue"}
-		// "Unknown Venue" is NOT in ps.places → SearchPlace returns NotFound
-		uc := usecase.NewConcertCreationUseCase(stagedRepo, ps, newTestLogger(t))
-
-		data := entity.ConcertDiscoveredData{
-			ArtistID:   "artist-4",
-			ArtistName: "Fourth Artist",
-			Concerts: entity.ScrapedConcerts{
-				{
-					Title:           "Concert at Known",
-					ListedVenueName: "Known Venue",
-					LocalDate:       localDate,
-					SourceURL:       "https://example.com/known",
-				},
-				{
-					Title:           "Concert at Unknown",
-					ListedVenueName: "Unknown Venue",
-					LocalDate:       localDate,
-					SourceURL:       "https://example.com/unknown",
-				},
-			},
-		}
-
-		err := uc.CreateFromDiscovered(context.Background(), data)
-		require.NoError(t, err)
-
-		// Both concerts are staged; the unresolved one carries no resolved-venue
-		// preview so a developer can review it.
-		require.Len(t, stagedRepo.upserted, 2)
-		byTitle := map[string]*entity.StagedConcert{}
-		for _, s := range stagedRepo.upserted {
-			byTitle[s.Title] = s
-		}
-		require.NotNil(t, byTitle["Concert at Known"].ResolvedPlaceID)
-		assert.Equal(t, "place-known", *byTitle["Concert at Known"].ResolvedPlaceID)
-		require.Contains(t, byTitle, "Concert at Unknown")
-		assert.Nil(t, byTitle["Concert at Unknown"].ResolvedPlaceID)
-		assert.Nil(t, byTitle["Concert at Unknown"].ResolvedVenueName)
-	})
-
-	t.Run("skips concert with empty venue name without poisoning the batch", func(t *testing.T) {
-		t.Parallel()
-		stagedRepo := &fakeStagedConcertRepo{}
-		ps := newStubPlaceSearcher()
-		ps.places["Known Venue"] = &entity.VenuePlace{ExternalID: "place-known", Name: "Known Venue"}
-		uc := usecase.NewConcertCreationUseCase(stagedRepo, ps, newTestLogger(t))
-
-		data := entity.ConcertDiscoveredData{
-			ArtistID:   "artist-empty-venue",
-			ArtistName: "Edge Case Artist",
-			Concerts: entity.ScrapedConcerts{
-				{
-					Title:           "Valid Show",
-					ListedVenueName: "Known Venue",
-					LocalDate:       localDate,
-					SourceURL:       "https://example.com/valid",
-				},
-				{
-					Title:           "TBA Show",
-					ListedVenueName: "",
-					LocalDate:       localDate,
-					SourceURL:       "https://example.com/tba",
-				},
-			},
-		}
-
-		err := uc.CreateFromDiscovered(context.Background(), data)
-		require.NoError(t, err)
-
-		// Only the valid-venue concert is staged.
-		require.Len(t, stagedRepo.upserted, 1)
-		assert.Equal(t, "Valid Show", stagedRepo.upserted[0].Title)
-	})
-
-	t.Run("stages all concerts for review even when no venue resolves", func(t *testing.T) {
-		t.Parallel()
-		stagedRepo := &fakeStagedConcertRepo{}
-		ps := newStubPlaceSearcher() // empty — all venues return NotFound
-		uc := usecase.NewConcertCreationUseCase(stagedRepo, ps, newTestLogger(t))
-
-		data := entity.ConcertDiscoveredData{
-			ArtistID:   "artist-5",
-			ArtistName: "Fifth Artist",
-			Concerts: entity.ScrapedConcerts{
-				{
-					Title:           "Show A",
-					ListedVenueName: "Nowhere",
-					LocalDate:       localDate,
-					SourceURL:       "https://example.com/nowhere",
-				},
-			},
-		}
-
-		err := uc.CreateFromDiscovered(context.Background(), data)
-		require.NoError(t, err)
-
-		// Unresolved venue is still staged for review, with no resolved preview.
-		require.Len(t, stagedRepo.upserted, 1)
-		assert.Equal(t, "Show A", stagedRepo.upserted[0].Title)
-		assert.Nil(t, stagedRepo.upserted[0].ResolvedPlaceID)
-	})
-
-	t.Run("batch-local cache hit: same listed name calls Places API only once", func(t *testing.T) {
-		t.Parallel()
-		stagedRepo := &fakeStagedConcertRepo{}
-		ps := newStubPlaceSearcher()
-		ps.places["Zepp Osaka"] = &entity.VenuePlace{ExternalID: "place-zepp-osaka", Name: "Zepp Namba Osaka"}
-		uc := usecase.NewConcertCreationUseCase(stagedRepo, ps, newTestLogger(t))
-
-		data := entity.ConcertDiscoveredData{
-			ArtistID:   "artist-batch",
-			ArtistName: "Batch Artist",
-			Concerts: entity.ScrapedConcerts{
-				{
-					Title:           "Night 1",
-					ListedVenueName: "Zepp Osaka",
-					LocalDate:       localDate,
-					SourceURL:       "https://example.com/n1",
-				},
-				{
-					Title:           "Night 2",
-					ListedVenueName: "Zepp Osaka",
-					LocalDate:       localDate.AddDate(0, 0, 1),
-					SourceURL:       "https://example.com/n2",
-				},
-			},
-		}
-
-		err := uc.CreateFromDiscovered(context.Background(), data)
-		require.NoError(t, err)
-
-		// Both concerts are staged with the same resolved place.
-		assert.Len(t, stagedRepo.upserted, 2)
-		require.NotNil(t, stagedRepo.upserted[0].ResolvedPlaceID)
-		require.NotNil(t, stagedRepo.upserted[1].ResolvedPlaceID)
-		assert.Equal(t, *stagedRepo.upserted[0].ResolvedPlaceID, *stagedRepo.upserted[1].ResolvedPlaceID)
-	})
-
-	t.Run("does NOT create venues rows, series, events, or publish CONCERT.created", func(t *testing.T) {
-		t.Parallel()
-		stagedRepo := &fakeStagedConcertRepo{}
-		ps := newStubPlaceSearcher()
-		ps.places["Hall A"] = &entity.VenuePlace{ExternalID: "place-a", Name: "Hall A Canonical"}
-		uc := usecase.NewConcertCreationUseCase(stagedRepo, ps, newTestLogger(t))
-
-		pub := newGoChannelPub(t)
-		ctx := context.Background()
-		msgCh, err := pub.Subscribe(ctx, "CONCERT.created")
-		require.NoError(t, err)
-
-		// Even though we have a publisher channel open, CreateFromDiscovered must
-		// not publish CONCERT.created — that is AdminConcertUseCase.Approve's job.
-		_ = messaging.NewEventPublisher(pub) // publisher not passed to uc
-
-		data := entity.ConcertDiscoveredData{
-			ArtistID: "artist-nodirect",
-			Concerts: entity.ScrapedConcerts{
-				{Title: "Show", ListedVenueName: "Hall A", LocalDate: localDate, SourceURL: "https://example.com/show"},
-			},
-		}
-		err = uc.CreateFromDiscovered(ctx, data)
-		require.NoError(t, err)
-
-		// One row staged, no direct publish.
-		require.Len(t, stagedRepo.upserted, 1)
+		// Published directly: an event was inserted, a venue was created, and the
+		// concert was NOT staged.
+		require.Len(t, h.concert.created, 1)
+		assert.Empty(t, h.staged.upserted, "a genuinely new concert must not be staged")
+		assert.Len(t, h.venue.created, 1, "venue is created only on the auto-publish path")
 
 		select {
-		case msg := <-msgCh:
-			t.Fatalf("unexpected CONCERT.created event published: %s", msg.Payload)
-		case <-time.After(50 * time.Millisecond):
-			// Correct — discovery path must not publish CONCERT.created.
+		case msg := <-ch:
+			assert.Contains(t, string(msg.Payload), "artist-1")
+		case <-time.After(time.Second):
+			t.Fatal("expected CONCERT.created to be published")
 		}
+	})
+
+	t.Run("stages a same-slot conflict without publishing or inserting", func(t *testing.T) {
+		t.Parallel()
+		h := build(t)
+		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+		seedVenue(h, "venue-1", "Venue X", "place-x")
+		// An existing published event at the resolved (venue, date, start) → conflict.
+		h.concert.existing = map[string][]*entity.Event{
+			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: &startTime}},
+		}
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-1",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
+			},
+		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, h.staged.upserted, 1, "a conflict must be staged for reconciliation")
+		assert.Empty(t, h.concert.created, "a conflict must not be auto-published")
+		assert.Empty(t, h.venue.created, "a conflict resolves to the existing venue; no new venue")
+		expectNoPublish(t, h)
+	})
+
+	t.Run("stages an unresolved venue without creating a venue or publishing", func(t *testing.T) {
+		t.Parallel()
+		h := build(t)
+		// "Nowhere" is not in the place stub → SearchPlace returns NotFound.
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-2",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Show A", ListedVenueName: "Nowhere", LocalDate: localDate, SourceURL: "https://example.com/nowhere"},
+			},
+		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		require.Len(t, h.staged.upserted, 1, "an unresolved venue is staged for review")
+		assert.Nil(t, h.staged.upserted[0].ResolvedPlaceID)
+		assert.Empty(t, h.venue.created, "no venues row for an unresolved venue")
+		assert.Empty(t, h.concert.created)
+		expectNoPublish(t, h)
+	})
+
+	t.Run("skips a suppressed concert entirely (no publish, no stage)", func(t *testing.T) {
+		t.Parallel()
+		h := build(t)
+		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+		seedVenue(h, "venue-1", "Venue X", "place-x")
+		h.suppressed.suppress("venue-1", localDate, &startTime)
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-3",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
+			},
+		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		assert.Empty(t, h.staged.upserted, "a suppressed concert must not be staged")
+		assert.Empty(t, h.concert.created, "a suppressed concert must not be auto-published")
+		expectNoPublish(t, h)
+	})
+
+	t.Run("known-start fill is routed to the publish path, not staged", func(t *testing.T) {
+		t.Parallel()
+		h := build(t)
+		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+		seedVenue(h, "venue-1", "Venue X", "place-x")
+		// An existing unknown-start row that the known-start discovery fills (not a conflict).
+		h.concert.existing = map[string][]*entity.Event{
+			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: nil}},
+		}
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-4",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
+			},
+		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		// The fill path completes the existing row (via FillEventStartTimes) and does
+		// not stage the concert as a conflict.
+		assert.Contains(t, h.concert.filledIDs, "event-1", "known-start fill must fill the existing row")
+		assert.Empty(t, h.staged.upserted, "a fill is the publish path, not a conflict to stage")
+	})
+
+	t.Run("un-suppressing a key re-enables auto-publish on re-discovery", func(t *testing.T) {
+		t.Parallel()
+		h := build(t)
+		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+		seedVenue(h, "venue-1", "Venue X", "place-x")
+		h.suppressed.suppress("venue-1", localDate, &startTime)
+		// Operator removes the suppression entry (the deliberate un-suppress path).
+		require.NoError(t, h.suppressed.Delete(context.Background(), "venue-1", localDate, &startTime))
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-6",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
+			},
+		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		// No longer suppressed → auto-published again.
+		require.Len(t, h.concert.created, 1)
+		assert.Empty(t, h.staged.upserted)
+	})
+
+	t.Run("skips a concert with empty venue name without poisoning the batch", func(t *testing.T) {
+		t.Parallel()
+		h := build(t)
+		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-5",
+			Concerts: entity.ScrapedConcerts{
+				{Title: "Valid Show", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/valid"},
+				{Title: "TBA Show", ListedVenueName: "", LocalDate: localDate, SourceURL: "https://example.com/tba"},
+			},
+		}
+		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
+
+		// The empty-venue row is skipped; the valid one is auto-published.
+		assert.Len(t, h.concert.created, 1)
+		assert.Empty(t, h.staged.upserted)
 	})
 }
 
@@ -532,6 +582,9 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 	t.Parallel()
 
 	assert.Panics(t, func() {
-		usecase.NewConcertCreationUseCase(&fakeStagedConcertRepo{}, nil, newTestLogger(t))
+		usecase.NewConcertCreationUseCase(
+			&fakeStagedConcertRepo{}, newFakeVenueRepo(), &fakeConcertRepo{}, &fakeSeriesRepo{},
+			newFakeSuppressedConcertRepo(), nil, nil, newTestLogger(t),
+		)
 	})
 }
