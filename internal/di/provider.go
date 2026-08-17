@@ -264,6 +264,19 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
+		// Mount the consumer ArtistService on the admin server so the admin
+		// console can reuse ArtistService.Search (to pick an artist to
+		// associate) via the admin host + admin token, instead of a
+		// cross-origin call to the consumer API. Per design D2, the
+		// higher-privilege admin server may additionally mount consumer
+		// handlers as needed; the server-wide RequireRoleInterceptor(admin)
+		// gates every method here.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return artistconnect.NewArtistServiceHandler(
+				rpc.NewArtistHandler(artistUC, logger),
+				opts...,
+			)
+		},
 	}
 
 	// Consumer RPC handlers (protected by authn middleware)
