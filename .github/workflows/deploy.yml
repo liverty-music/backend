@@ -85,6 +85,14 @@ jobs:
         image:
           - name: server
             target: server
+          # fan-api: audience-tier successor to `server` (unify-workload-naming).
+          # Built from the SAME `server` Docker target and dual-published as
+          # `backend/fan-api` alongside `backend/server` during the migration, so
+          # the new fan-api workload (and admin-console-api, which shares this
+          # binary) can pull it while the live `server-app` keeps pulling
+          # `backend/server`. The `server` entry is removed at delete-old.
+          - name: fan-api
+            target: server
           - name: consumer
             target: consumer
           - name: concert-discovery
