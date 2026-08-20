@@ -51,7 +51,12 @@ jobs:
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          # Pinned (was `latest`): golangci-lint v2.13.0 (released 2026-08-19)
+          # hangs on `golangci-lint run` for this module — it blows past its own
+          # 3m `run.timeout` and wedges until the 10m job timeout, reddening every
+          # backend PR. v2.12.2 is the last release that lints in ~1m37s. Bump
+          # deliberately once upstream fixes the regression.
+          version: v2.12.2
           install-only: true
       - name: Run make lint
         run: make lint
