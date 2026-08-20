@@ -11,8 +11,10 @@ import (
 	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
 	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
+	objectv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
 	policypb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/policy"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user"
+	userv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
@@ -39,6 +41,7 @@ var _ usecase.OrganizerProvisioner = (*OrganizerProvisioner)(nil)
 // creating duplicates and never leaves the operator without an owner grant.
 type OrganizerProvisioner struct {
 	mgmt                      mgmtpb.ManagementServiceClient
+	userV2                    userv2pb.UserServiceClient
 	organizerConsoleProjectID string
 	logger                    *logging.Logger
 }
@@ -83,6 +86,7 @@ func NewOrganizerProvisioner(
 
 	return &OrganizerProvisioner{
 		mgmt:                      mgmtpb.NewManagementServiceClient(conn.ClientConn),
+		userV2:                    userv2pb.NewUserServiceClient(conn.ClientConn),
 		organizerConsoleProjectID: organizerConsoleProjectID,
 		logger:                    logger,
 	}, nil
@@ -129,7 +133,7 @@ func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID,
 	}
 
 	// Step 4: create the initial operator human user in the tenant org.
-	operatorID, err := p.ensureOperatorUser(orgCtx, operatorEmail)
+	operatorID, err := p.ensureOperatorUser(orgCtx, zitadelOrgID, operatorEmail)
 	if err != nil {
 		return "", apperr.Wrap(err, codes.Internal, "ensure operator user")
 	}
@@ -278,19 +282,27 @@ func (p *OrganizerProvisioner) ensureProjectGrant(ctx context.Context, tenantOrg
 // report success, or the Organizer would go active with an operator who can
 // never sign in. On failure the caller leaves the row `provisioning` and the
 // reconciler retries; Zitadel accepts re-sending the passkey init link.
-func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, operatorEmail string) (string, error) {
-	userID, err := p.ensureHumanUser(orgCtx, operatorEmail)
+func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, zitadelOrgID, operatorEmail string) (string, error) {
+	userID, err := p.ensureHumanUser(orgCtx, zitadelOrgID, operatorEmail)
 	if err != nil {
 		return "", err
 	}
 
-	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
-	if _, err := p.mgmt.SendPasswordlessRegistration(orgCtx, &mgmtpb.SendPasswordlessRegistrationRequest{
+	// Email the passkey-registration link via the User v2 API. The v2 create
+	// flow above sends NO password-init email (v2 AddHumanUser hardcodes
+	// allowInitMail=false), so this passkey link is the operator's only
+	// onboarding mail — matching the org's passwordless login policy. Scoped by
+	// user_id only (the org is derived from the user's write model). An empty
+	// SendLink uses Zitadel's default passwordless-registration URL.
+	if _, err := p.userV2.CreatePasskeyRegistrationLink(orgCtx, &userv2pb.CreatePasskeyRegistrationLinkRequest{
 		UserId: userID,
+		Medium: &userv2pb.CreatePasskeyRegistrationLinkRequest_SendLink{
+			SendLink: &userv2pb.SendPasskeyRegistrationLink{},
+		},
 	}); err != nil {
-		return "", fmt.Errorf("send passkey registration email: %w", err)
+		return "", fmt.Errorf("send passkey registration link: %w", err)
 	}
-	p.logger.Info(orgCtx, "operator passkey init link sent",
+	p.logger.Info(orgCtx, "operator passkey registration link sent",
 		slog.String("user_id", userID),
 		slog.String("email", operatorEmail),
 	)
@@ -299,19 +311,31 @@ func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, operat
 
 // ensureHumanUser creates the operator human user, or returns the id of the
 // existing user when one with operatorEmail is already present (idempotent).
-func (p *OrganizerProvisioner) ensureHumanUser(orgCtx context.Context, operatorEmail string) (string, error) {
-	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
-	addResp, err := p.mgmt.AddHumanUser(orgCtx, &mgmtpb.AddHumanUserRequest{
-		UserName: operatorEmail,
-		Profile: &mgmtpb.AddHumanUserRequest_Profile{
-			FirstName:   "Operator",
-			LastName:    "Operator",
-			DisplayName: operatorEmail,
+func (p *OrganizerProvisioner) ensureHumanUser(orgCtx context.Context, zitadelOrgID, operatorEmail string) (string, error) {
+	// User v2 AddHumanUser with a verified email and NO password creates a
+	// passwordless operator and sends NO email: the v2 handler hardcodes
+	// allowInitMail=false, so — unlike v1 — no password-initialization mail is
+	// sent (which would contradict the org's passwordless login policy). The
+	// email MUST be verified here so the subsequent passkey-registration mail
+	// has a valid recipient; it targets verified_email, and an empty recipient
+	// is rejected by the SMTP provider (501). Org is scoped via the request
+	// organization field rather than the v1 context header.
+	//
+	//nolint:staticcheck // SA1019: v2 AddHumanUser is deprecated in favor of CreateUser, but on Zitadel v4.14.0 AddHumanUser is fully supported AND source-verified to hardcode allowInitMail=false (no password-init email) — the exact behavior this fix relies on. CreateUser's init-mail suppression is NOT verified for v4.14.0, so switching to it risks reintroducing the password-init email. Revisit when prod Zitadel is upgraded and CreateUser's behavior is confirmed.
+	addResp, err := p.userV2.AddHumanUser(orgCtx, &userv2pb.AddHumanUserRequest{
+		Organization: &objectv2pb.Organization{
+			Org: &objectv2pb.Organization_OrgId{OrgId: zitadelOrgID},
 		},
-		Email: &mgmtpb.AddHumanUserRequest_Email{
-			Email:           operatorEmail,
-			IsEmailVerified: false,
+		Profile: &userv2pb.SetHumanProfile{
+			GivenName:   "Operator",
+			FamilyName:  "Operator",
+			DisplayName: &operatorEmail,
 		},
+		Email: &userv2pb.SetHumanEmail{
+			Email:        operatorEmail,
+			Verification: &userv2pb.SetHumanEmail_IsVerified{IsVerified: true},
+		},
+		// No PasswordType → passwordless operator (passkey-only onboarding).
 	})
 	if err == nil {
 		return addResp.GetUserId(), nil
