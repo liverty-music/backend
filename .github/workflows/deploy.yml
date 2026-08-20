@@ -83,15 +83,14 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - name: server
-            target: server
-          # fan-api: audience-tier successor to `server` (unify-workload-naming).
-          # Built from the SAME `server` Docker target and dual-published as
-          # `backend/fan-api` alongside `backend/server` during the migration, so
-          # the new fan-api workload (and admin-console-api, which shares this
-          # binary) can pull it while the live `server-app` keeps pulling
-          # `backend/server`. The `server` entry is removed at delete-old.
-          - name: fan-api
+          # api: the shared Connect-RPC API-server image (unify-workload-naming).
+          # Built from the `server` Docker target. Named audience-NEUTRAL (`api`,
+          # tier only) because the SAME binary backs multiple workloads —
+          # `fan-api` and `admin-console-api` — differentiated by runtime config,
+          # not code. Both pull this one image (no version drift), mirroring how
+          # `consumer` backs the `event-consumer` workload. Successor to the
+          # retired `server`/`fan-api` image names.
+          - name: api
             target: server
           - name: consumer
             target: consumer
