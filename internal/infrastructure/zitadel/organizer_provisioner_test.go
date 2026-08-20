@@ -7,6 +7,7 @@ import (
 	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	orgpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user"
+	userv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -37,13 +38,6 @@ type stubMgmt struct {
 	// addProjectGrantReqs records all AddProjectGrant calls for inspection.
 	addProjectGrantReqs []*mgmtpb.AddProjectGrantRequest
 	addProjectGrantErr  error
-
-	// addHumanUserResp/addHumanUserErr controls AddHumanUser.
-	addHumanUserResp *mgmtpb.AddHumanUserResponse
-	addHumanUserErr  error
-
-	// sendPasswordlessRegistrationErr controls SendPasswordlessRegistration.
-	sendPasswordlessRegistrationErr error
 
 	// addUserGrantReqs records all AddUserGrant calls for inspection.
 	addUserGrantReqs []*mgmtpb.AddUserGrantRequest
@@ -81,14 +75,6 @@ func (s *stubMgmt) AddProjectGrant(_ context.Context, in *mgmtpb.AddProjectGrant
 	return &mgmtpb.AddProjectGrantResponse{}, s.addProjectGrantErr
 }
 
-func (s *stubMgmt) AddHumanUser(_ context.Context, _ *mgmtpb.AddHumanUserRequest, _ ...grpc.CallOption) (*mgmtpb.AddHumanUserResponse, error) {
-	return s.addHumanUserResp, s.addHumanUserErr
-}
-
-func (s *stubMgmt) SendPasswordlessRegistration(_ context.Context, _ *mgmtpb.SendPasswordlessRegistrationRequest, _ ...grpc.CallOption) (*mgmtpb.SendPasswordlessRegistrationResponse, error) {
-	return &mgmtpb.SendPasswordlessRegistrationResponse{}, s.sendPasswordlessRegistrationErr
-}
-
 func (s *stubMgmt) AddUserGrant(_ context.Context, in *mgmtpb.AddUserGrantRequest, _ ...grpc.CallOption) (*mgmtpb.AddUserGrantResponse, error) {
 	s.addUserGrantReqs = append(s.addUserGrantReqs, in)
 	return &mgmtpb.AddUserGrantResponse{}, s.addUserGrantErr
@@ -118,14 +104,40 @@ func (s *stubMgmt) RemoveUser(_ context.Context, in *mgmtpb.RemoveUserRequest, _
 	return &mgmtpb.RemoveUserResponse{}, nil
 }
 
-// newTestProvisioner builds an OrganizerProvisioner wired to the given stub
+// stubUserV2 is a test double for the User v2 UserServiceClient. It embeds the
+// interface so only the methods OrganizerProvisioner uses need overriding;
+// un-overridden methods panic if called, surfacing unexpected dependencies.
+type stubUserV2 struct {
+	userv2pb.UserServiceClient
+
+	// addHumanUserResp/addHumanUserErr controls AddHumanUser (v2).
+	addHumanUserResp *userv2pb.AddHumanUserResponse
+	addHumanUserErr  error
+
+	// createPasskeyLinkErr controls CreatePasskeyRegistrationLink.
+	createPasskeyLinkErr error
+}
+
+func (s *stubUserV2) AddHumanUser(_ context.Context, _ *userv2pb.AddHumanUserRequest, _ ...grpc.CallOption) (*userv2pb.AddHumanUserResponse, error) {
+	return s.addHumanUserResp, s.addHumanUserErr
+}
+
+func (s *stubUserV2) CreatePasskeyRegistrationLink(_ context.Context, _ *userv2pb.CreatePasskeyRegistrationLinkRequest, _ ...grpc.CallOption) (*userv2pb.CreatePasskeyRegistrationLinkResponse, error) {
+	return &userv2pb.CreatePasskeyRegistrationLinkResponse{}, s.createPasskeyLinkErr
+}
+
+// newTestProvisioner builds an OrganizerProvisioner wired to the given stubs
 // instead of a live Zitadel connection.
-func newTestProvisioner(t *testing.T, stub *stubMgmt) *OrganizerProvisioner {
+func newTestProvisioner(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) *OrganizerProvisioner {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
+	if userV2 == nil {
+		userV2 = &stubUserV2{}
+	}
 	return &OrganizerProvisioner{
 		mgmt:                      stub,
+		userV2:                    userV2,
 		organizerConsoleProjectID: "proj-1",
 		logger:                    logger,
 	}
@@ -146,6 +158,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 		name      string
 		args      args
 		stub      *stubMgmt
+		userV2    *stubUserV2
 		wantOrgID string
 		wantErr   bool
 		check     func(t *testing.T, stub *stubMgmt)
@@ -158,8 +171,10 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				operatorEmail: "op@acme.com",
 			},
 			stub: &stubMgmt{
-				addOrgResp:       &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
-				addHumanUserResp: &mgmtpb.AddHumanUserResponse{UserId: "operator-user-1"},
+				addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
+			},
+			userV2: &stubUserV2{
+				addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "operator-user-1"},
 			},
 			wantOrgID: "zitadel-org-xyz",
 			check: func(t *testing.T, stub *stubMgmt) {
@@ -195,26 +210,30 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				// Simulate all create-steps returning AlreadyExists on a retry.
 				addCustomLoginPolicyErr: grpcstatus.Error(grpccodes.AlreadyExists, "policy exists"),
 				addProjectGrantErr:      grpcstatus.Error(grpccodes.AlreadyExists, "grant exists"),
-				// AddHumanUser AlreadyExists triggers lookup by email via ListUsers.
-				addHumanUserErr: grpcstatus.Error(grpccodes.AlreadyExists, "user exists"),
+				// AddHumanUser AlreadyExists (v2) triggers lookup by email via ListUsers (v1).
 				listUsersResp: &mgmtpb.ListUsersResponse{
 					Result: []*userpb.User{{Id: "existing-operator-id"}},
 				},
 				addUserGrantErr: grpcstatus.Error(grpccodes.AlreadyExists, "grant exists"),
 			},
+			userV2: &stubUserV2{
+				addHumanUserErr: grpcstatus.Error(grpccodes.AlreadyExists, "user exists"),
+			},
 			wantOrgID: "zitadel-org-existing",
 		},
 		{
-			name: "FATAL: SendPasswordlessRegistration failure returns error",
+			name: "FATAL: CreatePasskeyRegistrationLink failure returns error",
 			args: args{
 				organizerID:   "org-abc12345",
 				name:          "Fail Label",
 				operatorEmail: "op@fail.com",
 			},
 			stub: &stubMgmt{
-				addOrgResp:                      &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
-				addHumanUserResp:                &mgmtpb.AddHumanUserResponse{UserId: "op-1"},
-				sendPasswordlessRegistrationErr: grpcstatus.Error(grpccodes.Internal, "email delivery failed"),
+				addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
+			},
+			userV2: &stubUserV2{
+				addHumanUserResp:     &userv2pb.AddHumanUserResponse{UserId: "op-1"},
+				createPasskeyLinkErr: grpcstatus.Error(grpccodes.Internal, "email delivery failed"),
 			},
 			wantErr: true,
 		},
@@ -238,7 +257,9 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				operatorEmail: "op@fail.com",
 			},
 			stub: &stubMgmt{
-				addOrgResp:      &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
+				addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
+			},
+			userV2: &stubUserV2{
 				addHumanUserErr: grpcstatus.Error(grpccodes.Internal, "create user failed"),
 			},
 			wantErr: true,
@@ -248,7 +269,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := newTestProvisioner(t, tt.stub)
+			p := newTestProvisioner(t, tt.stub, tt.userV2)
 
 			got, err := p.ProvisionTenant(ctx, tt.args.organizerID, tt.args.name, tt.args.operatorEmail)
 
@@ -375,7 +396,7 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := newTestProvisioner(t, tt.stub)
+			p := newTestProvisioner(t, tt.stub, nil)
 
 			err := p.DeactivateOperators(ctx, tt.zitadelOrgID)
 
