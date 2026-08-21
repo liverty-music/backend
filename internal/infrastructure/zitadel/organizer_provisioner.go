@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"strings"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
@@ -18,6 +20,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
@@ -43,7 +46,11 @@ type OrganizerProvisioner struct {
 	mgmt                      mgmtpb.ManagementServiceClient
 	userV2                    userv2pb.UserServiceClient
 	organizerConsoleProjectID string
-	logger                    *logging.Logger
+	// consoleBaseURL is the organizer console origin (e.g.
+	// https://organizer.dev.liverty-music.app), derived from the issuer. It is
+	// the base of the operator invite link's url_template.
+	consoleBaseURL string
+	logger         *logging.Logger
 }
 
 // NewOrganizerProvisioner creates an OrganizerProvisioner that authenticates
@@ -62,6 +69,11 @@ func NewOrganizerProvisioner(
 	apiEndpoint, err := grpcEndpoint(issuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse zitadel domain: %w", err)
+	}
+
+	consoleBaseURL, err := consoleBaseURLFromIssuer(issuerURL)
+	if err != nil {
+		return nil, fmt.Errorf("derive organizer console base url: %w", err)
 	}
 
 	connOpts := []zitadelconn.Option{
@@ -88,8 +100,27 @@ func NewOrganizerProvisioner(
 		mgmt:                      mgmtpb.NewManagementServiceClient(conn.ClientConn),
 		userV2:                    userv2pb.NewUserServiceClient(conn.ClientConn),
 		organizerConsoleProjectID: organizerConsoleProjectID,
+		consoleBaseURL:            consoleBaseURL,
 		logger:                    logger,
 	}, nil
+}
+
+// consoleBaseURLFromIssuer derives the organizer console origin from the Zitadel
+// issuer URL by swapping the `auth.` host prefix for `organizer.`:
+// `https://auth.dev.liverty-music.app` → `https://organizer.dev.liverty-music.app`.
+// The console and the issuer share the same base domain per environment
+// (see cloud-provisioning `baseDomainMap` / the organizer-console host), so this
+// avoids threading a separate console-URL config through DI.
+func consoleBaseURLFromIssuer(issuerURL string) (string, error) {
+	u, err := url.Parse(issuerURL)
+	if err != nil {
+		return "", fmt.Errorf("parse issuer url %q: %w", issuerURL, err)
+	}
+	host, ok := strings.CutPrefix(u.Host, "auth.")
+	if !ok {
+		return "", fmt.Errorf("issuer host %q does not start with 'auth.'", u.Host)
+	}
+	return fmt.Sprintf("%s://organizer.%s", u.Scheme, host), nil
 }
 
 // ProvisionTenant provisions an isolated Zitadel tenant for the Organizer. It
@@ -275,36 +306,49 @@ func (p *OrganizerProvisioner) ensureProjectGrant(ctx context.Context, tenantOrg
 }
 
 // ensureOperatorUser ensures the initial operator human user exists in the tenant
-// org and has been sent a passkey-registration init link. It returns the user id.
+// org and has a pending Zitadel invite (the onboarding email). It returns the
+// user id.
 //
-// The init link is (re)sent on every call — fresh or existing — and its failure
-// is FATAL: a provisioning that cannot deliver the operator's init link must not
-// report success, or the Organizer would go active with an operator who can
-// never sign in. On failure the caller leaves the row `provisioning` and the
-// reconciler retries; Zitadel accepts re-sending the passkey init link.
+// The invite is (re)created on every call — fresh or existing — and its failure
+// is FATAL: a provisioning that cannot deliver the operator's onboarding email
+// must not report success, or the Organizer would go active with an operator who
+// can never sign in. On failure the caller leaves the row `provisioning` and the
+// reconciler retries; Zitadel accepts re-creating the invite.
 func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, zitadelOrgID, operatorEmail string) (string, error) {
 	userID, err := p.ensureHumanUser(orgCtx, zitadelOrgID, operatorEmail)
 	if err != nil {
 		return "", err
 	}
 
-	// Email the passkey-registration link via the User v2 API. The v2 create
-	// flow above sends NO password-init email (v2 AddHumanUser hardcodes
-	// allowInitMail=false), so this passkey link is the operator's only
-	// onboarding mail — matching the org's passwordless login policy. Scoped by
-	// user_id only (the org is derived from the user's write model). An empty
-	// SendLink uses Zitadel's default passwordless-registration URL.
-	if _, err := p.userV2.CreatePasskeyRegistrationLink(orgCtx, &userv2pb.CreatePasskeyRegistrationLinkRequest{
+	// Create a pending Zitadel invite and let Zitadel send the "Invitation to
+	// Zitadel Login" email via its own SMTP. The url_template points the "Accept
+	// invite" link at the organizer console (org pinned via org_id), which starts
+	// the OIDC flow; Login v2 then detects the pending invite and drives the
+	// passkey ceremony WITHIN the auth request, landing on /welcome.
+	//
+	// This replaces CreatePasskeyRegistrationLink, whose bare passkey/set link is
+	// a dead-end: single-use-on-failure (upstream #12499) and outside any OIDC
+	// context. The v2 AddHumanUser flow above sends no mail (allowInitMail=false),
+	// so this invite is the operator's only onboarding email. Scoped by user_id
+	// (the org is derived from the user's write model). url_template placeholders
+	// are limited to UserID/OrgID/Code — no email — so login_hint cannot be
+	// carried here; the operator enters their email once at Login v2.
+	inviteURL := fmt.Sprintf("%s/?org_id={{.OrgID}}", p.consoleBaseURL)
+	if _, err := p.userV2.CreateInviteCode(orgCtx, &userv2pb.CreateInviteCodeRequest{
 		UserId: userID,
-		Medium: &userv2pb.CreatePasskeyRegistrationLinkRequest_SendLink{
-			SendLink: &userv2pb.SendPasskeyRegistrationLink{},
+		Verification: &userv2pb.CreateInviteCodeRequest_SendCode{
+			SendCode: &userv2pb.SendInviteCode{
+				UrlTemplate:     proto.String(inviteURL),
+				ApplicationName: proto.String("Liverty Organizer"),
+			},
 		},
 	}); err != nil {
-		return "", fmt.Errorf("send passkey registration link: %w", err)
+		return "", fmt.Errorf("send operator invite: %w", err)
 	}
-	p.logger.Info(orgCtx, "operator passkey registration link sent",
+	p.logger.Info(orgCtx, "operator invite sent",
 		slog.String("user_id", userID),
 		slog.String("email", operatorEmail),
+		slog.String("invite_url", inviteURL),
 	)
 	return userID, nil
 }
