@@ -327,20 +327,33 @@ func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, zitade
 		return "", err
 	}
 
-	// Create a pending Zitadel invite and let Zitadel send the "Invitation to
-	// Zitadel Login" email via its own SMTP. The url_template points the "Accept
-	// invite" link at the organizer console (org pinned via org_id), which starts
-	// the OIDC flow; Login v2 then detects the pending invite and drives the
-	// passkey ceremony WITHIN the auth request, landing on /welcome.
+	// Create a pending Zitadel invite purely as the EMAIL TRANSPORT: Zitadel
+	// sends the "Invitation to Zitadel Login" email via its own SMTP (the backend
+	// has no SMTP of its own), and its "Accept invite" link opens the organizer
+	// console, which starts the OIDC flow. Login v2 then auto-onboards a
+	// no-auth-method operator whose email is verified — routing loginname →
+	// /verify (invite) → /authenticator/set (passkey) with the requestId threaded
+	// through, landing on /welcome (source-verified apps/login/src@v4.14.0; design
+	// D5). A pre-created invite is NOT a functional prerequisite; it is only how
+	// we get the branded email out.
 	//
 	// This replaces CreatePasskeyRegistrationLink, whose bare passkey/set link is
 	// a dead-end: single-use-on-failure (upstream #12499) and outside any OIDC
 	// context. The v2 AddHumanUser flow above sends no mail (allowInitMail=false),
-	// so this invite is the operator's only onboarding email. Scoped by user_id
-	// (the org is derived from the user's write model). url_template placeholders
-	// are limited to UserID/OrgID/Code — no email — so login_hint cannot be
-	// carried here; the operator enters their email once at Login v2.
-	inviteURL := fmt.Sprintf("%s/?org_id={{.OrgID}}", p.consoleBaseURL)
+	// so this invite is the operator's only onboarding email.
+	//
+	// url_template is a fully-formed literal (no Zitadel {{...}} placeholders):
+	// both the tenant org id and the operator email are known here, so we bake
+	// org_id (org-pinned entry) and login_hint (pre-fills AND auto-submits the
+	// loginname step, so the operator never types their email) directly, both
+	// percent-encoded. {{.Code}} is deliberately OMITTED — no credential in the
+	// link; the invite code stays IdP-side and is delivered/consumed on Zitadel.
+	inviteURL := fmt.Sprintf(
+		"%s/?org_id=%s&login_hint=%s",
+		p.consoleBaseURL,
+		url.QueryEscape(zitadelOrgID),
+		url.QueryEscape(operatorEmail),
+	)
 	if _, err := p.userV2.CreateInviteCode(orgCtx, &userv2pb.CreateInviteCodeRequest{
 		UserId: userID,
 		Verification: &userv2pb.CreateInviteCodeRequest_SendCode{

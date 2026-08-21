@@ -324,12 +324,19 @@ func TestOrganizerProvisioner_ProvisionTenant_sendsConsolePointedInvite(t *testi
 	require.NoError(t, err)
 
 	// The operator onboarding email is a Zitadel invite whose link points at the
-	// console (org pinned via org_id template), NOT a Zitadel setup page.
+	// console with org_id + login_hint baked in as percent-encoded literals (NOT
+	// a Zitadel setup page, and NOT a {{...}} template — both values are known at
+	// provisioning). No {{.Code}} → no credential in the link.
 	require.NotNil(t, userV2.createInviteReq)
 	assert.Equal(t, "operator-user-1", userV2.createInviteReq.GetUserId())
 	send := userV2.createInviteReq.GetSendCode()
 	require.NotNil(t, send, "invite must be SendCode (Zitadel-sent email), not ReturnCode")
-	assert.Equal(t, "https://organizer.test.local/?org_id={{.OrgID}}", send.GetUrlTemplate())
+	assert.Equal(t,
+		"https://organizer.test.local/?org_id=zitadel-org-xyz&login_hint=op%40acme.com",
+		send.GetUrlTemplate(),
+	)
+	assert.NotContains(t, send.GetUrlTemplate(), "{{", "url_template must be a literal, no Zitadel placeholders")
+	assert.NotContains(t, send.GetUrlTemplate(), "Code", "invite link must not carry the invite code")
 	assert.Equal(t, "Liverty Organizer", send.GetApplicationName())
 }
 
