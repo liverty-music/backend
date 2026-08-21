@@ -242,6 +242,29 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "idempotent: CreateInviteCode FailedPrecondition (operator already onboarded) is benign, saga proceeds to grant",
+			args: args{
+				organizerID:   "org-abc12345",
+				name:          "Onboarded Label",
+				operatorEmail: "op@onboarded.com",
+			},
+			stub: &stubMgmt{
+				addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
+			},
+			userV2: &stubUserV2{
+				addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "op-onboarded"},
+				// Zitadel rejects re-inviting an already-initialized operator; the
+				// saga must treat that as benign and still apply the owner grant.
+				createInviteErr: grpcstatus.Error(grpccodes.FailedPrecondition, "user already initialized"),
+			},
+			wantOrgID: "zitadel-org-xyz",
+			check: func(t *testing.T, stub *stubMgmt) {
+				t.Helper()
+				require.Len(t, stub.addUserGrantReqs, 1)
+				assert.Equal(t, "op-onboarded", stub.addUserGrantReqs[0].GetUserId())
+			},
+		},
+		{
 			name: "AddOrg non-AlreadyExists error returns error",
 			args: args{
 				organizerID:   "org-abc12345",

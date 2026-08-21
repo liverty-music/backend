@@ -309,11 +309,18 @@ func (p *OrganizerProvisioner) ensureProjectGrant(ctx context.Context, tenantOrg
 // org and has a pending Zitadel invite (the onboarding email). It returns the
 // user id.
 //
-// The invite is (re)created on every call — fresh or existing — and its failure
-// is FATAL: a provisioning that cannot deliver the operator's onboarding email
-// must not report success, or the Organizer would go active with an operator who
-// can never sign in. On failure the caller leaves the row `provisioning` and the
-// reconciler retries; Zitadel accepts re-creating the invite.
+// The invite is (re)created on every call. Its failure is FATAL — a provisioning
+// that cannot deliver the operator's onboarding email must not report success,
+// or the Organizer would go active with an operator who can never sign in — with
+// ONE exception: if the operator has already completed onboarding, Zitadel
+// rejects re-inviting them (they are past the invitable state) and that is
+// benign. The invite is only the email transport; Login v2 auto-onboards a
+// no-auth verified-email operator without a pre-created invite (design D5), so an
+// already-onboarded operator can already sign in and the re-invite is moot. We
+// therefore treat that specific rejection as success so the idempotent saga can
+// proceed to the owner grant instead of the reconciler re-failing forever. On any
+// other failure the caller leaves the row `provisioning` and the reconciler
+// retries.
 func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, zitadelOrgID, operatorEmail string) (string, error) {
 	userID, err := p.ensureHumanUser(orgCtx, zitadelOrgID, operatorEmail)
 	if err != nil {
@@ -343,6 +350,22 @@ func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, zitade
 			},
 		},
 	}); err != nil {
+		// Idempotency: an operator who already completed onboarding is past the
+		// invitable state, and Zitadel rejects re-inviting them
+		// (FailedPrecondition / AlreadyExists). That is benign for this
+		// compensating saga — the operator can already sign in, and the invite is
+		// only the email transport — so treat it as success and let provisioning
+		// proceed to the owner grant, rather than wedging the row in
+		// `provisioning` on every reconciler sweep. Any other code (a genuine
+		// delivery/transient failure that would leave a not-yet-onboarded operator
+		// unable to sign in) stays FATAL.
+		if isAlreadyInState(err) || isAlreadyExists(err) {
+			p.logger.Info(orgCtx, "operator already onboarded; skipping re-invite",
+				slog.String("user_id", userID),
+				slog.String("email", operatorEmail),
+			)
+			return userID, nil
+		}
 		return "", fmt.Errorf("send operator invite: %w", err)
 	}
 	p.logger.Info(orgCtx, "operator invite sent",
