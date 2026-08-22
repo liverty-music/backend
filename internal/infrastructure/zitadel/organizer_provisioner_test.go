@@ -35,6 +35,11 @@ type stubMgmt struct {
 	// addCustomLoginPolicyErr controls AddCustomLoginPolicy.
 	addCustomLoginPolicyErr error
 
+	// updateCustomLoginPolicyReq captures the last UpdateCustomLoginPolicy
+	// request; updateCustomLoginPolicyErr controls its error.
+	updateCustomLoginPolicyReq *mgmtpb.UpdateCustomLoginPolicyRequest
+	updateCustomLoginPolicyErr error
+
 	// addProjectGrantReqs records all AddProjectGrant calls for inspection.
 	addProjectGrantReqs []*mgmtpb.AddProjectGrantRequest
 	addProjectGrantErr  error
@@ -68,6 +73,11 @@ func (s *stubMgmt) GetOrgByDomainGlobal(_ context.Context, _ *mgmtpb.GetOrgByDom
 
 func (s *stubMgmt) AddCustomLoginPolicy(_ context.Context, _ *mgmtpb.AddCustomLoginPolicyRequest, _ ...grpc.CallOption) (*mgmtpb.AddCustomLoginPolicyResponse, error) {
 	return &mgmtpb.AddCustomLoginPolicyResponse{}, s.addCustomLoginPolicyErr
+}
+
+func (s *stubMgmt) UpdateCustomLoginPolicy(_ context.Context, in *mgmtpb.UpdateCustomLoginPolicyRequest, _ ...grpc.CallOption) (*mgmtpb.UpdateCustomLoginPolicyResponse, error) {
+	s.updateCustomLoginPolicyReq = in
+	return &mgmtpb.UpdateCustomLoginPolicyResponse{}, s.updateCustomLoginPolicyErr
 }
 
 func (s *stubMgmt) AddProjectGrant(_ context.Context, in *mgmtpb.AddProjectGrantRequest, _ ...grpc.CallOption) (*mgmtpb.AddProjectGrantResponse, error) {
@@ -224,6 +234,32 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				addHumanUserErr: grpcstatus.Error(grpccodes.AlreadyExists, "user exists"),
 			},
 			wantOrgID: "zitadel-org-existing",
+			check: func(t *testing.T, stub *stubMgmt) {
+				t.Helper()
+				// A pre-existing login policy (AddCustomLoginPolicy AlreadyExists)
+				// must be converged in place via UpdateCustomLoginPolicy so orgs
+				// created with the old allow_username_password=false are repaired.
+				require.NotNil(t, stub.updateCustomLoginPolicyReq, "existing policy must be updated in place")
+				assert.True(t, stub.updateCustomLoginPolicyReq.GetAllowUsernamePassword(),
+					"local authentication (username form) must be enabled for passkey onboarding")
+			},
+		},
+		{
+			name: "FATAL: UpdateCustomLoginPolicy failure on an existing policy returns error",
+			args: args{
+				organizerID:   "org-abc12345",
+				name:          "Fail Label",
+				operatorEmail: "op@fail.com",
+			},
+			stub: &stubMgmt{
+				addOrgResp:                 &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
+				addCustomLoginPolicyErr:    grpcstatus.Error(grpccodes.AlreadyExists, "policy exists"),
+				updateCustomLoginPolicyErr: grpcstatus.Error(grpccodes.Internal, "update failed"),
+			},
+			userV2: &stubUserV2{
+				addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "op-1"},
+			},
+			wantErr: true,
 		},
 		{
 			name: "FATAL: CreateInviteCode failure returns error",
