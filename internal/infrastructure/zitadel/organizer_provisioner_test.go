@@ -114,16 +114,19 @@ type stubUserV2 struct {
 	addHumanUserResp *userv2pb.AddHumanUserResponse
 	addHumanUserErr  error
 
-	// createPasskeyLinkErr controls CreatePasskeyRegistrationLink.
-	createPasskeyLinkErr error
+	// createInviteErr controls CreateInviteCode.
+	createInviteErr error
+	// createInviteReq captures the last CreateInviteCode request for assertions.
+	createInviteReq *userv2pb.CreateInviteCodeRequest
 }
 
 func (s *stubUserV2) AddHumanUser(_ context.Context, _ *userv2pb.AddHumanUserRequest, _ ...grpc.CallOption) (*userv2pb.AddHumanUserResponse, error) {
 	return s.addHumanUserResp, s.addHumanUserErr
 }
 
-func (s *stubUserV2) CreatePasskeyRegistrationLink(_ context.Context, _ *userv2pb.CreatePasskeyRegistrationLinkRequest, _ ...grpc.CallOption) (*userv2pb.CreatePasskeyRegistrationLinkResponse, error) {
-	return &userv2pb.CreatePasskeyRegistrationLinkResponse{}, s.createPasskeyLinkErr
+func (s *stubUserV2) CreateInviteCode(_ context.Context, req *userv2pb.CreateInviteCodeRequest, _ ...grpc.CallOption) (*userv2pb.CreateInviteCodeResponse, error) {
+	s.createInviteReq = req
+	return &userv2pb.CreateInviteCodeResponse{}, s.createInviteErr
 }
 
 // newTestProvisioner builds an OrganizerProvisioner wired to the given stubs
@@ -139,6 +142,7 @@ func newTestProvisioner(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) *Organ
 		mgmt:                      stub,
 		userV2:                    userV2,
 		organizerConsoleProjectID: "proj-1",
+		consoleBaseURL:            "https://organizer.test.local",
 		logger:                    logger,
 	}
 }
@@ -222,7 +226,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			wantOrgID: "zitadel-org-existing",
 		},
 		{
-			name: "FATAL: CreatePasskeyRegistrationLink failure returns error",
+			name: "FATAL: CreateInviteCode failure returns error",
 			args: args{
 				organizerID:   "org-abc12345",
 				name:          "Fail Label",
@@ -232,10 +236,33 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
 			},
 			userV2: &stubUserV2{
-				addHumanUserResp:     &userv2pb.AddHumanUserResponse{UserId: "op-1"},
-				createPasskeyLinkErr: grpcstatus.Error(grpccodes.Internal, "email delivery failed"),
+				addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "op-1"},
+				createInviteErr:  grpcstatus.Error(grpccodes.Internal, "email delivery failed"),
 			},
 			wantErr: true,
+		},
+		{
+			name: "idempotent: CreateInviteCode FailedPrecondition (operator already onboarded) is benign, saga proceeds to grant",
+			args: args{
+				organizerID:   "org-abc12345",
+				name:          "Onboarded Label",
+				operatorEmail: "op@onboarded.com",
+			},
+			stub: &stubMgmt{
+				addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"},
+			},
+			userV2: &stubUserV2{
+				addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "op-onboarded"},
+				// Zitadel rejects re-inviting an already-initialized operator; the
+				// saga must treat that as benign and still apply the owner grant.
+				createInviteErr: grpcstatus.Error(grpccodes.FailedPrecondition, "user already initialized"),
+			},
+			wantOrgID: "zitadel-org-xyz",
+			check: func(t *testing.T, stub *stubMgmt) {
+				t.Helper()
+				require.Len(t, stub.addUserGrantReqs, 1)
+				assert.Equal(t, "op-onboarded", stub.addUserGrantReqs[0].GetUserId())
+			},
 		},
 		{
 			name: "AddOrg non-AlreadyExists error returns error",
@@ -282,6 +309,61 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			if tt.check != nil {
 				tt.check(t, tt.stub)
 			}
+		})
+	}
+}
+
+func TestOrganizerProvisioner_ProvisionTenant_sendsConsolePointedInvite(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubMgmt{addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"}}
+	userV2 := &stubUserV2{addHumanUserResp: &userv2pb.AddHumanUserResponse{UserId: "operator-user-1"}}
+	p := newTestProvisioner(t, stub, userV2)
+
+	_, err := p.ProvisionTenant(context.Background(), "org-abc12345", "Acme Label", "op@acme.com")
+	require.NoError(t, err)
+
+	// The operator onboarding email is a Zitadel invite whose link points at the
+	// console with org_id + login_hint baked in as percent-encoded literals (NOT
+	// a Zitadel setup page, and NOT a {{...}} template — both values are known at
+	// provisioning). No {{.Code}} → no credential in the link.
+	require.NotNil(t, userV2.createInviteReq)
+	assert.Equal(t, "operator-user-1", userV2.createInviteReq.GetUserId())
+	send := userV2.createInviteReq.GetSendCode()
+	require.NotNil(t, send, "invite must be SendCode (Zitadel-sent email), not ReturnCode")
+	assert.Equal(t,
+		"https://organizer.test.local/?org_id=zitadel-org-xyz&login_hint=op%40acme.com",
+		send.GetUrlTemplate(),
+	)
+	assert.NotContains(t, send.GetUrlTemplate(), "{{", "url_template must be a literal, no Zitadel placeholders")
+	assert.NotContains(t, send.GetUrlTemplate(), "Code", "invite link must not carry the invite code")
+	assert.Equal(t, "Liverty Organizer", send.GetApplicationName())
+}
+
+func TestConsoleBaseURLFromIssuer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		issuer  string
+		want    string
+		wantErr bool
+	}{
+		{name: "prod", issuer: "https://auth.liverty-music.app", want: "https://organizer.liverty-music.app"},
+		{name: "dev", issuer: "https://auth.dev.liverty-music.app", want: "https://organizer.dev.liverty-music.app"},
+		{name: "issuer host not prefixed with auth.", issuer: "https://id.example.com", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := consoleBaseURLFromIssuer(tt.issuer)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
