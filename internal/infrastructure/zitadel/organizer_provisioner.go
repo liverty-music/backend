@@ -20,7 +20,6 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
@@ -272,18 +271,55 @@ func (p *OrganizerProvisioner) ensureOrg(ctx context.Context, orgName string) (s
 }
 
 // ensureLoginPolicy sets a passkey-primary custom login policy on the tenant
-// org. If one already exists (AlreadyExists) we skip — the policy created on
-// first provision is already correct.
+// org, converging an existing policy to the correct shape on retry.
+//
+// CRITICAL: allow_username_password MUST be true. Despite its name, this field
+// (the deprecated alias of `allow_local_authentication`) does NOT merely toggle
+// password login — it gates ALL *local* authentication, i.e. logging in with a
+// username plus a passkey OR a password. Zitadel's own field doc: "If enabled,
+// users can log in locally with their username and passkeys or password.
+// Disabling this option will require users to log in with an external identity
+// provider." Setting it false therefore removes the username-entry form from
+// hosted Login v2's loginname page (source: apps/login `loginname/page.tsx`
+// gates `<UsernameForm>` on `allowLocalAuthentication`), and since no external
+// IdP is configured on the tenant org, the operator lands on an empty login
+// card with no way to proceed — breaking the whole invite onboarding flow.
+//
+// "Passkey-primary" is achieved by PasswordlessType=ALLOWED plus never setting a
+// password on the operator (ensureHumanUser), NOT by disabling local auth. With
+// local auth enabled and no password on file, the only usable local method is
+// the passkey — exactly the intended behavior — while the username form still
+// renders so the operator can enter the invite flow.
+//
+// AddCustomLoginPolicy is create-only. Orgs provisioned before this fix carry
+// the broken allow_username_password=false policy, so on AlreadyExists we
+// UpdateCustomLoginPolicy to converge them in place (idempotent saga).
 func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context) error {
 	_, err := p.mgmt.AddCustomLoginPolicy(orgCtx, &mgmtpb.AddCustomLoginPolicyRequest{
 		PasswordlessType:       policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
-		AllowUsernamePassword:  false,
+		AllowUsernamePassword:  true,
 		AllowRegister:          false,
 		AllowExternalIdp:       true,
 		IgnoreUnknownUsernames: true,
 	})
-	if err != nil && !isAlreadyExists(err) {
+	if err == nil {
+		return nil
+	}
+	if !isAlreadyExists(err) {
 		return fmt.Errorf("add custom login policy: %w", err)
+	}
+
+	// A custom policy already exists — update it in place so tenant orgs created
+	// with the old (broken) allow_username_password=false converge to the
+	// correct passkey-primary shape.
+	if _, err := p.mgmt.UpdateCustomLoginPolicy(orgCtx, &mgmtpb.UpdateCustomLoginPolicyRequest{
+		PasswordlessType:       policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
+		AllowUsernamePassword:  true,
+		AllowRegister:          false,
+		AllowExternalIdp:       true,
+		IgnoreUnknownUsernames: true,
+	}); err != nil {
+		return fmt.Errorf("update custom login policy: %w", err)
 	}
 	return nil
 }
@@ -358,8 +394,8 @@ func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, zitade
 		UserId: userID,
 		Verification: &userv2pb.CreateInviteCodeRequest_SendCode{
 			SendCode: &userv2pb.SendInviteCode{
-				UrlTemplate:     proto.String(inviteURL),
-				ApplicationName: proto.String("Liverty Organizer"),
+				UrlTemplate:     new(inviteURL),
+				ApplicationName: new("Liverty Organizer"),
 			},
 		},
 	}); err != nil {
