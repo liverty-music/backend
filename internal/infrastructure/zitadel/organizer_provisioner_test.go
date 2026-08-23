@@ -32,7 +32,9 @@ type stubMgmt struct {
 	getOrgByDomainResp *mgmtpb.GetOrgByDomainGlobalResponse
 	getOrgByDomainErr  error
 
-	// addCustomLoginPolicyErr controls AddCustomLoginPolicy.
+	// addCustomLoginPolicyReq captures the last AddCustomLoginPolicy request;
+	// addCustomLoginPolicyErr controls its error.
+	addCustomLoginPolicyReq *mgmtpb.AddCustomLoginPolicyRequest
 	addCustomLoginPolicyErr error
 
 	// updateCustomLoginPolicyReq captures the last UpdateCustomLoginPolicy
@@ -71,7 +73,8 @@ func (s *stubMgmt) GetOrgByDomainGlobal(_ context.Context, _ *mgmtpb.GetOrgByDom
 	return s.getOrgByDomainResp, s.getOrgByDomainErr
 }
 
-func (s *stubMgmt) AddCustomLoginPolicy(_ context.Context, _ *mgmtpb.AddCustomLoginPolicyRequest, _ ...grpc.CallOption) (*mgmtpb.AddCustomLoginPolicyResponse, error) {
+func (s *stubMgmt) AddCustomLoginPolicy(_ context.Context, in *mgmtpb.AddCustomLoginPolicyRequest, _ ...grpc.CallOption) (*mgmtpb.AddCustomLoginPolicyResponse, error) {
+	s.addCustomLoginPolicyReq = in
 	return &mgmtpb.AddCustomLoginPolicyResponse{}, s.addCustomLoginPolicyErr
 }
 
@@ -153,6 +156,7 @@ func newTestProvisioner(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) *Organ
 		userV2:                    userV2,
 		organizerConsoleProjectID: "proj-1",
 		consoleBaseURL:            "https://organizer.test.local",
+		inviteURLTemplate:         inviteVerifyURLTemplate("https://auth.test.local"),
 		logger:                    logger,
 	}
 }
@@ -193,6 +197,15 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			wantOrgID: "zitadel-org-xyz",
 			check: func(t *testing.T, stub *stubMgmt) {
 				t.Helper()
+				// The login policy enables local auth (passkey-primary) and sets
+				// the console as the post-invite default_redirect_uri.
+				require.NotNil(t, stub.addCustomLoginPolicyReq)
+				assert.True(t, stub.addCustomLoginPolicyReq.GetAllowUsernamePassword(),
+					"local authentication must be enabled for the passkey login form")
+				assert.Equal(t, "https://organizer.test.local/?org_id=zitadel-org-xyz",
+					stub.addCustomLoginPolicyReq.GetDefaultRedirectUri(),
+					"invite acceptance must return the operator to the console")
+
 				// AddProjectGrant must receive the console project id, the
 				// returned org id, and the owner role.
 				require.Len(t, stub.addProjectGrantReqs, 1)
@@ -242,6 +255,9 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				require.NotNil(t, stub.updateCustomLoginPolicyReq, "existing policy must be updated in place")
 				assert.True(t, stub.updateCustomLoginPolicyReq.GetAllowUsernamePassword(),
 					"local authentication (username form) must be enabled for passkey onboarding")
+				assert.Equal(t, "https://organizer.test.local/?org_id=zitadel-org-existing",
+					stub.updateCustomLoginPolicyReq.GetDefaultRedirectUri(),
+					"converged policy must carry the console default_redirect_uri with this tenant's org id")
 			},
 		},
 		{
@@ -349,7 +365,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 	}
 }
 
-func TestOrganizerProvisioner_ProvisionTenant_sendsConsolePointedInvite(t *testing.T) {
+func TestOrganizerProvisioner_ProvisionTenant_sendsStandardVerifyInvite(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubMgmt{addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-xyz"}}
@@ -359,21 +375,38 @@ func TestOrganizerProvisioner_ProvisionTenant_sendsConsolePointedInvite(t *testi
 	_, err := p.ProvisionTenant(context.Background(), "org-abc12345", "Acme Label", "op@acme.com")
 	require.NoError(t, err)
 
-	// The operator onboarding email is a Zitadel invite whose link points at the
-	// console with org_id + login_hint baked in as percent-encoded literals (NOT
-	// a Zitadel setup page, and NOT a {{...}} template — both values are known at
-	// provisioning). No {{.Code}} → no credential in the link.
+	// The onboarding email is Zitadel's STANDARD invite: its "Accept invite" link
+	// points at the hosted Login v2 /verify page on the AUTH host (not the
+	// console) and carries Zitadel's own {{.Code}}/{{.UserID}}/{{.OrgID}}
+	// placeholders. The code therefore rides on the IdP surface, never in a
+	// console URL.
 	require.NotNil(t, userV2.createInviteReq)
 	assert.Equal(t, "operator-user-1", userV2.createInviteReq.GetUserId())
 	send := userV2.createInviteReq.GetSendCode()
 	require.NotNil(t, send, "invite must be SendCode (Zitadel-sent email), not ReturnCode")
+	tmpl := send.GetUrlTemplate()
 	assert.Equal(t,
-		"https://organizer.test.local/?org_id=zitadel-org-xyz&login_hint=op%40acme.com",
-		send.GetUrlTemplate(),
+		"https://auth.test.local/ui/v2/login/verify?code={{.Code}}&userId={{.UserID}}&organization={{.OrgID}}&invite=true",
+		tmpl,
 	)
-	assert.NotContains(t, send.GetUrlTemplate(), "{{", "url_template must be a literal, no Zitadel placeholders")
-	assert.NotContains(t, send.GetUrlTemplate(), "Code", "invite link must not carry the invite code")
+	assert.Contains(t, tmpl, "auth.test.local", "invite link points at the auth (IdP) host, not the console")
+	assert.NotContains(t, tmpl, "organizer.test.local", "invite link must not point at the console")
+	assert.Contains(t, tmpl, "{{.Code}}", "code rides on the IdP surface via the Zitadel placeholder")
 	assert.Equal(t, "Liverty Organizer", send.GetApplicationName())
+}
+
+func TestInviteVerifyURLTemplate(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t,
+		"https://auth.liverty-music.app/ui/v2/login/verify?code={{.Code}}&userId={{.UserID}}&organization={{.OrgID}}&invite=true",
+		inviteVerifyURLTemplate("https://auth.liverty-music.app"),
+	)
+	// A trailing slash on the issuer must not double up.
+	assert.Equal(t,
+		"https://auth.dev.liverty-music.app/ui/v2/login/verify?code={{.Code}}&userId={{.UserID}}&organization={{.OrgID}}&invite=true",
+		inviteVerifyURLTemplate("https://auth.dev.liverty-music.app/"),
+	)
 }
 
 func TestConsoleBaseURLFromIssuer(t *testing.T) {
