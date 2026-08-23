@@ -47,9 +47,15 @@ type OrganizerProvisioner struct {
 	organizerConsoleProjectID string
 	// consoleBaseURL is the organizer console origin (e.g.
 	// https://organizer.dev.liverty-music.app), derived from the issuer. It is
-	// the base of the operator invite link's url_template.
+	// set as the tenant login policy's default_redirect_uri so the operator is
+	// returned to the console after accepting the invite (see ensureLoginPolicy).
 	consoleBaseURL string
-	logger         *logging.Logger
+	// inviteURLTemplate is the Zitadel-standard invitation link — a literal with
+	// Zitadel's own {{.Code}}/{{.UserID}}/{{.OrgID}} placeholders — pointing at
+	// the hosted Login v2 /verify page on the issuer host. Derived once from the
+	// issuer; the same template serves every operator.
+	inviteURLTemplate string
+	logger            *logging.Logger
 }
 
 // NewOrganizerProvisioner creates an OrganizerProvisioner that authenticates
@@ -100,8 +106,23 @@ func NewOrganizerProvisioner(
 		userV2:                    userv2pb.NewUserServiceClient(conn.ClientConn),
 		organizerConsoleProjectID: organizerConsoleProjectID,
 		consoleBaseURL:            consoleBaseURL,
+		inviteURLTemplate:         inviteVerifyURLTemplate(issuerURL),
 		logger:                    logger,
 	}, nil
+}
+
+// inviteVerifyURLTemplate builds the Zitadel-standard invitation link for
+// CreateInviteCode: it points at the hosted Login v2 /verify page on the issuer
+// host and carries Zitadel's own {{.Code}}/{{.UserID}}/{{.OrgID}} placeholders,
+// which Zitadel substitutes when it sends the mail. The operator clicks the
+// "Accept invite" link and the invite code rides on the IdP surface (auth host)
+// — never in a console URL. After passkey setup the tenant login policy's
+// default_redirect_uri returns them to the console (see ensureLoginPolicy). This
+// is Zitadel's standard invite UX (zitadel/zitadel#8310, zitadel/typescript#166)
+// and mirrors the login app's own buildVerificationUrlTemplate.
+func inviteVerifyURLTemplate(issuerURL string) string {
+	base := strings.TrimRight(issuerURL, "/")
+	return base + "/ui/v2/login/verify?code={{.Code}}&userId={{.UserID}}&organization={{.OrgID}}&invite=true"
 }
 
 // consoleBaseURLFromIssuer derives the organizer console origin from the Zitadel
@@ -150,7 +171,7 @@ func (p *OrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID,
 	orgCtx := middleware.SetOrgID(ctx, zitadelOrgID)
 
 	// Step 2: set passkey-primary custom login policy.
-	if err := p.ensureLoginPolicy(orgCtx); err != nil {
+	if err := p.ensureLoginPolicy(orgCtx, zitadelOrgID); err != nil {
 		return "", apperr.Wrap(err, codes.Internal, "ensure passkey-primary login policy")
 	}
 
@@ -291,16 +312,33 @@ func (p *OrganizerProvisioner) ensureOrg(ctx context.Context, orgName string) (s
 // the passkey — exactly the intended behavior — while the username form still
 // renders so the operator can enter the invite flow.
 //
-// AddCustomLoginPolicy is create-only. Orgs provisioned before this fix carry
-// the broken allow_username_password=false policy, so on AlreadyExists we
-// UpdateCustomLoginPolicy to converge them in place (idempotent saga).
-func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context) error {
+// DefaultRedirectUri MUST be the organizer console. The invite is accepted on
+// the hosted login /verify page OUTSIDE any in-flight OIDC request, so after
+// passkey setup Login v2 has no requestId to resume; it falls back to the org
+// login policy's default_redirect_uri (source-verified: apps/login
+// `lib/server/passkeys.ts` passes `getLoginSettings().defaultRedirectUri` to
+// `completeFlowOrGetUrl`, and `lib/client.ts` `resolveRedirectUri` uses it).
+// Pointing it at the console returns the operator there to complete sign-in;
+// without it they would dead-end on a Zitadel page.
+//
+// AddCustomLoginPolicy is create-only. Orgs provisioned before this change carry
+// a policy without the default redirect (and older ones the broken
+// allow_username_password=false), so on AlreadyExists we UpdateCustomLoginPolicy
+// to converge them in place (idempotent saga).
+func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context, zitadelOrgID string) error {
+	// The default redirect carries this tenant's org id so the console can
+	// enforce, after the post-invite callback, that the authenticated token's
+	// org is THIS tenant — a stale/other-org SSO session in the browser must not
+	// silently onboard the wrong operator. On a mismatch the console forces
+	// re-authentication (design D-D, Option 2).
+	defaultRedirectURI := fmt.Sprintf("%s/?org_id=%s", p.consoleBaseURL, url.QueryEscape(zitadelOrgID))
 	_, err := p.mgmt.AddCustomLoginPolicy(orgCtx, &mgmtpb.AddCustomLoginPolicyRequest{
 		PasswordlessType:       policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
 		AllowUsernamePassword:  true,
 		AllowRegister:          false,
 		AllowExternalIdp:       true,
 		IgnoreUnknownUsernames: true,
+		DefaultRedirectUri:     defaultRedirectURI,
 	})
 	if err == nil {
 		return nil
@@ -310,14 +348,15 @@ func (p *OrganizerProvisioner) ensureLoginPolicy(orgCtx context.Context) error {
 	}
 
 	// A custom policy already exists — update it in place so tenant orgs created
-	// with the old (broken) allow_username_password=false converge to the
-	// correct passkey-primary shape.
+	// before this change converge to the correct passkey-primary shape and gain
+	// the console default_redirect_uri.
 	if _, err := p.mgmt.UpdateCustomLoginPolicy(orgCtx, &mgmtpb.UpdateCustomLoginPolicyRequest{
 		PasswordlessType:       policypb.PasswordlessType_PASSWORDLESS_TYPE_ALLOWED,
 		AllowUsernamePassword:  true,
 		AllowRegister:          false,
 		AllowExternalIdp:       true,
 		IgnoreUnknownUsernames: true,
+		DefaultRedirectUri:     defaultRedirectURI,
 	}); err != nil {
 		return fmt.Errorf("update custom login policy: %w", err)
 	}
@@ -350,46 +389,32 @@ func (p *OrganizerProvisioner) ensureProjectGrant(ctx context.Context, tenantOrg
 // or the Organizer would go active with an operator who can never sign in — with
 // ONE exception: if the operator has already completed onboarding, Zitadel
 // rejects re-inviting them (they are past the invitable state) and that is
-// benign. The invite is only the email transport; Login v2 auto-onboards a
-// no-auth verified-email operator without a pre-created invite (design D5), so an
-// already-onboarded operator can already sign in and the re-invite is moot. We
-// therefore treat that specific rejection as success so the idempotent saga can
-// proceed to the owner grant instead of the reconciler re-failing forever. On any
-// other failure the caller leaves the row `provisioning` and the reconciler
-// retries.
+// benign. An already-onboarded operator can already sign in, so we treat that
+// specific rejection as success and let the idempotent saga proceed to the owner
+// grant instead of the reconciler re-failing forever. On any other failure the
+// caller leaves the row `provisioning` and the reconciler retries.
 func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, zitadelOrgID, operatorEmail string) (string, error) {
 	userID, err := p.ensureHumanUser(orgCtx, zitadelOrgID, operatorEmail)
 	if err != nil {
 		return "", err
 	}
 
-	// Create a pending Zitadel invite purely as the EMAIL TRANSPORT: Zitadel
-	// sends the "Invitation to Zitadel Login" email via its own SMTP (the backend
-	// has no SMTP of its own), and its "Accept invite" link opens the organizer
-	// console, which starts the OIDC flow. Login v2 then auto-onboards a
-	// no-auth-method operator whose email is verified — routing loginname →
-	// /verify (invite) → /authenticator/set (passkey) with the requestId threaded
-	// through, landing on /welcome (source-verified apps/login/src@v4.14.0; design
-	// D5). A pre-created invite is NOT a functional prerequisite; it is only how
-	// we get the branded email out.
+	// Create the invite using Zitadel's STANDARD invitation flow: Zitadel sends
+	// one branded "Invitation to Liverty Organizer" email via its own SMTP (the
+	// backend has no SMTP of its own) whose "Accept invite" link opens the hosted
+	// Login v2 /verify page directly, with the code carried in the link. The
+	// operator CLICKS the link (never transcribes a code), registers a passkey,
+	// and — since the invite is accepted outside any in-flight OIDC request — is
+	// returned to the console via the tenant login policy default_redirect_uri
+	// (see ensureLoginPolicy). This is the standard UX (zitadel/zitadel#8310,
+	// zitadel/typescript#166) and replaces the earlier console-pointed transport
+	// invite, which routed the operator to /verify WITHOUT the code (an empty
+	// "enter code" screen) and triggered a second Login-v2 invite email.
 	//
-	// This replaces CreatePasskeyRegistrationLink, whose bare passkey/set link is
-	// a dead-end: single-use-on-failure (upstream #12499) and outside any OIDC
-	// context. The v2 AddHumanUser flow above sends no mail (allowInitMail=false),
-	// so this invite is the operator's only onboarding email.
-	//
-	// url_template is a fully-formed literal (no Zitadel {{...}} placeholders):
-	// both the tenant org id and the operator email are known here, so we bake
-	// org_id (org-pinned entry) and login_hint (pre-fills AND auto-submits the
-	// loginname step, so the operator never types their email) directly, both
-	// percent-encoded. {{.Code}} is deliberately OMITTED — no credential in the
-	// link; the invite code stays IdP-side and is delivered/consumed on Zitadel.
-	inviteURL := fmt.Sprintf(
-		"%s/?org_id=%s&login_hint=%s",
-		p.consoleBaseURL,
-		url.QueryEscape(zitadelOrgID),
-		url.QueryEscape(operatorEmail),
-	)
+	// url_template carries Zitadel's own {{.Code}}/{{.UserID}}/{{.OrgID}}
+	// placeholders (Zitadel substitutes them when sending). The code therefore
+	// lives only on the IdP surface (auth host), never in a console URL.
+	inviteURL := p.inviteURLTemplate
 	if _, err := p.userV2.CreateInviteCode(orgCtx, &userv2pb.CreateInviteCodeRequest{
 		UserId: userID,
 		Verification: &userv2pb.CreateInviteCodeRequest_SendCode{
