@@ -89,7 +89,8 @@ func abMatrix(artists []gemini.GroundTruthArtist) []abCell {
 		}}
 	}
 	models := []string{
-		"gemini-3.6-flash",
+		"gemini-3.6-flash", // baseline (same-session apples-to-apples anchor)
+		"gemini-3.7-flash", // upgrade candidate under evaluation
 	}
 	if filter := strings.TrimSpace(os.Getenv(abEvalModelsEnvVar)); filter != "" {
 		want := map[string]bool{}
@@ -105,8 +106,8 @@ func abMatrix(artists []gemini.GroundTruthArtist) []abCell {
 		models = filtered
 	}
 
-	temps := []float32{1.0}
-	thinks := []string{"low", "medium"}
+	temps := []float32{0.4}
+	thinks := []string{"low"}
 	const reps = 3
 
 	var cells []abCell
@@ -182,8 +183,9 @@ type cellResult struct {
 	URLContextError   int `json:"url_context_error"`
 	URLContextOther   int `json:"url_context_other"`
 	// GroundingSearchQueries is the number of GoogleSearch queries the model
-	// issued — billed separately at $35/1K. Together with URLContextTotal
-	// this is the full grounding spend picture for the cell.
+	// issued — billed separately at $14/1K (5,000/month free, shared across
+	// Gemini 3.x). Together with URLContextTotal this is the full grounding
+	// spend picture for the cell.
 	GroundingSearchQueries int `json:"grounding_search_queries"`
 	// Truncation diagnostics: even when FinishReason is "STOP" the API can
 	// silently truncate the JSON candidate mid-emission. FinishMessage and
@@ -273,7 +275,7 @@ func TestConcertSearcher_ABEval(t *testing.T) {
 
 	snapshot := func() {
 		meta := runMeta{
-			SDKVersion:     "google.golang.org/genai@v1.57.0",
+			SDKVersion:     "google.golang.org/genai@v1.69.0",
 			EvaluationFrom: gt.EvaluationFrom,
 			StartedAt:      startedAt.Format(time.RFC3339),
 			FinishedAt:     time.Now().UTC().Format(time.RFC3339),
@@ -308,7 +310,7 @@ func TestConcertSearcher_ABEval(t *testing.T) {
 
 	finishedAt := time.Now().UTC()
 	meta := runMeta{
-		SDKVersion:     "google.golang.org/genai@v1.57.0",
+		SDKVersion:     "google.golang.org/genai@v1.69.0",
 		EvaluationFrom: gt.EvaluationFrom,
 		StartedAt:      startedAt.Format(time.RFC3339),
 		FinishedAt:     finishedAt.Format(time.RFC3339),
@@ -409,7 +411,7 @@ func runCell(
 		if md.Step1Grounded != nil {
 			res.Step1Tokens = md.Step1Grounded.TotalTokens
 			res.Step1Cost = gemini.DefaultPricing.CostUSD(
-				cell.Model,
+				extractModel,
 				md.Step1Grounded.PromptTokens,
 				md.Step1Grounded.CandidatesTokens,
 				md.Step1Grounded.ThinkingTokens,
@@ -420,7 +422,7 @@ func runCell(
 		if md.Step2Parse != nil {
 			res.Step2Tokens = md.Step2Parse.TotalTokens
 			res.Step2Cost = gemini.DefaultPricing.CostUSD(
-				cell.Model,
+				parseModel,
 				md.Step2Parse.PromptTokens,
 				md.Step2Parse.CandidatesTokens,
 				md.Step2Parse.ThinkingTokens,

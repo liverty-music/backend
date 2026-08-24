@@ -76,8 +76,21 @@ func NormalizeVenue(s string) string {
 	s = strings.ToLower(s)
 	s = venuePunctStripper.Replace(s)
 	s = strings.Join(strings.Fields(s), " ")
+	// "某所" (an undisclosed place, e.g. "横浜某所") is a venue-TBD placeholder the
+	// model emits for announced dates whose venue is not yet public; collapse it
+	// like the other TBD markers so it matches an empty fixture venue.
+	if strings.Contains(s, "某所") {
+		return ""
+	}
 	if _, ok := tbdVenueMarkers[s]; ok {
 		return ""
+	}
+	// Canonicalize known venue renames so a model emitting either the old or
+	// the new name matches the fixture regardless of which it uses. 日本ガイシ
+	// ホール was renamed クロコくんホール in 2026; the fixture carries the new name
+	// with the old one in parentheses.
+	if strings.Contains(s, "日本ガイシ") || strings.Contains(s, "クロコくん") {
+		return "日本ガイシホール"
 	}
 	return s
 }
@@ -197,10 +210,20 @@ type Pricing struct {
 const googleSearchPerK = 14.0
 
 // DefaultPricing is the inline pricing table for models under matrix evaluation.
+//
+// gemini-3.6-flash and gemini-3.7-flash carry IDENTICAL token pricing at the
+// introductory rate ($0.75 / $3.75 / $0.075 per 1M in/out/cached) in effect
+// through 2026-12-31; both DOUBLE to $1.50 / $7.50 / $0.15 on 2027-01-01. The
+// cost a cell reports for these two is therefore a point-in-time (2026)
+// estimate, and the 3.6-vs-3.7 unit-price difference is currently ZERO — any
+// cost delta the harness surfaces comes from efficiency (search-query count,
+// token / thinking volume, retries), not unit price.
 var DefaultPricing = PricingTable{
 	"gemini-3-flash-preview": {InputPerM: 0.50, OutputPerM: 3.00, CachedPerM: 0.05, SearchPerK: googleSearchPerK},
 	"gemini-3.1-flash-lite":  {InputPerM: 0.25, OutputPerM: 1.50, CachedPerM: 0.025, SearchPerK: googleSearchPerK},
 	"gemini-3.5-flash":       {InputPerM: 1.50, OutputPerM: 9.00, CachedPerM: 0.15, SearchPerK: googleSearchPerK},
+	"gemini-3.6-flash":       {InputPerM: 0.75, OutputPerM: 3.75, CachedPerM: 0.075, SearchPerK: googleSearchPerK},
+	"gemini-3.7-flash":       {InputPerM: 0.75, OutputPerM: 3.75, CachedPerM: 0.075, SearchPerK: googleSearchPerK},
 }
 
 // CostUSD returns the standard-tier dollar cost for a single call.

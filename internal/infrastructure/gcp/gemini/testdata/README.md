@@ -7,7 +7,7 @@ workload. Not a CI test — runs only when `GEMINI_AB_EVAL=1` is set.
 
 | Path | Purpose |
 |---|---|
-| `ab_ground_truth.json` | Frozen fixture of expected concerts per artist (UVERworld / Vaundy / SUPER BEAVER), as of `evaluation_from = 2026-05-20`. |
+| `ab_ground_truth.json` | Frozen fixture of expected concerts per artist (UVERworld / Vaundy / SUPER BEAVER / BRADIO — 95 events), as of `evaluation_from = 2026-08-23`. |
 | `ab_results/` | Per-run outputs (`<RFC3339-utc>.json` + `.csv`). Generated files are gitignored; force-add the most recent run when committing for PR review. |
 
 ## How to run
@@ -21,12 +21,23 @@ GEMINI_AB_EVAL=1 GCP_PROJECT_ID=<dev-project> \
   ./internal/infrastructure/gcp/gemini/...
 ```
 
-Cost-optimization run (Vaundy only, extract `gemini-3.6-flash`, thinking `low`/`medium`,
-single consolidated Step 1 slice — 2 thinking × 3 reps = 6 cells):
+Gemini 3.7-flash evaluation run (Vaundy only, extract `gemini-3.7-flash` swept over
+thinking `low`/`medium` × temperature `0.4`/`0.7`/`1.0`, parse fixed to
+`gemini-3.1-flash-lite` — 2 × 3 × 3 reps = 18 cells). Drop the model filter to add
+`gemini-3.6-flash` as a same-session apples-to-apples baseline (→ 36 cells):
 
 ```bash
-GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_ARTISTS=Vaundy GCP_PROJECT_ID=<dev-project> \
+# 3.7-flash sweep only (18 cells)
+GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_ARTISTS=Vaundy GEMINI_AB_EVAL_MODELS=gemini-3.7-flash \
+  GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
   go test -tags=integration -timeout=1h -v \
+  -run TestConcertSearcher_ABEval \
+  ./internal/infrastructure/gcp/gemini/...
+
+# 3.6-flash + 3.7-flash side by side (36 cells; no model filter)
+GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_ARTISTS=Vaundy \
+  GCP_GEMINI_SEARCH_API_KEY=<gemini-api-key> \
+  go test -tags=integration -timeout=2h -v \
   -run TestConcertSearcher_ABEval \
   ./internal/infrastructure/gcp/gemini/...
 ```
@@ -67,12 +78,12 @@ verified post-deploy via the "search query gemini 3 paid" billing SKU.
 
 | Axis | Values |
 |---|---|
-| Extract model (Step 1) | `gemini-3.6-flash` (cell.Model) |
+| Extract model (Step 1) | `gemini-3.6-flash`, `gemini-3.7-flash` (cell.Model) |
 | Parse model (Step 2) | `gemini-3.1-flash-lite` (fixed) |
 | Step 1 slices | 1 (consolidated tours + standalones, open-ended window) |
-| Temperature | 1.0 |
+| Temperature | `0.4`, `0.7`, `1.0` |
 | ThinkingLevel | `low`, `medium` |
-| Artist | UVERworld, Vaundy, SUPER BEAVER (filter to Vaundy for the cost run) |
+| Artist | UVERworld, Vaundy, SUPER BEAVER, BRADIO (filter to Vaundy for the 3.7 sweep) |
 | Repetitions | 3 |
 
 Excluded by design: Gemini 3 Flash Preview (unstable under grounding load —
