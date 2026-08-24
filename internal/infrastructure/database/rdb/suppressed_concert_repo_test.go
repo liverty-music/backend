@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 func TestSuppressedConcertRepository(t *testing.T) {
@@ -20,7 +20,7 @@ func TestSuppressedConcertRepository(t *testing.T) {
 
 	newEntry := func(venueID string, startTime *time.Time) *entity.SuppressedConcert {
 		return &entity.SuppressedConcert{
-			ID:             uuid.Must(uuid.NewV7()).String(),
+			ID:             uuid.NewV7().String(),
 			VenueID:        venueID,
 			LocalEventDate: localDate,
 			StartTime:      startTime,
@@ -29,7 +29,7 @@ func TestSuppressedConcertRepository(t *testing.T) {
 
 	t.Run("insert then exists matches the key; delete un-suppresses", func(t *testing.T) {
 		cleanDatabase(t)
-		venueID := uuid.Must(uuid.NewV7()).String()
+		venueID := uuid.NewV7().String()
 
 		require.NoError(t, repo.Insert(ctx, newEntry(venueID, &start)))
 
@@ -52,7 +52,7 @@ func TestSuppressedConcertRepository(t *testing.T) {
 
 	t.Run("nil start collapses the slot (NULLS NOT DISTINCT)", func(t *testing.T) {
 		cleanDatabase(t)
-		venueID := uuid.Must(uuid.NewV7()).String()
+		venueID := uuid.NewV7().String()
 		require.NoError(t, repo.Insert(ctx, newEntry(venueID, nil)))
 
 		got, err := repo.Exists(ctx, venueID, localDate, nil)
@@ -62,7 +62,7 @@ func TestSuppressedConcertRepository(t *testing.T) {
 
 	t.Run("insert is idempotent on the natural key", func(t *testing.T) {
 		cleanDatabase(t)
-		venueID := uuid.Must(uuid.NewV7()).String()
+		venueID := uuid.NewV7().String()
 		require.NoError(t, repo.Insert(ctx, newEntry(venueID, &start)))
 		require.NoError(t, repo.Insert(ctx, newEntry(venueID, &start))) // ON CONFLICT DO NOTHING
 
@@ -82,7 +82,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 	t.Run("deletes the event and records a suppression from its natural key", func(t *testing.T) {
 		cleanDatabase(t)
 		venueID := seedVenue(t, "Venue One")
-		artistID := seedArtist(t, "Artist One", uuid.Must(uuid.NewV7()).String())
+		artistID := seedArtist(t, "Artist One", uuid.NewV7().String())
 		eventID := seedEvent(t, venueID, artistID, "Show", "2026-08-01")
 
 		require.NoError(t, repo.DeleteAndSuppress(ctx, eventID))
@@ -101,7 +101,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 
 	t.Run("absent event id records no suppression (idempotent)", func(t *testing.T) {
 		cleanDatabase(t)
-		require.NoError(t, repo.DeleteAndSuppress(ctx, uuid.Must(uuid.NewV7()).String()))
+		require.NoError(t, repo.DeleteAndSuppress(ctx, uuid.NewV7().String()))
 
 		var count int
 		require.NoError(t, testDB.Pool.QueryRow(ctx,

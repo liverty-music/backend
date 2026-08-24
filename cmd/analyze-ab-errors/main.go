@@ -254,7 +254,7 @@ func main() {
 
 	fmt.Println("Events missed in EVERY cell of their artist (always-miss):")
 	for _, e := range allEv {
-		artist := strings.SplitN(e.Key, " — ", 2)[0]
+		artist, _, _ := strings.Cut(e.Key, " — ")
 		if e.Count >= cellsByArtist[artist] && cellsByArtist[artist] > 0 {
 			fmt.Printf("  [%dx] %s\n", e.Count, e.Key)
 		}

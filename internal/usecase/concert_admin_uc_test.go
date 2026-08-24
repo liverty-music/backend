@@ -552,12 +552,12 @@ func TestAdminConcertUseCase_List(t *testing.T) {
 		// Pre-seed two published concerts.
 		d.concertRepo.published = []*entity.Concert{
 			{
-				Event:      entity.Event{ID: "event-1"},
+				ID:         "event-1",
 				Series:     &entity.Series{ID: "series-1", Title: "Tour A"},
 				Performers: []*entity.Artist{artist},
 			},
 			{
-				Event:      entity.Event{ID: "event-2"},
+				ID:         "event-2",
 				Series:     &entity.Series{ID: "series-2", Title: "Tour B"},
 				Performers: []*entity.Artist{artist},
 			},
@@ -635,7 +635,7 @@ func TestAdminConcertUseCase_Delete(t *testing.T) {
 			d := newApprovalTestDeps(t, artist)
 			for _, id := range tt.seedEvents {
 				d.concertRepo.published = append(d.concertRepo.published, &entity.Concert{
-					Event: entity.Event{ID: id},
+					ID: id,
 				})
 			}
 

@@ -39,7 +39,7 @@ type Organizer struct {
 // UUIDv7 id.
 func NewOrganizer(name string) *Organizer {
 	return &Organizer{
-		ID:     newID(),
+		ID:     NewID(),
 		Name:   name,
 		Status: OrganizerStatusProvisioning,
 	}

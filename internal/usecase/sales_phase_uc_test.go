@@ -39,12 +39,10 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 	t0 := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
 
 	upcomingConcert := &entity.Concert{
-		Event: entity.Event{
-			ID:        "event-001",
-			SeriesID:  seriesID,
-			LocalDate: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		},
-		Series: &entity.Series{ID: seriesID, Title: "TestTour 2026"},
+		ID:        "event-001",
+		SeriesID:  seriesID,
+		LocalDate: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		Series:    &entity.Series{ID: seriesID, Title: "TestTour 2026"},
 	}
 
 	candidate := &entity.SalesPhaseCandidate{

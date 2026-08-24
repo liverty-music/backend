@@ -5,18 +5,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 // buildStagedConcert returns a minimal StagedConcert for the given artist.
 func buildStagedConcert(t *testing.T, artistID string) *entity.StagedConcert {
 	t.Helper()
-	id := uuid.Must(uuid.NewV7()).String()
+	id := uuid.NewV7().String()
 	localDate := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 	listedVenue := "Zepp Tokyo"
 	sourceURL := "https://example.com/show"
@@ -182,7 +182,7 @@ func TestStagedConcertRepository_Delete(t *testing.T) {
 	t.Run("idempotent when row does not exist", func(t *testing.T) {
 		cleanDatabase(t)
 
-		err := repo.Delete(ctx, uuid.Must(uuid.NewV7()).String())
+		err := repo.Delete(ctx, uuid.NewV7().String())
 		assert.NoError(t, err)
 	})
 }
@@ -225,7 +225,7 @@ func TestStagedConcertRepository_GetByID_NotFound(t *testing.T) {
 
 	cleanDatabase(t)
 
-	_, err := repo.GetByID(ctx, uuid.Must(uuid.NewV7()).String())
+	_, err := repo.GetByID(ctx, uuid.NewV7().String())
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
@@ -242,16 +242,16 @@ func TestStagedConcertRepository_ListPendingDedupKeysByArtist(t *testing.T) {
 
 	// Artist A — two staged concerts.
 	scA1 := &entity.StagedConcert{
-		ID: uuid.Must(uuid.NewV7()).String(), ArtistID: artistA, Title: "Show 1",
+		ID: uuid.NewV7().String(), ArtistID: artistA, Title: "Show 1",
 		LocalDate: date1, ListedVenueName: "Venue Alpha",
 	}
 	scA2 := &entity.StagedConcert{
-		ID: uuid.Must(uuid.NewV7()).String(), ArtistID: artistA, Title: "Show 2",
+		ID: uuid.NewV7().String(), ArtistID: artistA, Title: "Show 2",
 		LocalDate: date2, ListedVenueName: "Venue Beta",
 	}
 	// Artist B — one staged concert.
 	scB1 := &entity.StagedConcert{
-		ID: uuid.Must(uuid.NewV7()).String(), ArtistID: artistB, Title: "Show B",
+		ID: uuid.NewV7().String(), ArtistID: artistB, Title: "Show B",
 		LocalDate: date1, ListedVenueName: "Venue Gamma",
 	}
 	require.NoError(t, repo.Upsert(ctx, scA1))

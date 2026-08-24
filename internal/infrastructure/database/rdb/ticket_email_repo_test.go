@@ -6,20 +6,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 // seedTicketEmailTestData inserts a user, artist, venue, and event required by the
 // ticket_emails FK constraints. It returns (userID, eventID).
 func seedTicketEmailTestData(t *testing.T) (userID, eventID string) {
 	t.Helper()
-	userID = seedUser(t, "ticket-email-user", "ticket-email@example.com", uuid.Must(uuid.NewV7()).String())
-	artistID := seedArtist(t, "ticket-email-artist", uuid.Must(uuid.NewV7()).String())
+	userID = seedUser(t, "ticket-email-user", "ticket-email@example.com", uuid.NewV7().String())
+	artistID := seedArtist(t, "ticket-email-artist", uuid.NewV7().String())
 	venueID := seedVenue(t, "ticket-email-venue")
 	eventID = seedEvent(t, venueID, artistID, "ticket-email-event", "2026-06-01")
 	return userID, eventID
@@ -205,7 +205,7 @@ func TestTicketEmailRepository_Update(t *testing.T) {
 		{
 			name: "nil params returns invalid argument",
 			setup: func() string {
-				return uuid.Must(uuid.NewV7()).String()
+				return uuid.NewV7().String()
 			},
 			params:  nil,
 			wantErr: apperr.ErrInvalidArgument,
@@ -214,7 +214,7 @@ func TestTicketEmailRepository_Update(t *testing.T) {
 			name: "update non-existent ID returns not found",
 			setup: func() string {
 				cleanDatabase(t)
-				return uuid.Must(uuid.NewV7()).String()
+				return uuid.NewV7().String()
 			},
 			params: &entity.UpdateTicketEmail{
 				ApplicationURL: &appURL,
@@ -304,7 +304,7 @@ func TestTicketEmailRepository_GetByID(t *testing.T) {
 			name: "non-existent ID returns not found",
 			setup: func() string {
 				cleanDatabase(t)
-				return uuid.Must(uuid.NewV7()).String()
+				return uuid.NewV7().String()
 			},
 			wantErr: apperr.ErrNotFound,
 		},

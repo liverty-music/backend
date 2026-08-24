@@ -180,8 +180,7 @@ func recordError(span trace.Span, err error) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, err.Error())
 
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		span.SetAttributes(attribute.String("db.response.status_code", pgErr.Code))
 	}
 }

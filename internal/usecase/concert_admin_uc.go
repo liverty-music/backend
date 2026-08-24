@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -440,10 +439,7 @@ func (uc *concertUseCase) appendRejectionLog(ctx context.Context, sc *entity.Sta
 		return fmt.Errorf("get artist for rejection log: %w", err)
 	}
 
-	logID, err := uuid.NewV7()
-	if err != nil {
-		return fmt.Errorf("generate rejection log ID: %w", err)
-	}
+	logID := entity.NewID()
 
 	var rbPtr *string
 	if reviewedBy != "" {
@@ -452,7 +448,7 @@ func (uc *concertUseCase) appendRejectionLog(ctx context.Context, sc *entity.Sta
 	}
 
 	logEntry := &entity.RejectedConcertLog{
-		ID:                logID.String(),
+		ID:                logID,
 		ArtistID:          sc.ArtistID,
 		ArtistName:        artist.Name,
 		Title:             sc.Title,
@@ -534,10 +530,7 @@ func resolveOrCreateVenue(ctx context.Context, sc *entity.StagedConcert, venueRe
 // createVenueFromStaged creates a new venues row from the denormalised fields
 // on the staged concert row.
 func createVenueFromStaged(ctx context.Context, sc *entity.StagedConcert, venueRepo entity.VenueRepository, logger *logging.Logger) (string, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return "", fmt.Errorf("generate venue ID: %w", err)
-	}
+	id := entity.NewID()
 
 	// Use the canonical resolved name when available; fall back to the raw
 	// listed name for unresolved concerts.
@@ -547,7 +540,7 @@ func createVenueFromStaged(ctx context.Context, sc *entity.StagedConcert, venueR
 	}
 
 	venue := &entity.Venue{
-		ID:              id.String(),
+		ID:              id,
 		Name:            name,
 		AdminArea:       resolveVenueAdminArea(sc),
 		GooglePlaceID:   sc.ResolvedPlaceID,

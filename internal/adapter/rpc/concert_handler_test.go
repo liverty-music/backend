@@ -36,12 +36,10 @@ func TestConcertHandler_List(t *testing.T) {
 		localDate := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
 		concertUC.EXPECT().ListByArtist(mock.Anything, artistID).Return([]*entity.Concert{
 			{
-				Event: entity.Event{
-					ID:        "concert-1",
-					VenueID:   "venue-1",
-					LocalDate: localDate,
-				},
-				Series: &entity.Series{ID: "series-1", Title: "Summer Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/tour"},
+				ID:        "concert-1",
+				VenueID:   "venue-1",
+				LocalDate: localDate,
+				Series:    &entity.Series{ID: "series-1", Title: "Summer Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/tour"},
 				Performers: []*entity.Artist{
 					{ID: artistID, Name: "Headliner", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
 					{ID: supportID, Name: "Support", MBID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"},
@@ -84,11 +82,9 @@ func TestConcertHandler_List(t *testing.T) {
 		localDate := time.Date(2025, 7, 20, 0, 0, 0, 0, time.UTC)
 		concertUC.EXPECT().ListByArtist(mock.Anything, "").Return([]*entity.Concert{
 			{
-				Event: entity.Event{
-					ID:        "concert-2",
-					VenueID:   "venue-2",
-					LocalDate: localDate,
-				},
+				ID:         "concert-2",
+				VenueID:    "venue-2",
+				LocalDate:  localDate,
 				Series:     &entity.Series{Title: "World Tour"},
 				Performers: []*entity.Artist{{ID: "artist-456"}},
 			},
@@ -165,13 +161,11 @@ func TestConcertHandler_SearchNewConcerts(t *testing.T) {
 		venueName := "Tokyo Dome"
 		concerts := []*entity.Concert{
 			{
-				Event: entity.Event{
-					ID:              "c1",
-					ListedVenueName: &venueName,
-					LocalDate:       date,
-				},
-				Series:     &entity.Series{Title: "Summer Live"},
-				Performers: []*entity.Artist{{ID: artistID}},
+				ID:              "c1",
+				ListedVenueName: &venueName,
+				LocalDate:       date,
+				Series:          &entity.Series{Title: "Summer Live"},
+				Performers:      []*entity.Artist{{ID: artistID}},
 			},
 		}
 

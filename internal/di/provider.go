@@ -397,6 +397,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	shutdown.AddObservePhase(telemetryCloser)
 	shutdown.AddDatastorePhase(db)
 
+	// Goroutine-leak detection (Go 1.27): internal pprof listener + sampler.
+	startGoroutineLeakDetection(ctx, cfg.GoroutineLeak, cfg.Telemetry.ServiceName, logger)
+
 	return &App{
 		Server:          srv,
 		AdminServer:     adminSrv,

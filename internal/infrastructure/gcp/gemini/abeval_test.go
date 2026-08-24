@@ -3,10 +3,10 @@ package gemini_test
 import (
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 func TestNormalizeVenue(t *testing.T) {

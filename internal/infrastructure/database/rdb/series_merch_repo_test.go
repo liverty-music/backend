@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 // seedMerchSeries inserts a TOUR series (optionally with a merch_url) plus one
@@ -17,7 +17,7 @@ import (
 func seedMerchSeries(t *testing.T, venueID, artistID, title, merchURL string, dayOffsets ...int) string {
 	t.Helper()
 	ctx := context.Background()
-	seriesID := uuid.Must(uuid.NewV7()).String()
+	seriesID := uuid.NewV7().String()
 
 	if merchURL == "" {
 		_, err := testDB.Pool.Exec(ctx,
@@ -34,7 +34,7 @@ func seedMerchSeries(t *testing.T, venueID, artistID, title, merchURL string, da
 	}
 
 	for _, off := range dayOffsets {
-		eventID := uuid.Must(uuid.NewV7()).String()
+		eventID := uuid.NewV7().String()
 		_, err := testDB.Pool.Exec(ctx,
 			`INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, CURRENT_DATE + $4::int)`,
 			eventID, seriesID, venueID, off,

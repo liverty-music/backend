@@ -57,6 +57,10 @@ type BaseConfig struct {
 
 	// Telemetry configuration
 	Telemetry TelemetryConfig `envconfig:""`
+
+	// GoroutineLeak configures the goroutine-leak detection surface (internal
+	// pprof listener + periodic sampler). Shared by all workloads.
+	GoroutineLeak GoroutineLeakConfig `envconfig:""`
 }
 
 // ServerConfig is the configuration for the API server workload.
@@ -550,6 +554,35 @@ type JWTConfig struct {
 
 	// JWKS refresh interval for key rotation
 	JWKSRefreshInterval time.Duration `envconfig:"JWKS_REFRESH_INTERVAL" default:"15m"`
+}
+
+// GoroutineLeakConfig configures goroutine-leak detection (Go 1.27 GA
+// `goroutineleak` profile). It exposes two surfaces:
+//   - an internal-only pprof HTTP listener (Host:Port) for on-demand full
+//     profiles — this listener must never be added to a public Service/ingress;
+//   - a periodic in-process sampler that counts leaked goroutines and publishes
+//     the `backend_goroutine_leak_count` OTel gauge for alerting.
+//
+// Disabled by default so local/dev runs and short-lived jobs opt in explicitly;
+// long-lived workloads (api, consumer) enable it via env in their overlays.
+type GoroutineLeakConfig struct {
+	// Enabled turns on the pprof listener and the periodic sampler.
+	Enabled bool `envconfig:"GOROUTINE_LEAK_DETECTION_ENABLED" default:"false"`
+
+	// Host to bind the internal pprof listener to. Defaults to loopback so the
+	// unauthenticated profiling surface is reachable only from inside the pod
+	// (e.g. via `kubectl port-forward`), never from an in-cluster peer — a
+	// defense-in-depth complement to the port being absent from any Service.
+	Host string `envconfig:"DEBUG_HOST" default:"127.0.0.1"`
+
+	// Port for the internal pprof listener. Distinct from the Connect-RPC,
+	// admin, webhook, and health ports; not exposed on any public route.
+	Port int `envconfig:"DEBUG_PORT" default:"6060"`
+
+	// SampleInterval is how often the leak-detection GC runs and the gauge is
+	// refreshed. Coarse by design: the profile analysis inspects the runtime's
+	// goroutine set, and a wedge that matters persists for minutes.
+	SampleInterval time.Duration `envconfig:"GOROUTINE_LEAK_SAMPLE_INTERVAL" default:"2m"`
 }
 
 // WebhookSettings is the HTTP server configuration for the Zitadel Actions v2

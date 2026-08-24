@@ -1,15 +1,16 @@
 module github.com/liverty-music/backend
 
-go 1.26
+go 1.27
 
-// Pin the minimum toolchain to 1.26.6, which fixes the Go stdlib advisories
-// flagged by govulncheck: GO-2026-6089/GO-2026-5026 (net/http),
-// GO-2026-6090 (crypto/tls), GO-2026-6091 (html/template), GO-2026-6218
-// (net/url), GO-2026-6088 (encoding/xml) and GO-2026-5972 (encoding/asn1) —
-// on top of the earlier GO-2026-5856 (crypto/tls), GO-2026-5037 (crypto/x509)
-// and GO-2026-5039 (net/textproto). Every `go` invocation (local, CI) uses at
-// least this toolchain.
-toolchain go1.26.6
+// Pin the minimum toolchain to 1.27.0, which carries the Go stdlib advisory
+// fixes previously tracked at 1.26.6 (GO-2026-6089/GO-2026-5026 net/http,
+// GO-2026-6090 crypto/tls, GO-2026-6091 html/template, GO-2026-6218 net/url,
+// GO-2026-6088 encoding/xml, GO-2026-5972 encoding/asn1, and the earlier
+// GO-2026-5856 crypto/tls, GO-2026-5037 crypto/x509, GO-2026-5039
+// net/textproto) and additionally provides the GA goroutineleak runtime
+// profile and the stdlib uuid package. Every `go` invocation (local, CI) uses
+// at least this toolchain.
+toolchain go1.27.0
 
 tool (
 	github.com/bufbuild/buf/cmd/buf
@@ -33,7 +34,6 @@ require (
 	github.com/ThreeDotsLabs/watermill v1.5.1
 	github.com/ThreeDotsLabs/watermill-nats/v2 v2.1.3
 	github.com/cenkalti/backoff/v5 v5.0.3
-	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/lestrrat-go/jwx/v2 v2.1.6
@@ -126,6 +126,7 @@ require (
 	github.com/google/go-containerregistry v0.20.6 // indirect
 	github.com/google/go-dap v0.12.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.9 // indirect
 	github.com/googleapis/gax-go/v2 v2.16.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect

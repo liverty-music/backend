@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 func TestSalesPhaseRepository_Upsert(t *testing.T) {
@@ -215,7 +215,7 @@ func seedEventForSeries(t *testing.T, seriesID, venueID, artistID, date string) 
 
 // mustNewV7 generates a new UUIDv7 string, panicking on entropy failure.
 func mustNewV7() string {
-	return uuid.Must(uuid.NewV7()).String()
+	return uuid.NewV7().String()
 }
 
 // TestSalesPhaseRepository_DiscoveredTime proves DiscoveredTime is populated

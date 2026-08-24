@@ -30,7 +30,7 @@ type Artist struct {
 // NewArtist creates a new Artist with an auto-generated UUIDv7 ID.
 func NewArtist(name, mbid string) *Artist {
 	return &Artist{
-		ID:   newID(),
+		ID:   NewID(),
 		Name: name,
 		MBID: mbid,
 	}
@@ -73,7 +73,7 @@ func FilterArtistsByMBID(artists []*Artist) []*Artist {
 // auto-generated UUIDv7 ID.
 func NewOfficialSite(artistID, url string) *OfficialSite {
 	return &OfficialSite{
-		ID:       newID(),
+		ID:       NewID(),
 		ArtistID: artistID,
 		URL:      url,
 	}

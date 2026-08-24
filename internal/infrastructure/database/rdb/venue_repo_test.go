@@ -5,12 +5,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 func TestVenueRepository_Create(t *testing.T) {
@@ -381,7 +381,7 @@ func TestVenueRepository_Create_ConcurrentSingleRow(t *testing.T) {
 			// Distinct primary keys, identical (listed_venue_name, admin_area),
 			// no place_id: exactly one insert wins; the rest re-SELECT the winner.
 			id, err := repo.Create(ctx, &entity.Venue{
-				ID:              uuid.Must(uuid.NewV7()).String(),
+				ID:              uuid.NewV7().String(),
 				Name:            "Concurrent Hall Canonical",
 				AdminArea:       new("JP-13"),
 				ListedVenueName: new(listedName),

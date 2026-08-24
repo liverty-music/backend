@@ -127,7 +127,7 @@ type NewUser struct {
 // CreateUser creates a new User with an auto-generated UUIDv7 ID from the given parameters.
 func CreateUser(params *NewUser) *User {
 	return &User{
-		ID:                newID(),
+		ID:                NewID(),
 		ExternalID:        params.ExternalID,
 		Email:             params.Email,
 		Name:              params.Name,
@@ -141,7 +141,7 @@ func CreateUser(params *NewUser) *User {
 // NewHome creates a new Home with an auto-generated UUIDv7 ID.
 func NewHome(countryCode, level1 string, level2 *string) *Home {
 	return &Home{
-		ID:          newID(),
+		ID:          NewID(),
 		CountryCode: countryCode,
 		Level1:      level1,
 		Level2:      level2,

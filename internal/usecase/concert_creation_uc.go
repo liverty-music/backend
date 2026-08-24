@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -122,11 +121,7 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 		// with the same normalized venue name skip the Places API entirely.
 		newPlaces[venueKey(sc.ListedVenueName, sc.AdminArea)] = place
 
-		id, err := uuid.NewV7()
-		if err != nil {
-			return fmt.Errorf("generate staged concert ID: %w", err)
-		}
-		staged := buildStagedConcert(id.String(), data.ArtistID, sc, place)
+		staged := buildStagedConcert(entity.NewID(), data.ArtistID, sc, place)
 
 		// Unresolved venue → stage for review. Auto-publishing here would mint a
 		// coordinate-less venue from the raw name and publish it unreviewed.
@@ -361,11 +356,7 @@ func buildAndInsertConcerts(
 		seriesID = match.SeriesID
 	}
 	if seriesID == "" {
-		sid, err := uuid.NewV7()
-		if err != nil {
-			return nil, fmt.Errorf("generate series ID: %w", err)
-		}
-		seriesID = sid.String()
+		seriesID = entity.NewID()
 		minted = true
 	}
 
@@ -394,11 +385,7 @@ func buildAndInsertConcerts(
 		}
 	}
 
-	eventID, err := uuid.NewV7()
-	if err != nil {
-		return nil, fmt.Errorf("generate event ID: %w", err)
-	}
-	concert := sc.ToConcert(artistID, seriesID, eventID.String(), resolvedVenueID, seriesType)
+	concert := sc.ToConcert(artistID, seriesID, entity.NewID(), resolvedVenueID, seriesType)
 
 	insertedIDs, err := concertRepo.Create(ctx, concert)
 	if err != nil {

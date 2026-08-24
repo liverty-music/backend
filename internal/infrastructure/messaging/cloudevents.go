@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/google/uuid"
+	"github.com/liverty-music/backend/internal/entity"
 )
 
 const (
@@ -23,22 +23,19 @@ const (
 // downstream consumers can continue the same distributed trace.
 // The data payload is JSON-encoded into the message body.
 func NewEvent(ctx context.Context, data any) (*message.Message, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, fmt.Errorf("generate event ID: %w", err)
-	}
+	id := entity.NewID()
 
 	payload, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("marshal event data: %w", err)
 	}
 
-	msg := message.NewMessage(id.String(), payload)
+	msg := message.NewMessage(id, payload)
 	msg.SetContext(ctx)
 
 	msg.Metadata.Set("ce_specversion", specVersion)
 	msg.Metadata.Set("ce_source", source)
-	msg.Metadata.Set("ce_id", id.String())
+	msg.Metadata.Set("ce_id", id)
 	msg.Metadata.Set("ce_time", time.Now().UTC().Format(time.RFC3339))
 	msg.Metadata.Set("ce_datacontenttype", "application/json")
 
