@@ -113,15 +113,13 @@ func (sc *ScrapedConcert) ToConcert(artistID, seriesID, eventID, venueID string,
 		SourceURL: sc.SourceURL,
 	}
 	c := &Concert{
-		Event: Event{
-			ID:              eventID,
-			SeriesID:        seriesID,
-			VenueID:         venueID,
-			ListedVenueName: &listedName,
-			LocalDate:       sc.LocalDate,
-		},
-		Series:     series,
-		Performers: []*Artist{{ID: artistID}},
+		ID:              eventID,
+		SeriesID:        seriesID,
+		VenueID:         venueID,
+		ListedVenueName: &listedName,
+		LocalDate:       sc.LocalDate,
+		Series:          series,
+		Performers:      []*Artist{{ID: artistID}},
 	}
 	c.StartTime = NullableTime(sc.StartTime)
 	c.OpenTime = NullableTime(sc.OpenTime)

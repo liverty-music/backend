@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 )
 
@@ -68,11 +67,7 @@ func NewNotificationRepository(db *Database) *NotificationRepository {
 // when n.ID is empty and writing back the server-assigned created_at.
 func (r *NotificationRepository) Create(ctx context.Context, n *entity.Notification) error {
 	if n.ID == "" {
-		id, err := uuid.NewV7()
-		if err != nil {
-			return toAppErr(err, "failed to generate UUIDv7 for notification")
-		}
-		n.ID = id.String()
+		n.ID = entity.NewID()
 	}
 	if n.DeliveryStatus == "" {
 		n.DeliveryStatus = entity.NotificationDeliveryStatusQueued

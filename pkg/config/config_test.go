@@ -35,34 +35,38 @@ func TestLoad_ServerConfig(t *testing.T) {
 				"OIDC_ISSUER_URL":                 "https://test-issuer.com",
 			},
 			want: &ServerConfig{
-				BaseConfig: BaseConfig{
-					Environment:     "local",
-					ShutdownTimeout: 30 * time.Second,
-					Database: DatabaseConfig{
-						Host:              "localhost",
-						Port:              5432,
-						Name:              "defaultdb",
-						User:              "defaultuser",
-						SSLMode:           "disable",
-						Schema:            "app",
-						MaxOpenConns:      10,
-						MaxIdleConns:      2,
-						ConnMaxLifetime:   1800,
-						MaxConnIdleTime:   600,
-						HealthCheckPeriod: 60,
-					},
-					Logging: LoggingConfig{
-						Level:         "info",
-						Format:        "json",
-						Structured:    true,
-						IncludeCaller: false,
-					},
-					Telemetry: TelemetryConfig{
-						OTLPEndpoint:   "",
-						ServiceName:    "go-backend-scaffold",
-						ServiceVersion: "1.0.0",
-						SamplerRatio:   1.0,
-					},
+				Environment:     "local",
+				ShutdownTimeout: 30 * time.Second,
+				Database: DatabaseConfig{
+					Host:              "localhost",
+					Port:              5432,
+					Name:              "defaultdb",
+					User:              "defaultuser",
+					SSLMode:           "disable",
+					Schema:            "app",
+					MaxOpenConns:      10,
+					MaxIdleConns:      2,
+					ConnMaxLifetime:   1800,
+					MaxConnIdleTime:   600,
+					HealthCheckPeriod: 60,
+				},
+				Logging: LoggingConfig{
+					Level:         "info",
+					Format:        "json",
+					Structured:    true,
+					IncludeCaller: false,
+				},
+				Telemetry: TelemetryConfig{
+					OTLPEndpoint:   "",
+					ServiceName:    "go-backend-scaffold",
+					ServiceVersion: "1.0.0",
+					SamplerRatio:   1.0,
+				},
+				GoroutineLeak: GoroutineLeakConfig{
+					Enabled:        false,
+					Host:           "127.0.0.1",
+					Port:           6060,
+					SampleInterval: 2 * time.Minute,
 				},
 				Server: ServerSettings{
 					Port:                  8080,
@@ -125,34 +129,38 @@ func TestLoad_ServerConfig(t *testing.T) {
 				"JWKS_REFRESH_INTERVAL":           "30m",
 			},
 			want: &ServerConfig{
-				BaseConfig: BaseConfig{
-					Environment:     "production",
-					ShutdownTimeout: 15 * time.Second,
-					Database: DatabaseConfig{
-						Host:              "localhost",
-						Port:              5432,
-						Name:              "testdb",
-						User:              "testuser",
-						SSLMode:           "disable",
-						Schema:            "app",
-						MaxOpenConns:      10,
-						MaxIdleConns:      2,
-						ConnMaxLifetime:   1800,
-						MaxConnIdleTime:   600,
-						HealthCheckPeriod: 60,
-					},
-					Logging: LoggingConfig{
-						Level:         "debug",
-						Format:        "text",
-						Structured:    true,
-						IncludeCaller: false,
-					},
-					Telemetry: TelemetryConfig{
-						OTLPEndpoint:   "",
-						ServiceName:    "go-backend-scaffold",
-						ServiceVersion: "1.0.0",
-						SamplerRatio:   1.0,
-					},
+				Environment:     "production",
+				ShutdownTimeout: 15 * time.Second,
+				Database: DatabaseConfig{
+					Host:              "localhost",
+					Port:              5432,
+					Name:              "testdb",
+					User:              "testuser",
+					SSLMode:           "disable",
+					Schema:            "app",
+					MaxOpenConns:      10,
+					MaxIdleConns:      2,
+					ConnMaxLifetime:   1800,
+					MaxConnIdleTime:   600,
+					HealthCheckPeriod: 60,
+				},
+				Logging: LoggingConfig{
+					Level:         "debug",
+					Format:        "text",
+					Structured:    true,
+					IncludeCaller: false,
+				},
+				Telemetry: TelemetryConfig{
+					OTLPEndpoint:   "",
+					ServiceName:    "go-backend-scaffold",
+					ServiceVersion: "1.0.0",
+					SamplerRatio:   1.0,
+				},
+				GoroutineLeak: GoroutineLeakConfig{
+					Enabled:        false,
+					Host:           "127.0.0.1",
+					Port:           6060,
+					SampleInterval: 2 * time.Minute,
 				},
 				Server: ServerSettings{
 					Port:                  9090,
@@ -244,14 +252,12 @@ func TestServerConfig_Validate(t *testing.T) {
 		{
 			name: "valid development config",
 			config: &ServerConfig{
-				BaseConfig: BaseConfig{
-					Environment: "development",
-					Database: DatabaseConfig{
-						Port:                   5432,
-						InstanceConnectionName: "project:region:instance",
-					},
-					Logging: LoggingConfig{Level: "info", Format: "json"},
+				Environment: "development",
+				Database: DatabaseConfig{
+					Port:                   5432,
+					InstanceConnectionName: "project:region:instance",
 				},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
 				Server:  ServerSettings{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
 				Webhook: validWebhookSettings(),
 				NATS:    NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
@@ -265,12 +271,10 @@ func TestServerConfig_Validate(t *testing.T) {
 		{
 			name: "missing connection name in development",
 			config: &ServerConfig{
-				BaseConfig: BaseConfig{
-					Environment: "development",
-					Database:    DatabaseConfig{Port: 5432},
-					Logging:     LoggingConfig{Level: "info", Format: "json"},
-				},
-				Server: ServerSettings{Port: 8080},
+				Environment: "development",
+				Database:    DatabaseConfig{Port: 5432},
+				Logging:     LoggingConfig{Level: "info", Format: "json"},
+				Server:      ServerSettings{Port: 8080},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
@@ -281,30 +285,26 @@ func TestServerConfig_Validate(t *testing.T) {
 		{
 			name: "missing allowed origins in development",
 			config: &ServerConfig{
-				BaseConfig: BaseConfig{
-					Environment: "development",
-					Database: DatabaseConfig{
-						Port:                   5432,
-						InstanceConnectionName: "project:region:instance",
-					},
-					Logging: LoggingConfig{Level: "info", Format: "json"},
+				Environment: "development",
+				Database: DatabaseConfig{
+					Port:                   5432,
+					InstanceConnectionName: "project:region:instance",
 				},
-				Server: ServerSettings{Port: 8080},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
+				Server:  ServerSettings{Port: 8080},
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing NATS URL in development",
 			config: &ServerConfig{
-				BaseConfig: BaseConfig{
-					Environment: "development",
-					Database: DatabaseConfig{
-						Port:                   5432,
-						InstanceConnectionName: "project:region:instance",
-					},
-					Logging: LoggingConfig{Level: "info", Format: "json"},
+				Environment: "development",
+				Database: DatabaseConfig{
+					Port:                   5432,
+					InstanceConnectionName: "project:region:instance",
 				},
-				Server: ServerSettings{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
+				Logging: LoggingConfig{Level: "info", Format: "json"},
+				Server:  ServerSettings{Port: 8080, AllowedOrigins: []string{"http://localhost:9000"}},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
@@ -315,13 +315,11 @@ func TestServerConfig_Validate(t *testing.T) {
 		{
 			name: "valid local config without connection name",
 			config: &ServerConfig{
-				BaseConfig: BaseConfig{
-					Environment: "local",
-					Database:    DatabaseConfig{Port: 5432},
-					Logging:     LoggingConfig{Level: "info", Format: "json"},
-				},
-				Server:  ServerSettings{Port: 8080},
-				Webhook: validWebhookSettings(),
+				Environment: "local",
+				Database:    DatabaseConfig{Port: 5432},
+				Logging:     LoggingConfig{Level: "info", Format: "json"},
+				Server:      ServerSettings{Port: 8080},
+				Webhook:     validWebhookSettings(),
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
@@ -346,25 +344,21 @@ func TestServerConfig_Validate(t *testing.T) {
 func TestJobConfig_Validate(t *testing.T) {
 	t.Run("valid local without NATS", func(t *testing.T) {
 		cfg := &JobConfig{
-			BaseConfig: BaseConfig{
-				Environment: "local",
-				Database:    DatabaseConfig{Port: 5432},
-				Logging:     LoggingConfig{Level: "info", Format: "json"},
-			},
+			Environment: "local",
+			Database:    DatabaseConfig{Port: 5432},
+			Logging:     LoggingConfig{Level: "info", Format: "json"},
 		}
 		assert.NoError(t, cfg.Validate())
 	})
 
 	t.Run("valid development without NATS", func(t *testing.T) {
 		cfg := &JobConfig{
-			BaseConfig: BaseConfig{
-				Environment: "development",
-				Database: DatabaseConfig{
-					Port:                   5432,
-					InstanceConnectionName: "project:region:instance",
-				},
-				Logging: LoggingConfig{Level: "info", Format: "json"},
+			Environment: "development",
+			Database: DatabaseConfig{
+				Port:                   5432,
+				InstanceConnectionName: "project:region:instance",
 			},
+			Logging: LoggingConfig{Level: "info", Format: "json"},
 		}
 		assert.NoError(t, cfg.Validate())
 	})
@@ -373,25 +367,21 @@ func TestJobConfig_Validate(t *testing.T) {
 func TestConsumerConfig_Validate(t *testing.T) {
 	t.Run("valid local without NATS", func(t *testing.T) {
 		cfg := &ConsumerConfig{
-			BaseConfig: BaseConfig{
-				Environment: "local",
-				Database:    DatabaseConfig{Port: 5432},
-				Logging:     LoggingConfig{Level: "info", Format: "json"},
-			},
+			Environment: "local",
+			Database:    DatabaseConfig{Port: 5432},
+			Logging:     LoggingConfig{Level: "info", Format: "json"},
 		}
 		assert.NoError(t, cfg.Validate())
 	})
 
 	t.Run("missing NATS URL in development", func(t *testing.T) {
 		cfg := &ConsumerConfig{
-			BaseConfig: BaseConfig{
-				Environment: "development",
-				Database: DatabaseConfig{
-					Port:                   5432,
-					InstanceConnectionName: "project:region:instance",
-				},
-				Logging: LoggingConfig{Level: "info", Format: "json"},
+			Environment: "development",
+			Database: DatabaseConfig{
+				Port:                   5432,
+				InstanceConnectionName: "project:region:instance",
 			},
+			Logging: LoggingConfig{Level: "info", Format: "json"},
 		}
 		assert.Error(t, cfg.Validate())
 	})

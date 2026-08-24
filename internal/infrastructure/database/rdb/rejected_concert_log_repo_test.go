@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 func TestRejectedConcertLogRepository_Append(t *testing.T) {
@@ -20,7 +20,7 @@ func TestRejectedConcertLogRepository_Append(t *testing.T) {
 		cleanDatabase(t)
 
 		// rejected_concerts_log.artist_id has no FK, so no artist seed needed.
-		artistID := uuid.Must(uuid.NewV7()).String()
+		artistID := uuid.NewV7().String()
 		reviewedBy := "admin@example.com"
 		localDate := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 		placeID := "place-test"
@@ -30,7 +30,7 @@ func TestRejectedConcertLogRepository_Append(t *testing.T) {
 		reason := "wrong date"
 
 		entry := &entity.RejectedConcertLog{
-			ID:                uuid.Must(uuid.NewV7()).String(),
+			ID:                uuid.NewV7().String(),
 			ArtistID:          artistID,
 			ArtistName:        "Test Artist",
 			Title:             "Rejected Show",
@@ -60,12 +60,12 @@ func TestRejectedConcertLogRepository_Append(t *testing.T) {
 	t.Run("appends multiple entries for the same artist independently", func(t *testing.T) {
 		cleanDatabase(t)
 
-		artistID := uuid.Must(uuid.NewV7()).String()
+		artistID := uuid.NewV7().String()
 		localDate := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 
 		for i := range 3 {
 			entry := &entity.RejectedConcertLog{
-				ID:              uuid.Must(uuid.NewV7()).String(),
+				ID:              uuid.NewV7().String(),
 				ArtistID:        artistID,
 				ArtistName:      "Test Artist",
 				Title:           "Show",
@@ -87,8 +87,8 @@ func TestRejectedConcertLogRepository_Append(t *testing.T) {
 	t.Run("nil reviewed_by is stored as NULL", func(t *testing.T) {
 		cleanDatabase(t)
 
-		artistID := uuid.Must(uuid.NewV7()).String()
-		entryID := uuid.Must(uuid.NewV7()).String()
+		artistID := uuid.NewV7().String()
+		entryID := uuid.NewV7().String()
 
 		entry := &entity.RejectedConcertLog{
 			ID:              entryID,

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -355,7 +354,8 @@ func isNoRows(err error) bool {
 }
 
 // newPhaseID generates a new UUIDv7 string for a sales_phases primary key,
-// matching the UUIDv7 convention used across the system.
+// matching the UUIDv7 convention used across the system. It routes through the
+// central entity ID helper so every table shares one generation site.
 func newPhaseID() string {
-	return uuid.Must(uuid.NewV7()).String()
+	return entity.NewID()
 }

@@ -44,11 +44,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 			name: "return Away when home is nil",
 			args: args{
 				concert: &entity.Concert{
-					Event: entity.Event{
-						Venue: &entity.Venue{
-							AdminArea:   &tokyoLevel1,
-							Coordinates: tokyoCoords,
-						},
+					Venue: &entity.Venue{
+						AdminArea:   &tokyoLevel1,
+						Coordinates: tokyoCoords,
 					},
 				},
 				home: nil,
@@ -59,7 +57,7 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 			name: "return Away when venue is nil",
 			args: args{
 				concert: &entity.Concert{
-					Event: entity.Event{Venue: nil},
+					Venue: nil,
 				},
 				home: tokyoHome,
 			},
@@ -69,11 +67,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 			name: "return Home when admin area matches home level1",
 			args: args{
 				concert: &entity.Concert{
-					Event: entity.Event{
-						Venue: &entity.Venue{
-							AdminArea:   &tokyoLevel1,
-							Coordinates: tokyoCoords,
-						},
+					Venue: &entity.Venue{
+						AdminArea:   &tokyoLevel1,
+						Coordinates: tokyoCoords,
 					},
 				},
 				home: tokyoHome,
@@ -84,11 +80,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 			name: "return Nearby when admin area mismatches but coordinates are within 30km",
 			args: args{
 				concert: &entity.Concert{
-					Event: entity.Event{
-						Venue: &entity.Venue{
-							AdminArea:   &yokohamaLevel1,
-							Coordinates: yokohamaCoords,
-						},
+					Venue: &entity.Venue{
+						AdminArea:   &yokohamaLevel1,
+						Coordinates: yokohamaCoords,
 					},
 				},
 				home: tokyoHome,
@@ -99,11 +93,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 			name: "return Away when admin area mismatches and coordinates are ~400km away",
 			args: args{
 				concert: &entity.Concert{
-					Event: entity.Event{
-						Venue: &entity.Venue{
-							AdminArea:   &osakaLevel1,
-							Coordinates: osakaCoords,
-						},
+					Venue: &entity.Venue{
+						AdminArea:   &osakaLevel1,
+						Coordinates: osakaCoords,
 					},
 				},
 				home: tokyoHome,
@@ -114,11 +106,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 			name: "return Away when venue has no coordinates",
 			args: args{
 				concert: &entity.Concert{
-					Event: entity.Event{
-						Venue: &entity.Venue{
-							AdminArea:   &yokohamaLevel1,
-							Coordinates: nil,
-						},
+					Venue: &entity.Venue{
+						AdminArea:   &yokohamaLevel1,
+						Coordinates: nil,
 					},
 				},
 				home: tokyoHome,
@@ -129,11 +119,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 			name: "return Away when home centroid is nil",
 			args: args{
 				concert: &entity.Concert{
-					Event: entity.Event{
-						Venue: &entity.Venue{
-							AdminArea:   &yokohamaLevel1,
-							Coordinates: yokohamaCoords,
-						},
+					Venue: &entity.Venue{
+						AdminArea:   &yokohamaLevel1,
+						Coordinates: yokohamaCoords,
 					},
 				},
 				home: &entity.Home{
@@ -148,11 +136,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 			name: "return Home when admin area matches regardless of distant coordinates",
 			args: args{
 				concert: &entity.Concert{
-					Event: entity.Event{
-						Venue: &entity.Venue{
-							AdminArea:   &tokyoLevel1,
-							Coordinates: osakaCoords, // far away but admin area matches
-						},
+					Venue: &entity.Venue{
+						AdminArea:   &tokyoLevel1,
+						Coordinates: osakaCoords, // far away but admin area matches
 					},
 				},
 				home: tokyoHome,
@@ -163,11 +149,9 @@ func TestConcert_ProximityTo_Extended(t *testing.T) {
 			name: "return Nearby when venue admin area is nil but coordinates are within 30km",
 			args: args{
 				concert: &entity.Concert{
-					Event: entity.Event{
-						Venue: &entity.Venue{
-							AdminArea:   nil,
-							Coordinates: yokohamaCoords,
-						},
+					Venue: &entity.Venue{
+						AdminArea:   nil,
+						Coordinates: yokohamaCoords,
 					},
 				},
 				home: tokyoHome,
@@ -229,9 +213,9 @@ func TestGroupByDateAndProximity(t *testing.T) {
 			name: "group concerts into correct proximity buckets for single date",
 			args: args{
 				concerts: []*entity.Concert{
-					{Event: entity.Event{LocalDate: date1, Venue: &entity.Venue{AdminArea: &tokyoLevel1, Coordinates: tokyoCoords}}},
-					{Event: entity.Event{LocalDate: date1, Venue: &entity.Venue{AdminArea: &yokohamaLevel1, Coordinates: yokohamaCoords}}},
-					{Event: entity.Event{LocalDate: date1, Venue: &entity.Venue{AdminArea: &osakaLevel1, Coordinates: osakaCoords}}},
+					{LocalDate: date1, Venue: &entity.Venue{AdminArea: &tokyoLevel1, Coordinates: tokyoCoords}},
+					{LocalDate: date1, Venue: &entity.Venue{AdminArea: &yokohamaLevel1, Coordinates: yokohamaCoords}},
+					{LocalDate: date1, Venue: &entity.Venue{AdminArea: &osakaLevel1, Coordinates: osakaCoords}},
 				},
 				home: tokyoHome,
 			},
@@ -242,8 +226,8 @@ func TestGroupByDateAndProximity(t *testing.T) {
 			name: "group concerts across multiple dates preserving order",
 			args: args{
 				concerts: []*entity.Concert{
-					{Event: entity.Event{LocalDate: date1, Venue: &entity.Venue{AdminArea: &tokyoLevel1, Coordinates: tokyoCoords}}},
-					{Event: entity.Event{LocalDate: date2, Venue: &entity.Venue{AdminArea: &osakaLevel1, Coordinates: osakaCoords}}},
+					{LocalDate: date1, Venue: &entity.Venue{AdminArea: &tokyoLevel1, Coordinates: tokyoCoords}},
+					{LocalDate: date2, Venue: &entity.Venue{AdminArea: &osakaLevel1, Coordinates: osakaCoords}},
 				},
 				home: tokyoHome,
 			},
@@ -253,8 +237,8 @@ func TestGroupByDateAndProximity(t *testing.T) {
 			name: "classify all concerts as away when home is nil",
 			args: args{
 				concerts: []*entity.Concert{
-					{Event: entity.Event{LocalDate: date1, Venue: &entity.Venue{AdminArea: &tokyoLevel1, Coordinates: tokyoCoords}}},
-					{Event: entity.Event{LocalDate: date1, Venue: &entity.Venue{AdminArea: &osakaLevel1, Coordinates: osakaCoords}}},
+					{LocalDate: date1, Venue: &entity.Venue{AdminArea: &tokyoLevel1, Coordinates: tokyoCoords}},
+					{LocalDate: date1, Venue: &entity.Venue{AdminArea: &osakaLevel1, Coordinates: osakaCoords}},
 				},
 				home: nil,
 			},
@@ -430,8 +414,8 @@ func TestScrapedConcerts_FilterNew(t *testing.T) {
 	// key did not need it.
 	zeppTokyo := "Zepp Tokyo"
 	zeppOsaka := "Zepp Osaka"
-	existing1 := &entity.Concert{Event: entity.Event{LocalDate: date1, ListedVenueName: &zeppTokyo}}
-	existing2 := &entity.Concert{Event: entity.Event{LocalDate: date2, ListedVenueName: &zeppOsaka}}
+	existing1 := &entity.Concert{LocalDate: date1, ListedVenueName: &zeppTokyo}
+	existing2 := &entity.Concert{LocalDate: date2, ListedVenueName: &zeppOsaka}
 
 	type args struct {
 		scraped  entity.ScrapedConcerts
@@ -517,7 +501,7 @@ func TestScrapedConcerts_FilterNew(t *testing.T) {
 					{LocalDate: date1, ListedVenueName: "大阪・フェスティバルホール", Title: "Drifted"},
 				},
 				existing: []*entity.Concert{
-					{Event: entity.Event{LocalDate: date1, ListedVenueName: new("フェスティバルホール")}},
+					{LocalDate: date1, ListedVenueName: new("フェスティバルホール")},
 				},
 			},
 			want: nil,
@@ -529,7 +513,7 @@ func TestScrapedConcerts_FilterNew(t *testing.T) {
 					{LocalDate: date1, ListedVenueName: "大阪城ホール", Title: "Different"},
 				},
 				existing: []*entity.Concert{
-					{Event: entity.Event{LocalDate: date1, ListedVenueName: new("フェスティバルホール")}},
+					{LocalDate: date1, ListedVenueName: new("フェスティバルホール")},
 				},
 			},
 			want: entity.ScrapedConcerts{

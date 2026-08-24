@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -571,11 +570,8 @@ func (r *ConcertRepository) Delete(ctx context.Context, eventID string) error {
 // DeleteAndSuppress deletes a published event and records a suppression entry
 // derived from the deleted row, atomically in one statement.
 func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID string) error {
-	suppressionID, err := uuid.NewV7()
-	if err != nil {
-		return apperr.New(codes.Internal, "failed to generate suppression id", slog.String("event_id", eventID))
-	}
-	if _, err := r.db.Pool.Exec(ctx, deleteEventAndSuppressQuery, eventID, suppressionID.String()); err != nil {
+	suppressionID := entity.NewID()
+	if _, err := r.db.Pool.Exec(ctx, deleteEventAndSuppressQuery, eventID, suppressionID); err != nil {
 		return toAppErr(err, "failed to delete event and record suppression", slog.String("event_id", eventID))
 	}
 	return nil

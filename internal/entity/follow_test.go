@@ -87,37 +87,31 @@ func hypeTestFixture() (tokyoHome *entity.Home, tokyo, yokohama, osaka *entity.C
 
 	// A concert at a Tokyo venue (HOME proximity).
 	tokyo = &entity.Concert{
-		Event: entity.Event{
-			ID:        "concert-tokyo",
-			LocalDate: date,
-			Venue: &entity.Venue{
-				AdminArea:   &tokyoLevel1,
-				Coordinates: tokyoCentroid,
-			},
+		ID:        "concert-tokyo",
+		LocalDate: date,
+		Venue: &entity.Venue{
+			AdminArea:   &tokyoLevel1,
+			Coordinates: tokyoCentroid,
 		},
 	}
 
 	// A concert at a Yokohama venue — no admin-area match but within 200 km (NEARBY).
 	yokohama = &entity.Concert{
-		Event: entity.Event{
-			ID:        "concert-yokohama",
-			LocalDate: date,
-			Venue: &entity.Venue{
-				AdminArea:   &yokohamaLevel1,
-				Coordinates: yokohamaCoords,
-			},
+		ID:        "concert-yokohama",
+		LocalDate: date,
+		Venue: &entity.Venue{
+			AdminArea:   &yokohamaLevel1,
+			Coordinates: yokohamaCoords,
 		},
 	}
 
 	// A concert at an Osaka venue — no admin-area match and >200 km (AWAY).
 	osaka = &entity.Concert{
-		Event: entity.Event{
-			ID:        "concert-osaka",
-			LocalDate: date,
-			Venue: &entity.Venue{
-				AdminArea:   &osakaLevel1,
-				Coordinates: osakaCoords,
-			},
+		ID:        "concert-osaka",
+		LocalDate: date,
+		Venue: &entity.Venue{
+			AdminArea:   &osakaLevel1,
+			Coordinates: osakaCoords,
 		},
 	}
 	return tokyoHome, tokyo, yokohama, osaka

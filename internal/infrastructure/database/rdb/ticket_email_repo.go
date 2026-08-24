@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -56,18 +55,15 @@ func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTi
 		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
 	}
 
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, toAppErr(err, "failed to generate UUIDv7 for ticket email")
-	}
+	id := entity.NewID()
 
 	var appURL *string
 	if params.ApplicationURL != "" {
 		appURL = &params.ApplicationURL
 	}
 
-	_, err = r.db.Pool.Exec(ctx, ticketEmailCreateQuery,
-		id.String(),
+	_, err := r.db.Pool.Exec(ctx, ticketEmailCreateQuery,
+		id,
 		params.UserID,
 		params.EventID,
 		params.EmailType,
@@ -88,14 +84,14 @@ func (r *TicketEmailRepository) Create(ctx context.Context, params *entity.NewTi
 
 	r.db.logger.Info(ctx, "ticket email created",
 		slog.String("entityType", "ticket_emails"),
-		slog.String("id", id.String()),
+		slog.String("id", id),
 		slog.String("userID", params.UserID),
 		slog.String("eventID", params.EventID),
 		slog.Int("emailType", int(params.EmailType)),
 	)
 
 	return &entity.TicketEmail{
-		ID:                  id.String(),
+		ID:                  id,
 		UserID:              params.UserID,
 		EventID:             params.EventID,
 		EmailType:           params.EmailType,

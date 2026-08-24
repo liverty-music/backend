@@ -59,7 +59,7 @@ type Series struct {
 // job via [SeriesRepository.SetMerchURL].
 func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 	return &Series{
-		ID:        newID(),
+		ID:        NewID(),
 		Title:     title,
 		Type:      seriesType,
 		SourceURL: sourceURL,

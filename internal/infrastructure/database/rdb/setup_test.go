@@ -6,11 +6,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 var testDB *rdb.Database
@@ -75,7 +75,7 @@ func cleanDatabase(t *testing.T) {
 func seedUser(t *testing.T, name, email, externalID string) string {
 	t.Helper()
 	ctx := context.Background()
-	id := uuid.Must(uuid.NewV7()).String()
+	id := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
 		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
 		id, name, email, externalID,
@@ -88,7 +88,7 @@ func seedUser(t *testing.T, name, email, externalID string) string {
 func seedArtist(t *testing.T, name, mbid string) string {
 	t.Helper()
 	ctx := context.Background()
-	id := uuid.Must(uuid.NewV7()).String()
+	id := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
 		`INSERT INTO artists (id, name, mbid) VALUES ($1, $2, $3)`,
 		id, name, mbid,
@@ -101,7 +101,7 @@ func seedArtist(t *testing.T, name, mbid string) string {
 func seedVenue(t *testing.T, name string) string {
 	t.Helper()
 	ctx := context.Background()
-	id := uuid.Must(uuid.NewV7()).String()
+	id := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
 		`INSERT INTO venues (id, name) VALUES ($1, $2)`,
 		id, name,
@@ -114,7 +114,7 @@ func seedVenue(t *testing.T, name string) string {
 func seedHome(t *testing.T, countryCode, level1 string) string {
 	t.Helper()
 	ctx := context.Background()
-	id := uuid.Must(uuid.NewV7()).String()
+	id := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
 		`INSERT INTO homes (id, country_code, level_1) VALUES ($1, $2, $3)`,
 		id, countryCode, level1,
@@ -131,13 +131,13 @@ func seedHome(t *testing.T, countryCode, level1 string) string {
 func seedEvent(t *testing.T, venueID, artistID, title, date string) string {
 	t.Helper()
 	ctx := context.Background()
-	seriesID := uuid.Must(uuid.NewV7()).String()
+	seriesID := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
 		`INSERT INTO series (id, title, type) VALUES ($1, $2, 'SINGLE')`,
 		seriesID, title,
 	)
 	require.NoError(t, err)
-	eventID := uuid.Must(uuid.NewV7()).String()
+	eventID := uuid.NewV7().String()
 	_, err = testDB.Pool.Exec(ctx,
 		`INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, $4)`,
 		eventID, seriesID, venueID, date,

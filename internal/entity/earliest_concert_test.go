@@ -19,15 +19,15 @@ func TestEarliestConcert(t *testing.T) {
 		return &v
 	}
 
-	sep3 := &entity.Concert{Event: entity.Event{ID: "sep3", LocalDate: date(2026, 9, 3)}}
-	sep10 := &entity.Concert{Event: entity.Event{ID: "sep10", LocalDate: date(2026, 9, 10)}}
+	sep3 := &entity.Concert{ID: "sep3", LocalDate: date(2026, 9, 3)}
+	sep10 := &entity.Concert{ID: "sep10", LocalDate: date(2026, 9, 10)}
 
-	sameDay1800 := &entity.Concert{Event: entity.Event{ID: "d-1800", LocalDate: date(2026, 9, 3), StartTime: at(18, 0)}}
-	sameDay1930 := &entity.Concert{Event: entity.Event{ID: "d-1930", LocalDate: date(2026, 9, 3), StartTime: at(19, 30)}}
-	sameDayNoStart := &entity.Concert{Event: entity.Event{ID: "d-none", LocalDate: date(2026, 9, 3)}}
+	sameDay1800 := &entity.Concert{ID: "d-1800", LocalDate: date(2026, 9, 3), StartTime: at(18, 0)}
+	sameDay1930 := &entity.Concert{ID: "d-1930", LocalDate: date(2026, 9, 3), StartTime: at(19, 30)}
+	sameDayNoStart := &entity.Concert{ID: "d-none", LocalDate: date(2026, 9, 3)}
 
-	tieA := &entity.Concert{Event: entity.Event{ID: "aaa", LocalDate: date(2026, 9, 3)}}
-	tieB := &entity.Concert{Event: entity.Event{ID: "bbb", LocalDate: date(2026, 9, 3)}}
+	tieA := &entity.Concert{ID: "aaa", LocalDate: date(2026, 9, 3)}
+	tieB := &entity.Concert{ID: "bbb", LocalDate: date(2026, 9, 3)}
 
 	tests := []struct {
 		name     string
@@ -87,16 +87,14 @@ func TestEarliestConcert_HomeRecipientSubset(t *testing.T) {
 	tokyoHome := &entity.Home{CountryCode: "JP", Level1: tokyoLevel1}
 	osakaLevel1 := "JP-27"
 
-	osakaEarlier := &entity.Concert{Event: entity.Event{
+	osakaEarlier := &entity.Concert{
 		ID:        "osaka-0901",
 		LocalDate: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		Venue:     &entity.Venue{AdminArea: &osakaLevel1},
-	}}
-	tokyoLater := &entity.Concert{Event: entity.Event{
+		Venue:     &entity.Venue{AdminArea: &osakaLevel1}}
+	tokyoLater := &entity.Concert{
 		ID:        "tokyo-0905",
 		LocalDate: time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC),
-		Venue:     &entity.Venue{AdminArea: &tokyoLevel1},
-	}}
+		Venue:     &entity.Venue{AdminArea: &tokyoLevel1}}
 
 	all := []*entity.Concert{osakaEarlier, tokyoLater}
 

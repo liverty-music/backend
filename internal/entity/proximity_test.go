@@ -33,11 +33,9 @@ func TestConcert_ProximityTo(t *testing.T) {
 			name: "HOME: venue admin_area matches home level1",
 			home: home,
 			c: &entity.Concert{
-				Event: entity.Event{
-					Venue: &entity.Venue{
-						AdminArea:   &tokyoLevel1,
-						Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng},
-					},
+				Venue: &entity.Venue{
+					AdminArea:   &tokyoLevel1,
+					Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng},
 				},
 			},
 			want: entity.ProximityHome,
@@ -46,11 +44,9 @@ func TestConcert_ProximityTo(t *testing.T) {
 			name: "NEARBY: venue within 200km of home centroid",
 			home: home,
 			c: &entity.Concert{
-				Event: entity.Event{
-					Venue: &entity.Venue{
-						AdminArea:   &osakaLevel1,
-						Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng},
-					},
+				Venue: &entity.Venue{
+					AdminArea:   &osakaLevel1,
+					Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng},
 				},
 			},
 			want: entity.ProximityNearby,
@@ -59,11 +55,9 @@ func TestConcert_ProximityTo(t *testing.T) {
 			name: "AWAY: venue beyond 200km",
 			home: home,
 			c: &entity.Concert{
-				Event: entity.Event{
-					Venue: &entity.Venue{
-						AdminArea:   &osakaLevel1,
-						Coordinates: &entity.Coordinates{Latitude: osakaLat, Longitude: osakaLng},
-					},
+				Venue: &entity.Venue{
+					AdminArea:   &osakaLevel1,
+					Coordinates: &entity.Coordinates{Latitude: osakaLat, Longitude: osakaLng},
 				},
 			},
 			want: entity.ProximityAway,
@@ -72,11 +66,9 @@ func TestConcert_ProximityTo(t *testing.T) {
 			name: "AWAY: venue far away (Sapporo)",
 			home: home,
 			c: &entity.Concert{
-				Event: entity.Event{
-					Venue: &entity.Venue{
-						AdminArea:   &osakaLevel1,
-						Coordinates: &entity.Coordinates{Latitude: sapporoLat, Longitude: sapporoLng},
-					},
+				Venue: &entity.Venue{
+					AdminArea:   &osakaLevel1,
+					Coordinates: &entity.Coordinates{Latitude: sapporoLat, Longitude: sapporoLng},
 				},
 			},
 			want: entity.ProximityAway,
@@ -85,11 +77,9 @@ func TestConcert_ProximityTo(t *testing.T) {
 			name: "AWAY: nil home",
 			home: nil,
 			c: &entity.Concert{
-				Event: entity.Event{
-					Venue: &entity.Venue{
-						AdminArea:   &tokyoLevel1,
-						Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng},
-					},
+				Venue: &entity.Venue{
+					AdminArea:   &tokyoLevel1,
+					Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng},
 				},
 			},
 			want: entity.ProximityAway,
@@ -98,9 +88,7 @@ func TestConcert_ProximityTo(t *testing.T) {
 			name: "AWAY: nil venue",
 			home: home,
 			c: &entity.Concert{
-				Event: entity.Event{
-					Venue: nil,
-				},
+				Venue: nil,
 			},
 			want: entity.ProximityAway,
 		},
@@ -108,10 +96,8 @@ func TestConcert_ProximityTo(t *testing.T) {
 			name: "AWAY: venue missing coordinates",
 			home: home,
 			c: &entity.Concert{
-				Event: entity.Event{
-					Venue: &entity.Venue{
-						AdminArea: &osakaLevel1,
-					},
+				Venue: &entity.Venue{
+					AdminArea: &osakaLevel1,
 				},
 			},
 			want: entity.ProximityAway,
@@ -125,11 +111,9 @@ func TestConcert_ProximityTo(t *testing.T) {
 				Centroid:    nil,
 			},
 			c: &entity.Concert{
-				Event: entity.Event{
-					Venue: &entity.Venue{
-						AdminArea:   &osakaLevel1,
-						Coordinates: &entity.Coordinates{Latitude: osakaLat, Longitude: osakaLng},
-					},
+				Venue: &entity.Venue{
+					AdminArea:   &osakaLevel1,
+					Coordinates: &entity.Coordinates{Latitude: osakaLat, Longitude: osakaLng},
 				},
 			},
 			want: entity.ProximityAway,
@@ -138,11 +122,9 @@ func TestConcert_ProximityTo(t *testing.T) {
 			name: "HOME: admin_area match takes priority over distance",
 			home: home,
 			c: &entity.Concert{
-				Event: entity.Event{
-					Venue: &entity.Venue{
-						AdminArea:   &tokyoLevel1,
-						Coordinates: &entity.Coordinates{Latitude: sapporoLat, Longitude: sapporoLng},
-					},
+				Venue: &entity.Venue{
+					AdminArea:   &tokyoLevel1,
+					Coordinates: &entity.Coordinates{Latitude: sapporoLat, Longitude: sapporoLng},
 				},
 			},
 			want: entity.ProximityHome,

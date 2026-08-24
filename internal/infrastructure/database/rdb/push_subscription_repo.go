@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 )
 
@@ -51,8 +50,7 @@ func NewPushSubscriptionRepository(db *Database) *PushSubscriptionRepository {
 // and auth fields are updated in place.
 func (r *PushSubscriptionRepository) Create(ctx context.Context, sub *entity.PushSubscription) error {
 	if sub.ID == "" {
-		id, _ := uuid.NewV7()
-		sub.ID = id.String()
+		sub.ID = entity.NewID()
 	}
 
 	_, err := r.db.Pool.Exec(ctx, upsertPushSubscriptionQuery,

@@ -50,12 +50,12 @@ func TestAdminConcertHandler_List(t *testing.T) {
 	localDate := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 
 	concertA := &entity.Concert{
-		Event:      entity.Event{ID: "event-1", VenueID: "venue-1", LocalDate: localDate},
+		ID: "event-1", VenueID: "venue-1", LocalDate: localDate,
 		Series:     &entity.Series{ID: "series-1", Title: "Tour Alpha", Type: entity.SeriesTypeTour},
 		Performers: []*entity.Artist{{ID: "artist-1", Name: "Artist Alpha", MBID: "mbid-a"}},
 	}
 	concertB := &entity.Concert{
-		Event:      entity.Event{ID: "event-2", VenueID: "venue-2", LocalDate: localDate},
+		ID: "event-2", VenueID: "venue-2", LocalDate: localDate,
 		Series:     &entity.Series{ID: "series-2", Title: "Tour Beta", Type: entity.SeriesTypeTour},
 		Performers: []*entity.Artist{{ID: "artist-2", Name: "Artist Beta", MBID: "mbid-b"}},
 	}

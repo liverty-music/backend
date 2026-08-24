@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/liverty-music/backend/internal/entity"
 
 	"github.com/pannpers/go-apperr/apperr"
@@ -455,13 +454,10 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 
 	concerts := make([]*entity.Concert, 0, len(newScraped))
 	for _, s := range newScraped {
-		syntheticSeriesID, err := uuid.NewV7()
-		if err != nil {
-			return nil, fmt.Errorf("generate synthetic series ID for search response: %w", err)
-		}
+		syntheticSeriesID := entity.NewID()
 		// Search-path Concerts are display-only DTOs (never persisted); the
 		// SeriesType is cosmetic here, so SINGLE is a safe default.
-		c := s.ToConcert(artistID, syntheticSeriesID.String(), "", "", entity.SeriesTypeSingle)
+		c := s.ToConcert(artistID, syntheticSeriesID, "", "", entity.SeriesTypeSingle)
 		// Replace ToConcert's id-only Performer shell with the resolved
 		// Artist entity so the response carries a complete performer with
 		// Name and MBID (validated non-empty by the guard above).
