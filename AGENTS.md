@@ -122,4 +122,12 @@ The matrix-based A/B harness at `internal/infrastructure/gcp/gemini/searcher_int
 
 See [docs/dev-db-access.md](docs/dev-db-access.md) for port-forward command and psql connection string.
 
+## Review criteria (flag violations; quote the rule + link the existing code compared against)
+
+- Handlers in `internal/adapter/rpc/` only map Proto↔Entity (via `mapper/`) and call a UseCase — no business logic or repo access (cf. `follow_handler.go`).
+- Errors crossing a layer carry an apperr code: repos via `toAppErr` (`rdb/errors.go`), external via `api.FromHTTP`. A bare `fmt.Errorf` across a boundary is a violation.
+- A new handler MUST be registered in `internal/di/provider.go` in the correct list (admin vs consumer).
+- Interfaces are defined where consumed (`internal/entity/`, `internal/usecase/`); impls in `infrastructure/`/`adapter/`.
+- Nullable columns scan into `sql.Null*` and are `.Valid`-checked before assignment (cf. `user_repo.go scanUser`).
+
 </agent-rules>
