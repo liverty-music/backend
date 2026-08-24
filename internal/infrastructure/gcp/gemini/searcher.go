@@ -141,9 +141,9 @@ const (
 </extracted>
 
 Extraction rules:
-- source_url: the dedicated page for that tour/show, or the page with the most detailed information.
+- source_url: the artist's page dedicated to THIS specific tour/show — a tour special/feature page (e.g. a /feature/ or /tour/ page) or the specific news/detail article announcing it. Prefer this tour-specific page over the official-site top page or a generic news-list page. Among candidates, pick the one specific to this tour with the most detailed information.
 - country: the ISO 3166-1 alpha-2 code of the country where the concert is held.
-- Every field except country MUST be copied verbatim (character for character).
+- Every field except country MUST be copied verbatim (character for character) in its ORIGINAL LANGUAGE as printed on the source page. Do NOT translate, romanize, anglicize, or otherwise localize any value. Extract venue names in their native language exactly as written (Japanese venues in Japanese — e.g. "幕張メッセ 9・11ホール", never "Makuhari Messe Halls 9 & 11"; "クロコくんホール（旧 日本ガイシホール）", never "Crocodile Hall"). Even when a page offers a multilingual or English view, always extract the Japanese-language form.
 - Leave a tag empty when the page does not provide that information.
 - When local_date has no year (e.g. "01.16. sat" or "8月7日", i.e. only MM.DD), infer the year from page context (the year in the title, the heading's event year, the sequence of the run's dates) and prepend it to the verbatim date. Example: if the title is "TOUR 2026-2027" and the January-March dates fall in the following year, emit "2027.01.16. sat".
 

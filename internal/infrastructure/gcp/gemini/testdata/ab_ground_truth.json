@@ -1,6 +1,6 @@
 {
-  "evaluation_from": "2026-07-27",
-  "captured_at": "2026-07-27",
+  "evaluation_from": "2026-08-23",
+  "captured_at": "2026-08-24",
   "artists": [
     {
       "id": "019e302a-01ec-7b8e-80e4-2111c2e4fe0a",
@@ -8,110 +8,193 @@
       "official_site_url": "http://uverworld.jp/",
       "events": [
         {
-          "event_name": "UVERworld ファンクラブ会員限定ライブ",
-          "venue": "Zepp Osaka Bayside",
-          "admin_area": "大阪府",
-          "local_date": "2026-06-06",
-          "open_time": "2026-06-06T16:00:00+09:00",
-          "start_time": "2026-06-06T17:00:00+09:00",
-          "source_url": "https://www.uverworld.jp/live/detail/3167",
-          "confidence": "confirmed",
-          "visibility": "members-only"
-        },
-        {
-          "event_name": "UVERworld ファンクラブ会員限定ライブ",
-          "venue": "Zepp Haneda (TOKYO)",
-          "admin_area": "東京都",
-          "local_date": "2026-07-06",
-          "open_time": "2026-07-06T17:30:00+09:00",
-          "start_time": "2026-07-06T18:30:00+09:00",
-          "source_url": "https://www.uverworld.jp/live/detail/3168",
-          "confidence": "confirmed",
-          "visibility": "members-only"
-        },
-        {
-          "event_name": "OSAKA GIGANTIC MUSIC FESTIVAL 2026 -THANKS 10TH GIGA-",
-          "venue": "舞洲スポーツアイランド",
-          "admin_area": "大阪府",
-          "local_date": "2026-08-01",
-          "open_time": "2026-08-01T09:30:00+09:00",
-          "start_time": "2026-08-01T11:00:00+09:00",
-          "source_url": "https://www.uverworld.jp/live/detail/3180",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "NUMBER SHOT2026",
-          "venue": "みずほPayPayドーム福岡 + シーサイドももち海浜公園地行浜ビーチ",
-          "admin_area": "福岡県",
-          "local_date": "2026-08-02",
-          "open_time": "2026-08-02T08:30:00+09:00",
-          "start_time": "2026-08-02T10:30:00+09:00",
-          "source_url": "https://www.uverworld.jp/live/detail/3161",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "CENTRAL MUSIC & ENTERTAINMENT FESTIVAL 2026 in Taipei",
-          "venue": "Zepp New Taipei",
-          "admin_area": "",
-          "local_date": "2026-08-08",
-          "open_time": "2026-08-08T16:30:00+08:00",
-          "start_time": "2026-08-08T18:00:00+08:00",
-          "source_url": "https://www.uverworld.jp/live/detail/3178",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "MONSTER baSH 2026",
-          "venue": "国営讃岐まんのう公園",
-          "admin_area": "香川県",
-          "local_date": "2026-08-22",
-          "open_time": "2026-08-22T09:00:00+09:00",
-          "start_time": "2026-08-22T11:00:00+09:00",
-          "source_url": "https://www.uverworld.jp/live/detail/3183",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
           "event_name": "WILD BUNCH FEST. 2026",
           "venue": "山口きらら博記念公園",
           "admin_area": "山口県",
           "local_date": "2026-08-23",
           "open_time": "2026-08-23T10:00:00+09:00",
           "start_time": "2026-08-23T11:30:00+09:00",
-          "source_url": "https://www.uverworld.jp/live/detail/3173",
+          "source_url": "https://www.uverworld.jp/schedule/detail/3173",
           "confidence": "confirmed",
           "visibility": "public",
           "excluded_per_spec": true
         },
         {
           "event_name": "音楽と髭達2026-TIME MACHINE-",
-          "venue": "HARD OFF ECOスタジアム新潟",
+          "venue": "HARD OFF ECO スタジアム新潟",
           "admin_area": "新潟県",
           "local_date": "2026-08-29",
           "open_time": "2026-08-29T09:00:00+09:00",
           "start_time": "2026-08-29T11:00:00+09:00",
-          "source_url": "https://www.uverworld.jp/live/detail/3175",
+          "source_url": "https://www.uverworld.jp/schedule/detail/3175",
           "confidence": "confirmed",
           "visibility": "public",
           "excluded_per_spec": true
         },
         {
-          "event_name": "SOUND PLANET FESTIVAL",
-          "venue": "Paradise City",
-          "admin_area": "",
-          "local_date": "2026-09-05",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://www.uverworld.jp/live/detail/3171",
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
+          "venue": "KT Zepp Yokohama",
+          "admin_area": "神奈川県",
+          "local_date": "2026-09-24",
+          "open_time": "2026-09-24T17:30:00+09:00",
+          "start_time": "2026-09-24T18:30:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
           "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
+          "visibility": "members-only"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026 ～誠果 生誕祭～",
+          "venue": "KT Zepp Yokohama",
+          "admin_area": "神奈川県",
+          "local_date": "2026-09-25",
+          "open_time": "2026-09-25T17:30:00+09:00",
+          "start_time": "2026-09-25T18:30:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026 ～真太郎 生誕祭～",
+          "venue": "和歌山県民文化会館",
+          "admin_area": "和歌山県",
+          "local_date": "2026-11-05",
+          "open_time": "2026-11-05T17:30:00+09:00",
+          "start_time": "2026-11-05T18:30:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld Zepp New Taipei 単独公演",
+          "venue": "Zepp New Taipei",
+          "admin_area": "",
+          "local_date": "2026-11-21",
+          "open_time": "2026-11-21T17:30:00+08:00",
+          "start_time": "2026-11-21T19:00:00+08:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE 2026 at LaLa arena TOKYO-BAY (UVERworld & LUNA SEA)",
+          "venue": "LaLa arena TOKYO-BAY",
+          "admin_area": "千葉県",
+          "local_date": "2026-11-25",
+          "open_time": "2026-11-25T17:30:00+09:00",
+          "start_time": "2026-11-25T18:30:00+09:00",
+          "source_url": "https://www.uverworld.jp/news/detail/3202",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE 2026 at LaLa arena TOKYO-BAY (UVERworld & CNBLUE)",
+          "venue": "LaLa arena TOKYO-BAY",
+          "admin_area": "千葉県",
+          "local_date": "2026-11-26",
+          "open_time": "2026-11-26T17:30:00+09:00",
+          "start_time": "2026-11-26T18:30:00+09:00",
+          "source_url": "https://www.uverworld.jp/news/detail/3202",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
+          "venue": "大阪城ホール",
+          "admin_area": "大阪府",
+          "local_date": "2026-12-01",
+          "open_time": "2026-12-01T17:30:00+09:00",
+          "start_time": "2026-12-01T18:30:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
+          "venue": "大阪城ホール",
+          "admin_area": "大阪府",
+          "local_date": "2026-12-02",
+          "open_time": "2026-12-02T17:30:00+09:00",
+          "start_time": "2026-12-02T18:30:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "SKY-HI Birthday Bash 2026 -X- SKY-HI X UVERworld",
+          "venue": "豊洲PIT",
+          "admin_area": "東京都",
+          "local_date": "2026-12-11",
+          "open_time": "2026-12-11T18:00:00+09:00",
+          "start_time": "2026-12-11T19:00:00+09:00",
+          "source_url": "https://www.uverworld.jp/news/detail/3219",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
+          "venue": "横浜アリーナ",
+          "admin_area": "神奈川県",
+          "local_date": "2026-12-20",
+          "open_time": "2026-12-20T14:30:00+09:00",
+          "start_time": "2026-12-20T16:00:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026 ～TAKUYA∞ 生誕祭～",
+          "venue": "横浜アリーナ",
+          "admin_area": "神奈川県",
+          "local_date": "2026-12-21",
+          "open_time": "2026-12-21T17:00:00+09:00",
+          "start_time": "2026-12-21T18:30:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026 ～PREMIUM LIVE on Xmas～ 昼公演",
+          "venue": "日本武道館",
+          "admin_area": "東京都",
+          "local_date": "2026-12-25",
+          "open_time": "2026-12-25T13:00:00+09:00",
+          "start_time": "2026-12-25T14:00:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026 ～PREMIUM LIVE on Xmas～ 夜公演",
+          "venue": "日本武道館",
+          "admin_area": "東京都",
+          "local_date": "2026-12-25",
+          "open_time": "2026-12-25T18:00:00+09:00",
+          "start_time": "2026-12-25T19:00:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
+          "venue": "マリンメッセ福岡A館",
+          "admin_area": "福岡県",
+          "local_date": "2026-12-30",
+          "open_time": "2026-12-30T16:00:00+09:00",
+          "start_time": "2026-12-30T17:00:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
+          "venue": "マリンメッセ福岡A館",
+          "admin_area": "福岡県",
+          "local_date": "2026-12-31",
+          "open_time": "2026-12-31T15:00:00+09:00",
+          "start_time": "2026-12-31T16:00:00+09:00",
+          "source_url": "https://www.uverworld.jp/feature/2026_live",
+          "confidence": "confirmed",
+          "visibility": "public"
         }
       ]
     },
@@ -121,71 +204,13 @@
       "official_site_url": "https://vaundy.jp/",
       "events": [
         {
-          "event_name": "NUMBER SHOT2026",
-          "venue": "福岡PayPayドーム・シーサイドももち海浜公園地行浜ビーチ",
-          "admin_area": "福岡県",
-          "local_date": "2026-08-01",
-          "open_time": "2026-08-01T08:30:00+09:00",
-          "start_time": "2026-08-01T19:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11181",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "OSAKA GIGANTIC MUSIC FESTIVAL 2026 -THANKS 10TH GIGA-",
-          "venue": "大阪舞洲スポーツアイランド ジャイガ特設会場",
-          "admin_area": "大阪府",
-          "local_date": "2026-08-02",
-          "open_time": "",
-          "start_time": "2026-08-02T20:20:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11203",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "Vaundy VAWS one man live 2026 at Zepp Sapporo",
-          "venue": "Zepp Sapporo",
-          "admin_area": "北海道",
-          "local_date": "2026-08-12",
-          "open_time": "2026-08-12T18:00:00+09:00",
-          "start_time": "2026-08-12T19:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11070",
-          "confidence": "confirmed",
-          "visibility": "members-only"
-        },
-        {
-          "event_name": "Vaundy VAWS one man live 2026 at Zepp Sapporo",
-          "venue": "Zepp Sapporo",
-          "admin_area": "北海道",
-          "local_date": "2026-08-13",
-          "open_time": "2026-08-13T18:00:00+09:00",
-          "start_time": "2026-08-13T19:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11071",
-          "confidence": "confirmed",
-          "visibility": "members-only"
-        },
-        {
-          "event_name": "RISING SUN ROCK FESTIVAL 2026 in EZO",
-          "venue": "石狩湾新港樽川ふ頭横野外特設ステージ",
-          "admin_area": "北海道",
-          "local_date": "2026-08-15",
-          "open_time": "",
-          "start_time": "2026-08-15T21:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11179",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
           "event_name": "音楽と髭達2026 -TIME MACHINE-",
           "venue": "HARD OFF ECOスタジアム新潟",
           "admin_area": "新潟県",
           "local_date": "2026-08-29",
-          "open_time": "",
-          "start_time": "2026-08-29T18:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11194",
+          "open_time": "2026-08-29T09:00:00+09:00",
+          "start_time": "2026-08-29T11:00:00+09:00",
+          "source_url": "https://vaundy.jp/news/detail/11193",
           "confidence": "confirmed",
           "visibility": "public",
           "excluded_per_spec": true
@@ -196,8 +221,8 @@
           "admin_area": "山梨県",
           "local_date": "2026-08-30",
           "open_time": "",
-          "start_time": "2026-08-30T19:10:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11186",
+          "start_time": "",
+          "source_url": "https://vaundy.jp/news/detail/11185",
           "confidence": "confirmed",
           "visibility": "public",
           "excluded_per_spec": true
@@ -209,7 +234,7 @@
           "local_date": "2026-09-05",
           "open_time": "2026-09-05T16:30:00+09:00",
           "start_time": "2026-09-05T18:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11144",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -220,7 +245,7 @@
           "local_date": "2026-09-06",
           "open_time": "2026-09-06T14:30:00+09:00",
           "start_time": "2026-09-06T16:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11144",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -230,8 +255,8 @@
           "admin_area": "千葉県",
           "local_date": "2026-09-12",
           "open_time": "",
-          "start_time": "2026-09-12T18:45:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11207",
+          "start_time": "",
+          "source_url": "https://vaundy.jp/news/detail/11206",
           "confidence": "confirmed",
           "visibility": "public",
           "excluded_per_spec": true
@@ -241,9 +266,9 @@
           "venue": "INSPIRE ARENA",
           "admin_area": "",
           "local_date": "2026-09-19",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11144",
+          "open_time": "2026-09-19T15:00:00+09:00",
+          "start_time": "2026-09-19T17:00:00+09:00",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -252,9 +277,9 @@
           "venue": "INSPIRE ARENA",
           "admin_area": "",
           "local_date": "2026-09-20",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11144",
+          "open_time": "2026-09-20T14:00:00+09:00",
+          "start_time": "2026-09-20T16:00:00+09:00",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -265,7 +290,7 @@
           "local_date": "2026-09-23",
           "open_time": "2026-09-23T14:00:00+09:00",
           "start_time": "2026-09-23T15:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11201",
+          "source_url": "https://vaundy.jp/news/detail/11200",
           "confidence": "confirmed",
           "visibility": "public",
           "excluded_per_spec": true
@@ -275,9 +300,9 @@
           "venue": "AsiaWorld-Arena",
           "admin_area": "",
           "local_date": "2026-10-03",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11144",
+          "open_time": "2026-10-03T18:00:00+08:00",
+          "start_time": "2026-10-03T20:00:00+08:00",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -288,7 +313,7 @@
           "local_date": "2026-10-24",
           "open_time": "2026-10-24T16:30:00+09:00",
           "start_time": "2026-10-24T18:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11144",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -299,7 +324,7 @@
           "local_date": "2026-10-25",
           "open_time": "2026-10-25T14:30:00+09:00",
           "start_time": "2026-10-25T16:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11144",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -308,9 +333,9 @@
           "venue": "Taipei Arena",
           "admin_area": "",
           "local_date": "2026-10-31",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11144",
+          "open_time": "2026-10-31T17:30:00+08:00",
+          "start_time": "2026-10-31T19:00:00+08:00",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -319,33 +344,23 @@
           "venue": "Taipei Arena",
           "admin_area": "",
           "local_date": "2026-11-01",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11144",
+          "open_time": "2026-11-01T17:30:00+08:00",
+          "start_time": "2026-11-01T19:00:00+08:00",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
           "confidence": "confirmed",
           "visibility": "public"
         },
         {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "上海（会場未定 -STAY TUNED-）",
-          "admin_area": "",
-          "local_date": "2026-11-14",
+          "event_name": "バズリズム LIVE 2026",
+          "venue": "横浜アリーナ",
+          "admin_area": "神奈川県",
+          "local_date": "2026-11-08",
           "open_time": "",
           "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11108",
-          "confidence": "tentative",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "上海（会場未定 -STAY TUNED-）",
-          "admin_area": "",
-          "local_date": "2026-11-15",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11108",
-          "confidence": "tentative",
-          "visibility": "public"
+          "source_url": "https://vaundy.jp/news/2",
+          "confidence": "confirmed",
+          "visibility": "public",
+          "excluded_per_spec": true
         },
         {
           "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
@@ -354,7 +369,7 @@
           "local_date": "2027-08-14",
           "open_time": "2027-08-14T17:00:00+09:00",
           "start_time": "2027-08-14T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -365,7 +380,7 @@
           "local_date": "2027-08-15",
           "open_time": "2027-08-15T15:00:00+09:00",
           "start_time": "2027-08-15T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -376,7 +391,7 @@
           "local_date": "2027-08-28",
           "open_time": "2027-08-28T17:00:00+09:00",
           "start_time": "2027-08-28T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -387,7 +402,7 @@
           "local_date": "2027-08-29",
           "open_time": "2027-08-29T15:00:00+09:00",
           "start_time": "2027-08-29T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -398,7 +413,7 @@
           "local_date": "2027-09-19",
           "open_time": "2027-09-19T17:00:00+09:00",
           "start_time": "2027-09-19T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -409,7 +424,7 @@
           "local_date": "2027-09-20",
           "open_time": "2027-09-20T15:00:00+09:00",
           "start_time": "2027-09-20T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -420,7 +435,7 @@
           "local_date": "2027-09-25",
           "open_time": "2027-09-25T17:00:00+09:00",
           "start_time": "2027-09-25T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -431,7 +446,7 @@
           "local_date": "2027-09-26",
           "open_time": "2027-09-26T15:00:00+09:00",
           "start_time": "2027-09-26T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -442,7 +457,7 @@
           "local_date": "2027-10-02",
           "open_time": "2027-10-02T17:00:00+09:00",
           "start_time": "2027-10-02T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -453,7 +468,7 @@
           "local_date": "2027-10-03",
           "open_time": "2027-10-03T15:00:00+09:00",
           "start_time": "2027-10-03T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -464,7 +479,7 @@
           "local_date": "2027-10-16",
           "open_time": "2027-10-16T17:00:00+09:00",
           "start_time": "2027-10-16T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -475,7 +490,7 @@
           "local_date": "2027-10-17",
           "open_time": "2027-10-17T15:00:00+09:00",
           "start_time": "2027-10-17T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -486,7 +501,7 @@
           "local_date": "2027-10-23",
           "open_time": "2027-10-23T17:00:00+09:00",
           "start_time": "2027-10-23T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -497,7 +512,7 @@
           "local_date": "2027-10-24",
           "open_time": "2027-10-24T15:00:00+09:00",
           "start_time": "2027-10-24T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -508,7 +523,7 @@
           "local_date": "2027-11-20",
           "open_time": "2027-11-20T17:00:00+09:00",
           "start_time": "2027-11-20T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -517,32 +532,10 @@
           "venue": "盛岡タカヤアリーナ（盛岡市総合アリーナ）",
           "admin_area": "岩手県",
           "local_date": "2027-11-21",
-          "open_time": "2027-11-21T17:00:00+09:00",
-          "start_time": "2027-11-21T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "open_time": "2027-11-21T15:00:00+09:00",
+          "start_time": "2027-11-21T16:00:00+09:00",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
-          "venue": "横浜某所",
-          "admin_area": "神奈川県",
-          "local_date": "2027-11-27",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
-          "confidence": "tentative",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
-          "venue": "横浜某所",
-          "admin_area": "神奈川県",
-          "local_date": "2027-11-28",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
-          "confidence": "tentative",
           "visibility": "public"
         },
         {
@@ -552,7 +545,7 @@
           "local_date": "2027-12-11",
           "open_time": "2027-12-11T17:00:00+09:00",
           "start_time": "2027-12-11T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -563,7 +556,7 @@
           "local_date": "2027-12-12",
           "open_time": "2027-12-12T15:00:00+09:00",
           "start_time": "2027-12-12T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -574,7 +567,7 @@
           "local_date": "2028-01-09",
           "open_time": "2028-01-09T17:00:00+09:00",
           "start_time": "2028-01-09T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -585,7 +578,7 @@
           "local_date": "2028-01-10",
           "open_time": "2028-01-10T15:00:00+09:00",
           "start_time": "2028-01-10T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -596,7 +589,7 @@
           "local_date": "2028-01-15",
           "open_time": "2028-01-15T17:00:00+09:00",
           "start_time": "2028-01-15T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -607,7 +600,7 @@
           "local_date": "2028-01-16",
           "open_time": "2028-01-16T15:00:00+09:00",
           "start_time": "2028-01-16T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -618,7 +611,7 @@
           "local_date": "2028-01-22",
           "open_time": "2028-01-22T17:00:00+09:00",
           "start_time": "2028-01-22T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -629,7 +622,7 @@
           "local_date": "2028-01-23",
           "open_time": "2028-01-23T15:00:00+09:00",
           "start_time": "2028-01-23T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -640,7 +633,7 @@
           "local_date": "2028-02-05",
           "open_time": "2028-02-05T17:00:00+09:00",
           "start_time": "2028-02-05T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -651,7 +644,7 @@
           "local_date": "2028-02-06",
           "open_time": "2028-02-06T15:00:00+09:00",
           "start_time": "2028-02-06T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -662,7 +655,7 @@
           "local_date": "2028-02-26",
           "open_time": "2028-02-26T17:00:00+09:00",
           "start_time": "2028-02-26T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -673,8 +666,52 @@
           "local_date": "2028-02-27",
           "open_time": "2028-02-27T15:00:00+09:00",
           "start_time": "2028-02-27T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728?lang=ja",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
+          "venue": "",
+          "admin_area": "",
+          "local_date": "2026-11-14",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
+          "confidence": "tentative",
+          "visibility": "public"
+        },
+        {
+          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
+          "venue": "",
+          "admin_area": "",
+          "local_date": "2026-11-15",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
+          "confidence": "tentative",
+          "visibility": "public"
+        },
+        {
+          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
+          "venue": "",
+          "admin_area": "神奈川県",
+          "local_date": "2027-11-27",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
+          "confidence": "tentative",
+          "visibility": "public"
+        },
+        {
+          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
+          "venue": "",
+          "admin_area": "神奈川県",
+          "local_date": "2027-11-28",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
+          "confidence": "tentative",
           "visibility": "public"
         }
       ]
@@ -685,57 +722,13 @@
       "official_site_url": "http://www.super-beaver.com/",
       "events": [
         {
-          "event_name": "都会のラクダ DOME TOUR 2026",
-          "venue": "京セラドーム大阪",
-          "admin_area": "大阪府",
-          "local_date": "2026-08-01",
-          "open_time": "2026-08-01T15:00:00+09:00",
-          "start_time": "2026-08-01T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/feature/dometour2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "都会のラクダ DOME TOUR 2026",
-          "venue": "京セラドーム大阪",
-          "admin_area": "大阪府",
-          "local_date": "2026-08-02",
-          "open_time": "2026-08-02T15:00:00+09:00",
-          "start_time": "2026-08-02T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/feature/dometour2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
           "event_name": "都会のラクダ TOUR 2026-2027 〜ラクダの人生、ゴーゴーゴー〜",
-          "venue": "福井フェニックス・プラザ",
-          "admin_area": "福井県",
-          "local_date": "2026-08-14",
-          "open_time": "2026-08-14T17:30:00+09:00",
-          "start_time": "2026-08-14T18:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6041",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "都会のラクダ TOUR 2026-2027 〜ラクダの人生、ゴーゴーゴー〜",
-          "venue": "長良川国際会議場",
-          "admin_area": "岐阜県",
-          "local_date": "2026-08-16",
-          "open_time": "2026-08-16T16:30:00+09:00",
-          "start_time": "2026-08-16T17:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6042",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "都会のラクダ TOUR 2026-2027 〜ラクダの人生、ゴーゴーゴー〜",
-          "venue": "新来島高知重工ホール(高知県立県民文化ホール)・オレンジホール",
+          "venue": "来島高知重工ホール（高知県立県民文化ホール）・オレンジホール",
           "admin_area": "高知県",
           "local_date": "2026-08-28",
           "open_time": "2026-08-28T17:30:00+09:00",
           "start_time": "2026-08-28T18:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6043",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -746,7 +739,7 @@
           "local_date": "2026-09-03",
           "open_time": "2026-09-03T17:30:00+09:00",
           "start_time": "2026-09-03T18:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6044",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -757,7 +750,7 @@
           "local_date": "2026-09-05",
           "open_time": "2026-09-05T16:30:00+09:00",
           "start_time": "2026-09-05T17:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6045",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -768,7 +761,7 @@
           "local_date": "2026-09-10",
           "open_time": "2026-09-10T17:30:00+09:00",
           "start_time": "2026-09-10T18:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6046",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -779,7 +772,7 @@
           "local_date": "2026-09-22",
           "open_time": "2026-09-22T16:00:00+09:00",
           "start_time": "2026-09-22T18:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/feature/dometour2026",
+          "source_url": "https://sp.super-beaver.com/live_information/detail/6033",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -790,7 +783,7 @@
           "local_date": "2026-09-23",
           "open_time": "2026-09-23T16:00:00+09:00",
           "start_time": "2026-09-23T18:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/feature/dometour2026",
+          "source_url": "https://sp.super-beaver.com/live_information/detail/6034",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -801,7 +794,7 @@
           "local_date": "2026-10-03",
           "open_time": "2026-10-03T16:30:00+09:00",
           "start_time": "2026-10-03T17:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6047",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -812,7 +805,7 @@
           "local_date": "2026-10-09",
           "open_time": "2026-10-09T17:30:00+09:00",
           "start_time": "2026-10-09T18:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6048",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -823,7 +816,7 @@
           "local_date": "2026-10-16",
           "open_time": "2026-10-16T17:30:00+09:00",
           "start_time": "2026-10-16T18:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6049",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -846,7 +839,7 @@
           "local_date": "2027-01-16",
           "open_time": "2027-01-16T16:30:00+09:00",
           "start_time": "2027-01-16T18:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6050",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -857,7 +850,7 @@
           "local_date": "2027-01-17",
           "open_time": "2027-01-17T15:30:00+09:00",
           "start_time": "2027-01-17T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6051",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -868,7 +861,7 @@
           "local_date": "2027-01-23",
           "open_time": "2027-01-23T16:00:00+09:00",
           "start_time": "2027-01-23T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6052",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -879,7 +872,7 @@
           "local_date": "2027-01-24",
           "open_time": "2027-01-24T16:00:00+09:00",
           "start_time": "2027-01-24T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6053",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -890,7 +883,7 @@
           "local_date": "2027-02-13",
           "open_time": "2027-02-13T16:00:00+09:00",
           "start_time": "2027-02-13T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6054",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -901,7 +894,7 @@
           "local_date": "2027-02-14",
           "open_time": "2027-02-14T16:00:00+09:00",
           "start_time": "2027-02-14T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6055",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -912,7 +905,7 @@
           "local_date": "2027-02-20",
           "open_time": "2027-02-20T16:00:00+09:00",
           "start_time": "2027-02-20T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6056",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -923,7 +916,7 @@
           "local_date": "2027-02-21",
           "open_time": "2027-02-21T16:00:00+09:00",
           "start_time": "2027-02-21T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6057",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -934,7 +927,7 @@
           "local_date": "2027-03-06",
           "open_time": "2027-03-06T16:00:00+09:00",
           "start_time": "2027-03-06T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6058",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -945,7 +938,7 @@
           "local_date": "2027-03-07",
           "open_time": "2027-03-07T16:00:00+09:00",
           "start_time": "2027-03-07T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6059",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -956,7 +949,7 @@
           "local_date": "2027-03-20",
           "open_time": "2027-03-20T16:00:00+09:00",
           "start_time": "2027-03-20T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6060",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -967,7 +960,7 @@
           "local_date": "2027-03-21",
           "open_time": "2027-03-21T16:00:00+09:00",
           "start_time": "2027-03-21T17:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6061",
+          "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
         }
@@ -979,258 +972,182 @@
       "official_site_url": "https://bradio.jp/",
       "events": [
         {
-          "event_name": "hoshioto'26",
-          "venue": "岡山県・井原市青野町 葡萄浪漫館 特設ステージ",
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜埼玉",
+          "venue": "HEAVEN'S ROCK さいたま新都心 VJ-3",
+          "admin_area": "埼玉県",
+          "local_date": "2026-09-20",
+          "open_time": "2026-09-20T16:30:00+09:00",
+          "start_time": "2026-09-20T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜神奈川",
+          "venue": "F.A.D YOKOHAMA",
+          "admin_area": "神奈川県",
+          "local_date": "2026-09-21",
+          "open_time": "2026-09-21T16:30:00+09:00",
+          "start_time": "2026-09-21T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜長野",
+          "venue": "CLUB JUNK BOX",
+          "admin_area": "長野県",
+          "local_date": "2026-09-26",
+          "open_time": "2026-09-26T16:30:00+09:00",
+          "start_time": "2026-09-26T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜香川",
+          "venue": "MONSTER",
+          "admin_area": "香川県",
+          "local_date": "2026-10-03",
+          "open_time": "2026-10-03T16:30:00+09:00",
+          "start_time": "2026-10-03T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜兵庫",
+          "venue": "太陽と虎",
+          "admin_area": "兵庫県",
+          "local_date": "2026-10-04",
+          "open_time": "2026-10-04T16:30:00+09:00",
+          "start_time": "2026-10-04T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜北海道",
+          "venue": "cube garden",
+          "admin_area": "北海道",
+          "local_date": "2026-10-09",
+          "open_time": "2026-10-09T18:30:00+09:00",
+          "start_time": "2026-10-09T19:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜宮城",
+          "venue": "darwin",
+          "admin_area": "宮城県",
+          "local_date": "2026-10-17",
+          "open_time": "2026-10-17T16:30:00+09:00",
+          "start_time": "2026-10-17T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜岡山",
+          "venue": "IMAGE",
           "admin_area": "岡山県",
-          "local_date": "2026-05-23",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+          "local_date": "2026-10-23",
+          "open_time": "2026-10-23T18:30:00+09:00",
+          "start_time": "2026-10-23T19:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜静岡",
+          "venue": "窓枠",
+          "admin_area": "静岡県",
+          "local_date": "2026-10-25",
+          "open_time": "2026-10-25T16:30:00+09:00",
+          "start_time": "2026-10-25T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜石川",
+          "venue": "REDSUN",
+          "admin_area": "石川県",
+          "local_date": "2026-11-07",
+          "open_time": "2026-11-07T16:30:00+09:00",
+          "start_time": "2026-11-07T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜福岡",
+          "venue": "BEAT STATION",
+          "admin_area": "福岡県",
+          "local_date": "2026-11-14",
+          "open_time": "2026-11-14T16:30:00+09:00",
+          "start_time": "2026-11-14T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?page=2&sort=asc&range=future_event_end_time",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜広島",
+          "venue": "CAVE-BE",
+          "admin_area": "広島県",
+          "local_date": "2026-11-15",
+          "open_time": "2026-11-15T16:30:00+09:00",
+          "start_time": "2026-11-15T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?page=2&sort=asc&range=future_event_end_time",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜愛知",
+          "venue": "ell.FITS ALL",
+          "admin_area": "愛知県",
+          "local_date": "2026-11-27",
+          "open_time": "2026-11-27T18:30:00+09:00",
+          "start_time": "2026-11-27T19:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?page=2&sort=asc&range=future_event_end_time",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "BRADIO DANCE PARTY TOUR 2026｜大阪",
+          "venue": "BananaHall",
+          "admin_area": "大阪府",
+          "local_date": "2026-11-28",
+          "open_time": "2026-11-28T16:15:00+09:00",
+          "start_time": "2026-11-28T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?page=2&sort=asc&range=future_event_end_time",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "LOCAL CONNECT pre. LIGHT YOU 2026｜京都",
+          "venue": "長岡京記念文化会館",
+          "admin_area": "京都府",
+          "local_date": "2026-09-27",
+          "open_time": "2026-09-27T12:00:00+09:00",
+          "start_time": "2026-09-27T12:45:00+09:00",
+          "source_url": "https://bradio.jp/show/list/5?range=future_event_end_time&sort=asc",
           "confidence": "confirmed",
           "visibility": "public",
           "excluded_per_spec": true
         },
         {
-          "event_name": "BRADIO presents「Kyotown Dance」",
-          "venue": "京都府・磔磔",
-          "admin_area": "京都府",
-          "local_date": "2026-05-24",
-          "open_time": "2026-05-24T17:30:00+09:00",
-          "start_time": "2026-05-24T18:00:00+09:00",
-          "source_url": "https://bradio.jp/show/detail/2015",
+          "event_name": "SHUNAN Orbit 2026｜山口",
+          "venue": "周南 RISING HALL&LIVE rise SHUNAN",
+          "admin_area": "山口県",
+          "local_date": "2026-11-03",
+          "open_time": "2026-11-03T10:30:00+09:00",
+          "start_time": "2026-11-03T11:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/5?range=future_event_end_time&sort=asc",
           "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Kotatsu Mikan presents「Orangeee's Night vol.2」大阪",
-          "venue": "大阪府・南堀江 knave",
-          "admin_area": "大阪府",
-          "local_date": "2026-06-13",
-          "open_time": "2026-06-13T17:30:00+09:00",
-          "start_time": "2026-06-13T18:00:00+09:00",
-          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Kotatsu Mikan presents「Orangeee's Night vol.2」東京",
-          "venue": "東京都・吉祥寺 STAR PINE'S CAFE",
-          "admin_area": "東京都",
-          "local_date": "2026-06-18",
-          "open_time": "2026-06-18T18:00:00+09:00",
-          "start_time": "2026-06-18T19:00:00+09:00",
-          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO Billboard Live 2026 1st Stage",
-          "venue": "大阪府・Billborad Live OSAKA",
-          "admin_area": "大阪府",
-          "local_date": "2026-08-07",
-          "open_time": "2026-08-07T17:00:00+09:00",
-          "start_time": "2026-08-07T18:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2052",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO Billboard Live 2026 2nd Stage",
-          "venue": "大阪府・Billborad Live OSAKA",
-          "admin_area": "大阪府",
-          "local_date": "2026-08-07",
-          "open_time": "2026-08-07T20:00:00+09:00",
-          "start_time": "2026-08-07T21:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2052",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO Billboard Live 2026 1st Stage",
-          "venue": "東京都・Billborad Live TOKYO",
-          "admin_area": "東京都",
-          "local_date": "2026-08-09",
-          "open_time": "2026-08-09T15:00:00+09:00",
-          "start_time": "2026-08-09T16:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2052",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO Billboard Live 2026 2nd Stage",
-          "venue": "東京都・Billborad Live TOKYO",
-          "admin_area": "東京都",
-          "local_date": "2026-08-09",
-          "open_time": "2026-08-09T18:00:00+09:00",
-          "start_time": "2026-08-09T19:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2052",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "埼玉県・HEAVEN'S ROCK さいたま新都心 VJ-3",
-          "admin_area": "埼玉県",
-          "local_date": "2026-09-20",
-          "open_time": "2026-09-20T16:30:00+09:00",
-          "start_time": "2026-09-20T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "神奈川県・F.A.D YOKOHAMA",
-          "admin_area": "神奈川県",
-          "local_date": "2026-09-21",
-          "open_time": "2026-09-21T16:30:00+09:00",
-          "start_time": "2026-09-21T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "長野県・CLUB JUNK BOX",
-          "admin_area": "長野県",
-          "local_date": "2026-09-26",
-          "open_time": "2026-09-26T16:30:00+09:00",
-          "start_time": "2026-09-26T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "LOCAL CONNECT pre.「LIGHT YOU 2026」",
-          "venue": "京都府・長岡京記念文化会館",
-          "admin_area": "京都府",
-          "local_date": "2026-09-27",
-          "open_time": "2026-09-27T12:00:00+09:00",
-          "start_time": "2026-09-27T12:45:00+09:00",
-          "source_url": "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "香川県・MONSTER",
-          "admin_area": "香川県",
-          "local_date": "2026-10-03",
-          "open_time": "2026-10-03T16:30:00+09:00",
-          "start_time": "2026-10-03T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "兵庫県・太陽と虎",
-          "admin_area": "兵庫県",
-          "local_date": "2026-10-04",
-          "open_time": "2026-10-04T16:30:00+09:00",
-          "start_time": "2026-10-04T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "北海道・cube garden",
-          "admin_area": "北海道",
-          "local_date": "2026-10-09",
-          "open_time": "2026-10-09T18:30:00+09:00",
-          "start_time": "2026-10-09T19:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "宮城県・darwin",
-          "admin_area": "宮城県",
-          "local_date": "2026-10-17",
-          "open_time": "2026-10-17T16:30:00+09:00",
-          "start_time": "2026-10-17T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "岡山県・IMAGE",
-          "admin_area": "岡山県",
-          "local_date": "2026-10-23",
-          "open_time": "2026-10-23T18:30:00+09:00",
-          "start_time": "2026-10-23T19:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "静岡県・窓枠",
-          "admin_area": "静岡県",
-          "local_date": "2026-10-25",
-          "open_time": "2026-10-25T16:30:00+09:00",
-          "start_time": "2026-10-25T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "石川県・REDSUN",
-          "admin_area": "石川県",
-          "local_date": "2026-11-07",
-          "open_time": "2026-11-07T16:30:00+09:00",
-          "start_time": "2026-11-07T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "福岡県・BEAT STATION",
-          "admin_area": "福岡県",
-          "local_date": "2026-11-14",
-          "open_time": "2026-11-14T16:30:00+09:00",
-          "start_time": "2026-11-14T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "広島県・CAVE-BE",
-          "admin_area": "広島県",
-          "local_date": "2026-11-15",
-          "open_time": "2026-11-15T16:30:00+09:00",
-          "start_time": "2026-11-15T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "愛知県・ell.FITS ALL",
-          "admin_area": "愛知県",
-          "local_date": "2026-11-27",
-          "open_time": "2026-11-27T18:30:00+09:00",
-          "start_time": "2026-11-27T19:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026",
-          "venue": "大阪府・BananaHall",
-          "admin_area": "大阪府",
-          "local_date": "2026-11-28",
-          "open_time": "2026-11-28T16:15:00+09:00",
-          "start_time": "2026-11-28T17:00:00+09:00",
-          "source_url": "https://bradio.jp/news/detail/2058",
-          "confidence": "confirmed",
-          "visibility": "public"
+          "visibility": "public",
+          "excluded_per_spec": true
         }
       ]
     }

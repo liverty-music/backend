@@ -58,7 +58,7 @@ require (
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/text v0.39.0
 	golang.org/x/time v0.15.0
-	google.golang.org/genai v1.57.0
+	google.golang.org/genai v1.69.0
 	google.golang.org/genproto v0.0.0-20260316180232-0b37fe3546d5
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.12

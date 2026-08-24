@@ -109,13 +109,13 @@ Extraction rules:
 - channel: write exactly ONE of these 7 Japanese tokens; empty if unknown:
     "ファンクラブ" — fan-club members only.
     "公式"         — direct sale from the artist/label official site or app (non-fan-club).
-    "プレイガイド" — any third-party play guide (e+, チケットぴあ, ローチケ, CN Playguide, …); put the concrete company name in provider_name.
+    "プレイガイド" — any third-party play guide (e+, チケットぴあ, ローチケ, CN Playguide, …); put the concrete company name in provider_name. A sale conducted through a named play guide is プレイガイド even when it is a general (non-membership) on-sale.
     "クレジットカード" — a specific credit-card-member presale.
     "携帯キャリア" — a mobile-carrier presale (docomo/au/SoftBank).
-    "一般"         — general on-sale with no membership/affiliation gate.
+    "一般"         — a general on-sale NOT tied to a named play guide (e.g. a direct general sale on the official site). If a general on-sale is sold via a named play guide, classify it as プレイガイド (guide in provider_name), NOT 一般.
 - provider_name: copy the ticketing company name verbatim. Empty if unknown. When channel is "プレイガイド", always fill in the concrete company name.
 - sequence: 0-based ordinal when the same channel runs multiple rounds. Usually 0.
-- apply_start, apply_end, lottery_result, payment_deadline: verbatim date/time strings as written on the page. Empty when unknown or not applicable.
+- apply_start, apply_end, lottery_result, payment_deadline: verbatim date/time strings as written on the page. Empty when unknown or not applicable. For 抽選 (lottery) phases, apply_end (application deadline) and lottery_result (result-announcement date) are normally published together with the application window — follow the ticket page and fill them in; leave empty only when genuinely absent (never guess).
 - Date scope: relative to the "today" given in the user prompt, do NOT output sales whose application deadline is before today. Only sales that are about to open or currently open with a deadline on/after today. If none qualify, return an empty <extracted> with no <phase>.
 - Leave a tag empty when the value cannot be confirmed. Never guess or fill in.
 - Respond with XML only; no extra text.
