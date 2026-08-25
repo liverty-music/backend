@@ -41,6 +41,12 @@ const (
 		FROM series
 		WHERE id = ANY($1)
 	`
+
+	deleteOrphanedSeriesQuery = `
+		DELETE FROM series s
+		WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
+			AND NOT EXISTS (SELECT 1 FROM staged_concerts sc WHERE sc.series_id = s.id)
+	`
 )
 
 // Create persists one or more series rows. Nil elements are skipped silently.
@@ -126,6 +132,16 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 		)
 	}
 	return insertedIDs, nil
+}
+
+// DeleteOrphaned removes every series row with no member events and no pending
+// staged concerts referencing it. Returns the number of rows deleted.
+func (r *SeriesRepository) DeleteOrphaned(ctx context.Context) (int64, error) {
+	tag, err := r.db.Pool.Exec(ctx, deleteOrphanedSeriesQuery)
+	if err != nil {
+		return 0, toAppErr(err, "failed to delete orphaned series")
+	}
+	return tag.RowsAffected(), nil
 }
 
 // Get retrieves a series by its ID. Returns apperr.ErrNotFound if no row exists.

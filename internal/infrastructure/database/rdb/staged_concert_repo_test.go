@@ -13,7 +13,9 @@ import (
 	"uuid"
 )
 
-// buildStagedConcert returns a minimal StagedConcert for the given artist.
+// buildStagedConcert returns a minimal StagedConcert for the given artist. It
+// seeds a parent series row (staged_concerts.series_id is a real FK) and points
+// the staged concert at it.
 func buildStagedConcert(t *testing.T, artistID string) *entity.StagedConcert {
 	t.Helper()
 	id := uuid.NewV7().String()
@@ -23,6 +25,7 @@ func buildStagedConcert(t *testing.T, artistID string) *entity.StagedConcert {
 	return &entity.StagedConcert{
 		ID:              id,
 		ArtistID:        artistID,
+		SeriesID:        seedSeriesOnly(t, "Test Series"),
 		Title:           "Test Concert",
 		LocalDate:       localDate,
 		ListedVenueName: listedVenue,
@@ -242,16 +245,16 @@ func TestStagedConcertRepository_ListPendingDedupKeysByArtist(t *testing.T) {
 
 	// Artist A — two staged concerts.
 	scA1 := &entity.StagedConcert{
-		ID: uuid.NewV7().String(), ArtistID: artistA, Title: "Show 1",
+		ID: uuid.NewV7().String(), ArtistID: artistA, SeriesID: seedSeriesOnly(t, "Series A1"), Title: "Show 1",
 		LocalDate: date1, ListedVenueName: "Venue Alpha",
 	}
 	scA2 := &entity.StagedConcert{
-		ID: uuid.NewV7().String(), ArtistID: artistA, Title: "Show 2",
+		ID: uuid.NewV7().String(), ArtistID: artistA, SeriesID: seedSeriesOnly(t, "Series A2"), Title: "Show 2",
 		LocalDate: date2, ListedVenueName: "Venue Beta",
 	}
 	// Artist B — one staged concert.
 	scB1 := &entity.StagedConcert{
-		ID: uuid.NewV7().String(), ArtistID: artistB, Title: "Show B",
+		ID: uuid.NewV7().String(), ArtistID: artistB, SeriesID: seedSeriesOnly(t, "Series B1"), Title: "Show B",
 		LocalDate: date1, ListedVenueName: "Venue Gamma",
 	}
 	require.NoError(t, repo.Upsert(ctx, scA1))

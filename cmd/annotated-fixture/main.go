@@ -212,33 +212,31 @@ func determineStatus(
 	return "—— 欠落"
 }
 
-func toScraped(rc rawConcert) *entity.ScrapedConcert {
-	sc := &entity.ScrapedConcert{
-		Title:           rc.Title,
+func toScraped(rc rawConcert) gemini.ScoredEvent {
+	ev := &entity.DiscoveredEvent{
 		ListedVenueName: rc.ListedVenueName,
-		SourceURL:       rc.SourceURL,
 	}
 	if rc.LocalDate != "" {
 		if t, err := time.Parse(time.RFC3339, rc.LocalDate); err == nil {
-			sc.LocalDate = t
+			ev.LocalDate = t
 		} else if t, err := time.Parse("2006-01-02", rc.LocalDate); err == nil {
-			sc.LocalDate = t
+			ev.LocalDate = t
 		}
 	}
 	if rc.StartTime != "" {
 		if t, err := time.Parse(time.RFC3339, rc.StartTime); err == nil {
-			sc.StartTime = t
+			ev.StartTime = t
 		}
 	}
 	if rc.OpenTime != "" {
 		if t, err := time.Parse(time.RFC3339, rc.OpenTime); err == nil {
-			sc.OpenTime = t
+			ev.OpenTime = t
 		}
 	}
 	if s, ok := rc.AdminArea.(string); ok && s != "" {
-		sc.AdminArea = &s
+		ev.AdminArea = &s
 	}
-	return sc
+	return gemini.ScoredEvent{Event: ev, SourceURL: rc.SourceURL}
 }
 
 func trimDate(s string) string {

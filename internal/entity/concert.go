@@ -51,18 +51,17 @@ func (c *Concert) PerformerIDs() []string {
 	return ids
 }
 
-// ScrapedConcert represents raw concert information rediscovered from external sources.
-// It lacks system-specific identifiers like ID, SeriesID, or PerformerIDs.
-// JSON tags are present to support serialization as an event payload (concert.discovered).
-type ScrapedConcert struct {
-	// Title is the descriptive title of the scraped event. During the transition
-	// to first-class series, this is used as both the series title and (when the
-	// event has a unique subtitle) the event-specific suffix.
-	Title string `json:"title"`
+// DiscoveredEvent is one physical show (a single date at a single venue) within
+// a discovered series. It is the leaf of the series-grouped discovery model:
+// series-level metadata (title, type, source URL) lives on the parent
+// [DiscoveredSeries], never on the event, so it cannot be duplicated per date.
+//
+// JSON tags support serialization as the concert.discovered event payload.
+type DiscoveredEvent struct {
 	// ListedVenueName is the raw venue name as listed in the source data.
 	ListedVenueName string `json:"listed_venue_name"`
-	// AdminArea is the administrative area (prefecture, state, province) where the venue is located.
-	// It is nil when the area could not be determined with confidence.
+	// AdminArea is the administrative area (prefecture, state, province) where the
+	// venue is located. Nil when it could not be determined with confidence.
 	AdminArea *string `json:"admin_area,omitempty"`
 	// LocalDate represents the calendar date of the event.
 	// See entity.Concert.LocalDate for detailed specifications.
@@ -73,56 +72,64 @@ type ScrapedConcert struct {
 	// OpenTime is the time when doors open (optional).
 	// Zero value means unknown; omitted from JSON via omitzero.
 	OpenTime time.Time `json:"open_time,omitzero"`
-	// SourceURL is the URL where this information was found. Used to populate
-	// the parent Series.SourceURL.
-	SourceURL string `json:"source_url"`
-	// IsTour reports whether this concert originated from a Gemini <tour> block
-	// (as opposed to <standalone>). It selects SeriesType downstream: TOUR vs
-	// SINGLE. Serialized so it survives the concert.discovered Pub/Sub payload.
-	IsTour bool `json:"is_tour,omitempty"`
-	// TourGroup ties together all concerts from the same tour block within one
-	// discovery run, so the creation path can persist them under one Series. It
-	// is an intra-run handle (unique within a single search only), NOT a
-	// cross-run series key — series identity is adopted from already-persisted
-	// member events. Zero for standalone concerts.
-	TourGroup int `json:"tour_group,omitempty"`
 }
 
-// ToConcert converts a ScrapedConcert into a fully-populated Concert entity.
+// DiscoveredSeries groups the events of one discovered tour or standalone show
+// under shared series-level metadata. Grouping is structural — every event in
+// Events belongs to this one series — so per-event fragmentation is impossible
+// by construction. A Gemini <tour> block maps to Type SERIES_TYPE_TOUR with one
+// event per date; a <standalone> block maps to SINGLE with exactly one event.
 //
-// The caller supplies the three IDs (artist, event, venue) and the seriesID
-// of the parent Series that has already been built (or will be built in the
-// same transaction). The returned Concert embeds the Series shell — with the
-// title and source URL copied from the scrape — so the caller can pass the
-// same Series instance into SeriesRepository.Create alongside ConcertRepository.Create.
+// JSON tags support serialization as the concert.discovered event payload.
+type DiscoveredSeries struct {
+	// Title is the series title (tour or show name), shared across all events.
+	Title string `json:"title"`
+	// Type classifies the series: TOUR for a multi-venue/multi-date run, SINGLE
+	// for a standalone show.
+	Type SeriesType `json:"type"`
+	// SourceURL is the series-level official URL (tour/feature page or the
+	// specific announcement article). Empty when no canonical landing page is
+	// known. Stored once per series, never duplicated per event.
+	SourceURL string `json:"source_url,omitempty"`
+	// Events are the member events of this series, one per date.
+	Events []*DiscoveredEvent `json:"events"`
+}
+
+// ToConcert converts one member event of a discovered series into a
+// fully-populated Concert entity.
+//
+// The caller supplies the parent seriesID plus the event and venue IDs. The
+// returned Concert embeds the Series shell — with the title, type, and source
+// URL copied from the discovered series — so the caller can pass the same Series
+// instance into SeriesRepository.Create alongside ConcertRepository.Create.
 //
 // Two usage patterns exist:
 //
-//   - Search path (concert_uc): pass empty strings for eventID, venueID, and
-//     seriesID. The returned Concert is for immediate return to callers and is
-//     never persisted; the embedded Series is non-canonical.
-//   - Creation path (concert_creation_uc): pass UUIDs for all four IDs. The
-//     returned Concert is bulk-inserted into the database, and the embedded
-//     Series row is inserted in the same use-case run via SeriesRepository.
-func (sc *ScrapedConcert) ToConcert(artistID, seriesID, eventID, venueID string, seriesType SeriesType) *Concert {
-	listedName := sc.ListedVenueName
+//   - Search path (concert_uc): pass empty strings for eventID and venueID. The
+//     returned Concert is for immediate return to callers and is never persisted;
+//     the embedded Series is non-canonical.
+//   - Creation path (concert_creation_uc): pass UUIDs for all IDs. The returned
+//     Concert is bulk-inserted into the database, and the Series row is inserted
+//     in the same use-case run via SeriesRepository.
+func (s *DiscoveredSeries) ToConcert(ev *DiscoveredEvent, artistID, seriesID, eventID, venueID string) *Concert {
+	listedName := ev.ListedVenueName
 	series := &Series{
 		ID:        seriesID,
-		Title:     sc.Title,
-		Type:      seriesType,
-		SourceURL: sc.SourceURL,
+		Title:     s.Title,
+		Type:      s.Type,
+		SourceURL: s.SourceURL,
 	}
 	c := &Concert{
 		ID:              eventID,
 		SeriesID:        seriesID,
 		VenueID:         venueID,
 		ListedVenueName: &listedName,
-		LocalDate:       sc.LocalDate,
+		LocalDate:       ev.LocalDate,
 		Series:          series,
 		Performers:      []*Artist{{ID: artistID}},
 	}
-	c.StartTime = NullableTime(sc.StartTime)
-	c.OpenTime = NullableTime(sc.OpenTime)
+	c.StartTime = NullableTime(ev.StartTime)
+	c.OpenTime = NullableTime(ev.OpenTime)
 	return c
 }
 
@@ -150,36 +157,36 @@ func StartKey(t *time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// ScrapedConcerts is a slice of ScrapedConcert pointers with domain-level operations.
-type ScrapedConcerts []*ScrapedConcert
-
-// FilterNew returns scraped concerts that do not conflict with existing concerts,
-// a best-effort upstream filter aligned with the events physical natural key
-// `(venue_id, local_event_date, start_at)`. It handles both cross-batch
-// deduplication (against existing DB concerts) and within-batch deduplication
-// (multiple scraped rows for the same key in the receiver). The key uses
-// ListedVenueName rather than the resolved venue_id because scraped concerts
-// have not yet been venue-resolved; ListedVenueName is the upstream identity
-// that survives both sides of the comparison. The name component is compared
-// through NormalizeVenueName so Gemini's formatting drift across runs
-// (full/half-width, whitespace, "大阪・"/"大阪公演 ＠" location prefixes) does not
-// defeat the match; the (date, start_at) components are unchanged.
+// FilterNewSeries drops events that already conflict with existing concerts (or
+// duplicate another event within this same batch) from each discovered series,
+// then drops any series left with no events. It is a best-effort upstream filter
+// aligned with the events physical natural key
+// `(venue_id, local_event_date, start_at)`, applied per event while preserving
+// the series grouping so a tour that partially overlaps known dates still
+// persists its new dates under one series.
+//
+// The key uses ListedVenueName rather than the resolved venue_id because
+// discovered events have not yet been venue-resolved; ListedVenueName is the
+// upstream identity that survives both sides of the comparison. The name
+// component is compared through NormalizeVenueName so Gemini's formatting drift
+// across runs (full/half-width, whitespace, "大阪・"/"大阪公演 ＠" location prefixes)
+// does not defeat the match; the (date, start_at) components are unchanged.
 //
 // start_time disambiguates within a (date, venue), but asymmetrically so the
 // downstream resolution stays correct:
 //   - two KNOWN start times that differ → distinct shows (matinee/evening —
 //     昼夜2公演) → both kept.
-//   - a scraped entry with NO start time, when anything is already known at that
+//   - an event with NO start time, when anything is already known at that
 //     (date, venue) → it adds no information → dropped.
-//   - a scraped entry WITH a start time, when only an unknown-start row exists at
-//     that (date, venue) → kept, so the creation path can fill the announced
-//     time onto the existing row instead of dropping it here.
+//   - an event WITH a start time, when only an unknown-start row exists at that
+//     (date, venue) → kept, so the creation path can fill the announced time
+//     onto the existing row instead of dropping it here.
 //
 // The creation path resolves event identity authoritatively (exact dedup, fill,
 // or insert); this filter only avoids redundant publish/UPSERT round-trips.
 //
-// Returns nil if no new concerts remain after filtering.
-func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
+// Returns nil if no new events remain in any series after filtering.
+func FilterNewSeries(series []*DiscoveredSeries, existing []*Concert) []*DiscoveredSeries {
 	type vdKey struct {
 		date  string
 		venue string
@@ -202,42 +209,58 @@ func (ss ScrapedConcerts) FilterNew(existing []*Concert) ScrapedConcerts {
 		// before listed_venue_name was stored has no upstream identity to dedup
 		// against, and keying it as {date, ""} would silently swallow a
 		// legitimate re-scrape that now carries the real venue name. Symmetric
-		// with the empty-venue scraped skip below.
+		// with the empty-venue event skip below.
 		if ex.ListedVenueName == nil {
 			continue
 		}
 		mark(vdKey{date: ex.LocalDate.Format("2006-01-02"), venue: NormalizeVenueName(*ex.ListedVenueName)}, StartKey(ex.StartTime))
 	}
 
-	var result ScrapedConcerts
-	for _, s := range ss {
-		// Drop blank-venue (TBA) scraped entries entirely. They have no
-		// natural-key identity to dedup against on the creation path —
-		// CreateFromDiscovered already skips them with a Warn before insert —
-		// AND they have no useful content for the search path: ToConcert on the
-		// search side produces an empty VenueID / event ID, so the client would
-		// receive malformed concert rows with empty wrappers. Dropping at the
-		// FilterNew boundary is the single chokepoint for both consumers.
-		if s.ListedVenueName == "" {
+	var result []*DiscoveredSeries
+	for _, s := range series {
+		if s == nil {
 			continue
 		}
-		k := vdKey{date: s.LocalDate.Format("2006-01-02"), venue: NormalizeVenueName(s.ListedVenueName)}
-		start := StartKey(NullableTime(s.StartTime))
-		var dup bool
-		if start == "" {
-			// Unknown start: redundant if anything is already known here.
-			dup = len(seen[k]) > 0
-		} else {
-			// Known start: redundant only if this exact time was already seen;
-			// an existing unknown-start row does NOT absorb it (it must pass so
-			// the creation path can fill the announced time).
-			dup = seen[k][start]
+		var kept []*DiscoveredEvent
+		for _, ev := range s.Events {
+			if ev == nil {
+				continue
+			}
+			// Drop blank-venue (TBA) events entirely. They have no natural-key
+			// identity to dedup against on the creation path (CreateFromDiscovered
+			// skips them with a Warn before insert) AND no useful content for the
+			// search path (ToConcert produces an empty VenueID / event ID, so the
+			// client would receive malformed concert rows with empty wrappers).
+			// Dropping here is the single chokepoint for both consumers.
+			if ev.ListedVenueName == "" {
+				continue
+			}
+			k := vdKey{date: ev.LocalDate.Format("2006-01-02"), venue: NormalizeVenueName(ev.ListedVenueName)}
+			start := StartKey(NullableTime(ev.StartTime))
+			var dup bool
+			if start == "" {
+				// Unknown start: redundant if anything is already known here.
+				dup = len(seen[k]) > 0
+			} else {
+				// Known start: redundant only if this exact time was already seen;
+				// an existing unknown-start row does NOT absorb it (it must pass so
+				// the creation path can fill the announced time).
+				dup = seen[k][start]
+			}
+			if dup {
+				continue
+			}
+			mark(k, start)
+			kept = append(kept, ev)
 		}
-		if dup {
+		if len(kept) == 0 {
 			continue
 		}
-		mark(k, start)
-		result = append(result, s)
+		// Copy the series shell with only the surviving events so the caller's
+		// input is not mutated.
+		ns := *s
+		ns.Events = kept
+		result = append(result, &ns)
 	}
 	return result
 }
@@ -436,6 +459,18 @@ type ConcertRepository interface {
 	// VenueID, LocalDate, StartTime); Venue and Performers are not hydrated.
 	// Returns an empty slice (no error) when the inputs are empty.
 	FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*Event, error)
+	// FindEventsByArtistAndDate returns existing events on any of the given local
+	// event dates at which the artist already performs (joined through
+	// event_performers). Used by the discovery write path to resolve a whole
+	// discovered series' identity BEFORE any Places API call: a full
+	// local_event_date makes an (artist, exact-date) collision across two
+	// different series practically impossible, so any matching event already
+	// belongs to this tour and its series_id is adopted for the group.
+	//
+	// Only physical-identity and parentage fields are populated (ID, SeriesID,
+	// VenueID, LocalDate, StartTime); Venue and Performers are not hydrated.
+	// Returns an empty slice (no error) when the inputs are empty.
+	FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*Event, error)
 	// FillEventStartTimes sets start_at / open_at on existing events identified
 	// by eventIDs, only where the column is currently NULL (COALESCE), for the
 	// case where a later discovery supplies a time the first discovery lacked.
@@ -479,5 +514,5 @@ type ConcertSearcher interface {
 	//  - InvalidArgument: If the artist or official site is invalid.
 	//  - Unavailable: If the external service is down.
 	//  - Internal: unexpected failure during search processing.
-	Search(ctx context.Context, artist *Artist, officialSite *OfficialSite, from time.Time) ([]*ScrapedConcert, error)
+	Search(ctx context.Context, artist *Artist, officialSite *OfficialSite, from time.Time) ([]*DiscoveredSeries, error)
 }

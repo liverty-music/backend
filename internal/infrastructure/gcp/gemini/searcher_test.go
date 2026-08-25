@@ -70,13 +70,29 @@ func TestConcertSearcher_Search(t *testing.T) {
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
+	// wantEvent is a flat per-event expectation used by the assertion loop.
+	// It mirrors the fields of entity.DiscoveredEvent plus the series-level
+	// Title and SourceURL so each test case can still be expressed in a
+	// readable flat style.
+	type wantEvent struct {
+		Title           string
+		SourceURL       string
+		ListedVenueName string
+		AdminArea       *string
+		LocalDate       time.Time
+		StartTime       time.Time
+		OpenTime        time.Time
+	}
+
 	tests := []struct {
 		name         string
 		responseBody string
 		statusCode   int
 		finishReason string
-		want         []*entity.ScrapedConcert
-		wantErr      error
+		// want is the flat list of expected events. For tours, all events
+		// share the same Title/SourceURL. Nil want means no events expected.
+		want    []wantEvent
+		wantErr error
 	}{
 		{
 			name:       "success - single standalone event",
@@ -93,7 +109,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					}
 				]
 			}`,
-			want: []*entity.ScrapedConcert{
+			want: []wantEvent{
 				{
 					Title:           "Test One-Off 2026",
 					ListedVenueName: "Test Hall",
@@ -105,7 +121,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:       "success - tour with multiple dates flattens to multiple concerts",
+			name:       "success - tour with multiple dates groups into one series",
 			statusCode: http.StatusOK,
 			responseBody: `{
 				"tours": [
@@ -116,33 +132,35 @@ func TestConcertSearcher_Search(t *testing.T) {
 								"venue": "Hall A",
 								"local_date": "2026-03-01",
 								"start_time": "2026-03-01T18:00:00Z",
-								"source_url": "https://example.com/test/a"
+								"source_url": "https://example.com/test/tour"
 							},
 							{
 								"venue": "Hall B",
 								"local_date": "2026-03-05",
 								"start_time": "2026-03-05T19:00:00Z",
-								"source_url": "https://example.com/test/b"
+								"source_url": "https://example.com/test/tour"
 							}
 						]
 					}
 				],
 				"standalones": []
 			}`,
-			want: []*entity.ScrapedConcert{
+			// The tour becomes ONE series with two events. We represent both
+			// events flat here for per-event assertion convenience.
+			want: []wantEvent{
 				{
 					Title:           "Test Tour 2026",
 					ListedVenueName: "Hall A",
 					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 					StartTime:       time.Date(2026, 3, 1, 18, 0, 0, 0, time.UTC),
-					SourceURL:       "https://example.com/test/a",
+					SourceURL:       "https://example.com/test/tour",
 				},
 				{
 					Title:           "Test Tour 2026",
 					ListedVenueName: "Hall B",
 					LocalDate:       time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC),
 					StartTime:       time.Date(2026, 3, 5, 19, 0, 0, 0, time.UTC),
-					SourceURL:       "https://example.com/test/b",
+					SourceURL:       "https://example.com/test/tour",
 				},
 			},
 			wantErr: nil,
@@ -163,7 +181,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					}
 				]
 			}`,
-			want: []*entity.ScrapedConcert{
+			want: []wantEvent{
 				{
 					Title:           "Nagoya Concert",
 					ListedVenueName: "Zepp Nagoya",
@@ -191,7 +209,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					}
 				]
 			}`,
-			want: []*entity.ScrapedConcert{
+			want: []wantEvent{
 				{
 					Title:           "Unknown Venue Concert",
 					ListedVenueName: "Some Venue",
@@ -224,7 +242,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					}
 				]
 			}`,
-			want: []*entity.ScrapedConcert{
+			want: []wantEvent{
 				{
 					Title:           "Test One-Off A",
 					ListedVenueName: "Test Hall",
@@ -257,7 +275,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					}
 				]
 			}`,
-			want: []*entity.ScrapedConcert{
+			want: []wantEvent{
 				{
 					Title:           "New Event",
 					ListedVenueName: "Test Hall",
@@ -347,19 +365,19 @@ func TestConcertSearcher_Search(t *testing.T) {
 					}
 				]
 			}`,
-			want: []*entity.ScrapedConcert{
+			want: []wantEvent{
 				{
 					Title:           "HH:MM Format",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-					// Invalid HH:MM results in zero StartTime
+					// Invalid HH:MM results in zero StartTime.
 					SourceURL: "https://example.com/hh-mm",
 				},
 				{
 					Title:           "Empty Start Time",
 					ListedVenueName: "Test Hall",
 					LocalDate:       time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC),
-					// Empty results in zero StartTime
+					// Empty results in zero StartTime.
 					SourceURL: "https://example.com/empty",
 				},
 				{
@@ -388,7 +406,7 @@ func TestConcertSearcher_Search(t *testing.T) {
 					}
 				]
 			}`,
-			want: []*entity.ScrapedConcert{
+			want: []wantEvent{
 				{
 					Title:           "Null Start Time Concert",
 					ListedVenueName: "Test Hall",
@@ -502,20 +520,25 @@ func TestConcertSearcher_Search(t *testing.T) {
 			}
 			assert.NoError(t, err)
 
-			require.Equal(t, len(tt.want), len(got))
+			// Flatten the series-grouped output into a per-event list so the
+			// assertions below can still be expressed in the same flat style as
+			// the original test. Each ScoredEvent carries the series-level
+			// SourceURL alongside the event pointer so all fields are reachable.
+			gotFlat := gemini.FlattenForScoring(got)
+			require.Equal(t, len(tt.want), len(gotFlat))
 			for i := range tt.want {
-				assert.Equal(t, tt.want[i].Title, got[i].Title, "Title mismatch at index %d", i)
-				assert.Equal(t, tt.want[i].ListedVenueName, got[i].ListedVenueName, "ListedVenueName mismatch at index %d", i)
+				ev := gotFlat[i].Event
+				assert.Equal(t, tt.want[i].ListedVenueName, ev.ListedVenueName, "ListedVenueName mismatch at index %d", i)
 				if tt.want[i].AdminArea == nil {
-					assert.Nil(t, got[i].AdminArea, "AdminArea should be nil at index %d", i)
+					assert.Nil(t, ev.AdminArea, "AdminArea should be nil at index %d", i)
 				} else {
-					require.NotNil(t, got[i].AdminArea, "AdminArea should not be nil at index %d", i)
-					assert.Equal(t, *tt.want[i].AdminArea, *got[i].AdminArea, "AdminArea mismatch at index %d", i)
+					require.NotNil(t, ev.AdminArea, "AdminArea should not be nil at index %d", i)
+					assert.Equal(t, *tt.want[i].AdminArea, *ev.AdminArea, "AdminArea mismatch at index %d", i)
 				}
-				assert.True(t, tt.want[i].LocalDate.Equal(got[i].LocalDate), "LocalDate mismatch at index %d", i)
-				assert.True(t, tt.want[i].StartTime.Equal(got[i].StartTime), "StartTime mismatch at index %d", i)
-				assert.True(t, tt.want[i].OpenTime.Equal(got[i].OpenTime), "OpenTime mismatch at index %d", i)
-				assert.Equal(t, tt.want[i].SourceURL, got[i].SourceURL, "SourceURL mismatch at index %d", i)
+				assert.True(t, tt.want[i].LocalDate.Equal(ev.LocalDate), "LocalDate mismatch at index %d", i)
+				assert.True(t, tt.want[i].StartTime.Equal(ev.StartTime), "StartTime mismatch at index %d", i)
+				assert.True(t, tt.want[i].OpenTime.Equal(ev.OpenTime), "OpenTime mismatch at index %d", i)
+				assert.Equal(t, tt.want[i].SourceURL, gotFlat[i].SourceURL, "SourceURL mismatch at index %d", i)
 			}
 		})
 	}
@@ -588,8 +611,11 @@ func TestConcertSearcher_Search_NoOfficialSite(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, got, 1)
+	// got[0] is a *entity.DiscoveredSeries. Title and SourceURL are series-level;
+	// the venue name lives on the single member event.
 	assert.Equal(t, "Nameless Tour", got[0].Title)
-	assert.Equal(t, "Test Hall", got[0].ListedVenueName)
+	require.Len(t, got[0].Events, 1, "standalone series must have exactly one event")
+	assert.Equal(t, "Test Hall", got[0].Events[0].ListedVenueName)
 	assert.Equal(t, "https://test-artist.example/news/1", got[0].SourceURL)
 	assert.Equal(t, int32(4), callCount.Load(), "3 Step 1 slices + 1 Step 2 parse = 4 calls")
 }

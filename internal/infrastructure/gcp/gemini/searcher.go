@@ -523,7 +523,7 @@ func (s *ConcertSearcher) Search(
 	artist *entity.Artist,
 	officialSite *entity.OfficialSite,
 	from time.Time,
-) ([]*entity.ScrapedConcert, error) {
+) ([]*entity.DiscoveredSeries, error) {
 	results, _, err := s.SearchExt(ctx, artist, officialSite, from)
 	return results, err
 }
@@ -545,7 +545,7 @@ func (s *ConcertSearcher) SearchExt(
 	artist *entity.Artist,
 	officialSite *entity.OfficialSite,
 	from time.Time,
-) ([]*entity.ScrapedConcert, *SearchMetadata, error) {
+) ([]*entity.DiscoveredSeries, *SearchMetadata, error) {
 	var officialSiteURL string
 	if officialSite != nil {
 		officialSiteURL = officialSite.URL
@@ -918,7 +918,7 @@ func (s *ConcertSearcher) runStep2Parse(
 	from time.Time,
 	md *SearchMetadata,
 	attrs []slog.Attr,
-) ([]*entity.ScrapedConcert, *PassMetadata, error) {
+) ([]*entity.DiscoveredSeries, *PassMetadata, error) {
 	if len(drafts) == 0 {
 		return nil, nil, nil
 	}
@@ -1295,7 +1295,7 @@ func (s *ConcertSearcher) parseStep2Response(
 	from time.Time,
 	md *SearchMetadata,
 	attrs ...slog.Attr,
-) ([]*entity.ScrapedConcert, error) {
+) ([]*entity.DiscoveredSeries, error) {
 	text := strings.TrimSpace(rawText)
 	if strings.Contains(text, "```") {
 		parts := strings.SplitSeq(text, "```")
@@ -1356,27 +1356,40 @@ func (s *ConcertSearcher) parseStep2Response(
 		byIndex[ev.Index] = ev
 	}
 
-	// Merge drafts + coerced output → final concerts, applying past-date
-	// filter and (local_date, venue, start_time) dedup along the way.
-	// start_time is part of the key so that two shows on the same date at
-	// the same venue (e.g. Billboard Live 1st stage / 2nd stage) survive
-	// as distinct concerts.
+	// Merge drafts + coerced output → discovered series, applying past-date
+	// filter and (local_date, venue, start_time) dedup along the way, while
+	// grouping events under their originating <tour>/<standalone> block. The
+	// Step 1 XML grouping is carried through EventDraft.IsTour / TourGroup and
+	// preserved end-to-end here — it is NOT re-derived from titles downstream.
 	//
-	// Note on empty start_time: two concerts that share (local_date, venue)
-	// AND both lack a published start_time will collapse to one row here
-	// (the second is dropped, logged via the "duplicate concert dropped"
-	// WARN below). This is intentional — we prefer to dedup conservatively
-	// when the disambiguator is missing rather than false-positive two
-	// rows. The trade-off is recall loss for the rare case of two genuinely
-	// distinct shows announced before their start times are published.
+	// start_time is part of the dedup key so that two shows on the same date at
+	// the same venue (e.g. Billboard Live 1st stage / 2nd stage) survive as
+	// distinct events.
+	//
+	// Note on empty start_time: two events that share (local_date, venue) AND
+	// both lack a published start_time collapse to one row here (the second is
+	// dropped, logged via the "duplicate event dropped" WARN below). This is
+	// intentional — we prefer to dedup conservatively when the disambiguator is
+	// missing rather than false-positive two rows. The trade-off is recall loss
+	// for the rare case of two genuinely distinct shows announced before their
+	// start times are published.
 	type dedupKey struct {
 		date      string
 		venue     string
 		startTime string
 	}
+	// seriesBucket accumulates the coerced events of one <tour>/<standalone>
+	// block along with its series-level metadata, preserving first-seen order.
+	type seriesBucket struct {
+		series *entity.DiscoveredSeries
+	}
 	seen := make(map[dedupKey]struct{}, len(drafts))
-	var discovered []*entity.ScrapedConcert
-	var toursCount, standalonesCount int
+	buckets := make(map[string]*seriesBucket, len(drafts))
+	var order []string
+	// standaloneSeq gives each standalone draft its own series bucket even when
+	// two standalones share a title (they are genuinely distinct shows). Tour
+	// drafts group by their TourGroup handle so a multi-date tour is one series.
+	standaloneSeq := 0
 	for i, draft := range drafts {
 		coerced, ok := byIndex[i]
 		if !ok {
@@ -1386,17 +1399,17 @@ func (s *ConcertSearcher) parseStep2Response(
 				append(attrs, slog.Int("index", i), slog.String("title", draft.Title))...)
 			continue
 		}
-		c := s.toScrapedConcert(ctx, draft, coerced, from, attrs)
-		if c == nil {
+		ev := s.toDiscoveredEvent(ctx, draft, coerced, from, attrs)
+		if ev == nil {
 			continue
 		}
 		// Use the normalized venue form as the dedup key so cross-slice
 		// duplicates with slightly different verbatim prefixes ("大阪府・X"
-		// vs "X") collapse correctly. The returned ScrapedConcert keeps
+		// vs "X") collapse correctly. The returned DiscoveredEvent keeps
 		// `draft.Venue` verbatim — normalization only affects the key.
 		key := dedupKey{date: coerced.LocalDate, venue: NormalizeVenue(draft.Venue), startTime: coerced.StartTime}
 		if _, dup := seen[key]; dup {
-			s.logger.Warn(ctx, "duplicate concert dropped by (local_date, normalized_venue, start_time) dedup",
+			s.logger.Warn(ctx, "duplicate event dropped by (local_date, normalized_venue, start_time) dedup",
 				append(attrs,
 					slog.String("title", draft.Title),
 					slog.String("date", coerced.LocalDate),
@@ -1407,25 +1420,39 @@ func (s *ConcertSearcher) parseStep2Response(
 			continue
 		}
 		seen[key] = struct{}{}
-		discovered = append(discovered, c)
-		// We can't classify tour vs standalone from EventDraft alone
-		// (the same EventDraft shape covers both). Track structural
-		// counts by checking whether multiple drafts share the same
-		// title — done after the loop.
-		_ = toursCount
-		_ = standalonesCount
+
+		// Resolve the series bucket this event belongs to. Tour drafts share a
+		// bucket per TourGroup; each standalone draft gets a fresh bucket.
+		var bucketKey string
+		var seriesType entity.SeriesType
+		if draft.IsTour {
+			bucketKey = fmt.Sprintf("T%d", draft.TourGroup)
+			seriesType = entity.SeriesTypeTour
+		} else {
+			standaloneSeq++
+			bucketKey = fmt.Sprintf("S%d", standaloneSeq)
+			seriesType = entity.SeriesTypeSingle
+		}
+		b, ok := buckets[bucketKey]
+		if !ok {
+			b = &seriesBucket{series: &entity.DiscoveredSeries{
+				Title:     draft.Title,
+				Type:      seriesType,
+				SourceURL: draft.SourceURL,
+			}}
+			buckets[bucketKey] = b
+			order = append(order, bucketKey)
+		}
+		b.series.Events = append(b.series.Events, ev)
 	}
 
-	// Compute tours / standalones counts by grouping discovered events
-	// on Title (multi-event title = tour; single-event title =
-	// standalone). This mirrors the structural classification the
-	// previous schema enforced.
-	byTitle := make(map[string]int, len(discovered))
-	for _, c := range discovered {
-		byTitle[c.Title]++
-	}
-	for _, cnt := range byTitle {
-		if cnt >= 2 {
+	discovered := make([]*entity.DiscoveredSeries, 0, len(order))
+	var toursCount, standalonesCount, eventCount int
+	for _, k := range order {
+		ds := buckets[k].series
+		discovered = append(discovered, ds)
+		eventCount += len(ds.Events)
+		if ds.Type == entity.SeriesTypeTour {
 			toursCount++
 		} else {
 			standalonesCount++
@@ -1440,7 +1467,8 @@ func (s *ConcertSearcher) parseStep2Response(
 		append(attrs,
 			slog.Int("draft_count", len(drafts)),
 			slog.Int("step2_returned", len(resp.Events)),
-			slog.Int("discovered_count", len(discovered)),
+			slog.Int("series_count", len(discovered)),
+			slog.Int("event_count", eventCount),
 			slog.Int("tours_count", toursCount),
 			slog.Int("standalones_count", standalonesCount),
 		)...,
@@ -1448,18 +1476,19 @@ func (s *ConcertSearcher) parseStep2Response(
 	return discovered, nil
 }
 
-// toScrapedConcert merges a Go-side EventDraft (Title / Venue /
-// SourceURL pass-through) with the Step 2 coerced output
-// (AdminArea / LocalDate / StartTime / OpenTime in ISO form) into an
-// entity.ScrapedConcert. Returns nil if the event must be skipped
-// (unparseable date, or local_date is before `from`).
-func (s *ConcertSearcher) toScrapedConcert(
+// toDiscoveredEvent merges a Go-side EventDraft (Venue pass-through) with the
+// Step 2 coerced output (AdminArea / LocalDate / StartTime / OpenTime in ISO
+// form) into an entity.DiscoveredEvent. Series-level fields (Title / SourceURL /
+// Type) are NOT carried here — the caller places the event under its parent
+// DiscoveredSeries. Returns nil if the event must be skipped (unparseable date,
+// or local_date is before `from`).
+func (s *ConcertSearcher) toDiscoveredEvent(
 	ctx context.Context,
 	draft EventDraft,
 	coerced step2OutputEvent,
 	from time.Time,
 	attrs []slog.Attr,
-) *entity.ScrapedConcert {
+) *entity.DiscoveredEvent {
 	date, err := time.Parse("2006-01-02", coerced.LocalDate)
 	if err != nil {
 		s.logger.Warn(ctx, "failed to parse event date and skip",
@@ -1501,15 +1530,11 @@ func (s *ConcertSearcher) toScrapedConcert(
 		adminArea = geo.NormalizeAdminArea(coerced.AdminArea)
 	}
 
-	return &entity.ScrapedConcert{
-		Title:           draft.Title,
+	return &entity.DiscoveredEvent{
 		ListedVenueName: draft.Venue,
 		AdminArea:       adminArea,
 		LocalDate:       date,
 		StartTime:       startTime,
 		OpenTime:        openTime,
-		SourceURL:       draft.SourceURL,
-		IsTour:          draft.IsTour,
-		TourGroup:       draft.TourGroup,
 	}
 }

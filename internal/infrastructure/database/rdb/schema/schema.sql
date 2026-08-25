@@ -369,6 +369,7 @@ COMMENT ON COLUMN sales_phase_reminders.sent_at IS 'Timestamp when the reminder 
 CREATE TABLE IF NOT EXISTS staged_concerts (
     id UUID PRIMARY KEY,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     local_date DATE NOT NULL,
     start_at TIMESTAMPTZ,
@@ -388,6 +389,7 @@ CREATE TABLE IF NOT EXISTS staged_concerts (
 COMMENT ON TABLE staged_concerts IS 'Approval queue for AI-discovered concerts. Holds only pending rows; approve publishes and deletes, reject logs and deletes. Re-discovery dedup consults this table plus published events, but never the rejection log.';
 COMMENT ON COLUMN staged_concerts.id IS 'Unique staged concert identifier (UUIDv7, application-generated). Exposed to the admin console as StagedConcertId.';
 COMMENT ON COLUMN staged_concerts.artist_id IS 'The performing artist this concert was discovered for.';
+COMMENT ON COLUMN staged_concerts.series_id IS 'Parent series this staged event belongs to. The series row is created at discovery time (when the group series_id is resolved), so this is a real foreign key by staging time; approval inserts the event under it without minting a new series. type/title/source_url live on the series row.';
 COMMENT ON COLUMN staged_concerts.title IS 'Descriptive title extracted for the concert (e.g. tour or show name).';
 COMMENT ON COLUMN staged_concerts.local_date IS 'Scheduled calendar date of the concert in the venue local timezone.';
 COMMENT ON COLUMN staged_concerts.start_at IS 'Scheduled start time. NULL when the source did not state one.';

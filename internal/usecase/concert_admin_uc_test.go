@@ -124,13 +124,28 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 }
 
 // seedStaged inserts a staged concert into the fake repo and returns it.
+// The staged row always carries a SeriesID referencing a pre-existing series
+// (created at discovery time), matching the new model where Approve never mints
+// a series. The parent series is also seeded into seriesRepo.byID so that
+// conflict-detection helpers that call seriesRepo.Get can resolve the title.
 func seedStaged(d *approvalTestDeps, artistID string) *entity.StagedConcert {
 	placeID := "place-abc"
 	venueName := "Venue ABC Canonical"
 	sourceURL := "https://example.com/show"
+	const stagedSeriesID = "series-staged-001"
+	// Seed the pre-existing series row so Get resolves correctly.
+	if d.seriesRepo.byID == nil {
+		d.seriesRepo.byID = make(map[string]*entity.Series)
+	}
+	d.seriesRepo.byID[stagedSeriesID] = &entity.Series{
+		ID:    stagedSeriesID,
+		Title: "Approval Test Concert",
+		Type:  entity.SeriesTypeSingle,
+	}
 	sc := &entity.StagedConcert{
 		ID:                "staged-001",
 		ArtistID:          artistID,
+		SeriesID:          stagedSeriesID,
 		Title:             "Approval Test Concert",
 		LocalDate:         time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
 		ListedVenueName:   "Venue ABC",
@@ -163,9 +178,12 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		assert.Len(t, d.concertRepo.created, 1)
 		assert.Equal(t, artist.ID, d.concertRepo.created[0].PerformerIDs()[0])
 
-		// Series was created.
-		assert.Len(t, d.seriesRepo.created, 1)
-		assert.Equal(t, sc.Title, d.seriesRepo.created[0].Title)
+		// Approve NEVER mints a series — the series row already exists (created at
+		// discovery time, referenced via StagedConcert.SeriesID).
+		assert.Empty(t, d.seriesRepo.created,
+			"Approve must not create a new series; the series was minted at discovery time")
+		assert.Equal(t, sc.SeriesID, d.concertRepo.created[0].SeriesID,
+			"approved concert must be inserted under the staged row's existing series ID")
 
 		// Venue was created from resolved fields.
 		assert.Len(t, d.venueRepo.created, 1)

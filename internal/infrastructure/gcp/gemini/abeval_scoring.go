@@ -107,11 +107,38 @@ func (e GroundTruthEvent) Key() MatchKey {
 	return MatchKey{LocalDate: e.LocalDate, Venue: NormalizeVenue(e.Venue)}
 }
 
+// ScoredEvent pairs a model-produced discovered event with its series-level
+// SourceURL so the A/B harness can score per-event while the source URL now
+// lives on the parent series rather than on each event.
+type ScoredEvent struct {
+	Event     *entity.DiscoveredEvent
+	SourceURL string
+}
+
+// FlattenForScoring flattens discovered series into per-event scoring units,
+// carrying each series' SourceURL down onto its events. It is the adapter
+// between the series-grouped discovery output and the per-event A/B scorer.
+func FlattenForScoring(series []*entity.DiscoveredSeries) []ScoredEvent {
+	var out []ScoredEvent
+	for _, s := range series {
+		if s == nil {
+			continue
+		}
+		for _, ev := range s.Events {
+			if ev == nil {
+				continue
+			}
+			out = append(out, ScoredEvent{Event: ev, SourceURL: s.SourceURL})
+		}
+	}
+	return out
+}
+
 // KeyForScraped returns the MatchKey for a model-produced event.
-func KeyForScraped(sc *entity.ScrapedConcert) MatchKey {
+func KeyForScraped(sc ScoredEvent) MatchKey {
 	return MatchKey{
-		LocalDate: sc.LocalDate.Format("2006-01-02"),
-		Venue:     NormalizeVenue(sc.ListedVenueName),
+		LocalDate: sc.Event.LocalDate.Format("2006-01-02"),
+		Venue:     NormalizeVenue(sc.Event.ListedVenueName),
 	}
 }
 
@@ -136,10 +163,11 @@ type FieldAccuracy struct {
 //     A zero StartTime/OpenTime in the scraped event matches an empty
 //     ISO string in the fixture and vice versa.
 //   - SourceURL: case-insensitive exact match.
-func CompareEvent(scraped *entity.ScrapedConcert, expected GroundTruthEvent) FieldAccuracy {
+func CompareEvent(scraped ScoredEvent, expected GroundTruthEvent) FieldAccuracy {
+	ev := scraped.Event
 	got := FieldAccuracy{
-		Venue:     NormalizeVenue(scraped.ListedVenueName) == NormalizeVenue(expected.Venue),
-		LocalDate: scraped.LocalDate.Format("2006-01-02") == expected.LocalDate,
+		Venue:     NormalizeVenue(ev.ListedVenueName) == NormalizeVenue(expected.Venue),
+		LocalDate: ev.LocalDate.Format("2006-01-02") == expected.LocalDate,
 	}
 
 	// Both sides go through geo.NormalizeAdminArea so the comparison is
@@ -148,8 +176,8 @@ func CompareEvent(scraped *entity.ScrapedConcert, expected GroundTruthEvent) Fie
 	// for review-ability; normalization turns them into "JP-27" before
 	// comparison.
 	gotAdmin := ""
-	if scraped.AdminArea != nil {
-		gotAdmin = *scraped.AdminArea
+	if ev.AdminArea != nil {
+		gotAdmin = *ev.AdminArea
 	}
 	wantAdmin := ""
 	if expected.AdminArea != "" {
@@ -161,8 +189,8 @@ func CompareEvent(scraped *entity.ScrapedConcert, expected GroundTruthEvent) Fie
 	}
 	got.AdminArea = gotAdmin == wantAdmin
 
-	got.StartTime = timesEqual(scraped.StartTime, expected.StartTime)
-	got.OpenTime = timesEqual(scraped.OpenTime, expected.OpenTime)
+	got.StartTime = timesEqual(ev.StartTime, expected.StartTime)
+	got.OpenTime = timesEqual(ev.OpenTime, expected.OpenTime)
 	got.SourceURL = strings.EqualFold(scraped.SourceURL, expected.SourceURL)
 	return got
 }

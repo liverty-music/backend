@@ -449,8 +449,11 @@ func runCell(
 		return res
 	}
 
-	res.ReturnedCount = len(got)
-	scoreCell(&res, got, cell.Artist.Events)
+	// Flatten the series-grouped output into per-event scoring units, carrying
+	// each series' SourceURL down onto its events.
+	scored := gemini.FlattenForScoring(got)
+	res.ReturnedCount = len(scored)
+	scoreCell(&res, scored, cell.Artist.Events)
 	return res
 }
 
@@ -463,7 +466,7 @@ func writeRawResponse(
 	cellIdx int,
 	cell abCell,
 	md *gemini.SearchMetadata,
-	parsed []*entity.ScrapedConcert,
+	parsed []*entity.DiscoveredSeries,
 	errMsg string,
 ) {
 	t.Helper()
@@ -565,7 +568,7 @@ func passMetadataPayload(pm *gemini.PassMetadata) map[string]any {
 // FalsePositives = returned events not matching any fixture entry at all
 // (either in-scope or excluded). These are the worst kind — pure hallucinations
 // or wrong-venue/date matches.
-func scoreCell(res *cellResult, got []*entity.ScrapedConcert, fixture []gemini.GroundTruthEvent) {
+func scoreCell(res *cellResult, got []gemini.ScoredEvent, fixture []gemini.GroundTruthEvent) {
 	fixByKey := make(map[gemini.MatchKey]gemini.GroundTruthEvent, len(fixture))
 	for _, f := range fixture {
 		fixByKey[f.Key()] = f
