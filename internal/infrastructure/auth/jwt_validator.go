@@ -130,13 +130,98 @@ func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*
 	// key across all matching claim keys into a deduplicated slice.
 	roles := extractZitadelRoles(token)
 
+	// Extract the audience claim for organizer-console project id verification.
+	audiences := extractAudiences(token)
+
+	// Extract the org-scoped role grants, preserving the inner orgId.
+	// The login-scope org is inferred from the unique inner orgId across all
+	// project-scoped role grants (see Claims.LoginScopeOrgID for the full
+	// assumption). The org-scoped interceptor uses these to authorize
+	// organizer RPCs.
+	roleOrgIDs, loginScopeOrgID := extractRoleOrgIDs(token)
+
 	return &Claims{
-		Sub:           sub,
-		Email:         emailStr,
-		Name:          name,
-		EmailVerified: emailVerified,
-		Roles:         roles,
+		Sub:             sub,
+		Email:           emailStr,
+		Name:            name,
+		EmailVerified:   emailVerified,
+		Roles:           roles,
+		Audiences:       audiences,
+		LoginScopeOrgID: loginScopeOrgID,
+		RoleOrgIDs:      roleOrgIDs,
 	}, nil
+}
+
+// extractAudiences returns the audience ("aud") claim values from the token.
+// The JWT spec allows "aud" to be either a single string or an array of
+// strings; jwx normalises it to []string via Audiences().
+func extractAudiences(token jwt.Token) []string {
+	auds := token.Audience()
+	if len(auds) == 0 {
+		return nil
+	}
+	out := make([]string, len(auds))
+	copy(out, auds)
+	return out
+}
+
+// extractRoleOrgIDs scans the project-scoped role claim on token and collects
+// the set of Zitadel org ids under which the caller holds at least one role.
+// It returns (roleOrgIDs, loginScopeOrgID).
+//
+// loginScopeOrgID is the single unique inner orgId across all project-scoped
+// role grants — inferred as the login-scope org because Zitadel filters the
+// role grants to the org the operator logged in against. When the set of
+// unique inner orgIds is not exactly one, loginScopeOrgID is returned empty;
+// the org-scoped interceptor will reject such tokens with PERMISSION_DENIED.
+//
+// Only the project-scoped claim ("urn:zitadel:iam:org:project:{id}:roles") is
+// read here. The global claim ("urn:zitadel:iam:org:project:roles") does not
+// carry inner org ids and is therefore not useful for org-scoped authorization.
+//
+// ASSUMPTION: The login-scope org is inferred from the unique inner orgId in
+// the project-scoped roles claim. If Zitadel adds a dedicated
+// "urn:zitadel:iam:org:id" top-level claim to the token body, update this
+// function to read it directly. See Claims.LoginScopeOrgID for details.
+func extractRoleOrgIDs(token jwt.Token) (roleOrgIDs map[string]struct{}, loginScopeOrgID string) {
+	const projectRolePrefix = "urn:zitadel:iam:org:project:"
+	const projectRoleSuffix = ":roles"
+
+	roleOrgIDs = make(map[string]struct{})
+
+	for key, val := range token.PrivateClaims() {
+		isProjectScoped := len(key) > len(projectRolePrefix)+len(projectRoleSuffix) &&
+			key[:len(projectRolePrefix)] == projectRolePrefix &&
+			key[len(key)-len(projectRoleSuffix):] == projectRoleSuffix
+
+		if !isProjectScoped {
+			continue
+		}
+
+		// The claim value is map[string]any where each key is a role name and
+		// the value is map[string]any mapping orgId → primaryDomain.
+		roleMap, ok := val.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, orgMap := range roleMap {
+			om, ok := orgMap.(map[string]any)
+			if !ok {
+				continue
+			}
+			for orgID := range om {
+				roleOrgIDs[orgID] = struct{}{}
+			}
+		}
+	}
+
+	if len(roleOrgIDs) == 1 {
+		for id := range roleOrgIDs {
+			loginScopeOrgID = id
+		}
+	}
+
+	return roleOrgIDs, loginScopeOrgID
 }
 
 // extractZitadelRoles scans all private claims on token for the two Zitadel

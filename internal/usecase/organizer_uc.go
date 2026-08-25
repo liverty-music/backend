@@ -37,6 +37,14 @@ type OrganizerUseCase interface {
 	//   - NotFound: no organizer with the id exists.
 	Get(ctx context.Context, id string) (*entity.Organizer, error)
 
+	// GetByZitadelOrgID returns the Organizer whose zitadel_org_id matches the
+	// given Zitadel organization id. Used by the organizer-facing handler to
+	// resolve the caller's Organizer from the token-derived Zitadel org id.
+	//
+	// # Possible errors:
+	//   - NotFound: no organizer is linked to the given zitadel_org_id.
+	GetByZitadelOrgID(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error)
+
 	// List returns every Organizer.
 	List(ctx context.Context) ([]*entity.Organizer, error)
 
@@ -218,6 +226,12 @@ func (uc *organizerUseCase) Get(ctx context.Context, id string) (*entity.Organiz
 // List returns every Organizer regardless of status.
 func (uc *organizerUseCase) List(ctx context.Context) ([]*entity.Organizer, error) {
 	return uc.organizerRepo.List(ctx)
+}
+
+// GetByZitadelOrgID returns the Organizer linked to the given Zitadel
+// organization id. Returns NotFound when no organizer is linked to that id.
+func (uc *organizerUseCase) GetByZitadelOrgID(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error) {
+	return uc.organizerRepo.GetByZitadelOrgID(ctx, zitadelOrgID)
 }
 
 // ListArtists returns the artists represented by an Organizer. Returns

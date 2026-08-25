@@ -56,6 +56,14 @@ type OrganizerRepository interface {
 	//   - NotFound: no organizer with the id exists.
 	Get(ctx context.Context, id string) (*Organizer, error)
 
+	// GetByZitadelOrgID returns the Organizer whose zitadel_org_id matches the
+	// given Zitadel organization id. The link is established during tenant
+	// provisioning and is unique (the partial unique index covers non-NULL values).
+	//
+	// # Possible errors
+	//   - NotFound: no organizer with the given zitadel_org_id exists.
+	GetByZitadelOrgID(ctx context.Context, zitadelOrgID string) (*Organizer, error)
+
 	// List returns every Organizer.
 	List(ctx context.Context) ([]*Organizer, error)
 
