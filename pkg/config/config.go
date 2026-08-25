@@ -368,26 +368,6 @@ type GCPConfig struct {
 	// same events). Empty/zero falls back to defaultSearchDiscoveryWindow.
 	GeminiSearchDiscoveryWindow time.Duration `envconfig:"GCP_GEMINI_SEARCH_DISCOVERY_WINDOW"`
 
-	// Model name for the merch-url discovery job's single-step grounded
-	// search. Empty falls back to defaultMerchModel (Flash-Lite): merch
-	// resolution is a single best-URL lookup, far cheaper than the two-step
-	// concert pipeline. Reuses GeminiSearchAPIKey for the API backend.
-	GeminiMerchModel string `envconfig:"GCP_GEMINI_MERCH_MODEL"`
-
-	// Look-ahead window for the merch-url discovery job: a series is a
-	// candidate when its earliest event's local date falls within
-	// [today, today+window]. Merch pages are published close to the event,
-	// so this is far shorter than the concert-discovery horizon. Empty/zero
-	// falls back to defaultMerchDiscoveryWindow (60 days).
-	MerchDiscoveryWindow time.Duration `envconfig:"GCP_MERCH_DISCOVERY_WINDOW"`
-
-	// Thinking level for the merch-url search. Empty falls back to
-	// defaultMerchThinkingLevel ("medium"). gemini-3.6-flash at "medium" returns
-	// the stable ID-free official store URL and never fabricates an ID-bearing
-	// deep link; Flash-Lite needed "high" for the same rule (and still
-	// under-grounded). Accepted: "", minimal, low, medium, high.
-	GeminiMerchThinkingLevel string `envconfig:"GCP_GEMINI_MERCH_THINKING_LEVEL"`
-
 	// Look-ahead window for the sales-phase discovery job. A series is
 	// included in the discovery run when its upcoming events fall within
 	// [now, now+window]. Zero falls back to defaultSalesPhaseDiscoveryWindow
@@ -419,19 +399,6 @@ const (
 	defaultSearchDiscoveryWindow = 14 * 24 * time.Hour
 )
 
-// Defaults for the merch-url discovery job. gemini-3.6-flash grounds reliably
-// at "medium" thinking; the 60-day window matches when tour merch is typically
-// announced relative to the earliest event.
-const (
-	defaultMerchModel           = "gemini-3.6-flash"
-	defaultMerchDiscoveryWindow = 60 * 24 * time.Hour
-	// defaultMerchThinkingLevel is "medium": live A/B (2026-07-27) showed
-	// gemini-3.6-flash at "medium" returns the stable ID-free official store URL
-	// (e.g. store.plusmember.jp/yorushika/), whereas Flash-Lite fabricated a
-	// category_id deep link at low/medium and only behaved at "high".
-	defaultMerchThinkingLevel = "medium"
-)
-
 // Defaults for the sales-phase discovery and reminder jobs.
 const (
 	// defaultSalesPhaseDiscoveryWindow scans series with events in the next
@@ -441,33 +408,6 @@ const (
 	// 7 days. Stages due within that horizon are evaluated each scan run.
 	defaultSalesReminderWindow = 7 * 24 * time.Hour
 )
-
-// MerchModel returns the model name for the merch-url discovery search.
-// Resolution: env override (GCP_GEMINI_MERCH_MODEL) → built-in default.
-func (c *GCPConfig) MerchModel() string {
-	if c.GeminiMerchModel != "" {
-		return c.GeminiMerchModel
-	}
-	return defaultMerchModel
-}
-
-// MerchWindow returns the merch-url discovery look-ahead window.
-// Resolution: env override (GCP_MERCH_DISCOVERY_WINDOW) → built-in default.
-func (c *GCPConfig) MerchWindow() time.Duration {
-	if c.MerchDiscoveryWindow > 0 {
-		return c.MerchDiscoveryWindow
-	}
-	return defaultMerchDiscoveryWindow
-}
-
-// MerchThinking returns the thinking level for the merch-url search.
-// Resolution: env override (GCP_GEMINI_MERCH_THINKING_LEVEL) → built-in default ("high").
-func (c *GCPConfig) MerchThinking() string {
-	if c.GeminiMerchThinkingLevel != "" {
-		return c.GeminiMerchThinkingLevel
-	}
-	return defaultMerchThinkingLevel
-}
 
 // SalesPhaseWindow returns the sales-phase discovery look-ahead window.
 // Resolution: env override (GCP_SALES_PHASE_DISCOVERY_WINDOW) → built-in default.
@@ -670,9 +610,6 @@ func (c *GCPConfig) Validate() error {
 	if !slices.Contains(validThinkingLevels, c.GeminiSearchThinkingParse) {
 		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_THINKING_PARSE: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiSearchThinkingParse)
 	}
-	if !slices.Contains(validThinkingLevels, c.GeminiMerchThinkingLevel) {
-		return fmt.Errorf("invalid GCP_GEMINI_MERCH_THINKING_LEVEL: %q (allowed: \"\", minimal, low, medium, high)", c.GeminiMerchThinkingLevel)
-	}
 	// A non-parseable duration already fails at envconfig.Process (Load);
 	// here we reject negatives so a stray "-1h" cannot disable the cache.
 	if c.GeminiSearchCacheTTL < 0 {
@@ -680,9 +617,6 @@ func (c *GCPConfig) Validate() error {
 	}
 	if c.GeminiSearchDiscoveryWindow < 0 {
 		return fmt.Errorf("invalid GCP_GEMINI_SEARCH_DISCOVERY_WINDOW: %s (must be >= 0)", c.GeminiSearchDiscoveryWindow)
-	}
-	if c.MerchDiscoveryWindow < 0 {
-		return fmt.Errorf("invalid GCP_MERCH_DISCOVERY_WINDOW: %s (must be >= 0)", c.MerchDiscoveryWindow)
 	}
 	return nil
 }

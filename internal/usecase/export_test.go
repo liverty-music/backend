@@ -22,9 +22,6 @@ var ExportedProfileLogoColor = func(uc ArtistImageSyncUseCase, ctx context.Conte
 	uc.(*artistImageSyncUseCase).profileLogoColor(ctx, fanart, artistID)
 }
 
-// ExportedValidMerchURL exposes validMerchURL for black-box tests.
-var ExportedValidMerchURL = validMerchURL
-
 // ExportedScheduledFireTime exposes scheduledFireTime for black-box tests.
 var ExportedScheduledFireTime = scheduledFireTime
 

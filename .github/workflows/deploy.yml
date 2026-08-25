@@ -5,11 +5,11 @@ name: Deploy Backend
 #                         main runs this workflow (no paths: trigger gate).
 #                         A per-run "build vs inherit" decision over the
 #                         pushed range (event.before..sha) picks one of:
-#                           * build:   7× docker/build-push-action across the
+#                           * build:   6× docker/build-push-action across the
 #                                      strategy matrix (server, consumer,
 #                                      concert-discovery, artist-image-sync,
-#                                      merch-discovery, sales-phase-discovery,
-#                                      sales-reminders), pushing :latest, :main, :<sha>.
+#                                      sales-phase-discovery, sales-reminders),
+#                                      pushing :latest, :main, :<sha>.
 #                           * inherit: no rebuild — crane-copy the parent push
 #                                      tip's dev digest onto :<sha> (and
 #                                      re-point :main, :latest). Used when the
@@ -98,8 +98,6 @@ jobs:
             target: concert-discovery
           - name: artist-image-sync
             target: artist-image-sync
-          - name: merch-discovery
-            target: merch-discovery
           - name: sales-phase-discovery
             target: sales-phase-discovery
           - name: sales-reminders
