@@ -1,4 +1,4 @@
-h1:KooeLNeAfWPzAoZ0DY3jV35Gg28Bk7l/K/qT+65rz4A=
+h1:BVm28SZHy3blM0WAAbr1YacXwh9Vn3biA0rld+KBvGU=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -72,3 +72,4 @@ h1:KooeLNeAfWPzAoZ0DY3jV35Gg28Bk7l/K/qT+65rz4A=
 20260825120000_regrant_organizer_console_api_readonly_app_schema.sql h1:XcXR56YCGJRX9rOsuO9TDtM3zkbuXFDPNuHbitjMR+s=
 20260826000000_consolidate_fragmented_series.sql h1:SDJaXl+P3IOtNR/xBFSA561IBiJ7SscH9ODyLKBONz4=
 20260826010000_add_series_id_to_staged_concerts.sql h1:2PVgdF7f43euTQzWd0Yefvl8A0M8U0yHG0/zw8TrvJA=
+20260826020000_add_series_authoring_columns.sql h1:KFpE2QXFPFQ4fnXqBji3yHEaPOGbm3V+Xv80zFElQqo=
