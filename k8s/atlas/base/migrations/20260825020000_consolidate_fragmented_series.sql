@@ -40,7 +40,13 @@ SELECT 'series', id, id, type FROM series
 ON CONFLICT (entity, id) DO NOTHING;
 
 -- ===== Compute the canonical series per fragmentation group =====
-CREATE TEMPORARY TABLE _series_group_map ON COMMIT DROP AS
+-- A regular (non-temporary) table, not a TEMPORARY one: Atlas replays a
+-- migration file statement-by-statement (validate/lint use a scratch dev DB and
+-- may run each statement in its own transaction/connection), so an
+-- ON COMMIT DROP temp table would vanish before the UPDATEs below can see it.
+-- Dropped explicitly at the end; DROP IF EXISTS up front keeps the run re-runnable.
+DROP TABLE IF EXISTS _series_group_map;
+CREATE TABLE _series_group_map AS
 WITH grp AS (
     SELECT
         id,
@@ -109,3 +115,6 @@ WHERE EXISTS (
     SELECT 1 FROM _series_group_map m
     WHERE m.old_id = s.id AND m.old_id <> m.canonical_id
 );
+
+-- ===== Drop the scratch group map (the rollback snapshot table is kept) =====
+DROP TABLE _series_group_map;
