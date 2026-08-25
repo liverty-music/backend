@@ -87,3 +87,4 @@ configMapGenerator:
   - migrations/20260826000000_consolidate_fragmented_series.sql
   - migrations/20260826010000_add_series_id_to_staged_concerts.sql
   - migrations/20260826020000_add_series_authoring_columns.sql
+  - migrations/20260826030000_add_draft_authoring_tables.sql
