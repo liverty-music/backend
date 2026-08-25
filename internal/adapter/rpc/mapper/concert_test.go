@@ -77,7 +77,6 @@ func TestConcertToProto(t *testing.T) {
 					Title:     "Winter Tour",
 					Type:      entity.SeriesTypeTour,
 					SourceURL: "https://example.com/event",
-					MerchURL:  "https://example.com/merch",
 				},
 				Performers: []*entity.Artist{{ID: "artist-id-2", Name: "Frostbite", MBID: "22222222-2222-2222-2222-222222222222"}},
 			},
@@ -91,7 +90,6 @@ func TestConcertToProto(t *testing.T) {
 						Title:     &entityv1.Title{Value: "Winter Tour"},
 						Type:      entityv1.SeriesType_SERIES_TYPE_TOUR,
 						SourceUrl: &entityv1.Url{Value: "https://example.com/event"},
-						MerchUrl:  &entityv1.Url{Value: "https://example.com/merch"},
 					},
 					Performers: []*entityv1.Artist{{
 						Id:   &entityv1.ArtistId{Value: "artist-id-2"},
