@@ -82,3 +82,4 @@ configMapGenerator:
   - migrations/20260817000000_add_suppressed_concerts.sql
   - migrations/20260817010000_grant_fan_api_app_schema.sql
   - migrations/20260825000000_grant_organizer_console_api_readonly_app_schema.sql
+  - migrations/20260825010000_drop_merch_url_from_series.sql
