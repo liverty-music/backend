@@ -369,6 +369,7 @@ COMMENT ON COLUMN sales_phase_reminders.sent_at IS 'Timestamp when the reminder 
 CREATE TABLE IF NOT EXISTS staged_concerts (
     id UUID PRIMARY KEY,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     local_date DATE NOT NULL,
     start_at TIMESTAMPTZ,
@@ -388,6 +389,7 @@ CREATE TABLE IF NOT EXISTS staged_concerts (
 COMMENT ON TABLE staged_concerts IS 'Approval queue for AI-discovered concerts. Holds only pending rows; approve publishes and deletes, reject logs and deletes. Re-discovery dedup consults this table plus published events, but never the rejection log.';
 COMMENT ON COLUMN staged_concerts.id IS 'Unique staged concert identifier (UUIDv7, application-generated). Exposed to the admin console as StagedConcertId.';
 COMMENT ON COLUMN staged_concerts.artist_id IS 'The performing artist this concert was discovered for.';
+COMMENT ON COLUMN staged_concerts.series_id IS 'Parent series this staged event belongs to. The series row is created at discovery time (when the group series_id is resolved), so this is a real foreign key by staging time; approval inserts the event under it without minting a new series. type/title/source_url live on the series row.';
 COMMENT ON COLUMN staged_concerts.title IS 'Descriptive title extracted for the concert (e.g. tour or show name).';
 COMMENT ON COLUMN staged_concerts.local_date IS 'Scheduled calendar date of the concert in the venue local timezone.';
 COMMENT ON COLUMN staged_concerts.start_at IS 'Scheduled start time. NULL when the source did not state one.';
@@ -604,3 +606,23 @@ COMMENT ON INDEX uq_organizer_artists_artist_id IS 'Each artist is represented b
 
 CREATE INDEX IF NOT EXISTS idx_organizer_artists_organizer_id ON organizer_artists(organizer_id);
 COMMENT ON INDEX idx_organizer_artists_organizer_id IS 'Optimizes listing the artists an organizer represents';
+
+-- Rollback snapshot for the one-time series-consolidation migration
+-- (20260826000000_consolidate_fragmented_series). Created and populated by that
+-- migration before it re-points events/sales_phases and re-types series, and
+-- INTENTIONALLY RETAINED afterwards as a manual rollback safety net for the
+-- production data mutation. Declared here as desired state so `atlas migrate
+-- diff` does not generate a DROP that would destroy the snapshot. Safe to drop
+-- manually once the consolidation is verified in production (change task 5.4).
+CREATE TABLE IF NOT EXISTS _series_consolidation_backup (
+    entity TEXT NOT NULL,
+    id UUID NOT NULL,
+    old_series_id UUID,
+    old_type series_type,
+    PRIMARY KEY (entity, id)
+);
+COMMENT ON TABLE _series_consolidation_backup IS 'One-time rollback snapshot of series/events/sales_phases series_id (and series type) captured by the series-consolidation migration; retained for manual rollback, droppable once verified in prod.';
+COMMENT ON COLUMN _series_consolidation_backup.entity IS 'Which table the row snapshots: event | sales_phase | series';
+COMMENT ON COLUMN _series_consolidation_backup.id IS 'Primary key of the snapshotted row in its source table';
+COMMENT ON COLUMN _series_consolidation_backup.old_series_id IS 'Pre-migration series_id (for event/sales_phase rows) or the series own id (for series rows)';
+COMMENT ON COLUMN _series_consolidation_backup.old_type IS 'Pre-migration series.type (series rows only; NULL otherwise)';

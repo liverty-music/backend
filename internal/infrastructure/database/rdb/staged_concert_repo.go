@@ -23,15 +23,16 @@ const (
 	// stable.
 	upsertStagedConcertByPlaceQuery = `
 		INSERT INTO staged_concerts (
-			id, artist_id, title, local_date, start_at, open_at,
+			id, artist_id, series_id, title, local_date, start_at, open_at,
 			listed_venue_name, admin_area, source_url,
 			resolved_place_id, resolved_venue_name, resolved_admin_area,
 			resolved_latitude, resolved_longitude
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (artist_id, local_date, resolved_place_id)
 		WHERE resolved_place_id IS NOT NULL
 		DO UPDATE SET
+			series_id           = EXCLUDED.series_id,
 			title               = EXCLUDED.title,
 			start_at            = EXCLUDED.start_at,
 			open_at             = EXCLUDED.open_at,
@@ -50,15 +51,16 @@ const (
 	// the mutable payload is refreshed but discovered_at is kept.
 	upsertStagedConcertByListedNameQuery = `
 		INSERT INTO staged_concerts (
-			id, artist_id, title, local_date, start_at, open_at,
+			id, artist_id, series_id, title, local_date, start_at, open_at,
 			listed_venue_name, admin_area, source_url,
 			resolved_place_id, resolved_venue_name, resolved_admin_area,
 			resolved_latitude, resolved_longitude
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (artist_id, local_date, listed_venue_name)
 		WHERE resolved_place_id IS NULL
 		DO UPDATE SET
+			series_id           = EXCLUDED.series_id,
 			title               = EXCLUDED.title,
 			start_at            = EXCLUDED.start_at,
 			open_at             = EXCLUDED.open_at,
@@ -72,7 +74,7 @@ const (
 	`
 
 	listPendingStagedConcertsQuery = `
-		SELECT id, artist_id, title, local_date, start_at, open_at,
+		SELECT id, artist_id, series_id, title, local_date, start_at, open_at,
 		       listed_venue_name, admin_area, source_url,
 		       resolved_place_id, resolved_venue_name, resolved_admin_area,
 		       resolved_latitude, resolved_longitude, discovered_at
@@ -81,7 +83,7 @@ const (
 	`
 
 	getStagedConcertByIDQuery = `
-		SELECT id, artist_id, title, local_date, start_at, open_at,
+		SELECT id, artist_id, series_id, title, local_date, start_at, open_at,
 		       listed_venue_name, admin_area, source_url,
 		       resolved_place_id, resolved_venue_name, resolved_admin_area,
 		       resolved_latitude, resolved_longitude, discovered_at
@@ -120,6 +122,7 @@ func (r *StagedConcertRepository) Upsert(ctx context.Context, sc *entity.StagedC
 	_, err := r.db.Pool.Exec(ctx, query,
 		sc.ID,
 		sc.ArtistID,
+		sc.SeriesID,
 		sc.Title,
 		sc.LocalDate,
 		sc.StartTime,
@@ -225,6 +228,7 @@ func scanStagedConcertRow(scan func(dest ...any) error) (*entity.StagedConcert, 
 	err := scan(
 		&sc.ID,
 		&sc.ArtistID,
+		&sc.SeriesID,
 		&sc.Title,
 		&sc.LocalDate,
 		&sc.StartTime,

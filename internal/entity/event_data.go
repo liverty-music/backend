@@ -94,15 +94,39 @@ var AllSubjects = []string{
 }
 
 // ConcertDiscoveredData is the payload for concert.discovered.v1 events.
-// It carries the full batch of scraped concerts for one artist (post-deduplication).
-// Published by SearchNewConcerts after external API call and dedup.
+// It carries the newly discovered concerts for one artist (post-deduplication),
+// grouped by series so a tour's dates persist under one series by construction.
+// Published by SearchNewConcerts after the external API call and dedup.
 type ConcertDiscoveredData struct {
 	// ArtistID is the internal UUID of the artist.
 	ArtistID string `json:"artist_id"`
 	// ArtistName is the display name of the artist (for notification context).
 	ArtistName string `json:"artist_name"`
-	// Concerts is the list of newly discovered, deduplicated scraped concerts.
-	Concerts ScrapedConcerts `json:"concerts"`
+	// Series is the list of newly discovered, deduplicated series, each carrying
+	// its member events. A <tour> block is one TOUR series with many events; a
+	// standalone show is one SINGLE series with a single event.
+	Series []*DiscoveredSeries `json:"series"`
+}
+
+// EventCount returns the total number of member events across all series in the
+// payload. Used for logging/metrics where the flat event count is meaningful.
+func (d ConcertDiscoveredData) EventCount() int {
+	return SumSeriesEvents(d.Series)
+}
+
+// SumSeriesEvents returns the total number of member events across the given
+// discovered series, skipping nil entries. It is the single fold used wherever a
+// flat event count over a []*DiscoveredSeries is needed (payload EventCount and
+// the discovery use case's filter bookkeeping) so the two cannot drift.
+func SumSeriesEvents(series []*DiscoveredSeries) int {
+	n := 0
+	for _, s := range series {
+		if s == nil {
+			continue
+		}
+		n += len(s.Events)
+	}
+	return n
 }
 
 // UserCreatedData is the payload for user.created events.

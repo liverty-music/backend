@@ -270,6 +270,66 @@ func (_m *MockConcertRepository) FindEventsByVenueAndDate(ctx context.Context, v
 	return r0, r1
 }
 
+// FindEventsByArtistAndDate provides a mock function with given fields: ctx, artistID, dates
+func (_m *MockConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*entity.Event, error) {
+	ret := _m.Called(ctx, artistID, dates)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FindEventsByArtistAndDate")
+	}
+
+	var r0 []*entity.Event
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, []time.Time) ([]*entity.Event, error)); ok {
+		return rf(ctx, artistID, dates)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, []time.Time) []*entity.Event); ok {
+		r0 = rf(ctx, artistID, dates)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Event)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, []time.Time) error); ok {
+		r1 = rf(ctx, artistID, dates)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertRepository_FindEventsByArtistAndDate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindEventsByArtistAndDate'
+type MockConcertRepository_FindEventsByArtistAndDate_Call struct {
+	*mock.Call
+}
+
+// FindEventsByArtistAndDate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+//   - dates []time.Time
+func (_e *MockConcertRepository_Expecter) FindEventsByArtistAndDate(ctx interface{}, artistID interface{}, dates interface{}) *MockConcertRepository_FindEventsByArtistAndDate_Call {
+	return &MockConcertRepository_FindEventsByArtistAndDate_Call{Call: _e.mock.On("FindEventsByArtistAndDate", ctx, artistID, dates)}
+}
+
+func (_c *MockConcertRepository_FindEventsByArtistAndDate_Call) Run(run func(ctx context.Context, artistID string, dates []time.Time)) *MockConcertRepository_FindEventsByArtistAndDate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].([]time.Time))
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_FindEventsByArtistAndDate_Call) Return(_a0 []*entity.Event, _a1 error) *MockConcertRepository_FindEventsByArtistAndDate_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertRepository_FindEventsByArtistAndDate_Call) RunAndReturn(run func(context.Context, string, []time.Time) ([]*entity.Event, error)) *MockConcertRepository_FindEventsByArtistAndDate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MockConcertRepository_FindEventsByVenueAndDate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FindEventsByVenueAndDate'
 type MockConcertRepository_FindEventsByVenueAndDate_Call struct {
 	*mock.Call

@@ -270,7 +270,7 @@ func TestGroupByDateAndProximity(t *testing.T) {
 	}
 }
 
-func TestScrapedConcert_ToConcert(t *testing.T) {
+func TestDiscoveredSeries_ToConcert(t *testing.T) {
 	t.Parallel()
 
 	localDate := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
@@ -280,7 +280,8 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		sc        *entity.ScrapedConcert
+		series    *entity.DiscoveredSeries
+		ev        *entity.DiscoveredEvent
 		artistID  string
 		seriesID  string
 		eventID   string
@@ -289,14 +290,17 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 	}{
 		{
 			name: "maps all fields including optional times",
-			sc: &entity.ScrapedConcert{
-				Title:           "Live Show",
+			series: &entity.DiscoveredSeries{
+				Title:     "Live Show",
+				Type:      entity.SeriesTypeSingle,
+				SourceURL: "https://example.com/live",
+			},
+			ev: &entity.DiscoveredEvent{
 				ListedVenueName: "Zepp Tokyo",
 				AdminArea:       &adminArea,
 				LocalDate:       localDate,
 				StartTime:       startTime,
 				OpenTime:        openTime,
-				SourceURL:       "https://example.com/live",
 			},
 			artistID: "artist-1",
 			seriesID: "series-1",
@@ -321,12 +325,16 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 			},
 		},
 		{
-			name: "maps nil optional times",
-			sc: &entity.ScrapedConcert{
-				Title:           "Minimal Show",
+			name: "maps zero optional times to nil",
+			series: &entity.DiscoveredSeries{
+				Title:     "Minimal Show",
+				Type:      entity.SeriesTypeSingle,
+				SourceURL: "https://example.com",
+			},
+			ev: &entity.DiscoveredEvent{
 				ListedVenueName: "Some Venue",
 				LocalDate:       localDate,
-				SourceURL:       "https://example.com",
+				// StartTime and OpenTime are zero — NullableTime must return nil.
 			},
 			artistID: "artist-2",
 			seriesID: "",
@@ -346,11 +354,14 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 		},
 		{
 			name: "distinct outputs for different IDs",
-			sc: &entity.ScrapedConcert{
-				Title:           "Same Show",
+			series: &entity.DiscoveredSeries{
+				Title:     "Same Show",
+				Type:      entity.SeriesTypeSingle,
+				SourceURL: "https://example.com",
+			},
+			ev: &entity.DiscoveredEvent{
 				ListedVenueName: "Same Venue",
 				LocalDate:       localDate,
-				SourceURL:       "https://example.com",
 			},
 			artistID: "artist-A",
 			seriesID: "series-A",
@@ -367,11 +378,14 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 		},
 		{
 			name: "ListedVenueName is an independent copy",
-			sc: &entity.ScrapedConcert{
-				Title:           "Copy Test",
+			series: &entity.DiscoveredSeries{
+				Title:     "Copy Test",
+				Type:      entity.SeriesTypeSingle,
+				SourceURL: "https://example.com",
+			},
+			ev: &entity.DiscoveredEvent{
 				ListedVenueName: "Original Venue",
 				LocalDate:       localDate,
-				SourceURL:       "https://example.com",
 			},
 			artistID: "artist-3",
 			seriesID: "series-3",
@@ -383,171 +397,303 @@ func TestScrapedConcert_ToConcert(t *testing.T) {
 				assert.Equal(t, "Original Venue", *got.ListedVenueName)
 			},
 		},
+		{
+			name: "tour series type is preserved on the embedded Series",
+			series: &entity.DiscoveredSeries{
+				Title:     "Summer Tour 2026",
+				Type:      entity.SeriesTypeTour,
+				SourceURL: "https://example.com/tour",
+			},
+			ev: &entity.DiscoveredEvent{
+				ListedVenueName: "Zepp Osaka",
+				LocalDate:       localDate,
+			},
+			artistID: "artist-T",
+			seriesID: "series-T",
+			eventID:  "event-T",
+			venueID:  "venue-T",
+			wantCheck: func(t *testing.T, got *entity.Concert) {
+				t.Helper()
+				require.NotNil(t, got.Series)
+				assert.Equal(t, entity.SeriesTypeTour, got.Series.Type)
+				assert.Equal(t, "Summer Tour 2026", got.Series.Title)
+				assert.Equal(t, "https://example.com/tour", got.Series.SourceURL)
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.sc.ToConcert(tt.artistID, tt.seriesID, tt.eventID, tt.venueID, entity.SeriesTypeSingle)
+			got := tt.series.ToConcert(tt.ev, tt.artistID, tt.seriesID, tt.eventID, tt.venueID)
 			require.NotNil(t, got)
 			tt.wantCheck(t, got)
 		})
 	}
 }
 
-func TestScrapedConcerts_FilterNew(t *testing.T) {
+// makeSeries is a convenience helper that builds a []*entity.DiscoveredSeries
+// from a slice of (title, events) pairs, using SeriesTypeSingle and an empty
+// SourceURL. Tests that need specific types or URLs construct the struct inline.
+func makeSeries(title string, evs ...*entity.DiscoveredEvent) *entity.DiscoveredSeries {
+	return &entity.DiscoveredSeries{
+		Title:  title,
+		Type:   entity.SeriesTypeSingle,
+		Events: evs,
+	}
+}
+
+func makeEvent(date time.Time, venue string) *entity.DiscoveredEvent {
+	return &entity.DiscoveredEvent{LocalDate: date, ListedVenueName: venue}
+}
+
+func TestFilterNewSeries(t *testing.T) {
 	t.Parallel()
 
 	date1 := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
 	date2 := time.Date(2026, 3, 17, 0, 0, 0, 0, time.UTC)
 	date3 := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC)
 
-	sc1 := &entity.ScrapedConcert{LocalDate: date1, ListedVenueName: "Zepp Tokyo", Title: "Live A"}
-	sc2 := &entity.ScrapedConcert{LocalDate: date2, ListedVenueName: "Zepp Osaka", Title: "Live B"}
-	sc3 := &entity.ScrapedConcert{LocalDate: date3, ListedVenueName: "Zepp Nagoya", Title: "Live C"}
-	// sc1SameVenue duplicates sc1 on the new (date, venue) dedup key.
-	sc1SameVenue := &entity.ScrapedConcert{LocalDate: date1, ListedVenueName: "Zepp Tokyo", Title: "Live A2"}
+	ev1 := makeEvent(date1, "Zepp Tokyo")
+	ev2 := makeEvent(date2, "Zepp Osaka")
+	ev3 := makeEvent(date3, "Zepp Nagoya")
+	// ev1Drift duplicates ev1 on the (date, venue) dedup key (same date, same venue name).
+	ev1Drift := &entity.DiscoveredEvent{LocalDate: date1, ListedVenueName: "Zepp Tokyo"}
 
-	// Existing concerts must carry ListedVenueName so the new
-	// (date, venue) dedup key can match them. The previous date-only
-	// key did not need it.
+	// Existing concerts carry ListedVenueName so the (date, venue) dedup key can
+	// match them. The previous date-only key did not need it.
 	zeppTokyo := "Zepp Tokyo"
 	zeppOsaka := "Zepp Osaka"
 	existing1 := &entity.Concert{LocalDate: date1, ListedVenueName: &zeppTokyo}
 	existing2 := &entity.Concert{LocalDate: date2, ListedVenueName: &zeppOsaka}
 
 	type args struct {
-		scraped  entity.ScrapedConcerts
+		series   []*entity.DiscoveredSeries
 		existing []*entity.Concert
 	}
 	tests := []struct {
 		name string
 		args args
-		want entity.ScrapedConcerts
+		// wantEventVenues is a flat list of expected ListedVenueName values across
+		// all returned series, in the order they appear series-by-series, event-by-
+		// event. nil means the function must return nil.
+		wantEventVenues []string
+		wantNil         bool
 	}{
 		{
-			name: "return nil when scraped is nil",
+			name: "return nil when series is nil",
 			args: args{
-				scraped:  nil,
+				series:   nil,
 				existing: []*entity.Concert{existing1},
 			},
-			want: nil,
+			wantNil: true,
 		},
 		{
-			name: "return nil when scraped is empty",
+			name: "return nil when series is empty",
 			args: args{
-				scraped:  entity.ScrapedConcerts{},
+				series:   []*entity.DiscoveredSeries{},
 				existing: []*entity.Concert{existing1},
 			},
-			want: nil,
+			wantNil: true,
 		},
 		{
-			name: "return all scraped when existing is empty",
+			name: "return all events when existing is empty",
 			args: args{
-				scraped:  entity.ScrapedConcerts{sc1, sc2, sc3},
+				series:   []*entity.DiscoveredSeries{makeSeries("Live A", ev1, ev2, ev3)},
 				existing: []*entity.Concert{},
 			},
-			want: entity.ScrapedConcerts{sc1, sc2, sc3},
+			wantEventVenues: []string{"Zepp Tokyo", "Zepp Osaka", "Zepp Nagoya"},
 		},
 		{
-			name: "return nil when all scraped conflict with existing",
+			name: "return nil when all events conflict with existing",
 			args: args{
-				scraped:  entity.ScrapedConcerts{sc1, sc2},
+				series:   []*entity.DiscoveredSeries{makeSeries("Live AB", ev1, ev2)},
 				existing: []*entity.Concert{existing1, existing2},
 			},
-			want: nil,
+			wantNil: true,
 		},
 		{
-			name: "return only non-conflicting concerts",
+			name: "return only non-conflicting events within a series",
 			args: args{
-				scraped:  entity.ScrapedConcerts{sc1, sc2, sc3},
+				series:   []*entity.DiscoveredSeries{makeSeries("Tour", ev1, ev2, ev3)},
 				existing: []*entity.Concert{existing1},
 			},
-			want: entity.ScrapedConcerts{sc2, sc3},
+			wantEventVenues: []string{"Zepp Osaka", "Zepp Nagoya"},
 		},
 		{
-			name: "deduplicate within-batch same-date-and-venue concerts",
+			name: "deduplicate within-batch same-date-and-venue events across two series entries",
 			args: args{
-				scraped:  entity.ScrapedConcerts{sc1, sc1SameVenue},
+				series: []*entity.DiscoveredSeries{
+					makeSeries("First", ev1),
+					makeSeries("Dupe", ev1Drift),
+				},
 				existing: []*entity.Concert{},
 			},
-			want: entity.ScrapedConcerts{sc1},
+			// Only the first occurrence (ev1 in "First") survives.
+			wantEventVenues: []string{"Zepp Tokyo"},
+		},
+		{
+			name: "deduplicate within-batch same-date-and-venue events within one series",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Tour", ev1, ev1Drift),
+				},
+				existing: []*entity.Concert{},
+			},
+			wantEventVenues: []string{"Zepp Tokyo"},
 		},
 		{
 			name: "return nil when within-batch same-venue duplicate conflicts with existing",
 			args: args{
-				scraped:  entity.ScrapedConcerts{sc1, sc1SameVenue},
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Tour", ev1, ev1Drift),
+				},
 				existing: []*entity.Concert{existing1},
 			},
-			want: nil,
+			wantNil: true,
 		},
 		{
 			name: "same date at a different venue is NOT deduped (matches new natural key)",
 			args: args{
-				scraped: entity.ScrapedConcerts{
-					{LocalDate: date1, ListedVenueName: "Tokyo Dome", Title: "Festival B"},
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Festival B", makeEvent(date1, "Tokyo Dome")),
 				},
 				existing: []*entity.Concert{existing1},
 			},
-			want: entity.ScrapedConcerts{
-				{LocalDate: date1, ListedVenueName: "Tokyo Dome", Title: "Festival B"},
-			},
+			wantEventVenues: []string{"Tokyo Dome"},
 		},
 		{
 			name: "venue-name drift against existing is deduped (admin-area prefix)",
 			args: args{
-				scraped: entity.ScrapedConcerts{
-					{LocalDate: date1, ListedVenueName: "大阪・フェスティバルホール", Title: "Drifted"},
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Drifted", makeEvent(date1, "大阪・フェスティバルホール")),
 				},
 				existing: []*entity.Concert{
-					{LocalDate: date1, ListedVenueName: new("フェスティバルホール")},
+					{LocalDate: date1, ListedVenueName: func() *string { s := "フェスティバルホール"; return &s }()},
 				},
 			},
-			want: nil,
+			wantNil: true,
 		},
 		{
 			name: "genuinely different venue on the same date stays distinct",
 			args: args{
-				scraped: entity.ScrapedConcerts{
-					{LocalDate: date1, ListedVenueName: "大阪城ホール", Title: "Different"},
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Different", makeEvent(date1, "大阪城ホール")),
 				},
 				existing: []*entity.Concert{
-					{LocalDate: date1, ListedVenueName: new("フェスティバルホール")},
+					{LocalDate: date1, ListedVenueName: func() *string { s := "フェスティバルホール"; return &s }()},
 				},
 			},
-			want: entity.ScrapedConcerts{
-				{LocalDate: date1, ListedVenueName: "大阪城ホール", Title: "Different"},
-			},
+			wantEventVenues: []string{"大阪城ホール"},
 		},
 		{
 			name: "within-batch venue-name drift is deduped (performance prefix)",
 			args: args{
-				scraped: entity.ScrapedConcerts{
-					{LocalDate: date1, ListedVenueName: "フェスティバルホール", Title: "First"},
-					{LocalDate: date1, ListedVenueName: "大阪公演 ＠フェスティバルホール", Title: "Drifted"},
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Tour",
+						makeEvent(date1, "フェスティバルホール"),
+						makeEvent(date1, "大阪公演 ＠フェスティバルホール"),
+					),
 				},
 				existing: []*entity.Concert{},
 			},
-			want: entity.ScrapedConcerts{
-				{LocalDate: date1, ListedVenueName: "フェスティバルホール", Title: "First"},
-			},
+			wantEventVenues: []string{"フェスティバルホール"},
 		},
 		{
-			name: "preserve original order of scraped concerts",
+			name: "preserve original order of events and series",
 			args: args{
-				scraped:  entity.ScrapedConcerts{sc1, sc2, sc3},
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Tour", ev1, ev2, ev3),
+				},
 				existing: []*entity.Concert{},
 			},
-			want: entity.ScrapedConcerts{sc1, sc2, sc3},
+			wantEventVenues: []string{"Zepp Tokyo", "Zepp Osaka", "Zepp Nagoya"},
 		},
 		{
-			name: "return all scraped when existing is nil",
+			name: "return all events when existing is nil",
 			args: args{
-				scraped:  entity.ScrapedConcerts{sc1, sc2},
+				series:   []*entity.DiscoveredSeries{makeSeries("Live", ev1, ev2)},
 				existing: nil,
 			},
-			want: entity.ScrapedConcerts{sc1, sc2},
+			wantEventVenues: []string{"Zepp Tokyo", "Zepp Osaka"},
+		},
+		{
+			name: "blank listed-venue-name events are dropped entirely",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("TBA Tour",
+						makeEvent(date1, ""),
+						makeEvent(date2, "Zepp Nagoya"),
+					),
+				},
+				existing: []*entity.Concert{},
+			},
+			// The blank-venue event is dropped; only the real venue survives.
+			wantEventVenues: []string{"Zepp Nagoya"},
+		},
+		{
+			name: "series with only blank-venue events is dropped entirely",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("All TBA", makeEvent(date1, "")),
+				},
+				existing: []*entity.Concert{},
+			},
+			wantNil: true,
+		},
+		{
+			name: "unknown-start event dropped when anything is already known at that (date,venue)",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Tour", &entity.DiscoveredEvent{
+						LocalDate:       date1,
+						ListedVenueName: "Zepp Tokyo",
+						// StartTime zero → unknown
+					}),
+				},
+				existing: []*entity.Concert{existing1}, // existing1 has no StartTime → StartKey ""
+			},
+			// Both sides are unknown-start — the batch event is redundant (len(seen[k])>0).
+			wantNil: true,
+		},
+		{
+			name: "known-start event kept when only unknown-start existing row exists",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("Tour", &entity.DiscoveredEvent{
+						LocalDate:       date1,
+						ListedVenueName: "Zepp Tokyo",
+						StartTime:       time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC),
+					}),
+				},
+				// existing1 has nil StartTime → StartKey "" (unknown).
+				existing: []*entity.Concert{existing1},
+			},
+			// Known start must not be absorbed by an unknown-start existing row.
+			wantEventVenues: []string{"Zepp Tokyo"},
+		},
+		{
+			name: "two differing known start times on same date/venue kept as distinct shows",
+			args: args{
+				series: []*entity.DiscoveredSeries{
+					makeSeries("2-show day",
+						&entity.DiscoveredEvent{
+							LocalDate:       date1,
+							ListedVenueName: "Zepp Tokyo",
+							StartTime:       time.Date(2026, 3, 15, 14, 0, 0, 0, time.UTC),
+						},
+						&entity.DiscoveredEvent{
+							LocalDate:       date1,
+							ListedVenueName: "Zepp Tokyo",
+							StartTime:       time.Date(2026, 3, 15, 19, 0, 0, 0, time.UTC),
+						},
+					),
+				},
+				existing: []*entity.Concert{},
+			},
+			// Both matinee and evening shows survive.
+			wantEventVenues: []string{"Zepp Tokyo", "Zepp Tokyo"},
 		},
 	}
 
@@ -555,13 +701,26 @@ func TestScrapedConcerts_FilterNew(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.args.scraped.FilterNew(tt.args.existing)
-			assert.Equal(t, tt.want, got)
+			got := entity.FilterNewSeries(tt.args.series, tt.args.existing)
+
+			if tt.wantNil {
+				assert.Nil(t, got)
+				return
+			}
+
+			require.NotNil(t, got)
+			var gotVenues []string
+			for _, s := range got {
+				for _, ev := range s.Events {
+					gotVenues = append(gotVenues, ev.ListedVenueName)
+				}
+			}
+			assert.Equal(t, tt.wantEventVenues, gotVenues)
 		})
 	}
 }
 
-func TestScrapedConcert_JSONSerialization(t *testing.T) {
+func TestDiscoveredEvent_JSONSerialization(t *testing.T) {
 	t.Parallel()
 
 	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
@@ -570,34 +729,31 @@ func TestScrapedConcert_JSONSerialization(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		concert        *entity.ScrapedConcert
+		ev             *entity.DiscoveredEvent
 		wantKeys       []string
 		wantAbsentKeys []string
 	}{
 		{
 			name: "omit zero optional fields",
-			concert: &entity.ScrapedConcert{
-				Title:           "Live Show",
+			ev: &entity.DiscoveredEvent{
 				ListedVenueName: "Zepp Tokyo",
 				AdminArea:       nil,
 				LocalDate:       localDate,
-				SourceURL:       "https://example.com",
+				// StartTime and OpenTime are zero — omitzero should suppress them.
 			},
-			wantKeys:       []string{"title", "listed_venue_name", "local_date", "source_url"},
+			wantKeys:       []string{"listed_venue_name", "local_date"},
 			wantAbsentKeys: []string{"admin_area", "start_time", "open_time"},
 		},
 		{
 			name: "include all populated fields",
-			concert: &entity.ScrapedConcert{
-				Title:           "Live Show",
+			ev: &entity.DiscoveredEvent{
 				ListedVenueName: "Zepp Tokyo",
 				AdminArea:       &adminArea,
 				LocalDate:       localDate,
 				StartTime:       startTime,
 				OpenTime:        startTime,
-				SourceURL:       "https://example.com",
 			},
-			wantKeys:       []string{"title", "listed_venue_name", "admin_area", "local_date", "start_time", "open_time", "source_url"},
+			wantKeys:       []string{"listed_venue_name", "admin_area", "local_date", "start_time", "open_time"},
 			wantAbsentKeys: []string{},
 		},
 	}
@@ -606,7 +762,62 @@ func TestScrapedConcert_JSONSerialization(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			data, err := json.Marshal(tt.concert)
+			data, err := json.Marshal(tt.ev)
+			assert.NoError(t, err)
+
+			var m map[string]any
+			assert.NoError(t, json.Unmarshal(data, &m))
+
+			for _, key := range tt.wantKeys {
+				assert.Contains(t, m, key, "expected key %q in JSON", key)
+			}
+			for _, key := range tt.wantAbsentKeys {
+				assert.NotContains(t, m, key, "unexpected key %q in JSON", key)
+			}
+		})
+	}
+}
+
+func TestDiscoveredSeries_JSONSerialization(t *testing.T) {
+	t.Parallel()
+
+	localDate := time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name           string
+		series         *entity.DiscoveredSeries
+		wantKeys       []string
+		wantAbsentKeys []string
+	}{
+		{
+			name: "omit empty source_url",
+			series: &entity.DiscoveredSeries{
+				Title:  "Live Show",
+				Type:   entity.SeriesTypeSingle,
+				Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: localDate}},
+				// SourceURL is empty — omitempty should suppress it.
+			},
+			wantKeys:       []string{"title", "type", "events"},
+			wantAbsentKeys: []string{"source_url"},
+		},
+		{
+			name: "include source_url when present",
+			series: &entity.DiscoveredSeries{
+				Title:     "Summer Tour",
+				Type:      entity.SeriesTypeTour,
+				SourceURL: "https://example.com/tour",
+				Events:    []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: localDate}},
+			},
+			wantKeys:       []string{"title", "type", "source_url", "events"},
+			wantAbsentKeys: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := json.Marshal(tt.series)
 			assert.NoError(t, err)
 
 			var m map[string]any

@@ -223,32 +223,41 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resoluti
 		return nil, fmt.Errorf("resolve or create venue for staged concert %q: %w", stagedID, err)
 	}
 
+	// Fetch the events at the resolved (venue, date) ONCE and reuse the slice for
+	// both duplicate detection and the fill-vs-insert decision.
+	existing, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
+	if err != nil {
+		return nil, fmt.Errorf("find existing events for staged concert %q: %w", stagedID, err)
+	}
+
 	// Detect a duplicate existing event at the resolved (venue, date, start time)
 	// BEFORE any event mutation, so an unresolved conflict returns without side
 	// effects. Re-checked on every call, so a two-phase reconcile re-validates.
-	conflictEvent, err := detectDuplicateEvent(ctx, sc, venueID, uc.concertRepo)
-	if err != nil {
-		return nil, fmt.Errorf("detect duplicate event for staged concert %q: %w", stagedID, err)
-	}
-	if conflictEvent != nil {
+	if conflictEvent := duplicateEventAmong(existing, sc); conflictEvent != nil {
 		return uc.reconcileDuplicate(ctx, sc, conflictEvent, resolution, reviewerID)
 	}
 
-	// No duplicate — publish normally. buildAndInsertConcerts also handles the
-	// fill case (a known-start staged row filling an existing unknown-start row),
-	// which legitimately inserts nothing; that is a success, not a conflict.
-	scraped := stagedToScraped(sc)
-	insertedIDs, err := buildAndInsertConcerts(
-		ctx,
-		sc.ArtistID,
-		scraped,
-		venueID,
-		uc.seriesRepo,
-		uc.concertRepo,
-		uc.logger,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("build and insert concerts for staged concert %q: %w", stagedID, err)
+	// No duplicate — insert the event under the series_id carried on the staged
+	// row (the series row already exists, created at discovery when the group's
+	// series_id was resolved). Approval never mints a series, adopts identity, or
+	// re-derives grouping. A known-start staged row that fills an existing
+	// unknown-start row legitimately inserts nothing; that is a success, not a
+	// conflict.
+	ev := stagedToEvent(sc)
+	var insertedIDs []string
+	if match, isFill := resolveExistingEvent(existing, ev, map[string]bool{}); isFill {
+		if err := uc.concertRepo.FillEventStartTimes(ctx,
+			[]string{match.ID},
+			[]*time.Time{sc.StartTime},
+			[]*time.Time{sc.OpenTime},
+		); err != nil {
+			return nil, fmt.Errorf("fill event start times for staged concert %q: %w", stagedID, err)
+		}
+	} else {
+		insertedIDs, err = insertEventUnderSeries(ctx, sc.ArtistID, sc.SeriesID, ev, venueID, uc.concertRepo)
+		if err != nil {
+			return nil, fmt.Errorf("insert event under series for staged concert %q: %w", stagedID, err)
+		}
 	}
 
 	// Publish CONCERT.created only for genuinely inserted events (a fill inserts
@@ -271,8 +280,23 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resoluti
 		return nil, fmt.Errorf("delete staged concert after approval: %w", err)
 	}
 
+	// When the approval only filled an existing row (no event inserted under
+	// sc.SeriesID) and this staged row was the last reference to a discovery-minted
+	// series, that series is now orphaned. Sweep it, mirroring Reject — scoped to
+	// this series so it never races another run's eager series row. A series that
+	// gained an inserted event is not orphaned, so the sweep is a no-op there.
+	if len(insertedIDs) == 0 {
+		if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{sc.SeriesID}); err != nil {
+			uc.logger.Error(ctx, "failed to clean up orphaned series after fill approval", err,
+				slog.String("staged_concert_id", stagedID),
+			)
+			// Non-fatal: an orphaned series row is harmless and swept on the next run.
+		}
+	}
+
 	uc.logger.Info(ctx, "staged concert approved and published",
 		slog.String("artist_id", sc.ArtistID),
+		slog.String("series_id", sc.SeriesID),
 		slog.String("staged_concert_id", stagedID),
 		slog.Int("inserted", len(insertedIDs)),
 	)
@@ -294,22 +318,28 @@ func detectDuplicateEvent(ctx context.Context, sc *entity.StagedConcert, venueID
 	if err != nil {
 		return nil, fmt.Errorf("find existing events: %w", err)
 	}
+	return duplicateEventAmong(events, sc), nil
+}
 
-	scraped := stagedToScraped(sc)
-	match, isFill := resolveExistingEvent(events, scraped, map[string]bool{})
+// duplicateEventAmong is the pure duplicate-detection core of detectDuplicateEvent,
+// operating on already-fetched events so callers that already hold the (venue,
+// date) slice (e.g. Approve) do not re-query.
+func duplicateEventAmong(events []*entity.Event, sc *entity.StagedConcert) *entity.Event {
+	ev := stagedToEvent(sc)
+	match, isFill := resolveExistingEvent(events, ev, map[string]bool{})
 	if match != nil && !isFill {
 		// Exact-start duplicate (or both-unknown at the same venue/date).
-		return match, nil
+		return match
 	}
-	if scraped.StartTime.IsZero() {
+	if ev.StartTime.IsZero() {
 		// Unknown-start staged row: a duplicate iff any known-start row exists here.
-		for _, ev := range events {
-			if ev.StartTime != nil && !ev.StartTime.IsZero() {
-				return ev, nil
+		for _, e := range events {
+			if e.StartTime != nil && !e.StartTime.IsZero() {
+				return e
 			}
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 // reconcileDuplicate applies the reviewer's resolution to a detected duplicate.
@@ -418,6 +448,16 @@ func (uc *concertUseCase) Reject(ctx context.Context, stagedID string, reason st
 
 	if err := uc.stagedConcertRepo.Delete(ctx, stagedID); err != nil {
 		return fmt.Errorf("delete staged concert after rejection: %w", err)
+	}
+
+	// Sweep the parent series if this rejection left it with no events and no
+	// other pending staged rows (a discovered series whose every event was staged
+	// and then rejected). Scoped to just this staged row's series.
+	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{sc.SeriesID}); err != nil {
+		uc.logger.Error(ctx, "failed to clean up orphaned series after rejection", err,
+			slog.String("staged_concert_id", stagedID),
+		)
+		// Non-fatal: an orphaned series row is harmless and swept on the next run.
 	}
 
 	uc.logger.Info(ctx, "staged concert rejected and logged",
@@ -568,26 +608,24 @@ func createVenueFromStaged(ctx context.Context, sc *entity.StagedConcert, venueR
 	return venueID, nil
 }
 
-// stagedToScraped converts a StagedConcert back into a ScrapedConcert so the
-// shared buildAndInsertConcerts helper can process it without duplication of
-// the series-adoption and fill logic.
-func stagedToScraped(sc *entity.StagedConcert) *entity.ScrapedConcert {
-	scraped := &entity.ScrapedConcert{
-		Title:           sc.Title,
+// stagedToEvent converts a StagedConcert into a DiscoveredEvent so the shared
+// resolveExistingEvent / insertEventUnderSeries helpers can process an approved
+// staged row without duplicating the fill-detection and insert logic. The
+// series identity is NOT reconstructed here — it is carried separately via
+// StagedConcert.SeriesID.
+func stagedToEvent(sc *entity.StagedConcert) *entity.DiscoveredEvent {
+	ev := &entity.DiscoveredEvent{
 		ListedVenueName: sc.ListedVenueName,
 		LocalDate:       sc.LocalDate,
 	}
 	if sc.StartTime != nil {
-		scraped.StartTime = *sc.StartTime
+		ev.StartTime = *sc.StartTime
 	}
 	if sc.OpenTime != nil {
-		scraped.OpenTime = *sc.OpenTime
+		ev.OpenTime = *sc.OpenTime
 	}
 	if sc.AdminArea != nil {
-		scraped.AdminArea = sc.AdminArea
+		ev.AdminArea = sc.AdminArea
 	}
-	if sc.SourceURL != nil {
-		scraped.SourceURL = *sc.SourceURL
-	}
-	return scraped
+	return ev
 }

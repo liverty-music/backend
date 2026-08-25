@@ -288,13 +288,13 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 // It returns the newly discovered concerts and updates the search log status on exit.
 //
 // Deduplication uses `(local_event_date, listed_venue_name)` matching via
-// `entity.ScrapedConcerts.FilterNew`, aligned with the DB-level natural key
+// `entity.FilterNewSeries`, aligned with the DB-level natural key
 // `UNIQUE (series_id, local_event_date, venue_id)` enforced by the events
 // table (added in migration `20260523145447_add_series_hierarchy`). The pre-
 // v0.41.0 per-artist constraint `(artist_id, local_event_date)` was dropped
 // in that migration alongside the singular events.artist_id column.
 //
-// The application-level FilterNew check on `(date, listed_venue_name)` avoids
+// The application-level FilterNewSeries check on `(date, listed_venue_name)` avoids
 // unnecessary publish/UPSERT round-trips for re-scrapes; the DB natural key
 // is the source of truth and uses the resolved `venue_id` instead of the raw
 // listed name, so the application key is a best-effort upstream filter.
@@ -365,41 +365,55 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 		return nil, fmt.Errorf("failed to list pending staged concert keys: %w", err)
 	}
 
-	// Search new concerts via external API (deadline inherited from HandlerTimeout)
+	// Search new concerts via external API (deadline inherited from HandlerTimeout).
+	// The searcher returns discovered concerts already grouped by series.
 	scraped, err := uc.concertSearcher.Search(ctx, artist, site, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
+	scrapedEvents := entity.SumSeriesEvents(scraped)
 
-	// Deduplicate against published concerts.
+	// Deduplicate against published concerts, per event while preserving grouping.
 	_, filterSpan := otel.Tracer("usecase/concert").Start(ctx, "FilterNewConcerts")
-	newScraped := entity.ScrapedConcerts(scraped).FilterNew(existing)
+	newSeries := entity.FilterNewSeries(scraped, existing)
+	newEvents := entity.SumSeriesEvents(newSeries)
 	filterSpan.SetAttributes(
-		attribute.Int("filter.scraped_count", len(scraped)),
-		attribute.Int("filter.new_count", len(newScraped)),
+		attribute.Int("filter.scraped_count", scrapedEvents),
+		attribute.Int("filter.new_count", newEvents),
 	)
 	filterSpan.End()
 
 	// Further deduplicate against pending staged rows. The staged dedup key uses
-	// (local_date, normalized listed_venue_name), matching FilterNew's semantics:
-	// the venue name is compared through entity.NormalizeVenueName on both sides so
-	// name drift across runs does not re-stage an already-pending concert.
+	// (local_date, normalized listed_venue_name), matching FilterNewSeries'
+	// semantics: the venue name is compared through entity.NormalizeVenueName on
+	// both sides so name drift across runs does not re-stage an already-pending
+	// concert. Events pending review are dropped; a series emptied by that drop
+	// is removed entirely.
 	if len(pendingKeys) > 0 {
 		pendingSet := make(map[string]bool, len(pendingKeys))
 		for _, k := range pendingKeys {
 			pendingSet[k.LocalDate.Format("2006-01-02")+"|"+entity.NormalizeVenueName(k.ListedVenueName)] = true
 		}
-		filtered := newScraped[:0]
-		for _, sc := range newScraped {
-			if pendingSet[sc.LocalDate.Format("2006-01-02")+"|"+entity.NormalizeVenueName(sc.ListedVenueName)] {
+		kept := newSeries[:0]
+		for _, s := range newSeries {
+			evs := s.Events[:0]
+			for _, ev := range s.Events {
+				if pendingSet[ev.LocalDate.Format("2006-01-02")+"|"+entity.NormalizeVenueName(ev.ListedVenueName)] {
+					continue
+				}
+				evs = append(evs, ev)
+			}
+			if len(evs) == 0 {
 				continue
 			}
-			filtered = append(filtered, sc)
+			s.Events = evs
+			kept = append(kept, s)
 		}
-		newScraped = filtered
+		newSeries = kept
+		newEvents = entity.SumSeriesEvents(newSeries)
 	}
 
-	if filtered := len(scraped) - len(newScraped); filtered > 0 {
+	if filtered := scrapedEvents - newEvents; filtered > 0 {
 		uc.logger.Debug(ctx, "filtered existing/duplicate events (same date)",
 			slog.String("artist_id", artistID),
 			slog.Int("filtered_count", filtered),
@@ -407,7 +421,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 	}
 
 	// Publish concert.discovered.v1 event (artist-level batch)
-	if len(newScraped) == 0 {
+	if newEvents == 0 {
 		uc.logger.Debug(ctx, "no new concerts after deduplication",
 			slog.String("artist_id", artistID),
 		)
@@ -422,13 +436,13 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 	eventData := entity.ConcertDiscoveredData{
 		ArtistID:   artistID,
 		ArtistName: artist.Name,
-		Concerts:   newScraped,
+		Series:     newSeries,
 	}
 
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertDiscovered, eventData); err != nil {
 		uc.logger.Error(ctx, "failed to publish concert.discovered event", err,
 			slog.String("artist_id", artistID),
-			slog.Int("concert_count", len(newScraped)),
+			slog.Int("concert_count", newEvents),
 		)
 		// Non-fatal: CronJob will re-discover on next run.
 		// The defer will call markSearchFailed because err != nil.
@@ -438,31 +452,32 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 	uc.logger.Info(ctx, "published concert.discovered event",
 		slog.String("artist_id", artistID),
 		slog.String("artist_name", artist.Name),
-		slog.Int("concert_count", len(newScraped)),
+		slog.Int("series_count", len(newSeries)),
+		slog.Int("concert_count", newEvents),
 	)
 
 	// Record the discovery so the discoveryWindow skip suppresses redundant
 	// re-searches until the next announcement cycle is likely.
 	uc.markSearchFound(ctx, artistID)
 
-	// Build Concert entities from the deduplicated scraped data to return to the caller.
+	// Build Concert entities from the deduplicated series to return to the caller.
 	// Event / Venue IDs stay empty because the search path returns concerts for
-	// immediate display rather than persistence. The series ID is generated
-	// (UUIDv7) on the fly so the embedded SeriesId carries a valid UUID and
-	// passes the response-side protovalidate guards; the synthetic ID has no
-	// referent in the DB and is discarded by the client after rendering.
-
-	concerts := make([]*entity.Concert, 0, len(newScraped))
-	for _, s := range newScraped {
+	// immediate display rather than persistence. One synthetic series ID (UUIDv7)
+	// is minted per discovered series and shared across its events so the embedded
+	// SeriesId carries a valid UUID and passes the response-side protovalidate
+	// guards; the synthetic ID has no referent in the DB and is discarded by the
+	// client after rendering.
+	concerts := make([]*entity.Concert, 0, newEvents)
+	for _, s := range newSeries {
 		syntheticSeriesID := entity.NewID()
-		// Search-path Concerts are display-only DTOs (never persisted); the
-		// SeriesType is cosmetic here, so SINGLE is a safe default.
-		c := s.ToConcert(artistID, syntheticSeriesID, "", "", entity.SeriesTypeSingle)
-		// Replace ToConcert's id-only Performer shell with the resolved
-		// Artist entity so the response carries a complete performer with
-		// Name and MBID (validated non-empty by the guard above).
-		c.Performers = []*entity.Artist{artist}
-		concerts = append(concerts, c)
+		for _, ev := range s.Events {
+			c := s.ToConcert(ev, artistID, syntheticSeriesID, "", "")
+			// Replace ToConcert's id-only Performer shell with the resolved
+			// Artist entity so the response carries a complete performer with
+			// Name and MBID (validated non-empty by the guard above).
+			c.Performers = []*entity.Artist{artist}
+			concerts = append(concerts, c)
+		}
 	}
 	return concerts, nil
 }

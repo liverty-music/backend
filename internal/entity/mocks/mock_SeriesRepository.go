@@ -22,6 +22,63 @@ func (_m *MockSeriesRepository) EXPECT() *MockSeriesRepository_Expecter {
 	return &MockSeriesRepository_Expecter{mock: &_m.Mock}
 }
 
+// DeleteOrphaned provides a mock function with given fields: ctx, seriesIDs
+func (_m *MockSeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error) {
+	ret := _m.Called(ctx, seriesIDs)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteOrphaned")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []string) (int64, error)); ok {
+		return rf(ctx, seriesIDs)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []string) int64); ok {
+		r0 = rf(ctx, seriesIDs)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []string) error); ok {
+		r1 = rf(ctx, seriesIDs)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockSeriesRepository_DeleteOrphaned_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteOrphaned'
+type MockSeriesRepository_DeleteOrphaned_Call struct {
+	*mock.Call
+}
+
+// DeleteOrphaned is a helper method to define mock.On call
+//   - ctx context.Context
+//   - seriesIDs []string
+func (_e *MockSeriesRepository_Expecter) DeleteOrphaned(ctx interface{}, seriesIDs interface{}) *MockSeriesRepository_DeleteOrphaned_Call {
+	return &MockSeriesRepository_DeleteOrphaned_Call{Call: _e.mock.On("DeleteOrphaned", ctx, seriesIDs)}
+}
+
+func (_c *MockSeriesRepository_DeleteOrphaned_Call) Run(run func(ctx context.Context, seriesIDs []string)) *MockSeriesRepository_DeleteOrphaned_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]string))
+	})
+	return _c
+}
+
+func (_c *MockSeriesRepository_DeleteOrphaned_Call) Return(_a0 int64, _a1 error) *MockSeriesRepository_DeleteOrphaned_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSeriesRepository_DeleteOrphaned_Call) RunAndReturn(run func(context.Context, []string) (int64, error)) *MockSeriesRepository_DeleteOrphaned_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Create provides a mock function with given fields: ctx, series
 func (_m *MockSeriesRepository) Create(ctx context.Context, series ...*entity.Series) ([]string, error) {
 	_va := make([]interface{}, len(series))

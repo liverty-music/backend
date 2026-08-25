@@ -24,22 +24,35 @@ import (
 
 const targetModel = "gemini-3.1-flash-lite"
 
+// rawConcert is the flattened per-event view used for scoring/annotation. The
+// harness now writes parsed_concerts as series-grouped (rawSeries); Title and
+// SourceURL are lifted from the parent series onto each event during decode.
 type rawConcert struct {
-	Title           string `json:"title"`
+	Title           string `json:"-"`
 	ListedVenueName string `json:"listed_venue_name"`
 	AdminArea       any    `json:"admin_area"`
 	LocalDate       string `json:"local_date"`
 	StartTime       string `json:"start_time"`
 	OpenTime        string `json:"open_time"`
-	SourceURL       string `json:"source_url"`
+	SourceURL       string `json:"-"`
+}
+
+// rawSeries mirrors entity.DiscoveredSeries as serialized into the harness raw
+// response file (parsed_concerts): series-level title/type/source_url plus the
+// member events.
+type rawSeries struct {
+	Title     string       `json:"title"`
+	Type      string       `json:"type"`
+	SourceURL string       `json:"source_url"`
+	Events    []rawConcert `json:"events"`
 }
 
 type cellRaw struct {
-	Model          string       `json:"model"`
-	ArtistName     string       `json:"artist_name"`
-	Repetition     int          `json:"repetition"`
-	Error          string       `json:"error"`
-	ParsedConcerts []rawConcert `json:"parsed_concerts"`
+	Model        string      `json:"model"`
+	ArtistName   string      `json:"artist_name"`
+	Repetition   int         `json:"repetition"`
+	Error        string      `json:"error"`
+	ParsedSeries []rawSeries `json:"parsed_concerts"`
 }
 
 type seenEvent struct {
@@ -81,14 +94,19 @@ func main() {
 			}
 			totalLiteCells[c.ArtistName]++
 			cellLabel := fmt.Sprintf("%s-rep%d", c.ArtistName, c.Repetition)
-			for _, rc := range c.ParsedConcerts {
-				date := trimDate(rc.LocalDate)
-				k := c.ArtistName + "|" + date
-				byArtistDate[k] = append(byArtistDate[k], seenEvent{Cell: cellLabel, Concert: rc})
+			for _, s := range c.ParsedSeries {
+				for _, rc := range s.Events {
+					// Lift series-level fields onto the flattened event.
+					rc.Title = s.Title
+					rc.SourceURL = s.SourceURL
+					date := trimDate(rc.LocalDate)
+					k := c.ArtistName + "|" + date
+					byArtistDate[k] = append(byArtistDate[k], seenEvent{Cell: cellLabel, Concert: rc})
 
-				sc := toScraped(rc)
-				key := gemini.KeyForScraped(sc)
-				matchedKeys[c.ArtistName+"|"+date+"|"+key.Venue]++
+					sc := toScraped(rc)
+					key := gemini.KeyForScraped(sc)
+					matchedKeys[c.ArtistName+"|"+date+"|"+key.Venue]++
+				}
 			}
 		}
 	}
@@ -212,33 +230,31 @@ func determineStatus(
 	return "—— 欠落"
 }
 
-func toScraped(rc rawConcert) *entity.ScrapedConcert {
-	sc := &entity.ScrapedConcert{
-		Title:           rc.Title,
+func toScraped(rc rawConcert) gemini.ScoredEvent {
+	ev := &entity.DiscoveredEvent{
 		ListedVenueName: rc.ListedVenueName,
-		SourceURL:       rc.SourceURL,
 	}
 	if rc.LocalDate != "" {
 		if t, err := time.Parse(time.RFC3339, rc.LocalDate); err == nil {
-			sc.LocalDate = t
+			ev.LocalDate = t
 		} else if t, err := time.Parse("2006-01-02", rc.LocalDate); err == nil {
-			sc.LocalDate = t
+			ev.LocalDate = t
 		}
 	}
 	if rc.StartTime != "" {
 		if t, err := time.Parse(time.RFC3339, rc.StartTime); err == nil {
-			sc.StartTime = t
+			ev.StartTime = t
 		}
 	}
 	if rc.OpenTime != "" {
 		if t, err := time.Parse(time.RFC3339, rc.OpenTime); err == nil {
-			sc.OpenTime = t
+			ev.OpenTime = t
 		}
 	}
 	if s, ok := rc.AdminArea.(string); ok && s != "" {
-		sc.AdminArea = &s
+		ev.AdminArea = &s
 	}
-	return sc
+	return gemini.ScoredEvent{Event: ev, SourceURL: rc.SourceURL}
 }
 
 func trimDate(s string) string {
