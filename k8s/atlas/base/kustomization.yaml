@@ -83,6 +83,6 @@ configMapGenerator:
   - migrations/20260817010000_grant_fan_api_app_schema.sql
   - migrations/20260825000000_grant_organizer_console_api_readonly_app_schema.sql
   - migrations/20260825010000_drop_merch_url_from_series.sql
-  - migrations/20260825020000_consolidate_fragmented_series.sql
-  - migrations/20260825030000_add_series_id_to_staged_concerts.sql
   - migrations/20260825120000_regrant_organizer_console_api_readonly_app_schema.sql
+  - migrations/20260826000000_consolidate_fragmented_series.sql
+  - migrations/20260826010000_add_series_id_to_staged_concerts.sql

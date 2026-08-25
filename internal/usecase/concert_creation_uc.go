@@ -157,12 +157,7 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	series *entity.DiscoveredSeries,
 	newPlaces map[string]*entity.VenuePlace,
 ) (string, error) {
-	dates := make([]time.Time, 0, len(series.Events))
-	for _, ev := range series.Events {
-		dates = append(dates, ev.LocalDate)
-	}
-
-	seriesID, existed, existingEvents, err := resolveSeriesForGroup(ctx, artistID, dates, uc.concertRepo)
+	seriesID, existed, existingEvents, err := resolveSeriesForGroup(ctx, artistID, series.Events, uc.concertRepo)
 	if err != nil {
 		return "", fmt.Errorf("resolve series for %q: %w", series.Title, err)
 	}
@@ -451,41 +446,61 @@ func (uc *concertCreationUseCase) resolvePlace(
 }
 
 // resolveSeriesForGroup resolves the series_id shared by a whole discovered
-// series group BEFORE any venue/Places resolution. It adopts the series_id of
-// any event this artist already performs on one of the group's dates (a true
-// re-discovery of an existing tour); otherwise it mints a fresh UUIDv7. It
-// returns the resolved id, whether it was adopted from an existing event, and
-// the existing (artist, date) events found (so the caller can skip Places for
-// dates already covered). NO Places API is called.
+// series group BEFORE any venue/Places resolution. It adopts the series_id of an
+// existing event that matches one of the group's discovered events on BOTH the
+// local date AND the normalized listed venue — a true re-discovery of the same
+// physical show — otherwise it mints a fresh UUIDv7. It returns the resolved id,
+// whether it was adopted, and the existing (artist, date) events found (so the
+// caller can skip Places for dates already covered). NO Places API is called:
+// listed_venue_name is a raw string carried on both the discovered event and the
+// existing row, so the venue match is free.
 //
-// A full local_event_date makes an (artist, exact-date) collision across two
-// different series practically impossible, so any matching event already belongs
-// to this tour. After the data-consolidation migration the group query returns
-// at most one distinct existing series; if several are seen (a residual fragment
-// or a concurrent co-headliner mint) the earliest UUIDv7 is adopted as a
-// defensive fallback so the group still converges to one series.
+// Matching on (date, venue) — not date alone — prevents an unrelated same-day
+// show (a festival slot, a support billing, or a stale fragment at a different
+// venue) from hijacking the group's series, and prevents a real multi-date tour
+// that merely coincides on one date with an existing SINGLE series from
+// inheriting that series' identity for all its dates. After the data-
+// consolidation migration at most one distinct existing series matches; if
+// several are seen (a residual fragment or a concurrent co-headliner mint) the
+// earliest UUIDv7 is adopted as a defensive fallback so the group converges.
 func resolveSeriesForGroup(
 	ctx context.Context,
 	artistID string,
-	dates []time.Time,
+	events []*entity.DiscoveredEvent,
 	concertRepo entity.ConcertRepository,
 ) (seriesID string, existed bool, existing []*entity.Event, err error) {
+	dates := make([]time.Time, 0, len(events))
+	want := make(map[string]bool, len(events))
+	for _, ev := range events {
+		dates = append(dates, ev.LocalDate)
+		want[groupVenueDateKey(ev.LocalDate, ev.ListedVenueName)] = true
+	}
+
 	existing, err = concertRepo.FindEventsByArtistAndDate(ctx, artistID, dates)
 	if err != nil {
 		return "", false, nil, fmt.Errorf("find events by artist and date: %w", err)
 	}
-	for _, ev := range existing {
-		if ev.SeriesID == "" {
+	for _, e := range existing {
+		if e.SeriesID == "" || e.ListedVenueName == nil {
 			continue
 		}
-		if seriesID == "" || ev.SeriesID < seriesID {
-			seriesID = ev.SeriesID
+		if !want[groupVenueDateKey(e.LocalDate, *e.ListedVenueName)] {
+			continue
+		}
+		if seriesID == "" || e.SeriesID < seriesID {
+			seriesID = e.SeriesID
 		}
 	}
 	if seriesID != "" {
 		return seriesID, true, existing, nil
 	}
 	return entity.NewID(), false, existing, nil
+}
+
+// groupVenueDateKey is the (local date, normalized listed venue) key used to
+// match a discovered event against an existing event for series adoption.
+func groupVenueDateKey(d time.Time, listedVenueName string) string {
+	return d.Format("2006-01-02") + "|" + entity.NormalizeVenueName(listedVenueName)
 }
 
 // eventsAtSameVenue returns the subset of candidate events whose listed venue

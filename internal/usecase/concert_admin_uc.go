@@ -280,6 +280,20 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resoluti
 		return nil, fmt.Errorf("delete staged concert after approval: %w", err)
 	}
 
+	// When the approval only filled an existing row (no event inserted under
+	// sc.SeriesID) and this staged row was the last reference to a discovery-minted
+	// series, that series is now orphaned. Sweep it, mirroring Reject — scoped to
+	// this series so it never races another run's eager series row. A series that
+	// gained an inserted event is not orphaned, so the sweep is a no-op there.
+	if len(insertedIDs) == 0 {
+		if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{sc.SeriesID}); err != nil {
+			uc.logger.Error(ctx, "failed to clean up orphaned series after fill approval", err,
+				slog.String("staged_concert_id", stagedID),
+			)
+			// Non-fatal: an orphaned series row is harmless and swept on the next run.
+		}
+	}
+
 	uc.logger.Info(ctx, "staged concert approved and published",
 		slog.String("artist_id", sc.ArtistID),
 		slog.String("series_id", sc.SeriesID),
