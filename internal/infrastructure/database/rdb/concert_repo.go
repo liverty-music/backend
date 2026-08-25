@@ -82,6 +82,20 @@ const (
 			AND e.local_event_date = pairs.local_event_date
 	`
 
+	// findEventsByArtistDateQuery returns existing events on any of the given
+	// dates at which the artist already performs (joined through
+	// event_performers). DISTINCT collapses duplicate rows a multi-row join could
+	// produce. Projects the physical key + parent series + listed_venue_name so
+	// the discovery write path can both adopt the group's series and detect a
+	// per-event re-discovery (matching listed venue) that skips the Places API.
+	findEventsByArtistDateQuery = `
+		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at
+		FROM events e
+		JOIN event_performers ep ON ep.event_id = e.id
+		WHERE ep.artist_id = $1
+			AND e.local_event_date = ANY($2::date[])
+	`
+
 	// fillEventStartTimesQuery sets start_at / open_at on events by id, only
 	// where currently NULL (COALESCE never overwrites a known time). The three
 	// arrays are zipped element-wise.
@@ -828,6 +842,41 @@ func (r *ConcertRepository) FindEventsByVenueAndDate(ctx context.Context, venueI
 	}
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "events by venue/date iteration ended with error")
+	}
+	return events, nil
+}
+
+// FindEventsByArtistAndDate implements entity.ConcertRepository. It returns
+// existing events on any of the supplied local event dates at which the artist
+// already performs (joined through event_performers), projected to the fields
+// discovery-time series resolution needs.
+func (r *ConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*entity.Event, error) {
+	if artistID == "" || len(dates) == 0 {
+		return nil, nil
+	}
+
+	rows, err := r.db.Pool.Query(ctx, findEventsByArtistDateQuery, artistID, dates)
+	if err != nil {
+		return nil, toAppErr(err, "failed to find events by artist and date")
+	}
+	defer rows.Close()
+
+	var events []*entity.Event
+	for rows.Next() {
+		var (
+			e          entity.Event
+			listedName *string
+			startAt    *time.Time
+		)
+		if err := rows.Scan(&e.ID, &e.SeriesID, &e.VenueID, &listedName, &e.LocalDate, &startAt); err != nil {
+			return nil, toAppErr(err, "failed to scan event by artist/date")
+		}
+		e.ListedVenueName = listedName
+		e.StartTime = startAt
+		events = append(events, &e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "events by artist/date iteration ended with error")
 	}
 	return events, nil
 }

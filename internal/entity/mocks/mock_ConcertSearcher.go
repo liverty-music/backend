@@ -25,23 +25,23 @@ func (_m *MockConcertSearcher) EXPECT() *MockConcertSearcher_Expecter {
 }
 
 // Search provides a mock function with given fields: ctx, artist, officialSite, from
-func (_m *MockConcertSearcher) Search(ctx context.Context, artist *entity.Artist, officialSite *entity.OfficialSite, from time.Time) ([]*entity.ScrapedConcert, error) {
+func (_m *MockConcertSearcher) Search(ctx context.Context, artist *entity.Artist, officialSite *entity.OfficialSite, from time.Time) ([]*entity.DiscoveredSeries, error) {
 	ret := _m.Called(ctx, artist, officialSite, from)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Search")
 	}
 
-	var r0 []*entity.ScrapedConcert
+	var r0 []*entity.DiscoveredSeries
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *entity.Artist, *entity.OfficialSite, time.Time) ([]*entity.ScrapedConcert, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.Artist, *entity.OfficialSite, time.Time) ([]*entity.DiscoveredSeries, error)); ok {
 		return rf(ctx, artist, officialSite, from)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *entity.Artist, *entity.OfficialSite, time.Time) []*entity.ScrapedConcert); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.Artist, *entity.OfficialSite, time.Time) []*entity.DiscoveredSeries); ok {
 		r0 = rf(ctx, artist, officialSite, from)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.ScrapedConcert)
+			r0 = ret.Get(0).([]*entity.DiscoveredSeries)
 		}
 	}
 
@@ -75,12 +75,12 @@ func (_c *MockConcertSearcher_Search_Call) Run(run func(ctx context.Context, art
 	return _c
 }
 
-func (_c *MockConcertSearcher_Search_Call) Return(_a0 []*entity.ScrapedConcert, _a1 error) *MockConcertSearcher_Search_Call {
+func (_c *MockConcertSearcher_Search_Call) Return(_a0 []*entity.DiscoveredSeries, _a1 error) *MockConcertSearcher_Search_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockConcertSearcher_Search_Call) RunAndReturn(run func(context.Context, *entity.Artist, *entity.OfficialSite, time.Time) ([]*entity.ScrapedConcert, error)) *MockConcertSearcher_Search_Call {
+func (_c *MockConcertSearcher_Search_Call) RunAndReturn(run func(context.Context, *entity.Artist, *entity.OfficialSite, time.Time) ([]*entity.DiscoveredSeries, error)) *MockConcertSearcher_Search_Call {
 	_c.Call.Return(run)
 	return _c
 }

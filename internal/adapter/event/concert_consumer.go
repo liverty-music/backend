@@ -44,7 +44,8 @@ func (h *ConcertConsumer) Handle(msg *message.Message) error {
 	h.logger.Info(ctx, "processing concert.discovered event",
 		slog.String("artist_id", data.ArtistID),
 		slog.String("artist_name", data.ArtistName),
-		slog.Int("concert_count", len(data.Concerts)),
+		slog.Int("series_count", len(data.Series)),
+		slog.Int("concert_count", data.EventCount()),
 	)
 
 	if err := h.concertCreationUC.CreateFromDiscovered(ctx, data); err != nil {

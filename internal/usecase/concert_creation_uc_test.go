@@ -85,6 +85,8 @@ type fakeSeriesRepo struct {
 	// byID lets tests seed series so Get resolves a title (e.g. for the
 	// duplicate-conflict preview). Nil map → Get returns NotFound.
 	byID map[string]*entity.Series
+	// deleteOrphanedCalls counts how many times DeleteOrphaned was invoked.
+	deleteOrphanedCalls int
 }
 
 func (r *fakeSeriesRepo) Create(_ context.Context, series ...*entity.Series) ([]string, error) {
@@ -109,11 +111,22 @@ func (r *fakeSeriesRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Ser
 	return nil, nil
 }
 
+// DeleteOrphaned removes series rows that have no member events and no pending
+// staged rows. In the fake it is always a no-op and merely records the call.
+func (r *fakeSeriesRepo) DeleteOrphaned(_ context.Context) (int64, error) {
+	r.deleteOrphanedCalls++
+	return 0, nil
+}
+
 type fakeConcertRepo struct {
 	created []*entity.Concert
 	// existing maps "venueID|YYYY-MM-DD" → events FindEventsByVenueAndDate returns,
 	// letting tests exercise series adoption and start-time fill.
 	existing map[string][]*entity.Event
+	// existingByArtist maps "artistID|YYYY-MM-DD" → events that
+	// FindEventsByArtistAndDate returns. Used by the re-discovery fast-path and
+	// resolveSeriesForGroup. Most tests leave this nil (empty → mint-new-series path).
+	existingByArtist map[string][]*entity.Event
 	// filledIDs / filledStarts capture FillEventStartTimes calls.
 	filledIDs    []string
 	filledStarts []*time.Time
@@ -141,6 +154,28 @@ func (r *fakeConcertRepo) FindEventsByVenueAndDate(_ context.Context, venueIDs [
 	for i := range venueIDs {
 		k := venueIDs[i] + "|" + dates[i].Format("2006-01-02")
 		for _, e := range r.existing[k] {
+			if !seen[e.ID] {
+				seen[e.ID] = true
+				out = append(out, e)
+			}
+		}
+	}
+	return out, nil
+}
+
+// FindEventsByArtistAndDate returns existing events on any of the given dates
+// at which the artist already performs. The existingByArtist map is keyed by
+// "artistID|YYYY-MM-DD". Most tests leave this nil (empty slice → mint-new-series
+// path in resolveSeriesForGroup).
+func (r *fakeConcertRepo) FindEventsByArtistAndDate(_ context.Context, artistID string, dates []time.Time) ([]*entity.Event, error) {
+	if r.existingByArtist == nil {
+		return nil, nil
+	}
+	seen := make(map[string]bool)
+	var out []*entity.Event
+	for _, d := range dates {
+		k := artistID + "|" + d.Format("2006-01-02")
+		for _, e := range r.existingByArtist[k] {
 			if !seen[e.ID] {
 				seen[e.ID] = true
 				out = append(out, e)
@@ -416,8 +451,15 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
-			Concerts: entity.ScrapedConcerts{
-				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title:     "Concert A",
+					Type:      entity.SeriesTypeSingle,
+					SourceURL: "https://example.com/a",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+					},
+				},
 			},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
@@ -448,8 +490,15 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-1",
-			Concerts: entity.ScrapedConcerts{
-				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title:     "Concert A",
+					Type:      entity.SeriesTypeSingle,
+					SourceURL: "https://example.com/a",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+					},
+				},
 			},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
@@ -467,8 +516,15 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-2",
-			Concerts: entity.ScrapedConcerts{
-				{Title: "Show A", ListedVenueName: "Nowhere", LocalDate: localDate, SourceURL: "https://example.com/nowhere"},
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title:     "Show A",
+					Type:      entity.SeriesTypeSingle,
+					SourceURL: "https://example.com/nowhere",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Nowhere", LocalDate: localDate},
+					},
+				},
 			},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
@@ -489,8 +545,15 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-3",
-			Concerts: entity.ScrapedConcerts{
-				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title:     "Concert A",
+					Type:      entity.SeriesTypeSingle,
+					SourceURL: "https://example.com/a",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+					},
+				},
 			},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
@@ -506,14 +569,27 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
 		seedVenue(h, "venue-1", "Venue X", "place-x")
 		// An existing unknown-start row that the known-start discovery fills (not a conflict).
+		listedName := "Venue X"
 		h.concert.existing = map[string][]*entity.Event{
-			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: nil}},
+			"venue-1|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: nil, ListedVenueName: &listedName}},
+		}
+		// Seed the same event in the artist-date index so the re-discovery fast-path
+		// finds the venue and skips the Places API.
+		h.concert.existingByArtist = map[string][]*entity.Event{
+			"artist-4|2026-03-15": {{ID: "event-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate, StartTime: nil, ListedVenueName: &listedName}},
 		}
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-4",
-			Concerts: entity.ScrapedConcerts{
-				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title:     "Concert A",
+					Type:      entity.SeriesTypeSingle,
+					SourceURL: "https://example.com/a",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+					},
+				},
 			},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
@@ -535,8 +611,15 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-6",
-			Concerts: entity.ScrapedConcerts{
-				{Title: "Concert A", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/a"},
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title:     "Concert A",
+					Type:      entity.SeriesTypeSingle,
+					SourceURL: "https://example.com/a",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+					},
+				},
 			},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
@@ -553,9 +636,17 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-5",
-			Concerts: entity.ScrapedConcerts{
-				{Title: "Valid Show", ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime, SourceURL: "https://example.com/valid"},
-				{Title: "TBA Show", ListedVenueName: "", LocalDate: localDate, SourceURL: "https://example.com/tba"},
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title:     "Mixed Show",
+					Type:      entity.SeriesTypeSingle,
+					SourceURL: "https://example.com/valid",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue X", LocalDate: localDate, StartTime: startTime},
+						// TBA event with empty venue name — must be skipped.
+						{ListedVenueName: "", LocalDate: localDate},
+					},
+				},
 			},
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
@@ -574,5 +665,175 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 			&fakeStagedConcertRepo{}, newFakeVenueRepo(), &fakeConcertRepo{}, &fakeSeriesRepo{},
 			newFakeSuppressedConcertRepo(), nil, nil, newTestLogger(t),
 		)
+	})
+}
+
+// TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries is the
+// regression guard for the series-fragmentation bug: a multi-date tour discovered
+// as one DiscoveredSeries must persist exactly one series row of type TOUR, with
+// all member events sharing that single SeriesID, and exactly one CONCERT.created
+// published carrying all event IDs. The pre-fix code minted one series per event,
+// causing 1-event series proliferation in production.
+func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.T) {
+	t.Parallel()
+
+	// Three dates, each at a different venue; all resolved via the place stub.
+	date1 := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	date2 := time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC)
+	date3 := time.Date(2026, 5, 24, 0, 0, 0, 0, time.UTC)
+
+	build := func(t *testing.T) (usecase.ConcertCreationUseCase, *fakeConcertRepo, *fakeSeriesRepo, *fakeStagedConcertRepo, *gochannel.GoChannel) {
+		t.Helper()
+		staged := &fakeStagedConcertRepo{}
+		venue := newFakeVenueRepo()
+		concert := &fakeConcertRepo{}
+		series := &fakeSeriesRepo{}
+		suppressed := newFakeSuppressedConcertRepo()
+		place := newStubPlaceSearcher()
+		pub := newGoChannelPub(t)
+
+		place.places["Venue A"] = &entity.VenuePlace{ExternalID: "place-a", Name: "Venue A Canonical"}
+		place.places["Venue B"] = &entity.VenuePlace{ExternalID: "place-b", Name: "Venue B Canonical"}
+		place.places["Venue C"] = &entity.VenuePlace{ExternalID: "place-c", Name: "Venue C Canonical"}
+
+		uc := usecase.NewConcertCreationUseCase(
+			staged, venue, concert, series, suppressed,
+			place, messaging.NewEventPublisher(pub), newTestLogger(t),
+		)
+		return uc, concert, series, staged, pub
+	}
+
+	t.Run("three-date tour produces exactly one TOUR series and one CONCERT.created", func(t *testing.T) {
+		t.Parallel()
+		uc, concert, series, staged, pub := build(t)
+
+		ctx := context.Background()
+		ch, err := pub.Subscribe(ctx, "CONCERT.created")
+		require.NoError(t, err)
+
+		data := entity.ConcertDiscoveredData{
+			ArtistID: "artist-tour",
+			Series: []*entity.DiscoveredSeries{
+				{
+					Title:     "Eras Tour 2026",
+					Type:      entity.SeriesTypeTour,
+					SourceURL: "https://example.com/tour",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Venue A", LocalDate: date1},
+						{ListedVenueName: "Venue B", LocalDate: date2},
+						{ListedVenueName: "Venue C", LocalDate: date3},
+					},
+				},
+			},
+		}
+		require.NoError(t, uc.CreateFromDiscovered(ctx, data))
+
+		// Exactly one series row minted (not one per event).
+		require.Len(t, series.created, 1, "one DiscoveredSeries must produce exactly one series row")
+		assert.Equal(t, entity.SeriesTypeTour, series.created[0].Type, "series type must be TOUR")
+		assert.Equal(t, "Eras Tour 2026", series.created[0].Title)
+
+		// All three events inserted.
+		require.Len(t, concert.created, 3, "all three tour dates must be inserted")
+
+		// All events share the single minted series ID.
+		sharedSeriesID := series.created[0].ID
+		for _, c := range concert.created {
+			assert.Equal(t, sharedSeriesID, c.SeriesID,
+				"every concert must share the single tour series ID (got %q, want %q)", c.SeriesID, sharedSeriesID)
+		}
+
+		// Nothing staged (all venues resolved).
+		assert.Empty(t, staged.upserted)
+
+		// Exactly one CONCERT.created message published, carrying all three event IDs.
+		select {
+		case msg := <-ch:
+			msg.Ack()
+			var published usecase.ConcertCreatedData
+			require.NoError(t, messaging.ParseCloudEventData(msg, &published))
+			assert.Equal(t, "artist-tour", published.ArtistID)
+			assert.Len(t, published.ConcertIDs, 3,
+				"one CONCERT.created must carry all three event IDs, not one per event")
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected exactly one CONCERT.created for the whole tour but got none")
+		}
+
+		// Confirm no second CONCERT.created was published.
+		select {
+		case msg := <-ch:
+			t.Fatalf("unexpected second CONCERT.created published: %s", msg.Payload)
+		case <-time.After(50 * time.Millisecond):
+		}
+	})
+}
+
+// TestCreateFromDiscovered_ApprovePreservesTourSeriesID verifies that approving a
+// staged event that already carries a SeriesID (set at discovery time) inserts the
+// event under that existing series and does NOT create a new series row. This guards
+// the invariant that the admin approval path never mints a series — only the
+// discovery path does.
+func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
+	t.Parallel()
+
+	artist := &entity.Artist{ID: "artist-tour", Name: "Tour Artist", MBID: "22222222-2222-2222-2222-222222222222"}
+	const tourSeriesID = "series-tour-existing"
+
+	build := func(t *testing.T) *approvalTestDeps {
+		t.Helper()
+		d := newApprovalTestDeps(t, artist)
+		// Seed the pre-existing tour series so Get resolves its title.
+		d.seriesRepo.byID = map[string]*entity.Series{
+			tourSeriesID: {ID: tourSeriesID, Title: "Eras Tour 2026", Type: entity.SeriesTypeTour},
+		}
+		return d
+	}
+
+	t.Run("approve inserts under the existing tour series ID without minting a new series", func(t *testing.T) {
+		t.Parallel()
+		d := build(t)
+
+		placeID := "place-hall"
+		venueName := "Concert Hall Canonical"
+		sourceURL := "https://example.com/tour"
+		sc := &entity.StagedConcert{
+			ID:                "staged-tour-event",
+			ArtistID:          artist.ID,
+			SeriesID:          tourSeriesID,
+			Title:             "Eras Tour 2026",
+			LocalDate:         time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+			ListedVenueName:   "Concert Hall",
+			SourceURL:         &sourceURL,
+			ResolvedPlaceID:   &placeID,
+			ResolvedVenueName: &venueName,
+		}
+		d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
+
+		ctx := context.Background()
+		createdCh, err := d.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
+		require.NoError(t, err)
+
+		_, err = d.uc.Approve(ctx, sc.ID, usecase.ApproveResolutionUnspecified, "")
+		require.NoError(t, err)
+
+		// Event inserted under the pre-existing tour series.
+		require.Len(t, d.concertRepo.created, 1)
+		assert.Equal(t, tourSeriesID, d.concertRepo.created[0].SeriesID,
+			"approved event must be inserted under the staged row's existing series ID")
+
+		// NO new series row created — approval never mints a series.
+		assert.Empty(t, d.seriesRepo.created,
+			"Approve must not create a new series; the tour series already exists")
+
+		// Staged row deleted.
+		assert.Empty(t, d.stagedRepo.upserted)
+
+		// CONCERT.created published.
+		select {
+		case msg := <-createdCh:
+			msg.Ack()
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected CONCERT.created from Approve but got none")
+		}
 	})
 }

@@ -22,7 +22,16 @@ type StagedConcert struct {
 	ID string
 	// ArtistID is the FK to artists.id of the performing artist.
 	ArtistID string
-	// Title is the descriptive title extracted for the concert.
+	// SeriesID is the FK to series.id of the parent series this staged event
+	// belongs to. The series row is always created at discovery time (when the
+	// group's series_id is resolved), so this is a real foreign key by staging
+	// time — never a soft reference. On approval the event is inserted under this
+	// series without minting a new one; type/title/source_url live on the series
+	// row, not duplicated here.
+	SeriesID string
+	// Title is the descriptive title extracted for the concert. Retained for the
+	// review queue display and the rejection log; the canonical title lives on
+	// the parent series row.
 	Title string
 	// LocalDate is the scheduled calendar date of the concert in the venue
 	// local timezone.

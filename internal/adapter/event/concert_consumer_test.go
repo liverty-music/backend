@@ -54,12 +54,17 @@ func TestConcertConsumer_Handle(t *testing.T) {
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
 			ArtistName: "Test Artist",
-			Concerts: entity.ScrapedConcerts{
+			Series: []*entity.DiscoveredSeries{
 				{
-					Title:           "Concert A",
-					ListedVenueName: "Venue X",
-					LocalDate:       localDate,
-					SourceURL:       "https://example.com/a",
+					Title:     "Concert A",
+					Type:      entity.SeriesTypeSingle,
+					SourceURL: "https://example.com/a",
+					Events: []*entity.DiscoveredEvent{
+						{
+							ListedVenueName: "Venue X",
+							LocalDate:       localDate,
+						},
+					},
 				},
 			},
 		}
@@ -70,7 +75,8 @@ func TestConcertConsumer_Handle(t *testing.T) {
 
 		require.Len(t, uc.called, 1)
 		assert.Equal(t, "artist-1", uc.called[0].ArtistID)
-		assert.Len(t, uc.called[0].Concerts, 1)
+		assert.Len(t, uc.called[0].Series, 1)
+		assert.Equal(t, 1, uc.called[0].EventCount())
 	})
 
 	t.Run("returns error when use case fails", func(t *testing.T) {
@@ -82,7 +88,7 @@ func TestConcertConsumer_Handle(t *testing.T) {
 		data := entity.ConcertDiscoveredData{
 			ArtistID:   "artist-1",
 			ArtistName: "Test Artist",
-			Concerts:   entity.ScrapedConcerts{},
+			Series:     []*entity.DiscoveredSeries{},
 		}
 
 		msg := makeDiscoveredMsg(t, data)

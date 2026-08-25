@@ -282,8 +282,11 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				artistID := "artist-1"
 				artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
 				site := &entity.OfficialSite{ArtistID: artistID, URL: "https://example.com"}
-				scraped := []*entity.ScrapedConcert{
-					{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
+				scraped := []*entity.DiscoveredSeries{
+					{
+						Title: "New Concert", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/concert",
+						Events: []*entity.DiscoveredEvent{{ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour)}},
+					},
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
@@ -348,8 +351,11 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				t.Helper()
 				artistID := "artist-1"
 				artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
-				scraped := []*entity.ScrapedConcert{
-					{Title: "No-Site Concert", ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour), SourceURL: "https://example.com/concert"},
+				scraped := []*entity.DiscoveredSeries{
+					{
+						Title: "No-Site Concert", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/concert",
+						Events: []*entity.DiscoveredEvent{{ListedVenueName: "Test Venue", LocalDate: time.Now().Add(24 * time.Hour)}},
+					},
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
@@ -375,8 +381,11 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				existing := []*entity.Concert{
 					{ID: "c1", LocalDate: concertDate},
 				}
-				scraped := []*entity.ScrapedConcert{
-					{Title: "Existing Concert", ListedVenueName: "V1", LocalDate: concertDate},
+				scraped := []*entity.DiscoveredSeries{
+					{
+						Title: "Existing Concert", Type: entity.SeriesTypeSingle,
+						Events: []*entity.DiscoveredEvent{{ListedVenueName: "V1", LocalDate: concertDate}},
+					},
 				}
 
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
@@ -428,8 +437,11 @@ func TestSearchNewConcerts_TimingBoundaries(t *testing.T) {
 
 	artistID := "artist-1"
 	artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
-	scraped := []*entity.ScrapedConcert{
-		{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), SourceURL: "https://example.com"},
+	scraped := []*entity.DiscoveredSeries{
+		{
+			Title: "New Concert", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com",
+			Events: []*entity.DiscoveredEvent{{ListedVenueName: "Test Venue", LocalDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)}},
+		},
 	}
 
 	t.Run("recently completed search is skipped (age < searchCacheTTL)", func(t *testing.T) {
@@ -558,8 +570,11 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 
 	artistID := "artist-1"
 	artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
-	scraped := []*entity.ScrapedConcert{
-		{Title: "New Concert", ListedVenueName: "Test Venue", LocalDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), SourceURL: "https://example.com"},
+	scraped := []*entity.DiscoveredSeries{
+		{
+			Title: "New Concert", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com",
+			Events: []*entity.DiscoveredEvent{{ListedVenueName: "Test Venue", LocalDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)}},
+		},
 	}
 
 	t.Run("stale search but recent discovery is skipped (last_found_at < discoveryWindow)", func(t *testing.T) {
@@ -659,9 +674,9 @@ func TestSearchNewConcerts_DiscoveryWindow(t *testing.T) {
 }
 
 // receivePublishedConcerts reads from a concert.discovered subscription and
-// returns the number of new concerts in the published event, or 0 if nothing
-// was published within the timeout. Must be called inside a synctest.Test
-// bubble so that time.After uses virtual time and resolves instantly.
+// returns the total number of new events in the published payload, or 0 if
+// nothing was published within the timeout. Must be called inside a
+// synctest.Test bubble so that time.After uses virtual time and resolves instantly.
 func receivePublishedConcerts(t *testing.T, ctx context.Context, sub <-chan *message.Message) int {
 	t.Helper()
 	select {
@@ -670,19 +685,19 @@ func receivePublishedConcerts(t *testing.T, ctx context.Context, sub <-chan *mes
 		var data entity.ConcertDiscoveredData
 		err := messaging.ParseCloudEventData(msg, &data)
 		assert.NoError(t, err)
-		return len(data.Concerts)
+		return data.EventCount()
 	case <-time.After(200 * time.Millisecond):
 		return 0
 	}
 }
 
 // TestSearchNewConcerts_Deduplication verifies that executeSearch correctly
-// deduplicates scraped concerts against existing DB records via
-// ScrapedConcerts.FilterNew, aligned with the events physical natural key
+// deduplicates scraped series against existing DB records via
+// entity.FilterNewSeries, aligned with the events physical natural key
 // (venue_id, local_event_date, start_at). start_time disambiguates
 // asymmetrically: two differing known starts are distinct shows (昼夜2公演),
-// an unknown-start scrape is dropped when anything is already known at that
-// (date, venue), and a known-start scrape passes when only an unknown-start
+// an unknown-start event is dropped when anything is already known at that
+// (date, venue), and a known-start event passes when only an unknown-start
 // row exists (so the creation path can fill it).
 func TestSearchNewConcerts_Deduplication(t *testing.T) {
 	t.Parallel()
@@ -695,8 +710,8 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 	type testCase struct {
 		name            string
 		existing        []*entity.Concert
-		scraped         []*entity.ScrapedConcert
-		wantNewConcerts int // 0 = all deduped (no publish), >0 = event published with N concerts
+		scraped         []*entity.DiscoveredSeries
+		wantNewConcerts int // 0 = all deduped (no publish), >0 = event published with N events
 	}
 
 	tests := []testCase{
@@ -707,8 +722,11 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
-			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC, SourceURL: "https://example.com"},
+			scraped: []*entity.DiscoveredSeries{
+				{
+					Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC}},
+				},
 			},
 			wantNewConcerts: 0,
 		},
@@ -717,8 +735,11 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
-			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com"},
+			scraped: []*entity.DiscoveredSeries{
+				{
+					Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate}},
+				},
 			},
 			wantNewConcerts: 0,
 		},
@@ -732,8 +753,11 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")},
 			},
-			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC, SourceURL: "https://example.com"},
+			scraped: []*entity.DiscoveredSeries{
+				{
+					Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC}},
+				},
 			},
 			wantNewConcerts: 1,
 		},
@@ -742,34 +766,45 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")},
 			},
-			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com"},
+			scraped: []*entity.DiscoveredSeries{
+				{
+					Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate}},
+				},
 			},
 			wantNewConcerts: 0,
 		},
 		{
-			name:     "within-batch dedup: two scraped concerts with same date",
+			// Within-batch dedup: two events within the same series at the same venue/date.
+			// The second (unknown-start) is dropped because a known-start entry was already
+			// marked for that (date, venue) in the same batch.
+			name:     "within-batch dedup: two events at same venue/date",
 			existing: nil,
-			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert A", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC, SourceURL: "https://example.com/a"},
-				{Title: "Concert A (dup)", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com/b"},
+			scraped: []*entity.DiscoveredSeries{
+				{
+					Title: "Concert A", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
+					Events: []*entity.DiscoveredEvent{
+						{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, StartTime: startUTC},
+						// unknown-start duplicate of the same (date, venue) — absorbed
+						{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate},
+					},
+				},
 			},
 			wantNewConcerts: 1, // second is intra-batch duplicate
 		},
 		{
-			// FilterNew's key is now (date, listedVenueName) to align with the
-			// events natural key (series_id, local_event_date, venue_id) — same
-			// date at a different venue is a legitimate separate event (e.g.
-			// an afternoon tour stop plus an evening festival appearance) and
-			// MUST NOT be deduplicated. The previous date-only key would have
-			// silently dropped the second one before concert_creation_uc
-			// could persist it.
+			// FilterNewSeries' key is (date, listedVenueName) aligned with the events
+			// natural key (series_id, local_event_date, venue_id) — same date at a
+			// different venue is a legitimate separate event and MUST NOT be deduplicated.
 			name: "same date, different venue — NOT deduped (venue in key)",
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: nil, ListedVenueName: new("Zepp Tokyo")},
 			},
-			scraped: []*entity.ScrapedConcert{
-				{Title: "Festival B", ListedVenueName: "Tokyo Dome", LocalDate: concertDate, SourceURL: "https://example.com"},
+			scraped: []*entity.DiscoveredSeries{
+				{
+					Title: "Festival B", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Tokyo Dome", LocalDate: concertDate}},
+				},
 			},
 			wantNewConcerts: 1,
 		},
@@ -781,8 +816,11 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
-			scraped: []*entity.ScrapedConcert{
-				{Title: "Concert Day 2", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate.AddDate(0, 0, 1), StartTime: startUTC, SourceURL: "https://example.com"},
+			scraped: []*entity.DiscoveredSeries{
+				{
+					Title: "Concert Day 2", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate.AddDate(0, 0, 1), StartTime: startUTC}},
+				},
 			},
 			wantNewConcerts: 1,
 		},
@@ -791,9 +829,17 @@ func TestSearchNewConcerts_Deduplication(t *testing.T) {
 			existing: []*entity.Concert{
 				{ID: "c1", LocalDate: concertDate, StartTime: &startUTC, ListedVenueName: new("Zepp Tokyo")},
 			},
-			scraped: []*entity.ScrapedConcert{
-				{Title: "Existing Concert", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com/old"},
-				{Title: "New Concert", ListedVenueName: "Tokyo Dome", LocalDate: concertDate.AddDate(0, 0, 7), SourceURL: "https://example.com/new"},
+			scraped: []*entity.DiscoveredSeries{
+				{
+					// existing — deduped away
+					Title: "Existing Concert", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/old",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate}},
+				},
+				{
+					// genuinely new
+					Title: "New Concert", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/new",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Tokyo Dome", LocalDate: concertDate.AddDate(0, 0, 7)}},
+				},
 			},
 			wantNewConcerts: 1,
 		},
@@ -966,11 +1012,17 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 				ListedVenueName: "Zepp Tokyo",
 			}
 
-			scraped := []*entity.ScrapedConcert{
+			scraped := []*entity.DiscoveredSeries{
 				// This one is already pending — must be excluded.
-				{Title: "Already Staged", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com/a"},
+				{
+					Title: "Already Staged", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate}},
+				},
 				// This one is genuinely new — must pass.
-				{Title: "New Show", ListedVenueName: "Osaka Hall", LocalDate: concertDate, SourceURL: "https://example.com/b"},
+				{
+					Title: "New Show", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/b",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Osaka Hall", LocalDate: concertDate}},
+				},
 			}
 
 			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
@@ -1010,11 +1062,17 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 				ListedVenueName: "フェスティバルホール",
 			}
 
-			scraped := []*entity.ScrapedConcert{
+			scraped := []*entity.DiscoveredSeries{
 				// Same physical venue, drifted name — must be excluded via normalization.
-				{Title: "Drifted Staged", ListedVenueName: "大阪・フェスティバルホール", LocalDate: concertDate, SourceURL: "https://example.com/a"},
+				{
+					Title: "Drifted Staged", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "大阪・フェスティバルホール", LocalDate: concertDate}},
+				},
 				// Genuinely new — must pass.
-				{Title: "New Show", ListedVenueName: "Osaka Hall", LocalDate: concertDate, SourceURL: "https://example.com/b"},
+				{
+					Title: "New Show", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/b",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Osaka Hall", LocalDate: concertDate}},
+				},
 			}
 
 			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
@@ -1046,8 +1104,11 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 			d := newConcertTestDeps(t)
 
 			// No pending keys — empty slice means nothing is staged for this artist.
-			scraped := []*entity.ScrapedConcert{
-				{Title: "Previously Rejected", ListedVenueName: "Zepp Tokyo", LocalDate: concertDate, SourceURL: "https://example.com/rejected"},
+			scraped := []*entity.DiscoveredSeries{
+				{
+					Title: "Previously Rejected", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/rejected",
+					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate}},
+				},
 			}
 
 			sub, err := d.publisher.Subscribe(ctx, entity.SubjectConcertDiscovered)
