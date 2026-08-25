@@ -9,11 +9,15 @@
 -- User-owned data (ticket_journeys) hangs off events, which are preserved, so no
 -- user data is lost. See specification change fix-series-fragmentation, §5.
 --
--- Grouping key: (source_url, type) where a source_url is present — the tour's
--- stable feature/announcement page, which survives title re-branding — falling
--- back to (normalized title, type) only when source_url is empty. NOT by artist:
--- a co-headline tour spans artists but is one series (artists stay linked via
--- event_performers). The canonical series per group is the earliest UUIDv7.
+-- Grouping key: source_url where present — the tour's stable feature/announcement
+-- page, which survives title re-branding — falling back to the normalized title
+-- only when source_url is empty. Type is deliberately NOT part of the key: the
+-- fragmentation bug mis-typed fragments inconsistently (auto-published events
+-- typed TOUR, staged-then-approved events typed SINGLE), so keying on type would
+-- split one real tour into disjoint groups that never merge. Type is re-derived
+-- AFTER consolidation from the merged event set (multi-venue → TOUR). NOT by
+-- artist either: a co-headline tour spans artists but is one series (artists stay
+-- linked via event_performers). The canonical series per group is the earliest UUIDv7.
 
 -- ===== Snapshot for rollback (before any mutation) =====
 -- Records every event / sales_phase's prior series_id and every series' prior
@@ -52,8 +56,8 @@ WITH grp AS (
         id,
         CASE
             WHEN source_url IS NOT NULL AND btrim(source_url) <> ''
-                THEN 'U:' || btrim(source_url) || '|' || type::text
-            ELSE 'T:' || btrim(lower(title)) || '|' || type::text
+                THEN 'U:' || btrim(source_url)
+            ELSE 'T:' || btrim(lower(title))
         END AS group_key
     FROM series
 ),
@@ -96,17 +100,18 @@ USING (
 ) d
 WHERE sp.id = d.id AND d.rn > 1;
 
--- ===== Type consolidated multi-event groups as TOUR =====
--- A canonical series that absorbed other fragments AND now owns more than one
--- event is a real multi-date tour; the pre-migration mis-typing (SINGLE) is
--- corrected here. Genuinely single-event SINGLE series are left untouched.
+-- ===== Re-derive type from the consolidated event set: multi-venue → TOUR =====
+-- A series whose events span more than one DISTINCT venue is a real multi-venue
+-- tour → TOUR. Deriving from the merged events (not the pre-migration per-fragment
+-- type) corrects the inconsistent mis-typing the bug produced, and using distinct
+-- venue count (not raw event count) keeps a single-venue multi-day residency as
+-- SINGLE. Only SINGLE rows are promoted, so genuine TOUR and FESTIVAL series are
+-- never touched; non-canonical fragments (0 events after re-pointing) stay SINGLE
+-- and are deleted below.
 UPDATE series s
 SET type = 'TOUR'
-WHERE EXISTS (
-        SELECT 1 FROM _series_group_map m
-        WHERE m.canonical_id = s.id AND m.old_id <> m.canonical_id
-    )
-  AND (SELECT count(*) FROM events e WHERE e.series_id = s.id) > 1;
+WHERE s.type = 'SINGLE'
+  AND (SELECT count(DISTINCT e.venue_id) FROM events e WHERE e.series_id = s.id) > 1;
 
 -- ===== Delete the emptied fragmented (non-canonical) series =====
 -- Their events and sales phases were re-pointed above, so they now own nothing.

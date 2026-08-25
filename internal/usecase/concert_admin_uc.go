@@ -223,14 +223,17 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resoluti
 		return nil, fmt.Errorf("resolve or create venue for staged concert %q: %w", stagedID, err)
 	}
 
+	// Fetch the events at the resolved (venue, date) ONCE and reuse the slice for
+	// both duplicate detection and the fill-vs-insert decision.
+	existing, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
+	if err != nil {
+		return nil, fmt.Errorf("find existing events for staged concert %q: %w", stagedID, err)
+	}
+
 	// Detect a duplicate existing event at the resolved (venue, date, start time)
 	// BEFORE any event mutation, so an unresolved conflict returns without side
 	// effects. Re-checked on every call, so a two-phase reconcile re-validates.
-	conflictEvent, err := detectDuplicateEvent(ctx, sc, venueID, uc.concertRepo)
-	if err != nil {
-		return nil, fmt.Errorf("detect duplicate event for staged concert %q: %w", stagedID, err)
-	}
-	if conflictEvent != nil {
+	if conflictEvent := duplicateEventAmong(existing, sc); conflictEvent != nil {
 		return uc.reconcileDuplicate(ctx, sc, conflictEvent, resolution, reviewerID)
 	}
 
@@ -241,10 +244,6 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resoluti
 	// unknown-start row legitimately inserts nothing; that is a success, not a
 	// conflict.
 	ev := stagedToEvent(sc)
-	existing, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
-	if err != nil {
-		return nil, fmt.Errorf("find existing events for staged concert %q: %w", stagedID, err)
-	}
 	var insertedIDs []string
 	if match, isFill := resolveExistingEvent(existing, ev, map[string]bool{}); isFill {
 		if err := uc.concertRepo.FillEventStartTimes(ctx,
@@ -255,11 +254,7 @@ func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resoluti
 			return nil, fmt.Errorf("fill event start times for staged concert %q: %w", stagedID, err)
 		}
 	} else {
-		series := &entity.DiscoveredSeries{Title: sc.Title}
-		if sc.SourceURL != nil {
-			series.SourceURL = *sc.SourceURL
-		}
-		insertedIDs, err = insertEventUnderSeries(ctx, sc.ArtistID, sc.SeriesID, series, ev, venueID, uc.concertRepo)
+		insertedIDs, err = insertEventUnderSeries(ctx, sc.ArtistID, sc.SeriesID, ev, venueID, uc.concertRepo)
 		if err != nil {
 			return nil, fmt.Errorf("insert event under series for staged concert %q: %w", stagedID, err)
 		}
@@ -309,22 +304,28 @@ func detectDuplicateEvent(ctx context.Context, sc *entity.StagedConcert, venueID
 	if err != nil {
 		return nil, fmt.Errorf("find existing events: %w", err)
 	}
+	return duplicateEventAmong(events, sc), nil
+}
 
+// duplicateEventAmong is the pure duplicate-detection core of detectDuplicateEvent,
+// operating on already-fetched events so callers that already hold the (venue,
+// date) slice (e.g. Approve) do not re-query.
+func duplicateEventAmong(events []*entity.Event, sc *entity.StagedConcert) *entity.Event {
 	ev := stagedToEvent(sc)
 	match, isFill := resolveExistingEvent(events, ev, map[string]bool{})
 	if match != nil && !isFill {
 		// Exact-start duplicate (or both-unknown at the same venue/date).
-		return match, nil
+		return match
 	}
 	if ev.StartTime.IsZero() {
 		// Unknown-start staged row: a duplicate iff any known-start row exists here.
-		for _, ev := range events {
-			if ev.StartTime != nil && !ev.StartTime.IsZero() {
-				return ev, nil
+		for _, e := range events {
+			if e.StartTime != nil && !e.StartTime.IsZero() {
+				return e
 			}
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 // reconcileDuplicate applies the reviewer's resolution to a detected duplicate.
@@ -437,8 +438,8 @@ func (uc *concertUseCase) Reject(ctx context.Context, stagedID string, reason st
 
 	// Sweep the parent series if this rejection left it with no events and no
 	// other pending staged rows (a discovered series whose every event was staged
-	// and then rejected).
-	if _, err := uc.seriesRepo.DeleteOrphaned(ctx); err != nil {
+	// and then rejected). Scoped to just this staged row's series.
+	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{sc.SeriesID}); err != nil {
 		uc.logger.Error(ctx, "failed to clean up orphaned series after rejection", err,
 			slog.String("staged_concert_id", stagedID),
 		)

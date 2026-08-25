@@ -74,6 +74,28 @@ type DiscoveredEvent struct {
 	OpenTime time.Time `json:"open_time,omitzero"`
 }
 
+// ToConcertUnderSeries builds a persist-ready Concert for this event under an
+// already-existing series identified by seriesID. Unlike
+// [DiscoveredSeries.ToConcert] it embeds no Series shell: the series row already
+// exists (created when the group's series_id was resolved), and the repository
+// insert reads only SeriesID — so there is no series metadata to carry or risk
+// overwriting. Used by both the discovery auto-publish path and the admin
+// approval path.
+func (e *DiscoveredEvent) ToConcertUnderSeries(artistID, seriesID, eventID, venueID string) *Concert {
+	listedName := e.ListedVenueName
+	c := &Concert{
+		ID:              eventID,
+		SeriesID:        seriesID,
+		VenueID:         venueID,
+		ListedVenueName: &listedName,
+		LocalDate:       e.LocalDate,
+		Performers:      []*Artist{{ID: artistID}},
+	}
+	c.StartTime = NullableTime(e.StartTime)
+	c.OpenTime = NullableTime(e.OpenTime)
+	return c
+}
+
 // DiscoveredSeries groups the events of one discovered tour or standalone show
 // under shared series-level metadata. Grouping is structural — every event in
 // Events belongs to this one series — so per-event fragmentation is impossible

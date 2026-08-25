@@ -107,6 +107,10 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 	// shared across every series of this artist's batch.
 	newPlaces := make(map[string]*entity.VenuePlace)
 
+	// mintedSeriesIDs collects the series this batch newly created, so the
+	// end-of-batch orphan sweep is scoped to them alone and cannot delete another
+	// concurrently-processing run's just-created (still event-less) series.
+	var mintedSeriesIDs []string
 	for _, series := range data.Series {
 		if series == nil || len(series.Events) == 0 {
 			continue
@@ -119,15 +123,20 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 			continue
 		}
 
-		if err := uc.createSeriesFromDiscovered(ctx, data.ArtistID, series, newPlaces); err != nil {
+		mintedID, err := uc.createSeriesFromDiscovered(ctx, data.ArtistID, series, newPlaces)
+		if err != nil {
 			return err
+		}
+		if mintedID != "" {
+			mintedSeriesIDs = append(mintedSeriesIDs, mintedID)
 		}
 	}
 
-	// Sweep any series left with no events and no pending staged rows (a
-	// provisional group mint that turned out to be a co-headliner and adopted a
-	// sibling's series, or a group fully rejected later).
-	if _, err := uc.seriesRepo.DeleteOrphaned(ctx); err != nil {
+	// Sweep only the series THIS batch minted that ended up with no events and no
+	// pending staged rows (a provisional group mint that turned out to be a
+	// co-headliner and adopted a sibling's event's series, so its own row was left
+	// empty). Scoping to minted ids avoids racing another run's eager series row.
+	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, mintedSeriesIDs); err != nil {
 		uc.logger.Error(ctx, "failed to clean up orphaned series", err,
 			slog.String("artist_id", data.ArtistID),
 		)
@@ -140,13 +149,14 @@ func (uc *concertCreationUseCase) CreateFromDiscovered(ctx context.Context, data
 // createSeriesFromDiscovered resolves the group series_id once, creates the
 // series row when minted, persists every publishable member event under that
 // series_id (staging the rest), and publishes ONE CONCERT.created for all newly
-// inserted events of this series.
+// inserted events of this series. It returns the series_id it minted (empty when
+// it adopted an existing series), so the caller can scope the orphan sweep.
 func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 	ctx context.Context,
 	artistID string,
 	series *entity.DiscoveredSeries,
 	newPlaces map[string]*entity.VenuePlace,
-) error {
+) (string, error) {
 	dates := make([]time.Time, 0, len(series.Events))
 	for _, ev := range series.Events {
 		dates = append(dates, ev.LocalDate)
@@ -154,16 +164,18 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 
 	seriesID, existed, existingEvents, err := resolveSeriesForGroup(ctx, artistID, dates, uc.concertRepo)
 	if err != nil {
-		return fmt.Errorf("resolve series for %q: %w", series.Title, err)
+		return "", fmt.Errorf("resolve series for %q: %w", series.Title, err)
 	}
 
 	// Eagerly create the series row when minted so it exists before any event
 	// (published or staged) references it. Create is idempotent (ON CONFLICT (id)
 	// DO NOTHING) so a redelivered message is harmless.
+	mintedID := ""
 	if !existed {
+		mintedID = seriesID
 		row := &entity.Series{ID: seriesID, Title: series.Title, Type: series.Type, SourceURL: series.SourceURL}
 		if _, err := uc.seriesRepo.Create(ctx, row); err != nil {
-			return fmt.Errorf("create series %q: %w", series.Title, err)
+			return "", fmt.Errorf("create series %q: %w", series.Title, err)
 		}
 	}
 
@@ -173,6 +185,12 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 		k := ev.LocalDate.Format("2006-01-02")
 		existingByDate[k] = append(existingByDate[k], ev)
 	}
+
+	// claimedFill is shared across this series' events so a NULL-start row that one
+	// event fills is not re-claimed by a second same-(venue,date) event carrying a
+	// different known start — that second event falls through to a fresh insert
+	// instead of being COALESCE-swallowed and lost.
+	claimedFill := make(map[string]bool)
 
 	var insertedIDs []string
 	for _, ev := range series.Events {
@@ -187,9 +205,9 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 			continue
 		}
 
-		ids, err := uc.persistDiscoveredEvent(ctx, artistID, seriesID, series, ev, existingByDate[ev.LocalDate.Format("2006-01-02")], newPlaces)
+		ids, err := uc.persistDiscoveredEvent(ctx, artistID, seriesID, series, ev, existingByDate[ev.LocalDate.Format("2006-01-02")], claimedFill, newPlaces)
 		if err != nil {
-			return err
+			return "", err
 		}
 		insertedIDs = append(insertedIDs, ids...)
 	}
@@ -217,7 +235,7 @@ func (uc *concertCreationUseCase) createSeriesFromDiscovered(
 		)
 	}
 
-	return nil
+	return mintedID, nil
 }
 
 // persistDiscoveredEvent resolves and persists a single member event under the
@@ -229,6 +247,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 	series *entity.DiscoveredSeries,
 	ev *entity.DiscoveredEvent,
 	sameDateEvents []*entity.Event,
+	claimedFill map[string]bool,
 	newPlaces map[string]*entity.VenuePlace,
 ) ([]string, error) {
 	// Re-discovery fast-path: an existing (artist, date) event at the same listed
@@ -237,9 +256,10 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 	// new date — or a listed venue not among the artist's existing events on this
 	// date — falls through to venue resolution below.
 	if sameVenue := eventsAtSameVenue(sameDateEvents, ev.ListedVenueName); len(sameVenue) > 0 {
-		match, isFill := resolveExistingEvent(sameVenue, ev, map[string]bool{})
+		match, isFill := resolveExistingEvent(sameVenue, ev, claimedFill)
 		if match != nil {
 			if isFill {
+				claimedFill[match.ID] = true
 				if err := uc.concertRepo.FillEventStartTimes(ctx,
 					[]string{match.ID},
 					[]*time.Time{entity.NullableTime(ev.StartTime)},
@@ -256,10 +276,13 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 			return nil, nil
 		}
 		// A genuinely new start time at a venue the artist already plays on this
-		// date: reuse the known venue_id, so no Places call is needed. Fall
-		// through to suppression + insert using that venue.
+		// date: reuse the known venue_id (no Places call), but still run the SAME
+		// suppression + duplicate-staging gate as the general path — so an
+		// unknown-start entry colliding with a known-start row stages for review
+		// instead of inserting a phantom NULL-start duplicate.
 		venueID := sameVenue[0].VenueID
-		return uc.suppressOrInsert(ctx, artistID, seriesID, series, ev, venueID)
+		staged := buildStagedConcert(entity.NewID(), artistID, seriesID, series, ev, nil)
+		return uc.stageOrInsert(ctx, artistID, seriesID, series, ev, venueID, staged)
 	}
 
 	place, err := uc.resolvePlace(ctx, ev.ListedVenueName, ev.AdminArea, newPlaces)
@@ -295,6 +318,38 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		return nil, fmt.Errorf("resolve or create venue for %q: %w", series.Title, err)
 	}
 
+	return uc.stageOrInsert(ctx, artistID, seriesID, series, ev, venueID, staged)
+}
+
+// stageOrInsert runs the shared tail for a resolved-venue event: the suppression
+// gate, then same-slot conflict detection (staging for reconciliation on a
+// conflict — which also covers an unknown-start entry that collides with an
+// existing known-start row), and finally a genuinely-new insert under the group
+// series_id. staged is the row to persist if the event must be staged. It is the
+// single decision point shared by the re-discovery fast-path and the general
+// Places path, so the two cannot diverge on the human-gate rules.
+func (uc *concertCreationUseCase) stageOrInsert(
+	ctx context.Context,
+	artistID, seriesID string,
+	series *entity.DiscoveredSeries,
+	ev *entity.DiscoveredEvent,
+	venueID string,
+	staged *entity.StagedConcert,
+) ([]string, error) {
+	// Suppression gate: a deleted-then-rediscovered slot is skipped entirely.
+	suppressed, err := uc.suppressedConcertRepo.Exists(ctx, venueID, ev.LocalDate, entity.NullableTime(ev.StartTime))
+	if err != nil {
+		return nil, fmt.Errorf("check suppression for %q: %w", series.Title, err)
+	}
+	if suppressed {
+		uc.logger.Info(ctx, "skipping suppressed concert (deleted by operator)",
+			slog.String("artist_id", artistID),
+			slog.String("venue_id", venueID),
+			slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
+		)
+		return nil, nil
+	}
+
 	// Same-slot conflict → stage for reconciliation (no publish). Checked before
 	// insert so a colliding event keeps the human gate.
 	conflict, err := detectDuplicateEvent(ctx, staged, venueID, uc.concertRepo)
@@ -315,32 +370,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		return nil, nil
 	}
 
-	return uc.suppressOrInsert(ctx, artistID, seriesID, series, ev, venueID)
-}
-
-// suppressOrInsert applies the suppression gate then inserts a genuinely-new
-// event under the group series_id, returning the inserted event ids.
-func (uc *concertCreationUseCase) suppressOrInsert(
-	ctx context.Context,
-	artistID, seriesID string,
-	series *entity.DiscoveredSeries,
-	ev *entity.DiscoveredEvent,
-	venueID string,
-) ([]string, error) {
-	suppressed, err := uc.suppressedConcertRepo.Exists(ctx, venueID, ev.LocalDate, entity.NullableTime(ev.StartTime))
-	if err != nil {
-		return nil, fmt.Errorf("check suppression for %q: %w", series.Title, err)
-	}
-	if suppressed {
-		uc.logger.Info(ctx, "skipping suppressed concert (deleted by operator)",
-			slog.String("artist_id", artistID),
-			slog.String("venue_id", venueID),
-			slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
-		)
-		return nil, nil
-	}
-
-	insertedIDs, err := insertEventUnderSeries(ctx, artistID, seriesID, series, ev, venueID, uc.concertRepo)
+	insertedIDs, err := insertEventUnderSeries(ctx, artistID, seriesID, ev, venueID, uc.concertRepo)
 	if err != nil {
 		return nil, fmt.Errorf("auto-publish concert %q: %w", series.Title, err)
 	}
@@ -480,16 +510,16 @@ func eventsAtSameVenue(cands []*entity.Event, listedVenueName string) []*entity.
 // series (no series minting, no identity re-derivation) and returns the ids of
 // genuinely inserted events (empty when the natural-key UPSERT deduplicated it).
 // It is shared by the discovery auto-publish path and the admin approval path so
-// the two cannot drift.
+// the two cannot drift. It carries no series metadata — the series row already
+// exists and the repository insert reads only seriesID.
 func insertEventUnderSeries(
 	ctx context.Context,
 	artistID, seriesID string,
-	series *entity.DiscoveredSeries,
 	ev *entity.DiscoveredEvent,
 	venueID string,
 	concertRepo entity.ConcertRepository,
 ) ([]string, error) {
-	concert := series.ToConcert(ev, artistID, seriesID, entity.NewID(), venueID)
+	concert := ev.ToConcertUnderSeries(artistID, seriesID, entity.NewID(), venueID)
 	insertedIDs, err := concertRepo.Create(ctx, concert)
 	if err != nil {
 		return nil, fmt.Errorf("create concert: %w", err)

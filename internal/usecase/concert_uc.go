@@ -371,18 +371,12 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 	if err != nil {
 		return nil, fmt.Errorf("failed to search concerts via external API: %w", err)
 	}
-	scrapedEvents := 0
-	for _, s := range scraped {
-		scrapedEvents += len(s.Events)
-	}
+	scrapedEvents := entity.SumSeriesEvents(scraped)
 
 	// Deduplicate against published concerts, per event while preserving grouping.
 	_, filterSpan := otel.Tracer("usecase/concert").Start(ctx, "FilterNewConcerts")
 	newSeries := entity.FilterNewSeries(scraped, existing)
-	newEvents := 0
-	for _, s := range newSeries {
-		newEvents += len(s.Events)
-	}
+	newEvents := entity.SumSeriesEvents(newSeries)
 	filterSpan.SetAttributes(
 		attribute.Int("filter.scraped_count", scrapedEvents),
 		attribute.Int("filter.new_count", newEvents),
@@ -416,10 +410,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 			kept = append(kept, s)
 		}
 		newSeries = kept
-		newEvents = 0
-		for _, s := range newSeries {
-			newEvents += len(s.Events)
-		}
+		newEvents = entity.SumSeriesEvents(newSeries)
 	}
 
 	if filtered := scrapedEvents - newEvents; filtered > 0 {

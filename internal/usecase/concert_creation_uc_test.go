@@ -87,6 +87,9 @@ type fakeSeriesRepo struct {
 	byID map[string]*entity.Series
 	// deleteOrphanedCalls counts how many times DeleteOrphaned was invoked.
 	deleteOrphanedCalls int
+	// deleteOrphanedIDs captures the candidate ids passed to the last
+	// DeleteOrphaned call, so tests can assert the sweep is scoped.
+	deleteOrphanedIDs []string
 }
 
 func (r *fakeSeriesRepo) Create(_ context.Context, series ...*entity.Series) ([]string, error) {
@@ -111,10 +114,12 @@ func (r *fakeSeriesRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Ser
 	return nil, nil
 }
 
-// DeleteOrphaned removes series rows that have no member events and no pending
-// staged rows. In the fake it is always a no-op and merely records the call.
-func (r *fakeSeriesRepo) DeleteOrphaned(_ context.Context) (int64, error) {
+// DeleteOrphaned removes, from among the given candidate ids, series rows that
+// have no member events and no pending staged rows. In the fake it is always a
+// no-op and merely records the call and the candidate ids.
+func (r *fakeSeriesRepo) DeleteOrphaned(_ context.Context, seriesIDs []string) (int64, error) {
 	r.deleteOrphanedCalls++
+	r.deleteOrphanedIDs = seriesIDs
 	return 0, nil
 }
 

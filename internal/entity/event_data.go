@@ -111,8 +111,16 @@ type ConcertDiscoveredData struct {
 // EventCount returns the total number of member events across all series in the
 // payload. Used for logging/metrics where the flat event count is meaningful.
 func (d ConcertDiscoveredData) EventCount() int {
+	return SumSeriesEvents(d.Series)
+}
+
+// SumSeriesEvents returns the total number of member events across the given
+// discovered series, skipping nil entries. It is the single fold used wherever a
+// flat event count over a []*DiscoveredSeries is needed (payload EventCount and
+// the discovery use case's filter bookkeeping) so the two cannot drift.
+func SumSeriesEvents(series []*DiscoveredSeries) int {
 	n := 0
-	for _, s := range d.Series {
+	for _, s := range series {
 		if s == nil {
 			continue
 		}

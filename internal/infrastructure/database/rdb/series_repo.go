@@ -44,7 +44,8 @@ const (
 
 	deleteOrphanedSeriesQuery = `
 		DELETE FROM series s
-		WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
+		WHERE s.id = ANY($1)
+			AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
 			AND NOT EXISTS (SELECT 1 FROM staged_concerts sc WHERE sc.series_id = s.id)
 	`
 )
@@ -134,12 +135,16 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 	return insertedIDs, nil
 }
 
-// DeleteOrphaned removes every series row with no member events and no pending
-// staged concerts referencing it. Returns the number of rows deleted.
-func (r *SeriesRepository) DeleteOrphaned(ctx context.Context) (int64, error) {
-	tag, err := r.db.Pool.Exec(ctx, deleteOrphanedSeriesQuery)
+// DeleteOrphaned removes, from among the given candidate series IDs, every row
+// with no member events and no pending staged concerts referencing it. An empty
+// slice is a no-op. Returns the number of rows deleted.
+func (r *SeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error) {
+	if len(seriesIDs) == 0 {
+		return 0, nil
+	}
+	tag, err := r.db.Pool.Exec(ctx, deleteOrphanedSeriesQuery, seriesIDs)
 	if err != nil {
-		return 0, toAppErr(err, "failed to delete orphaned series")
+		return 0, toAppErr(err, "failed to delete orphaned series", slog.Int("count", len(seriesIDs)))
 	}
 	return tag.RowsAffected(), nil
 }
