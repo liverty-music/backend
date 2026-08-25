@@ -28,6 +28,9 @@ const (
 	getOrganizerQuery = `
 		SELECT id, name, operator_email, zitadel_org_id, status FROM organizers WHERE id = $1
 	`
+	getOrganizerByZitadelOrgIDQuery = `
+		SELECT id, name, operator_email, zitadel_org_id, status FROM organizers WHERE zitadel_org_id = $1
+	`
 	listOrganizersQuery = `
 		SELECT id, name, operator_email, zitadel_org_id, status FROM organizers ORDER BY name
 	`
@@ -54,7 +57,7 @@ const (
 		FROM artists a
 		JOIN organizer_artists oa ON oa.artist_id = a.id
 		WHERE oa.organizer_id = $1
-		ORDER BY a.name
+		ORDER BY a.id
 	`
 	deleteOrganizerArtistsQuery = `
 		DELETE FROM organizer_artists WHERE organizer_id = $1
@@ -110,6 +113,19 @@ func (r *OrganizerRepository) Get(ctx context.Context, id string) (*entity.Organ
 	o, err := scanOrganizer(row.Scan)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get organizer", slog.String("id", id))
+	}
+	return o, nil
+}
+
+// GetByZitadelOrgID retrieves the Organizer whose zitadel_org_id matches the
+// given Zitadel organization id. Returns NotFound when no row matches.
+// The zitadel_org_id column carries a partial unique index (non-NULL values),
+// so at most one row is returned.
+func (r *OrganizerRepository) GetByZitadelOrgID(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error) {
+	row := r.db.Pool.QueryRow(ctx, getOrganizerByZitadelOrgIDQuery, zitadelOrgID)
+	o, err := scanOrganizer(row.Scan)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get organizer by zitadel_org_id", slog.String("zitadel_org_id", zitadelOrgID))
 	}
 	return o, nil
 }

@@ -447,6 +447,65 @@ func (_c *MockOrganizerUseCase_ReconcileProvisioning_Call) RunAndReturn(run func
 	return _c
 }
 
+// GetByZitadelOrgID provides a mock function with given fields: ctx, zitadelOrgID
+func (_m *MockOrganizerUseCase) GetByZitadelOrgID(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error) {
+	ret := _m.Called(ctx, zitadelOrgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByZitadelOrgID")
+	}
+
+	var r0 *entity.Organizer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Organizer, error)); ok {
+		return rf(ctx, zitadelOrgID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Organizer); ok {
+		r0 = rf(ctx, zitadelOrgID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Organizer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, zitadelOrgID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockOrganizerUseCase_GetByZitadelOrgID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByZitadelOrgID'
+type MockOrganizerUseCase_GetByZitadelOrgID_Call struct {
+	*mock.Call
+}
+
+// GetByZitadelOrgID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - zitadelOrgID string
+func (_e *MockOrganizerUseCase_Expecter) GetByZitadelOrgID(ctx interface{}, zitadelOrgID interface{}) *MockOrganizerUseCase_GetByZitadelOrgID_Call {
+	return &MockOrganizerUseCase_GetByZitadelOrgID_Call{Call: _e.mock.On("GetByZitadelOrgID", ctx, zitadelOrgID)}
+}
+
+func (_c *MockOrganizerUseCase_GetByZitadelOrgID_Call) Run(run func(ctx context.Context, zitadelOrgID string)) *MockOrganizerUseCase_GetByZitadelOrgID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_GetByZitadelOrgID_Call) Return(_a0 *entity.Organizer, _a1 error) *MockOrganizerUseCase_GetByZitadelOrgID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_GetByZitadelOrgID_Call) RunAndReturn(run func(context.Context, string) (*entity.Organizer, error)) *MockOrganizerUseCase_GetByZitadelOrgID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockOrganizerUseCase creates a new instance of MockOrganizerUseCase. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockOrganizerUseCase(t interface {

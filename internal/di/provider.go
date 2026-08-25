@@ -13,6 +13,7 @@ import (
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
+	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
 	ticketemailconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_email/v1/ticket_emailv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
@@ -364,6 +365,25 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	adminInterceptors := []connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}
 	adminSrv := server.NewConnectServer(adminServerCfg, logger, authFunc, rateLimiter, healthHandler, adminInterceptors, nil, adminHandlers...)
 
+	// Organizer Connect server — a third listener in the same binary on its
+	// own port and CORS allowlist, serving ONLY the organizer-facing
+	// OrganizerService. Its server-wide OrgScopedInterceptor enforces token
+	// audience, login-scope org derivation, and role cross-check before any
+	// handler runs. No fan or admin services are registered here.
+	organizerServerCfg := cfg.Server
+	organizerServerCfg.Port = cfg.Server.OrganizerPort
+	organizerServerCfg.AllowedOrigins = cfg.Server.OrganizerAllowedOrigins
+	organizerInterceptors := []connect.Interceptor{auth.NewOrgScopedInterceptor(cfg.OrganizerConsoleProjectID)}
+	organizerHandlers := []server.RPCHandlerFunc{
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return organizerconnect.NewOrganizerServiceHandler(
+				rpc.NewOrganizerHandler(organizerUC, logger),
+				opts...,
+			)
+		},
+	}
+	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, authFunc, rateLimiter, healthHandler, organizerInterceptors, nil, organizerHandlers...)
+
 	// Zitadel Actions v2 webhook listener — runs on a separate port so the
 	// webhook paths are unreachable via the public GKE Gateway. Validators
 	// share the JWKS cache with `jwtValidator` so there is exactly one
@@ -391,7 +411,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Register shutdown phases.
 	// Drain: health → NOT_SERVING, then servers drain in-flight requests,
 	// then cache cleanup goroutine stops.
-	shutdown.AddDrainPhase(healthChecker, srv, adminSrv, webhookSrv, rateLimiter, artistCache)
+	shutdown.AddDrainPhase(healthChecker, srv, adminSrv, organizerSrv, webhookSrv, rateLimiter, artistCache)
 	shutdown.AddFlushPhase(publisher)
 	shutdown.AddExternalPhase(lastfmClient, musicbrainzClient)
 	shutdown.AddObservePhase(telemetryCloser)
@@ -403,6 +423,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	return &App{
 		Server:          srv,
 		AdminServer:     adminSrv,
+		OrganizerServer: organizerSrv,
 		WebhookServer:   webhookSrv,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,

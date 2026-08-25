@@ -17,6 +17,11 @@ type App struct {
 	// admin-scoped RPCs on its own port and ingress host, with boundary-level
 	// admin-role authorization. See `internal/infrastructure/server/connect.go`.
 	AdminServer *server.ConnectServer
+	// OrganizerServer is a third Connect listener in the same binary serving
+	// only the organizer-facing OrganizerService on its own port and ingress
+	// host (api.organizer.{base-domain}), with org-scoped role-claim
+	// authorization via OrgScopedInterceptor.
+	OrganizerServer *server.ConnectServer
 	// WebhookServer handles Zitadel Actions v2 callbacks
 	// (/pre-access-token) on a separate internal-only port. See
 	// `internal/infrastructure/server/webhook.go` for the port-isolation

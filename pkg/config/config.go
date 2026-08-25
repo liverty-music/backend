@@ -195,6 +195,18 @@ type ServerSettings struct {
 	// origins only), configured independently of AllowedOrigins.
 	AdminAllowedOrigins []string `envconfig:"ADMIN_CORS_ALLOWED_ORIGINS"`
 
+	// OrganizerPort is the port for the dedicated organizer Connect server
+	// (organizer-facing OrganizerService only). It runs as a third listener in
+	// the same backend binary on its own ingress host
+	// (api.organizer.{base-domain}), governed independently of the fan and
+	// admin servers.
+	OrganizerPort int `envconfig:"ORGANIZER_SERVER_PORT" default:"8091"`
+
+	// OrganizerAllowedOrigins is the CORS allowlist for the organizer server
+	// (organizer-console origins only), configured independently of other
+	// servers' CORS lists.
+	OrganizerAllowedOrigins []string `envconfig:"ORGANIZER_CORS_ALLOWED_ORIGINS"`
+
 	// Rate limiting configuration
 	RateLimit RateLimitConfig `envconfig:""`
 }
@@ -755,6 +767,25 @@ func (c *ServerConfig) Validate() error {
 
 	if c.Webhook.Port == c.Server.Port {
 		return fmt.Errorf("webhook port %d must differ from server port to keep webhook listener off the public Gateway", c.Webhook.Port)
+	}
+
+	if c.Server.OrganizerPort <= 0 || c.Server.OrganizerPort > 65535 {
+		return fmt.Errorf("invalid organizer server port: %d", c.Server.OrganizerPort)
+	}
+
+	// All four ports (fan, admin, organizer, webhook) must be distinct.
+	ports := []int{c.Server.Port, c.Server.AdminPort, c.Server.OrganizerPort, c.Webhook.Port}
+	seen := make(map[int]bool, len(ports))
+	for _, p := range ports {
+		if seen[p] {
+			return fmt.Errorf("all server ports (fan %d, admin %d, organizer %d, webhook %d) must be unique",
+				c.Server.Port, c.Server.AdminPort, c.Server.OrganizerPort, c.Webhook.Port)
+		}
+		seen[p] = true
+	}
+
+	if !c.IsLocal() && len(c.Server.OrganizerAllowedOrigins) == 0 {
+		return fmt.Errorf("organizer CORS allowed origins are required for non-local environments")
 	}
 
 	if c.Webhook.PreAccessTokenAudience == "" {

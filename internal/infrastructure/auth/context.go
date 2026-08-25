@@ -28,6 +28,41 @@ type Claims struct {
 	// whose keys are role names; the values (org-id→domain maps) are ignored.
 	// An empty slice means the token carries no role grants.
 	Roles []string
+
+	// Audiences is the list of audience values from the token's "aud" claim.
+	// Used by the org-scoped interceptor to verify that the organizer-console
+	// project id is present before authorizing organizer RPCs.
+	Audiences []string
+
+	// LoginScopeOrgID is the Zitadel org id extracted from the login-scope
+	// scope claim "urn:zitadel:iam:org:id:<orgId>".
+	//
+	// Zitadel encodes the login-scope org (the org the user logged in against)
+	// in the roles claim rather than as a separate top-level claim: when an
+	// operator scopes their session to org A with
+	// "urn:zitadel:iam:org:id:<A>", Zitadel filters the role grants to only
+	// those held within org A, so the roles claim contains exactly one unique
+	// inner orgId — the login-scope org. This field captures that org id so the
+	// org-scoped interceptor does not have to re-derive it from the roles map.
+	//
+	// ASSUMPTION: Zitadel does not surface a separate "urn:zitadel:iam:org:id:<id>"
+	// claim in the token body; the login-scope org is inferred by reading
+	// the unique inner orgId across all role grants in the project-scoped
+	// roles claim. If exactly one unique inner orgId is present, it is the
+	// login-scope org. Zero or multiple → LoginScopeOrgID is empty, and the
+	// org-scoped interceptor rejects the request.
+	// VERIFICATION: Test with a real Zitadel token to confirm. If Zitadel does
+	// surface a dedicated scope claim in the token body, update extractLoginScopeOrgID
+	// to read it directly and remove the roles-claim inference.
+	LoginScopeOrgID string
+
+	// RoleOrgIDs is the set of Zitadel org ids under which the operator holds
+	// at least one role. Populated from the project-scoped roles claim
+	// "urn:zitadel:iam:org:project:{projectId}:roles". The inner orgId values
+	// are preserved here (unlike the flattened Roles slice) so the org-scoped
+	// interceptor can verify the caller holds a role specifically for the
+	// login-scope org.
+	RoleOrgIDs map[string]struct{}
 }
 
 // HasRole reports whether the caller holds the named Zitadel project role.
