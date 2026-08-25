@@ -13,6 +13,25 @@
 -- (project-agnostic: dev + prod) and grants SELECT on existing AND future tables
 -- via ALTER DEFAULT PRIVILEGES.
 --
+-- ┌───────────────────────────────────────────────────────────────────────────┐
+-- │ CONVENTION — KEEP organizer-console-api READ-ONLY                          │
+-- │                                                                           │
+-- │ Postgres grants are additive and there is NO REVOKE anywhere in this       │
+-- │ migrations directory. The repo's established "catch-up" pattern for        │
+-- │ onboarding a new workload's IAM user re-runs a generic                     │
+-- │   FOR iam_role IN SELECT rolname FROM pg_roles WHERE rolname LIKE '%@%.iam' │
+-- │ loop that GRANTs SELECT,INSERT,UPDATE,DELETE to EVERY matching role         │
+-- │ (see 20260816000000_grant_admin_console_api… and                          │
+-- │ 20260817010000_grant_fan_api…). `organizer-console-api@<project>.iam`       │
+-- │ matches `%@%.iam`, so any FUTURE generic-loop grant migration would         │
+-- │ silently re-grant it full read-WRITE, defeating this file's invariant.      │
+-- │                                                                           │
+-- │ Therefore: any future generic `%@%.iam` GRANT loop MUST exclude read-only   │
+-- │ roles, e.g. append                                                        │
+-- │   AND rolname NOT LIKE 'organizer-console-api@%'                            │
+-- │ (extend the exclusion list as more read-only workloads are added).         │
+-- └───────────────────────────────────────────────────────────────────────────┘
+--
 -- Runs as the postgres (cloudsqlsuperuser) user via the Atlas Operator. The
 -- organizer-console-api Cloud SQL IAM user must already exist (Pulumi `pulumi up`
 -- creates it before this migration applies); the loop skips the role if absent,
