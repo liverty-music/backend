@@ -3,7 +3,9 @@ package usecase
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -156,10 +158,31 @@ func NewConcertAuthoringUseCase(
 	}
 }
 
-// coverImageBucket returns the GCS bucket name from the ORGANIZER_COVER_IMAGE_BUCKET
-// environment variable.
-func coverImageBucket() string {
-	return os.Getenv("ORGANIZER_COVER_IMAGE_BUCKET")
+// mediaBucket returns the GCS bucket name for organizer-authored media from the
+// ORGANIZER_MEDIA_BUCKET environment variable.
+func mediaBucket() string {
+	return os.Getenv("ORGANIZER_MEDIA_BUCKET")
+}
+
+// coverObjectKey builds the content-addressed object key for a series cover
+// image: `series/<seriesId>/cover/<sha256>.<ext>`. The content hash makes the
+// object immutable (a different image yields a different key and URL, so caches
+// never go stale) and the key unguessable. See OrganizerMediaComponent for the
+// bucket-wide key convention `<entity>/<entityId>/<purpose>/<hash>.<ext>`.
+func coverObjectKey(seriesID string, data []byte, ext string) string {
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("series/%s/cover/%s.%s", seriesID, hex.EncodeToString(sum[:]), ext)
+}
+
+// objectKeyFromURL extracts the object key from a served object URL of the form
+// `https://storage.googleapis.com/<bucket>/<key>`. It returns "" when the URL
+// does not match (e.g. empty or an unexpected host), so callers skip cleanup.
+func objectKeyFromURL(bucket, url string) string {
+	prefix := fmt.Sprintf("https://storage.googleapis.com/%s/", bucket)
+	if !strings.HasPrefix(url, prefix) {
+		return ""
+	}
+	return strings.TrimPrefix(url, prefix)
 }
 
 // assertOwnsSeries verifies that the given series is owned by callerOrgID.
@@ -490,6 +513,20 @@ func (uc *concertAuthoringUseCase) Cancel(ctx context.Context, callerOrgID, seri
 		)
 		// Non-fatal: the series is already cancelled in the DB.
 	}
+
+	// Cancel is terminal, so reclaim the series' media (best-effort; an orphaned
+	// object is harmless and the DB no longer references it).
+	if uc.imageStorer != nil {
+		if bucket := mediaBucket(); bucket != "" {
+			prefix := fmt.Sprintf("series/%s/", seriesID)
+			if err := uc.imageStorer.DeletePrefix(ctx, bucket, prefix); err != nil {
+				uc.logger.Warn(ctx, "failed to delete media of cancelled series (orphaned)",
+					slog.String("series_id", seriesID),
+					slog.Any("error", err),
+				)
+			}
+		}
+	}
 	return nil
 }
 
@@ -528,11 +565,21 @@ func (uc *concertAuthoringUseCase) UploadCoverImage(
 		return "", err
 	}
 
-	bucket := coverImageBucket()
+	bucket := mediaBucket()
 	if bucket == "" {
-		return "", apperr.New(codes.Internal, "ORGANIZER_COVER_IMAGE_BUCKET is not set")
+		return "", apperr.New(codes.Internal, "ORGANIZER_MEDIA_BUCKET is not set")
 	}
-	key := fmt.Sprintf("series/%s/cover.%s", seriesID, ext)
+
+	// Content-addressed key: a new image lands at a new URL, so the served URL
+	// changes on replace and caches never serve a stale cover.
+	key := coverObjectKey(seriesID, imageData, ext)
+
+	// Capture the previously-stored object so it can be reclaimed after the new
+	// URL is persisted (best-effort; an orphaned object is harmless).
+	priorKey := ""
+	if series.CoverImageURL != nil {
+		priorKey = objectKeyFromURL(bucket, *series.CoverImageURL)
+	}
 
 	imageURL, err := uc.imageStorer.Put(ctx, bucket, key, contentType, imageData)
 	if err != nil {
@@ -541,6 +588,17 @@ func (uc *concertAuthoringUseCase) UploadCoverImage(
 
 	if err := uc.seriesRepo.SetCoverImageURL(ctx, seriesID, imageURL); err != nil {
 		return "", fmt.Errorf("persist cover image url: %w", err)
+	}
+
+	// Best-effort delete of the replaced object (skip when unchanged or absent).
+	if priorKey != "" && priorKey != key {
+		if err := uc.imageStorer.Delete(ctx, bucket, priorKey); err != nil {
+			uc.logger.Warn(ctx, "failed to delete replaced cover image (orphaned)",
+				slog.String("series_id", seriesID),
+				slog.String("object_key", priorKey),
+				slog.Any("error", err),
+			)
+		}
 	}
 	return imageURL, nil
 }
