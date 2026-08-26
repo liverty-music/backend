@@ -83,6 +83,7 @@ type concertUseCase struct {
 	concertRepo         entity.ConcertRepository
 	venueRepo           entity.VenueRepository
 	seriesRepo          entity.SeriesRepository
+	organizerRepo       entity.OrganizerRepository
 	searchLogRepo       entity.SearchLogRepository
 	stagedConcertRepo   entity.StagedConcertRepository
 	rejectedConcertRepo entity.RejectedConcertLogRepository
@@ -122,6 +123,7 @@ func NewConcertUseCase(
 	concertRepo entity.ConcertRepository,
 	venueRepo entity.VenueRepository,
 	seriesRepo entity.SeriesRepository,
+	organizerRepo entity.OrganizerRepository,
 	searchLogRepo entity.SearchLogRepository,
 	stagedConcertRepo entity.StagedConcertRepository,
 	rejectedConcertRepo entity.RejectedConcertLogRepository,
@@ -138,6 +140,7 @@ func NewConcertUseCase(
 		concertRepo:         concertRepo,
 		venueRepo:           venueRepo,
 		seriesRepo:          seriesRepo,
+		organizerRepo:       organizerRepo,
 		searchLogRepo:       searchLogRepo,
 		stagedConcertRepo:   stagedConcertRepo,
 		rejectedConcertRepo: rejectedConcertRepo,
@@ -243,6 +246,29 @@ func (uc *concertUseCase) ListByLocation(ctx context.Context, location *entity.G
 // It returns the newly discovered concerts after deduplication against
 // already-known upcoming events.
 func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error) {
+	// Discovery exclusion: skip Gemini search entirely for artists whose
+	// concerts are managed directly by an active organizer. The organizer
+	// publishes their concerts via the authoring surface; a background
+	// re-discovery would only produce noisy duplicate-detection conflicts and
+	// consume external API quota for no net gain. When the organizer is
+	// deactivated, IsArtistRepresentedByActiveOrganizer returns false and
+	// discovery resumes automatically.
+	if uc.organizerRepo != nil {
+		represented, err := uc.organizerRepo.IsArtistRepresentedByActiveOrganizer(ctx, artistID)
+		if err != nil {
+			// Non-fatal: log and proceed rather than silently blocking discovery.
+			uc.logger.Warn(ctx, "failed to check organizer representation for discovery exclusion",
+				slog.String("artist_id", artistID),
+				slog.Any("error", err),
+			)
+		} else if represented {
+			uc.logger.Debug(ctx, "skipping discovery for organizer-represented artist",
+				slog.String("artist_id", artistID),
+			)
+			return nil, nil
+		}
+	}
+
 	// Check search log — skip if recently completed or currently pending.
 	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {

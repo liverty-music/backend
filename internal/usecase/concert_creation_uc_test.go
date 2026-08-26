@@ -123,6 +123,54 @@ func (r *fakeSeriesRepo) DeleteOrphaned(_ context.Context, seriesIDs []string) (
 	return 0, nil
 }
 
+// The following methods satisfy the expanded entity.SeriesRepository interface
+// introduced by the organizer-event-authoring feature. Tests that exercise
+// discovery pipeline logic do not exercise these paths, so all are no-ops.
+
+func (r *fakeSeriesRepo) CreateDraft(_ context.Context, _ *entity.Series, _ []*entity.DraftEvent, _ []string) error {
+	return nil
+}
+
+func (r *fakeSeriesRepo) UpdateDraft(_ context.Context, _ *entity.Series, _ []*entity.DraftEvent, _ []string) error {
+	return nil
+}
+
+func (r *fakeSeriesRepo) LoadDraft(_ context.Context, _ string) ([]*entity.DraftEvent, []string, error) {
+	return nil, nil, nil
+}
+
+func (r *fakeSeriesRepo) GetAuthored(_ context.Context, _ string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
+	return nil, nil, nil, nil
+}
+
+func (r *fakeSeriesRepo) ListByOrganizer(_ context.Context, _ string) ([]*entity.Series, error) {
+	return nil, nil
+}
+
+func (r *fakeSeriesRepo) GetByUnlistedToken(_ context.Context, _ string) (*entity.Series, error) {
+	return nil, apperr.New(codes.NotFound, "not found")
+}
+
+func (r *fakeSeriesRepo) SetUnlistedToken(_ context.Context, _ string, _ string) error {
+	return nil
+}
+
+func (r *fakeSeriesRepo) SetCoverImageURL(_ context.Context, _ string, _ string) error {
+	return nil
+}
+
+func (r *fakeSeriesRepo) MarkPublished(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (r *fakeSeriesRepo) MarkCancelled(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
+
+func (r *fakeSeriesRepo) PublishDraft(_ context.Context, _ string, _ time.Time) ([]string, error) {
+	return nil, nil
+}
+
 type fakeConcertRepo struct {
 	created []*entity.Concert
 	// existing maps "venueID|YYYY-MM-DD" → events FindEventsByVenueAndDate returns,

@@ -146,8 +146,8 @@ CREATE TABLE IF NOT EXISTS series (
     -- A first-party series (organizer_id set) always carries visibility and
     -- publish_state; a discovered series (organizer_id NULL) carries neither.
     CONSTRAINT chk_series_first_party_state CHECK (
-        (organizer_id IS NULL AND visibility IS NULL AND publish_state IS NULL)
-        OR (organizer_id IS NOT NULL AND visibility IS NOT NULL AND publish_state IS NOT NULL)
+        (organizer_id IS NULL AND visibility IS NULL AND publish_state IS NULL) OR
+        (organizer_id IS NOT NULL AND visibility IS NOT NULL AND publish_state IS NOT NULL)
     )
 );
 

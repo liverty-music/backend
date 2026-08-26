@@ -28,6 +28,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
@@ -168,7 +169,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, logger)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
 	// Organizer tenant provisioner: the real Zitadel Management-API client when the
 	// dedicated organizer-provisioner credential is mounted (isolated admin
@@ -190,6 +191,23 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
 		startOrganizerReconciler(ctx, organizerUC, logger)
 	}
+	// GCS image storer for organizer cover images (optional: nil when GCP credentials
+	// are unavailable in local dev so UploadCoverImage returns Internal instead of
+	// panicking during startup).
+	var imageStorer usecase.ImageStorer
+	if !cfg.IsLocal() {
+		storer, err := gcsstorage.NewGCSStorer(ctx, logger)
+		if err != nil {
+			logger.Warn(ctx, "failed to create GCS image storer; cover image upload disabled",
+				slog.Any("error", err),
+			)
+		} else {
+			imageStorer = storer
+			shutdown.AddExternalPhase(storer)
+		}
+	}
+	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerUC, eventPublisher, imageStorer, logger)
+
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	var ticketEmailUC usecase.TicketEmailUseCase
@@ -378,6 +396,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerconnect.NewOrganizerServiceHandler(
 				rpc.NewOrganizerHandler(organizerUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return organizerconnect.NewConcertServiceHandler(
+				rpc.NewOrganizerConcertHandler(concertAuthoringUC, organizerUC, logger),
 				opts...,
 			)
 		},

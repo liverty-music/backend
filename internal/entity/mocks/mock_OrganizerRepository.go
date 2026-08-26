@@ -673,6 +673,51 @@ func (_c *MockOrganizerRepository_GetByZitadelOrgID_Call) RunAndReturn(run func(
 	return _c
 }
 
+// IsArtistRepresentedByActiveOrganizer provides a mock function with given fields: ctx, artistID
+func (_m *MockOrganizerRepository) IsArtistRepresentedByActiveOrganizer(ctx context.Context, artistID string) (bool, error) {
+	ret := _m.Called(ctx, artistID)
+	if len(ret) == 0 {
+		panic("no return value specified for IsArtistRepresentedByActiveOrganizer")
+	}
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (bool, error)); ok {
+		return rf(ctx, artistID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) bool); ok {
+		r0 = rf(ctx, artistID)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, artistID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+type MockOrganizerRepository_IsArtistRepresentedByActiveOrganizer_Call struct{ *mock.Call }
+
+func (_e *MockOrganizerRepository_Expecter) IsArtistRepresentedByActiveOrganizer(ctx interface{}, artistID interface{}) *MockOrganizerRepository_IsArtistRepresentedByActiveOrganizer_Call {
+	return &MockOrganizerRepository_IsArtistRepresentedByActiveOrganizer_Call{Call: _e.mock.On("IsArtistRepresentedByActiveOrganizer", ctx, artistID)}
+}
+
+func (_c *MockOrganizerRepository_IsArtistRepresentedByActiveOrganizer_Call) Run(run func(ctx context.Context, artistID string)) *MockOrganizerRepository_IsArtistRepresentedByActiveOrganizer_Call {
+	_c.Call.Run(func(args mock.Arguments) { run(args[0].(context.Context), args[1].(string)) })
+	return _c
+}
+
+func (_c *MockOrganizerRepository_IsArtistRepresentedByActiveOrganizer_Call) Return(_a0 bool, _a1 error) *MockOrganizerRepository_IsArtistRepresentedByActiveOrganizer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockOrganizerRepository_IsArtistRepresentedByActiveOrganizer_Call) RunAndReturn(run func(context.Context, string) (bool, error)) *MockOrganizerRepository_IsArtistRepresentedByActiveOrganizer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockOrganizerRepository creates a new instance of MockOrganizerRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockOrganizerRepository(t interface {

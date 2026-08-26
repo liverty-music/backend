@@ -107,4 +107,15 @@ type OrganizerRepository interface {
 	// FreeArtists removes all of the organizer's artist associations, freeing them
 	// for re-association. Used by deactivation.
 	FreeArtists(ctx context.Context, organizerID string) error
+
+	// IsArtistRepresentedByActiveOrganizer reports whether the given artist is
+	// currently associated with at least one active (status=2) organizer. Used by
+	// SearchNewConcerts to skip the discovery pipeline for first-party artists;
+	// when the organizer is deactivated the method returns false and discovery
+	// resumes automatically.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database query failure.
+	IsArtistRepresentedByActiveOrganizer(ctx context.Context, artistID string) (bool, error)
 }
