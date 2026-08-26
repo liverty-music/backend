@@ -155,8 +155,8 @@ func (r *fakeSeriesRepo) SetUnlistedToken(_ context.Context, _ string, _ string)
 	return nil
 }
 
-func (r *fakeSeriesRepo) SetCoverImageURL(_ context.Context, _ string, _ string) error {
-	return nil
+func (r *fakeSeriesRepo) ReplaceCoverMedia(_ context.Context, _ string, _ string, _ string) (string, error) {
+	return "", nil
 }
 
 func (r *fakeSeriesRepo) MarkPublished(_ context.Context, _ string, _ time.Time) error {

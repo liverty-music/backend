@@ -73,6 +73,92 @@ func (_c *MockImageStorer_Put_Call) RunAndReturn(run func(context.Context, strin
 	return _c
 }
 
+// Delete provides a mock function with given fields: ctx, bucket, key
+func (_m *MockImageStorer) Delete(ctx context.Context, bucket string, key string) error {
+	ret := _m.Called(ctx, bucket, key)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, bucket, key)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockImageStorer_Delete_Call is a *mock.Call that shadows *mock.Call with type safe methods.
+type MockImageStorer_Delete_Call struct {
+	*mock.Call
+}
+
+func (_e *MockImageStorer_Expecter) Delete(ctx interface{}, bucket interface{}, key interface{}) *MockImageStorer_Delete_Call {
+	return &MockImageStorer_Delete_Call{Call: _e.mock.On("Delete", ctx, bucket, key)}
+}
+
+func (_c *MockImageStorer_Delete_Call) Run(run func(ctx context.Context, bucket string, key string)) *MockImageStorer_Delete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockImageStorer_Delete_Call) Return(_a0 error) *MockImageStorer_Delete_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockImageStorer_Delete_Call) RunAndReturn(run func(context.Context, string, string) error) *MockImageStorer_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeletePrefix provides a mock function with given fields: ctx, bucket, prefix
+func (_m *MockImageStorer) DeletePrefix(ctx context.Context, bucket string, prefix string) error {
+	ret := _m.Called(ctx, bucket, prefix)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeletePrefix")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, bucket, prefix)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockImageStorer_DeletePrefix_Call is a *mock.Call that shadows *mock.Call with type safe methods.
+type MockImageStorer_DeletePrefix_Call struct {
+	*mock.Call
+}
+
+func (_e *MockImageStorer_Expecter) DeletePrefix(ctx interface{}, bucket interface{}, prefix interface{}) *MockImageStorer_DeletePrefix_Call {
+	return &MockImageStorer_DeletePrefix_Call{Call: _e.mock.On("DeletePrefix", ctx, bucket, prefix)}
+}
+
+func (_c *MockImageStorer_DeletePrefix_Call) Run(run func(ctx context.Context, bucket string, prefix string)) *MockImageStorer_DeletePrefix_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockImageStorer_DeletePrefix_Call) Return(_a0 error) *MockImageStorer_DeletePrefix_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockImageStorer_DeletePrefix_Call) RunAndReturn(run func(context.Context, string, string) error) *MockImageStorer_DeletePrefix_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockImageStorer creates a new instance of MockImageStorer. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockImageStorer(t interface {

@@ -1,4 +1,4 @@
-h1:SWI32DZcBQeiwNvSBT0A86tj7qDY/XUCl8LFtIbMRLQ=
+h1:f/Rs5gO+Vk31Igy1fzzVTKXmooQxdNdxeGb8Qj1YdRU=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -75,3 +75,4 @@ h1:SWI32DZcBQeiwNvSBT0A86tj7qDY/XUCl8LFtIbMRLQ=
 20260826020000_add_series_authoring_columns.sql h1:KFpE2QXFPFQ4fnXqBji3yHEaPOGbm3V+Xv80zFElQqo=
 20260826030000_add_draft_authoring_tables.sql h1:xLPChS1cTmfhJYo6QRLuCXv0XxGShrvInNLx2kiSknk=
 20260826040000_grant_organizer_console_api_write_app_schema.sql h1:ME3t4UT2GnjFWbcq5q0sbKsHa9popoT96Iu/TKS8RMI=
+20260826050000_add_series_media.sql h1:gWaUH5duTtXb0yLp755jYj94uPwAd9CHaZLDDf1ej9M=

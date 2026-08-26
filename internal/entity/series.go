@@ -249,13 +249,16 @@ type SeriesRepository interface {
 	//  - NotFound: If no series with the given ID exists.
 	MarkCancelled(ctx context.Context, seriesID string, cancelledAt time.Time) error
 
-	// SetCoverImageURL persists the cover_image_url for the given series. This is
-	// called after a successful GCS upload to record the served URL on the series.
+	// ReplaceCoverMedia atomically replaces a series' cover: in one transaction it
+	// inserts the new series_media row (newMediaID), deletes any prior cover media
+	// row, and denormalizes coverURL onto series.cover_image_url. It returns the
+	// prior media id ("" when the series had no cover) so the caller can reclaim
+	// the replaced object from storage.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If no series with the given ID exists.
-	SetCoverImageURL(ctx context.Context, seriesID, imageURL string) error
+	ReplaceCoverMedia(ctx context.Context, seriesID, newMediaID, coverURL string) (oldMediaID string, err error)
 
 	// PublishDraft materializes the draft content of a first-party DRAFT series
 	// into the live events table and returns the IDs of newly inserted events (the

@@ -576,37 +576,46 @@ func (_c *MockSeriesRepository_SetUnlistedToken_Call) RunAndReturn(run func(cont
 	return _c
 }
 
-// SetCoverImageURL provides a mock function with given fields: ctx, seriesID, imageURL
-func (_m *MockSeriesRepository) SetCoverImageURL(ctx context.Context, seriesID string, imageURL string) error {
-	ret := _m.Called(ctx, seriesID, imageURL)
+// ReplaceCoverMedia provides a mock function with given fields: ctx, seriesID, newMediaID, coverURL
+func (_m *MockSeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID string, newMediaID string, coverURL string) (string, error) {
+	ret := _m.Called(ctx, seriesID, newMediaID, coverURL)
 	if len(ret) == 0 {
-		panic("no return value specified for SetCoverImageURL")
+		panic("no return value specified for ReplaceCoverMedia")
 	}
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, seriesID, imageURL)
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (string, error)); ok {
+		return rf(ctx, seriesID, newMediaID, coverURL)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) string); ok {
+		r0 = rf(ctx, seriesID, newMediaID, coverURL)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(string)
 	}
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, seriesID, newMediaID, coverURL)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
 }
 
-type MockSeriesRepository_SetCoverImageURL_Call struct{ *mock.Call }
+type MockSeriesRepository_ReplaceCoverMedia_Call struct{ *mock.Call }
 
-func (_e *MockSeriesRepository_Expecter) SetCoverImageURL(ctx interface{}, seriesID interface{}, imageURL interface{}) *MockSeriesRepository_SetCoverImageURL_Call {
-	return &MockSeriesRepository_SetCoverImageURL_Call{Call: _e.mock.On("SetCoverImageURL", ctx, seriesID, imageURL)}
+func (_e *MockSeriesRepository_Expecter) ReplaceCoverMedia(ctx interface{}, seriesID interface{}, newMediaID interface{}, coverURL interface{}) *MockSeriesRepository_ReplaceCoverMedia_Call {
+	return &MockSeriesRepository_ReplaceCoverMedia_Call{Call: _e.mock.On("ReplaceCoverMedia", ctx, seriesID, newMediaID, coverURL)}
 }
-func (_c *MockSeriesRepository_SetCoverImageURL_Call) Run(run func(context.Context, string, string)) *MockSeriesRepository_SetCoverImageURL_Call {
+func (_c *MockSeriesRepository_ReplaceCoverMedia_Call) Run(run func(context.Context, string, string, string)) *MockSeriesRepository_ReplaceCoverMedia_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
 	return _c
 }
-func (_c *MockSeriesRepository_SetCoverImageURL_Call) Return(_a0 error) *MockSeriesRepository_SetCoverImageURL_Call {
-	_c.Call.Return(_a0)
+func (_c *MockSeriesRepository_ReplaceCoverMedia_Call) Return(_a0 string, _a1 error) *MockSeriesRepository_ReplaceCoverMedia_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
-func (_c *MockSeriesRepository_SetCoverImageURL_Call) RunAndReturn(run func(context.Context, string, string) error) *MockSeriesRepository_SetCoverImageURL_Call {
+func (_c *MockSeriesRepository_ReplaceCoverMedia_Call) RunAndReturn(run func(context.Context, string, string, string) (string, error)) *MockSeriesRepository_ReplaceCoverMedia_Call {
 	_c.Call.Return(run)
 	return _c
 }
