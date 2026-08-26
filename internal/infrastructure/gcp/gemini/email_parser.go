@@ -63,15 +63,6 @@ type EmailParser struct {
 // When httpClient is provided, UseDefaultCredentials layers ADC authentication
 // on top of its transport (e.g., otelhttp). Tests pass a custom httpClient
 // without ADC via the useADC flag.
-//
-// DORMANT: as of 2026-08 this constructor is NOT wired into the DI container
-// (internal/di/provider.go). The share-target ticket-email import feature is
-// disabled end-to-end — the frontend serves the import route's "unavailable"
-// state and there is no production traffic. The code (and its tests) are kept
-// for a future revival. When reviving, pass a DEDICATED *http.Client: with
-// useADC=true this calls UseDefaultCredentials, which mutates the client's
-// Transport in place to add an ADC Bearer header. Sharing that client with the
-// concert searcher caused 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT (backend#414).
 func NewEmailParser(ctx context.Context, cfg EmailParserConfig, httpClient *http.Client, useADC bool, logger *logging.Logger) (*EmailParser, error) {
 	cc := &genai.ClientConfig{
 		Project:    cfg.ProjectID,

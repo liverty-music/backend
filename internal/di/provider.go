@@ -112,20 +112,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		}
 		geminiSearcher = searcher
 
-		// The Gemini ticket-email parser (gemini.NewEmailParser) is intentionally
-		// NOT wired here: the share-target email-import feature is dormant. The
-		// frontend disables its entry point (the import-ticket-email route serves
-		// the "unavailable" state and skips all network calls) and there is no
-		// production traffic. Leaving emailParser nil keeps TicketEmailUseCase and
-		// its RPC handler unregistered via the emailParser != nil guards below.
-		//
-		// Not wiring it also removes the #414 footgun: NewEmailParser calls
-		// UseDefaultCredentials, which mutates the passed *http.Client's Transport
-		// in place to attach an ADC `Authorization: Bearer` header. Sharing that
-		// client with the searcher made its generativelanguage.googleapis.com
-		// calls fail with 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT. To revive: give the
-		// parser its OWN dedicated *http.Client (never the searcher's) and
-		// re-enable the frontend entry point.
+		parser, err := gemini.NewEmailParser(ctx, gemini.EmailParserConfig{
+			ProjectID: cfg.GCP.ProjectID,
+			Location:  cfg.GCP.Location,
+			ModelName: cfg.GCP.ParserModel(),
+		}, geminiHTTPClient, true, logger)
+		if err != nil {
+			return nil, err
+		}
+		emailParser = parser
 	}
 
 	// Infrastructure - Music

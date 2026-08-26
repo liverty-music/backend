@@ -166,6 +166,18 @@ const (
 		DELETE FROM staged_concerts WHERE series_id = $1
 	`
 
+	selectCoverMediaIDQuery = `
+		SELECT id FROM series_media WHERE series_id = $1
+	`
+
+	deleteCoverMediaBySeriesQuery = `
+		DELETE FROM series_media WHERE series_id = $1
+	`
+
+	insertCoverMediaQuery = `
+		INSERT INTO series_media (id, series_id) VALUES ($1, $2)
+	`
+
 	setCoverImageURLQuery = `
 		UPDATE series SET cover_image_url = $2 WHERE id = $1
 	`
@@ -702,16 +714,43 @@ func (r *SeriesRepository) MarkPublished(ctx context.Context, seriesID string, p
 	return nil
 }
 
-// SetCoverImageURL persists the cover image URL for the given series.
-func (r *SeriesRepository) SetCoverImageURL(ctx context.Context, seriesID, imageURL string) error {
-	tag, err := r.db.Pool.Exec(ctx, setCoverImageURLQuery, seriesID, imageURL)
+// ReplaceCoverMedia atomically swaps a series' cover media in one transaction:
+// it reads any prior cover media id, deletes the prior row, inserts the new
+// media row, and denormalizes coverURL onto series.cover_image_url. It returns
+// the prior media id ("" when the series had no cover) so the caller can reclaim
+// the replaced object from storage.
+func (r *SeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID, newMediaID, coverURL string) (string, error) {
+	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return toAppErr(err, "failed to set cover image URL", slog.String("series_id", seriesID))
+		return "", toAppErr(err, "failed to begin cover media transaction")
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var oldMediaID string
+	err = tx.QueryRow(ctx, selectCoverMediaIDQuery, seriesID).Scan(&oldMediaID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", toAppErr(err, "failed to read existing cover media", slog.String("series_id", seriesID))
+	}
+
+	if _, err := tx.Exec(ctx, deleteCoverMediaBySeriesQuery, seriesID); err != nil {
+		return "", toAppErr(err, "failed to delete prior cover media", slog.String("series_id", seriesID))
+	}
+	if _, err := tx.Exec(ctx, insertCoverMediaQuery, newMediaID, seriesID); err != nil {
+		return "", toAppErr(err, "failed to insert cover media", slog.String("series_id", seriesID))
+	}
+
+	tag, err := tx.Exec(ctx, setCoverImageURLQuery, seriesID, coverURL)
+	if err != nil {
+		return "", toAppErr(err, "failed to set cover image URL", slog.String("series_id", seriesID))
 	}
 	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "series not found")
+		return "", apperr.New(codes.NotFound, "series not found")
 	}
-	return nil
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", toAppErr(err, "failed to commit cover media transaction")
+	}
+	return oldMediaID, nil
 }
 
 // MarkCancelled transitions the series to CANCELLED and records cancelled_at.

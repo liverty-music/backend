@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -396,4 +397,60 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 	concerts, err := uc.SearchNewConcerts(ctx, "artist-2")
 	require.NoError(t, err)
 	assert.Nil(t, concerts)
+}
+
+// TestConcertAuthoringUseCase_UploadCoverImage_MintsMediaAndReplacesOld verifies
+// the cover is stored under an extension-less, media-id-versioned key
+// (series/<id>/cover/<mediaId>), the media row + URL are swapped atomically, and
+// the prior object (located by the returned old media id) is best-effort deleted.
+func TestConcertAuthoringUseCase_UploadCoverImage_MintsMediaAndReplacesOld(t *testing.T) {
+	t.Setenv("ORGANIZER_MEDIA_BUCKET", "test-bucket")
+	ctx := context.Background()
+	d := newAuthoringDeps(t)
+
+	const (
+		orgID      = "org-1"
+		seriesID   = "series-1"
+		oldMediaID = "old-media-1"
+		keyPrefix  = "series/series-1/cover/"
+	)
+	data := []byte("png-bytes")
+	newURL := "https://storage.googleapis.com/test-bucket/" + keyPrefix + "newmedia"
+
+	s := &entity.Series{ID: seriesID, Title: "T", Type: entity.SeriesTypeSingle, OrganizerID: ptr(orgID)}
+	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
+	// Extension-less key, minted media id under series/<id>/cover/.
+	d.imageStorer.EXPECT().
+		Put(mock.Anything, "test-bucket", mock.MatchedBy(func(k string) bool {
+			return strings.HasPrefix(k, keyPrefix) && !strings.Contains(strings.TrimPrefix(k, keyPrefix), ".")
+		}), "image/png", data).
+		Return(newURL, nil)
+	// Atomic swap returns the prior media id, whose object is then reclaimed.
+	d.seriesRepo.EXPECT().
+		ReplaceCoverMedia(mock.Anything, seriesID, mock.Anything, newURL).
+		Return(oldMediaID, nil)
+	d.imageStorer.EXPECT().Delete(mock.Anything, "test-bucket", keyPrefix+oldMediaID).Return(nil)
+
+	got, err := d.uc.UploadCoverImage(ctx, orgID, seriesID, "image/png", data)
+	require.NoError(t, err)
+	assert.Equal(t, newURL, got)
+}
+
+// TestConcertAuthoringUseCase_UploadCoverImage_MissingBucket verifies a clear
+// Internal error when the media bucket env var is unset.
+func TestConcertAuthoringUseCase_UploadCoverImage_MissingBucket(t *testing.T) {
+	t.Setenv("ORGANIZER_MEDIA_BUCKET", "")
+	ctx := context.Background()
+	d := newAuthoringDeps(t)
+
+	const (
+		orgID    = "org-1"
+		seriesID = "series-1"
+	)
+	s := &entity.Series{ID: seriesID, OrganizerID: ptr(orgID)}
+	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
+
+	_, err := d.uc.UploadCoverImage(ctx, orgID, seriesID, "image/png", []byte("x"))
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, apperr.ErrInternal), "expected Internal, got %v", err)
 }
