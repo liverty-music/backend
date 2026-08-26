@@ -276,3 +276,25 @@ func (r *OrganizerRepository) FreeArtists(ctx context.Context, organizerID strin
 	}
 	return nil
 }
+
+const isArtistRepresentedByActiveOrganizerQuery = `
+	SELECT EXISTS (
+		SELECT 1
+		FROM organizer_artists oa
+		JOIN organizers o ON o.id = oa.organizer_id
+		WHERE oa.artist_id = $1
+		  AND o.status = $2
+	)
+`
+
+// IsArtistRepresentedByActiveOrganizer reports whether the given artist is
+// linked to at least one active (status=OrganizerStatusActive) organizer.
+func (r *OrganizerRepository) IsArtistRepresentedByActiveOrganizer(ctx context.Context, artistID string) (bool, error) {
+	var exists bool
+	err := r.db.Pool.QueryRow(ctx, isArtistRepresentedByActiveOrganizerQuery, artistID, int16(entity.OrganizerStatusActive)).Scan(&exists)
+	if err != nil {
+		return false, toAppErr(err, "failed to check if artist is represented by active organizer",
+			slog.String("artist_id", artistID))
+	}
+	return exists, nil
+}

@@ -108,6 +108,7 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		d.concertRepo,
 		d.venueRepo,
 		d.seriesRepo,
+		nil, // organizerRepo — not used by admin methods
 		nil, // searchLogRepo — not used by admin methods
 		d.stagedRepo,
 		d.rejectedLog,

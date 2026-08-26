@@ -4,6 +4,7 @@ package mocks
 
 import (
 	context "context"
+	time "time"
 
 	entity "github.com/liverty-music/backend/internal/entity"
 	mock "github.com/stretchr/testify/mock"
@@ -266,6 +267,462 @@ func (_c *MockSeriesRepository_ListByIDs_Call) Return(_a0 []*entity.Series, _a1 
 }
 
 func (_c *MockSeriesRepository_ListByIDs_Call) RunAndReturn(run func(context.Context, []string) ([]*entity.Series, error)) *MockSeriesRepository_ListByIDs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateDraft provides a mock function with given fields: ctx, series, draftEvents, performerArtistIDs
+func (_m *MockSeriesRepository) CreateDraft(ctx context.Context, series *entity.Series, draftEvents []*entity.DraftEvent, performerArtistIDs []string) error {
+	ret := _m.Called(ctx, series, draftEvents, performerArtistIDs)
+	if len(ret) == 0 {
+		panic("no return value specified for CreateDraft")
+	}
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.Series, []*entity.DraftEvent, []string) error); ok {
+		r0 = rf(ctx, series, draftEvents, performerArtistIDs)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+type MockSeriesRepository_CreateDraft_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) CreateDraft(ctx interface{}, series interface{}, draftEvents interface{}, performerArtistIDs interface{}) *MockSeriesRepository_CreateDraft_Call {
+	return &MockSeriesRepository_CreateDraft_Call{Call: _e.mock.On("CreateDraft", ctx, series, draftEvents, performerArtistIDs)}
+}
+func (_c *MockSeriesRepository_CreateDraft_Call) Run(run func(context.Context, *entity.Series, []*entity.DraftEvent, []string)) *MockSeriesRepository_CreateDraft_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*entity.Series), args[2].([]*entity.DraftEvent), args[3].([]string))
+	})
+	return _c
+}
+func (_c *MockSeriesRepository_CreateDraft_Call) Return(_a0 error) *MockSeriesRepository_CreateDraft_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+func (_c *MockSeriesRepository_CreateDraft_Call) RunAndReturn(run func(context.Context, *entity.Series, []*entity.DraftEvent, []string) error) *MockSeriesRepository_CreateDraft_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateDraft provides a mock function with given fields: ctx, series, draftEvents, performerArtistIDs
+func (_m *MockSeriesRepository) UpdateDraft(ctx context.Context, series *entity.Series, draftEvents []*entity.DraftEvent, performerArtistIDs []string) error {
+	ret := _m.Called(ctx, series, draftEvents, performerArtistIDs)
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateDraft")
+	}
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.Series, []*entity.DraftEvent, []string) error); ok {
+		r0 = rf(ctx, series, draftEvents, performerArtistIDs)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+type MockSeriesRepository_UpdateDraft_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) UpdateDraft(ctx interface{}, series interface{}, draftEvents interface{}, performerArtistIDs interface{}) *MockSeriesRepository_UpdateDraft_Call {
+	return &MockSeriesRepository_UpdateDraft_Call{Call: _e.mock.On("UpdateDraft", ctx, series, draftEvents, performerArtistIDs)}
+}
+func (_c *MockSeriesRepository_UpdateDraft_Call) Run(run func(context.Context, *entity.Series, []*entity.DraftEvent, []string)) *MockSeriesRepository_UpdateDraft_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*entity.Series), args[2].([]*entity.DraftEvent), args[3].([]string))
+	})
+	return _c
+}
+func (_c *MockSeriesRepository_UpdateDraft_Call) Return(_a0 error) *MockSeriesRepository_UpdateDraft_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+func (_c *MockSeriesRepository_UpdateDraft_Call) RunAndReturn(run func(context.Context, *entity.Series, []*entity.DraftEvent, []string) error) *MockSeriesRepository_UpdateDraft_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// LoadDraft provides a mock function with given fields: ctx, seriesID
+func (_m *MockSeriesRepository) LoadDraft(ctx context.Context, seriesID string) ([]*entity.DraftEvent, []string, error) {
+	ret := _m.Called(ctx, seriesID)
+	if len(ret) == 0 {
+		panic("no return value specified for LoadDraft")
+	}
+	var r0 []*entity.DraftEvent
+	var r1 []string
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.DraftEvent, []string, error)); ok {
+		return rf(ctx, seriesID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.DraftEvent); ok {
+		r0 = rf(ctx, seriesID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.DraftEvent)
+		}
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string) []string); ok {
+		r1 = rf(ctx, seriesID)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).([]string)
+		}
+	}
+	if rf, ok := ret.Get(2).(func(context.Context, string) error); ok {
+		r2 = rf(ctx, seriesID)
+	} else {
+		r2 = ret.Error(2)
+	}
+	return r0, r1, r2
+}
+
+type MockSeriesRepository_LoadDraft_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) LoadDraft(ctx interface{}, seriesID interface{}) *MockSeriesRepository_LoadDraft_Call {
+	return &MockSeriesRepository_LoadDraft_Call{Call: _e.mock.On("LoadDraft", ctx, seriesID)}
+}
+func (_c *MockSeriesRepository_LoadDraft_Call) Run(run func(context.Context, string)) *MockSeriesRepository_LoadDraft_Call {
+	_c.Call.Run(func(args mock.Arguments) { run(args[0].(context.Context), args[1].(string)) })
+	return _c
+}
+func (_c *MockSeriesRepository_LoadDraft_Call) Return(_a0 []*entity.DraftEvent, _a1 []string, _a2 error) *MockSeriesRepository_LoadDraft_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+func (_c *MockSeriesRepository_LoadDraft_Call) RunAndReturn(run func(context.Context, string) ([]*entity.DraftEvent, []string, error)) *MockSeriesRepository_LoadDraft_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetAuthored provides a mock function with given fields: ctx, seriesID
+func (_m *MockSeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
+	ret := _m.Called(ctx, seriesID)
+	if len(ret) == 0 {
+		panic("no return value specified for GetAuthored")
+	}
+	var r0 *entity.Series
+	var r1 []*entity.Event
+	var r2 []*entity.Artist
+	var r3 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Series, []*entity.Event, []*entity.Artist, error)); ok {
+		return rf(ctx, seriesID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Series); ok {
+		r0 = rf(ctx, seriesID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Series)
+		}
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string) []*entity.Event); ok {
+		r1 = rf(ctx, seriesID)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).([]*entity.Event)
+		}
+	}
+	if rf, ok := ret.Get(2).(func(context.Context, string) []*entity.Artist); ok {
+		r2 = rf(ctx, seriesID)
+	} else {
+		if ret.Get(2) != nil {
+			r2 = ret.Get(2).([]*entity.Artist)
+		}
+	}
+	if rf, ok := ret.Get(3).(func(context.Context, string) error); ok {
+		r3 = rf(ctx, seriesID)
+	} else {
+		r3 = ret.Error(3)
+	}
+	return r0, r1, r2, r3
+}
+
+type MockSeriesRepository_GetAuthored_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) GetAuthored(ctx interface{}, seriesID interface{}) *MockSeriesRepository_GetAuthored_Call {
+	return &MockSeriesRepository_GetAuthored_Call{Call: _e.mock.On("GetAuthored", ctx, seriesID)}
+}
+func (_c *MockSeriesRepository_GetAuthored_Call) Run(run func(context.Context, string)) *MockSeriesRepository_GetAuthored_Call {
+	_c.Call.Run(func(args mock.Arguments) { run(args[0].(context.Context), args[1].(string)) })
+	return _c
+}
+func (_c *MockSeriesRepository_GetAuthored_Call) Return(_a0 *entity.Series, _a1 []*entity.Event, _a2 []*entity.Artist, _a3 error) *MockSeriesRepository_GetAuthored_Call {
+	_c.Call.Return(_a0, _a1, _a2, _a3)
+	return _c
+}
+func (_c *MockSeriesRepository_GetAuthored_Call) RunAndReturn(run func(context.Context, string) (*entity.Series, []*entity.Event, []*entity.Artist, error)) *MockSeriesRepository_GetAuthored_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByOrganizer provides a mock function with given fields: ctx, organizerID
+func (_m *MockSeriesRepository) ListByOrganizer(ctx context.Context, organizerID string) ([]*entity.Series, error) {
+	ret := _m.Called(ctx, organizerID)
+	if len(ret) == 0 {
+		panic("no return value specified for ListByOrganizer")
+	}
+	var r0 []*entity.Series
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Series, error)); ok {
+		return rf(ctx, organizerID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Series); ok {
+		r0 = rf(ctx, organizerID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Series)
+		}
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, organizerID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+type MockSeriesRepository_ListByOrganizer_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) ListByOrganizer(ctx interface{}, organizerID interface{}) *MockSeriesRepository_ListByOrganizer_Call {
+	return &MockSeriesRepository_ListByOrganizer_Call{Call: _e.mock.On("ListByOrganizer", ctx, organizerID)}
+}
+func (_c *MockSeriesRepository_ListByOrganizer_Call) Run(run func(context.Context, string)) *MockSeriesRepository_ListByOrganizer_Call {
+	_c.Call.Run(func(args mock.Arguments) { run(args[0].(context.Context), args[1].(string)) })
+	return _c
+}
+func (_c *MockSeriesRepository_ListByOrganizer_Call) Return(_a0 []*entity.Series, _a1 error) *MockSeriesRepository_ListByOrganizer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+func (_c *MockSeriesRepository_ListByOrganizer_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Series, error)) *MockSeriesRepository_ListByOrganizer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetByUnlistedToken provides a mock function with given fields: ctx, token
+func (_m *MockSeriesRepository) GetByUnlistedToken(ctx context.Context, token string) (*entity.Series, error) {
+	ret := _m.Called(ctx, token)
+	if len(ret) == 0 {
+		panic("no return value specified for GetByUnlistedToken")
+	}
+	var r0 *entity.Series
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Series, error)); ok {
+		return rf(ctx, token)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Series); ok {
+		r0 = rf(ctx, token)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Series)
+		}
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, token)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+type MockSeriesRepository_GetByUnlistedToken_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) GetByUnlistedToken(ctx interface{}, token interface{}) *MockSeriesRepository_GetByUnlistedToken_Call {
+	return &MockSeriesRepository_GetByUnlistedToken_Call{Call: _e.mock.On("GetByUnlistedToken", ctx, token)}
+}
+func (_c *MockSeriesRepository_GetByUnlistedToken_Call) Run(run func(context.Context, string)) *MockSeriesRepository_GetByUnlistedToken_Call {
+	_c.Call.Run(func(args mock.Arguments) { run(args[0].(context.Context), args[1].(string)) })
+	return _c
+}
+func (_c *MockSeriesRepository_GetByUnlistedToken_Call) Return(_a0 *entity.Series, _a1 error) *MockSeriesRepository_GetByUnlistedToken_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+func (_c *MockSeriesRepository_GetByUnlistedToken_Call) RunAndReturn(run func(context.Context, string) (*entity.Series, error)) *MockSeriesRepository_GetByUnlistedToken_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetUnlistedToken provides a mock function with given fields: ctx, seriesID, token
+func (_m *MockSeriesRepository) SetUnlistedToken(ctx context.Context, seriesID string, token string) error {
+	ret := _m.Called(ctx, seriesID, token)
+	if len(ret) == 0 {
+		panic("no return value specified for SetUnlistedToken")
+	}
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, seriesID, token)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+type MockSeriesRepository_SetUnlistedToken_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) SetUnlistedToken(ctx interface{}, seriesID interface{}, token interface{}) *MockSeriesRepository_SetUnlistedToken_Call {
+	return &MockSeriesRepository_SetUnlistedToken_Call{Call: _e.mock.On("SetUnlistedToken", ctx, seriesID, token)}
+}
+func (_c *MockSeriesRepository_SetUnlistedToken_Call) Run(run func(context.Context, string, string)) *MockSeriesRepository_SetUnlistedToken_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+func (_c *MockSeriesRepository_SetUnlistedToken_Call) Return(_a0 error) *MockSeriesRepository_SetUnlistedToken_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+func (_c *MockSeriesRepository_SetUnlistedToken_Call) RunAndReturn(run func(context.Context, string, string) error) *MockSeriesRepository_SetUnlistedToken_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetCoverImageURL provides a mock function with given fields: ctx, seriesID, imageURL
+func (_m *MockSeriesRepository) SetCoverImageURL(ctx context.Context, seriesID string, imageURL string) error {
+	ret := _m.Called(ctx, seriesID, imageURL)
+	if len(ret) == 0 {
+		panic("no return value specified for SetCoverImageURL")
+	}
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, seriesID, imageURL)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+type MockSeriesRepository_SetCoverImageURL_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) SetCoverImageURL(ctx interface{}, seriesID interface{}, imageURL interface{}) *MockSeriesRepository_SetCoverImageURL_Call {
+	return &MockSeriesRepository_SetCoverImageURL_Call{Call: _e.mock.On("SetCoverImageURL", ctx, seriesID, imageURL)}
+}
+func (_c *MockSeriesRepository_SetCoverImageURL_Call) Run(run func(context.Context, string, string)) *MockSeriesRepository_SetCoverImageURL_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+func (_c *MockSeriesRepository_SetCoverImageURL_Call) Return(_a0 error) *MockSeriesRepository_SetCoverImageURL_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+func (_c *MockSeriesRepository_SetCoverImageURL_Call) RunAndReturn(run func(context.Context, string, string) error) *MockSeriesRepository_SetCoverImageURL_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// MarkPublished provides a mock function with given fields: ctx, seriesID, publishedAt
+func (_m *MockSeriesRepository) MarkPublished(ctx context.Context, seriesID string, publishedAt time.Time) error {
+	ret := _m.Called(ctx, seriesID, publishedAt)
+	if len(ret) == 0 {
+		panic("no return value specified for MarkPublished")
+	}
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) error); ok {
+		r0 = rf(ctx, seriesID, publishedAt)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+type MockSeriesRepository_MarkPublished_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) MarkPublished(ctx interface{}, seriesID interface{}, publishedAt interface{}) *MockSeriesRepository_MarkPublished_Call {
+	return &MockSeriesRepository_MarkPublished_Call{Call: _e.mock.On("MarkPublished", ctx, seriesID, publishedAt)}
+}
+func (_c *MockSeriesRepository_MarkPublished_Call) Run(run func(context.Context, string, time.Time)) *MockSeriesRepository_MarkPublished_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(time.Time))
+	})
+	return _c
+}
+func (_c *MockSeriesRepository_MarkPublished_Call) Return(_a0 error) *MockSeriesRepository_MarkPublished_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+func (_c *MockSeriesRepository_MarkPublished_Call) RunAndReturn(run func(context.Context, string, time.Time) error) *MockSeriesRepository_MarkPublished_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// MarkCancelled provides a mock function with given fields: ctx, seriesID, cancelledAt
+func (_m *MockSeriesRepository) MarkCancelled(ctx context.Context, seriesID string, cancelledAt time.Time) error {
+	ret := _m.Called(ctx, seriesID, cancelledAt)
+	if len(ret) == 0 {
+		panic("no return value specified for MarkCancelled")
+	}
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) error); ok {
+		r0 = rf(ctx, seriesID, cancelledAt)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+type MockSeriesRepository_MarkCancelled_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) MarkCancelled(ctx interface{}, seriesID interface{}, cancelledAt interface{}) *MockSeriesRepository_MarkCancelled_Call {
+	return &MockSeriesRepository_MarkCancelled_Call{Call: _e.mock.On("MarkCancelled", ctx, seriesID, cancelledAt)}
+}
+func (_c *MockSeriesRepository_MarkCancelled_Call) Run(run func(context.Context, string, time.Time)) *MockSeriesRepository_MarkCancelled_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(time.Time))
+	})
+	return _c
+}
+func (_c *MockSeriesRepository_MarkCancelled_Call) Return(_a0 error) *MockSeriesRepository_MarkCancelled_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+func (_c *MockSeriesRepository_MarkCancelled_Call) RunAndReturn(run func(context.Context, string, time.Time) error) *MockSeriesRepository_MarkCancelled_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PublishDraft provides a mock function with given fields: ctx, seriesID, now
+func (_m *MockSeriesRepository) PublishDraft(ctx context.Context, seriesID string, now time.Time) ([]string, error) {
+	ret := _m.Called(ctx, seriesID, now)
+	if len(ret) == 0 {
+		panic("no return value specified for PublishDraft")
+	}
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) ([]string, error)); ok {
+		return rf(ctx, seriesID, now)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) []string); ok {
+		r0 = rf(ctx, seriesID, now)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string, time.Time) error); ok {
+		r1 = rf(ctx, seriesID, now)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+type MockSeriesRepository_PublishDraft_Call struct{ *mock.Call }
+
+func (_e *MockSeriesRepository_Expecter) PublishDraft(ctx interface{}, seriesID interface{}, now interface{}) *MockSeriesRepository_PublishDraft_Call {
+	return &MockSeriesRepository_PublishDraft_Call{Call: _e.mock.On("PublishDraft", ctx, seriesID, now)}
+}
+func (_c *MockSeriesRepository_PublishDraft_Call) Run(run func(context.Context, string, time.Time)) *MockSeriesRepository_PublishDraft_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(time.Time))
+	})
+	return _c
+}
+func (_c *MockSeriesRepository_PublishDraft_Call) Return(_a0 []string, _a1 error) *MockSeriesRepository_PublishDraft_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+func (_c *MockSeriesRepository_PublishDraft_Call) RunAndReturn(run func(context.Context, string, time.Time) ([]string, error)) *MockSeriesRepository_PublishDraft_Call {
 	_c.Call.Return(run)
 	return _c
 }

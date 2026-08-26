@@ -94,6 +94,12 @@ const (
 	// an organizer. It is an admin-actor / group event keyed on organizer_id in
 	// PostHog; no fan distinct_id is present. Properties: organizer_id, artist_id.
 	EventOrganizerArtistAssociated AnalyticsEventName = "organizer.artist.associated"
+
+	// EventOrganizerConcertPublished is recorded after an organizer successfully
+	// publishes a first-party series. It is an admin-actor / group event keyed
+	// on organizer_id in PostHog; no fan distinct_id is present.
+	// Properties: organizer_id, series_id, new_event_count.
+	EventOrganizerConcertPublished AnalyticsEventName = "organizer.concert.published"
 )
 
 // knownBackendEvents is the allowlist of AnalyticsEventName constants
@@ -115,6 +121,7 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventNotificationDelivered:      {},
 	EventOrganizerCreated:           {},
 	EventOrganizerArtistAssociated:  {},
+	EventOrganizerConcertPublished:  {},
 }
 
 // IsKnownEvent reports whether name is registered in the backend event

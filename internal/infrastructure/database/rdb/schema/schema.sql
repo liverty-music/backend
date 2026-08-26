@@ -114,14 +114,41 @@ CREATE TYPE series_type AS ENUM ('TOUR', 'SINGLE', 'FESTIVAL');
 
 COMMENT ON TYPE series_type IS 'Classification of an event series: TOUR (multi-venue), SINGLE (single-venue standalone, possibly multi-day), FESTIVAL (multi-performer)';
 
+-- Series visibility enum (first-party authoring). PASSWORD is reserved for a
+-- future authoring extension; add it with ALTER TYPE when introduced.
+CREATE TYPE series_visibility AS ENUM ('PUBLIC', 'UNLISTED');
+
+COMMENT ON TYPE series_visibility IS 'Who can reach a first-party (organizer-authored) series: PUBLIC (normal discovery) or UNLISTED (signed tokenized URL only). NULL for discovered series.';
+
+-- Series publish-state enum (first-party authoring lifecycle). SCHEDULED is
+-- reserved for a future authoring extension; add it with ALTER TYPE when
+-- introduced.
+CREATE TYPE series_publish_state AS ENUM ('DRAFT', 'PUBLISHED', 'CANCELLED');
+
+COMMENT ON TYPE series_publish_state IS 'Authoring lifecycle of a first-party series: DRAFT (console-only), PUBLISHED (live), CANCELLED (terminal). NULL for discovered series.';
+
 -- Series table
 CREATE TABLE IF NOT EXISTS series (
     id UUID PRIMARY KEY,
     title TEXT NOT NULL,
     type series_type NOT NULL,
     source_url TEXT,
+    description TEXT,
+    cover_image_url TEXT,
+    organizer_id UUID REFERENCES organizers(id),
+    visibility series_visibility,
+    publish_state series_publish_state,
+    unlisted_token TEXT,
+    published_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
     CONSTRAINT chk_series_title_not_empty CHECK (title <> ''),
-    CONSTRAINT chk_series_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+    CONSTRAINT chk_series_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    -- A first-party series (organizer_id set) always carries visibility and
+    -- publish_state; a discovered series (organizer_id NULL) carries neither.
+    CONSTRAINT chk_series_first_party_state CHECK (
+        (organizer_id IS NULL AND visibility IS NULL AND publish_state IS NULL) OR
+        (organizer_id IS NOT NULL AND visibility IS NOT NULL AND publish_state IS NOT NULL)
+    )
 );
 
 COMMENT ON TABLE series IS 'Parent aggregation above events. Owns metadata shared across every event in a tour, festival, or multi-day single-venue run.';
@@ -129,6 +156,14 @@ COMMENT ON COLUMN series.id IS 'Unique series identifier (UUIDv7, application-ge
 COMMENT ON COLUMN series.title IS 'Series title shared across all member events (e.g. tour name, festival name)';
 COMMENT ON COLUMN series.type IS 'Classification of the series; drives presentation and notification grouping';
 COMMENT ON COLUMN series.source_url IS 'Optional series-level official URL (tour page, festival page); per-event URLs are not stored';
+COMMENT ON COLUMN series.description IS 'Free-form body text of a first-party series page, authored by an organizer. NULL for discovered series or organizer series without a write-up.';
+COMMENT ON COLUMN series.cover_image_url IS 'Served URL of the organizer-uploaded cover image (object storage). NULL when no image was uploaded.';
+COMMENT ON COLUMN series.organizer_id IS 'Owning organizer for a first-party series; NULL marks a discovery-pipeline series. Non-null makes the series organizer-authored.';
+COMMENT ON COLUMN series.visibility IS 'First-party visibility (PUBLIC / UNLISTED). NULL for discovered series.';
+COMMENT ON COLUMN series.publish_state IS 'First-party authoring lifecycle (DRAFT / PUBLISHED / CANCELLED). NULL for discovered series.';
+COMMENT ON COLUMN series.unlisted_token IS 'Backend-only HMAC-derived share token for an UNLISTED series; rotated by RegenerateToken. NULL unless the series is UNLISTED. Never exposed on read DTOs.';
+COMMENT ON COLUMN series.published_at IS 'When the series was first published (first PUBLISHED transition). NULL while DRAFT.';
+COMMENT ON COLUMN series.cancelled_at IS 'When the series was cancelled. NULL unless CANCELLED.';
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (
@@ -171,6 +206,48 @@ CREATE TABLE IF NOT EXISTS event_performers (
 COMMENT ON TABLE event_performers IS 'M:N relation between events and performing artists. Supports festival lineups, co-headliners, and support acts.';
 COMMENT ON COLUMN event_performers.event_id IS 'Reference to the event';
 COMMENT ON COLUMN event_performers.artist_id IS 'Reference to the performing artist';
+
+-- Draft events (first-party authoring staging).
+-- While a first-party series is a DRAFT its performances are held here rather
+-- than in "events", so the live natural-key space (uq_events_natural_key) stays
+-- clean and no discovered slot is claimed before publish. On publish each draft
+-- event is materialized into "events" via the natural-key upsert (with the
+-- supersede / suppression / cross-organizer rules); on cancel or delete the
+-- draft rows cascade away. There is intentionally NO natural-key uniqueness here
+-- so an organizer can freely edit a draft.
+CREATE TABLE IF NOT EXISTS draft_events (
+    id UUID PRIMARY KEY,
+    series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    venue_id UUID NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    listed_venue_name TEXT,
+    local_event_date DATE NOT NULL,
+    start_at TIMESTAMPTZ,
+    open_at TIMESTAMPTZ,
+    CONSTRAINT chk_draft_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+);
+
+COMMENT ON TABLE draft_events IS 'Unpublished performances of a first-party DRAFT series, held out of the live "events" table until publish. No natural-key uniqueness so drafts are freely editable.';
+COMMENT ON COLUMN draft_events.id IS 'Unique draft-event identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN draft_events.series_id IS 'Parent first-party series being authored';
+COMMENT ON COLUMN draft_events.venue_id IS 'Venue resolved (Places get-or-create) at draft time';
+COMMENT ON COLUMN draft_events.listed_venue_name IS 'Raw venue name the organizer entered, preserved for display and re-resolution';
+COMMENT ON COLUMN draft_events.local_event_date IS 'Date of the performance';
+COMMENT ON COLUMN draft_events.start_at IS 'Performance start time (absolute), if set';
+COMMENT ON COLUMN draft_events.open_at IS 'Doors open time (absolute), if set';
+
+-- Draft series performers (series-level, first-party authoring).
+-- Performers are chosen at the series level (applied to every event) from the
+-- organizer's represented artists. On publish these become event_performers on
+-- each materialized event.
+CREATE TABLE IF NOT EXISTS draft_series_performers (
+    series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    PRIMARY KEY (series_id, artist_id)
+);
+
+COMMENT ON TABLE draft_series_performers IS 'Series-level performers of a first-party DRAFT series, materialized into event_performers for every event on publish.';
+COMMENT ON COLUMN draft_series_performers.series_id IS 'Parent first-party series being authored';
+COMMENT ON COLUMN draft_series_performers.artist_id IS 'A performing artist the organizer represents';
 
 -- User artist follows
 CREATE TABLE IF NOT EXISTS followed_artists (
@@ -493,6 +570,16 @@ COMMENT ON INDEX idx_artist_official_site_artist_id IS 'Optimizes retrieval of o
 -- Venues indexes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_venues_google_place_id ON venues (google_place_id) WHERE google_place_id IS NOT NULL;
 COMMENT ON INDEX idx_venues_google_place_id IS 'Ensures uniqueness of Google Maps Place ID across venue records';
+
+-- Series indexes (first-party authoring)
+CREATE INDEX IF NOT EXISTS idx_series_organizer_id ON series(organizer_id) WHERE organizer_id IS NOT NULL;
+COMMENT ON INDEX idx_series_organizer_id IS 'Optimizes listing an organizer own authored series (List) and ownership checks';
+
+CREATE INDEX IF NOT EXISTS idx_series_first_party_state ON series(publish_state, visibility) WHERE organizer_id IS NOT NULL;
+COMMENT ON INDEX idx_series_first_party_state IS 'Optimizes publish-state / visibility filtering for the shared guard that excludes DRAFT / UNLISTED / CANCELLED series from public and follower surfaces';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_series_unlisted_token ON series(unlisted_token) WHERE unlisted_token IS NOT NULL;
+COMMENT ON INDEX uq_series_unlisted_token IS 'Resolves an UNLISTED series from its share token on the public read path and enforces token uniqueness';
 
 -- Events indexes
 CREATE INDEX IF NOT EXISTS idx_events_local_event_date ON events(local_event_date);

@@ -107,9 +107,23 @@ const (
 		WHERE e.id = u.id
 	`
 
+	// firstPartyVisibilityGuard is the SQL fragment appended to every fan-facing
+	// query to exclude first-party (organizer-authored) series that are not
+	// publicly visible. A series is considered publicly visible iff it is either:
+	//   - a discovered series (organizer_id IS NULL), or
+	//   - a first-party series that is PUBLISHED and PUBLIC.
+	// DRAFT, UNLISTED, and CANCELLED first-party series are excluded so they
+	// never appear on fan-facing surfaces before publish or after cancellation.
+	firstPartyVisibilityGuard = `
+		AND NOT (s.organizer_id IS NOT NULL
+		         AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
+	`
+
 	// listConcertsByArtistQuery returns concerts where the given artist appears
 	// in event_performers. The Series parent and the venue are joined; performer
 	// hydration happens in a follow-up query (listPerformersByEventIDsQuery).
+	// The firstPartyVisibilityGuard excludes DRAFT/UNLISTED/CANCELLED first-party
+	// series from this fan-facing surface.
 	listConcertsByArtistQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
@@ -120,6 +134,8 @@ const (
 		WHERE EXISTS (
 			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
+		AND NOT (s.organizer_id IS NOT NULL
+		         AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -134,10 +150,13 @@ const (
 			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
 		AND e.local_event_date >= CURRENT_DATE
+		AND NOT (s.organizer_id IS NOT NULL
+		         AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
 		ORDER BY e.local_event_date ASC
 	`
 
 	// listConcertsByArtistsQuery includes venue lat/lng for proximity classification.
+	// The firstPartyVisibilityGuard excludes DRAFT/UNLISTED/CANCELLED first-party series.
 	listConcertsByArtistsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
@@ -148,6 +167,8 @@ const (
 		WHERE EXISTS (
 			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = ANY($1)
 		)
+		AND NOT (s.organizer_id IS NOT NULL
+		         AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -159,6 +180,7 @@ const (
 	// 200 km cut and HOME/NEARBY classification happen in the use-case layer.
 	// Venue lat/lng are included (withCoords) so that classification can run.
 	// Params: $1 from, $2 to, $3 latMin, $4 latMax, $5 lngMin, $6 lngMax, $7 admin_area.
+	// The firstPartyVisibilityGuard excludes DRAFT/UNLISTED/CANCELLED first-party series.
 	listConcertsByLocationQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
@@ -171,12 +193,16 @@ const (
 		    (v.latitude BETWEEN $3 AND $4 AND v.longitude BETWEEN $5 AND $6)
 		    OR v.admin_area = $7
 		  )
+		  AND NOT (s.organizer_id IS NOT NULL
+		           AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
 		ORDER BY e.local_event_date ASC
 	`
 
 	// listAllConcertsQuery returns every published concert with no audience
 	// filter, for the admin console's catalog management. Venue lat/lng are
 	// included (withCoords) so the shared scanConcertRow path is reused.
+	// Admin queries intentionally omit the visibility guard so operators can
+	// see all series states.
 	listAllConcertsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,

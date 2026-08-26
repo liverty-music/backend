@@ -65,6 +65,18 @@ const (
 	// two tokens and the plain ORGANIZER.* filter on the JetStream stream
 	// captures it without a deeper wildcard.
 	SubjectOrganizerArtistAssociated = "ORGANIZER.artist_associated"
+	// SubjectConcertCancelled is published by ConcertAuthoringUseCase.Cancel after
+	// a PUBLISHED first-party series is transitioned to CANCELLED. It drives the
+	// concert.cancelled analytics event and the downstream consumer that notifies
+	// affected fans. Two tokens so the CONCERT.* stream filter captures it without
+	// a deeper wildcard — consistent with SubjectConcertCreated.
+	SubjectConcertCancelled = "CONCERT.cancelled"
+	// SubjectOrganizerConcertPublished is published by ConcertAuthoringUseCase.Publish
+	// after a first-party series is successfully published. It drives the
+	// organizer.concert.published analytics event (admin-actor / group event keyed
+	// on organizer_id; no fan distinct_id). Published as an ORGANIZER.* subject so
+	// the JetStream ORGANIZER stream captures it alongside the other organizer events.
+	SubjectOrganizerConcertPublished = "ORGANIZER.concert_published"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -77,6 +89,7 @@ const (
 var AllSubjects = []string{
 	SubjectConcertDiscovered,
 	SubjectConcertCreated,
+	SubjectConcertCancelled,
 	SubjectArtistCreated,
 	SubjectArtistFollowed,
 	SubjectArtistUnfollowed,
@@ -91,6 +104,45 @@ var AllSubjects = []string{
 	SubjectUserLoggedIn,
 	SubjectOrganizerCreated,
 	SubjectOrganizerArtistAssociated,
+	SubjectOrganizerConcertPublished,
+}
+
+// ConcertCreatedData is the payload for CONCERT.created events.
+// Published once per discovered or organizer-authored series, carrying every
+// newly inserted event id so a multi-date tour wakes the notification consumer
+// once rather than per event.
+type ConcertCreatedData struct {
+	// ArtistID is the internal UUID of the primary artist (empty for multi-artist
+	// organizer series where the performer list is on the events directly).
+	ArtistID string `json:"artist_id"`
+	// ConcertIDs are the event IDs of the newly inserted events.
+	ConcertIDs []string `json:"concert_ids"`
+}
+
+// ConcertCancelledData is the payload for CONCERT.cancelled events.
+// Published by ConcertAuthoringUseCase.Cancel when a PUBLISHED first-party
+// series is transitioned to CANCELLED. The consumer uses the SeriesID to
+// notify affected fans.
+type ConcertCancelledData struct {
+	// SeriesID is the internal UUID of the cancelled series.
+	SeriesID string `json:"series_id"`
+	// ConcertIDs are the event IDs that belong to the cancelled series. These
+	// were previously published events; their rows remain in the events table
+	// (to keep natural-key slots claimed) but they are excluded from all
+	// fan-facing surfaces by the shared visibility guard.
+	ConcertIDs []string `json:"concert_ids"`
+}
+
+// OrganizerConcertPublishedData is the payload for ORGANIZER.concert_published events.
+// Published by ConcertAuthoringUseCase.Publish after a first-party series is
+// successfully published. Drives the organizer.concert.published analytics event.
+type OrganizerConcertPublishedData struct {
+	// OrganizerID is the platform-internal UUID of the organizer.
+	OrganizerID string `json:"organizer_id"`
+	// SeriesID is the internal UUID of the published series.
+	SeriesID string `json:"series_id"`
+	// NewEventCount is the number of events materialized on this publish.
+	NewEventCount int `json:"new_event_count"`
 }
 
 // ConcertDiscoveredData is the payload for concert.discovered.v1 events.
