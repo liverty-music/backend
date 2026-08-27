@@ -400,40 +400,85 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 }
 
 // TestConcertAuthoringUseCase_UploadCoverImage_MintsMediaAndReplacesOld verifies
-// the cover is stored under an extension-less, media-id-versioned key
-// (series/<id>/cover/<mediaId>), the media row + URL are swapped atomically, and
-// the prior object (located by the returned old media id) is best-effort deleted.
+// that upload stores the object directly under `cdn/{org}/{mediaId}`, persists
+// the media + series_media rows via ReplaceCoverMedia, best-effort deletes the
+// prior cdn object, and returns the composed CDN URL.
 func TestConcertAuthoringUseCase_UploadCoverImage_MintsMediaAndReplacesOld(t *testing.T) {
 	t.Setenv("ORGANIZER_MEDIA_BUCKET", "test-bucket")
+	t.Setenv("ORGANIZER_MEDIA_CDN_BASE", "https://media.example.com")
 	ctx := context.Background()
 	d := newAuthoringDeps(t)
 
 	const (
 		orgID      = "org-1"
 		seriesID   = "series-1"
-		oldMediaID = "old-media-1"
-		keyPrefix  = "series/series-1/cover/"
+		oldMediaID = "old-media-id"
 	)
 	data := []byte("png-bytes")
-	newURL := "https://storage.googleapis.com/test-bucket/" + keyPrefix + "newmedia"
+	cdnKeyPrefix := "cdn/" + orgID + "/"
 
 	s := &entity.Series{ID: seriesID, Title: "T", Type: entity.SeriesTypeSingle, OrganizerID: ptr(orgID)}
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
-	// Extension-less key, minted media id under series/<id>/cover/.
+
+	// Put is called with the cdn key: cdn/{org}/{mediaId} (extension-less).
 	d.imageStorer.EXPECT().
 		Put(mock.Anything, "test-bucket", mock.MatchedBy(func(k string) bool {
-			return strings.HasPrefix(k, keyPrefix) && !strings.Contains(strings.TrimPrefix(k, keyPrefix), ".")
+			return strings.HasPrefix(k, cdnKeyPrefix) &&
+				!strings.Contains(strings.TrimPrefix(k, cdnKeyPrefix), ".")
 		}), "image/png", data).
-		Return(newURL, nil)
-	// Atomic swap returns the prior media id, whose object is then reclaimed.
+		Return(nil)
+
+	// ReplaceCoverMedia is called with the new Media struct.
 	d.seriesRepo.EXPECT().
-		ReplaceCoverMedia(mock.Anything, seriesID, mock.Anything, newURL).
+		ReplaceCoverMedia(mock.Anything, seriesID, mock.MatchedBy(func(m *entity.Media) bool {
+			return m.OrganizerID == orgID &&
+				m.Kind == entity.MediaKindImage &&
+				m.Attributes["content_type"] == "image/png"
+		})).
 		Return(oldMediaID, nil)
-	d.imageStorer.EXPECT().Delete(mock.Anything, "test-bucket", keyPrefix+oldMediaID).Return(nil)
+
+	// Prior cdn object is best-effort deleted.
+	d.imageStorer.EXPECT().
+		Delete(mock.Anything, "test-bucket", cdnKeyPrefix+oldMediaID).
+		Return(nil)
 
 	got, err := d.uc.UploadCoverImage(ctx, orgID, seriesID, "image/png", data)
 	require.NoError(t, err)
-	assert.Equal(t, newURL, got)
+	// Response is the CDN URL, not a signed URL.
+	assert.True(t, strings.HasPrefix(got, "https://media.example.com/cdn/"+orgID+"/"),
+		"expected CDN URL, got %q", got)
+}
+
+// TestConcertAuthoringUseCase_UploadCoverImage_NoOldMedia verifies that when
+// there is no prior cover (ReplaceCoverMedia returns ""), no Delete is called
+// and the CDN URL is still returned.
+func TestConcertAuthoringUseCase_UploadCoverImage_NoOldMedia(t *testing.T) {
+	t.Setenv("ORGANIZER_MEDIA_BUCKET", "test-bucket")
+	t.Setenv("ORGANIZER_MEDIA_CDN_BASE", "https://media.example.com")
+	ctx := context.Background()
+	d := newAuthoringDeps(t)
+
+	const (
+		orgID    = "org-1"
+		seriesID = "series-new"
+	)
+	data := []byte("jpg-bytes")
+
+	s := &entity.Series{ID: seriesID, Title: "T", Type: entity.SeriesTypeSingle, OrganizerID: ptr(orgID)}
+	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
+	d.imageStorer.EXPECT().
+		Put(mock.Anything, "test-bucket", mock.MatchedBy(func(k string) bool {
+			return strings.HasPrefix(k, "cdn/"+orgID+"/")
+		}), "image/jpeg", data).
+		Return(nil)
+	d.seriesRepo.EXPECT().
+		ReplaceCoverMedia(mock.Anything, seriesID, mock.Anything).
+		Return("", nil) // no prior cover — Delete must NOT be called
+
+	got, err := d.uc.UploadCoverImage(ctx, orgID, seriesID, "image/jpeg", data)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(got, "https://media.example.com/cdn/"+orgID+"/"),
+		"expected CDN URL, got %q", got)
 }
 
 // TestConcertAuthoringUseCase_UploadCoverImage_MissingBucket verifies a clear

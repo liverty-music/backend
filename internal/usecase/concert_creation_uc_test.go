@@ -155,7 +155,7 @@ func (r *fakeSeriesRepo) SetUnlistedToken(_ context.Context, _ string, _ string)
 	return nil
 }
 
-func (r *fakeSeriesRepo) ReplaceCoverMedia(_ context.Context, _ string, _ string, _ string) (string, error) {
+func (r *fakeSeriesRepo) ReplaceCoverMedia(_ context.Context, _ string, _ *entity.Media) (string, error) {
 	return "", nil
 }
 

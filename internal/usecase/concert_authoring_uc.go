@@ -29,6 +29,10 @@ var allowedContentTypes = map[string]struct{}{
 	"image/webp": {},
 }
 
+// mediaBucketEnv is the environment variable name for the GCS bucket that
+// holds organizer media.
+const mediaBucketEnv = "ORGANIZER_MEDIA_BUCKET"
+
 // DraftEventInput is the intermediate representation of an event being authored,
 // carrying the unresolved venue name and optional place ID alongside the timing
 // fields. The usecase resolves or creates the venue row and produces a
@@ -161,17 +165,15 @@ func NewConcertAuthoringUseCase(
 // mediaBucket returns the GCS bucket name for organizer-authored media from the
 // ORGANIZER_MEDIA_BUCKET environment variable.
 func mediaBucket() string {
-	return os.Getenv("ORGANIZER_MEDIA_BUCKET")
+	return os.Getenv(mediaBucketEnv)
 }
 
-// coverObjectKey builds the extension-less object key for a series cover image:
-// `series/<seriesId>/cover/<mediaId>`. The media id (a fresh UUIDv7 per upload,
-// the series_media row id) is the cache-busting version token — a replaced cover
-// gets a new id, hence a new immutable URL — and the key is unguessable. The
-// content type is carried by the GCS object metadata, not the key. See
-// OrganizerMediaComponent for the bucket-wide key convention.
-func coverObjectKey(seriesID, mediaID string) string {
-	return fmt.Sprintf("series/%s/cover/%s", seriesID, mediaID)
+// coverURL composes the served CDN URL for a cover image by delegating to
+// entity.CoverImageURL, which is the single source of truth for URL
+// composition shared by UploadCoverImage (upload response) and the RPC mapper
+// (read response). Returns "" when ORGANIZER_MEDIA_CDN_BASE is unset.
+func coverURL(organizerID, mediaID string) string {
+	return entity.CoverImageURL(organizerID, mediaID)
 }
 
 // assertOwnsSeries verifies that the given series is owned by callerOrgID.
@@ -548,28 +550,35 @@ func (uc *concertAuthoringUseCase) UploadCoverImage(
 		return "", apperr.New(codes.Internal, "ORGANIZER_MEDIA_BUCKET is not set")
 	}
 
-	// Mint a fresh media id (the series_media row id). It is the cache-busting
-	// version token embedded in the object key, so a replaced cover lands at a
-	// new immutable URL. The content type is carried by the GCS object metadata,
-	// so the key is extension-less.
+	// Mint a fresh media id. It is the cache-busting version token embedded in
+	// the object key: `cdn/{organizer_id}/{media_id}`. A replaced cover lands
+	// at a new key (new id) so caches never serve stale bytes. The content type
+	// is carried by the GCS object metadata, not the key.
 	mediaID := entity.NewID()
-	key := coverObjectKey(seriesID, mediaID)
+	key := entity.ObjectKey(callerOrgID, mediaID)
 
-	imageURL, err := uc.imageStorer.Put(ctx, bucket, key, contentType, imageData)
-	if err != nil {
+	if err := uc.imageStorer.Put(ctx, bucket, key, contentType, imageData); err != nil {
 		return "", fmt.Errorf("store cover image: %w", err)
 	}
 
-	// Atomically swap the cover media row and the denormalized URL; the returned
-	// prior media id (empty when there was none) locates the replaced object.
-	oldMediaID, err := uc.seriesRepo.ReplaceCoverMedia(ctx, seriesID, mediaID, imageURL)
+	newMedia := &entity.Media{
+		ID:          mediaID,
+		OrganizerID: callerOrgID,
+		Kind:        entity.MediaKindImage,
+		Attributes:  map[string]string{"content_type": contentType},
+	}
+
+	// Atomically swap the cover media row; the returned prior media id (empty
+	// when there was no prior cover) locates the object to reclaim.
+	oldMediaID, err := uc.seriesRepo.ReplaceCoverMedia(ctx, seriesID, newMedia)
 	if err != nil {
 		return "", fmt.Errorf("replace cover media: %w", err)
 	}
 
-	// Best-effort delete of the replaced object (an orphaned object is harmless).
+	// Best-effort delete of the prior object (an orphaned object is harmless —
+	// a future sweep can GC it).
 	if oldMediaID != "" && oldMediaID != mediaID {
-		oldKey := coverObjectKey(seriesID, oldMediaID)
+		oldKey := entity.ObjectKey(callerOrgID, oldMediaID)
 		if err := uc.imageStorer.Delete(ctx, bucket, oldKey); err != nil {
 			uc.logger.Warn(ctx, "failed to delete replaced cover image (orphaned)",
 				slog.String("series_id", seriesID),
@@ -578,7 +587,10 @@ func (uc *concertAuthoringUseCase) UploadCoverImage(
 			)
 		}
 	}
-	return imageURL, nil
+
+	// Return the CDN URL — the object is already under cdn/ so it is
+	// immediately servable (draft obscurity relies on the unguessable UUIDv7).
+	return coverURL(callerOrgID, mediaID), nil
 }
 
 // RegenerateToken issues a fresh share token for an UNLISTED series.

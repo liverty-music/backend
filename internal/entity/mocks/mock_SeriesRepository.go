@@ -576,24 +576,24 @@ func (_c *MockSeriesRepository_SetUnlistedToken_Call) RunAndReturn(run func(cont
 	return _c
 }
 
-// ReplaceCoverMedia provides a mock function with given fields: ctx, seriesID, newMediaID, coverURL
-func (_m *MockSeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID string, newMediaID string, coverURL string) (string, error) {
-	ret := _m.Called(ctx, seriesID, newMediaID, coverURL)
+// ReplaceCoverMedia provides a mock function with given fields: ctx, seriesID, newMedia
+func (_m *MockSeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID string, newMedia *entity.Media) (string, error) {
+	ret := _m.Called(ctx, seriesID, newMedia)
 	if len(ret) == 0 {
 		panic("no return value specified for ReplaceCoverMedia")
 	}
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (string, error)); ok {
-		return rf(ctx, seriesID, newMediaID, coverURL)
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Media) (string, error)); ok {
+		return rf(ctx, seriesID, newMedia)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) string); ok {
-		r0 = rf(ctx, seriesID, newMediaID, coverURL)
+	if rf, ok := ret.Get(0).(func(context.Context, string, *entity.Media) string); ok {
+		r0 = rf(ctx, seriesID, newMedia)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
-		r1 = rf(ctx, seriesID, newMediaID, coverURL)
+	if rf, ok := ret.Get(1).(func(context.Context, string, *entity.Media) error); ok {
+		r1 = rf(ctx, seriesID, newMedia)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -602,12 +602,16 @@ func (_m *MockSeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID 
 
 type MockSeriesRepository_ReplaceCoverMedia_Call struct{ *mock.Call }
 
-func (_e *MockSeriesRepository_Expecter) ReplaceCoverMedia(ctx interface{}, seriesID interface{}, newMediaID interface{}, coverURL interface{}) *MockSeriesRepository_ReplaceCoverMedia_Call {
-	return &MockSeriesRepository_ReplaceCoverMedia_Call{Call: _e.mock.On("ReplaceCoverMedia", ctx, seriesID, newMediaID, coverURL)}
+// ReplaceCoverMedia is a helper method to define mock.On call
+//   - ctx context.Context
+//   - seriesID string
+//   - newMedia *entity.Media
+func (_e *MockSeriesRepository_Expecter) ReplaceCoverMedia(ctx interface{}, seriesID interface{}, newMedia interface{}) *MockSeriesRepository_ReplaceCoverMedia_Call {
+	return &MockSeriesRepository_ReplaceCoverMedia_Call{Call: _e.mock.On("ReplaceCoverMedia", ctx, seriesID, newMedia)}
 }
-func (_c *MockSeriesRepository_ReplaceCoverMedia_Call) Run(run func(context.Context, string, string, string)) *MockSeriesRepository_ReplaceCoverMedia_Call {
+func (_c *MockSeriesRepository_ReplaceCoverMedia_Call) Run(run func(context.Context, string, *entity.Media)) *MockSeriesRepository_ReplaceCoverMedia_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(*entity.Media))
 	})
 	return _c
 }
@@ -615,7 +619,7 @@ func (_c *MockSeriesRepository_ReplaceCoverMedia_Call) Return(_a0 string, _a1 er
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
-func (_c *MockSeriesRepository_ReplaceCoverMedia_Call) RunAndReturn(run func(context.Context, string, string, string) (string, error)) *MockSeriesRepository_ReplaceCoverMedia_Call {
+func (_c *MockSeriesRepository_ReplaceCoverMedia_Call) RunAndReturn(run func(context.Context, string, *entity.Media) (string, error)) *MockSeriesRepository_ReplaceCoverMedia_Call {
 	_c.Call.Return(run)
 	return _c
 }
