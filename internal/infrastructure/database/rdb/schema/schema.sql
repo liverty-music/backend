@@ -134,7 +134,6 @@ CREATE TABLE IF NOT EXISTS series (
     type series_type NOT NULL,
     source_url TEXT,
     description TEXT,
-    cover_image_url TEXT,
     organizer_id UUID REFERENCES organizers(id),
     visibility series_visibility,
     publish_state series_publish_state,
@@ -151,13 +150,12 @@ CREATE TABLE IF NOT EXISTS series (
     )
 );
 
-COMMENT ON TABLE series IS 'Parent aggregation above events. Owns metadata shared across every event in a tour, festival, or multi-day single-venue run.';
+COMMENT ON TABLE series IS 'Parent aggregation above events. Owns metadata shared across every event in a tour, festival, or multi-day single-venue run. Cover image URL is derived from the series_media join at read time.';
 COMMENT ON COLUMN series.id IS 'Unique series identifier (UUIDv7, application-generated). Series has no content-derived key: cross-run identity is established by adopting the series_id already carried by its member events (matched on the events physical natural key); a fresh UUIDv7 series is minted only when no member event yet exists.';
 COMMENT ON COLUMN series.title IS 'Series title shared across all member events (e.g. tour name, festival name)';
 COMMENT ON COLUMN series.type IS 'Classification of the series; drives presentation and notification grouping';
 COMMENT ON COLUMN series.source_url IS 'Optional series-level official URL (tour page, festival page); per-event URLs are not stored';
 COMMENT ON COLUMN series.description IS 'Free-form body text of a first-party series page, authored by an organizer. NULL for discovered series or organizer series without a write-up.';
-COMMENT ON COLUMN series.cover_image_url IS 'Served URL of the organizer-uploaded cover image (object storage). NULL when no image was uploaded.';
 COMMENT ON COLUMN series.organizer_id IS 'Owning organizer for a first-party series; NULL marks a discovery-pipeline series. Non-null makes the series organizer-authored.';
 COMMENT ON COLUMN series.visibility IS 'First-party visibility (PUBLIC / UNLISTED). NULL for discovered series.';
 COMMENT ON COLUMN series.publish_state IS 'First-party authoring lifecycle (DRAFT / PUBLISHED / CANCELLED). NULL for discovered series.';
@@ -249,26 +247,47 @@ COMMENT ON TABLE draft_series_performers IS 'Series-level performers of a first-
 COMMENT ON COLUMN draft_series_performers.series_id IS 'Parent first-party series being authored';
 COMMENT ON COLUMN draft_series_performers.artist_id IS 'A performing artist the organizer represents';
 
--- Series media (first-party authoring).
--- One row per stored media object. The row id is the object's version token: the
--- served object lives at `series/<series_id>/cover/<id>` (extension-less; the
--- content type is carried by the GCS object metadata), so replacing a cover
--- mints a new id, yields a new immutable URL, and lets caches serve forever. The
--- MVP stores a single cover per series (uq_series_media_series); a later
--- authoring extension relaxes that and adds purpose/sort_order for galleries.
--- series.cover_image_url denormalizes the current cover's served URL for reads.
-CREATE TABLE IF NOT EXISTS series_media (
-    id UUID PRIMARY KEY,
-    series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
-    CONSTRAINT chk_series_media_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+-- Media kind enum. IMAGE is the only value at MVP; extend later via
+-- ALTER TYPE media_kind ADD VALUE.
+CREATE TYPE media_kind AS ENUM ('IMAGE');
+
+COMMENT ON TYPE media_kind IS 'Kind of organizer media asset: IMAGE (cover photo etc.). Extend via ALTER TYPE ADD VALUE.';
+
+-- Organizer media objects. The row id is a UUIDv7 that serves as both the
+-- creation-time source and the cache-busting object-key token. The object key
+-- is `{exposure}/{organizer_id}/{media_id}` where exposure is "internal" or
+-- "cdn". No URL is stored; it is derived at read time.
+CREATE TABLE IF NOT EXISTS media (
+    id           UUID       PRIMARY KEY,
+    organizer_id UUID       NOT NULL REFERENCES organizers(id),
+    kind         media_kind NOT NULL,
+    attributes   JSONB      NOT NULL DEFAULT '{}',
+    CONSTRAINT chk_media_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE series_media IS 'First-party media objects for a series (one cover per series at MVP). The row id is the object version token and the object key basis (series/<series_id>/cover/<id>).';
-COMMENT ON COLUMN series_media.id IS 'Unique media identifier (UUIDv7). Also the cache-busting version token embedded in the object key; a new upload mints a new id.';
-COMMENT ON COLUMN series_media.series_id IS 'Parent series this media object belongs to.';
+COMMENT ON TABLE media IS 'Normalised media objects uploaded by an organizer. The row id is the UUIDv7 that forms the object-key basename (internal/{org}/{id} or cdn/{org}/{id}); content_type is stored in attributes.';
+COMMENT ON COLUMN media.id IS 'Unique media identifier (UUIDv7, application-generated). Doubles as the cache-busting version token in the object key; a new upload mints a new id.';
+COMMENT ON COLUMN media.organizer_id IS 'Owning organizer. Used as the stable tenant segment of the object key.';
+COMMENT ON COLUMN media.kind IS 'Media asset kind (IMAGE at MVP).';
+COMMENT ON COLUMN media.attributes IS 'Kind-specific metadata as JSONB. For IMAGE: {"content_type": "image/jpeg"}. May include width/height later.';
+
+-- Series media join table (first-party authoring).
+-- At MVP each series carries at most one cover image (uq_series_media_series).
+-- The display_order column is reserved for future gallery support.
+CREATE TABLE IF NOT EXISTS series_media (
+    series_id     UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    media_id      UUID NOT NULL REFERENCES media(id)  ON DELETE CASCADE,
+    display_order INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (series_id, media_id)
+);
+
+COMMENT ON TABLE series_media IS 'Join table between a series and its media objects. One cover per series at MVP (uq_series_media_series).';
+COMMENT ON COLUMN series_media.series_id IS 'Parent series this media object is attached to.';
+COMMENT ON COLUMN series_media.media_id IS 'Referenced media object.';
+COMMENT ON COLUMN series_media.display_order IS 'Sort position within the series gallery (reserved for future gallery support; 0 = cover).';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_series_media_series ON series_media(series_id);
-COMMENT ON INDEX uq_series_media_series IS 'At most one media object (the cover) per series at MVP; relaxed when galleries are introduced.';
+COMMENT ON INDEX uq_series_media_series IS 'At most one media object (the cover) per series at MVP; drop or relax when galleries are introduced.';
 
 -- User artist follows
 CREATE TABLE IF NOT EXISTS followed_artists (

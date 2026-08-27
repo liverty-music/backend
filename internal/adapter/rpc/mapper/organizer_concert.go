@@ -7,6 +7,16 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// coverImageURL derives the public CDN URL for a series cover image, delegating
+// to entity.CoverImageURL (the single source of truth for cover-URL
+// composition). Returns empty string when the series has no cover media.
+func coverImageURL(s *entity.Series) string {
+	if s.CoverMedia == nil {
+		return ""
+	}
+	return entity.CoverImageURL(s.CoverMedia.OrganizerID, s.CoverMedia.ID)
+}
+
 // AuthoredConcertToProto converts the three-part authored concert tuple
 // (series, events, artists) into the wire-format AuthoredConcert message.
 func AuthoredConcertToProto(s *entity.Series, events []*entity.Event, artists []*entity.Artist) *organizerv1.AuthoredConcert {
@@ -34,8 +44,8 @@ func AuthoredSeriesToProto(s *entity.Series) *entityv1.Series {
 	if s.Description != nil {
 		proto.Description = &entityv1.Description{Value: *s.Description}
 	}
-	if s.CoverImageURL != nil {
-		proto.CoverImage = &entityv1.Url{Value: *s.CoverImageURL}
+	if url := coverImageURL(s); url != "" {
+		proto.CoverImage = &entityv1.Url{Value: url}
 	}
 	if s.Visibility != nil {
 		proto.Visibility = visibilityToProto(*s.Visibility)

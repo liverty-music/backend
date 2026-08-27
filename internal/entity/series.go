@@ -2,8 +2,15 @@ package entity
 
 import (
 	"context"
+	"os"
+	"strings"
 	"time"
 )
+
+// mediaCDNBaseEnv is the environment variable name that holds the CDN base URL
+// used to compose served cover-image URLs. The constant lives here so both the
+// usecase and the RPC mapper read the same variable through CoverImageURL.
+const mediaCDNBaseEnv = "ORGANIZER_MEDIA_CDN_BASE"
 
 // SeriesType classifies the shape of an event series.
 //
@@ -60,6 +67,64 @@ const (
 	SeriesPublishStateCancelled SeriesPublishState = "CANCELLED"
 )
 
+// MediaKind identifies the type of an organizer media asset.
+type MediaKind string
+
+const (
+	// MediaKindImage is an uploaded image asset (cover photo, etc.).
+	MediaKindImage MediaKind = "IMAGE"
+)
+
+// ObjectKey constructs the GCS object key for the given organizer and media id.
+// All objects are written directly under the cdn/ prefix:
+// `cdn/{organizer_id}/{media_id}`. Draft protection relies on the obscurity of
+// the unguessable UUIDv7 key (MVP); a future hardening pass may introduce an
+// internal/ staging prefix via an additive change.
+func ObjectKey(organizerID, mediaID string) string {
+	return "cdn/" + organizerID + "/" + mediaID
+}
+
+// CoverImageURL composes the public CDN URL for a cover image asset. It reads
+// the CDN base from the ORGANIZER_MEDIA_CDN_BASE environment variable and
+// appends the object key produced by ObjectKey. Returns "" when the env var is
+// unset or empty so callers never emit a malformed relative "/cdn/..." URL.
+// This is the single source of truth for cover-URL composition; both the
+// authoring use-case (upload response) and the RPC mapper (read response) call
+// this function rather than duplicating the derivation.
+func CoverImageURL(organizerID, mediaID string) string {
+	base := strings.TrimRight(os.Getenv(mediaCDNBaseEnv), "/")
+	if base == "" {
+		return ""
+	}
+	return base + "/" + ObjectKey(organizerID, mediaID)
+}
+
+// Media represents a single media object uploaded by an organizer. The ID is
+// a UUIDv7 that serves as both the creation timestamp source and the
+// cache-busting object-key token. No URL is stored; the served URL is derived
+// at read time from the exposure and the media id.
+type Media struct {
+	// ID is the unique media identifier (UUIDv7, application-generated). It is
+	// the object-key basename and the cache-busting version token.
+	ID string
+	// OrganizerID is the owning organizer. Used as the stable tenant segment
+	// of the object key.
+	OrganizerID string
+	// Kind is the media asset kind (IMAGE at MVP).
+	Kind MediaKind
+	// Attributes holds kind-specific metadata (e.g. content_type for IMAGE).
+	Attributes map[string]string
+}
+
+// ContentType returns the content_type attribute for IMAGE media, or empty
+// string when the attribute is absent.
+func (m *Media) ContentType() string {
+	if m.Attributes == nil {
+		return ""
+	}
+	return m.Attributes["content_type"]
+}
+
 // Series is the parent aggregation above [Event]. It owns metadata that is
 // shared across every event in the same engagement, ensuring fields like
 // title and source URL are stored exactly once per series rather than
@@ -85,8 +150,10 @@ type Series struct {
 
 	// Description is the optional free-form body text authored by the organizer.
 	Description *string
-	// CoverImageURL is the served URL of the organizer-uploaded cover image.
-	CoverImageURL *string
+	// CoverMedia is the current cover image media object for the series. Nil
+	// when no image has been uploaded. The served URL is derived at read time
+	// from the exposure and the media id — it is NOT stored on the series row.
+	CoverMedia *Media
 	// OrganizerID is the owning organizer for a first-party series. Nil marks
 	// a discovery-pipeline series.
 	OrganizerID *string
@@ -249,16 +316,16 @@ type SeriesRepository interface {
 	//  - NotFound: If no series with the given ID exists.
 	MarkCancelled(ctx context.Context, seriesID string, cancelledAt time.Time) error
 
-	// ReplaceCoverMedia atomically replaces a series' cover: in one transaction it
-	// inserts the new series_media row (newMediaID), deletes any prior cover media
-	// row, and denormalizes coverURL onto series.cover_image_url. It returns the
-	// prior media id ("" when the series had no cover) so the caller can reclaim
-	// the replaced object from storage.
+	// ReplaceCoverMedia atomically replaces a series' cover in a single
+	// transaction: it inserts a new media row (with the given organizer, kind, and
+	// attributes), inserts the series_media join row, and deletes any prior
+	// series_media + media rows. It returns the prior media id ("" when the series
+	// had no cover) so the caller can reclaim the replaced object from storage.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If no series with the given ID exists.
-	ReplaceCoverMedia(ctx context.Context, seriesID, newMediaID, coverURL string) (oldMediaID string, err error)
+	ReplaceCoverMedia(ctx context.Context, seriesID string, newMedia *Media) (oldMediaID string, err error)
 
 	// PublishDraft materializes the draft content of a first-party DRAFT series
 	// into the live events table and returns the IDs of newly inserted events (the

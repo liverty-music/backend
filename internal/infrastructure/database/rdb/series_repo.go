@@ -3,7 +3,9 @@ package rdb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -34,24 +36,31 @@ const (
 		RETURNING id
 	`
 
-	// getSeriesQuery reads all columns including the first-party authoring fields.
-	// Nullable authoring fields are scanned into sql.Null* to guard against NULL.
+	// getSeriesQuery reads all series columns plus the cover media fields joined
+	// from the media + series_media tables. The cover media columns are nullable
+	// (LEFT JOIN) so scanSeries uses sql.Null* for them.
 	getSeriesQuery = `
-		SELECT id, title, type, source_url,
-		       description, cover_image_url, organizer_id,
-		       visibility, publish_state, unlisted_token,
-		       published_at, cancelled_at
-		FROM series
-		WHERE id = $1
+		SELECT s.id, s.title, s.type, s.source_url,
+		       s.description, s.organizer_id,
+		       s.visibility, s.publish_state, s.unlisted_token,
+		       s.published_at, s.cancelled_at,
+		       m.id, m.organizer_id, m.kind, m.attributes
+		FROM series s
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
+		WHERE s.id = $1
 	`
 
 	listSeriesByIDsQuery = `
-		SELECT id, title, type, source_url,
-		       description, cover_image_url, organizer_id,
-		       visibility, publish_state, unlisted_token,
-		       published_at, cancelled_at
-		FROM series
-		WHERE id = ANY($1)
+		SELECT s.id, s.title, s.type, s.source_url,
+		       s.description, s.organizer_id,
+		       s.visibility, s.publish_state, s.unlisted_token,
+		       s.published_at, s.cancelled_at,
+		       m.id, m.organizer_id, m.kind, m.attributes
+		FROM series s
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
+		WHERE s.id = ANY($1)
 	`
 
 	deleteOrphanedSeriesQuery = `
@@ -128,22 +137,28 @@ const (
 	`
 
 	listSeriesByOrganizerQuery = `
-		SELECT id, title, type, source_url,
-		       description, cover_image_url, organizer_id,
-		       visibility, publish_state, unlisted_token,
-		       published_at, cancelled_at
-		FROM series
-		WHERE organizer_id = $1
-		ORDER BY id DESC
+		SELECT s.id, s.title, s.type, s.source_url,
+		       s.description, s.organizer_id,
+		       s.visibility, s.publish_state, s.unlisted_token,
+		       s.published_at, s.cancelled_at,
+		       m.id, m.organizer_id, m.kind, m.attributes
+		FROM series s
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
+		WHERE s.organizer_id = $1
+		ORDER BY s.id DESC
 	`
 
 	getSeriesByUnlistedTokenQuery = `
-		SELECT id, title, type, source_url,
-		       description, cover_image_url, organizer_id,
-		       visibility, publish_state, unlisted_token,
-		       published_at, cancelled_at
-		FROM series
-		WHERE unlisted_token = $1
+		SELECT s.id, s.title, s.type, s.source_url,
+		       s.description, s.organizer_id,
+		       s.visibility, s.publish_state, s.unlisted_token,
+		       s.published_at, s.cancelled_at,
+		       m.id, m.organizer_id, m.kind, m.attributes
+		FROM series s
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
+		WHERE s.unlisted_token = $1
 	`
 
 	setUnlistedTokenQuery = `
@@ -166,46 +181,70 @@ const (
 		DELETE FROM staged_concerts WHERE series_id = $1
 	`
 
+	// selectCoverMediaIDQuery reads the current cover media id for a series via
+	// the series_media join. Returns pgx.ErrNoRows when no cover exists.
 	selectCoverMediaIDQuery = `
-		SELECT id FROM series_media WHERE series_id = $1
+		SELECT sm.media_id FROM series_media sm WHERE sm.series_id = $1
 	`
 
-	deleteCoverMediaBySeriesQuery = `
+	// deleteCoverMediaBySeriesQuery removes the series_media join row(s) and
+	// then the orphaned media row. Two statements are used in the transaction
+	// so the FK constraint on series_media.media_id is satisfied before the
+	// media row is deleted.
+	deleteCoverMediaRowQuery = `
+		DELETE FROM media WHERE id = $1
+	`
+
+	deleteSeriesMediaBySeriesQuery = `
 		DELETE FROM series_media WHERE series_id = $1
 	`
 
-	insertCoverMediaQuery = `
-		INSERT INTO series_media (id, series_id) VALUES ($1, $2)
+	insertMediaQuery = `
+		INSERT INTO media (id, organizer_id, kind, attributes)
+		VALUES ($1, $2, $3::media_kind, $4)
 	`
 
-	setCoverImageURLQuery = `
-		UPDATE series SET cover_image_url = $2 WHERE id = $1
+	insertSeriesMediaQuery = `
+		INSERT INTO series_media (series_id, media_id, display_order)
+		VALUES ($1, $2, 0)
 	`
 )
 
 // scanSeries scans a single series row (including the nullable first-party
-// authoring columns) into an entity.Series. The column order MUST match
-// getSeriesQuery, listSeriesByIDsQuery, listSeriesByOrganizerQuery, and
-// getSeriesByUnlistedTokenQuery.
+// authoring columns and LEFT-JOINed cover media columns) into an entity.Series.
+// The column order MUST match getSeriesQuery, listSeriesByIDsQuery,
+// listSeriesByOrganizerQuery, and getSeriesByUnlistedTokenQuery.
+// scanSeries scans one series row plus its (optional) single cover-media row
+// from the LEFT JOIN series_media/media used by the queries above. It assumes
+// AT MOST ONE media row per series, which the uq_series_media_series unique
+// index guarantees today. WARNING: if that unique index is ever relaxed for
+// galleries, these joins fan out to N rows per series and callers that scan
+// row-per-series (e.g. ListByIDs) will return duplicate entity.Series values —
+// add dedup (group rows by series id) in the caller before relaxing it.
 func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 	var (
 		s            entity.Series
 		seriesT      string
 		sourceURL    sql.NullString
 		description  sql.NullString
-		coverImage   sql.NullString
 		organizerID  sql.NullString
 		visibility   sql.NullString
 		publishState sql.NullString
 		unlistedTok  sql.NullString
 		publishedAt  sql.NullTime
 		cancelledAt  sql.NullTime
+		// Cover media columns (NULL when no cover exists).
+		mediaID          sql.NullString
+		mediaOrganizerID sql.NullString
+		mediaKind        sql.NullString
+		mediaAttrs       []byte // JSONB scanned as raw bytes; nil when no cover.
 	)
 	if err := scan(
 		&s.ID, &s.Title, &seriesT, &sourceURL,
-		&description, &coverImage, &organizerID,
+		&description, &organizerID,
 		&visibility, &publishState, &unlistedTok,
 		&publishedAt, &cancelledAt,
+		&mediaID, &mediaOrganizerID, &mediaKind, &mediaAttrs,
 	); err != nil {
 		return nil, err
 	}
@@ -218,10 +257,6 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 	if description.Valid {
 		v := description.String
 		s.Description = &v
-	}
-	if coverImage.Valid {
-		v := coverImage.String
-		s.CoverImageURL = &v
 	}
 	if organizerID.Valid {
 		v := organizerID.String
@@ -246,6 +281,20 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 	if cancelledAt.Valid {
 		v := cancelledAt.Time
 		s.CancelledAt = &v
+	}
+	// Populate CoverMedia when the LEFT JOIN produced a row.
+	if mediaID.Valid {
+		m := &entity.Media{
+			ID:          mediaID.String,
+			OrganizerID: mediaOrganizerID.String,
+			Kind:        entity.MediaKind(mediaKind.String),
+		}
+		if len(mediaAttrs) > 0 {
+			if err := json.Unmarshal(mediaAttrs, &m.Attributes); err != nil {
+				return nil, apperr.New(codes.Internal, fmt.Sprintf("unmarshal media attributes for series %s: %v", s.ID, err))
+			}
+		}
+		s.CoverMedia = m
 	}
 	return &s, nil
 }
@@ -714,37 +763,59 @@ func (r *SeriesRepository) MarkPublished(ctx context.Context, seriesID string, p
 	return nil
 }
 
-// ReplaceCoverMedia atomically swaps a series' cover media in one transaction:
-// it reads any prior cover media id, deletes the prior row, inserts the new
-// media row, and denormalizes coverURL onto series.cover_image_url. It returns
-// the prior media id ("" when the series had no cover) so the caller can reclaim
-// the replaced object from storage.
-func (r *SeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID, newMediaID, coverURL string) (string, error) {
+// ReplaceCoverMedia atomically swaps a series' cover in a single transaction:
+// it reads any prior cover media id, deletes the prior series_media join row
+// and its media row, inserts the new media row, and inserts the new
+// series_media join row. Returns the prior media id ("" when none) so the
+// caller can reclaim the replaced object from storage.
+func (r *SeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID string, newMedia *entity.Media) (string, error) {
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return "", toAppErr(err, "failed to begin cover media transaction")
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Read and hold the prior cover media id (may be absent).
 	var oldMediaID string
 	err = tx.QueryRow(ctx, selectCoverMediaIDQuery, seriesID).Scan(&oldMediaID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", toAppErr(err, "failed to read existing cover media", slog.String("series_id", seriesID))
 	}
 
-	if _, err := tx.Exec(ctx, deleteCoverMediaBySeriesQuery, seriesID); err != nil {
-		return "", toAppErr(err, "failed to delete prior cover media", slog.String("series_id", seriesID))
+	// Delete the prior series_media join row first (FK constraint satisfied
+	// before we delete the media row).
+	if _, err := tx.Exec(ctx, deleteSeriesMediaBySeriesQuery, seriesID); err != nil {
+		return "", toAppErr(err, "failed to delete prior series_media row", slog.String("series_id", seriesID))
 	}
-	if _, err := tx.Exec(ctx, insertCoverMediaQuery, newMediaID, seriesID); err != nil {
-		return "", toAppErr(err, "failed to insert cover media", slog.String("series_id", seriesID))
+	// Delete the prior media row if one existed.
+	if oldMediaID != "" {
+		if _, err := tx.Exec(ctx, deleteCoverMediaRowQuery, oldMediaID); err != nil {
+			return "", toAppErr(err, "failed to delete prior media row",
+				slog.String("series_id", seriesID),
+				slog.String("old_media_id", oldMediaID),
+			)
+		}
 	}
 
-	tag, err := tx.Exec(ctx, setCoverImageURLQuery, seriesID, coverURL)
+	// Marshal the attributes map to JSONB.
+	attrsJSON, err := json.Marshal(newMedia.Attributes)
 	if err != nil {
-		return "", toAppErr(err, "failed to set cover image URL", slog.String("series_id", seriesID))
+		return "", apperr.New(codes.Internal, fmt.Sprintf("marshal media attributes: %v", err))
 	}
-	if tag.RowsAffected() == 0 {
-		return "", apperr.New(codes.NotFound, "series not found")
+
+	// Insert the new media row then the join row.
+	if _, err := tx.Exec(ctx, insertMediaQuery,
+		newMedia.ID, newMedia.OrganizerID, string(newMedia.Kind), attrsJSON,
+	); err != nil {
+		return "", toAppErr(err, "failed to insert media row", slog.String("media_id", newMedia.ID))
+	}
+	if _, err := tx.Exec(ctx, insertSeriesMediaQuery, seriesID, newMedia.ID); err != nil {
+		// A foreign-key violation on series_id means the series does not exist;
+		// the series_media FK is the sole existence check (no extra round-trip).
+		if IsForeignKeyViolation(err) {
+			return "", apperr.New(codes.NotFound, "series not found")
+		}
+		return "", toAppErr(err, "failed to insert series_media row", slog.String("series_id", seriesID))
 	}
 
 	if err := tx.Commit(ctx); err != nil {

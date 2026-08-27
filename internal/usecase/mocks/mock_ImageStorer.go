@@ -22,29 +22,20 @@ func (_m *MockImageStorer) EXPECT() *MockImageStorer_Expecter {
 }
 
 // Put provides a mock function with given fields: ctx, bucket, key, contentType, data
-func (_m *MockImageStorer) Put(ctx context.Context, bucket string, key string, contentType string, data []byte) (string, error) {
+func (_m *MockImageStorer) Put(ctx context.Context, bucket string, key string, contentType string, data []byte) error {
 	ret := _m.Called(ctx, bucket, key, contentType, data)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Put")
 	}
 
-	var r0 string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []byte) (string, error)); ok {
-		return rf(ctx, bucket, key, contentType, data)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []byte) string); ok {
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []byte) error); ok {
 		r0 = rf(ctx, bucket, key, contentType, data)
 	} else {
-		r0 = ret.Get(0).(string)
+		r0 = ret.Error(0)
 	}
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []byte) error); ok {
-		r1 = rf(ctx, bucket, key, contentType, data)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
+	return r0
 }
 
 // MockImageStorer_Put_Call is a *mock.Call that shadows *mock.Call with type safe methods.
@@ -52,6 +43,12 @@ type MockImageStorer_Put_Call struct {
 	*mock.Call
 }
 
+// Put is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - contentType string
+//   - data []byte
 func (_e *MockImageStorer_Expecter) Put(ctx interface{}, bucket interface{}, key interface{}, contentType interface{}, data interface{}) *MockImageStorer_Put_Call {
 	return &MockImageStorer_Put_Call{Call: _e.mock.On("Put", ctx, bucket, key, contentType, data)}
 }
@@ -63,12 +60,12 @@ func (_c *MockImageStorer_Put_Call) Run(run func(ctx context.Context, bucket str
 	return _c
 }
 
-func (_c *MockImageStorer_Put_Call) Return(_a0 string, _a1 error) *MockImageStorer_Put_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockImageStorer_Put_Call) Return(_a0 error) *MockImageStorer_Put_Call {
+	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockImageStorer_Put_Call) RunAndReturn(run func(context.Context, string, string, string, []byte) (string, error)) *MockImageStorer_Put_Call {
+func (_c *MockImageStorer_Put_Call) RunAndReturn(run func(context.Context, string, string, string, []byte) error) *MockImageStorer_Put_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -95,6 +92,10 @@ type MockImageStorer_Delete_Call struct {
 	*mock.Call
 }
 
+// Delete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
 func (_e *MockImageStorer_Expecter) Delete(ctx interface{}, bucket interface{}, key interface{}) *MockImageStorer_Delete_Call {
 	return &MockImageStorer_Delete_Call{Call: _e.mock.On("Delete", ctx, bucket, key)}
 }
@@ -112,49 +113,6 @@ func (_c *MockImageStorer_Delete_Call) Return(_a0 error) *MockImageStorer_Delete
 }
 
 func (_c *MockImageStorer_Delete_Call) RunAndReturn(run func(context.Context, string, string) error) *MockImageStorer_Delete_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// DeletePrefix provides a mock function with given fields: ctx, bucket, prefix
-func (_m *MockImageStorer) DeletePrefix(ctx context.Context, bucket string, prefix string) error {
-	ret := _m.Called(ctx, bucket, prefix)
-
-	if len(ret) == 0 {
-		panic("no return value specified for DeletePrefix")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, bucket, prefix)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockImageStorer_DeletePrefix_Call is a *mock.Call that shadows *mock.Call with type safe methods.
-type MockImageStorer_DeletePrefix_Call struct {
-	*mock.Call
-}
-
-func (_e *MockImageStorer_Expecter) DeletePrefix(ctx interface{}, bucket interface{}, prefix interface{}) *MockImageStorer_DeletePrefix_Call {
-	return &MockImageStorer_DeletePrefix_Call{Call: _e.mock.On("DeletePrefix", ctx, bucket, prefix)}
-}
-
-func (_c *MockImageStorer_DeletePrefix_Call) Run(run func(ctx context.Context, bucket string, prefix string)) *MockImageStorer_DeletePrefix_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockImageStorer_DeletePrefix_Call) Return(_a0 error) *MockImageStorer_DeletePrefix_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockImageStorer_DeletePrefix_Call) RunAndReturn(run func(context.Context, string, string) error) *MockImageStorer_DeletePrefix_Call {
 	_c.Call.Return(run)
 	return _c
 }
