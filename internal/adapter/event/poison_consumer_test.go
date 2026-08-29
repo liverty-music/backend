@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -23,22 +24,29 @@ func TestPoisonConsumer_Handle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		msgUUID       string
-		topicMetadata string
-		wantInLog     []string
+		name      string
+		msgUUID   string
+		metadata  map[string]string
+		wantInLog []string
 	}{
 		{
-			name:          "emits ERROR log with uuid and topic",
-			msgUUID:       "dead-beef-1234",
-			topicMetadata: "USER.created",
-			wantInLog:     []string{"message routed to poison queue", "dead-beef-1234", "USER.created"},
+			name:    "emits ERROR log with uuid, topic, handler and reason",
+			msgUUID: "dead-beef-1234",
+			metadata: map[string]string{
+				middleware.PoisonedTopicKey:     "USER.created",
+				middleware.PoisonedHandlerKey:   "sync-artist-image",
+				middleware.ReasonForPoisonedKey: "resolve artist images: deadline exceeded",
+			},
+			wantInLog: []string{
+				"message routed to poison queue", "dead-beef-1234", "USER.created",
+				"sync-artist-image", "deadline exceeded",
+			},
 		},
 		{
-			name:          "uses unknown topic when metadata is absent",
-			msgUUID:       "no-topic-msg",
-			topicMetadata: "",
-			wantInLog:     []string{"message routed to poison queue", "no-topic-msg", "unknown"},
+			name:      "uses unknown topic when metadata is absent",
+			msgUUID:   "no-topic-msg",
+			metadata:  nil,
+			wantInLog: []string{"message routed to poison queue", "no-topic-msg", "unknown"},
 		},
 	}
 
@@ -50,8 +58,8 @@ func TestPoisonConsumer_Handle(t *testing.T) {
 			handler := event.NewPoisonConsumer(logger)
 
 			msg := message.NewMessage(tt.msgUUID, []byte("{}"))
-			if tt.topicMetadata != "" {
-				msg.Metadata.Set("topic", tt.topicMetadata)
+			for k, v := range tt.metadata {
+				msg.Metadata.Set(k, v)
 			}
 
 			err := handler.Handle(msg)
