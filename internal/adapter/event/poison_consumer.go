@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -24,7 +25,10 @@ func NewPoisonConsumer(logger *logging.Logger) *PoisonConsumer {
 func (h *PoisonConsumer) Handle(msg *message.Message) error {
 	ctx := msg.Context()
 
-	topic := msg.Metadata.Get("topic")
+	// Watermill's PoisonQueue middleware records the original subscribe topic,
+	// failing handler, and error reason under these metadata keys. Read them so
+	// the alert carries actionable diagnostics instead of empty placeholders.
+	topic := msg.Metadata.Get(middleware.PoisonedTopicKey)
 	if topic == "" {
 		topic = "unknown"
 	}
@@ -32,6 +36,8 @@ func (h *PoisonConsumer) Handle(msg *message.Message) error {
 	h.logger.Error(ctx, "message routed to poison queue", nil,
 		slog.String("uuid", msg.UUID),
 		slog.String("topic", topic),
+		slog.String("handler", msg.Metadata.Get(middleware.PoisonedHandlerKey)),
+		slog.String("reason", msg.Metadata.Get(middleware.ReasonForPoisonedKey)),
 	)
 
 	return nil
