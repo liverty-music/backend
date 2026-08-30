@@ -4,6 +4,7 @@ package mocks
 
 import (
 	context "context"
+	"time"
 
 	mock "github.com/stretchr/testify/mock"
 )
@@ -113,6 +114,103 @@ func (_c *MockImageStorer_Delete_Call) Return(_a0 error) *MockImageStorer_Delete
 }
 
 func (_c *MockImageStorer_Delete_Call) RunAndReturn(run func(context.Context, string, string) error) *MockImageStorer_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SignedPutURL provides a mock function with given fields: ctx, bucket, key, contentType, maxBytes, ttl
+func (_m *MockImageStorer) SignedPutURL(ctx context.Context, bucket string, key string, contentType string, maxBytes int64, ttl time.Duration) (string, error) {
+	ret := _m.Called(ctx, bucket, key, contentType, maxBytes, ttl)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SignedPutURL")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, int64, time.Duration) (string, error)); ok {
+		return rf(ctx, bucket, key, contentType, maxBytes, ttl)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, int64, time.Duration) string); ok {
+		r0 = rf(ctx, bucket, key, contentType, maxBytes, ttl)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, int64, time.Duration) error); ok {
+		r1 = rf(ctx, bucket, key, contentType, maxBytes, ttl)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockImageStorer_SignedPutURL_Call is a *mock.Call that shadows *mock.Call with type safe methods.
+type MockImageStorer_SignedPutURL_Call struct {
+	*mock.Call
+}
+
+// SignedPutURL is a helper method to define mock.On call
+func (_e *MockImageStorer_Expecter) SignedPutURL(ctx interface{}, bucket interface{}, key interface{}, contentType interface{}, maxBytes interface{}, ttl interface{}) *MockImageStorer_SignedPutURL_Call {
+	return &MockImageStorer_SignedPutURL_Call{Call: _e.mock.On("SignedPutURL", ctx, bucket, key, contentType, maxBytes, ttl)}
+}
+
+func (_c *MockImageStorer_SignedPutURL_Call) Run(run func(ctx context.Context, bucket string, key string, contentType string, maxBytes int64, ttl time.Duration)) *MockImageStorer_SignedPutURL_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(int64), args[5].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockImageStorer_SignedPutURL_Call) Return(_a0 string, _a1 error) *MockImageStorer_SignedPutURL_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockImageStorer_SignedPutURL_Call) RunAndReturn(run func(context.Context, string, string, string, int64, time.Duration) (string, error)) *MockImageStorer_SignedPutURL_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeletePrefix provides a mock function with given fields: ctx, bucket, prefix
+func (_m *MockImageStorer) DeletePrefix(ctx context.Context, bucket string, prefix string) error {
+	ret := _m.Called(ctx, bucket, prefix)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeletePrefix")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, bucket, prefix)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockImageStorer_DeletePrefix_Call is a *mock.Call that shadows *mock.Call with type safe methods.
+type MockImageStorer_DeletePrefix_Call struct {
+	*mock.Call
+}
+
+// DeletePrefix is a helper method to define mock.On call
+func (_e *MockImageStorer_Expecter) DeletePrefix(ctx interface{}, bucket interface{}, prefix interface{}) *MockImageStorer_DeletePrefix_Call {
+	return &MockImageStorer_DeletePrefix_Call{Call: _e.mock.On("DeletePrefix", ctx, bucket, prefix)}
+}
+
+func (_c *MockImageStorer_DeletePrefix_Call) Run(run func(ctx context.Context, bucket string, prefix string)) *MockImageStorer_DeletePrefix_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockImageStorer_DeletePrefix_Call) Return(_a0 error) *MockImageStorer_DeletePrefix_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockImageStorer_DeletePrefix_Call) RunAndReturn(run func(context.Context, string, string) error) *MockImageStorer_DeletePrefix_Call {
 	_c.Call.Return(run)
 	return _c
 }

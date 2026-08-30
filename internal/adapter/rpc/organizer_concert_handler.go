@@ -22,11 +22,12 @@ var _ organizerv1connect.ConcertServiceHandler = (*OrganizerConcertHandler)(nil)
 // OrganizerConcertHandler implements the organizer-facing ConcertService Connect
 // interface. Org-scoped authorization is enforced structurally by the
 // OrgScopedInterceptor before this handler runs; this handler only resolves the
-// caller's organizer, enforces ownership, and delegates to the authoring
-// use case. No business logic lives here.
+// caller's organizer, enforces ownership, and delegates to the authoring or
+// media use case. No business logic lives here.
 type OrganizerConcertHandler struct {
 	authoringUC usecase.ConcertAuthoringUseCase
 	organizerUC usecase.OrganizerUseCase
+	mediaUC     usecase.MediaUseCase
 	logger      *logging.Logger
 }
 
@@ -34,11 +35,13 @@ type OrganizerConcertHandler struct {
 func NewOrganizerConcertHandler(
 	authoringUC usecase.ConcertAuthoringUseCase,
 	organizerUC usecase.OrganizerUseCase,
+	mediaUC usecase.MediaUseCase,
 	logger *logging.Logger,
 ) *OrganizerConcertHandler {
 	return &OrganizerConcertHandler{
 		authoringUC: authoringUC,
 		organizerUC: organizerUC,
+		mediaUC:     mediaUC,
 		logger:      logger,
 	}
 }
@@ -198,29 +201,50 @@ func (h *OrganizerConcertHandler) Cancel(
 	return connect.NewResponse(&organizerv1.CancelResponse{}), nil
 }
 
-// UploadCoverImage stores a cover image for a series in object storage.
-func (h *OrganizerConcertHandler) UploadCoverImage(
+// CreateMediaUploadURL mints a signed GCS PUT URL for a direct-to-storage upload.
+func (h *OrganizerConcertHandler) CreateMediaUploadURL(
 	ctx context.Context,
-	req *connect.Request[organizerv1.UploadCoverImageRequest],
-) (*connect.Response[organizerv1.UploadCoverImageResponse], error) {
+	req *connect.Request[organizerv1.CreateMediaUploadURLRequest],
+) (*connect.Response[organizerv1.CreateMediaUploadURLResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	imageURL, err := h.authoringUC.UploadCoverImage(
-		ctx, organizer.ID,
-		req.Msg.GetSeriesId().GetValue(),
-		req.Msg.GetContentType(),
-		req.Msg.GetImageData(),
-	)
+	out, err := h.mediaUC.CreateMediaUploadURL(ctx, organizer.ID, usecase.CreateMediaUploadURLInput{
+		ContentType: req.Msg.GetContentType(),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.UploadCoverImageResponse{
-		CoverImage: &entityv1.Url{Value: imageURL},
+	return connect.NewResponse(&organizerv1.CreateMediaUploadURLResponse{
+		UploadUrl: &entityv1.Url{Value: out.UploadURL},
+		MediaId:   &entityv1.MediaId{Value: out.MediaID},
+		MaxBytes:  out.MaxBytes,
 	}), nil
+}
+
+// AttachMedia records an uploaded media object as belonging to a series and
+// publishes MEDIA.uploaded so the processor generates variants.
+func (h *OrganizerConcertHandler) AttachMedia(
+	ctx context.Context,
+	req *connect.Request[organizerv1.AttachMediaRequest],
+) (*connect.Response[organizerv1.AttachMediaResponse], error) {
+	organizer, err := h.resolveCallerOrganizer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := h.mediaUC.AttachMedia(
+		ctx, organizer.ID,
+		req.Msg.GetSeriesId().GetValue(),
+		req.Msg.GetMediaId().GetValue(),
+	); err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&organizerv1.AttachMediaResponse{}), nil
 }
 
 // RegenerateToken issues a fresh share token for an UNLISTED series.

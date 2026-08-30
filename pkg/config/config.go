@@ -110,6 +110,11 @@ type ServerConfig struct {
 
 	// LastFM API Key
 	LastFMAPIKey string `envconfig:"LASTFM_API_KEY"`
+
+	// OrganizerMediaInternalBucket is the GCS bucket that holds raw originals
+	// uploaded by organizers (write-only for the API, consumed by the
+	// media-processor job). Signed PUT URLs point here.
+	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
 }
 
 // JobConfig is the configuration for batch job workloads (e.g., concert-discovery CronJob).
@@ -577,9 +582,38 @@ type WebhookSettings struct {
 	LoginEventSigningKey string `envconfig:"WEBHOOK_LOGIN_EVENT_SIGNING_KEY"`
 }
 
+// MediaJobConfig is the configuration for the media-processor job workload.
+// It embeds BaseConfig and adds NATS and the two media bucket names.
+type MediaJobConfig struct {
+	BaseConfig
+
+	// GCP configuration (project id for IAM SignBlob, etc.)
+	GCP GCPConfig `envconfig:""`
+
+	// NATS configuration for event messaging
+	NATS NATSConfig `envconfig:""`
+
+	// OrganizerMediaInternalBucket is the GCS bucket that holds the raw originals
+	// uploaded by organizers. The processor reads originals from here and deletes
+	// them on success.
+	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
+
+	// OrganizerMediaBucket is the GCS bucket that serves CDN-cached WebP variants.
+	// The processor writes cdn/{org}/{mediaId}/{variant}.webp objects here.
+	OrganizerMediaBucket string `envconfig:"ORGANIZER_MEDIA_BUCKET"`
+}
+
+// Validate validates MediaJobConfig including base checks.
+func (c *MediaJobConfig) Validate() error {
+	if err := c.BaseConfig.Validate(); err != nil {
+		return err
+	}
+	return c.GCP.Validate()
+}
+
 // Loadable constrains the config types that can be loaded from environment variables.
 type Loadable interface {
-	ServerConfig | JobConfig | ConsumerConfig
+	ServerConfig | JobConfig | ConsumerConfig | MediaJobConfig
 }
 
 // Load loads configuration from environment variables into the specified workload config type.

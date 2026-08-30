@@ -196,14 +196,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
 		startOrganizerReconciler(ctx, organizerUC, logger)
 	}
-	// GCS image storer for organizer cover images (optional: nil when GCP credentials
-	// are unavailable in local dev so UploadCoverImage returns Internal instead of
-	// panicking during startup).
+	// GCS image storer for organizer media (optional: nil when GCP credentials
+	// are unavailable in local dev so signed-URL issuance returns Internal
+	// rather than panicking during startup).
 	var imageStorer usecase.ImageStorer
 	if !cfg.IsLocal() {
 		storer, err := gcsstorage.NewGCSStorer(ctx, logger)
 		if err != nil {
-			logger.Warn(ctx, "failed to create GCS image storer; cover image upload disabled",
+			logger.Warn(ctx, "failed to create GCS image storer; media upload disabled",
 				slog.Any("error", err),
 			)
 		} else {
@@ -211,7 +211,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			shutdown.AddExternalPhase(storer)
 		}
 	}
-	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerUC, eventPublisher, imageStorer, logger)
+	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerUC, eventPublisher, logger)
+	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, organizerUC, imageStorer, eventPublisher, logger)
 
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
@@ -406,7 +407,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerconnect.NewConcertServiceHandler(
-				rpc.NewOrganizerConcertHandler(concertAuthoringUC, organizerUC, logger),
+				rpc.NewOrganizerConcertHandler(concertAuthoringUC, organizerUC, mediaUC, logger),
 				opts...,
 			)
 		},

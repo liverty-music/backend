@@ -20,8 +20,9 @@ type SeriesRepository struct {
 	db *Database
 }
 
-// Compile-time interface compliance check.
+// Compile-time interface compliance checks.
 var _ entity.SeriesRepository = (*SeriesRepository)(nil)
+var _ entity.MediaRepository = (*SeriesRepository)(nil)
 
 // NewSeriesRepository creates a new series repository instance.
 func NewSeriesRepository(db *Database) *SeriesRepository {
@@ -208,6 +209,45 @@ const (
 		INSERT INTO series_media (series_id, media_id, display_order)
 		VALUES ($1, $2, 0)
 	`
+
+	// insertMediaIdempotentQuery inserts a media row, silently skipping
+	// conflicts on the primary key. Used by InsertMedia so AttachMedia is
+	// safe to call multiple times for the same upload.
+	insertMediaIdempotentQuery = `
+		INSERT INTO media (id, organizer_id, kind, attributes)
+		VALUES ($1, $2, $3::media_kind, $4)
+		ON CONFLICT (id) DO NOTHING
+	`
+
+	// findMediaByIDQuery retrieves a single media row by its primary key.
+	findMediaByIDQuery = `
+		SELECT id, organizer_id, kind, attributes
+		FROM media
+		WHERE id = $1
+	`
+
+	// cutOverSeriesMediaQuery upserts the series_media join row to point to the
+	// new media id and returns the old media_id (NULL when none existed). The
+	// upsert uses ON CONFLICT(series_id) DO UPDATE so that re-delivery of the
+	// same MEDIA.uploaded event is idempotent: the function is a no-op when
+	// series_media already points to new_media_id.
+	cutOverSeriesMediaQuery = `
+		WITH old AS (
+			SELECT media_id FROM series_media WHERE series_id = $1
+		),
+		upsert AS (
+			INSERT INTO series_media (series_id, media_id, display_order)
+			VALUES ($1, $2, 0)
+			ON CONFLICT (series_id) DO UPDATE
+				SET media_id = EXCLUDED.media_id
+			WHERE series_media.media_id IS DISTINCT FROM EXCLUDED.media_id
+		)
+		SELECT (SELECT media_id FROM old)
+	`
+
+	// deleteMediaByIDQuery removes a media row by id. Missing rows are silently
+	// skipped via the WHERE guard so DELETE is idempotent.
+	deleteMediaByIDQuery = `DELETE FROM media WHERE id = $1`
 )
 
 // scanSeries scans a single series row (including the nullable first-party
@@ -1012,4 +1052,112 @@ func (r *SeriesRepository) PublishDraft(ctx context.Context, seriesID string, no
 		return nil, toAppErr(err, "failed to commit publish transaction")
 	}
 	return insertedEventIDs, nil
+}
+
+// InsertMedia persists a media row idempotently. ON CONFLICT(id) DO NOTHING
+// means a second AttachMedia call for the same media_id is a safe no-op.
+func (r *SeriesRepository) InsertMedia(ctx context.Context, media *entity.Media) error {
+	attrsJSON, err := json.Marshal(media.Attributes)
+	if err != nil {
+		return apperr.New(codes.Internal, fmt.Sprintf("marshal media attributes: %v", err))
+	}
+	if _, err := r.db.Pool.Exec(ctx, insertMediaIdempotentQuery,
+		media.ID, media.OrganizerID, string(media.Kind), attrsJSON,
+	); err != nil {
+		return toAppErr(err, "failed to insert media row", slog.String("media_id", media.ID))
+	}
+	return nil
+}
+
+// FindMediaByID retrieves a single media row by id. Returns NotFound when no
+// row exists.
+func (r *SeriesRepository) FindMediaByID(ctx context.Context, mediaID string) (*entity.Media, error) {
+	var (
+		m        entity.Media
+		kindStr  string
+		attrsRaw []byte
+	)
+	err := r.db.Pool.QueryRow(ctx, findMediaByIDQuery, mediaID).Scan(
+		&m.ID, &m.OrganizerID, &kindStr, &attrsRaw,
+	)
+	if err != nil {
+		return nil, toAppErr(err, "failed to find media by id", slog.String("media_id", mediaID))
+	}
+	m.Kind = entity.MediaKind(kindStr)
+	if len(attrsRaw) > 0 {
+		if err := json.Unmarshal(attrsRaw, &m.Attributes); err != nil {
+			return nil, apperr.New(codes.Internal, fmt.Sprintf("unmarshal media attributes: %v", err))
+		}
+	}
+	return &m, nil
+}
+
+// CutOverSeriesMedia atomically re-points a series' cover to newMediaID and
+// returns the prior media id (empty string when the series had no cover or
+// when series_media already points to newMediaID — idempotent on re-delivery).
+// The old media row is deleted inside the same transaction so the DB stays
+// consistent even when the caller crashes before reclaiming GCS objects.
+func (r *SeriesRepository) CutOverSeriesMedia(ctx context.Context, seriesID, newMediaID string) (string, error) {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return "", toAppErr(err, "failed to begin cut-over transaction")
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Read the current series_media row while holding the transaction lock.
+	var oldMediaID sql.NullString
+	if err := tx.QueryRow(ctx, selectCoverMediaIDQuery, seriesID).Scan(&oldMediaID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", toAppErr(err, "failed to read current cover media", slog.String("series_id", seriesID))
+	}
+
+	// Idempotency: already pointing to the new id — nothing to do.
+	if oldMediaID.Valid && oldMediaID.String == newMediaID {
+		if err := tx.Commit(ctx); err != nil {
+			return "", toAppErr(err, "failed to commit no-op cut-over transaction")
+		}
+		return "", nil
+	}
+
+	// Upsert series_media to point to the new media id.
+	if _, err := tx.Exec(ctx, deleteSeriesMediaBySeriesQuery, seriesID); err != nil {
+		return "", toAppErr(err, "failed to delete old series_media row", slog.String("series_id", seriesID))
+	}
+	if _, err := tx.Exec(ctx, insertSeriesMediaQuery, seriesID, newMediaID); err != nil {
+		if IsForeignKeyViolation(err) {
+			return "", apperr.New(codes.NotFound, "series not found")
+		}
+		return "", toAppErr(err, "failed to insert new series_media row",
+			slog.String("series_id", seriesID),
+			slog.String("new_media_id", newMediaID),
+		)
+	}
+
+	// Delete the old media row so the DB does not accumulate orphaned rows.
+	if oldMediaID.Valid && oldMediaID.String != "" {
+		if _, err := tx.Exec(ctx, deleteCoverMediaRowQuery, oldMediaID.String); err != nil {
+			return "", toAppErr(err, "failed to delete old media row",
+				slog.String("series_id", seriesID),
+				slog.String("old_media_id", oldMediaID.String),
+			)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", toAppErr(err, "failed to commit cut-over transaction")
+	}
+
+	old := ""
+	if oldMediaID.Valid {
+		old = oldMediaID.String
+	}
+	return old, nil
+}
+
+// DeleteMedia removes a media row by id. Missing rows are silently skipped so
+// the operation is idempotent.
+func (r *SeriesRepository) DeleteMedia(ctx context.Context, mediaID string) error {
+	if _, err := r.db.Pool.Exec(ctx, deleteMediaByIDQuery, mediaID); err != nil {
+		return toAppErr(err, "failed to delete media row", slog.String("media_id", mediaID))
+	}
+	return nil
 }

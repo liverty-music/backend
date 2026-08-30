@@ -277,58 +277,6 @@ func (_c *MockConcertAuthoringUseCase_Cancel_Call) RunAndReturn(run func(context
 	return _c
 }
 
-// UploadCoverImage provides a mock function with given fields: ctx, callerOrgID, seriesID, contentType, imageData
-func (_m *MockConcertAuthoringUseCase) UploadCoverImage(ctx context.Context, callerOrgID string, seriesID string, contentType string, imageData []byte) (string, error) {
-	ret := _m.Called(ctx, callerOrgID, seriesID, contentType, imageData)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UploadCoverImage")
-	}
-
-	var r0 string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []byte) (string, error)); ok {
-		return rf(ctx, callerOrgID, seriesID, contentType, imageData)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []byte) string); ok {
-		r0 = rf(ctx, callerOrgID, seriesID, contentType, imageData)
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, []byte) error); ok {
-		r1 = rf(ctx, callerOrgID, seriesID, contentType, imageData)
-	} else {
-		r1 = ret.Error(1)
-	}
-	return r0, r1
-}
-
-// MockConcertAuthoringUseCase_UploadCoverImage_Call is a *mock.Call that shadows *mock.Call with type safe methods.
-type MockConcertAuthoringUseCase_UploadCoverImage_Call struct {
-	*mock.Call
-}
-
-func (_e *MockConcertAuthoringUseCase_Expecter) UploadCoverImage(ctx interface{}, callerOrgID interface{}, seriesID interface{}, contentType interface{}, imageData interface{}) *MockConcertAuthoringUseCase_UploadCoverImage_Call {
-	return &MockConcertAuthoringUseCase_UploadCoverImage_Call{Call: _e.mock.On("UploadCoverImage", ctx, callerOrgID, seriesID, contentType, imageData)}
-}
-
-func (_c *MockConcertAuthoringUseCase_UploadCoverImage_Call) Run(run func(ctx context.Context, callerOrgID string, seriesID string, contentType string, imageData []byte)) *MockConcertAuthoringUseCase_UploadCoverImage_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]byte))
-	})
-	return _c
-}
-
-func (_c *MockConcertAuthoringUseCase_UploadCoverImage_Call) Return(_a0 string, _a1 error) *MockConcertAuthoringUseCase_UploadCoverImage_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockConcertAuthoringUseCase_UploadCoverImage_Call) RunAndReturn(run func(context.Context, string, string, string, []byte) (string, error)) *MockConcertAuthoringUseCase_UploadCoverImage_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // RegenerateToken provides a mock function with given fields: ctx, callerOrgID, seriesID
 func (_m *MockConcertAuthoringUseCase) RegenerateToken(ctx context.Context, callerOrgID string, seriesID string) (string, error) {
 	ret := _m.Called(ctx, callerOrgID, seriesID)
