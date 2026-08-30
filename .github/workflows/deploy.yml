@@ -5,10 +5,11 @@ name: Deploy Backend
 #                         main runs this workflow (no paths: trigger gate).
 #                         A per-run "build vs inherit" decision over the
 #                         pushed range (event.before..sha) picks one of:
-#                           * build:   6× docker/build-push-action across the
+#                           * build:   7× docker/build-push-action across the
 #                                      strategy matrix (server, consumer,
 #                                      concert-discovery, artist-image-sync,
-#                                      sales-phase-discovery, sales-reminders),
+#                                      sales-phase-discovery, sales-reminders,
+#                                      media-processor),
 #                                      pushing :latest, :main, :<sha>.
 #                           * inherit: no rebuild — crane-copy the parent push
 #                                      tip's dev digest onto :<sha> (and
@@ -102,6 +103,12 @@ jobs:
             target: sales-phase-discovery
           - name: sales-reminders
             target: sales-reminders
+          # media-processor: the KEDA ScaledJob worker. Its Dockerfile target
+          # links libvips (CGO, `-tags vips`) and runs on Alpine, unlike the
+          # CGO-off distroless targets, but the build/push/retag path is
+          # identical — one more image in the shared `backend` AR repo.
+          - name: media-processor
+            target: media-processor
     env:
       REGION: ${{ vars.REGION }}
       PROJECT_ID: ${{ vars.PROJECT_ID }}
