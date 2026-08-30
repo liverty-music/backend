@@ -137,6 +137,20 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
+		// Carries MEDIA.uploaded (organizer media upload events), consumed by
+		// the media-processor job to generate WebP variants and cut over
+		// series_media. A plain MEDIA.* filter matches all two-token subjects
+		// — same convention as the ORGANIZER and SALES_PHASE streams.
+		Name:       "MEDIA",
+		Subjects:   []string{"MEDIA.*"},
+		Retention:  nats.LimitsPolicy,
+		MaxAge:     7 * 24 * time.Hour,
+		Storage:    nats.FileStorage,
+		Discard:    nats.DiscardOld,
+		Replicas:   1,
+		Duplicates: 2 * time.Minute,
+	},
+	{
 		Name:       "POISON",
 		Subjects:   []string{"POISON.*"},
 		Retention:  nats.LimitsPolicy,

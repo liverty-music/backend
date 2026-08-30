@@ -77,6 +77,13 @@ const (
 	// on organizer_id; no fan distinct_id). Published as an ORGANIZER.* subject so
 	// the JetStream ORGANIZER stream captures it alongside the other organizer events.
 	SubjectOrganizerConcertPublished = "ORGANIZER.concert_published"
+	// SubjectMediaUploaded is published by the AttachMedia handler once the media
+	// row is persisted. The media-processor consumer subscribes to this subject to
+	// read the original from the originals bucket, generate WebP variants, and
+	// cut over series_media to the new media id. Two tokens (uploaded, not
+	// media.uploaded) so the MEDIA.* stream filter captures it with a plain
+	// single-token wildcard — same convention as SubjectSalesPhaseReminderDue.
+	SubjectMediaUploaded = "MEDIA.uploaded"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -105,6 +112,7 @@ var AllSubjects = []string{
 	SubjectOrganizerCreated,
 	SubjectOrganizerArtistAssociated,
 	SubjectOrganizerConcertPublished,
+	SubjectMediaUploaded,
 }
 
 // ConcertCreatedData is the payload for CONCERT.created events.
@@ -381,4 +389,21 @@ type TicketJourneyStatusChangedData struct {
 	FromStatus string `json:"from_status"`
 	// ToStatus is the TicketJourneyStatus name after the successful upsert.
 	ToStatus string `json:"to_status"`
+}
+
+// MediaUploadedData is the payload for MEDIA.uploaded events.
+// Published by the AttachMedia handler once the media row is persisted in the
+// database. The media-processor consumer uses MediaID and SeriesID to locate
+// the original file in the originals bucket, generate WebP variants (thumb and
+// large), and cut over series_media to the new media id.
+type MediaUploadedData struct {
+	// MediaID is the unique identifier of the uploaded media object. The
+	// processor uses it to compose the originals-bucket key
+	// ({org}/{mediaID}) and the served-bucket variant keys
+	// (cdn/{org}/{mediaID}/{variant}.webp).
+	MediaID string `json:"media_id"`
+	// SeriesID is the target series. The processor resolves the organizer id
+	// from the media row (stored on insert by AttachMedia) so it can compose
+	// all bucket paths without an extra DB lookup.
+	SeriesID string `json:"series_id"`
 }

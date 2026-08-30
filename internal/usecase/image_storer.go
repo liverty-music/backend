@@ -1,6 +1,9 @@
 package usecase
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // ImageStorer stores binary media objects in an object-storage bucket.
 // It abstracts the GCS dependency so the authoring use case is not tied to a
@@ -28,4 +31,26 @@ type ImageStorer interface {
 	//
 	//  - Internal: if the delete fails for a reason other than "not found".
 	Delete(ctx context.Context, bucket, key string) error
+
+	// SignedPutURL returns a V4-signed GCS PUT URL for the given bucket and key.
+	// The URL is valid for ttl, enforces contentType via a Content-Type condition,
+	// and restricts the upload size to [0, maxBytes] via an
+	// x-goog-content-length-range condition. Signing is keyless: the
+	// implementation uses IAM SignBlob via the Workload Identity Service Account,
+	// so no private key file is needed in GKE.
+	//
+	// # Possible errors
+	//
+	//  - Internal: if IAM SignBlob or the URL construction fails.
+	SignedPutURL(ctx context.Context, bucket, key, contentType string, maxBytes int64, ttl time.Duration) (string, error)
+
+	// DeletePrefix removes every object whose key begins with the given prefix
+	// from the specified bucket. A missing object (or an empty prefix) is silently
+	// skipped so the operation is idempotent. Used to reclaim all variant files
+	// (thumb, large) of a replaced media id in a single sweep.
+	//
+	// # Possible errors
+	//
+	//  - Internal: if listing or deletion fails.
+	DeletePrefix(ctx context.Context, bucket, prefix string) error
 }

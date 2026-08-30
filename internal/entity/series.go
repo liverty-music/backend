@@ -75,13 +75,49 @@ const (
 	MediaKindImage MediaKind = "IMAGE"
 )
 
-// ObjectKey constructs the GCS object key for the given organizer and media id.
-// All objects are written directly under the cdn/ prefix:
-// `cdn/{organizer_id}/{media_id}`. Draft protection relies on the obscurity of
-// the unguessable UUIDv7 key (MVP); a future hardening pass may introduce an
-// internal/ staging prefix via an additive change.
+// OriginalObjectKey constructs the GCS object key in the originals (internal)
+// bucket for the given organizer and media id. The key is
+// `{organizer_id}/{media_id}` — no cdn/ prefix because the originals bucket is
+// not CDN-served.
+func OriginalObjectKey(organizerID, mediaID string) string {
+	return organizerID + "/" + mediaID
+}
+
+// VariantObjectKey constructs the GCS object key in the served (public) bucket
+// for a specific variant of the given organizer media. The key is
+// `cdn/{organizer_id}/{media_id}/{variant}.webp`.
+func VariantObjectKey(organizerID, mediaID, variant string) string {
+	return "cdn/" + organizerID + "/" + mediaID + "/" + variant + ".webp"
+}
+
+// VariantObjectPrefix returns the key prefix covering all variants of a single
+// media object in the served bucket: `cdn/{organizer_id}/{media_id}/`.
+// Pass this to ImageStorer.DeletePrefix to remove all variants in one sweep.
+func VariantObjectPrefix(organizerID, mediaID string) string {
+	return "cdn/" + organizerID + "/" + mediaID + "/"
+}
+
+// ObjectKey is kept for backwards compatibility with callers that have not yet
+// migrated to VariantObjectKey. It constructs the legacy cdn/ key used by the
+// pre-pipeline upload path.
+//
+// Deprecated: use VariantObjectKey or VariantObjectPrefix for new code.
 func ObjectKey(organizerID, mediaID string) string {
 	return "cdn/" + organizerID + "/" + mediaID
+}
+
+// VariantURL composes the public CDN URL for one variant of a cover image. It
+// reads the CDN base from the ORGANIZER_MEDIA_CDN_BASE environment variable and
+// appends the variant object key produced by VariantObjectKey. Returns "" when
+// the env var is unset or empty so callers never emit a malformed relative URL.
+//
+// variant must be one of "thumb" or "large".
+func VariantURL(organizerID, mediaID, variant string) string {
+	base := strings.TrimRight(os.Getenv(mediaCDNBaseEnv), "/")
+	if base == "" {
+		return ""
+	}
+	return base + "/" + VariantObjectKey(organizerID, mediaID, variant)
 }
 
 // CoverImageURL composes the public CDN URL for a cover image asset. It reads
@@ -91,6 +127,8 @@ func ObjectKey(organizerID, mediaID string) string {
 // This is the single source of truth for cover-URL composition; both the
 // authoring use-case (upload response) and the RPC mapper (read response) call
 // this function rather than duplicating the derivation.
+//
+// Deprecated: use VariantURL for new code that builds variant-aware URLs.
 func CoverImageURL(organizerID, mediaID string) string {
 	base := strings.TrimRight(os.Getenv(mediaCDNBaseEnv), "/")
 	if base == "" {
@@ -201,6 +239,51 @@ func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 		Type:      seriesType,
 		SourceURL: sourceURL,
 	}
+}
+
+// MediaRepository defines the data access interface for [Media] objects and the
+// series_media cut-over that the media-processor consumer performs after writing
+// variants to GCS.
+type MediaRepository interface {
+	// InsertMedia persists a media row idempotently (ON CONFLICT(id) DO NOTHING).
+	// Used by AttachMedia to record the upload before publishing MEDIA.uploaded.
+	//
+	// # Possible errors
+	//
+	//  - Internal: if the insert fails.
+	InsertMedia(ctx context.Context, media *Media) error
+
+	// FindMediaByID retrieves a single media row by id.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: if no media row exists with the given id.
+	FindMediaByID(ctx context.Context, mediaID string) (*Media, error)
+
+	// CutOverSeriesMedia atomically re-points a series' cover to newMediaID and
+	// returns the prior media id (empty string when the series had no cover).
+	// The cut-over is performed in a single transaction:
+	//  1. upsert series_media(series_id) → newMediaID;
+	//  2. capture the old media_id (if any);
+	//  3. delete the old media row.
+	// After a successful return the old GCS objects can be reclaimed via
+	// ImageStorer.DeletePrefix. On redelivery the operation is idempotent:
+	// if series_media already points to newMediaID the function returns ("", nil).
+	//
+	// # Possible errors
+	//
+	//  - NotFound: if the series does not exist.
+	//  - Internal: if the transaction fails.
+	CutOverSeriesMedia(ctx context.Context, seriesID, newMediaID string) (oldMediaID string, err error)
+
+	// DeleteMedia removes a media row by id. Used after GCS originals are
+	// deleted to keep the DB consistent. Missing rows are silently skipped
+	// (idempotent).
+	//
+	// # Possible errors
+	//
+	//  - Internal: if the delete fails for a reason other than "not found".
+	DeleteMedia(ctx context.Context, mediaID string) error
 }
 
 // SeriesRepository defines the data access interface for [Series].

@@ -7,14 +7,29 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// coverImageURL derives the public CDN URL for a series cover image, delegating
-// to entity.CoverImageURL (the single source of truth for cover-URL
-// composition). Returns empty string when the series has no cover media.
-func coverImageURL(s *entity.Series) string {
+// seriesMediaProto builds the entityv1.Media message for a series cover image.
+// Thumb and large variant URLs are composed server-side as
+// {ORGANIZER_MEDIA_CDN_BASE}/cdn/{org}/{mediaId}/{variant}.webp.
+// Returns nil when the series has no cover media or when the CDN base env var
+// is unset, so callers never emit a proto with empty URL fields.
+func seriesMediaProto(s *entity.Series) *entityv1.Media {
 	if s.CoverMedia == nil {
-		return ""
+		return nil
 	}
-	return entity.CoverImageURL(s.CoverMedia.OrganizerID, s.CoverMedia.ID)
+	thumbURL := entity.VariantURL(s.CoverMedia.OrganizerID, s.CoverMedia.ID, "thumb")
+	largeURL := entity.VariantURL(s.CoverMedia.OrganizerID, s.CoverMedia.ID, "large")
+	if thumbURL == "" || largeURL == "" {
+		// CDN base not configured — omit rather than emit broken URLs.
+		return nil
+	}
+	return &entityv1.Media{
+		Id:   &entityv1.MediaId{Value: s.CoverMedia.ID},
+		Kind: entityv1.MediaKind_MEDIA_KIND_IMAGE,
+		Attributes: &entityv1.MediaAttributes{
+			Thumb: &entityv1.Url{Value: thumbURL},
+			Large: &entityv1.Url{Value: largeURL},
+		},
+	}
 }
 
 // AuthoredConcertToProto converts the three-part authored concert tuple
@@ -44,8 +59,8 @@ func AuthoredSeriesToProto(s *entity.Series) *entityv1.Series {
 	if s.Description != nil {
 		proto.Description = &entityv1.Description{Value: *s.Description}
 	}
-	if url := coverImageURL(s); url != "" {
-		proto.CoverImage = &entityv1.Url{Value: url}
+	if m := seriesMediaProto(s); m != nil {
+		proto.Media = m
 	}
 	if s.Visibility != nil {
 		proto.Visibility = visibilityToProto(*s.Visibility)
