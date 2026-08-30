@@ -125,9 +125,13 @@ func (h *MediaConsumer) Handle(msg *message.Message) error {
 	if err != nil {
 		if errors.Is(err, ErrUnsupportedMedia) {
 			// Permanent failure: delete the original and term so the message is
-			// not re-delivered.
-			h.logger.Error(ctx, "unsupported or unsafe image; terminating", err,
+			// not re-delivered. This is USER error (a bad/unsafe upload), not a
+			// system incident, so it logs WARN — the Media Processor ERROR-log
+			// alert is reserved for genuine system failures (GCS/DB/vips-internal,
+			// which return a non-ErrUnsupportedMedia error and nak below).
+			h.logger.Warn(ctx, "unsupported or unsafe image; terminating",
 				slog.String("media_id", data.MediaID),
+				slog.Any("error", err),
 			)
 			h.cleanupOriginal(ctx, internalBucket, origKey, data.MediaID)
 			msg.Ack()
