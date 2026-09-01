@@ -76,23 +76,23 @@ FROM gcr.io/distroless/static:nonroot AS consumer
 COPY --from=build-consumer /out /consumer
 ENTRYPOINT ["/consumer"]
 
-# --- Media Processor Job target (libvips / CGO) ---
-# Unlike every other target, the media-processor links libvips (a C library),
+# --- Media Consumer target (libvips / CGO) ---
+# Unlike every other target, the media-consumer links libvips (a C library),
 # so it builds with CGO enabled and the `vips` build tag, and it runs on a base
 # that ships the libvips shared objects — distroless/static (no libc/libvips)
 # cannot run it. The build- and run-time Alpine releases MUST provide the same
 # libvips major so the soname matches; keep both pinned to the same Alpine as
 # the golang builder image.
-FROM builder AS build-media-processor
+FROM builder AS build-media-consumer
 RUN apk add --no-cache vips-dev gcc musl-dev pkgconfig
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     -tags vips \
     -ldflags='-w -s' \
-    -o /out ./cmd/job/media-processor
+    -o /out ./cmd/consumer/media-consumer
 
-FROM alpine:3.21 AS media-processor
+FROM alpine:3.21 AS media-consumer
 RUN apk add --no-cache vips ca-certificates \
     && addgroup -S nonroot && adduser -S -G nonroot nonroot
 USER nonroot:nonroot
-COPY --from=build-media-processor /out /media-processor
-ENTRYPOINT ["/media-processor"]
+COPY --from=build-media-consumer /out /media-consumer
+ENTRYPOINT ["/media-consumer"]

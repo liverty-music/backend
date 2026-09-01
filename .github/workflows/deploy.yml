@@ -9,7 +9,7 @@ name: Deploy Backend
 #                                      strategy matrix (server, consumer,
 #                                      concert-discovery, artist-image-sync,
 #                                      sales-phase-discovery, sales-reminders,
-#                                      media-processor),
+#                                      media-consumer),
 #                                      pushing :latest, :main, :<sha>.
 #                           * inherit: no rebuild — crane-copy the parent push
 #                                      tip's dev digest onto :<sha> (and
@@ -103,12 +103,12 @@ jobs:
             target: sales-phase-discovery
           - name: sales-reminders
             target: sales-reminders
-          # media-processor: the KEDA ScaledJob worker. Its Dockerfile target
-          # links libvips (CGO, `-tags vips`) and runs on Alpine, unlike the
+          # media-consumer: the KEDA scale-to-zero JetStream worker. Its Dockerfile
+          # target links libvips (CGO, `-tags vips`) and runs on Alpine, unlike the
           # CGO-off distroless targets, but the build/push/retag path is
           # identical — one more image in the shared `backend` AR repo.
-          - name: media-processor
-            target: media-processor
+          - name: media-consumer
+            target: media-consumer
     env:
       REGION: ${{ vars.REGION }}
       PROJECT_ID: ${{ vars.PROJECT_ID }}

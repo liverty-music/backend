@@ -2,13 +2,11 @@ package messaging
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
-	"github.com/liverty-music/backend/pkg/config"
 	"github.com/nats-io/nats.go"
 )
 
@@ -30,9 +28,10 @@ var connectBackoff = []time.Duration{
 	15 * time.Second,
 }
 
-// streams defines the JetStream streams that must exist before
-// publishers and subscribers can operate. Each stream captures
-// all subjects matching <STREAM>.* for its domain aggregate.
+// streams is the registry of JetStream streams and their subject filters.
+// NACK (the external operator) owns stream lifecycle — the application only
+// reads this registry to validate subject coverage and to look up which stream
+// a given subject belongs to (used by the pull subscriber to bind a durable).
 var streams = []nats.StreamConfig{
 	{
 		Name:       "CONCERT",
@@ -138,7 +137,7 @@ var streams = []nats.StreamConfig{
 	},
 	{
 		// Carries MEDIA.uploaded (organizer media upload events), consumed by
-		// the media-processor job to generate WebP variants and cut over
+		// the media-consumer to generate WebP variants and cut over
 		// series_media. A plain MEDIA.* filter matches all two-token subjects
 		// — same convention as the ORGANIZER and SALES_PHASE streams.
 		Name:       "MEDIA",
@@ -184,6 +183,22 @@ func SubjectCoveredByStream(subject string) bool {
 	return false
 }
 
+// StreamForSubject returns the name of the JetStream stream whose subject
+// filters cover the given concrete subject, and true. If no stream covers the
+// subject it returns ("", false). The pull subscriber uses this to resolve the
+// stream name needed by js.Consumer(ctx, stream, durable) when binding a
+// pre-existing durable.
+func StreamForSubject(subject string) (string, bool) {
+	for _, s := range streams {
+		for _, filter := range s.Subjects {
+			if subjectMatches(filter, subject) {
+				return s.Name, true
+			}
+		}
+	}
+	return "", false
+}
+
 // subjectMatches implements NATS subject-filter matching for a single filter
 // against a concrete subject.
 func subjectMatches(filter, subject string) bool {
@@ -206,47 +221,6 @@ func subjectMatches(filter, subject string) bool {
 
 	// No '>' wildcard consumed the tail, so token counts must match exactly.
 	return len(filterTokens) == len(subjectTokens)
-}
-
-// EnsureStreams connects to NATS and creates or updates the required
-// JetStream streams. The connection attempt is retried with exponential
-// backoff when NATS is temporarily unreachable (e.g. during node
-// provisioning). It is a no-op when NATS_URL is empty (local dev).
-func EnsureStreams(ctx context.Context, cfg config.NATSConfig) error {
-	if cfg.URL == "" {
-		return nil
-	}
-
-	nc, err := connectWithRetry(ctx, cfg.URL)
-	if err != nil {
-		return fmt.Errorf("connect to NATS for stream setup: %w", err)
-	}
-	defer nc.Close()
-
-	js, err := nc.JetStream()
-	if err != nil {
-		return fmt.Errorf("get JetStream context: %w", err)
-	}
-
-	for _, s := range streams {
-		_, err := js.StreamInfo(s.Name)
-		if err != nil && !errors.Is(err, nats.ErrStreamNotFound) {
-			return fmt.Errorf("check stream %s: %w", s.Name, err)
-		}
-		if errors.Is(err, nats.ErrStreamNotFound) {
-			// Stream does not exist, create it.
-			if _, err := js.AddStream(&s); err != nil {
-				return fmt.Errorf("create stream %s: %w", s.Name, err)
-			}
-			continue
-		}
-		// Stream exists, update it to match desired config.
-		if _, err := js.UpdateStream(&s); err != nil {
-			return fmt.Errorf("update stream %s: %w", s.Name, err)
-		}
-	}
-
-	return nil
 }
 
 // connectWithRetry attempts to connect to NATS with exponential backoff.

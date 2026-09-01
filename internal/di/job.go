@@ -99,10 +99,6 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	if !cfg.IsLocal() && cfg.NATS.URL == "" {
 		return nil, fmt.Errorf("NATS_URL is required for the discovery job in non-local environments")
 	}
-	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
-		return nil, fmt.Errorf("ensure NATS streams: %w", err)
-	}
-
 	wmLogger := watermill.NewSlogLogger(logger.Slog())
 	var goChannel *gochannel.GoChannel
 	if cfg.NATS.URL == "" {

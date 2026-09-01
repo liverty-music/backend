@@ -140,10 +140,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	shutdown.Init(logger)
 
 	// Infrastructure - Messaging Publisher
-	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
-		return nil, fmt.Errorf("ensure NATS streams: %w", err)
-	}
-
 	wmLogger := watermill.NewSlogLogger(logger.Slog())
 	var goChannel *gochannel.GoChannel
 	if cfg.NATS.URL == "" {

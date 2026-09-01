@@ -89,10 +89,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	userRepo := rdb.NewUserRepository(db)
 
 	// Infrastructure - Messaging
-	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
-		return nil, fmt.Errorf("ensure NATS streams: %w", err)
-	}
-
 	wmLogger := watermill.NewSlogLogger(logger.Slog())
 	var goChannel *gochannel.GoChannel
 	if cfg.NATS.URL == "" {
@@ -266,20 +262,10 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	} else {
 		// Production NATS path.
 		//
-		// Step 1: delete stale durables before the router subscribes so we do
-		// not leave old consumer_* prefixed, shared-group, or orphaned
-		// durables that would misbind new per-behavior subscriptions.
-		desiredBehaviors := make([]string, 0, len(behaviorTable))
-		for _, e := range behaviorTable {
-			desiredBehaviors = append(desiredBehaviors, e.behavior)
-		}
-		if err := messaging.ReconcileConsumers(ctx, cfg.NATS, desiredBehaviors, logger.Slog()); err != nil {
-			return nil, fmt.Errorf("reconcile NATS consumers: %w", err)
-		}
-
-		// Step 2: open the long-lived shared *nats.Conn. One TCP connection
-		// serves all ~20 durables; per-handler isolation comes from distinct
-		// durable names and deliver groups, not separate connections.
+		// Open the long-lived shared *nats.Conn. One TCP connection serves all
+		// durables; per-handler isolation comes from distinct durable names, not
+		// separate connections. NACK (the external operator) owns durable
+		// lifecycle — the app only binds to pre-existing durables.
 		sharedConn, err := messaging.ConnectNATS(ctx, cfg.NATS, consumerHealth)
 		if err != nil {
 			return nil, fmt.Errorf("connect shared NATS connection: %w", err)
@@ -288,9 +274,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		// stopped consuming) so in-flight acks flush before the process exits.
 		shutdown.AddExternalPhase(messaging.NATSConnCloser(sharedConn))
 
-		// Step 3: create one per-behavior watermill subscriber for each entry
-		// and register it with the router. Each subscriber binds to the
-		// behavior-named durable, so the router sees 20 independent cursors.
+		// Create one per-behavior pull subscriber for each entry and register
+		// it with the router. Each subscriber binds (bind-only, no create) to
+		// the behavior-named durable, so the router sees independent cursors.
 		for _, e := range behaviorTable {
 			sub, err := messaging.NewBehaviorSubscriber(sharedConn, e.behavior, wmLogger, consumerHealth)
 			if err != nil {

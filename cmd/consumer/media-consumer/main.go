@@ -1,14 +1,15 @@
-// Package main provides the media-processor consumer entry point.
+// Package main provides the media-consumer entry point.
 //
-// The media-processor subscribes to MEDIA.uploaded events, generates WebP
-// variants (thumb + large) from the original uploaded by the organizer, writes
-// them to the served CDN bucket, and cuts over series_media to the new media id
-// in a single transaction so the old cover keeps serving until the new variants
+// The media-consumer subscribes to MEDIA.uploaded events via a pull-based
+// JetStream durable (created externally by NACK), generates WebP variants
+// (thumb + large) from the original uploaded by the organizer, writes them to
+// the served CDN bucket, and cuts over series_media to the new media id in a
+// single transaction so the old cover keeps serving until the new variants
 // exist (no-404 window).
 //
 // Production binary must be built with libvips present:
 //
-//	CGO_ENABLED=1 go build -tags vips ./cmd/job/media-processor
+//	CGO_ENABLED=1 go build -tags vips ./cmd/consumer/media-consumer
 //
 // Without the vips tag the StubMediaProcessor is used, which terms every
 // message immediately so the container crashloops — a deliberate signal that
@@ -33,7 +34,7 @@ const fallbackShutdownTimeout = 10 * time.Second
 func main() {
 	if err := run(); err != nil {
 		logger, _ := logging.New()
-		logger.Error(context.Background(), "media-processor failed", err)
+		logger.Error(context.Background(), "media-consumer failed", err)
 	}
 }
 
@@ -42,9 +43,9 @@ func run() error {
 	defer stop()
 
 	bootLogger, _ := logging.New()
-	bootLogger.Info(ctx, "starting media-processor")
+	bootLogger.Info(ctx, "starting media-consumer")
 
-	var app *di.MediaJobApp
+	var app *di.MediaConsumerApp
 	defer func() {
 		timeout := fallbackShutdownTimeout
 		if app != nil {
@@ -58,12 +59,12 @@ func run() error {
 	}()
 
 	var err error
-	app, err = di.InitializeMediaJobApp(ctx)
+	app, err = di.InitializeMediaConsumerApp(ctx)
 	if err != nil {
 		return err
 	}
 
-	app.Logger.Info(ctx, "media-processor ready; waiting for events")
+	app.Logger.Info(ctx, "media-consumer ready; waiting for events")
 
 	if err := app.Router.Run(ctx); err != nil {
 		return err
