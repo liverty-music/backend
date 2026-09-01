@@ -66,6 +66,33 @@ func (s *GCSStorer) Put(ctx context.Context, bucket, key, contentType string, da
 	return nil
 }
 
+// ReadObject downloads the object at key from bucket and returns its raw bytes.
+// The media consumer reads the uploaded original from the private originals
+// bucket with this before transcoding. Satisfies the optional objectReader
+// interface the consumer type-asserts on the ImageStorer (the base write/delete
+// ImageStorer does not expose reads).
+func (s *GCSStorer) ReadObject(ctx context.Context, bucket, key string) ([]byte, error) {
+	rc, err := s.client.Bucket(bucket).Object(key).NewReader(ctx)
+	if err != nil {
+		return nil, apperr.New(codes.Internal, fmt.Sprintf("open gcs reader %s/%s: %v", bucket, key, err))
+	}
+	defer func() { _ = rc.Close() }()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, apperr.New(codes.Internal, fmt.Sprintf("read gcs object %s/%s: %v", bucket, key, err))
+	}
+	return data, nil
+}
+
+// Compile-time guard: the media consumer type-asserts this optional read
+// capability on the injected ImageStorer at runtime (readOriginal). Keep the
+// signature in lock-step so a real GCSStorer always satisfies it — the base
+// ImageStorer exposes only write/delete, so this cannot be caught there.
+var _ interface {
+	ReadObject(ctx context.Context, bucket, key string) ([]byte, error)
+} = (*GCSStorer)(nil)
+
 // Delete removes a single object by key. A missing object is treated as success
 // so replace/cleanup paths are idempotent.
 func (s *GCSStorer) Delete(ctx context.Context, bucket, key string) error {
