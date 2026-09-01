@@ -20,19 +20,19 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// MediaJobApp is the event-consumer application for the media-processor job.
+// MediaConsumerApp is the event-consumer application for the media-consumer.
 // It subscribes to MEDIA.uploaded, generates WebP variants via libvips, and
 // performs the cut-over of series_media in a single transaction.
-type MediaJobApp struct {
+type MediaConsumerApp struct {
 	Router          *message.Router
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
 	Health          *messaging.ConsumerHealth
 }
 
-// InitializeMediaJobApp creates a MediaJobApp with all dependencies wired.
-func InitializeMediaJobApp(ctx context.Context) (*MediaJobApp, error) {
-	cfg, err := config.Load[config.MediaJobConfig]()
+// InitializeMediaConsumerApp creates a MediaConsumerApp with all dependencies wired.
+func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) {
+	cfg, err := config.Load[config.MediaConsumerConfig]()
 	if err != nil {
 		return nil, err
 	}
@@ -61,10 +61,6 @@ func InitializeMediaJobApp(ctx context.Context) (*MediaJobApp, error) {
 	seriesRepo := rdb.NewSeriesRepository(db)
 
 	// Infrastructure - Messaging
-	if err := messaging.EnsureStreams(ctx, cfg.NATS); err != nil {
-		return nil, fmt.Errorf("ensure NATS streams: %w", err)
-	}
-
 	wmLogger := watermill.NewSlogLogger(logger.Slog())
 	var goChannel *gochannel.GoChannel
 	if cfg.NATS.URL == "" {
@@ -121,14 +117,8 @@ func InitializeMediaJobApp(ctx context.Context) (*MediaJobApp, error) {
 			router.AddConsumerHandler(e.behavior, e.subject, goChannel, e.handler)
 		}
 	} else {
-		desiredBehaviors := make([]string, 0, len(behaviorTable))
-		for _, e := range behaviorTable {
-			desiredBehaviors = append(desiredBehaviors, e.behavior)
-		}
-		if err := messaging.ReconcileConsumers(ctx, cfg.NATS, desiredBehaviors, logger.Slog()); err != nil {
-			return nil, fmt.Errorf("reconcile NATS consumers: %w", err)
-		}
-
+		// Open the long-lived shared *nats.Conn. NACK (the external operator)
+		// owns durable lifecycle — the app only binds to pre-existing durables.
 		sharedConn, err := messaging.ConnectNATS(ctx, cfg.NATS, consumerHealth)
 		if err != nil {
 			return nil, fmt.Errorf("connect NATS: %w", err)
@@ -151,7 +141,7 @@ func InitializeMediaJobApp(ctx context.Context) (*MediaJobApp, error) {
 
 	startGoroutineLeakDetection(ctx, cfg.GoroutineLeak, cfg.Telemetry.ServiceName, logger)
 
-	return &MediaJobApp{
+	return &MediaConsumerApp{
 		Router:          router,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,

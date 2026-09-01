@@ -113,7 +113,7 @@ type ServerConfig struct {
 
 	// OrganizerMediaInternalBucket is the GCS bucket that holds raw originals
 	// uploaded by organizers (write-only for the API, consumed by the
-	// media-processor job). Signed PUT URLs point here.
+	// media-consumer). Signed PUT URLs point here.
 	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
 }
 
@@ -582,9 +582,9 @@ type WebhookSettings struct {
 	LoginEventSigningKey string `envconfig:"WEBHOOK_LOGIN_EVENT_SIGNING_KEY"`
 }
 
-// MediaJobConfig is the configuration for the media-processor job workload.
+// MediaConsumerConfig is the configuration for the media-consumer workload.
 // It embeds BaseConfig and adds NATS and the two media bucket names.
-type MediaJobConfig struct {
+type MediaConsumerConfig struct {
 	BaseConfig
 
 	// GCP configuration (project id for IAM SignBlob, etc.)
@@ -603,8 +603,8 @@ type MediaJobConfig struct {
 	OrganizerMediaBucket string `envconfig:"ORGANIZER_MEDIA_BUCKET"`
 }
 
-// Validate validates MediaJobConfig including base checks.
-func (c *MediaJobConfig) Validate() error {
+// Validate validates MediaConsumerConfig including base checks.
+func (c *MediaConsumerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
 	}
@@ -613,7 +613,7 @@ func (c *MediaJobConfig) Validate() error {
 
 // Loadable constrains the config types that can be loaded from environment variables.
 type Loadable interface {
-	ServerConfig | JobConfig | ConsumerConfig | MediaJobConfig
+	ServerConfig | JobConfig | ConsumerConfig | MediaConsumerConfig
 }
 
 // Load loads configuration from environment variables into the specified workload config type.
