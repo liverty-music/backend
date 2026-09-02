@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	identityv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity/v1/identityv1connect"
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	identityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/identity/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -56,14 +57,16 @@ func NewIdentityVerificationHandler(
 	}
 }
 
-// StartVerify issues a Pocket Sign challenge for the authenticated caller.
+// StartVerify creates a Pocket Sign Stamp session for the authenticated caller.
+// Returns the session id and the redirect URL the client must open in the
+// PocketSign app so the fan can read their card.
 //
 // Errors:
 //   - UNAUTHENTICATED: no valid JWT in the request context.
 //   - PERMISSION_DENIED: user_id does not match the JWT-derived caller.
 //   - INVALID_ARGUMENT: method is UNSPECIFIED or user_id is empty.
 //   - NOT_FOUND: the user account does not exist.
-//   - UNAVAILABLE: Pocket Sign Verify API is not configured.
+//   - UNAVAILABLE: Pocket Sign Stamp API is not configured.
 func (h *IdentityVerificationHandler) StartVerify(
 	ctx context.Context,
 	req *connect.Request[identityv1.StartVerifyRequest],
@@ -83,27 +86,29 @@ func (h *IdentityVerificationHandler) StartVerify(
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("method must be specified"))
 	}
 
-	challenge, err := h.identityUC.StartVerify(ctx, callerUserID, method)
+	sessionID, redirectURL, err := h.identityUC.StartVerify(ctx, callerUserID, method)
 	if err != nil {
 		return nil, err
 	}
 
 	return connect.NewResponse(&identityv1.StartVerifyResponse{
-		SessionId: challenge.SessionID,
-		Challenge: challenge.Challenge,
+		SessionId:   sessionID,
+		RedirectUrl: &entityv1.Url{Value: redirectURL},
 	}), nil
 }
 
-// CompleteVerify validates the SDK-signed response and creates a VerifiedIdentity.
+// CompleteVerify finalizes the Stamp session and creates a VerifiedIdentity.
+// The card signature is performed in the PocketSign app; no signed payload is
+// sent on this request.
 //
 // Errors:
 //   - UNAUTHENTICATED: no valid JWT.
-//   - PERMISSION_DENIED: user_id mismatch.
-//   - INVALID_ARGUMENT: session_id is unknown/expired or signature is invalid.
+//   - PERMISSION_DENIED: user_id mismatch, or nonce mismatch (tamper/replay).
+//   - FAILED_PRECONDITION: session not yet completed by the fan, or cert invalid.
 //   - NOT_FOUND: user does not exist.
 //   - ALREADY_EXISTS: the Pocket Sign User.id is already bound to a different
 //     account (duplicate-person); includes a recovery-path message.
-//   - UNAVAILABLE: Pocket Sign Verify API is not configured.
+//   - UNAVAILABLE: Pocket Sign Stamp API is not configured.
 func (h *IdentityVerificationHandler) CompleteVerify(
 	ctx context.Context,
 	req *connect.Request[identityv1.CompleteVerifyRequest],
@@ -118,7 +123,7 @@ func (h *IdentityVerificationHandler) CompleteVerify(
 		return nil, err
 	}
 
-	vi, err := h.identityUC.CompleteVerify(ctx, callerUserID, req.Msg.GetSessionId(), req.Msg.GetSignedResponse())
+	vi, err := h.identityUC.CompleteVerify(ctx, callerUserID, req.Msg.GetSessionId())
 	if err != nil {
 		return nil, err
 	}

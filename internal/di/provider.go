@@ -217,14 +217,16 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerUC, eventPublisher, logger)
 
-	// Identity eKYC — select the real Pocket Sign Verify API client when
-	// POCKET_SIGN_BASE_URL and POCKET_SIGN_TOKEN are both configured; fall back
-	// to StubVerifier (returns UNAVAILABLE) when unconfigured so local dev and
-	// pre-onboarding environments stay safe and inert.
+	// Identity eKYC — select the real Pocket Sign Stamp client when all four
+	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are
+	// configured; fall back to StubVerifier (returns UNAVAILABLE) when
+	// unconfigured so local dev and pre-onboarding environments stay safe and inert.
 	var pocketSignVerifier usecase.PocketSignVerifier
-	psConfig := infrapocketsign.VerifyClientConfig{
-		BaseURL: cfg.PocketSign.BaseURL,
-		Token:   cfg.PocketSign.Token,
+	psConfig := infrapocketsign.StampClientConfig{
+		BaseURL:     cfg.PocketSign.BaseURL,
+		Token:       cfg.PocketSign.Token,
+		TenantID:    cfg.PocketSign.TenantID,
+		CallbackURL: cfg.PocketSign.CallbackURL,
 	}
 	if psConfig.IsConfigured() {
 		// Bound every vendor call so a hung Pocket Sign API cannot block a
@@ -234,11 +236,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			Timeout:   30 * time.Second,
 			Transport: otelhttp.NewTransport(http.DefaultTransport),
 		}
-		verifyClient := infrapocketsign.NewVerifyClient(psConfig, psHTTPClient, logger)
-		pocketSignVerifier = verifyClient
+		stampClient := infrapocketsign.NewStampClient(psConfig, psHTTPClient, logger)
+		pocketSignVerifier = stampClient
 		// Register the client's nonce-cache cleanup goroutine for graceful
 		// shutdown, like the other MemoryCache instances (cf. artistCache).
-		shutdown.AddDrainPhase(verifyClient)
+		shutdown.AddDrainPhase(stampClient)
 		logger.Info(ctx, "pocket sign verify client initialized",
 			slog.String("base_url", cfg.PocketSign.BaseURL),
 		)

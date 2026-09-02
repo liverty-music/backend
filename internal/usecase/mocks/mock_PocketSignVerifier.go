@@ -23,88 +23,94 @@ func (_m *MockPocketSignVerifier) EXPECT() *MockPocketSignVerifier_Expecter {
 	return &MockPocketSignVerifier_Expecter{mock: &_m.Mock}
 }
 
-// IssueChallenge provides a mock function with given fields: ctx, method
-func (_m *MockPocketSignVerifier) IssueChallenge(ctx context.Context, method entity.VerificationMethod) (*usecase.PocketSignChallenge, error) {
-	ret := _m.Called(ctx, method)
+// StartVerify provides a mock function with given fields: ctx, userID, method
+func (_m *MockPocketSignVerifier) StartVerify(ctx context.Context, userID string, method entity.VerificationMethod) (string, string, error) {
+	ret := _m.Called(ctx, userID, method)
 
 	if len(ret) == 0 {
-		panic("no return value specified for IssueChallenge")
+		panic("no return value specified for StartVerify")
 	}
 
-	var r0 *usecase.PocketSignChallenge
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.VerificationMethod) (*usecase.PocketSignChallenge, error)); ok {
-		return rf(ctx, method)
+	var r0 string
+	var r1 string
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.VerificationMethod) (string, string, error)); ok {
+		return rf(ctx, userID, method)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.VerificationMethod) *usecase.PocketSignChallenge); ok {
-		r0 = rf(ctx, method)
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.VerificationMethod) string); ok {
+		r0 = rf(ctx, userID, method)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*usecase.PocketSignChallenge)
-		}
+		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, entity.VerificationMethod) error); ok {
-		r1 = rf(ctx, method)
+	if rf, ok := ret.Get(1).(func(context.Context, string, entity.VerificationMethod) string); ok {
+		r1 = rf(ctx, userID, method)
 	} else {
-		r1 = ret.Error(1)
+		r1 = ret.Get(1).(string)
 	}
 
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(context.Context, string, entity.VerificationMethod) error); ok {
+		r2 = rf(ctx, userID, method)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
-// MockPocketSignVerifier_IssueChallenge_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueChallenge'
-type MockPocketSignVerifier_IssueChallenge_Call struct {
+// MockPocketSignVerifier_StartVerify_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartVerify'
+type MockPocketSignVerifier_StartVerify_Call struct {
 	*mock.Call
 }
 
-// IssueChallenge is a helper method to define mock.On call
+// StartVerify is a helper method to define mock.On call
 //   - ctx context.Context
+//   - userID string
 //   - method entity.VerificationMethod
-func (_e *MockPocketSignVerifier_Expecter) IssueChallenge(ctx interface{}, method interface{}) *MockPocketSignVerifier_IssueChallenge_Call {
-	return &MockPocketSignVerifier_IssueChallenge_Call{Call: _e.mock.On("IssueChallenge", ctx, method)}
+func (_e *MockPocketSignVerifier_Expecter) StartVerify(ctx interface{}, userID interface{}, method interface{}) *MockPocketSignVerifier_StartVerify_Call {
+	return &MockPocketSignVerifier_StartVerify_Call{Call: _e.mock.On("StartVerify", ctx, userID, method)}
 }
 
-func (_c *MockPocketSignVerifier_IssueChallenge_Call) Run(run func(ctx context.Context, method entity.VerificationMethod)) *MockPocketSignVerifier_IssueChallenge_Call {
+func (_c *MockPocketSignVerifier_StartVerify_Call) Run(run func(ctx context.Context, userID string, method entity.VerificationMethod)) *MockPocketSignVerifier_StartVerify_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.VerificationMethod))
+		run(args[0].(context.Context), args[1].(string), args[2].(entity.VerificationMethod))
 	})
 	return _c
 }
 
-func (_c *MockPocketSignVerifier_IssueChallenge_Call) Return(_a0 *usecase.PocketSignChallenge, _a1 error) *MockPocketSignVerifier_IssueChallenge_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockPocketSignVerifier_StartVerify_Call) Return(sessionID string, redirectURL string, err error) *MockPocketSignVerifier_StartVerify_Call {
+	_c.Call.Return(sessionID, redirectURL, err)
 	return _c
 }
 
-func (_c *MockPocketSignVerifier_IssueChallenge_Call) RunAndReturn(run func(context.Context, entity.VerificationMethod) (*usecase.PocketSignChallenge, error)) *MockPocketSignVerifier_IssueChallenge_Call {
+func (_c *MockPocketSignVerifier_StartVerify_Call) RunAndReturn(run func(context.Context, string, entity.VerificationMethod) (string, string, error)) *MockPocketSignVerifier_StartVerify_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ValidateResponse provides a mock function with given fields: ctx, sessionID, signedResponse
-func (_m *MockPocketSignVerifier) ValidateResponse(ctx context.Context, sessionID string, signedResponse []byte) (*usecase.PocketSignResult, error) {
-	ret := _m.Called(ctx, sessionID, signedResponse)
+// CompleteVerify provides a mock function with given fields: ctx, userID, sessionID
+func (_m *MockPocketSignVerifier) CompleteVerify(ctx context.Context, userID string, sessionID string) (*usecase.PocketSignResult, error) {
+	ret := _m.Called(ctx, userID, sessionID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ValidateResponse")
+		panic("no return value specified for CompleteVerify")
 	}
 
 	var r0 *usecase.PocketSignResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, []byte) (*usecase.PocketSignResult, error)); ok {
-		return rf(ctx, sessionID, signedResponse)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*usecase.PocketSignResult, error)); ok {
+		return rf(ctx, userID, sessionID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, []byte) *usecase.PocketSignResult); ok {
-		r0 = rf(ctx, sessionID, signedResponse)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *usecase.PocketSignResult); ok {
+		r0 = rf(ctx, userID, sessionID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*usecase.PocketSignResult)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, []byte) error); ok {
-		r1 = rf(ctx, sessionID, signedResponse)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, userID, sessionID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -112,32 +118,32 @@ func (_m *MockPocketSignVerifier) ValidateResponse(ctx context.Context, sessionI
 	return r0, r1
 }
 
-// MockPocketSignVerifier_ValidateResponse_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ValidateResponse'
-type MockPocketSignVerifier_ValidateResponse_Call struct {
+// MockPocketSignVerifier_CompleteVerify_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompleteVerify'
+type MockPocketSignVerifier_CompleteVerify_Call struct {
 	*mock.Call
 }
 
-// ValidateResponse is a helper method to define mock.On call
+// CompleteVerify is a helper method to define mock.On call
 //   - ctx context.Context
+//   - userID string
 //   - sessionID string
-//   - signedResponse []byte
-func (_e *MockPocketSignVerifier_Expecter) ValidateResponse(ctx interface{}, sessionID interface{}, signedResponse interface{}) *MockPocketSignVerifier_ValidateResponse_Call {
-	return &MockPocketSignVerifier_ValidateResponse_Call{Call: _e.mock.On("ValidateResponse", ctx, sessionID, signedResponse)}
+func (_e *MockPocketSignVerifier_Expecter) CompleteVerify(ctx interface{}, userID interface{}, sessionID interface{}) *MockPocketSignVerifier_CompleteVerify_Call {
+	return &MockPocketSignVerifier_CompleteVerify_Call{Call: _e.mock.On("CompleteVerify", ctx, userID, sessionID)}
 }
 
-func (_c *MockPocketSignVerifier_ValidateResponse_Call) Run(run func(ctx context.Context, sessionID string, signedResponse []byte)) *MockPocketSignVerifier_ValidateResponse_Call {
+func (_c *MockPocketSignVerifier_CompleteVerify_Call) Run(run func(ctx context.Context, userID string, sessionID string)) *MockPocketSignVerifier_CompleteVerify_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].([]byte))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockPocketSignVerifier_ValidateResponse_Call) Return(_a0 *usecase.PocketSignResult, _a1 error) *MockPocketSignVerifier_ValidateResponse_Call {
+func (_c *MockPocketSignVerifier_CompleteVerify_Call) Return(_a0 *usecase.PocketSignResult, _a1 error) *MockPocketSignVerifier_CompleteVerify_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockPocketSignVerifier_ValidateResponse_Call) RunAndReturn(run func(context.Context, string, []byte) (*usecase.PocketSignResult, error)) *MockPocketSignVerifier_ValidateResponse_Call {
+func (_c *MockPocketSignVerifier_CompleteVerify_Call) RunAndReturn(run func(context.Context, string, string) (*usecase.PocketSignResult, error)) *MockPocketSignVerifier_CompleteVerify_Call {
 	_c.Call.Return(run)
 	return _c
 }

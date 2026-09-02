@@ -1,27 +1,46 @@
-// Package pocketsign provides the Pocket Sign Verify API integration for the
+// Package pocketsign provides the Pocket Sign Stamp API integration for the
 // identity eKYC flow.
 //
 // The package contains two implementations of usecase.PocketSignVerifier:
 //
-//   - [VerifyClient]: the real HTTP client that calls the Pocket Sign Verify API
-//     (selected when POCKET_SIGN_BASE_URL and POCKET_SIGN_TOKEN are configured).
+//   - [StampClient]: the real HTTP client that calls the Pocket Sign Stamp API
+//     (selected when POCKET_SIGN_BASE_URL, POCKET_SIGN_TOKEN, POCKET_SIGN_TENANT_ID,
+//     and POCKET_SIGN_CALLBACK_URL are all configured).
 //   - [StubVerifier]: a no-op placeholder that returns UNAVAILABLE on every call
 //     (selected when the configuration is absent — the default for local dev).
 //
-// # Pocket Sign flow model (デジタル認証アプリ variant)
+// # Pocket Sign Stamp flow model
 //
-// The backend uses the "デジタル認証アプリ" signing flow:
+// Our client is a PWA, so it uses PocketSign Stamp rather than an embedded Verify
+// SDK. The Stamp flow delegates card reading to the separately-installed PocketSign
+// app:
 //
-//  1. IssueChallenge — generates a local opaque session id + random nonce.
-//     The nonce is stored in a short-TTL in-memory cache keyed by session id.
-//     No Pocket Sign API call is made here.
+//  1. StartVerify — calls SessionService.CreateSession with a userAuthentication
+//     request (identifyUser=true, required=true) and a random nonce embedded in
+//     metadata. The nonce is stored server-side keyed by (userID, sessionID) in a
+//     short-TTL in-memory cache. Returns (sessionID, redirectURL).
+//     The client opens redirectURL in the PocketSign app; the fan reads their
+//     card there, and the app redirects back to the callback URL with
+//     ?session_id=<id>.
 //
-//  2. ValidateResponse — the client returns the SDK-produced JWE blob
-//     (sign_certificate_jwe) and the original session id. The backend looks up
-//     the stored nonce, computes data = base64(sha256(nonce)), and calls
-//     VerificationService.VerifyForDigitalIdentificationApp.
+//  2. CompleteVerify — the backend receives the callback (session_id), calls
+//     SessionService.FinalizeSession(id). Before a successful fan session,
+//     FinalizeSession returns FailedPrecondition with
+//     ERROR_REASON_SESSION_NOT_COMPLETED. On success:
+//     a. Compares metadata.nonce in the response against the cached nonce;
+//     mismatch → PermissionDenied, delete the cache entry.
+//     b. Checks the userAuthentication result's VerifyResponse; a non-OK cert
+//     (SIGNATURE_MISMATCH, CERTIFICATE_REVOKED, etc.) → FailedPrecondition.
+//     c. Extracts User.id from result.GetUserAuthentication().GetResult().GetUser().GetId()
+//     → our PocketSignUserID.
 //
-//  3. Recheck — calls UserService.CheckUserStatus for 現況確認.
+//  3. Recheck — calls verify.v2.UserService.CheckUserStatus for 現況確認.
+//
+// # Security
+//
+// The metadata.nonce REPLACES the old hand-rolled nonce+sha256+`data` approach.
+// The nonce is stored in the cache keyed by (userID + ":" + sessionID) and
+// consumed atomically on CompleteVerify to prevent replay attacks.
 //
 // # TODO
 //
@@ -33,15 +52,15 @@ package pocketsign
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"buf.build/gen/go/pocketsign/apis/connectrpc/go/pocketsign/stamp/v1/stampv1connect"
 	"buf.build/gen/go/pocketsign/apis/connectrpc/go/pocketsign/verify/v2/verifyv2connect"
+	stampv1 "buf.build/gen/go/pocketsign/apis/protocolbuffers/go/pocketsign/stamp/v1"
 	verifyv2 "buf.build/gen/go/pocketsign/apis/protocolbuffers/go/pocketsign/verify/v2"
 	"connectrpc.com/connect"
 
@@ -53,74 +72,96 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// Compile-time assertion that VerifyClient satisfies usecase.PocketSignVerifier.
-var _ usecase.PocketSignVerifier = (*VerifyClient)(nil)
+// Compile-time assertion that StampClient satisfies usecase.PocketSignVerifier.
+var _ usecase.PocketSignVerifier = (*StampClient)(nil)
 
-// challengeTTL is how long a pending nonce is retained. The デジタル認証アプリ
-// signing flow is interactive and completes within a single user session, so
-// 10 minutes is generous. Entries are evicted automatically by MemoryCache.
-const challengeTTL = 10 * time.Minute
+// sessionTTL is how long a pending nonce is retained. The Stamp flow is
+// interactive and requires the fan to open the PocketSign app, read their card,
+// and return to the PWA. 10 minutes is generous for this interaction.
+// Entries are evicted automatically by MemoryCache.
+const sessionTTL = 10 * time.Minute
 
-// VerifyClientConfig holds the credentials and endpoint for the Pocket Sign
-// Verify API. Both BaseURL and Token must be non-empty for the real client to
-// be selected; when either is absent the DI layer falls back to StubVerifier.
-type VerifyClientConfig struct {
-	// BaseURL is the Pocket Sign Verify API base URL, e.g.
+// nonceCacheKey returns the cache key for the nonce stored during StartVerify.
+// Keyed by both userID and sessionID so a session can only be finalized by the
+// user who initiated it.
+func nonceCacheKey(userID, sessionID string) string {
+	return userID + ":" + sessionID
+}
+
+// StampClientConfig holds the credentials and endpoint for the Pocket Sign
+// Stamp API. All four fields must be non-empty for the real client to be
+// selected; when any is absent the DI layer falls back to StubVerifier.
+type StampClientConfig struct {
+	// BaseURL is the Pocket Sign Stamp API base URL, e.g.
 	//   - Mock:            https://verify.mock.p8n.app
 	//   - Test (sandbox):  https://verify.test.p8n.app
 	//   - Production:      https://verify.p8n.app
-	//
-	// Note: even the mock environment requires a valid Bearer token.
 	BaseURL string
 
-	// Token is the Bearer token issued by the Pocket Sign Platform Verify
+	// Token is the Bearer token issued by the Pocket Sign Platform Stamp
 	// tenant screen. Must be kept in a secret — never embed in source.
 	Token string
+
+	// TenantID is the tenant identifier sent as the X-Tenant-ID request header
+	// on every Stamp API call.
+	TenantID string
+
+	// CallbackURL is the frontend URL the PocketSign app redirects to after the
+	// fan completes card reading (e.g. https://fan.dev.liverty-music.app/verify/callback).
+	// Sent to SessionService.CreateSession as callback_url.
+	CallbackURL string
 }
 
-// IsConfigured returns true when both BaseURL and Token are non-empty,
-// indicating that the real client should be used instead of the stub.
-func (c VerifyClientConfig) IsConfigured() bool {
-	return c.BaseURL != "" && c.Token != ""
+// IsConfigured returns true when all four fields are non-empty, indicating that
+// the real client should be used instead of the stub.
+func (c StampClientConfig) IsConfigured() bool {
+	return c.BaseURL != "" && c.Token != "" && c.TenantID != "" && c.CallbackURL != ""
 }
 
-// VerifyClient is the real implementation of usecase.PocketSignVerifier that
-// calls the Pocket Sign Verify API via Connect-RPC.
+// StampClient is the real implementation of usecase.PocketSignVerifier that
+// calls the Pocket Sign Stamp API via Connect-RPC.
 //
-// The client uses the デジタル認証アプリ verification flow. See package-level
-// documentation for the full sequence.
-type VerifyClient struct {
-	verificationSvc verifyv2connect.VerificationServiceClient
-	userSvc         verifyv2connect.UserServiceClient
-	// nonceCache maps sessionID → hex-encoded nonce ([]byte as string).
-	// Entries expire after challengeTTL.
+// The client uses the PocketSign Stamp flow (SessionService.CreateSession →
+// fan reads card in PocketSign app → SessionService.FinalizeSession). See
+// package-level documentation for the full sequence.
+type StampClient struct {
+	sessionSvc stampv1connect.SessionServiceClient
+	userSvc    verifyv2connect.UserServiceClient
+	cfg        StampClientConfig
+	// nonceCache maps nonceCacheKey(userID, sessionID) → hex-encoded nonce.
+	// Entries expire after sessionTTL.
 	//
 	// TODO: replace with a shared store (Redis/DB) before multi-instance prod.
 	nonceCache *cache.MemoryCache
 	logger     *logging.Logger
 }
 
-// NewVerifyClient creates a VerifyClient that authenticates to the Pocket Sign
-// Verify API using the provided Bearer token. It panics if cfg.IsConfigured()
-// is false — callers should guard with that check before constructing.
-func NewVerifyClient(cfg VerifyClientConfig, httpClient *http.Client, logger *logging.Logger) *VerifyClient {
+// NewStampClient creates a StampClient that authenticates to the Pocket Sign
+// Stamp API using the provided Bearer token and Tenant ID. It panics if
+// cfg.IsConfigured() is false — callers should guard with that check before
+// constructing.
+func NewStampClient(cfg StampClientConfig, httpClient *http.Client, logger *logging.Logger) *StampClient {
 	if !cfg.IsConfigured() {
-		panic("pocketsign.NewVerifyClient: BaseURL and Token must both be set")
+		panic("pocketsign.NewStampClient: BaseURL, Token, TenantID, and CallbackURL must all be set")
 	}
 
-	bearerInterceptor := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+	// Both Authorization and X-Tenant-ID are required by the Stamp API on
+	// every request.
+	authInterceptor := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			req.Header().Set("Authorization", "Bearer "+cfg.Token)
+			req.Header().Set("X-Tenant-ID", cfg.TenantID)
 			return next(ctx, req)
 		}
 	})
-	opts := connect.WithInterceptors(bearerInterceptor)
+	opts := connect.WithInterceptors(authInterceptor)
 
-	return &VerifyClient{
-		verificationSvc: verifyv2connect.NewVerificationServiceClient(httpClient, cfg.BaseURL, opts),
-		userSvc:         verifyv2connect.NewUserServiceClient(httpClient, cfg.BaseURL, opts),
-		nonceCache:      cache.NewMemoryCache(challengeTTL),
-		logger:          logger,
+	return &StampClient{
+		sessionSvc: stampv1connect.NewSessionServiceClient(httpClient, cfg.BaseURL, opts),
+		userSvc:    verifyv2connect.NewUserServiceClient(httpClient, cfg.BaseURL, opts),
+		cfg:        cfg,
+		nonceCache: cache.NewMemoryCache(sessionTTL),
+		logger:     logger,
 	}
 }
 
@@ -128,137 +169,200 @@ func NewVerifyClient(cfg VerifyClientConfig, httpClient *http.Client, logger *lo
 // cache's background cleanup goroutine. Wire it into the shutdown drain phase
 // (like the other MemoryCache instances) so graceful shutdown is complete and
 // no goroutine leaks. Safe to call once.
-func (c *VerifyClient) Close() error {
+func (c *StampClient) Close() error {
 	return c.nonceCache.Close()
 }
 
-// IssueChallenge generates a local opaque session id and random nonce.
+// StartVerify calls SessionService.CreateSession to create a Pocket Sign Stamp
+// session.
 //
-// No Pocket Sign API call is made. The nonce is stored in a short-TTL
-// in-memory cache keyed by the session id so ValidateResponse can retrieve it.
-//
-// The returned PocketSignChallenge carries:
-//   - SessionID: opaque handle the client must echo back in CompleteVerify.
-//   - Challenge: random nonce bytes the デジタル認証アプリ signs over
-//     (passed to the signing-transaction-start API as `data`).
+// A random 32-byte nonce is generated and stored in the short-TTL cache keyed
+// by nonceCacheKey(userID, sessionID) so CompleteVerify can later compare it
+// against the metadata returned by FinalizeSession.
 //
 // Possible errors:
-//   - Unavailable: random source failure (extremely rare).
-func (c *VerifyClient) IssueChallenge(_ context.Context, _ entity.VerificationMethod) (*usecase.PocketSignChallenge, error) {
-	sessionBytes, err := randomBytes(16)
-	if err != nil {
-		return nil, apperr.Wrap(err, codes.Unavailable, "failed to generate session id")
-	}
-	sessionID := hex.EncodeToString(sessionBytes)
-
-	// Generate a 32-byte nonce. The client passes it to the デジタル認証アプリ
-	// signing-transaction-start API as `data`; on return the signed JWE and
-	// this nonce's digest are submitted together to Pocket Sign Verify.
+//   - Unavailable: random source failure (extremely rare) or Pocket Sign API
+//     unreachable / authentication failed.
+func (c *StampClient) StartVerify(ctx context.Context, userID string, _ entity.VerificationMethod) (string, string, error) {
+	// Generate a 32-byte nonce. It is embedded in session metadata so
+	// FinalizeSession echoes it back, allowing the backend to detect tampering.
 	nonceBytes, err := randomBytes(32)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.Unavailable, "failed to generate nonce")
+		return "", "", apperr.Wrap(err, codes.Unavailable, "failed to generate nonce")
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+
+	// MVP: userAuthentication with identifyUser=true (当人認証 → stable 利用者ID).
+	// DO NOT set readPersonalInfo — we never retrieve 基本4情報 in the MVP.
+	identifyUser := true
+	checkMethod := verifyv2.CertificateStatus_CHECK_METHOD_CRL
+	required := true
+
+	req := connect.NewRequest(stampv1.CreateSessionRequest_builder{
+		CallbackUrl: &c.cfg.CallbackURL,
+		Requests: []*stampv1.Request{
+			stampv1.Request_builder{
+				Required: &required,
+				UserAuthentication: stampv1.Request_UserAuthentication_builder{
+					IdentifyUser:      &identifyUser,
+					StatusCheckMethod: &checkMethod,
+				}.Build(),
+			}.Build(),
+		},
+		Metadata: map[string]string{
+			"nonce": nonce,
+		},
+	}.Build())
+
+	resp, err := c.sessionSvc.CreateSession(ctx, req)
+	if err != nil {
+		return "", "", mapConnectError(err, "pocket sign create session")
 	}
 
-	// Store the raw nonce bytes in the short-TTL cache so ValidateResponse can
-	// look them up (TTL = challengeTTL, 10 min). Stored as []byte directly —
-	// MemoryCache holds `any`, so no encode/decode round-trip is needed.
-	c.nonceCache.Set(sessionID, nonceBytes)
+	sessionID := resp.Msg.GetId()
+	redirectURL := resp.Msg.GetRedirectUrl()
 
-	return &usecase.PocketSignChallenge{
-		SessionID: sessionID,
-		Challenge: nonceBytes,
-	}, nil
+	if sessionID == "" {
+		return "", "", apperr.New(codes.Internal, "pocket sign create session returned empty session id")
+	}
+	if redirectURL == "" {
+		return "", "", apperr.New(codes.Internal, "pocket sign create session returned empty redirect url")
+	}
+
+	// Store the nonce keyed by (userID, sessionID) so CompleteVerify can
+	// atomically retrieve and validate it.
+	c.nonceCache.Set(nonceCacheKey(userID, sessionID), nonce)
+
+	c.logger.Info(ctx, "pocket sign stamp session created",
+		slog.String("user_id", userID),
+		slog.String("session_id", sessionID),
+	)
+
+	return sessionID, redirectURL, nil
 }
 
-// ValidateResponse calls VerificationService.VerifyForDigitalIdentificationApp
-// using:
-//   - sign_certificate_jwe = string(signedResponse) — the JWE the デジタル認証アプリ
-//     returns via the signing-transaction-result API.
-//   - data = base64(sha256(nonce)) — where nonce was issued by IssueChallenge for
-//     the given sessionID and stored in the in-memory cache.
+// CompleteVerify calls SessionService.FinalizeSession to complete the Stamp
+// session and extract the verified user identity.
 //
-// On success it returns the Pocket Sign user id and the verification method
-// derived from the certificate type.
+// The session must have been completed by the fan in the PocketSign app. If
+// not, FinalizeSession returns FailedPrecondition with
+// ERROR_REASON_SESSION_NOT_COMPLETED, which is mapped to FailedPrecondition.
+//
+// Security: the nonce stored at StartVerify is compared against the nonce
+// echoed back in the FinalizeSession response metadata. A mismatch causes a
+// PermissionDenied error and the cache entry is deleted immediately.
 //
 // Possible errors:
-//   - InvalidArgument: sessionID unknown/expired, JWE malformed, signature invalid,
-//     certificate unsupported, or response contains no user id.
-//   - FailedPrecondition: certificate revoked or expired.
-//   - Unavailable: Pocket Sign API unreachable, authentication failed, or
-//     any other vendor-side error.
-func (c *VerifyClient) ValidateResponse(ctx context.Context, sessionID string, signedResponse []byte) (*usecase.PocketSignResult, error) {
-	// Atomically look up AND consume the stored nonce in a single locked op so
-	// two concurrent calls with the same session id cannot both proceed (a
-	// separate Get+Delete would leave a replay race window). Unknown/expired
-	// (or already-consumed) sessions are rejected.
-	rawNonce := c.nonceCache.GetAndDelete(sessionID)
-	if rawNonce == nil {
-		return nil, apperr.New(codes.InvalidArgument,
-			"unknown or expired session id; the challenge may have timed out (10 min limit)")
+//   - FailedPrecondition: session not yet completed by the fan, or cert failed
+//     validation (revoked/expired/signature mismatch).
+//   - PermissionDenied: nonce mismatch (replay or tamper attempt).
+//   - Unavailable: Pocket Sign Stamp API unreachable or authentication failed.
+func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID string) (*usecase.PocketSignResult, error) {
+	// Atomically look up AND consume the stored nonce. Unknown/expired
+	// (or already-consumed) sessions are rejected with FailedPrecondition to
+	// match the "session not completed" category — the most likely cause is a
+	// timeout, not a tamper attempt.
+	raw := c.nonceCache.GetAndDelete(nonceCacheKey(userID, sessionID))
+	if raw == nil {
+		return nil, apperr.New(codes.FailedPrecondition,
+			"unknown or expired session; the session may have timed out (10 min limit) or was already completed")
 	}
-	nonceBytes, ok := rawNonce.([]byte)
+	expectedNonce, ok := raw.(string)
 	if !ok {
 		return nil, apperr.New(codes.Internal, "internal nonce cache type mismatch")
 	}
 
-	// data is the value the デジタル認証アプリ signing-transaction-start API was
-	// given (the signed-over material). It MUST equal what the app actually
-	// signed, or VerifyForDigitalIdentificationApp rejects every request.
-	//
-	// WARNING (unverified): the exact form — base64(sha256(nonce)) vs the raw
-	// nonce, standard vs URL base64 — is NOT yet confirmed against the live
-	// signing-transaction-start contract (the frontend flow is unbuilt). This
-	// MUST be validated against verify.test.p8n.app with a real signature
-	// before trusting; the frontend and this transform must agree exactly.
-	digest := sha256.Sum256(nonceBytes)
-	data := base64.StdEncoding.EncodeToString(digest[:])
-
-	jwe := string(signedResponse)
-	checkMethod := verifyv2.CertificateStatus_CHECK_METHOD_CRL
-	identifyUser := true
-
-	req := connect.NewRequest(verifyv2.VerifyForDigitalIdentificationAppRequest_builder{
-		SignCertificateJwe: &jwe,
-		Data:               &data,
-		CheckMethod:        &checkMethod,
-		IdentifyUser:       &identifyUser,
+	req := connect.NewRequest(stampv1.FinalizeSessionRequest_builder{
+		Id: &sessionID,
 	}.Build())
 
-	resp, err := c.verificationSvc.VerifyForDigitalIdentificationApp(ctx, req)
+	resp, err := c.sessionSvc.FinalizeSession(ctx, req)
 	if err != nil {
-		return nil, mapConnectError(err, "verify pocket sign response")
+		// Put the nonce back if FinalizeSession failed so the client can
+		// retry (e.g. if the fan has not finished yet — the caller will
+		// poll and retry). Only restore for a transient "not completed"
+		// condition; other errors are final and the nonce should stay consumed.
+		connectCode := connect.CodeOf(err)
+		if connectCode == connect.CodeFailedPrecondition {
+			// The fan has not finished in the PocketSign app yet. Restore the
+			// nonce so the caller can retry after the fan completes.
+			c.nonceCache.Set(nonceCacheKey(userID, sessionID), expectedNonce)
+			return nil, apperr.Wrap(err, codes.FailedPrecondition,
+				"pocket sign session not yet completed; the fan must finish in the PocketSign app before calling CompleteVerify")
+		}
+		return nil, mapConnectError(err, "pocket sign finalize session")
 	}
 
-	body := resp.Msg
+	// Validate the nonce returned in the session metadata against the one we
+	// stored at CreateSession. This prevents a replay or session-swap attack
+	// where an attacker substitutes their session_id for the victim's.
+	metadata := resp.Msg.GetMetadata()
+	gotNonce := metadata["nonce"]
+	if gotNonce != expectedNonce {
+		c.logger.Warn(ctx, "pocket sign nonce mismatch; possible replay or tamper",
+			slog.String("user_id", userID),
+			slog.String("session_id", sessionID),
+		)
+		return nil, apperr.New(codes.PermissionDenied,
+			"pocket sign session nonce mismatch; this request has been rejected for security")
+	}
 
-	// Extract the Pocket Sign User.id. identify_user=true guarantees it is
-	// populated for any successful response with a JPKI certificate.
-	user := body.GetUser()
+	// Extract the userAuthentication result from the FinalizeSession response.
+	// MVP: we request exactly one result (userAuthentication), so results[0] is
+	// our result. Validate defensively.
+	results := resp.Msg.GetResults()
+	if len(results) == 0 {
+		return nil, apperr.New(codes.Internal, "pocket sign finalize session returned no results")
+	}
+
+	userAuthResult := results[0].GetUserAuthentication()
+	if userAuthResult == nil {
+		return nil, apperr.New(codes.Internal,
+			"pocket sign finalize session result is not a userAuthentication result; "+
+				"ensure the session was created with a UserAuthentication request")
+	}
+
+	// A non-nil Error in the result means the cert failed verification on the
+	// Pocket Sign side (e.g. SIGNATURE_MISMATCH, CERTIFICATE_REVOKED,
+	// CERTIFICATE_EXPIRED). Map these to FailedPrecondition.
+	if userAuthResult.HasError() && userAuthResult.GetError() != nil {
+		errStatus := userAuthResult.GetError()
+		return nil, apperr.New(codes.FailedPrecondition,
+			fmt.Sprintf("pocket sign certificate verification failed: %s", errStatus.GetMessage()))
+	}
+
+	// GetResult() returns the *verifyv2.VerifyResponse on success. The
+	// PocketSignUserID is carried in User.id (verify.v2.User.id), accessed via:
+	//   result.GetUserAuthentication().GetResult().GetUser().GetId()
+	verifyResp := userAuthResult.GetResult()
+	if verifyResp == nil {
+		return nil, apperr.New(codes.Internal,
+			"pocket sign finalize session returned no verify response in userAuthentication result")
+	}
+
+	user := verifyResp.GetUser()
 	if user == nil || user.GetId() == "" {
-		return nil, apperr.New(codes.InvalidArgument,
+		return nil, apperr.New(codes.Internal,
 			"pocket sign verify response contained no user id; "+
-				"ensure identify_user=true and that the certificate was issued more than 90 minutes ago")
+				"ensure identifyUser=true was set on the UserAuthentication request")
 	}
 
-	// GetCertificate is nil-safe (a nil *Certificate would yield TYPE_UNSPECIFIED
-	// and a misleading "unsupported certificate type" error), so surface a
-	// missing certificate explicitly instead.
-	cert := body.GetCertificate()
+	cert := verifyResp.GetCertificate()
 	if cert == nil {
-		return nil, apperr.New(codes.InvalidArgument,
+		return nil, apperr.New(codes.Internal,
 			"pocket sign verify response contained no certificate")
 	}
-	certType := cert.GetType()
-	method, err := methodFromCertType(certType)
+	method, err := methodFromCertType(cert.GetType())
 	if err != nil {
 		return nil, err
 	}
 
-	c.logger.Info(ctx, "pocket sign verification successful",
+	c.logger.Info(ctx, "pocket sign stamp session finalized",
+		slog.String("user_id", userID),
 		slog.String("session_id", sessionID),
 		slog.String("pocket_sign_user_id", user.GetId()),
-		slog.Bool("is_new_user", body.GetIsNewUser()),
-		slog.String("cert_type", certType.String()),
+		slog.Bool("is_new_user", verifyResp.GetIsNewUser()),
+		slog.String("cert_type", cert.GetType().String()),
 	)
 
 	return &usecase.PocketSignResult{
@@ -269,12 +373,12 @@ func (c *VerifyClient) ValidateResponse(ctx context.Context, sessionID string, s
 
 // Recheck calls UserService.CheckUserStatus to perform 現況確認 for the given
 // Pocket Sign user id. NeedsReverification is true when the certificate is
-// anything other than STATE_GOOD (revoked, expired, or unknown state).
+// REVOKED or EXPIRED (not for UNKNOWN/UNSPECIFIED — indeterminate stays false).
 //
 // Possible errors:
 //   - Unavailable: Pocket Sign API unreachable, authentication failed, or
 //     any other vendor-side error.
-func (c *VerifyClient) Recheck(ctx context.Context, pocketSignUserID string) (*usecase.PocketSignRecheckResult, error) {
+func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*usecase.PocketSignRecheckResult, error) {
 	checkMethod := verifyv2.CertificateStatus_CHECK_METHOD_CRL
 
 	req := connect.NewRequest(verifyv2.CheckUserStatusRequest_builder{
@@ -288,11 +392,12 @@ func (c *VerifyClient) Recheck(ctx context.Context, pocketSignUserID string) (*u
 	}
 
 	// Only a CONFIRMED bad state (revoked / expired) flags the identity for
-	// re-verification. STATE_UNKNOWN (not revoked, but the validity window could
-	// not be confirmed via CRL) and STATE_UNSPECIFIED (unset/zero — a possible
-	// vendor hiccup) are INDETERMINATE, not confirmed-bad: flagging them would
-	// force spurious re-KYC on an otherwise-valid user for a transient
-	// lookup failure. Leave those as not-needing-reverification and log.
+	// re-verification. STATE_UNKNOWN (not revoked, but the validity window
+	// could not be confirmed via CRL) and STATE_UNSPECIFIED (unset/zero — a
+	// possible vendor hiccup) are INDETERMINATE, not confirmed-bad: flagging
+	// them would force spurious re-KYC on an otherwise-valid user for a
+	// transient lookup failure. Leave those as not-needing-reverification
+	// and log.
 	state := resp.Msg.GetCertificateState()
 	var needsReverification bool
 	switch state {
@@ -340,9 +445,11 @@ func methodFromCertType(t verifyv2.Certificate_Type) (entity.VerificationMethod,
 // mapConnectError translates a Connect-RPC error from the Pocket Sign API into
 // an apperr with an appropriate code:
 //
-//   - CodeInvalidArgument → codes.InvalidArgument (bad JWE, unsupported cert, …)
-//   - CodeFailedPrecondition → codes.FailedPrecondition (revoked/expired cert)
-//   - CodeUnauthenticated → codes.Unavailable (wrong Bearer token — config error)
+//   - CodeInvalidArgument → codes.InvalidArgument (bad request parameters)
+//   - CodeFailedPrecondition → codes.FailedPrecondition (session not completed,
+//     cert revoked/expired)
+//   - CodeUnauthenticated → codes.Internal (wrong Bearer token — config error,
+//     not end-user auth; non-retryable)
 //   - all other codes → codes.Unavailable (treat vendor errors as transient)
 func mapConnectError(err error, op string) error {
 	code := connect.CodeOf(err)
@@ -350,13 +457,13 @@ func mapConnectError(err error, op string) error {
 	case connect.CodeInvalidArgument:
 		return apperr.Wrap(err, codes.InvalidArgument, op+": invalid or unsupported request")
 	case connect.CodeFailedPrecondition:
-		return apperr.Wrap(err, codes.FailedPrecondition, op+": certificate revoked or expired")
+		return apperr.Wrap(err, codes.FailedPrecondition, op+": session not completed or certificate revoked/expired")
 	case connect.CodeUnauthenticated:
 		// 401 from Pocket Sign means OUR Bearer token is wrong/expired/rotated —
 		// a server-side misconfiguration, not an end-user auth problem and NOT
 		// transient. Map to Internal (non-retryable, HTTP 500) so retry/circuit
 		// logic and alerting treat it as a config error to fix, not a blip to
-		// retry forever. The end-user still sees a generic error, never "401".
+		// retry forever.
 		return apperr.Wrap(err, codes.Internal, op+": pocket sign API authentication failed; check POCKET_SIGN_TOKEN")
 	default:
 		return apperr.Wrap(err, codes.Unavailable, op+": pocket sign API unavailable")

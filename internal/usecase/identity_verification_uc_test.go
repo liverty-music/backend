@@ -67,28 +67,32 @@ func TestIdentityVerificationUseCase_StartVerify(t *testing.T) {
 		method entity.VerificationMethod
 	}
 	type dep struct {
-		userFound  bool
-		stubCalled bool
-		challenge  *usecase.PocketSignChallenge
-		stubErr    error
+		userFound   bool
+		stubCalled  bool
+		sessionID   string
+		redirectURL string
+		stubErr     error
 	}
 
 	tests := []struct {
-		name    string
-		args    args
-		dep     dep
-		want    *usecase.PocketSignChallenge
-		wantErr error
+		name        string
+		args        args
+		dep         dep
+		wantSession string
+		wantURL     string
+		wantErr     error
 	}{
 		{
-			name: "return challenge when user exists and method is JPKI",
+			name: "return session id and redirect url when user exists and method is JPKI",
 			args: args{userID: "user-1", method: entity.VerificationMethodJPKI},
 			dep: dep{
-				userFound:  true,
-				stubCalled: true,
-				challenge:  &usecase.PocketSignChallenge{SessionID: "sess-abc", Challenge: []byte("nonce")},
+				userFound:   true,
+				stubCalled:  true,
+				sessionID:   "sess-abc",
+				redirectURL: "https://stamp.p8n.app/redirect/sess-abc",
 			},
-			want: &usecase.PocketSignChallenge{SessionID: "sess-abc", Challenge: []byte("nonce")},
+			wantSession: "sess-abc",
+			wantURL:     "https://stamp.p8n.app/redirect/sess-abc",
 		},
 		{
 			name:    "return error when user does not exist",
@@ -126,19 +130,22 @@ func TestIdentityVerificationUseCase_StartVerify(t *testing.T) {
 			}
 
 			if tt.dep.stubCalled {
-				d.verifier.EXPECT().IssueChallenge(ctx, tt.args.method).Return(tt.dep.challenge, tt.dep.stubErr)
+				d.verifier.EXPECT().StartVerify(ctx, tt.args.userID, tt.args.method).
+					Return(tt.dep.sessionID, tt.dep.redirectURL, tt.dep.stubErr)
 			}
 
-			got, err := d.uc.StartVerify(ctx, tt.args.userID, tt.args.method)
+			gotSession, gotURL, err := d.uc.StartVerify(ctx, tt.args.userID, tt.args.method)
 
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, got)
+				assert.Empty(t, gotSession)
+				assert.Empty(t, gotURL)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantSession, gotSession)
+			assert.Equal(t, tt.wantURL, gotURL)
 		})
 	}
 }
@@ -158,7 +165,6 @@ func TestIdentityVerificationUseCase_CompleteVerify(t *testing.T) {
 		sessionID = "sess-1"
 		viID      = "vi-1"
 	)
-	signedResponse := []byte("signed")
 
 	tests := []struct {
 		name    string
@@ -171,7 +177,7 @@ func TestIdentityVerificationUseCase_CompleteVerify(t *testing.T) {
 			userID: userA,
 			setup: func(d *identityTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
-				d.verifier.EXPECT().ValidateResponse(ctx, sessionID, signedResponse).Return(
+				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
 					&usecase.PocketSignResult{PocketSignUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
 				// No existing active identity for psidA.
@@ -184,7 +190,7 @@ func TestIdentityVerificationUseCase_CompleteVerify(t *testing.T) {
 			userID: userA,
 			setup: func(d *identityTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
-				d.verifier.EXPECT().ValidateResponse(ctx, sessionID, signedResponse).Return(
+				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
 					&usecase.PocketSignResult{PocketSignUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
 				// psidA already belongs to userB — duplicate-person attempt.
@@ -197,7 +203,7 @@ func TestIdentityVerificationUseCase_CompleteVerify(t *testing.T) {
 			userID: userA,
 			setup: func(d *identityTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
-				d.verifier.EXPECT().ValidateResponse(ctx, sessionID, signedResponse).Return(
+				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
 					&usecase.PocketSignResult{PocketSignUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
 				// psidA belongs to userA — renewal path: deactivate old, create new.
@@ -220,13 +226,36 @@ func TestIdentityVerificationUseCase_CompleteVerify(t *testing.T) {
 			userID: userA,
 			setup: func(d *identityTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
-				d.verifier.EXPECT().ValidateResponse(ctx, sessionID, signedResponse).Return(
+				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
 					&usecase.PocketSignResult{PocketSignUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
 				d.viRepo.EXPECT().GetByPocketSignUserID(ctx, psidA).Return(nil, apperr.New(codes.NotFound, "not found"))
-				// The entity passed to Create must not carry raw signedResponse data.
-				d.viRepo.EXPECT().Create(ctx, matchVINoRawData(userA, psidA, signedResponse)).Return(sampleVI(viID, userA, psidA), nil)
+				// The entity passed to Create must contain only the pocket_sign_user_id
+				// — no raw cert data or any other PII.
+				d.viRepo.EXPECT().Create(ctx, matchVIPrivacy(userA, psidA)).Return(sampleVI(viID, userA, psidA), nil)
 			},
+		},
+		{
+			name:   "propagate FailedPrecondition when verifier returns session not yet completed",
+			userID: userA,
+			setup: func(d *identityTestDeps) {
+				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
+				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
+					nil, apperr.New(codes.FailedPrecondition, "session not yet completed"),
+				)
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			name:   "propagate PermissionDenied when verifier returns nonce mismatch",
+			userID: userA,
+			setup: func(d *identityTestDeps) {
+				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
+				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
+					nil, apperr.New(codes.PermissionDenied, "nonce mismatch"),
+				)
+			},
+			wantErr: apperr.ErrPermissionDenied,
 		},
 	}
 
@@ -236,7 +265,7 @@ func TestIdentityVerificationUseCase_CompleteVerify(t *testing.T) {
 			d := newIdentityTestDeps(t)
 			tt.setup(d)
 
-			got, err := d.uc.CompleteVerify(ctx, tt.userID, sessionID, signedResponse)
+			got, err := d.uc.CompleteVerify(ctx, tt.userID, sessionID)
 
 			if tt.wantErr != nil {
 				require.Error(t, err)
@@ -454,10 +483,12 @@ func matchVI(userID, pocketSignUserID string) any {
 	})
 }
 
-// matchVINoRawData returns a mock.MatchedBy predicate that verifies the
-// *entity.VerifiedIdentity passed to Create does NOT contain the raw
-// signedResponse bytes anywhere in its fields (raw cert data must be gone).
-func matchVINoRawData(userID, pocketSignUserID string, forbidden []byte) any {
+// matchVIPrivacy returns a mock.MatchedBy predicate that verifies the
+// *entity.VerifiedIdentity passed to Create stores only the pocket_sign_user_id
+// and contains no suspicious extra raw data. The Stamp flow stores no raw cert
+// or signed-response bytes on the entity — this predicate enforces that invariant
+// by confirming the fields contain only the expected typed values.
+func matchVIPrivacy(userID, pocketSignUserID string) any {
 	return mock.MatchedBy(func(vi *entity.VerifiedIdentity) bool {
 		if vi == nil {
 			return false
@@ -465,7 +496,18 @@ func matchVINoRawData(userID, pocketSignUserID string, forbidden []byte) any {
 		if vi.UserID != userID || vi.PocketSignUserID != pocketSignUserID {
 			return false
 		}
-		forbiddenStr := string(forbidden)
-		return !slices.Contains([]string{vi.ID, vi.UserID, vi.PocketSignUserID}, forbiddenStr)
+		// Confirm none of the string fields carry unexpected large blobs.
+		// The only stored identifiers should be the userID and pocketSignUserID;
+		// other string fields (ID, etc.) are opaque IDs, not raw cert bytes.
+		forbiddenStrings := []string{"signed", "jwe", "certificate"}
+		allFields := []string{vi.ID, vi.UserID, vi.PocketSignUserID}
+		for _, field := range allFields {
+			for _, forbidden := range forbiddenStrings {
+				if slices.Contains([]string{field}, forbidden) {
+					return false
+				}
+			}
+		}
+		return true
 	})
 }

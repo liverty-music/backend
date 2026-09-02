@@ -11,21 +11,9 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// PocketSignChallenge is the transient result of a StartVerify Pocket Sign
-// challenge. It is never persisted — it is returned to the client so the
-// Verify SDK can sign it against the card and pass the response back in
-// CompleteVerify.
-type PocketSignChallenge struct {
-	// SessionID is an opaque handle correlating this attempt with the eventual
-	// CompleteVerify call.
-	SessionID string
-	// Challenge is the nonce the SDK signs against the card.
-	Challenge []byte
-}
-
-// PocketSignResult is the result of a successful Verify API call. The raw
-// certificate/response MUST be discarded by the caller immediately after this
-// call — only the fields on this struct are retained.
+// PocketSignResult is the result of a successful Pocket Sign Stamp verification.
+// The raw certificate and card response are validated vendor-side and never
+// cross the boundary into our application; only these fields are retained.
 type PocketSignResult struct {
 	// PocketSignUserID is the Pocket Sign tenant-scoped person key (User.id).
 	// Stable across card renewal, re-issue, cert-type change. Never the serial
@@ -43,32 +31,43 @@ type PocketSignRecheckResult struct {
 }
 
 // PocketSignVerifier is the interface the identity use case uses to interact
-// with the Pocket Sign Verify API.
+// with the Pocket Sign Stamp API.
 //
 // The interface is defined here (where consumed) per AGENTS.md. Implementations
 // live in internal/infrastructure/pocketsign/.
 //
-// TODO: integrate real Pocket Sign Verify SDK/API after onboarding
-// (identity-ekyc-jpki Section 0).
+// Stamp flow:
+//  1. StartVerify — backend calls CreateSession → returns (sessionID, redirectURL).
+//     The frontend opens redirectURL in the PocketSign app; the fan reads their
+//     card there. The app redirects back to the callback URL with ?session_id=<id>.
+//  2. CompleteVerify — backend calls FinalizeSession(sessionID) → verifies the
+//     nonce stored at step 1 matches metadata in the response, extracts
+//     PocketSignUserID.
+//  3. Recheck — calls verify.v2.UserService.CheckUserStatus for 現況確認.
 type PocketSignVerifier interface {
-	// IssueChallenge starts a verification attempt by issuing a nonce. The
-	// returned PocketSignChallenge carries the session id and nonce the client
-	// passes to the Pocket Sign Verify SDK.
+	// StartVerify creates a Pocket Sign Stamp session. It returns the opaque
+	// session id and the redirect URL the client must open in the PocketSign
+	// app. A random nonce is generated and stored server-side keyed by
+	// (userID, sessionID) for later comparison in CompleteVerify.
 	//
 	// # Possible errors
 	//
-	//  - Unavailable: the Pocket Sign Verify API is unreachable or not configured.
-	IssueChallenge(ctx context.Context, method entity.VerificationMethod) (*PocketSignChallenge, error)
+	//   - Unavailable: the Pocket Sign Stamp API is unreachable or not configured.
+	StartVerify(ctx context.Context, userID string, method entity.VerificationMethod) (sessionID string, redirectURL string, err error)
 
-	// ValidateResponse submits the SDK-produced signed response for verification.
-	// The raw signedResponse MUST be discarded by the caller immediately after
-	// this call returns; it is never persisted.
+	// CompleteVerify finalizes the Pocket Sign Stamp session. It calls
+	// FinalizeSession, validates the server-stored nonce against the response
+	// metadata, checks the verification result, and extracts the
+	// PocketSignUserID from the userAuthentication result.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: the session is unknown, expired, or the signature is invalid.
-	//  - Unavailable: the Pocket Sign Verify API is unreachable or not configured.
-	ValidateResponse(ctx context.Context, sessionID string, signedResponse []byte) (*PocketSignResult, error)
+	//   - FailedPrecondition: the session is not yet completed (fan has not
+	//     finished in the PocketSign app) or the cert failed validation
+	//     (revoked/expired/signature mismatch).
+	//   - PermissionDenied: nonce mismatch (replay or tamper attempt).
+	//   - Unavailable: the Pocket Sign Stamp API is unreachable or not configured.
+	CompleteVerify(ctx context.Context, userID, sessionID string) (*PocketSignResult, error)
 
 	// Recheck performs a 現況確認 (liveness) check for the given pocket_sign_user_id.
 	// It reports whether the verified identity is still current (not revoked,
@@ -76,36 +75,37 @@ type PocketSignVerifier interface {
 	//
 	// # Possible errors
 	//
-	//  - Unavailable: the Pocket Sign Verify API is unreachable or not configured.
+	//   - Unavailable: the Pocket Sign Verify API is unreachable or not configured.
 	Recheck(ctx context.Context, pocketSignUserID string) (*PocketSignRecheckResult, error)
 }
 
 // IdentityVerificationUseCase defines the business logic for identity
 // verification via Pocket Sign.
 type IdentityVerificationUseCase interface {
-	// StartVerify issues a Pocket Sign challenge for the authenticated user.
-	// Returns a session id and nonce for the Verify SDK.
+	// StartVerify creates a Pocket Sign Stamp session for the authenticated user.
+	// Returns a session id and the redirect URL for the PocketSign app.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: the user_id does not exist.
-	//  - Unavailable: the Pocket Sign Verify API is not configured.
-	StartVerify(ctx context.Context, userID string, method entity.VerificationMethod) (*PocketSignChallenge, error)
+	//   - NotFound: the user_id does not exist.
+	//   - Unavailable: the Pocket Sign Stamp API is not configured.
+	StartVerify(ctx context.Context, userID string, method entity.VerificationMethod) (sessionID string, redirectURL string, err error)
 
-	// CompleteVerify validates the SDK-signed response, creates a VerifiedIdentity,
+	// CompleteVerify finalizes the Stamp session, creates a VerifiedIdentity,
 	// and upgrades the account's verification_level to IDENTITY_VERIFIED.
 	//
-	// The raw signedResponse is never persisted; it is discarded immediately after
-	// the Pocket Sign Verify API call, as required by the privacy spec.
+	// The raw certificate and card response are validated vendor-side; only the
+	// pocket_sign_user_id is retained, as required by the privacy spec.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: the user_id does not exist.
-	//  - InvalidArgument: the session id is unknown/expired or the signature is invalid.
-	//  - AlreadyExists: the Pocket Sign User.id is already bound to a different active
-	//    account (duplicate-person). The error carries a clear recovery-path message.
-	//  - Unavailable: the Pocket Sign Verify API is not configured.
-	CompleteVerify(ctx context.Context, userID, sessionID string, signedResponse []byte) (*entity.VerifiedIdentity, error)
+	//   - NotFound: the user_id does not exist.
+	//   - FailedPrecondition: session not yet completed by the fan, or cert invalid.
+	//   - PermissionDenied: nonce mismatch (replay/tamper).
+	//   - AlreadyExists: the Pocket Sign User.id is already bound to a different active
+	//     account (duplicate-person). The error carries a clear recovery-path message.
+	//   - Unavailable: the Pocket Sign Stamp API is not configured.
+	CompleteVerify(ctx context.Context, userID, sessionID string) (*entity.VerifiedIdentity, error)
 
 	// ReCheck performs a 現況確認 (liveness) re-check for the authenticated user.
 	// On a revoked/changed result it flags the VerifiedIdentity as
@@ -113,8 +113,8 @@ type IdentityVerificationUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - NotFound: the user has no active VerifiedIdentity.
-	//  - Unavailable: the Pocket Sign Verify API is not configured.
+	//   - NotFound: the user has no active VerifiedIdentity.
+	//   - Unavailable: the Pocket Sign Verify API is not configured.
 	ReCheck(ctx context.Context, userID string) (*entity.VerifiedIdentity, error)
 
 	// GetMyVerificationStatus returns the current verification level and, when
@@ -122,7 +122,7 @@ type IdentityVerificationUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - NotFound: the user_id does not exist.
+	//   - NotFound: the user_id does not exist.
 	GetMyVerificationStatus(ctx context.Context, userID string) (entity.VerificationLevel, *entity.VerifiedIdentity, error)
 
 	// Delete removes the VerifiedIdentity for a user. Used for the privacy
@@ -131,7 +131,7 @@ type IdentityVerificationUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - NotFound: the user has no VerifiedIdentity to delete.
+	//   - NotFound: the user has no VerifiedIdentity to delete.
 	Delete(ctx context.Context, userID string) error
 }
 
@@ -158,60 +158,59 @@ func NewIdentityVerificationUseCase(
 	}
 }
 
-// StartVerify issues a Pocket Sign challenge for the given user.
+// StartVerify creates a Pocket Sign Stamp session for the given user.
 func (uc *identityVerificationUseCase) StartVerify(
 	ctx context.Context,
 	userID string,
 	method entity.VerificationMethod,
-) (*PocketSignChallenge, error) {
-	// Verify the user exists before issuing a challenge.
+) (string, string, error) {
+	// Verify the user exists before creating a session.
 	if _, err := uc.userRepo.Get(ctx, userID); err != nil {
-		return nil, err
+		return "", "", err
 	}
 
 	if method == entity.VerificationMethodUnspecified {
-		return nil, apperr.New(codes.InvalidArgument, "method must be specified")
+		return "", "", apperr.New(codes.InvalidArgument, "method must be specified")
 	}
 
-	challenge, err := uc.verifier.IssueChallenge(ctx, method)
+	sessionID, redirectURL, err := uc.verifier.StartVerify(ctx, userID, method)
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
 
-	uc.logger.Info(ctx, "pocket sign challenge issued",
+	uc.logger.Info(ctx, "pocket sign stamp session created",
 		slog.String("user_id", userID),
 		slog.Int("method", int(method)),
+		slog.String("session_id", sessionID),
 	)
-	return challenge, nil
+	return sessionID, redirectURL, nil
 }
 
-// CompleteVerify validates the signed response and creates a VerifiedIdentity.
-// The raw signedResponse is discarded immediately after the verifier call;
-// only the result (person key + method) is retained per the privacy spec.
+// CompleteVerify finalizes the Stamp session and creates a VerifiedIdentity.
+// Only the pocket_sign_user_id is stored; the raw certificate/response is
+// validated vendor-side and never persisted here per the privacy spec.
 func (uc *identityVerificationUseCase) CompleteVerify(
 	ctx context.Context,
 	userID, sessionID string,
-	signedResponse []byte,
 ) (*entity.VerifiedIdentity, error) {
 	// Verify the user exists.
 	if _, err := uc.userRepo.Get(ctx, userID); err != nil {
 		return nil, err
 	}
 
-	// Call the Pocket Sign Verify API. The raw signedResponse is used here and
-	// then discarded — it is never stored anywhere beyond this call.
-	result, err := uc.verifier.ValidateResponse(ctx, sessionID, signedResponse)
-	// Immediately nil the slice to signal that raw data is no longer held.
-	signedResponse = nil //nolint:ineffassign // explicit zero-out for clarity
-
+	// Call the Pocket Sign Stamp API to finalize the session. The verifier
+	// validates the nonce and cert result; only PocketSignUserID + Method cross
+	// the boundary.
+	result, err := uc.verifier.CompleteVerify(ctx, userID, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	// 3.1 / 3.2 dedupe: check whether the pocket_sign_user_id is already bound to
-	// an active account. If it belongs to a DIFFERENT user, reject with AlreadyExists
-	// and a clear recovery-path message. If it belongs to THIS user (renewal path),
-	// the existing record is deactivated and a fresh one is created.
+	// 3.1 / 3.2 dedupe: check whether the pocket_sign_user_id is already bound
+	// to an active account. If it belongs to a DIFFERENT user, reject with
+	// AlreadyExists and a clear recovery-path message. If it belongs to THIS
+	// user (renewal path), the existing record is deactivated and a fresh one
+	// is created.
 	existing, err := uc.verifiedIdentityRepo.GetByPocketSignUserID(ctx, result.PocketSignUserID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 		return nil, err
@@ -226,8 +225,8 @@ func (uc *identityVerificationUseCase) CompleteVerify(
 					"if you believe this is an error, please contact support to resolve the conflict")
 		}
 		// Renewal path (same user, same pocket_sign_user_id): deactivate the old
-		// record before creating the new one so the partial unique index constraint
-		// is not violated. The new row is inserted in the ACTIVE status.
+		// record before creating the new one so the partial unique index
+		// constraint is not violated. The new row is inserted in ACTIVE status.
 		if err := uc.verifiedIdentityRepo.UpdateStatus(ctx, existing.ID, entity.VerificationStatusNeedsReverification); err != nil {
 			return nil, err
 		}

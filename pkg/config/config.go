@@ -118,10 +118,11 @@ type ServerConfig struct {
 	// media-consumer). Signed PUT URLs point here.
 	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
 
-	// PocketSign holds the Pocket Sign Verify API credentials. When either
-	// field is empty the server falls back to the StubVerifier, which returns
-	// UNAVAILABLE on every identity verification call — the safe default for
-	// local dev before vendor onboarding completes.
+	// PocketSign holds the Pocket Sign Stamp API credentials. When any of the
+	// four required fields (BaseURL, Token, TenantID, CallbackURL) is empty
+	// the server falls back to the StubVerifier, which returns UNAVAILABLE on
+	// every identity verification call — the safe default for local dev before
+	// vendor onboarding completes.
 	PocketSign PocketSignConfig `envconfig:""`
 
 	// Stripe holds configuration for the Stripe payment provider.
@@ -842,43 +843,67 @@ func (c *BaseConfig) IsLocal() bool {
 	return c.Environment == "local"
 }
 
-// PocketSignConfig holds the Pocket Sign Verify API credentials.
-// When either BaseURL or Token is empty, the DI layer selects the StubVerifier
-// so local development and environments without a vendor contract stay inert.
+// PocketSignConfig holds the Pocket Sign Stamp API credentials.
+// When any of BaseURL, Token, TenantID, or CallbackURL is empty the DI layer
+// selects the StubVerifier so local development and environments without a
+// vendor contract stay inert.
 //
 // Environment variables:
-//   - POCKET_SIGN_BASE_URL — e.g. https://verify.test.p8n.app (sandbox) or https://verify.p8n.app (prod)
-//   - POCKET_SIGN_TOKEN    — Bearer token from the Pocket Sign Platform Verify tenant screen
+//   - POCKET_SIGN_BASE_URL      — e.g. https://verify.mock.p8n.app (mock), https://verify.test.p8n.app (sandbox), or https://verify.p8n.app (prod)
+//   - POCKET_SIGN_TOKEN         — Bearer token from the Pocket Sign Platform Stamp tenant screen
+//   - POCKET_SIGN_TENANT_ID     — Tenant ID for the X-Tenant-ID header required by Stamp
+//   - POCKET_SIGN_CALLBACK_URL  — Frontend callback URL the PocketSign app redirects to after card reading (must be https)
 type PocketSignConfig struct {
-	// BaseURL is the Pocket Sign Verify API base URL.
-	// Mock:       https://verify.mock.p8n.app
-	// Test (sandbox): https://verify.test.p8n.app
-	// Production: https://verify.p8n.app
+	// BaseURL is the Pocket Sign Stamp API base URL.
+	// Mock:            https://verify.mock.p8n.app
+	// Test (sandbox):  https://verify.test.p8n.app
+	// Production:      https://verify.p8n.app
 	BaseURL string `envconfig:"POCKET_SIGN_BASE_URL"`
 
-	// Token is the Bearer token issued by the Pocket Sign Platform Verify
+	// Token is the Bearer token issued by the Pocket Sign Platform Stamp
 	// tenant screen. Sourced from a GSM secret in non-local environments.
 	Token string `envconfig:"POCKET_SIGN_TOKEN"`
+
+	// TenantID is the Pocket Sign tenant identifier sent as the X-Tenant-ID
+	// request header on every Stamp API call. Required alongside Token.
+	TenantID string `envconfig:"POCKET_SIGN_TENANT_ID"`
+
+	// CallbackURL is the frontend URL that the PocketSign app redirects back to
+	// after the fan completes card reading. It is sent to CreateSession as the
+	// callback_url field. Must be an https URL.
+	CallbackURL string `envconfig:"POCKET_SIGN_CALLBACK_URL"`
 }
 
-// IsConfigured reports whether both the base URL and token are set, i.e. the
-// real Pocket Sign Verify client should be used instead of the stub.
+// IsConfigured reports whether all four required fields are non-empty, i.e. the
+// real Pocket Sign Stamp client should be used instead of the stub.
 func (c PocketSignConfig) IsConfigured() bool {
-	return c.BaseURL != "" && c.Token != ""
+	return c.BaseURL != "" && c.Token != "" && c.TenantID != "" && c.CallbackURL != ""
 }
 
 // Validate guards against a partial or bogus Pocket Sign configuration that
-// would otherwise ship silently (a half-config falls back to the stub with no
-// signal; a mistyped URL points traffic at the wrong host). It requires that
-// BaseURL and Token are set together, and that BaseURL is an https URL on the
-// Pocket Sign domain (*.p8n.app). An entirely empty config is valid (verification
-// is a lane; the stub is used).
+// would otherwise ship silently. It requires that all four fields are set
+// together, and that BaseURL is an https URL on the Pocket Sign domain
+// (*.p8n.app), and that CallbackURL is also https. An entirely empty config is
+// valid (verification is a lane; the stub is used).
 func (c PocketSignConfig) Validate() error {
-	if c.BaseURL == "" && c.Token == "" {
+	allEmpty := c.BaseURL == "" && c.Token == "" && c.TenantID == "" && c.CallbackURL == ""
+	if allEmpty {
 		return nil // unconfigured — stub verifier is used.
 	}
-	if (c.BaseURL == "") != (c.Token == "") {
-		return fmt.Errorf("POCKET_SIGN_BASE_URL and POCKET_SIGN_TOKEN must be set together (got BaseURL set=%t, Token set=%t)", c.BaseURL != "", c.Token != "")
+
+	// Partial configuration is a misconfiguration — all four fields must be
+	// set together or not at all.
+	if c.BaseURL == "" {
+		return fmt.Errorf("POCKET_SIGN_BASE_URL must be set when other POCKET_SIGN_* fields are present")
+	}
+	if c.Token == "" {
+		return fmt.Errorf("POCKET_SIGN_TOKEN must be set when other POCKET_SIGN_* fields are present")
+	}
+	if c.TenantID == "" {
+		return fmt.Errorf("POCKET_SIGN_TENANT_ID must be set when other POCKET_SIGN_* fields are present")
+	}
+	if c.CallbackURL == "" {
+		return fmt.Errorf("POCKET_SIGN_CALLBACK_URL must be set when other POCKET_SIGN_* fields are present")
 	}
 
 	u, err := url.Parse(c.BaseURL)
@@ -891,6 +916,15 @@ func (c PocketSignConfig) Validate() error {
 	if host := u.Hostname(); host != "p8n.app" && !strings.HasSuffix(host, ".p8n.app") {
 		return fmt.Errorf("POCKET_SIGN_BASE_URL host %q is not a Pocket Sign endpoint (expected *.p8n.app); refusing to send Bearer token to an unexpected host", host)
 	}
+
+	cu, err := url.Parse(c.CallbackURL)
+	if err != nil {
+		return fmt.Errorf("invalid POCKET_SIGN_CALLBACK_URL: %w", err)
+	}
+	if cu.Scheme != "https" {
+		return fmt.Errorf("POCKET_SIGN_CALLBACK_URL must be https, got %q", cu.Scheme)
+	}
+
 	return nil
 }
 
