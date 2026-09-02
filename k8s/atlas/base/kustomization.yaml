@@ -92,3 +92,4 @@ configMapGenerator:
   - migrations/20260826050000_add_series_media.sql
   - migrations/20260827000000_rework_media_model.sql
   - migrations/20260901000000_grant_media_consumer_app_schema.sql
+  - migrations/20260902000000_create_verified_identities.sql

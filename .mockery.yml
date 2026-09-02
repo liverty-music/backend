@@ -33,6 +33,8 @@ packages:
       OrganizerProvisioner:
       ConcertAuthoringUseCase:
       ImageStorer:
+      IdentityVerificationUseCase:
+      PocketSignVerifier:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -62,6 +64,7 @@ packages:
       SuppressedConcertRepository:
       NotificationRepository:
       OrganizerRepository:
+      VerifiedIdentityRepository:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:
