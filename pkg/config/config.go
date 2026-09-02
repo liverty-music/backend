@@ -123,6 +123,16 @@ type ServerConfig struct {
 	// UNAVAILABLE on every identity verification call — the safe default for
 	// local dev before vendor onboarding completes.
 	PocketSign PocketSignConfig `envconfig:""`
+
+	// Stripe holds configuration for the Stripe payment provider.
+	// The secret key value is provisioned externally via GCP Secret Manager /
+	// ESO (ExternalSecretOperator) and injected as the STRIPE_SECRET_KEY
+	// environment variable. Stripe KYC and live-mode key activation are
+	// prerequisites handled outside this codebase; see the cloud-provisioning
+	// repo for the ESO/Secret Manager resource definitions. When StripeSecretKey
+	// is empty the binary uses a no-op payment adapter that returns Unavailable
+	// so local development can start without a Stripe account.
+	Stripe StripeConfig `envconfig:""`
 }
 
 // JobConfig is the configuration for batch job workloads (e.g., concert-discovery CronJob).
@@ -908,4 +918,18 @@ type PostHogConfig struct {
 	// which case the FeatureFlagEvaluator is not constructed and all
 	// flags resolve to their call-site defaults.
 	PersonalAPIKey string `envconfig:"POSTHOG_PERSONAL_API_KEY"`
+}
+
+// StripeConfig holds configuration for the Stripe payment provider.
+//
+// The secret key value is sourced at runtime from GCP Secret Manager via ESO
+// and injected into the pod as STRIPE_SECRET_KEY. Stripe KYC and live-mode
+// activation are external prerequisites; see the cloud-provisioning repo.
+// When SecretKey is empty the binary uses a no-op payment adapter.
+type StripeConfig struct {
+	// SecretKey is the Stripe secret API key used to authenticate server-side
+	// requests (PaymentIntent create/retrieve/cancel/capture). Must be the
+	// sk_live_* key in production and sk_test_* in dev/staging. Left empty in
+	// local development to disable payment processing.
+	SecretKey string `envconfig:"STRIPE_SECRET_KEY"`
 }

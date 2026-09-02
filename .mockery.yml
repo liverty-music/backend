@@ -35,6 +35,9 @@ packages:
       ImageStorer:
       IdentityVerificationUseCase:
       PocketSignVerifier:
+      LotteryUseCase:
+      EventPublishStatePort:
+      PaymentAuthorizationPort:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -65,6 +68,8 @@ packages:
       NotificationRepository:
       OrganizerRepository:
       VerifiedIdentityRepository:
+      LotteryPhaseRepository:
+      TicketApplicationRepository:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:
