@@ -212,11 +212,25 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerUC, eventPublisher, logger)
 
-	// Identity eKYC — Pocket Sign Verify stub (vendor-blocked until onboarding;
-	// returns UNAVAILABLE on every call so the service is safe to register now).
-	// TODO: replace StubVerifier with the real Pocket Sign Verify API client
-	// after onboarding (identity-ekyc-jpki Section 0).
-	pocketSignVerifier := infrapocketsign.NewStubVerifier()
+	// Identity eKYC — select the real Pocket Sign Verify API client when
+	// POCKET_SIGN_BASE_URL and POCKET_SIGN_TOKEN are both configured; fall back
+	// to StubVerifier (returns UNAVAILABLE) when unconfigured so local dev and
+	// pre-onboarding environments stay safe and inert.
+	var pocketSignVerifier usecase.PocketSignVerifier
+	psConfig := infrapocketsign.VerifyClientConfig{
+		BaseURL: cfg.PocketSign.BaseURL,
+		Token:   cfg.PocketSign.Token,
+	}
+	if psConfig.IsConfigured() {
+		psHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+		pocketSignVerifier = infrapocketsign.NewVerifyClient(psConfig, psHTTPClient, logger)
+		logger.Info(ctx, "pocket sign verify client initialized",
+			slog.String("base_url", cfg.PocketSign.BaseURL),
+		)
+	} else {
+		pocketSignVerifier = infrapocketsign.NewStubVerifier()
+		logger.Info(ctx, "pocket sign verify client not configured; using stub (identity verification unavailable)")
+	}
 	identityVerificationUC := usecase.NewIdentityVerificationUseCase(verifiedIdentityRepo, userRepo, pocketSignVerifier, logger)
 	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, organizerUC, imageStorer, eventPublisher, logger)
 

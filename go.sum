@@ -1,7 +1,7 @@
 buf.build/gen/go/bufbuild/bufplugin/protocolbuffers/go v1.36.9-20250718181942-e35f9b667443.1 h1:HiLfreYRsqycF5QDlsnvSQOnl4tvhBoROl8+DkbaphI=
 buf.build/gen/go/bufbuild/bufplugin/protocolbuffers/go v1.36.9-20250718181942-e35f9b667443.1/go.mod h1:WSxC6zKCpqVRcGZCpOgVwkATp9XBIleoAdSAnkq7dhw=
-buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20250717185734-6c6e0d3c608e.1 h1:jmsddqA137GdygleDw+MOPQjCWaWSudK/t7cYqOICaE=
-buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20250717185734-6c6e0d3c608e.1/go.mod h1:TCt1lluMFnctISJXvkIQ4x3ABrPuUKCWKyjKdkJNBpw=
+buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260709200747-435963d16310.1 h1:6nlcxMOui23ZRVAfJM451duu79P1npA5JRdZqMilrrQ=
+buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260709200747-435963d16310.1/go.mod h1:TCt1lluMFnctISJXvkIQ4x3ABrPuUKCWKyjKdkJNBpw=
 buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250903170917-c4be0f57e197.1 h1:isqFuFhL6JRd7+KF/vivWqZGJMCaTuAccZIWwneCcqE=
 buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250903170917-c4be0f57e197.1/go.mod h1:eGjb9P6sl1irS46NKyXnxkyozT2aWs3BF4tbYWQuCsw=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.9-20250903170917-c4be0f57e197.1 h1:q+tABqEH2Cpcp8fO9TBZlvKok7zorHGy+/UyywXaAKo=
@@ -12,6 +12,10 @@ buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20260902025722
 buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20260902025722-26d5641c4b30.1/go.mod h1:/Y+V/StEkKUAGomQdikurvLbcgab3HicYp96DbIOrCc=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1 h1:KuP+b+in6LGh2ukof5KgDCD8hPXotEq6EVOo13Wg1pE=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1/go.mod h1:dV1Kz6zdmyXt7QWm5OXby44OFpyLemllUDBUG5HMLio=
+buf.build/gen/go/pocketsign/apis/connectrpc/go v1.20.0-20260826021924-0ff29b2b0335.1 h1:zyTVINLYxfjytemCnh6wZuO0U4Vn6AjH10yylHtnvm4=
+buf.build/gen/go/pocketsign/apis/connectrpc/go v1.20.0-20260826021924-0ff29b2b0335.1/go.mod h1:Ig4TlBb4TKouChafNZH0njpSlodRch+IgAdBo25NzRY=
+buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20260826021924-0ff29b2b0335.1 h1:/QNc0EACMH188NoNttM8lS4UQgdP/CObBCe2WSgWfWc=
+buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20260826021924-0ff29b2b0335.1/go.mod h1:mJHKkkkDyJOxiRm6tss//jpPY82yVXMzW45eEhKzb+o=
 buf.build/go/app v0.1.0 h1:nlqD/h0rhIN73ZoiDElprrPiO2N6JV+RmNK34K29Ihg=
 buf.build/go/app v0.1.0/go.mod h1:0XVOYemubVbxNXVY0DnsVgWeGkcbbAvjDa1fmhBC+Wo=
 buf.build/go/bufplugin v0.9.0 h1:ktZJNP3If7ldcWVqh46XKeiYJVPxHQxCfjzVQDzZ/lo=
