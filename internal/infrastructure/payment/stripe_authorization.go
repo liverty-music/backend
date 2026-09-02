@@ -15,6 +15,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
@@ -23,6 +24,13 @@ import (
 	stripe "github.com/stripe/stripe-go/v81"
 	"github.com/stripe/stripe-go/v81/paymentintent"
 )
+
+// stripeHTTPTimeout bounds every Stripe API call. The default http.Client has
+// no timeout, so a hung connection would block the caller — and, for the draw
+// job, stall the entire winner-capture batch — indefinitely. Context deadlines
+// are propagated in addition to this ceiling (see the per-method params.Context
+// assignments).
+const stripeHTTPTimeout = 30 * time.Second
 
 // Compile-time interface compliance check.
 var _ usecase.PaymentAuthorizationPort = (*StripeAuthorizationPort)(nil)
@@ -41,7 +49,7 @@ type StripeAuthorizationPort struct {
 // development without a Stripe account) so that the binary starts cleanly.
 func NewStripeAuthorizationPort(secretKey string, logger *logging.Logger) *StripeAuthorizationPort {
 	backend := stripe.GetBackendWithConfig(stripe.APIBackend, &stripe.BackendConfig{
-		HTTPClient: &http.Client{},
+		HTTPClient: &http.Client{Timeout: stripeHTTPTimeout},
 	})
 	return &StripeAuthorizationPort{
 		client: paymentintent.Client{
@@ -72,6 +80,7 @@ func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amoun
 			AllowRedirects: stripe.String(string(stripe.PaymentIntentAutomaticPaymentMethodsAllowRedirectsNever)),
 		},
 	}
+	params.Context = ctx
 
 	pi, err := p.client.New(params)
 	if err != nil {
@@ -97,6 +106,7 @@ func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amoun
 // for amount/currency mismatch or unaccepted card brand.
 func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, paymentIntentRef string, expectedAmountJPY int64) error {
 	params := &stripe.PaymentIntentParams{}
+	params.Context = ctx
 	params.AddExpand("latest_charge")
 
 	pi, err := p.client.Get(paymentIntentRef, params)
@@ -137,8 +147,16 @@ func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, payme
 //
 // It cancels the PaymentIntent, releasing the authorization hold on the fan's
 // card. Used when the fan withdraws or the draw determines a loss.
+//
+// The idempotency key is deterministic in the PaymentIntent ref, so a retried
+// cancel (e.g. after a network blip mid-draw) is a safe no-op that returns the
+// original result rather than erroring on an already-cancelled intent.
 func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, paymentIntentRef string) error {
-	_, err := p.client.Cancel(paymentIntentRef, nil)
+	params := &stripe.PaymentIntentCancelParams{}
+	params.Context = ctx
+	params.SetIdempotencyKey("lottery-cancel:" + paymentIntentRef)
+
+	_, err := p.client.Cancel(paymentIntentRef, params)
 	if err != nil {
 		return toPaymentAppErr(ctx, err, "failed to cancel PaymentIntent", p.logger)
 	}
@@ -153,8 +171,17 @@ func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, payme
 //
 // It captures the held authorization, charging the fan's card. Used by the
 // draw job when an application wins.
+//
+// The idempotency key is deterministic in the PaymentIntent ref. The draw job
+// captures winners in a batch; if it retries after a transient failure, a
+// re-capture of an already-captured intent returns the original success instead
+// of a duplicate-charge attempt or a spurious error.
 func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paymentIntentRef string) error {
-	_, err := p.client.Capture(paymentIntentRef, nil)
+	params := &stripe.PaymentIntentCaptureParams{}
+	params.Context = ctx
+	params.SetIdempotencyKey("lottery-capture:" + paymentIntentRef)
+
+	_, err := p.client.Capture(paymentIntentRef, params)
 	if err != nil {
 		return toPaymentAppErr(ctx, err, "failed to capture PaymentIntent", p.logger)
 	}
