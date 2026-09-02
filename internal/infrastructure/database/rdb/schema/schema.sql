@@ -792,3 +792,84 @@ COMMENT ON COLUMN _series_consolidation_backup.entity IS 'Which table the row sn
 COMMENT ON COLUMN _series_consolidation_backup.id IS 'Primary key of the snapshotted row in its source table';
 COMMENT ON COLUMN _series_consolidation_backup.old_series_id IS 'Pre-migration series_id (for event/sales_phase rows) or the series own id (for series rows)';
 COMMENT ON COLUMN _series_consolidation_backup.old_type IS 'Pre-migration series.type (series rows only; NULL otherwise)';
+
+-- ============================================================
+-- Lottery tables (organizer-authored lottery sales)
+-- ============================================================
+
+-- Lottery sales phases: organizer-configured lottery windows attached to a
+-- published concert event. Separate from the Gemini-discovered sales_phases
+-- table: this is fully first-party and carries all parameters needed to run
+-- the draw algorithm.
+CREATE TABLE IF NOT EXISTS lottery_sales_phases (
+    id                        UUID    PRIMARY KEY,
+    event_id                  UUID    NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    open_at                   TIMESTAMPTZ NOT NULL,
+    close_at                  TIMESTAMPTZ NOT NULL,
+    ticket_capacity           INT     NOT NULL,
+    max_tickets_per_application INT   NOT NULL,
+    ticket_price              BIGINT  NOT NULL,
+    drawn_at                  TIMESTAMPTZ,
+    CONSTRAINT chk_lottery_sales_phases_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_lottery_sales_phases_capacity_positive CHECK (ticket_capacity > 0),
+    CONSTRAINT chk_lottery_sales_phases_max_positive CHECK (max_tickets_per_application > 0),
+    CONSTRAINT chk_lottery_sales_phases_price_positive CHECK (ticket_price > 0),
+    CONSTRAINT chk_lottery_sales_phases_window CHECK (close_at > open_at)
+);
+
+COMMENT ON TABLE lottery_sales_phases IS 'Organizer-configured lottery sales windows for published concert events. Each row carries the full lottery parameters (capacity, max-per-application, price) needed to run the draw.';
+COMMENT ON COLUMN lottery_sales_phases.id IS 'Unique phase identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN lottery_sales_phases.event_id IS 'Published concert event this lottery phase is attached to';
+COMMENT ON COLUMN lottery_sales_phases.open_at IS 'When the application window opens';
+COMMENT ON COLUMN lottery_sales_phases.close_at IS 'When the application window closes. Must be after open_at.';
+COMMENT ON COLUMN lottery_sales_phases.ticket_capacity IS 'Total tickets available in this phase. Must be positive.';
+COMMENT ON COLUMN lottery_sales_phases.max_tickets_per_application IS 'Maximum companion-group size a single fan can request. Must be positive.';
+COMMENT ON COLUMN lottery_sales_phases.ticket_price IS 'Per-ticket price in JPY (whole yen). Must be positive. Authorization amount = ticket_price × requested_ticket_count.';
+COMMENT ON COLUMN lottery_sales_phases.drawn_at IS 'Timestamp when the draw ran for this phase. NULL means the draw has not yet run. Set atomically by PersistDrawOutcome; acts as an idempotency guard: the draw sweeper skips phases where drawn_at IS NOT NULL.';
+
+CREATE INDEX IF NOT EXISTS idx_lottery_sales_phases_event_id ON lottery_sales_phases(event_id);
+COMMENT ON INDEX idx_lottery_sales_phases_event_id IS 'Optimizes listing lottery phases for a given event';
+
+-- Ticket applications: a fan's entry into a lottery sales phase. One row per
+-- application attempt; re-application after withdrawal creates a fresh row.
+-- The partial unique index enforces at most one active (non-withdrawn)
+-- application per (phase_id, applicant_id).
+CREATE TABLE IF NOT EXISTS ticket_applications (
+    id                    UUID    PRIMARY KEY,
+    phase_id              UUID    NOT NULL REFERENCES lottery_sales_phases(id) ON DELETE CASCADE,
+    applicant_id          UUID    NOT NULL,
+    requested_ticket_count INT    NOT NULL,
+    applicant_full_name   TEXT    NOT NULL,
+    applicant_phone_number TEXT   NOT NULL,
+    payment_intent_ref    TEXT    NOT NULL,
+    state                 SMALLINT NOT NULL,
+    draw_sequence         BIGINT,
+    CONSTRAINT chk_ticket_applications_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_ticket_applications_count_positive CHECK (requested_ticket_count > 0),
+    CONSTRAINT chk_ticket_applications_state CHECK (state IN (1, 2, 3, 5))
+);
+
+COMMENT ON TABLE ticket_applications IS 'Fan applications to a lottery sales phase. One row per attempt; re-application after withdrawal creates a fresh row. State: 1=Applied, 2=Won, 3=Lost, 5=Withdrawn.';
+COMMENT ON COLUMN ticket_applications.id IS 'Unique application identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN ticket_applications.phase_id IS 'The lottery phase this application belongs to';
+COMMENT ON COLUMN ticket_applications.applicant_id IS 'The fan user ID (references users.id at application layer; no FK to survive user lifecycle independently)';
+COMMENT ON COLUMN ticket_applications.requested_ticket_count IS 'Companion-group size (all-or-nothing allocation). Must be positive.';
+COMMENT ON COLUMN ticket_applications.applicant_full_name IS 'Applicant legal name for 本人確認 at the venue';
+COMMENT ON COLUMN ticket_applications.applicant_phone_number IS 'Contact phone number for 本人確認 at the venue';
+COMMENT ON COLUMN ticket_applications.payment_intent_ref IS 'Stripe PaymentIntent ID for the authorization hold placed at apply time';
+COMMENT ON COLUMN ticket_applications.state IS 'Lifecycle state: 1=Applied (hold in place), 2=Won (captured), 3=Lost (hold released), 5=Withdrawn (fan-cancelled, hold released)';
+COMMENT ON COLUMN ticket_applications.draw_sequence IS 'Zero-based position in the draw shuffle. NULL until the draw runs; used to order the loser waitlist for official-resale.';
+
+-- Partial unique index: at most one active application per (phase_id, applicant_id).
+-- "Active" means state IN (1=Applied, 2=Won, 3=Lost) — i.e. NOT Withdrawn (5).
+-- A Withdrawn row is excluded from the index so the fan can re-apply after withdrawal.
+-- Won and Lost are included because they represent a concluded draw outcome that
+-- still uniquely identifies this fan's participation in the phase.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_applications_active
+    ON ticket_applications(phase_id, applicant_id)
+    WHERE state IN (1, 2, 3);
+
+COMMENT ON INDEX uq_ticket_applications_active IS 'At most one active (Applied/Won/Lost) application per (phase, applicant). Withdrawn (5) is excluded so the fan can re-apply. Won/Lost are included: a concluded draw outcome still uniquely identifies participation.';
+
+CREATE INDEX IF NOT EXISTS idx_ticket_applications_phase_id ON ticket_applications(phase_id);
+COMMENT ON INDEX idx_ticket_applications_phase_id IS 'Optimizes listing all applications for a given lottery phase (draw batch load)';

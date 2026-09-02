@@ -13,6 +13,7 @@ import (
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
 	identityconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity/v1/identityv1connect"
+	lotteryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery/v1/lotteryv1connect"
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
@@ -34,6 +35,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	infrapayment "github.com/liverty-music/backend/internal/infrastructure/payment"
 	infrapocketsign "github.com/liverty-music/backend/internal/infrastructure/pocketsign"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
@@ -95,6 +97,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketEmailRepo := rdb.NewTicketEmailRepository(db)
 	organizerRepo := rdb.NewOrganizerRepository(db)
 	verifiedIdentityRepo := rdb.NewVerifiedIdentityRepository(db)
+	lotteryPhaseRepo := rdb.NewLotteryPhaseRepository(db)
+	ticketApplicationRepo := rdb.NewTicketApplicationRepository(db)
+	eventPublishState := rdb.NewEventPublishStateRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -233,6 +238,24 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	identityVerificationUC := usecase.NewIdentityVerificationUseCase(verifiedIdentityRepo, userRepo, pocketSignVerifier, logger)
 	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, organizerUC, imageStorer, eventPublisher, logger)
+
+	// Payment authorization port: use the real Stripe adapter when a secret key
+	// is configured, otherwise a no-op that returns Unavailable so local
+	// development starts cleanly without a Stripe account. The secret key value
+	// is provisioned externally via GCP Secret Manager / ESO and injected as
+	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
+	var paymentPort usecase.PaymentAuthorizationPort
+	if cfg.Stripe.SecretKey != "" {
+		paymentPort = infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)
+	} else {
+		paymentPort = infrapayment.NewNoopAuthorizationPort(logger)
+	}
+	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, paymentPort, time.Now, logger)
+	// Start the periodic draw sweeper. It runs in every workload (fan-api and
+	// admin-api share the same binary) because the draw is idempotent: concurrent
+	// ticks from multiple pods are safe — only the first to commit PersistDrawOutcome
+	// succeeds; subsequent attempts find drawn_at already set and skip the phase.
+	startLotteryDrawSweeper(ctx, lotteryUC, logger)
 
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
@@ -379,6 +402,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		})
 	}
 
+	// Fan-facing LotteryService: CreateAuthorization, Apply, WithdrawApplication,
+	// GetMyApplication, GetResult. Authenticated by the standard auth interceptor.
+	handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
+		return lotteryv1connect.NewLotteryServiceHandler(
+			rpc.NewLotteryHandler(lotteryUC, userRepo, logger),
+			opts...,
+		)
+	})
+
 	// ConcertService requires a longer handler timeout because Gemini API + Google Search
 	// grounding takes 25-110s per call.
 	longTimeoutHandlers := []server.LongTimeoutRPCHandler{
@@ -434,6 +466,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerconnect.NewConcertServiceHandler(
 				rpc.NewOrganizerConcertHandler(concertAuthoringUC, organizerUC, mediaUC, logger),
+				opts...,
+			)
+		},
+		// Organizer-facing LotteryService: ConfigureLotteryPhase, GetLotteryPhaseStatus.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return organizerconnect.NewLotteryServiceHandler(
+				rpc.NewOrganizerLotteryHandler(lotteryUC, organizerUC, logger),
 				opts...,
 			)
 		},
