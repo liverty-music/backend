@@ -12,6 +12,7 @@ import (
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
+	identityconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity/v1/identityv1connect"
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
@@ -33,6 +34,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	infrapocketsign "github.com/liverty-music/backend/internal/infrastructure/pocketsign"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
@@ -92,6 +94,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	ticketEmailRepo := rdb.NewTicketEmailRepository(db)
 	organizerRepo := rdb.NewOrganizerRepository(db)
+	verifiedIdentityRepo := rdb.NewVerifiedIdentityRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -208,6 +211,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		}
 	}
 	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerUC, eventPublisher, logger)
+
+	// Identity eKYC — Pocket Sign Verify stub (vendor-blocked until onboarding;
+	// returns UNAVAILABLE on every call so the service is safe to register now).
+	// TODO: replace StubVerifier with the real Pocket Sign Verify API client
+	// after onboarding (identity-ekyc-jpki Section 0).
+	pocketSignVerifier := infrapocketsign.NewStubVerifier()
+	identityVerificationUC := usecase.NewIdentityVerificationUseCase(verifiedIdentityRepo, userRepo, pocketSignVerifier, logger)
 	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, organizerUC, imageStorer, eventPublisher, logger)
 
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
@@ -335,6 +345,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketjourneyconnect.NewTicketJourneyServiceHandler(
 				rpc.NewTicketJourneyHandler(ticketJourneyUC, userRepo, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return identityconnect.NewIdentityVerificationServiceHandler(
+				rpc.NewIdentityVerificationHandler(identityVerificationUC, userUC, logger),
 				opts...,
 			)
 		},
