@@ -47,6 +47,37 @@ func TestMemoryCache_Delete(t *testing.T) {
 	})
 }
 
+func TestMemoryCache_GetAndDelete(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := cache.NewMemoryCache(1 * time.Hour)
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
+
+		c.Set("key1", "value1")
+
+		// First call returns the value and removes it (single-use).
+		assert.Equal(t, "value1", c.GetAndDelete("key1"))
+		// Second call finds nothing — the entry was consumed.
+		assert.Nil(t, c.GetAndDelete("key1"))
+		assert.Nil(t, c.Get("key1"))
+
+		// Absent key returns nil.
+		assert.Nil(t, c.GetAndDelete("nonexistent"))
+	})
+}
+
+func TestMemoryCache_GetAndDelete_Expired(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := cache.NewMemoryCache(1 * time.Hour)
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
+
+		c.Set("key1", "value1")
+		time.Sleep(2 * time.Hour) // synctest fast-forwards; entry is now expired.
+
+		// Expired entry returns nil (and is removed).
+		assert.Nil(t, c.GetAndDelete("key1"))
+	})
+}
+
 func TestMemoryCache_Clear(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := cache.NewMemoryCache(1 * time.Hour)

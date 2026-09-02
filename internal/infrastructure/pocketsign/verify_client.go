@@ -124,6 +124,14 @@ func NewVerifyClient(cfg VerifyClientConfig, httpClient *http.Client, logger *lo
 	}
 }
 
+// Close releases the client's resources — specifically it stops the nonce
+// cache's background cleanup goroutine. Wire it into the shutdown drain phase
+// (like the other MemoryCache instances) so graceful shutdown is complete and
+// no goroutine leaks. Safe to call once.
+func (c *VerifyClient) Close() error {
+	return c.nonceCache.Close()
+}
+
 // IssueChallenge generates a local opaque session id and random nonce.
 //
 // No Pocket Sign API call is made. The nonce is stored in a short-TTL
@@ -137,22 +145,24 @@ func NewVerifyClient(cfg VerifyClientConfig, httpClient *http.Client, logger *lo
 // Possible errors:
 //   - Unavailable: random source failure (extremely rare).
 func (c *VerifyClient) IssueChallenge(_ context.Context, _ entity.VerificationMethod) (*usecase.PocketSignChallenge, error) {
-	sessionID, err := randomHex(16)
+	sessionBytes, err := randomBytes(16)
 	if err != nil {
 		return nil, apperr.Wrap(err, codes.Unavailable, "failed to generate session id")
 	}
+	sessionID := hex.EncodeToString(sessionBytes)
 
 	// Generate a 32-byte nonce. The client passes it to the デジタル認証アプリ
 	// signing-transaction-start API as `data`; on return the signed JWE and
 	// this nonce's digest are submitted together to Pocket Sign Verify.
-	nonceBytes := make([]byte, 32)
-	if _, err := rand.Read(nonceBytes); err != nil {
+	nonceBytes, err := randomBytes(32)
+	if err != nil {
 		return nil, apperr.Wrap(err, codes.Unavailable, "failed to generate nonce")
 	}
 
-	// Store the hex-encoded nonce in the short-TTL cache so ValidateResponse
-	// can look it up. The TTL matches challengeTTL (10 min).
-	c.nonceCache.Set(sessionID, hex.EncodeToString(nonceBytes))
+	// Store the raw nonce bytes in the short-TTL cache so ValidateResponse can
+	// look them up (TTL = challengeTTL, 10 min). Stored as []byte directly —
+	// MemoryCache holds `any`, so no encode/decode round-trip is needed.
+	c.nonceCache.Set(sessionID, nonceBytes)
 
 	return &usecase.PocketSignChallenge{
 		SessionID: sessionID,
@@ -177,26 +187,29 @@ func (c *VerifyClient) IssueChallenge(_ context.Context, _ entity.VerificationMe
 //   - Unavailable: Pocket Sign API unreachable, authentication failed, or
 //     any other vendor-side error.
 func (c *VerifyClient) ValidateResponse(ctx context.Context, sessionID string, signedResponse []byte) (*usecase.PocketSignResult, error) {
-	// Look up and consume the stored nonce; reject unknown/expired sessions.
-	rawNonce := c.nonceCache.Get(sessionID)
+	// Atomically look up AND consume the stored nonce in a single locked op so
+	// two concurrent calls with the same session id cannot both proceed (a
+	// separate Get+Delete would leave a replay race window). Unknown/expired
+	// (or already-consumed) sessions are rejected.
+	rawNonce := c.nonceCache.GetAndDelete(sessionID)
 	if rawNonce == nil {
 		return nil, apperr.New(codes.InvalidArgument,
 			"unknown or expired session id; the challenge may have timed out (10 min limit)")
 	}
-	c.nonceCache.Delete(sessionID) // consume once — replay protection.
-
-	nonceHex, ok := rawNonce.(string)
+	nonceBytes, ok := rawNonce.([]byte)
 	if !ok {
-		return nil, apperr.New(codes.Unavailable, "internal nonce cache type mismatch")
+		return nil, apperr.New(codes.Internal, "internal nonce cache type mismatch")
 	}
 
-	nonceBytes, err := hex.DecodeString(nonceHex)
-	if err != nil {
-		return nil, apperr.Wrap(err, codes.Unavailable, "internal nonce decode error")
-	}
-
-	// data = base64(sha256(nonce)) — matches the デジタル認証アプリ signing-
-	// transaction-start `data` field that the frontend submits to the app.
+	// data is the value the デジタル認証アプリ signing-transaction-start API was
+	// given (the signed-over material). It MUST equal what the app actually
+	// signed, or VerifyForDigitalIdentificationApp rejects every request.
+	//
+	// WARNING (unverified): the exact form — base64(sha256(nonce)) vs the raw
+	// nonce, standard vs URL base64 — is NOT yet confirmed against the live
+	// signing-transaction-start contract (the frontend flow is unbuilt). This
+	// MUST be validated against verify.test.p8n.app with a real signature
+	// before trusting; the frontend and this transform must agree exactly.
 	digest := sha256.Sum256(nonceBytes)
 	data := base64.StdEncoding.EncodeToString(digest[:])
 
@@ -227,7 +240,15 @@ func (c *VerifyClient) ValidateResponse(ctx context.Context, sessionID string, s
 				"ensure identify_user=true and that the certificate was issued more than 90 minutes ago")
 	}
 
-	certType := body.GetCertificate().GetType()
+	// GetCertificate is nil-safe (a nil *Certificate would yield TYPE_UNSPECIFIED
+	// and a misleading "unsupported certificate type" error), so surface a
+	// missing certificate explicitly instead.
+	cert := body.GetCertificate()
+	if cert == nil {
+		return nil, apperr.New(codes.InvalidArgument,
+			"pocket sign verify response contained no certificate")
+	}
+	certType := cert.GetType()
 	method, err := methodFromCertType(certType)
 	if err != nil {
 		return nil, err
@@ -266,8 +287,27 @@ func (c *VerifyClient) Recheck(ctx context.Context, pocketSignUserID string) (*u
 		return nil, mapConnectError(err, "pocket sign recheck")
 	}
 
+	// Only a CONFIRMED bad state (revoked / expired) flags the identity for
+	// re-verification. STATE_UNKNOWN (not revoked, but the validity window could
+	// not be confirmed via CRL) and STATE_UNSPECIFIED (unset/zero — a possible
+	// vendor hiccup) are INDETERMINATE, not confirmed-bad: flagging them would
+	// force spurious re-KYC on an otherwise-valid user for a transient
+	// lookup failure. Leave those as not-needing-reverification and log.
 	state := resp.Msg.GetCertificateState()
-	needsReverification := state != verifyv2.Certificate_STATE_GOOD
+	var needsReverification bool
+	switch state {
+	case verifyv2.Certificate_STATE_REVOKED, verifyv2.Certificate_STATE_EXPIRED:
+		needsReverification = true
+	case verifyv2.Certificate_STATE_GOOD:
+		needsReverification = false
+	default:
+		// STATE_UNKNOWN / STATE_UNSPECIFIED — indeterminate.
+		needsReverification = false
+		c.logger.Warn(ctx, "pocket sign recheck returned indeterminate state; not flagging reverification",
+			slog.String("pocket_sign_user_id", pocketSignUserID),
+			slog.String("certificate_state", state.String()),
+		)
+	}
 
 	c.logger.Info(ctx, "pocket sign recheck completed",
 		slog.String("pocket_sign_user_id", pocketSignUserID),
@@ -312,20 +352,22 @@ func mapConnectError(err error, op string) error {
 	case connect.CodeFailedPrecondition:
 		return apperr.Wrap(err, codes.FailedPrecondition, op+": certificate revoked or expired")
 	case connect.CodeUnauthenticated:
-		// 401 from Pocket Sign means our Bearer token is misconfigured.
-		// Surface as Unavailable so the caller sees "service unavailable"
-		// rather than an auth-related error directed at the end user.
-		return apperr.Wrap(err, codes.Unavailable, op+": pocket sign API authentication failed; check POCKET_SIGN_TOKEN")
+		// 401 from Pocket Sign means OUR Bearer token is wrong/expired/rotated —
+		// a server-side misconfiguration, not an end-user auth problem and NOT
+		// transient. Map to Internal (non-retryable, HTTP 500) so retry/circuit
+		// logic and alerting treat it as a config error to fix, not a blip to
+		// retry forever. The end-user still sees a generic error, never "401".
+		return apperr.Wrap(err, codes.Internal, op+": pocket sign API authentication failed; check POCKET_SIGN_TOKEN")
 	default:
 		return apperr.Wrap(err, codes.Unavailable, op+": pocket sign API unavailable")
 	}
 }
 
-// randomHex returns a hex-encoded string of n random bytes.
-func randomHex(n int) (string, error) {
+// randomBytes returns n cryptographically-random bytes.
+func randomBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("read random bytes: %w", err)
+		return nil, fmt.Errorf("read random bytes: %w", err)
 	}
-	return hex.EncodeToString(b), nil
+	return b, nil
 }

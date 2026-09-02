@@ -93,6 +93,27 @@ func (c *MemoryCache) Set(key string, value any) {
 	}
 }
 
+// GetAndDelete atomically retrieves a value and removes it from the cache under
+// a single write lock. Returns nil if the key is absent or expired. Use this
+// for single-use tokens (e.g. one-time nonces): a separate Get followed by
+// Delete leaves a race window in which two callers both observe the value
+// before either deletes it, defeating single-use semantics.
+func (c *MemoryCache) GetAndDelete(key string) any {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	e, ok := c.entries[key]
+	if !ok {
+		return nil
+	}
+	delete(c.entries, key)
+
+	if time.Now().After(e.expiration) {
+		return nil
+	}
+	return e.value
+}
+
 // Delete removes a value from the cache.
 func (c *MemoryCache) Delete(key string) {
 	c.mu.Lock()

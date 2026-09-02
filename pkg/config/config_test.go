@@ -504,3 +504,58 @@ func TestGCPConfig_Validate_ThinkingLevel(t *testing.T) {
 		assert.Contains(t, err.Error(), "GCP_GEMINI_SEARCH_THINKING_LEVEL")
 	})
 }
+
+func TestPocketSignConfig_IsConfigured(t *testing.T) {
+	assert.True(t, PocketSignConfig{BaseURL: "https://verify.test.p8n.app", Token: "tok"}.IsConfigured())
+	assert.False(t, PocketSignConfig{}.IsConfigured())
+	assert.False(t, PocketSignConfig{BaseURL: "https://verify.test.p8n.app"}.IsConfigured())
+	assert.False(t, PocketSignConfig{Token: "tok"}.IsConfigured())
+}
+
+func TestPocketSignConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     PocketSignConfig
+		wantErr string // substring; empty means no error
+	}{
+		{
+			name: "empty is valid (stub verifier used)",
+			cfg:  PocketSignConfig{},
+		},
+		{
+			name: "both set with a valid p8n.app host is valid",
+			cfg:  PocketSignConfig{BaseURL: "https://verify.test.p8n.app", Token: "tok"},
+		},
+		{
+			name:    "base url without token is rejected",
+			cfg:     PocketSignConfig{BaseURL: "https://verify.test.p8n.app"},
+			wantErr: "must be set together",
+		},
+		{
+			name:    "token without base url is rejected",
+			cfg:     PocketSignConfig{Token: "tok"},
+			wantErr: "must be set together",
+		},
+		{
+			name:    "non-https base url is rejected",
+			cfg:     PocketSignConfig{BaseURL: "http://verify.test.p8n.app", Token: "tok"},
+			wantErr: "must be https",
+		},
+		{
+			name:    "non-pocketsign host is rejected",
+			cfg:     PocketSignConfig{BaseURL: "https://evil.example.com", Token: "tok"},
+			wantErr: "not a Pocket Sign endpoint",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}

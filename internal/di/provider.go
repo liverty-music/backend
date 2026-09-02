@@ -222,8 +222,18 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Token:   cfg.PocketSign.Token,
 	}
 	if psConfig.IsConfigured() {
-		psHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-		pocketSignVerifier = infrapocketsign.NewVerifyClient(psConfig, psHTTPClient, logger)
+		// Bound every vendor call so a hung Pocket Sign API cannot block a
+		// handler goroutine indefinitely when the request context lacks a
+		// deadline.
+		psHTTPClient := &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: otelhttp.NewTransport(http.DefaultTransport),
+		}
+		verifyClient := infrapocketsign.NewVerifyClient(psConfig, psHTTPClient, logger)
+		pocketSignVerifier = verifyClient
+		// Register the client's nonce-cache cleanup goroutine for graceful
+		// shutdown, like the other MemoryCache instances (cf. artistCache).
+		shutdown.AddDrainPhase(verifyClient)
 		logger.Info(ctx, "pocket sign verify client initialized",
 			slog.String("base_url", cfg.PocketSign.BaseURL),
 		)
