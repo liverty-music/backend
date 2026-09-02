@@ -115,6 +115,12 @@ type ServerConfig struct {
 	// uploaded by organizers (write-only for the API, consumed by the
 	// media-consumer). Signed PUT URLs point here.
 	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
+
+	// PocketSign holds the Pocket Sign Verify API credentials. When either
+	// field is empty the server falls back to the StubVerifier, which returns
+	// UNAVAILABLE on every identity verification call — the safe default for
+	// local dev before vendor onboarding completes.
+	PocketSign PocketSignConfig `envconfig:""`
 }
 
 // JobConfig is the configuration for batch job workloads (e.g., concert-discovery CronJob).
@@ -818,6 +824,25 @@ func (c *BaseConfig) IsStaging() bool {
 // IsLocal returns true if the environment is "local".
 func (c *BaseConfig) IsLocal() bool {
 	return c.Environment == "local"
+}
+
+// PocketSignConfig holds the Pocket Sign Verify API credentials.
+// When either BaseURL or Token is empty, the DI layer selects the StubVerifier
+// so local development and environments without a vendor contract stay inert.
+//
+// Environment variables:
+//   - POCKET_SIGN_BASE_URL — e.g. https://verify.test.p8n.app (sandbox) or https://verify.p8n.app (prod)
+//   - POCKET_SIGN_TOKEN    — Bearer token from the Pocket Sign Platform Verify tenant screen
+type PocketSignConfig struct {
+	// BaseURL is the Pocket Sign Verify API base URL.
+	// Mock:       https://verify.mock.p8n.app
+	// Test (sandbox): https://verify.test.p8n.app
+	// Production: https://verify.p8n.app
+	BaseURL string `envconfig:"POCKET_SIGN_BASE_URL"`
+
+	// Token is the Bearer token issued by the Pocket Sign Platform Verify
+	// tenant screen. Sourced from a GSM secret in non-local environments.
+	Token string `envconfig:"POCKET_SIGN_TOKEN"`
 }
 
 // PostHogConfig holds the credentials required by the PostHog product-
