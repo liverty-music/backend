@@ -35,7 +35,9 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
@@ -766,6 +768,10 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("webhook pre-access-token audience is required")
 	}
 
+	if err := c.PocketSign.Validate(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -843,6 +849,39 @@ type PocketSignConfig struct {
 	// Token is the Bearer token issued by the Pocket Sign Platform Verify
 	// tenant screen. Sourced from a GSM secret in non-local environments.
 	Token string `envconfig:"POCKET_SIGN_TOKEN"`
+}
+
+// IsConfigured reports whether both the base URL and token are set, i.e. the
+// real Pocket Sign Verify client should be used instead of the stub.
+func (c PocketSignConfig) IsConfigured() bool {
+	return c.BaseURL != "" && c.Token != ""
+}
+
+// Validate guards against a partial or bogus Pocket Sign configuration that
+// would otherwise ship silently (a half-config falls back to the stub with no
+// signal; a mistyped URL points traffic at the wrong host). It requires that
+// BaseURL and Token are set together, and that BaseURL is an https URL on the
+// Pocket Sign domain (*.p8n.app). An entirely empty config is valid (verification
+// is a lane; the stub is used).
+func (c PocketSignConfig) Validate() error {
+	if c.BaseURL == "" && c.Token == "" {
+		return nil // unconfigured — stub verifier is used.
+	}
+	if (c.BaseURL == "") != (c.Token == "") {
+		return fmt.Errorf("POCKET_SIGN_BASE_URL and POCKET_SIGN_TOKEN must be set together (got BaseURL set=%t, Token set=%t)", c.BaseURL != "", c.Token != "")
+	}
+
+	u, err := url.Parse(c.BaseURL)
+	if err != nil {
+		return fmt.Errorf("invalid POCKET_SIGN_BASE_URL: %w", err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("POCKET_SIGN_BASE_URL must be https, got %q", u.Scheme)
+	}
+	if host := u.Hostname(); host != "p8n.app" && !strings.HasSuffix(host, ".p8n.app") {
+		return fmt.Errorf("POCKET_SIGN_BASE_URL host %q is not a Pocket Sign endpoint (expected *.p8n.app); refusing to send Bearer token to an unexpected host", host)
+	}
+	return nil
 }
 
 // PostHogConfig holds the credentials required by the PostHog product-

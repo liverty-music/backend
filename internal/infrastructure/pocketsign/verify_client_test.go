@@ -271,10 +271,10 @@ func TestVerifyClient_ValidateResponse(t *testing.T) {
 			wantErr:    apperr.ErrFailedPrecondition,
 		},
 		{
-			name:       "return Unavailable when vendor returns Unauthenticated",
+			name:       "return Internal when vendor returns Unauthenticated (our token misconfigured, non-retryable)",
 			certType:   verifyv2.Certificate_TYPE_JPKI_CARD_DIGITAL_SIGNATURE,
 			fakeSvcErr: connect.NewError(connect.CodeUnauthenticated, nil),
-			wantErr:    apperr.ErrUnavailable,
+			wantErr:    apperr.ErrInternal,
 		},
 		{
 			name:       "return Unavailable when vendor is unreachable",
@@ -385,16 +385,16 @@ func TestVerifyClient_Recheck(t *testing.T) {
 			wantNeedsRecheck: true,
 		},
 		{
-			name:             "return NeedsReverification=true when certificate state is UNKNOWN",
+			name:             "return NeedsReverification=false when certificate state is UNKNOWN (indeterminate, not confirmed-bad)",
 			args:             struct{ pocketSignUserID string }{pocketSignUserID: "user-unknown"},
 			fakeSvcResp:      buildCheckStatusResponse(verifyv2.Certificate_STATE_UNKNOWN),
-			wantNeedsRecheck: true,
+			wantNeedsRecheck: false,
 		},
 		{
-			name:       "return Unavailable when vendor returns Unauthenticated",
+			name:       "return Internal when vendor returns Unauthenticated (our token misconfigured, non-retryable)",
 			args:       struct{ pocketSignUserID string }{pocketSignUserID: "user-xyz"},
 			fakeSvcErr: connect.NewError(connect.CodeUnauthenticated, nil),
-			wantErr:    apperr.ErrUnavailable,
+			wantErr:    apperr.ErrInternal,
 		},
 		{
 			name:       "return Unavailable when vendor is unreachable",
@@ -492,9 +492,9 @@ func TestVerifyClient_ValidateResponse_ErrorCodes(t *testing.T) {
 			wantCode:   codes.FailedPrecondition,
 		},
 		{
-			name:       "CodeUnauthenticated maps to codes.Unavailable",
+			name:       "CodeUnauthenticated maps to codes.Internal (our token misconfigured, non-retryable)",
 			connectErr: connect.CodeUnauthenticated,
-			wantCode:   codes.Unavailable,
+			wantCode:   codes.Internal,
 		},
 		{
 			name:       "CodeUnavailable maps to codes.Unavailable",
