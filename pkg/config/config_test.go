@@ -505,11 +505,26 @@ func TestGCPConfig_Validate_ThinkingLevel(t *testing.T) {
 	})
 }
 
+// allSet returns a fully-configured PocketSignConfig for use in Validate tests.
+func allSetPSConfig() PocketSignConfig {
+	return PocketSignConfig{
+		BaseURL:     "https://verify.test.p8n.app",
+		Token:       "tok",
+		TenantID:    "tenant-1",
+		CallbackURL: "https://fan.example.app/verify/callback",
+	}
+}
+
 func TestPocketSignConfig_IsConfigured(t *testing.T) {
-	assert.True(t, PocketSignConfig{BaseURL: "https://verify.test.p8n.app", Token: "tok"}.IsConfigured())
+	// True only when all four fields are present.
+	assert.True(t, allSetPSConfig().IsConfigured())
+
+	// Any single field missing → false.
 	assert.False(t, PocketSignConfig{}.IsConfigured())
-	assert.False(t, PocketSignConfig{BaseURL: "https://verify.test.p8n.app"}.IsConfigured())
-	assert.False(t, PocketSignConfig{Token: "tok"}.IsConfigured())
+	assert.False(t, PocketSignConfig{Token: "tok", TenantID: "t", CallbackURL: "https://x.example.com/cb"}.IsConfigured())
+	assert.False(t, PocketSignConfig{BaseURL: "https://verify.test.p8n.app", TenantID: "t", CallbackURL: "https://x.example.com/cb"}.IsConfigured())
+	assert.False(t, PocketSignConfig{BaseURL: "https://verify.test.p8n.app", Token: "tok", CallbackURL: "https://x.example.com/cb"}.IsConfigured())
+	assert.False(t, PocketSignConfig{BaseURL: "https://verify.test.p8n.app", Token: "tok", TenantID: "t"}.IsConfigured())
 }
 
 func TestPocketSignConfig_Validate(t *testing.T) {
@@ -523,28 +538,52 @@ func TestPocketSignConfig_Validate(t *testing.T) {
 			cfg:  PocketSignConfig{},
 		},
 		{
-			name: "both set with a valid p8n.app host is valid",
-			cfg:  PocketSignConfig{BaseURL: "https://verify.test.p8n.app", Token: "tok"},
+			name: "all four fields set with a valid p8n.app host is valid",
+			cfg:  allSetPSConfig(),
 		},
 		{
 			name:    "base url without token is rejected",
 			cfg:     PocketSignConfig{BaseURL: "https://verify.test.p8n.app"},
-			wantErr: "must be set together",
+			wantErr: "POCKET_SIGN_TOKEN must be set",
 		},
 		{
 			name:    "token without base url is rejected",
 			cfg:     PocketSignConfig{Token: "tok"},
-			wantErr: "must be set together",
+			wantErr: "POCKET_SIGN_BASE_URL must be set",
 		},
 		{
-			name:    "non-https base url is rejected",
-			cfg:     PocketSignConfig{BaseURL: "http://verify.test.p8n.app", Token: "tok"},
+			name: "non-https base url is rejected",
+			cfg: PocketSignConfig{
+				BaseURL: "http://verify.test.p8n.app", Token: "tok",
+				TenantID: "t", CallbackURL: "https://fan.example.app/cb",
+			},
 			wantErr: "must be https",
 		},
 		{
-			name:    "non-pocketsign host is rejected",
-			cfg:     PocketSignConfig{BaseURL: "https://evil.example.com", Token: "tok"},
+			name: "non-pocketsign host is rejected",
+			cfg: PocketSignConfig{
+				BaseURL: "https://evil.example.com", Token: "tok",
+				TenantID: "t", CallbackURL: "https://fan.example.app/cb",
+			},
 			wantErr: "not a Pocket Sign endpoint",
+		},
+		{
+			name: "non-https callback url is rejected",
+			cfg: PocketSignConfig{
+				BaseURL: "https://verify.test.p8n.app", Token: "tok",
+				TenantID: "t", CallbackURL: "http://fan.example.app/cb",
+			},
+			wantErr: "POCKET_SIGN_CALLBACK_URL must be https",
+		},
+		{
+			name:    "missing tenant id is rejected",
+			cfg:     PocketSignConfig{BaseURL: "https://verify.test.p8n.app", Token: "tok", CallbackURL: "https://fan.example.app/cb"},
+			wantErr: "POCKET_SIGN_TENANT_ID must be set",
+		},
+		{
+			name:    "missing callback url is rejected",
+			cfg:     PocketSignConfig{BaseURL: "https://verify.test.p8n.app", Token: "tok", TenantID: "t"},
+			wantErr: "POCKET_SIGN_CALLBACK_URL must be set",
 		},
 	}
 	for _, tt := range tests {

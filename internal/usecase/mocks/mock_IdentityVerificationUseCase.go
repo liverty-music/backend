@@ -6,7 +6,6 @@ import (
 	context "context"
 
 	entity "github.com/liverty-music/backend/internal/entity"
-	usecase "github.com/liverty-music/backend/internal/usecase"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -24,33 +23,38 @@ func (_m *MockIdentityVerificationUseCase) EXPECT() *MockIdentityVerificationUse
 }
 
 // StartVerify provides a mock function with given fields: ctx, userID, method
-func (_m *MockIdentityVerificationUseCase) StartVerify(ctx context.Context, userID string, method entity.VerificationMethod) (*usecase.PocketSignChallenge, error) {
+func (_m *MockIdentityVerificationUseCase) StartVerify(ctx context.Context, userID string, method entity.VerificationMethod) (string, string, error) {
 	ret := _m.Called(ctx, userID, method)
 
 	if len(ret) == 0 {
 		panic("no return value specified for StartVerify")
 	}
 
-	var r0 *usecase.PocketSignChallenge
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, entity.VerificationMethod) (*usecase.PocketSignChallenge, error)); ok {
+	var r0 string
+	var r1 string
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.VerificationMethod) (string, string, error)); ok {
 		return rf(ctx, userID, method)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, entity.VerificationMethod) *usecase.PocketSignChallenge); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.VerificationMethod) string); ok {
 		r0 = rf(ctx, userID, method)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*usecase.PocketSignChallenge)
-		}
+		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, entity.VerificationMethod) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, string, entity.VerificationMethod) string); ok {
 		r1 = rf(ctx, userID, method)
 	} else {
-		r1 = ret.Error(1)
+		r1 = ret.Get(1).(string)
 	}
 
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(context.Context, string, entity.VerificationMethod) error); ok {
+		r2 = rf(ctx, userID, method)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
 // MockIdentityVerificationUseCase_StartVerify_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartVerify'
@@ -73,19 +77,19 @@ func (_c *MockIdentityVerificationUseCase_StartVerify_Call) Run(run func(ctx con
 	return _c
 }
 
-func (_c *MockIdentityVerificationUseCase_StartVerify_Call) Return(_a0 *usecase.PocketSignChallenge, _a1 error) *MockIdentityVerificationUseCase_StartVerify_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockIdentityVerificationUseCase_StartVerify_Call) Return(sessionID string, redirectURL string, err error) *MockIdentityVerificationUseCase_StartVerify_Call {
+	_c.Call.Return(sessionID, redirectURL, err)
 	return _c
 }
 
-func (_c *MockIdentityVerificationUseCase_StartVerify_Call) RunAndReturn(run func(context.Context, string, entity.VerificationMethod) (*usecase.PocketSignChallenge, error)) *MockIdentityVerificationUseCase_StartVerify_Call {
+func (_c *MockIdentityVerificationUseCase_StartVerify_Call) RunAndReturn(run func(context.Context, string, entity.VerificationMethod) (string, string, error)) *MockIdentityVerificationUseCase_StartVerify_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// CompleteVerify provides a mock function with given fields: ctx, userID, sessionID, signedResponse
-func (_m *MockIdentityVerificationUseCase) CompleteVerify(ctx context.Context, userID string, sessionID string, signedResponse []byte) (*entity.VerifiedIdentity, error) {
-	ret := _m.Called(ctx, userID, sessionID, signedResponse)
+// CompleteVerify provides a mock function with given fields: ctx, userID, sessionID
+func (_m *MockIdentityVerificationUseCase) CompleteVerify(ctx context.Context, userID string, sessionID string) (*entity.VerifiedIdentity, error) {
+	ret := _m.Called(ctx, userID, sessionID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CompleteVerify")
@@ -93,19 +97,19 @@ func (_m *MockIdentityVerificationUseCase) CompleteVerify(ctx context.Context, u
 
 	var r0 *entity.VerifiedIdentity
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []byte) (*entity.VerifiedIdentity, error)); ok {
-		return rf(ctx, userID, sessionID, signedResponse)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*entity.VerifiedIdentity, error)); ok {
+		return rf(ctx, userID, sessionID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, []byte) *entity.VerifiedIdentity); ok {
-		r0 = rf(ctx, userID, sessionID, signedResponse)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *entity.VerifiedIdentity); ok {
+		r0 = rf(ctx, userID, sessionID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.VerifiedIdentity)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, []byte) error); ok {
-		r1 = rf(ctx, userID, sessionID, signedResponse)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, userID, sessionID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -122,14 +126,13 @@ type MockIdentityVerificationUseCase_CompleteVerify_Call struct {
 //   - ctx context.Context
 //   - userID string
 //   - sessionID string
-//   - signedResponse []byte
-func (_e *MockIdentityVerificationUseCase_Expecter) CompleteVerify(ctx interface{}, userID interface{}, sessionID interface{}, signedResponse interface{}) *MockIdentityVerificationUseCase_CompleteVerify_Call {
-	return &MockIdentityVerificationUseCase_CompleteVerify_Call{Call: _e.mock.On("CompleteVerify", ctx, userID, sessionID, signedResponse)}
+func (_e *MockIdentityVerificationUseCase_Expecter) CompleteVerify(ctx interface{}, userID interface{}, sessionID interface{}) *MockIdentityVerificationUseCase_CompleteVerify_Call {
+	return &MockIdentityVerificationUseCase_CompleteVerify_Call{Call: _e.mock.On("CompleteVerify", ctx, userID, sessionID)}
 }
 
-func (_c *MockIdentityVerificationUseCase_CompleteVerify_Call) Run(run func(ctx context.Context, userID string, sessionID string, signedResponse []byte)) *MockIdentityVerificationUseCase_CompleteVerify_Call {
+func (_c *MockIdentityVerificationUseCase_CompleteVerify_Call) Run(run func(ctx context.Context, userID string, sessionID string)) *MockIdentityVerificationUseCase_CompleteVerify_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]byte))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
@@ -139,7 +142,7 @@ func (_c *MockIdentityVerificationUseCase_CompleteVerify_Call) Return(_a0 *entit
 	return _c
 }
 
-func (_c *MockIdentityVerificationUseCase_CompleteVerify_Call) RunAndReturn(run func(context.Context, string, string, []byte) (*entity.VerifiedIdentity, error)) *MockIdentityVerificationUseCase_CompleteVerify_Call {
+func (_c *MockIdentityVerificationUseCase_CompleteVerify_Call) RunAndReturn(run func(context.Context, string, string) (*entity.VerifiedIdentity, error)) *MockIdentityVerificationUseCase_CompleteVerify_Call {
 	_c.Call.Return(run)
 	return _c
 }
