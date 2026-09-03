@@ -27,6 +27,7 @@ var statusCases = []struct {
 	{name: "403 → PermissionDenied", status: http.StatusForbidden, wantErr: apperr.ErrPermissionDenied},
 	{name: "404 → NotFound", status: http.StatusNotFound, wantErr: apperr.ErrNotFound},
 	{name: "409 → AlreadyExists", status: http.StatusConflict, wantErr: apperr.ErrAlreadyExists},
+	{name: "412 → FailedPrecondition", status: http.StatusPreconditionFailed, wantErr: apperr.ErrFailedPrecondition},
 	{name: "429 → ResourceExhausted", status: http.StatusTooManyRequests, wantErr: apperr.ErrResourceExhausted},
 	{name: "418 (unmapped 4xx) → InvalidArgument", status: http.StatusTeapot, wantErr: apperr.ErrInvalidArgument},
 	{name: "500 → Unavailable", status: http.StatusInternalServerError, wantErr: apperr.ErrUnavailable},

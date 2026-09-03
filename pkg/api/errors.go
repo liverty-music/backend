@@ -81,6 +81,8 @@ func statusToCode(statusCode int) codes.Code {
 		return codes.NotFound
 	case http.StatusConflict:
 		return codes.AlreadyExists
+	case http.StatusPreconditionFailed:
+		return codes.FailedPrecondition
 	case http.StatusTooManyRequests:
 		return codes.ResourceExhausted
 	case http.StatusServiceUnavailable:
