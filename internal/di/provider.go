@@ -256,18 +256,28 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// development starts cleanly without a Stripe account. The secret key value
 	// is provisioned externally via GCP Secret Manager / ESO and injected as
 	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
+	paymentConfigured := cfg.Stripe.SecretKey != ""
 	var paymentPort usecase.PaymentAuthorizationPort
-	if cfg.Stripe.SecretKey != "" {
+	if paymentConfigured {
 		paymentPort = infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)
 	} else {
 		paymentPort = infrapayment.NewNoopAuthorizationPort(logger)
 	}
 	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, paymentPort, verifiedIdentityRepo, time.Now, logger)
-	// Start the periodic draw sweeper. It runs in every workload (fan-api and
-	// admin-api share the same binary) because the draw is idempotent: concurrent
-	// ticks from multiple pods are safe — only the first to commit PersistDrawOutcome
-	// succeeds; subsequent attempts find drawn_at already set and skip the phase.
-	startLotteryDrawSweeper(ctx, lotteryUC, logger)
+	// Start the periodic draw sweeper ONLY where a real payment provider is
+	// configured. The draw captures winners / releases losers, so whichever
+	// workload wins the (idempotent) draw race MUST be able to reach Stripe. This
+	// binary is shared by fan-api (which carries STRIPE_SECRET_KEY) and the
+	// admin/organizer consoles (which deliberately do NOT) — without this gate a
+	// Stripe-less console pod could win the race and, unable to capture, demote
+	// EVERY winner to a loser while leaving their holds unreleased. Gating on the
+	// configured payment provider keeps the sweeper on fan-api; the draw remains
+	// idempotent across fan-api's own pods.
+	if paymentConfigured {
+		startLotteryDrawSweeper(ctx, lotteryUC, logger)
+	} else {
+		logger.Info(ctx, "lottery draw sweeper disabled: STRIPE_SECRET_KEY not configured (no payment provider)")
+	}
 
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
