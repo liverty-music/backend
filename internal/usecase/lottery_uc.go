@@ -136,6 +136,22 @@ type ConfigureLotteryPhaseInput struct {
 	// TicketPrice is the per-ticket price in JPY (whole yen). Must be positive.
 	// The authorization amount per application is TicketPrice × requested ticket count.
 	TicketPrice int64
+
+	// VerificationRequirement declares whether applicants must hold a verified
+	// identity. Defaults to [entity.VerificationRequirementNone] when omitted.
+	VerificationRequirement entity.VerificationRequirement
+}
+
+// SetVerificationRequirementInput carries the parameters for changing the
+// identity-verification requirement on an existing lottery phase.
+//
+// TODO: swap to generated proto request type after BSR gen.
+type SetVerificationRequirementInput struct {
+	// PhaseID is the lottery phase to update.
+	PhaseID entity.LotteryPhaseID
+
+	// VerificationRequirement is the new requirement level.
+	VerificationRequirement entity.VerificationRequirement
 }
 
 // CreateAuthorizationInput carries the parameters needed to create an
@@ -206,6 +222,16 @@ type LotteryUseCase interface {
 	//  - FailedPrecondition: the event is not PUBLISHED.
 	//  - NotFound: the event does not exist.
 	ConfigureLotteryPhase(ctx context.Context, in ConfigureLotteryPhaseInput) (*entity.LotterySalesPhase, error)
+
+	// SetPhaseVerificationRequirement changes the identity-verification
+	// requirement on an existing lottery phase. The organizer may call this at
+	// any time (before or after the draw). Returns the updated phase.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: phaseID is empty.
+	//  - NotFound: no phase with the given ID exists.
+	SetPhaseVerificationRequirement(ctx context.Context, in SetVerificationRequirementInput) (*entity.LotterySalesPhase, error)
 
 	// CreateAuthorization creates a Stripe manual-capture PaymentIntent for the
 	// given phase and ticket count, placing an authorization hold on the fan's
@@ -310,12 +336,13 @@ type LotteryUseCase interface {
 
 // lotteryUseCase implements [LotteryUseCase].
 type lotteryUseCase struct {
-	phaseRepo   entity.LotteryPhaseRepository
-	appRepo     entity.TicketApplicationRepository
-	eventState  EventPublishStatePort
-	paymentPort PaymentAuthorizationPort
-	clock       Clock
-	logger      *logging.Logger
+	phaseRepo            entity.LotteryPhaseRepository
+	appRepo              entity.TicketApplicationRepository
+	eventState           EventPublishStatePort
+	paymentPort          PaymentAuthorizationPort
+	verifiedIdentityRepo entity.VerifiedIdentityRepository
+	clock                Clock
+	logger               *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -328,16 +355,18 @@ func NewLotteryUseCase(
 	appRepo entity.TicketApplicationRepository,
 	eventState EventPublishStatePort,
 	paymentPort PaymentAuthorizationPort,
+	verifiedIdentityRepo entity.VerifiedIdentityRepository,
 	clock Clock,
 	logger *logging.Logger,
 ) LotteryUseCase {
 	return &lotteryUseCase{
-		phaseRepo:   phaseRepo,
-		appRepo:     appRepo,
-		eventState:  eventState,
-		paymentPort: paymentPort,
-		clock:       clock,
-		logger:      logger,
+		phaseRepo:            phaseRepo,
+		appRepo:              appRepo,
+		eventState:           eventState,
+		paymentPort:          paymentPort,
+		verifiedIdentityRepo: verifiedIdentityRepo,
+		clock:                clock,
+		logger:               logger,
 	}
 }
 
@@ -405,6 +434,7 @@ func (uc *lotteryUseCase) ConfigureLotteryPhase(ctx context.Context, in Configur
 		TicketCapacity:           in.TicketCapacity,
 		MaxTicketsPerApplication: in.MaxTicketsPerApplication,
 		TicketPrice:              in.TicketPrice,
+		VerificationRequirement:  in.VerificationRequirement,
 	}
 	created, err := uc.phaseRepo.Create(ctx, phase)
 	if err != nil {
@@ -490,6 +520,33 @@ func (uc *lotteryUseCase) Apply(ctx context.Context, in ApplyInput) (*entity.Tic
 	}
 	if !now.Before(phase.CloseTime) {
 		return nil, apperr.New(codes.FailedPrecondition, "application window has closed")
+	}
+
+	// -- identity-verification gate (task 6.3) --
+	//
+	// When the phase requires verification, the applicant must hold an ACTIVE
+	// VerifiedIdentity. In the MVP, both VERIFIED_ANY and JPKI_ONLY map to the
+	// same check: an ACTIVE JPKI-backed VerifiedIdentity must exist. The
+	// driver's-licence fallback is POST-MVP and not evaluated here.
+	//
+	// Per-person limit note: when verification is required, the eKYC dedupe
+	// (≤1 active verified account per pocket_sign_user_id, enforced by
+	// uq_active_pocket_sign_user_id) means the existing "1 application per
+	// account per phase" rule IS effectively a per-person limit — no separate
+	// cross-account scan is needed (task 6.1).
+	if phase.VerificationRequirement.RequiresVerification() {
+		vi, err := uc.verifiedIdentityRepo.GetByUserID(ctx, string(in.ApplicantID))
+		if err != nil {
+			if isNotFound(err) {
+				return nil, apperr.New(codes.FailedPrecondition,
+					"identity verification is required to apply to this event; please verify your identity first")
+			}
+			return nil, err
+		}
+		if vi.Status != entity.VerificationStatusActive {
+			return nil, apperr.New(codes.FailedPrecondition,
+				"identity verification is required to apply to this event; your verification is not active — please re-verify")
+		}
 	}
 
 	// -- 1-per-account duplicate check --
@@ -598,6 +655,14 @@ func (uc *lotteryUseCase) GetLotteryPhaseStatus(ctx context.Context, phaseID ent
 
 	stats.Phase = phase
 	return &stats, nil
+}
+
+// SetPhaseVerificationRequirement implements [LotteryUseCase].
+func (uc *lotteryUseCase) SetPhaseVerificationRequirement(ctx context.Context, in SetVerificationRequirementInput) (*entity.LotterySalesPhase, error) {
+	if in.PhaseID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "phase_id is required")
+	}
+	return uc.phaseRepo.UpdateVerificationRequirement(ctx, in.PhaseID, in.VerificationRequirement)
 }
 
 // DrawDuePhases implements [LotteryUseCase].

@@ -802,19 +802,21 @@ COMMENT ON COLUMN _series_consolidation_backup.old_type IS 'Pre-migration series
 -- table: this is fully first-party and carries all parameters needed to run
 -- the draw algorithm.
 CREATE TABLE IF NOT EXISTS lottery_sales_phases (
-    id                        UUID    PRIMARY KEY,
-    event_id                  UUID    NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    open_at                   TIMESTAMPTZ NOT NULL,
-    close_at                  TIMESTAMPTZ NOT NULL,
-    ticket_capacity           INT     NOT NULL,
-    max_tickets_per_application INT   NOT NULL,
-    ticket_price              BIGINT  NOT NULL,
-    drawn_at                  TIMESTAMPTZ,
+    id                          UUID     PRIMARY KEY,
+    event_id                    UUID     NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    open_at                     TIMESTAMPTZ NOT NULL,
+    close_at                    TIMESTAMPTZ NOT NULL,
+    ticket_capacity             INT      NOT NULL,
+    max_tickets_per_application INT      NOT NULL,
+    ticket_price                BIGINT   NOT NULL,
+    drawn_at                    TIMESTAMPTZ,
+    verification_requirement    SMALLINT NOT NULL DEFAULT 0,
     CONSTRAINT chk_lottery_sales_phases_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_lottery_sales_phases_capacity_positive CHECK (ticket_capacity > 0),
     CONSTRAINT chk_lottery_sales_phases_max_positive CHECK (max_tickets_per_application > 0),
     CONSTRAINT chk_lottery_sales_phases_price_positive CHECK (ticket_price > 0),
-    CONSTRAINT chk_lottery_sales_phases_window CHECK (close_at > open_at)
+    CONSTRAINT chk_lottery_sales_phases_window CHECK (close_at > open_at),
+    CONSTRAINT chk_lottery_sales_phases_verification_requirement CHECK (verification_requirement BETWEEN 0 AND 2)
 );
 
 COMMENT ON TABLE lottery_sales_phases IS 'Organizer-configured lottery sales windows for published concert events. Each row carries the full lottery parameters (capacity, max-per-application, price) needed to run the draw.';
@@ -826,6 +828,7 @@ COMMENT ON COLUMN lottery_sales_phases.ticket_capacity IS 'Total tickets availab
 COMMENT ON COLUMN lottery_sales_phases.max_tickets_per_application IS 'Maximum companion-group size a single fan can request. Must be positive.';
 COMMENT ON COLUMN lottery_sales_phases.ticket_price IS 'Per-ticket price in JPY (whole yen). Must be positive. Authorization amount = ticket_price × requested_ticket_count.';
 COMMENT ON COLUMN lottery_sales_phases.drawn_at IS 'Timestamp when the draw ran for this phase. NULL means the draw has not yet run. Set atomically by PersistDrawOutcome; acts as an idempotency guard: the draw sweeper skips phases where drawn_at IS NOT NULL.';
+COMMENT ON COLUMN lottery_sales_phases.verification_requirement IS 'Identity-verification requirement: 0=NONE (any fan may apply), 1=VERIFIED_ANY (active verified identity required; MVP behaves as JPKI_ONLY), 2=JPKI_ONLY (JPKI-backed identity required, no licence fallback).';
 
 CREATE INDEX IF NOT EXISTS idx_lottery_sales_phases_event_id ON lottery_sales_phases(event_id);
 COMMENT ON INDEX idx_lottery_sales_phases_event_id IS 'Optimizes listing lottery phases for a given event';

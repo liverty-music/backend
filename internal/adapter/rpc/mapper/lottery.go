@@ -20,6 +20,33 @@ func LotterySalesPhaseToProto(phase *entity.LotterySalesPhase) *entityv1.Lottery
 		TicketCapacity:           int32(phase.TicketCapacity),
 		MaxTicketsPerApplication: int32(phase.MaxTicketsPerApplication),
 		TicketPrice:              phase.TicketPrice,
+		VerificationRequirement:  verificationRequirementToProto(phase.VerificationRequirement),
+	}
+}
+
+// verificationRequirementToProto maps a domain VerificationRequirement to the
+// corresponding proto enum value.
+func verificationRequirementToProto(r entity.VerificationRequirement) entityv1.VerificationRequirement {
+	switch r {
+	case entity.VerificationRequirementVerifiedAny:
+		return entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_VERIFIED_ANY
+	case entity.VerificationRequirementJPKIOnly:
+		return entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY
+	default:
+		return entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_UNSPECIFIED
+	}
+}
+
+// VerificationRequirementFromProto maps a proto VerificationRequirement enum
+// to the domain type.
+func VerificationRequirementFromProto(r entityv1.VerificationRequirement) entity.VerificationRequirement {
+	switch r {
+	case entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_VERIFIED_ANY:
+		return entity.VerificationRequirementVerifiedAny
+	case entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY:
+		return entity.VerificationRequirementJPKIOnly
+	default:
+		return entity.VerificationRequirementNone
 	}
 }
 

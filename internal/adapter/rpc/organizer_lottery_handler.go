@@ -87,6 +87,7 @@ func (h *OrganizerLotteryHandler) ConfigureLotteryPhase(
 		TicketCapacity:           int(req.Msg.GetTicketCapacity()),
 		MaxTicketsPerApplication: int(req.Msg.GetMaxTicketsPerApplication()),
 		TicketPrice:              req.Msg.GetTicketPrice(),
+		VerificationRequirement:  mapper.VerificationRequirementFromProto(req.Msg.GetVerificationRequirement()),
 	}
 
 	phase, err := h.lotteryUC.ConfigureLotteryPhase(ctx, in)
@@ -126,19 +127,28 @@ func (h *OrganizerLotteryHandler) GetLotteryPhaseStatus(
 	}), nil
 }
 
-// SetPhaseVerificationRequirement sets or changes the identity-verification
-// requirement on a lottery phase. This RPC was added to the organizer
-// LotteryService by the identity-ekyc-jpki change; wiring the eKYC requirement
-// into a phase (schema column, repository, usecase) is owned by that change and
-// is out of scope for the lottery-application MVP.
-//
-// TODO(identity-ekyc): implement once the phase verification-requirement model
-// (schema + usecase) lands; until then this returns Unimplemented so the
-// generated interface is satisfied without pretending the feature works.
+// SetPhaseVerificationRequirement changes the identity-verification requirement
+// on an existing lottery phase. The caller must be an active organizer
+// (enforced by the OrgScopedInterceptor and resolveCallerOrganizer).
 func (h *OrganizerLotteryHandler) SetPhaseVerificationRequirement(
 	ctx context.Context,
 	req *connect.Request[organizerv1.SetPhaseVerificationRequirementRequest],
 ) (*connect.Response[organizerv1.SetPhaseVerificationRequirementResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented,
-		errors.New("SetPhaseVerificationRequirement is not implemented in the lottery-application MVP; owned by identity-ekyc"))
+	if _, err := h.resolveCallerOrganizer(ctx); err != nil {
+		return nil, err
+	}
+
+	in := usecase.SetVerificationRequirementInput{
+		PhaseID:                 entity.LotteryPhaseID(req.Msg.GetPhaseId().GetValue()),
+		VerificationRequirement: mapper.VerificationRequirementFromProto(req.Msg.GetVerificationRequirement()),
+	}
+
+	phase, err := h.lotteryUC.SetPhaseVerificationRequirement(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&organizerv1.SetPhaseVerificationRequirementResponse{
+		Phase: mapper.LotterySalesPhaseToProto(phase),
+	}), nil
 }

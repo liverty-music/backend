@@ -1,4 +1,4 @@
-h1:jRWDj/ysolJrKrxwzdbcMdAYax/ZXPU/BKPDCoGdYyk=
+h1:KlfOSfNbuyiuGGDqIak68fejCSm26jmZXhhkzODCVCE=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -80,3 +80,4 @@ h1:jRWDj/ysolJrKrxwzdbcMdAYax/ZXPU/BKPDCoGdYyk=
 20260901000000_grant_media_consumer_app_schema.sql h1:s0YKHMXvJqwVM33nqc5iD7UR4/YiHjHuXp9BzeDSiS4=
 20260902000000_create_verified_identities.sql h1:xscdAH5akOa8yEMerySQuFigrAdGyHYnG2X3vi79Aeg=
 20260902010000_add_lottery_tables.sql h1:w+PKjQbFPRuR+Aw0m2pqetQ9byLHnPUe5pgJTiYuQm0=
+20260902020000_add_lottery_verification_requirement.sql h1:u03YsN781SKnCpQHephRWA/ayVHuq7aAlZ9+0XjnsFs=

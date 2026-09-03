@@ -15,6 +15,41 @@ type UserID string
 // TODO: swap to generated liverty_music.entity.v1.LotteryPhaseId after BSR gen.
 type LotteryPhaseID string
 
+// VerificationRequirement states whether and how a lottery sales phase
+// requires applicants to hold a verified identity. Values mirror the proto
+// enum liverty_music.entity.v1.VerificationRequirement.
+//
+// MVP is JPKI-only: no driver's-licence fallback ships in this iteration, so
+// both [VerificationRequirementVerifiedAny] and [VerificationRequirementJPKIOnly]
+// behave identically — they require an ACTIVE [VerifiedIdentity] established
+// via JPKI. The distinction is preserved for forward-compat when the licence
+// fallback (POST-MVP) is introduced.
+type VerificationRequirement int8
+
+const (
+	// VerificationRequirementNone means the phase has no identity-verification
+	// requirement. Any authenticated fan may apply.
+	VerificationRequirementNone VerificationRequirement = 0
+
+	// VerificationRequirementVerifiedAny means the applicant must hold an active
+	// verified identity (JPKI or, in the future, driver's-licence fallback).
+	// In the MVP, the only available path is JPKI; the licence fallback is
+	// POST-MVP so this behaves the same as [VerificationRequirementJPKIOnly].
+	VerificationRequirementVerifiedAny VerificationRequirement = 1
+
+	// VerificationRequirementJPKIOnly means the applicant must hold an active
+	// JPKI-backed [VerifiedIdentity]. No licence-fallback alternative is offered;
+	// non-card-holders cannot apply.
+	VerificationRequirementJPKIOnly VerificationRequirement = 2
+)
+
+// RequiresVerification reports whether the requirement demands an active
+// verified identity. In the MVP (JPKI-only), any non-None value requires
+// an ACTIVE [VerifiedIdentity].
+func (r VerificationRequirement) RequiresVerification() bool {
+	return r != VerificationRequirementNone
+}
+
 // LotterySalesPhase is the configuration record for a single lottery-sales
 // window attached to a concert event. It is separate from the discovered
 // [SalesPhase] (which is read-only, Gemini-sourced) — this type is
@@ -51,6 +86,17 @@ type LotterySalesPhase struct {
 	// has not yet run. Corresponds to drawn_at (TIMESTAMPTZ, nullable) in the
 	// DB; set atomically by [TicketApplicationRepository.PersistDrawOutcome].
 	DrawnTime time.Time
+
+	// VerificationRequirement declares whether applicants must hold a verified
+	// identity (and at what assurance level) to be eligible for this phase.
+	// Defaults to [VerificationRequirementNone] (no requirement).
+	//
+	// Per-person scope note: when the requirement is non-None, the eKYC dedupe
+	// (≤1 active verified account per pocket_sign_user_id) means the existing
+	// "1 application per account per phase" rule IS effectively a per-person
+	// limit — no separate cross-account scan is needed. This holds only while
+	// the phase requires verification; non-requiring phases remain per-account.
+	VerificationRequirement VerificationRequirement
 }
 
 // ApplicantIdentity carries the full-name and phone number required for
@@ -232,6 +278,16 @@ type LotteryPhaseRepository interface {
 	//
 	//  - Internal: database query failure.
 	ListPhasesDueForDraw(ctx context.Context, now time.Time) ([]*LotterySalesPhase, error)
+
+	// UpdateVerificationRequirement sets the identity-verification requirement on
+	// the given phase and returns the updated row. Used by the organizer
+	// SetPhaseVerificationRequirement RPC.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: id is empty.
+	//  - NotFound: no phase with the given ID exists.
+	UpdateVerificationRequirement(ctx context.Context, id LotteryPhaseID, req VerificationRequirement) (*LotterySalesPhase, error)
 }
 
 // TicketApplicationRepository defines the data access interface for

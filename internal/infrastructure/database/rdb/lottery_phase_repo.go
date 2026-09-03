@@ -28,15 +28,18 @@ const (
 	insertLotteryPhaseQuery = `
 		INSERT INTO lottery_sales_phases (
 			id, event_id, open_at, close_at,
-			ticket_capacity, max_tickets_per_application, ticket_price
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ticket_capacity, max_tickets_per_application, ticket_price,
+			verification_requirement
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, event_id, open_at, close_at,
-		          ticket_capacity, max_tickets_per_application, ticket_price, drawn_at
+		          ticket_capacity, max_tickets_per_application, ticket_price,
+		          drawn_at, verification_requirement
 	`
 
 	getLotteryPhaseQuery = `
 		SELECT id, event_id, open_at, close_at,
-		       ticket_capacity, max_tickets_per_application, ticket_price, drawn_at
+		       ticket_capacity, max_tickets_per_application, ticket_price,
+		       drawn_at, verification_requirement
 		FROM lottery_sales_phases
 		WHERE id = $1
 	`
@@ -46,10 +49,22 @@ const (
 	// this once per tick and runs the draw for each returned phase.
 	listPhasesDueForDrawQuery = `
 		SELECT id, event_id, open_at, close_at,
-		       ticket_capacity, max_tickets_per_application, ticket_price, drawn_at
+		       ticket_capacity, max_tickets_per_application, ticket_price,
+		       drawn_at, verification_requirement
 		FROM lottery_sales_phases
 		WHERE close_at <= $1
 		  AND drawn_at IS NULL
+	`
+
+	// updateVerificationRequirementQuery updates the verification_requirement on a
+	// single lottery phase. Used by SetPhaseVerificationRequirement.
+	updateVerificationRequirementQuery = `
+		UPDATE lottery_sales_phases
+		SET verification_requirement = $2
+		WHERE id = $1
+		RETURNING id, event_id, open_at, close_at,
+		          ticket_capacity, max_tickets_per_application, ticket_price,
+		          drawn_at, verification_requirement
 	`
 )
 
@@ -70,6 +85,7 @@ func (r *LotteryPhaseRepository) Create(ctx context.Context, phase *entity.Lotte
 		phase.TicketCapacity,
 		phase.MaxTicketsPerApplication,
 		phase.TicketPrice,
+		int16(phase.VerificationRequirement),
 	)
 
 	created, err := scanLotteryPhase(row.Scan)
@@ -125,6 +141,32 @@ func (r *LotteryPhaseRepository) ListPhasesDueForDraw(ctx context.Context, now t
 	return phases, nil
 }
 
+// UpdateVerificationRequirement changes the identity-verification requirement on
+// a lottery phase. Returns the updated phase. Used by the
+// SetPhaseVerificationRequirement organizer RPC.
+func (r *LotteryPhaseRepository) UpdateVerificationRequirement(ctx context.Context, id entity.LotteryPhaseID, req entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
+	if id == "" {
+		return nil, apperr.New(codes.InvalidArgument, "lottery phase ID must not be empty")
+	}
+
+	row := r.db.Pool.QueryRow(ctx, updateVerificationRequirementQuery,
+		string(id),
+		int16(req),
+	)
+	phase, err := scanLotteryPhase(row.Scan)
+	if err != nil {
+		return nil, toAppErr(err, "failed to update lottery phase verification requirement",
+			slog.String("phase_id", string(id)),
+		)
+	}
+
+	r.db.logger.Info(ctx, "lottery phase verification requirement updated",
+		slog.String("phase_id", string(id)),
+		slog.Int("verification_requirement", int(req)),
+	)
+	return phase, nil
+}
+
 // scanLotteryPhase reads a single lottery_sales_phases row into a LotterySalesPhase entity.
 // It accepts a Scan func so it can be used with both pgx.Row and pgx.Rows.
 // The drawn_at column is nullable (NULL until the draw runs) and is scanned via sql.NullTime.
@@ -132,6 +174,7 @@ func scanLotteryPhase(scan func(dest ...any) error) (*entity.LotterySalesPhase, 
 	var p entity.LotterySalesPhase
 	var rawID string
 	var drawnAt sql.NullTime
+	var verificationReq int16
 
 	if err := scan(
 		&rawID,
@@ -142,6 +185,7 @@ func scanLotteryPhase(scan func(dest ...any) error) (*entity.LotterySalesPhase, 
 		&p.MaxTicketsPerApplication,
 		&p.TicketPrice,
 		&drawnAt,
+		&verificationReq,
 	); err != nil {
 		return nil, err
 	}
@@ -149,5 +193,6 @@ func scanLotteryPhase(scan func(dest ...any) error) (*entity.LotterySalesPhase, 
 	if drawnAt.Valid {
 		p.DrawnTime = drawnAt.Time
 	}
+	p.VerificationRequirement = entity.VerificationRequirement(verificationReq)
 	return &p, nil
 }
