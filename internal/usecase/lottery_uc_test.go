@@ -1300,6 +1300,17 @@ func TestLotteryUseCase_Apply_VerificationGate(t *testing.T) {
 			},
 			wantErr: apperr.ErrFailedPrecondition,
 		},
+		{
+			// A DB outage (non-NotFound) must PROPAGATE as-is (retryable), NOT be
+			// collapsed to FAILED_PRECONDITION — otherwise an infra blip would be
+			// misreported to the fan as "you are not verified".
+			name:  "reject: phase requires verification — GetByUserID returns a NON-NotFound error propagates unchanged",
+			phase: phaseRequiring(open, close, entity.VerificationRequirementVerifiedAny),
+			viGetFn: func(_ context.Context, _ string) (*entity.VerifiedIdentity, error) {
+				return nil, apperr.New(apperr.ErrUnavailable.Code, "verified-identity store unavailable")
+			},
+			wantErr: apperr.ErrUnavailable,
+		},
 	}
 
 	for _, tt := range tests {

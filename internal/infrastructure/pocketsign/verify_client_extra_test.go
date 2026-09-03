@@ -392,6 +392,78 @@ func TestStampClient_CompleteVerify_UnknownCertType_ReturnsInvalidArgument(t *te
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Nonce restore semantics: restore ONLY on FailedPrecondition (§8.5)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestStampClient_CompleteVerify_FinalErrorDoesNotRestoreNonce pins the retry
+// contract: a FinalizeSession error that is NOT FailedPrecondition is treated as
+// final, so the atomically-consumed nonce is NOT put back. A second CompleteVerify
+// with the same session must therefore fail as unknown/expired (FailedPrecondition)
+// rather than re-running FinalizeSession — closing any replay window. The
+// FailedPrecondition (session-not-yet-completed) restore path is covered by
+// TestStampClient_CompleteVerify_SessionNotCompleted_ReturnsFailedPreconditionAndIsRetryable.
+func TestStampClient_CompleteVerify_FinalErrorDoesNotRestoreNonce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	sessionSvc := &fakeSessionService{
+		createResp: buildCreateSessionResponse("sess-final-err", "https://p8n.app/r/final-err"),
+		// A FINAL (non-FailedPrecondition) FinalizeSession error.
+		finalizeErr: connect.NewError(connect.CodeUnauthenticated, nil),
+	}
+	baseURL := startFakeServer(t, sessionSvc, &fakeUserService{})
+	client := newTestClient(t, baseURL)
+
+	sessionID, _ := startVerifyAndGetNonce(t, client, sessionSvc, "user-final-err")
+
+	// First call: the final error surfaces (mapped) and the nonce is consumed.
+	_, err := client.CompleteVerify(ctx, "user-final-err", sessionID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperr.ErrUnauthenticated,
+		"a final (non-FailedPrecondition) FinalizeSession error must surface as-mapped")
+
+	// Second call: the nonce was NOT restored, so the session is unknown/expired.
+	_, err2 := client.CompleteVerify(ctx, "user-final-err", sessionID)
+	require.Error(t, err2)
+	assert.ErrorIs(t, err2, apperr.ErrFailedPrecondition,
+		"a final FinalizeSession error must NOT restore the nonce (no replay window)")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// StartVerify empty-response guards (§8.6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TestStampClient_StartVerify_EmptyResponseField_ReturnsInternal covers the two
+// defensive guards in StartVerify: a CreateSession response missing the session
+// id or the redirect url is a broken contract and must fail closed with Internal
+// rather than returning an empty id / dead redirect to the caller.
+func TestStampClient_StartVerify_EmptyResponseField_ReturnsInternal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		resp *stampv1.CreateSessionResponse
+	}{
+		{"empty session id", buildCreateSessionResponse("", "https://stamp.p8n.app/s")},
+		{"empty redirect url", buildCreateSessionResponse("sess-1", "")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			sessionSvc := &fakeSessionService{createResp: tt.resp}
+			baseURL := startFakeServer(t, sessionSvc, &fakeUserService{})
+			client := newTestClient(t, baseURL)
+
+			_, _, err := client.StartVerify(context.Background(), "user-1", 0)
+
+			require.Error(t, err)
+			assert.ErrorIs(t, err, apperr.ErrInternal,
+				"an empty CreateSession response field must fail closed with Internal")
+		})
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Recheck with Certificate_STATE_UNSPECIFIED — indeterminate, NeedsReverification==false
 // ─────────────────────────────────────────────────────────────────────────────
 
