@@ -56,7 +56,11 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	clock := usecase.Clock(func() time.Time { return now })
 
-	uc := usecase.NewLotteryUseCase(phaseRepo, appRepo, eventState, stripePort, clock, logger)
+	// verifiedIdentityRepo: the integration test does not exercise the
+	// verification gate (phase has None requirement), so a nil repo is safe —
+	// the gate is skipped when VerificationRequirement == None.
+	verifiedIdentityRepo := rdb.NewVerifiedIdentityRepository(testDB)
+	uc := usecase.NewLotteryUseCase(phaseRepo, appRepo, eventState, stripePort, verifiedIdentityRepo, clock, logger)
 
 	// -- seed a phase with capacity 2 so 3 single-ticket applicants force one loss --
 	artistID := seedArtist(t, "pipeline-artist", uuid.NewV7().String())

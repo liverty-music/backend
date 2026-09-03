@@ -262,7 +262,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	} else {
 		paymentPort = infrapayment.NewNoopAuthorizationPort(logger)
 	}
-	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, paymentPort, time.Now, logger)
+	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, paymentPort, verifiedIdentityRepo, time.Now, logger)
 	// Start the periodic draw sweeper. It runs in every workload (fan-api and
 	// admin-api share the same binary) because the draw is idempotent: concurrent
 	// ticks from multiple pods are safe — only the first to commit PersistDrawOutcome

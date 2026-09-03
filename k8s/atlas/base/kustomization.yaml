@@ -94,3 +94,4 @@ configMapGenerator:
   - migrations/20260901000000_grant_media_consumer_app_schema.sql
   - migrations/20260902000000_create_verified_identities.sql
   - migrations/20260902010000_add_lottery_tables.sql
+  - migrations/20260902020000_add_lottery_verification_requirement.sql

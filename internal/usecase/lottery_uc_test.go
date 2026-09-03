@@ -22,9 +22,10 @@ import (
 // TODO: replace with mockery expecter mocks once mockery is fixed / after BSR gen.
 
 type stubPhaseRepo struct {
-	createFn               func(context.Context, *entity.LotterySalesPhase) (*entity.LotterySalesPhase, error)
-	getFn                  func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error)
-	listPhasesDueForDrawFn func(context.Context, time.Time) ([]*entity.LotterySalesPhase, error)
+	createFn                        func(context.Context, *entity.LotterySalesPhase) (*entity.LotterySalesPhase, error)
+	getFn                           func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error)
+	listPhasesDueForDrawFn          func(context.Context, time.Time) ([]*entity.LotterySalesPhase, error)
+	updateVerificationRequirementFn func(context.Context, entity.LotteryPhaseID, entity.VerificationRequirement) (*entity.LotterySalesPhase, error)
 }
 
 func (s *stubPhaseRepo) Create(ctx context.Context, p *entity.LotterySalesPhase) (*entity.LotterySalesPhase, error) {
@@ -46,6 +47,13 @@ func (s *stubPhaseRepo) ListPhasesDueForDraw(ctx context.Context, now time.Time)
 		return s.listPhasesDueForDrawFn(ctx, now)
 	}
 	return nil, nil
+}
+
+func (s *stubPhaseRepo) UpdateVerificationRequirement(ctx context.Context, id entity.LotteryPhaseID, req entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
+	if s.updateVerificationRequirementFn != nil {
+		return s.updateVerificationRequirementFn(ctx, id, req)
+	}
+	return &entity.LotterySalesPhase{ID: id, VerificationRequirement: req}, nil
 }
 
 type stubAppRepo struct {
@@ -118,6 +126,51 @@ func (s *stubEventState) IsEventPublished(ctx context.Context, eventID string) (
 	return true, nil
 }
 
+// stubVerifiedIdentityRepo stubs [entity.VerifiedIdentityRepository] with
+// function fields so each test case can inject targeted behavior.
+type stubVerifiedIdentityRepo struct {
+	getByUserIDFn           func(ctx context.Context, userID string) (*entity.VerifiedIdentity, error)
+	getByPocketSignUserIDFn func(ctx context.Context, pocketSignUserID string) (*entity.VerifiedIdentity, error)
+	createFn                func(ctx context.Context, vi *entity.VerifiedIdentity) (*entity.VerifiedIdentity, error)
+	updateStatusFn          func(ctx context.Context, id string, status entity.VerificationStatus) error
+	deleteFn                func(ctx context.Context, id string) error
+}
+
+func (s *stubVerifiedIdentityRepo) GetByUserID(ctx context.Context, userID string) (*entity.VerifiedIdentity, error) {
+	if s.getByUserIDFn != nil {
+		return s.getByUserIDFn(ctx, userID)
+	}
+	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
+}
+
+func (s *stubVerifiedIdentityRepo) GetByPocketSignUserID(ctx context.Context, pocketSignUserID string) (*entity.VerifiedIdentity, error) {
+	if s.getByPocketSignUserIDFn != nil {
+		return s.getByPocketSignUserIDFn(ctx, pocketSignUserID)
+	}
+	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
+}
+
+func (s *stubVerifiedIdentityRepo) Create(ctx context.Context, vi *entity.VerifiedIdentity) (*entity.VerifiedIdentity, error) {
+	if s.createFn != nil {
+		return s.createFn(ctx, vi)
+	}
+	return vi, nil
+}
+
+func (s *stubVerifiedIdentityRepo) UpdateStatus(ctx context.Context, id string, status entity.VerificationStatus) error {
+	if s.updateStatusFn != nil {
+		return s.updateStatusFn(ctx, id, status)
+	}
+	return nil
+}
+
+func (s *stubVerifiedIdentityRepo) Delete(ctx context.Context, id string) error {
+	if s.deleteFn != nil {
+		return s.deleteFn(ctx, id)
+	}
+	return nil
+}
+
 // stubPaymentPort stubs [usecase.PaymentAuthorizationPort] with function fields
 // so each test case can inject targeted behavior without running mockery.
 type stubPaymentPort struct {
@@ -174,7 +227,8 @@ func basePhase(open, close time.Time) *entity.LotterySalesPhase {
 }
 
 // newLotteryUC builds a lotteryUseCase with the given repos, and a fixed
-// clock set to withinTime. paymentPort and eventState default to passing stubs.
+// clock set to withinTime. paymentPort, eventState, and verifiedIdentityRepo
+// default to passing stubs.
 func newLotteryUC(
 	t *testing.T,
 	phaseRepo entity.LotteryPhaseRepository,
@@ -182,10 +236,17 @@ func newLotteryUC(
 	eventState usecase.EventPublishStatePort,
 	paymentPort usecase.PaymentAuthorizationPort,
 	clockTime time.Time,
+	viRepo ...entity.VerifiedIdentityRepository,
 ) usecase.LotteryUseCase {
 	t.Helper()
+	var repo entity.VerifiedIdentityRepository
+	if len(viRepo) > 0 && viRepo[0] != nil {
+		repo = viRepo[0]
+	} else {
+		repo = &stubVerifiedIdentityRepo{}
+	}
 	return usecase.NewLotteryUseCase(
-		phaseRepo, appRepo, eventState, paymentPort,
+		phaseRepo, appRepo, eventState, paymentPort, repo,
 		fixedClock(clockTime), newTestLogger(t),
 	)
 }
@@ -1133,4 +1194,253 @@ func TestLotteryUseCase_DrawDuePhases(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, persistCalled, "PersistDrawOutcome must be called for the due phase")
 	})
+}
+
+// --- Apply with identity-verification gate ---
+
+// activeVI returns a VerifiedIdentity with Status=Active for use in tests.
+func activeVI(userID string) *entity.VerifiedIdentity {
+	return &entity.VerifiedIdentity{
+		ID:               "vi-1",
+		UserID:           userID,
+		Method:           entity.VerificationMethodJPKI,
+		PocketSignUserID: "ps-user-abc",
+		DedupeStrength:   entity.DedupeStrengthStrong,
+		Status:           entity.VerificationStatusActive,
+	}
+}
+
+// phaseRequiring returns a basePhase with the given VerificationRequirement set.
+func phaseRequiring(open, close time.Time, req entity.VerificationRequirement) *entity.LotterySalesPhase {
+	p := basePhase(open, close)
+	p.VerificationRequirement = req
+	return p
+}
+
+func TestLotteryUseCase_Apply_VerificationGate(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	close := open.Add(7 * 24 * time.Hour)
+	within := open.Add(24 * time.Hour)
+
+	baseIn := func() usecase.ApplyInput {
+		return usecase.ApplyInput{
+			PhaseID:              "phase-1",
+			ApplicantID:          "user-1",
+			RequestedTicketCount: 1,
+			Identity:             entity.ApplicantIdentity{FullName: "田中太郎", PhoneNumber: "+819000000001"},
+			PaymentIntentRef:     "pi_test",
+		}
+	}
+
+	tests := []struct {
+		name        string
+		phase       *entity.LotterySalesPhase
+		viGetFn     func(ctx context.Context, userID string) (*entity.VerifiedIdentity, error)
+		wantErr     error
+		wantApplied bool
+	}{
+		{
+			name:  "allow: phase has no requirement (None) — unverified user succeeds",
+			phase: basePhase(open, close), // VerificationRequirement == None (zero)
+			viGetFn: func(_ context.Context, _ string) (*entity.VerifiedIdentity, error) {
+				// repo should NOT be called for None requirement; returning error to surface
+				// any accidental call.
+				return nil, apperr.New(apperr.ErrInternal.Code, "unexpected GetByUserID call")
+			},
+			wantApplied: true,
+		},
+		{
+			name:        "allow: phase requires VerifiedAny — applicant has ACTIVE JPKI identity",
+			phase:       phaseRequiring(open, close, entity.VerificationRequirementVerifiedAny),
+			viGetFn:     func(_ context.Context, userID string) (*entity.VerifiedIdentity, error) { return activeVI(userID), nil },
+			wantApplied: true,
+		},
+		{
+			name:        "allow: phase requires JpkiOnly — applicant has ACTIVE JPKI identity",
+			phase:       phaseRequiring(open, close, entity.VerificationRequirementJPKIOnly),
+			viGetFn:     func(_ context.Context, userID string) (*entity.VerifiedIdentity, error) { return activeVI(userID), nil },
+			wantApplied: true,
+		},
+		{
+			name:  "reject: phase requires VerifiedAny — applicant has no verification record",
+			phase: phaseRequiring(open, close, entity.VerificationRequirementVerifiedAny),
+			viGetFn: func(_ context.Context, _ string) (*entity.VerifiedIdentity, error) {
+				return nil, apperr.New(apperr.ErrNotFound.Code, "no record")
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			name:  "reject: phase requires JpkiOnly — applicant has no verification record",
+			phase: phaseRequiring(open, close, entity.VerificationRequirementJPKIOnly),
+			viGetFn: func(_ context.Context, _ string) (*entity.VerifiedIdentity, error) {
+				return nil, apperr.New(apperr.ErrNotFound.Code, "no record")
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			name:  "reject: phase requires VerifiedAny — applicant status is NeedsReverification",
+			phase: phaseRequiring(open, close, entity.VerificationRequirementVerifiedAny),
+			viGetFn: func(_ context.Context, userID string) (*entity.VerifiedIdentity, error) {
+				vi := activeVI(userID)
+				vi.Status = entity.VerificationStatusNeedsReverification
+				return vi, nil
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			name:  "reject: phase requires JpkiOnly — applicant status is NeedsReverification",
+			phase: phaseRequiring(open, close, entity.VerificationRequirementJPKIOnly),
+			viGetFn: func(_ context.Context, userID string) (*entity.VerifiedIdentity, error) {
+				vi := activeVI(userID)
+				vi.Status = entity.VerificationStatusNeedsReverification
+				return vi, nil
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			phase := tt.phase
+			phaseRepo := &stubPhaseRepo{
+				getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+					return phase, nil
+				},
+			}
+
+			var applied bool
+			appRepo := &stubAppRepo{
+				createFn: func(_ context.Context, a *entity.TicketApplication) (*entity.TicketApplication, error) {
+					applied = true
+					return a, nil
+				},
+			}
+
+			// For the None case, viGetFn is set to fail; the gate must NOT call it.
+			viRepo := &stubVerifiedIdentityRepo{getByUserIDFn: tt.viGetFn}
+
+			uc := newLotteryUC(t, phaseRepo, appRepo, &stubEventState{}, &stubPaymentPort{}, within, viRepo)
+
+			in := baseIn()
+			got, err := uc.Apply(ctx, in)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, got)
+				assert.False(t, applied, "Create must not be called when gate rejects")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.True(t, applied)
+		})
+	}
+}
+
+// --- SetPhaseVerificationRequirement ---
+
+func TestLotteryUseCase_SetPhaseVerificationRequirement(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		args    usecase.SetVerificationRequirementInput
+		repoFn  func(context.Context, entity.LotteryPhaseID, entity.VerificationRequirement) (*entity.LotterySalesPhase, error)
+		wantReq entity.VerificationRequirement
+		wantErr error
+	}{
+		{
+			name: "success: sets VerifiedAny and returns updated phase",
+			args: usecase.SetVerificationRequirementInput{
+				PhaseID:                 "phase-1",
+				VerificationRequirement: entity.VerificationRequirementVerifiedAny,
+			},
+			wantReq: entity.VerificationRequirementVerifiedAny,
+		},
+		{
+			name: "success: sets JpkiOnly and returns updated phase",
+			args: usecase.SetVerificationRequirementInput{
+				PhaseID:                 "phase-1",
+				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
+			},
+			wantReq: entity.VerificationRequirementJPKIOnly,
+		},
+		{
+			name: "success: resets to None",
+			args: usecase.SetVerificationRequirementInput{
+				PhaseID:                 "phase-1",
+				VerificationRequirement: entity.VerificationRequirementNone,
+			},
+			wantReq: entity.VerificationRequirementNone,
+		},
+		{
+			name: "reject: empty phase_id returns InvalidArgument",
+			args: usecase.SetVerificationRequirementInput{
+				PhaseID:                 "",
+				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			name: "reject: phase not found propagates NotFound",
+			args: usecase.SetVerificationRequirementInput{
+				PhaseID:                 "phase-missing",
+				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
+			},
+			repoFn: func(_ context.Context, _ entity.LotteryPhaseID, _ entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
+				return nil, apperr.New(apperr.ErrNotFound.Code, "no phase")
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var capturedReq entity.VerificationRequirement
+			repoFn := tt.repoFn
+			if repoFn == nil {
+				repoFn = func(_ context.Context, id entity.LotteryPhaseID, req entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
+					capturedReq = req
+					return &entity.LotterySalesPhase{
+						ID:                       id,
+						EventID:                  "event-1",
+						OpenTime:                 open,
+						CloseTime:                open.Add(7 * 24 * time.Hour),
+						TicketCapacity:           100,
+						MaxTicketsPerApplication: 4,
+						TicketPrice:              5000,
+						VerificationRequirement:  req,
+					}, nil
+				}
+			}
+
+			phaseRepo := &stubPhaseRepo{
+				updateVerificationRequirementFn: repoFn,
+			}
+
+			uc := newLotteryUC(t, phaseRepo, &stubAppRepo{}, &stubEventState{}, &stubPaymentPort{}, open)
+
+			got, err := uc.SetPhaseVerificationRequirement(ctx, tt.args)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, tt.wantReq, capturedReq, "repo must receive the requested VerificationRequirement")
+			assert.Equal(t, tt.wantReq, got.VerificationRequirement)
+		})
+	}
 }

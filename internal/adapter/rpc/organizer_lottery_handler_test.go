@@ -32,13 +32,14 @@ func orgLotteryAuthedCtx(zitadelOrgID string) context.Context {
 // mocks for packages that transitively import the entity package; these stubs
 // mirror the approach used in lottery_uc_test.go.
 type handlerLotteryUCStub struct {
-	configurePhaseFn   func(context.Context, usecase.ConfigureLotteryPhaseInput) (*entity.LotterySalesPhase, error)
-	createAuthFn       func(context.Context, usecase.CreateAuthorizationInput) (usecase.CreateAuthorizationResult, error)
-	applyFn            func(context.Context, usecase.ApplyInput) (*entity.TicketApplication, error)
-	withdrawFn         func(context.Context, entity.TicketApplicationID, entity.UserID) error
-	getMyApplicationFn func(context.Context, entity.LotteryPhaseID, entity.UserID) (*entity.TicketApplication, error)
-	getResultFn        func(context.Context, entity.LotteryPhaseID, entity.UserID) (*entity.TicketApplication, error)
-	getLotteryStatusFn func(context.Context, entity.LotteryPhaseID) (*entity.LotteryPhaseStatus, error)
+	configurePhaseFn             func(context.Context, usecase.ConfigureLotteryPhaseInput) (*entity.LotterySalesPhase, error)
+	createAuthFn                 func(context.Context, usecase.CreateAuthorizationInput) (usecase.CreateAuthorizationResult, error)
+	applyFn                      func(context.Context, usecase.ApplyInput) (*entity.TicketApplication, error)
+	withdrawFn                   func(context.Context, entity.TicketApplicationID, entity.UserID) error
+	getMyApplicationFn           func(context.Context, entity.LotteryPhaseID, entity.UserID) (*entity.TicketApplication, error)
+	getResultFn                  func(context.Context, entity.LotteryPhaseID, entity.UserID) (*entity.TicketApplication, error)
+	getLotteryStatusFn           func(context.Context, entity.LotteryPhaseID) (*entity.LotteryPhaseStatus, error)
+	setVerificationRequirementFn func(context.Context, usecase.SetVerificationRequirementInput) (*entity.LotterySalesPhase, error)
 }
 
 var _ usecase.LotteryUseCase = (*handlerLotteryUCStub)(nil)
@@ -103,6 +104,13 @@ func (s *handlerLotteryUCStub) DrawDuePhases(ctx context.Context, now time.Time)
 
 func (s *handlerLotteryUCStub) RunDraw(ctx context.Context, phaseID entity.LotteryPhaseID) error {
 	return nil
+}
+
+func (s *handlerLotteryUCStub) SetPhaseVerificationRequirement(ctx context.Context, in usecase.SetVerificationRequirementInput) (*entity.LotterySalesPhase, error) {
+	if s.setVerificationRequirementFn != nil {
+		return s.setVerificationRequirementFn(ctx, in)
+	}
+	return &entity.LotterySalesPhase{ID: in.PhaseID, VerificationRequirement: in.VerificationRequirement}, nil
 }
 
 // activeOrganizerWithID returns an active organizer with the given ID.
@@ -330,6 +338,107 @@ func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
 			require.NotNil(t, resp)
 			assert.NotNil(t, resp.Msg.Phase)
 			assert.Equal(t, tt.wantDraw, resp.Msg.DrawCompleted)
+		})
+	}
+}
+
+func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
+	t.Parallel()
+
+	phaseID := &entityv1.LotterySalesPhaseId{Value: "phase-uuid-1"}
+
+	tests := []struct {
+		name         string
+		ctx          context.Context
+		req          *organizerv1.SetPhaseVerificationRequirementRequest
+		setup        func(uc *ucmocks.MockOrganizerUseCase)
+		lotterySetup func(stub *handlerLotteryUCStub)
+		wantCode     connect.Code
+		wantErr      bool
+		wantReq      entityv1.VerificationRequirement
+	}{
+		{
+			name: "success: owner sets JPKI_ONLY — returns updated phase",
+			ctx:  orgLotteryAuthedCtx("org-1"),
+			req: &organizerv1.SetPhaseVerificationRequirementRequest{
+				PhaseId:                 phaseID,
+				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
+			},
+			setup: func(uc *ucmocks.MockOrganizerUseCase) {
+				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-1").
+					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
+			},
+			wantReq: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
+		},
+		{
+			name: "success: owner sets VERIFIED_ANY — returns updated phase",
+			ctx:  orgLotteryAuthedCtx("org-1"),
+			req: &organizerv1.SetPhaseVerificationRequirementRequest{
+				PhaseId:                 phaseID,
+				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_VERIFIED_ANY,
+			},
+			setup: func(uc *ucmocks.MockOrganizerUseCase) {
+				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-1").
+					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
+			},
+			wantReq: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_VERIFIED_ANY,
+		},
+		{
+			name: "error: unauthenticated — no org id in context returns PermissionDenied",
+			ctx:  context.Background(),
+			req: &organizerv1.SetPhaseVerificationRequirementRequest{
+				PhaseId:                 phaseID,
+				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
+			},
+			setup:    func(_ *ucmocks.MockOrganizerUseCase) {},
+			wantCode: connect.CodePermissionDenied,
+			wantErr:  true,
+		},
+		{
+			name: "error: non-owner organizer returns PermissionDenied",
+			ctx:  orgLotteryAuthedCtx("org-other"),
+			req: &organizerv1.SetPhaseVerificationRequirementRequest{
+				PhaseId:                 phaseID,
+				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
+			},
+			setup: func(uc *ucmocks.MockOrganizerUseCase) {
+				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-other").
+					Return(nil, apperr.New(apperr.ErrNotFound.Code, "not found")).Once()
+			},
+			wantCode: connect.CodePermissionDenied,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			logger, err := logging.New()
+			require.NoError(t, err)
+
+			organizerUC := ucmocks.NewMockOrganizerUseCase(t)
+			tt.setup(organizerUC)
+
+			lotteryUC := &handlerLotteryUCStub{}
+			if tt.lotterySetup != nil {
+				tt.lotterySetup(lotteryUC)
+			}
+
+			h := handler.NewOrganizerLotteryHandler(lotteryUC, organizerUC, logger)
+			resp, err := h.SetPhaseVerificationRequirement(tt.ctx, connect.NewRequest(tt.req))
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.wantCode != 0 {
+					assert.Equal(t, tt.wantCode, connect.CodeOf(err))
+				}
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			require.NotNil(t, resp.Msg.Phase)
+			assert.Equal(t, tt.wantReq, resp.Msg.Phase.GetVerificationRequirement())
 		})
 	}
 }
