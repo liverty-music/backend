@@ -66,6 +66,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/api"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -442,31 +443,47 @@ func methodFromCertType(t verifyv2.Certificate_Type) (entity.VerificationMethod,
 	}
 }
 
-// mapConnectError translates a Connect-RPC error from the Pocket Sign API into
-// an apperr with an appropriate code:
-//
-//   - CodeInvalidArgument → codes.InvalidArgument (bad request parameters)
-//   - CodeFailedPrecondition → codes.FailedPrecondition (session not completed,
-//     cert revoked/expired)
-//   - CodeUnauthenticated → codes.Internal (wrong Bearer token — config error,
-//     not end-user auth; non-retryable)
-//   - all other codes → codes.Unavailable (treat vendor errors as transient)
+// mapConnectError converts a Connect-RPC error from the Pocket Sign API into a
+// structured apperr, delegating the status→code classification to the shared
+// [api.FromStatus] policy so Pocket Sign classifies IDENTICALLY to every other
+// SDK/raw-HTTP caller (Stripe, etc.) instead of hand-rolling a divergent mapping
+// that silently collapses 403/404/429 into a generic code. The Connect code is
+// first converted to its canonical HTTP status.
 func mapConnectError(err error, op string) error {
-	code := connect.CodeOf(err)
+	if appErr := api.FromStatus(connectCodeToHTTPStatus(connect.CodeOf(err)), err, "pocket sign: "+op); appErr != nil {
+		return appErr
+	}
+	// FromStatus only returns nil for a 2xx status, which connectCodeToHTTPStatus
+	// never produces for an error code; guard defensively.
+	return apperr.Wrap(err, codes.Internal, "pocket sign: "+op)
+}
+
+// connectCodeToHTTPStatus maps a Connect/gRPC status code to the HTTP status the
+// shared [api.FromStatus] policy classifies. This is the canonical code→status
+// table (not a business policy — that lives in api.FromStatus). Codes without a
+// distinct status the policy recognises (Unavailable/Internal/Unknown/…) map to
+// 500, which the policy treats as Unavailable — preserving the prior "generic
+// vendor error → Unavailable" behaviour.
+func connectCodeToHTTPStatus(code connect.Code) int {
 	switch code {
-	case connect.CodeInvalidArgument:
-		return apperr.Wrap(err, codes.InvalidArgument, op+": invalid or unsupported request")
+	case connect.CodeInvalidArgument, connect.CodeOutOfRange:
+		return http.StatusBadRequest
 	case connect.CodeFailedPrecondition:
-		return apperr.Wrap(err, codes.FailedPrecondition, op+": session not completed or certificate revoked/expired")
+		return http.StatusPreconditionFailed
 	case connect.CodeUnauthenticated:
-		// 401 from Pocket Sign means OUR Bearer token is wrong/expired/rotated —
-		// a server-side misconfiguration, not an end-user auth problem and NOT
-		// transient. Map to Internal (non-retryable, HTTP 500) so retry/circuit
-		// logic and alerting treat it as a config error to fix, not a blip to
-		// retry forever.
-		return apperr.Wrap(err, codes.Internal, op+": pocket sign API authentication failed; check POCKET_SIGN_TOKEN")
+		return http.StatusUnauthorized
+	case connect.CodePermissionDenied:
+		return http.StatusForbidden
+	case connect.CodeNotFound:
+		return http.StatusNotFound
+	case connect.CodeAlreadyExists, connect.CodeAborted:
+		return http.StatusConflict
+	case connect.CodeResourceExhausted:
+		return http.StatusTooManyRequests
+	case connect.CodeDeadlineExceeded:
+		return http.StatusGatewayTimeout
 	default:
-		return apperr.Wrap(err, codes.Unavailable, op+": pocket sign API unavailable")
+		return http.StatusInternalServerError
 	}
 }
 

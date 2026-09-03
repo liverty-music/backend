@@ -259,7 +259,7 @@ func TestStampClient_StartVerify_UniqueNonces(t *testing.T) {
 	assert.NotEqual(t, nonce1, nonce2, "consecutive nonces must be distinct")
 }
 
-func TestStampClient_StartVerify_VendorUnauthenticated_MapsToInternal(t *testing.T) {
+func TestStampClient_StartVerify_VendorUnauthenticated_MapsToUnauthenticated(t *testing.T) {
 	t.Parallel()
 
 	sessionSvc := &fakeSessionService{
@@ -269,8 +269,9 @@ func TestStampClient_StartVerify_VendorUnauthenticated_MapsToInternal(t *testing
 	client := newTestClient(t, baseURL)
 
 	_, _, err := client.StartVerify(context.Background(), "user-1", 0)
-	assert.ErrorIs(t, err, apperr.ErrInternal,
-		"Unauthenticated from vendor maps to Internal (our token is wrong, non-retryable)")
+	// Delegated to the shared api.FromStatus policy: 401 → Unauthenticated
+	// (identical to every other SDK/HTTP caller).
+	assert.ErrorIs(t, err, apperr.ErrUnauthenticated)
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -482,13 +483,25 @@ func TestStampClient_Recheck(t *testing.T) {
 			wantNeedsRecheck: false,
 		},
 		{
-			name:       "return Internal when vendor returns Unauthenticated (our token misconfigured, non-retryable)",
+			name:       "return Unauthenticated when vendor returns Unauthenticated (shared api.FromStatus: 401)",
 			args:       struct{ pocketSignUserID string }{pocketSignUserID: "user-xyz"},
 			fakeSvcErr: connect.NewError(connect.CodeUnauthenticated, nil),
-			wantErr:    apperr.ErrInternal,
+			wantErr:    apperr.ErrUnauthenticated,
 		},
 		{
-			name:       "return Unavailable when vendor is unreachable",
+			name:       "return PermissionDenied when vendor returns PermissionDenied (403 no longer collapsed to Unavailable)",
+			args:       struct{ pocketSignUserID string }{pocketSignUserID: "user-xyz"},
+			fakeSvcErr: connect.NewError(connect.CodePermissionDenied, nil),
+			wantErr:    apperr.ErrPermissionDenied,
+		},
+		{
+			name:       "return ResourceExhausted when vendor rate-limits (429 no longer collapsed to Unavailable)",
+			args:       struct{ pocketSignUserID string }{pocketSignUserID: "user-xyz"},
+			fakeSvcErr: connect.NewError(connect.CodeResourceExhausted, nil),
+			wantErr:    apperr.ErrResourceExhausted,
+		},
+		{
+			name:       "return Unavailable when vendor is unreachable (CodeUnavailable → Unavailable)",
 			args:       struct{ pocketSignUserID string }{pocketSignUserID: "user-xyz"},
 			fakeSvcErr: connect.NewError(connect.CodeUnavailable, nil),
 			wantErr:    apperr.ErrUnavailable,
