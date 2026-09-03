@@ -542,6 +542,26 @@ func TestPocketSignConfig_Validate(t *testing.T) {
 			cfg:  allSetPSConfig(),
 		},
 		{
+			name: "mock host verify.mock.p8n.app is accepted",
+			cfg: PocketSignConfig{
+				BaseURL:     "https://verify.mock.p8n.app",
+				Token:       "tok",
+				TenantID:    "tenant-mock",
+				CallbackURL: "https://fan.dev.example.app/verify/callback",
+			},
+		},
+		{
+			// The apex host p8n.app (no subdomain) must also be accepted because
+			// the Validate check is HasSuffix(".p8n.app") OR Hostname()=="p8n.app".
+			name: "apex host p8n.app is accepted",
+			cfg: PocketSignConfig{
+				BaseURL:     "https://p8n.app",
+				Token:       "tok",
+				TenantID:    "tenant-apex",
+				CallbackURL: "https://fan.example.app/verify/callback",
+			},
+		},
+		{
 			name:    "base url without token is rejected",
 			cfg:     PocketSignConfig{BaseURL: "https://verify.test.p8n.app"},
 			wantErr: "POCKET_SIGN_TOKEN must be set",
@@ -597,4 +617,39 @@ func TestPocketSignConfig_Validate(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
+}
+
+// TestServerConfig_Validate_PocketSignPropagation proves that a partially-set
+// PocketSignConfig causes ServerConfig.Validate to fail. This pins the
+// propagation path (ServerConfig.Validate → PocketSignConfig.Validate).
+func TestServerConfig_Validate_PocketSignPropagation(t *testing.T) {
+	t.Parallel()
+
+	// Partial PocketSign config: BaseURL set but Token missing.
+	// The ServerConfig is otherwise valid for a local environment.
+	cfg := &ServerConfig{
+		Environment: "local",
+		Database:    DatabaseConfig{Port: 5432},
+		Logging:     LoggingConfig{Level: "info", Format: "json"},
+		Server: ServerSettings{
+			Port:          8080,
+			AdminPort:     8090,
+			OrganizerPort: 8091,
+		},
+		Webhook: validWebhookSettings(),
+		JWT: JWTConfig{
+			Issuer:              "https://test-issuer.com",
+			JWKSRefreshInterval: 15 * time.Minute,
+		},
+		PocketSign: PocketSignConfig{
+			BaseURL: "https://verify.mock.p8n.app",
+			// Token, TenantID, CallbackURL deliberately omitted — partial config.
+		},
+	}
+
+	err := cfg.Validate()
+	require.Error(t, err,
+		"a partial PocketSign config must cause ServerConfig.Validate to fail")
+	assert.Contains(t, err.Error(), "POCKET_SIGN_TOKEN must be set",
+		"error message must identify the missing field")
 }
