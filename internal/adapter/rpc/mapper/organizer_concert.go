@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// seriesMediaProto builds the entityv1.Media message for a series cover image.
+// seriesMediaProto builds the entityv1.Media message for a series' cover media.
 // Thumb and large variant URLs are composed server-side as
 // {ORGANIZER_MEDIA_CDN_BASE}/cdn/{org}/{mediaId}/{variant}.webp.
 // Returns nil when the series has no cover media or when the CDN base env var

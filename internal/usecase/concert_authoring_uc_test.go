@@ -24,6 +24,19 @@ import (
 //go:fix inline
 func ptr[T any](v T) *T { return new(v) }
 
+// validPublishEvents returns a one-event slice that satisfies the publish
+// readiness gate (a non-blank venue and a non-zero local date), so tests that
+// exercise the notification / conflict paths are not blocked by the gate.
+func validPublishEvents() []*entity.Event {
+	return []*entity.Event{
+		{
+			ID:              "evt-1",
+			ListedVenueName: ptr("Zepp Tokyo"),
+			LocalDate:       time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+		},
+	}
+}
+
 // authoringDeps wires up a ConcertAuthoringUseCase with mocks for every dependency.
 type authoringDeps struct {
 	seriesRepo *entitymocks.MockSeriesRepository
@@ -144,11 +157,14 @@ func TestConcertAuthoringUseCase_Publish_NotifyOncePublic(t *testing.T) {
 	}
 
 	newEventIDs := []string{"evt-1", "evt-2"}
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
 	d.seriesRepo.EXPECT().PublishDraft(mock.Anything, seriesID, mock.Anything).Return(newEventIDs, nil)
-	// One series-level performer → exactly one CONCERT.created (keyed on that
-	// artist so the notification consumer can resolve the artist's followers).
-	d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(s, nil, []*entity.Artist{{ID: "artist-1"}}, nil)
+	// GetAuthored is called both before publish (feeding the readiness gate) and
+	// after (for notification). One series-level performer → exactly one
+	// CONCERT.created (keyed on that artist so the notification consumer can
+	// resolve the artist's followers). The event carries a venue + date so the
+	// publish readiness gate passes.
+	d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).
+		Return(s, validPublishEvents(), []*entity.Artist{{ID: "artist-1"}}, nil)
 
 	// Expect exactly ONE CONCERT.created and ONE ORGANIZER.concert_published.
 	var concertCreatedCount, orgPublishedCount int
@@ -186,10 +202,10 @@ func TestConcertAuthoringUseCase_Publish_NoNotifyDraft(t *testing.T) {
 	}
 
 	newEventIDs := []string{"evt-x"}
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
 	d.seriesRepo.EXPECT().PublishDraft(mock.Anything, seriesID, mock.Anything).Return(newEventIDs, nil)
 	d.seriesRepo.EXPECT().SetUnlistedToken(mock.Anything, seriesID, mock.Anything).Return(nil)
-	d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(s, nil, nil, nil)
+	d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).
+		Return(s, validPublishEvents(), []*entity.Artist{{ID: "artist-1"}}, nil)
 
 	// Only ORGANIZER.concert_published, never CONCERT.created.
 	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerConcertPublished, mock.Anything).Return(nil)
@@ -215,9 +231,9 @@ func TestConcertAuthoringUseCase_Publish_SupersedeClaimedNoDoubleNotify(t *testi
 	}
 
 	// PublishDraft returns empty new-event-ids: all slots were claimed (no new).
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
 	d.seriesRepo.EXPECT().PublishDraft(mock.Anything, seriesID, mock.Anything).Return([]string{}, nil)
-	d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).Return(s, nil, nil, nil)
+	d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).
+		Return(s, validPublishEvents(), []*entity.Artist{{ID: "artist-1"}}, nil)
 
 	// Only ORGANIZER.concert_published; no CONCERT.created (empty new-event-ids).
 	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerConcertPublished, mock.Anything).Return(nil)
@@ -243,7 +259,8 @@ func TestConcertAuthoringUseCase_Publish_SuppressedSlot(t *testing.T) {
 	}
 
 	suppErr := apperr.New(codes.FailedPrecondition, "publish blocked: one or more event slots are suppressed")
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
+	d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).
+		Return(s, validPublishEvents(), []*entity.Artist{{ID: "artist-1"}}, nil)
 	d.seriesRepo.EXPECT().PublishDraft(mock.Anything, seriesID, mock.Anything).Return(nil, suppErr)
 
 	_, _, _, err := d.uc.Publish(ctx, orgID, seriesID)
@@ -268,12 +285,89 @@ func TestConcertAuthoringUseCase_Publish_CrossOrgConflict(t *testing.T) {
 	}
 
 	conflictErr := apperr.New(codes.FailedPrecondition, "publish blocked: event slot already claimed by another organizer")
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
+	d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).
+		Return(s, validPublishEvents(), []*entity.Artist{{ID: "artist-1"}}, nil)
 	d.seriesRepo.EXPECT().PublishDraft(mock.Anything, seriesID, mock.Anything).Return(nil, conflictErr)
 
 	_, _, _, err := d.uc.Publish(ctx, orgID, seriesID)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperr.ErrFailedPrecondition))
+}
+
+func TestConcertAuthoringUseCase_Publish_RejectsIncompleteDraft(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID    = "org-1"
+		seriesID = "series-incomplete"
+	)
+	pub := entity.SeriesVisibilityPublic
+	ps := entity.SeriesPublishStateDraft
+	base := func() *entity.Series {
+		return &entity.Series{
+			ID: seriesID, Title: "Tour", Type: entity.SeriesTypeTour,
+			OrganizerID: ptr(orgID), Visibility: &pub, PublishState: &ps,
+		}
+	}
+
+	tests := []struct {
+		name    string
+		series  *entity.Series
+		events  []*entity.Event
+		artists []*entity.Artist
+	}{
+		{
+			name:    "no performer",
+			series:  base(),
+			events:  validPublishEvents(),
+			artists: nil,
+		},
+		{
+			name:    "no events",
+			series:  base(),
+			events:  nil,
+			artists: []*entity.Artist{{ID: "artist-1"}},
+		},
+		{
+			name:    "event missing venue",
+			series:  base(),
+			events:  []*entity.Event{{ID: "evt-1", LocalDate: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)}},
+			artists: []*entity.Artist{{ID: "artist-1"}},
+		},
+		{
+			name:    "event missing date",
+			series:  base(),
+			events:  []*entity.Event{{ID: "evt-1", ListedVenueName: ptr("Zepp Tokyo")}},
+			artists: []*entity.Artist{{ID: "artist-1"}},
+		},
+		{
+			name: "blank title",
+			series: &entity.Series{
+				ID: seriesID, Title: "   ", Type: entity.SeriesTypeTour,
+				OrganizerID: ptr(orgID), Visibility: &pub, PublishState: &ps,
+			},
+			events:  validPublishEvents(),
+			artists: []*entity.Artist{{ID: "artist-1"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			d := newAuthoringDeps(t)
+
+			// The gate runs before PublishDraft, so PublishDraft is never reached
+			// (the mock would fail on an unexpected call).
+			d.seriesRepo.EXPECT().GetAuthored(mock.Anything, seriesID).
+				Return(tt.series, tt.events, tt.artists, nil)
+
+			_, _, _, err := d.uc.Publish(ctx, orgID, seriesID)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, apperr.ErrFailedPrecondition),
+				"incomplete draft must be rejected with FailedPrecondition")
+		})
+	}
 }
 
 func TestConcertAuthoringUseCase_RegenerateToken(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 )
 
 // mediaCDNBaseEnv is the environment variable name that holds the CDN base URL
-// used to compose served cover-image URLs. The constant lives here so both the
-// usecase and the RPC mapper read the same variable through CoverImageURL.
+// used to compose served series-media URLs. The constant lives here so both the
+// usecase and the RPC mapper read the same variable through VariantURL.
 const mediaCDNBaseEnv = "ORGANIZER_MEDIA_CDN_BASE"
 
 // SeriesType classifies the shape of an event series.
@@ -97,19 +97,11 @@ func VariantObjectPrefix(organizerID, mediaID string) string {
 	return "cdn/" + organizerID + "/" + mediaID + "/"
 }
 
-// ObjectKey is kept for backwards compatibility with callers that have not yet
-// migrated to VariantObjectKey. It constructs the legacy cdn/ key used by the
-// pre-pipeline upload path.
-//
-// Deprecated: use VariantObjectKey or VariantObjectPrefix for new code.
-func ObjectKey(organizerID, mediaID string) string {
-	return "cdn/" + organizerID + "/" + mediaID
-}
-
-// VariantURL composes the public CDN URL for one variant of a cover image. It
-// reads the CDN base from the ORGANIZER_MEDIA_CDN_BASE environment variable and
-// appends the variant object key produced by VariantObjectKey. Returns "" when
-// the env var is unset or empty so callers never emit a malformed relative URL.
+// VariantURL composes the public CDN URL for one variant of a series media
+// image. It reads the CDN base from the ORGANIZER_MEDIA_CDN_BASE environment
+// variable and appends the variant object key produced by VariantObjectKey.
+// Returns "" when the env var is unset or empty so callers never emit a
+// malformed relative URL.
 //
 // variant must be one of "thumb" or "large".
 func VariantURL(organizerID, mediaID, variant string) string {
@@ -118,23 +110,6 @@ func VariantURL(organizerID, mediaID, variant string) string {
 		return ""
 	}
 	return base + "/" + VariantObjectKey(organizerID, mediaID, variant)
-}
-
-// CoverImageURL composes the public CDN URL for a cover image asset. It reads
-// the CDN base from the ORGANIZER_MEDIA_CDN_BASE environment variable and
-// appends the object key produced by ObjectKey. Returns "" when the env var is
-// unset or empty so callers never emit a malformed relative "/cdn/..." URL.
-// This is the single source of truth for cover-URL composition; both the
-// authoring use-case (upload response) and the RPC mapper (read response) call
-// this function rather than duplicating the derivation.
-//
-// Deprecated: use VariantURL for new code that builds variant-aware URLs.
-func CoverImageURL(organizerID, mediaID string) string {
-	base := strings.TrimRight(os.Getenv(mediaCDNBaseEnv), "/")
-	if base == "" {
-		return ""
-	}
-	return base + "/" + ObjectKey(organizerID, mediaID)
 }
 
 // Media represents a single media object uploaded by an organizer. The ID is
@@ -188,9 +163,10 @@ type Series struct {
 
 	// Description is the optional free-form body text authored by the organizer.
 	Description *string
-	// CoverMedia is the current cover image media object for the series. Nil
-	// when no image has been uploaded. The served URL is derived at read time
-	// from the exposure and the media id — it is NOT stored on the series row.
+	// CoverMedia is the current cover media object for the series (the image
+	// shown as the series' cover). Nil when no media has been uploaded. The
+	// served URL is derived at read time from the exposure and the media id —
+	// it is NOT stored on the series row.
 	CoverMedia *Media
 	// OrganizerID is the owning organizer for a first-party series. Nil marks
 	// a discovery-pipeline series.
