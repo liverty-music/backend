@@ -235,6 +235,15 @@ func TestStampClient_StartVerify(t *testing.T) {
 
 	nonce := req.GetMetadata()["nonce"]
 	assert.NotEmpty(t, nonce, "metadata must carry a non-empty nonce for security binding")
+
+	// Session-return configuration must match the official PocketSign reference
+	// flow (github.com/pocketsign/stamp-example): the user manually returns to
+	// the original browser tab, and the callback URL does NOT carry a session_id
+	// query parameter (the frontend reads the id from its own persisted storage).
+	assert.True(t, req.GetRequireManualReturn(),
+		"requireManualReturn must be true so the fan returns to the original browser context")
+	assert.False(t, req.GetCallbackWithSessionId(),
+		"callbackWithSessionId must be false — the frontend uses the persisted session id, not a query param")
 }
 
 func TestStampClient_StartVerify_UniqueNonces(t *testing.T) {
