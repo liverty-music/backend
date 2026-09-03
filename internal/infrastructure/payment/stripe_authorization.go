@@ -17,7 +17,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/api"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -192,30 +194,39 @@ func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paym
 	return nil
 }
 
-// verifyCardBrand inspects the latest charge on the PaymentIntent and rejects
-// American Express cards. Returns FailedPrecondition when the brand is amex;
-// returns nil for all other brands (including unknown, which Stripe uses for
-// some card networks).
+// verifyCardBrand rejects card brands the lottery does not accept, delegating
+// the accept/reject decision to the domain rule [entity.IsAcceptedCardBrand].
+// It extracts the brand from the latest charge; an absent charge or card
+// details yields an empty brand, which the domain rule accepts.
 func verifyCardBrand(pi *stripe.PaymentIntent) error {
-	if pi.LatestCharge == nil {
-		// No charge yet — this should not happen when status=requires_capture,
-		// but guard defensively.
+	if entity.IsAcceptedCardBrand(extractCardBrand(pi)) {
 		return nil
+	}
+	return apperr.New(codes.FailedPrecondition,
+		"American Express cards are not accepted for lottery applications")
+}
+
+// extractCardBrand returns the brand of the PaymentIntent's latest charge, or an
+// empty brand when the charge or its card details are not present (which should
+// not happen when status=requires_capture, but is guarded defensively).
+func extractCardBrand(pi *stripe.PaymentIntent) entity.CardBrand {
+	if pi.LatestCharge == nil {
+		return ""
 	}
 	details := pi.LatestCharge.PaymentMethodDetails
 	if details == nil || details.Card == nil {
-		return nil
+		return ""
 	}
-	if details.Card.Brand == stripe.PaymentMethodCardBrandAmex {
-		return apperr.New(codes.FailedPrecondition,
-			"American Express cards are not accepted for lottery applications")
-	}
-	return nil
+	return entity.CardBrand(details.Card.Brand)
 }
 
-// toPaymentAppErr maps a Stripe API error to an apperr-coded error.
-// HTTP 404 → NotFound; 5xx or network failures → Unavailable;
-// 400-family (invalid request) → InvalidArgument; everything else → Internal.
+// toPaymentAppErr maps a Stripe API error to an apperr-coded error. It delegates
+// the HTTP-status → apperr-code decision to the shared [api.FromStatus] policy so
+// Stripe classifies identically to the raw-HTTP clients (via api.FromHTTP) and
+// other SDK adapters — in particular 401 → Unauthenticated, 403 → PermissionDenied,
+// and 429 → ResourceExhausted, which a bespoke mapping tends to collapse into a
+// single InvalidArgument. A non-Stripe error (network failure, context
+// cancellation) maps to Unavailable.
 func toPaymentAppErr(ctx context.Context, err error, msg string, logger *logging.Logger) error {
 	if err == nil {
 		return nil
@@ -229,16 +240,12 @@ func toPaymentAppErr(ctx context.Context, err error, msg string, logger *logging
 			slog.String("stripe_message", stripeErr.Msg),
 		)
 
-		switch {
-		case stripeErr.HTTPStatusCode == 404:
-			return apperr.Wrap(err, codes.NotFound, msg)
-		case stripeErr.HTTPStatusCode >= 500:
-			return apperr.Wrap(err, codes.Unavailable, msg)
-		case stripeErr.HTTPStatusCode >= 400:
-			return apperr.Wrap(err, codes.InvalidArgument, msg)
-		default:
-			return apperr.Wrap(err, codes.Internal, msg)
+		if appErr := api.FromStatus(stripeErr.HTTPStatusCode, err, msg); appErr != nil {
+			return appErr
 		}
+		// Defensive: a *stripe.Error carrying a 2xx/zero status is nonsensical;
+		// classify as Internal rather than returning nil for a real error.
+		return apperr.Wrap(err, codes.Internal, msg)
 	}
 
 	// Non-Stripe error (network failure, context cancellation, etc.)

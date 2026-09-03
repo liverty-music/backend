@@ -4,8 +4,11 @@
 *.dll
 *.so
 *.dylib
-main
-api
+# Root-level built binaries only (anchored with a leading slash). Unanchored
+# `main`/`api` also matched the `pkg/api/` package dir, silently blocking any
+# new file there from being committed — which is why pkg/api had no tests.
+/main
+/api
 
 # Test binary, built with `go test -c`
 *.test
