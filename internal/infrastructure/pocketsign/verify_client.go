@@ -199,6 +199,22 @@ func (c *StampClient) StartVerify(ctx context.Context, userID string, _ entity.V
 	checkMethod := verifyv2.CertificateStatus_CHECK_METHOD_CRL
 	required := true
 
+	// Session-return configuration, matching the official PocketSign Stamp
+	// reference implementation (github.com/pocketsign/stamp-example src/index.tsx):
+	//   - requireManualReturn=true: after signing in the PocketSign app, the user
+	//     manually returns to the ORIGINAL browser tab rather than relying on an
+	//     app→browser auto deep-link (which is unreliable and can land in a
+	//     different browser context). Our frontend persists the session id in that
+	//     origin's storage, so the user must return to it for CompleteVerify.
+	//   - callbackWithSessionId=false: the callback URL carries NO session_id query
+	//     param; the frontend reads the session id from its own persisted storage
+	//     (the reference sample uses a cookie for the same purpose). This is why the
+	//     frontend MUST NOT depend on a `?session_id` query parameter.
+	// Anti-replay/anti-CSRF is enforced by the metadata nonce compared at
+	// FinalizeSession (see docs.p8n.app/docs/stamp/guide/identification/security).
+	requireManualReturn := true
+	callbackWithSessionID := false
+
 	req := connect.NewRequest(stampv1.CreateSessionRequest_builder{
 		CallbackUrl: &c.cfg.CallbackURL,
 		Requests: []*stampv1.Request{
@@ -213,6 +229,8 @@ func (c *StampClient) StartVerify(ctx context.Context, userID string, _ entity.V
 		Metadata: map[string]string{
 			"nonce": nonce,
 		},
+		RequireManualReturn:   &requireManualReturn,
+		CallbackWithSessionId: &callbackWithSessionID,
 	}.Build())
 
 	resp, err := c.sessionSvc.CreateSession(ctx, req)
