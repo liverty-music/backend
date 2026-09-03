@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -49,7 +50,7 @@ type ConcertAuthoringUseCase interface {
 
 	// UpdateDraft replaces the draft content of an existing series. While
 	// DRAFT, any field may change. While PUBLISHED, only title, description,
-	// cover image URL, and event times are revised in place; followers are NOT
+	// cover media, and event times are revised in place; followers are NOT
 	// re-notified. CANCELLED series are rejected with FailedPrecondition.
 	//
 	// # Possible errors
@@ -345,7 +346,9 @@ func (uc *concertAuthoringUseCase) Publish(
 	ctx context.Context,
 	callerOrgID, seriesID string,
 ) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
-	series, err := uc.seriesRepo.Get(ctx, seriesID)
+	// Load the current draft (series + events + performers) up front: this both
+	// resolves ownership/existence and feeds the final publish gate below.
+	series, draftEvents, draftArtists, err := uc.seriesRepo.GetAuthored(ctx, seriesID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return nil, nil, nil, apperr.New(codes.PermissionDenied, "permission denied")
@@ -353,6 +356,13 @@ func (uc *concertAuthoringUseCase) Publish(
 		return nil, nil, nil, err
 	}
 	if err := uc.assertOwnsSeries(series, callerOrgID); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Final server-side gate: re-validate the complete required-field set so an
+	// incomplete draft (missing performer, venue, or date) can never go live,
+	// regardless of how it reached this state (author, edit, or partial data).
+	if err := validatePublishReadiness(series, draftEvents, draftArtists); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -541,4 +551,48 @@ func validateDraftEventInputs(inputs []*DraftEventInput) error {
 		}
 	}
 	return nil
+}
+
+// validatePublishReadiness is the final server-side gate before a concert goes
+// live. Creation validates a subset for early draft feedback, but an edited or
+// partial draft may still be missing later-required data, so publish
+// re-validates the whole required set to guarantee no PUBLISHED concert is ever
+// surfaced with a missing required field. The required set is: a non-empty
+// title, at least one performing artist, and at least one event that each has a
+// non-empty venue and a non-zero local date. `description` and `media` are
+// optional and never block publish. Failures are FailedPrecondition (the draft
+// is in a not-yet-publishable state), leaving the series DRAFT.
+func validatePublishReadiness(series *entity.Series, events []*entity.Event, artists []*entity.Artist) error {
+	if strings.TrimSpace(series.Title) == "" {
+		return apperr.New(codes.FailedPrecondition, "cannot publish: a title is required")
+	}
+	if len(artists) == 0 {
+		return apperr.New(codes.FailedPrecondition, "cannot publish: at least one performing artist is required")
+	}
+	if len(events) == 0 {
+		return apperr.New(codes.FailedPrecondition, "cannot publish: at least one event is required")
+	}
+	for _, ev := range events {
+		if eventVenueName(ev) == "" {
+			return apperr.New(codes.FailedPrecondition, "cannot publish: every event must have a venue")
+		}
+		if ev.LocalDate.IsZero() {
+			return apperr.New(codes.FailedPrecondition, "cannot publish: every event must have a date")
+		}
+	}
+	return nil
+}
+
+// eventVenueName resolves an event's display venue name, preferring the resolved
+// canonical venue and falling back to the authored listed name. A draft event
+// (loaded via LoadDraft) carries only the listed name; a read event carries the
+// resolved Venue. Returns "" when neither yields a non-blank name.
+func eventVenueName(ev *entity.Event) string {
+	if ev.Venue != nil && strings.TrimSpace(ev.Venue.Name) != "" {
+		return strings.TrimSpace(ev.Venue.Name)
+	}
+	if ev.ListedVenueName != nil && strings.TrimSpace(*ev.ListedVenueName) != "" {
+		return strings.TrimSpace(*ev.ListedVenueName)
+	}
+	return ""
 }
