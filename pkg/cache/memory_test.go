@@ -118,6 +118,58 @@ func TestMemoryCache_Close(t *testing.T) {
 	})
 }
 
+// TestMemoryCache_GetAndDelete_Atomicity asserts that exactly one goroutine
+// wins the race when N goroutines all call GetAndDelete on the same key
+// simultaneously. The single-winner property is what makes GetAndDelete safe
+// for single-use nonce consumption in the Pocket Sign flow.
+func TestMemoryCache_GetAndDelete_Atomicity(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const concurrency = 20
+		c := cache.NewMemoryCache(1 * time.Hour)
+		t.Cleanup(func() { assert.NoError(t, c.Close()) })
+
+		c.Set("nonce", "secret-nonce-value")
+
+		type result struct {
+			got any
+		}
+
+		results := make(chan result, concurrency)
+		for range concurrency {
+			go func() {
+				v := c.GetAndDelete("nonce")
+				results <- result{got: v}
+			}()
+		}
+
+		var winners int
+		for range concurrency {
+			r := <-results
+			if r.got != nil {
+				winners++
+				assert.Equal(t, "secret-nonce-value", r.got,
+					"the winner must receive the correct value")
+			}
+		}
+		assert.Equal(t, 1, winners,
+			"exactly one goroutine must win the GetAndDelete race; single-use semantics violated")
+	})
+}
+
+// TestMemoryCache_Close_IsSafeToCallTwice asserts that calling Close a second
+// time does not deadlock. The done channel is already closed after the first
+// call, so a subsequent <-c.done returns immediately.
+func TestMemoryCache_Close_IsSafeToCallTwice(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := cache.NewMemoryCache(1 * time.Hour)
+
+		assert.NoError(t, c.Close(), "first Close must succeed")
+		// Second call must return without hanging. If the implementation blocks
+		// here, the synctest virtual clock will detect the deadlock.
+		assert.NoError(t, c.Close(), "second Close must also return nil without deadlock")
+	})
+}
+
 func TestMemoryCache_Concurrent(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := cache.NewMemoryCache(1 * time.Hour)

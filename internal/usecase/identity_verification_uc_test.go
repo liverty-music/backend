@@ -257,6 +257,45 @@ func TestIdentityVerificationUseCase_CompleteVerify(t *testing.T) {
 			},
 			wantErr: apperr.ErrPermissionDenied,
 		},
+		{
+			// GetByPocketSignUserID returns a non-NotFound error (e.g. Unavailable due
+			// to a DB outage). The usecase must propagate the error — it must NOT
+			// swallow it or fall through to Create.
+			name:   "propagate non-NotFound error from GetByPocketSignUserID without calling Create",
+			userID: userA,
+			setup: func(d *identityTestDeps) {
+				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
+				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
+					&usecase.PocketSignResult{PocketSignUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
+				)
+				// GetByPocketSignUserID returns Unavailable — NOT NotFound.
+				// Create must NOT be called in this case.
+				d.viRepo.EXPECT().GetByPocketSignUserID(ctx, psidA).
+					Return(nil, apperr.New(codes.Unavailable, "DB temporarily unavailable"))
+				// No Create call expected.
+			},
+			wantErr: apperr.ErrUnavailable,
+		},
+		{
+			// The renewal path: psidA already belongs to userA, so the usecase
+			// calls UpdateStatus to deactivate the old record. If UpdateStatus
+			// returns an error, it must be propagated — Create must NOT be called.
+			name:   "propagate UpdateStatus error in renewal path without calling Create",
+			userID: userA,
+			setup: func(d *identityTestDeps) {
+				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
+				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
+					&usecase.PocketSignResult{PocketSignUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
+				)
+				oldVI := sampleVI("old-vi-renewal", userA, psidA)
+				d.viRepo.EXPECT().GetByPocketSignUserID(ctx, psidA).Return(oldVI, nil)
+				// UpdateStatus fails (e.g. DB connection lost).
+				d.viRepo.EXPECT().UpdateStatus(ctx, "old-vi-renewal", entity.VerificationStatusNeedsReverification).
+					Return(apperr.New(codes.Internal, "DB write failed"))
+				// Create must NOT be called after UpdateStatus fails.
+			},
+			wantErr: apperr.ErrInternal,
+		},
 	}
 
 	for _, tt := range tests {

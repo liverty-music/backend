@@ -159,6 +159,12 @@ func (h *IdentityVerificationHandler) ReCheck(
 	if err != nil {
 		return nil, err
 	}
+	// Defensive: the usecase must return a non-nil identity when err == nil.
+	// Guard against a contract violation so ReCheck never nil-derefs vi.Status.
+	if vi == nil {
+		return nil, connect.NewError(connect.CodeInternal,
+			errors.New("recheck returned no verified identity without an error"))
+	}
 
 	return connect.NewResponse(&identityv1.ReCheckResponse{
 		Status:            mapper.VerificationStatusToProto(vi.Status),
