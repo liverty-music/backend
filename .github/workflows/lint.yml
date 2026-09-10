@@ -48,18 +48,11 @@ jobs:
         with:
           go-version: "1.27.0"
           cache: false
-      # TEMPORARY (Go 1.27): the golangci-lint install step is removed because no
-      # released or HEAD golangci-lint can yet decode Go 1.27's unified-IR
-      # export-data (format version 4) — it fails to import `internal/cpu` via
-      # `math`, which nearly every package imports. `make lint` therefore runs
-      # gofmt + `go vet` only for now (see the backend Makefile `lint` target).
-      # Restore this step (and the golangci-lint line in the Makefile) once a
-      # golangci-lint release fully lints a `go 1.27` module:
-      #   - name: Install golangci-lint
-      #     uses: golangci/golangci-lint-action@v8
-      #     with:
-      #       version: v2.13.1   # bump to the first release with complete Go 1.27 support
-      #       install-only: true
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.2 # first release built with Go 1.27, decodes Go 1.27 export data
+          install-only: true
       - name: Run make lint
         run: make lint
 

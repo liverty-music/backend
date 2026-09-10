@@ -14,6 +14,14 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
+// maxPixels is the pre-decode safety limit: images whose decoded pixel count
+// exceeds this value are rejected without a full decode (~50 MP).
+const maxPixels = 50_000_000
+
+// maxEdgePx is the per-dimension limit: any single edge exceeding this (8000 px)
+// is rejected before the full decode.
+const maxEdgePx = 8_000
+
 // vipsProcessor implements MediaProcessor using libvips via govips.
 // Build with: CGO_ENABLED=1 go build -tags vips
 type vipsProcessor struct {

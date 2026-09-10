@@ -22,14 +22,6 @@ const mediaInternalBucketKey = "ORGANIZER_MEDIA_INTERNAL_BUCKET"
 // mediaServedBucketKey is the env var name for the CDN-served bucket.
 const mediaServedBucketKey = "ORGANIZER_MEDIA_BUCKET"
 
-// maxPixels is the pre-decode safety limit: images whose decoded pixel count
-// exceeds this value are rejected without a full decode (~50 MP).
-const maxPixels = 50_000_000
-
-// maxEdgePx is the per-dimension limit: any single edge exceeding this (8000 px)
-// is rejected before the full decode.
-const maxEdgePx = 8_000
-
 // MediaProcessor abstracts the image-processing step (decode, resize, encode
 // WebP variants) so the consumer's cut-over logic is testable without libvips.
 // The real implementation lives in media_processor_vips.go (build tag: vips).

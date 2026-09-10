@@ -133,9 +133,7 @@ const (
 		JOIN venues v ON e.venue_id = v.id
 		WHERE EXISTS (
 			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
-		)
-		AND NOT (s.organizer_id IS NOT NULL
-		         AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
+		)` + firstPartyVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -149,9 +147,7 @@ const (
 		WHERE EXISTS (
 			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
-		AND e.local_event_date >= CURRENT_DATE
-		AND NOT (s.organizer_id IS NOT NULL
-		         AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
+		AND e.local_event_date >= CURRENT_DATE` + firstPartyVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -166,9 +162,7 @@ const (
 		JOIN venues v ON e.venue_id = v.id
 		WHERE EXISTS (
 			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = ANY($1)
-		)
-		AND NOT (s.organizer_id IS NOT NULL
-		         AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
+		)` + firstPartyVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -192,9 +186,7 @@ const (
 		  AND (
 		    (v.latitude BETWEEN $3 AND $4 AND v.longitude BETWEEN $5 AND $6)
 		    OR v.admin_area = $7
-		  )
-		  AND NOT (s.organizer_id IS NOT NULL
-		           AND (s.publish_state <> 'PUBLISHED' OR s.visibility <> 'PUBLIC'))
+		  )` + firstPartyVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 

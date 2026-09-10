@@ -226,25 +226,6 @@ const (
 		WHERE id = $1
 	`
 
-	// cutOverSeriesMediaQuery upserts the series_media join row to point to the
-	// new media id and returns the old media_id (NULL when none existed). The
-	// upsert uses ON CONFLICT(series_id) DO UPDATE so that re-delivery of the
-	// same MEDIA.uploaded event is idempotent: the function is a no-op when
-	// series_media already points to new_media_id.
-	cutOverSeriesMediaQuery = `
-		WITH old AS (
-			SELECT media_id FROM series_media WHERE series_id = $1
-		),
-		upsert AS (
-			INSERT INTO series_media (series_id, media_id, display_order)
-			VALUES ($1, $2, 0)
-			ON CONFLICT (series_id) DO UPDATE
-				SET media_id = EXCLUDED.media_id
-			WHERE series_media.media_id IS DISTINCT FROM EXCLUDED.media_id
-		)
-		SELECT (SELECT media_id FROM old)
-	`
-
 	// deleteMediaByIDQuery removes a media row by id. Missing rows are silently
 	// skipped via the WHERE guard so DELETE is idempotent.
 	deleteMediaByIDQuery = `DELETE FROM media WHERE id = $1`
@@ -942,13 +923,10 @@ func (r *SeriesRepository) PublishDraft(ctx context.Context, seriesID string, no
 			LIMIT 1`,
 			de.VenueID, de.LocalDate, de.StartTime,
 		).Scan(&existingID, &existingSeriesID, &existingOrganizerIDNull)
-		if err != nil {
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return nil, toAppErr(err, "failed to check existing event during publish")
-			}
-			// pgx.ErrNoRows: no conflict — fall through to insert.
-			err = nil
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, toAppErr(err, "failed to check existing event during publish")
 		}
+		// pgx.ErrNoRows (or no error): no conflict — fall through to insert.
 
 		if existingID != "" {
 			// Determine ownership of the existing event's series.
