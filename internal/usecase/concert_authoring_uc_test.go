@@ -20,9 +20,7 @@ import (
 )
 
 // ptr returns a pointer to v, used to build test fixtures inline.
-//
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
+func ptr[T any](v T) *T { return &v }
 
 // validPublishEvents returns a one-event slice that satisfies the publish
 // readiness gate (a non-blank venue and a non-zero local date), so tests that
@@ -85,22 +83,6 @@ func newMediaDeps(t *testing.T) *mediaDeps {
 		d.seriesRepo, d.mediaRepo, d.orgUC, d.imageStorer, d.publisher, logger,
 	)
 	return d
-}
-
-// stubOwnedArtist sets up ListArtists to return a single artist with the given id.
-func stubOwnedArtist(d *authoringDeps, orgID, artistID string) {
-	d.orgUC.EXPECT().ListArtists(mock.Anything, orgID).
-		Return([]*entity.Artist{{ID: artistID}}, nil).Maybe()
-}
-
-// stubVenueGetOrCreate makes GetByListedName return NotFound then Create return a new venueID.
-func stubVenueGetOrCreate(d *authoringDeps, venueName, venueID string) {
-	d.venueRepo.EXPECT().GetByPlaceID(mock.Anything, mock.Anything).
-		Return(nil, apperr.New(codes.NotFound, "not found")).Maybe()
-	d.venueRepo.EXPECT().GetByListedName(mock.Anything, venueName, mock.Anything).
-		Return(nil, apperr.New(codes.NotFound, "not found")).Maybe()
-	d.venueRepo.EXPECT().Create(mock.Anything, mock.Anything).
-		Return(venueID, nil).Maybe()
 }
 
 // futureDate returns a date 30 days from now so validation passes.

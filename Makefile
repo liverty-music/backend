@@ -6,17 +6,8 @@ lint:
 	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
 	@echo "==> Running go vet..."
 	go vet -tags=integration ./...
-	# TEMPORARY (Go 1.27): golangci-lint is disabled below because no released or
-	# HEAD build can decode Go 1.27's unified-IR export-data (format version 4,
-	# added for generic methods) — it fails to import `internal/cpu` via `math`
-	# ("export data version 4 is greater than maximum supported version 2"),
-	# which nearly every package imports. Support is landing upstream
-	# (golangci/golangci-lint main @1b907273167e, 2026-08-23) but is not yet
-	# complete. `go vet` above is the interim static-analysis gate. Restore the
-	# line below (and the golangci-lint-action step in .github/workflows/lint.yml)
-	# once a golangci-lint release fully lints a `go 1.27` module.
-	# @echo "==> Running golangci-lint..."
-	# golangci-lint run --timeout=3m --build-tags=integration ./...
+	@echo "==> Running golangci-lint..."
+	golangci-lint run --timeout=3m --build-tags=integration ./...
 
 ## lint-schema: check schema.sql against design policies
 lint-schema:
