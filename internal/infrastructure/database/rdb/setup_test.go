@@ -157,7 +157,6 @@ func cleanTables(db *rdb.Database) {
 		"verified_identities",
 		"ticket_applications",
 		"lottery_sales_phases",
-		"ticket_emails",
 		"ticket_journeys",
 		"push_subscriptions",
 		"latest_search_logs",

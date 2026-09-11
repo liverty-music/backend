@@ -45,7 +45,7 @@ const (
 	EventArtistUnfollowCompleted AnalyticsEventName = "artist.unfollow.completed"
 )
 
-// Ticket journey and email events emitted from the backend.
+// Ticket journey events emitted from the backend.
 const (
 	// EventTicketJourneyStatusChanged is recorded after a fan's ticket
 	// journey status is successfully updated via SetStatus. It is
@@ -53,12 +53,6 @@ const (
 	// (no-op upsert) to avoid noise in downstream funnels.
 	// Properties: event_id, from_status, to_status.
 	EventTicketJourneyStatusChanged AnalyticsEventName = "ticket.journey.status.changed"
-
-	// EventTicketEmailParsed is recorded by TicketEmailUseCase.Create on
-	// both parse-success and parse-failure paths. Feeds the email-ingestion
-	// data quality and parser robustness dashboards in PostHog.
-	// Properties: email_type, parse_status, field_count.
-	EventTicketEmailParsed AnalyticsEventName = "ticket.email.parsed"
 )
 
 // Notification lifecycle events emitted from the backend. The underlying
@@ -115,7 +109,6 @@ var knownBackendEvents = map[AnalyticsEventName]struct{}{
 	EventArtistFollowCompleted:      {},
 	EventArtistUnfollowCompleted:    {},
 	EventTicketJourneyStatusChanged: {},
-	EventTicketEmailParsed:          {},
 	EventNotificationSubscribed:     {},
 	EventNotificationUnsubscribed:   {},
 	EventNotificationDelivered:      {},

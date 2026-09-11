@@ -178,6 +178,13 @@ func (r *NotificationRepository) ListByUser(ctx context.Context, userID string, 
 	return notifications, nil
 }
 
+// scannable is satisfied by both pgx.Row (single-row query) and pgx.Rows
+// (multi-row cursor), allowing scan helpers to accept either without
+// duplicating code.
+type scannable interface {
+	Scan(dest ...any) error
+}
+
 // scanNotification scans a single row into a Notification entity, decoding the
 // jsonb payload and the nullable delivery/read/dismiss columns.
 func scanNotification(row scannable) (*entity.Notification, error) {

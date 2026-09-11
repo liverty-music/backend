@@ -21,14 +21,14 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.20.0-20260902095528-98cf6c870a23.1
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20260902095528-98cf6c870a23.1
+	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20260911061343-6c0aab490716.1
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20260911061343-6c0aab490716.2
 	buf.build/gen/go/pocketsign/apis/connectrpc/go v1.20.0-20260826021924-0ff29b2b0335.1
 	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20260826021924-0ff29b2b0335.1
 	cloud.google.com/go/cloudsqlconn v1.20.0
 	cloud.google.com/go/storage v1.65.0
 	connectrpc.com/authn v0.2.0
-	connectrpc.com/connect v1.20.0
+	connectrpc.com/connect v1.21.0
 	connectrpc.com/cors v0.1.0
 	connectrpc.com/grpchealth v1.4.0
 	connectrpc.com/otelconnect v0.8.0
@@ -66,6 +66,7 @@ require (
 	google.golang.org/api v0.287.1
 	google.golang.org/genai v1.69.0
 	google.golang.org/genproto v0.0.0-20260519071638-aa98bba5eb94
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260630182238-925bb5da69e7
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.12
 )
@@ -234,7 +235,6 @@ require (
 	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/tools v0.47.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260630182238-925bb5da69e7 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	mvdan.cc/gofumpt v0.9.1 // indirect
 	pluginrpc.com/pluginrpc v0.5.0 // indirect
