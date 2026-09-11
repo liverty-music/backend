@@ -109,18 +109,6 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
-		// Carries TICKET_EMAIL.parsed (ticket-email ingestion outcomes),
-		// consumed by the analytics consumer.
-		Name:       "TICKET_EMAIL",
-		Subjects:   []string{"TICKET_EMAIL.*"},
-		Retention:  nats.LimitsPolicy,
-		MaxAge:     7 * 24 * time.Hour,
-		Storage:    nats.FileStorage,
-		Discard:    nats.DiscardOld,
-		Replicas:   1,
-		Duplicates: 2 * time.Minute,
-	},
-	{
 		// Carries ORGANIZER.created and ORGANIZER.artist_associated (both two-token
 		// subjects), consumed by the analytics consumer. A plain ORGANIZER.*
 		// filter matches both subjects because each uses a single underscore token

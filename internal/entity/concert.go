@@ -511,7 +511,7 @@ type ConcertRepository interface {
 	List(ctx context.Context) ([]*Concert, error)
 	// Delete removes a published event by id. The delete cascades through the
 	// database's foreign keys to every row referencing the event (event_performers,
-	// concerts, tickets, ticket_journeys, ticket_emails, merkle_tree, and the
+	// concerts, tickets, ticket_journeys, merkle_tree, and the
 	// parent series' sales_phases). It is idempotent: deleting an id that no
 	// longer exists is a no-op success.
 	Delete(ctx context.Context, eventID string) error

@@ -95,3 +95,4 @@ configMapGenerator:
   - migrations/20260902000000_create_verified_identities.sql
   - migrations/20260902010000_add_lottery_tables.sql
   - migrations/20260902020000_add_lottery_verification_requirement.sql
+  - migrations/20260911000000_drop_ticket_emails.sql

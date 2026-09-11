@@ -36,11 +36,6 @@ const (
 	// when no prior journey existed). It drives the
 	// ticket.journey.status.changed analytics event.
 	SubjectTicketJourneyStatusChanged = "TICKET_JOURNEY.status_changed"
-	// SubjectTicketEmailParsed is published by TicketEmailUseCase.Create on
-	// both parse-success and parse-failure paths. It drives the
-	// ticket.email.parsed analytics event (email-ingestion data quality,
-	// parser robustness).
-	SubjectTicketEmailParsed = "TICKET_EMAIL.parsed"
 	// SubjectUserLoggedIn is published by the login-event webhook handler once
 	// per user-initiated login, bound to the Zitadel session.user.checked
 	// event. It drives the account.signin analytics event (returning /
@@ -107,7 +102,6 @@ var AllSubjects = []string{
 	SubjectSalesPhaseDiscovered,
 	SubjectSalesPhaseReminderDue,
 	SubjectTicketJourneyStatusChanged,
-	SubjectTicketEmailParsed,
 	SubjectUserLoggedIn,
 	SubjectOrganizerCreated,
 	SubjectOrganizerArtistAssociated,
@@ -328,26 +322,6 @@ type SalesPhaseReminderDueData struct {
 	// Built per-recipient so times render in the user's timezone and copy
 	// is selected by preferred_language.
 	Payload *NotificationPayload `json:"payload"`
-}
-
-// TicketEmailParsedData is the payload for TICKET_EMAIL.parsed.
-// Mapped to the catalogue event ticket.email.parsed by the
-// analytics-consumer. Published by TicketEmailUseCase.Create on both
-// parse-success and parse-failure paths so email-ingestion data quality and
-// parser robustness can be measured in PostHog.
-type TicketEmailParsedData struct {
-	// UserID is the platform-internal user identifier of the fan who imported
-	// the email. Used as the PostHog distinct_id.
-	UserID string `json:"user_id"`
-	// EmailType is the string name of the TicketEmailType enum value (e.g.
-	// "LOTTERY_INFO", "LOTTERY_RESULT").
-	EmailType string `json:"email_type"`
-	// ParseStatus is "success" when the parser returned no error, "failure"
-	// otherwise.
-	ParseStatus string `json:"parse_status"`
-	// FieldCount is the number of non-nil optional fields extracted by the
-	// parser on success. Zero on failure.
-	FieldCount int `json:"field_count"`
 }
 
 // OrganizerCreatedData is the payload for ORGANIZER.created.

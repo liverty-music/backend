@@ -17,7 +17,6 @@ import (
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
-	ticketemailconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_email/v1/ticket_emailv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
@@ -94,7 +93,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	rejectedConcertRepo := rdb.NewRejectedConcertLogRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
-	ticketEmailRepo := rdb.NewTicketEmailRepository(db)
 	organizerRepo := rdb.NewOrganizerRepository(db)
 	verifiedIdentityRepo := rdb.NewVerifiedIdentityRepository(db)
 	lotteryPhaseRepo := rdb.NewLotteryPhaseRepository(db)
@@ -103,7 +101,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
-	var emailParser entity.TicketEmailParser
 	if cfg.GCP.GeminiSearchAPIKey != "" {
 		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
@@ -119,21 +116,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			return nil, err
 		}
 		geminiSearcher = searcher
-
-		// The Gemini ticket-email parser (gemini.NewEmailParser) is intentionally
-		// NOT wired here: the share-target email-import feature is dormant. The
-		// frontend disables its entry point (the import-ticket-email route serves
-		// the "unavailable" state and skips all network calls) and there is no
-		// production traffic. Leaving emailParser nil keeps TicketEmailUseCase and
-		// its RPC handler unregistered via the emailParser != nil guards below.
-		//
-		// Not wiring it also removes the #414 footgun: NewEmailParser calls
-		// UseDefaultCredentials, which mutates the passed *http.Client's Transport
-		// in place to attach an ADC `Authorization: Bearer` header. Sharing that
-		// client with the searcher made its generativelanguage.googleapis.com
-		// calls fail with 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT. To revive: give the
-		// parser its OWN dedicated *http.Client (never the searcher's) and
-		// re-enable the frontend entry point.
 	}
 
 	// Infrastructure - Music
@@ -281,12 +263,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
-	var ticketEmailUC usecase.TicketEmailUseCase
-	if emailParser != nil {
-		ticketEmailUC = usecase.NewTicketEmailUseCase(ticketEmailRepo, ticketJourneyRepo, emailParser, eventPublisher, logger)
-	} else {
-		_ = ticketEmailRepo // referenced when email parser is enabled; suppress unused warning
-	}
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	notificationRepo := rdb.NewNotificationRepository(db)
 	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger)
@@ -413,15 +389,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-	}
-
-	if ticketEmailUC != nil {
-		handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return ticketemailconnect.NewTicketEmailServiceHandler(
-				rpc.NewTicketEmailHandler(ticketEmailUC, userRepo, logger),
-				opts...,
-			)
-		})
 	}
 
 	// Fan-facing LotteryService: CreateAuthorization, Apply, WithdrawApplication,
