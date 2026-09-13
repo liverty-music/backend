@@ -400,7 +400,7 @@ func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, zitade
 	}
 
 	// Create the invite using Zitadel's STANDARD invitation flow: Zitadel sends
-	// one branded "Invitation to Liverty Organizer" email via its own SMTP (the
+	// one branded "Invitation to Liverty Music Organizer" email via its own SMTP (the
 	// backend has no SMTP of its own) whose "Accept invite" link opens the hosted
 	// Login v2 /verify page directly, with the code carried in the link. The
 	// operator CLICKS the link (never transcribes a code), registers a passkey,
@@ -420,7 +420,7 @@ func (p *OrganizerProvisioner) ensureOperatorUser(orgCtx context.Context, zitade
 		Verification: &userv2pb.CreateInviteCodeRequest_SendCode{
 			SendCode: &userv2pb.SendInviteCode{
 				UrlTemplate:     new(inviteURL),
-				ApplicationName: new("Liverty Organizer"),
+				ApplicationName: new("Liverty Music Organizer"),
 			},
 		},
 	}); err != nil {
