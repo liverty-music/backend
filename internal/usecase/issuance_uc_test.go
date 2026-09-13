@@ -1,0 +1,342 @@
+package usecase_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// --- self-contained test doubles for ⑤ issuance ports ---
+//
+// Same rationale as lottery_uc_test.go: mockery v2.53.6 cannot load
+// internal/entity (the `image without types` bug), so these function-field
+// stubs verify the issuance business logic. stubPhaseRepo, stubAppRepo, and
+// stubVerifiedIdentityRepo are reused from lottery_uc_test.go (same package).
+
+type stubIssuanceRepo struct {
+	issueFn        func(ctx context.Context, order *entity.Order, tickets []*entity.Ticket) error
+	listAwaitingFn func(ctx context.Context) ([]entity.TicketApplicationID, error)
+}
+
+func (s *stubIssuanceRepo) Issue(ctx context.Context, order *entity.Order, tickets []*entity.Ticket) error {
+	if s.issueFn != nil {
+		return s.issueFn(ctx, order, tickets)
+	}
+	return nil
+}
+
+func (s *stubIssuanceRepo) ListApplicationIDsAwaitingIssuance(ctx context.Context) ([]entity.TicketApplicationID, error) {
+	if s.listAwaitingFn != nil {
+		return s.listAwaitingFn(ctx)
+	}
+	return nil, nil
+}
+
+type stubOrderRepo struct {
+	getFn                func(ctx context.Context, id entity.OrderID) (*entity.Order, error)
+	getByApplicationIDFn func(ctx context.Context, applicationID entity.TicketApplicationID) (*entity.Order, error)
+	updateStatusFn       func(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error
+}
+
+func (s *stubOrderRepo) Get(ctx context.Context, id entity.OrderID) (*entity.Order, error) {
+	if s.getFn != nil {
+		return s.getFn(ctx, id)
+	}
+	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
+}
+
+func (s *stubOrderRepo) GetByApplicationID(ctx context.Context, applicationID entity.TicketApplicationID) (*entity.Order, error) {
+	if s.getByApplicationIDFn != nil {
+		return s.getByApplicationIDFn(ctx, applicationID)
+	}
+	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
+}
+
+func (s *stubOrderRepo) UpdateStatus(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error {
+	if s.updateStatusFn != nil {
+		return s.updateStatusFn(ctx, id, status)
+	}
+	return nil
+}
+
+type stubJourneyRepo struct {
+	upsertFn func(ctx context.Context, journey *entity.TicketJourney) error
+}
+
+func (s *stubJourneyRepo) Get(ctx context.Context, userID, eventID string) (*entity.TicketJourney, error) {
+	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
+}
+
+func (s *stubJourneyRepo) Upsert(ctx context.Context, journey *entity.TicketJourney) error {
+	if s.upsertFn != nil {
+		return s.upsertFn(ctx, journey)
+	}
+	return nil
+}
+
+func (s *stubJourneyRepo) Delete(ctx context.Context, userID, eventID string) error { return nil }
+
+func (s *stubJourneyRepo) ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error) {
+	return nil, nil
+}
+
+func (s *stubJourneyRepo) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]string, error) {
+	return nil, nil
+}
+
+type stubCapturePort struct {
+	getCapturedPaymentFn func(ctx context.Context, paymentIntentRef string) (*usecase.CapturedPayment, error)
+}
+
+func (s *stubCapturePort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*usecase.CapturedPayment, error) {
+	if s.getCapturedPaymentFn != nil {
+		return s.getCapturedPaymentFn(ctx, paymentIntentRef)
+	}
+	return &usecase.CapturedPayment{
+		Provider:  entity.PaymentProviderStripe,
+		AmountJPY: 10000,
+		Currency:  "JPY",
+		CardBrand: "visa",
+		CardLast4: "4242",
+	}, nil
+}
+
+// wonApplication returns a Won-captured application for 2 tickets on phase-1.
+func wonApplication() *entity.TicketApplication {
+	return &entity.TicketApplication{
+		ID:                   "app-1",
+		PhaseID:              "phase-1",
+		ApplicantID:          "user-1",
+		RequestedTicketCount: 2,
+		Identity:             entity.ApplicantIdentity{FullName: "山田 太郎", PhoneNumber: "+818000000000"},
+		Authorization:        entity.PaymentAuthorization{PaymentIntentRef: "pi_won_1"},
+		State:                entity.TicketApplicationStateWon,
+	}
+}
+
+func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+
+	t.Run("creates a paid Order, issues N covered tickets, and sets journey PAID", func(t *testing.T) {
+		t.Parallel()
+
+		var issuedOrder *entity.Order
+		var issuedTickets []*entity.Ticket
+		var journeyUpsert *entity.TicketJourney
+
+		issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, o *entity.Order, ts []*entity.Ticket) error {
+			issuedOrder, issuedTickets = o, ts
+			return nil
+		}}
+		journeyRepo := &stubJourneyRepo{upsertFn: func(_ context.Context, j *entity.TicketJourney) error {
+			journeyUpsert = j
+			return nil
+		}}
+		appRepo := &stubAppRepo{getFn: func(_ context.Context, _ entity.TicketApplicationID) (*entity.TicketApplication, error) {
+			return wonApplication(), nil
+		}}
+		phaseRepo := &stubPhaseRepo{getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+			return basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour)), nil
+		}}
+
+		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo,
+			&stubVerifiedIdentityRepo{}, journeyRepo, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+
+		order, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
+		require.NoError(t, err)
+
+		// Order is paid, references the captured payment, carries facets, never card data.
+		require.NotNil(t, order)
+		assert.Equal(t, entity.OrderStatusPaid, order.Status)
+		assert.Equal(t, entity.UserID("user-1"), order.BuyerID)
+		assert.Equal(t, entity.TicketApplicationID("app-1"), order.ApplicationID)
+		assert.Equal(t, "pi_won_1", order.Payment.PaymentIntentRef)
+		assert.Equal(t, entity.PaymentProviderStripe, order.Payment.Provider)
+		assert.Equal(t, "visa", order.Payment.CardBrand)
+		assert.Equal(t, "4242", order.Payment.CardLast4)
+		assert.Equal(t, int64(10000), order.Amount)
+		assert.Equal(t, "JPY", order.Currency)
+		assert.Equal(t, now, order.PaidTime)
+		assert.Same(t, issuedOrder, order)
+
+		// Exactly N covered tickets, all bound to the buyer with the three conditions.
+		require.Len(t, issuedTickets, 2)
+		for _, tk := range issuedTickets {
+			assert.Equal(t, order.ID, tk.OrderID)
+			assert.Equal(t, entity.UserID("user-1"), tk.HolderID)
+			assert.Equal(t, "event-1", tk.EventID)
+			assert.True(t, tk.ResaleWithoutConsentProhibited)
+			assert.Equal(t, entity.TicketStatusIssued, tk.Status)
+			assert.Equal(t, "山田 太郎", tk.HolderIdentity.FullName)
+			assert.Empty(t, tk.VerifiedIdentityID) // phase required no verification
+		}
+
+		// Journey set to PAID for the buyer + event.
+		require.NotNil(t, journeyUpsert)
+		assert.Equal(t, "user-1", journeyUpsert.UserID)
+		assert.Equal(t, "event-1", journeyUpsert.EventID)
+		assert.Equal(t, entity.TicketJourneyStatusPaid, journeyUpsert.Status)
+	})
+
+	t.Run("is idempotent: an existing Order is returned without re-issuing", func(t *testing.T) {
+		t.Parallel()
+
+		existing := &entity.Order{ID: "order-existing", ApplicationID: "app-1", Status: entity.OrderStatusPaid}
+		orderRepo := &stubOrderRepo{getByApplicationIDFn: func(_ context.Context, _ entity.TicketApplicationID) (*entity.Order, error) {
+			return existing, nil
+		}}
+		issueCalled := false
+		issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, _ *entity.Order, _ []*entity.Ticket) error {
+			issueCalled = true
+			return nil
+		}}
+		journeyCalled := false
+		journeyRepo := &stubJourneyRepo{upsertFn: func(_ context.Context, _ *entity.TicketJourney) error {
+			journeyCalled = true
+			return nil
+		}}
+
+		uc := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, &stubAppRepo{}, &stubPhaseRepo{},
+			&stubVerifiedIdentityRepo{}, journeyRepo, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+
+		order, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
+		require.NoError(t, err)
+		assert.Same(t, existing, order)
+		assert.False(t, issueCalled, "must not re-issue when an Order already exists")
+		assert.False(t, journeyCalled, "must not re-write journey on an idempotent replay")
+	})
+
+	t.Run("returns FailedPrecondition and creates no Order when the application is not Won-captured", func(t *testing.T) {
+		t.Parallel()
+
+		appRepo := &stubAppRepo{getFn: func(_ context.Context, _ entity.TicketApplicationID) (*entity.TicketApplication, error) {
+			app := wonApplication()
+			app.State = entity.TicketApplicationStateLost
+			return app, nil
+		}}
+		issueCalled := false
+		issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, _ *entity.Order, _ []*entity.Ticket) error {
+			issueCalled = true
+			return nil
+		}}
+
+		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, &stubPhaseRepo{},
+			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+
+		_, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.False(t, issueCalled)
+	})
+
+	t.Run("binds the verified identity when the phase required verification", func(t *testing.T) {
+		t.Parallel()
+
+		var issuedTickets []*entity.Ticket
+		issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, _ *entity.Order, ts []*entity.Ticket) error {
+			issuedTickets = ts
+			return nil
+		}}
+		appRepo := &stubAppRepo{getFn: func(_ context.Context, _ entity.TicketApplicationID) (*entity.TicketApplication, error) {
+			return wonApplication(), nil
+		}}
+		phaseRepo := &stubPhaseRepo{getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+			p := basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour))
+			p.VerificationRequirement = entity.VerificationRequirementJPKIOnly
+			return p, nil
+		}}
+		viRepo := &stubVerifiedIdentityRepo{getByUserIDFn: func(_ context.Context, _ string) (*entity.VerifiedIdentity, error) {
+			return &entity.VerifiedIdentity{ID: "vi-1", UserID: "user-1", Status: entity.VerificationStatusActive}, nil
+		}}
+
+		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo,
+			viRepo, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+
+		_, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
+		require.NoError(t, err)
+		require.Len(t, issuedTickets, 2)
+		for _, tk := range issuedTickets {
+			assert.Equal(t, "vi-1", tk.VerifiedIdentityID)
+		}
+	})
+
+	t.Run("on a concurrent issuance race it re-reads and returns the winning Order", func(t *testing.T) {
+		t.Parallel()
+
+		raceOrder := &entity.Order{ID: "order-race", ApplicationID: "app-1", Status: entity.OrderStatusPaid}
+		// First GetByApplicationID (idempotency check) → NotFound; second (after the
+		// AlreadyExists race) → the order the concurrent writer created.
+		calls := 0
+		orderRepo := &stubOrderRepo{getByApplicationIDFn: func(_ context.Context, _ entity.TicketApplicationID) (*entity.Order, error) {
+			calls++
+			if calls == 1 {
+				return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
+			}
+			return raceOrder, nil
+		}}
+		issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, _ *entity.Order, _ []*entity.Ticket) error {
+			return apperr.New(apperr.ErrAlreadyExists.Code, "duplicate application")
+		}}
+		appRepo := &stubAppRepo{getFn: func(_ context.Context, _ entity.TicketApplicationID) (*entity.TicketApplication, error) {
+			return wonApplication(), nil
+		}}
+		phaseRepo := &stubPhaseRepo{getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+			return basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour)), nil
+		}}
+
+		uc := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, appRepo, phaseRepo,
+			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+
+		order, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
+		require.NoError(t, err)
+		assert.Same(t, raceOrder, order)
+	})
+}
+
+func TestIssuanceUseCase_IssueDueWins(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+
+	t.Run("issues every awaiting application and continues past a single failure", func(t *testing.T) {
+		t.Parallel()
+
+		issued := map[entity.TicketApplicationID]bool{}
+		issuanceRepo := &stubIssuanceRepo{
+			listAwaitingFn: func(_ context.Context) ([]entity.TicketApplicationID, error) {
+				return []entity.TicketApplicationID{"app-1", "app-bad", "app-2"}, nil
+			},
+			issueFn: func(_ context.Context, o *entity.Order, _ []*entity.Ticket) error {
+				issued[o.ApplicationID] = true
+				return nil
+			},
+		}
+		appRepo := &stubAppRepo{getFn: func(_ context.Context, id entity.TicketApplicationID) (*entity.TicketApplication, error) {
+			// app-bad fails to load so its issuance errors; the sweep must continue.
+			if id == "app-bad" {
+				return nil, apperr.New(apperr.ErrNotFound.Code, "gone")
+			}
+			app := wonApplication()
+			app.ID = id
+			return app, nil
+		}}
+		phaseRepo := &stubPhaseRepo{getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+			return basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour)), nil
+		}}
+
+		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo,
+			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+
+		err := uc.IssueDueWins(context.Background())
+		require.NoError(t, err)
+		assert.True(t, issued["app-1"])
+		assert.True(t, issued["app-2"])
+		assert.False(t, issued["app-bad"], "a failed application must not be issued")
+	})
+}

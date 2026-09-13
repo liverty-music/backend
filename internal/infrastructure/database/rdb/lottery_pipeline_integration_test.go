@@ -14,8 +14,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	stripe "github.com/stripe/stripe-go/v81"
-	"github.com/stripe/stripe-go/v81/paymentintent"
+	stripe "github.com/stripe/stripe-go/v86"
 	"uuid"
 )
 
@@ -139,8 +138,8 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 // in-browser 3DS confirmation.
 func confirmHold(t *testing.T, key, ref string) {
 	t.Helper()
-	client := paymentintent.Client{B: stripe.GetBackend(stripe.APIBackend), Key: key}
-	pi, err := client.Confirm(ref, &stripe.PaymentIntentConfirmParams{
+	sc := stripe.NewClient(key)
+	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), ref, &stripe.PaymentIntentConfirmParams{
 		PaymentMethod: stripe.String("pm_card_visa"),
 	})
 	require.NoError(t, err)
@@ -150,8 +149,8 @@ func confirmHold(t *testing.T, key, ref string) {
 // piStatus fetches the current status of a PaymentIntent from the Stripe test API.
 func piStatus(t *testing.T, key, ref string) stripe.PaymentIntentStatus {
 	t.Helper()
-	client := paymentintent.Client{B: stripe.GetBackend(stripe.APIBackend), Key: key}
-	pi, err := client.Get(ref, nil)
+	sc := stripe.NewClient(key)
+	pi, err := sc.V1PaymentIntents.Retrieve(context.Background(), ref, nil)
 	require.NoError(t, err)
 	return pi.Status
 }

@@ -15,6 +15,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -23,24 +24,25 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
-	stripe "github.com/stripe/stripe-go/v81"
-	"github.com/stripe/stripe-go/v81/paymentintent"
+	stripe "github.com/stripe/stripe-go/v86"
 )
 
 // stripeHTTPTimeout bounds every Stripe API call. The default http.Client has
 // no timeout, so a hung connection would block the caller — and, for the draw
 // job, stall the entire winner-capture batch — indefinitely. Context deadlines
-// are propagated in addition to this ceiling (see the per-method params.Context
-// assignments).
+// are propagated in addition to this ceiling (the per-call ctx argument).
 const stripeHTTPTimeout = 30 * time.Second
 
-// Compile-time interface compliance check.
-var _ usecase.PaymentAuthorizationPort = (*StripeAuthorizationPort)(nil)
+// Compile-time interface compliance checks.
+var (
+	_ usecase.PaymentAuthorizationPort = (*StripeAuthorizationPort)(nil)
+	_ usecase.PaymentCapturePort       = (*StripeAuthorizationPort)(nil)
+)
 
 // StripeAuthorizationPort implements [usecase.PaymentAuthorizationPort] via the
 // Stripe PaymentIntents API using the manual-capture authorization-hold model.
 type StripeAuthorizationPort struct {
-	client paymentintent.Client
+	client *stripe.Client
 	logger *logging.Logger
 }
 
@@ -50,14 +52,13 @@ type StripeAuthorizationPort struct {
 // Callers should use [NewNoopAuthorizationPort] when the key is empty (local
 // development without a Stripe account) so that the binary starts cleanly.
 func NewStripeAuthorizationPort(secretKey string, logger *logging.Logger) *StripeAuthorizationPort {
-	backend := stripe.GetBackendWithConfig(stripe.APIBackend, &stripe.BackendConfig{
-		HTTPClient: &http.Client{Timeout: stripeHTTPTimeout},
-	})
+	backends := &stripe.Backends{
+		API: stripe.GetBackendWithConfig(stripe.APIBackend, &stripe.BackendConfig{
+			HTTPClient: &http.Client{Timeout: stripeHTTPTimeout},
+		}),
+	}
 	return &StripeAuthorizationPort{
-		client: paymentintent.Client{
-			B:   backend,
-			Key: secretKey,
-		},
+		client: stripe.NewClient(secretKey, stripe.WithBackends(backends)),
 		logger: logger,
 	}
 }
@@ -73,18 +74,17 @@ func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amoun
 		return "", "", apperr.New(codes.InvalidArgument, "amountJPY must be positive")
 	}
 
-	params := &stripe.PaymentIntentParams{
-		Amount:        new(amountJPY),
+	params := &stripe.PaymentIntentCreateParams{
+		Amount:        stripe.Int64(amountJPY),
 		Currency:      stripe.String(string(stripe.CurrencyJPY)),
 		CaptureMethod: stripe.String(string(stripe.PaymentIntentCaptureMethodManual)),
-		AutomaticPaymentMethods: &stripe.PaymentIntentAutomaticPaymentMethodsParams{
-			Enabled:        new(true),
+		AutomaticPaymentMethods: &stripe.PaymentIntentCreateAutomaticPaymentMethodsParams{
+			Enabled:        stripe.Bool(true),
 			AllowRedirects: stripe.String(string(stripe.PaymentIntentAutomaticPaymentMethodsAllowRedirectsNever)),
 		},
 	}
-	params.Context = ctx
 
-	pi, err := p.client.New(params)
+	pi, err := p.client.V1PaymentIntents.Create(ctx, params)
 	if err != nil {
 		return "", "", toPaymentAppErr(ctx, err, "failed to create PaymentIntent", p.logger)
 	}
@@ -107,11 +107,10 @@ func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amoun
 // Returns FailedPrecondition when status != requires_capture; InvalidArgument
 // for amount/currency mismatch or unaccepted card brand.
 func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, paymentIntentRef string, expectedAmountJPY int64) error {
-	params := &stripe.PaymentIntentParams{}
-	params.Context = ctx
+	params := &stripe.PaymentIntentRetrieveParams{}
 	params.AddExpand("latest_charge")
 
-	pi, err := p.client.Get(paymentIntentRef, params)
+	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, params)
 	if err != nil {
 		return toPaymentAppErr(ctx, err, "failed to retrieve PaymentIntent", p.logger)
 	}
@@ -155,10 +154,9 @@ func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, payme
 // original result rather than erroring on an already-cancelled intent.
 func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, paymentIntentRef string) error {
 	params := &stripe.PaymentIntentCancelParams{}
-	params.Context = ctx
 	params.SetIdempotencyKey("lottery-cancel:" + paymentIntentRef)
 
-	_, err := p.client.Cancel(paymentIntentRef, params)
+	_, err := p.client.V1PaymentIntents.Cancel(ctx, paymentIntentRef, params)
 	if err != nil {
 		return toPaymentAppErr(ctx, err, "failed to cancel PaymentIntent", p.logger)
 	}
@@ -180,10 +178,9 @@ func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, payme
 // of a duplicate-charge attempt or a spurious error.
 func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paymentIntentRef string) error {
 	params := &stripe.PaymentIntentCaptureParams{}
-	params.Context = ctx
 	params.SetIdempotencyKey("lottery-capture:" + paymentIntentRef)
 
-	_, err := p.client.Capture(paymentIntentRef, params)
+	_, err := p.client.V1PaymentIntents.Capture(ctx, paymentIntentRef, params)
 	if err != nil {
 		return toPaymentAppErr(ctx, err, "failed to capture PaymentIntent", p.logger)
 	}
@@ -192,6 +189,52 @@ func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paym
 		slog.String("payment_intent_id", paymentIntentRef),
 	)
 	return nil
+}
+
+// GetCapturedPayment implements [usecase.PaymentCapturePort].
+//
+// It retrieves the PaymentIntent (with latest_charge expanded) and returns the
+// authoritative captured amount, currency, and display-only card facets. ⑤ does
+// not capture — ④ already captured at the draw — so this only reads. A
+// PaymentIntent that has not succeeded (not yet captured) is reported as
+// FailedPrecondition.
+func (p *StripeAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*usecase.CapturedPayment, error) {
+	params := &stripe.PaymentIntentRetrieveParams{}
+	params.AddExpand("latest_charge")
+
+	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, params)
+	if err != nil {
+		return nil, toPaymentAppErr(ctx, err, "failed to retrieve captured PaymentIntent", p.logger)
+	}
+
+	// A captured manual-capture PaymentIntent transitions to succeeded. Anything
+	// else means ④'s capture has not settled.
+	if pi.Status != stripe.PaymentIntentStatusSucceeded {
+		return nil, apperr.New(codes.FailedPrecondition,
+			"payment intent is not captured (status is not succeeded)")
+	}
+
+	brand, last4 := extractCardFacets(pi)
+	return &usecase.CapturedPayment{
+		Provider:  entity.PaymentProviderStripe,
+		AmountJPY: pi.AmountReceived,
+		Currency:  strings.ToUpper(string(pi.Currency)),
+		CardBrand: brand,
+		CardLast4: last4,
+	}, nil
+}
+
+// extractCardFacets returns the display-only brand and last4 of the
+// PaymentIntent's latest charge, or empty strings when unavailable.
+func extractCardFacets(pi *stripe.PaymentIntent) (brand string, last4 string) {
+	if pi.LatestCharge == nil {
+		return "", ""
+	}
+	details := pi.LatestCharge.PaymentMethodDetails
+	if details == nil || details.Card == nil {
+		return "", ""
+	}
+	return string(details.Card.Brand), details.Card.Last4
 }
 
 // verifyCardBrand rejects card brands the lottery does not accept, delegating

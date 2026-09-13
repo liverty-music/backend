@@ -10,8 +10,11 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// Compile-time interface compliance check.
-var _ usecase.PaymentAuthorizationPort = (*NoopAuthorizationPort)(nil)
+// Compile-time interface compliance checks.
+var (
+	_ usecase.PaymentAuthorizationPort = (*NoopAuthorizationPort)(nil)
+	_ usecase.PaymentCapturePort       = (*NoopAuthorizationPort)(nil)
+)
 
 // NoopAuthorizationPort is used when no Stripe secret key is configured (local
 // development). Every method returns Unavailable so callers receive a clear
@@ -52,4 +55,11 @@ func (p *NoopAuthorizationPort) CaptureAuthorization(ctx context.Context, paymen
 	p.logger.Warn(ctx, "payment capture skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("payment_intent_ref", paymentIntentRef))
 	return apperr.New(codes.Unavailable, "payment provider is not configured")
+}
+
+// GetCapturedPayment returns Unavailable because no Stripe key is configured.
+func (p *NoopAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*usecase.CapturedPayment, error) {
+	p.logger.Warn(ctx, "captured-payment read skipped: STRIPE_SECRET_KEY is not configured",
+		slog.String("payment_intent_ref", paymentIntentRef))
+	return nil, apperr.New(codes.Unavailable, "payment provider is not configured")
 }

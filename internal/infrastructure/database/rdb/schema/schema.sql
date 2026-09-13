@@ -841,3 +841,85 @@ COMMENT ON INDEX uq_ticket_applications_active IS 'At most one active (Applied/W
 
 CREATE INDEX IF NOT EXISTS idx_ticket_applications_phase_id ON ticket_applications(phase_id);
 COMMENT ON INDEX idx_ticket_applications_phase_id IS 'Optimizes listing all applications for a given lottery phase (draw batch load)';
+
+-- Orders: the ⑤ purchase record for one winning lottery application. Created
+-- already paid from ④'s captured winning payment (no pending state). Stores only
+-- opaque provider references and display facets — never PAN/CVC/expiry (PCI SAQ A).
+CREATE TABLE IF NOT EXISTS orders (
+    id                 UUID    PRIMARY KEY,
+    buyer_id           UUID    NOT NULL,
+    application_id     UUID    NOT NULL REFERENCES ticket_applications(id) ON DELETE RESTRICT,
+    provider           SMALLINT NOT NULL,
+    payment_intent_ref TEXT    NOT NULL,
+    payment_method_ref TEXT    NOT NULL DEFAULT '',
+    card_brand         TEXT    NOT NULL DEFAULT '',
+    card_last4         TEXT    NOT NULL DEFAULT '',
+    status             SMALLINT NOT NULL,
+    amount             BIGINT  NOT NULL,
+    currency           TEXT    NOT NULL,
+    paid_at            TIMESTAMPTZ NOT NULL,
+    CONSTRAINT chk_orders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_orders_provider CHECK (provider IN (1, 2)),
+    CONSTRAINT chk_orders_status CHECK (status IN (1, 2, 3)),
+    CONSTRAINT chk_orders_amount_positive CHECK (amount > 0),
+    CONSTRAINT chk_orders_currency_len CHECK (char_length(currency) = 3)
+);
+
+COMMENT ON TABLE orders IS 'Purchase record for one winning lottery application. Created already paid from the captured winning payment (status 1=Paid, 2=Refunded, 3=Failed; no pending). One order covers the N tickets of the winning application.';
+COMMENT ON COLUMN orders.id IS 'Unique order identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN orders.buyer_id IS 'The winning applicant user ID (no FK to survive user lifecycle independently)';
+COMMENT ON COLUMN orders.application_id IS 'The Won-captured application this order derives from; unique (one order per application)';
+COMMENT ON COLUMN orders.provider IS 'Payment provider: 1=Stripe, 2=KOMOJU';
+COMMENT ON COLUMN orders.payment_intent_ref IS 'Opaque provider PaymentIntent reference (e.g. Stripe pi_...) of the captured payment';
+COMMENT ON COLUMN orders.payment_method_ref IS 'Opaque provider PaymentMethod reference (e.g. Stripe pm_...), optional';
+COMMENT ON COLUMN orders.card_brand IS 'Display-only card brand facet (e.g. visa); never the PAN';
+COMMENT ON COLUMN orders.card_last4 IS 'Display-only last four digits; never the full PAN';
+COMMENT ON COLUMN orders.status IS 'Order status: 1=Paid, 2=Refunded, 3=Failed (capture-succeeded-but-issuance-refunded edge)';
+COMMENT ON COLUMN orders.amount IS 'Total captured amount in the currency smallest unit (yen total for JPY)';
+COMMENT ON COLUMN orders.currency IS 'ISO 4217 currency code of amount (JPY for the MVP)';
+COMMENT ON COLUMN orders.paid_at IS 'When the payment was captured (= the capture time at the draw)';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_application_id ON orders(application_id);
+COMMENT ON INDEX uq_orders_application_id IS 'One order per winning application — the issuance idempotency guard (a duplicate insert raises unique_violation, surfaced as AlreadyExists).';
+
+CREATE INDEX IF NOT EXISTS idx_orders_buyer_id ON orders(buyer_id);
+COMMENT ON INDEX idx_orders_buyer_id IS 'Optimizes listing a buyer''s orders';
+
+-- Tickets: account-bound covered tickets (特定興行入場券) issued from a captured
+-- win. One order issues the N tickets of the winning companion group.
+CREATE TABLE IF NOT EXISTS tickets (
+    id                                UUID    PRIMARY KEY,
+    order_id                          UUID    NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
+    holder_id                         UUID    NOT NULL,
+    event_id                          UUID    NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
+    holder_full_name                  TEXT    NOT NULL,
+    holder_phone_number               TEXT    NOT NULL,
+    verified_identity_id              UUID,
+    resale_without_consent_prohibited BOOLEAN NOT NULL DEFAULT TRUE,
+    status                            SMALLINT NOT NULL,
+    issued_at                         TIMESTAMPTZ NOT NULL,
+    CONSTRAINT chk_tickets_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_tickets_status CHECK (status IN (1, 2)),
+    CONSTRAINT chk_tickets_resale_prohibited CHECK (resale_without_consent_prohibited = TRUE)
+);
+
+COMMENT ON TABLE tickets IS 'Account-bound covered tickets (特定興行入場券) issued from a captured lottery win. Each carries the three covered-ticket conditions: resale-without-consent prohibited, date/venue+eligible-person (event_id + holder identity), and bound 本人確認.';
+COMMENT ON COLUMN tickets.id IS 'Unique ticket identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN tickets.order_id IS 'The order that issued this ticket';
+COMMENT ON COLUMN tickets.holder_id IS 'The account the ticket is bound to (current holder; reassigned by official resale)';
+COMMENT ON COLUMN tickets.event_id IS 'The event this ticket admits to (supplies the covered-ticket face date/venue)';
+COMMENT ON COLUMN tickets.holder_full_name IS 'Holder legal name (本人確認) noted on the covered-ticket face';
+COMMENT ON COLUMN tickets.holder_phone_number IS 'Holder contact phone (本人確認)';
+COMMENT ON COLUMN tickets.verified_identity_id IS 'Authoritative verified identity when the phase required verification; NULL otherwise. No FK so privacy deletion of a verified identity is independent.';
+COMMENT ON COLUMN tickets.resale_without_consent_prohibited IS 'Covered-ticket condition (i): always true (enforced by CHECK) so every issued ticket qualifies as a 特定興行入場券';
+COMMENT ON COLUMN tickets.status IS 'Ticket status: 1=Issued, 2=Voided (on refund)';
+COMMENT ON COLUMN tickets.issued_at IS 'When the ticket was issued (= the order capture/issuance time)';
+
+CREATE INDEX IF NOT EXISTS idx_tickets_order_id ON tickets(order_id);
+COMMENT ON INDEX idx_tickets_order_id IS 'Optimizes loading the tickets of an order';
+
+CREATE INDEX IF NOT EXISTS idx_tickets_holder_id ON tickets(holder_id);
+COMMENT ON INDEX idx_tickets_holder_id IS 'Optimizes a buyer''s my-tickets view';
+
+CREATE INDEX IF NOT EXISTS idx_tickets_event_id ON tickets(event_id);
+COMMENT ON INDEX idx_tickets_event_id IS 'Optimizes per-event ticket lookups (check-in, cancellation)';

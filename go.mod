@@ -21,8 +21,8 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20260911061343-6c0aab490716.1
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20260911061343-6c0aab490716.2
+	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20260913052028-ce6e594ac619.1
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20260913052028-ce6e594ac619.2
 	buf.build/gen/go/pocketsign/apis/connectrpc/go v1.20.0-20260826021924-0ff29b2b0335.1
 	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20260826021924-0ff29b2b0335.1
 	cloud.google.com/go/cloudsqlconn v1.20.0
@@ -47,7 +47,7 @@ require (
 	github.com/posthog/posthog-go v1.13.1
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
-	github.com/stripe/stripe-go/v81 v81.4.0
+	github.com/stripe/stripe-go/v86 v86.4.2
 	github.com/voi-oss/watermill-opentelemetry v0.1.3
 	github.com/zitadel/oidc/v3 v3.45.5
 	github.com/zitadel/zitadel-go/v3 v3.29.0
