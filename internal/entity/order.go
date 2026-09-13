@@ -21,8 +21,10 @@ type PaymentProvider int16
 const (
 	// PaymentProviderUnspecified is the zero value and is never persisted.
 	PaymentProviderUnspecified PaymentProvider = 0
-	// PaymentProviderStripe is Stripe Connect (separate charges & transfers,
-	// platform-held) — the MVP provider.
+	// PaymentProviderStripe is Stripe — the MVP provider. ④'s charge is a plain
+	// platform-account charge, so captured funds are platform-held; the post-event
+	// Transfer of the Organizer's share is owned by ticket-settlement-and-payout,
+	// not by ⑤.
 	PaymentProviderStripe PaymentProvider = 1
 	// PaymentProviderKOMOJU is the KOMOJU PoC challenger, kept swappable behind
 	// the opaque references.
@@ -59,8 +61,9 @@ const (
 	// balance) when the Order exists.
 	OrderStatusPaid OrderStatus = 1
 	// OrderStatusRefunded means the captured payment was refunded (event
-	// cancellation, a postponement holder-initiated refund, or dispute) via a
-	// provider Refund plus transfer_reversal clawback.
+	// cancellation, a postponement holder-initiated refund, or dispute). ⑤ owns
+	// the refund policy and sets this status; the Refund + transfer_reversal money
+	// movement is executed by ticket-settlement-and-payout.
 	OrderStatusRefunded OrderStatus = 2
 	// OrderStatusFailed is the capture-succeeded-but-issuance-refunded edge: the
 	// capture succeeded but issuance could not complete, so the captured payment
