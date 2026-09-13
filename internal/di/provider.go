@@ -17,6 +17,7 @@ import (
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
+	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	"connectrpc.com/connect"
@@ -98,6 +99,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	lotteryPhaseRepo := rdb.NewLotteryPhaseRepository(db)
 	ticketApplicationRepo := rdb.NewTicketApplicationRepository(db)
 	eventPublishState := rdb.NewEventPublishStateRepository(db)
+	orderRepo := rdb.NewOrderRepository(db)
+	ticketRepo := rdb.NewTicketRepository(db)
+	issuanceRepo := rdb.NewIssuanceRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -239,13 +243,22 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// is provisioned externally via GCP Secret Manager / ESO and injected as
 	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
 	paymentConfigured := cfg.Stripe.SecretKey != ""
-	var paymentPort usecase.PaymentAuthorizationPort
+	var (
+		paymentPort usecase.PaymentAuthorizationPort
+		capturePort usecase.PaymentCapturePort
+	)
 	if paymentConfigured {
-		paymentPort = infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)
+		stripePort := infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)
+		paymentPort, capturePort = stripePort, stripePort
 	} else {
-		paymentPort = infrapayment.NewNoopAuthorizationPort(logger)
+		noopPort := infrapayment.NewNoopAuthorizationPort(logger)
+		paymentPort, capturePort = noopPort, noopPort
 	}
 	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, paymentPort, verifiedIdentityRepo, time.Now, logger)
+
+	// ⑤ issuance pipeline: turn ④'s Won-captured applications into Orders + tickets.
+	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, ticketApplicationRepo, lotteryPhaseRepo, verifiedIdentityRepo, ticketJourneyRepo, capturePort, time.Now, logger)
+	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, logger)
 	// Start the periodic draw sweeper ONLY where a real payment provider is
 	// configured. The draw captures winners / releases losers, so whichever
 	// workload wins the (idempotent) draw race MUST be able to reach Stripe. This
@@ -257,8 +270,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// idempotent across fan-api's own pods.
 	if paymentConfigured {
 		startLotteryDrawSweeper(ctx, lotteryUC, logger)
+		// The issuance sweeper reads ④'s captured payments, so it too requires a
+		// real payment provider and runs on the same (fan-api) workload. Both are
+		// idempotent across pods.
+		startIssuanceSweeper(ctx, issuanceUC, logger)
 	} else {
-		logger.Info(ctx, "lottery draw sweeper disabled: STRIPE_SECRET_KEY not configured (no payment provider)")
+		logger.Info(ctx, "lottery draw + issuance sweepers disabled: STRIPE_SECRET_KEY not configured (no payment provider)")
 	}
 
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
@@ -380,6 +397,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketjourneyconnect.NewTicketJourneyServiceHandler(
 				rpc.NewTicketJourneyHandler(ticketJourneyUC, userRepo, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return ticketconnect.NewTicketServiceHandler(
+				rpc.NewTicketHandler(ticketUC, userRepo, logger),
 				opts...,
 			)
 		},

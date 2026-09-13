@@ -20,7 +20,8 @@ import (
 // stubVerifiedIdentityRepo are reused from lottery_uc_test.go (same package).
 
 type stubIssuanceRepo struct {
-	issueFn func(ctx context.Context, order *entity.Order, tickets []*entity.Ticket) error
+	issueFn        func(ctx context.Context, order *entity.Order, tickets []*entity.Ticket) error
+	listAwaitingFn func(ctx context.Context) ([]entity.TicketApplicationID, error)
 }
 
 func (s *stubIssuanceRepo) Issue(ctx context.Context, order *entity.Order, tickets []*entity.Ticket) error {
@@ -28,6 +29,13 @@ func (s *stubIssuanceRepo) Issue(ctx context.Context, order *entity.Order, ticke
 		return s.issueFn(ctx, order, tickets)
 	}
 	return nil
+}
+
+func (s *stubIssuanceRepo) ListApplicationIDsAwaitingIssuance(ctx context.Context) ([]entity.TicketApplicationID, error) {
+	if s.listAwaitingFn != nil {
+		return s.listAwaitingFn(ctx)
+	}
+	return nil, nil
 }
 
 type stubOrderRepo struct {
@@ -289,5 +297,46 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		order, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
 		require.NoError(t, err)
 		assert.Same(t, raceOrder, order)
+	})
+}
+
+func TestIssuanceUseCase_IssueDueWins(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+
+	t.Run("issues every awaiting application and continues past a single failure", func(t *testing.T) {
+		t.Parallel()
+
+		issued := map[entity.TicketApplicationID]bool{}
+		issuanceRepo := &stubIssuanceRepo{
+			listAwaitingFn: func(_ context.Context) ([]entity.TicketApplicationID, error) {
+				return []entity.TicketApplicationID{"app-1", "app-bad", "app-2"}, nil
+			},
+			issueFn: func(_ context.Context, o *entity.Order, _ []*entity.Ticket) error {
+				issued[o.ApplicationID] = true
+				return nil
+			},
+		}
+		appRepo := &stubAppRepo{getFn: func(_ context.Context, id entity.TicketApplicationID) (*entity.TicketApplication, error) {
+			// app-bad fails to load so its issuance errors; the sweep must continue.
+			if id == "app-bad" {
+				return nil, apperr.New(apperr.ErrNotFound.Code, "gone")
+			}
+			app := wonApplication()
+			app.ID = id
+			return app, nil
+		}}
+		phaseRepo := &stubPhaseRepo{getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+			return basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour)), nil
+		}}
+
+		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo,
+			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+
+		err := uc.IssueDueWins(context.Background())
+		require.NoError(t, err)
+		assert.True(t, issued["app-1"])
+		assert.True(t, issued["app-2"])
+		assert.False(t, issued["app-bad"], "a failed application must not be issued")
 	})
 }

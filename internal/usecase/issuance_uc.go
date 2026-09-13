@@ -69,6 +69,18 @@ type IssuanceUseCase interface {
 	//    refunding the captured payment; see the capture-succeeded/issuance-failed
 	//    path in the design).
 	IssueFromCapturedWin(ctx context.Context, applicationID entity.TicketApplicationID) (*entity.Order, error)
+
+	// IssueDueWins issues Orders + tickets for every Won-captured application
+	// that does not yet have an Order. It is the issuance sweeper's entry point
+	// (mirrors the lottery draw sweeper): it scans the work-list and issues each
+	// application idempotently. A per-application failure is logged and skipped so
+	// one bad application never blocks the rest of the sweep.
+	//
+	// # Possible errors
+	//
+	//  - Internal: the work-list query failed (per-application issuance failures
+	//    are logged and skipped, not returned).
+	IssueDueWins(ctx context.Context) error
 }
 
 // issuanceUseCase implements [IssuanceUseCase].
@@ -223,4 +235,23 @@ func (uc *issuanceUseCase) IssueFromCapturedWin(ctx context.Context, application
 		slog.Int("ticket_count", app.RequestedTicketCount),
 	)
 	return order, nil
+}
+
+// IssueDueWins implements [IssuanceUseCase].
+func (uc *issuanceUseCase) IssueDueWins(ctx context.Context) error {
+	ids, err := uc.issuanceRepo.ListApplicationIDsAwaitingIssuance(ctx)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := uc.IssueFromCapturedWin(ctx, id); err != nil {
+			// Per-application failure must not block the rest of the sweep. The
+			// next tick retries (IssueFromCapturedWin is idempotent).
+			uc.logger.Warn(ctx, "issuance sweep: failed to issue application; skipping",
+				slog.String("application_id", string(id)),
+				slog.Any("error", err),
+			)
+		}
+	}
+	return nil
 }

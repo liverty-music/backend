@@ -29,6 +29,15 @@ const (
 			verified_identity_id, resale_without_consent_prohibited, status, issued_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
+	// issuanceListAwaitingQuery returns Won (state 2) applications that have no
+	// order yet — the issuance sweeper work-list.
+	issuanceListAwaitingQuery = `
+		SELECT ta.id
+		FROM ticket_applications ta
+		LEFT JOIN orders o ON o.application_id = ta.id
+		WHERE ta.state = 2 AND o.id IS NULL
+		ORDER BY ta.id
+	`
 )
 
 // NewIssuanceRepository creates a new issuance repository instance.
@@ -79,6 +88,28 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 		slog.Int("ticketCount", len(tickets)),
 	)
 	return nil
+}
+
+// ListApplicationIDsAwaitingIssuance returns Won applications without an order.
+func (r *IssuanceRepository) ListApplicationIDsAwaitingIssuance(ctx context.Context) ([]entity.TicketApplicationID, error) {
+	rows, err := r.db.Pool.Query(ctx, issuanceListAwaitingQuery)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list applications awaiting issuance")
+	}
+	defer rows.Close()
+
+	var ids []entity.TicketApplicationID
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, toAppErr(err, "failed to scan application id awaiting issuance")
+		}
+		ids = append(ids, entity.TicketApplicationID(id))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating applications awaiting issuance")
+	}
+	return ids, nil
 }
 
 // nullableUUID returns nil for an empty id so a NULL is written to a nullable

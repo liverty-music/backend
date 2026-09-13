@@ -161,6 +161,16 @@ type IssuanceRepository interface {
 	//    replay — the caller re-reads via [OrderRepository.GetByApplicationID]).
 	//  - Internal: database transaction or query failure.
 	Issue(ctx context.Context, order *Order, tickets []*Ticket) error
+
+	// ListApplicationIDsAwaitingIssuance returns the IDs of Won-captured
+	// applications that do not yet have an Order — the work-list the issuance
+	// sweeper processes (mirrors the draw sweeper's due-phase scan). An empty
+	// result returns (nil, nil).
+	//
+	// # Possible errors
+	//
+	//  - Internal: database query failure.
+	ListApplicationIDsAwaitingIssuance(ctx context.Context) ([]TicketApplicationID, error)
 }
 
 // OrderRepository defines the read/status-update contract for [Order] records.
