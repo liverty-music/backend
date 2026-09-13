@@ -392,7 +392,7 @@ func TestOrganizerProvisioner_ProvisionTenant_sendsStandardVerifyInvite(t *testi
 	assert.Contains(t, tmpl, "auth.test.local", "invite link points at the auth (IdP) host, not the console")
 	assert.NotContains(t, tmpl, "organizer.test.local", "invite link must not point at the console")
 	assert.Contains(t, tmpl, "{{.Code}}", "code rides on the IdP surface via the Zitadel placeholder")
-	assert.Equal(t, "Liverty Organizer", send.GetApplicationName())
+	assert.Equal(t, "Liverty Music Organizer", send.GetApplicationName())
 }
 
 func TestInviteVerifyURLTemplate(t *testing.T) {
