@@ -8,8 +8,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
 	"github.com/stretchr/testify/require"
-	stripe "github.com/stripe/stripe-go/v81"
-	"github.com/stripe/stripe-go/v81/paymentintent"
+	stripe "github.com/stripe/stripe-go/v86"
 )
 
 // TestStripeAuthorizationPort_Integration exercises the real Stripe test API for
@@ -79,8 +78,8 @@ func TestStripeAuthorizationPort_Integration(t *testing.T) {
 // fan completes 3DS. Uses a per-call client (not the deprecated global key).
 func confirmWithTestCard(t *testing.T, key, ref string) {
 	t.Helper()
-	client := paymentintent.Client{B: stripe.GetBackend(stripe.APIBackend), Key: key}
-	pi, err := client.Confirm(ref, &stripe.PaymentIntentConfirmParams{
+	sc := stripe.NewClient(key)
+	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), ref, &stripe.PaymentIntentConfirmParams{
 		PaymentMethod: stripe.String("pm_card_visa"),
 	})
 	require.NoError(t, err)
