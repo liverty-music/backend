@@ -102,6 +102,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	orderRepo := rdb.NewOrderRepository(db)
 	ticketRepo := rdb.NewTicketRepository(db)
 	issuanceRepo := rdb.NewIssuanceRepository(db)
+	settlementRepo := rdb.NewSettlementRepository(db)
+	connectedAccountRepo := rdb.NewOrganizerConnectedAccountRepository(db)
+	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -244,21 +247,45 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
 	paymentConfigured := cfg.Stripe.SecretKey != ""
 	var (
-		paymentPort usecase.PaymentAuthorizationPort
-		capturePort usecase.PaymentCapturePort
+		paymentPort    usecase.PaymentAuthorizationPort
+		capturePort    usecase.PaymentCapturePort
+		settlementPort usecase.PaymentSettlementPort
 	)
 	if paymentConfigured {
 		stripePort := infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)
 		paymentPort, capturePort = stripePort, stripePort
+		settlementPort = infrapayment.NewStripeSettlementPort(cfg.Stripe.SecretKey, logger)
 	} else {
 		noopPort := infrapayment.NewNoopAuthorizationPort(logger)
 		paymentPort, capturePort = noopPort, noopPort
+		settlementPort = infrapayment.NewNoopSettlementPort(logger)
 	}
 	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, paymentPort, verifiedIdentityRepo, time.Now, logger)
 
 	// ⑤ issuance pipeline: turn ④'s Won-captured applications into Orders + tickets.
 	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, ticketApplicationRepo, lotteryPhaseRepo, verifiedIdentityRepo, ticketJourneyRepo, capturePort, time.Now, logger)
 	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, logger)
+
+	// Settlement / payout pipeline (ticket-settlement-and-payout).
+	disputeBuffer := time.Duration(cfg.Stripe.SettlementDisputeBufferDays) * 24 * time.Hour
+	payoutSweeperUC := usecase.NewPayoutSweeperUseCase(
+		settlementRepo,
+		orderRepo,
+		connectedAccountRepo,
+		eventStartTimeRepo,
+		settlementPort,
+		disputeBuffer,
+		time.Now,
+		logger,
+	)
+	onboardingUC := usecase.NewOnboardingUseCase(
+		connectedAccountRepo,
+		organizerRepo,
+		settlementPort,
+		cfg.Stripe.OnboardingReturnURL,
+		logger,
+	)
+
 	// Start the periodic draw sweeper ONLY where a real payment provider is
 	// configured. The draw captures winners / releases losers, so whichever
 	// workload wins the (idempotent) draw race MUST be able to reach Stripe. This
@@ -274,8 +301,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// real payment provider and runs on the same (fan-api) workload. Both are
 		// idempotent across pods.
 		startIssuanceSweeper(ctx, issuanceUC, logger)
+		// The settlement sweeper releases held funds after the event + dispute
+		// buffer. It also requires a real Stripe key (Transfer creation). It runs
+		// on the same (fan-api) workload and is idempotent across pods.
+		startSettlementSweeper(ctx, payoutSweeperUC, logger)
 	} else {
-		logger.Info(ctx, "lottery draw + issuance sweepers disabled: STRIPE_SECRET_KEY not configured (no payment provider)")
+		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled: STRIPE_SECRET_KEY not configured (no payment provider)")
 	}
 
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
@@ -485,6 +516,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerconnect.NewLotteryServiceHandler(
 				rpc.NewOrganizerLotteryHandler(lotteryUC, organizerUC, logger),
+				opts...,
+			)
+		},
+		// Organizer-facing PayoutOnboardingService: GetPayoutOnboarding.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return organizerconnect.NewPayoutOnboardingServiceHandler(
+				rpc.NewPayoutOnboardingHandler(onboardingUC, organizerUC, logger),
 				opts...,
 			)
 		},
