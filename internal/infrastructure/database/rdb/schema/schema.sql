@@ -923,3 +923,88 @@ COMMENT ON INDEX idx_tickets_holder_id IS 'Optimizes a buyer''s my-tickets view'
 
 CREATE INDEX IF NOT EXISTS idx_tickets_event_id ON tickets(event_id);
 COMMENT ON INDEX idx_tickets_event_id IS 'Optimizes per-event ticket lookups (check-in, cancellation)';
+
+-- ============================================================
+-- Settlement / payout tables (ticket-settlement-and-payout)
+-- ============================================================
+
+-- Organizer connected accounts: opaque provider references for each
+-- Organizer's payout-recipient Stripe connected account. One row per
+-- Organizer; the platform provisions the account as a recipient (transfers
+-- capability only, never card_payments) with losses_collector = application
+-- so the platform absorbs negative balances.
+CREATE TABLE IF NOT EXISTS organizer_connected_accounts (
+    organizer_id    UUID    PRIMARY KEY REFERENCES organizers(id) ON DELETE CASCADE,
+    account_ref     TEXT    NOT NULL,
+    status          SMALLINT NOT NULL,
+    provisioned_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status_synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_oca_account_ref_not_empty CHECK (account_ref <> ''),
+    CONSTRAINT chk_oca_status CHECK (status IN (1, 2, 3))
+);
+
+COMMENT ON TABLE organizer_connected_accounts IS 'Opaque provider reference to the Organizer payout-recipient connected account (Accounts v2, transfers capability only). One row per Organizer. status: 1=Pending (KYC/KYB in progress), 2=Active (eligible for payout), 3=Restricted (capability disabled).';
+COMMENT ON COLUMN organizer_connected_accounts.organizer_id IS 'The Organizer that owns this payout-recipient account (1:1 with organizers)';
+COMMENT ON COLUMN organizer_connected_accounts.account_ref IS 'Opaque provider connected-account reference (e.g. Stripe "acct_..."); meaningful only to the provider';
+COMMENT ON COLUMN organizer_connected_accounts.status IS 'Payout-onboarding readiness: 1=Pending, 2=Active, 3=Restricted. Eligibility = status 2 only.';
+COMMENT ON COLUMN organizer_connected_accounts.provisioned_at IS 'When the connected account was first provisioned via the payment provider';
+COMMENT ON COLUMN organizer_connected_accounts.status_synced_at IS 'When the capability status was last refreshed from the payment provider';
+
+-- Settlements: one payout record per Order. Tracks the lifecycle of the
+-- Organizer's net share (held on the platform balance until the release gate
+-- passes) and the Transfer references that pay it out. The platform fee is the
+-- un-transferred remainder — it is NOT a split row.
+CREATE TABLE IF NOT EXISTS settlements (
+    id            UUID    PRIMARY KEY,
+    order_id      UUID    NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
+    organizer_id  UUID    NOT NULL,
+    event_id      UUID    NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
+    charge_ref    TEXT,
+    status        SMALLINT NOT NULL,
+    released_at   TIMESTAMPTZ,
+    settled_at    TIMESTAMPTZ NOT NULL,
+    CONSTRAINT chk_settlements_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_settlements_status CHECK (status IN (1, 2, 3)),
+    CONSTRAINT chk_settlements_charge_ref_not_empty CHECK (charge_ref IS NULL OR charge_ref <> '')
+);
+
+COMMENT ON TABLE settlements IS 'Payout record for one Order. Holds the captured platform charge until the release gate passes (event start_time + dispute buffer), then tracks the Transfer(s) that pay out the Organizer net share. Platform fee = un-transferred remainder (no fee split row). status: 1=Held, 2=Released, 3=Reversed.';
+COMMENT ON COLUMN settlements.id IS 'Unique settlement identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN settlements.order_id IS 'The Order this settlement pays out; one settlement per order (unique index)';
+COMMENT ON COLUMN settlements.organizer_id IS 'The Organizer that receives the payout. Stored denormalized so the sweeper avoids joining through application → phase → event.';
+COMMENT ON COLUMN settlements.event_id IS 'The event this settlement gates on. Stored denormalized so the release-gate check reads events.start_at without extra joins.';
+COMMENT ON COLUMN settlements.charge_ref IS 'Opaque provider Charge reference (e.g. Stripe "ch_...") resolved from the Order PaymentIntent at payout time. NULL until resolved. Used as source_transaction on each Transfer.';
+COMMENT ON COLUMN settlements.status IS 'Settlement lifecycle: 1=Held (gate not passed), 2=Released (Transfer(s) created), 3=Reversed (transfer_reversal clawback applied)';
+COMMENT ON COLUMN settlements.released_at IS 'When the settlement was released (Transfer(s) created). NULL while Held.';
+COMMENT ON COLUMN settlements.settled_at IS 'When this settlement row was created (= Order issuance time for the initial Held row)';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_settlements_order_id ON settlements(order_id);
+COMMENT ON INDEX uq_settlements_order_id IS 'One settlement per Order — the payout idempotency guard; a duplicate insert raises unique_violation.';
+
+CREATE INDEX IF NOT EXISTS idx_settlements_status ON settlements(status);
+COMMENT ON INDEX idx_settlements_status IS 'Optimizes the payout sweeper''s ListHeld scan (WHERE status = 1)';
+
+CREATE INDEX IF NOT EXISTS idx_settlements_organizer_id ON settlements(organizer_id);
+COMMENT ON INDEX idx_settlements_organizer_id IS 'Optimizes listing an Organizer''s settlements for the console';
+
+-- Settlement splits: one row per payee per settlement. MVP = exactly one row
+-- (the Organizer). The platform fee is the un-transferred remainder (no row).
+-- Extensible to N payees (venue, artist) without a schema break.
+CREATE TABLE IF NOT EXISTS settlement_splits (
+    settlement_id          UUID    NOT NULL REFERENCES settlements(id) ON DELETE CASCADE,
+    payee_organizer_id     UUID    NOT NULL,
+    amount                 BIGINT  NOT NULL,
+    transfer_ref           TEXT,
+    transfer_reversal_ref  TEXT,
+    PRIMARY KEY (settlement_id, payee_organizer_id),
+    CONSTRAINT chk_settlement_splits_amount_positive CHECK (amount > 0),
+    CONSTRAINT chk_settlement_splits_transfer_ref_not_empty CHECK (transfer_ref IS NULL OR transfer_ref <> ''),
+    CONSTRAINT chk_settlement_splits_reversal_ref_not_empty CHECK (transfer_reversal_ref IS NULL OR transfer_reversal_ref <> '')
+);
+
+COMMENT ON TABLE settlement_splits IS 'One payee share per settlement. MVP = one row per settlement (the Organizer). Extensible to N payees (venue, artist) by adding rows. The platform fee is the un-transferred remainder and has no row here.';
+COMMENT ON COLUMN settlement_splits.settlement_id IS 'Reference to the parent settlement';
+COMMENT ON COLUMN settlement_splits.payee_organizer_id IS 'Organizer that receives this split (no FK so payee lifecycle is independent of the settlement)';
+COMMENT ON COLUMN settlement_splits.amount IS 'Net share in the Order currency smallest unit (whole yen for JPY). Must be positive.';
+COMMENT ON COLUMN settlement_splits.transfer_ref IS 'Opaque provider Transfer reference (e.g. Stripe "tr_..."). NULL until the split is released.';
+COMMENT ON COLUMN settlement_splits.transfer_reversal_ref IS 'Opaque provider transfer-reversal reference (e.g. Stripe "trr_..."). NULL unless reversed on a refund/dispute.';

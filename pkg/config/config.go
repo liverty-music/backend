@@ -966,4 +966,18 @@ type StripeConfig struct {
 	// sk_live_* key in production and sk_test_* in dev/staging. Left empty in
 	// local development to disable payment processing.
 	SecretKey string `envconfig:"STRIPE_SECRET_KEY"`
+
+	// SettlementDisputeBufferDays is the minimum number of calendar days that
+	// must elapse after the event's start_time before funds are released to
+	// the Organizer. This dispute-safety buffer ensures the platform retains
+	// the funds long enough to respond to chargebacks. The gate condition is
+	// load-bearing for the 収納代行 characterisation (the gate matters, not a
+	// bright-line duration). Default 7 days.
+	SettlementDisputeBufferDays int `envconfig:"STRIPE_SETTLEMENT_DISPUTE_BUFFER_DAYS" default:"7"`
+
+	// OnboardingReturnURL is the URL the Stripe-hosted Connect onboarding flow
+	// redirects the Organizer to after completing (or abandoning) verification.
+	// Typically the organizer console's payout settings page. Left empty in
+	// local development; the noop adapter never follows the URL.
+	OnboardingReturnURL string `envconfig:"STRIPE_ONBOARDING_RETURN_URL"`
 }

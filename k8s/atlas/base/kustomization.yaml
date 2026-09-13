@@ -97,3 +97,4 @@ configMapGenerator:
   - migrations/20260902020000_add_lottery_verification_requirement.sql
   - migrations/20260911000000_drop_ticket_emails.sql
   - migrations/20260913000000_add_order_ticket_tables.sql
+  - migrations/20260914000000_add_settlement_payout_tables.sql

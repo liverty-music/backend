@@ -105,6 +105,9 @@ func TestLoad_ServerConfig(t *testing.T) {
 					Contact: "mailto:pepperoni9@gmail.com",
 				},
 				NATS: NATSConfig{},
+				Stripe: StripeConfig{
+					SettlementDisputeBufferDays: 7,
+				},
 			},
 		},
 		{
@@ -201,6 +204,9 @@ func TestLoad_ServerConfig(t *testing.T) {
 					Contact: "mailto:pepperoni9@gmail.com",
 				},
 				NATS: NATSConfig{},
+				Stripe: StripeConfig{
+					SettlementDisputeBufferDays: 7,
+				},
 			},
 		},
 	}
