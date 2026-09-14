@@ -858,6 +858,7 @@ CREATE TABLE IF NOT EXISTS orders (
     amount             BIGINT  NOT NULL,
     currency           TEXT    NOT NULL,
     paid_at            TIMESTAMPTZ NOT NULL,
+    refund_ref         TEXT    NOT NULL DEFAULT '',
     CONSTRAINT chk_orders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_orders_provider CHECK (provider IN (1, 2)),
     CONSTRAINT chk_orders_status CHECK (status IN (1, 2, 3)),
@@ -878,6 +879,7 @@ COMMENT ON COLUMN orders.status IS 'Order status: 1=Paid, 2=Refunded, 3=Failed (
 COMMENT ON COLUMN orders.amount IS 'Total captured amount in the currency smallest unit (yen total for JPY)';
 COMMENT ON COLUMN orders.currency IS 'ISO 4217 currency code of amount (JPY for the MVP)';
 COMMENT ON COLUMN orders.paid_at IS 'When the payment was captured (= the capture time at the draw)';
+COMMENT ON COLUMN orders.refund_ref IS 'Opaque provider Refund reference (e.g. Stripe "re_...") set when the order is refunded via CANCELLATION or POSTPONEMENT_WINDOW. Empty for DISPUTE reason (the chargeback already reversed the charge at the card network) and for orders that are not yet refunded.';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_application_id ON orders(application_id);
 COMMENT ON INDEX uq_orders_application_id IS 'One order per winning application — the issuance idempotency guard (a duplicate insert raises unique_violation, surfaced as AlreadyExists).';
@@ -1008,3 +1010,16 @@ COMMENT ON COLUMN settlement_splits.payee_organizer_id IS 'Organizer that receiv
 COMMENT ON COLUMN settlement_splits.amount IS 'Net share in the Order currency smallest unit (whole yen for JPY). Must be positive.';
 COMMENT ON COLUMN settlement_splits.transfer_ref IS 'Opaque provider Transfer reference (e.g. Stripe "tr_..."). NULL until the split is released.';
 COMMENT ON COLUMN settlement_splits.transfer_reversal_ref IS 'Opaque provider transfer-reversal reference (e.g. Stripe "trr_..."). NULL unless reversed on a refund/dispute.';
+
+-- Processed webhook events: idempotency table for inbound Stripe webhook
+-- delivery. Each provider event id is recorded after successful processing so
+-- that a duplicate delivery (Stripe retries on non-2xx or network failures)
+-- is detected and skipped without re-applying the side effect.
+CREATE TABLE IF NOT EXISTS processed_webhook_events (
+    provider_event_id TEXT PRIMARY KEY,
+    processed_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE processed_webhook_events IS 'Idempotency guard for Stripe webhook events. Each provider event id is recorded after the event is applied; a duplicate delivery is detected via EXISTS check and skipped. Covers charge.refunded, charge.dispute.created, transfer.reversed, payout.paid, and payout.failed event types.';
+COMMENT ON COLUMN processed_webhook_events.provider_event_id IS 'Stripe event id (e.g. evt_...). Primary key — unique per event.';
+COMMENT ON COLUMN processed_webhook_events.processed_at IS 'Timestamp when this event was first applied.';

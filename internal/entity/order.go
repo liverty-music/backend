@@ -143,6 +143,64 @@ type Order struct {
 	// Because the Order is created already paid, this is effectively its creation
 	// time.
 	PaidTime time.Time
+	// RefundRef is the opaque provider Refund reference ("re_...") set when the
+	// Order is refunded via CANCELLATION or POSTPONEMENT_WINDOW. Empty for orders
+	// refunded via DISPUTE (the chargeback reversed the charge at the card
+	// network; no Stripe Refund object is created) and for orders not yet
+	// refunded.
+	RefundRef string
+}
+
+// RefundCommit bundles all of the DB state that must be persisted atomically
+// when an Order is refunded. The refund use case performs the Stripe money
+// movement (CreateRefund + ReverseTransfer) first — those are idempotent — and
+// then calls [RefundRepository.CommitRefund] to atomically commit the DB side.
+// This ensures the observable invariant: an Order is either fully-Paid (nothing
+// applied) or fully-Refunded (all three mutations committed together), never in
+// a split state.
+type RefundCommit struct {
+	// OrderID is the order to flip to Refunded.
+	OrderID OrderID
+	// RefundRef is the opaque provider Refund reference ("re_...") returned by
+	// CreateRefund. Empty for DISPUTE reason — the chargeback already moved
+	// funds back to the cardholder and we do not issue a separate Refund call.
+	RefundRef string
+	// SettlementID is the settlement to flip to Reversed. Empty means no
+	// settlement row exists yet (payout sweep hasn't run); in that case no
+	// settlement mutation is performed but the order and tickets still flip.
+	SettlementID SettlementID
+	// ReversedSplits are the settlement splits with their TransferReversalRef
+	// values populated after ReverseTransfer calls. Ignored when SettlementID
+	// is empty. Only splits with a non-empty TransferReversalRef are updated.
+	ReversedSplits []SettlementSplit
+}
+
+// RefundRepository provides the atomic DB commit for the refund path.
+//
+// Interfaces are defined where consumed (AGENTS.md rule).
+type RefundRepository interface {
+	// CommitRefund atomically applies all DB mutations that constitute a
+	// completed refund:
+	//
+	//  1. UPDATE settlements SET status = Reversed (if SettlementID is set).
+	//  2. UPDATE settlement_splits SET transfer_reversal_ref (for each split).
+	//  3. UPDATE tickets SET status = Voided for all tickets of the Order.
+	//  4. UPDATE orders SET status = Refunded, refund_ref = RefundRef.
+	//
+	// All mutations are committed in a single pgx transaction so a crash between
+	// Stripe and DB is recoverable: on retry, CreateRefund and ReverseTransfer
+	// replay idempotently, and CommitRefund re-attempts the DB commit.
+	//
+	// The settlement guard (status IN (1, 2)) means a Reversed settlement
+	// absorbs a concurrent second call: the guarded UPDATE affects 0 rows, which
+	// CommitRefund surfaces as FailedPrecondition so the use case can treat it as
+	// an idempotent no-op.
+	//
+	// # Possible errors
+	//
+	//  - FailedPrecondition: settlement is already Reversed (concurrent refund).
+	//  - Internal: database transaction or query failure.
+	CommitRefund(ctx context.Context, commit RefundCommit) error
 }
 
 // IssuanceRepository is the atomic write path for ⑤ issuance: it persists an
@@ -199,6 +257,17 @@ type OrderRepository interface {
 	//  - NotFound: no Order exists for the application (issuance has not run).
 	//  - Internal: database query failure.
 	GetByApplicationID(ctx context.Context, applicationID TicketApplicationID) (*Order, error)
+
+	// GetByPaymentIntentRef returns the Order whose Payment.PaymentIntentRef
+	// matches the given pi_ value. Used by the Stripe webhook service to resolve
+	// a dispute's charge → payment_intent → Order without exposing repo access
+	// to the HTTP handler layer.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no Order exists for the given payment intent.
+	//  - Internal: database query failure.
+	GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*Order, error)
 
 	// UpdateStatus changes the status of the Order identified by id (e.g. to
 	// Refunded on a cancellation refund, or Failed on the issuance-refund edge).

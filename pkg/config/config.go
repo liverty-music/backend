@@ -980,4 +980,12 @@ type StripeConfig struct {
 	// Typically the organizer console's payout settings page. Left empty in
 	// local development; the noop adapter never follows the URL.
 	OnboardingReturnURL string `envconfig:"STRIPE_ONBOARDING_RETURN_URL"`
+
+	// WebhookSigningSecret is the signing secret for the Stripe webhook
+	// endpoint (whsec_...) used to verify the Stripe-Signature header on
+	// inbound webhook deliveries. Sourced from GCP Secret Manager via ESO and
+	// injected as STRIPE_WEBHOOK_SIGNING_SECRET. Left empty before
+	// cloud-provisioning task 5.1 completes; the webhook handler rejects all
+	// requests with 503 when unconfigured.
+	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET"`
 }

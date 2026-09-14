@@ -103,8 +103,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketRepo := rdb.NewTicketRepository(db)
 	issuanceRepo := rdb.NewIssuanceRepository(db)
 	settlementRepo := rdb.NewSettlementRepository(db)
+	refundRepo := rdb.NewRefundRepository(db)
 	connectedAccountRepo := rdb.NewOrganizerConnectedAccountRepository(db)
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
+	processedWebhookEventRepo := rdb.NewProcessedWebhookEventRepository(db)
 
 	// Infrastructure - Gemini (optional)
 	var geminiSearcher entity.ConcertSearcher
@@ -266,6 +268,23 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, ticketApplicationRepo, lotteryPhaseRepo, verifiedIdentityRepo, ticketJourneyRepo, capturePort, time.Now, logger)
 	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, logger)
 
+	// ⑤ task 4.1: refund policy + settlement money-movement.
+	// refundRepo provides the single atomic DB commit (settlement→reversed +
+	// tickets→voided + order→refunded in one pgx tx). refundUC performs the
+	// idempotent Stripe calls first, then commits via refundRepo.
+	refundUC := usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, settlementPort, logger)
+
+	// Settlement task 4.3: Stripe webhook ingest — idempotent dispatch.
+	// settlementRepo removed from constructor: it was previously injected but
+	// never used (the dead orderID field made the dispute path unreachable).
+	// Resolution is now via orderRepo.GetByPaymentIntentRef.
+	stripeWebhookSvc := usecase.NewStripeWebhookService(
+		processedWebhookEventRepo,
+		orderRepo,
+		refundUC,
+		logger,
+	)
+
 	// Settlement / payout pipeline (ticket-settlement-and-payout).
 	disputeBuffer := time.Duration(cfg.Stripe.SettlementDisputeBufferDays) * 24 * time.Hour
 	payoutSweeperUC := usecase.NewPayoutSweeperUseCase(
@@ -388,6 +407,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return artistconnect.NewArtistServiceHandler(
 				rpc.NewArtistHandler(artistUC, logger),
+				opts...,
+			)
+		},
+		// OrderAdminService: RefundOrder (⑤ task 4.1).
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return adminconnect.NewOrderAdminServiceHandler(
+				rpc.NewAdminOrderHandler(refundUC, logger),
 				opts...,
 			)
 		},
@@ -548,9 +574,22 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		eventPublisher,
 		logger,
 	)
+	// Settlement task 4.3: Stripe webhook handler.
+	// NOTE: the public HTTPS endpoint (GKE Gateway HTTPRoute → server-webhook-svc
+	// on port 9090), Stripe dashboard registration, and the signing secret in
+	// GCP Secret Manager are cloud-provisioning task 5.1. The handler is mounted
+	// here and rejects requests with 503 when STRIPE_WEBHOOK_SIGNING_SECRET is
+	// not yet configured, so the route is safe to expose before task 5.1 lands.
+	stripeWebhookHandler := webhook.NewStripeWebhookHandler(
+		cfg.Stripe.WebhookSigningSecret,
+		stripeWebhookSvc,
+		logger,
+	)
+
 	webhookSrv := server.NewWebhookServer(cfg.Webhook, logger, map[string]http.Handler{
 		"/pre-access-token":    preAccessTokenHandler,
 		"/account-login-event": loginEventHandler,
+		"/stripe-webhook":      stripeWebhookHandler,
 	})
 
 	// Register shutdown phases.
