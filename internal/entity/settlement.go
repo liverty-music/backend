@@ -159,18 +159,6 @@ type SettlementRepository interface {
 	//    or reversed).
 	//  - Internal: database execution failure.
 	MarkReleased(ctx context.Context, id SettlementID, chargeRef string, releasedAt time.Time, splits []SettlementSplit) error
-
-	// MarkReversed atomically sets the settlement to Reversed, records the
-	// RefundRef on the settlement row, and stores the TransferReversalRef on
-	// each split. Conditional on status being Held or Released (an already-
-	// reversed settlement is a no-op signalled by FailedPrecondition).
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no Settlement with the id exists.
-	//  - FailedPrecondition: settlement is already in Reversed status.
-	//  - Internal: database execution failure.
-	MarkReversed(ctx context.Context, id SettlementID, splits []SettlementSplit) error
 }
 
 // IsReleaseEligible reports whether a settlement may be released.

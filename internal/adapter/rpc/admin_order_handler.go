@@ -58,7 +58,7 @@ func (h *AdminOrderHandler) RefundOrder(
 	}
 
 	orderID := entity.OrderID(req.Msg.GetOrderId().GetValue())
-	reason := mapProtoRefundReason(protoReason)
+	reason := mapper.ProtoRefundReasonToDomain(protoReason)
 
 	order, err := h.refundUC.RefundOrder(ctx, orderID, reason, time.Now())
 	if err != nil {
@@ -77,20 +77,4 @@ func (h *AdminOrderHandler) RefundOrder(
 	return connect.NewResponse(&adminv1.RefundOrderResponse{
 		Order: mapper.OrderToProto(order),
 	}), nil
-}
-
-// mapProtoRefundReason converts the proto RefundReason enum to the domain
-// RefundReason type. UNSPECIFIED is passed through as-is; the use case
-// validates it and returns InvalidArgument.
-func mapProtoRefundReason(r adminv1.RefundReason) usecase.RefundReason {
-	switch r {
-	case adminv1.RefundReason_REFUND_REASON_CANCELLATION:
-		return usecase.RefundReasonCancellation
-	case adminv1.RefundReason_REFUND_REASON_POSTPONEMENT_WINDOW:
-		return usecase.RefundReasonPostponementWindow
-	case adminv1.RefundReason_REFUND_REASON_DISPUTE:
-		return usecase.RefundReasonDispute
-	default:
-		return usecase.RefundReasonUnspecified
-	}
 }

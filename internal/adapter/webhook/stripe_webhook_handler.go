@@ -100,9 +100,15 @@ func (h *StripeWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Verify the Stripe-Signature header using the v1 scheme.
-	// webhook.ConstructEvent uses the legacy stripe/webhook sub-package which
-	// wraps the same ComputeSignature logic as the root stripe package.
-	event, err := stripewh.ConstructEvent(body, r.Header.Get("Stripe-Signature"), h.signingSecret)
+	// Use ConstructEventWithOptions with IgnoreAPIVersionMismatch=true: Stripe
+	// stamps each event with the account/endpoint's configured API version, which
+	// generally differs from the pinned stripe-go SDK version. Without this option
+	// ConstructEvent rejects such events and the mismatch would be misreported below
+	// as a signature failure (401), so Stripe would retry valid deliveries forever.
+	event, err := stripewh.ConstructEventWithOptions(
+		body, r.Header.Get("Stripe-Signature"), h.signingSecret,
+		stripewh.ConstructEventOptions{IgnoreAPIVersionMismatch: true},
+	)
 	if err != nil {
 		// Signature invalid or timestamp too old — reject with 401.
 		h.logger.Warn(ctx, "stripe webhook: signature verification failed",

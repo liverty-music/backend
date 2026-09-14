@@ -143,6 +143,12 @@ type Order struct {
 	// Because the Order is created already paid, this is effectively its creation
 	// time.
 	PaidTime time.Time
+	// RefundRef is the opaque provider Refund reference ("re_...") set when the
+	// Order is refunded via CANCELLATION or POSTPONEMENT_WINDOW. Empty for orders
+	// refunded via DISPUTE (the chargeback reversed the charge at the card
+	// network; no Stripe Refund object is created) and for orders not yet
+	// refunded.
+	RefundRef string
 }
 
 // RefundCommit bundles all of the DB state that must be persisted atomically
@@ -155,6 +161,10 @@ type Order struct {
 type RefundCommit struct {
 	// OrderID is the order to flip to Refunded.
 	OrderID OrderID
+	// RefundRef is the opaque provider Refund reference ("re_...") returned by
+	// CreateRefund. Empty for DISPUTE reason — the chargeback already moved
+	// funds back to the cardholder and we do not issue a separate Refund call.
+	RefundRef string
 	// SettlementID is the settlement to flip to Reversed. Empty means no
 	// settlement row exists yet (payout sweep hasn't run); in that case no
 	// settlement mutation is performed but the order and tickets still flip.
@@ -169,23 +179,22 @@ type RefundCommit struct {
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type RefundRepository interface {
-	// CommitRefund atomically applies the three DB mutations that constitute a
+	// CommitRefund atomically applies all DB mutations that constitute a
 	// completed refund:
 	//
 	//  1. UPDATE settlements SET status = Reversed (if SettlementID is set).
 	//  2. UPDATE settlement_splits SET transfer_reversal_ref (for each split).
 	//  3. UPDATE tickets SET status = Voided for all tickets of the Order.
-	//  4. UPDATE orders SET status = Refunded.
+	//  4. UPDATE orders SET status = Refunded, refund_ref = RefundRef.
 	//
-	// All four mutations (or three when no settlement exists) are committed in a
-	// single pgx transaction so a crash between Stripe and DB is recoverable: on
-	// retry, CreateRefund and ReverseTransfer replay idempotently, and then
-	// CommitRefund re-attempts the DB commit.
+	// All mutations are committed in a single pgx transaction so a crash between
+	// Stripe and DB is recoverable: on retry, CreateRefund and ReverseTransfer
+	// replay idempotently, and CommitRefund re-attempts the DB commit.
 	//
 	// The settlement guard (status IN (1, 2)) means a Reversed settlement
-	// absorbs a concurrent second call (MarkReversed would return
-	// FailedPrecondition) which CommitRefund surfaces as FailedPrecondition so
-	// the use case can treat it as an idempotent no-op.
+	// absorbs a concurrent second call: the guarded UPDATE affects 0 rows, which
+	// CommitRefund surfaces as FailedPrecondition so the use case can treat it as
+	// an idempotent no-op.
 	//
 	// # Possible errors
 	//

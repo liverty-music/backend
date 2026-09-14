@@ -45,8 +45,11 @@ const voidTicketsByOrderTxQuery = `
 	UPDATE tickets SET status = $2 WHERE order_id = $1
 `
 
-const updateOrderStatusTxQuery = `
-	UPDATE orders SET status = $2 WHERE id = $1
+// updateOrderRefundTxQuery flips the order to Refunded and records the opaque
+// provider Refund reference (re_...). For DISPUTE refunds the refund_ref is
+// empty string — the column's DEFAULT ” preserves that cleanly.
+const updateOrderRefundTxQuery = `
+	UPDATE orders SET status = $2, refund_ref = $3 WHERE id = $1
 `
 
 // CommitRefund implements [entity.RefundRepository].
@@ -107,9 +110,11 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 			slog.String("order_id", string(commit.OrderID)))
 	}
 
-	// 4. Flip the order → Refunded. Idempotent: already-Refunded rows are unaffected.
-	if _, err := tx.Exec(ctx, updateOrderStatusTxQuery,
-		string(commit.OrderID), int16(entity.OrderStatusRefunded),
+	// 4. Flip the order → Refunded and record the provider Refund ref.
+	// For DISPUTE reason RefundRef is empty (no CreateRefund call was made);
+	// the column DEFAULT '' handles that correctly.
+	if _, err := tx.Exec(ctx, updateOrderRefundTxQuery,
+		string(commit.OrderID), int16(entity.OrderStatusRefunded), commit.RefundRef,
 	); err != nil {
 		return toAppErr(err, "failed to update order status in refund tx",
 			slog.String("order_id", string(commit.OrderID)))

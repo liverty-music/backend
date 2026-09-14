@@ -150,30 +150,9 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 			"order is not in a refundable state (must be paid)")
 	}
 
-	// Fix #8: Guard against empty PaymentIntentRef or non-Stripe provider before
-	// attempting ResolveChargeRef. A non-Stripe order has no charge in the
-	// Stripe sense; an empty ref would send "" to the Stripe API.
-	if order.Payment.Provider != entity.PaymentProviderStripe {
-		return nil, apperr.New(codes.FailedPrecondition,
-			"refund via Stripe is only supported for Stripe-backed orders")
-	}
-	if order.Payment.PaymentIntentRef == "" {
-		return nil, apperr.New(codes.FailedPrecondition,
-			"order has no payment intent reference; cannot resolve charge for refund")
-	}
-
 	// -- load the settlement (may not exist yet if payout sweep hasn't run). --
 	settlement, err := uc.settlementRepo.GetByOrderID(ctx, orderID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		return nil, err
-	}
-
-	// -- resolve the charge ref needed for the platform-balance Refund.
-	// Prefers the charge ref already stored on the settlement row (set by the
-	// payout sweep). Falls back to a live PaymentIntent retrieval when the
-	// settlement doesn't exist yet or the charge_ref is not yet recorded. --
-	chargeRef, err := uc.resolveChargeRef(ctx, order, settlement)
-	if err != nil {
 		return nil, err
 	}
 
@@ -184,29 +163,56 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 	// A crash after Stripe but before the DB commit means the next invocation
 	// replays Stripe calls (no-ops at provider) and re-attempts the DB tx.
 
-	// -- issue the platform-balance Refund. --
+	// -- issue the platform-balance Refund (CANCELLATION / POSTPONEMENT_WINDOW only).
 	//
-	// Design decision on the refund amount:
+	// For DISPUTE we do NOT call CreateRefund. When a cardholder opens a
+	// chargeback the card network immediately reverses the charge and debits the
+	// platform balance — Stripe surfaces this as the dispute. Calling
+	// CreateRefund on a disputed charge returns charge_disputed (402) because
+	// the money has already left via the chargeback, so the Refund API call would
+	// error before reverseSplits ever runs, leaving the Organizer's transfer
+	// un-reversed. The platform's obligation is only to claw back the Organizer
+	// transfer(s) via transfer_reversal, void the tickets, and mark the Order
+	// refunded.
+	//
+	// Design decision on the refund amount (non-DISPUTE paths):
 	//   We refund the full Order.Amount (face + system/発券 fee). The processor
-	//   fee (Stripe's cut) is not refunded — the JP norm. Stripe deducts the
-	//   processor fee from the platform balance on a partial refund. We do not
-	//   have the exact Stripe processor fee without expanding the
-	//   BalanceTransaction, so MVP accepts this: the platform absorbs the fee.
-	//   TODO: if the business requires retaining the processor fee precisely,
-	//   expand the charge's BalanceTransaction and subtract net_fee_amount.
-	_, err = uc.settlementPort.CreateRefund(ctx, RefundParams{
-		OrderID:   orderID,
-		ChargeRef: chargeRef,
-		Amount:    order.Amount,
-	})
-	if err != nil {
-		return nil, err
+	//   fee (Stripe's cut) is not refunded — the JP norm. We do not have the
+	//   exact fee without expanding the BalanceTransaction; the platform absorbs
+	//   it. TODO: subtract net_fee_amount if precise retention is required.
+	var refundRef string
+	if reason != RefundReasonDispute {
+		// Guard: non-Stripe orders or missing pi_ cannot be refunded via Stripe.
+		if order.Payment.Provider != entity.PaymentProviderStripe {
+			return nil, apperr.New(codes.FailedPrecondition,
+				"refund via Stripe is only supported for Stripe-backed orders")
+		}
+		if order.Payment.PaymentIntentRef == "" {
+			return nil, apperr.New(codes.FailedPrecondition,
+				"order has no payment intent reference; cannot resolve charge for refund")
+		}
+
+		// Resolve the charge ref: prefer the value cached on the settlement row
+		// (set by the payout sweep), fall back to a live PaymentIntent retrieval.
+		chargeRef, err := uc.resolveChargeRef(ctx, order, settlement)
+		if err != nil {
+			return nil, err
+		}
+
+		refundRef, err = uc.settlementPort.CreateRefund(ctx, RefundParams{
+			OrderID:   orderID,
+			ChargeRef: chargeRef,
+			Amount:    order.Amount,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// -- reverse any already-paid-out Transfer(s) per split. --
 	// For Held settlements (not yet paid out) there are no transfers to reverse,
 	// but we still flip the settlement to Reversed in the DB commit to prevent
-	// the payout sweeper from later releasing it (Fix #6 TOCTOU).
+	// the payout sweeper from later releasing it (TOCTOU fix).
 	var reversedSplits []entity.SettlementSplit
 	if settlement != nil && settlement.Status == entity.SettlementStatusReleased {
 		reversedSplits, err = uc.reverseSplits(ctx, settlement)
@@ -221,10 +227,10 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 	}
 
 	// ── ATOMIC DB COMMIT ──────────────────────────────────────────────────
-	// Commits all three DB mutations in one transaction:
+	// Commits all DB mutations in one transaction:
 	//   1. Settlement → Reversed (if settlement exists)
 	//   2. Tickets → Voided
-	//   3. Order → Refunded
+	//   3. Order → Refunded + refund_ref recorded
 	var settleID entity.SettlementID
 	if settlement != nil {
 		settleID = settlement.ID
@@ -232,6 +238,7 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 
 	commit := entity.RefundCommit{
 		OrderID:        orderID,
+		RefundRef:      refundRef,
 		SettlementID:   settleID,
 		ReversedSplits: reversedSplits,
 	}
@@ -252,7 +259,7 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 	uc.logger.Info(ctx, "refund order: completed",
 		slog.String("order_id", string(orderID)),
 		slog.String("reason", reason.String()),
-		slog.String("charge_ref", chargeRef),
+		slog.String("refund_ref", refundRef), // empty for DISPUTE (no CreateRefund call)
 	)
 	return order, nil
 }

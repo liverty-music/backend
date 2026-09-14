@@ -57,11 +57,6 @@ func (s *stubSettlementRepo) MarkReleased(ctx context.Context, id entity.Settlem
 	return nil
 }
 
-func (s *stubSettlementRepo) MarkReversed(_ context.Context, _ entity.SettlementID, _ []entity.SettlementSplit) error {
-	// No-op for payout sweeper tests; the refund path uses RefundRepository.CommitRefund.
-	return nil
-}
-
 type stubConnectedAccountRepo struct {
 	getByOrganizerIDFn func(ctx context.Context, organizerID string) (*entity.OrganizerConnectedAccount, error)
 	upsertFn           func(ctx context.Context, a *entity.OrganizerConnectedAccount) error

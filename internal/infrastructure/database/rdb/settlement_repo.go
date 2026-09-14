@@ -80,23 +80,6 @@ const (
 		SET transfer_ref = $3
 		WHERE settlement_id = $1 AND payee_organizer_id = $2
 	`
-
-	// markReversedSettlementQuery atomically transitions a Held(1) or
-	// Released(2) settlement to Reversed(3). The IN (1, 2) guard rejects
-	// Unspecified(0) — which must never be persisted — and prevents
-	// double-reversal of an already-Reversed(3) row. RowsAffected == 0
-	// surfaces as FailedPrecondition to signal an idempotent replay.
-	markReversedSettlementQuery = `
-		UPDATE settlements
-		SET status = 3
-		WHERE id = $1 AND status IN (1, 2)
-	`
-
-	upsertSplitTransferReversalRefQuery = `
-		UPDATE settlement_splits
-		SET transfer_reversal_ref = $3
-		WHERE settlement_id = $1 AND payee_organizer_id = $2
-	`
 )
 
 // Upsert implements [entity.SettlementRepository].
@@ -207,34 +190,6 @@ func (r *SettlementRepository) MarkReleased(ctx context.Context, id entity.Settl
 		if _, err := r.db.Pool.Exec(ctx, upsertSplitTransferRefQuery,
 			string(id), split.PayeeOrganizerID, split.TransferRef); err != nil {
 			return toAppErr(err, "failed to update split transfer ref",
-				slog.String("settlement_id", string(id)),
-				slog.String("payee_organizer_id", split.PayeeOrganizerID))
-		}
-	}
-	return nil
-}
-
-// MarkReversed implements [entity.SettlementRepository].
-func (r *SettlementRepository) MarkReversed(ctx context.Context, id entity.SettlementID, splits []entity.SettlementSplit) error {
-	tag, err := r.db.Pool.Exec(ctx, markReversedSettlementQuery, string(id))
-	if err != nil {
-		return toAppErr(err, "failed to mark settlement reversed",
-			slog.String("settlement_id", string(id)))
-	}
-	if tag.RowsAffected() == 0 {
-		// Already reversed (status = 3) — the guard rejected the update.
-		return apperr.New(codes.FailedPrecondition,
-			"settlement is already reversed; cannot mark reversed again")
-	}
-
-	// Persist the transfer_reversal_ref for each split.
-	for _, split := range splits {
-		if split.TransferReversalRef == "" {
-			continue
-		}
-		if _, err := r.db.Pool.Exec(ctx, upsertSplitTransferReversalRefQuery,
-			string(id), split.PayeeOrganizerID, split.TransferReversalRef); err != nil {
-			return toAppErr(err, "failed to update split transfer reversal ref",
 				slog.String("settlement_id", string(id)),
 				slog.String("payee_organizer_id", split.PayeeOrganizerID))
 		}

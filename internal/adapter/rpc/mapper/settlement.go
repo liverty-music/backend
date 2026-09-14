@@ -2,7 +2,9 @@ package mapper
 
 import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	adminv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/v1"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -79,5 +81,23 @@ func settlementStatusToProto(s entity.SettlementStatus) entityv1.SettlementStatu
 		return entityv1.SettlementStatus_SETTLEMENT_STATUS_REVERSED
 	default:
 		return entityv1.SettlementStatus_SETTLEMENT_STATUS_UNSPECIFIED
+	}
+}
+
+// ProtoRefundReasonToDomain converts the proto RefundReason enum to the domain
+// RefundReason type. Kept in mapper/ so handlers remain free of conversion
+// logic (AGENTS.md: handlers map Proto↔Entity via mapper/ and call a UseCase).
+// UNSPECIFIED is passed through as-is; the use case validates it and returns
+// InvalidArgument.
+func ProtoRefundReasonToDomain(r adminv1.RefundReason) usecase.RefundReason {
+	switch r {
+	case adminv1.RefundReason_REFUND_REASON_CANCELLATION:
+		return usecase.RefundReasonCancellation
+	case adminv1.RefundReason_REFUND_REASON_POSTPONEMENT_WINDOW:
+		return usecase.RefundReasonPostponementWindow
+	case adminv1.RefundReason_REFUND_REASON_DISPUTE:
+		return usecase.RefundReasonDispute
+	default:
+		return usecase.RefundReasonUnspecified
 	}
 }

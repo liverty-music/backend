@@ -20,7 +20,7 @@ var _ entity.OrderRepository = (*OrderRepository)(nil)
 const (
 	orderSelectColumns = `
 		id, buyer_id, application_id, provider, payment_intent_ref, payment_method_ref,
-		card_brand, card_last4, status, amount, currency, paid_at
+		card_brand, card_last4, status, amount, currency, paid_at, refund_ref
 	`
 	orderGetQuery                   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
 	orderGetByApplicationIDQuery    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE application_id = $1`
@@ -101,6 +101,7 @@ func scanOrder(s orderScanner) (*entity.Order, error) {
 		&o.Payment.PaymentIntentRef, &o.Payment.PaymentMethodRef,
 		&o.Payment.CardBrand, &o.Payment.CardLast4,
 		&status, &o.Amount, &o.Currency, &o.PaidTime,
+		&o.RefundRef,
 	); err != nil {
 		return nil, err
 	}

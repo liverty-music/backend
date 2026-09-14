@@ -137,10 +137,8 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 	}
 
 	port := &stubRefundSettlementPort{
-		stubPaymentSettlementPort: stubPaymentSettlementPort{
-			resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
-				return chRef, nil
-			},
+		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
+			return chRef, nil
 		},
 		createRefundFn: func(_ context.Context, params usecase.RefundParams) (string, error) {
 			// Fix #2: idempotency key must be keyed on OrderID, not SettlementID.
@@ -221,11 +219,9 @@ func TestRefundOrder_Cancellation_NoSettlement(t *testing.T) {
 	}
 
 	port := &stubRefundSettlementPort{
-		stubPaymentSettlementPort: stubPaymentSettlementPort{
-			resolveChargeRefFn: func(_ context.Context, piRef string) (string, error) {
-				assert.Equal(t, "pi_no_settle", piRef)
-				return "ch_no_settle", nil
-			},
+		resolveChargeRefFn: func(_ context.Context, piRef string) (string, error) {
+			assert.Equal(t, "pi_no_settle", piRef)
+			return "ch_no_settle", nil
 		},
 		createRefundFn: func(_ context.Context, params usecase.RefundParams) (string, error) {
 			// Fix #2: key is order-based even without a settlement row.
@@ -376,10 +372,8 @@ func TestRefundOrder_PostponementWindow_AdminCallIsAuthoritative(t *testing.T) {
 
 			refundCalled := false
 			port := &stubRefundSettlementPort{
-				stubPaymentSettlementPort: stubPaymentSettlementPort{
-					resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
-						return "ch_postpone", nil
-					},
+				resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
+					return "ch_postpone", nil
 				},
 				createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
 					refundCalled = true
@@ -721,10 +715,8 @@ func TestRefundOrder_ConcurrentRefund_IdempotentViaCommitFailedPrecondition(t *t
 	}
 
 	port := &stubRefundSettlementPort{
-		stubPaymentSettlementPort: stubPaymentSettlementPort{
-			resolveChargeRefFn: func(_ context.Context, _ string) (string, error) { return "ch_concurrent", nil },
-		},
-		createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) { return "re_concurrent", nil },
+		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) { return "ch_concurrent", nil },
+		createRefundFn:     func(_ context.Context, _ usecase.RefundParams) (string, error) { return "re_concurrent", nil },
 	}
 
 	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
