@@ -39,9 +39,10 @@ func (s *stubIssuanceRepo) ListApplicationIDsAwaitingIssuance(ctx context.Contex
 }
 
 type stubOrderRepo struct {
-	getFn                func(ctx context.Context, id entity.OrderID) (*entity.Order, error)
-	getByApplicationIDFn func(ctx context.Context, applicationID entity.TicketApplicationID) (*entity.Order, error)
-	updateStatusFn       func(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error
+	getFn                   func(ctx context.Context, id entity.OrderID) (*entity.Order, error)
+	getByApplicationIDFn    func(ctx context.Context, applicationID entity.TicketApplicationID) (*entity.Order, error)
+	getByPaymentIntentRefFn func(ctx context.Context, piRef string) (*entity.Order, error)
+	updateStatusFn          func(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error
 }
 
 func (s *stubOrderRepo) Get(ctx context.Context, id entity.OrderID) (*entity.Order, error) {
@@ -54,6 +55,13 @@ func (s *stubOrderRepo) Get(ctx context.Context, id entity.OrderID) (*entity.Ord
 func (s *stubOrderRepo) GetByApplicationID(ctx context.Context, applicationID entity.TicketApplicationID) (*entity.Order, error) {
 	if s.getByApplicationIDFn != nil {
 		return s.getByApplicationIDFn(ctx, applicationID)
+	}
+	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
+}
+
+func (s *stubOrderRepo) GetByPaymentIntentRef(ctx context.Context, piRef string) (*entity.Order, error) {
+	if s.getByPaymentIntentRefFn != nil {
+		return s.getByPaymentIntentRefFn(ctx, piRef)
 	}
 	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
 }

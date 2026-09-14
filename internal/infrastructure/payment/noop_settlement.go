@@ -61,3 +61,19 @@ func (p *NoopSettlementPort) CreateOnboardingLink(ctx context.Context, accountRe
 		slog.String("account_ref", accountRef))
 	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
 }
+
+// CreateRefund returns Unavailable because no Stripe key is configured.
+func (p *NoopSettlementPort) CreateRefund(ctx context.Context, params usecase.RefundParams) (string, error) {
+	p.logger.Warn(ctx, "refund skipped: STRIPE_SECRET_KEY is not configured",
+		slog.String("order_id", string(params.OrderID)),
+		slog.String("charge_ref", params.ChargeRef))
+	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
+}
+
+// ReverseTransfer returns Unavailable because no Stripe key is configured.
+func (p *NoopSettlementPort) ReverseTransfer(ctx context.Context, params usecase.ReverseTransferParams) (string, error) {
+	p.logger.Warn(ctx, "transfer reversal skipped: STRIPE_SECRET_KEY is not configured",
+		slog.String("settlement_id", string(params.SettlementID)),
+		slog.String("transfer_ref", params.TransferRef))
+	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
+}

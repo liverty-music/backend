@@ -57,6 +57,11 @@ func (s *stubSettlementRepo) MarkReleased(ctx context.Context, id entity.Settlem
 	return nil
 }
 
+func (s *stubSettlementRepo) MarkReversed(_ context.Context, _ entity.SettlementID, _ []entity.SettlementSplit) error {
+	// No-op for payout sweeper tests; the refund path uses RefundRepository.CommitRefund.
+	return nil
+}
+
 type stubConnectedAccountRepo struct {
 	getByOrganizerIDFn func(ctx context.Context, organizerID string) (*entity.OrganizerConnectedAccount, error)
 	upsertFn           func(ctx context.Context, a *entity.OrganizerConnectedAccount) error
@@ -99,6 +104,8 @@ type stubPaymentSettlementPort struct {
 	createConnectedAccountFn func(ctx context.Context, organizerID string) (string, error)
 	getAccountStatusFn       func(ctx context.Context, accountRef string) (entity.PayoutOnboardingStatus, error)
 	createOnboardingLinkFn   func(ctx context.Context, accountRef, returnURL string) (string, error)
+	createRefundFn           func(ctx context.Context, params usecase.RefundParams) (string, error)
+	reverseTransferFn        func(ctx context.Context, params usecase.ReverseTransferParams) (string, error)
 }
 
 func (s *stubPaymentSettlementPort) ResolveChargeRef(ctx context.Context, piRef string) (string, error) {
@@ -130,6 +137,18 @@ func (s *stubPaymentSettlementPort) CreateOnboardingLink(ctx context.Context, ac
 		return s.createOnboardingLinkFn(ctx, accountRef, returnURL)
 	}
 	return "https://connect.stripe.com/onboarding/test", nil
+}
+func (s *stubPaymentSettlementPort) CreateRefund(ctx context.Context, params usecase.RefundParams) (string, error) {
+	if s.createRefundFn != nil {
+		return s.createRefundFn(ctx, params)
+	}
+	return "re_test", nil
+}
+func (s *stubPaymentSettlementPort) ReverseTransfer(ctx context.Context, params usecase.ReverseTransferParams) (string, error) {
+	if s.reverseTransferFn != nil {
+		return s.reverseTransferFn(ctx, params)
+	}
+	return "trr_test", nil
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

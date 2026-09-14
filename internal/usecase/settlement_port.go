@@ -29,6 +29,38 @@ type TransferParams struct {
 	Currency string
 }
 
+// RefundParams carries the parameters for a platform-balance Refund. The
+// refund is issued against the Charge (ch_) rather than the PaymentIntent so
+// that the settlement's source_transaction reference remains coherent.
+type RefundParams struct {
+	// OrderID is always present and used to derive a stable, per-order
+	// idempotency key ("order-refund:<orderID>") so retried refunds on the
+	// same order never double-charge the platform. Using OrderID (not
+	// SettlementID) avoids the "no-settlement" placeholder collision where
+	// multiple orders without a settlement row would share the same key.
+	OrderID entity.OrderID
+	// ChargeRef is the captured charge reference (ch_...) to refund.
+	ChargeRef string
+	// Amount is the refund amount in the Order currency's smallest unit.
+	// For a cancellation this is the full Order amount (face + system fee;
+	// processor fee retained). Must be positive.
+	Amount int64
+}
+
+// ReverseTransferParams carries the parameters for a per-split transfer
+// reversal. Each split that was paid out via Transfer must be individually
+// reversed when a refund or dispute clawback occurs.
+type ReverseTransferParams struct {
+	// SettlementID is used to derive a stable idempotency key together with
+	// the TransferRef.
+	SettlementID entity.SettlementID
+	// TransferRef is the provider Transfer reference (tr_...) to reverse.
+	TransferRef string
+	// Amount is the reversal amount. For a full refund this equals the split's
+	// original transfer amount. Must be positive.
+	Amount int64
+}
+
 // PaymentSettlementPort abstracts the money-movement operations needed by the
 // settlement use cases. The Stripe implementation lives in
 // internal/infrastructure/payment/stripe_settlement.go; the no-op fallback
@@ -96,6 +128,51 @@ type PaymentSettlementPort interface {
 	//  - NotFound: the account does not exist.
 	//  - Unavailable: the payment provider is unreachable.
 	CreateOnboardingLink(ctx context.Context, accountRef string, returnURL string) (onboardingURL string, err error)
+
+	// CreateRefund issues a platform-balance Refund against the captured
+	// Charge. The refund amount is the full Order amount minus the processor
+	// fee (retained as the JP norm). Returns the opaque refund reference
+	// ("re_..."). Idempotency is keyed on the SettlementID so a replay never
+	// double-refunds.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: amount is zero or negative.
+	//  - FailedPrecondition: the charge has already been fully refunded.
+	//  - Unavailable: the payment provider is unreachable.
+	CreateRefund(ctx context.Context, params RefundParams) (refundRef string, err error)
+
+	// ReverseTransfer creates a transfer_reversal for one split's Transfer,
+	// clawing back the Organizer's share to the platform balance. Returns the
+	// opaque reversal reference ("trr_..."). Idempotency is keyed on
+	// SettlementID+TransferRef so a replay never double-reverses.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: amount is zero or negative.
+	//  - Unavailable: the payment provider is unreachable.
+	ReverseTransfer(ctx context.Context, params ReverseTransferParams) (reversalRef string, err error)
+}
+
+// ProcessedWebhookEventRepository stores the provider event ids that have
+// already been applied so that duplicate webhook deliveries are no-ops.
+// Interfaces are defined where consumed (AGENTS.md rule).
+type ProcessedWebhookEventRepository interface {
+	// IsProcessed returns true if the provider event id has already been
+	// applied.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database query failure.
+	IsProcessed(ctx context.Context, providerEventID string) (bool, error)
+
+	// MarkProcessed records that the provider event id has been applied.
+	// Idempotent: a duplicate insert is silently accepted (ON CONFLICT DO NOTHING).
+	//
+	// # Possible errors
+	//
+	//  - Internal: database execution failure.
+	MarkProcessed(ctx context.Context, providerEventID string) error
 }
 
 // EventStartTimeRepository reads the event start time from the database. A

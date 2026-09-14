@@ -220,6 +220,89 @@ func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 	}
 }
 
+// CreateRefund implements [usecase.PaymentSettlementPort].
+//
+// It creates a Stripe Refund against the captured Charge (ch_). The refund
+// amount is the Order's captured amount (face + system/発券 fee; processor fee
+// retained as the JP norm — the processor fee is not explicitly subtracted here
+// because we refund against the charge and have no BalanceTransaction expansion
+// at this call site; see the TODO in refund_uc.go for the refinement path).
+//
+// The idempotency key is derived from the OrderID so that:
+//   - All retries for the same order share the same key (crash-safe replay).
+//   - Pre-sweep refunds (no settlement row) do not collide across distinct
+//     orders — previously a constant "no-settlement" placeholder would share
+//     the key across ALL orders that have not yet been swept.
+func (p *StripeSettlementPort) CreateRefund(ctx context.Context, params usecase.RefundParams) (string, error) {
+	if params.Amount <= 0 {
+		return "", apperr.New(codes.InvalidArgument, "refund amount must be positive")
+	}
+
+	// Idempotency key: order-id is always present and unique per Order, so
+	// retries for the same order are idempotent and distinct orders never collide.
+	idempotencyKey := "order-refund:" + string(params.OrderID)
+
+	amount := params.Amount
+	refundParams := &stripe.RefundCreateParams{
+		Charge: stripe.String(params.ChargeRef),
+		Amount: &amount,
+		Reason: stripe.String("requested_by_customer"),
+	}
+	refundParams.SetIdempotencyKey(idempotencyKey)
+
+	refund, err := p.client.V1Refunds.Create(ctx, refundParams)
+	if err != nil {
+		return "", toPaymentAppErr(ctx, err, "failed to create Refund", p.logger)
+	}
+
+	p.logger.Info(ctx, "Stripe Refund created",
+		slog.String("refund_ref", refund.ID),
+		slog.String("charge_ref", params.ChargeRef),
+		slog.Int64("amount", refund.Amount),
+		slog.String("order_id", string(params.OrderID)),
+	)
+	return refund.ID, nil
+}
+
+// ReverseTransfer implements [usecase.PaymentSettlementPort].
+//
+// It creates a Stripe TransferReversal for the given Transfer. On a refund or
+// dispute clawback the Organizer's share is clawed back to the platform balance
+// via transfer_reversal. The reversal amount equals the split's original amount
+// (full reversal per split).
+//
+// The idempotency key is derived from SettlementID + TransferRef so a retried
+// clawback never double-reverses a split.
+func (p *StripeSettlementPort) ReverseTransfer(ctx context.Context, params usecase.ReverseTransferParams) (string, error) {
+	if params.Amount <= 0 {
+		return "", apperr.New(codes.InvalidArgument, "reversal amount must be positive")
+	}
+
+	// Idempotency key: settlement-id + transfer-ref ensures one reversal per
+	// (settlement, split) pair even if the sweeper or webhook handler retries.
+	idempotencyKey := "settlement-reversal:" + string(params.SettlementID) + ":" + params.TransferRef
+
+	amount := params.Amount
+	reversalParams := &stripe.TransferReversalCreateParams{
+		ID:     stripe.String(params.TransferRef),
+		Amount: &amount,
+	}
+	reversalParams.SetIdempotencyKey(idempotencyKey)
+
+	reversal, err := p.client.V1TransferReversals.Create(ctx, reversalParams)
+	if err != nil {
+		return "", toPaymentAppErr(ctx, err, "failed to create TransferReversal", p.logger)
+	}
+
+	p.logger.Info(ctx, "Stripe TransferReversal created",
+		slog.String("reversal_ref", reversal.ID),
+		slog.String("transfer_ref", params.TransferRef),
+		slog.Int64("amount", reversal.Amount),
+		slog.String("settlement_id", string(params.SettlementID)),
+	)
+	return reversal.ID, nil
+}
+
 // CreateOnboardingLink implements [usecase.PaymentSettlementPort].
 //
 // It creates a Stripe AccountLink for the connected account so the Organizer

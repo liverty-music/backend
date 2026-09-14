@@ -1008,3 +1008,16 @@ COMMENT ON COLUMN settlement_splits.payee_organizer_id IS 'Organizer that receiv
 COMMENT ON COLUMN settlement_splits.amount IS 'Net share in the Order currency smallest unit (whole yen for JPY). Must be positive.';
 COMMENT ON COLUMN settlement_splits.transfer_ref IS 'Opaque provider Transfer reference (e.g. Stripe "tr_..."). NULL until the split is released.';
 COMMENT ON COLUMN settlement_splits.transfer_reversal_ref IS 'Opaque provider transfer-reversal reference (e.g. Stripe "trr_..."). NULL unless reversed on a refund/dispute.';
+
+-- Processed webhook events: idempotency table for inbound Stripe webhook
+-- delivery. Each provider event id is recorded after successful processing so
+-- that a duplicate delivery (Stripe retries on non-2xx or network failures)
+-- is detected and skipped without re-applying the side effect.
+CREATE TABLE IF NOT EXISTS processed_webhook_events (
+    provider_event_id TEXT PRIMARY KEY,
+    processed_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE processed_webhook_events IS 'Idempotency guard for Stripe webhook events. Each provider event id is recorded after the event is applied; a duplicate delivery is detected via EXISTS check and skipped. Covers charge.refunded, charge.dispute.created, transfer.reversed, payout.paid, and payout.failed event types.';
+COMMENT ON COLUMN processed_webhook_events.provider_event_id IS 'Stripe event id (e.g. evt_...). Primary key — unique per event.';
+COMMENT ON COLUMN processed_webhook_events.processed_at IS 'Timestamp when this event was first applied.';

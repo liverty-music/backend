@@ -22,9 +22,10 @@ const (
 		id, buyer_id, application_id, provider, payment_intent_ref, payment_method_ref,
 		card_brand, card_last4, status, amount, currency, paid_at
 	`
-	orderGetQuery                = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
-	orderGetByApplicationIDQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE application_id = $1`
-	orderUpdateStatusQuery       = `UPDATE orders SET status = $2 WHERE id = $1`
+	orderGetQuery                   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
+	orderGetByApplicationIDQuery    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE application_id = $1`
+	orderGetByPaymentIntentRefQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE payment_intent_ref = $1`
+	orderUpdateStatusQuery          = `UPDATE orders SET status = $2 WHERE id = $1`
 )
 
 // NewOrderRepository creates a new order repository instance.
@@ -49,6 +50,20 @@ func (r *OrderRepository) GetByApplicationID(ctx context.Context, applicationID 
 	order, err := scanOrder(row)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get order by application", slog.String("application_id", string(applicationID)))
+	}
+	return order, nil
+}
+
+// GetByPaymentIntentRef retrieves the order whose Payment.PaymentIntentRef
+// matches the given pi_ value. Used by the webhook service to resolve a
+// dispute's payment_intent → Order without exposing repo access to the HTTP
+// handler layer.
+func (r *OrderRepository) GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*entity.Order, error) {
+	row := r.db.Pool.QueryRow(ctx, orderGetByPaymentIntentRefQuery, paymentIntentRef)
+	order, err := scanOrder(row)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get order by payment intent ref",
+			slog.String("payment_intent_ref", paymentIntentRef))
 	}
 	return order, nil
 }
