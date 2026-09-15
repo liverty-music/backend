@@ -27,10 +27,11 @@ import (
 // account" model: route ALL transfers to ONE recipient connected account, then
 // switch to per-Organizer accounts once real Organizer onboarding ships. The
 // recipient account is either supplied via STRIPE_CONNECT_ACCOUNT (a
-// pre-onboarded sandbox acct_…) or self-provisioned by ensureRecipientAccount so
-// the PoC needs only a secret key. (Real Organizer onboarding — Accounts v2,
-// `/v2/core/accounts`, AccountLinks — remains a separate concern; the self-
-// provisioning here is a test convenience, not the production onboarding path.)
+// pre-onboarded sandbox acct_…) or self-provisioned by ensureRecipientAccount via
+// the Accounts v2 API so the PoC needs only a secret key. (The self-provisioning
+// here fills test-mode values inline; real Organizer onboarding — the hosted
+// AccountLinks/KYC flow — remains a separate concern, but it targets the same
+// Accounts v2 (`/v2/core/accounts`) surface exercised here.)
 //
 // Opt-in only, so `make check` / CI (no Stripe key, no network) skip it. Run with:
 //
@@ -132,95 +133,142 @@ func TestStripeConnect_Settlement_PoC(t *testing.T) {
 	}
 }
 
-// ensureRecipientAccount self-provisions a JP Custom connected account (the
-// transfer recipient) filled with Stripe's test-mode magic values, so the PoC
-// needs only a secret key (no manual Dashboard onboarding). JP→JP platforms must
-// use the default `full` service agreement (the lighter `recipient` agreement is
-// rejected for same-country JP accounts), so full individual KYC data is
-// supplied. It mirrors the "single Liverty Music-owned interim payee" model:
-// one recipient account that all transfers route to until per-Organizer
-// onboarding ships. It fills Stripe's test-mode magic values, requests the
-// `transfers` capability, then polls until it is `active`.
+// ensureRecipientAccount self-provisions a JP recipient connected account via the
+// current Accounts v2 API (POST /v2/core/accounts) — the shape Stripe recommends
+// for new Connect integrations, and the only one fresh sandboxes accept (they
+// reject Accounts v1 by default). It requests the recipient stripe_transfers
+// capability, fills Stripe's test-mode identity values (JP requires kanji + kana
+// script names/addresses), attests ToS, then polls until stripe_transfers is
+// `active`. So the PoC needs only a secret key — no manual Dashboard onboarding.
+// It mirrors the "single Liverty Music-owned interim payee" model: one recipient
+// all transfers route to until per-Organizer onboarding ships.
 func ensureRecipientAccount(ctx context.Context, t *testing.T, sc *stripe.Client) string {
 	t.Helper()
 
-	now := time.Now().Unix()
-	params := &stripe.AccountCreateParams{
-		Type:         stripe.String(string(stripe.AccountTypeCustom)),
-		Country:      stripe.String("JP"),
-		Email:        stripe.String("poc-organizer@pannpers.dev"),
-		BusinessType: stripe.String(string(stripe.AccountBusinessTypeIndividual)),
-		Capabilities: &stripe.AccountCreateCapabilitiesParams{
-			Transfers: &stripe.AccountCreateCapabilitiesTransfersParams{Requested: stripe.Bool(true)},
-		},
-		BusinessProfile: &stripe.AccountCreateBusinessProfileParams{
-			MCC:                stripe.String("7922"), // Theatrical producers / ticket agencies
-			ProductDescription: stripe.String("Live concert ticket sales"),
-			URL:                stripe.String("https://liverty-music.app"),
-		},
-		// JP→JP platforms must use the default `full` service agreement — the
-		// lighter `recipient` agreement is rejected for same-country JP accounts.
-		TOSAcceptance: &stripe.AccountCreateTOSAcceptanceParams{
-			Date: stripe.Int64(now),
-			IP:   stripe.String("127.0.0.1"),
-		},
-		Individual: &stripe.PersonParams{
-			FirstNameKanji: stripe.String("太郎"),
-			LastNameKanji:  stripe.String("山田"),
-			FirstNameKana:  stripe.String("ﾀﾛｳ"),
-			LastNameKana:   stripe.String("ﾔﾏﾀﾞ"),
-			Gender:         stripe.String("male"),
-			Email:          stripe.String("poc-organizer@pannpers.dev"),
-			Phone:          stripe.String("+815012345678"),
-			DOB:            &stripe.PersonDOBParams{Day: stripe.Int64(1), Month: stripe.Int64(1), Year: stripe.Int64(1990)},
-			AddressKanji: &stripe.PersonAddressKanjiParams{
-				PostalCode: stripe.String("1500001"),
-				State:      stripe.String("東京都"),
-				City:       stripe.String("渋谷区"),
-				Town:       stripe.String("神宮前１丁目"),
-				Line1:      stripe.String("１−１"),
+	now := time.Now()
+	include := []*string{stripe.String("configuration.recipient"), stripe.String("requirements")}
+	params := &stripe.V2CoreAccountCreateParams{
+		DisplayName:  stripe.String("Liverty Music PoC Organizer"),
+		ContactEmail: stripe.String("poc-organizer@pannpers.dev"),
+		// A recipient with the stripe_transfers capability must declare a dashboard;
+		// `none` = platform-managed recipient with no Stripe Dashboard access.
+		Dashboard: stripe.String("none"),
+		Defaults: &stripe.V2CoreAccountCreateDefaultsParams{
+			Currency: stripe.String("jpy"),
+			Locales:  []*string{stripe.String("ja-JP")},
+			Profile: &stripe.V2CoreAccountCreateDefaultsProfileParams{
+				BusinessURL:        stripe.String("https://liverty-music.app"),
+				ProductDescription: stripe.String("Live concert ticket sales"),
 			},
-			AddressKana: &stripe.PersonAddressKanaParams{
-				PostalCode: stripe.String("1500001"),
-				State:      stripe.String("ﾄｳｷｮｳﾄ"),
-				City:       stripe.String("ｼﾌﾞﾔｸ"),
-				Town:       stripe.String("ｼﾞﾝｸﾞｳﾏｴ1ﾁｮｳﾒ"),
-				Line1:      stripe.String("1-1"),
+			// Separate charges & transfers: the platform (application) collects fees
+			// and absorbs losses — required for a recipient-only account (the
+			// recipient is not the merchant of record).
+			Responsibilities: &stripe.V2CoreAccountCreateDefaultsResponsibilitiesParams{
+				FeesCollector:   stripe.String("application"),
+				LossesCollector: stripe.String("application"),
 			},
 		},
-		ExternalAccount: &stripe.AccountExternalAccountParams{
-			Country:           stripe.String("JP"),
-			Currency:          stripe.String(string(stripe.CurrencyJPY)),
-			AccountHolderName: stripe.String("Yamada Taro"),
-			AccountHolderType: stripe.String("individual"),
-			RoutingNumber:     stripe.String("1100000"), // test bank(4)+branch(3)
-			AccountNumber:     stripe.String("0001234"), // test account number
+		Identity: &stripe.V2CoreAccountCreateIdentityParams{
+			Country:    stripe.String("JP"),
+			EntityType: stripe.String("individual"),
+			Individual: &stripe.V2CoreAccountCreateIdentityIndividualParams{
+				GivenName: stripe.String("太郎"),
+				Surname:   stripe.String("山田"),
+				Email:     stripe.String("poc-organizer@pannpers.dev"),
+				Phone:     stripe.String("+815012345678"),
+				DateOfBirth: &stripe.V2CoreAccountCreateIdentityIndividualDateOfBirthParams{
+					Day: stripe.Int64(1), Month: stripe.Int64(1), Year: stripe.Int64(1990),
+				},
+				Address: &stripe.V2CoreAccountCreateIdentityIndividualAddressParams{
+					Country:    stripe.String("JP"),
+					PostalCode: stripe.String("1500001"),
+					State:      stripe.String("東京都"),
+					City:       stripe.String("渋谷区"),
+					Line1:      stripe.String("神宮前1-1-1"),
+				},
+				ScriptNames: &stripe.V2CoreAccountCreateIdentityIndividualScriptNamesParams{
+					Kanji: &stripe.V2CoreAccountCreateIdentityIndividualScriptNamesKanjiParams{
+						GivenName: stripe.String("太郎"), Surname: stripe.String("山田"),
+					},
+					Kana: &stripe.V2CoreAccountCreateIdentityIndividualScriptNamesKanaParams{
+						GivenName: stripe.String("ﾀﾛｳ"), Surname: stripe.String("ﾔﾏﾀﾞ"),
+					},
+				},
+				ScriptAddresses: &stripe.V2CoreAccountCreateIdentityIndividualScriptAddressesParams{
+					Kanji: &stripe.V2CoreAccountCreateIdentityIndividualScriptAddressesKanjiParams{
+						Country: stripe.String("JP"), PostalCode: stripe.String("1500001"),
+						State: stripe.String("東京都"), City: stripe.String("渋谷区"),
+						Town: stripe.String("神宮前"), Line1: stripe.String("１−１"),
+					},
+					Kana: &stripe.V2CoreAccountCreateIdentityIndividualScriptAddressesKanaParams{
+						Country: stripe.String("JP"), PostalCode: stripe.String("1500001"),
+						State: stripe.String("ﾄｳｷｮｳﾄ"), City: stripe.String("ｼﾌﾞﾔｸ"),
+						Town: stripe.String("ｼﾞﾝｸﾞｳﾏｴ"), Line1: stripe.String("1-1"),
+					},
+				},
+			},
+			Attestations: &stripe.V2CoreAccountCreateIdentityAttestationsParams{
+				TermsOfService: &stripe.V2CoreAccountCreateIdentityAttestationsTermsOfServiceParams{
+					Account: &stripe.V2CoreAccountCreateIdentityAttestationsTermsOfServiceAccountParams{
+						Date: &now, IP: stripe.String("127.0.0.1"),
+					},
+				},
+			},
 		},
+		Configuration: &stripe.V2CoreAccountCreateConfigurationParams{
+			Recipient: &stripe.V2CoreAccountCreateConfigurationRecipientParams{
+				Capabilities: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesParams{
+					StripeBalance: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesStripeBalanceParams{
+						StripeTransfers: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesStripeBalanceStripeTransfersParams{
+							Requested: stripe.Bool(true),
+						},
+					},
+				},
+			},
+			// A JP recipient's stripe_transfers capability requires an MCC, which
+			// Stripe surfaces under `configuration.merchant.mcc`. Declaring the MCC
+			// here (no merchant capabilities requested → not merchant-of-record)
+			// satisfies that onboarding requirement. This is a real finding for the
+			// future ticket-settlement-and-payout onboarding: JP recipients need an MCC.
+			Merchant: &stripe.V2CoreAccountCreateConfigurationMerchantParams{
+				MCC: stripe.String("7922"), // Theatrical producers / ticket agencies
+			},
+		},
+		Include:  include,
 		Metadata: map[string]string{"purpose": "ticket-purchase-and-issuance PoC interim payee"},
 	}
 
-	acct, err := sc.V1Accounts.Create(ctx, params)
-	require.NoError(t, err, "create JP recipient connected account")
-	t.Logf("created connected account: %s", acct.ID)
+	acct, err := sc.V2CoreAccounts.Create(ctx, params)
+	require.NoError(t, err, "create JP recipient account (Accounts v2)")
+	t.Logf("created recipient account (v2): %s", acct.ID)
 
-	// Poll until the transfers capability activates (test-mode verification is
-	// near-instant, but not synchronous with the create call).
+	// Poll until the recipient stripe_transfers capability activates (test-mode
+	// verification is near-instant, but not synchronous with the create call).
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		got, err := sc.V1Accounts.GetByID(ctx, acct.ID, &stripe.AccountRetrieveParams{})
-		require.NoError(t, err, "retrieve connected account")
-		status := ""
-		if got.Capabilities != nil {
-			status = string(got.Capabilities.Transfers)
-		}
-		if status == "active" {
-			t.Logf("transfers capability active on %s", got.ID)
+		got, err := sc.V2CoreAccounts.Retrieve(ctx, acct.ID, &stripe.V2CoreAccountRetrieveParams{Include: include})
+		require.NoError(t, err, "retrieve recipient account")
+		status := recipientTransfersStatus(got)
+		if status == string(stripe.V2CoreAccountConfigurationRecipientCapabilitiesStripeBalanceStripeTransfersStatusActive) {
+			t.Logf("recipient stripe_transfers active on %s", got.ID)
 			return got.ID
 		}
 		if time.Now().After(deadline) {
 			due, _ := json.Marshal(got.Requirements)
-			t.Fatalf("transfers capability not active (status=%q) before deadline; requirements=%s", status, string(due))
+			t.Fatalf("stripe_transfers not active (status=%q) before deadline; requirements=%s", status, string(due))
 		}
 		time.Sleep(2 * time.Second)
 	}
+}
+
+// recipientTransfersStatus safely reads the nested recipient stripe_transfers
+// capability status from a v2 account, returning "" when any hop is absent.
+func recipientTransfersStatus(a *stripe.V2CoreAccount) string {
+	if a.Configuration == nil || a.Configuration.Recipient == nil ||
+		a.Configuration.Recipient.Capabilities == nil ||
+		a.Configuration.Recipient.Capabilities.StripeBalance == nil ||
+		a.Configuration.Recipient.Capabilities.StripeBalance.StripeTransfers == nil {
+		return ""
+	}
+	return string(a.Configuration.Recipient.Capabilities.StripeBalance.StripeTransfers.Status)
 }
