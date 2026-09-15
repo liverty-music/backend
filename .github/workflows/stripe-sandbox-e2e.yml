@@ -1,0 +1,54 @@
+name: Stripe Sandbox E2E
+
+# Opt-in Stripe SANDBOX (test-mode) end-to-end suite.
+#
+# These tests hit the real Stripe test API (no DB), so they are network-bound and
+# subject to Stripe rate limits — running them on every PR would be flaky. Instead
+# they run nightly on a schedule plus on manual dispatch, and this workflow is NOT
+# a required status check.
+#
+# The `ci` sandbox's test-mode key lives in the repo secret STRIPE_TEST_SECRET_KEY,
+# mapped to the STRIPE_SECRET_KEY env var the tests read. If the secret is empty
+# the tests self-skip (t.Skip), so the job still passes — the missing key is the
+# tests' own guard, not a hard failure here.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 18:00 UTC daily == 03:00 JST — low-traffic window.
+    - cron: "0 18 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stripe-sandbox-e2e:
+    name: Stripe Sandbox E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.0"
+          cache: true
+
+      - name: Check for Stripe test key
+        run: |
+          if [ -z "${STRIPE_SECRET_KEY}" ]; then
+            echo "::warning::STRIPE_TEST_SECRET_KEY is not set — the Stripe sandbox E2E tests will self-skip. Configure the repo secret to exercise the real Stripe test API."
+          else
+            echo "STRIPE_SECRET_KEY is set; running the Stripe sandbox E2E suites."
+          fi
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+
+      - name: Run Stripe sandbox E2E
+        run: make test-stripe-e2e
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
