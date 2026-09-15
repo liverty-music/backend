@@ -1,4 +1,4 @@
-.PHONY: lint lint-schema modernize fix test test-integration check
+.PHONY: lint lint-schema modernize fix test test-integration test-stripe-e2e check
 
 ## lint: format check + static analysis (matches CI)
 lint:
@@ -35,6 +35,15 @@ test:
 ## Pass GOTEST_FLAGS for CI-specific options (e.g., coverage)
 test-integration:
 	go test -tags=integration -race -timeout=5m $(GOTEST_FLAGS) ./...
+
+## test-stripe-e2e: opt-in Stripe SANDBOX (test-mode) end-to-end — NO real money.
+## Requires a test-mode key in STRIPE_SECRET_KEY (rk_test_…/sk_test_…); charges use
+## test cards and fake balances. Runs the ④ authorize→capture integration test and
+## the Connect settlement money-out PoC (self-provisions its recipient account).
+## See docs/stripe-sandbox-e2e.md for setup and what each leg verifies.
+test-stripe-e2e:
+	STRIPE_INTEGRATION_TEST=1 STRIPE_CONNECT_POC=1 \
+		go test -count=1 -v -run 'Integration|Settlement_PoC' ./internal/infrastructure/payment/
 
 ## check: full local pre-commit check (lint + schema lint + test)
 check: lint lint-schema modernize test

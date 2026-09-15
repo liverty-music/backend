@@ -29,8 +29,10 @@ func TestStripeAuthorizationPort_Integration(t *testing.T) {
 		t.Skip("opt-in: set STRIPE_INTEGRATION_TEST=1 and STRIPE_SECRET_KEY=sk_test_… to run")
 	}
 	key := os.Getenv("STRIPE_SECRET_KEY")
-	if !strings.HasPrefix(key, "sk_test_") {
-		t.Skip("STRIPE_SECRET_KEY must be a test-mode key (sk_test_…) to run the integration test")
+	// Accept both a secret (sk_test_…) and a restricted (rk_test_…) test-mode key;
+	// a restricted key is the recommended shape for CI/local sandboxes.
+	if !strings.HasPrefix(key, "sk_test_") && !strings.HasPrefix(key, "rk_test_") {
+		t.Skip("STRIPE_SECRET_KEY must be a test-mode key (sk_test_… or rk_test_…) to run the integration test")
 	}
 
 	logger := mustLogger(t)
