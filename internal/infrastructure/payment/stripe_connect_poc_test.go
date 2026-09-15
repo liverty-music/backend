@@ -2,6 +2,7 @@ package payment_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"testing"
@@ -23,18 +24,20 @@ import (
 //	  → Payout of the connected account's balance to its bank (optional; test mode).
 //
 // This is the interim "works in prod with a single Liverty Music-owned Connect
-// account" model: create ONE recipient connected account (its acct_… id passed
-// via env), route all transfers there, switch to per-Organizer accounts once
-// real Organizer onboarding ships. Connect account CREATION / onboarding
-// (Accounts v2, `/v2/core/accounts`) is the Organizer-onboarding concern and is
-// out of scope for this money-out PoC — create the sandbox connected account
-// once in the Dashboard (or a one-off script) and pass its id here.
+// account" model: route ALL transfers to ONE recipient connected account, then
+// switch to per-Organizer accounts once real Organizer onboarding ships. The
+// recipient account is either supplied via STRIPE_CONNECT_ACCOUNT (a
+// pre-onboarded sandbox acct_…) or self-provisioned by ensureRecipientAccount so
+// the PoC needs only a secret key. (Real Organizer onboarding — Accounts v2,
+// `/v2/core/accounts`, AccountLinks — remains a separate concern; the self-
+// provisioning here is a test convenience, not the production onboarding path.)
 //
 // Opt-in only, so `make check` / CI (no Stripe key, no network) skip it. Run with:
 //
 //	STRIPE_CONNECT_POC=1 \
-//	STRIPE_SECRET_KEY=sk_test_… \
-//	STRIPE_CONNECT_ACCOUNT=acct_… \
+//	STRIPE_SECRET_KEY=rk_test_…            # or sk_test_… (needs Connect+PaymentIntents+Transfers write) \
+//	[STRIPE_CONNECT_ACCOUNT=acct_…]        # optional; self-provisioned when unset \
+//	[STRIPE_CONNECT_POC_PAYOUT=1]          # optional; best-effort payout leg \
 //	  go test ./internal/infrastructure/payment/ -run TestStripeConnect_Settlement_PoC -v
 //
 // Notes for a faithful settlement implementation (beyond this PoC):
@@ -51,9 +54,7 @@ func TestStripeConnect_Settlement_PoC(t *testing.T) {
 		t.Skip("opt-in: set STRIPE_CONNECT_POC=1, STRIPE_SECRET_KEY=sk_test_…, STRIPE_CONNECT_ACCOUNT=acct_… to run")
 	}
 	secretKey := os.Getenv("STRIPE_SECRET_KEY")
-	require.NotEmpty(t, secretKey, "STRIPE_SECRET_KEY (sandbox sk_test_…) is required")
-	connectedAccount := os.Getenv("STRIPE_CONNECT_ACCOUNT")
-	require.NotEmpty(t, connectedAccount, "STRIPE_CONNECT_ACCOUNT (sandbox acct_…) is required")
+	require.NotEmpty(t, secretKey, "STRIPE_SECRET_KEY (sandbox sk_test_…/rk_test_…) is required")
 
 	ctx := context.Background()
 	backends := &stripe.Backends{
@@ -62,6 +63,14 @@ func TestStripeConnect_Settlement_PoC(t *testing.T) {
 		}),
 	}
 	sc := stripe.NewClient(secretKey, stripe.WithBackends(backends))
+
+	// The recipient connected account may be supplied via env (a pre-onboarded
+	// sandbox acct_…), or self-provisioned here so the PoC needs only a key.
+	connectedAccount := os.Getenv("STRIPE_CONNECT_ACCOUNT")
+	if connectedAccount == "" {
+		connectedAccount = ensureRecipientAccount(ctx, t, sc)
+	}
+	require.NotEmpty(t, connectedAccount)
 
 	const (
 		gross = int64(10000) // ¥10,000 ticket
@@ -120,5 +129,98 @@ func TestStripeConnect_Settlement_PoC(t *testing.T) {
 		} else {
 			t.Logf("payout to organizer bank succeeded: payout=%s amount=%d status=%s", po.ID, po.Amount, po.Status)
 		}
+	}
+}
+
+// ensureRecipientAccount self-provisions a JP Custom connected account (the
+// transfer recipient) filled with Stripe's test-mode magic values, so the PoC
+// needs only a secret key (no manual Dashboard onboarding). JP→JP platforms must
+// use the default `full` service agreement (the lighter `recipient` agreement is
+// rejected for same-country JP accounts), so full individual KYC data is
+// supplied. It mirrors the "single Liverty Music-owned interim payee" model:
+// one recipient account that all transfers route to until per-Organizer
+// onboarding ships. It fills Stripe's test-mode magic values, requests the
+// `transfers` capability, then polls until it is `active`.
+func ensureRecipientAccount(ctx context.Context, t *testing.T, sc *stripe.Client) string {
+	t.Helper()
+
+	now := time.Now().Unix()
+	params := &stripe.AccountCreateParams{
+		Type:         stripe.String(string(stripe.AccountTypeCustom)),
+		Country:      stripe.String("JP"),
+		Email:        stripe.String("poc-organizer@pannpers.dev"),
+		BusinessType: stripe.String(string(stripe.AccountBusinessTypeIndividual)),
+		Capabilities: &stripe.AccountCreateCapabilitiesParams{
+			Transfers: &stripe.AccountCreateCapabilitiesTransfersParams{Requested: stripe.Bool(true)},
+		},
+		BusinessProfile: &stripe.AccountCreateBusinessProfileParams{
+			MCC:                stripe.String("7922"), // Theatrical producers / ticket agencies
+			ProductDescription: stripe.String("Live concert ticket sales"),
+			URL:                stripe.String("https://liverty-music.app"),
+		},
+		// JP→JP platforms must use the default `full` service agreement — the
+		// lighter `recipient` agreement is rejected for same-country JP accounts.
+		TOSAcceptance: &stripe.AccountCreateTOSAcceptanceParams{
+			Date: stripe.Int64(now),
+			IP:   stripe.String("127.0.0.1"),
+		},
+		Individual: &stripe.PersonParams{
+			FirstNameKanji: stripe.String("太郎"),
+			LastNameKanji:  stripe.String("山田"),
+			FirstNameKana:  stripe.String("ﾀﾛｳ"),
+			LastNameKana:   stripe.String("ﾔﾏﾀﾞ"),
+			Gender:         stripe.String("male"),
+			Email:          stripe.String("poc-organizer@pannpers.dev"),
+			Phone:          stripe.String("+815012345678"),
+			DOB:            &stripe.PersonDOBParams{Day: stripe.Int64(1), Month: stripe.Int64(1), Year: stripe.Int64(1990)},
+			AddressKanji: &stripe.PersonAddressKanjiParams{
+				PostalCode: stripe.String("1500001"),
+				State:      stripe.String("東京都"),
+				City:       stripe.String("渋谷区"),
+				Town:       stripe.String("神宮前１丁目"),
+				Line1:      stripe.String("１−１"),
+			},
+			AddressKana: &stripe.PersonAddressKanaParams{
+				PostalCode: stripe.String("1500001"),
+				State:      stripe.String("ﾄｳｷｮｳﾄ"),
+				City:       stripe.String("ｼﾌﾞﾔｸ"),
+				Town:       stripe.String("ｼﾞﾝｸﾞｳﾏｴ1ﾁｮｳﾒ"),
+				Line1:      stripe.String("1-1"),
+			},
+		},
+		ExternalAccount: &stripe.AccountExternalAccountParams{
+			Country:           stripe.String("JP"),
+			Currency:          stripe.String(string(stripe.CurrencyJPY)),
+			AccountHolderName: stripe.String("Yamada Taro"),
+			AccountHolderType: stripe.String("individual"),
+			RoutingNumber:     stripe.String("1100000"), // test bank(4)+branch(3)
+			AccountNumber:     stripe.String("0001234"), // test account number
+		},
+		Metadata: map[string]string{"purpose": "ticket-purchase-and-issuance PoC interim payee"},
+	}
+
+	acct, err := sc.V1Accounts.Create(ctx, params)
+	require.NoError(t, err, "create JP recipient connected account")
+	t.Logf("created connected account: %s", acct.ID)
+
+	// Poll until the transfers capability activates (test-mode verification is
+	// near-instant, but not synchronous with the create call).
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		got, err := sc.V1Accounts.GetByID(ctx, acct.ID, &stripe.AccountRetrieveParams{})
+		require.NoError(t, err, "retrieve connected account")
+		status := ""
+		if got.Capabilities != nil {
+			status = string(got.Capabilities.Transfers)
+		}
+		if status == "active" {
+			t.Logf("transfers capability active on %s", got.ID)
+			return got.ID
+		}
+		if time.Now().After(deadline) {
+			due, _ := json.Marshal(got.Requirements)
+			t.Fatalf("transfers capability not active (status=%q) before deadline; requirements=%s", status, string(due))
+		}
+		time.Sleep(2 * time.Second)
 	}
 }
