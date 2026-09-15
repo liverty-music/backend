@@ -40,4 +40,11 @@ type Event struct {
 	StartTime *time.Time
 	// OpenTime is the time when doors open (optional).
 	OpenTime *time.Time
+	// RescheduleTime is the server-owned timestamp marking when the organizer
+	// announced this event was rescheduled (延期). It is the start of the
+	// holder-initiated postponement refund window offered on postponement.
+	// Nil when the event has never been postponed. Set by the organizer
+	// reschedule flow; until that flow exists this field is always nil and the
+	// postponement refund gate falls back to admin-authoritative.
+	RescheduleTime *time.Time
 }

@@ -100,3 +100,4 @@ configMapGenerator:
   - migrations/20260914000000_add_settlement_payout_tables.sql
   - migrations/20260914010000_add_processed_webhook_events.sql
   - migrations/20260914020000_add_order_refund_ref.sql
+  - migrations/20260915000000_add_events_rescheduled_at.sql

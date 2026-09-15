@@ -1,4 +1,4 @@
-h1:uifo1VIrWkHC8UaGfd2CGli/RgcxgI9Oymn47n6v2h4=
+h1:4wtLC/Qal9UJx5S0Vj1sVUE9nzmBeJ9WhG72uIEMFp4=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -86,3 +86,4 @@ h1:uifo1VIrWkHC8UaGfd2CGli/RgcxgI9Oymn47n6v2h4=
 20260914000000_add_settlement_payout_tables.sql h1:N6Rk5ekdAzIs176+0WqAX81f16Z0CB2Rgz6FzjuF6vE=
 20260914010000_add_processed_webhook_events.sql h1:PQ//UM3uyjcMx3tqFDRyGCjfcH3UrhPQNG0syYN2Qu8=
 20260914020000_add_order_refund_ref.sql h1:ZdGNodyuz4waA+aCSxmFm3xK1kzejJcBWXMkxiSPZNA=
+20260915000000_add_events_rescheduled_at.sql h1:r8FSFZT63NuWghbRQjQkRNZAkrIMVoQv9xu5gi4FeDM=
