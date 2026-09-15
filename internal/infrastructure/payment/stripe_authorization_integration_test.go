@@ -73,6 +73,34 @@ func TestStripeAuthorizationPort_Integration(t *testing.T) {
 		// Clean up the hold so it does not linger.
 		require.NoError(t, port.CancelAuthorization(ctx, ref))
 	})
+
+	// GetCapturedPayment is the ④→⑤ handoff seam: ⑤ reads ④'s captured winning
+	// payment to build the Order. This exercises it against a real captured
+	// PaymentIntent (⑤ §7.2 end-to-end verify of the captured-payment read).
+	t.Run("GetCapturedPayment reads a captured win (amount + currency + card facets)", func(t *testing.T) {
+		ref, _, err := port.CreateAuthorization(ctx, amountJPY)
+		require.NoError(t, err)
+		confirmWithTestCard(t, key, ref)
+		require.NoError(t, port.CaptureAuthorization(ctx, ref))
+
+		got, err := port.GetCapturedPayment(ctx, ref)
+		require.NoError(t, err)
+		require.Equal(t, amountJPY, got.AmountJPY)
+		require.Equal(t, "JPY", got.Currency)
+		require.Equal(t, "visa", got.CardBrand) // pm_card_visa
+		require.Equal(t, "4242", got.CardLast4)
+	})
+
+	t.Run("GetCapturedPayment rejects a not-yet-captured intent", func(t *testing.T) {
+		ref, _, err := port.CreateAuthorization(ctx, amountJPY)
+		require.NoError(t, err)
+		confirmWithTestCard(t, key, ref) // requires_capture, not captured
+
+		_, err = port.GetCapturedPayment(ctx, ref)
+		require.Error(t, err) // FailedPrecondition: capture has not settled
+		// Clean up the uncaptured hold.
+		require.NoError(t, port.CancelAuthorization(ctx, ref))
+	})
 }
 
 // confirmWithTestCard confirms the PaymentIntent with a non-3DS test card,
