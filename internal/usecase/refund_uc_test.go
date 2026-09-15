@@ -33,6 +33,20 @@ func (s *stubRefundRepo) CommitRefund(ctx context.Context, commit entity.RefundC
 	return nil
 }
 
+// stubEventRescheduleTimeRepo implements usecase.EventRescheduleTimeRepository
+// for tests. getRescheduleTimeFn controls the returned value; when nil the stub
+// returns (nil, nil) — the "event never postponed" fallback.
+type stubEventRescheduleTimeRepo struct {
+	getRescheduleTimeFn func(ctx context.Context, orderID entity.OrderID) (*time.Time, error)
+}
+
+func (s *stubEventRescheduleTimeRepo) GetRescheduleTimeByOrder(ctx context.Context, orderID entity.OrderID) (*time.Time, error) {
+	if s.getRescheduleTimeFn != nil {
+		return s.getRescheduleTimeFn(ctx, orderID)
+	}
+	return nil, nil
+}
+
 // stubRefundSettlementPort extends stubPaymentSettlementPort to support the
 // new CreateRefund and ReverseTransfer methods.
 type stubRefundSettlementPort struct {
@@ -77,10 +91,11 @@ func newRefundUCWithLogger(
 	orderRepo entity.OrderRepository,
 	refundRepo entity.RefundRepository,
 	settlementRepo entity.SettlementRepository,
+	rescheduleTimeRepo usecase.EventRescheduleTimeRepository,
 	port usecase.PaymentSettlementPort,
 	t *testing.T,
 ) usecase.RefundOrderUseCase {
-	return usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, port, newTestLogger(t))
+	return usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, rescheduleTimeRepo, port, newTestLogger(t))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,7 +185,7 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 		},
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
+	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, &stubEventRescheduleTimeRepo{}, port, t)
 
 	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
@@ -235,7 +250,7 @@ func TestRefundOrder_Cancellation_NoSettlement(t *testing.T) {
 		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return order, nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
+	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, &stubEventRescheduleTimeRepo{}, port, t)
 
 	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
@@ -280,7 +295,7 @@ func TestRefundOrder_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 		},
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, port, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubEventRescheduleTimeRepo{}, port, t)
 
 	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
@@ -315,7 +330,7 @@ func TestRefundOrder_NotRefundable_FailedOrder(t *testing.T) {
 	}
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{},
-		&stubRefundSettlementPort{}, t)
+		&stubEventRescheduleTimeRepo{}, &stubRefundSettlementPort{}, t)
 
 	_, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.Error(t, err)
@@ -323,76 +338,159 @@ func TestRefundOrder_NotRefundable_FailedOrder(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POSTPONEMENT_WINDOW — admin call is authoritative; no time-gate in code
-// Fix #7: the PaidTime-based deadline is removed. The admin call is the policy
-// gate; code enforces no additional rejection. Test validates POSTPONEMENT_WINDOW
-// succeeds regardless of elapsed time (even far in the future).
+// POSTPONEMENT_WINDOW gate — within window → refund proceeds
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_PostponementWindow_AdminCallIsAuthoritative(t *testing.T) {
+func TestRefundOrder_PostponementWindow_WithinWindow_Allowed(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	paidAt := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	// Organizer announced rescheduling 7 days ago.
+	rescheduleTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	now := rescheduleTime.Add(7 * 24 * time.Hour) // 7 days later — within the 14-day window.
 
-	tests := []struct {
-		name string
-		now  time.Time
-	}{
-		{
-			name: "immediately after purchase",
-			now:  paidAt.Add(1 * time.Hour),
-		},
-		{
-			name: "10 days after purchase",
-			now:  paidAt.Add(10 * 24 * time.Hour),
-		},
-		{
-			name: "far in the future — still allowed (admin is the gate)",
-			// Previously this would have been rejected by the PaidTime+14d window.
-			// Fix #7: PaidTime window is removed; admin call is authoritative.
-			now: paidAt.Add(365 * 24 * time.Hour),
+	const orderID = entity.OrderID("order-postpone-within")
+
+	order := paidOrder(orderID, 7000, "pi_postpone_within", rescheduleTime.Add(-30*24*time.Hour))
+
+	settleRepo := &stubSettlementRepo{
+		getByOrderIDFn: func(_ context.Context, _ entity.OrderID) (*entity.Settlement, error) {
+			return nil, apperr.New(apperr.ErrNotFound.Code, "no settlement")
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			const orderID = entity.OrderID("order-postpone")
-
-			order := paidOrder(orderID, 7000, "pi_postpone", paidAt)
-
-			settleRepo := &stubSettlementRepo{
-
-				getByOrderIDFn: func(_ context.Context, _ entity.OrderID) (*entity.Settlement, error) {
-					return nil, apperr.New(apperr.ErrNotFound.Code, "no settlement")
-				},
-			}
-
-			refundCalled := false
-			port := &stubRefundSettlementPort{
-				resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
-					return "ch_postpone", nil
-				},
-				createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
-					refundCalled = true
-					return "re_postpone", nil
-				},
-			}
-
-			orderRepo := &stubOrderRepo{
-				getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return order, nil },
-			}
-
-			uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, settleRepo, port, t)
-
-			result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonPostponementWindow, tc.now)
-			require.NoError(t, err, "POSTPONEMENT_WINDOW must succeed; admin call is the policy gate")
-			assert.Equal(t, entity.OrderStatusRefunded, result.Status)
-			assert.True(t, refundCalled)
-		})
+	refundCalled := false
+	port := &stubRefundSettlementPort{
+		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
+			return "ch_postpone_within", nil
+		},
+		createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
+			refundCalled = true
+			return "re_postpone_within", nil
+		},
 	}
+
+	orderRepo := &stubOrderRepo{
+		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return order, nil },
+	}
+
+	rescheduleRepo := &stubEventRescheduleTimeRepo{
+		getRescheduleTimeFn: func(_ context.Context, _ entity.OrderID) (*time.Time, error) {
+			return &rescheduleTime, nil
+		},
+	}
+
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, settleRepo, rescheduleRepo, port, t)
+
+	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonPostponementWindow, now)
+	require.NoError(t, err, "POSTPONEMENT_WINDOW within the 14-day window must proceed")
+	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
+	assert.True(t, refundCalled, "CreateRefund must be called when window is open")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POSTPONEMENT_WINDOW gate — past window → FailedPrecondition, no Stripe/DB call
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestRefundOrder_PostponementWindow_PastWindow_FailedPrecondition(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	// Organizer announced rescheduling 15 days ago — one day past the 14-day window.
+	rescheduleTime := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	now := rescheduleTime.Add(15 * 24 * time.Hour)
+
+	const orderID = entity.OrderID("order-postpone-past")
+
+	order := paidOrder(orderID, 7000, "pi_postpone_past", rescheduleTime.Add(-30*24*time.Hour))
+
+	orderRepo := &stubOrderRepo{
+		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return order, nil },
+	}
+
+	refundCalled := false
+	commitCalled := false
+
+	port := &stubRefundSettlementPort{
+		createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
+			refundCalled = true
+			return "should-not-be-called", nil
+		},
+	}
+
+	refundRepo := &stubRefundRepo{
+		commitRefundFn: func(_ context.Context, _ entity.RefundCommit) error {
+			commitCalled = true
+			return nil
+		},
+	}
+
+	rescheduleRepo := &stubEventRescheduleTimeRepo{
+		getRescheduleTimeFn: func(_ context.Context, _ entity.OrderID) (*time.Time, error) {
+			return &rescheduleTime, nil
+		},
+	}
+
+	uc := newRefundUCWithLogger(orderRepo, refundRepo, &stubSettlementRepo{}, rescheduleRepo, port, t)
+
+	_, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonPostponementWindow, now)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition,
+		"POSTPONEMENT_WINDOW past the 14-day window must return FailedPrecondition")
+	assert.False(t, refundCalled, "CreateRefund must NOT be called when window has closed")
+	assert.False(t, commitCalled, "CommitRefund must NOT be called when window has closed")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POSTPONEMENT_WINDOW gate — nil RescheduleTime → fallback (admin-authoritative)
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestRefundOrder_PostponementWindow_NilRescheduleTime_FallbackAllowed(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	// rescheduled_at is NULL — organizer reschedule flow not yet implemented.
+	// The gate must fall back to admin-authoritative and allow the refund.
+	now := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+
+	const orderID = entity.OrderID("order-postpone-nil")
+
+	order := paidOrder(orderID, 7000, "pi_postpone_nil", now.Add(-365*24*time.Hour))
+
+	settleRepo := &stubSettlementRepo{
+		getByOrderIDFn: func(_ context.Context, _ entity.OrderID) (*entity.Settlement, error) {
+			return nil, apperr.New(apperr.ErrNotFound.Code, "no settlement")
+		},
+	}
+
+	refundCalled := false
+	port := &stubRefundSettlementPort{
+		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
+			return "ch_postpone_nil", nil
+		},
+		createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
+			refundCalled = true
+			return "re_postpone_nil", nil
+		},
+	}
+
+	orderRepo := &stubOrderRepo{
+		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return order, nil },
+	}
+
+	// nil return: simulates rescheduled_at IS NULL in the DB.
+	rescheduleRepo := &stubEventRescheduleTimeRepo{
+		getRescheduleTimeFn: func(_ context.Context, _ entity.OrderID) (*time.Time, error) {
+			return nil, nil
+		},
+	}
+
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, settleRepo, rescheduleRepo, port, t)
+
+	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonPostponementWindow, now)
+	require.NoError(t, err, "nil RescheduleTime must fall back to admin-authoritative and allow the refund")
+	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
+	assert.True(t, refundCalled, "CreateRefund must be called on nil-RescheduleTime fallback")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,7 +564,7 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return order, nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
+	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, &stubEventRescheduleTimeRepo{}, port, t)
 
 	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonDispute, now)
 	require.NoError(t, err)
@@ -486,7 +584,7 @@ func TestRefundOrder_UnspecifiedReason_InvalidArgument(t *testing.T) {
 	now := time.Now()
 
 	uc := newRefundUCWithLogger(&stubOrderRepo{}, &stubRefundRepo{}, &stubSettlementRepo{},
-		&stubRefundSettlementPort{}, t)
+		&stubEventRescheduleTimeRepo{}, &stubRefundSettlementPort{}, t)
 
 	_, err := uc.RefundOrder(ctx, "order-unspec", usecase.RefundReasonUnspecified, now)
 	require.Error(t, err)
@@ -509,7 +607,7 @@ func TestRefundOrder_OrderNotFound(t *testing.T) {
 	}
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{},
-		&stubRefundSettlementPort{}, t)
+		&stubEventRescheduleTimeRepo{}, &stubRefundSettlementPort{}, t)
 
 	_, err := uc.RefundOrder(ctx, "order-missing", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -584,7 +682,7 @@ func TestRefundOrder_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
 		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return order, nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
+	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, &stubEventRescheduleTimeRepo{}, port, t)
 
 	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
@@ -620,7 +718,7 @@ func TestRefundOrder_NonStripeProvider_FailedPrecondition(t *testing.T) {
 	}
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{},
-		&stubRefundSettlementPort{}, t)
+		&stubEventRescheduleTimeRepo{}, &stubRefundSettlementPort{}, t)
 
 	_, err := uc.RefundOrder(ctx, "order-komoju", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -652,7 +750,7 @@ func TestRefundOrder_EmptyPaymentIntentRef_FailedPrecondition(t *testing.T) {
 	}
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{},
-		&stubRefundSettlementPort{}, t)
+		&stubEventRescheduleTimeRepo{}, &stubRefundSettlementPort{}, t)
 
 	_, err := uc.RefundOrder(ctx, "order-no-pi", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -719,7 +817,7 @@ func TestRefundOrder_ConcurrentRefund_IdempotentViaCommitFailedPrecondition(t *t
 		createRefundFn:     func(_ context.Context, _ usecase.RefundParams) (string, error) { return "re_concurrent", nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
+	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, &stubEventRescheduleTimeRepo{}, port, t)
 
 	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)

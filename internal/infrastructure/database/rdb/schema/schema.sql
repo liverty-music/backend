@@ -172,6 +172,7 @@ CREATE TABLE IF NOT EXISTS events (
     local_event_date DATE NOT NULL,
     start_at TIMESTAMPTZ,
     open_at TIMESTAMPTZ,
+    rescheduled_at TIMESTAMPTZ,
     CONSTRAINT uq_events_natural_key UNIQUE NULLS NOT DISTINCT (venue_id, local_event_date, start_at),
     CONSTRAINT chk_events_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
@@ -185,6 +186,7 @@ COMMENT ON COLUMN events.listed_venue_name IS 'Raw venue name as scraped from th
 COMMENT ON COLUMN events.local_event_date IS 'Date of the event';
 COMMENT ON COLUMN events.start_at IS 'Event start time (absolute)';
 COMMENT ON COLUMN events.open_at IS 'Doors open time (absolute), if available';
+COMMENT ON COLUMN events.rescheduled_at IS 'Timestamp when the organizer announced this event was rescheduled (延期). Server-owned; set by the organizer reschedule flow. NULL when the event has never been postponed. Marks the start of the holder-initiated postponement refund window (PostponementRefundWindow). Until an organizer reschedule flow stamps this column, the refund gate falls back to admin-authoritative.';
 
 -- Concerts table
 CREATE TABLE IF NOT EXISTS concerts (
