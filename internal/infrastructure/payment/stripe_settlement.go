@@ -14,6 +14,25 @@ import (
 	stripe "github.com/stripe/stripe-go/v86"
 )
 
+// Accounts v2 recipient provisioning constants. See CreateConnectedAccount for
+// why each value is what it is.
+const (
+	// recipientDashboardNone gives the recipient no Stripe Dashboard access;
+	// the platform manages the account.
+	recipientDashboardNone = "none"
+	// recipientLocaleJA is the onboarding/communication locale for JP Organizers.
+	recipientLocaleJA = "ja-JP"
+	// recipientCountryJP is the only Organizer country the MVP settles to.
+	recipientCountryJP = "JP"
+	// recipientMCCTicketing is "theatrical producers / ticket agencies". A JP
+	// recipient's stripe_transfers capability does not activate without an MCC.
+	recipientMCCTicketing = "7922"
+	// collectorApplication makes the platform responsible for fees and losses.
+	collectorApplication = "application"
+	// metadataKeyOrganizerID ties the Stripe account back to our Organizer.
+	metadataKeyOrganizerID = "organizer_id"
+)
+
 // Compile-time interface compliance check.
 var _ usecase.PaymentSettlementPort = (*StripeSettlementPort)(nil)
 
@@ -126,44 +145,88 @@ func (p *StripeSettlementPort) CreateTransfer(ctx context.Context, params usecas
 
 // CreateConnectedAccount implements [usecase.PaymentSettlementPort].
 //
-// TODO: wire Accounts v2 (/v2/core/accounts) when the Stripe SDK and platform
-// Connect enablement are available (external prerequisite 0.1 in tasks.md).
-// The Accounts v2 endpoint creates a recipient account with
-// `configuration.recipient.capabilities = {stripe_balance: {stripe_transfers: {requested: true}}}`
-// and `losses_collector = application` (required for separate-charges model,
-// transfer reversals, and future allocated_funds). The platform is NOT ready
-// to go live until task 0.1 (Stripe Connect platform enablement + KYC/審査)
-// is complete.
+// It creates an Accounts v2 payout-recipient account (POST /v2/core/accounts)
+// for the Organizer. Fresh sandboxes reject Accounts v1, and v2 is the shape
+// Stripe recommends for new Connect integrations.
 //
-// The current implementation returns Unavailable with a clear message so that
-// local dev and pre-launch environments fail safely rather than silently.
-// The noop adapter wraps this for local dev.
-func (p *StripeSettlementPort) CreateConnectedAccount(ctx context.Context, organizerID string) (string, error) {
-	// TODO: wire Accounts v2 when SDK/platform available.
-	// Example future call (pseudocode, not compilable yet):
-	//   p.client.V2CoreAccounts.Create(ctx, &stripe.V2CoreAccountCreateParams{
-	//       Configuration: &stripe.V2CoreAccountConfigurationParams{
-	//           Recipient: &stripe.V2CoreAccountConfigurationRecipientParams{
-	//               Capabilities: &stripe.V2CoreAccountConfigurationRecipientCapabilitiesParams{
-	//                   StripeBalance: &stripe.V2CoreAccountConfigurationRecipientCapabilitiesStripeBalanceParams{
-	//                       StripeTransfers: &stripe.V2CoreAccountConfigurationRecipientCapabilitiesStripeBalanceStripeTransfersParams{
-	//                           Requested: stripe.Bool(true),
-	//                       },
-	//                   },
-	//               },
-	//           },
-	//       },
-	//       Defaults: &stripe.V2CoreAccountDefaultsParams{
-	//           Responsibilities: &stripe.V2CoreAccountDefaultsResponsibilitiesParams{
-	//               LossesCollector: stripe.String("application"),
-	//           },
-	//       },
-	//   })
-	p.logger.Warn(ctx, "CreateConnectedAccount: Accounts v2 not yet wired; returning Unavailable",
+// The request carries the account *shape* — country, currency/locale, dashboard
+// access, the requested capability, and who collects fees/losses — plus the
+// Organizer's business contact email, which Stripe requires whenever a recipient
+// configuration is supplied. Beyond that it sends **no personal data**: the
+// Organizer supplies their name, date of birth, address and documents directly
+// to Stripe through the hosted onboarding link (see CreateOnboardingLink), so no
+// identity documents or verification data transit or rest here.
+// The account is therefore created unverified and reaches payout eligibility
+// only once Stripe reports the transfers capability active.
+//
+// Shape rationale:
+//   - dashboard = "none": a platform-managed recipient with no Stripe Dashboard
+//     access. A recipient holding stripe_transfers must declare a dashboard.
+//   - responsibilities: the platform (application) collects fees and absorbs
+//     losses — required for separate charges & transfers, for transfer
+//     reversals, and for the platform's negative-balance responsibility.
+//   - stripe_balance.stripe_transfers requested, and card_payments NOT
+//     requested: a recipient is not the merchant of record, and asking for
+//     card_payments would slow onboarding for no benefit.
+//   - configuration.merchant.mcc: a JP recipient's stripe_transfers capability
+//     will not activate without an MCC, which Stripe surfaces under the
+//     merchant configuration. Declaring the MCC alone does NOT make the account
+//     merchant-of-record — no merchant capabilities are requested. This was
+//     established empirically by the Connect PoC against a real sandbox.
+//
+// The idempotency key is derived from the organizer id so a retried
+// provisioning call cannot create a second account for the same Organizer.
+func (p *StripeSettlementPort) CreateConnectedAccount(ctx context.Context, organizerID string, contactEmail string) (string, error) {
+	if organizerID == "" {
+		return "", apperr.New(codes.InvalidArgument, "organizer id must not be empty")
+	}
+	if contactEmail == "" {
+		return "", apperr.New(codes.InvalidArgument, "contact email must not be empty")
+	}
+
+	params := &stripe.V2CoreAccountCreateParams{
+		ContactEmail: stripe.String(contactEmail),
+		Dashboard:    stripe.String(recipientDashboardNone),
+		Defaults: &stripe.V2CoreAccountCreateDefaultsParams{
+			Currency: stripe.String(string(stripe.CurrencyJPY)),
+			Locales:  []*string{stripe.String(recipientLocaleJA)},
+			Responsibilities: &stripe.V2CoreAccountCreateDefaultsResponsibilitiesParams{
+				FeesCollector:   stripe.String(collectorApplication),
+				LossesCollector: stripe.String(collectorApplication),
+			},
+		},
+		Identity: &stripe.V2CoreAccountCreateIdentityParams{
+			Country: stripe.String(recipientCountryJP),
+		},
+		Configuration: &stripe.V2CoreAccountCreateConfigurationParams{
+			Recipient: &stripe.V2CoreAccountCreateConfigurationRecipientParams{
+				Capabilities: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesParams{
+					StripeBalance: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesStripeBalanceParams{
+						StripeTransfers: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesStripeBalanceStripeTransfersParams{
+							Requested: stripe.Bool(true),
+						},
+					},
+				},
+			},
+			Merchant: &stripe.V2CoreAccountCreateConfigurationMerchantParams{
+				MCC: stripe.String(recipientMCCTicketing),
+			},
+		},
+		Metadata: map[string]string{metadataKeyOrganizerID: organizerID},
+	}
+	params.SetIdempotencyKey("connected-account:" + organizerID)
+
+	acct, err := p.client.V2CoreAccounts.Create(ctx, params)
+	if err != nil {
+		return "", toPaymentAppErr(ctx, err, "failed to create Accounts v2 recipient account", p.logger)
+	}
+
+	p.logger.Info(ctx, "provisioned Accounts v2 recipient account",
 		slog.String("organizer_id", organizerID),
+		slog.String("account_ref", acct.ID),
 	)
-	return "", apperr.New(codes.Unavailable,
-		"Stripe Connect Accounts v2 not yet enabled; complete platform onboarding (task 0.1) before provisioning connected accounts")
+
+	return acct.ID, nil
 }
 
 // GetAccountStatus implements [usecase.PaymentSettlementPort].
@@ -200,8 +263,12 @@ func (p *StripeSettlementPort) GetAccountStatus(ctx context.Context, accountRef 
 //   - Capabilities.Transfers == "inactive" → Restricted (capability disabled)
 //   - nil capabilities / empty             → Pending  (not yet requested)
 //
-// TODO: When Accounts v2 is wired, replace this with the v2 capability path:
-// configuration.recipient.capabilities.stripe_balance.stripe_transfers.status
+// Accounts are now provisioned via Accounts v2 (see CreateConnectedAccount), but
+// v2 accounts are still readable through the v1 Accounts endpoint and expose the
+// same transfers capability state, so this mapping stays correct. Reading
+// configuration.recipient.capabilities.stripe_balance.stripe_transfers.status via
+// V2CoreAccounts.Retrieve would be more direct and is the natural follow-up; it
+// is deliberately not bundled with the provisioning change.
 func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 	if acct == nil {
 		return entity.PayoutOnboardingStatusUnspecified

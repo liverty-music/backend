@@ -42,7 +42,7 @@ func (p *NoopSettlementPort) CreateTransfer(ctx context.Context, params usecase.
 }
 
 // CreateConnectedAccount returns Unavailable because no Stripe key is configured.
-func (p *NoopSettlementPort) CreateConnectedAccount(ctx context.Context, organizerID string) (string, error) {
+func (p *NoopSettlementPort) CreateConnectedAccount(ctx context.Context, organizerID string, _ string) (string, error) {
 	p.logger.Warn(ctx, "connected account creation skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("organizer_id", organizerID))
 	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
