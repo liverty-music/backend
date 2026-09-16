@@ -115,7 +115,7 @@ func (s *stubPaymentSettlementPort) CreateTransfer(ctx context.Context, params u
 	}
 	return "tr_test", nil
 }
-func (s *stubPaymentSettlementPort) CreateConnectedAccount(ctx context.Context, organizerID string) (string, error) {
+func (s *stubPaymentSettlementPort) CreateConnectedAccount(ctx context.Context, organizerID string, _ string) (string, error) {
 	if s.createConnectedAccountFn != nil {
 		return s.createConnectedAccountFn(ctx, organizerID)
 	}

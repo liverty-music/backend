@@ -96,17 +96,20 @@ type PaymentSettlementPort interface {
 	// configured with losses_collector = application so the platform absorbs
 	// negative balances. Returns the opaque account reference ("acct_...").
 	//
-	// TODO: wire Accounts v2 (/v2/core/accounts) when the Stripe SDK and
-	// platform Connect enablement are available. The current adapter creates
-	// the account via the v1 accounts API as a temporary stand-in; the
-	// produced account ref is valid for Transfers once transfers capability
-	// is granted by Stripe.
+	// contactEmail is the Organizer's business contact address. Stripe rejects
+	// a recipient configuration without one ("If configuration.recipient is
+	// supplied, the Account must have a contact email"), and it is the address
+	// Stripe uses to reach the account. Apart from it the request carries no
+	// personal data: the Organizer supplies name, date of birth, address and
+	// documents directly to Stripe through the hosted onboarding link, so the
+	// account is created unverified and becomes payout-eligible only once
+	// Stripe reports the transfers capability active.
 	//
 	// # Possible errors
 	//
 	//  - Unavailable: the payment provider is unreachable or platform Connect
 	//    is not yet enabled.
-	CreateConnectedAccount(ctx context.Context, organizerID string) (accountRef string, err error)
+	CreateConnectedAccount(ctx context.Context, organizerID string, contactEmail string) (accountRef string, err error)
 
 	// GetAccountStatus retrieves the payout-onboarding status of the
 	// connected account identified by accountRef. It maps the provider's

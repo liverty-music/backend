@@ -61,8 +61,11 @@ func NewOnboardingUseCase(
 
 // GetOrCreateOnboarding implements [OnboardingUseCase].
 func (uc *onboardingUseCase) GetOrCreateOnboarding(ctx context.Context, organizerID string) (*entity.OrganizerConnectedAccount, string, error) {
-	// Verify the organizer exists (propagates NotFound if absent).
-	if _, err := uc.organizerRepo.Get(ctx, organizerID); err != nil {
+	// Verify the organizer exists (propagates NotFound if absent). The record is
+	// kept because provisioning needs its contact email — Stripe rejects a
+	// recipient account that has none.
+	organizer, err := uc.organizerRepo.Get(ctx, organizerID)
+	if err != nil {
 		return nil, "", err
 	}
 
@@ -71,7 +74,7 @@ func (uc *onboardingUseCase) GetOrCreateOnboarding(ctx context.Context, organize
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// No account exists yet — provision one.
-			return uc.provisionAndPersist(ctx, organizerID)
+			return uc.provisionAndPersist(ctx, organizerID, organizer.OperatorEmail)
 		}
 		return nil, "", err
 	}
@@ -118,8 +121,8 @@ func (uc *onboardingUseCase) GetOrCreateOnboarding(ctx context.Context, organize
 
 // provisionAndPersist creates a connected account at the provider, persists it,
 // and returns it together with an onboarding link.
-func (uc *onboardingUseCase) provisionAndPersist(ctx context.Context, organizerID string) (*entity.OrganizerConnectedAccount, string, error) {
-	accountRef, err := uc.settlementPort.CreateConnectedAccount(ctx, organizerID)
+func (uc *onboardingUseCase) provisionAndPersist(ctx context.Context, organizerID string, contactEmail string) (*entity.OrganizerConnectedAccount, string, error) {
+	accountRef, err := uc.settlementPort.CreateConnectedAccount(ctx, organizerID, contactEmail)
 	if err != nil {
 		return nil, "", err
 	}
