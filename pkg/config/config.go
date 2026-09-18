@@ -783,6 +783,10 @@ func (c *ServerConfig) Validate() error {
 		return err
 	}
 
+	if err := c.Stripe.Validate(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -984,8 +988,42 @@ type StripeConfig struct {
 	// WebhookSigningSecret is the signing secret for the Stripe webhook
 	// endpoint (whsec_...) used to verify the Stripe-Signature header on
 	// inbound webhook deliveries. Sourced from GCP Secret Manager via ESO and
-	// injected as STRIPE_WEBHOOK_SIGNING_SECRET. Left empty before
-	// cloud-provisioning task 5.1 completes; the webhook handler rejects all
-	// requests with 503 when unconfigured.
+	// injected as STRIPE_WEBHOOK_SIGNING_SECRET. Required whenever SecretKey is
+	// set — see StripeConfig.Validate for why a half-configured Stripe setup is
+	// refused at startup rather than degraded at request time.
 	WebhookSigningSecret string `envconfig:"STRIPE_WEBHOOK_SIGNING_SECRET"`
+}
+
+// Validate refuses a half-configured Stripe setup, using the same
+// all-or-nothing rule as [PocketSignConfig.Validate]: unconfigured is a valid
+// state, partially configured is not.
+//
+// With no SecretKey there is no Stripe integration at all — the adapters fall
+// back to their noop implementations. That is the deliberate state in local
+// development and in the dev environment, which has no Stripe account.
+//
+// Once SecretKey IS set the service moves real money, and the webhook signing
+// secret stops being optional: without it the handler cannot verify a single
+// inbound delivery, so every refund and dispute event is rejected. Nothing
+// surfaces that. Sales and payouts keep working, the pod stays healthy, probes
+// pass, and the failure only becomes visible when a chargeback quietly fails to
+// claw money back.
+//
+// That is exactly how it went wrong in prod: the Secret was added to the
+// Deployment as an optional envFrom before it existed, the pod started happily
+// without it, and nothing flagged the gap for eight hours. Failing at startup
+// turns that silent hole into a crash loop with a message naming the variable.
+func (c StripeConfig) Validate() error {
+	if c.SecretKey == "" {
+		return nil // unconfigured — noop adapters are used.
+	}
+
+	if c.WebhookSigningSecret == "" {
+		return fmt.Errorf(
+			"STRIPE_WEBHOOK_SIGNING_SECRET must be set when STRIPE_SECRET_KEY is present: " +
+				"without it the webhook handler rejects every inbound delivery, so refunds " +
+				"and disputes are silently never processed")
+	}
+
+	return nil
 }
