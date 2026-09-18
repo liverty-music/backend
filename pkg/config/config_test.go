@@ -659,3 +659,90 @@ func TestServerConfig_Validate_PocketSignPropagation(t *testing.T) {
 	assert.Contains(t, err.Error(), "POCKET_SIGN_TOKEN must be set",
 		"error message must identify the missing field")
 }
+
+func TestStripeConfig_Validate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cfg     StripeConfig
+		wantErr string // substring; empty means no error
+	}{
+		{
+			// Local development and the dev environment run with no Stripe
+			// account at all; the noop adapters stand in.
+			name: "empty is valid (noop adapters used)",
+			cfg:  StripeConfig{},
+		},
+		{
+			name: "both keys set is valid",
+			cfg: StripeConfig{
+				SecretKey:            "sk_test_x",
+				WebhookSigningSecret: "whsec_x",
+			},
+		},
+		{
+			// The case that went wrong in prod: Stripe live enough to move
+			// money, but unable to verify a single inbound delivery.
+			name:    "secret key without signing secret is refused",
+			cfg:     StripeConfig{SecretKey: "sk_test_x"},
+			wantErr: "STRIPE_WEBHOOK_SIGNING_SECRET must be set",
+		},
+		{
+			// A signing secret alone means no Stripe integration is active, so
+			// there is nothing to half-configure.
+			name: "signing secret without a secret key is valid",
+			cfg:  StripeConfig{WebhookSigningSecret: "whsec_x"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.cfg.Validate()
+
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr,
+				"error message must name the missing variable")
+		})
+	}
+}
+
+// A half-configured Stripe setup must stop the whole service at startup, not
+// just fail the Stripe adapter — that is what turns a silent gap into a visible
+// crash loop.
+func TestServerConfig_Validate_StripePropagation(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ServerConfig{
+		Environment: "local",
+		Database:    DatabaseConfig{Port: 5432},
+		Logging:     LoggingConfig{Level: "info", Format: "json"},
+		Server: ServerSettings{
+			Port:          8080,
+			AdminPort:     8090,
+			OrganizerPort: 8091,
+		},
+		Webhook: validWebhookSettings(),
+		JWT: JWTConfig{
+			Issuer:              "https://test-issuer.com",
+			JWKSRefreshInterval: 15 * time.Minute,
+		},
+		Stripe: StripeConfig{
+			SecretKey: "sk_test_x",
+			// WebhookSigningSecret deliberately omitted.
+		},
+	}
+
+	err := cfg.Validate()
+
+	require.Error(t, err,
+		"a half-configured Stripe setup must cause ServerConfig.Validate to fail")
+	assert.Contains(t, err.Error(), "STRIPE_WEBHOOK_SIGNING_SECRET must be set",
+		"error message must identify the missing field")
+}
