@@ -1,27 +1,18 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["local>liverty-music/.github:renovate-config"],
-
+  "extends": [
+    "local>liverty-music/.github:renovate-config"
+  ],
   "constraintsFiltering": "strict",
-
-  "postUpdateOptions": ["gomodTidy"],
-
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
   "packageRules": [
     {
-      "description": "OpenTelemetry Go moves as one unit, core and contrib together. Renovate's monorepo registry maps these to TWO groups by source URL — `opentelemetry-go` and `opentelemetry-go-contrib` — which is exactly the split this rule exists to prevent: core is on v1.44.x while contrib is on v0.6x, and upgrading one side alone is what breaks. This rule sits after the inherited presets and sets `groupName` without `groupSlug`, so Renovate re-derives the slug from it and this grouping wins.",
-      "matchManagers": ["gomod"],
-      "matchPackageNames": ["go.opentelemetry.io/**"],
-      "groupName": "otel-go"
-    },
-    {
-      "description": "Connect-RPC Go modules. No upstream group covers connectrpc.com.",
-      "matchManagers": ["gomod"],
-      "matchPackageNames": ["connectrpc.com/**"],
-      "groupName": "connectrpc-go"
-    },
-    {
-      "description": "Go `tool` directive entries — build tooling, not runtime dependencies, so they move together and carry the same risk profile as devDependencies elsewhere.",
-      "matchManagers": ["gomod"],
+      "description": "Go `tool` directive entries, grouped to keep build tooling to one pull request rather than four. These are independent CLIs and are NOT version-coupled — nothing breaks if they are split, so this grouping may be undone at any time. Stated explicitly because two neighbouring groups were removed for being presented as coupling when they were not.",
+      "matchManagers": [
+        "gomod"
+      ],
       "matchPackageNames": [
         "github.com/bufbuild/buf/**",
         "github.com/go-delve/delve/**",
@@ -32,7 +23,9 @@
     },
     {
       "description": "The liverty-music schema SDK is advanced by the OpenSpec change that alters the schema, together with the code migration that change requires — never on its own schedule. `enabled: false` rather than `ignoreDeps` deliberately: this keeps the dependency listed on the dependency dashboard as disabled-with-an-update-available, so a schema release whose consumers were never advanced stays visible. See design D7.",
-      "matchPackageNames": ["buf.build/gen/go/liverty-music/schema/**"],
+      "matchPackageNames": [
+        "buf.build/gen/go/liverty-music/schema/**"
+      ],
       "enabled": false
     }
   ]
