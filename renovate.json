@@ -9,6 +9,15 @@
   ],
   "packageRules": [
     {
+      "description": "Do not attempt digest updates for BSR-generated Go modules. Their version format — `v1.20.0-20260826021924-0ff29b2b0335.1` — looks like a Go pseudo-version but is not one: the trailing `.1` is a BSR build counter. Renovate parses it as a pseudo-version and tries to resolve a commit digest from the source repository, but `buf.build/gen/go/...` is a generated artefact with no VCS behind it, so the lookup fails with `Could not determine new digest for update`. That failure blocked the version update too, which matters because `pocketsign/apis` is DELIBERATELY in scope (design D7: a third-party schema on someone else's cadence, where falling behind is the risk). Newer builds exist and were not being proposed. Disabling only the `digest` update type leaves major/minor/patch proposals intact. REQUIRES VERIFICATION on the next Renovate run — if the version updates still do not appear, the next step is a custom `versioning` for the BSR format, and failing that this axis joins buf.lock as one the tool cannot cover.",
+      "matchPackageNames": [
+        "buf.build/gen/go/**"
+      ],
+      "digest": {
+        "enabled": false
+      }
+    },
+    {
       "description": "Go `tool` directive entries, grouped to keep build tooling to one pull request rather than four. These are independent CLIs and are NOT version-coupled — nothing breaks if they are split, so this grouping may be undone at any time. Stated explicitly because two neighbouring groups were removed for being presented as coupling when they were not.",
       "matchManagers": [
         "gomod"
