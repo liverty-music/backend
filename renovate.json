@@ -9,15 +9,6 @@
   ],
   "packageRules": [
     {
-      "description": "Do not attempt digest updates for BSR-generated Go modules. Their version format — `v1.20.0-20260826021924-0ff29b2b0335.1` — looks like a Go pseudo-version but is not one: the trailing `.1` is a BSR build counter. Renovate parses it as a pseudo-version and tries to resolve a commit digest from the source repository, but `buf.build/gen/go/...` is a generated artefact with no VCS behind it, so the lookup fails with `Could not determine new digest for update`. That failure blocked the version update too, which matters because `pocketsign/apis` is DELIBERATELY in scope (design D7: a third-party schema on someone else's cadence, where falling behind is the risk). Newer builds exist and were not being proposed. Disabling only the `digest` update type leaves major/minor/patch proposals intact. REQUIRES VERIFICATION on the next Renovate run — if the version updates still do not appear, the next step is a custom `versioning` for the BSR format, and failing that this axis joins buf.lock as one the tool cannot cover.",
-      "matchPackageNames": [
-        "buf.build/gen/go/**"
-      ],
-      "digest": {
-        "enabled": false
-      }
-    },
-    {
       "description": "Go `tool` directive entries, grouped to keep build tooling to one pull request rather than four. These are independent CLIs and are NOT version-coupled — nothing breaks if they are split, so this grouping may be undone at any time. Stated explicitly because two neighbouring groups were removed for being presented as coupling when they were not.",
       "matchManagers": [
         "gomod"
@@ -31,9 +22,9 @@
       "groupName": "go-tools"
     },
     {
-      "description": "The liverty-music schema SDK is advanced by the OpenSpec change that alters the schema, together with the code migration that change requires — never on its own schedule. `enabled: false` rather than `ignoreDeps` deliberately: this keeps the dependency listed on the dependency dashboard as disabled-with-an-update-available, so a schema release whose consumers were never advanced stays visible. See design D7.",
+      "description": "Disable ALL BSR-generated Go modules — but for two different reasons, and the difference decides what happens if Renovate changes. `liverty-music/schema/*` is excluded BY POLICY: it is advanced by the OpenSpec change that alters the schema, together with the code migration that change requires, and backend and frontend must sit on the same build. That stays true regardless of tooling. `pocketsign/apis/*` is excluded BY INABILITY. Design D7 deliberately kept it in scope — third-party schema, someone else's cadence, falling behind is the risk — but the first Renovate run failed both modules with `Could not determine new digest for update` and the failure took the version update with it; newer builds existed and none was proposed. The BSR version format `v1.20.0-20260826021924-0ff29b2b0335.1` resembles a Go pseudo-version, so Renovate splits the embedded commit out as a digest and cannot resolve a new one, the module being generated output with no repository behind it. `digest: {enabled: false}` was tried and did not help — the parse happens before the update type is chosen. IF RENOVATE GAINS BSR SUPPORT: re-enable pocketsign, keep liverty-music excluded. Left enabled-but-failing this would be the worst case — an axis that looks automated while proposing nothing, indistinguishable from one that is up to date. It is a known gap with a manual bump in the runbook, alongside buf.lock, which shares its root cause. `enabled: false` rather than `ignoreDeps` so they stay on the dashboard as disabled-with-an-update-available.",
       "matchPackageNames": [
-        "buf.build/gen/go/liverty-music/schema/**"
+        "buf.build/gen/go/**"
       ],
       "enabled": false
     }
