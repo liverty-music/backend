@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>liverty-music/.github:renovate-config"
+  ],
+  "constraintsFiltering": "strict",
+  "postUpdateOptions": [
+    "gomodTidy"
+  ],
+  "packageRules": [
+    {
+      "description": "Go `tool` directive entries, grouped to keep build tooling to one pull request rather than four. These are independent CLIs and are NOT version-coupled — nothing breaks if they are split, so this grouping may be undone at any time. Stated explicitly because two neighbouring groups were removed for being presented as coupling when they were not.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "github.com/bufbuild/buf/**",
+        "github.com/go-delve/delve/**",
+        "github.com/vektra/mockery/**",
+        "mvdan.cc/gofumpt"
+      ],
+      "groupName": "go-tools"
+    },
+    {
+      "description": "The liverty-music schema SDK is advanced by the OpenSpec change that alters the schema, together with the code migration that change requires — never on its own schedule. `enabled: false` rather than `ignoreDeps` deliberately: this keeps the dependency listed on the dependency dashboard as disabled-with-an-update-available, so a schema release whose consumers were never advanced stays visible. See design D7.",
+      "matchPackageNames": [
+        "buf.build/gen/go/liverty-music/schema/**"
+      ],
+      "enabled": false
+    }
+  ]
+}

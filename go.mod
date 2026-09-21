@@ -2,14 +2,23 @@ module github.com/liverty-music/backend
 
 go 1.27
 
-// Pin the minimum toolchain to 1.27.0, which carries the Go stdlib advisory
-// fixes previously tracked at 1.26.6 (GO-2026-6089/GO-2026-5026 net/http,
-// GO-2026-6090 crypto/tls, GO-2026-6091 html/template, GO-2026-6218 net/url,
-// GO-2026-6088 encoding/xml, GO-2026-5972 encoding/asn1, and the earlier
-// GO-2026-5856 crypto/tls, GO-2026-5037 crypto/x509, GO-2026-5039
-// net/textproto) and additionally provides the GA goroutineleak runtime
-// profile and the stdlib uuid package. Every `go` invocation (local, CI) uses
-// at least this toolchain.
+// WHY THIS FLOOR EXISTS. The toolchain directive states a MINIMUM, and it is
+// advanced automatically by dependency updates, so it will not stay at the
+// version named here — but it can only ever move up, which is why recording
+// the reason still means something.
+//
+// The floor was raised to 1.27.0 for the Go stdlib advisory fixes previously
+// tracked at 1.26.6: GO-2026-6089/GO-2026-5026 net/http, GO-2026-6090
+// crypto/tls, GO-2026-6091 html/template, GO-2026-6218 net/url, GO-2026-6088
+// encoding/xml, GO-2026-5972 encoding/asn1, and the earlier GO-2026-5856
+// crypto/tls, GO-2026-5037 crypto/x509, GO-2026-5039 net/textproto. 1.27.0
+// additionally brought the GA goroutineleak runtime profile and the stdlib
+// uuid package. No automated bump can reintroduce those advisories.
+//
+// This file is the single source for the Go version. CI reads it via
+// `setup-go`'s `go-version-file`, and golangci-lint reads it when its `go`
+// setting is absent, so the toolchain CI installs and the one the build
+// resolves cannot disagree.
 toolchain go1.27.0
 
 tool (
