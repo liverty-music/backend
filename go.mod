@@ -19,7 +19,7 @@ go 1.27
 // `setup-go`'s `go-version-file`, and golangci-lint reads it when its `go`
 // setting is absent, so the toolchain CI installs and the one the build
 // resolves cannot disagree.
-toolchain go1.27.0
+toolchain go1.27.1
 
 tool (
 	github.com/bufbuild/buf/cmd/buf
