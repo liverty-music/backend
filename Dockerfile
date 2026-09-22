@@ -31,7 +31,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -pgo=auto \
     -o /out ./cmd/api
 
-FROM gcr.io/distroless/static:nonroot AS server
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS server
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 COPY --from=build-server /out /main
 EXPOSE 8080
@@ -44,7 +44,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -pgo=auto \
     -o /out ./cmd/job/concert-discovery
 
-FROM gcr.io/distroless/static:nonroot AS concert-discovery
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS concert-discovery
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 COPY --from=build-concert-discovery /out /concert-discovery
 ENTRYPOINT ["/concert-discovery"]
@@ -56,7 +56,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -pgo=auto \
     -o /out ./cmd/job/artist-image-sync
 
-FROM gcr.io/distroless/static:nonroot AS artist-image-sync
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS artist-image-sync
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 COPY --from=build-artist-image-sync /out /artist-image-sync
 ENTRYPOINT ["/artist-image-sync"]
@@ -68,7 +68,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -pgo=auto \
     -o /out ./cmd/job/sales-phase-discovery
 
-FROM gcr.io/distroless/static:nonroot AS sales-phase-discovery
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS sales-phase-discovery
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 COPY --from=build-sales-phase-discovery /out /sales-phase-discovery
 ENTRYPOINT ["/sales-phase-discovery"]
@@ -80,7 +80,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -pgo=auto \
     -o /out ./cmd/job/sales-reminders
 
-FROM gcr.io/distroless/static:nonroot AS sales-reminders
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS sales-reminders
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 COPY --from=build-sales-reminders /out /sales-reminders
 ENTRYPOINT ["/sales-reminders"]
@@ -92,7 +92,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -pgo=auto \
     -o /out ./cmd/consumer
 
-FROM gcr.io/distroless/static:nonroot AS consumer
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS consumer
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 COPY --from=build-consumer /out /consumer
 ENTRYPOINT ["/consumer"]
@@ -111,7 +111,7 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     -ldflags='-w -s' \
     -o /out ./cmd/consumer/media-consumer
 
-FROM alpine:3.21 AS media-consumer
+FROM alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507 AS media-consumer
 RUN apk add --no-cache vips ca-certificates \
     && addgroup -S nonroot && adduser -S -G nonroot nonroot
 USER nonroot:nonroot

@@ -118,7 +118,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history so the push-path "build vs inherit" decision can
           # diff the pushed range (event.before..sha), and so the release
@@ -148,13 +148,13 @@ jobs:
 
       - name: Authenticate to Google Cloud
         id: auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
         with:
           workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2
 
       # `Configure Docker` runs on ALL paths:
       #   * push/build path:   docker/build-push-action's pusher needs it.
@@ -230,11 +230,11 @@ jobs:
       # =====================================================================
       - name: Set up Docker Buildx
         if: github.event_name == 'push' && steps.decide.outputs.mode == 'build'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build and Push Docker Image
         if: github.event_name == 'push' && steps.decide.outputs.mode == 'build'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           target: ${{ matrix.image.target }}
@@ -483,7 +483,7 @@ jobs:
     steps:
       - name: Mint dispatch token (GitHub App, scoped to cloud-provisioning)
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
           app-id: ${{ secrets.CI_BOT_APP_ID }}
           private-key: ${{ secrets.CI_BOT_APP_PRIVATE_KEY }}
