@@ -145,6 +145,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
+	// @spec components/usecase/order/issue-from-captured-win "Won application issued"
 	t.Run("creates a paid Order, issues N covered tickets, and sets journey PAID", func(t *testing.T) {
 		t.Parallel()
 
@@ -224,6 +225,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.Equal(t, order.Amount, issuedSettlement.Splits[0].Amount)
 	})
 
+	// @spec components/usecase/order/issue-from-captured-win "Replayed issuance"
 	t.Run("is idempotent: an existing Order is returned without re-issuing", func(t *testing.T) {
 		t.Parallel()
 
@@ -252,6 +254,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.False(t, journeyCalled, "must not re-write journey on an idempotent replay")
 	})
 
+	// @spec components/usecase/order/issue-from-captured-win "Application not won"
 	t.Run("returns FailedPrecondition and creates no Order when the application is not Won-captured", func(t *testing.T) {
 		t.Parallel()
 
@@ -306,6 +309,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		}
 	})
 
+	// @spec components/usecase/order/issue-from-captured-win "Concurrent issuance"
 	t.Run("on a concurrent issuance race it re-reads and returns the winning Order", func(t *testing.T) {
 		t.Parallel()
 
@@ -338,6 +342,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.Same(t, raceOrder, order)
 	})
 
+	// @spec components/usecase/order/issue-from-captured-win "Organizer unresolved"
 	t.Run("fails with NotFound and creates nothing when the event's Organizer cannot be resolved", func(t *testing.T) {
 		t.Parallel()
 
@@ -363,6 +368,34 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 		assert.False(t, issueCalled, "must not issue when the Organizer cannot be resolved")
+	})
+
+	// @spec components/usecase/order/issue-from-captured-win "Payment not captured"
+	t.Run("returns FailedPrecondition and creates nothing when the payment was not captured", func(t *testing.T) {
+		t.Parallel()
+
+		issueCalled := false
+		issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, _ *entity.Order, _ []*entity.Ticket, _ *entity.Settlement) error {
+			issueCalled = true
+			return nil
+		}}
+		appRepo := &stubAppRepo{getFn: func(_ context.Context, _ entity.TicketApplicationID) (*entity.TicketApplication, error) {
+			return wonApplication(), nil
+		}}
+		phaseRepo := &stubPhaseRepo{getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+			return basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour)), nil
+		}}
+		capturePort := &stubCapturePort{getCapturedPaymentFn: func(_ context.Context, _ string) (*usecase.CapturedPayment, error) {
+			return nil, apperr.New(apperr.ErrFailedPrecondition.Code, "payment intent is not captured")
+		}}
+
+		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo, &stubEventOrganizerRepo{},
+			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, capturePort, fixedClock(now), newTestLogger(t))
+
+		_, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		assert.False(t, issueCalled, "must not issue when the payment was not captured")
 	})
 }
 
@@ -485,4 +518,94 @@ func TestIssuanceUseCase_IssueDueWins(t *testing.T) {
 		assert.True(t, issued["app-2"])
 		assert.False(t, issued["app-bad"], "a failed application must not be issued")
 	})
+}
+
+// TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale follows the
+// win-tickets-in-a-lottery story's payout-readiness requirement: an Organizer
+// still completing identity checks never blocks the sale — the fan is still
+// charged and issued Tickets — only the Organizer's own payout stays Held
+// until the account is Active.
+//
+// @spec stories/win-tickets-in-a-lottery "Organizer still in identity check"
+func TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+
+	var storedOrder *entity.Order
+	var storedTickets []*entity.Ticket
+	var storedSettlement *entity.Settlement
+
+	issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, o *entity.Order, ts []*entity.Ticket, s *entity.Settlement) error {
+		storedOrder, storedTickets, storedSettlement = o, ts, s
+		return nil
+	}}
+	orderRepo := &stubOrderRepo{getFn: func(_ context.Context, id entity.OrderID) (*entity.Order, error) {
+		if storedOrder != nil && storedOrder.ID == id {
+			return storedOrder, nil
+		}
+		return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
+	}}
+	appRepo := &stubAppRepo{getFn: func(_ context.Context, _ entity.TicketApplicationID) (*entity.TicketApplication, error) {
+		return wonApplication(), nil
+	}}
+	phaseRepo := &stubPhaseRepo{getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+		return basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour)), nil
+	}}
+	organizerRepo := &stubEventOrganizerRepo{getOrganizerIDFn: func(_ context.Context, _ string) (string, error) {
+		return "organizer-pending", nil
+	}}
+
+	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, appRepo, phaseRepo, organizerRepo,
+		&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+
+	// -- the fan is charged and holds Issued Tickets regardless of the
+	//    Organizer's payout readiness. --
+	order, err := issuanceUC.IssueFromCapturedWin(context.Background(), "app-1")
+	require.NoError(t, err)
+	assert.Equal(t, entity.OrderStatusPaid, order.Status)
+	require.Len(t, storedTickets, 2)
+	for _, tk := range storedTickets {
+		assert.Equal(t, entity.TicketStatusIssued, tk.Status)
+	}
+	require.NotNil(t, storedSettlement)
+	assert.Equal(t, entity.SettlementStatusHeld, storedSettlement.Status)
+
+	// -- the event started 8 days ago (past the dispute buffer), but the
+	//    Organizer's connected account is still Pending (identity check in
+	//    progress): the sweeper withholds the payout instead of failing. --
+	transferCalled := false
+	markReleasedCalled := false
+	settlementRepo := &stubSettlementRepo{
+		listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
+			return []*entity.Settlement{storedSettlement}, nil
+		},
+		markReleasedFn: func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, _ []entity.SettlementSplit) error {
+			markReleasedCalled = true
+			return nil
+		},
+	}
+	eventStarted := now.Add(-8 * 24 * time.Hour)
+	eventStartTimeRepo := &stubEventStartTimeRepo{getFn: func(_ context.Context, _ string) (*time.Time, error) {
+		return &eventStarted, nil
+	}}
+	connectedAccountRepo := &stubConnectedAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.OrganizerConnectedAccount, error) {
+		return &entity.OrganizerConnectedAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusPending}, nil
+	}}
+	settlementPort := &stubPaymentSettlementPort{
+		getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
+			return entity.PayoutOnboardingStatusPending, nil
+		},
+		createTransferFn: func(_ context.Context, _ usecase.TransferParams) (string, error) {
+			transferCalled = true
+			return "tr_should_not_happen", nil
+		},
+	}
+
+	sweeperUC := usecase.NewPayoutSweeperUseCase(settlementRepo, orderRepo, connectedAccountRepo, eventStartTimeRepo,
+		settlementPort, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
+
+	require.NoError(t, sweeperUC.ReleaseDueSettlements(context.Background()))
+	assert.False(t, transferCalled, "the Organizer's payout must stay Held while the account is Pending")
+	assert.False(t, markReleasedCalled, "the settlement must not be marked Released while the account is Pending")
+	assert.Equal(t, entity.SettlementStatusHeld, storedSettlement.Status, "the settlement itself is untouched")
 }

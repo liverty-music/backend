@@ -45,7 +45,8 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, awaiting, app.ID, "a Won application without an Order must be awaiting issuance")
 
-	// -- Issue: one Order + 2 covered tickets, atomically. --
+	// -- Issue: one Order + 2 covered tickets + a Held settlement, atomically. --
+	// @spec components/entity/order/issue "Order issued"
 	paidTime := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	order := &entity.Order{
 		ID:            entity.OrderID(entity.NewID()),
@@ -139,6 +140,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	// -- Idempotency: a second Issue for the same application surfaces
 	//    AlreadyExists and rolls back the whole transaction, including the
 	//    settlement that would otherwise have been inserted. --
+	// @spec components/entity/order/issue "Second order for the application"
 	dup := *order
 	dup.ID = entity.OrderID(entity.NewID())
 	dupSettlement := &entity.Settlement{
@@ -175,4 +177,107 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 	_, err = orderRepo.GetByApplicationID(ctx, entity.TicketApplicationID(entity.NewID()))
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+// TestIssuanceRepository_Issue_FailureStoresNothing asserts that Issue is
+// truly atomic: when any statement in the transaction fails (here, a Ticket
+// whose event_id violates the tickets.event_id foreign key), neither the
+// Order, any Ticket, nor the Settlement is left behind.
+//
+// @spec components/entity/order/issue "Failure stores nothing"
+func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+
+	phaseRepo := rdb.NewLotteryPhaseRepository(testDB)
+	appRepo := rdb.NewTicketApplicationRepository(testDB)
+	issuanceRepo := rdb.NewIssuanceRepository(testDB)
+	orderRepo := rdb.NewOrderRepository(testDB)
+	ticketRepo := rdb.NewTicketRepository(testDB)
+	settlementRepo := rdb.NewSettlementRepository(testDB)
+
+	// Seeded inline (not via seedLotteryPhase) so this test can run alongside
+	// TestIssuanceRepository_Integration in the same process without colliding
+	// on seedLotteryPhase's hardcoded artist mbid.
+	artistID := seedArtist(t, "failure-artist", entity.NewID())
+	venueID := seedVenue(t, "failure-venue")
+	eventID := seedEvent(t, venueID, artistID, "failure-concert", "2026-11-02")
+	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	phase, err := phaseRepo.Create(ctx, &entity.LotterySalesPhase{
+		ID:                       entity.LotteryPhaseID(entity.NewID()),
+		EventID:                  eventID,
+		OpenTime:                 open,
+		CloseTime:                open.Add(7 * 24 * time.Hour),
+		TicketCapacity:           100,
+		MaxTicketsPerApplication: 4,
+		TicketPrice:              5000,
+	})
+	require.NoError(t, err)
+	buyerID := seedUser(t, "failure-buyer", entity.NewID()+"@example.test", entity.NewID())
+	app := seedApplication(t, appRepo, phase.ID, buyerID, entity.TicketApplicationStateWon)
+	organizerID := seedOrganizer(t)
+
+	paidTime := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	order := &entity.Order{
+		ID:            entity.OrderID(entity.NewID()),
+		BuyerID:       entity.UserID(buyerID),
+		ApplicationID: app.ID,
+		Payment: entity.Payment{
+			Provider:         entity.PaymentProviderStripe,
+			PaymentIntentRef: "pi_fail_" + entity.NewID(),
+		},
+		Status:   entity.OrderStatusPaid,
+		Amount:   8000,
+		Currency: "JPY",
+		PaidTime: paidTime,
+	}
+	tickets := []*entity.Ticket{
+		{
+			ID:                             entity.TicketID(entity.NewID()),
+			OrderID:                        order.ID,
+			HolderID:                       entity.UserID(buyerID),
+			EventID:                        eventID,
+			HolderIdentity:                 entity.ApplicantIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
+			ResaleWithoutConsentProhibited: true,
+			Status:                         entity.TicketStatusIssued,
+			IssuedTime:                     paidTime,
+		},
+		{
+			// A non-existent event id violates tickets.event_id's foreign key,
+			// forcing the second ticket insert (and therefore the whole
+			// transaction) to fail.
+			ID:                             entity.TicketID(entity.NewID()),
+			OrderID:                        order.ID,
+			HolderID:                       entity.UserID(buyerID),
+			EventID:                        entity.NewID(),
+			HolderIdentity:                 entity.ApplicantIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
+			ResaleWithoutConsentProhibited: true,
+			Status:                         entity.TicketStatusIssued,
+			IssuedTime:                     paidTime,
+		},
+	}
+	settlement := &entity.Settlement{
+		ID:          entity.SettlementID(entity.NewID()),
+		OrderID:     order.ID,
+		OrganizerID: organizerID,
+		EventID:     eventID,
+		Status:      entity.SettlementStatusHeld,
+		Splits:      []entity.SettlementSplit{{PayeeOrganizerID: organizerID, Amount: order.Amount}},
+		CreatedTime: paidTime,
+	}
+
+	err = issuanceRepo.Issue(ctx, order, tickets, settlement)
+	require.Error(t, err)
+
+	_, err = orderRepo.Get(ctx, order.ID)
+	assert.ErrorIs(t, err, apperr.ErrNotFound, "no Order must be stored when any Ticket fails to insert")
+
+	byOrder, err := ticketRepo.ListByOrder(ctx, order.ID)
+	require.NoError(t, err)
+	assert.Empty(t, byOrder, "no Ticket must be stored when any Ticket fails to insert")
+
+	_, err = settlementRepo.GetByOrderID(ctx, order.ID)
+	assert.ErrorIs(t, err, apperr.ErrNotFound, "no Settlement must be stored when the transaction fails")
 }
