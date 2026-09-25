@@ -57,7 +57,15 @@ func DeviceTypeFromEndpoint(endpoint string) string {
 // (userID, endpoint) pair so each call affects exactly one browser session.
 type PushSubscriptionRepository interface {
 	// Create persists a new push subscription, or updates the existing record
-	// when the endpoint is already registered (UPSERT by endpoint).
+	// when the endpoint is already registered (UPSERT by endpoint). On update,
+	// sub.UserID, P256dh and Auth replace the stored row's values and the
+	// row's existing id is kept — including when sub.UserID differs from the
+	// row's current owner, which reassigns the endpoint to sub.UserID (an
+	// endpoint identifies a browser/device, and the latest caller to
+	// register it owns it; the previous owner silently loses it). Create
+	// always writes the row's actual stored id back into sub.ID, so the
+	// caller never sees an id that was never stored — including on update,
+	// where sub.ID may differ from the row's id on entry.
 	//
 	// # Possible errors:
 	//

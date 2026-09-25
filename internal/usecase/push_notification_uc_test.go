@@ -65,6 +65,7 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 		name    string
 		args    args
 		setup   func(t *testing.T, d *pushNotificationTestDeps)
+		wantID  string
 		wantErr error
 	}{
 		{
@@ -93,6 +94,46 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 					}).
 					Return(nil).Once()
 			},
+			wantErr: nil,
+		},
+		{
+			// The usecase must surface the id the repository actually stored
+			// the subscription under, not the (possibly newly minted, unstored)
+			// in-memory id — the repository mutates sub.ID via the pointer on
+			// both a fresh insert and a re-registration. See
+			// liverty-music/backend#474.
+			name: "return the id the repository stored the subscription under",
+			args: args{
+				userID:   "user-1",
+				endpoint: "https://fcm.googleapis.com/sub/abc",
+				p256dh:   "key123",
+				auth:     "auth456",
+			},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.pushSubRepo.EXPECT().
+					Create(ctx, &entity.PushSubscription{
+						UserID:   "user-1",
+						Endpoint: "https://fcm.googleapis.com/sub/abc",
+						P256dh:   "key123",
+						Auth:     "auth456",
+					}).
+					Run(func(_ context.Context, sub *entity.PushSubscription) {
+						// Simulate the repository's UPSERT ... RETURNING id: the
+						// endpoint was already registered, so the row's existing
+						// stored id is written back, not a freshly minted one.
+						sub.ID = "existing-stored-id"
+					}).
+					Return(nil).
+					Once()
+				d.publisher.EXPECT().
+					PublishEvent(ctx, entity.SubjectNotificationSubscribed, entity.NotificationSubscribedData{
+						UserID:     "user-1",
+						DeviceType: "android",
+					}).
+					Return(nil).Once()
+			},
+			wantID:  "existing-stored-id",
 			wantErr: nil,
 		},
 		{
@@ -136,6 +177,9 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.args.userID, sub.UserID)
 			assert.Equal(t, tt.args.endpoint, sub.Endpoint)
+			if tt.wantID != "" {
+				assert.Equal(t, tt.wantID, sub.ID)
+			}
 		})
 	}
 }
