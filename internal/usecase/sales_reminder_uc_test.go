@@ -49,6 +49,8 @@ func TestScheduledFireTime(t *testing.T) {
 	}{
 		// --- APPLY_OPEN ---
 		{
+			// @spec components/usecase/sales-phase/scan-due-reminders "Opening during the night"
+			// @spec stories/get-reminded-of-ticket-sale-milestones "Opening at 02:00"
 			name: "APPLY_OPEN base 03:00 JST (quiet) → defers to 08:00 same day",
 			args: args{
 				stage: entity.ReminderStageApplyOpen,
@@ -121,6 +123,7 @@ func TestScheduledFireTime(t *testing.T) {
 			wantOK:     true,
 		},
 		{
+			// @spec components/usecase/sales-phase/scan-due-reminders "Unknown milestone"
 			name: "APPLY_CLOSE_24H ApplyEndTime zero → ok=false",
 			args: args{
 				stage: entity.ReminderStageApplyClose24H,
@@ -130,8 +133,31 @@ func TestScheduledFireTime(t *testing.T) {
 			wantOK: false,
 		},
 
-		// --- APPLY_CLOSE_1H quiet-hours cases ---
+		// --- APPLY_CLOSE_24H/1H quiet-hours cases ---
 		{
+			// @spec components/usecase/sales-phase/scan-due-reminders "Close with the morning still before the deadline"
+			// base = 23:00 JST (quiet), deadline = 23:00 JST the next day.
+			// morning (08:00 JST next day) < deadline (23:00 JST next day) → defer to morning.
+			name: "APPLY_CLOSE_24H base 23:00 quiet, deadline 23:00 next day → defers to 08:00 next morning",
+			args: args{
+				stage: entity.ReminderStageApplyClose24H,
+				phase: &entity.SalesPhase{
+					// deadline = 2026-08-03 23:00 JST = 2026-08-03 14:00 UTC
+					// base = deadline - 24h = 2026-08-02 23:00 JST = 2026-08-02 14:00 UTC
+					ApplyEndTime:   time.Date(2026, 8, 3, 14, 0, 0, 0, time.UTC), // 23:00 JST Aug 3
+					DiscoveredTime: phaseFarPast,
+				},
+				tz: jst,
+			},
+			// base = 2026-08-02 14:00 UTC = 23:00 JST Aug 2; in quiet.
+			// next0800After(23:00 JST Aug 2) = 08:00 JST Aug 3 = 2026-08-02 23:00 UTC.
+			// 08:00 JST Aug 3 < deadline 23:00 JST Aug 3 → defers to morning.
+			wantTime:   time.Date(2026, 8, 2, 23, 0, 0, 0, time.UTC), // 08:00 JST Aug 3
+			wantExpiry: time.Date(2026, 8, 3, 14, 0, 0, 0, time.UTC), // deadline
+			wantOK:     true,
+		},
+		{
+			// @spec components/usecase/sales-phase/scan-due-reminders "Close before the morning"
 			// base = 01:00 JST (quiet), deadline = 02:00 JST (within quiet).
 			// morning (08:00 JST) >= deadline (02:00 JST) → pre-quiet alert.
 			// preQuietAlertTime(01:00 JST) = previous day 21:00 JST.
@@ -193,6 +219,7 @@ func TestScheduledFireTime(t *testing.T) {
 
 		// --- RESULT_DAY ---
 		{
+			// @spec components/usecase/sales-phase/scan-due-reminders "Result day"
 			// LotteryResultTime in JST → fire at 09:00 JST on that day.
 			name: "RESULT_DAY fires at 09:00 user tz (JST)",
 			args: args{
@@ -243,6 +270,7 @@ func TestScheduledFireTime(t *testing.T) {
 
 		// --- First-sight guard ---
 		{
+			// @spec components/usecase/sales-phase/scan-due-reminders "Milestone already past when the phase was discovered"
 			// phase.DiscoveredTime = now, base = 5 days ago → trigger was already past at first sight.
 			name: "First-sight guard: APPLY_OPEN base before DiscoveredTime → ok=false",
 			args: args{
@@ -420,6 +448,10 @@ func TestBuildReminderPayload(t *testing.T) {
 // only checked now.Before(fire) with no upper bound, so a stage could fire
 // arbitrarily long after its deadline, application close, or result day had
 // passed (issue #472's "late sends").
+//
+// @spec components/usecase/sales-phase/scan-due-reminders "Application window closed before the open reminder was sent"
+// @spec components/usecase/sales-phase/scan-due-reminders "Result day has ended"
+// @spec components/usecase/sales-phase/scan-due-reminders "Close already passed"
 func TestScanDueReminders_ExpiredStagesAreSkipped(t *testing.T) {
 	t.Parallel()
 
@@ -485,6 +517,8 @@ func TestScanDueReminders_ExpiredStagesAreSkipped(t *testing.T) {
 // LotteryResultTime are left unset so APPLY_CLOSE_24H/1H and RESULT_DAY are
 // inapplicable (ok=false from scheduledFireTime) and stay out of this
 // assertion; only APPLY_OPEN is exercised here.
+//
+// @spec components/usecase/sales-phase/scan-due-reminders "Application opens"
 func TestScanDueReminders_NotYetExpiredStageStillPublishes(t *testing.T) {
 	t.Parallel()
 
@@ -539,4 +573,161 @@ func TestScanDueReminders_NotYetExpiredStageStillPublishes(t *testing.T) {
 	published, err := uc.ScanDueReminders(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, published, "APPLY_OPEN must still publish when due and not yet expired")
+}
+
+// TestScanDueReminders_AlreadySentStageIsNotRepublished proves a stage
+// already recorded as sent, per SalesPhaseReminder.ListSentStages, is not
+// requested again even though it is due and not yet expired.
+//
+// @spec components/usecase/sales-phase/scan-due-reminders "Already sent"
+func TestScanDueReminders_AlreadySentStageIsNotRepublished(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := logging.New()
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	phase := &entity.SalesPhase{
+		ID:             "phase-sent",
+		SeriesID:       "series-sent",
+		Channel:        entity.SalesChannelPlayguide,
+		ProviderName:   "e+",
+		ApplyStartTime: now.Add(-48 * time.Hour), // due
+		URL:            "https://eplus.jp/sent",
+		DiscoveredTime: now.AddDate(0, 0, -60),
+	}
+
+	user := &entity.User{
+		ID:                "user-001",
+		PreferredLanguage: "en",
+		TimeZone:          "Asia/Tokyo",
+	}
+
+	lookahead := 7 * 24 * time.Hour
+
+	salesPhaseRepo := entitymocks.NewMockSalesPhaseRepository(t)
+	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
+	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
+	userRepo := entitymocks.NewMockUserRepository(t)
+	pub := ucmocks.NewMockEventPublisher(t)
+
+	salesPhaseRepo.On("ListPhasesWithPendingMilestones", ctx, lookahead, usecase.ReminderScanLookbackMargin).
+		Return([]*entity.SalesPhase{phase}, nil)
+	journeyRepo.On("ListUserIDsTrackingSeries", ctx, "series-sent").Return([]string{"user-001"}, nil)
+	userRepo.On("Get", ctx, "user-001").Return(user, nil)
+	// APPLY_OPEN is already recorded as sent to this fan.
+	reminderRepo.On("ListSentStages", ctx, "phase-sent", []string{"user-001"}).
+		Return(map[string]map[entity.ReminderStage]bool{
+			"user-001": {entity.ReminderStageApplyOpen: true},
+		}, nil)
+
+	// No PublishEvent expectation is registered: the mock fails the test
+	// outright if ScanDueReminders requests the already-sent stage again.
+
+	uc := usecase.NewSalesReminderUseCase(
+		salesPhaseRepo, reminderRepo, journeyRepo, userRepo,
+		pub, lookahead, logger,
+	)
+
+	published, err := uc.ScanDueReminders(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, published, "an already-sent stage must not be requested again")
+}
+
+// TestScanDueReminders_PaymentDeadlineAloneProducesNoReminder proves that a
+// phase carrying only a payment deadline (no apply start/end or lottery
+// result time) never publishes a reminder: PaymentDeadlineTime drives no
+// reminder stage — allStages has no payment-deadline entry — so a phase with
+// nothing else set is inapplicable for every stage.
+//
+// @spec components/usecase/sales-phase/scan-due-reminders "No payment reminder"
+func TestScanDueReminders_PaymentDeadlineAloneProducesNoReminder(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := logging.New()
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	phase := &entity.SalesPhase{
+		ID:                  "phase-payment-only",
+		SeriesID:            "series-payment-only",
+		Channel:             entity.SalesChannelPlayguide,
+		ProviderName:        "e+",
+		PaymentDeadlineTime: now.Add(48 * time.Hour), // the only timestamp set
+		DiscoveredTime:      now.AddDate(0, 0, -60),
+	}
+
+	user := &entity.User{
+		ID:                "user-001",
+		PreferredLanguage: "en",
+		TimeZone:          "Asia/Tokyo",
+	}
+
+	lookahead := 7 * 24 * time.Hour
+
+	salesPhaseRepo := entitymocks.NewMockSalesPhaseRepository(t)
+	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
+	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
+	userRepo := entitymocks.NewMockUserRepository(t)
+	pub := ucmocks.NewMockEventPublisher(t)
+
+	salesPhaseRepo.On("ListPhasesWithPendingMilestones", ctx, lookahead, usecase.ReminderScanLookbackMargin).
+		Return([]*entity.SalesPhase{phase}, nil)
+	journeyRepo.On("ListUserIDsTrackingSeries", ctx, "series-payment-only").Return([]string{"user-001"}, nil)
+	userRepo.On("Get", ctx, "user-001").Return(user, nil)
+	reminderRepo.On("ListSentStages", ctx, "phase-payment-only", []string{"user-001"}).
+		Return(map[string]map[entity.ReminderStage]bool{}, nil)
+
+	// No PublishEvent expectation is registered: no stage is applicable to a
+	// phase with only a payment deadline set.
+
+	uc := usecase.NewSalesReminderUseCase(
+		salesPhaseRepo, reminderRepo, journeyRepo, userRepo,
+		pub, lookahead, logger,
+	)
+
+	published, err := uc.ScanDueReminders(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, published, "a payment deadline alone must not produce a reminder")
+}
+
+// ---- userTimezone ----
+
+// TestUserTimezone covers the fallback used for the fan's quiet-hours window
+// and due-time calculations: an unset or unrecognised time zone falls back
+// to Asia/Tokyo.
+//
+// @spec components/usecase/sales-phase/scan-due-reminders "Time zone fallback"
+func TestUserTimezone(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		user *entity.User
+		want *time.Location
+	}{
+		{
+			name: "valid IANA time zone is used as-is",
+			user: &entity.User{TimeZone: "America/Los_Angeles"},
+			want: la,
+		},
+		{
+			name: "unset time zone falls back to Asia/Tokyo",
+			user: &entity.User{TimeZone: ""},
+			want: jst,
+		},
+		{
+			name: "unrecognised time zone falls back to Asia/Tokyo",
+			user: &entity.User{TimeZone: "Not/AZone"},
+			want: jst,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := usecase.ExportedUserTimezone(tt.user)
+			assert.Equal(t, tt.want.String(), got.String())
+		})
+	}
 }

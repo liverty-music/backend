@@ -20,5 +20,8 @@ var ExportedBuildReminderPayload = buildReminderPayload
 // ExportedChannelDisplayName exposes channelDisplayName for black-box tests.
 var ExportedChannelDisplayName = channelDisplayName
 
+// ExportedUserTimezone exposes userTimezone for black-box tests.
+var ExportedUserTimezone = userTimezone
+
 // ReminderScanLookbackMargin exposes reminderScanLookbackMargin for black-box tests.
 const ReminderScanLookbackMargin = reminderScanLookbackMargin
