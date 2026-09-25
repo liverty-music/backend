@@ -1311,6 +1311,65 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, got, "from after all concerts should return empty, not error")
 	})
+
+	// Regression test for liverty-music/backend#475: listConcertsByFollowerQuery
+	// omitted firstPartyVisibilityGuard, so DRAFT/UNLISTED/CANCELLED first-party
+	// series leaked onto a follower's dashboard.
+	t.Run("excludes DRAFT, UNLISTED and CANCELLED first-party series", func(t *testing.T) {
+		cleanDatabase(t)
+
+		userID := seedUser(t, "Guard User", "guard@test.com", "ext-user-guard")
+		artistID := seedArtist(t, "Guard Band", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b5099")
+		venueID := seedVenue(t, "Guard Venue")
+		organizerID := seedOrganizer(t)
+
+		_, err := testDB.Pool.Exec(ctx,
+			"INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)",
+			userID, artistID,
+		)
+		require.NoError(t, err)
+
+		// seedFirstPartySeriesEvent inserts a first-party series in the given
+		// publish_state/visibility with one event on date, linked to artistID
+		// via event_performers.
+		seedFirstPartySeriesEvent := func(title, publishState, visibility, date string) {
+			t.Helper()
+			seriesID := newTestID(t)
+			var publishedAt *time.Time
+			if publishState == string(entity.SeriesPublishStatePublished) {
+				now := time.Now()
+				publishedAt = &now
+			}
+			_, err := testDB.Pool.Exec(ctx, `
+				INSERT INTO series (id, title, type, organizer_id, visibility, publish_state, published_at)
+				VALUES ($1, $2, 'SINGLE', $3, $4, $5, $6)
+			`, seriesID, title, organizerID, visibility, publishState, publishedAt)
+			require.NoError(t, err)
+
+			eventID := newTestID(t)
+			_, err = testDB.Pool.Exec(ctx,
+				"INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, $4)",
+				eventID, seriesID, venueID, date,
+			)
+			require.NoError(t, err)
+			_, err = testDB.Pool.Exec(ctx,
+				"INSERT INTO event_performers (event_id, artist_id) VALUES ($1, $2)",
+				eventID, artistID,
+			)
+			require.NoError(t, err)
+		}
+
+		seedFirstPartySeriesEvent("Draft Series Concert", string(entity.SeriesPublishStateDraft), string(entity.SeriesVisibilityPublic), "2027-06-01")
+		seedFirstPartySeriesEvent("Unlisted Series Concert", string(entity.SeriesPublishStatePublished), string(entity.SeriesVisibilityUnlisted), "2027-06-02")
+		seedFirstPartySeriesEvent("Cancelled Series Concert", string(entity.SeriesPublishStateCancelled), string(entity.SeriesVisibilityPublic), "2027-06-03")
+		seedFirstPartySeriesEvent("Published Public Series Concert", string(entity.SeriesPublishStatePublished), string(entity.SeriesVisibilityPublic), "2027-06-04")
+
+		got, err := concertRepo.ListByFollower(ctx, userID, &epoch)
+		require.NoError(t, err)
+		require.Len(t, got, 1, "only the PUBLISHED+PUBLIC first-party series should be visible")
+		require.NotNil(t, got[0].Series)
+		assert.Equal(t, "Published Public Series Concert", got[0].Series.Title)
+	})
 }
 
 func TestConcertRepository_List(t *testing.T) {

@@ -250,6 +250,9 @@ const (
 	// pass a nil from get today-onward concerts; a non-nil from (including a past
 	// date) widens the range to that date. The from boundary is client-supplied
 	// to anchor "today" to the caller's timezone (server runs in UTC).
+	//
+	// The firstPartyVisibilityGuard excludes DRAFT/UNLISTED/CANCELLED first-party
+	// series from this fan-facing surface.
 	listConcertsByFollowerQuery = `
 		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
@@ -260,7 +263,7 @@ const (
 		JOIN event_performers ep ON ep.event_id = e.id
 		JOIN followed_artists fa ON fa.artist_id = ep.artist_id
 		WHERE fa.user_id = $1
-		  AND e.local_event_date >= COALESCE($2, CURRENT_DATE)
+		  AND e.local_event_date >= COALESCE($2, CURRENT_DATE)` + firstPartyVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
 
