@@ -4,6 +4,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -182,9 +183,10 @@ func (uc *userUseCase) publishEvent(ctx context.Context, subject string, data an
 func (uc *userUseCase) Get(ctx context.Context, id string) (*entity.User, error) {
 	user, err := uc.userRepo.Get(ctx, id)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.NotFound, "failed to get user",
-			slog.String("user_id", id),
-		)
+		// Add context without overriding the repository's code: a missing
+		// user is NotFound, but a database outage must stay Unavailable/
+		// Internal rather than masquerade as NotFound.
+		return nil, fmt.Errorf("failed to get user %q: %w", id, err)
 	}
 
 	return user, nil
@@ -194,9 +196,8 @@ func (uc *userUseCase) Get(ctx context.Context, id string) (*entity.User, error)
 func (uc *userUseCase) GetByExternalID(ctx context.Context, externalID string) (*entity.User, error) {
 	user, err := uc.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.NotFound, "failed to get user by external ID",
-			slog.String("external_id", externalID),
-		)
+		// Preserve the repository's error code (see Get above).
+		return nil, fmt.Errorf("failed to get user by external ID %q: %w", externalID, err)
 	}
 
 	return user, nil
