@@ -335,18 +335,111 @@ func TestUserUseCase_GetUser(t *testing.T) {
 		assert.Equal(t, expectedUser, result)
 	})
 
-	t.Run("error - not found", func(t *testing.T) {
+	// Get must surface the repository's error code unchanged: only a missing
+	// user is NotFound. Other failures (e.g. a database outage) must not be
+	// reported as NotFound, or clients would treat a provisioned user as
+	// missing and monitoring would miss the outage. Regression test for
+	// https://github.com/liverty-music/backend/issues/471.
+	errCases := []struct {
+		name    string
+		repoErr error
+		wantErr error
+	}{
+		{
+			name:    "not found",
+			repoErr: apperr.ErrNotFound,
+			wantErr: apperr.ErrNotFound,
+		},
+		{
+			name:    "unavailable",
+			repoErr: apperr.ErrUnavailable,
+			wantErr: apperr.ErrUnavailable,
+		},
+		{
+			name:    "internal",
+			repoErr: apperr.ErrInternal,
+			wantErr: apperr.ErrInternal,
+		},
+	}
+
+	for _, tc := range errCases {
+		t.Run("error - "+tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := newUserTestDeps(t)
+
+			d.repo.EXPECT().Get(ctx, "user-123").Return(nil, tc.repoErr).Once()
+
+			result, err := d.uc.Get(ctx, "user-123")
+
+			assert.Error(t, err)
+			assert.Nil(t, result)
+			assert.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestUserUseCase_GetByExternalID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("success", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
-		d.repo.EXPECT().Get(ctx, "nonexistent").Return(nil, apperr.ErrNotFound).Once()
+		expectedUser := &entity.User{
+			ID:         "user-123",
+			ExternalID: "ext-123",
+			Name:       "John Doe",
+			Email:      "john@example.com",
+		}
 
-		result, err := d.uc.Get(ctx, "nonexistent")
+		d.repo.EXPECT().GetByExternalID(ctx, "ext-123").Return(expectedUser, nil).Once()
 
-		assert.Error(t, err)
-		assert.Nil(t, result)
-		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		result, err := d.uc.GetByExternalID(ctx, "ext-123")
+
+		assert.NoError(t, err)
+		assert.Equal(t, expectedUser, result)
 	})
+
+	// GetByExternalID must surface the repository's error code unchanged, for
+	// the same reason as Get above.
+	errCases := []struct {
+		name    string
+		repoErr error
+		wantErr error
+	}{
+		{
+			name:    "not found",
+			repoErr: apperr.ErrNotFound,
+			wantErr: apperr.ErrNotFound,
+		},
+		{
+			name:    "unavailable",
+			repoErr: apperr.ErrUnavailable,
+			wantErr: apperr.ErrUnavailable,
+		},
+		{
+			name:    "internal",
+			repoErr: apperr.ErrInternal,
+			wantErr: apperr.ErrInternal,
+		},
+	}
+
+	for _, tc := range errCases {
+		t.Run("error - "+tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := newUserTestDeps(t)
+
+			d.repo.EXPECT().GetByExternalID(ctx, "ext-123").Return(nil, tc.repoErr).Once()
+
+			result, err := d.uc.GetByExternalID(ctx, "ext-123")
+
+			assert.Error(t, err)
+			assert.Nil(t, result)
+			assert.ErrorIs(t, err, tc.wantErr)
+		})
+	}
 }
 
 func TestUserUseCase_UpdateHome(t *testing.T) {
