@@ -25,7 +25,7 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 
 	jpegOriginal, err := os.ReadFile("testdata/valid_photo_4000x3000.jpg")
 	require.NoError(t, err)
-	webpOriginal, err := os.ReadFile("testdata/tiny_lossless.webp")
+	webpOriginal, err := os.ReadFile("testdata/valid_photo_4000x3000.webp")
 	require.NoError(t, err)
 
 	type args struct {
@@ -52,13 +52,13 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 		},
 		// @spec components/usecase/media/process-media "WebP original"
 		{
-			name:    "produces WebP thumb and large variants from a WebP original, same as JPEG or PNG",
+			name:    "produces an 800px thumb and 1920px large WebP from a 4000x3000 WebP, same as JPEG or PNG",
 			args:    args{data: webpOriginal},
 			wantErr: nil,
 			check: func(t *testing.T, thumb, large []byte) {
 				t.Helper()
-				assertValidWebP(t, thumb)
-				assertValidWebP(t, large)
+				assertValidWebPVariant(t, thumb, 800)
+				assertValidWebPVariant(t, large, 1920)
 			},
 		},
 		// @spec components/usecase/media/process-media "Decompression bomb"
@@ -92,15 +92,6 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 			tt.check(t, thumb, large)
 		})
 	}
-}
-
-// assertValidWebP asserts that data decodes as a non-empty WebP image.
-func assertValidWebP(t *testing.T, data []byte) {
-	t.Helper()
-	assert.NotEmpty(t, data)
-	_, format, err := image.DecodeConfig(bytes.NewReader(data))
-	require.NoError(t, err)
-	assert.Equal(t, "webp", format)
 }
 
 // assertValidWebPVariant asserts that data decodes as a WebP image resized
