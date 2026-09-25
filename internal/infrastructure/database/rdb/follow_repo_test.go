@@ -474,6 +474,43 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 			},
 		},
 		{
+			// Regression test for backend#469: ListFollowers must select the home
+			// centroid so Hype.MatchingConcerts can evaluate ProximityNearby for
+			// HypeNearby followers (the default hype).
+			name: "populates home centroid",
+			setup: func() string {
+				cleanDatabase(t)
+				artistID := seedArtist(t, "Centroid Artist", "a5000000-0000-0000-0000-000000000004")
+
+				userID := seedUser(t, "Centroid User", "centroid@test.com", "ext-centroid-01")
+				homeID := seedHome(t, "JP", "JP-13")
+				_, err := testDB.Pool.Exec(ctx,
+					`UPDATE homes SET centroid_latitude = $1, centroid_longitude = $2 WHERE id = $3`,
+					35.6762, 139.6503, homeID,
+				)
+				require.NoError(t, err)
+				_, err = testDB.Pool.Exec(ctx,
+					`UPDATE users SET home_id = $1 WHERE id = $2`,
+					homeID, userID,
+				)
+				require.NoError(t, err)
+				err = followRepo.Follow(ctx, userID, artistID)
+				require.NoError(t, err)
+				err = followRepo.SetHype(ctx, userID, artistID, entity.HypeNearby)
+				require.NoError(t, err)
+
+				return artistID
+			},
+			check: func(t *testing.T, got []*entity.Follower) {
+				t.Helper()
+				require.Len(t, got, 1)
+				require.NotNil(t, got[0].User.Home)
+				require.NotNil(t, got[0].User.Home.Centroid, "Centroid should be populated for a home with coordinates")
+				assert.InDelta(t, 35.6762, got[0].User.Home.Centroid.Latitude, 0.0001)
+				assert.InDelta(t, 139.6503, got[0].User.Home.Centroid.Longitude, 0.0001)
+			},
+		},
+		{
 			name: "populates preferred_language, empty when unset",
 			setup: func() string {
 				cleanDatabase(t)
