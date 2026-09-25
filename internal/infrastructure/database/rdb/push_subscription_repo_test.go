@@ -15,10 +15,18 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 	repo := rdb.NewPushSubscriptionRepository(testDB)
 	ctx := context.Background()
 
+	// Captured by the setup/check closures of the re-registration cases below,
+	// since each case's check runs against the id/owner recorded during setup.
+	var (
+		reregisterFirstID       string
+		reassignFirstID         string
+		reassignPreviousOwnerID string
+	)
+
 	tests := []struct {
 		name    string
 		setup   func() *entity.PushSubscription
-		check   func(t *testing.T, userID string)
+		check   func(t *testing.T, got *entity.PushSubscription)
 		wantErr error
 	}{
 		{
@@ -32,6 +40,10 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 					P256dh:   "p256dh-initial",
 					Auth:     "auth-initial",
 				}
+			},
+			check: func(t *testing.T, got *entity.PushSubscription) {
+				t.Helper()
+				assert.NotEmpty(t, got.ID, "Create must return the id the row is stored under")
 			},
 			wantErr: nil,
 		},
@@ -55,13 +67,89 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 					Auth:     "auth-updated",
 				}
 			},
-			check: func(t *testing.T, userID string) {
+			check: func(t *testing.T, got *entity.PushSubscription) {
 				t.Helper()
-				subs, err := repo.ListByUserIDs(ctx, []string{userID})
+				subs, err := repo.ListByUserIDs(ctx, []string{got.UserID})
 				require.NoError(t, err)
 				require.Len(t, subs, 1)
 				assert.Equal(t, "p256dh-updated", subs[0].P256dh)
 				assert.Equal(t, "auth-updated", subs[0].Auth)
+			},
+			wantErr: nil,
+		},
+		{
+			// Re-registering the same browser (same endpoint, same user) must
+			// return the id the row was originally stored under, not a newly
+			// minted one — the caller's second Create call constructs a fresh
+			// entity.PushSubscription with no ID set, exactly like the
+			// usecase layer does. See liverty-music/backend#474.
+			name: "re-registering the same endpoint by the same user returns the existing stored id",
+			setup: func() *entity.PushSubscription {
+				cleanDatabase(t)
+				userID := seedUser(t, "push-reregister-user", "push-reregister@example.com", "ext-push-reregister-01")
+				first := &entity.PushSubscription{
+					UserID:   userID,
+					Endpoint: "https://push.example.com/reregister-endpoint",
+					P256dh:   "p256dh-first",
+					Auth:     "auth-first",
+				}
+				require.NoError(t, repo.Create(ctx, first))
+				reregisterFirstID = first.ID
+
+				return &entity.PushSubscription{
+					UserID:   userID,
+					Endpoint: "https://push.example.com/reregister-endpoint",
+					P256dh:   "p256dh-second",
+					Auth:     "auth-second",
+				}
+			},
+			check: func(t *testing.T, got *entity.PushSubscription) {
+				t.Helper()
+				assert.NotEmpty(t, reregisterFirstID)
+				assert.Equal(t, reregisterFirstID, got.ID)
+			},
+			wantErr: nil,
+		},
+		{
+			// An endpoint belongs to a browser/device, not to a user: when a
+			// different user registers an endpoint that is already stored,
+			// the row is reassigned to that user (the latest signed-in user
+			// owns it) but keeps its stored id. See liverty-music/backend#474.
+			name: "re-registering the same endpoint by a different user reassigns it and keeps the stored id",
+			setup: func() *entity.PushSubscription {
+				cleanDatabase(t)
+				ownerID := seedUser(t, "push-reassign-owner", "push-reassign-owner@example.com", "ext-push-reassign-owner-01")
+				first := &entity.PushSubscription{
+					UserID:   ownerID,
+					Endpoint: "https://push.example.com/reassign-endpoint",
+					P256dh:   "p256dh-owner",
+					Auth:     "auth-owner",
+				}
+				require.NoError(t, repo.Create(ctx, first))
+				reassignFirstID = first.ID
+				reassignPreviousOwnerID = ownerID
+
+				newOwnerID := seedUser(t, "push-reassign-new-owner", "push-reassign-new-owner@example.com", "ext-push-reassign-new-owner-01")
+				return &entity.PushSubscription{
+					UserID:   newOwnerID,
+					Endpoint: "https://push.example.com/reassign-endpoint",
+					P256dh:   "p256dh-new-owner",
+					Auth:     "auth-new-owner",
+				}
+			},
+			check: func(t *testing.T, got *entity.PushSubscription) {
+				t.Helper()
+				assert.NotEmpty(t, reassignFirstID)
+				assert.Equal(t, reassignFirstID, got.ID, "the row keeps its stored id across reassignment")
+
+				// The row now belongs to the new owner under its original id.
+				movedSub, err := repo.Get(ctx, got.UserID, got.Endpoint)
+				require.NoError(t, err)
+				assert.Equal(t, reassignFirstID, movedSub.ID)
+
+				// The previous owner no longer has the row.
+				_, err = repo.Get(ctx, reassignPreviousOwnerID, got.Endpoint)
+				assert.ErrorIs(t, err, apperr.ErrNotFound)
 			},
 			wantErr: nil,
 		},
@@ -80,7 +168,7 @@ func TestPushSubscriptionRepository_Create(t *testing.T) {
 
 			require.NoError(t, err)
 			if tt.check != nil {
-				tt.check(t, sub.UserID)
+				tt.check(t, sub)
 			}
 		})
 	}

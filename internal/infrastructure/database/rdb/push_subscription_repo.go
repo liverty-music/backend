@@ -23,6 +23,7 @@ const (
 			user_id = EXCLUDED.user_id,
 			p256dh  = EXCLUDED.p256dh,
 			auth    = EXCLUDED.auth
+		RETURNING id
 	`
 	getPushSubscriptionQuery = `
 		SELECT id, user_id, endpoint, p256dh, auth
@@ -47,15 +48,27 @@ func NewPushSubscriptionRepository(db *Database) *PushSubscriptionRepository {
 
 // Create persists a new push subscription using an UPSERT on the endpoint column.
 // If a subscription with the same endpoint already exists, its user_id, p256dh,
-// and auth fields are updated in place.
+// and auth fields are updated in place, and its stored id is kept.
+//
+// An endpoint belongs to a browser/device, not to a user: when the endpoint is
+// already registered under a different user, this reassigns it to sub.UserID
+// (the latest caller to register that browser owns it) and the previous owner
+// silently loses the subscription. This is intentional — see
+// liverty-music/backend#474.
+//
+// RETURNING id is required: on conflict the row keeps its original id (the
+// column isn't in the SET list), which is not necessarily sub.ID (e.g. when
+// the caller left sub.ID empty and a fresh id was minted below, or a stale id
+// was passed in). Scanning the returned id back into sub.ID guarantees the
+// caller always gets the id the row is actually stored under.
 func (r *PushSubscriptionRepository) Create(ctx context.Context, sub *entity.PushSubscription) error {
 	if sub.ID == "" {
 		sub.ID = entity.NewID()
 	}
 
-	_, err := r.db.Pool.Exec(ctx, upsertPushSubscriptionQuery,
+	err := r.db.Pool.QueryRow(ctx, upsertPushSubscriptionQuery,
 		sub.ID, sub.UserID, sub.Endpoint, sub.P256dh, sub.Auth,
-	)
+	).Scan(&sub.ID)
 	if err != nil {
 		return toAppErr(err, "failed to upsert push subscription",
 			slog.String("user_id", sub.UserID),

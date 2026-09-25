@@ -15,7 +15,11 @@ import (
 type PushNotificationUseCase interface {
 	// Create registers or updates the browser push subscription for the given
 	// (userID, endpoint) pair. The subscription is keyed by endpoint: calling
-	// Create with an endpoint that already exists updates the record in place.
+	// Create with an endpoint that already exists updates the record in
+	// place and returns it with its existing, stored id. Because an endpoint
+	// identifies a browser/device rather than a user, registering an
+	// endpoint that belongs to a different userID reassigns it to the given
+	// userID; the previous owner no longer has it.
 	//
 	// # Possible errors
 	//
