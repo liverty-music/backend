@@ -111,14 +111,16 @@ func GetUserID(ctx context.Context) (string, bool) {
 }
 
 // RequireRole checks that the authenticated caller holds the named Zitadel
-// project role. It returns a PermissionDenied connect error when claims are
-// absent from the context or the role is not present in the token. Handlers
-// that are restricted to internal admin callers must invoke this at the start
-// of every method.
+// project role. It returns an Unauthenticated connect error when claims are
+// absent from the context (the caller never authenticated), and a
+// PermissionDenied connect error when claims are present but the role is not
+// in the token (the caller authenticated but lacks the grant). Handlers that
+// are restricted to internal admin callers must invoke this at the start of
+// every method.
 func RequireRole(ctx context.Context, role string) error {
 	claims, ok := GetClaims(ctx)
 	if !ok || claims == nil {
-		return connect.NewError(connect.CodePermissionDenied, errors.New("caller is not authenticated"))
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("caller is not authenticated"))
 	}
 	if !claims.HasRole(role) {
 		return connect.NewError(connect.CodePermissionDenied, errors.New("caller does not hold the required role: "+role))

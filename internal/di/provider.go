@@ -375,6 +375,18 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	authFunc := auth.NewAuthFunc(jwtValidator, publicProcedures)
 
+	// The admin server gets its own AuthFunc with NO public procedures, ever.
+	// It must NOT reuse the consumer authFunc above: the admin server also
+	// mounts the consumer ArtistService handler (see adminHandlers below), so
+	// procedures like "/ArtistService/ListTop" resolve to the same name on
+	// both servers. Sharing authFunc would let publicProcedures' fan-only
+	// entries for ListTop/ListSimilar/Search leak onto the admin host and let
+	// an unauthenticated caller reach RequireRoleInterceptor instead of being
+	// rejected with Unauthenticated by the authn middleware first (backend#481).
+	// Both AuthFuncs share the same jwtValidator, so token validation itself
+	// is identical; only the public-procedure allowlist differs.
+	adminAuthFunc := auth.NewAuthFunc(jwtValidator, nil)
+
 	// Health check handler (public, outside authn middleware).
 	// Keep a reference so App.Shutdown can call SetShuttingDown.
 	healthChecker := rpc.NewHealthCheckHandler(db, logger)
@@ -510,13 +522,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Admin Connect server — a second listener in the same binary on its own
 	// port and CORS allowlist, serving ONLY admin services. Its server-wide
 	// RequireRoleInterceptor (admin role) is the sole, structural authorization
-	// gate (handlers carry no per-method role check). It shares the auth func,
-	// rate limiter, and health checker with the consumer server.
+	// gate (handlers carry no per-method role check). It uses its own
+	// adminAuthFunc (no public procedures — see above) rather than the
+	// consumer server's authFunc, and shares the rate limiter and health
+	// checker with the consumer server.
 	adminServerCfg := cfg.Server
 	adminServerCfg.Port = cfg.Server.AdminPort
 	adminServerCfg.AllowedOrigins = cfg.Server.AdminAllowedOrigins
 	adminInterceptors := []connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}
-	adminSrv := server.NewConnectServer(adminServerCfg, logger, authFunc, rateLimiter, healthHandler, adminInterceptors, nil, adminHandlers...)
+	adminSrv := server.NewConnectServer(adminServerCfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, adminHandlers...)
 
 	// Organizer Connect server — a third listener in the same binary on its
 	// own port and CORS allowlist, serving ONLY the organizer-facing
