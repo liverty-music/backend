@@ -312,6 +312,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 	osakaArea := "JP-27"
 	saitamaArea := "JP-11"
 	kanazawaArea := "JP-17"
+	yamanashiArea := "JP-19"
 
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 
@@ -469,6 +470,41 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 						Venue: &entity.Venue{
 							AdminArea:   &saitamaArea,
 							Coordinates: &entity.Coordinates{Latitude: 35.8569, Longitude: 139.6489},
+						},
+						Performers: []*entity.Artist{{ID: "artist-1"}},
+					},
+				}
+				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(nearbyConcerts, nil).Once()
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
+				}
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+				d.notificationUC.EXPECT().
+					Notify(anyCtx, "user-nearby", entity.NotificationTypeNewConcerts, mock.AnythingOfType("*entity.NotificationPayload")).
+					Return(deliveredNotification(), nil).
+					Once()
+			},
+			wantErr: nil,
+		},
+		{
+			// Regression test for backend#469: followListFollowersQuery previously
+			// dropped the home centroid, so ProximityTo always fell back to AWAY for
+			// NEARBY followers outside their home area. Mirrors the store scenario
+			// "Nearby follower and a new concert in range" (usecase/notification/
+			// notify-new-concerts): a concert 150km from the follower's home centre,
+			// outside the follower's home area (JP-13 Tokyo vs. JP-19 Yamanashi).
+			name: "NEARBY follower notified when concert is 150km away in another prefecture",
+			args: args{data: usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}}},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+				nearbyConcerts := []*entity.Concert{
+					{
+						ID: "c1",
+						Venue: &entity.Venue{
+							AdminArea: &yamanashiArea,
+							// ~150km west of the Tokyo (JP-13) centroid below.
+							Coordinates: &entity.Coordinates{Latitude: 35.6648, Longitude: 137.9898},
 						},
 						Performers: []*entity.Artist{{ID: "artist-1"}},
 					},
