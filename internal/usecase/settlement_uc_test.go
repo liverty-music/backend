@@ -241,6 +241,7 @@ func TestPayoutSweeper_SplitsEngine(t *testing.T) {
 		wantMarkReleased bool
 	}{
 		{
+			// @spec components/entity/settlement "Single Organizer split"
 			name: "single organizer split within charge — MVP happy path",
 			splits: []entity.SettlementSplit{
 				{PayeeOrganizerID: orgID, Amount: 9000},
@@ -255,6 +256,7 @@ func TestPayoutSweeper_SplitsEngine(t *testing.T) {
 			wantMarkReleased: true,
 		},
 		{
+			// @spec components/entity/settlement "Splits exceed the order"
 			name: "sum of splits exceeds charge — skipped (logged, not returned)",
 			splits: []entity.SettlementSplit{
 				{PayeeOrganizerID: orgID, Amount: chargeAmount + 1},
@@ -262,11 +264,13 @@ func TestPayoutSweeper_SplitsEngine(t *testing.T) {
 			wantMarkReleased: false,
 		},
 		{
+			// @spec components/entity/settlement "No split"
 			name:             "no splits — skipped",
 			splits:           nil,
 			wantMarkReleased: false,
 		},
 		{
+			// @spec components/entity/settlement "Non-positive split"
 			name: "split with zero amount — skipped",
 			splits: []entity.SettlementSplit{
 				{PayeeOrganizerID: orgID, Amount: 0},

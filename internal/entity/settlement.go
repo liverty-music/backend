@@ -154,6 +154,30 @@ type SettlementRepository interface {
 	MarkReleased(ctx context.Context, id SettlementID, chargeRef string, releasedAt time.Time, splits []SettlementSplit) error
 }
 
+// platformFeeRateNumerator and platformFeeRateDenominator define the
+// platform's flat fee rate: 5% of an Order's amount (specification#778). Kept
+// as a numerator/denominator pair so [PlatformFee] can use exact integer
+// division rather than floating-point arithmetic on money.
+const (
+	platformFeeRateNumerator   = 5
+	platformFeeRateDenominator = 100
+)
+
+// PlatformFee returns the platform's fee retained from an Order's amount: a
+// flat 5% of amountJPY, rounded down to the nearest whole yen using integer
+// arithmetic (floor(amountJPY * 5 / 100)). The Organizer's Settlement split is
+// the remainder (amountJPY - PlatformFee(amountJPY)), so the Organizer
+// absorbs the rounding remainder, never the platform.
+//
+// For very small amounts the fee rounds down to 0 (e.g. any amount under 20
+// yen at the current 5% rate); the Organizer then receives the full amount as
+// their split, which still satisfies the Settlement split invariants (every
+// split greater than 0, the sum of splits no greater than the Order's
+// amount) as long as amountJPY itself is positive.
+func PlatformFee(amountJPY int64) int64 {
+	return amountJPY * platformFeeRateNumerator / platformFeeRateDenominator
+}
+
 // IsReleaseEligible reports whether a settlement may be released.
 //
 // The release gate requires both:

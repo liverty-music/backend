@@ -230,9 +230,9 @@ func (uc *issuanceUseCase) IssueFromCapturedWin(ctx context.Context, application
 	}
 
 	// -- resolve the event's Organizer and build the Held settlement that pays
-	//    it out (backend#468). The platform fee kept from the Order's amount is
-	//    TODO(threshold) pending the business decision at backend#778; until then
-	//    the Organizer's split is the Order's full amount. --
+	//    it out (backend#468). The Organizer's split is the Order's amount less
+	//    the platform fee (entity.PlatformFee — a flat 5%, rounded down, per the
+	//    business decision at liverty-music/specification#778). --
 	organizerID, err := uc.eventOrganizerRepo.GetOrganizerID(ctx, phase.EventID)
 	if err != nil {
 		return nil, err // propagates NotFound for an unresolvable Organizer
@@ -244,7 +244,7 @@ func (uc *issuanceUseCase) IssueFromCapturedWin(ctx context.Context, application
 		EventID:     phase.EventID,
 		Status:      entity.SettlementStatusHeld,
 		Splits: []entity.SettlementSplit{
-			{PayeeOrganizerID: organizerID, Amount: order.Amount},
+			{PayeeOrganizerID: organizerID, Amount: order.Amount - entity.PlatformFee(order.Amount)},
 		},
 		CreatedTime: now,
 	}
