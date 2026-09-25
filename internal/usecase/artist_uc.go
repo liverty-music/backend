@@ -31,12 +31,15 @@ type ArtistUseCase interface {
 	//   - Internal: database query failure.
 	List(ctx context.Context) ([]*entity.Artist, error)
 
-	// CreateOfficialSite associates a new verified link with an artist.
+	// CreateOfficialSite mints a fresh OfficialSite for the artist from the given
+	// URL and persists it. An artist has at most one official site.
 	//
 	// # Possible errors:
 	//
+	//   - AlreadyExists: the artist already has an official site.
+	//   - FailedPrecondition: no artist exists with the given artistID.
 	//   - Internal: database execution failure.
-	CreateOfficialSite(ctx context.Context, site *entity.OfficialSite) error
+	CreateOfficialSite(ctx context.Context, artistID, url string) error
 
 	// GetOfficialSite retrieves the primary official website for an artist.
 	//
@@ -144,10 +147,11 @@ func (uc *artistUseCase) List(ctx context.Context) ([]*entity.Artist, error) {
 	return artists, nil
 }
 
-// CreateOfficialSite adds an official site for an artist.
-func (uc *artistUseCase) CreateOfficialSite(ctx context.Context, site *entity.OfficialSite) error {
-	err := uc.artistRepo.CreateOfficialSite(ctx, site)
-	if err != nil {
+// CreateOfficialSite mints a new OfficialSite with a fresh ID and persists it.
+func (uc *artistUseCase) CreateOfficialSite(ctx context.Context, artistID, url string) error {
+	site := entity.NewOfficialSite(artistID, url)
+
+	if err := uc.artistRepo.CreateOfficialSite(ctx, site); err != nil {
 		return err
 	}
 

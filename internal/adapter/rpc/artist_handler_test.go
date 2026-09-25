@@ -10,6 +10,7 @@ import (
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -74,4 +75,58 @@ func TestArtistHandler_Create(t *testing.T) {
 		assert.NotNil(t, resp)
 	})
 
+}
+
+func TestArtistHandler_CreateOfficialSite(t *testing.T) {
+	t.Parallel()
+
+	t.Run("maps the request straight through to the use case", func(t *testing.T) {
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
+		artistUC := mocks.NewMockArtistUseCase(t)
+		h := handler.NewArtistHandler(artistUC, logger)
+
+		artistUC.EXPECT().
+			CreateOfficialSite(mock.Anything, "artist-1", "https://example.com").
+			Return(nil).
+			Once()
+
+		req := connect.NewRequest(&artistv1.CreateOfficialSiteRequest{
+			ArtistId: &entityv1.ArtistId{Value: "artist-1"},
+			Url:      &entityv1.Url{Value: "https://example.com"},
+		})
+
+		resp, err := h.CreateOfficialSite(context.Background(), req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("propagates the use case error unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
+		artistUC := mocks.NewMockArtistUseCase(t)
+		h := handler.NewArtistHandler(artistUC, logger)
+
+		artistUC.EXPECT().
+			CreateOfficialSite(mock.Anything, "artist-1", "https://example.com").
+			Return(apperr.ErrAlreadyExists).
+			Once()
+
+		req := connect.NewRequest(&artistv1.CreateOfficialSiteRequest{
+			ArtistId: &entityv1.ArtistId{Value: "artist-1"},
+			Url:      &entityv1.Url{Value: "https://example.com"},
+		})
+
+		resp, err := h.CreateOfficialSite(context.Background(), req)
+
+		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+		assert.Nil(t, resp)
+	})
 }

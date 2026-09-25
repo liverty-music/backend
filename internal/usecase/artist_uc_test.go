@@ -15,6 +15,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // anyCtx matches any context.Context regardless of type (e.g. context.WithoutCancel).
@@ -70,6 +71,64 @@ func TestArtistUseCase_CreateArtist(t *testing.T) {
 		assert.Equal(t, artist, result)
 	})
 
+}
+
+func TestArtistUseCase_CreateOfficialSite(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("mints a fresh id and persists the site", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		var captured *entity.OfficialSite
+		d.repo.EXPECT().
+			CreateOfficialSite(anyCtx, mock.MatchedBy(func(site *entity.OfficialSite) bool {
+				captured = site
+				return site.ID != "" && site.ArtistID == "artist-1" && site.URL == "https://example.com"
+			})).
+			Return(nil).
+			Once()
+
+		err := d.uc.CreateOfficialSite(ctx, "artist-1", "https://example.com")
+
+		assert.NoError(t, err)
+		require.NotNil(t, captured)
+		assert.NotEmpty(t, captured.ID)
+	})
+
+	t.Run("generates a different id on each call", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		var ids []string
+		d.repo.EXPECT().
+			CreateOfficialSite(anyCtx, mock.AnythingOfType("*entity.OfficialSite")).
+			Run(func(_ context.Context, site *entity.OfficialSite) { ids = append(ids, site.ID) }).
+			Return(nil).
+			Twice()
+
+		require.NoError(t, d.uc.CreateOfficialSite(ctx, "artist-1", "https://example.com"))
+		require.NoError(t, d.uc.CreateOfficialSite(ctx, "artist-1", "https://example.com"))
+
+		require.Len(t, ids, 2)
+		assert.NotEqual(t, ids[0], ids[1])
+	})
+
+	t.Run("returns the repository error unchanged", func(t *testing.T) {
+		t.Parallel()
+		d := newArtistTestDeps(t)
+
+		d.repo.EXPECT().
+			CreateOfficialSite(anyCtx, mock.AnythingOfType("*entity.OfficialSite")).
+			Return(apperr.ErrAlreadyExists).
+			Once()
+
+		err := d.uc.CreateOfficialSite(ctx, "artist-1", "https://example.com")
+
+		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+	})
 }
 
 func TestArtistUseCase_ListArtists(t *testing.T) {

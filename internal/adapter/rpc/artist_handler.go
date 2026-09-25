@@ -79,11 +79,7 @@ func (h *ArtistHandler) Search(ctx context.Context, req *connect.Request[rpc.Sea
 
 // CreateOfficialSite associates a new official website or social media channel with an artist.
 func (h *ArtistHandler) CreateOfficialSite(ctx context.Context, req *connect.Request[rpc.CreateOfficialSiteRequest]) (*connect.Response[rpc.CreateOfficialSiteResponse], error) {
-	err := h.artistUseCase.CreateOfficialSite(ctx, &entity.OfficialSite{
-		ArtistID: req.Msg.ArtistId.Value,
-		URL:      req.Msg.Url.Value,
-	})
-	if err != nil {
+	if err := h.artistUseCase.CreateOfficialSite(ctx, req.Msg.ArtistId.Value, req.Msg.Url.Value); err != nil {
 		return nil, err
 	}
 
