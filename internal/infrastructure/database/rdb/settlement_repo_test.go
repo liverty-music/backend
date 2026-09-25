@@ -12,10 +12,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// seedOrderForSettlement issues a minimal Paid order (via IssuanceRepository)
-// so a settlement can reference it through the orders(id) FK, and returns the
-// created Order.
-func seedOrderForSettlement(t *testing.T, issuanceRepo *rdb.IssuanceRepository, appID entity.TicketApplicationID, buyerID string) *entity.Order {
+// seedOrderForSettlement issues a Paid order together with its Held
+// settlement, atomically, via IssuanceRepository.Issue (backend#468: Issue now
+// creates the Order, its Tickets, and its Settlement together). Returns the
+// created Order and Settlement so callers can exercise ListHeld/MarkReleased
+// against a real settlement row.
+func seedOrderForSettlement(
+	t *testing.T,
+	issuanceRepo *rdb.IssuanceRepository,
+	appID entity.TicketApplicationID,
+	buyerID, organizerID, eventID string,
+	settledAt time.Time,
+) (*entity.Order, *entity.Settlement) {
 	t.Helper()
 	order := &entity.Order{
 		ID:            entity.OrderID(entity.NewID()),
@@ -30,10 +38,18 @@ func seedOrderForSettlement(t *testing.T, issuanceRepo *rdb.IssuanceRepository, 
 		Status:   entity.OrderStatusPaid,
 		Amount:   10000,
 		Currency: "JPY",
-		PaidTime: time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC),
+		PaidTime: settledAt,
 	}
-	require.NoError(t, issuanceRepo.Issue(context.Background(), order, nil))
-	return order
+	settlement := &entity.Settlement{
+		ID:          entity.SettlementID(entity.NewID()),
+		OrderID:     order.ID,
+		OrganizerID: organizerID,
+		EventID:     eventID,
+		Status:      entity.SettlementStatusHeld,
+		CreatedTime: settledAt,
+	}
+	require.NoError(t, issuanceRepo.Issue(context.Background(), order, nil, settlement))
+	return order, settlement
 }
 
 // insertSettlementSplit inserts a settlement_splits row directly, since no
@@ -49,9 +65,10 @@ func insertSettlementSplit(t *testing.T, id entity.SettlementID, payeeOrganizerI
 }
 
 // TestSettlementRepository_Integration exercises the Settlement payout
-// persistence against a real local Postgres: Upsert idempotency, ListHeld,
-// and MarkReleased — both the happy path and, per #477, the atomicity of the
-// status flip together with every split's transfer_ref update.
+// persistence against a real local Postgres: the Held settlement Order.Issue
+// creates (backend#468), ListHeld, and MarkReleased — both the happy path
+// and, per #477, the atomicity of the status flip together with every
+// split's transfer_ref update.
 func TestSettlementRepository_Integration(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
@@ -66,37 +83,14 @@ func TestSettlementRepository_Integration(t *testing.T) {
 	phase, eventID := seedLotteryPhase(t, phaseRepo)
 	buyerID := seedUser(t, "settlement-buyer", entity.NewID()+"@example.test", entity.NewID())
 	app := seedApplication(t, appRepo, phase.ID, buyerID, entity.TicketApplicationStateWon)
-	order := seedOrderForSettlement(t, issuanceRepo, app.ID, buyerID)
 
 	organizerID := entity.NewID()
 	settledAt := time.Date(2026, 9, 13, 12, 30, 0, 0, time.UTC)
 
-	// -- Upsert: creates a Held settlement; a second Upsert for the same order
-	//    is idempotent and returns the existing row. --
-	s := &entity.Settlement{
-		ID:          entity.SettlementID(entity.NewID()),
-		OrderID:     order.ID,
-		OrganizerID: organizerID,
-		EventID:     eventID,
-		Status:      entity.SettlementStatusHeld,
-		CreatedTime: settledAt,
-	}
-	created, err := settlementRepo.Upsert(ctx, s)
-	require.NoError(t, err)
-	assert.Equal(t, s.ID, created.ID)
+	// -- Order.Issue creates the Held settlement atomically with the Order
+	//    (backend#468). --
+	_, created := seedOrderForSettlement(t, issuanceRepo, app.ID, buyerID, organizerID, eventID, settledAt)
 	assert.Equal(t, entity.SettlementStatusHeld, created.Status)
-
-	dup := &entity.Settlement{
-		ID:          entity.SettlementID(entity.NewID()), // ignored: order_id already has a row
-		OrderID:     order.ID,
-		OrganizerID: organizerID,
-		EventID:     eventID,
-		Status:      entity.SettlementStatusHeld,
-		CreatedTime: settledAt,
-	}
-	again, err := settlementRepo.Upsert(ctx, dup)
-	require.NoError(t, err)
-	assert.Equal(t, created.ID, again.ID, "Upsert must be idempotent per order_id")
 
 	// -- ListHeld includes the freshly created settlement. --
 	held, err := settlementRepo.ListHeld(ctx)
@@ -148,16 +142,7 @@ func TestSettlementRepository_Integration(t *testing.T) {
 		// conflict with the outer test's Won application on the same phase.
 		otherBuyerID := seedUser(t, "settlement-buyer-2", entity.NewID()+"@example.test", entity.NewID())
 		otherApp := seedApplication(t, appRepo, phase.ID, otherBuyerID, entity.TicketApplicationStateWon)
-		heldSettlement := &entity.Settlement{
-			ID:          entity.SettlementID(entity.NewID()),
-			OrderID:     seedOrderForSettlement(t, issuanceRepo, otherApp.ID, otherBuyerID).ID,
-			OrganizerID: organizerID,
-			EventID:     eventID,
-			Status:      entity.SettlementStatusHeld,
-			CreatedTime: settledAt,
-		}
-		created, err := settlementRepo.Upsert(ctx, heldSettlement)
-		require.NoError(t, err)
+		_, created := seedOrderForSettlement(t, issuanceRepo, otherApp.ID, otherBuyerID, organizerID, eventID, settledAt)
 
 		payeeOK := entity.NewID()
 		payeeBad := entity.NewID()
@@ -168,7 +153,7 @@ func TestSettlementRepository_Integration(t *testing.T) {
 		// The first split's transfer_ref update would succeed; the second's
 		// empty TransferRef violates chk_settlement_splits_transfer_ref_not_empty,
 		// forcing the whole transaction to roll back.
-		err = settlementRepo.MarkReleased(ctx, created.ID, "ch_should_not_persist", releasedAt, []entity.SettlementSplit{
+		err := settlementRepo.MarkReleased(ctx, created.ID, "ch_should_not_persist", releasedAt, []entity.SettlementSplit{
 			{PayeeOrganizerID: payeeOK, Amount: 3000, TransferRef: "tr_would_succeed"},
 			{PayeeOrganizerID: payeeBad, Amount: 5000, TransferRef: ""},
 		})
