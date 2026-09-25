@@ -25,17 +25,6 @@ func NewSettlementRepository(db *Database) *SettlementRepository {
 }
 
 const (
-	// upsertSettlementQuery inserts a settlement row if none exists for the
-	// order_id, or returns the existing row unchanged. This ensures the sweeper
-	// can call Upsert idempotently without racing to double-create rows.
-	upsertSettlementQuery = `
-		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, settled_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (order_id) DO UPDATE
-		  SET id = settlements.id
-		RETURNING id, order_id, organizer_id, event_id, charge_ref, status, released_at, settled_at
-	`
-
 	getSettlementQuery = `
 		SELECT id, order_id, organizer_id, event_id, charge_ref, status, released_at, settled_at
 		FROM settlements WHERE id = $1
@@ -81,26 +70,6 @@ const (
 		WHERE settlement_id = $1 AND payee_organizer_id = $2
 	`
 )
-
-// Upsert implements [entity.SettlementRepository].
-func (r *SettlementRepository) Upsert(ctx context.Context, s *entity.Settlement) (*entity.Settlement, error) {
-	row := r.db.Pool.QueryRow(ctx, upsertSettlementQuery,
-		string(s.ID),
-		string(s.OrderID),
-		s.OrganizerID,
-		s.EventID,
-		int16(s.Status),
-		s.CreatedTime,
-	)
-	result, err := scanSettlement(row)
-	if err != nil {
-		return nil, toAppErr(err, "failed to upsert settlement",
-			slog.String("order_id", string(s.OrderID)))
-	}
-	// Upsert returns the existing row; if it was just inserted its splits are
-	// empty (no rows to load yet), which is correct for a new Held settlement.
-	return result, nil
-}
 
 // Get implements [entity.SettlementRepository].
 func (r *SettlementRepository) Get(ctx context.Context, id entity.SettlementID) (*entity.Settlement, error) {

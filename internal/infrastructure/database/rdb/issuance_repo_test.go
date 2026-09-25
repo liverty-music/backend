@@ -12,10 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIssuanceRepository_Integration exercises the ⑤ Order/Ticket persistence
-// against a real local Postgres: the atomic Issue (Order + N tickets), the
-// idempotency guard (one Order per application), the awaiting-issuance sweep
-// work-list, the buyer read queries, and the refund-side status/void updates.
+// TestIssuanceRepository_Integration exercises the ⑤ Order/Ticket/Settlement
+// persistence against a real local Postgres: the atomic Issue (Order + N
+// tickets + Held settlement with its split, backend#468), the idempotency
+// guard (one Order per application), the awaiting-issuance sweep work-list,
+// the buyer read queries, and the refund-side status/void updates.
 //
 // Runs only when a local database is available (make test provides one); skipped
 // otherwise, like the other rdb integration tests.
@@ -30,12 +31,14 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	issuanceRepo := rdb.NewIssuanceRepository(testDB)
 	orderRepo := rdb.NewOrderRepository(testDB)
 	ticketRepo := rdb.NewTicketRepository(testDB)
+	settlementRepo := rdb.NewSettlementRepository(testDB)
 
 	// -- seed a Won application (orders.application_id FK) on a phase whose event
 	//    (tickets.event_id FK) we reuse for the issued tickets. --
 	phase, eventID := seedLotteryPhase(t, phaseRepo)
 	buyerID := seedUser(t, "buyer", entity.NewID()+"@example.test", entity.NewID())
 	app := seedApplication(t, appRepo, phase.ID, buyerID, entity.TicketApplicationStateWon)
+	organizerID := seedOrganizer(t)
 
 	// Before issuance, the Won application appears in the sweep work-list.
 	awaiting, err := issuanceRepo.ListApplicationIDsAwaitingIssuance(ctx)
@@ -72,7 +75,18 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 			IssuedTime:                     paidTime,
 		})
 	}
-	require.NoError(t, issuanceRepo.Issue(ctx, order, tickets))
+	settlement := &entity.Settlement{
+		ID:          entity.SettlementID(entity.NewID()),
+		OrderID:     order.ID,
+		OrganizerID: organizerID,
+		EventID:     eventID,
+		Status:      entity.SettlementStatusHeld,
+		Splits: []entity.SettlementSplit{
+			{PayeeOrganizerID: organizerID, Amount: order.Amount},
+		},
+		CreatedTime: paidTime,
+	}
+	require.NoError(t, issuanceRepo.Issue(ctx, order, tickets, settlement))
 
 	// -- Order reads. --
 	gotByApp, err := orderRepo.GetByApplicationID(ctx, app.ID)
@@ -103,17 +117,45 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, byHolder, 2)
 
+	// -- Settlement read: a Held settlement for the Order's Organizer, with one
+	//    split for the Order's full amount (backend#468). --
+	gotSettlement, err := settlementRepo.GetByOrderID(ctx, order.ID)
+	require.NoError(t, err)
+	assert.Equal(t, settlement.ID, gotSettlement.ID)
+	assert.Equal(t, order.ID, gotSettlement.OrderID)
+	assert.Equal(t, organizerID, gotSettlement.OrganizerID)
+	assert.Equal(t, eventID, gotSettlement.EventID)
+	assert.Equal(t, entity.SettlementStatusHeld, gotSettlement.Status)
+	require.Len(t, gotSettlement.Splits, 1)
+	assert.Equal(t, organizerID, gotSettlement.Splits[0].PayeeOrganizerID)
+	assert.Equal(t, order.Amount, gotSettlement.Splits[0].Amount)
+	assert.Empty(t, gotSettlement.Splits[0].TransferRef, "not released yet")
+
 	// After issuance the application is no longer awaiting.
 	awaiting2, err := issuanceRepo.ListApplicationIDsAwaitingIssuance(ctx)
 	require.NoError(t, err)
 	assert.NotContains(t, awaiting2, app.ID, "an issued application must not be awaiting issuance")
 
-	// -- Idempotency: a second Issue for the same application surfaces AlreadyExists. --
+	// -- Idempotency: a second Issue for the same application surfaces
+	//    AlreadyExists and rolls back the whole transaction, including the
+	//    settlement that would otherwise have been inserted. --
 	dup := *order
 	dup.ID = entity.OrderID(entity.NewID())
-	err = issuanceRepo.Issue(ctx, &dup, nil)
+	dupSettlement := &entity.Settlement{
+		ID:          entity.SettlementID(entity.NewID()),
+		OrderID:     dup.ID,
+		OrganizerID: organizerID,
+		EventID:     eventID,
+		Status:      entity.SettlementStatusHeld,
+		Splits:      []entity.SettlementSplit{{PayeeOrganizerID: organizerID, Amount: dup.Amount}},
+		CreatedTime: paidTime,
+	}
+	err = issuanceRepo.Issue(ctx, &dup, nil, dupSettlement)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrAlreadyExists, "one Order per application (unique index)")
+
+	_, err = settlementRepo.Get(ctx, dupSettlement.ID)
+	assert.ErrorIs(t, err, apperr.ErrNotFound, "the rolled-back transaction must not leave an orphan settlement")
 
 	// -- Refund side: status update + ticket void. --
 	require.NoError(t, orderRepo.UpdateStatus(ctx, order.ID, entity.OrderStatusRefunded))
