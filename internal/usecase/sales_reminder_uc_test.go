@@ -548,6 +548,9 @@ func TestScanDueReminders_NotYetExpiredStageStillPublishes(t *testing.T) {
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
 	userRepo := entitymocks.NewMockUserRepository(t)
+	// The phase carries its own URL (below), so ResolveSeriesLinkURL is never
+	// called and this mock needs no expectations set.
+	concertRepo := entitymocks.NewMockConcertRepository(t)
 	pub := ucmocks.NewMockEventPublisher(t)
 
 	salesPhaseRepo.On("ListPhasesWithPendingMilestones", ctx, lookahead, usecase.ReminderScanLookbackMargin).
@@ -566,7 +569,7 @@ func TestScanDueReminders_NotYetExpiredStageStillPublishes(t *testing.T) {
 	).Return(nil).Once()
 
 	uc := usecase.NewSalesReminderUseCase(
-		salesPhaseRepo, reminderRepo, journeyRepo, userRepo,
+		salesPhaseRepo, reminderRepo, journeyRepo, userRepo, concertRepo,
 		pub, lookahead, logger,
 	)
 
@@ -609,6 +612,9 @@ func TestScanDueReminders_AlreadySentStageIsNotRepublished(t *testing.T) {
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
 	userRepo := entitymocks.NewMockUserRepository(t)
+	// The phase carries its own URL (above), so ResolveSeriesLinkURL is never
+	// called and this mock needs no expectations set.
+	concertRepo := entitymocks.NewMockConcertRepository(t)
 	pub := ucmocks.NewMockEventPublisher(t)
 
 	salesPhaseRepo.On("ListPhasesWithPendingMilestones", ctx, lookahead, usecase.ReminderScanLookbackMargin).
@@ -625,7 +631,7 @@ func TestScanDueReminders_AlreadySentStageIsNotRepublished(t *testing.T) {
 	// outright if ScanDueReminders requests the already-sent stage again.
 
 	uc := usecase.NewSalesReminderUseCase(
-		salesPhaseRepo, reminderRepo, journeyRepo, userRepo,
+		salesPhaseRepo, reminderRepo, journeyRepo, userRepo, concertRepo,
 		pub, lookahead, logger,
 	)
 
@@ -669,6 +675,9 @@ func TestScanDueReminders_PaymentDeadlineAloneProducesNoReminder(t *testing.T) {
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
 	userRepo := entitymocks.NewMockUserRepository(t)
+	// The phase has no URL, so processPhase resolves the series link fallback
+	// once per phase regardless of which stages end up applicable.
+	concertRepo := entitymocks.NewMockConcertRepository(t)
 	pub := ucmocks.NewMockEventPublisher(t)
 
 	salesPhaseRepo.On("ListPhasesWithPendingMilestones", ctx, lookahead, usecase.ReminderScanLookbackMargin).
@@ -677,12 +686,13 @@ func TestScanDueReminders_PaymentDeadlineAloneProducesNoReminder(t *testing.T) {
 	userRepo.On("Get", ctx, "user-001").Return(user, nil)
 	reminderRepo.On("ListSentStages", ctx, "phase-payment-only", []string{"user-001"}).
 		Return(map[string]map[entity.ReminderStage]bool{}, nil)
+	concertRepo.On("ListEventsBySeries", ctx, "series-payment-only").Return([]*entity.Event{}, nil)
 
 	// No PublishEvent expectation is registered: no stage is applicable to a
 	// phase with only a payment deadline set.
 
 	uc := usecase.NewSalesReminderUseCase(
-		salesPhaseRepo, reminderRepo, journeyRepo, userRepo,
+		salesPhaseRepo, reminderRepo, journeyRepo, userRepo, concertRepo,
 		pub, lookahead, logger,
 	)
 
