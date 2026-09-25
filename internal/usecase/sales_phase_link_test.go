@@ -61,6 +61,7 @@ func TestResolveSeriesLinkURL(t *testing.T) {
 			want: "/concerts/event-upcoming",
 		},
 		{
+			// @spec components/usecase/sales-phase/scan-due-reminders "No application url and no upcoming event"
 			name: "no upcoming event falls back to the earliest event overall",
 			args: args{seriesID: "series-1"},
 			dep: dep{
@@ -84,6 +85,7 @@ func TestResolveSeriesLinkURL(t *testing.T) {
 			want: "/concerts/event-earlier-time",
 		},
 		{
+			// @spec components/usecase/sales-phase/scan-due-reminders "No application url and no event"
 			name: "no events falls back to the dashboard",
 			args: args{seriesID: "series-1"},
 			dep:  dep{events: nil},

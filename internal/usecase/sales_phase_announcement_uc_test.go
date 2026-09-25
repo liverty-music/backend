@@ -71,6 +71,7 @@ func TestAnnounceDiscoveredPhase_LocalizesCopyPerRecipient(t *testing.T) {
 	// Assert each recipient gets a Notify call with the correct localized title,
 	// language-independent URL (the series' resolved event, not the phase
 	// itself), and per-phase Tag.
+	// @spec components/usecase/sales-phase/announce-discovered-phase "Japanese-speaking fan"
 	d.notificationUC.EXPECT().
 		Notify(anyCtx, "user-ja", entity.NotificationTypeSalesPhaseAnnouncement,
 			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
@@ -89,6 +90,8 @@ func TestAnnounceDiscoveredPhase_LocalizesCopyPerRecipient(t *testing.T) {
 			})).
 		Return(deliveredNotif(), nil).
 		Once()
+	// @spec components/usecase/sales-phase/announce-discovered-phase "Other language"
+	// user-unset has no preferred language, matching the scenario's "or not set".
 	d.notificationUC.EXPECT().
 		Notify(anyCtx, "user-unset", entity.NotificationTypeSalesPhaseAnnouncement,
 			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
@@ -185,4 +188,68 @@ func TestAnnounceDiscoveredPhase_NotifyError_PropagatesAndAborts(t *testing.T) {
 	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, notifyErr)
+}
+
+// @spec components/usecase/sales-phase/announce-discovered-phase "No upcoming event"
+func TestAnnounceDiscoveredPhase_NoUpcomingEvent_LinksToEarliestEvent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	d := newAnnouncementTestDeps(t)
+	data := entity.SalesPhaseDiscoveredData{SeriesID: "series-1", PhaseID: "phase-1"}
+
+	d.journeyRepo.EXPECT().
+		ListUserIDsTrackingSeries(ctx, "series-1").
+		Return([]string{"user-1"}, nil).
+		Once()
+	d.userRepo.EXPECT().Get(ctx, "user-1").Return(&entity.User{ID: "user-1", PreferredLanguage: "en"}, nil).Once()
+	// Every event of the series is in the past: the more recent one is
+	// nonetheless the "earliest" of the two, and is the one linked to.
+	past := time.Now().UTC().AddDate(0, 0, -30)
+	moreRecentPast := time.Now().UTC().AddDate(0, 0, -1)
+	d.concertRepo.EXPECT().
+		ListEventsBySeries(ctx, "series-1").
+		Return([]*entity.Event{
+			{ID: "event-oldest", LocalDate: past},
+			{ID: "event-recent", LocalDate: moreRecentPast},
+		}, nil).
+		Once()
+
+	d.notificationUC.EXPECT().
+		Notify(anyCtx, "user-1", entity.NotificationTypeSalesPhaseAnnouncement,
+			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
+				return p.Data[entity.NotificationDataKeyURL] == "/concerts/event-oldest"
+			})).
+		Return(deliveredNotif(), nil).
+		Once()
+
+	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
+	require.NoError(t, err)
+}
+
+// @spec components/usecase/sales-phase/announce-discovered-phase "Series with no event"
+func TestAnnounceDiscoveredPhase_SeriesWithNoEvent_LinksToDashboard(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	d := newAnnouncementTestDeps(t)
+	data := entity.SalesPhaseDiscoveredData{SeriesID: "series-1", PhaseID: "phase-1"}
+
+	d.journeyRepo.EXPECT().
+		ListUserIDsTrackingSeries(ctx, "series-1").
+		Return([]string{"user-1"}, nil).
+		Once()
+	d.userRepo.EXPECT().Get(ctx, "user-1").Return(&entity.User{ID: "user-1", PreferredLanguage: "en"}, nil).Once()
+	d.concertRepo.EXPECT().ListEventsBySeries(ctx, "series-1").Return(nil, nil).Once()
+
+	d.notificationUC.EXPECT().
+		Notify(anyCtx, "user-1", entity.NotificationTypeSalesPhaseAnnouncement,
+			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
+				return p.Data[entity.NotificationDataKeyURL] == "/dashboard"
+			})).
+		Return(deliveredNotif(), nil).
+		Once()
+
+	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
+	require.NoError(t, err)
 }

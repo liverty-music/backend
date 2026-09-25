@@ -306,6 +306,7 @@ func TestChannelDisplayName(t *testing.T) {
 		{"provider name takes precedence", entity.SalesChannelPlayguide, "e+", "en", "e+"},
 		{"provider name ja takes precedence", entity.SalesChannelPlayguide, "チケットぴあ", "ja", "チケットぴあ"},
 		{"unspecified en → Ticket", entity.SalesChannelUnspecified, "", "en", "Ticket"},
+		// @spec components/usecase/sales-phase/scan-due-reminders "Channel not determined"
 		{"unspecified ja → チケット", entity.SalesChannelUnspecified, "", "ja", "チケット"},
 		{"fan_club en", entity.SalesChannelFanClub, "", "en", "Fan Club"},
 		{"fan_club ja", entity.SalesChannelFanClub, "", "ja", "ファンクラブ"},
@@ -338,6 +339,20 @@ func TestBuildReminderPayload(t *testing.T) {
 	userEN := &entity.User{ID: "user-en", PreferredLanguage: "en", TimeZone: "Asia/Tokyo"}
 	userJA := &entity.User{ID: "user-ja", PreferredLanguage: "ja", TimeZone: "Asia/Tokyo"}
 
+	// @spec components/usecase/sales-phase/scan-due-reminders "Play-guide presale opens"
+	t.Run("APPLY_OPEN en, play-guide provider", func(t *testing.T) {
+		t.Parallel()
+		playGuidePhase := &entity.SalesPhase{
+			ID:             "phase-eplus",
+			SeriesID:       "series-eplus",
+			Channel:        entity.SalesChannelPlayguide,
+			ProviderName:   "イープラス",
+			ApplyStartTime: time.Date(2026, 7, 1, 1, 0, 0, 0, time.UTC), // 10:00 JST
+		}
+		p := usecase.ExportedBuildReminderPayload(playGuidePhase, entity.ReminderStageApplyOpen, userEN, "/dashboard")
+		assert.Equal(t, "Ticket Sales Open", p.Title)
+		assert.Equal(t, "イープラス sales open at Jul 1 10:00", p.Body)
+	})
 	t.Run("APPLY_OPEN en", func(t *testing.T) {
 		t.Parallel()
 		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageApplyOpen, userEN, "/dashboard")
@@ -364,6 +379,7 @@ func TestBuildReminderPayload(t *testing.T) {
 		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageResultDay, userEN, "/dashboard")
 		assert.Equal(t, "Lottery Results Today", p.Title)
 	})
+	// @spec components/usecase/sales-phase/scan-due-reminders "No application url"
 	t.Run("fallback URL when phase URL empty", func(t *testing.T) {
 		t.Parallel()
 		// The caller (processPhase) resolves this once per phase via

@@ -1561,6 +1561,7 @@ func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 	venueRepo := rdb.NewVenueRepository(testDB)
 	seriesRepo := rdb.NewSeriesRepository(testDB)
 
+	// @spec components/entity/concert/list-events-by-series "Two events, one after the other"
 	t.Run("events are ordered by date then start time, NULLs last", func(t *testing.T) {
 		cleanDatabase(t)
 
@@ -1621,6 +1622,7 @@ func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 		assert.Equal(t, []string{matineeID, eveningID, unannouncedID, laterID}, gotIDs)
 	})
 
+	// @spec components/entity/concert/list-events-by-series "Series with no event"
 	t.Run("series with no event returns an empty slice", func(t *testing.T) {
 		cleanDatabase(t)
 		seriesID := seedSeries(t, ctx, seriesRepo, "Empty Series")
