@@ -172,8 +172,21 @@ func (r *SettlementRepository) ListHeld(ctx context.Context) ([]*entity.Settleme
 }
 
 // MarkReleased implements [entity.SettlementRepository].
+//
+// The status flip and every split's transfer_ref update run inside one pgx
+// transaction, so a failure partway through (e.g. a split update violating a
+// constraint) rolls back the whole operation and leaves the settlement Held —
+// never Released with a split missing its transfer reference, or vice versa.
 func (r *SettlementRepository) MarkReleased(ctx context.Context, id entity.SettlementID, chargeRef string, releasedAt time.Time, splits []entity.SettlementSplit) error {
-	tag, err := r.db.Pool.Exec(ctx, markReleasedSettlementQuery,
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin mark-released transaction",
+			slog.String("settlement_id", string(id)))
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, markReleasedSettlementQuery,
 		string(id), chargeRef, releasedAt)
 	if err != nil {
 		return toAppErr(err, "failed to mark settlement released",
@@ -185,14 +198,20 @@ func (r *SettlementRepository) MarkReleased(ctx context.Context, id entity.Settl
 			"settlement is not in held status; cannot mark released (already released or reversed)")
 	}
 
-	// Persist the transfer_ref for each split.
+	// Persist the transfer_ref for each split, in the same transaction as the
+	// status flip above.
 	for _, split := range splits {
-		if _, err := r.db.Pool.Exec(ctx, upsertSplitTransferRefQuery,
+		if _, err := tx.Exec(ctx, upsertSplitTransferRefQuery,
 			string(id), split.PayeeOrganizerID, split.TransferRef); err != nil {
 			return toAppErr(err, "failed to update split transfer ref",
 				slog.String("settlement_id", string(id)),
 				slog.String("payee_organizer_id", split.PayeeOrganizerID))
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit mark-released transaction",
+			slog.String("settlement_id", string(id)))
 	}
 	return nil
 }
