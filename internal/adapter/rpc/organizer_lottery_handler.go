@@ -76,11 +76,13 @@ func (h *OrganizerLotteryHandler) ConfigureLotteryPhase(
 	ctx context.Context,
 	req *connect.Request[organizerv1.ConfigureLotteryPhaseRequest],
 ) (*connect.Response[organizerv1.ConfigureLotteryPhaseResponse], error) {
-	if _, err := h.resolveCallerOrganizer(ctx); err != nil {
+	organizer, err := h.resolveCallerOrganizer(ctx)
+	if err != nil {
 		return nil, err
 	}
 
 	in := usecase.ConfigureLotteryPhaseInput{
+		CallerOrgID:              organizer.ID,
 		EventID:                  req.Msg.GetEventId().GetValue(),
 		OpenTime:                 req.Msg.GetOpenTime().AsTime(),
 		CloseTime:                req.Msg.GetCloseTime().AsTime(),
@@ -105,13 +107,14 @@ func (h *OrganizerLotteryHandler) GetLotteryPhaseStatus(
 	ctx context.Context,
 	req *connect.Request[organizerv1.GetLotteryPhaseStatusRequest],
 ) (*connect.Response[organizerv1.GetLotteryPhaseStatusResponse], error) {
-	if _, err := h.resolveCallerOrganizer(ctx); err != nil {
+	organizer, err := h.resolveCallerOrganizer(ctx)
+	if err != nil {
 		return nil, err
 	}
 
 	phaseID := entity.LotteryPhaseID(req.Msg.GetPhaseId().GetValue())
 
-	status, err := h.lotteryUC.GetLotteryPhaseStatus(ctx, phaseID)
+	status, err := h.lotteryUC.GetLotteryPhaseStatus(ctx, phaseID, organizer.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -134,11 +137,13 @@ func (h *OrganizerLotteryHandler) SetPhaseVerificationRequirement(
 	ctx context.Context,
 	req *connect.Request[organizerv1.SetPhaseVerificationRequirementRequest],
 ) (*connect.Response[organizerv1.SetPhaseVerificationRequirementResponse], error) {
-	if _, err := h.resolveCallerOrganizer(ctx); err != nil {
+	organizer, err := h.resolveCallerOrganizer(ctx)
+	if err != nil {
 		return nil, err
 	}
 
 	in := usecase.SetVerificationRequirementInput{
+		CallerOrgID:             organizer.ID,
 		PhaseID:                 entity.LotteryPhaseID(req.Msg.GetPhaseId().GetValue()),
 		VerificationRequirement: mapper.VerificationRequirementFromProto(req.Msg.GetVerificationRequirement()),
 	}

@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -40,6 +41,15 @@ const (
 			WHERE e.id = $1
 			  AND COALESCE(s.publish_state::text, '') = 'PUBLISHED'
 		)
+	`
+
+	// eventOrganizerIDQuery returns the owning organizer's ID for the event's
+	// series. organizer_id is NULL for a discovered (non-first-party) series.
+	eventOrganizerIDQuery = `
+		SELECT s.organizer_id
+		FROM events e
+		JOIN series s ON e.series_id = s.id
+		WHERE e.id = $1
 	`
 )
 
@@ -82,4 +92,30 @@ func (r *EventPublishStateRepository) IsEventPublished(ctx context.Context, even
 		)
 	}
 	return published, nil
+}
+
+// GetEventOrganizerID implements [usecase.EventPublishStatePort].
+//
+// It returns:
+//   - (organizerID, nil): the event exists; organizerID is the owning
+//     organizer's ID, or "" when the event's series is a discovered
+//     (non-first-party) series with no organizer.
+//   - ("", err): err carries NotFound when the event does not exist, or
+//     Internal for a database failure.
+func (r *EventPublishStateRepository) GetEventOrganizerID(ctx context.Context, eventID string) (string, error) {
+	if eventID == "" {
+		return "", apperr.New(codes.InvalidArgument, "event_id must not be empty")
+	}
+
+	var organizerID sql.NullString
+	err := r.db.Pool.QueryRow(ctx, eventOrganizerIDQuery, eventID).Scan(&organizerID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", apperr.New(codes.NotFound, "event not found")
+		}
+		return "", toAppErr(err, "failed to get event organizer id",
+			slog.String("event_id", eventID),
+		)
+	}
+	return organizerID.String, nil
 }

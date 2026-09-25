@@ -32,6 +32,18 @@ type EventPublishStatePort interface {
 	//  - NotFound: no event with the given ID exists.
 	//  - Internal: database query failure.
 	IsEventPublished(ctx context.Context, eventID string) (bool, error)
+
+	// GetEventOrganizerID returns the ID of the organizer that owns the event's
+	// series, via the series' OrganizerID. Used to enforce that an organizer can
+	// only configure or inspect lottery phases on events it owns. Returns ""
+	// (not an error) when the event exists but its series is a discovered
+	// (non-first-party) series with no owning organizer.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no event with the given ID exists.
+	//  - Internal: database query failure.
+	GetEventOrganizerID(ctx context.Context, eventID string) (string, error)
 }
 
 // PaymentAuthorizationPort abstracts the payment provider (Stripe) for the
@@ -115,6 +127,11 @@ type PaymentAuthorizationPort interface {
 //
 // TODO: swap to generated proto request type after BSR gen.
 type ConfigureLotteryPhaseInput struct {
+	// CallerOrgID is the platform-internal ID of the calling organizer, as
+	// resolved by the RPC handler from the authenticated caller. The event's
+	// series must be owned by this organizer.
+	CallerOrgID string
+
 	// EventID is the concert event this phase is attached to. The event must be
 	// PUBLISHED before a lottery phase can be configured.
 	EventID string
@@ -147,6 +164,11 @@ type ConfigureLotteryPhaseInput struct {
 //
 // TODO: swap to generated proto request type after BSR gen.
 type SetVerificationRequirementInput struct {
+	// CallerOrgID is the platform-internal ID of the calling organizer, as
+	// resolved by the RPC handler from the authenticated caller. The phase's
+	// event series must be owned by this organizer.
+	CallerOrgID string
+
 	// PhaseID is the lottery phase to update.
 	PhaseID entity.LotteryPhaseID
 
@@ -213,24 +235,30 @@ type ApplyInput struct {
 // TODO: handler wiring after BSR gen — add a LotteryHandler in
 // internal/adapter/rpc/ that maps proto ↔ entity and calls these methods.
 type LotteryUseCase interface {
-	// ConfigureLotteryPhase creates a new lottery sales phase for an event.
+	// ConfigureLotteryPhase creates a new lottery sales phase for an event owned
+	// by CallerOrgID.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: validation failure (window ordering, duration out of
 	//    [1,14] days, capacity, max-per-application, or ticket price).
-	//  - FailedPrecondition: the event is not PUBLISHED.
 	//  - NotFound: the event does not exist.
+	//  - PermissionDenied: the event exists but its series is not owned by
+	//    CallerOrgID.
+	//  - FailedPrecondition: the event is not PUBLISHED.
 	ConfigureLotteryPhase(ctx context.Context, in ConfigureLotteryPhaseInput) (*entity.LotterySalesPhase, error)
 
 	// SetPhaseVerificationRequirement changes the identity-verification
-	// requirement on an existing lottery phase. The organizer may call this at
-	// any time (before or after the draw). Returns the updated phase.
+	// requirement on an existing lottery phase owned by CallerOrgID. The
+	// organizer may call this at any time (before or after the draw). Returns
+	// the updated phase.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: phaseID is empty.
 	//  - NotFound: no phase with the given ID exists.
+	//  - PermissionDenied: the phase exists but its event's series is not owned
+	//    by CallerOrgID.
 	SetPhaseVerificationRequirement(ctx context.Context, in SetVerificationRequirementInput) (*entity.LotterySalesPhase, error)
 
 	// CreateAuthorization creates a Stripe manual-capture PaymentIntent for the
@@ -296,13 +324,16 @@ type LotteryUseCase interface {
 	GetResult(ctx context.Context, phaseID entity.LotteryPhaseID, applicantID entity.UserID) (*entity.TicketApplication, error)
 
 	// GetLotteryPhaseStatus loads the phase together with aggregate tallies over
-	// all its ticket applications. The tallies reflect the post-draw outcome when
-	// DrawCompleted is true, and are zeros otherwise.
+	// all its ticket applications, for a phase owned by callerOrgID. The
+	// tallies reflect the post-draw outcome when DrawCompleted is true, and are
+	// zeros otherwise.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: no phase with the given ID exists.
-	GetLotteryPhaseStatus(ctx context.Context, phaseID entity.LotteryPhaseID) (*entity.LotteryPhaseStatus, error)
+	//  - PermissionDenied: the phase exists but its event's series is not owned
+	//    by callerOrgID.
+	GetLotteryPhaseStatus(ctx context.Context, phaseID entity.LotteryPhaseID, callerOrgID string) (*entity.LotteryPhaseStatus, error)
 
 	// DrawDuePhases finds all phases whose window has closed and whose draw has
 	// not yet run, then executes the draw for each. Individual phase failures are
@@ -378,6 +409,38 @@ const (
 	maxWindowDuration = 14 * 24 * time.Hour
 )
 
+// assertOwnsEvent verifies that the event identified by eventID belongs to
+// callerOrgID, via the event's series OrganizerID. A nonexistent event
+// propagates NotFound unchanged (the event ID space is not treated as
+// secret); an event that exists but belongs to a different organizer fails
+// with PermissionDenied. See the "Only the event's Organizer configures its
+// phases" requirement in the ConfigureLotteryPhase spec.
+func (uc *lotteryUseCase) assertOwnsEvent(ctx context.Context, eventID, callerOrgID string) error {
+	organizerID, err := uc.eventState.GetEventOrganizerID(ctx, eventID)
+	if err != nil {
+		return err // propagates NotFound or Internal
+	}
+	if organizerID != callerOrgID {
+		return apperr.New(codes.PermissionDenied, "permission denied")
+	}
+	return nil
+}
+
+// assertOwnsPhase verifies that the caller's organizer owns the lottery phase
+// identified by phaseID, and returns the phase on success. A nonexistent
+// phase propagates NotFound unchanged; a phase whose event belongs to a
+// different organizer fails with PermissionDenied.
+func (uc *lotteryUseCase) assertOwnsPhase(ctx context.Context, phaseID entity.LotteryPhaseID, callerOrgID string) (*entity.LotterySalesPhase, error) {
+	phase, err := uc.phaseRepo.Get(ctx, phaseID)
+	if err != nil {
+		return nil, err // propagates NotFound or Internal
+	}
+	if err := uc.assertOwnsEvent(ctx, phase.EventID, callerOrgID); err != nil {
+		return nil, err
+	}
+	return phase, nil
+}
+
 // ConfigureLotteryPhase implements [LotteryUseCase].
 func (uc *lotteryUseCase) ConfigureLotteryPhase(ctx context.Context, in ConfigureLotteryPhaseInput) (*entity.LotterySalesPhase, error) {
 	// -- validation --
@@ -412,6 +475,15 @@ func (uc *lotteryUseCase) ConfigureLotteryPhase(ctx context.Context, in Configur
 	}
 	if in.TicketPrice <= 0 {
 		return nil, apperr.New(codes.InvalidArgument, "ticket_price must be positive")
+	}
+
+	// -- ownership: the event's series must belong to the calling organizer --
+	//
+	// Checked before the PUBLISHED precondition below so a caller who does not
+	// own the event never learns its publish state. A nonexistent event still
+	// surfaces as NotFound (see assertOwnsEvent).
+	if err := uc.assertOwnsEvent(ctx, in.EventID, in.CallerOrgID); err != nil {
+		return nil, err
 	}
 
 	// -- precondition: event must be PUBLISHED --
@@ -642,10 +714,10 @@ func (uc *lotteryUseCase) GetResult(ctx context.Context, phaseID entity.LotteryP
 }
 
 // GetLotteryPhaseStatus implements [LotteryUseCase].
-func (uc *lotteryUseCase) GetLotteryPhaseStatus(ctx context.Context, phaseID entity.LotteryPhaseID) (*entity.LotteryPhaseStatus, error) {
-	phase, err := uc.phaseRepo.Get(ctx, phaseID)
+func (uc *lotteryUseCase) GetLotteryPhaseStatus(ctx context.Context, phaseID entity.LotteryPhaseID, callerOrgID string) (*entity.LotteryPhaseStatus, error) {
+	phase, err := uc.assertOwnsPhase(ctx, phaseID, callerOrgID)
 	if err != nil {
-		return nil, err // propagates NotFound
+		return nil, err
 	}
 
 	stats, err := uc.appRepo.GetPhaseStats(ctx, phaseID)
@@ -661,6 +733,9 @@ func (uc *lotteryUseCase) GetLotteryPhaseStatus(ctx context.Context, phaseID ent
 func (uc *lotteryUseCase) SetPhaseVerificationRequirement(ctx context.Context, in SetVerificationRequirementInput) (*entity.LotterySalesPhase, error) {
 	if in.PhaseID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "phase_id is required")
+	}
+	if _, err := uc.assertOwnsPhase(ctx, in.PhaseID, in.CallerOrgID); err != nil {
+		return nil, err
 	}
 	return uc.phaseRepo.UpdateVerificationRequirement(ctx, in.PhaseID, in.VerificationRequirement)
 }
