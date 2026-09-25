@@ -38,7 +38,7 @@ type handlerLotteryUCStub struct {
 	withdrawFn                   func(context.Context, entity.TicketApplicationID, entity.UserID) error
 	getMyApplicationFn           func(context.Context, entity.LotteryPhaseID, entity.UserID) (*entity.TicketApplication, error)
 	getResultFn                  func(context.Context, entity.LotteryPhaseID, entity.UserID) (*entity.TicketApplication, error)
-	getLotteryStatusFn           func(context.Context, entity.LotteryPhaseID) (*entity.LotteryPhaseStatus, error)
+	getLotteryStatusFn           func(context.Context, entity.LotteryPhaseID, string) (*entity.LotteryPhaseStatus, error)
 	setVerificationRequirementFn func(context.Context, usecase.SetVerificationRequirementInput) (*entity.LotterySalesPhase, error)
 }
 
@@ -86,9 +86,9 @@ func (s *handlerLotteryUCStub) GetResult(ctx context.Context, phaseID entity.Lot
 	return &entity.TicketApplication{ID: "app-uuid-1", PhaseID: phaseID, ApplicantID: applicantID, State: entity.TicketApplicationStateWon}, nil
 }
 
-func (s *handlerLotteryUCStub) GetLotteryPhaseStatus(ctx context.Context, phaseID entity.LotteryPhaseID) (*entity.LotteryPhaseStatus, error) {
+func (s *handlerLotteryUCStub) GetLotteryPhaseStatus(ctx context.Context, phaseID entity.LotteryPhaseID, callerOrgID string) (*entity.LotteryPhaseStatus, error) {
 	if s.getLotteryStatusFn != nil {
-		return s.getLotteryStatusFn(ctx, phaseID)
+		return s.getLotteryStatusFn(ctx, phaseID, callerOrgID)
 	}
 	return &entity.LotteryPhaseStatus{
 		Phase: &entity.LotterySalesPhase{ID: phaseID, EventID: "event-1"},
@@ -269,7 +269,7 @@ func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
 					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
 			},
 			lotterySetup: func(stub *handlerLotteryUCStub) {
-				stub.getLotteryStatusFn = func(_ context.Context, phaseID entity.LotteryPhaseID) (*entity.LotteryPhaseStatus, error) {
+				stub.getLotteryStatusFn = func(_ context.Context, phaseID entity.LotteryPhaseID, _ string) (*entity.LotteryPhaseStatus, error) {
 					return &entity.LotteryPhaseStatus{
 						Phase:                      &entity.LotterySalesPhase{ID: phaseID, EventID: "event-1"},
 						DrawCompleted:              true,
@@ -301,7 +301,7 @@ func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
 					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
 			},
 			lotterySetup: func(stub *handlerLotteryUCStub) {
-				stub.getLotteryStatusFn = func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotteryPhaseStatus, error) {
+				stub.getLotteryStatusFn = func(_ context.Context, _ entity.LotteryPhaseID, _ string) (*entity.LotteryPhaseStatus, error) {
 					return nil, apperr.New(apperr.ErrNotFound.Code, "no phase")
 				}
 			},

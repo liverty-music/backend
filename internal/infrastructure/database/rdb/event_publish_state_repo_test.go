@@ -179,3 +179,65 @@ func TestEventPublishStateRepository_IsEventPublished(t *testing.T) {
 		})
 	}
 }
+
+func TestEventPublishStateRepository_GetEventOrganizerID(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	repo := rdb.NewEventPublishStateRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("return owning organizer id for a first-party event", func(t *testing.T) {
+		cleanDatabase(t)
+		organizerID := seedOrganizer(t)
+		venueID := seedVenue(t, "eps-owner-venue")
+		seriesID := uuid.NewV7().String()
+		_, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO series (id, title, type, organizer_id, visibility, publish_state, published_at)
+			VALUES ($1, 'Owned Series', 'SINGLE', $2, 'PUBLIC', 'PUBLISHED', now())
+		`, seriesID, organizerID)
+		require.NoError(t, err)
+		eventID := uuid.NewV7().String()
+		_, err = testDB.Pool.Exec(ctx,
+			`INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, '2027-06-01')`,
+			eventID, seriesID, venueID,
+		)
+		require.NoError(t, err)
+
+		got, err := repo.GetEventOrganizerID(ctx, eventID)
+		require.NoError(t, err)
+		assert.Equal(t, organizerID, got)
+	})
+
+	t.Run("return empty string for a discovered event with no owning organizer", func(t *testing.T) {
+		cleanDatabase(t)
+		eventID := seedDiscoveredEvent(t)
+
+		got, err := repo.GetEventOrganizerID(ctx, eventID)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("return NotFound for non-existent event", func(t *testing.T) {
+		cleanDatabase(t)
+
+		got, err := repo.GetEventOrganizerID(ctx, uuid.NewV7().String())
+		require.Error(t, err)
+		var ae *apperr.AppErr
+		require.ErrorAs(t, err, &ae)
+		assert.Equal(t, codes.NotFound, ae.Code, "got error: %v", err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("return InvalidArgument for empty event ID", func(t *testing.T) {
+		cleanDatabase(t)
+
+		got, err := repo.GetEventOrganizerID(ctx, "")
+		require.Error(t, err)
+		var ae *apperr.AppErr
+		require.ErrorAs(t, err, &ae)
+		assert.Equal(t, codes.InvalidArgument, ae.Code, "got error: %v", err)
+		assert.Empty(t, got)
+	})
+}

@@ -116,7 +116,8 @@ func (s *stubAppRepo) PersistDrawOutcome(ctx context.Context, phaseID entity.Lot
 }
 
 type stubEventState struct {
-	fn func(context.Context, string) (bool, error)
+	fn            func(context.Context, string) (bool, error)
+	organizerIDFn func(context.Context, string) (string, error)
 }
 
 func (s *stubEventState) IsEventPublished(ctx context.Context, eventID string) (bool, error) {
@@ -124,6 +125,16 @@ func (s *stubEventState) IsEventPublished(ctx context.Context, eventID string) (
 		return s.fn(ctx, eventID)
 	}
 	return true, nil
+}
+
+// GetEventOrganizerID defaults to "" so tests that do not care about
+// ownership (and leave ConfigureLotteryPhaseInput.CallerOrgID at its zero
+// value "") pass the ownership check without configuring this field.
+func (s *stubEventState) GetEventOrganizerID(ctx context.Context, eventID string) (string, error) {
+	if s.organizerIDFn != nil {
+		return s.organizerIDFn(ctx, eventID)
+	}
+	return "", nil
 }
 
 // stubVerifiedIdentityRepo stubs [entity.VerifiedIdentityRepository] with
@@ -272,11 +283,12 @@ func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		mutate     func(*usecase.ConfigureLotteryPhaseInput)
-		published  func(context.Context, string) (bool, error)
-		wantErr    error
-		wantCalled bool // expect phaseRepo.Create to be invoked
+		name          string
+		mutate        func(*usecase.ConfigureLotteryPhaseInput)
+		published     func(context.Context, string) (bool, error)
+		organizerIDFn func(context.Context, string) (string, error)
+		wantErr       error
+		wantCalled    bool // expect phaseRepo.Create to be invoked
 	}{
 		{
 			name:       "success: valid 7-day window creates phase",
@@ -350,11 +362,19 @@ func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
 		},
 		{
 			name:   "reject: event not found propagates NotFound",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {},
-			published: func(context.Context, string) (bool, error) {
-				return false, apperr.New(apperr.ErrNotFound.Code, "no event")
+			mutate: func(in *usecase.ConfigureLotteryPhaseInput) { in.CallerOrgID = "org-1" },
+			organizerIDFn: func(context.Context, string) (string, error) {
+				return "", apperr.New(apperr.ErrNotFound.Code, "no event")
 			},
 			wantErr: apperr.ErrNotFound,
+		},
+		{
+			name:   "reject: event owned by another organizer returns PermissionDenied",
+			mutate: func(in *usecase.ConfigureLotteryPhaseInput) { in.CallerOrgID = "org-other" },
+			organizerIDFn: func(context.Context, string) (string, error) {
+				return "org-owner", nil
+			},
+			wantErr: apperr.ErrPermissionDenied,
 		},
 	}
 
@@ -369,7 +389,7 @@ func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
 					return p, nil
 				},
 			}
-			eventState := &stubEventState{fn: tt.published}
+			eventState := &stubEventState{fn: tt.published, organizerIDFn: tt.organizerIDFn}
 			uc := newLotteryUC(t, phaseRepo, &stubAppRepo{}, eventState, &stubPaymentPort{}, open)
 
 			in := base()
@@ -1353,6 +1373,98 @@ func TestLotteryUseCase_Apply_VerificationGate(t *testing.T) {
 	}
 }
 
+// --- GetLotteryPhaseStatus ---
+
+func TestLotteryUseCase_GetLotteryPhaseStatus(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+
+	basePhase := func(id entity.LotteryPhaseID) *entity.LotterySalesPhase {
+		return &entity.LotterySalesPhase{
+			ID:                       id,
+			EventID:                  "event-1",
+			OpenTime:                 open,
+			CloseTime:                open.Add(7 * 24 * time.Hour),
+			TicketCapacity:           100,
+			MaxTicketsPerApplication: 4,
+			TicketPrice:              5000,
+		}
+	}
+
+	tests := []struct {
+		name          string
+		phaseID       entity.LotteryPhaseID
+		callerOrgID   string
+		getFn         func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error)
+		organizerIDFn func(context.Context, string) (string, error)
+		wantErr       error
+	}{
+		{
+			name:          "success: owner reads phase status",
+			phaseID:       "phase-1",
+			callerOrgID:   "org-1",
+			organizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil },
+		},
+		{
+			name:        "reject: phase not found propagates NotFound",
+			phaseID:     "phase-missing",
+			callerOrgID: "org-1",
+			getFn: func(_ context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+				return nil, apperr.New(apperr.ErrNotFound.Code, "no phase")
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+		{
+			name:          "reject: phase owned by another organizer returns PermissionDenied",
+			phaseID:       "phase-1",
+			callerOrgID:   "org-other",
+			organizerIDFn: func(context.Context, string) (string, error) { return "org-owner", nil },
+			wantErr:       apperr.ErrPermissionDenied,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			getFn := tt.getFn
+			if getFn == nil {
+				getFn = func(_ context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+					return basePhase(id), nil
+				}
+			}
+			phaseRepo := &stubPhaseRepo{getFn: getFn}
+
+			var statsCalled bool
+			appRepo := &stubAppRepo{
+				getPhaseStatsFn: func(context.Context, entity.LotteryPhaseID) (entity.LotteryPhaseStatus, error) {
+					statsCalled = true
+					return entity.LotteryPhaseStatus{}, nil
+				},
+			}
+
+			eventState := &stubEventState{organizerIDFn: tt.organizerIDFn}
+			uc := newLotteryUC(t, phaseRepo, appRepo, eventState, &stubPaymentPort{}, open)
+
+			got, err := uc.GetLotteryPhaseStatus(ctx, tt.phaseID, tt.callerOrgID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, got)
+				assert.False(t, statsCalled, "GetPhaseStats must not be called on rejection")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.True(t, statsCalled)
+			require.NotNil(t, got.Phase)
+			assert.Equal(t, tt.phaseID, got.Phase.ID)
+		})
+	}
+}
+
 // --- SetPhaseVerificationRequirement ---
 
 func TestLotteryUseCase_SetPhaseVerificationRequirement(t *testing.T) {
@@ -1361,36 +1473,58 @@ func TestLotteryUseCase_SetPhaseVerificationRequirement(t *testing.T) {
 	ctx := context.Background()
 	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 
+	// basePhaseForGet returns the phase served by phaseRepo.Get for the default
+	// "phase-1" ID, owned by event-1.
+	basePhaseForGet := func(id entity.LotteryPhaseID) *entity.LotterySalesPhase {
+		return &entity.LotterySalesPhase{
+			ID:                       id,
+			EventID:                  "event-1",
+			OpenTime:                 open,
+			CloseTime:                open.Add(7 * 24 * time.Hour),
+			TicketCapacity:           100,
+			MaxTicketsPerApplication: 4,
+			TicketPrice:              5000,
+		}
+	}
+
 	tests := []struct {
-		name    string
-		args    usecase.SetVerificationRequirementInput
-		repoFn  func(context.Context, entity.LotteryPhaseID, entity.VerificationRequirement) (*entity.LotterySalesPhase, error)
-		wantReq entity.VerificationRequirement
-		wantErr error
+		name          string
+		args          usecase.SetVerificationRequirementInput
+		getFn         func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error)
+		organizerIDFn func(context.Context, string) (string, error)
+		repoFn        func(context.Context, entity.LotteryPhaseID, entity.VerificationRequirement) (*entity.LotterySalesPhase, error)
+		wantReq       entity.VerificationRequirement
+		wantErr       error
 	}{
 		{
 			name: "success: sets VerifiedAny and returns updated phase",
 			args: usecase.SetVerificationRequirementInput{
+				CallerOrgID:             "org-1",
 				PhaseID:                 "phase-1",
 				VerificationRequirement: entity.VerificationRequirementVerifiedAny,
 			},
-			wantReq: entity.VerificationRequirementVerifiedAny,
+			organizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil },
+			wantReq:       entity.VerificationRequirementVerifiedAny,
 		},
 		{
 			name: "success: sets JpkiOnly and returns updated phase",
 			args: usecase.SetVerificationRequirementInput{
+				CallerOrgID:             "org-1",
 				PhaseID:                 "phase-1",
 				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
 			},
-			wantReq: entity.VerificationRequirementJPKIOnly,
+			organizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil },
+			wantReq:       entity.VerificationRequirementJPKIOnly,
 		},
 		{
 			name: "success: resets to None",
 			args: usecase.SetVerificationRequirementInput{
+				CallerOrgID:             "org-1",
 				PhaseID:                 "phase-1",
 				VerificationRequirement: entity.VerificationRequirementNone,
 			},
-			wantReq: entity.VerificationRequirementNone,
+			organizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil },
+			wantReq:       entity.VerificationRequirementNone,
 		},
 		{
 			name: "reject: empty phase_id returns InvalidArgument",
@@ -1403,13 +1537,24 @@ func TestLotteryUseCase_SetPhaseVerificationRequirement(t *testing.T) {
 		{
 			name: "reject: phase not found propagates NotFound",
 			args: usecase.SetVerificationRequirementInput{
+				CallerOrgID:             "org-1",
 				PhaseID:                 "phase-missing",
 				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
 			},
-			repoFn: func(_ context.Context, _ entity.LotteryPhaseID, _ entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
+			getFn: func(_ context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
 				return nil, apperr.New(apperr.ErrNotFound.Code, "no phase")
 			},
 			wantErr: apperr.ErrNotFound,
+		},
+		{
+			name: "reject: phase owned by another organizer returns PermissionDenied",
+			args: usecase.SetVerificationRequirementInput{
+				CallerOrgID:             "org-other",
+				PhaseID:                 "phase-1",
+				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
+			},
+			organizerIDFn: func(context.Context, string) (string, error) { return "org-owner", nil },
+			wantErr:       apperr.ErrPermissionDenied,
 		},
 	}
 
@@ -1418,6 +1563,7 @@ func TestLotteryUseCase_SetPhaseVerificationRequirement(t *testing.T) {
 			t.Parallel()
 
 			var capturedReq entity.VerificationRequirement
+			var updateCalled bool
 			repoFn := tt.repoFn
 			if repoFn == nil {
 				repoFn = func(_ context.Context, id entity.LotteryPhaseID, req entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
@@ -1435,21 +1581,35 @@ func TestLotteryUseCase_SetPhaseVerificationRequirement(t *testing.T) {
 				}
 			}
 
-			phaseRepo := &stubPhaseRepo{
-				updateVerificationRequirementFn: repoFn,
+			getFn := tt.getFn
+			if getFn == nil {
+				getFn = func(_ context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
+					return basePhaseForGet(id), nil
+				}
 			}
 
-			uc := newLotteryUC(t, phaseRepo, &stubAppRepo{}, &stubEventState{}, &stubPaymentPort{}, open)
+			phaseRepo := &stubPhaseRepo{
+				getFn: getFn,
+				updateVerificationRequirementFn: func(ctx context.Context, id entity.LotteryPhaseID, req entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
+					updateCalled = true
+					return repoFn(ctx, id, req)
+				},
+			}
+
+			eventState := &stubEventState{organizerIDFn: tt.organizerIDFn}
+			uc := newLotteryUC(t, phaseRepo, &stubAppRepo{}, eventState, &stubPaymentPort{}, open)
 
 			got, err := uc.SetPhaseVerificationRequirement(ctx, tt.args)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, got)
+				assert.False(t, updateCalled, "UpdateVerificationRequirement must not be called on rejection")
 				return
 			}
 			require.NoError(t, err)
 			require.NotNil(t, got)
+			assert.True(t, updateCalled)
 			assert.Equal(t, tt.wantReq, capturedReq, "repo must receive the requested VerificationRequirement")
 			assert.Equal(t, tt.wantReq, got.VerificationRequirement)
 		})
