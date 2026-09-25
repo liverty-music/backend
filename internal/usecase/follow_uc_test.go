@@ -159,6 +159,7 @@ func TestFollowUseCase_Follow_PublishesAnalyticsEvent(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	// @spec components/usecase/follow/follow "Fan follows the same artist twice"
 	t.Run("does not publish on already-following idempotent path", func(t *testing.T) {
 		t.Parallel()
 		d := newFollowTestDeps(t)
