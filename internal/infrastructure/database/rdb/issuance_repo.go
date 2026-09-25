@@ -8,7 +8,8 @@ import (
 )
 
 // IssuanceRepository implements entity.IssuanceRepository for PostgreSQL: it
-// persists an Order and its N tickets atomically in one transaction.
+// persists an Order, its N tickets, and its Held settlement atomically in one
+// transaction (backend#468).
 type IssuanceRepository struct {
 	db *Database
 }
@@ -29,6 +30,20 @@ const (
 			verified_identity_id, resale_without_consent_prohibited, status, issued_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
+	// issuanceInsertSettlementQuery inserts the Held settlement row for the
+	// issued Order. Settlement.organizer_id/event_id are NOT NULL, so the
+	// caller (IssuanceUseCase) must resolve the Organizer before calling Issue.
+	issuanceInsertSettlementQuery = `
+		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, settled_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`
+	// issuanceInsertSettlementSplitQuery inserts one payout split for the
+	// settlement just created. transfer_ref/transfer_reversal_ref default to
+	// NULL until the payout sweeper releases the settlement.
+	issuanceInsertSettlementSplitQuery = `
+		INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount)
+		VALUES ($1, $2, $3)
+	`
 	// issuanceListAwaitingQuery returns Won (state 2) applications that have no
 	// order yet — the issuance sweeper work-list.
 	issuanceListAwaitingQuery = `
@@ -45,11 +60,14 @@ func NewIssuanceRepository(db *Database) *IssuanceRepository {
 	return &IssuanceRepository{db: db}
 }
 
-// Issue atomically inserts the order and its N tickets in one transaction. A
-// duplicate order for the same application (unique index on orders.application_id)
-// surfaces as apperr.ErrAlreadyExists so the caller re-reads the existing order
-// instead of double-issuing.
-func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tickets []*entity.Ticket) error {
+// Issue atomically inserts the order, its N tickets, and its Held settlement
+// (with splits) in one transaction. A duplicate order for the same application
+// (unique index on orders.application_id) surfaces as apperr.ErrAlreadyExists
+// so the caller re-reads the existing order instead of double-issuing.
+//
+// settlement is required (non-nil); the caller resolves the event's Organizer
+// before calling Issue so the Order is never committed without its payout record.
+func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tickets []*entity.Ticket, settlement *entity.Settlement) error {
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return toAppErr(err, "failed to begin issuance transaction")
@@ -74,6 +92,22 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 			int16(t.Status), t.IssuedTime,
 		); err != nil {
 			return toAppErr(err, "failed to insert ticket", slog.String("ticket_id", string(t.ID)))
+		}
+	}
+
+	if _, err := tx.Exec(ctx, issuanceInsertSettlementQuery,
+		string(settlement.ID), string(settlement.OrderID), settlement.OrganizerID, settlement.EventID,
+		int16(settlement.Status), settlement.CreatedTime,
+	); err != nil {
+		return toAppErr(err, "failed to insert settlement", slog.String("settlement_id", string(settlement.ID)))
+	}
+	for _, split := range settlement.Splits {
+		if _, err := tx.Exec(ctx, issuanceInsertSettlementSplitQuery,
+			string(settlement.ID), split.PayeeOrganizerID, split.Amount,
+		); err != nil {
+			return toAppErr(err, "failed to insert settlement split",
+				slog.String("settlement_id", string(settlement.ID)),
+				slog.String("payee_organizer_id", split.PayeeOrganizerID))
 		}
 	}
 

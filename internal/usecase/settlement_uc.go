@@ -28,16 +28,6 @@ type PayoutSweeperUseCase interface {
 	//  - Internal: the work-list query failed (per-settlement failures are
 	//    logged and skipped, not returned).
 	ReleaseDueSettlements(ctx context.Context) error
-
-	// EnsureSettlementExists creates a Settlement row in the Held status for
-	// the given Order if none exists yet. Returns the existing row when one
-	// already exists (idempotent). Callers supply the organizerID and eventID
-	// so the repository can satisfy the release gate without additional joins.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database query or insert failure.
-	EnsureSettlementExists(ctx context.Context, order *entity.Order, organizerID, eventID string) (*entity.Settlement, error)
 }
 
 // payoutSweeperUseCase implements [PayoutSweeperUseCase].
@@ -98,19 +88,6 @@ func (uc *payoutSweeperUseCase) ReleaseDueSettlements(ctx context.Context) error
 		}
 	}
 	return nil
-}
-
-// EnsureSettlementExists implements [PayoutSweeperUseCase].
-func (uc *payoutSweeperUseCase) EnsureSettlementExists(ctx context.Context, order *entity.Order, organizerID, eventID string) (*entity.Settlement, error) {
-	s := &entity.Settlement{
-		ID:          entity.SettlementID(entity.NewID()),
-		OrderID:     order.ID,
-		OrganizerID: organizerID,
-		EventID:     eventID,
-		Status:      entity.SettlementStatusHeld,
-		CreatedTime: uc.clock(),
-	}
-	return uc.settlementRepo.Upsert(ctx, s)
 }
 
 // releaseOne attempts to release a single held settlement. It checks the

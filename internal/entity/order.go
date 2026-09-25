@@ -204,24 +204,25 @@ type RefundRepository interface {
 }
 
 // IssuanceRepository is the atomic write path for ⑤ issuance: it persists an
-// Order and its N tickets in a single transaction so a capture never yields an
-// Order without its tickets (or vice versa). Implementations live in
-// internal/infrastructure/database/rdb/.
+// Order, its N tickets, and the Order's Held Settlement in a single transaction
+// so a capture never yields an Order without its tickets or its payout record
+// (backend#468). Implementations live in internal/infrastructure/database/rdb/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type IssuanceRepository interface {
-	// Issue atomically inserts the Order and its N account-bound tickets in one
-	// transaction. The one-Order-per-application invariant is enforced by a
-	// unique index on orders.application_id; a duplicate surfaces as AlreadyExists
-	// so a replayed Won-captured signal re-reads the existing Order rather than
-	// double-issuing.
+	// Issue atomically inserts the Order, its N account-bound tickets, and the
+	// Held settlement (with its splits) that pays out the Order's event Organizer,
+	// all in one transaction. The one-Order-per-application invariant is enforced
+	// by a unique index on orders.application_id; a duplicate surfaces as
+	// AlreadyExists so a replayed Won-captured signal re-reads the existing Order
+	// rather than double-issuing.
 	//
 	// # Possible errors
 	//
 	//  - AlreadyExists: an Order already exists for order.ApplicationID (idempotent
 	//    replay — the caller re-reads via [OrderRepository.GetByApplicationID]).
 	//  - Internal: database transaction or query failure.
-	Issue(ctx context.Context, order *Order, tickets []*Ticket) error
+	Issue(ctx context.Context, order *Order, tickets []*Ticket, settlement *Settlement) error
 
 	// ListApplicationIDsAwaitingIssuance returns the IDs of Won-captured
 	// applications that do not yet have an Order — the work-list the issuance

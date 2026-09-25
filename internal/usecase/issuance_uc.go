@@ -48,13 +48,33 @@ type PaymentCapturePort interface {
 	GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*CapturedPayment, error)
 }
 
+// EventOrganizerRepository resolves the Organizer that owns an event, via its
+// Series, so the issuance path can stamp the denormalized OrganizerID on the
+// Held Settlement it creates alongside the Order (backend#468). A minimal
+// read-only interface so IssuanceUseCase does not depend on the full
+// SeriesRepository. Interfaces are defined where consumed (AGENTS.md rule).
+type EventOrganizerRepository interface {
+	// GetOrganizerID resolves the Organizer that owns the event identified by
+	// eventID, via event -> series -> organizer_id.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no event with the given ID exists, or its series is not
+	//    organizer-authored (a discovery-pipeline series has no Organizer).
+	//  - Internal: database query failure.
+	GetOrganizerID(ctx context.Context, eventID string) (string, error)
+}
+
 // IssuanceUseCase is ⑤'s post-capture pipeline: it turns ④'s Won-captured
-// winning application into an Order plus N account-bound covered tickets, and
-// sets the buyer's ticket-journey to PAID. It owns issuance idempotency.
+// winning application into an Order plus N account-bound covered tickets and a
+// Held Settlement for the event's Organizer, and sets the buyer's
+// ticket-journey to PAID. It owns issuance idempotency.
 type IssuanceUseCase interface {
-	// IssueFromCapturedWin creates the Order from ④'s captured winning payment
-	// and issues the N account-bound covered tickets for the winning application,
-	// then sets the buyer's ticket-journey for the event to PAID.
+	// IssueFromCapturedWin creates the Order from ④'s captured winning payment,
+	// issues the N account-bound covered tickets for the winning application,
+	// records a Held Settlement (one split paying the event's Organizer) so the
+	// payout sweeper has something to release (backend#468), then sets the
+	// buyer's ticket-journey for the event to PAID.
 	//
 	// It is IDEMPOTENT: a replayed Won-captured signal (or a retry) creates the
 	// Order once and issues tickets exactly once for the same application — on a
@@ -64,7 +84,8 @@ type IssuanceUseCase interface {
 	//
 	//  - FailedPrecondition: the application is not Won-captured (lost, withdrawn,
 	//    still applied, or its capture never succeeded) — no Order is created.
-	//  - NotFound: no application with the given ID exists.
+	//  - NotFound: no application with the given ID exists, or the event's
+	//    Organizer cannot be resolved — no Order is created.
 	//  - Internal: persistence failure after capture (the caller reconciles by
 	//    refunding the captured payment; see the capture-succeeded/issuance-failed
 	//    path in the design).
@@ -89,6 +110,7 @@ type issuanceUseCase struct {
 	orderRepo            entity.OrderRepository
 	appRepo              entity.TicketApplicationRepository
 	phaseRepo            entity.LotteryPhaseRepository
+	eventOrganizerRepo   EventOrganizerRepository
 	verifiedIdentityRepo entity.VerifiedIdentityRepository
 	journeyRepo          entity.TicketJourneyRepository
 	capturePort          PaymentCapturePort
@@ -106,6 +128,7 @@ func NewIssuanceUseCase(
 	orderRepo entity.OrderRepository,
 	appRepo entity.TicketApplicationRepository,
 	phaseRepo entity.LotteryPhaseRepository,
+	eventOrganizerRepo EventOrganizerRepository,
 	verifiedIdentityRepo entity.VerifiedIdentityRepository,
 	journeyRepo entity.TicketJourneyRepository,
 	capturePort PaymentCapturePort,
@@ -117,6 +140,7 @@ func NewIssuanceUseCase(
 		orderRepo:            orderRepo,
 		appRepo:              appRepo,
 		phaseRepo:            phaseRepo,
+		eventOrganizerRepo:   eventOrganizerRepo,
 		verifiedIdentityRepo: verifiedIdentityRepo,
 		journeyRepo:          journeyRepo,
 		capturePort:          capturePort,
@@ -205,9 +229,30 @@ func (uc *issuanceUseCase) IssueFromCapturedWin(ctx context.Context, application
 		})
 	}
 
-	// -- atomic write: Order + N tickets in one transaction. A concurrent issuance
-	//    that won the race surfaces as AlreadyExists; re-read and return (idempotent). --
-	if err := uc.issuanceRepo.Issue(ctx, order, tickets); err != nil {
+	// -- resolve the event's Organizer and build the Held settlement that pays
+	//    it out (backend#468). The platform fee kept from the Order's amount is
+	//    TODO(threshold) pending the business decision at backend#778; until then
+	//    the Organizer's split is the Order's full amount. --
+	organizerID, err := uc.eventOrganizerRepo.GetOrganizerID(ctx, phase.EventID)
+	if err != nil {
+		return nil, err // propagates NotFound for an unresolvable Organizer
+	}
+	settlement := &entity.Settlement{
+		ID:          entity.SettlementID(entity.NewID()),
+		OrderID:     order.ID,
+		OrganizerID: organizerID,
+		EventID:     phase.EventID,
+		Status:      entity.SettlementStatusHeld,
+		Splits: []entity.SettlementSplit{
+			{PayeeOrganizerID: organizerID, Amount: order.Amount},
+		},
+		CreatedTime: now,
+	}
+
+	// -- atomic write: Order + N tickets + the Held settlement in one transaction.
+	//    A concurrent issuance that won the race surfaces as AlreadyExists;
+	//    re-read and return (idempotent). --
+	if err := uc.issuanceRepo.Issue(ctx, order, tickets, settlement); err != nil {
 		if errors.Is(err, apperr.ErrAlreadyExists) {
 			return uc.orderRepo.GetByApplicationID(ctx, applicationID)
 		}

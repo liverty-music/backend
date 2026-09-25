@@ -106,6 +106,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	refundRepo := rdb.NewRefundRepository(db)
 	connectedAccountRepo := rdb.NewOrganizerConnectedAccountRepository(db)
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
+	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
 	eventRescheduleTimeRepo := rdb.NewEventRescheduleTimeRepository(db)
 	processedWebhookEventRepo := rdb.NewProcessedWebhookEventRepository(db)
 
@@ -266,7 +267,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, paymentPort, verifiedIdentityRepo, time.Now, logger)
 
 	// ⑤ issuance pipeline: turn ④'s Won-captured applications into Orders + tickets.
-	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, ticketApplicationRepo, lotteryPhaseRepo, verifiedIdentityRepo, ticketJourneyRepo, capturePort, time.Now, logger)
+	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, ticketApplicationRepo, lotteryPhaseRepo, eventOrganizerRepo, verifiedIdentityRepo, ticketJourneyRepo, capturePort, time.Now, logger)
 	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, logger)
 
 	// ⑤ task 4.1: refund policy + settlement money-movement.

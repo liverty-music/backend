@@ -105,23 +105,16 @@ type Settlement struct {
 	// ReleasedTime is when the payout was released (Transfer(s) created). Zero
 	// while still held.
 	ReleasedTime time.Time
-	// CreatedTime is when this settlement row was created (= Order issuance time
-	// for MVP, created by the sweeper when it first encounters the Order).
+	// CreatedTime is when this settlement row was created (= Order issuance
+	// time; inserted atomically by [IssuanceRepository.Issue]).
 	CreatedTime time.Time
 }
 
 // SettlementRepository defines the persistence contract for Settlement records.
+// The row is created by [IssuanceRepository.Issue], not by this interface —
+// SettlementRepository only reads and updates settlements after issuance.
 // Interfaces are defined where consumed (AGENTS.md rule).
 type SettlementRepository interface {
-	// Upsert inserts a Settlement row if none exists for the given Order ID, or
-	// returns the existing one. Used by the payout sweeper to ensure exactly one
-	// settlement row per Order before attempting the release.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database query or transaction failure.
-	Upsert(ctx context.Context, s *Settlement) (*Settlement, error)
-
 	// Get returns the Settlement for the given id.
 	//
 	// # Possible errors

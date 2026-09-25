@@ -19,19 +19,12 @@ import (
 // ─────────────────────────────────────────────────────────────────────────────
 
 type stubSettlementRepo struct {
-	upsertFn       func(ctx context.Context, s *entity.Settlement) (*entity.Settlement, error)
 	getFn          func(ctx context.Context, id entity.SettlementID) (*entity.Settlement, error)
 	getByOrderIDFn func(ctx context.Context, orderID entity.OrderID) (*entity.Settlement, error)
 	listHeldFn     func(ctx context.Context) ([]*entity.Settlement, error)
 	markReleasedFn func(ctx context.Context, id entity.SettlementID, chargeRef string, releasedAt time.Time, splits []entity.SettlementSplit) error
 }
 
-func (s *stubSettlementRepo) Upsert(ctx context.Context, settlement *entity.Settlement) (*entity.Settlement, error) {
-	if s.upsertFn != nil {
-		return s.upsertFn(ctx, settlement)
-	}
-	return settlement, nil
-}
 func (s *stubSettlementRepo) Get(ctx context.Context, id entity.SettlementID) (*entity.Settlement, error) {
 	if s.getFn != nil {
 		return s.getFn(ctx, id)
