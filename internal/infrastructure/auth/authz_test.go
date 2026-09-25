@@ -47,7 +47,7 @@ func TestRequireRoleInterceptor_WrapUnary(t *testing.T) {
 				return context.Background()
 			},
 			wantErr:  true,
-			wantCode: connect.CodePermissionDenied,
+			wantCode: connect.CodeUnauthenticated,
 		},
 	}
 

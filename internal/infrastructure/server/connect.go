@@ -178,6 +178,15 @@ func NewConnectServer(
 	}
 }
 
+// Handler returns the fully-wired HTTP handler (authn middleware, CORS,
+// interceptor chain and every registered RPC/health route), without binding
+// a listener. It exists so tests can exercise the exact request pipeline a
+// call to Start would serve — e.g. wrapped in httptest.NewServer — without
+// needing a live TCP port.
+func (s *ConnectServer) Handler() http.Handler {
+	return s.server.Handler
+}
+
 // Start starts the Connect server.
 func (s *ConnectServer) Start() error {
 	s.logger.Info(context.Background(), fmt.Sprintf("Connect Server starting on %s", s.address))

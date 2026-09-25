@@ -8,8 +8,9 @@ import (
 
 // RequireRoleInterceptor enforces, at the server boundary, that every RPC caller
 // holds the named Zitadel project role. It reads the bridged claims (see
-// ClaimsBridgeInterceptor) and rejects callers without the role with
-// CodePermissionDenied before any handler runs.
+// ClaimsBridgeInterceptor) and rejects, before any handler runs, an
+// unauthenticated caller with CodeUnauthenticated and an authenticated caller
+// missing the role with CodePermissionDenied (see RequireRole).
 //
 // It is applied server-wide on the admin Connect server so that admin RPCs are
 // gated structurally rather than by per-method discipline: because the admin

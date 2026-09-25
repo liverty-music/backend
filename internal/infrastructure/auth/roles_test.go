@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
@@ -117,14 +118,19 @@ func TestValidateToken_Roles(t *testing.T) {
 	}
 }
 
+// TestRequireRole verifies the two-tier contract RequireRole must uphold for
+// every admin-server RPC: an unauthenticated caller (no claims in context)
+// fails with CodeUnauthenticated, and a signed-in caller missing the
+// required role fails with CodePermissionDenied. See backend#481, where the
+// admin server returned PermissionDenied for both cases.
 func TestRequireRole(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		ctx     func() context.Context
-		role    string
-		wantErr bool
+		name     string
+		ctx      func() context.Context
+		role     string
+		wantCode connect.Code // zero value means "no error expected"
 	}{
 		{
 			name: "allow caller holding the role",
@@ -134,37 +140,36 @@ func TestRequireRole(t *testing.T) {
 					Roles: []string{"admin"},
 				})
 			},
-			role:    "admin",
-			wantErr: false,
+			role: "admin",
 		},
 		{
-			name: "deny caller without the role",
+			name: "deny caller without the role with PermissionDenied",
 			ctx: func() context.Context {
 				return auth.WithClaims(context.Background(), &auth.Claims{
 					Sub:   "regular-user",
 					Roles: []string{"viewer"},
 				})
 			},
-			role:    "admin",
-			wantErr: true,
+			role:     "admin",
+			wantCode: connect.CodePermissionDenied,
 		},
 		{
-			name: "deny caller with no roles at all",
+			name: "deny caller with no roles at all with PermissionDenied",
 			ctx: func() context.Context {
 				return auth.WithClaims(context.Background(), &auth.Claims{
 					Sub: "regular-user",
 				})
 			},
-			role:    "admin",
-			wantErr: true,
+			role:     "admin",
+			wantCode: connect.CodePermissionDenied,
 		},
 		{
-			name: "deny unauthenticated context (no claims)",
+			name: "deny unauthenticated context (no claims) with Unauthenticated",
 			ctx: func() context.Context {
 				return context.Background()
 			},
-			role:    "admin",
-			wantErr: true,
+			role:     "admin",
+			wantCode: connect.CodeUnauthenticated,
 		},
 	}
 
@@ -174,11 +179,15 @@ func TestRequireRole(t *testing.T) {
 
 			err := auth.RequireRole(tt.ctx(), tt.role)
 
-			if tt.wantErr {
-				assert.Error(t, err)
-			} else {
+			if tt.wantCode == 0 {
 				assert.NoError(t, err)
+				return
 			}
+
+			require.Error(t, err)
+			var connErr *connect.Error
+			require.ErrorAs(t, err, &connErr)
+			assert.Equal(t, tt.wantCode, connErr.Code())
 		})
 	}
 }
