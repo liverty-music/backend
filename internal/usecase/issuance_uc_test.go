@@ -212,8 +212,9 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.Equal(t, entity.TicketJourneyStatusPaid, journeyUpsert.Status)
 
 		// A Held settlement for the event's Organizer, with one split for the
-		// Order's full amount (backend#468: the payout sweeper needs this row
-		// to have anything to release).
+		// Order's amount less the flat 5% platform fee (backend#468: the payout
+		// sweeper needs this row to have anything to release). 10000 yen order
+		// -> 500 yen fee -> 9500 yen Organizer split.
 		require.NotNil(t, issuedSettlement)
 		assert.Equal(t, order.ID, issuedSettlement.OrderID)
 		assert.Equal(t, "organizer-1", issuedSettlement.OrganizerID)
@@ -222,7 +223,8 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.Equal(t, now, issuedSettlement.CreatedTime)
 		require.Len(t, issuedSettlement.Splits, 1)
 		assert.Equal(t, "organizer-1", issuedSettlement.Splits[0].PayeeOrganizerID)
-		assert.Equal(t, order.Amount, issuedSettlement.Splits[0].Amount)
+		assert.Equal(t, order.Amount-entity.PlatformFee(order.Amount), issuedSettlement.Splits[0].Amount)
+		assert.Equal(t, int64(9500), issuedSettlement.Splits[0].Amount)
 	})
 
 	// @spec components/usecase/order/issue-from-captured-win "Replayed issuance"
@@ -476,7 +478,7 @@ func TestIssuanceUseCase_ThroughSettlementRelease(t *testing.T) {
 	require.NotNil(t, released, "the settlement issuance created must be released once due")
 	require.Len(t, releasedSplits, 1)
 	assert.Equal(t, "organizer-1", releasedSplits[0].PayeeOrganizerID)
-	assert.Equal(t, order.Amount, releasedSplits[0].Amount)
+	assert.Equal(t, order.Amount-entity.PlatformFee(order.Amount), releasedSplits[0].Amount)
 }
 
 func TestIssuanceUseCase_IssueDueWins(t *testing.T) {
