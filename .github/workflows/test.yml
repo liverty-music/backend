@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       src: ${{ steps.filter.outputs.src }}
+      media: ${{ steps.filter.outputs.media }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
@@ -29,6 +30,13 @@ jobs:
               - 'go.sum'
               - 'k8s/atlas/base/migrations/**'
               - '.github/workflows/**'
+            media:
+              - 'internal/adapter/event/**'
+              - 'cmd/consumer/media-consumer/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Dockerfile'
+              - '.github/workflows/test.yml'
 
   test:
     needs: changes
@@ -127,6 +135,51 @@ jobs:
     steps:
       - run: echo "No relevant changes, skipping vulnerability check"
 
+  # Compiles and tests the libvips-tagged media processor
+  # (internal/adapter/event/*_vips*.go, `//go:build vips`) through the
+  # Dockerfile's `test-media-consumer` stage instead of on the bare runner.
+  # That stage builds FROM build-media-consumer, so it reuses the identical
+  # golang builder base + `apk add vips-dev gcc musl-dev pkgconfig` line as
+  # the production media-consumer image (see Dockerfile) — this guarantees
+  # the libvips version under test matches the libvips version that ships
+  # in the runtime alpine image. Without this job, media_processor_vips.go
+  # is compiled and tested by nothing in CI, since it is excluded from the
+  # default (non-`vips`-tagged) build everywhere else.
+  media-consumer-test:
+    needs: changes
+    if: needs.changes.outputs.media == 'true'
+    name: Media Consumer Test (vips)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      # `push: false` and no `load:` -> buildx runs the stage's RUN
+      # instructions (go vet + go test) and discards the resulting image;
+      # nothing is exported. BUILDKIT_PROGRESS=plain forces `go test -v`
+      # output to stream into the step log instead of being buffered
+      # behind BuildKit's default terminal UI.
+      - name: Build and test media-consumer (vips)
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        env:
+          BUILDKIT_PROGRESS: plain
+        with:
+          context: .
+          target: test-media-consumer
+          push: false
+          cache-from: type=gha,scope=media-consumer-test
+          cache-to: type=gha,mode=max,scope=media-consumer-test
+
+  media-consumer-test-skip:
+    needs: changes
+    if: needs.changes.outputs.media == 'false'
+    name: Media Consumer Test (vips)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "No relevant changes, skipping media-consumer vips tests"
+
   benchmark:
     needs: changes
     if: needs.changes.outputs.src == 'true' && github.event_name == 'push'
@@ -180,10 +233,21 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
-    needs: [changes, test, test-skip, vulnerability-check, vulnerability-check-skip, benchmark, benchmark-skip]
+    needs:
+      [
+        changes,
+        test,
+        test-skip,
+        vulnerability-check,
+        vulnerability-check-skip,
+        media-consumer-test,
+        media-consumer-test-skip,
+        benchmark,
+        benchmark-skip,
+      ]
     if: always()
     steps:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # release/v1
         with:
-          allowed-skips: test, test-skip, vulnerability-check, vulnerability-check-skip, benchmark, benchmark-skip
+          allowed-skips: test, test-skip, vulnerability-check, vulnerability-check-skip, media-consumer-test, media-consumer-test-skip, benchmark, benchmark-skip
           jobs: ${{ toJSON(needs) }}
