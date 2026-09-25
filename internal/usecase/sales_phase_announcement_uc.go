@@ -23,6 +23,7 @@ type SalesPhaseAnnouncementUseCase interface {
 type salesPhaseAnnouncementUseCase struct {
 	userRepo       entity.UserRepository
 	journeyRepo    entity.TicketJourneyRepository
+	concertRepo    entity.ConcertRepository
 	notificationUC NotificationUseCase
 	logger         *logging.Logger
 }
@@ -34,12 +35,14 @@ var _ SalesPhaseAnnouncementUseCase = (*salesPhaseAnnouncementUseCase)(nil)
 func NewSalesPhaseAnnouncementUseCase(
 	userRepo entity.UserRepository,
 	journeyRepo entity.TicketJourneyRepository,
+	concertRepo entity.ConcertRepository,
 	notificationUC NotificationUseCase,
 	logger *logging.Logger,
 ) *salesPhaseAnnouncementUseCase {
 	return &salesPhaseAnnouncementUseCase{
 		userRepo:       userRepo,
 		journeyRepo:    journeyRepo,
+		concertRepo:    concertRepo,
 		notificationUC: notificationUC,
 		logger:         logger,
 	}
@@ -77,7 +80,7 @@ func (uc *salesPhaseAnnouncementUseCase) AnnounceDiscoveredPhase(ctx context.Con
 		langByUser[uid] = u.PreferredLanguage
 	}
 
-	url := fmt.Sprintf("/series/%s", data.SeriesID)
+	url := ResolveSeriesLinkURL(ctx, data.SeriesID, uc.concertRepo, uc.logger)
 	tag := fmt.Sprintf("sales-phase-%s", data.PhaseID)
 
 	// Record and dispatch one announcement per audience member through the

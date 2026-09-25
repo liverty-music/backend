@@ -493,6 +493,16 @@ type ConcertRepository interface {
 	// VenueID, LocalDate, StartTime); Venue and Performers are not hydrated.
 	// Returns an empty slice (no error) when the inputs are empty.
 	FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*Event, error)
+	// ListEventsBySeries retrieves every event belonging to the given series,
+	// ordered by local_event_date ascending and, for equal dates, by start_at
+	// ascending with a NULL start_at ordered last. Used to resolve which event
+	// of a series a series-level notification should deep-link to (see
+	// [SalesPhaseAnnouncementUseCase] and [SalesReminderUseCase]).
+	//
+	// Only physical-identity fields are populated (ID, SeriesID, LocalDate,
+	// StartTime); Venue and Performers are not hydrated. Returns an empty
+	// slice (no error) when the series has no events.
+	ListEventsBySeries(ctx context.Context, seriesID string) ([]*Event, error)
 	// FillEventStartTimes sets start_at / open_at on existing events identified
 	// by eventIDs, only where the column is currently NULL (COALESCE), for the
 	// case where a later discovery supplies a time the first discovery lacked.

@@ -96,6 +96,17 @@ const (
 			AND e.local_event_date = ANY($2::date[])
 	`
 
+	// listEventsBySeriesQuery returns every event of a series, ordered by
+	// local_event_date ascending and, for equal dates, by start_at ascending
+	// with a NULL start_at last (NULLS LAST). Projects only the physical-identity
+	// fields a series-level notification link needs.
+	listEventsBySeriesQuery = `
+		SELECT e.id, e.series_id, e.local_event_date, e.start_at
+		FROM events e
+		WHERE e.series_id = $1
+		ORDER BY e.local_event_date ASC, e.start_at ASC NULLS LAST
+	`
+
 	// fillEventStartTimesQuery sets start_at / open_at on events by id, only
 	// where currently NULL (COALESCE never overwrites a known time). The three
 	// arrays are zipped element-wise.
@@ -898,6 +909,35 @@ func (r *ConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artis
 	}
 	if err := rows.Err(); err != nil {
 		return nil, toAppErr(err, "events by artist/date iteration ended with error")
+	}
+	return events, nil
+}
+
+// ListEventsBySeries implements entity.ConcertRepository. It returns every
+// event of the given series, ordered by local_event_date then start_at
+// (NULLS LAST), projected to the fields series-level notification link
+// resolution needs.
+func (r *ConcertRepository) ListEventsBySeries(ctx context.Context, seriesID string) ([]*entity.Event, error) {
+	rows, err := r.db.Pool.Query(ctx, listEventsBySeriesQuery, seriesID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list events by series", slog.String("series_id", seriesID))
+	}
+	defer rows.Close()
+
+	var events []*entity.Event
+	for rows.Next() {
+		var (
+			e       entity.Event
+			startAt *time.Time
+		)
+		if err := rows.Scan(&e.ID, &e.SeriesID, &e.LocalDate, &startAt); err != nil {
+			return nil, toAppErr(err, "failed to scan event by series")
+		}
+		e.StartTime = startAt
+		events = append(events, &e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "events by series iteration ended with error")
 	}
 	return events, nil
 }

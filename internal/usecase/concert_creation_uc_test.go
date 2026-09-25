@@ -238,6 +238,10 @@ func (r *fakeConcertRepo) FindEventsByArtistAndDate(_ context.Context, artistID 
 	return out, nil
 }
 
+func (r *fakeConcertRepo) ListEventsBySeries(_ context.Context, _ string) ([]*entity.Event, error) {
+	return nil, nil
+}
+
 func (r *fakeConcertRepo) FillEventStartTimes(_ context.Context, eventIDs []string, startTimes, _ []*time.Time) error {
 	r.filledIDs = append(r.filledIDs, eventIDs...)
 	r.filledStarts = append(r.filledStarts, startTimes...)

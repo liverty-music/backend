@@ -717,6 +717,65 @@ func (_c *MockConcertRepository_ListByLocation_Call) RunAndReturn(run func(conte
 	return _c
 }
 
+// ListEventsBySeries provides a mock function with given fields: ctx, seriesID
+func (_m *MockConcertRepository) ListEventsBySeries(ctx context.Context, seriesID string) ([]*entity.Event, error) {
+	ret := _m.Called(ctx, seriesID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListEventsBySeries")
+	}
+
+	var r0 []*entity.Event
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Event, error)); ok {
+		return rf(ctx, seriesID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Event); ok {
+		r0 = rf(ctx, seriesID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Event)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, seriesID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertRepository_ListEventsBySeries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListEventsBySeries'
+type MockConcertRepository_ListEventsBySeries_Call struct {
+	*mock.Call
+}
+
+// ListEventsBySeries is a helper method to define mock.On call
+//   - ctx context.Context
+//   - seriesID string
+func (_e *MockConcertRepository_Expecter) ListEventsBySeries(ctx interface{}, seriesID interface{}) *MockConcertRepository_ListEventsBySeries_Call {
+	return &MockConcertRepository_ListEventsBySeries_Call{Call: _e.mock.On("ListEventsBySeries", ctx, seriesID)}
+}
+
+func (_c *MockConcertRepository_ListEventsBySeries_Call) Run(run func(ctx context.Context, seriesID string)) *MockConcertRepository_ListEventsBySeries_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertRepository_ListEventsBySeries_Call) Return(_a0 []*entity.Event, _a1 error) *MockConcertRepository_ListEventsBySeries_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertRepository_ListEventsBySeries_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Event, error)) *MockConcertRepository_ListEventsBySeries_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateEventListedVenueName provides a mock function with given fields: ctx, eventID, listedVenueName
 func (_m *MockConcertRepository) UpdateEventListedVenueName(ctx context.Context, eventID string, listedVenueName string) error {
 	ret := _m.Called(ctx, eventID, listedVenueName)
