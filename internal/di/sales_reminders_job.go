@@ -58,6 +58,7 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 	reminderRepo := rdb.NewSalesPhaseReminderRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	userRepo := rdb.NewUserRepository(db)
+	concertRepo := rdb.NewConcertRepository(db)
 
 	// Messaging
 	//
@@ -84,6 +85,7 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 		reminderRepo,
 		ticketJourneyRepo,
 		userRepo,
+		concertRepo,
 		eventPublisher,
 		cfg.GCP.SalesReminderScanWindow(),
 		logger,

@@ -37,6 +37,7 @@ type salesReminderUseCase struct {
 	reminderRepo   entity.SalesPhaseReminderRepository
 	journeyRepo    entity.TicketJourneyRepository
 	userRepo       entity.UserRepository
+	concertRepo    entity.ConcertRepository
 	publisher      EventPublisher
 	// lookahead is the forward horizon passed to ListPhasesWithPendingMilestones.
 	lookahead time.Duration
@@ -59,6 +60,7 @@ func NewSalesReminderUseCase(
 	reminderRepo entity.SalesPhaseReminderRepository,
 	journeyRepo entity.TicketJourneyRepository,
 	userRepo entity.UserRepository,
+	concertRepo entity.ConcertRepository,
 	publisher EventPublisher,
 	lookahead time.Duration,
 	logger *logging.Logger,
@@ -68,6 +70,7 @@ func NewSalesReminderUseCase(
 		reminderRepo:   reminderRepo,
 		journeyRepo:    journeyRepo,
 		userRepo:       userRepo,
+		concertRepo:    concertRepo,
 		publisher:      publisher,
 		lookahead:      lookahead,
 		lookbackMargin: reminderScanLookbackMargin,
@@ -162,6 +165,13 @@ func (uc *salesReminderUseCase) processPhase(ctx context.Context, phase *entity.
 		sentSet = make(map[string]map[entity.ReminderStage]bool)
 	}
 
+	// Resolved once per phase (not per user/stage): the deep-link fallback used
+	// in the reminder payload when the phase itself carries no application url.
+	fallbackLinkURL := ""
+	if phase.URL == "" {
+		fallbackLinkURL = ResolveSeriesLinkURL(ctx, phase.SeriesID, uc.concertRepo, uc.logger)
+	}
+
 	var published int
 	for _, stage := range allStages {
 		for _, user := range users {
@@ -185,7 +195,7 @@ func (uc *salesReminderUseCase) processPhase(ctx context.Context, phase *entity.
 				continue
 			}
 
-			payload := buildReminderPayload(phase, stage, user)
+			payload := buildReminderPayload(phase, stage, user, fallbackLinkURL)
 			data := entity.SalesPhaseReminderDueData{
 				UserID:  user.ID,
 				PhaseID: phase.ID,
@@ -341,8 +351,11 @@ func userTimezone(u *entity.User) *time.Location {
 
 // buildReminderPayload constructs the per-recipient NotificationPayload for a
 // reminder stage, with times formatted in the user's timezone and copy in the
-// user's preferred language (default "en").
-func buildReminderPayload(phase *entity.SalesPhase, stage entity.ReminderStage, user *entity.User) *entity.NotificationPayload {
+// user's preferred language (default "en"). fallbackURL is the link to use
+// when the phase itself carries no application url; the caller resolves it
+// once per phase via [ResolveSeriesLinkURL] rather than here, since it does
+// not vary by user or stage.
+func buildReminderPayload(phase *entity.SalesPhase, stage entity.ReminderStage, user *entity.User, fallbackURL string) *entity.NotificationPayload {
 	tz := userTimezone(user)
 	lang := user.PreferredLanguage
 	if lang == "" {
@@ -352,7 +365,7 @@ func buildReminderPayload(phase *entity.SalesPhase, stage entity.ReminderStage, 
 	channelLabel := channelDisplayName(phase.Channel, phase.ProviderName, lang)
 	url := phase.URL
 	if url == "" {
-		url = fmt.Sprintf("/series/%s", phase.SeriesID)
+		url = fallbackURL
 	}
 	tag := fmt.Sprintf("sales-phase-%s-stage-%d", phase.ID, stage)
 

@@ -340,33 +340,38 @@ func TestBuildReminderPayload(t *testing.T) {
 
 	t.Run("APPLY_OPEN en", func(t *testing.T) {
 		t.Parallel()
-		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageApplyOpen, userEN)
+		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageApplyOpen, userEN, "/dashboard")
 		assert.Equal(t, "Ticket Sales Open", p.Title)
 		assert.Contains(t, p.Body, "Fan Club")
+		// The phase's own URL wins over the fallback, which is only used when
+		// the phase has none (see the "fallback URL" case below).
 		assert.Equal(t, "https://eplus.jp/example", p.Data[entity.NotificationDataKeyURL])
 		assert.Equal(t, "sales-phase-phase-001-stage-1", p.Tag)
 	})
 	t.Run("APPLY_OPEN ja", func(t *testing.T) {
 		t.Parallel()
-		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageApplyOpen, userJA)
+		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageApplyOpen, userJA, "/dashboard")
 		assert.Equal(t, "チケット申込受付開始", p.Title)
 		assert.Contains(t, p.Body, "ファンクラブ")
 	})
 	t.Run("APPLY_CLOSE_24H en", func(t *testing.T) {
 		t.Parallel()
-		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageApplyClose24H, userEN)
+		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageApplyClose24H, userEN, "/dashboard")
 		assert.Equal(t, "Last Day to Apply", p.Title)
 	})
 	t.Run("RESULT_DAY en", func(t *testing.T) {
 		t.Parallel()
-		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageResultDay, userEN)
+		p := usecase.ExportedBuildReminderPayload(phase, entity.ReminderStageResultDay, userEN, "/dashboard")
 		assert.Equal(t, "Lottery Results Today", p.Title)
 	})
 	t.Run("fallback URL when phase URL empty", func(t *testing.T) {
 		t.Parallel()
+		// The caller (processPhase) resolves this once per phase via
+		// ResolveSeriesLinkURL and passes it in; buildReminderPayload itself
+		// only decides whether to use the phase's own URL or the fallback.
 		noURL := &entity.SalesPhase{ID: "p2", SeriesID: "s2", Channel: entity.SalesChannelGeneral}
-		p := usecase.ExportedBuildReminderPayload(noURL, entity.ReminderStageApplyOpen, userEN)
-		assert.Equal(t, "/series/s2", p.Data[entity.NotificationDataKeyURL])
+		p := usecase.ExportedBuildReminderPayload(noURL, entity.ReminderStageApplyOpen, userEN, "/concerts/event-42")
+		assert.Equal(t, "/concerts/event-42", p.Data[entity.NotificationDataKeyURL])
 	})
 }
 
@@ -411,6 +416,9 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
 	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
 	userRepo := entitymocks.NewMockUserRepository(t)
+	// The phase carries its own URL (below), so ResolveSeriesLinkURL is never
+	// called and this mock needs no expectations set.
+	concertRepo := entitymocks.NewMockConcertRepository(t)
 	pub := ucmocks.NewMockEventPublisher(t)
 
 	salesPhaseRepo.On("ListPhasesWithPendingMilestones", ctx, lookahead, usecase.ReminderScanLookbackMargin).
@@ -455,7 +463,7 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 	}
 
 	uc := usecase.NewSalesReminderUseCase(
-		salesPhaseRepo, reminderRepo, journeyRepo, userRepo,
+		salesPhaseRepo, reminderRepo, journeyRepo, userRepo, concertRepo,
 		pub, lookahead, logger,
 	)
 

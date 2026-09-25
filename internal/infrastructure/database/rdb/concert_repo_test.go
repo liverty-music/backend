@@ -1494,3 +1494,80 @@ func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 		require.NoError(t, concertRepo.UpdateEventListedVenueName(ctx, newTestID(t), "Whatever"))
 	})
 }
+
+func TestConcertRepository_ListEventsBySeries(t *testing.T) {
+	ctx := context.Background()
+	concertRepo := rdb.NewConcertRepository(testDB)
+	artistRepo := rdb.NewArtistRepository(testDB)
+	venueRepo := rdb.NewVenueRepository(testDB)
+	seriesRepo := rdb.NewSeriesRepository(testDB)
+
+	t.Run("events are ordered by date then start time, NULLs last", func(t *testing.T) {
+		cleanDatabase(t)
+
+		artist := &entity.Artist{ID: newTestID(t), Name: "List Events Band", MBID: newTestID(t)}
+		_, err := artistRepo.Create(ctx, artist)
+		require.NoError(t, err)
+		venue := &entity.Venue{ID: newTestID(t), Name: "List Events Arena"}
+		_, err = venueRepo.Create(ctx, venue)
+		require.NoError(t, err)
+
+		seriesID := seedSeries(t, ctx, seriesRepo, "List Events Series")
+
+		day1, _ := time.Parse("2006-01-02", "2026-07-01")
+		day2, _ := time.Parse("2006-01-02", "2026-07-15")
+		earlyStart := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+		lateStart := time.Date(2026, 7, 1, 20, 0, 0, 0, time.UTC)
+
+		// Three events on day1 (a matinee, an evening show, and one with no
+		// announced start time) plus one on day2, all at distinct venues so the
+		// (venue, date, start) natural key never collides.
+		matineeID, eveningID, unannouncedID, laterID := newTestID(t), newTestID(t), newTestID(t), newTestID(t)
+		venue2 := &entity.Venue{ID: newTestID(t), Name: "List Events Arena 2"}
+		_, err = venueRepo.Create(ctx, venue2)
+		require.NoError(t, err)
+		venue3 := &entity.Venue{ID: newTestID(t), Name: "List Events Arena 3"}
+		_, err = venueRepo.Create(ctx, venue3)
+		require.NoError(t, err)
+
+		requireCreate(t, ctx, concertRepo,
+			&entity.Concert{
+				ID: laterID, VenueID: venue.ID, SeriesID: seriesID, LocalDate: day2,
+				Series: &entity.Series{ID: seriesID}, Performers: []*entity.Artist{{ID: artist.ID}},
+			},
+			&entity.Concert{
+				ID: eveningID, VenueID: venue.ID, SeriesID: seriesID, LocalDate: day1, StartTime: &lateStart,
+				Series: &entity.Series{ID: seriesID}, Performers: []*entity.Artist{{ID: artist.ID}},
+			},
+			&entity.Concert{
+				ID: unannouncedID, VenueID: venue2.ID, SeriesID: seriesID, LocalDate: day1,
+				Series: &entity.Series{ID: seriesID}, Performers: []*entity.Artist{{ID: artist.ID}},
+			},
+			&entity.Concert{
+				ID: matineeID, VenueID: venue3.ID, SeriesID: seriesID, LocalDate: day1, StartTime: &earlyStart,
+				Series: &entity.Series{ID: seriesID}, Performers: []*entity.Artist{{ID: artist.ID}},
+			},
+		)
+
+		got, err := concertRepo.ListEventsBySeries(ctx, seriesID)
+		require.NoError(t, err)
+		require.Len(t, got, 4)
+
+		gotIDs := make([]string, len(got))
+		for i, e := range got {
+			gotIDs[i] = e.ID
+		}
+		// day1 matinee (earliest start) < day1 evening (later start) < day1
+		// unannounced (NULL start, ordered last for the date) < day2.
+		assert.Equal(t, []string{matineeID, eveningID, unannouncedID, laterID}, gotIDs)
+	})
+
+	t.Run("series with no event returns an empty slice", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeries(t, ctx, seriesRepo, "Empty Series")
+
+		got, err := concertRepo.ListEventsBySeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+}
