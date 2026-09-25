@@ -109,6 +109,11 @@ func resizeAndEncodeWebP(img *vips.ImageRef, maxWidth int) ([]byte, error) {
 	ep := vips.NewWebpExportParams()
 	ep.Quality = 85
 	ep.Lossless = false
+	// img.RemoveMetadata() above clears header fields on the in-memory image,
+	// but libvips' webp saver independently re-attaches EXIF/ICC/XMP from the
+	// original source at save time unless explicitly told to strip; without
+	// this the "no EXIF in the output" guarantee silently does not hold.
+	ep.StripMetadata = true
 
 	buf, _, err := clone.ExportWebp(ep)
 	if err != nil {

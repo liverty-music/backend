@@ -5,6 +5,8 @@ package event_test
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"os"
 	"testing"
@@ -21,6 +23,8 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 	// Not parallel: vips.Startup(nil) in NewMediaProcessor mutates
 	// process-global libvips state.
 
+	jpegOriginal, err := os.ReadFile("testdata/valid_photo_4000x3000.jpg")
+	require.NoError(t, err)
 	webpOriginal, err := os.ReadFile("testdata/tiny_lossless.webp")
 	require.NoError(t, err)
 
@@ -33,8 +37,22 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 		wantErr error
 		check   func(t *testing.T, thumb, large []byte)
 	}{
+		// @spec components/usecase/media/process-media "Valid photo"
 		{
-			name:    "produces WebP thumb and large variants from a WebP original",
+			name:    "produces an 800px thumb and 1920px large WebP without EXIF from a 4000x3000 JPEG",
+			args:    args{data: jpegOriginal},
+			wantErr: nil,
+			check: func(t *testing.T, thumb, large []byte) {
+				t.Helper()
+				assertValidWebPVariant(t, thumb, 800)
+				assertValidWebPVariant(t, large, 1920)
+				assertNoEXIF(t, thumb)
+				assertNoEXIF(t, large)
+			},
+		},
+		// @spec components/usecase/media/process-media "WebP original"
+		{
+			name:    "produces WebP thumb and large variants from a WebP original, same as JPEG or PNG",
 			args:    args{data: webpOriginal},
 			wantErr: nil,
 			check: func(t *testing.T, thumb, large []byte) {
@@ -42,6 +60,12 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 				assertValidWebP(t, thumb)
 				assertValidWebP(t, large)
 			},
+		},
+		// @spec components/usecase/media/process-media "Decompression bomb"
+		{
+			name:    "rejects a declared 10000x10000 image before full decode",
+			args:    args{data: fakePNGHeader(10000, 10000)},
+			wantErr: event.ErrUnsupportedMedia,
 		},
 		{
 			name:    "rejects corrupt data",
@@ -59,6 +83,8 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, thumb)
+				assert.Nil(t, large)
 				return
 			}
 
@@ -75,4 +101,67 @@ func assertValidWebP(t *testing.T, data []byte) {
 	_, format, err := image.DecodeConfig(bytes.NewReader(data))
 	require.NoError(t, err)
 	assert.Equal(t, "webp", format)
+}
+
+// assertValidWebPVariant asserts that data decodes as a WebP image resized
+// down to exactly maxWidth (the original in these tests is always wider, so
+// the resize cap is what determines the output width; aspect ratio is
+// preserved and there is no cropping).
+func assertValidWebPVariant(t *testing.T, data []byte, maxWidth int) {
+	t.Helper()
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	require.NoError(t, err)
+	assert.Equal(t, "webp", format)
+	assert.Equal(t, maxWidth, cfg.Width)
+}
+
+// assertNoEXIF asserts that the encoded WebP bytes carry no EXIF chunk, i.e.
+// metadata was stripped before encoding. It parses the RIFF/VP8X container
+// structure rather than substring-matching "EXIF" in the raw bytes, since
+// compressed VP8 pixel data can coincidentally contain that byte sequence.
+func assertNoEXIF(t *testing.T, data []byte) {
+	t.Helper()
+	require.False(t, hasWebPEXIFChunk(data), "output WebP unexpectedly carries an EXIF chunk")
+}
+
+// hasWebPEXIFChunk reports whether a WebP file's VP8X extended-format header
+// declares an EXIF chunk (flags bit 3; see the WebP container spec). A
+// simple (non-extended) "VP8 " or "VP8L" file never carries metadata.
+func hasWebPEXIFChunk(data []byte) bool {
+	const vp8xFlagsOffset = 20
+	if len(data) <= vp8xFlagsOffset {
+		return false
+	}
+	if string(data[0:4]) != "RIFF" || string(data[8:12]) != "WEBP" || string(data[12:16]) != "VP8X" {
+		return false
+	}
+	const exifFlagBit = 0x08
+	return data[vp8xFlagsOffset]&exifFlagBit != 0
+}
+
+// fakePNGHeader builds a minimal PNG (signature + IHDR chunk only, no pixel
+// data) declaring the given width and height. image.DecodeConfig reads only
+// the IHDR chunk, so this is enough to exercise the pre-decode safety check
+// without needing a real (and enormous) decompression-bomb fixture.
+func fakePNGHeader(width, height uint32) []byte {
+	var buf bytes.Buffer
+	buf.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
+
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], width)
+	binary.BigEndian.PutUint32(ihdr[4:8], height)
+	ihdr[8] = 8 // bit depth
+	ihdr[9] = 2 // color type: truecolor
+
+	length := make([]byte, 4)
+	binary.BigEndian.PutUint32(length, uint32(len(ihdr)))
+	buf.Write(length)
+	buf.WriteString("IHDR")
+	buf.Write(ihdr)
+	crc := crc32.ChecksumIEEE(append([]byte("IHDR"), ihdr...))
+	crcBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(crcBytes, crc)
+	buf.Write(crcBytes)
+
+	return buf.Bytes()
 }
