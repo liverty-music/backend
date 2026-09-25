@@ -118,3 +118,17 @@ USER nonroot:nonroot
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 COPY --from=build-media-consumer /out /media-consumer
 ENTRYPOINT ["/media-consumer"]
+
+# --- Media Consumer test target (libvips / CGO) ---
+# CI runs `go vet`/`go test` for the vips-tagged media-processing code
+# (internal/adapter/event/*_vips*.go) through THIS stage rather than on a
+# bare GitHub-hosted runner, so the tests exercise the exact same libvips
+# build (same builder base image + same `apk add vips-dev ...` line) that
+# ships in the media-consumer runtime image above. Building from
+# build-media-consumer (not `builder`) reuses its already-installed
+# vips-dev/gcc/musl-dev/pkgconfig layer instead of re-installing them.
+# `docker build --target test-media-consumer` fails the build (and so the
+# CI job) if either command exits non-zero.
+FROM build-media-consumer AS test-media-consumer
+RUN CGO_ENABLED=1 go vet -tags vips ./internal/adapter/event/... \
+    && CGO_ENABLED=1 go test -tags vips -v ./internal/adapter/event/...
