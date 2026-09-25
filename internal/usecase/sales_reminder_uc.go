@@ -15,6 +15,11 @@ const (
 	quietStartHour = 22
 	// quietEndHour is the end of the quiet window (08:00 local).
 	quietEndHour = 8
+	// preQuietAlertHour is one hour before quietStartHour (21:00 local). A
+	// deadline-stage alert that would otherwise land inside quiet hours fires
+	// here instead of at quietStartHour itself, so the alert always lands
+	// strictly outside the quiet window.
+	preQuietAlertHour = quietStartHour - 1
 	// resultDayNotifyHour is the hour of day at which RESULT_DAY fires (09:00 in the user's TZ).
 	resultDayNotifyHour = 9
 	// fallbackTimeZone is used when a user has no time_zone set.
@@ -185,13 +190,20 @@ func (uc *salesReminderUseCase) processPhase(ctx context.Context, phase *entity.
 			}
 
 			tz := userTimezone(user)
-			fire, ok := scheduledFireTime(stage, phase, tz)
+			fire, expiry, ok := scheduledFireTime(stage, phase, tz)
 			if !ok {
-				// Stage not applicable for this phase (zero timestamp or first-sight guard).
+				// Stage not applicable for this phase (zero timestamp, first-sight
+				// guard, or no outside-quiet slot before the deadline).
 				continue
 			}
 			if now.Before(fire) {
 				// Not yet time — a later scan will fire this.
+				continue
+			}
+			if !expiry.IsZero() && !now.Before(expiry) {
+				// The reminder's moment has passed (deadline reached, application
+				// window closed, or the result day already ended) — do not send
+				// a stale reminder.
 				continue
 			}
 
@@ -218,11 +230,24 @@ func (uc *salesReminderUseCase) processPhase(ctx context.Context, phase *entity.
 }
 
 // scheduledFireTime returns the absolute wall-clock instant at which stage
-// should fire for this phase in the user's timezone, with quiet-hours applied.
+// should fire for this phase in the user's timezone, with quiet-hours
+// applied, plus the expiry instant after which the stage must no longer be
+// sent.
 //
-// ok=false means the stage is not applicable: either the milestone timestamp
-// is zero (unknown/N/A), or the milestone was already past when the phase was
-// first seen (base < phase.DiscoveredTime — the first-sight guard).
+// ok=false means the stage is not applicable: the milestone timestamp is
+// zero (unknown/N/A), the milestone was already past when the phase was
+// first seen (base < phase.DiscoveredTime — the first-sight guard), or (for
+// a deadline stage) no outside-quiet slot exists before the deadline.
+//
+// expiry is the instant at or after which the stage must never fire, so a
+// stale reminder is never sent once its moment has passed. A zero expiry
+// means unbounded (RESULT_DAY and APPLY_CLOSE_24H/1H always set one; APPLY_OPEN
+// only when ApplyEndTime is known):
+//   - APPLY_OPEN     : expiry = ApplyEndTime (when known; zero = unbounded).
+//   - RESULT_DAY     : expiry = start of the day after LotteryResultTime's
+//     calendar day in tz (i.e. the reminder is valid only "today").
+//   - APPLY_CLOSE_24H: expiry = ApplyEndTime.
+//   - APPLY_CLOSE_1H : expiry = ApplyEndTime.
 //
 // Per stage, base trigger and deadline:
 //   - APPLY_OPEN     : base = ApplyStartTime                    ; non-deadline.
@@ -236,51 +261,61 @@ func (uc *salesReminderUseCase) processPhase(ctx context.Context, phase *entity.
 //   - Non-deadline outside quiet: fire = base.
 //   - Deadline outside quiet: fire = base.
 //   - Deadline in quiet, next0800After(base) < deadline: fire = next0800After(base).
-//   - Deadline in quiet, next0800After(base) >= deadline: fire = quietWindowStart(base)
-//     (pre-quiet alert, always < deadline and before the window).
-func scheduledFireTime(stage entity.ReminderStage, phase *entity.SalesPhase, tz *time.Location) (time.Time, bool) {
+//   - Deadline in quiet, next0800After(base) >= deadline: fire = preQuietAlertTime(base)
+//     (the 21:00 pre-quiet alert, one hour before the quiet window starts),
+//     provided that instant is strictly before the deadline; otherwise there
+//     is no valid outside-quiet slot left and the stage is skipped (ok=false).
+func scheduledFireTime(stage entity.ReminderStage, phase *entity.SalesPhase, tz *time.Location) (fire time.Time, expiry time.Time, ok bool) {
 	var base, deadline time.Time
 	isDeadline := false
 
 	switch stage {
 	case entity.ReminderStageApplyOpen:
 		if phase.ApplyStartTime.IsZero() {
-			return time.Time{}, false
+			return time.Time{}, time.Time{}, false
 		}
 		base = phase.ApplyStartTime
+		// The application window may already be known to close; if so, an
+		// APPLY_OPEN reminder is meaningless once it has. Left zero (unbounded)
+		// when ApplyEndTime is not yet known.
+		expiry = phase.ApplyEndTime
 
 	case entity.ReminderStageResultDay:
 		if phase.LotteryResultTime.IsZero() {
-			return time.Time{}, false
+			return time.Time{}, time.Time{}, false
 		}
 		// 09:00 in the USER's timezone on the calendar day of LotteryResultTime.
 		local := phase.LotteryResultTime.In(tz)
 		base = time.Date(local.Year(), local.Month(), local.Day(), resultDayNotifyHour, 0, 0, 0, tz)
+		// Valid only through the end of that local calendar day.
+		expiry = time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, tz)
 
 	case entity.ReminderStageApplyClose24H:
 		if phase.ApplyEndTime.IsZero() {
-			return time.Time{}, false
+			return time.Time{}, time.Time{}, false
 		}
 		base = phase.ApplyEndTime.Add(-24 * time.Hour)
 		deadline = phase.ApplyEndTime
+		expiry = deadline
 		isDeadline = true
 
 	case entity.ReminderStageApplyClose1H:
 		if phase.ApplyEndTime.IsZero() {
-			return time.Time{}, false
+			return time.Time{}, time.Time{}, false
 		}
 		base = phase.ApplyEndTime.Add(-1 * time.Hour)
 		deadline = phase.ApplyEndTime
+		expiry = deadline
 		isDeadline = true
 
 	default:
-		return time.Time{}, false
+		return time.Time{}, time.Time{}, false
 	}
 
 	// First-sight guard: if the base trigger was already in the past when the
 	// phase was first persisted (phase.DiscoveredTime > base), do not fire retroactively.
 	if !phase.DiscoveredTime.IsZero() && base.Before(phase.DiscoveredTime) {
-		return time.Time{}, false
+		return time.Time{}, time.Time{}, false
 	}
 
 	inQuiet := func(t time.Time) bool {
@@ -300,39 +335,47 @@ func scheduledFireTime(stage entity.ReminderStage, phase *entity.SalesPhase, tz 
 		return cand
 	}
 
-	// quietWindowStart returns the 22:00 that opened the quiet window containing t.
-	// If t is already past midnight (i.e. hour < 8, still inside the window that
-	// started the previous evening), it returns the previous day's 22:00.
-	quietWindowStart := func(t time.Time) time.Time {
+	// preQuietAlertTime returns the 21:00 (preQuietAlertHour) local instant
+	// that anchors the quiet window containing t — today's 21:00 if t is at
+	// or after quietStartHour, or yesterday's 21:00 if t is already past
+	// midnight (hour < quietEndHour, still inside the window that started the
+	// previous evening). Firing one hour before quietStartHour guarantees the
+	// alert itself always lands strictly outside the quiet window.
+	preQuietAlertTime := func(t time.Time) time.Time {
 		local := t.In(tz)
 		if local.Hour() >= quietStartHour {
 			// Already at or past 22:00 today — window started today.
-			return time.Date(local.Year(), local.Month(), local.Day(), quietStartHour, 0, 0, 0, tz)
+			return time.Date(local.Year(), local.Month(), local.Day(), preQuietAlertHour, 0, 0, 0, tz)
 		}
 		// Hour < 8: inside a window that started the previous evening.
 		prev := t.AddDate(0, 0, -1).In(tz)
-		return time.Date(prev.Year(), prev.Month(), prev.Day(), quietStartHour, 0, 0, 0, tz)
+		return time.Date(prev.Year(), prev.Month(), prev.Day(), preQuietAlertHour, 0, 0, 0, tz)
 	}
 
 	if !inQuiet(base) {
-		return base, true
+		return base, expiry, true
 	}
 
 	// base is inside the quiet window.
 	if !isDeadline {
 		// Non-deadline: simply defer to next 08:00.
-		return next0800After(base), true
+		return next0800After(base), expiry, true
 	}
 
 	// Deadline stage: prefer next 08:00 if it is still before the deadline.
 	morning := next0800After(base)
 	if morning.Before(deadline) {
-		return morning, true
+		return morning, expiry, true
 	}
-	// Morning >= deadline: fire the pre-quiet alert (22:00 before the window).
-	// quietWindowStart(base) is always strictly before base (which is inside the
-	// window), and base < deadline, so the pre-quiet alert < deadline.
-	return quietWindowStart(base), true
+	// Morning >= deadline: try the pre-quiet alert instead. It must still land
+	// strictly before the deadline; if it does not, there is no outside-quiet
+	// slot left before the deadline and the stage is skipped entirely rather
+	// than firing inside quiet hours or after the deadline.
+	preQuiet := preQuietAlertTime(base)
+	if !preQuiet.Before(deadline) {
+		return time.Time{}, time.Time{}, false
+	}
+	return preQuiet, expiry, true
 }
 
 // userTimezone parses the user's IANA timezone. Never returns nil: falls back to
