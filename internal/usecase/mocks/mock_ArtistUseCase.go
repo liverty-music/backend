@@ -81,17 +81,17 @@ func (_c *MockArtistUseCase_Create_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
-// CreateOfficialSite provides a mock function with given fields: ctx, site
-func (_m *MockArtistUseCase) CreateOfficialSite(ctx context.Context, site *entity.OfficialSite) error {
-	ret := _m.Called(ctx, site)
+// CreateOfficialSite provides a mock function with given fields: ctx, artistID, url
+func (_m *MockArtistUseCase) CreateOfficialSite(ctx context.Context, artistID string, url string) error {
+	ret := _m.Called(ctx, artistID, url)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateOfficialSite")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *entity.OfficialSite) error); ok {
-		r0 = rf(ctx, site)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, artistID, url)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -106,14 +106,15 @@ type MockArtistUseCase_CreateOfficialSite_Call struct {
 
 // CreateOfficialSite is a helper method to define mock.On call
 //   - ctx context.Context
-//   - site *entity.OfficialSite
-func (_e *MockArtistUseCase_Expecter) CreateOfficialSite(ctx interface{}, site interface{}) *MockArtistUseCase_CreateOfficialSite_Call {
-	return &MockArtistUseCase_CreateOfficialSite_Call{Call: _e.mock.On("CreateOfficialSite", ctx, site)}
+//   - artistID string
+//   - url string
+func (_e *MockArtistUseCase_Expecter) CreateOfficialSite(ctx interface{}, artistID interface{}, url interface{}) *MockArtistUseCase_CreateOfficialSite_Call {
+	return &MockArtistUseCase_CreateOfficialSite_Call{Call: _e.mock.On("CreateOfficialSite", ctx, artistID, url)}
 }
 
-func (_c *MockArtistUseCase_CreateOfficialSite_Call) Run(run func(ctx context.Context, site *entity.OfficialSite)) *MockArtistUseCase_CreateOfficialSite_Call {
+func (_c *MockArtistUseCase_CreateOfficialSite_Call) Run(run func(ctx context.Context, artistID string, url string)) *MockArtistUseCase_CreateOfficialSite_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*entity.OfficialSite))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
@@ -123,7 +124,7 @@ func (_c *MockArtistUseCase_CreateOfficialSite_Call) Return(_a0 error) *MockArti
 	return _c
 }
 
-func (_c *MockArtistUseCase_CreateOfficialSite_Call) RunAndReturn(run func(context.Context, *entity.OfficialSite) error) *MockArtistUseCase_CreateOfficialSite_Call {
+func (_c *MockArtistUseCase_CreateOfficialSite_Call) RunAndReturn(run func(context.Context, string, string) error) *MockArtistUseCase_CreateOfficialSite_Call {
 	_c.Call.Return(run)
 	return _c
 }
