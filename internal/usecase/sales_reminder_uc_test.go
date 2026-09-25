@@ -41,10 +41,11 @@ func TestScheduledFireTime(t *testing.T) {
 		tz    *time.Location
 	}
 	tests := []struct {
-		name     string
-		args     args
-		wantTime time.Time
-		wantOK   bool
+		name       string
+		args       args
+		wantTime   time.Time
+		wantExpiry time.Time // zero = unbounded (never expires)
+		wantOK     bool
 	}{
 		// --- APPLY_OPEN ---
 		{
@@ -59,7 +60,9 @@ func TestScheduledFireTime(t *testing.T) {
 			},
 			// 08:00 JST = 23:00 UTC prev day; 2026-08-01 03:00 JST → next 08:00 = 2026-08-01 08:00 JST
 			wantTime: time.Date(2026, 8, 1, 23, 0, 0, 0, time.UTC), // 08:00 JST on same day
-			wantOK:   true,
+			// ApplyEndTime unset → APPLY_OPEN has no upper bound (unbounded expiry).
+			wantExpiry: time.Time{},
+			wantOK:     true,
 		},
 		{
 			name: "APPLY_OPEN base 10:00 JST (active) → fires at base",
@@ -71,8 +74,24 @@ func TestScheduledFireTime(t *testing.T) {
 				},
 				tz: jst,
 			},
-			wantTime: time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC),
-			wantOK:   true,
+			wantTime:   time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC),
+			wantExpiry: time.Time{},
+			wantOK:     true,
+		},
+		{
+			name: "APPLY_OPEN with known ApplyEndTime sets expiry to ApplyEndTime",
+			args: args{
+				stage: entity.ReminderStageApplyOpen,
+				phase: &entity.SalesPhase{
+					ApplyStartTime: time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC),  // 10:00 JST, active
+					ApplyEndTime:   time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC), // 12:00 JST Aug 10
+					DiscoveredTime: phaseFarPast,
+				},
+				tz: jst,
+			},
+			wantTime:   time.Date(2026, 8, 1, 1, 0, 0, 0, time.UTC),
+			wantExpiry: time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC),
+			wantOK:     true,
 		},
 		{
 			name: "APPLY_OPEN zero timestamp → ok=false",
@@ -97,7 +116,9 @@ func TestScheduledFireTime(t *testing.T) {
 				tz: jst,
 			},
 			wantTime: time.Date(2026, 8, 9, 3, 0, 0, 0, time.UTC), // base = deadline - 24h
-			wantOK:   true,
+			// expiry = deadline (ApplyEndTime): never send at or after the deadline.
+			wantExpiry: time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC),
+			wantOK:     true,
 		},
 		{
 			name: "APPLY_CLOSE_24H ApplyEndTime zero → ok=false",
@@ -113,8 +134,8 @@ func TestScheduledFireTime(t *testing.T) {
 		{
 			// base = 01:00 JST (quiet), deadline = 02:00 JST (within quiet).
 			// morning (08:00 JST) >= deadline (02:00 JST) → pre-quiet alert.
-			// quietWindowStart(01:00 JST) = previous day 22:00 JST.
-			name: "APPLY_CLOSE_1H base 01:00 quiet, deadline 02:00 (within quiet) → pre-quiet 22:00 prev day",
+			// preQuietAlertTime(01:00 JST) = previous day 21:00 JST.
+			name: "APPLY_CLOSE_1H base 01:00 quiet, deadline 02:00 (within quiet) → pre-quiet 21:00 prev day",
 			args: args{
 				stage: entity.ReminderStageApplyClose1H,
 				phase: &entity.SalesPhase{
@@ -126,14 +147,15 @@ func TestScheduledFireTime(t *testing.T) {
 				tz: jst,
 			},
 			// base = 2026-08-01 16:00 UTC = 01:00 JST Aug 2; in quiet.
-			// quietWindowStart(01:00 JST Aug 2) = 22:00 JST Aug 1 = 13:00 UTC Aug 1.
-			wantTime: time.Date(2026, 8, 1, 13, 0, 0, 0, time.UTC), // 22:00 JST Aug 1
-			wantOK:   true,
+			// preQuietAlertTime(01:00 JST Aug 2) = 21:00 JST Aug 1 = 12:00 UTC Aug 1.
+			wantTime:   time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC), // 21:00 JST Aug 1
+			wantExpiry: time.Date(2026, 8, 1, 17, 0, 0, 0, time.UTC), // deadline
+			wantOK:     true,
 		},
 		{
 			// base = 23:00 JST (quiet), deadline = 00:00 next day JST (within quiet).
-			// morning >= deadline → pre-quiet 22:00 same day.
-			name: "APPLY_CLOSE_1H base 23:00 quiet, deadline 00:00 next day → pre-quiet 22:00 same day",
+			// morning >= deadline → pre-quiet 21:00 same day.
+			name: "APPLY_CLOSE_1H base 23:00 quiet, deadline 00:00 next day → pre-quiet 21:00 same day",
 			args: args{
 				stage: entity.ReminderStageApplyClose1H,
 				phase: &entity.SalesPhase{
@@ -145,14 +167,14 @@ func TestScheduledFireTime(t *testing.T) {
 				tz: jst,
 			},
 			// base = 2026-08-02 14:00 UTC = 23:00 JST Aug 2; in quiet.
-			// quietWindowStart(23:00 JST Aug 2) = 22:00 JST Aug 2 = 13:00 UTC Aug 2.
-			wantTime: time.Date(2026, 8, 2, 13, 0, 0, 0, time.UTC), // 22:00 JST Aug 2
-			wantOK:   true,
+			// preQuietAlertTime(23:00 JST Aug 2) = 21:00 JST Aug 2 = 12:00 UTC Aug 2.
+			wantTime:   time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC), // 21:00 JST Aug 2
+			wantExpiry: time.Date(2026, 8, 2, 15, 0, 0, 0, time.UTC), // deadline
+			wantOK:     true,
 		},
 		{
-			// base = 02:00 JST (quiet), deadline = 09:00 JST.
-			// morning 08:00 JST < deadline 09:00 JST → defer to morning.
-			name: "APPLY_CLOSE_1H base 02:00 quiet, deadline 09:00 → defers to 08:00",
+			// base = 08:00 JST (not quiet: quietEndHour=8, h<8 is quiet), deadline = 09:00 JST.
+			name: "APPLY_CLOSE_1H base 08:00 (not quiet) → fires at base",
 			args: args{
 				stage: entity.ReminderStageApplyClose1H,
 				phase: &entity.SalesPhase{
@@ -163,10 +185,10 @@ func TestScheduledFireTime(t *testing.T) {
 				},
 				tz: jst,
 			},
-			// base = 2026-08-04 23:00 UTC = 08:00 JST Aug 5; NOT quiet (h=8 is boundary → quietEndHour=8, h<8 is quiet)
-			// Actually 08:00 JST hour=8, NOT quiet (quiet is h<8 or h>=22). So fires at base.
-			wantTime: time.Date(2026, 8, 4, 23, 0, 0, 0, time.UTC),
-			wantOK:   true,
+			// base = 2026-08-04 23:00 UTC = 08:00 JST Aug 5; NOT quiet (h=8 is boundary; quiet is h<8 or h>=22).
+			wantTime:   time.Date(2026, 8, 4, 23, 0, 0, 0, time.UTC),
+			wantExpiry: time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), // deadline
+			wantOK:     true,
 		},
 
 		// --- RESULT_DAY ---
@@ -184,7 +206,10 @@ func TestScheduledFireTime(t *testing.T) {
 			// Aug 15 in JST (UTC+9): 2026-08-15 05:00 UTC = 2026-08-15 14:00 JST → calendar day = Aug 15 JST.
 			// 09:00 JST Aug 15 = 00:00 UTC Aug 15.
 			wantTime: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC),
-			wantOK:   true,
+			// expiry = start of the next local day (00:00 JST Aug 16 = 15:00 UTC Aug 15):
+			// never send after the end of RESULT_DAY's local calendar day.
+			wantExpiry: time.Date(2026, 8, 15, 15, 0, 0, 0, time.UTC),
+			wantOK:     true,
 		},
 		{
 			// RESULT_DAY with tz=America/Los_Angeles: fire at 09:00 LA time, NOT 09:00 JST.
@@ -202,7 +227,9 @@ func TestScheduledFireTime(t *testing.T) {
 			},
 			// LA is UTC-7 in summer (PDT). 09:00 LA Aug 31 = 16:00 UTC Aug 31.
 			wantTime: time.Date(2026, 8, 31, 16, 0, 0, 0, time.UTC),
-			wantOK:   true,
+			// expiry = start of the next local day (00:00 LA Sep 1 = 07:00 UTC Sep 1, PDT).
+			wantExpiry: time.Date(2026, 9, 1, 7, 0, 0, 0, time.UTC),
+			wantOK:     true,
 		},
 		{
 			name: "RESULT_DAY zero LotteryResultTime → ok=false",
@@ -239,8 +266,9 @@ func TestScheduledFireTime(t *testing.T) {
 				},
 				tz: jst, // 10:00 UTC = 19:00 JST, not quiet
 			},
-			wantTime: time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC),
-			wantOK:   true,
+			wantTime:   time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC),
+			wantExpiry: time.Time{},
+			wantOK:     true,
 		},
 		{
 			// base 1s after DiscoveredTime → fires normally.
@@ -253,12 +281,13 @@ func TestScheduledFireTime(t *testing.T) {
 				},
 				tz: jst, // 19:00 JST, active
 			},
-			wantTime: time.Date(2026, 8, 1, 10, 0, 1, 0, time.UTC),
-			wantOK:   true,
+			wantTime:   time.Date(2026, 8, 1, 10, 0, 1, 0, time.UTC),
+			wantExpiry: time.Time{},
+			wantOK:     true,
 		},
 		{
 			// CLOSE_1H, deadline 01:00 JST (quiet), base 00:00 JST (quiet).
-			// morning 08:00 JST > deadline 01:00 → pre-quiet = 22:00 prev day JST.
+			// morning 08:00 JST > deadline 01:00 → pre-quiet = 21:00 prev day JST.
 			// Verify pre-quiet < deadline.
 			name: "pre-quiet alert is strictly before deadline",
 			args: args{
@@ -273,19 +302,21 @@ func TestScheduledFireTime(t *testing.T) {
 			},
 			// base = 15:00 UTC = 00:00 JST Sep 10; quiet.
 			// morning = 08:00 JST Sep 10 = 23:00 UTC Sep 9 → but 08:00 JST > deadline 01:00 JST same day.
-			// pre-quiet = 22:00 JST Sep 9 = 13:00 UTC Sep 9 < deadline 16:00 UTC Sep 9.
-			wantTime: time.Date(2026, 9, 9, 13, 0, 0, 0, time.UTC), // 22:00 JST Sep 9
-			wantOK:   true,
+			// pre-quiet = 21:00 JST Sep 9 = 12:00 UTC Sep 9 < deadline 16:00 UTC Sep 9.
+			wantTime:   time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC), // 21:00 JST Sep 9
+			wantExpiry: time.Date(2026, 9, 9, 16, 0, 0, 0, time.UTC), // deadline
+			wantOK:     true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotTime, gotOK := usecase.ExportedScheduledFireTime(tt.args.stage, tt.args.phase, tt.args.tz)
+			gotTime, gotExpiry, gotOK := usecase.ExportedScheduledFireTime(tt.args.stage, tt.args.phase, tt.args.tz)
 			assert.Equal(t, tt.wantOK, gotOK, "ok mismatch")
 			if tt.wantOK {
 				assert.Equal(t, tt.wantTime.UTC(), gotTime.UTC(), "fire time mismatch")
+				assert.Equal(t, tt.wantExpiry.UTC(), gotExpiry.UTC(), "expiry mismatch")
 			}
 		})
 	}
@@ -375,33 +406,40 @@ func TestBuildReminderPayload(t *testing.T) {
 	})
 }
 
-// ---- ScanDueReminders end-to-end: late-result phase IS evaluated ----
+// ---- ScanDueReminders end-to-end: expiry and pre-quiet-alert fixes (issue #472) ----
+//
+// Both tests below fix real timestamps far enough from "now" (>= 48h) that
+// the outcome is deterministic regardless of the wall-clock hour the test
+// happens to run at: the quiet-hours adjustment inside scheduledFireTime can
+// shift a fire time by at most 10h (the width of the 22:00-08:00 window), so
+// a 48h margin leaves no ambiguity about whether a stage is due or expired.
 
-// TestScanDueReminders_LateResultPhaseIsEvaluated proves end-to-end that a
-// phase whose apply_start_at is far in the past but whose lottery_result_at
-// recently fired IS loaded (via ListPhasesWithPendingMilestones) and that the
-// consumer-side RecordSent is NOT called by the producer (fix #1).
-func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
+// TestScanDueReminders_ExpiredStagesAreSkipped proves that a phase whose
+// deadline (ApplyEndTime), application window, and result day are all long
+// past does NOT publish any reminder stage. Before the fix, ScanDueReminders
+// only checked now.Before(fire) with no upper bound, so a stage could fire
+// arbitrarily long after its deadline, application close, or result day had
+// passed (issue #472's "late sends").
+func TestScanDueReminders_ExpiredStagesAreSkipped(t *testing.T) {
 	t.Parallel()
 
 	logger, _ := logging.New()
 	ctx := context.Background()
 
-	base := time.Now().UTC()
-	// All phase timestamps are in the past so every milestone is "due now".
-	// lottery_result_at is 30h ago: 09:00 in any timezone on that calendar day
-	// is guaranteed to have already passed.
+	now := time.Now().UTC()
+	// Every milestone is far enough in the past that its expiry (the deadline
+	// for APPLY_CLOSE_24H/1H, ApplyEndTime for APPLY_OPEN, and the end of the
+	// local calendar day for RESULT_DAY) has already elapsed.
 	phase := &entity.SalesPhase{
-		ID:                "phase-late",
-		SeriesID:          "series-late",
+		ID:                "phase-expired",
+		SeriesID:          "series-expired",
 		Channel:           entity.SalesChannelPlayguide,
 		ProviderName:      "e+",
-		ApplyStartTime:    base.AddDate(0, 0, -30), // 30 days ago
-		ApplyEndTime:      base.AddDate(0, 0, -20), // 20 days ago
-		LotteryResultTime: base.Add(-30 * time.Hour),
-		URL:               "https://eplus.jp/late",
-		// DiscoveredTime well before all milestones → first-sight guard never trips.
-		DiscoveredTime: base.AddDate(0, 0, -60),
+		ApplyStartTime:    now.AddDate(0, 0, -30), // 30 days ago
+		ApplyEndTime:      now.AddDate(0, 0, -20), // 20 days ago — deadline long past
+		LotteryResultTime: now.AddDate(0, 0, -10), // result day long past
+		URL:               "https://eplus.jp/expired",
+		DiscoveredTime:    now.AddDate(0, 0, -60),
 	}
 
 	user := &entity.User{
@@ -423,44 +461,13 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 
 	salesPhaseRepo.On("ListPhasesWithPendingMilestones", ctx, lookahead, usecase.ReminderScanLookbackMargin).
 		Return([]*entity.SalesPhase{phase}, nil)
-	// Audience is resolved from Tracking journeys on the phase's series.
-	journeyRepo.On("ListUserIDsTrackingSeries", ctx, "series-late").Return([]string{"user-001"}, nil)
+	journeyRepo.On("ListUserIDsTrackingSeries", ctx, "series-expired").Return([]string{"user-001"}, nil)
 	userRepo.On("Get", ctx, "user-001").Return(user, nil)
-
-	// Batch sent-check returns empty (none sent yet).
-	reminderRepo.On("ListSentStages", ctx, "phase-late", []string{"user-001"}).
+	reminderRepo.On("ListSentStages", ctx, "phase-expired", []string{"user-001"}).
 		Return(map[string]map[entity.ReminderStage]bool{}, nil)
 
-	// All 4 stages are due (all triggers in the past, DiscoveredTime 60 days ago).
-	// The producer must NOT call RecordSent (#1) — consumer does that after push.
-	// Use Maybe() for quiet-hours-sensitive stages (APPLY_OPEN, RESULT_DAY)
-	// since the test runs at an unpredictable wall-clock hour.
-	for _, s := range []entity.ReminderStage{
-		entity.ReminderStageApplyClose24H,
-		entity.ReminderStageApplyClose1H,
-	} {
-		stage := s
-		pub.On("PublishEvent", ctx, entity.SubjectSalesPhaseReminderDue,
-			mock.MatchedBy(func(v any) bool {
-				d, ok := v.(entity.SalesPhaseReminderDueData)
-				return ok && d.UserID == "user-001" && d.PhaseID == "phase-late" &&
-					entity.ReminderStage(d.Stage) == stage
-			}),
-		).Return(nil).Once()
-	}
-	for _, s := range []entity.ReminderStage{
-		entity.ReminderStageApplyOpen,
-		entity.ReminderStageResultDay,
-	} {
-		stage := s
-		pub.On("PublishEvent", ctx, entity.SubjectSalesPhaseReminderDue,
-			mock.MatchedBy(func(v any) bool {
-				d, ok := v.(entity.SalesPhaseReminderDueData)
-				return ok && d.UserID == "user-001" && d.PhaseID == "phase-late" &&
-					entity.ReminderStage(d.Stage) == stage
-			}),
-		).Return(nil).Maybe()
-	}
+	// No PublishEvent expectation is registered for any stage: the mock fails
+	// the test outright if ScanDueReminders tries to publish a stale reminder.
 
 	uc := usecase.NewSalesReminderUseCase(
 		salesPhaseRepo, reminderRepo, journeyRepo, userRepo, concertRepo,
@@ -469,13 +476,67 @@ func TestScanDueReminders_LateResultPhaseIsEvaluated(t *testing.T) {
 
 	published, err := uc.ScanDueReminders(ctx)
 	require.NoError(t, err)
-	// APPLY_CLOSE_24H and APPLY_CLOSE_1H always fire (deadline stages return
-	// now or pre-quiet, never a future morning). APPLY_OPEN and RESULT_DAY
-	// may defer to 08:00 local time if the test runs during quiet hours.
-	assert.GreaterOrEqual(t, published, 2,
-		"must publish at least APPLY_CLOSE_24H + APPLY_CLOSE_1H for a late-result phase")
+	assert.Equal(t, 0, published, "an expired phase must not publish any stage")
+}
 
-	// CRITICAL: the producer must NOT have called RecordSent (#1 fix).
-	// AssertExpectations on reminderRepo will fail if RecordSent was called
-	// with no matching expectation (the mock has no RecordSent registration).
+// TestScanDueReminders_NotYetExpiredStageStillPublishes is a regression guard
+// for the expiry check added by the fix above: a stage that is due AND still
+// within its valid window must keep firing as before. ApplyEndTime and
+// LotteryResultTime are left unset so APPLY_CLOSE_24H/1H and RESULT_DAY are
+// inapplicable (ok=false from scheduledFireTime) and stay out of this
+// assertion; only APPLY_OPEN is exercised here.
+func TestScanDueReminders_NotYetExpiredStageStillPublishes(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := logging.New()
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	phase := &entity.SalesPhase{
+		ID:             "phase-active",
+		SeriesID:       "series-active",
+		Channel:        entity.SalesChannelPlayguide,
+		ProviderName:   "e+",
+		ApplyStartTime: now.Add(-48 * time.Hour), // due
+		URL:            "https://eplus.jp/active",
+		DiscoveredTime: now.AddDate(0, 0, -60),
+	}
+
+	user := &entity.User{
+		ID:                "user-001",
+		PreferredLanguage: "en",
+		TimeZone:          "Asia/Tokyo",
+	}
+
+	lookahead := 7 * 24 * time.Hour
+
+	salesPhaseRepo := entitymocks.NewMockSalesPhaseRepository(t)
+	reminderRepo := entitymocks.NewMockSalesPhaseReminderRepository(t)
+	journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
+	userRepo := entitymocks.NewMockUserRepository(t)
+	pub := ucmocks.NewMockEventPublisher(t)
+
+	salesPhaseRepo.On("ListPhasesWithPendingMilestones", ctx, lookahead, usecase.ReminderScanLookbackMargin).
+		Return([]*entity.SalesPhase{phase}, nil)
+	journeyRepo.On("ListUserIDsTrackingSeries", ctx, "series-active").Return([]string{"user-001"}, nil)
+	userRepo.On("Get", ctx, "user-001").Return(user, nil)
+	reminderRepo.On("ListSentStages", ctx, "phase-active", []string{"user-001"}).
+		Return(map[string]map[entity.ReminderStage]bool{}, nil)
+
+	pub.On("PublishEvent", ctx, entity.SubjectSalesPhaseReminderDue,
+		mock.MatchedBy(func(v any) bool {
+			d, ok := v.(entity.SalesPhaseReminderDueData)
+			return ok && d.UserID == "user-001" && d.PhaseID == "phase-active" &&
+				entity.ReminderStage(d.Stage) == entity.ReminderStageApplyOpen
+		}),
+	).Return(nil).Once()
+
+	uc := usecase.NewSalesReminderUseCase(
+		salesPhaseRepo, reminderRepo, journeyRepo, userRepo,
+		pub, lookahead, logger,
+	)
+
+	published, err := uc.ScanDueReminders(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, published, "APPLY_OPEN must still publish when due and not yet expired")
 }
