@@ -360,6 +360,41 @@ func TestArtistUseCase_Search(t *testing.T) {
 		assert.Nil(t, result)
 	})
 
+	t.Run("propagates the searcher's error code unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		// Table-driven per apperr code: Search must forward the port error as-is
+		// (matching ListSimilar/ListTop), never collapsing it into Internal.
+		//
+		// @spec components/usecase/artist/search "Catalog unavailable"
+		// @spec components/usecase/artist/search "Catalog rate-limited"
+		// @spec components/usecase/artist/search "Catalog request timed out"
+		tests := []struct {
+			name    string
+			wantErr error
+		}{
+			{name: "NotFound", wantErr: apperr.ErrNotFound},
+			{name: "Unavailable", wantErr: apperr.ErrUnavailable},             // Catalog unavailable
+			{name: "ResourceExhausted", wantErr: apperr.ErrResourceExhausted}, // Catalog rate-limited
+			{name: "DeadlineExceeded", wantErr: apperr.ErrDeadlineExceeded},   // Catalog request timed out
+			{name: "Internal", wantErr: apperr.ErrInternal},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				d := newArtistTestDeps(t)
+
+				d.searcher.EXPECT().Search(ctx, "query").Return(nil, tc.wantErr).Once()
+
+				result, err := d.uc.Search(ctx, "query")
+
+				assert.ErrorIs(t, err, tc.wantErr)
+				assert.Nil(t, result)
+			})
+		}
+	})
+
 	t.Run("returns cached results on second call", func(t *testing.T) {
 		t.Parallel()
 		d := newArtistTestDeps(t)

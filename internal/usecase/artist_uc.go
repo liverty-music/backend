@@ -54,6 +54,10 @@ type ArtistUseCase interface {
 	// # Possible errors:
 	//
 	//   - NotFound: no matching artists found.
+	//   - Unavailable: external discovery service failure.
+	//   - ResourceExhausted: external discovery service rate limit exceeded.
+	//   - DeadlineExceeded: external discovery service request timed out.
+	//   - Internal: unexpected failure while persisting discovered artists.
 	Search(ctx context.Context, query string) ([]*entity.Artist, error)
 
 	// ListSimilar identifies artists with musical affinity to the target artist.
@@ -179,10 +183,13 @@ func (uc *artistUseCase) Search(ctx context.Context, query string) ([]*entity.Ar
 		}
 	}
 
-	// Cache miss - fetch from external API
+	// Cache miss - fetch from external API. Propagate the port's error as-is
+	// (mirroring ListSimilar/ListTop) so its code (NotFound, Unavailable,
+	// ResourceExhausted, DeadlineExceeded, ...) survives to the caller instead
+	// of being collapsed into Internal.
 	artists, err := uc.artistSearcher.Search(ctx, query)
 	if err != nil {
-		return nil, apperr.Wrap(err, codes.Internal, "failed to search artists")
+		return nil, err
 	}
 
 	// Filter out entries with empty MBID and dedup by MBID keeping first occurrence.
