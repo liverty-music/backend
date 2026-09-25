@@ -12,6 +12,7 @@ import (
 
 	"github.com/davidbyttow/govips/v2/vips"
 	"github.com/pannpers/go-logging/logging"
+	_ "golang.org/x/image/webp" // Register the WebP decoder for the magic-byte safety check below.
 )
 
 // maxPixels is the pre-decode safety limit: images whose decoded pixel count
