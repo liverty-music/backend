@@ -196,6 +196,7 @@ func TestFollowRepository_Follow(t *testing.T) {
 		verify  func(t *testing.T, userID, artistID string)
 	}{
 		{
+			// @spec components/entity/follow/follow "First follow"
 			name: "follow succeeds",
 			setup: func() (string, string) {
 				cleanDatabase(t)
@@ -205,6 +206,8 @@ func TestFollowRepository_Follow(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/entity/follow/follow "Repeat follow"
+			//
 			// Matches the "Repeat follow" scenario in the entity spec
 			// (components/entity/follow/follow): a duplicate follow fails
 			// with AlreadyExists and leaves the existing row, including its
@@ -228,6 +231,23 @@ func TestFollowRepository_Follow(t *testing.T) {
 				require.Len(t, followed, 1)
 				assert.Equal(t, artistID, followed[0].Artist.ID)
 				assert.Equal(t, entity.HypeAway, followed[0].Hype)
+			},
+		},
+		{
+			// @spec components/entity/follow/follow "Unknown artist"
+			name: "unknown artist fails with FailedPrecondition and stores nothing",
+			setup: func() (string, string) {
+				cleanDatabase(t)
+				userID := seedUser(t, "Orphan Follow User", "orphanfollow@test.com", "ext-orphanfollow-01")
+				// A syntactically valid but non-existent artist id.
+				return userID, entity.NewID()
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+			verify: func(t *testing.T, userID, _ string) {
+				t.Helper()
+				followed, err := followRepo.ListByUser(ctx, userID)
+				require.NoError(t, err)
+				assert.Empty(t, followed)
 			},
 		},
 	}
