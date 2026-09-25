@@ -77,3 +77,6 @@ project.md
 task.md
 *.png
 .playwright-mcp/
+
+# Claude Code worktrees (claude --worktree / EnterWorktree)
+.claude/worktrees/
