@@ -193,6 +193,7 @@ func TestFollowRepository_Follow(t *testing.T) {
 		name    string
 		setup   func() (userID, artistID string)
 		wantErr error
+		verify  func(t *testing.T, userID, artistID string)
 	}{
 		{
 			name: "follow succeeds",
@@ -204,14 +205,29 @@ func TestFollowRepository_Follow(t *testing.T) {
 			},
 		},
 		{
-			name: "duplicate follow is idempotent",
+			// Matches the "Repeat follow" scenario in the entity spec
+			// (components/entity/follow/follow): a duplicate follow fails
+			// with AlreadyExists and leaves the existing row, including its
+			// hype level, untouched.
+			name: "duplicate follow fails with AlreadyExists and leaves hype unchanged",
 			setup: func() (string, string) {
 				cleanDatabase(t)
 				userID := seedUser(t, "Dup Follow User", "dupfollow@test.com", "ext-dupfollow-01")
 				artistID := seedArtist(t, "Dup Follow Artist", "a1000000-0000-0000-0000-000000000002")
 				err := followRepo.Follow(ctx, userID, artistID)
 				require.NoError(t, err)
+				err = followRepo.SetHype(ctx, userID, artistID, entity.HypeAway)
+				require.NoError(t, err)
 				return userID, artistID
+			},
+			wantErr: apperr.ErrAlreadyExists,
+			verify: func(t *testing.T, userID, artistID string) {
+				t.Helper()
+				followed, err := followRepo.ListByUser(ctx, userID)
+				require.NoError(t, err)
+				require.Len(t, followed, 1)
+				assert.Equal(t, artistID, followed[0].Artist.ID)
+				assert.Equal(t, entity.HypeAway, followed[0].Hype)
 			},
 		},
 	}
@@ -224,10 +240,13 @@ func TestFollowRepository_Follow(t *testing.T) {
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
-				return
+			} else {
+				assert.NoError(t, err)
 			}
 
-			assert.NoError(t, err)
+			if tt.verify != nil {
+				tt.verify(t, userID, artistID)
+			}
 		})
 	}
 }

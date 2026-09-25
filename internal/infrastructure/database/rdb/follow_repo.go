@@ -62,10 +62,20 @@ func NewFollowRepository(db *Database) *FollowRepository {
 // Follow establishes a follow relationship between a user and an artist.
 // The new row's hype is set to entity.DefaultHype — the canonical domain-layer
 // default. The DB column DEFAULT mirrors this value but is not relied upon here.
+//
+// The insert uses ON CONFLICT DO NOTHING so a duplicate follow never touches
+// the existing row (or its hype level). Since pgx reports no error for a
+// no-op conflict, RowsAffected is inspected to tell a fresh insert apart from
+// a duplicate: when no row was inserted, Follow reports AlreadyExists so the
+// caller (FollowUseCase.Follow) can treat the repeat as an idempotent no-op
+// instead of re-publishing the follow event and re-running background work.
 func (r *FollowRepository) Follow(ctx context.Context, userID, artistID string) error {
-	_, err := r.db.Pool.Exec(ctx, followInsertQuery, userID, artistID, string(entity.DefaultHype))
+	tag, err := r.db.Pool.Exec(ctx, followInsertQuery, userID, artistID, string(entity.DefaultHype))
 	if err != nil {
 		return toAppErr(err, "failed to follow artist", slog.String("user_id", userID), slog.String("artist_id", artistID))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.AlreadyExists, "already following")
 	}
 
 	r.db.logger.Info(ctx, "artist followed",
