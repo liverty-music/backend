@@ -18,35 +18,45 @@ import (
 
 // announcementTestDeps holds the mocks and use case for announcement tests.
 type announcementTestDeps struct {
-	userRepo       *entitymocks.MockUserRepository
-	journeyRepo    *entitymocks.MockTicketJourneyRepository
-	concertRepo    *entitymocks.MockConcertRepository
-	notificationUC *ucmocks.MockNotificationUseCase
-	uc             usecase.SalesPhaseAnnouncementUseCase
+	userRepo    *entitymocks.MockUserRepository
+	journeyRepo *entitymocks.MockTicketJourneyRepository
+	concertRepo *entitymocks.MockConcertRepository
+	publisher   *ucmocks.MockEventPublisher
+	uc          usecase.SalesPhaseAnnouncementUseCase
 }
 
 func newAnnouncementTestDeps(t *testing.T) *announcementTestDeps {
 	t.Helper()
 	d := &announcementTestDeps{
-		userRepo:       entitymocks.NewMockUserRepository(t),
-		journeyRepo:    entitymocks.NewMockTicketJourneyRepository(t),
-		concertRepo:    entitymocks.NewMockConcertRepository(t),
-		notificationUC: ucmocks.NewMockNotificationUseCase(t),
+		userRepo:    entitymocks.NewMockUserRepository(t),
+		journeyRepo: entitymocks.NewMockTicketJourneyRepository(t),
+		concertRepo: entitymocks.NewMockConcertRepository(t),
+		publisher:   ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewSalesPhaseAnnouncementUseCase(
 		d.userRepo,
 		d.journeyRepo,
 		d.concertRepo,
-		d.notificationUC,
+		d.publisher,
 		newTestLogger(t),
 	)
 	return d
 }
 
-// deliveredNotif returns a Notification with DeliveryStatus=Delivered for use
-// as the mock return value in announcement tests.
-func deliveredNotif() *entity.Notification {
-	return &entity.Notification{ID: "notif-ann-1", DeliveryStatus: entity.NotificationDeliveryStatusDelivered}
+// expectAnnouncementRequested sets up a PublishEventWithID expectation
+// matching a NOTIFICATION.requested publish for the given recipient with a
+// sales-phase-announcement payload satisfying payloadMatches. AnnounceDiscoveredPhase
+// now requests delivery per recipient instead of calling NotificationUseCase.Deliver
+// directly, so these tests assert on the publish rather than on a mocked Notify call.
+func expectAnnouncementRequested(t *testing.T, publisher *ucmocks.MockEventPublisher, userID string, payloadMatches func(p *entity.NotificationPayload) bool) *mock.Call {
+	t.Helper()
+	return publisher.EXPECT().
+		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"),
+			mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
+				return data.UserID == userID && data.Type == entity.NotificationTypeSalesPhaseAnnouncement && payloadMatches(data.Payload)
+			})).
+		Return(nil).
+		Once()
 }
 
 func TestAnnounceDiscoveredPhase_LocalizesCopyPerRecipient(t *testing.T) {
@@ -68,40 +78,28 @@ func TestAnnounceDiscoveredPhase_LocalizesCopyPerRecipient(t *testing.T) {
 		Return([]*entity.Event{{ID: "event-1", LocalDate: time.Now().UTC().AddDate(0, 0, 7)}}, nil).
 		Once()
 
-	// Assert each recipient gets a Notify call with the correct localized title,
-	// language-independent URL (the series' resolved event, not the phase
-	// itself), and per-phase Tag.
+	// Assert each recipient's requested payload carries the correct localized
+	// title, language-independent URL (the series' resolved event, not the
+	// phase itself), and per-phase Tag.
 	// @spec components/usecase/sales-phase/announce-discovered-phase "Japanese-speaking fan"
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-ja", entity.NotificationTypeSalesPhaseAnnouncement,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Title == "チケット販売情報の新着" &&
-					p.Data[entity.NotificationDataKeyURL] == "/concerts/event-1" &&
-					p.Tag == "sales-phase-phase-1"
-			})).
-		Return(deliveredNotif(), nil).
-		Once()
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-en", entity.NotificationTypeSalesPhaseAnnouncement,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Title == "New Ticket Sales Phase" &&
-					p.Data[entity.NotificationDataKeyURL] == "/concerts/event-1" &&
-					p.Tag == "sales-phase-phase-1"
-			})).
-		Return(deliveredNotif(), nil).
-		Once()
+	expectAnnouncementRequested(t, d.publisher, "user-ja", func(p *entity.NotificationPayload) bool {
+		return p.Title == "チケット販売情報の新着" &&
+			p.Data[entity.NotificationDataKeyURL] == "/concerts/event-1" &&
+			p.Tag == "sales-phase-phase-1"
+	})
+	expectAnnouncementRequested(t, d.publisher, "user-en", func(p *entity.NotificationPayload) bool {
+		return p.Title == "New Ticket Sales Phase" &&
+			p.Data[entity.NotificationDataKeyURL] == "/concerts/event-1" &&
+			p.Tag == "sales-phase-phase-1"
+	})
 	// @spec components/usecase/sales-phase/announce-discovered-phase "Other language"
 	// user-unset has no preferred language, matching the scenario's "or not set".
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-unset", entity.NotificationTypeSalesPhaseAnnouncement,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				// Unset language falls back to English.
-				return p.Title == "New Ticket Sales Phase" &&
-					p.Data[entity.NotificationDataKeyURL] == "/concerts/event-1" &&
-					p.Tag == "sales-phase-phase-1"
-			})).
-		Return(deliveredNotif(), nil).
-		Once()
+	expectAnnouncementRequested(t, d.publisher, "user-unset", func(p *entity.NotificationPayload) bool {
+		// Unset language falls back to English.
+		return p.Title == "New Ticket Sales Phase" &&
+			p.Data[entity.NotificationDataKeyURL] == "/concerts/event-1" &&
+			p.Tag == "sales-phase-phase-1"
+	})
 
 	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
 	require.NoError(t, err)
@@ -125,23 +123,16 @@ func TestAnnounceDiscoveredPhase_HydrationError_SkipsButContinues(t *testing.T) 
 	// asserted below since this test only checks title localization.
 	d.concertRepo.EXPECT().ListEventsBySeries(ctx, "series-1").Return(nil, nil).Once()
 
-	// Both audience members still receive a Notify call. user-broken falls back
-	// to the English copy because it never made it into the language map.
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-ja", entity.NotificationTypeSalesPhaseAnnouncement,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Title == "チケット販売情報の新着"
-			})).
-		Return(deliveredNotif(), nil).
-		Once()
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-broken", entity.NotificationTypeSalesPhaseAnnouncement,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				// Hydration failure falls back to English.
-				return p.Title == "New Ticket Sales Phase"
-			})).
-		Return(deliveredNotif(), nil).
-		Once()
+	// Both audience members still get a requested notification. user-broken
+	// falls back to the English copy because it never made it into the
+	// language map.
+	expectAnnouncementRequested(t, d.publisher, "user-ja", func(p *entity.NotificationPayload) bool {
+		return p.Title == "チケット販売情報の新着"
+	})
+	expectAnnouncementRequested(t, d.publisher, "user-broken", func(p *entity.NotificationPayload) bool {
+		// Hydration failure falls back to English.
+		return p.Title == "New Ticket Sales Phase"
+	})
 
 	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
 	require.NoError(t, err)
@@ -158,14 +149,14 @@ func TestAnnounceDiscoveredPhase_EmptyAudience_NoOp(t *testing.T) {
 		ListUserIDsTrackingSeries(ctx, "series-1").
 		Return([]string{}, nil).
 		Once()
-	// No user hydration, no Notify calls expected.
+	// No user hydration, no publish calls expected.
 
 	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
 	require.NoError(t, err)
-	d.notificationUC.AssertNotCalled(t, "Notify")
+	d.publisher.AssertNotCalled(t, "PublishEventWithID")
 }
 
-func TestAnnounceDiscoveredPhase_NotifyError_PropagatesAndAborts(t *testing.T) {
+func TestAnnounceDiscoveredPhase_PublishError_PropagatesAndAborts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -179,15 +170,15 @@ func TestAnnounceDiscoveredPhase_NotifyError_PropagatesAndAborts(t *testing.T) {
 	d.userRepo.EXPECT().Get(ctx, "user-1").Return(&entity.User{ID: "user-1", PreferredLanguage: "en"}, nil).Once()
 	d.concertRepo.EXPECT().ListEventsBySeries(ctx, "series-1").Return(nil, nil).Once()
 
-	notifyErr := errors.New("record creation failed")
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-1", entity.NotificationTypeSalesPhaseAnnouncement, mock.AnythingOfType("*entity.NotificationPayload")).
-		Return(nil, notifyErr).
+	publishErr := errors.New("nats unavailable")
+	d.publisher.EXPECT().
+		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), mock.AnythingOfType("entity.NotificationRequestedData")).
+		Return(publishErr).
 		Once()
 
 	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, notifyErr)
+	assert.ErrorIs(t, err, publishErr)
 }
 
 // @spec components/usecase/sales-phase/announce-discovered-phase "No upcoming event"
@@ -215,13 +206,9 @@ func TestAnnounceDiscoveredPhase_NoUpcomingEvent_LinksToEarliestEvent(t *testing
 		}, nil).
 		Once()
 
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-1", entity.NotificationTypeSalesPhaseAnnouncement,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Data[entity.NotificationDataKeyURL] == "/concerts/event-oldest"
-			})).
-		Return(deliveredNotif(), nil).
-		Once()
+	expectAnnouncementRequested(t, d.publisher, "user-1", func(p *entity.NotificationPayload) bool {
+		return p.Data[entity.NotificationDataKeyURL] == "/concerts/event-oldest"
+	})
 
 	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
 	require.NoError(t, err)
@@ -242,13 +229,9 @@ func TestAnnounceDiscoveredPhase_SeriesWithNoEvent_LinksToDashboard(t *testing.T
 	d.userRepo.EXPECT().Get(ctx, "user-1").Return(&entity.User{ID: "user-1", PreferredLanguage: "en"}, nil).Once()
 	d.concertRepo.EXPECT().ListEventsBySeries(ctx, "series-1").Return(nil, nil).Once()
 
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-1", entity.NotificationTypeSalesPhaseAnnouncement,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Data[entity.NotificationDataKeyURL] == "/dashboard"
-			})).
-		Return(deliveredNotif(), nil).
-		Once()
+	expectAnnouncementRequested(t, d.publisher, "user-1", func(p *entity.NotificationPayload) bool {
+		return p.Data[entity.NotificationDataKeyURL] == "/dashboard"
+	})
 
 	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
 	require.NoError(t, err)

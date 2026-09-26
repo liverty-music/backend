@@ -18,24 +18,22 @@ import (
 
 // pushNotificationTestDeps holds all dependencies for PushNotificationUseCase tests.
 type pushNotificationTestDeps struct {
-	artistRepo     *mocks.MockArtistRepository
-	concertRepo    *mocks.MockConcertRepository
-	followRepo     *mocks.MockFollowRepository
-	pushSubRepo    *mocks.MockPushSubscriptionRepository
-	publisher      *ucmocks.MockEventPublisher
-	notificationUC *ucmocks.MockNotificationUseCase
-	uc             usecase.PushNotificationUseCase
+	artistRepo  *mocks.MockArtistRepository
+	concertRepo *mocks.MockConcertRepository
+	followRepo  *mocks.MockFollowRepository
+	pushSubRepo *mocks.MockPushSubscriptionRepository
+	publisher   *ucmocks.MockEventPublisher
+	uc          usecase.PushNotificationUseCase
 }
 
 func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 	t.Helper()
 	d := &pushNotificationTestDeps{
-		artistRepo:     mocks.NewMockArtistRepository(t),
-		concertRepo:    mocks.NewMockConcertRepository(t),
-		followRepo:     mocks.NewMockFollowRepository(t),
-		pushSubRepo:    mocks.NewMockPushSubscriptionRepository(t),
-		publisher:      ucmocks.NewMockEventPublisher(t),
-		notificationUC: ucmocks.NewMockNotificationUseCase(t),
+		artistRepo:  mocks.NewMockArtistRepository(t),
+		concertRepo: mocks.NewMockConcertRepository(t),
+		followRepo:  mocks.NewMockFollowRepository(t),
+		pushSubRepo: mocks.NewMockPushSubscriptionRepository(t),
+		publisher:   ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewPushNotificationUseCase(
 		d.artistRepo,
@@ -43,10 +41,47 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 		d.followRepo,
 		d.pushSubRepo,
 		d.publisher,
-		d.notificationUC,
 		newTestLogger(t),
 	)
 	return d
+}
+
+// expectNotificationRequested sets up a PublishEventWithID expectation
+// matching a NOTIFICATION.requested publish for the given recipient and
+// notification type — the request NotifyNewConcerts / AnnounceDiscoveredPhase
+// now issue instead of calling NotificationUseCase.Deliver directly. The id
+// argument is deliberately not asserted here (it is a deterministic hash of
+// business keys, covered by its own test); mock.AnythingOfType("string")
+// matches whatever notificationRequestMsgID derives.
+func expectNotificationRequested(t *testing.T, publisher *ucmocks.MockEventPublisher, userID string, typ entity.NotificationType) *mock.Call {
+	t.Helper()
+	return publisher.EXPECT().
+		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"),
+			mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
+				return data.UserID == userID && data.Type == typ
+			})).
+		Return(nil).
+		Once()
+}
+
+// expectNotificationRequestedMatching is [expectNotificationRequested] with an
+// additional predicate over the requested payload, for tests that assert on
+// rendered copy (localized body, deep-link, etc.).
+func expectNotificationRequestedMatching(
+	t *testing.T,
+	publisher *ucmocks.MockEventPublisher,
+	userID string,
+	typ entity.NotificationType,
+	payloadMatches func(p *entity.NotificationPayload) bool,
+) *mock.Call {
+	t.Helper()
+	return publisher.EXPECT().
+		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"),
+			mock.MatchedBy(func(data entity.NotificationRequestedData) bool {
+				return data.UserID == userID && data.Type == typ && payloadMatches(data.Payload)
+			})).
+		Return(nil).
+		Once()
 }
 
 func TestPushNotificationUseCase_Create(t *testing.T) {
@@ -374,12 +409,6 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 		}
 	}
 
-	// deliveredNotification returns a Notification with DeliveryStatus=Delivered,
-	// representing a successful Notify call.
-	deliveredNotification := func() *entity.Notification {
-		return &entity.Notification{ID: "notif-1", DeliveryStatus: entity.NotificationDeliveryStatusDelivered}
-	}
-
 	type args struct {
 		data usecase.ConcertCreatedData
 	}
@@ -412,10 +441,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
-				d.notificationUC.EXPECT().
-					Notify(anyCtx, "user-1", entity.NotificationTypeNewConcerts, mock.AnythingOfType("*entity.NotificationPayload")).
-					Return(deliveredNotification(), nil).
-					Once()
+				expectNotificationRequested(t, d.publisher, "user-1", entity.NotificationTypeNewConcerts)
 			},
 			wantErr: nil,
 		},
@@ -445,10 +471,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 					{ArtistID: "artist-1", User: &entity.User{ID: "user-home", Home: &entity.Home{Level1: "JP-13"}}, Hype: entity.HypeHome},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
-				d.notificationUC.EXPECT().
-					Notify(anyCtx, "user-home", entity.NotificationTypeNewConcerts, mock.AnythingOfType("*entity.NotificationPayload")).
-					Return(deliveredNotification(), nil).
-					Once()
+				expectNotificationRequested(t, d.publisher, "user-home", entity.NotificationTypeNewConcerts)
 			},
 			wantErr: nil,
 		},
@@ -528,10 +551,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
-				d.notificationUC.EXPECT().
-					Notify(anyCtx, "user-nearby", entity.NotificationTypeNewConcerts, mock.AnythingOfType("*entity.NotificationPayload")).
-					Return(deliveredNotification(), nil).
-					Once()
+				expectNotificationRequested(t, d.publisher, "user-nearby", entity.NotificationTypeNewConcerts)
 			},
 			wantErr: nil,
 		},
@@ -563,10 +583,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 					{ArtistID: "artist-1", User: &entity.User{ID: "user-nearby", Home: &entity.Home{Level1: "JP-13", Centroid: &entity.Coordinates{Latitude: 35.6762, Longitude: 139.6503}}}, Hype: entity.HypeNearby},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
-				d.notificationUC.EXPECT().
-					Notify(anyCtx, "user-nearby", entity.NotificationTypeNewConcerts, mock.AnythingOfType("*entity.NotificationPayload")).
-					Return(deliveredNotification(), nil).
-					Once()
+				expectNotificationRequested(t, d.publisher, "user-nearby", entity.NotificationTypeNewConcerts)
 			},
 			wantErr: nil,
 		},
@@ -625,14 +642,8 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 				// Only user-home-match and user-away are eligible.
-				d.notificationUC.EXPECT().
-					Notify(anyCtx, "user-home-match", entity.NotificationTypeNewConcerts, mock.AnythingOfType("*entity.NotificationPayload")).
-					Return(deliveredNotification(), nil).
-					Once()
-				d.notificationUC.EXPECT().
-					Notify(anyCtx, "user-away", entity.NotificationTypeNewConcerts, mock.AnythingOfType("*entity.NotificationPayload")).
-					Return(deliveredNotification(), nil).
-					Once()
+				expectNotificationRequested(t, d.publisher, "user-home-match", entity.NotificationTypeNewConcerts)
+				expectNotificationRequested(t, d.publisher, "user-away", entity.NotificationTypeNewConcerts)
 			},
 			wantErr: nil,
 		},
@@ -693,7 +704,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			wantErr: apperr.ErrInternal,
 		},
 		{
-			name: "return error when Notify fails",
+			name: "return error when publishing the notification request fails",
 			args: args{data: usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}}},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
@@ -703,9 +714,9 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
-				d.notificationUC.EXPECT().
-					Notify(anyCtx, "user-1", entity.NotificationTypeNewConcerts, mock.AnythingOfType("*entity.NotificationPayload")).
-					Return(nil, apperr.ErrInternal).
+				d.publisher.EXPECT().
+					PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), mock.AnythingOfType("entity.NotificationRequestedData")).
+					Return(apperr.ErrInternal).
 					Once()
 			},
 			wantErr: apperr.ErrInternal,
@@ -754,30 +765,16 @@ func TestNotifyNewConcerts_LocalizesBodyPerRecipient(t *testing.T) {
 	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(concerts, nil).Once()
 	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 
-	deliveredNotif := &entity.Notification{ID: "notif-1", DeliveryStatus: entity.NotificationDeliveryStatusDelivered}
-
-	// Assert each recipient receives a payload with the correct localized body.
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-ja", entity.NotificationTypeNewConcerts,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Body == "新しいライブが1件見つかりました"
-			})).
-		Return(deliveredNotif, nil).
-		Once()
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-en", entity.NotificationTypeNewConcerts,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Body == "1 new concert found"
-			})).
-		Return(deliveredNotif, nil).
-		Once()
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-unset", entity.NotificationTypeNewConcerts,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Body == "1 new concert found" // unset language falls back to en
-			})).
-		Return(deliveredNotif, nil).
-		Once()
+	// Assert each recipient's requested payload carries the correct localized body.
+	expectNotificationRequestedMatching(t, d.publisher, "user-ja", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return p.Body == "新しいライブが1件見つかりました"
+	})
+	expectNotificationRequestedMatching(t, d.publisher, "user-en", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return p.Body == "1 new concert found"
+	})
+	expectNotificationRequestedMatching(t, d.publisher, "user-unset", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return p.Body == "1 new concert found" // unset language falls back to en
+	})
 
 	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}})
 	assert.NoError(t, err)
@@ -806,22 +803,12 @@ func TestNotifyNewConcerts_PluralBodyPerLanguage(t *testing.T) {
 	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1", "c2"}).Return(concerts, nil).Once()
 	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 
-	deliveredNotif := &entity.Notification{ID: "notif-1", DeliveryStatus: entity.NotificationDeliveryStatusDelivered}
-
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-ja", entity.NotificationTypeNewConcerts,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Body == "新しいライブが2件見つかりました"
-			})).
-		Return(deliveredNotif, nil).
-		Once()
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-en", entity.NotificationTypeNewConcerts,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return p.Body == "2 new concerts found" // plural form for N>1
-			})).
-		Return(deliveredNotif, nil).
-		Once()
+	expectNotificationRequestedMatching(t, d.publisher, "user-ja", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return p.Body == "新しいライブが2件見つかりました"
+	})
+	expectNotificationRequestedMatching(t, d.publisher, "user-en", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return p.Body == "2 new concerts found" // plural form for N>1
+	})
 
 	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2"}})
 	assert.NoError(t, err)
@@ -837,7 +824,6 @@ func newPushNotificationUCWithLogger(t *testing.T, d *pushNotificationTestDeps, 
 		d.followRepo,
 		d.pushSubRepo,
 		d.publisher,
-		d.notificationUC,
 		logger,
 	)
 }
@@ -945,14 +931,9 @@ func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
 	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c-late", "c-early"}).Return(concerts, nil).Once()
 	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 
-	deliveredNotif := &entity.Notification{ID: "notif-1", DeliveryStatus: entity.NotificationDeliveryStatusDelivered}
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-away", entity.NotificationTypeNewConcerts,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return payloadURL(p) == "/concerts/c-early" && p.Body == "2 new concerts found"
-			})).
-		Return(deliveredNotif, nil).
-		Once()
+	expectNotificationRequestedMatching(t, d.publisher, "user-away", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return payloadURL(p) == "/concerts/c-early" && p.Body == "2 new concerts found"
+	})
 
 	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c-late", "c-early"}})
 	assert.NoError(t, err)
@@ -985,14 +966,9 @@ func TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink(t *testing.T) {
 	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"aichi-early", "tokyo-later", "aichi-early2"}).Return(concerts, nil).Once()
 	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 
-	deliveredNotif := &entity.Notification{ID: "notif-1", DeliveryStatus: entity.NotificationDeliveryStatusDelivered}
-	d.notificationUC.EXPECT().
-		Notify(anyCtx, "user-home-tokyo", entity.NotificationTypeNewConcerts,
-			mock.MatchedBy(func(p *entity.NotificationPayload) bool {
-				return payloadURL(p) == "/concerts/tokyo-later" && p.Body == "1 new concert found"
-			})).
-		Return(deliveredNotif, nil).
-		Once()
+	expectNotificationRequestedMatching(t, d.publisher, "user-home-tokyo", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return payloadURL(p) == "/concerts/tokyo-later" && p.Body == "1 new concert found"
+	})
 
 	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"aichi-early", "tokyo-later", "aichi-early2"}})
 	assert.NoError(t, err)

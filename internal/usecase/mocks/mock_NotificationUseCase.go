@@ -22,6 +22,67 @@ func (_m *MockNotificationUseCase) EXPECT() *MockNotificationUseCase_Expecter {
 	return &MockNotificationUseCase_Expecter{mock: &_m.Mock}
 }
 
+// Deliver provides a mock function with given fields: ctx, userID, typ, payload
+func (_m *MockNotificationUseCase) Deliver(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error) {
+	ret := _m.Called(ctx, userID, typ, payload)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Deliver")
+	}
+
+	var r0 *entity.Notification
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) (*entity.Notification, error)); ok {
+		return rf(ctx, userID, typ, payload)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) *entity.Notification); ok {
+		r0 = rf(ctx, userID, typ, payload)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Notification)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) error); ok {
+		r1 = rf(ctx, userID, typ, payload)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockNotificationUseCase_Deliver_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Deliver'
+type MockNotificationUseCase_Deliver_Call struct {
+	*mock.Call
+}
+
+// Deliver is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID string
+//   - typ entity.NotificationType
+//   - payload *entity.NotificationPayload
+func (_e *MockNotificationUseCase_Expecter) Deliver(ctx interface{}, userID interface{}, typ interface{}, payload interface{}) *MockNotificationUseCase_Deliver_Call {
+	return &MockNotificationUseCase_Deliver_Call{Call: _e.mock.On("Deliver", ctx, userID, typ, payload)}
+}
+
+func (_c *MockNotificationUseCase_Deliver_Call) Run(run func(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload)) *MockNotificationUseCase_Deliver_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(entity.NotificationType), args[3].(*entity.NotificationPayload))
+	})
+	return _c
+}
+
+func (_c *MockNotificationUseCase_Deliver_Call) Return(_a0 *entity.Notification, _a1 error) *MockNotificationUseCase_Deliver_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockNotificationUseCase_Deliver_Call) RunAndReturn(run func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) (*entity.Notification, error)) *MockNotificationUseCase_Deliver_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MarkDismissed provides a mock function with given fields: ctx, userID, notificationID
 func (_m *MockNotificationUseCase) MarkDismissed(ctx context.Context, userID string, notificationID string) error {
 	ret := _m.Called(ctx, userID, notificationID)
@@ -114,67 +175,6 @@ func (_c *MockNotificationUseCase_MarkRead_Call) Return(_a0 error) *MockNotifica
 }
 
 func (_c *MockNotificationUseCase_MarkRead_Call) RunAndReturn(run func(context.Context, string, string) error) *MockNotificationUseCase_MarkRead_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Notify provides a mock function with given fields: ctx, userID, typ, payload
-func (_m *MockNotificationUseCase) Notify(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error) {
-	ret := _m.Called(ctx, userID, typ, payload)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Notify")
-	}
-
-	var r0 *entity.Notification
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) (*entity.Notification, error)); ok {
-		return rf(ctx, userID, typ, payload)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) *entity.Notification); ok {
-		r0 = rf(ctx, userID, typ, payload)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Notification)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) error); ok {
-		r1 = rf(ctx, userID, typ, payload)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockNotificationUseCase_Notify_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Notify'
-type MockNotificationUseCase_Notify_Call struct {
-	*mock.Call
-}
-
-// Notify is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID string
-//   - typ entity.NotificationType
-//   - payload *entity.NotificationPayload
-func (_e *MockNotificationUseCase_Expecter) Notify(ctx interface{}, userID interface{}, typ interface{}, payload interface{}) *MockNotificationUseCase_Notify_Call {
-	return &MockNotificationUseCase_Notify_Call{Call: _e.mock.On("Notify", ctx, userID, typ, payload)}
-}
-
-func (_c *MockNotificationUseCase_Notify_Call) Run(run func(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload)) *MockNotificationUseCase_Notify_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(entity.NotificationType), args[3].(*entity.NotificationPayload))
-	})
-	return _c
-}
-
-func (_c *MockNotificationUseCase_Notify_Call) Return(_a0 *entity.Notification, _a1 error) *MockNotificationUseCase_Notify_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockNotificationUseCase_Notify_Call) RunAndReturn(run func(context.Context, string, entity.NotificationType, *entity.NotificationPayload) (*entity.Notification, error)) *MockNotificationUseCase_Notify_Call {
 	_c.Call.Return(run)
 	return _c
 }

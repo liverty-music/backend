@@ -79,7 +79,7 @@ func sub(userID, endpoint string) *entity.PushSubscription {
 
 // Success path: record created, sent, delivery recorded as delivered, and the
 // minted notification id is carried into the dispatched payload.
-func TestNotify_Success(t *testing.T) {
+func TestDeliver_Success(t *testing.T) {
 	t.Parallel()
 
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
@@ -112,7 +112,7 @@ func TestNotify_Success(t *testing.T) {
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, publisher)
 	payload := notifPayload()
-	n, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, payload)
+	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, payload)
 
 	require.NoError(t, err)
 	assert.Equal(t, entity.NotificationDeliveryStatusDelivered, n.DeliveryStatus)
@@ -122,7 +122,7 @@ func TestNotify_Success(t *testing.T) {
 
 // Send-failure path: the record is created, the send fails, and the outcome is
 // recorded as failed (not returned as an error).
-func TestNotify_SendFailureRecordedAsFailed(t *testing.T) {
+func TestDeliver_SendFailureRecordedAsFailed(t *testing.T) {
 	t.Parallel()
 
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
@@ -144,7 +144,7 @@ func TestNotify_SendFailureRecordedAsFailed(t *testing.T) {
 		Return(nil)
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
-	n, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	n, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 
 	require.NoError(t, err)
 	assert.Equal(t, entity.NotificationDeliveryStatusFailed, n.DeliveryStatus)
@@ -152,7 +152,7 @@ func TestNotify_SendFailureRecordedAsFailed(t *testing.T) {
 
 // Gone (410) path: the dead subscription is cleaned up and, with no successful
 // send, the outcome is failed.
-func TestNotify_GoneSubscriptionCleanedUpAndFailed(t *testing.T) {
+func TestDeliver_GoneSubscriptionCleanedUpAndFailed(t *testing.T) {
 	t.Parallel()
 
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
@@ -177,13 +177,13 @@ func TestNotify_GoneSubscriptionCleanedUpAndFailed(t *testing.T) {
 		Return(nil)
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
-	_, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
 }
 
 // No-subscription path: a record is created but there is no push endpoint, so the
 // outcome is failed with the "no active push subscription" reason; no send.
-func TestNotify_NoSubscriptionRecordedAsFailed(t *testing.T) {
+func TestDeliver_NoSubscriptionRecordedAsFailed(t *testing.T) {
 	t.Parallel()
 
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
@@ -202,7 +202,7 @@ func TestNotify_NoSubscriptionRecordedAsFailed(t *testing.T) {
 		Return(nil)
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
-	_, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
 	sender.AssertNotCalled(t, "Send")
 }
@@ -210,7 +210,7 @@ func TestNotify_NoSubscriptionRecordedAsFailed(t *testing.T) {
 // Cancellation path: a context cancelled before dispatch short-circuits the send
 // loop — the record still exists (created first) and is recorded failed, but no
 // push is sent.
-func TestNotify_ContextCancelledStopsDispatch(t *testing.T) {
+func TestDeliver_ContextCancelledStopsDispatch(t *testing.T) {
 	t.Parallel()
 
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
@@ -232,7 +232,7 @@ func TestNotify_ContextCancelledStopsDispatch(t *testing.T) {
 	cancel()
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
-	n, err := uc.Notify(ctx, "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	n, err := uc.Deliver(ctx, "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 
 	require.NoError(t, err)
 	assert.Equal(t, entity.NotificationDeliveryStatusFailed, n.DeliveryStatus)
@@ -241,7 +241,7 @@ func TestNotify_ContextCancelledStopsDispatch(t *testing.T) {
 
 // Record-failure path: when the record cannot be created, NO send is attempted
 // and the error surfaces ("no record => no send").
-func TestNotify_RecordFailureDoesNotSend(t *testing.T) {
+func TestDeliver_RecordFailureDoesNotSend(t *testing.T) {
 	t.Parallel()
 
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
@@ -253,7 +253,7 @@ func TestNotify_RecordFailureDoesNotSend(t *testing.T) {
 		Return(apperr.New(codes.Internal, "db down"))
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
-	_, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 
 	require.Error(t, err)
 	sender.AssertNotCalled(t, "Send")
@@ -262,7 +262,7 @@ func TestNotify_RecordFailureDoesNotSend(t *testing.T) {
 }
 
 // Nil payload is rejected with InvalidArgument before any record is created.
-func TestNotify_NilPayloadRejected(t *testing.T) {
+func TestDeliver_NilPayloadRejected(t *testing.T) {
 	t.Parallel()
 
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
@@ -270,7 +270,7 @@ func TestNotify_NilPayloadRejected(t *testing.T) {
 	sender := entitymocks.NewMockPushNotificationSender(t)
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
-	_, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, nil)
+	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, nil)
 
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	notifRepo.AssertNotCalled(t, "Create")
@@ -279,7 +279,7 @@ func TestNotify_NilPayloadRejected(t *testing.T) {
 // Observability: a failed delivery emits the WARNING log (with the bounded
 // failure_reason label) AND the delivery-outcome metric, so the failure is
 // detectable without querying the notifications table.
-func TestNotify_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
+func TestDeliver_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
 	t.Parallel()
 
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
@@ -302,7 +302,7 @@ func TestNotify_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
 	logger, buf := newCaptureLogger(t)
 	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t), metrics, logger)
 
-	_, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
 
 	// Metric: failed outcome with the bounded no_subscription reason.
@@ -318,7 +318,7 @@ func TestNotify_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
 
 // Observability: the success path stays quiet — it emits the delivered metric
 // but produces no WARNING delivery-failure log.
-func TestNotify_SuccessEmitsNoWarningLog(t *testing.T) {
+func TestDeliver_SuccessEmitsNoWarningLog(t *testing.T) {
 	t.Parallel()
 
 	notifRepo := entitymocks.NewMockNotificationRepository(t)
@@ -343,7 +343,7 @@ func TestNotify_SuccessEmitsNoWarningLog(t *testing.T) {
 	logger, buf := newCaptureLogger(t)
 	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, publisher, metrics, logger)
 
-	_, err := uc.Notify(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
+	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
 
 	require.Contains(t, metrics.outcomes, deliveryOutcomeCall{outcome: "delivered", reason: "none"})

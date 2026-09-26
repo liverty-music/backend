@@ -349,7 +349,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		followRepo,
 		pushSubRepo,
 		eventPublisher,
-		notificationUC,
 		logger,
 	)
 	// Auth - JWT Validator and Interceptor

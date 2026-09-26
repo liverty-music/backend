@@ -21,11 +21,11 @@ type SalesPhaseAnnouncementUseCase interface {
 }
 
 type salesPhaseAnnouncementUseCase struct {
-	userRepo       entity.UserRepository
-	journeyRepo    entity.TicketJourneyRepository
-	concertRepo    entity.ConcertRepository
-	notificationUC NotificationUseCase
-	logger         *logging.Logger
+	userRepo    entity.UserRepository
+	journeyRepo entity.TicketJourneyRepository
+	concertRepo entity.ConcertRepository
+	publisher   EventPublisher
+	logger      *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -36,15 +36,15 @@ func NewSalesPhaseAnnouncementUseCase(
 	userRepo entity.UserRepository,
 	journeyRepo entity.TicketJourneyRepository,
 	concertRepo entity.ConcertRepository,
-	notificationUC NotificationUseCase,
+	publisher EventPublisher,
 	logger *logging.Logger,
 ) *salesPhaseAnnouncementUseCase {
 	return &salesPhaseAnnouncementUseCase{
-		userRepo:       userRepo,
-		journeyRepo:    journeyRepo,
-		concertRepo:    concertRepo,
-		notificationUC: notificationUC,
-		logger:         logger,
+		userRepo:    userRepo,
+		journeyRepo: journeyRepo,
+		concertRepo: concertRepo,
+		publisher:   publisher,
+		logger:      logger,
 	}
 }
 
@@ -83,11 +83,12 @@ func (uc *salesPhaseAnnouncementUseCase) AnnounceDiscoveredPhase(ctx context.Con
 	url := ResolveSeriesLinkURL(ctx, data.SeriesID, uc.concertRepo, uc.logger)
 	tag := fmt.Sprintf("sales-phase-%s", data.PhaseID)
 
-	// Record and dispatch one announcement per audience member through the
-	// notification service, so every recipient gets a durable record and a
-	// delivery outcome. This announcement fires once immediately from the
-	// discovery job's daily 21:00 JST run (no quiet-hours constraint); only the
-	// copy is personalised, by the recipient's preferred language (default en).
+	// Request one announcement per audience member: publish NOTIFICATION.requested
+	// (deterministic id — see notification_delivery.go) so the deliver-notification
+	// consumer records a durable Notification and dispatches the push. This
+	// announcement fires once immediately from the discovery job's daily
+	// 21:00 JST run (no quiet-hours constraint); only the copy is personalised,
+	// by the recipient's preferred language (default en).
 	for _, userID := range userIDs {
 		select {
 		case <-ctx.Done():
@@ -102,11 +103,20 @@ func (uc *salesPhaseAnnouncementUseCase) AnnounceDiscoveredPhase(ctx context.Con
 			url,
 			tag,
 		)
-		if _, err := uc.notificationUC.Notify(ctx, userID, entity.NotificationTypeSalesPhaseAnnouncement, payload); err != nil {
-			// Record-create failure ("no record => no send"): surface so the
-			// consumer's at-least-once retry re-drives the batch. Repeat pushes
-			// are deduplicated browser-side by the per-phase Tag.
-			return fmt.Errorf("sales_phase_announcement: notify user %s: %w", userID, err)
+		// Deterministic id: same phase + same recipient always derives the same
+		// id, so a retried SALES_PHASE.discovered delivery republishes an
+		// identical NOTIFICATION.requested that the stream's Duplicates window
+		// discards rather than requesting delivery twice.
+		reqID := notificationRequestMsgID(entity.NotificationTypeSalesPhaseAnnouncement, userID, data.PhaseID)
+		if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectNotificationRequested, reqID, entity.NotificationRequestedData{
+			UserID:  userID,
+			Type:    entity.NotificationTypeSalesPhaseAnnouncement,
+			Payload: payload,
+		}); err != nil {
+			// Publish failure: surface so the consumer's at-least-once retry
+			// re-drives the batch. Repeat pushes are deduplicated both by the
+			// Duplicates window above and, browser-side, by the per-phase Tag.
+			return fmt.Errorf("sales_phase_announcement: publish notification request for user %s: %w", userID, err)
 		}
 	}
 	return nil

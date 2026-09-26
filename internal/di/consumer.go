@@ -144,7 +144,6 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		followRepo,
 		pushSubRepo,
 		eventPublisher,
-		notificationUC,
 		logger,
 	)
 	stagedConcertRepo := rdb.NewStagedConcertRepository(db)
@@ -225,18 +224,26 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		analyticsClient = ac
 	}
 
-	// Sales-phase use cases for the two new consumers. Both dispatch through the
-	// notification service so every announcement / reminder gets a durable record.
+	// Sales-phase use cases for the two new consumers. AnnounceDiscoveredPhase
+	// requests delivery per recipient via NOTIFICATION.requested (handled by
+	// deliverNotificationConsumer below) so it depends on EventPublisher, not
+	// NotificationUseCase. DeliverReminder stays synchronous and composes the
+	// same delivery ports directly (see notification_delivery.go), so every
+	// reminder still gets a durable record without an event hop.
 	salesPhaseAnnouncementUC := usecase.NewSalesPhaseAnnouncementUseCase(
 		userRepo,
 		ticketJourneyRepo,
 		concertRepo,
-		notificationUC,
+		eventPublisher,
 		logger,
 	)
 	salesReminderDeliveryUC := usecase.NewSalesReminderDeliveryUseCase(
 		salesReminderRepo,
-		notificationUC,
+		notificationRepo,
+		pushSubRepo,
+		webpushSender,
+		eventPublisher,
+		infratelemetry.NewBusinessMetrics(),
 		logger,
 	)
 
@@ -252,6 +259,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	salesPhaseAnnouncementConsumer := event.NewSalesPhaseAnnouncementConsumer(salesPhaseAnnouncementUC, logger)
 	salesReminderConsumer := event.NewSalesReminderConsumer(salesReminderDeliveryUC, logger)
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
+	deliverNotificationConsumer := event.NewDeliverNotificationConsumer(notificationUC, logger)
 
 	// behaviorTable is the canonical behavior → subject → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
@@ -279,6 +287,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"notify-sales-phase", entity.SubjectSalesPhaseDiscovered, salesPhaseAnnouncementConsumer.Handle},
 		{"notify-sales-reminder", entity.SubjectSalesPhaseReminderDue, salesReminderConsumer.Handle},
 		{"search-first-followed-artist", entity.SubjectArtistFollowed, followSearchConsumer.Handle},
+		{"deliver-notification", entity.SubjectNotificationRequested, deliverNotificationConsumer.Handle},
 	}
 
 	// Router
