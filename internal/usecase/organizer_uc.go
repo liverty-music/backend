@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -48,11 +49,43 @@ type OrganizerUseCase interface {
 	// List returns every Organizer.
 	List(ctx context.Context) ([]*entity.Organizer, error)
 
-	// ListArtists returns the artists an Organizer represents.
+	// ListArtists returns the artists an Organizer represents. Used by the
+	// admin-facing handler, which may query any Organizer — it performs no
+	// ownership check. The organizer-facing handler MUST use ListOwnArtists
+	// instead.
 	//
 	// # Possible errors:
 	//   - NotFound: no organizer with the id exists.
 	ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error)
+
+	// ListOwnArtists returns the artists represented by the caller's own
+	// Organizer, after verifying that reqOrganizerID — the organizer_id
+	// supplied by the client — matches callerOrganizerID. Used by the
+	// organizer-facing handler.
+	//
+	// # Possible errors:
+	//   - PermissionDenied: reqOrganizerID does not match callerOrganizerID.
+	//   - NotFound: no organizer with the given id exists.
+	ListOwnArtists(ctx context.Context, callerOrganizerID, reqOrganizerID string) ([]*entity.Artist, error)
+
+	// ResolveCaller returns the caller's own Organizer, resolved from the
+	// Zitadel organization id extracted from the authenticated request
+	// context by the organizer-facing handler, and enforces that the
+	// Organizer is active.
+	//
+	// The status→code mapping is a business rule (non-revealing
+	// authorization), not transport policy: an unlinked Zitadel org id and
+	// any non-active status other than Deactivated collapse into the same
+	// PermissionDenied so a caller cannot distinguish "no such organizer"
+	// from "organizer not yet active." FailedPrecondition is used only for
+	// the caller's own deactivated Organizer, whose state may be disclosed
+	// per spec D3.
+	//
+	// # Possible errors:
+	//   - PermissionDenied: no organizer is linked to zitadelOrgID, or its
+	//     status is neither Active nor Deactivated (e.g. still provisioning).
+	//   - FailedPrecondition: the organizer is deactivated.
+	ResolveCaller(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error)
 
 	// AssociateArtist links an existing artist to an Organizer.
 	//
@@ -241,6 +274,39 @@ func (uc *organizerUseCase) ListArtists(ctx context.Context, organizerID string)
 		return nil, err
 	}
 	return uc.organizerRepo.ListArtists(ctx, organizerID)
+}
+
+// ListOwnArtists returns the artists represented by the caller's own
+// Organizer. Returns PermissionDenied when reqOrganizerID does not match
+// callerOrganizerID, and NotFound when no organizer with that id exists.
+func (uc *organizerUseCase) ListOwnArtists(ctx context.Context, callerOrganizerID, reqOrganizerID string) ([]*entity.Artist, error) {
+	if reqOrganizerID != callerOrganizerID {
+		return nil, apperr.New(codes.PermissionDenied, "permission denied")
+	}
+	return uc.ListArtists(ctx, callerOrganizerID)
+}
+
+// ResolveCaller returns the Organizer linked to zitadelOrgID, enforcing that
+// it is active. Returns PermissionDenied (non-revealing) when no organizer
+// is linked or its status is neither Active nor Deactivated, and
+// FailedPrecondition when it is deactivated.
+func (uc *organizerUseCase) ResolveCaller(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error) {
+	organizer, err := uc.organizerRepo.GetByZitadelOrgID(ctx, zitadelOrgID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			return nil, apperr.New(codes.PermissionDenied, "permission denied")
+		}
+		return nil, err
+	}
+
+	switch organizer.Status {
+	case entity.OrganizerStatusActive:
+		return organizer, nil
+	case entity.OrganizerStatusDeactivated:
+		return nil, apperr.New(codes.FailedPrecondition, "organizer is deactivated")
+	default:
+		return nil, apperr.New(codes.PermissionDenied, "permission denied")
+	}
 }
 
 // AssociateArtist links an existing artist to an Organizer. Returns

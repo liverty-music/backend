@@ -11,7 +11,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -63,7 +62,7 @@ func (h *OrganizerHandler) Get(
 
 // ListArtists returns the artists the caller's own Organizer represents,
 // ascending by artist id. The supplied organizer_id must match the resolved
-// Organizer; any other value is rejected with PERMISSION_DENIED.
+// Organizer; the usecase rejects any other value with PermissionDenied.
 func (h *OrganizerHandler) ListArtists(
 	ctx context.Context,
 	req *connect.Request[organizerv1.ListArtistsRequest],
@@ -73,15 +72,10 @@ func (h *OrganizerHandler) ListArtists(
 		return nil, err
 	}
 
-	// Verify the supplied organizer_id matches the resolved Organizer.
-	// The protovalidate interceptor has already confirmed the field is non-empty
-	// and well-formed; here we enforce the ownership invariant.
-	reqOrgID := req.Msg.GetOrganizerId().GetValue()
-	if reqOrgID != organizer.ID {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
-	}
-
-	artists, err := h.organizerUC.ListArtists(ctx, organizer.ID)
+	// The protovalidate interceptor has already confirmed organizer_id is
+	// non-empty and well-formed; the usecase enforces the ownership
+	// invariant against the resolved caller Organizer.
+	artists, err := h.organizerUC.ListOwnArtists(ctx, organizer.ID, req.Msg.GetOrganizerId().GetValue())
 	if err != nil {
 		return nil, err
 	}
@@ -92,19 +86,9 @@ func (h *OrganizerHandler) ListArtists(
 }
 
 // resolveCallerOrganizer reads the caller's Zitadel org id from the context
-// (placed there by OrgScopedInterceptor), looks up the linked Organizer via
-// the usecase layer, and enforces its lifecycle status. It returns the active
-// Organizer or a Connect error.
-//
-// The status→Connect-code mapping (transport/security policy) lives here in
-// the handler rather than in the usecase, which returns a domain NotFound for
-// an unlinked org and the raw Organizer entity for the caller to inspect.
-//
-// Error mapping:
-//   - Zitadel org id absent in context → PERMISSION_DENIED (defence-in-depth)
-//   - No Organizer linked to the org id → PERMISSION_DENIED (non-revealing)
-//   - Organizer deactivated → FAILED_PRECONDITION (own org, state may be stated)
-//   - Any other status (e.g. provisioning) → PERMISSION_DENIED (non-revealing)
+// (placed there by OrgScopedInterceptor) and delegates to the usecase to
+// resolve the linked Organizer and enforce its lifecycle status. It returns
+// the active Organizer or the usecase's error.
 func (h *OrganizerHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)
 	if !ok {
@@ -113,24 +97,5 @@ func (h *OrganizerHandler) resolveCallerOrganizer(ctx context.Context) (*entity.
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
 	}
 
-	organizer, err := h.organizerUC.GetByZitadelOrgID(ctx, callerOrgID)
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			// No Organizer is linked to this Zitadel org. Per spec D3 this
-			// must not reveal whether an Organizer exists.
-			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
-		}
-		return nil, err
-	}
-
-	switch organizer.Status {
-	case entity.OrganizerStatusActive:
-		return organizer, nil
-	case entity.OrganizerStatusDeactivated:
-		// The caller's own org — per spec D3 the state may be disclosed.
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("organizer is deactivated"))
-	default:
-		// Provisioning or any unknown status: non-revealing denial.
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
-	}
+	return h.organizerUC.ResolveCaller(ctx, callerOrgID)
 }

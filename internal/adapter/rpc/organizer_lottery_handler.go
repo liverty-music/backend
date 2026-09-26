@@ -11,7 +11,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -43,31 +42,17 @@ func NewOrganizerLotteryHandler(
 	}
 }
 
-// resolveCallerOrganizer reads the Zitadel org id from context, looks up the
-// Organizer, and enforces its lifecycle status. Returns the active Organizer or
-// a Connect error. Mirrors the same helper on OrganizerConcertHandler.
+// resolveCallerOrganizer reads the Zitadel org id from context and delegates
+// to the usecase, which looks up the Organizer and enforces its lifecycle
+// status. Returns the active Organizer or the usecase's error. Mirrors the
+// same helper on OrganizerConcertHandler.
 func (h *OrganizerLotteryHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
 	}
 
-	organizer, err := h.organizerUC.GetByZitadelOrgID(ctx, callerOrgID)
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
-		}
-		return nil, err
-	}
-
-	switch organizer.Status {
-	case entity.OrganizerStatusActive:
-		return organizer, nil
-	case entity.OrganizerStatusDeactivated:
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("organizer is deactivated"))
-	default:
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
-	}
+	return h.organizerUC.ResolveCaller(ctx, callerOrgID)
 }
 
 // ConfigureLotteryPhase attaches a new lottery sales phase to a published event

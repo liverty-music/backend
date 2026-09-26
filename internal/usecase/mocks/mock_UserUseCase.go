@@ -246,6 +246,114 @@ func (_c *MockUserUseCase_GetByExternalID_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
+// ResendEmailVerification provides a mock function with given fields: ctx, externalID, reqUserID
+func (_m *MockUserUseCase) ResendEmailVerification(ctx context.Context, externalID string, reqUserID string) error {
+	ret := _m.Called(ctx, externalID, reqUserID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResendEmailVerification")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, externalID, reqUserID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockUserUseCase_ResendEmailVerification_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResendEmailVerification'
+type MockUserUseCase_ResendEmailVerification_Call struct {
+	*mock.Call
+}
+
+// ResendEmailVerification is a helper method to define mock.On call
+//   - ctx context.Context
+//   - externalID string
+//   - reqUserID string
+func (_e *MockUserUseCase_Expecter) ResendEmailVerification(ctx interface{}, externalID interface{}, reqUserID interface{}) *MockUserUseCase_ResendEmailVerification_Call {
+	return &MockUserUseCase_ResendEmailVerification_Call{Call: _e.mock.On("ResendEmailVerification", ctx, externalID, reqUserID)}
+}
+
+func (_c *MockUserUseCase_ResendEmailVerification_Call) Run(run func(ctx context.Context, externalID string, reqUserID string)) *MockUserUseCase_ResendEmailVerification_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_ResendEmailVerification_Call) Return(_a0 error) *MockUserUseCase_ResendEmailVerification_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockUserUseCase_ResendEmailVerification_Call) RunAndReturn(run func(context.Context, string, string) error) *MockUserUseCase_ResendEmailVerification_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ResolveCaller provides a mock function with given fields: ctx, externalID, reqUserID
+func (_m *MockUserUseCase) ResolveCaller(ctx context.Context, externalID string, reqUserID string) (*entity.User, error) {
+	ret := _m.Called(ctx, externalID, reqUserID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResolveCaller")
+	}
+
+	var r0 *entity.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*entity.User, error)); ok {
+		return rf(ctx, externalID, reqUserID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *entity.User); ok {
+		r0 = rf(ctx, externalID, reqUserID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, externalID, reqUserID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserUseCase_ResolveCaller_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveCaller'
+type MockUserUseCase_ResolveCaller_Call struct {
+	*mock.Call
+}
+
+// ResolveCaller is a helper method to define mock.On call
+//   - ctx context.Context
+//   - externalID string
+//   - reqUserID string
+func (_e *MockUserUseCase_Expecter) ResolveCaller(ctx interface{}, externalID interface{}, reqUserID interface{}) *MockUserUseCase_ResolveCaller_Call {
+	return &MockUserUseCase_ResolveCaller_Call{Call: _e.mock.On("ResolveCaller", ctx, externalID, reqUserID)}
+}
+
+func (_c *MockUserUseCase_ResolveCaller_Call) Run(run func(ctx context.Context, externalID string, reqUserID string)) *MockUserUseCase_ResolveCaller_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserUseCase_ResolveCaller_Call) Return(_a0 *entity.User, _a1 error) *MockUserUseCase_ResolveCaller_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserUseCase_ResolveCaller_Call) RunAndReturn(run func(context.Context, string, string) (*entity.User, error)) *MockUserUseCase_ResolveCaller_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateHome provides a mock function with given fields: ctx, id, home
 func (_m *MockUserUseCase) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
 	ret := _m.Called(ctx, id, home)

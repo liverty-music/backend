@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
@@ -15,16 +16,29 @@ import (
 )
 
 type userTestDeps struct {
-	repo *mocks.MockUserRepository
-	uc   usecase.UserUseCase
+	repo          *mocks.MockUserRepository
+	emailVerifier *mocks.MockEmailVerifier
+	uc            usecase.UserUseCase
 }
 
 func newUserTestDeps(t *testing.T) *userTestDeps {
 	t.Helper()
 	d := &userTestDeps{
+		repo:          mocks.NewMockUserRepository(t),
+		emailVerifier: mocks.NewMockEmailVerifier(t),
+	}
+	d.uc = usecase.NewUserUseCase(d.repo, messaging.NewEventPublisher(newTestPublisher()), d.emailVerifier, newTestLogger(t))
+	return d
+}
+
+// newUserTestDepsNoVerifier builds test dependencies with a nil EmailVerifier,
+// mirroring local dev where the Zitadel API client is not configured.
+func newUserTestDepsNoVerifier(t *testing.T) *userTestDeps {
+	t.Helper()
+	d := &userTestDeps{
 		repo: mocks.NewMockUserRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, messaging.NewEventPublisher(newTestPublisher()), newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, messaging.NewEventPublisher(newTestPublisher()), nil, newTestLogger(t))
 	return d
 }
 
@@ -712,5 +726,186 @@ func TestUserUseCase_UpdatePreferredLanguage(t *testing.T) {
 
 		assert.Nil(t, result)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}
+
+func TestUserUseCase_ResolveCaller(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("success — reqUserID matches the caller's own id", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		expectedUser := &entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}
+		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).Return(expectedUser, nil).Once()
+
+		result, err := d.uc.ResolveCaller(ctx, testResolveExtID, testResolveUserID)
+
+		assert.NoError(t, err)
+		assert.Equal(t, expectedUser, result)
+	})
+
+	t.Run("InvalidArgument — reqUserID is empty", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
+
+		result, err := d.uc.ResolveCaller(ctx, testResolveExtID, "")
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("PermissionDenied — reqUserID does not match the caller's own id", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
+
+		result, err := d.uc.ResolveCaller(ctx, testResolveExtID, "some-other-user-id")
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
+	})
+
+	t.Run("NotFound — no user exists for externalID", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().GetByExternalID(ctx, "ext-ghost").
+			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+
+		result, err := d.uc.ResolveCaller(ctx, "ext-ghost", testResolveUserID)
+
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}
+
+const (
+	testResolveUserID = "user-resolve-1"
+	testResolveExtID  = "ext-resolve-1"
+)
+
+func TestUserUseCase_ResendEmailVerification(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("success — sends the verification email", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
+		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).Return(nil).Once()
+
+		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, testResolveUserID)
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("Unavailable — email verifier is not configured (nil)", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDepsNoVerifier(t)
+		// GetByExternalID MUST NOT be called — the nil-verifier check runs first.
+
+		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, testResolveUserID)
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	})
+
+	t.Run("InvalidArgument — reqUserID is empty", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
+		// ResendVerification must NOT be called.
+
+		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, "")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("PermissionDenied — reqUserID does not match the caller's own id", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
+		// ResendVerification must NOT be called.
+
+		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, "some-other-user-id")
+
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
+	})
+
+	t.Run("FailedPrecondition — email already verified propagates from the verifier", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
+		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).
+			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Once()
+
+		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, testResolveUserID)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	// The resend rate limit (3 per rolling 10-minute window) is tracked in
+	// memory, scoped to this process/instance — see the Go doc on
+	// UserUseCase.ResendEmailVerification. A 4th request within the window
+	// is rejected with ResourceExhausted before the verifier is called.
+	t.Run("ResourceExhausted — 4th request within the 10-minute window is rate-limited", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		const rateExtID = "ext-rate"
+		const rateUserID = "user-rate"
+		rateUser := &entity.User{ID: rateUserID, ExternalID: rateExtID}
+
+		d.repo.EXPECT().GetByExternalID(ctx, rateExtID).Return(rateUser, nil).Times(4)
+		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).Return(nil).Times(3)
+
+		for range 3 {
+			err := d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID)
+			assert.NoError(t, err)
+		}
+
+		err := d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID)
+		assert.ErrorIs(t, err, apperr.ErrResourceExhausted)
+	})
+
+	// The rate limit is per externalID: a different user is unaffected by
+	// another user's exhausted quota.
+	t.Run("rate limit is scoped per user", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		const rateExtID = "ext-rate-a"
+		const otherExtID = "ext-rate-b"
+		const rateUserID = "user-rate-a"
+		const otherUserID = "user-rate-b"
+
+		d.repo.EXPECT().GetByExternalID(ctx, rateExtID).
+			Return(&entity.User{ID: rateUserID, ExternalID: rateExtID}, nil).Times(3)
+		d.repo.EXPECT().GetByExternalID(ctx, otherExtID).
+			Return(&entity.User{ID: otherUserID, ExternalID: otherExtID}, nil).Once()
+		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).Return(nil).Times(3)
+		d.emailVerifier.EXPECT().ResendVerification(ctx, otherExtID).Return(nil).Once()
+
+		for range 3 {
+			require.NoError(t, d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID))
+		}
+
+		assert.NoError(t, d.uc.ResendEmailVerification(ctx, otherExtID, otherUserID))
 	})
 }
