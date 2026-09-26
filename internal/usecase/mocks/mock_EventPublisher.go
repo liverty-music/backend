@@ -69,6 +69,55 @@ func (_c *MockEventPublisher_PublishEvent_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
+// PublishEventWithID provides a mock function with given fields: ctx, subject, id, data
+func (_m *MockEventPublisher) PublishEventWithID(ctx context.Context, subject string, id string, data interface{}) error {
+	ret := _m.Called(ctx, subject, id, data)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PublishEventWithID")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, interface{}) error); ok {
+		r0 = rf(ctx, subject, id, data)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockEventPublisher_PublishEventWithID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PublishEventWithID'
+type MockEventPublisher_PublishEventWithID_Call struct {
+	*mock.Call
+}
+
+// PublishEventWithID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - subject string
+//   - id string
+//   - data interface{}
+func (_e *MockEventPublisher_Expecter) PublishEventWithID(ctx interface{}, subject interface{}, id interface{}, data interface{}) *MockEventPublisher_PublishEventWithID_Call {
+	return &MockEventPublisher_PublishEventWithID_Call{Call: _e.mock.On("PublishEventWithID", ctx, subject, id, data)}
+}
+
+func (_c *MockEventPublisher_PublishEventWithID_Call) Run(run func(ctx context.Context, subject string, id string, data interface{})) *MockEventPublisher_PublishEventWithID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(interface{}))
+	})
+	return _c
+}
+
+func (_c *MockEventPublisher_PublishEventWithID_Call) Return(_a0 error) *MockEventPublisher_PublishEventWithID_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockEventPublisher_PublishEventWithID_Call) RunAndReturn(run func(context.Context, string, string, interface{}) error) *MockEventPublisher_PublishEventWithID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockEventPublisher creates a new instance of MockEventPublisher. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockEventPublisher(t interface {

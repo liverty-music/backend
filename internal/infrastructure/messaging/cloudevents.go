@@ -18,13 +18,21 @@ const (
 	source = "liverty-music/backend"
 )
 
-// NewEvent creates a Watermill message with structured metadata.
-// The caller's trace context is attached to the message so that
-// downstream consumers can continue the same distributed trace.
-// The data payload is JSON-encoded into the message body.
+// NewEvent creates a Watermill message with structured metadata, minting a
+// fresh random id for it. The caller's trace context is attached to the
+// message so that downstream consumers can continue the same distributed
+// trace. The data payload is JSON-encoded into the message body.
 func NewEvent(ctx context.Context, data any) (*message.Message, error) {
-	id := entity.NewID()
+	return NewEventWithID(ctx, entity.NewID(), data)
+}
 
+// NewEventWithID is [NewEvent] with a caller-supplied id instead of a freshly
+// minted one. The id becomes both the CloudEvent id and the Watermill message
+// UUID; on NATS, the message UUID is what TrackMsgId tracks as the Nats-Msg-Id
+// header for broker-side de-duplication (see publisher.go), so passing the
+// same id again within the target stream's Duplicates window is deduplicated
+// rather than delivered twice.
+func NewEventWithID(ctx context.Context, id string, data any) (*message.Message, error) {
 	payload, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("marshal event data: %w", err)
