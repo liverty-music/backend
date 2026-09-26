@@ -17,6 +17,28 @@ import (
 	"google.golang.org/api/iterator"
 )
 
+// OriginalObjectKey constructs the GCS object key in the originals (internal)
+// bucket for the given organizer and media id. The key is
+// `{organizer_id}/{media_id}` — no cdn/ prefix because the originals bucket is
+// not CDN-served.
+func OriginalObjectKey(organizerID, mediaID string) string {
+	return organizerID + "/" + mediaID
+}
+
+// VariantObjectKey constructs the GCS object key in the served (public) bucket
+// for a specific variant of the given organizer media. The key is
+// `cdn/{organizer_id}/{media_id}/{variant}.webp`.
+func VariantObjectKey(organizerID, mediaID, variant string) string {
+	return "cdn/" + organizerID + "/" + mediaID + "/" + variant + ".webp"
+}
+
+// VariantObjectPrefix returns the key prefix covering all variants of a single
+// media object in the served bucket: `cdn/{organizer_id}/{media_id}/`.
+// Pass this to DeleteVariants to remove all variants in one sweep.
+func VariantObjectPrefix(organizerID, mediaID string) string {
+	return "cdn/" + organizerID + "/" + mediaID + "/"
+}
+
 // immutableCacheControl is set on every stored object. Object keys are
 // version-addressed (the key embeds a per-upload media id), so a given key
 // never changes content and may be cached indefinitely; a replaced image is
@@ -126,6 +148,42 @@ func (s *GCSStorer) SignedPutURL(ctx context.Context, bucket, key, contentType s
 		return "", apperr.New(codes.Internal, fmt.Sprintf("sign put url for %q: %v", key, err))
 	}
 	return url, nil
+}
+
+// SignedPutURLForOriginal returns a V4-signed GCS PUT URL for uploading the
+// ORIGINAL object of the given organizer/media pair to bucket. It composes the
+// originals-bucket key via OriginalObjectKey and delegates to SignedPutURL —
+// see that method for the URL/condition semantics.
+func (s *GCSStorer) SignedPutURLForOriginal(ctx context.Context, bucket, organizerID, mediaID, contentType string, maxBytes int64, ttl time.Duration) (string, error) {
+	return s.SignedPutURL(ctx, bucket, OriginalObjectKey(organizerID, mediaID), contentType, maxBytes, ttl)
+}
+
+// ReadOriginal downloads the ORIGINAL object bytes for the given
+// organizer/media pair from bucket. It composes the originals-bucket key via
+// OriginalObjectKey and delegates to ReadObject.
+func (s *GCSStorer) ReadOriginal(ctx context.Context, bucket, organizerID, mediaID string) ([]byte, error) {
+	return s.ReadObject(ctx, bucket, OriginalObjectKey(organizerID, mediaID))
+}
+
+// DeleteOriginal removes the ORIGINAL object for the given organizer/media
+// pair from bucket. It composes the originals-bucket key via OriginalObjectKey
+// and delegates to Delete (idempotent: a missing object is not an error).
+func (s *GCSStorer) DeleteOriginal(ctx context.Context, bucket, organizerID, mediaID string) error {
+	return s.Delete(ctx, bucket, OriginalObjectKey(organizerID, mediaID))
+}
+
+// PutVariant writes a processed image variant (thumb or large) for the given
+// organizer/media pair to the served bucket. It composes the variant object
+// key via VariantObjectKey and delegates to Put.
+func (s *GCSStorer) PutVariant(ctx context.Context, bucket, organizerID, mediaID, variant, contentType string, data []byte) error {
+	return s.Put(ctx, bucket, VariantObjectKey(organizerID, mediaID, variant), contentType, data)
+}
+
+// DeleteVariants removes every variant object (thumb, large, ...) for the given
+// organizer/media pair from the served bucket. It composes the variant prefix
+// via VariantObjectPrefix and delegates to DeletePrefix (idempotent).
+func (s *GCSStorer) DeleteVariants(ctx context.Context, bucket, organizerID, mediaID string) error {
+	return s.DeletePrefix(ctx, bucket, VariantObjectPrefix(organizerID, mediaID))
 }
 
 // DeletePrefix removes every object whose key begins with prefix from bucket.

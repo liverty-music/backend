@@ -118,6 +118,13 @@ type ServerConfig struct {
 	// media-consumer). Signed PUT URLs point here.
 	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
 
+	// OrganizerMediaCDNBase is the public CDN base URL used to compose served
+	// series-media variant URLs (thumb/large). Injected into
+	// mapper.MediaURLBuilder at DI wiring time; empty disables cover-media URLs
+	// on organizer-facing ConcertService responses rather than emitting a
+	// malformed relative URL.
+	OrganizerMediaCDNBase string `envconfig:"ORGANIZER_MEDIA_CDN_BASE"`
+
 	// PocketSign holds the Pocket Sign Stamp API credentials. When any of the
 	// four required fields (BaseURL, Token, TenantID, CallbackURL) is empty
 	// the server falls back to the StubVerifier, which returns UNAVAILABLE on

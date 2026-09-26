@@ -1,12 +1,15 @@
-package entity_test
+package mapper_test
 
 import (
 	"testing"
 
-	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/stretchr/testify/assert"
 )
 
+// TestDeviceTypeFromEndpoint moved from internal/entity/push_subscription_test.go
+// as part of liverty-music/backend#485: push-vendor host-name matching is an
+// adapter concern, not entity business logic.
 func TestDeviceTypeFromEndpoint(t *testing.T) {
 	t.Parallel()
 
@@ -50,7 +53,7 @@ func TestDeviceTypeFromEndpoint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, entity.DeviceTypeFromEndpoint(tt.endpoint))
+			assert.Equal(t, tt.want, mapper.DeviceTypeFromEndpoint(tt.endpoint))
 		})
 	}
 }

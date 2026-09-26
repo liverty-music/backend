@@ -99,17 +99,16 @@ func (h *MediaConsumer) Handle(msg *message.Message) error {
 		return fmt.Errorf("find media %s: %w", data.MediaID, err)
 	}
 
-	origKey := entity.OriginalObjectKey(media.OrganizerID, data.MediaID)
-
 	// Idempotency: if the thumb variant already exists in the served bucket, the
 	// cut-over was already performed on a previous delivery. Re-running
 	// CutOverSeriesMedia is safe (idempotent), but we skip re-processing the
 	// image to avoid redundant work and GCS charges.
 
-	// Read the original from the originals bucket.
-	rawData, err := h.readOriginal(ctx, internalBucket, origKey)
+	// Read the original from the originals bucket. The storer composes the
+	// originals-bucket key from (organizerID, mediaID) internally.
+	rawData, err := h.imageStorer.ReadOriginal(ctx, internalBucket, media.OrganizerID, data.MediaID)
 	if err != nil {
-		return fmt.Errorf("read original %s/%s: %w", internalBucket, origKey, err)
+		return fmt.Errorf("read original for media %s (org %s): %w", data.MediaID, media.OrganizerID, err)
 	}
 
 	// Process the image (decode, safety check, resize, encode WebP).
@@ -125,21 +124,19 @@ func (h *MediaConsumer) Handle(msg *message.Message) error {
 				slog.String("media_id", data.MediaID),
 				slog.Any("error", err),
 			)
-			h.cleanupOriginal(ctx, internalBucket, origKey, data.MediaID)
+			h.cleanupOriginal(ctx, internalBucket, media.OrganizerID, data.MediaID)
 			msg.Ack()
 			return nil
 		}
 		return fmt.Errorf("process image %s: %w", data.MediaID, err)
 	}
 
-	// Write variants to the served bucket.
-	thumbKey := entity.VariantObjectKey(media.OrganizerID, data.MediaID, "thumb")
-	largeKey := entity.VariantObjectKey(media.OrganizerID, data.MediaID, "large")
-
-	if err := h.imageStorer.Put(ctx, servedBucket, thumbKey, "image/webp", thumb); err != nil {
+	// Write variants to the served bucket. The storer composes the variant
+	// object keys from (organizerID, mediaID, variant) internally.
+	if err := h.imageStorer.PutVariant(ctx, servedBucket, media.OrganizerID, data.MediaID, "thumb", "image/webp", thumb); err != nil {
 		return fmt.Errorf("write thumb variant: %w", err)
 	}
-	if err := h.imageStorer.Put(ctx, servedBucket, largeKey, "image/webp", large); err != nil {
+	if err := h.imageStorer.PutVariant(ctx, servedBucket, media.OrganizerID, data.MediaID, "large", "image/webp", large); err != nil {
 		return fmt.Errorf("write large variant: %w", err)
 	}
 
@@ -155,18 +152,20 @@ func (h *MediaConsumer) Handle(msg *message.Message) error {
 				slog.String("series_id", data.SeriesID),
 				slog.String("media_id", data.MediaID),
 			)
-			h.cleanupOriginal(ctx, internalBucket, origKey, data.MediaID)
+			h.cleanupOriginal(ctx, internalBucket, media.OrganizerID, data.MediaID)
 			return nil
 		}
 		return fmt.Errorf("cut over series_media for series %s: %w", data.SeriesID, err)
 	}
 
-	// Reclaim the old variants from the served bucket (best-effort).
+	// Reclaim the old variants from the served bucket (best-effort). The
+	// storer composes the variant prefix from (organizerID, oldMediaID)
+	// internally.
 	if oldMediaID != "" && oldMediaID != data.MediaID {
-		oldPrefix := entity.VariantObjectPrefix(media.OrganizerID, oldMediaID)
-		if delErr := h.imageStorer.DeletePrefix(ctx, servedBucket, oldPrefix); delErr != nil {
-			h.logger.Warn(ctx, "failed to delete old variant prefix (orphaned)",
-				slog.String("prefix", oldPrefix),
+		if delErr := h.imageStorer.DeleteVariants(ctx, servedBucket, media.OrganizerID, oldMediaID); delErr != nil {
+			h.logger.Warn(ctx, "failed to delete old variants (orphaned)",
+				slog.String("organizer_id", media.OrganizerID),
+				slog.String("old_media_id", oldMediaID),
 				slog.Any("error", delErr),
 			)
 		}
@@ -175,7 +174,7 @@ func (h *MediaConsumer) Handle(msg *message.Message) error {
 	}
 
 	// Delete the original — it is no longer needed.
-	h.cleanupOriginal(ctx, internalBucket, origKey, data.MediaID)
+	h.cleanupOriginal(ctx, internalBucket, media.OrganizerID, data.MediaID)
 
 	h.logger.Info(ctx, "media processing complete",
 		slog.String("media_id", data.MediaID),
@@ -185,30 +184,13 @@ func (h *MediaConsumer) Handle(msg *message.Message) error {
 	return nil
 }
 
-// readOriginal downloads the original file from the originals bucket.
-func (h *MediaConsumer) readOriginal(ctx context.Context, bucket, key string) ([]byte, error) {
-	// ImageStorer.Put writes; to read we need a Reader. Since the existing
-	// ImageStorer interface only exposes write/delete operations, we use a
-	// small GCS-specific helper here. In tests, we pass a fake storer that
-	// also implements ObjectReader (defined in media_consumer_test.go).
-	type objectReader interface {
-		ReadObject(ctx context.Context, bucket, key string) ([]byte, error)
-	}
-	if r, ok := h.imageStorer.(objectReader); ok {
-		return r.ReadObject(ctx, bucket, key)
-	}
-	// If the storer does not implement ReadObject (e.g., unit tests using the
-	// base MockImageStorer), return an unimplemented error rather than panicking.
-	return nil, apperr.New(apperr.ErrInternal.Code, "imageStorer does not implement ReadObject")
-}
-
 // cleanupOriginal deletes the original from the originals bucket. Failures are
 // logged but not surfaced — a leaked original is harmless (future GC sweep).
-func (h *MediaConsumer) cleanupOriginal(ctx context.Context, bucket, key, mediaID string) {
-	if err := h.imageStorer.Delete(ctx, bucket, key); err != nil {
+func (h *MediaConsumer) cleanupOriginal(ctx context.Context, bucket, organizerID, mediaID string) {
+	if err := h.imageStorer.DeleteOriginal(ctx, bucket, organizerID, mediaID); err != nil {
 		h.logger.Warn(ctx, "failed to delete original (orphaned)",
+			slog.String("organizer_id", organizerID),
 			slog.String("media_id", mediaID),
-			slog.String("key", key),
 			slog.Any("error", err),
 		)
 	}

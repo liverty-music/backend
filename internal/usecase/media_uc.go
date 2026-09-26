@@ -151,9 +151,8 @@ func (uc *mediaUseCase) CreateMediaUploadURL(ctx context.Context, callerOrgID st
 	// and the later AttachMedia call. UUIDv7 provides monotone ordering and
 	// an embedded creation timestamp.
 	mediaID := entity.NewID()
-	key := entity.OriginalObjectKey(callerOrgID, mediaID)
 
-	uploadURL, err := uc.imageStorer.SignedPutURL(ctx, bucket, key, ct, mediaUploadMaxBytes, signedURLTTL)
+	uploadURL, err := uc.imageStorer.SignedPutURLForOriginal(ctx, bucket, callerOrgID, mediaID, ct, mediaUploadMaxBytes, signedURLTTL)
 	if err != nil {
 		return nil, fmt.Errorf("sign put url: %w", err)
 	}

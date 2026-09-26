@@ -2,15 +2,8 @@ package entity
 
 import (
 	"context"
-	"os"
-	"strings"
 	"time"
 )
-
-// mediaCDNBaseEnv is the environment variable name that holds the CDN base URL
-// used to compose served series-media URLs. The constant lives here so both the
-// usecase and the RPC mapper read the same variable through VariantURL.
-const mediaCDNBaseEnv = "ORGANIZER_MEDIA_CDN_BASE"
 
 // SeriesType classifies the shape of an event series.
 //
@@ -74,43 +67,6 @@ const (
 	// MediaKindImage is an uploaded image asset (cover photo, etc.).
 	MediaKindImage MediaKind = "IMAGE"
 )
-
-// OriginalObjectKey constructs the GCS object key in the originals (internal)
-// bucket for the given organizer and media id. The key is
-// `{organizer_id}/{media_id}` — no cdn/ prefix because the originals bucket is
-// not CDN-served.
-func OriginalObjectKey(organizerID, mediaID string) string {
-	return organizerID + "/" + mediaID
-}
-
-// VariantObjectKey constructs the GCS object key in the served (public) bucket
-// for a specific variant of the given organizer media. The key is
-// `cdn/{organizer_id}/{media_id}/{variant}.webp`.
-func VariantObjectKey(organizerID, mediaID, variant string) string {
-	return "cdn/" + organizerID + "/" + mediaID + "/" + variant + ".webp"
-}
-
-// VariantObjectPrefix returns the key prefix covering all variants of a single
-// media object in the served bucket: `cdn/{organizer_id}/{media_id}/`.
-// Pass this to ImageStorer.DeletePrefix to remove all variants in one sweep.
-func VariantObjectPrefix(organizerID, mediaID string) string {
-	return "cdn/" + organizerID + "/" + mediaID + "/"
-}
-
-// VariantURL composes the public CDN URL for one variant of a series media
-// image. It reads the CDN base from the ORGANIZER_MEDIA_CDN_BASE environment
-// variable and appends the variant object key produced by VariantObjectKey.
-// Returns "" when the env var is unset or empty so callers never emit a
-// malformed relative URL.
-//
-// variant must be one of "thumb" or "large".
-func VariantURL(organizerID, mediaID, variant string) string {
-	base := strings.TrimRight(os.Getenv(mediaCDNBaseEnv), "/")
-	if base == "" {
-		return ""
-	}
-	return base + "/" + VariantObjectKey(organizerID, mediaID, variant)
-}
 
 // Media represents a single media object uploaded by an organizer. The ID is
 // a UUIDv7 that serves as both the creation timestamp source and the

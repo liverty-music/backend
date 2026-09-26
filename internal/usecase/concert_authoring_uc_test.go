@@ -3,7 +3,6 @@ package usecase_test
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -513,8 +512,7 @@ func TestMediaUseCase_CreateMediaUploadURL_IssuesSignedURL(t *testing.T) {
 	const wantURL = "https://storage.googleapis.com/signed"
 
 	d.imageStorer.EXPECT().
-		SignedPutURL(mock.Anything, "originals-bucket",
-			mock.MatchedBy(func(k string) bool { return strings.HasPrefix(k, orgID+"/") }),
+		SignedPutURLForOriginal(mock.Anything, "originals-bucket", orgID, mock.Anything,
 			"image/jpeg", int64(10*1024*1024), mock.Anything).
 		Return(wantURL, nil)
 

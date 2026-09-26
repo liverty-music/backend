@@ -21,10 +21,16 @@ type PushNotificationUseCase interface {
 	// endpoint that belongs to a different userID reassigns it to the given
 	// userID; the previous owner no longer has it.
 	//
+	// deviceType is the browser/OS family classifier for the endpoint (e.g.
+	// "android", "apple", "firefox", "windows", "other"), derived by the
+	// caller (see mapper.DeviceTypeFromEndpoint) so this use case never needs
+	// to know about push-vendor host names. It is forwarded, unmodified, into
+	// the NOTIFICATION.subscribed analytics event.
+	//
 	// # Possible errors
 	//
 	//   - Internal: subscription persistence failure.
-	Create(ctx context.Context, userID, endpoint, p256dh, auth string) (*entity.PushSubscription, error)
+	Create(ctx context.Context, userID, endpoint, p256dh, auth, deviceType string) (*entity.PushSubscription, error)
 
 	// Get returns the push subscription uniquely identified by (userID, endpoint).
 	//
@@ -38,10 +44,14 @@ type PushNotificationUseCase interface {
 	// (userID, endpoint). Other browsers registered by the same user remain
 	// active. The operation is idempotent.
 	//
+	// deviceType is the browser/OS family classifier for the endpoint,
+	// derived by the caller (see mapper.DeviceTypeFromEndpoint) and forwarded,
+	// unmodified, into the NOTIFICATION.unsubscribed analytics event.
+	//
 	// # Possible errors
 	//
 	//   - Internal: subscription deletion failure.
-	Delete(ctx context.Context, userID, endpoint string) error
+	Delete(ctx context.Context, userID, endpoint, deviceType string) error
 
 	// NotifyNewConcerts sends Web Push notifications to followers of the given
 	// artist for the specified newly created concerts. The delivery pipeline
@@ -98,7 +108,7 @@ func NewPushNotificationUseCase(
 }
 
 // Create registers or updates the push subscription for the given (userID, endpoint) pair.
-func (uc *pushNotificationUseCase) Create(ctx context.Context, userID, endpoint, p256dh, auth string) (*entity.PushSubscription, error) {
+func (uc *pushNotificationUseCase) Create(ctx context.Context, userID, endpoint, p256dh, auth, deviceType string) (*entity.PushSubscription, error) {
 	sub := &entity.PushSubscription{
 		UserID:   userID,
 		Endpoint: endpoint,
@@ -111,7 +121,7 @@ func (uc *pushNotificationUseCase) Create(ctx context.Context, userID, endpoint,
 
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationSubscribed, entity.NotificationSubscribedData{
 		UserID:     userID,
-		DeviceType: entity.DeviceTypeFromEndpoint(endpoint),
+		DeviceType: deviceType,
 	}); err != nil {
 		uc.logger.Error(ctx, "failed to publish NOTIFICATION.subscribed event", err,
 			slog.String("user_id", userID),
@@ -138,14 +148,14 @@ func (uc *pushNotificationUseCase) Get(ctx context.Context, userID, endpoint str
 // non-fatally — a publish error is logged but does not change the return
 // behaviour. The auto-cleanup path inside NotifyNewConcerts (410 Gone) does
 // NOT call this method and therefore does NOT emit the analytics event.
-func (uc *pushNotificationUseCase) Delete(ctx context.Context, userID, endpoint string) error {
+func (uc *pushNotificationUseCase) Delete(ctx context.Context, userID, endpoint, deviceType string) error {
 	if err := uc.pushSubRepo.Delete(ctx, userID, endpoint); err != nil {
 		return fmt.Errorf("failed to delete push subscription: %w", err)
 	}
 
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationUnsubscribed, entity.NotificationUnsubscribedData{
 		UserID:     userID,
-		DeviceType: entity.DeviceTypeFromEndpoint(endpoint),
+		DeviceType: deviceType,
 	}); err != nil {
 		uc.logger.Error(ctx, "failed to publish NOTIFICATION.unsubscribed event", err,
 			slog.String("user_id", userID),

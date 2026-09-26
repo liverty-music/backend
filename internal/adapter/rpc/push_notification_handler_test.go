@@ -64,7 +64,7 @@ func TestPushNotificationHandler_Create(t *testing.T) {
 					ID:         "user-uuid-1",
 					ExternalID: "ext-user-1",
 				}, nil)
-				uc.EXPECT().Create(mock.Anything, "user-uuid-1", "https://push.example.com/sub", "key", "authSecret").
+				uc.EXPECT().Create(mock.Anything, "user-uuid-1", "https://push.example.com/sub", "key", "authSecret", "other").
 					Return(&entity.PushSubscription{
 						ID:       "sub-uuid-1",
 						UserID:   "user-uuid-1",
@@ -406,7 +406,7 @@ func TestPushNotificationHandler_Delete(t *testing.T) {
 					ID:         "user-uuid-1",
 					ExternalID: "ext-user-1",
 				}, nil)
-				uc.EXPECT().Delete(mock.Anything, "user-uuid-1", "https://push.example.com/sub").
+				uc.EXPECT().Delete(mock.Anything, "user-uuid-1", "https://push.example.com/sub", "other").
 					Return(nil).Once()
 			},
 			wantErr: false,

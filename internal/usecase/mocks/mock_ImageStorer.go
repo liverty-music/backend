@@ -22,195 +22,242 @@ func (_m *MockImageStorer) EXPECT() *MockImageStorer_Expecter {
 	return &MockImageStorer_Expecter{mock: &_m.Mock}
 }
 
-// Put provides a mock function with given fields: ctx, bucket, key, contentType, data
-func (_m *MockImageStorer) Put(ctx context.Context, bucket string, key string, contentType string, data []byte) error {
-	ret := _m.Called(ctx, bucket, key, contentType, data)
+// SignedPutURLForOriginal provides a mock function with given fields: ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl
+func (_m *MockImageStorer) SignedPutURLForOriginal(ctx context.Context, bucket string, organizerID string, mediaID string, contentType string, maxBytes int64, ttl time.Duration) (string, error) {
+	ret := _m.Called(ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Put")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, []byte) error); ok {
-		r0 = rf(ctx, bucket, key, contentType, data)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockImageStorer_Put_Call is a *mock.Call that shadows *mock.Call with type safe methods.
-type MockImageStorer_Put_Call struct {
-	*mock.Call
-}
-
-// Put is a helper method to define mock.On call
-//   - ctx context.Context
-//   - bucket string
-//   - key string
-//   - contentType string
-//   - data []byte
-func (_e *MockImageStorer_Expecter) Put(ctx interface{}, bucket interface{}, key interface{}, contentType interface{}, data interface{}) *MockImageStorer_Put_Call {
-	return &MockImageStorer_Put_Call{Call: _e.mock.On("Put", ctx, bucket, key, contentType, data)}
-}
-
-func (_c *MockImageStorer_Put_Call) Run(run func(ctx context.Context, bucket string, key string, contentType string, data []byte)) *MockImageStorer_Put_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].([]byte))
-	})
-	return _c
-}
-
-func (_c *MockImageStorer_Put_Call) Return(_a0 error) *MockImageStorer_Put_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockImageStorer_Put_Call) RunAndReturn(run func(context.Context, string, string, string, []byte) error) *MockImageStorer_Put_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Delete provides a mock function with given fields: ctx, bucket, key
-func (_m *MockImageStorer) Delete(ctx context.Context, bucket string, key string) error {
-	ret := _m.Called(ctx, bucket, key)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Delete")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, bucket, key)
-	} else {
-		r0 = ret.Error(0)
-	}
-	return r0
-}
-
-// MockImageStorer_Delete_Call is a *mock.Call that shadows *mock.Call with type safe methods.
-type MockImageStorer_Delete_Call struct {
-	*mock.Call
-}
-
-// Delete is a helper method to define mock.On call
-//   - ctx context.Context
-//   - bucket string
-//   - key string
-func (_e *MockImageStorer_Expecter) Delete(ctx interface{}, bucket interface{}, key interface{}) *MockImageStorer_Delete_Call {
-	return &MockImageStorer_Delete_Call{Call: _e.mock.On("Delete", ctx, bucket, key)}
-}
-
-func (_c *MockImageStorer_Delete_Call) Run(run func(ctx context.Context, bucket string, key string)) *MockImageStorer_Delete_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockImageStorer_Delete_Call) Return(_a0 error) *MockImageStorer_Delete_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockImageStorer_Delete_Call) RunAndReturn(run func(context.Context, string, string) error) *MockImageStorer_Delete_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// SignedPutURL provides a mock function with given fields: ctx, bucket, key, contentType, maxBytes, ttl
-func (_m *MockImageStorer) SignedPutURL(ctx context.Context, bucket string, key string, contentType string, maxBytes int64, ttl time.Duration) (string, error) {
-	ret := _m.Called(ctx, bucket, key, contentType, maxBytes, ttl)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SignedPutURL")
+		panic("no return value specified for SignedPutURLForOriginal")
 	}
 
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, int64, time.Duration) (string, error)); ok {
-		return rf(ctx, bucket, key, contentType, maxBytes, ttl)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, int64, time.Duration) (string, error)); ok {
+		return rf(ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, int64, time.Duration) string); ok {
-		r0 = rf(ctx, bucket, key, contentType, maxBytes, ttl)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, int64, time.Duration) string); ok {
+		r0 = rf(ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, int64, time.Duration) error); ok {
-		r1 = rf(ctx, bucket, key, contentType, maxBytes, ttl)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, int64, time.Duration) error); ok {
+		r1 = rf(ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)
 	} else {
 		r1 = ret.Error(1)
 	}
 	return r0, r1
 }
 
-// MockImageStorer_SignedPutURL_Call is a *mock.Call that shadows *mock.Call with type safe methods.
-type MockImageStorer_SignedPutURL_Call struct {
+// MockImageStorer_SignedPutURLForOriginal_Call is a *mock.Call that shadows *mock.Call with type safe methods.
+type MockImageStorer_SignedPutURLForOriginal_Call struct {
 	*mock.Call
 }
 
-// SignedPutURL is a helper method to define mock.On call
-func (_e *MockImageStorer_Expecter) SignedPutURL(ctx interface{}, bucket interface{}, key interface{}, contentType interface{}, maxBytes interface{}, ttl interface{}) *MockImageStorer_SignedPutURL_Call {
-	return &MockImageStorer_SignedPutURL_Call{Call: _e.mock.On("SignedPutURL", ctx, bucket, key, contentType, maxBytes, ttl)}
+// SignedPutURLForOriginal is a helper method to define mock.On call
+func (_e *MockImageStorer_Expecter) SignedPutURLForOriginal(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}, contentType interface{}, maxBytes interface{}, ttl interface{}) *MockImageStorer_SignedPutURLForOriginal_Call {
+	return &MockImageStorer_SignedPutURLForOriginal_Call{Call: _e.mock.On("SignedPutURLForOriginal", ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)}
 }
 
-func (_c *MockImageStorer_SignedPutURL_Call) Run(run func(ctx context.Context, bucket string, key string, contentType string, maxBytes int64, ttl time.Duration)) *MockImageStorer_SignedPutURL_Call {
+func (_c *MockImageStorer_SignedPutURLForOriginal_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string, contentType string, maxBytes int64, ttl time.Duration)) *MockImageStorer_SignedPutURLForOriginal_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(int64), args[5].(time.Duration))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(int64), args[6].(time.Duration))
 	})
 	return _c
 }
 
-func (_c *MockImageStorer_SignedPutURL_Call) Return(_a0 string, _a1 error) *MockImageStorer_SignedPutURL_Call {
+func (_c *MockImageStorer_SignedPutURLForOriginal_Call) Return(_a0 string, _a1 error) *MockImageStorer_SignedPutURLForOriginal_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockImageStorer_SignedPutURL_Call) RunAndReturn(run func(context.Context, string, string, string, int64, time.Duration) (string, error)) *MockImageStorer_SignedPutURL_Call {
+func (_c *MockImageStorer_SignedPutURLForOriginal_Call) RunAndReturn(run func(context.Context, string, string, string, string, int64, time.Duration) (string, error)) *MockImageStorer_SignedPutURLForOriginal_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeletePrefix provides a mock function with given fields: ctx, bucket, prefix
-func (_m *MockImageStorer) DeletePrefix(ctx context.Context, bucket string, prefix string) error {
-	ret := _m.Called(ctx, bucket, prefix)
+// ReadOriginal provides a mock function with given fields: ctx, bucket, organizerID, mediaID
+func (_m *MockImageStorer) ReadOriginal(ctx context.Context, bucket string, organizerID string, mediaID string) ([]byte, error) {
+	ret := _m.Called(ctx, bucket, organizerID, mediaID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for DeletePrefix")
+		panic("no return value specified for ReadOriginal")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) ([]byte, error)); ok {
+		return rf(ctx, bucket, organizerID, mediaID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) []byte); ok {
+		r0 = rf(ctx, bucket, organizerID, mediaID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, bucket, organizerID, mediaID)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockImageStorer_ReadOriginal_Call is a *mock.Call that shadows *mock.Call with type safe methods.
+type MockImageStorer_ReadOriginal_Call struct {
+	*mock.Call
+}
+
+// ReadOriginal is a helper method to define mock.On call
+func (_e *MockImageStorer_Expecter) ReadOriginal(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}) *MockImageStorer_ReadOriginal_Call {
+	return &MockImageStorer_ReadOriginal_Call{Call: _e.mock.On("ReadOriginal", ctx, bucket, organizerID, mediaID)}
+}
+
+func (_c *MockImageStorer_ReadOriginal_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string)) *MockImageStorer_ReadOriginal_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockImageStorer_ReadOriginal_Call) Return(_a0 []byte, _a1 error) *MockImageStorer_ReadOriginal_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockImageStorer_ReadOriginal_Call) RunAndReturn(run func(context.Context, string, string, string) ([]byte, error)) *MockImageStorer_ReadOriginal_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteOriginal provides a mock function with given fields: ctx, bucket, organizerID, mediaID
+func (_m *MockImageStorer) DeleteOriginal(ctx context.Context, bucket string, organizerID string, mediaID string) error {
+	ret := _m.Called(ctx, bucket, organizerID, mediaID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteOriginal")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, bucket, prefix)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = rf(ctx, bucket, organizerID, mediaID)
 	} else {
 		r0 = ret.Error(0)
 	}
 	return r0
 }
 
-// MockImageStorer_DeletePrefix_Call is a *mock.Call that shadows *mock.Call with type safe methods.
-type MockImageStorer_DeletePrefix_Call struct {
+// MockImageStorer_DeleteOriginal_Call is a *mock.Call that shadows *mock.Call with type safe methods.
+type MockImageStorer_DeleteOriginal_Call struct {
 	*mock.Call
 }
 
-// DeletePrefix is a helper method to define mock.On call
-func (_e *MockImageStorer_Expecter) DeletePrefix(ctx interface{}, bucket interface{}, prefix interface{}) *MockImageStorer_DeletePrefix_Call {
-	return &MockImageStorer_DeletePrefix_Call{Call: _e.mock.On("DeletePrefix", ctx, bucket, prefix)}
+// DeleteOriginal is a helper method to define mock.On call
+func (_e *MockImageStorer_Expecter) DeleteOriginal(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}) *MockImageStorer_DeleteOriginal_Call {
+	return &MockImageStorer_DeleteOriginal_Call{Call: _e.mock.On("DeleteOriginal", ctx, bucket, organizerID, mediaID)}
 }
 
-func (_c *MockImageStorer_DeletePrefix_Call) Run(run func(ctx context.Context, bucket string, prefix string)) *MockImageStorer_DeletePrefix_Call {
+func (_c *MockImageStorer_DeleteOriginal_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string)) *MockImageStorer_DeleteOriginal_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
 	return _c
 }
 
-func (_c *MockImageStorer_DeletePrefix_Call) Return(_a0 error) *MockImageStorer_DeletePrefix_Call {
+func (_c *MockImageStorer_DeleteOriginal_Call) Return(_a0 error) *MockImageStorer_DeleteOriginal_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockImageStorer_DeletePrefix_Call) RunAndReturn(run func(context.Context, string, string) error) *MockImageStorer_DeletePrefix_Call {
+func (_c *MockImageStorer_DeleteOriginal_Call) RunAndReturn(run func(context.Context, string, string, string) error) *MockImageStorer_DeleteOriginal_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PutVariant provides a mock function with given fields: ctx, bucket, organizerID, mediaID, variant, contentType, data
+func (_m *MockImageStorer) PutVariant(ctx context.Context, bucket string, organizerID string, mediaID string, variant string, contentType string, data []byte) error {
+	ret := _m.Called(ctx, bucket, organizerID, mediaID, variant, contentType, data)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutVariant")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string, []byte) error); ok {
+		r0 = rf(ctx, bucket, organizerID, mediaID, variant, contentType, data)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockImageStorer_PutVariant_Call is a *mock.Call that shadows *mock.Call with type safe methods.
+type MockImageStorer_PutVariant_Call struct {
+	*mock.Call
+}
+
+// PutVariant is a helper method to define mock.On call
+func (_e *MockImageStorer_Expecter) PutVariant(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}, variant interface{}, contentType interface{}, data interface{}) *MockImageStorer_PutVariant_Call {
+	return &MockImageStorer_PutVariant_Call{Call: _e.mock.On("PutVariant", ctx, bucket, organizerID, mediaID, variant, contentType, data)}
+}
+
+func (_c *MockImageStorer_PutVariant_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string, variant string, contentType string, data []byte)) *MockImageStorer_PutVariant_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string), args[6].([]byte))
+	})
+	return _c
+}
+
+func (_c *MockImageStorer_PutVariant_Call) Return(_a0 error) *MockImageStorer_PutVariant_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockImageStorer_PutVariant_Call) RunAndReturn(run func(context.Context, string, string, string, string, string, []byte) error) *MockImageStorer_PutVariant_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteVariants provides a mock function with given fields: ctx, bucket, organizerID, mediaID
+func (_m *MockImageStorer) DeleteVariants(ctx context.Context, bucket string, organizerID string, mediaID string) error {
+	ret := _m.Called(ctx, bucket, organizerID, mediaID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteVariants")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = rf(ctx, bucket, organizerID, mediaID)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockImageStorer_DeleteVariants_Call is a *mock.Call that shadows *mock.Call with type safe methods.
+type MockImageStorer_DeleteVariants_Call struct {
+	*mock.Call
+}
+
+// DeleteVariants is a helper method to define mock.On call
+func (_e *MockImageStorer_Expecter) DeleteVariants(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}) *MockImageStorer_DeleteVariants_Call {
+	return &MockImageStorer_DeleteVariants_Call{Call: _e.mock.On("DeleteVariants", ctx, bucket, organizerID, mediaID)}
+}
+
+func (_c *MockImageStorer_DeleteVariants_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string)) *MockImageStorer_DeleteVariants_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockImageStorer_DeleteVariants_Call) Return(_a0 error) *MockImageStorer_DeleteVariants_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockImageStorer_DeleteVariants_Call) RunAndReturn(run func(context.Context, string, string, string) error) *MockImageStorer_DeleteVariants_Call {
 	_c.Call.Return(run)
 	return _c
 }

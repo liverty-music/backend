@@ -24,9 +24,9 @@ func (_m *MockPushNotificationUseCase) EXPECT() *MockPushNotificationUseCase_Exp
 	return &MockPushNotificationUseCase_Expecter{mock: &_m.Mock}
 }
 
-// Create provides a mock function with given fields: ctx, userID, endpoint, p256dh, auth
-func (_m *MockPushNotificationUseCase) Create(ctx context.Context, userID string, endpoint string, p256dh string, auth string) (*entity.PushSubscription, error) {
-	ret := _m.Called(ctx, userID, endpoint, p256dh, auth)
+// Create provides a mock function with given fields: ctx, userID, endpoint, p256dh, auth, deviceType
+func (_m *MockPushNotificationUseCase) Create(ctx context.Context, userID string, endpoint string, p256dh string, auth string, deviceType string) (*entity.PushSubscription, error) {
+	ret := _m.Called(ctx, userID, endpoint, p256dh, auth, deviceType)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
@@ -34,19 +34,19 @@ func (_m *MockPushNotificationUseCase) Create(ctx context.Context, userID string
 
 	var r0 *entity.PushSubscription
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (*entity.PushSubscription, error)); ok {
-		return rf(ctx, userID, endpoint, p256dh, auth)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) (*entity.PushSubscription, error)); ok {
+		return rf(ctx, userID, endpoint, p256dh, auth, deviceType)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) *entity.PushSubscription); ok {
-		r0 = rf(ctx, userID, endpoint, p256dh, auth)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) *entity.PushSubscription); ok {
+		r0 = rf(ctx, userID, endpoint, p256dh, auth, deviceType)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.PushSubscription)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
-		r1 = rf(ctx, userID, endpoint, p256dh, auth)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, string) error); ok {
+		r1 = rf(ctx, userID, endpoint, p256dh, auth, deviceType)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -65,13 +65,14 @@ type MockPushNotificationUseCase_Create_Call struct {
 //   - endpoint string
 //   - p256dh string
 //   - auth string
-func (_e *MockPushNotificationUseCase_Expecter) Create(ctx interface{}, userID interface{}, endpoint interface{}, p256dh interface{}, auth interface{}) *MockPushNotificationUseCase_Create_Call {
-	return &MockPushNotificationUseCase_Create_Call{Call: _e.mock.On("Create", ctx, userID, endpoint, p256dh, auth)}
+//   - deviceType string
+func (_e *MockPushNotificationUseCase_Expecter) Create(ctx interface{}, userID interface{}, endpoint interface{}, p256dh interface{}, auth interface{}, deviceType interface{}) *MockPushNotificationUseCase_Create_Call {
+	return &MockPushNotificationUseCase_Create_Call{Call: _e.mock.On("Create", ctx, userID, endpoint, p256dh, auth, deviceType)}
 }
 
-func (_c *MockPushNotificationUseCase_Create_Call) Run(run func(ctx context.Context, userID string, endpoint string, p256dh string, auth string)) *MockPushNotificationUseCase_Create_Call {
+func (_c *MockPushNotificationUseCase_Create_Call) Run(run func(ctx context.Context, userID string, endpoint string, p256dh string, auth string, deviceType string)) *MockPushNotificationUseCase_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string))
 	})
 	return _c
 }
@@ -81,22 +82,22 @@ func (_c *MockPushNotificationUseCase_Create_Call) Return(_a0 *entity.PushSubscr
 	return _c
 }
 
-func (_c *MockPushNotificationUseCase_Create_Call) RunAndReturn(run func(context.Context, string, string, string, string) (*entity.PushSubscription, error)) *MockPushNotificationUseCase_Create_Call {
+func (_c *MockPushNotificationUseCase_Create_Call) RunAndReturn(run func(context.Context, string, string, string, string, string) (*entity.PushSubscription, error)) *MockPushNotificationUseCase_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Delete provides a mock function with given fields: ctx, userID, endpoint
-func (_m *MockPushNotificationUseCase) Delete(ctx context.Context, userID string, endpoint string) error {
-	ret := _m.Called(ctx, userID, endpoint)
+// Delete provides a mock function with given fields: ctx, userID, endpoint, deviceType
+func (_m *MockPushNotificationUseCase) Delete(ctx context.Context, userID string, endpoint string, deviceType string) error {
+	ret := _m.Called(ctx, userID, endpoint, deviceType)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Delete")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, userID, endpoint)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = rf(ctx, userID, endpoint, deviceType)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -113,13 +114,14 @@ type MockPushNotificationUseCase_Delete_Call struct {
 //   - ctx context.Context
 //   - userID string
 //   - endpoint string
-func (_e *MockPushNotificationUseCase_Expecter) Delete(ctx interface{}, userID interface{}, endpoint interface{}) *MockPushNotificationUseCase_Delete_Call {
-	return &MockPushNotificationUseCase_Delete_Call{Call: _e.mock.On("Delete", ctx, userID, endpoint)}
+//   - deviceType string
+func (_e *MockPushNotificationUseCase_Expecter) Delete(ctx interface{}, userID interface{}, endpoint interface{}, deviceType interface{}) *MockPushNotificationUseCase_Delete_Call {
+	return &MockPushNotificationUseCase_Delete_Call{Call: _e.mock.On("Delete", ctx, userID, endpoint, deviceType)}
 }
 
-func (_c *MockPushNotificationUseCase_Delete_Call) Run(run func(ctx context.Context, userID string, endpoint string)) *MockPushNotificationUseCase_Delete_Call {
+func (_c *MockPushNotificationUseCase_Delete_Call) Run(run func(ctx context.Context, userID string, endpoint string, deviceType string)) *MockPushNotificationUseCase_Delete_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
 	return _c
 }
@@ -129,7 +131,7 @@ func (_c *MockPushNotificationUseCase_Delete_Call) Return(_a0 error) *MockPushNo
 	return _c
 }
 
-func (_c *MockPushNotificationUseCase_Delete_Call) RunAndReturn(run func(context.Context, string, string) error) *MockPushNotificationUseCase_Delete_Call {
+func (_c *MockPushNotificationUseCase_Delete_Call) RunAndReturn(run func(context.Context, string, string, string) error) *MockPushNotificationUseCase_Delete_Call {
 	_c.Call.Return(run)
 	return _c
 }

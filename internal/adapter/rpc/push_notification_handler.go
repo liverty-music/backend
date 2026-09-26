@@ -55,7 +55,7 @@ func (h *PushNotificationHandler) Create(ctx context.Context, req *connect.Reque
 	p256dh := req.Msg.GetKeys().GetP256Dh()
 	auth := req.Msg.GetKeys().GetAuth()
 
-	sub, err := h.pushUseCase.Create(ctx, user.ID, endpoint, p256dh, auth)
+	sub, err := h.pushUseCase.Create(ctx, user.ID, endpoint, p256dh, auth, mapper.DeviceTypeFromEndpoint(endpoint))
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func (h *PushNotificationHandler) Delete(ctx context.Context, req *connect.Reque
 	}
 	endpoint := req.Msg.GetEndpoint().GetValue()
 
-	if err := h.pushUseCase.Delete(ctx, user.ID, endpoint); err != nil {
+	if err := h.pushUseCase.Delete(ctx, user.ID, endpoint, mapper.DeviceTypeFromEndpoint(endpoint)); err != nil {
 		return nil, err
 	}
 

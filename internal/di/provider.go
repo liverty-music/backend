@@ -25,6 +25,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
+	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/adapter/webhook"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -243,6 +244,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	identityVerificationUC := usecase.NewIdentityVerificationUseCase(verifiedIdentityRepo, userRepo, pocketSignVerifier, logger)
 	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, organizerUC, imageStorer, eventPublisher, logger)
+	// MediaURLBuilder composes organizer series-media CDN URLs for the
+	// organizer-facing ConcertService mapper. The CDN base is sourced from
+	// config (ORGANIZER_MEDIA_CDN_BASE) rather than read directly by entity.
+	mediaURLBuilder := mapper.NewMediaURLBuilder(cfg.OrganizerMediaCDNBase)
 
 	// Payment authorization port: use the real Stripe adapter when a secret key
 	// is configured, otherwise a no-op that returns Unavailable so local
@@ -550,7 +555,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerconnect.NewConcertServiceHandler(
-				rpc.NewOrganizerConcertHandler(concertAuthoringUC, organizerUC, mediaUC, logger),
+				rpc.NewOrganizerConcertHandler(concertAuthoringUC, organizerUC, mediaUC, mediaURLBuilder, logger),
 				opts...,
 			)
 		},
