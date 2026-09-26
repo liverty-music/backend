@@ -111,7 +111,7 @@ func (s *stubOrganizerRepoForOnboarding) IsArtistRepresentedByActiveOrganizer(ct
 
 func newOnboardingUC(t *testing.T,
 	acctRepo entity.OrganizerConnectedAccountRepository,
-	port usecase.PaymentSettlementPort,
+	port entity.PaymentSettlementPort,
 ) usecase.OnboardingUseCase {
 	t.Helper()
 	return usecase.NewOnboardingUseCase(

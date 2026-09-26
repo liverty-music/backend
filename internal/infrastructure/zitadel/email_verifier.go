@@ -18,7 +18,7 @@ import (
 
 	"log/slog"
 
-	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -47,7 +47,7 @@ type emailResendClient interface {
 }
 
 // Compile-time interface compliance check.
-var _ usecase.EmailVerifier = (*EmailVerifier)(nil)
+var _ entity.EmailVerifier = (*EmailVerifier)(nil)
 
 // EmailVerifier calls Zitadel APIs to send and resend email verification
 // codes. SendVerification uses the v2 User Service; ResendVerification uses

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -34,9 +33,9 @@ const (
 )
 
 // Compile-time interface compliance check.
-var _ usecase.PaymentSettlementPort = (*StripeSettlementPort)(nil)
+var _ entity.PaymentSettlementPort = (*StripeSettlementPort)(nil)
 
-// StripeSettlementPort implements [usecase.PaymentSettlementPort] via the
+// StripeSettlementPort implements [entity.PaymentSettlementPort] via the
 // Stripe API. It handles the money-out operations for the settlement/payout
 // capability: resolving charges, creating Transfers, and managing Accounts v2
 // payout-recipient connected accounts.
@@ -61,7 +60,7 @@ func NewStripeSettlementPort(secretKey string, logger *logging.Logger) *StripeSe
 	}
 }
 
-// ResolveChargeRef implements [usecase.PaymentSettlementPort].
+// ResolveChargeRef implements [entity.PaymentSettlementPort].
 //
 // It retrieves the PaymentIntent with latest_charge expanded and returns the
 // charge id ("ch_..."). The charge id is used as source_transaction on the
@@ -92,7 +91,7 @@ func (p *StripeSettlementPort) ResolveChargeRef(ctx context.Context, paymentInte
 	return pi.LatestCharge.ID, nil
 }
 
-// CreateTransfer implements [usecase.PaymentSettlementPort].
+// CreateTransfer implements [entity.PaymentSettlementPort].
 //
 // It creates a Stripe Transfer from the platform balance to the Organizer's
 // connected account, with source_transaction set to the captured charge.
@@ -108,7 +107,7 @@ func (p *StripeSettlementPort) ResolveChargeRef(ctx context.Context, paymentInte
 //
 // The idempotency key is derived from the SettlementID and the split's payee
 // so a retried sweep never double-transfers the same split.
-func (p *StripeSettlementPort) CreateTransfer(ctx context.Context, params usecase.TransferParams) (string, error) {
+func (p *StripeSettlementPort) CreateTransfer(ctx context.Context, params entity.TransferParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "transfer amount must be positive")
 	}
@@ -143,7 +142,7 @@ func (p *StripeSettlementPort) CreateTransfer(ctx context.Context, params usecas
 	return tr.ID, nil
 }
 
-// CreateConnectedAccount implements [usecase.PaymentSettlementPort].
+// CreateConnectedAccount implements [entity.PaymentSettlementPort].
 //
 // It creates an Accounts v2 payout-recipient account (POST /v2/core/accounts)
 // for the Organizer. Fresh sandboxes reject Accounts v1, and v2 is the shape
@@ -229,7 +228,7 @@ func (p *StripeSettlementPort) CreateConnectedAccount(ctx context.Context, organ
 	return acct.ID, nil
 }
 
-// GetAccountStatus implements [usecase.PaymentSettlementPort].
+// GetAccountStatus implements [entity.PaymentSettlementPort].
 //
 // It retrieves the connected account via the v1 accounts API and maps its
 // transfers capability state to the platform's own
@@ -287,7 +286,7 @@ func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 	}
 }
 
-// CreateRefund implements [usecase.PaymentSettlementPort].
+// CreateRefund implements [entity.PaymentSettlementPort].
 //
 // It creates a Stripe Refund against the captured Charge (ch_). The refund
 // amount is the Order's captured amount (face + system/発券 fee; processor fee
@@ -300,7 +299,7 @@ func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 //   - Pre-sweep refunds (no settlement row) do not collide across distinct
 //     orders — previously a constant "no-settlement" placeholder would share
 //     the key across ALL orders that have not yet been swept.
-func (p *StripeSettlementPort) CreateRefund(ctx context.Context, params usecase.RefundParams) (string, error) {
+func (p *StripeSettlementPort) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "refund amount must be positive")
 	}
@@ -331,7 +330,7 @@ func (p *StripeSettlementPort) CreateRefund(ctx context.Context, params usecase.
 	return refund.ID, nil
 }
 
-// ReverseTransfer implements [usecase.PaymentSettlementPort].
+// ReverseTransfer implements [entity.PaymentSettlementPort].
 //
 // It creates a Stripe TransferReversal for the given Transfer. On a refund or
 // dispute clawback the Organizer's share is clawed back to the platform balance
@@ -340,7 +339,7 @@ func (p *StripeSettlementPort) CreateRefund(ctx context.Context, params usecase.
 //
 // The idempotency key is derived from SettlementID + TransferRef so a retried
 // clawback never double-reverses a split.
-func (p *StripeSettlementPort) ReverseTransfer(ctx context.Context, params usecase.ReverseTransferParams) (string, error) {
+func (p *StripeSettlementPort) ReverseTransfer(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "reversal amount must be positive")
 	}
@@ -370,7 +369,7 @@ func (p *StripeSettlementPort) ReverseTransfer(ctx context.Context, params useca
 	return reversal.ID, nil
 }
 
-// CreateOnboardingLink implements [usecase.PaymentSettlementPort].
+// CreateOnboardingLink implements [entity.PaymentSettlementPort].
 //
 // It creates a Stripe AccountLink for the connected account so the Organizer
 // can complete KYC/KYB via the Stripe-hosted onboarding flow. The link is

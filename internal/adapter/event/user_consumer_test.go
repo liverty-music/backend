@@ -8,7 +8,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
-	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +26,7 @@ func TestUserConsumer_Handle(t *testing.T) {
 	t.Run("delegates SendVerification to email verifier", func(t *testing.T) {
 		t.Parallel()
 
-		emailVerifier := ucmocks.NewMockEmailVerifier(t)
+		emailVerifier := entitymocks.NewMockEmailVerifier(t)
 		handler := event.NewUserConsumer(emailVerifier, newTestLogger(t))
 
 		emailVerifier.EXPECT().SendVerification(anyCtx, "zitadel-user-001").Return(nil).Once()
@@ -43,7 +43,7 @@ func TestUserConsumer_Handle(t *testing.T) {
 	t.Run("returns error when email verifier fails", func(t *testing.T) {
 		t.Parallel()
 
-		emailVerifier := ucmocks.NewMockEmailVerifier(t)
+		emailVerifier := entitymocks.NewMockEmailVerifier(t)
 		handler := event.NewUserConsumer(emailVerifier, newTestLogger(t))
 
 		emailVerifier.EXPECT().
@@ -79,7 +79,7 @@ func TestUserConsumer_Handle(t *testing.T) {
 	t.Run("returns error on malformed JSON payload", func(t *testing.T) {
 		t.Parallel()
 
-		emailVerifier := ucmocks.NewMockEmailVerifier(t)
+		emailVerifier := entitymocks.NewMockEmailVerifier(t)
 		handler := event.NewUserConsumer(emailVerifier, newTestLogger(t))
 
 		msg := message.NewMessage("bad-id", []byte("{not valid json"))

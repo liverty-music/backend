@@ -51,18 +51,18 @@ func (s *stubEventRescheduleTimeRepo) GetRescheduleTimeByOrder(ctx context.Conte
 // new CreateRefund and ReverseTransfer methods.
 type stubRefundSettlementPort struct {
 	stubPaymentSettlementPort
-	createRefundFn    func(ctx context.Context, params usecase.RefundParams) (string, error)
-	reverseTransferFn func(ctx context.Context, params usecase.ReverseTransferParams) (string, error)
+	createRefundFn    func(ctx context.Context, params entity.RefundParams) (string, error)
+	reverseTransferFn func(ctx context.Context, params entity.ReverseTransferParams) (string, error)
 }
 
-func (s *stubRefundSettlementPort) CreateRefund(ctx context.Context, params usecase.RefundParams) (string, error) {
+func (s *stubRefundSettlementPort) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	if s.createRefundFn != nil {
 		return s.createRefundFn(ctx, params)
 	}
 	return "re_test", nil
 }
 
-func (s *stubRefundSettlementPort) ReverseTransfer(ctx context.Context, params usecase.ReverseTransferParams) (string, error) {
+func (s *stubRefundSettlementPort) ReverseTransfer(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
 	if s.reverseTransferFn != nil {
 		return s.reverseTransferFn(ctx, params)
 	}
@@ -92,7 +92,7 @@ func newRefundUCWithLogger(
 	refundRepo entity.RefundRepository,
 	settlementRepo entity.SettlementRepository,
 	rescheduleTimeRepo usecase.EventRescheduleTimeRepository,
-	port usecase.PaymentSettlementPort,
+	port entity.PaymentSettlementPort,
 	t *testing.T,
 ) usecase.RefundOrderUseCase {
 	return usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, rescheduleTimeRepo, port, newTestLogger(t))
@@ -155,7 +155,7 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
 			return chRef, nil
 		},
-		createRefundFn: func(_ context.Context, params usecase.RefundParams) (string, error) {
+		createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
 			// Fix #2: idempotency key must be keyed on OrderID, not SettlementID.
 			assert.Equal(t, orderID, params.OrderID)
 			assert.Equal(t, chRef, params.ChargeRef)
@@ -163,7 +163,7 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 			refundCalled = true
 			return "re_cancel", nil
 		},
-		reverseTransferFn: func(_ context.Context, params usecase.ReverseTransferParams) (string, error) {
+		reverseTransferFn: func(_ context.Context, params entity.ReverseTransferParams) (string, error) {
 			assert.Equal(t, transferRef, params.TransferRef)
 			assert.Equal(t, int64(9000), params.Amount)
 			reversalCalled = true
@@ -238,7 +238,7 @@ func TestRefundOrder_Cancellation_NoSettlement(t *testing.T) {
 			assert.Equal(t, "pi_no_settle", piRef)
 			return "ch_no_settle", nil
 		},
-		createRefundFn: func(_ context.Context, params usecase.RefundParams) (string, error) {
+		createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
 			// Fix #2: key is order-based even without a settlement row.
 			assert.Equal(t, orderID, params.OrderID)
 			refundCalled = true
@@ -283,7 +283,7 @@ func TestRefundOrder_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 
 	refundCalled := false
 	port := &stubRefundSettlementPort{
-		createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
+		createRefundFn: func(_ context.Context, _ entity.RefundParams) (string, error) {
 			refundCalled = true
 			return "should-not-be-called", nil
 		},
@@ -364,7 +364,7 @@ func TestRefundOrder_PostponementWindow_WithinWindow_Allowed(t *testing.T) {
 		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
 			return "ch_postpone_within", nil
 		},
-		createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
+		createRefundFn: func(_ context.Context, _ entity.RefundParams) (string, error) {
 			refundCalled = true
 			return "re_postpone_within", nil
 		},
@@ -412,7 +412,7 @@ func TestRefundOrder_PostponementWindow_PastWindow_FailedPrecondition(t *testing
 	commitCalled := false
 
 	port := &stubRefundSettlementPort{
-		createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
+		createRefundFn: func(_ context.Context, _ entity.RefundParams) (string, error) {
 			refundCalled = true
 			return "should-not-be-called", nil
 		},
@@ -468,7 +468,7 @@ func TestRefundOrder_PostponementWindow_NilRescheduleTime_FallbackAllowed(t *tes
 		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
 			return "ch_postpone_nil", nil
 		},
-		createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
+		createRefundFn: func(_ context.Context, _ entity.RefundParams) (string, error) {
 			refundCalled = true
 			return "re_postpone_nil", nil
 		},
@@ -547,13 +547,13 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 	}
 
 	port := &stubRefundSettlementPort{
-		createRefundFn: func(_ context.Context, params usecase.RefundParams) (string, error) {
+		createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
 			assert.Equal(t, chRef, params.ChargeRef)
 			// Fix #2: key is OrderID-based.
 			assert.Equal(t, orderID, params.OrderID)
 			return "re_dispute", nil
 		},
-		reverseTransferFn: func(_ context.Context, params usecase.ReverseTransferParams) (string, error) {
+		reverseTransferFn: func(_ context.Context, params entity.ReverseTransferParams) (string, error) {
 			assert.Equal(t, transferRef, params.TransferRef)
 			reversalCalled = true
 			return "trr_dispute", nil
@@ -669,10 +669,10 @@ func TestRefundOrder_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
 	}
 
 	port := &stubRefundSettlementPort{
-		createRefundFn: func(_ context.Context, _ usecase.RefundParams) (string, error) {
+		createRefundFn: func(_ context.Context, _ entity.RefundParams) (string, error) {
 			return "re_held", nil
 		},
-		reverseTransferFn: func(_ context.Context, _ usecase.ReverseTransferParams) (string, error) {
+		reverseTransferFn: func(_ context.Context, _ entity.ReverseTransferParams) (string, error) {
 			reversalCalled = true
 			return "should-not-be-called", nil
 		},
@@ -814,7 +814,7 @@ func TestRefundOrder_ConcurrentRefund_IdempotentViaCommitFailedPrecondition(t *t
 
 	port := &stubRefundSettlementPort{
 		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) { return "ch_concurrent", nil },
-		createRefundFn:     func(_ context.Context, _ usecase.RefundParams) (string, error) { return "re_concurrent", nil },
+		createRefundFn:     func(_ context.Context, _ entity.RefundParams) (string, error) { return "re_concurrent", nil },
 	}
 
 	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, &stubEventRescheduleTimeRepo{}, port, t)

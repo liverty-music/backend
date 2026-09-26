@@ -36,7 +36,7 @@ type payoutSweeperUseCase struct {
 	orderRepo            entity.OrderRepository
 	connectedAccountRepo entity.OrganizerConnectedAccountRepository
 	eventStartTimeRepo   EventStartTimeRepository
-	settlementPort       PaymentSettlementPort
+	settlementPort       entity.PaymentSettlementPort
 	disputeBuffer        time.Duration
 	clock                Clock
 	logger               *logging.Logger
@@ -54,7 +54,7 @@ func NewPayoutSweeperUseCase(
 	orderRepo entity.OrderRepository,
 	connectedAccountRepo entity.OrganizerConnectedAccountRepository,
 	eventStartTimeRepo EventStartTimeRepository,
-	settlementPort PaymentSettlementPort,
+	settlementPort entity.PaymentSettlementPort,
 	disputeBuffer time.Duration,
 	clock Clock,
 	logger *logging.Logger,
@@ -186,7 +186,7 @@ func (uc *payoutSweeperUseCase) releaseOne(ctx context.Context, s *entity.Settle
 	// design requirement that onboarding never blocks sale.
 	releasedSplits := make([]entity.SettlementSplit, len(splits))
 	for i, split := range splits {
-		transferRef, err := uc.settlementPort.CreateTransfer(ctx, TransferParams{
+		transferRef, err := uc.settlementPort.CreateTransfer(ctx, entity.TransferParams{
 			SettlementID:         s.ID,
 			PayeeAccountRef:      acct.AccountRef,
 			SourceTransactionRef: chargeRef,

@@ -31,7 +31,7 @@ type OnboardingUseCase interface {
 type onboardingUseCase struct {
 	connectedAccountRepo entity.OrganizerConnectedAccountRepository
 	organizerRepo        entity.OrganizerRepository
-	settlementPort       PaymentSettlementPort
+	settlementPort       entity.PaymentSettlementPort
 	returnURL            string
 	logger               *logging.Logger
 }
@@ -46,7 +46,7 @@ var _ OnboardingUseCase = (*onboardingUseCase)(nil)
 func NewOnboardingUseCase(
 	connectedAccountRepo entity.OrganizerConnectedAccountRepository,
 	organizerRepo entity.OrganizerRepository,
-	settlementPort PaymentSettlementPort,
+	settlementPort entity.PaymentSettlementPort,
 	returnURL string,
 	logger *logging.Logger,
 ) OnboardingUseCase {

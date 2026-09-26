@@ -7,6 +7,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -25,7 +26,7 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := ucmocks.NewMockUserUseCase(t)
-		verifier := ucmocks.NewMockEmailVerifier(t)
+		verifier := entitymocks.NewMockEmailVerifier(t)
 		h := rpc.NewUserHandler(userUC, verifier, logger)
 
 		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(existingUser, nil).Once()
@@ -47,7 +48,7 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := ucmocks.NewMockUserUseCase(t)
-		verifier := ucmocks.NewMockEmailVerifier(t)
+		verifier := entitymocks.NewMockEmailVerifier(t)
 		h := rpc.NewUserHandler(userUC, verifier, logger)
 
 		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(existingUser, nil).Once()
@@ -71,7 +72,7 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := ucmocks.NewMockUserUseCase(t)
-		verifier := ucmocks.NewMockEmailVerifier(t)
+		verifier := entitymocks.NewMockEmailVerifier(t)
 		h := rpc.NewUserHandler(userUC, verifier, logger)
 
 		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(existingUser, nil).Once()
@@ -110,7 +111,7 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := ucmocks.NewMockUserUseCase(t)
-		verifier := ucmocks.NewMockEmailVerifier(t)
+		verifier := entitymocks.NewMockEmailVerifier(t)
 		h := rpc.NewUserHandler(userUC, verifier, logger)
 
 		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(existingUser, nil).Once()
@@ -133,7 +134,7 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := ucmocks.NewMockUserUseCase(t)
-		verifier := ucmocks.NewMockEmailVerifier(t)
+		verifier := entitymocks.NewMockEmailVerifier(t)
 		h := rpc.NewUserHandler(userUC, verifier, logger)
 
 		const rateExtID = "ext-rate"

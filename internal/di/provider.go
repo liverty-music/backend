@@ -154,7 +154,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 
 	// Infrastructure - Zitadel API client (optional, nil in local dev).
-	var emailVerifier usecase.EmailVerifier
+	var emailVerifier entity.EmailVerifier
 	if cfg.ZitadelMachineKeyForBackendAppPath != "" {
 		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForBackendAppPath, logger)
 		if err != nil {
@@ -251,9 +251,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
 	paymentConfigured := cfg.Stripe.SecretKey != ""
 	var (
-		paymentPort    usecase.PaymentAuthorizationPort
-		capturePort    usecase.PaymentCapturePort
-		settlementPort usecase.PaymentSettlementPort
+		paymentPort    entity.PaymentAuthorizationPort
+		capturePort    entity.PaymentCapturePort
+		settlementPort entity.PaymentSettlementPort
 	)
 	if paymentConfigured {
 		stripePort := infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)

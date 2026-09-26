@@ -17,7 +17,6 @@ packages:
       PushNotificationUseCase:
       ArtistImageSyncUseCase:
       TicketJourneyUseCase:
-      EmailVerifier:
       CentroidResolver:
       EventPublisher:
       AnalyticsClient:
@@ -36,9 +35,7 @@ packages:
       PocketSignVerifier:
       LotteryUseCase:
       EventPublishStatePort:
-      PaymentAuthorizationPort:
       IssuanceUseCase:
-      PaymentCapturePort:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -71,6 +68,10 @@ packages:
       TicketApplicationRepository:
       IssuanceRepository:
       OrderRepository:
+      EmailVerifier:
+      PaymentAuthorizationPort:
+      PaymentCapturePort:
+      PaymentSettlementPort:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:

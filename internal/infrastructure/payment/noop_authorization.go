@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
@@ -12,8 +12,8 @@ import (
 
 // Compile-time interface compliance checks.
 var (
-	_ usecase.PaymentAuthorizationPort = (*NoopAuthorizationPort)(nil)
-	_ usecase.PaymentCapturePort       = (*NoopAuthorizationPort)(nil)
+	_ entity.PaymentAuthorizationPort = (*NoopAuthorizationPort)(nil)
+	_ entity.PaymentCapturePort       = (*NoopAuthorizationPort)(nil)
 )
 
 // NoopAuthorizationPort is used when no Stripe secret key is configured (local
@@ -58,7 +58,7 @@ func (p *NoopAuthorizationPort) CaptureAuthorization(ctx context.Context, paymen
 }
 
 // GetCapturedPayment returns Unavailable because no Stripe key is configured.
-func (p *NoopAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*usecase.CapturedPayment, error) {
+func (p *NoopAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error) {
 	p.logger.Warn(ctx, "captured-payment read skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("payment_intent_ref", paymentIntentRef))
 	return nil, apperr.New(codes.Unavailable, "payment provider is not configured")
