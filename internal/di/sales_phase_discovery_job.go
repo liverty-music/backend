@@ -24,8 +24,8 @@ import (
 
 // SalesPhaseDiscoveryJobApp is the dependency bundle for the sales-phase
 // discovery CronJob. The job enumerates upcoming series for all followed
-// artists, calls the sales-phase searcher per series, upserts results, and
-// publishes SALES_PHASE.discovered events for new phases.
+// artists, calls the sales-phase searcher once per artist, upserts results,
+// and publishes SALES_PHASE.discovered events for new phases.
 type SalesPhaseDiscoveryJobApp struct {
 	FollowRepo       entity.FollowRepository
 	SalesPhaseDiscUC usecase.SalesPhaseDiscoveryUseCase

@@ -520,10 +520,15 @@ type ConcertRepository interface {
 	// published catalog for admin review and management.
 	List(ctx context.Context) ([]*Concert, error)
 	// Delete removes a published event by id. The delete cascades through the
-	// database's foreign keys to every row referencing the event (event_performers,
-	// concerts, tickets, ticket_journeys, merkle_tree, and the
-	// parent series' sales_phases). It is idempotent: deleting an id that no
-	// longer exists is a no-op success.
+	// database's ON DELETE CASCADE foreign keys to every row scoped to the
+	// event alone (the 1:1 concerts row, event_performers, ticket_journeys, and
+	// lottery_sales_phases). Rows that outlive the event but still reference it
+	// — tickets and settlements — are protected by ON DELETE RESTRICT, so the
+	// delete fails instead of orphaning them when any exist. The event's series
+	// and the series' own sales_phases are untouched either way: sales_phases
+	// key off series_id, not event_id, so deleting one event never removes
+	// them. It is idempotent: deleting an id that no longer exists is a no-op
+	// success.
 	Delete(ctx context.Context, eventID string) error
 	// DeleteAndSuppress removes a published event by id (cascading exactly like
 	// Delete) and, in the same statement, records a suppression entry derived from

@@ -48,16 +48,16 @@ type ConcertAuthoringUseCase interface {
 	//    artists. Non-revealing.
 	CreateDraft(ctx context.Context, callerOrgID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
 
-	// UpdateDraft replaces the draft content of an existing series. While
-	// DRAFT, any field may change. While PUBLISHED, only title, description,
-	// cover media, and event times are revised in place; followers are NOT
-	// re-notified. CANCELLED series are rejected with FailedPrecondition.
+	// UpdateDraft replaces the draft content of an existing series. Only
+	// allowed while the series is DRAFT, where any field may change; PUBLISHED
+	// and CANCELLED series are both rejected with FailedPrecondition.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: The series does not exist.
 	//  - PermissionDenied: The series is not owned by the caller. Non-revealing.
-	//  - FailedPrecondition: The series is CANCELLED (terminal).
+	//  - FailedPrecondition: The series is not DRAFT (CANCELLED is rejected here;
+	//    PUBLISHED is rejected by the repository).
 	UpdateDraft(ctx context.Context, callerOrgID, seriesID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
 
 	// Publish transitions a DRAFT series to PUBLISHED. For PUBLIC series this

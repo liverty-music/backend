@@ -85,9 +85,9 @@ func (uc *salesPhaseAnnouncementUseCase) AnnounceDiscoveredPhase(ctx context.Con
 
 	// Record and dispatch one announcement per audience member through the
 	// notification service, so every recipient gets a durable record and a
-	// delivery outcome. This announcement fires once immediately from the daytime
-	// job (no quiet-hours constraint); only the copy is personalised, by the
-	// recipient's preferred language (default en).
+	// delivery outcome. This announcement fires once immediately from the
+	// discovery job's daily 21:00 JST run (no quiet-hours constraint); only the
+	// copy is personalised, by the recipient's preferred language (default en).
 	for _, userID := range userIDs {
 		select {
 		case <-ctx.Done():

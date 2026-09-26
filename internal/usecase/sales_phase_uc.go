@@ -12,12 +12,14 @@ import (
 )
 
 // SalesPhaseDiscoveryUseCase enumerates upcoming series for followed artists,
-// calls the sales-phase searcher once per series, upserts the results, and
+// calls the sales-phase searcher once per artist (grounded across all of that
+// artist's upcoming series in a single call), upserts the results, and
 // publishes a SALES_PHASE.discovered event for each brand-new phase.
 type SalesPhaseDiscoveryUseCase interface {
 	// DiscoverForArtist runs the full discovery pipeline for one artist: list
-	// their upcoming concerts, group by series, search each series, upsert.
-	// Returns the number of new phases announced.
+	// their upcoming concerts, group by series, search once for the artist
+	// across all of those series, upsert. Returns the number of new phases
+	// announced.
 	DiscoverForArtist(ctx context.Context, artist *entity.Artist) (int, error)
 }
 

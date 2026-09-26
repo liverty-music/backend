@@ -245,7 +245,7 @@ func (r *OrganizerRepository) DisassociateArtist(ctx context.Context, organizerI
 }
 
 // ListArtists returns the artists linked to an Organizer via organizer_artists,
-// ordered alphabetically by name.
+// ordered by artist id.
 func (r *OrganizerRepository) ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
 	rows, err := r.db.Pool.Query(ctx, listOrganizerArtistsQuery, organizerID)
 	if err != nil {
