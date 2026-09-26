@@ -265,7 +265,7 @@ jobs:
         # credentials, so a hijacked mutable tag would execute code with
         # prod-write authority. SHA of v0.4 verified against
         # https://github.com/imjasonh/setup-crane refs/tags/v0.4.
-        uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
+        uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
 
       # =====================================================================
       # Push/inherit path: this commit changed nothing build-relevant, so its
