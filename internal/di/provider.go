@@ -243,7 +243,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger.Info(ctx, "pocket sign verify client not configured; using stub (identity verification unavailable)")
 	}
 	identityVerificationUC := usecase.NewIdentityVerificationUseCase(verifiedIdentityRepo, userRepo, pocketSignVerifier, logger)
-	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, organizerUC, imageStorer, eventPublisher, logger)
+	// ProcessMedia is never called from the RPC server (only the dedicated
+	// media-consumer job in media_job.go invokes it), so no MediaProcessor is
+	// wired here.
+	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, imageStorer, nil, eventPublisher, logger)
 	// MediaURLBuilder composes organizer series-media CDN URLs for the
 	// organizer-facing ConcertService mapper. The CDN base is sourced from
 	// config (ORGANIZER_MEDIA_CDN_BASE) rather than read directly by entity.
