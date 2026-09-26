@@ -16,6 +16,8 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/analytics/posthog"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
+	"github.com/liverty-music/backend/internal/infrastructure/geo"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
@@ -162,6 +164,47 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistNameResolutionUC := usecase.NewArtistNameResolutionUseCase(artistRepo, musicbrainzClient, logger)
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 
+	// ConcertUseCase: needed here (not just by the RPC server) so the
+	// search-first-followed-artist consumer can call
+	// SearchNewConcertsOnFirstFollow when ARTIST.followed fires.
+	organizerRepo := rdb.NewOrganizerRepository(db)
+	searchLogRepo := rdb.NewSearchLogRepository(db)
+	rejectedConcertRepo := rdb.NewRejectedConcertLogRepository(db)
+	centroidResolver := geo.NewCentroidResolver()
+	var geminiSearcher entity.ConcertSearcher
+	if cfg.GCP.GeminiSearchAPIKey != "" {
+		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
+			APIKey:          cfg.GCP.GeminiSearchAPIKey,
+			ModelExtract:    cfg.GCP.SearchModelExtract(),
+			ModelParse:      cfg.GCP.SearchModelParse(),
+			Temperature:     cfg.GCP.GeminiSearchTemperature,
+			ThinkingLevel:   cfg.GCP.GeminiSearchThinkingLevel,
+			ThinkingExtract: cfg.GCP.GeminiSearchThinkingExtract,
+			ThinkingParse:   cfg.GCP.GeminiSearchThinkingParse,
+		}, extHTTPClient, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create gemini concert searcher: %w", err)
+		}
+		geminiSearcher = searcher
+	}
+	concertUC := usecase.NewConcertUseCase(
+		artistRepo,
+		concertRepo,
+		venueRepo,
+		seriesRepo,
+		organizerRepo,
+		searchLogRepo,
+		stagedConcertRepo,
+		rejectedConcertRepo,
+		geminiSearcher,
+		centroidResolver,
+		eventPublisher,
+		infratelemetry.NewBusinessMetrics(),
+		cfg.GCP.SearchCacheTTL(),
+		cfg.GCP.SearchDiscoveryWindow(),
+		logger,
+	)
+
 	// Infrastructure - Zitadel API client (optional, nil in local dev).
 	var emailVerifier entity.EmailVerifier
 	if cfg.ZitadelMachineKeyForBackendAppPath != "" {
@@ -208,6 +251,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	poisonConsumer := event.NewPoisonConsumer(logger)
 	salesPhaseAnnouncementConsumer := event.NewSalesPhaseAnnouncementConsumer(salesPhaseAnnouncementUC, logger)
 	salesReminderConsumer := event.NewSalesReminderConsumer(salesReminderDeliveryUC, logger)
+	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
 
 	// behaviorTable is the canonical behavior → subject → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
@@ -234,6 +278,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"log-poison", messaging.PoisonQueueSubject, poisonConsumer.Handle},
 		{"notify-sales-phase", entity.SubjectSalesPhaseDiscovered, salesPhaseAnnouncementConsumer.Handle},
 		{"notify-sales-reminder", entity.SubjectSalesPhaseReminderDue, salesReminderConsumer.Handle},
+		{"search-first-followed-artist", entity.SubjectArtistFollowed, followSearchConsumer.Handle},
 	}
 
 	// Router

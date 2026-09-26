@@ -384,6 +384,53 @@ func (_c *MockConcertUseCase_SearchNewConcerts_Call) RunAndReturn(run func(conte
 	return _c
 }
 
+// SearchNewConcertsOnFirstFollow provides a mock function with given fields: ctx, artistID
+func (_m *MockConcertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error {
+	ret := _m.Called(ctx, artistID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SearchNewConcertsOnFirstFollow")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, artistID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SearchNewConcertsOnFirstFollow'
+type MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call struct {
+	*mock.Call
+}
+
+// SearchNewConcertsOnFirstFollow is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+func (_e *MockConcertUseCase_Expecter) SearchNewConcertsOnFirstFollow(ctx interface{}, artistID interface{}) *MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call {
+	return &MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call{Call: _e.mock.On("SearchNewConcertsOnFirstFollow", ctx, artistID)}
+}
+
+func (_c *MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call) Run(run func(ctx context.Context, artistID string)) *MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call) Return(_a0 error) *MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call) RunAndReturn(run func(context.Context, string) error) *MockConcertUseCase_SearchNewConcertsOnFirstFollow_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockConcertUseCase creates a new instance of MockConcertUseCase. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockConcertUseCase(t interface {

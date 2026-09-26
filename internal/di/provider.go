@@ -335,7 +335,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled: STRIPE_SECRET_KEY not configured (no payment provider)")
 	}
 
-	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
+	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	notificationRepo := rdb.NewNotificationRepository(db)
