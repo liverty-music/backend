@@ -209,7 +209,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			shutdown.AddExternalPhase(storer)
 		}
 	}
-	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerUC, eventPublisher, logger)
+	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerRepo, eventPublisher, logger)
 
 	// Identity eKYC — select the real Pocket Sign Stamp client when all four
 	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are

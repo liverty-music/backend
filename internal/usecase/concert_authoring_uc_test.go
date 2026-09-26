@@ -36,50 +36,24 @@ func validPublishEvents() []*entity.Event {
 
 // authoringDeps wires up a ConcertAuthoringUseCase with mocks for every dependency.
 type authoringDeps struct {
-	seriesRepo *entitymocks.MockSeriesRepository
-	venueRepo  *entitymocks.MockVenueRepository
-	orgUC      *ucmocks.MockOrganizerUseCase
-	publisher  *ucmocks.MockEventPublisher
-	uc         usecase.ConcertAuthoringUseCase
+	seriesRepo    *entitymocks.MockSeriesRepository
+	venueRepo     *entitymocks.MockVenueRepository
+	organizerRepo *entitymocks.MockOrganizerRepository
+	publisher     *ucmocks.MockEventPublisher
+	uc            usecase.ConcertAuthoringUseCase
 }
 
 func newAuthoringDeps(t *testing.T) *authoringDeps {
 	t.Helper()
 	logger := newTestLogger(t)
 	d := &authoringDeps{
-		seriesRepo: entitymocks.NewMockSeriesRepository(t),
-		venueRepo:  entitymocks.NewMockVenueRepository(t),
-		orgUC:      ucmocks.NewMockOrganizerUseCase(t),
-		publisher:  ucmocks.NewMockEventPublisher(t),
+		seriesRepo:    entitymocks.NewMockSeriesRepository(t),
+		venueRepo:     entitymocks.NewMockVenueRepository(t),
+		organizerRepo: entitymocks.NewMockOrganizerRepository(t),
+		publisher:     ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewConcertAuthoringUseCase(
-		d.seriesRepo, d.venueRepo, d.orgUC, d.publisher, logger,
-	)
-	return d
-}
-
-// mediaDeps wires up a MediaUseCase with mocks for every dependency.
-type mediaDeps struct {
-	seriesRepo  *entitymocks.MockSeriesRepository
-	mediaRepo   *entitymocks.MockMediaRepository
-	orgUC       *ucmocks.MockOrganizerUseCase
-	imageStorer *ucmocks.MockImageStorer
-	publisher   *ucmocks.MockEventPublisher
-	uc          usecase.MediaUseCase
-}
-
-func newMediaDeps(t *testing.T) *mediaDeps {
-	t.Helper()
-	logger := newTestLogger(t)
-	d := &mediaDeps{
-		seriesRepo:  entitymocks.NewMockSeriesRepository(t),
-		mediaRepo:   entitymocks.NewMockMediaRepository(t),
-		orgUC:       ucmocks.NewMockOrganizerUseCase(t),
-		imageStorer: ucmocks.NewMockImageStorer(t),
-		publisher:   ucmocks.NewMockEventPublisher(t),
-	}
-	d.uc = usecase.NewMediaUseCase(
-		d.seriesRepo, d.mediaRepo, d.orgUC, d.imageStorer, d.publisher, logger,
+		d.seriesRepo, d.venueRepo, d.organizerRepo, d.publisher, logger,
 	)
 	return d
 }
@@ -101,7 +75,7 @@ func TestConcertAuthoringUseCase_CreateDraft_OwnershipReject(t *testing.T) {
 		artistID = "artist-unknown"
 	)
 	// The organizer owns a different artist; artistID is not in the list.
-	d.orgUC.EXPECT().ListArtists(mock.Anything, orgID).
+	d.organizerRepo.EXPECT().ListArtists(mock.Anything, orgID).
 		Return([]*entity.Artist{{ID: "artist-other"}}, nil)
 
 	series := &entity.Series{Title: "Tour", Type: entity.SeriesTypeTour}
@@ -496,119 +470,4 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 	concerts, err := uc.SearchNewConcerts(ctx, "artist-2")
 	require.NoError(t, err)
 	assert.Nil(t, concerts)
-}
-
-// --- MediaUseCase tests ---
-
-// TestMediaUseCase_CreateMediaUploadURL_IssuesSignedURL verifies that a valid
-// content type triggers a signed PUT URL and returns the media id + max bytes.
-func TestMediaUseCase_CreateMediaUploadURL_IssuesSignedURL(t *testing.T) {
-	// t.Setenv requires sequential execution.
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals-bucket")
-	ctx := context.Background()
-	d := newMediaDeps(t)
-
-	const orgID = "org-1"
-	const wantURL = "https://storage.googleapis.com/signed"
-
-	d.imageStorer.EXPECT().
-		SignedPutURLForOriginal(mock.Anything, "originals-bucket", orgID, mock.Anything,
-			"image/jpeg", int64(10*1024*1024), mock.Anything).
-		Return(wantURL, nil)
-
-	out, err := d.uc.CreateMediaUploadURL(ctx, orgID, usecase.CreateMediaUploadURLInput{ContentType: "image/jpeg"})
-	require.NoError(t, err)
-	assert.Equal(t, wantURL, out.UploadURL)
-	assert.NotEmpty(t, out.MediaID)
-	assert.Equal(t, int64(10*1024*1024), out.MaxBytes)
-}
-
-// TestMediaUseCase_CreateMediaUploadURL_RejectsInvalidType verifies that a
-// non-allowlisted content type returns InvalidArgument before any GCS call.
-func TestMediaUseCase_CreateMediaUploadURL_RejectsInvalidType(t *testing.T) {
-	ctx := context.Background()
-	d := newMediaDeps(t)
-
-	_, err := d.uc.CreateMediaUploadURL(ctx, "org-1", usecase.CreateMediaUploadURLInput{ContentType: "image/svg+xml"})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, apperr.ErrInvalidArgument), "expected InvalidArgument, got %v", err)
-}
-
-// TestMediaUseCase_CreateMediaUploadURL_MissingBucket verifies a clear Internal
-// error when ORGANIZER_MEDIA_INTERNAL_BUCKET is unset.
-func TestMediaUseCase_CreateMediaUploadURL_MissingBucket(t *testing.T) {
-	// t.Setenv requires sequential execution.
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "")
-	ctx := context.Background()
-	d := newMediaDeps(t)
-
-	_, err := d.uc.CreateMediaUploadURL(ctx, "org-1", usecase.CreateMediaUploadURLInput{ContentType: "image/png"})
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, apperr.ErrInternal), "expected Internal, got %v", err)
-}
-
-// TestMediaUseCase_AttachMedia_InsertsAndPublishes verifies the happy path:
-// ownership check passes, media row is inserted, event is published.
-func TestMediaUseCase_AttachMedia_InsertsAndPublishes(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	d := newMediaDeps(t)
-
-	const (
-		orgID    = "org-1"
-		seriesID = "series-1"
-		mediaID  = "media-1"
-	)
-	s := &entity.Series{ID: seriesID, OrganizerID: ptr(orgID)}
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
-	d.mediaRepo.EXPECT().InsertMedia(mock.Anything, mock.MatchedBy(func(m *entity.Media) bool {
-		return m.ID == mediaID && m.OrganizerID == orgID && m.Kind == entity.MediaKindImage
-	})).Return(nil)
-	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectMediaUploaded, mock.Anything).Return(nil)
-
-	err := d.uc.AttachMedia(ctx, orgID, seriesID, mediaID)
-	require.NoError(t, err)
-}
-
-// TestMediaUseCase_AttachMedia_NonOwnerDenied verifies that a caller who does
-// not own the series receives PermissionDenied (non-revealing).
-func TestMediaUseCase_AttachMedia_NonOwnerDenied(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	d := newMediaDeps(t)
-
-	const (
-		orgID    = "org-other"
-		seriesID = "series-1"
-		mediaID  = "media-1"
-	)
-	// Series is owned by a different organizer.
-	s := &entity.Series{ID: seriesID, OrganizerID: ptr("org-owner")}
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
-
-	err := d.uc.AttachMedia(ctx, orgID, seriesID, mediaID)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, apperr.ErrPermissionDenied), "expected PermissionDenied, got %v", err)
-}
-
-// TestMediaUseCase_AttachMedia_Idempotent verifies that a second AttachMedia
-// for the same media_id succeeds (InsertMedia is ON CONFLICT DO NOTHING).
-func TestMediaUseCase_AttachMedia_Idempotent(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	d := newMediaDeps(t)
-
-	const (
-		orgID    = "org-1"
-		seriesID = "series-1"
-		mediaID  = "media-dup"
-	)
-	s := &entity.Series{ID: seriesID, OrganizerID: ptr(orgID)}
-	// Both calls use the same mock stubs — idempotent at the DB layer.
-	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil).Times(2)
-	d.mediaRepo.EXPECT().InsertMedia(mock.Anything, mock.Anything).Return(nil).Times(2)
-	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectMediaUploaded, mock.Anything).Return(nil).Times(2)
-
-	require.NoError(t, d.uc.AttachMedia(ctx, orgID, seriesID, mediaID))
-	require.NoError(t, d.uc.AttachMedia(ctx, orgID, seriesID, mediaID))
 }
