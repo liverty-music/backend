@@ -76,7 +76,7 @@ require (
 	google.golang.org/api v0.287.1
 	google.golang.org/genai v1.69.0
 	google.golang.org/genproto v0.0.0-20260921155816-b14227669459
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260918162117-cecb64721679
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260921155816-b14227669459
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 )
