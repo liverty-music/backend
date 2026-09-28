@@ -6,11 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
+)
+
+// resendRateLimit and resendRateWindow bound how often a user may request a
+// verification-email resend: at most resendRateLimit requests within any
+// rolling resendRateWindow.
+const (
+	resendRateLimit  = 3
+	resendRateWindow = 10 * time.Minute
 )
 
 // UserUseCase defines the interface for user-related business logic.
@@ -68,13 +78,55 @@ type UserUseCase interface {
 	//
 	//  - NotFound: If the user does not exist.
 	Delete(ctx context.Context, id string) error
+
+	// ResolveCaller returns the user identified by externalID (the Zitadel
+	// subject claim), after verifying that reqUserID — the user_id supplied
+	// by the client in the request body — matches the caller's own id.
+	//
+	// Handlers for per-user RPCs that expose an explicit user_id field in
+	// their request message MUST call this instead of GetByExternalID so
+	// that cross-user requests are rejected before any business logic runs.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: reqUserID is empty.
+	//  - PermissionDenied: reqUserID does not match the caller's user id.
+	//  - NotFound: no user exists for externalID.
+	ResolveCaller(ctx context.Context, externalID, reqUserID string) (*entity.User, error)
+
+	// ResendEmailVerification triggers a new email verification message via
+	// the identity provider for the user identified by externalID (the
+	// Zitadel subject claim), after verifying reqUserID matches the
+	// caller's own user id and the resend rate limit has not been
+	// exceeded.
+	//
+	// The rate limit (3 resends per rolling 10-minute window) is tracked in
+	// memory, scoped to this process. It is NOT shared across replicas, so
+	// the effective limit is 3-per-replica and resets whenever the process
+	// restarts. Make it shared (e.g. via Redis) if the limit must hold
+	// cluster-wide.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: reqUserID is empty.
+	//  - PermissionDenied: reqUserID does not match the caller's user id.
+	//  - ResourceExhausted: the resend rate limit has been exceeded.
+	//  - FailedPrecondition: the user's email is already verified.
+	//  - Unavailable: the email verification service is not configured.
+	//  - NotFound: no user exists for externalID.
+	ResendEmailVerification(ctx context.Context, externalID, reqUserID string) error
 }
 
 // userUseCase implements the UserUseCase interface.
 type userUseCase struct {
-	userRepo  entity.UserRepository
-	publisher EventPublisher
-	logger    *logging.Logger
+	userRepo      entity.UserRepository
+	publisher     EventPublisher
+	emailVerifier entity.EmailVerifier
+	logger        *logging.Logger
+
+	// resendMu protects resendLog for concurrent access.
+	resendMu  sync.Mutex
+	resendLog map[string][]time.Time
 }
 
 // Compile-time interface compliance check
@@ -82,12 +134,15 @@ var _ UserUseCase = (*userUseCase)(nil)
 
 // NewUserUseCase creates a new user use case.
 // It requires a user repository for data persistence, a publisher for domain
-// events, and a logger.
-func NewUserUseCase(userRepo entity.UserRepository, publisher EventPublisher, logger *logging.Logger) UserUseCase {
+// events, an email verifier for triggering verification emails (nil when the
+// Zitadel API client is not configured, e.g. local dev), and a logger.
+func NewUserUseCase(userRepo entity.UserRepository, publisher EventPublisher, emailVerifier entity.EmailVerifier, logger *logging.Logger) UserUseCase {
 	return &userUseCase{
-		userRepo:  userRepo,
-		publisher: publisher,
-		logger:    logger,
+		userRepo:      userRepo,
+		publisher:     publisher,
+		emailVerifier: emailVerifier,
+		logger:        logger,
+		resendLog:     make(map[string][]time.Time),
 	}
 }
 
@@ -263,4 +318,72 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 	uc.logger.Info(ctx, "User deleted successfully", slog.String("user_id", id))
 
 	return nil
+}
+
+// ResolveCaller returns the user identified by externalID, verifying that
+// reqUserID matches the caller's own id.
+func (uc *userUseCase) ResolveCaller(ctx context.Context, externalID, reqUserID string) (*entity.User, error) {
+	user, err := uc.GetByExternalID(ctx, externalID)
+	if err != nil {
+		return nil, err
+	}
+	if reqUserID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "user_id is required")
+	}
+	if reqUserID != user.ID {
+		return nil, apperr.New(codes.PermissionDenied, "user_id does not match authenticated user")
+	}
+	return user, nil
+}
+
+// ResendEmailVerification triggers a verification-email resend for the
+// caller, enforcing the user_id ownership check and the in-memory resend
+// rate limit before calling the identity provider.
+func (uc *userUseCase) ResendEmailVerification(ctx context.Context, externalID, reqUserID string) error {
+	if uc.emailVerifier == nil {
+		return apperr.New(codes.Unavailable, "email verification service is not configured")
+	}
+
+	user, err := uc.ResolveCaller(ctx, externalID, reqUserID)
+	if err != nil {
+		return err
+	}
+
+	if !uc.allowResend(user.ExternalID) {
+		return apperr.New(codes.ResourceExhausted, "resend rate limit exceeded")
+	}
+
+	return uc.emailVerifier.ResendVerification(ctx, user.ExternalID)
+}
+
+// allowResend reports whether externalID has not exceeded the resend rate
+// limit (resendRateLimit requests per rolling resendRateWindow), recording
+// this attempt when it allows it. Returns false when the caller must wait.
+func (uc *userUseCase) allowResend(externalID string) bool {
+	now := time.Now()
+	cutoff := now.Add(-resendRateWindow)
+
+	uc.resendMu.Lock()
+	defer uc.resendMu.Unlock()
+
+	// Filter out expired entries.
+	var recent []time.Time
+	for _, t := range uc.resendLog[externalID] {
+		if t.After(cutoff) {
+			recent = append(recent, t)
+		}
+	}
+
+	// Reclaim memory for users with no recent activity.
+	if len(recent) == 0 {
+		delete(uc.resendLog, externalID)
+	}
+
+	if len(recent) >= resendRateLimit {
+		uc.resendLog[externalID] = recent
+		return false
+	}
+
+	uc.resendLog[externalID] = append(recent, now)
+	return true
 }

@@ -170,7 +170,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 
-	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, logger)
+	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, emailVerifier, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
@@ -442,7 +442,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return userconnect.NewUserServiceHandler(
-				rpc.NewUserHandler(userUC, emailVerifier, logger),
+				rpc.NewUserHandler(userUC, logger),
 				opts...,
 			)
 		},

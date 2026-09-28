@@ -2,6 +2,7 @@ package rpc_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	entitypb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
@@ -17,6 +18,25 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+// connectCodeOf returns the Connect code that err would surface to a client.
+// A handler-constructed error is already a *connect.Error; an error returned
+// directly by a mocked usecase (as in these tests, which call the handler
+// without the production interceptor chain) is a bare *apperr.AppErr, which
+// the real apperr_connect.ErrorHandlingInterceptor converts to *connect.Error
+// at runtime. This helper performs the same mapping so these unit tests can
+// assert the client-visible code without standing up that interceptor.
+func connectCodeOf(err error) connect.Code {
+	var ce *connect.Error
+	if errors.As(err, &ce) {
+		return ce.Code()
+	}
+	var ae *apperr.AppErr
+	if errors.As(err, &ae) {
+		return connect.Code(ae.Code)
+	}
+	return connect.CodeUnknown
+}
 
 // ── test constants ────────────────────────────────────────────────────────────
 
@@ -54,15 +74,6 @@ func activeOrganizer() *entity.Organizer {
 	}
 }
 
-func deactivatedOrganizer() *entity.Organizer {
-	return &entity.Organizer{
-		ID:           testOrganizerID,
-		Name:         testOrganizerName,
-		ZitadelOrgID: testZitadelOrgID,
-		Status:       entity.OrganizerStatusDeactivated,
-	}
-}
-
 // ── OrganizerHandler.Get ─────────────────────────────────────────────────────
 
 func TestOrganizerHandler_Get(t *testing.T) {
@@ -86,17 +97,20 @@ func TestOrganizerHandler_Get(t *testing.T) {
 			name: "return own organizer when status is active",
 			args: args{ctx: orgCtx(testZitadelOrgID)},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("GetByZitadelOrgID", mock.Anything, testZitadelOrgID).
+				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
 					Return(activeOrganizer(), nil).Once()
 			}},
 			wantOrg: true,
 		},
+		// The Organizer-status→code mapping now lives in
+		// OrganizerUseCase.ResolveCaller (see organizer_uc_test.go); these
+		// cases only verify the handler forwards whatever it returns.
 		{
 			name: "return FAILED_PRECONDITION when own organizer is deactivated",
 			args: args{ctx: orgCtx(testZitadelOrgID)},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("GetByZitadelOrgID", mock.Anything, testZitadelOrgID).
-					Return(deactivatedOrganizer(), nil).Once()
+				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
+					Return((*entity.Organizer)(nil), apperr.New(apperr.ErrFailedPrecondition.Code, "organizer is deactivated")).Once()
 			}},
 			wantErr:  true,
 			wantCode: connect.CodeFailedPrecondition,
@@ -105,8 +119,8 @@ func TestOrganizerHandler_Get(t *testing.T) {
 			name: "return PERMISSION_DENIED when no organizer linked to zitadel org",
 			args: args{ctx: orgCtx(testZitadelOrgID)},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("GetByZitadelOrgID", mock.Anything, testZitadelOrgID).
-					Return((*entity.Organizer)(nil), apperr.ErrNotFound).Once()
+				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
+					Return((*entity.Organizer)(nil), apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")).Once()
 			}},
 			wantErr:  true,
 			wantCode: connect.CodePermissionDenied,
@@ -115,11 +129,8 @@ func TestOrganizerHandler_Get(t *testing.T) {
 			name: "return PERMISSION_DENIED when organizer is in provisioning status",
 			args: args{ctx: orgCtx(testZitadelOrgID)},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("GetByZitadelOrgID", mock.Anything, testZitadelOrgID).
-					Return(&entity.Organizer{
-						ID:     testOrganizerID,
-						Status: entity.OrganizerStatusProvisioning,
-					}, nil).Once()
+				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
+					Return((*entity.Organizer)(nil), apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")).Once()
 			}},
 			wantErr:  true,
 			wantCode: connect.CodePermissionDenied,
@@ -148,9 +159,7 @@ func TestOrganizerHandler_Get(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				var ce *connect.Error
-				require.ErrorAs(t, err, &ce)
-				assert.Equal(t, tt.wantCode, ce.Code())
+				assert.Equal(t, tt.wantCode, connectCodeOf(err))
 				assert.Nil(t, resp)
 				return
 			}
@@ -204,9 +213,9 @@ func TestOrganizerHandler_ListArtists(t *testing.T) {
 				req: listReq(testOrganizerID),
 			},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("GetByZitadelOrgID", mock.Anything, testZitadelOrgID).
+				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
 					Return(activeOrganizer(), nil).Once()
-				m.On("ListArtists", mock.Anything, testOrganizerID).
+				m.On("ListOwnArtists", mock.Anything, testOrganizerID, testOrganizerID).
 					Return(sampleArtists, nil).Once()
 			}},
 			wantArtists: 2,
@@ -218,24 +227,28 @@ func TestOrganizerHandler_ListArtists(t *testing.T) {
 				req: listReq(testOrganizerID),
 			},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("GetByZitadelOrgID", mock.Anything, testZitadelOrgID).
+				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
 					Return(activeOrganizer(), nil).Once()
-				m.On("ListArtists", mock.Anything, testOrganizerID).
+				m.On("ListOwnArtists", mock.Anything, testOrganizerID, testOrganizerID).
 					Return([]*entity.Artist{}, nil).Once()
 			}},
 			wantArtists: 0,
 		},
 		{
 			// Cross-organizer request: organizer_id resolves to a different org.
+			// The ownership check now lives in OrganizerUseCase.ListOwnArtists
+			// (see organizer_uc_test.go); this case only verifies the handler
+			// forwards whatever it returns.
 			name: "return PERMISSION_DENIED when organizer_id does not match caller's organizer",
 			args: args{
 				ctx: orgCtx(testZitadelOrgID),
 				req: listReq(testForeignOrganizerID),
 			},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("GetByZitadelOrgID", mock.Anything, testZitadelOrgID).
+				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
 					Return(activeOrganizer(), nil).Once()
-				// ListArtists must NOT be called after the ownership check fails.
+				m.On("ListOwnArtists", mock.Anything, testOrganizerID, testForeignOrganizerID).
+					Return(nil, apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")).Once()
 			}},
 			wantErr:  true,
 			wantCode: connect.CodePermissionDenied,
@@ -247,8 +260,8 @@ func TestOrganizerHandler_ListArtists(t *testing.T) {
 				req: listReq(testOrganizerID),
 			},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("GetByZitadelOrgID", mock.Anything, testZitadelOrgID).
-					Return(deactivatedOrganizer(), nil).Once()
+				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
+					Return((*entity.Organizer)(nil), apperr.New(apperr.ErrFailedPrecondition.Code, "organizer is deactivated")).Once()
 			}},
 			wantErr:  true,
 			wantCode: connect.CodeFailedPrecondition,
@@ -260,8 +273,8 @@ func TestOrganizerHandler_ListArtists(t *testing.T) {
 				req: listReq(testOrganizerID),
 			},
 			dep: dep{setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.On("GetByZitadelOrgID", mock.Anything, testZitadelOrgID).
-					Return((*entity.Organizer)(nil), apperr.ErrNotFound).Once()
+				m.On("ResolveCaller", mock.Anything, testZitadelOrgID).
+					Return((*entity.Organizer)(nil), apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")).Once()
 			}},
 			wantErr:  true,
 			wantCode: connect.CodePermissionDenied,
@@ -292,9 +305,7 @@ func TestOrganizerHandler_ListArtists(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				var ce *connect.Error
-				require.ErrorAs(t, err, &ce)
-				assert.Equal(t, tt.wantCode, ce.Code())
+				assert.Equal(t, tt.wantCode, connectCodeOf(err))
 				assert.Nil(t, resp)
 				return
 			}

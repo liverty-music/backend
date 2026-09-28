@@ -147,7 +147,7 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 			ctx:  orgLotteryAuthedCtx("org-1"),
 			req:  validReq,
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-1").
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-1").
 					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
 			},
 			wantErr: false,
@@ -161,12 +161,15 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 			wantErr:  true,
 		},
 		{
+			// The Organizer-status→code mapping now lives in
+			// OrganizerUseCase.ResolveCaller (see organizer_uc_test.go);
+			// the handler only needs to forward whatever it returns.
 			name: "error: organizer not found returns PermissionDenied",
 			ctx:  orgLotteryAuthedCtx("org-unknown"),
 			req:  validReq,
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-unknown").
-					Return(nil, apperr.New(apperr.ErrNotFound.Code, "not found")).Once()
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-unknown").
+					Return(nil, apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")).Once()
 			},
 			wantCode: connect.CodePermissionDenied,
 			wantErr:  true,
@@ -176,8 +179,8 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 			ctx:  orgLotteryAuthedCtx("org-deactivated"),
 			req:  validReq,
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-deactivated").
-					Return(&entity.Organizer{ID: "org-uuid", Status: entity.OrganizerStatusDeactivated}, nil).Once()
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-deactivated").
+					Return(nil, apperr.New(apperr.ErrFailedPrecondition.Code, "organizer is deactivated")).Once()
 			},
 			wantCode: connect.CodeFailedPrecondition,
 			wantErr:  true,
@@ -187,7 +190,7 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 			ctx:  orgLotteryAuthedCtx("org-1"),
 			req:  validReq,
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-1").
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-1").
 					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
 			},
 			lotterySetup: func(stub *handlerLotteryUCStub) {
@@ -220,7 +223,7 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 			if tt.wantErr {
 				assert.Error(t, err)
 				if tt.wantCode != 0 {
-					assert.Equal(t, tt.wantCode, connect.CodeOf(err))
+					assert.Equal(t, tt.wantCode, connectCodeOf(err))
 				}
 				return
 			}
@@ -254,7 +257,7 @@ func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
 			ctx:  orgLotteryAuthedCtx("org-1"),
 			req:  validReq,
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-1").
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-1").
 					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
 			},
 			wantErr:  false,
@@ -265,7 +268,7 @@ func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
 			ctx:  orgLotteryAuthedCtx("org-1"),
 			req:  validReq,
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-1").
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-1").
 					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
 			},
 			lotterySetup: func(stub *handlerLotteryUCStub) {
@@ -297,7 +300,7 @@ func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
 			ctx:  orgLotteryAuthedCtx("org-1"),
 			req:  validReq,
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-1").
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-1").
 					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
 			},
 			lotterySetup: func(stub *handlerLotteryUCStub) {
@@ -330,7 +333,7 @@ func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
 			if tt.wantErr {
 				assert.Error(t, err)
 				if tt.wantCode != 0 {
-					assert.Equal(t, tt.wantCode, connect.CodeOf(err))
+					assert.Equal(t, tt.wantCode, connectCodeOf(err))
 				}
 				return
 			}
@@ -365,7 +368,7 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
 			},
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-1").
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-1").
 					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
 			},
 			wantReq: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
@@ -378,7 +381,7 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_VERIFIED_ANY,
 			},
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-1").
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-1").
 					Return(activeOrganizerWithID("organizer-uuid-1"), nil).Once()
 			},
 			wantReq: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_VERIFIED_ANY,
@@ -402,8 +405,8 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
 			},
 			setup: func(uc *ucmocks.MockOrganizerUseCase) {
-				uc.EXPECT().GetByZitadelOrgID(mock.Anything, "org-other").
-					Return(nil, apperr.New(apperr.ErrNotFound.Code, "not found")).Once()
+				uc.EXPECT().ResolveCaller(mock.Anything, "org-other").
+					Return(nil, apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")).Once()
 			},
 			wantCode: connect.CodePermissionDenied,
 			wantErr:  true,
@@ -431,7 +434,7 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 			if tt.wantErr {
 				assert.Error(t, err)
 				if tt.wantCode != 0 {
-					assert.Equal(t, tt.wantCode, connect.CodeOf(err))
+					assert.Equal(t, tt.wantCode, connectCodeOf(err))
 				}
 				return
 			}

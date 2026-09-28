@@ -361,6 +361,178 @@ func TestOrganizerUseCase_ListArtists(t *testing.T) {
 	}
 }
 
+func TestOrganizerUseCase_ListOwnArtists(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name              string
+		callerOrganizerID string
+		reqOrganizerID    string
+		setup             func(t *testing.T, d *organizerTestDeps)
+		want              []*entity.Artist
+		wantErr           error
+	}{
+		{
+			name:              "return own roster when reqOrganizerID matches the caller",
+			callerOrganizerID: "org-1",
+			reqOrganizerID:    "org-1",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					Get(ctx, "org-1").
+					Return(&entity.Organizer{ID: "org-1", Status: entity.OrganizerStatusActive}, nil).
+					Once()
+				want := []*entity.Artist{{ID: "artist-1"}, {ID: "artist-2"}}
+				d.orgRepo.EXPECT().
+					ListArtists(ctx, "org-1").
+					Return(want, nil).
+					Once()
+			},
+			want: []*entity.Artist{{ID: "artist-1"}, {ID: "artist-2"}},
+		},
+		{
+			name:              "PermissionDenied when reqOrganizerID does not match the caller",
+			callerOrganizerID: "org-1",
+			reqOrganizerID:    "org-999",
+			// Neither Get nor ListArtists must be called — the ownership
+			// check runs before touching the repository.
+			wantErr: apperr.ErrPermissionDenied,
+		},
+		{
+			name:              "NotFound when the caller's own organizer no longer exists",
+			callerOrganizerID: "org-1",
+			reqOrganizerID:    "org-1",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					Get(ctx, "org-1").
+					Return(nil, apperr.New(codes.NotFound, "not found")).
+					Once()
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newOrganizerTestDeps(t)
+			if tt.setup != nil {
+				tt.setup(t, d)
+			}
+
+			got, err := d.uc.ListOwnArtists(ctx, tt.callerOrganizerID, tt.reqOrganizerID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	tests := []struct {
+		name         string
+		zitadelOrgID string
+		setup        func(t *testing.T, d *organizerTestDeps)
+		want         *entity.Organizer
+		wantErr      error
+	}{
+		{
+			name:         "return the organizer when active",
+			zitadelOrgID: "zitadel-org-1",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					GetByZitadelOrgID(ctx, "zitadel-org-1").
+					Return(&entity.Organizer{ID: "org-1", ZitadelOrgID: "zitadel-org-1", Status: entity.OrganizerStatusActive}, nil).
+					Once()
+			},
+			want: &entity.Organizer{ID: "org-1", ZitadelOrgID: "zitadel-org-1", Status: entity.OrganizerStatusActive},
+		},
+		{
+			name:         "FailedPrecondition when the organizer is deactivated",
+			zitadelOrgID: "zitadel-org-deactivated",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					GetByZitadelOrgID(ctx, "zitadel-org-deactivated").
+					Return(&entity.Organizer{ID: "org-1", Status: entity.OrganizerStatusDeactivated}, nil).
+					Once()
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			// Non-revealing per spec D3: any non-Active, non-Deactivated
+			// status (e.g. still provisioning) collapses into the same
+			// PermissionDenied as "no such organizer."
+			name:         "PermissionDenied when the organizer is still provisioning",
+			zitadelOrgID: "zitadel-org-provisioning",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					GetByZitadelOrgID(ctx, "zitadel-org-provisioning").
+					Return(&entity.Organizer{ID: "org-1", Status: entity.OrganizerStatusProvisioning}, nil).
+					Once()
+			},
+			wantErr: apperr.ErrPermissionDenied,
+		},
+		{
+			name:         "PermissionDenied (non-revealing) when no organizer is linked",
+			zitadelOrgID: "zitadel-org-unknown",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					GetByZitadelOrgID(ctx, "zitadel-org-unknown").
+					Return(nil, apperr.New(codes.NotFound, "not found")).
+					Once()
+			},
+			wantErr: apperr.ErrPermissionDenied,
+		},
+		{
+			name:         "propagates a non-NotFound repository failure unchanged",
+			zitadelOrgID: "zitadel-org-broken",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					GetByZitadelOrgID(ctx, "zitadel-org-broken").
+					Return(nil, apperr.New(codes.Unavailable, "db unavailable")).
+					Once()
+			},
+			wantErr: apperr.ErrUnavailable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newOrganizerTestDeps(t)
+			if tt.setup != nil {
+				tt.setup(t, d)
+			}
+
+			got, err := d.uc.ResolveCaller(ctx, tt.zitadelOrgID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				assert.Nil(t, got)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestOrganizerUseCase_AssociateArtist(t *testing.T) {
 	t.Parallel()
 

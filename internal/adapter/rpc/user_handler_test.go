@@ -27,17 +27,23 @@ func newUserIDProto(id string) *entitypb.UserId {
 	return &entitypb.UserId{Value: id}
 }
 
+// UserHandler delegates the user_id ownership precondition to
+// UserUseCase.ResolveCaller (see internal/usecase/user_uc.go); these tests
+// exercise the handler's proto<->entity mapping and error propagation only.
+// The InvalidArgument/PermissionDenied decision itself is covered by
+// TestUserUseCase_ResolveCaller in internal/usecase/user_uc_test.go.
+
 func TestUserHandler_Get(t *testing.T) {
 	t.Parallel()
 
-	t.Run("returns user when user_id matches JWT", func(t *testing.T) {
+	t.Run("returns user when the use case resolves the caller", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(&entity.User{
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID, testCallerUserID).Return(&entity.User{
 			ID:         testCallerUserID,
 			ExternalID: testCallerExtID,
 			Email:      "test@example.com",
@@ -55,17 +61,15 @@ func TestUserHandler_Get(t *testing.T) {
 		assert.Equal(t, "test@example.com", resp.Msg.User.Email.Value)
 	})
 
-	t.Run("returns PermissionDenied when user_id mismatches JWT", func(t *testing.T) {
+	t.Run("propagates PermissionDenied from ResolveCaller on user_id mismatch", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(&entity.User{
-			ID:         testCallerUserID,
-			ExternalID: testCallerExtID,
-		}, nil).Once()
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID, testForeignUserID).
+			Return(nil, apperr.New(apperr.ErrPermissionDenied.Code, "user_id does not match authenticated user")).Once()
 
 		ctx := authedCtx(testCallerExtID)
 		req := connect.NewRequest(&userv1.GetRequest{UserId: newUserIDProto(testForeignUserID)})
@@ -73,22 +77,18 @@ func TestUserHandler_Get(t *testing.T) {
 		resp, err := h.Get(ctx, req)
 
 		assert.Nil(t, resp)
-		var connectErr *connect.Error
-		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 
-	t.Run("returns InvalidArgument when user_id is empty", func(t *testing.T) {
+	t.Run("propagates InvalidArgument from ResolveCaller when user_id is empty", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(&entity.User{
-			ID:         testCallerUserID,
-			ExternalID: testCallerExtID,
-		}, nil).Once()
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID, "").
+			Return(nil, apperr.New(apperr.ErrInvalidArgument.Code, "user_id is required")).Once()
 
 		ctx := authedCtx(testCallerExtID)
 		req := connect.NewRequest(&userv1.GetRequest{})
@@ -96,9 +96,7 @@ func TestUserHandler_Get(t *testing.T) {
 		resp, err := h.Get(ctx, req)
 
 		assert.Nil(t, resp)
-		var connectErr *connect.Error
-		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("returns error when user not found", func(t *testing.T) {
@@ -106,9 +104,9 @@ func TestUserHandler_Get(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, "ext-unknown").Return(
+		userUC.EXPECT().ResolveCaller(mock.Anything, "ext-unknown", testCallerUserID).Return(
 			nil, apperr.New(apperr.ErrNotFound.Code, "user not found"),
 		).Once()
 
@@ -125,20 +123,20 @@ func TestUserHandler_Get(t *testing.T) {
 func TestUserHandler_UpdateHome(t *testing.T) {
 	t.Parallel()
 
-	existingUser := &entity.User{ID: testCallerUserID, ExternalID: testCallerExtID}
+	callerUser := &entity.User{ID: testCallerUserID, ExternalID: testCallerExtID}
 	updatedHome := &entity.Home{CountryCode: "JP", Level1: "JP-13"}
 	updatedUser := &entity.User{ID: testCallerUserID, ExternalID: testCallerExtID, Home: updatedHome}
 
 	homeProto := &entitypb.Home{CountryCode: "JP", Level_1: "JP-13"}
 
-	t.Run("updates home when user_id matches JWT", func(t *testing.T) {
+	t.Run("updates home when the use case resolves the caller", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(existingUser, nil).Once()
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID, testCallerUserID).Return(callerUser, nil).Once()
 		userUC.EXPECT().UpdateHome(mock.Anything, testCallerUserID, mock.Anything).Return(updatedUser, nil).Once()
 
 		ctx := authedCtx(testCallerExtID)
@@ -154,14 +152,15 @@ func TestUserHandler_UpdateHome(t *testing.T) {
 		assert.Equal(t, testCallerUserID, resp.Msg.User.Id.Value)
 	})
 
-	t.Run("returns PermissionDenied on user_id mismatch", func(t *testing.T) {
+	t.Run("propagates PermissionDenied from ResolveCaller on user_id mismatch", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(existingUser, nil).Once()
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID, testForeignUserID).
+			Return(nil, apperr.New(apperr.ErrPermissionDenied.Code, "user_id does not match authenticated user")).Once()
 		// UpdateHome must NOT be called.
 
 		ctx := authedCtx(testCallerExtID)
@@ -173,19 +172,18 @@ func TestUserHandler_UpdateHome(t *testing.T) {
 		resp, err := h.UpdateHome(ctx, req)
 
 		assert.Nil(t, resp)
-		var connectErr *connect.Error
-		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 
-	t.Run("returns InvalidArgument when user_id empty", func(t *testing.T) {
+	t.Run("propagates InvalidArgument from ResolveCaller when user_id empty", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(existingUser, nil).Once()
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID, "").
+			Return(nil, apperr.New(apperr.ErrInvalidArgument.Code, "user_id is required")).Once()
 
 		ctx := authedCtx(testCallerExtID)
 		req := connect.NewRequest(&userv1.UpdateHomeRequest{Home: homeProto})
@@ -193,23 +191,21 @@ func TestUserHandler_UpdateHome(t *testing.T) {
 		resp, err := h.UpdateHome(ctx, req)
 
 		assert.Nil(t, resp)
-		var connectErr *connect.Error
-		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
 
 func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 	t.Parallel()
 
-	existingUser := &entity.User{ID: testCallerUserID, ExternalID: testCallerExtID}
+	callerUser := &entity.User{ID: testCallerUserID, ExternalID: testCallerExtID}
 
 	t.Run("happy path — returns updated user", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
 		updatedUser := &entity.User{
 			ID:                testCallerUserID,
@@ -217,8 +213,8 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 			PreferredLanguage: "en",
 		}
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).
-			Return(existingUser, nil).Once()
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID, testCallerUserID).
+			Return(callerUser, nil).Once()
 		userUC.EXPECT().UpdatePreferredLanguage(mock.Anything, testCallerUserID, "en").
 			Return(updatedUser, nil).Once()
 
@@ -236,15 +232,15 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		assert.Equal(t, "en", resp.Msg.User.GetPreferredLanguage())
 	})
 
-	t.Run("PermissionDenied when user_id mismatches JWT", func(t *testing.T) {
+	t.Run("propagates PermissionDenied from ResolveCaller on user_id mismatch", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).
-			Return(existingUser, nil).Once()
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID, testForeignUserID).
+			Return(nil, apperr.New(apperr.ErrPermissionDenied.Code, "user_id does not match authenticated user")).Once()
 		// UpdatePreferredLanguage must NOT be called.
 
 		ctx := authedCtx(testCallerExtID)
@@ -256,24 +252,22 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		resp, err := h.UpdatePreferredLanguage(ctx, req)
 
 		assert.Nil(t, resp)
-		var connectErr *connect.Error
-		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodePermissionDenied, connectErr.Code())
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 
-	t.Run("InvalidArgument when user_id is empty", func(t *testing.T) {
-		// Per the rpc-auth-scoping convention, RequireUserIDMatch rejects
-		// an empty client-supplied user_id with InvalidArgument before
-		// any business logic runs. This test pins the contract; the
-		// format check has already passed at this point.
+	t.Run("propagates InvalidArgument from ResolveCaller when user_id is empty", func(t *testing.T) {
+		// Per the rpc-auth-scoping convention, ResolveCaller rejects an
+		// empty client-supplied user_id with InvalidArgument before any
+		// business logic runs. This test pins the contract; the format
+		// check has already passed at this point.
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
-		userUC.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).
-			Return(existingUser, nil).Once()
+		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID, "").
+			Return(nil, apperr.New(apperr.ErrInvalidArgument.Code, "user_id is required")).Once()
 		// UpdatePreferredLanguage MUST NOT be called.
 
 		ctx := authedCtx(testCallerExtID)
@@ -285,9 +279,7 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		resp, err := h.UpdatePreferredLanguage(ctx, req)
 
 		assert.Nil(t, resp)
-		var connectErr *connect.Error
-		require.ErrorAs(t, err, &connectErr)
-		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
 	t.Run("Unauthenticated when no JWT claims", func(t *testing.T) {
@@ -295,7 +287,7 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		logger, err := logging.New()
 		require.NoError(t, err)
 		userUC := mocks.NewMockUserUseCase(t)
-		h := rpc.NewUserHandler(userUC, nil, logger)
+		h := rpc.NewUserHandler(userUC, logger)
 
 		ctx := context.Background() // no auth claims
 		req := connect.NewRequest(&userv1.UpdatePreferredLanguageRequest{
@@ -319,7 +311,7 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 		// of invalid shapes is exercised — if the regex is ever loosened
 		// (e.g. to accept uppercase), at least one case here will fail.
 		//
-		// The format check runs BEFORE GetByExternalID, so no auth-related
+		// The format check runs BEFORE ResolveCaller, so no auth-related
 		// mocks are needed.
 		t.Parallel()
 		cases := []string{
@@ -338,8 +330,8 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 				logger, err := logging.New()
 				require.NoError(t, err)
 				userUC := mocks.NewMockUserUseCase(t)
-				h := rpc.NewUserHandler(userUC, nil, logger)
-				// Neither GetByExternalID nor UpdatePreferredLanguage
+				h := rpc.NewUserHandler(userUC, logger)
+				// Neither ResolveCaller nor UpdatePreferredLanguage
 				// must be called — format check should reject first.
 
 				ctx := authedCtx(testCallerExtID)
@@ -356,5 +348,91 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 				assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
 			})
 		}
+	})
+}
+
+func TestUserHandler_ResendEmailVerification(t *testing.T) {
+	t.Parallel()
+
+	t.Run("delegates to the use case and returns an empty response on success", func(t *testing.T) {
+		t.Parallel()
+		logger, err := logging.New()
+		require.NoError(t, err)
+		userUC := mocks.NewMockUserUseCase(t)
+		h := rpc.NewUserHandler(userUC, logger)
+
+		userUC.EXPECT().ResendEmailVerification(mock.Anything, testCallerExtID, testCallerUserID).Return(nil).Once()
+
+		ctx := authedCtx(testCallerExtID)
+		req := connect.NewRequest(&userv1.ResendEmailVerificationRequest{
+			UserId: newUserIDProto(testCallerUserID),
+		})
+
+		resp, err := h.ResendEmailVerification(ctx, req)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, resp)
+	})
+
+	t.Run("propagates the use case's error unchanged", func(t *testing.T) {
+		// The use case owns the ownership check, the resend rate limit, and
+		// the Zitadel call (see TestUserUseCase_ResendEmailVerification in
+		// internal/usecase/user_uc_test.go); the handler only needs to
+		// forward whatever code it returns.
+		t.Parallel()
+
+		cases := []struct {
+			name    string
+			ucErr   error
+			wantErr error
+		}{
+			{"PermissionDenied on user_id mismatch", apperr.New(apperr.ErrPermissionDenied.Code, "user_id does not match authenticated user"), apperr.ErrPermissionDenied},
+			{"InvalidArgument on empty user_id", apperr.New(apperr.ErrInvalidArgument.Code, "user_id is required"), apperr.ErrInvalidArgument},
+			{"ResourceExhausted on rate limit", apperr.New(apperr.ErrResourceExhausted.Code, "resend rate limit exceeded"), apperr.ErrResourceExhausted},
+			{"FailedPrecondition when already verified", apperr.New(apperr.ErrFailedPrecondition.Code, "email is already verified"), apperr.ErrFailedPrecondition},
+			{"Unavailable when verifier is not configured", apperr.New(apperr.ErrUnavailable.Code, "email verification service is not configured"), apperr.ErrUnavailable},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				logger, err := logging.New()
+				require.NoError(t, err)
+				userUC := mocks.NewMockUserUseCase(t)
+				h := rpc.NewUserHandler(userUC, logger)
+
+				userUC.EXPECT().ResendEmailVerification(mock.Anything, testCallerExtID, testCallerUserID).
+					Return(tc.ucErr).Once()
+
+				ctx := authedCtx(testCallerExtID)
+				req := connect.NewRequest(&userv1.ResendEmailVerificationRequest{
+					UserId: newUserIDProto(testCallerUserID),
+				})
+
+				resp, err := h.ResendEmailVerification(ctx, req)
+
+				assert.Nil(t, resp)
+				assert.ErrorIs(t, err, tc.wantErr)
+			})
+		}
+	})
+
+	t.Run("Unauthenticated when no JWT claims", func(t *testing.T) {
+		t.Parallel()
+		logger, err := logging.New()
+		require.NoError(t, err)
+		userUC := mocks.NewMockUserUseCase(t)
+		h := rpc.NewUserHandler(userUC, logger)
+		// The use case MUST NOT be called.
+
+		ctx := context.Background()
+		req := connect.NewRequest(&userv1.ResendEmailVerificationRequest{
+			UserId: newUserIDProto(testCallerUserID),
+		})
+
+		resp, err := h.ResendEmailVerification(ctx, req)
+
+		assert.Nil(t, resp)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
 }

@@ -78,35 +78,14 @@ func (h *PayoutOnboardingHandler) GetPayoutOnboarding(
 }
 
 // resolveCallerOrganizer reads the caller's Zitadel org id from the context
-// (placed there by OrgScopedInterceptor), looks up the linked Organizer via
-// the use case, and enforces its lifecycle status. Mirrors the same pattern
-// as OrganizerHandler.resolveCallerOrganizer with identical error mapping.
-//
-// Error mapping:
-//   - Zitadel org id absent in context → PERMISSION_DENIED (defence-in-depth)
-//   - No Organizer linked to the org id → PERMISSION_DENIED (non-revealing)
-//   - Organizer deactivated → FAILED_PRECONDITION (own org, state may be stated)
-//   - Any other status (e.g. provisioning) → PERMISSION_DENIED (non-revealing)
+// (placed there by OrgScopedInterceptor) and delegates to the use case, which
+// looks up the linked Organizer and enforces its lifecycle status. Mirrors
+// the same pattern as OrganizerHandler.resolveCallerOrganizer.
 func (h *PayoutOnboardingHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
 	}
 
-	organizer, err := h.organizerUC.GetByZitadelOrgID(ctx, callerOrgID)
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
-		}
-		return nil, err
-	}
-
-	switch organizer.Status {
-	case entity.OrganizerStatusActive:
-		return organizer, nil
-	case entity.OrganizerStatusDeactivated:
-		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("organizer is deactivated"))
-	default:
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
-	}
+	return h.organizerUC.ResolveCaller(ctx, callerOrgID)
 }
