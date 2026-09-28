@@ -428,6 +428,92 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 	}
 }
 
+// TestConcertUseCase_SearchNewConcertsOnFirstFollow verifies the discovery
+// trigger consumed by the search-first-followed-artist consumer: it searches
+// only when the artist has never been searched before (SearchLog.GetByArtistID
+// NotFound), and is a no-op otherwise.
+func TestConcertUseCase_SearchNewConcertsOnFirstFollow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	type args struct {
+		artistID string
+	}
+
+	tests := []struct {
+		name    string
+		args    args
+		setup   func(t *testing.T, d *concertTestDeps)
+		wantErr error
+	}{
+		{
+			name: "first follow - never searched, triggers discovery",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				artistID := "artist-1"
+				artist := &entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}
+
+				// GetByArtistID is called twice: once for the never-searched
+				// check in SearchNewConcertsOnFirstFollow itself, and again by
+				// SearchNewConcerts's own cache check — still NotFound both
+				// times (no log row has been written yet).
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Twice()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+				d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
+				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
+				d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).Return(nil, nil).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusCompleted).Return(nil).Once()
+			},
+			wantErr: nil,
+		},
+		{
+			name: "already searched - no-op",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				existingLog := &entity.SearchLog{
+					ArtistID:   "artist-1",
+					SearchTime: time.Now().Add(-1 * time.Hour),
+					Status:     entity.SearchLogStatusCompleted,
+				}
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, "artist-1").Return(existingLog, nil).Once()
+				// No further calls: SearchNewConcerts is never reached.
+			},
+			wantErr: nil,
+		},
+		{
+			name: "search log lookup fails - returns error",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, "artist-1").Return(nil, apperr.ErrInternal).Once()
+			},
+			wantErr: apperr.ErrInternal,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newConcertTestDeps(t)
+			if tt.setup != nil {
+				tt.setup(t, d)
+			}
+
+			err := d.uc.SearchNewConcertsOnFirstFollow(ctx, tt.args.artistID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 // TestSearchNewConcerts_TimingBoundaries verifies the cache TTL and pending timeout
 // boundaries using deterministic fake-clock time via testing/synctest. Each sub-test
 // runs inside a synctest.Test bubble so that time.Now() in production code uses virtual

@@ -25,3 +25,13 @@ func (p *EventPublisherImpl) PublishEvent(ctx context.Context, subject string, d
 	}
 	return p.publisher.Publish(subject, msg)
 }
+
+// PublishEventWithID serializes data as a CloudEvent using id as its stable
+// identifier (see [NewEventWithID]) and publishes it to subject.
+func (p *EventPublisherImpl) PublishEventWithID(ctx context.Context, subject, id string, data any) error {
+	msg, err := NewEventWithID(ctx, id, data)
+	if err != nil {
+		return fmt.Errorf("create event: %w", err)
+	}
+	return p.publisher.Publish(subject, msg)
+}

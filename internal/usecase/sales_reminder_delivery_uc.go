@@ -12,10 +12,12 @@ import (
 // SalesReminderDeliveryUseCase delivers a single reminder event to the target
 // user's push subscriptions, enforcing once-only delivery semantics.
 type SalesReminderDeliveryUseCase interface {
-	// DeliverReminder delivers the reminder described by data by dispatching it
-	// through the notification service (which records the notification, sends to
-	// the user's push subscriptions, and cleans up gone endpoints). It enforces
-	// the once-only contract via AlreadySent / RecordSent on the sent-log.
+	// DeliverReminder delivers the reminder described by data synchronously: it
+	// records the notification, sends to the user's push subscriptions, and
+	// cleans up gone endpoints (the same delivery logic NotificationUseCase.
+	// Deliver uses, composed directly rather than through that interface — see
+	// notification_delivery.go). It enforces the once-only contract via
+	// AlreadySent / RecordSent on the sent-log.
 	//
 	// Semantics preserved from the previous consumer implementation:
 	//   - AlreadySent guard fires first (at-least-once broker replay protection).
@@ -28,9 +30,13 @@ type SalesReminderDeliveryUseCase interface {
 }
 
 type salesReminderDeliveryUseCase struct {
-	reminderRepo   entity.SalesPhaseReminderRepository
-	notificationUC NotificationUseCase
-	logger         *logging.Logger
+	reminderRepo entity.SalesPhaseReminderRepository
+	// delivery composes the entity ports directly (see notification_delivery.go)
+	// instead of depending on NotificationUseCase's interface: DeliverReminder
+	// stays synchronous (no event hop) and shares the same delivery logic that
+	// NotificationUseCase.Deliver uses.
+	delivery notificationDeliveryDeps
+	logger   *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -39,13 +45,24 @@ var _ SalesReminderDeliveryUseCase = (*salesReminderDeliveryUseCase)(nil)
 // NewSalesReminderDeliveryUseCase wires the reminder delivery use case.
 func NewSalesReminderDeliveryUseCase(
 	reminderRepo entity.SalesPhaseReminderRepository,
-	notificationUC NotificationUseCase,
+	notificationRepo entity.NotificationRepository,
+	pushSubRepo entity.PushSubscriptionRepository,
+	sender entity.PushNotificationSender,
+	publisher EventPublisher,
+	metrics PushMetrics,
 	logger *logging.Logger,
 ) *salesReminderDeliveryUseCase {
 	return &salesReminderDeliveryUseCase{
-		reminderRepo:   reminderRepo,
-		notificationUC: notificationUC,
-		logger:         logger,
+		reminderRepo: reminderRepo,
+		delivery: notificationDeliveryDeps{
+			notificationRepo: notificationRepo,
+			pushSubRepo:      pushSubRepo,
+			sender:           sender,
+			publisher:        publisher,
+			metrics:          metrics,
+			logger:           logger,
+		},
+		logger: logger,
 	}
 }
 
@@ -105,13 +122,14 @@ func (uc *salesReminderDeliveryUseCase) DeliverReminder(ctx context.Context, dat
 		return nil
 	}
 
-	// Record and dispatch through the notification service: it creates the
-	// durable record, resolves the user's push subscriptions, sends, cleans up
-	// gone endpoints, and records the delivery outcome. A record-create failure
-	// (no record => no send) surfaces here so the at-least-once retry re-drives it.
-	n, err := uc.notificationUC.Notify(ctx, data.UserID, entity.NotificationTypeSalesReminder, data.Payload)
+	// Record and dispatch directly (see notification_delivery.go): it creates
+	// the durable record, resolves the user's push subscriptions, sends,
+	// cleans up gone endpoints, and records the delivery outcome. A
+	// record-create failure (no record => no send) surfaces here so the
+	// at-least-once retry re-drives it.
+	n, err := deliverNotification(ctx, uc.delivery, data.UserID, entity.NotificationTypeSalesReminder, data.Payload)
 	if err != nil {
-		return fmt.Errorf("sales_reminder_delivery: notify: %w", err)
+		return fmt.Errorf("sales_reminder_delivery: deliver: %w", err)
 	}
 
 	switch {

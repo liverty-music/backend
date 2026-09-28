@@ -36,6 +36,7 @@ packages:
       LotteryUseCase:
       EventPublishStatePort:
       IssuanceUseCase:
+      MediaUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -72,6 +73,7 @@ packages:
       PaymentAuthorizationPort:
       PaymentCapturePort:
       PaymentSettlementPort:
+      MediaProcessor:
   github.com/liverty-music/backend/internal/infrastructure/auth:
     interfaces:
       TokenValidator:

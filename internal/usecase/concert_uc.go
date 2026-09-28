@@ -72,6 +72,26 @@ type ConcertUseCase interface {
 	//  - NotFound: If the artist does not exist.
 	//  - Internal: search or database failure.
 	SearchNewConcerts(ctx context.Context, artistID string) ([]*entity.Concert, error)
+
+	// SearchNewConcertsOnFirstFollow triggers concert discovery for an artist
+	// the very first time it is followed by anyone, and is a no-op on every
+	// later follow. It is the discovery trigger for the ARTIST.followed event:
+	// the event consumer decodes the message and calls this method so the
+	// Follow use case never depends on concert discovery.
+	//
+	// "First follow" is determined by the absence of a SearchLog row
+	// (SearchLog.GetByArtistID NotFound); once SearchNewConcerts marks the
+	// artist as searched, subsequent calls for the same artist are a no-op
+	// here. When several fans follow the same artist concurrently, each
+	// publishes its own ARTIST.followed event and this method may run more
+	// than once for the artist, but SearchNewConcerts's own dedup (against
+	// already-known concerts and pending staged rows) and the DB natural key
+	// on events guarantee any discovered concerts are stored only once.
+	//
+	// # Possible errors
+	//
+	//  - Internal: search log lookup or search failure.
+	SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error
 }
 
 // concertUseCase implements both the consumer-facing ConcertUseCase and the
@@ -308,6 +328,29 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	}
 
 	return uc.executeSearch(ctx, artistID)
+}
+
+// SearchNewConcertsOnFirstFollow triggers concert discovery for an artist the
+// first time it is followed by anyone (no SearchLog row exists yet), and is a
+// no-op otherwise.
+func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error {
+	_, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
+	if err == nil {
+		// Search log exists — artist has been searched before, skip.
+		return nil
+	}
+	if !errors.Is(err, apperr.ErrNotFound) {
+		return fmt.Errorf("check search log for first-follow search: %w", err)
+	}
+
+	// No search log — this is a first follow. Trigger concert discovery.
+	uc.logger.Info(ctx, "first follow detected, triggering concert search",
+		slog.String("artist_id", artistID),
+	)
+	if _, err := uc.SearchNewConcerts(ctx, artistID); err != nil {
+		return fmt.Errorf("search new concerts for first follow: %w", err)
+	}
+	return nil
 }
 
 // executeSearch performs the actual Gemini search, deduplication, and event publishing.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -56,31 +57,34 @@ type PushNotificationUseCase interface {
 	// NotifyNewConcerts sends Web Push notifications to followers of the given
 	// artist for the specified newly created concerts. The delivery pipeline
 	// hydrates the artist and concert entities internally, applies hype-level
-	// filtering, and dispatches push notifications to all eligible followers.
+	// filtering, and requests a push notification for all eligible followers.
 	//
-	// Each eligible recipient is dispatched through the notification service, so
-	// a durable record and a delivery outcome exist per recipient. Per-channel
-	// delivery errors (including 410 Gone responses) are recorded as failed by
-	// the service and do not cause the method to return an error; only a
-	// notification record-creation failure (which suppresses the send) is
-	// surfaced, so the consumer's at-least-once retry re-drives the batch.
+	// For each eligible recipient, NotifyNewConcerts publishes NOTIFICATION.requested
+	// (EventPublisher.PublishEventWithID with a deterministic id derived from the
+	// artist, the concert batch, and the recipient — see notification_delivery.go)
+	// so the deliver-notification consumer records the durable Notification and
+	// dispatches the push; the deterministic id makes an at-least-once retry of
+	// this same CONCERT.created delivery a broker-side no-op rather than a second
+	// request. Only a publish failure surfaces as an error, so the consumer's
+	// at-least-once retry re-drives the batch; per-channel delivery errors
+	// (including 410 Gone responses) happen later, inside the deliver-notification
+	// consumer, and never reach this method.
 	//
 	// # Possible errors
 	//
 	//   - Internal: failure to look up artist, concerts, or followers, or to
-	//     create a notification record.
+	//     publish the notification request.
 	NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error
 }
 
 // pushNotificationUseCase implements PushNotificationUseCase.
 type pushNotificationUseCase struct {
-	artistRepo     entity.ArtistRepository
-	concertRepo    entity.ConcertRepository
-	followRepo     entity.FollowRepository
-	pushSubRepo    entity.PushSubscriptionRepository
-	publisher      EventPublisher
-	notificationUC NotificationUseCase
-	logger         *logging.Logger
+	artistRepo  entity.ArtistRepository
+	concertRepo entity.ConcertRepository
+	followRepo  entity.FollowRepository
+	pushSubRepo entity.PushSubscriptionRepository
+	publisher   EventPublisher
+	logger      *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -93,17 +97,15 @@ func NewPushNotificationUseCase(
 	followRepo entity.FollowRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	publisher EventPublisher,
-	notificationUC NotificationUseCase,
 	logger *logging.Logger,
 ) PushNotificationUseCase {
 	return &pushNotificationUseCase{
-		artistRepo:     artistRepo,
-		concertRepo:    concertRepo,
-		followRepo:     followRepo,
-		pushSubRepo:    pushSubRepo,
-		publisher:      publisher,
-		notificationUC: notificationUC,
-		logger:         logger,
+		artistRepo:  artistRepo,
+		concertRepo: concertRepo,
+		followRepo:  followRepo,
+		pushSubRepo: pushSubRepo,
+		publisher:   publisher,
+		logger:      logger,
 	}
 }
 
@@ -329,11 +331,21 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 			fmt.Sprintf("/concerts/%s", earliest.ID),
 			fmt.Sprintf("concert-%s", artist.ID),
 		)
-		if _, err := uc.notificationUC.Notify(ctx, f.User.ID, entity.NotificationTypeNewConcerts, payload); err != nil {
-			// Record-create failure ("no record => no send"): surface so the
-			// consumer's at-least-once retry re-drives the batch. Repeat web
-			// pushes are deduplicated browser-side by the per-artist Tag.
-			return fmt.Errorf("failed to notify user %s of new concerts for artist %s: %w", f.User.ID, artist.ID, err)
+		// Deterministic id: same artist + same concert batch + same recipient
+		// always derives the same id, so a retried CONCERT.created delivery
+		// republishes an identical NOTIFICATION.requested that the stream's
+		// Duplicates window discards rather than requesting delivery twice.
+		reqID := notificationRequestMsgID(entity.NotificationTypeNewConcerts, f.User.ID,
+			artist.ID+"|"+strings.Join(data.ConcertIDs, ","))
+		if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectNotificationRequested, reqID, entity.NotificationRequestedData{
+			UserID:  f.User.ID,
+			Type:    entity.NotificationTypeNewConcerts,
+			Payload: payload,
+		}); err != nil {
+			// Publish failure: surface so the consumer's at-least-once retry
+			// re-drives the batch. Repeat web pushes are deduplicated both by
+			// the Duplicates window above and, browser-side, by the per-artist Tag.
+			return fmt.Errorf("failed to publish notification request for user %s of new concerts for artist %s: %w", f.User.ID, artist.ID, err)
 		}
 		dispatched++
 	}

@@ -209,7 +209,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			shutdown.AddExternalPhase(storer)
 		}
 	}
-	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerUC, eventPublisher, logger)
+	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerRepo, eventPublisher, logger)
 
 	// Identity eKYC — select the real Pocket Sign Stamp client when all four
 	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are
@@ -243,7 +243,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger.Info(ctx, "pocket sign verify client not configured; using stub (identity verification unavailable)")
 	}
 	identityVerificationUC := usecase.NewIdentityVerificationUseCase(verifiedIdentityRepo, userRepo, pocketSignVerifier, logger)
-	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, organizerUC, imageStorer, eventPublisher, logger)
+	// ProcessMedia is never called from the RPC server (only the dedicated
+	// media-consumer job in media_job.go invokes it), so no MediaProcessor is
+	// wired here.
+	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, imageStorer, nil, eventPublisher, logger)
 	// MediaURLBuilder composes organizer series-media CDN URLs for the
 	// organizer-facing ConcertService mapper. The CDN base is sourced from
 	// config (ORGANIZER_MEDIA_CDN_BASE) rather than read directly by entity.
@@ -335,7 +338,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled: STRIPE_SECRET_KEY not configured (no payment provider)")
 	}
 
-	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, concertUC, searchLogRepo, eventPublisher, businessMetrics, logger)
+	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, eventPublisher, businessMetrics, logger)
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	notificationRepo := rdb.NewNotificationRepository(db)
@@ -346,7 +349,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		followRepo,
 		pushSubRepo,
 		eventPublisher,
-		notificationUC,
 		logger,
 	)
 	// Auth - JWT Validator and Interceptor

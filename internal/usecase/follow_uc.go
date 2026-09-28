@@ -46,14 +46,12 @@ type FollowUseCase interface {
 
 // followUseCase implements the FollowUseCase interface.
 type followUseCase struct {
-	followRepo    entity.FollowRepository
-	artistRepo    entity.ArtistRepository
-	siteResolver  entity.OfficialSiteResolver
-	concertUC     ConcertUseCase
-	searchLogRepo entity.SearchLogRepository
-	publisher     EventPublisher
-	metrics       FollowMetrics
-	logger        *logging.Logger
+	followRepo   entity.FollowRepository
+	artistRepo   entity.ArtistRepository
+	siteResolver entity.OfficialSiteResolver
+	publisher    EventPublisher
+	metrics      FollowMetrics
+	logger       *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -64,21 +62,17 @@ func NewFollowUseCase(
 	followRepo entity.FollowRepository,
 	artistRepo entity.ArtistRepository,
 	siteResolver entity.OfficialSiteResolver,
-	concertUC ConcertUseCase,
-	searchLogRepo entity.SearchLogRepository,
 	publisher EventPublisher,
 	metrics FollowMetrics,
 	logger *logging.Logger,
 ) FollowUseCase {
 	return &followUseCase{
-		followRepo:    followRepo,
-		artistRepo:    artistRepo,
-		siteResolver:  siteResolver,
-		concertUC:     concertUC,
-		searchLogRepo: searchLogRepo,
-		publisher:     publisher,
-		metrics:       metrics,
-		logger:        logger,
+		followRepo:   followRepo,
+		artistRepo:   artistRepo,
+		siteResolver: siteResolver,
+		publisher:    publisher,
+		metrics:      metrics,
+		logger:       logger,
 	}
 }
 
@@ -86,10 +80,15 @@ func NewFollowUseCase(
 // After the follow is persisted, it asynchronously resolves and stores the
 // artist's official site URL if one is not already recorded.
 //
-// The first-call path publishes ARTIST.followed for the analytics-consumer
-// to forward as the catalogue event artist.follow.completed. The idempotent
-// "already following" path returns early WITHOUT republishing — duplicate
-// analytics events would inflate the follow funnel.
+// The first-call path publishes ARTIST.followed, which fans out to the
+// analytics-consumer (forwarded as the catalogue event
+// artist.follow.completed) and to the search-first-followed-artist consumer,
+// which triggers ConcertUseCase.SearchNewConcertsOnFirstFollow. Concert
+// discovery therefore depends on that publish succeeding; a publish failure
+// is logged and non-fatal to the follow itself (see below), but it also means
+// no consumer wakes up to search this artist until a later signal does. The
+// idempotent "already following" path returns early WITHOUT republishing —
+// duplicate analytics events would inflate the follow funnel.
 func (uc *followUseCase) Follow(ctx context.Context, userID string, artistID string) error {
 	err := uc.followRepo.Follow(ctx, userID, artistID)
 	if err != nil {
@@ -116,34 +115,8 @@ func (uc *followUseCase) Follow(ctx context.Context, userID string, artistID str
 
 	bgCtx := context.WithoutCancel(ctx)
 	go uc.resolveAndPersistOfficialSite(bgCtx, artistID)
-	go uc.triggerFirstFollowSearch(bgCtx, artistID)
 
 	return nil
-}
-
-// triggerFirstFollowSearch checks whether the artist has been searched before
-// and, if not, triggers a background concert search. All errors are logged and
-// swallowed so that the follow operation is never affected.
-func (uc *followUseCase) triggerFirstFollowSearch(ctx context.Context, artistID string) {
-	_, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
-	if err == nil {
-		// Search log exists — artist has been searched before, skip.
-		return
-	}
-	if !errors.Is(err, apperr.ErrNotFound) {
-		uc.logger.Warn(ctx, "failed to check search log for first-follow search",
-			slog.String("artist_id", artistID), slog.Any("error", err))
-		return
-	}
-
-	// No search log — this is a first follow. Trigger concert discovery.
-	uc.logger.Info(ctx, "First follow detected, triggering concert search",
-		slog.String("artist_id", artistID))
-
-	if _, err := uc.concertUC.SearchNewConcerts(ctx, artistID); err != nil {
-		uc.logger.Warn(ctx, "background concert search failed after first follow",
-			slog.String("artist_id", artistID), slog.Any("error", err))
-	}
 }
 
 // resolveAndPersistOfficialSite fetches the official site URL from MusicBrainz

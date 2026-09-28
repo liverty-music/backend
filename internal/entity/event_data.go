@@ -79,6 +79,18 @@ const (
 	// media.uploaded) so the MEDIA.* stream filter captures it with a plain
 	// single-token wildcard — same convention as SubjectSalesPhaseReminderDue.
 	SubjectMediaUploaded = "MEDIA.uploaded"
+	// SubjectNotificationRequested is published once per eligible recipient by
+	// every producer of a user-facing notification (PushNotificationUseCase.
+	// NotifyNewConcerts, SalesPhaseAnnouncementUseCase.AnnounceDiscoveredPhase).
+	// The deliver-notification consumer subscribes to this subject and calls
+	// NotificationUseCase.Deliver, which records the durable Notification and
+	// dispatches the push. Producers publish with a deterministic id (see
+	// EventPublisher.PublishEventWithID) derived from stable business keys so
+	// an at-least-once retry of the same triggering event republishes the same
+	// recipients as the same NATS Msg-Id, which the NOTIFICATION stream's
+	// Duplicates window (2 minutes) deduplicates broker-side. Already covered
+	// by the existing NOTIFICATION.* stream — see streams.go.
+	SubjectNotificationRequested = "NOTIFICATION.requested"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -107,6 +119,7 @@ var AllSubjects = []string{
 	SubjectOrganizerArtistAssociated,
 	SubjectOrganizerConcertPublished,
 	SubjectMediaUploaded,
+	SubjectNotificationRequested,
 }
 
 // ConcertCreatedData is the payload for CONCERT.created events.
@@ -295,6 +308,21 @@ type NotificationDeliveredData struct {
 	NotificationID string `json:"notification_id"`
 	// Type is the string name of the NotificationType (e.g. "new_concerts").
 	Type string `json:"type"`
+}
+
+// NotificationRequestedData is the payload for NOTIFICATION.requested.
+// Published once per eligible recipient by every notification producer
+// (PushNotificationUseCase.NotifyNewConcerts, SalesPhaseAnnouncementUseCase.
+// AnnounceDiscoveredPhase); the deliver-notification consumer decodes it and
+// calls NotificationUseCase.Deliver(UserID, Type, Payload) — the producer
+// never depends on NotificationUseCase directly.
+type NotificationRequestedData struct {
+	// UserID is the recipient's platform-internal user identifier.
+	UserID string `json:"user_id"`
+	// Type is the notification kind to record and dispatch.
+	Type NotificationType `json:"type"`
+	// Payload is the rendered notification content for the push channel.
+	Payload *NotificationPayload `json:"payload"`
 }
 
 // SalesPhaseDiscoveredData is the payload for SALES_PHASE.discovered events.

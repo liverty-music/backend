@@ -103,11 +103,11 @@ type ConcertAuthoringUseCase interface {
 
 // concertAuthoringUseCase implements ConcertAuthoringUseCase.
 type concertAuthoringUseCase struct {
-	seriesRepo  entity.SeriesRepository
-	venueRepo   entity.VenueRepository
-	organizerUC OrganizerUseCase
-	publisher   EventPublisher
-	logger      *logging.Logger
+	seriesRepo    entity.SeriesRepository
+	venueRepo     entity.VenueRepository
+	organizerRepo entity.OrganizerRepository
+	publisher     EventPublisher
+	logger        *logging.Logger
 }
 
 // Compile-time interface check.
@@ -118,16 +118,16 @@ var _ ConcertAuthoringUseCase = (*concertAuthoringUseCase)(nil)
 func NewConcertAuthoringUseCase(
 	seriesRepo entity.SeriesRepository,
 	venueRepo entity.VenueRepository,
-	organizerUC OrganizerUseCase,
+	organizerRepo entity.OrganizerRepository,
 	publisher EventPublisher,
 	logger *logging.Logger,
 ) ConcertAuthoringUseCase {
 	return &concertAuthoringUseCase{
-		seriesRepo:  seriesRepo,
-		venueRepo:   venueRepo,
-		organizerUC: organizerUC,
-		publisher:   publisher,
-		logger:      logger,
+		seriesRepo:    seriesRepo,
+		venueRepo:     venueRepo,
+		organizerRepo: organizerRepo,
+		publisher:     publisher,
+		logger:        logger,
 	}
 }
 
@@ -143,7 +143,7 @@ func (uc *concertAuthoringUseCase) assertOwnsSeries(series *entity.Series, calle
 // checkPerformerOwnership returns PermissionDenied (non-revealing) when any of
 // the supplied artist IDs is not represented by the caller's organizer.
 func (uc *concertAuthoringUseCase) checkPerformerOwnership(ctx context.Context, callerOrgID string, artistIDs []string) error {
-	ownedArtists, err := uc.organizerUC.ListArtists(ctx, callerOrgID)
+	ownedArtists, err := uc.organizerRepo.ListArtists(ctx, callerOrgID)
 	if err != nil {
 		return fmt.Errorf("list organizer artists: %w", err)
 	}

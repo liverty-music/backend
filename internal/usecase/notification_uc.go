@@ -2,11 +2,7 @@ package usecase
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"log/slog"
-	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -19,8 +15,15 @@ import (
 // before dispatching to the web-push channel, then records the delivery outcome,
 // so that "did this notification reach the user?" is answerable from stored state
 // and the in-app inbox has durable, per-user read/dismiss state to build on.
+//
+// Producers never call Deliver directly: they publish NOTIFICATION.requested
+// (via EventPublisher.PublishEventWithID) and the deliver-notification event
+// consumer calls Deliver, so no usecase depends on NotificationUseCase's
+// interface. SalesReminderDeliveryUseCase.DeliverReminder is the one exception —
+// it stays synchronous and composes the same delivery ports directly (see
+// notification_delivery.go) rather than going through NotificationUseCase.
 type NotificationUseCase interface {
-	// Notify records a notification for userID and dispatches it to the user's
+	// Deliver records a notification for userID and dispatches it to the user's
 	// web-push subscriptions.
 	//
 	// The record is created first and is the source of truth. If record creation
@@ -38,7 +41,7 @@ type NotificationUseCase interface {
 	//
 	//   - InvalidArgument: payload is nil.
 	//   - Internal: notification record creation failed (no send was attempted).
-	Notify(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error)
+	Deliver(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error)
 
 	// MarkRead marks the (userID, notificationID) notification as read. It is
 	// idempotent and user-scoped: marking another user's notification is rejected.
@@ -58,26 +61,6 @@ type NotificationUseCase interface {
 	//   - PermissionDenied: the notification belongs to a different user.
 	MarkDismissed(ctx context.Context, userID, notificationID string) error
 }
-
-// NotificationFailureReasonNoSubscription is the delivery failure reason recorded
-// when a notification has no web-push endpoint to deliver to. Producers can branch
-// on it to distinguish "the user simply has no push device" (a terminal outcome
-// not worth retrying) from a transient send error.
-const NotificationFailureReasonNoSubscription = "no active push subscription"
-
-// Bounded delivery-failure categories. They are the *label* attached to the
-// delivery-outcome metric and the WARNING failure log, kept deliberately small so
-// the signal stays low-cardinality and safe for a log-based-metric alert (the raw
-// reason string carries the unbounded diagnostic detail separately).
-const (
-	deliveryFailureReasonNone           = "none"
-	deliveryFailureReasonNoSubscription = "no_subscription"
-	deliveryFailureReasonGone           = "gone"
-	deliveryFailureReasonSendError      = "send_error"
-	deliveryFailureReasonListFailed     = "list_failed"
-	deliveryFailureReasonMarshalFailed  = "marshal_failed"
-	deliveryFailureReasonCancelled      = "cancelled"
-)
 
 // notificationUseCase implements NotificationUseCase.
 type notificationUseCase struct {
@@ -114,156 +97,24 @@ func NewNotificationUseCase(
 	}
 }
 
-// Notify implements [NotificationUseCase].
-func (uc *notificationUseCase) Notify(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error) {
+// deps returns the entity ports bundled for [deliverNotification].
+func (uc *notificationUseCase) deps() notificationDeliveryDeps {
+	return notificationDeliveryDeps{
+		notificationRepo: uc.notificationRepo,
+		pushSubRepo:      uc.pushSubRepo,
+		sender:           uc.sender,
+		publisher:        uc.publisher,
+		metrics:          uc.metrics,
+		logger:           uc.logger,
+	}
+}
+
+// Deliver implements [NotificationUseCase].
+func (uc *notificationUseCase) Deliver(ctx context.Context, userID string, typ entity.NotificationType, payload *entity.NotificationPayload) (*entity.Notification, error) {
 	if payload == nil {
 		return nil, apperr.New(codes.InvalidArgument, "notification payload must not be nil")
 	}
-
-	// 1. Create the record first — it is the source of truth. On failure, do NOT
-	//    send blind: surface the error so the caller's retry path re-drives it.
-	n := &entity.Notification{
-		UserID:         userID,
-		Type:           typ,
-		Payload:        payload,
-		DeliveryStatus: entity.NotificationDeliveryStatusQueued,
-	}
-	if err := uc.notificationRepo.Create(ctx, n); err != nil {
-		return nil, fmt.Errorf("failed to create notification record: %w", err)
-	}
-
-	// 2. Carry the stable notification id into the dispatched payload so the
-	//    client/service worker can correlate interactions back to this record.
-	if payload.Data == nil {
-		payload.Data = make(map[string]string, 1)
-	}
-	payload.Data[entity.NotificationDataKeyNotificationID] = n.ID
-
-	// 3. Dispatch to the web-push channel and 4. record the outcome.
-	status, deliveredAt, reason, reasonCategory := uc.dispatch(ctx, n, payload)
-
-	// Surface the outcome as an operational signal so a systemic delivery failure
-	// is detectable without querying the notifications table. The metric is emitted
-	// for every outcome (the alert needs a failed-vs-total ratio); a failed
-	// delivery is additionally logged at WARNING, with the bounded failure_reason
-	// as a label and the unbounded detail kept separate for debugging.
-	uc.metrics.RecordDeliveryOutcome(ctx, string(status), reasonCategory)
-	if status == entity.NotificationDeliveryStatusFailed {
-		uc.logger.Warn(ctx, "notification delivery failed",
-			slog.String("notification_id", n.ID),
-			slog.String("user_id", userID),
-			slog.String("notification_type", string(typ)),
-			slog.String("failure_reason", reasonCategory),
-			slog.String("failure_detail", reason),
-		)
-	}
-
-	if err := uc.notificationRepo.UpdateDelivery(ctx, n.ID, status, deliveredAt, reason); err != nil {
-		// Non-fatal: the send has already happened (or failed) and the record
-		// exists. The delivery-state column may lag but the notification is not
-		// lost; a reconcile/re-dispatch can correct it.
-		uc.logger.Error(ctx, "failed to update notification delivery state", err,
-			slog.String("notification_id", n.ID),
-			slog.String("user_id", userID),
-		)
-	}
-	n.DeliveryStatus = status
-	n.DeliverTime = deliveredAt
-	n.FailureReason = reason
-
-	// 5. Emit the delivered analytics event exactly once per notification, only
-	//    when the send actually reached the delivered state. Non-fatal by design:
-	//    analytics must never affect the delivery outcome, so a publish failure is
-	//    logged and swallowed (mirrors the notification.subscribed emit).
-	if status == entity.NotificationDeliveryStatusDelivered {
-		if err := uc.publisher.PublishEvent(ctx, entity.SubjectNotificationDelivered, entity.NotificationDeliveredData{
-			UserID:         userID,
-			NotificationID: n.ID,
-			Type:           string(typ),
-		}); err != nil {
-			uc.logger.Error(ctx, "failed to publish NOTIFICATION.delivered event", err,
-				slog.String("notification_id", n.ID),
-				slog.String("user_id", userID),
-			)
-		}
-	}
-
-	return n, nil
-}
-
-// dispatch sends the rendered payload to every web-push subscription the user
-// has, cleaning up gone (410) subscriptions, and returns the terminal delivery
-// outcome: delivered when at least one send was accepted, otherwise failed (with
-// a human-readable reason and a bounded reason category for metric/log labels).
-// It never returns an error — a failed dispatch is a recorded outcome, not a lost
-// notification.
-func (uc *notificationUseCase) dispatch(ctx context.Context, n *entity.Notification, payload *entity.NotificationPayload) (status entity.NotificationDeliveryStatus, deliveredAt *time.Time, reason, reasonCategory string) {
-	subs, err := uc.pushSubRepo.ListByUserIDs(ctx, []string{n.UserID})
-	if err != nil {
-		uc.logger.Error(ctx, "failed to list push subscriptions for notification", err,
-			slog.String("notification_id", n.ID),
-			slog.String("user_id", n.UserID),
-		)
-		return entity.NotificationDeliveryStatusFailed, nil, "failed to list push subscriptions: " + err.Error(), deliveryFailureReasonListFailed
-	}
-	if len(subs) == 0 {
-		// The record still exists for the in-app inbox; the push channel simply
-		// had no endpoint to deliver to. Recorded as failed for delivery audit.
-		return entity.NotificationDeliveryStatusFailed, nil, NotificationFailureReasonNoSubscription, deliveryFailureReasonNoSubscription
-	}
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return entity.NotificationDeliveryStatusFailed, nil, "failed to marshal payload: " + err.Error(), deliveryFailureReasonMarshalFailed
-	}
-
-	var (
-		atLeastOneSuccess bool
-		lastErr           string
-		lastCategory      string
-	)
-	for _, sub := range subs {
-		// Stop dispatching the moment the context is cancelled: record the cause
-		// and break so no further sends are issued. Any sends already accepted
-		// keep the notification's delivered outcome; otherwise it is failed.
-		if err := ctx.Err(); err != nil {
-			lastErr = err.Error()
-			lastCategory = deliveryFailureReasonCancelled
-			break
-		}
-
-		if err := uc.sender.Send(ctx, payloadBytes, sub); err != nil {
-			if errors.Is(err, apperr.ErrNotFound) {
-				uc.metrics.RecordPushSend(ctx, "gone")
-				// Scoped cleanup: delete only the dead (userID, endpoint) pair.
-				if delErr := uc.pushSubRepo.Delete(ctx, sub.UserID, sub.Endpoint); delErr != nil {
-					uc.logger.Error(ctx, "failed to delete stale push subscription", delErr,
-						slog.String("user_id", sub.UserID),
-						slog.String("endpoint", sub.Endpoint),
-					)
-				}
-				lastErr = "push subscription gone (410)"
-				lastCategory = deliveryFailureReasonGone
-			} else {
-				uc.metrics.RecordPushSend(ctx, "error")
-				uc.logger.Error(ctx, "failed to send push notification", err,
-					slog.String("notification_id", n.ID),
-					slog.String("user_id", sub.UserID),
-				)
-				lastErr = err.Error()
-				lastCategory = deliveryFailureReasonSendError
-			}
-		} else {
-			uc.metrics.RecordPushSend(ctx, "success")
-			atLeastOneSuccess = true
-		}
-	}
-
-	if atLeastOneSuccess {
-		now := time.Now().UTC()
-		return entity.NotificationDeliveryStatusDelivered, &now, "", deliveryFailureReasonNone
-	}
-	return entity.NotificationDeliveryStatusFailed, nil, lastErr, lastCategory
+	return deliverNotification(ctx, uc.deps(), userID, typ, payload)
 }
 
 // MarkRead implements [NotificationUseCase].

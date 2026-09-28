@@ -14,6 +14,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
+	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
@@ -91,13 +92,13 @@ func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) 
 	// Media processor (stub when libvips absent; production binary uses -tags vips).
 	processor := event.NewMediaProcessor(logger)
 
+	// MediaUseCase orchestrates ProcessMedia; MediaConsumer only decodes the
+	// MEDIA.uploaded message and calls it.
+	eventPublisher := messaging.NewEventPublisher(publisher)
+	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, imageStorer, processor, eventPublisher, logger)
+
 	// MediaConsumer
-	mediaConsumer := event.NewMediaConsumer(
-		seriesRepo,
-		imageStorer,
-		processor,
-		logger,
-	)
+	mediaConsumer := event.NewMediaConsumer(mediaUC, logger)
 
 	behaviorTable := []behaviorEntry{
 		{"media_uploaded", entity.SubjectMediaUploaded, mediaConsumer.Handle},
