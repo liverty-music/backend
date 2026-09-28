@@ -90,7 +90,7 @@ type ArtistRepository interface {
 	//   - Internal: database connection or execution failure.
 	Create(ctx context.Context, artists ...*Artist) ([]*Artist, error)
 
-	// List retrieves all registered artists sorted by name.
+	// List retrieves all registered artists. The order is unspecified.
 	//
 	// # Possible errors:
 	//

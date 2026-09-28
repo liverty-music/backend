@@ -140,9 +140,11 @@ type AdminConcertUseCase interface {
 	//  - Internal: If the log append or delete fails.
 	Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error
 
-	// Delete permanently removes a published concert by its event id. The delete
-	// cascades through the database's foreign keys to every referencing row. It
-	// is idempotent: deleting an id that no longer exists succeeds.
+	// Delete permanently removes a published concert by its event id, cascading
+	// to the rows scoped to the event alone (see [entity.ConcertRepository.Delete]
+	// for the exact set); it fails instead if tickets or settlements still
+	// reference the event. It is idempotent: deleting an id that no longer
+	// exists succeeds.
 	//
 	// # Possible errors
 	//
@@ -163,10 +165,11 @@ func (uc *concertUseCase) List(ctx context.Context) ([]*entity.Concert, error) {
 }
 
 // Delete permanently removes a published concert by its event id, cascading to
-// all referencing rows, and records a suppression entry from the deleted event's
-// natural key so a later discovery run does not re-create it. An empty id is
-// rejected; deleting an absent id succeeds and records no suppression (the
-// repository writes suppression only for a row that actually existed).
+// the rows scoped to the event alone, and records a suppression entry from the
+// deleted event's natural key so a later discovery run does not re-create it.
+// An empty id is rejected; deleting an absent id succeeds and records no
+// suppression (the repository writes suppression only for a row that actually
+// existed).
 func (uc *concertUseCase) Delete(ctx context.Context, eventID string) error {
 	if eventID == "" {
 		return apperr.New(codes.InvalidArgument, "event id must not be empty")

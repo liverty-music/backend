@@ -1,8 +1,9 @@
 // Package main provides the sales-phase discovery CronJob entry point.
 //
 // The job enumerates the upcoming series of all followed artists, calls the
-// Gemini sales-phase searcher once per series, upserts the discovered phases,
-// and publishes a SALES_PHASE.discovered event for each brand-new phase.
+// Gemini sales-phase searcher once per artist (grounded across all of that
+// artist's upcoming series), upserts the discovered phases, and publishes a
+// SALES_PHASE.discovered event for each brand-new phase.
 // Re-discovery of an already-known phase (UpsertOutcomeUpdated) is silent.
 package main
 
