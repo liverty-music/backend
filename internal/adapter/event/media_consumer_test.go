@@ -11,6 +11,7 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/event"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
+	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
@@ -18,9 +19,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeImageStorer is a fully controllable in-memory ImageStorer + ReadObject.
-// It implements the optional objectReader interface so MediaConsumer.readOriginal
-// can fetch bytes without a real GCS client.
+// fakeImageStorer is a fully controllable in-memory usecase.ImageStorer.
+// Object keys are composed with the same scheme as the real GCSStorer
+// (internal/infrastructure/gcp/storage) so tests observe the same addressing
+// without MediaConsumer or the storer ever exposing raw keys to callers.
 type fakeImageStorer struct {
 	objects      map[string][]byte
 	deletedKeys  []string
@@ -34,42 +36,47 @@ func newFakeStorer() *fakeImageStorer {
 	return &fakeImageStorer{objects: make(map[string][]byte)}
 }
 
-func (f *fakeImageStorer) Put(_ context.Context, bucket, key, _ string, data []byte) error {
-	if f.putErr != nil {
-		return f.putErr
-	}
-	f.objects[bucket+"/"+key] = data
-	return nil
-}
-
-func (f *fakeImageStorer) Delete(_ context.Context, bucket, key string) error {
-	if f.deleteErr != nil {
-		return f.deleteErr
-	}
-	f.deletedKeys = append(f.deletedKeys, bucket+"/"+key)
-	return nil
-}
-
-func (f *fakeImageStorer) DeletePrefix(_ context.Context, bucket, prefix string) error {
-	if f.deletePfxErr != nil {
-		return f.deletePfxErr
-	}
-	f.deletedPfxs = append(f.deletedPfxs, bucket+"/"+prefix)
-	return nil
-}
-
-func (f *fakeImageStorer) SignedPutURL(_ context.Context, _, _, _ string, _ int64, _ time.Duration) (string, error) {
+func (f *fakeImageStorer) SignedPutURLForOriginal(_ context.Context, _, _, _, _ string, _ int64, _ time.Duration) (string, error) {
 	return "https://signed", nil
 }
 
-// ReadObject satisfies the optional objectReader interface consumed by
-// MediaConsumer.readOriginal.
-func (f *fakeImageStorer) ReadObject(_ context.Context, bucket, key string) ([]byte, error) {
-	data, ok := f.objects[bucket+"/"+key]
+func (f *fakeImageStorer) ReadOriginal(_ context.Context, bucket, organizerID, mediaID string) ([]byte, error) {
+	key := bucket + "/" + gcsstorage.OriginalObjectKey(organizerID, mediaID)
+	data, ok := f.objects[key]
 	if !ok {
-		return nil, apperr.New(codes.NotFound, "object not found: "+bucket+"/"+key)
+		return nil, apperr.New(codes.NotFound, "object not found: "+key)
 	}
 	return data, nil
+}
+
+func (f *fakeImageStorer) DeleteOriginal(_ context.Context, bucket, organizerID, mediaID string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	f.deletedKeys = append(f.deletedKeys, bucket+"/"+gcsstorage.OriginalObjectKey(organizerID, mediaID))
+	return nil
+}
+
+func (f *fakeImageStorer) PutVariant(_ context.Context, bucket, organizerID, mediaID, variant, _ string, data []byte) error {
+	if f.putErr != nil {
+		return f.putErr
+	}
+	f.objects[bucket+"/"+gcsstorage.VariantObjectKey(organizerID, mediaID, variant)] = data
+	return nil
+}
+
+func (f *fakeImageStorer) DeleteVariants(_ context.Context, bucket, organizerID, mediaID string) error {
+	if f.deletePfxErr != nil {
+		return f.deletePfxErr
+	}
+	f.deletedPfxs = append(f.deletedPfxs, bucket+"/"+gcsstorage.VariantObjectPrefix(organizerID, mediaID))
+	return nil
+}
+
+// putOriginal seeds the fake originals bucket for a test, using the same key
+// scheme ReadOriginal/DeleteOriginal compute internally.
+func (f *fakeImageStorer) putOriginal(bucket, organizerID, mediaID string, data []byte) {
+	f.objects[bucket+"/"+gcsstorage.OriginalObjectKey(organizerID, mediaID)] = data
 }
 
 // fakeProcessor is a controllable MediaProcessor stub for unit tests.
@@ -133,9 +140,7 @@ func TestMediaConsumer_Handle_HappyPath(t *testing.T) {
 		orgID    = "org-1"
 	)
 	d := newMediaConsumerDeps(t)
-
-	origKey := entity.OriginalObjectKey(orgID, mediaID)
-	d.storer.objects["originals/"+origKey] = []byte("raw-image-bytes")
+	d.storer.putOriginal("originals", orgID, mediaID, []byte("raw-image-bytes"))
 
 	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
@@ -143,11 +148,11 @@ func TestMediaConsumer_Handle_HappyPath(t *testing.T) {
 
 	require.NoError(t, d.consumer.Handle(makeMsg(t, mediaID, seriesID)))
 
-	thumbKey := "served/" + entity.VariantObjectKey(orgID, mediaID, "thumb")
-	largeKey := "served/" + entity.VariantObjectKey(orgID, mediaID, "large")
+	thumbKey := "served/" + gcsstorage.VariantObjectKey(orgID, mediaID, "thumb")
+	largeKey := "served/" + gcsstorage.VariantObjectKey(orgID, mediaID, "large")
 	assert.Equal(t, []byte("thumb-webp"), d.storer.objects[thumbKey], "thumb must be written")
 	assert.Equal(t, []byte("large-webp"), d.storer.objects[largeKey], "large must be written")
-	assert.Contains(t, d.storer.deletedKeys, "originals/"+origKey, "original must be deleted")
+	assert.Contains(t, d.storer.deletedKeys, "originals/"+gcsstorage.OriginalObjectKey(orgID, mediaID), "original must be deleted")
 }
 
 // TestMediaConsumer_Handle_ReplacesOldMedia verifies that when cut-over returns
@@ -163,9 +168,7 @@ func TestMediaConsumer_Handle_ReplacesOldMedia(t *testing.T) {
 		orgID      = "org-1"
 	)
 	d := newMediaConsumerDeps(t)
-
-	origKey := entity.OriginalObjectKey(orgID, mediaID)
-	d.storer.objects["originals/"+origKey] = []byte("raw")
+	d.storer.putOriginal("originals", orgID, mediaID, []byte("raw"))
 
 	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
@@ -173,7 +176,7 @@ func TestMediaConsumer_Handle_ReplacesOldMedia(t *testing.T) {
 
 	require.NoError(t, d.consumer.Handle(makeMsg(t, mediaID, seriesID)))
 
-	wantPrefix := "served/" + entity.VariantObjectPrefix(orgID, oldMediaID)
+	wantPrefix := "served/" + gcsstorage.VariantObjectPrefix(orgID, oldMediaID)
 	assert.Contains(t, d.storer.deletedPfxs, wantPrefix, "old variant prefix must be deleted")
 }
 
@@ -191,15 +194,14 @@ func TestMediaConsumer_Handle_UnsupportedImage(t *testing.T) {
 	d := newMediaConsumerDeps(t)
 	d.processor.err = event.ErrUnsupportedMedia
 
-	origKey := entity.OriginalObjectKey(orgID, mediaID)
-	d.storer.objects["originals/"+origKey] = []byte("corrupt")
+	d.storer.putOriginal("originals", orgID, mediaID, []byte("corrupt"))
 
 	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
 
 	err := d.consumer.Handle(makeMsg(t, mediaID, seriesID))
 	assert.NoError(t, err, "permanent failure must be acked (not retried)")
-	assert.Contains(t, d.storer.deletedKeys, "originals/"+origKey, "original must be cleaned up")
+	assert.Contains(t, d.storer.deletedKeys, "originals/"+gcsstorage.OriginalObjectKey(orgID, mediaID), "original must be cleaned up")
 }
 
 // TestMediaConsumer_Handle_TransientError verifies that a transient processor
@@ -216,8 +218,7 @@ func TestMediaConsumer_Handle_TransientError(t *testing.T) {
 	d := newMediaConsumerDeps(t)
 	d.processor.err = errors.New("vips OOM")
 
-	origKey := entity.OriginalObjectKey(orgID, mediaID)
-	d.storer.objects["originals/"+origKey] = []byte("raw")
+	d.storer.putOriginal("originals", orgID, mediaID, []byte("raw"))
 
 	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
@@ -239,9 +240,7 @@ func TestMediaConsumer_Handle_Idempotent(t *testing.T) {
 		orgID    = "org-1"
 	)
 	d := newMediaConsumerDeps(t)
-
-	origKey := entity.OriginalObjectKey(orgID, mediaID)
-	d.storer.objects["originals/"+origKey] = []byte("raw")
+	d.storer.putOriginal("originals", orgID, mediaID, []byte("raw"))
 
 	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil).Times(2)
@@ -250,7 +249,7 @@ func TestMediaConsumer_Handle_Idempotent(t *testing.T) {
 
 	require.NoError(t, d.consumer.Handle(makeMsg(t, mediaID, seriesID)))
 	// Restore original for second delivery.
-	d.storer.objects["originals/"+origKey] = []byte("raw")
+	d.storer.putOriginal("originals", orgID, mediaID, []byte("raw"))
 	require.NoError(t, d.consumer.Handle(makeMsg(t, mediaID, seriesID)))
 }
 
@@ -266,29 +265,4 @@ func TestMediaConsumer_Handle_MissingMediaRow(t *testing.T) {
 
 	err := d.consumer.Handle(makeMsg(t, "media-gone", "series-1"))
 	assert.NoError(t, err, "missing media row must be acked/skipped")
-}
-
-// TestMediaConsumer_VariantURLComposition verifies that variant object keys and
-// prefix follow the required scheme independently of any consumer logic.
-func TestMediaConsumer_VariantURLComposition(t *testing.T) {
-	t.Parallel()
-	const orgID = "org-test"
-	const mediaID = "media-abc"
-
-	assert.Equal(t, "cdn/org-test/media-abc/thumb.webp", entity.VariantObjectKey(orgID, mediaID, "thumb"))
-	assert.Equal(t, "cdn/org-test/media-abc/large.webp", entity.VariantObjectKey(orgID, mediaID, "large"))
-	assert.Equal(t, "cdn/org-test/media-abc/", entity.VariantObjectPrefix(orgID, mediaID))
-}
-
-// TestMediaConsumer_MapperVariantURLs verifies that VariantURL composes correct
-// CDN URLs when the env var is set.
-func TestMediaConsumer_MapperVariantURLs(t *testing.T) {
-	t.Setenv("ORGANIZER_MEDIA_CDN_BASE", "https://cdn.example.com")
-	const orgID = "org-test"
-	const mediaID = "media-abc"
-
-	assert.Equal(t, "https://cdn.example.com/cdn/org-test/media-abc/thumb.webp",
-		entity.VariantURL(orgID, mediaID, "thumb"))
-	assert.Equal(t, "https://cdn.example.com/cdn/org-test/media-abc/large.webp",
-		entity.VariantURL(orgID, mediaID, "large"))
 }

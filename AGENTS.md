@@ -40,6 +40,8 @@ This repo is one of four under `liverty-music/`: `specification` (proto schema +
 | **Infrastructure** | `internal/infrastructure/` | Frameworks & Drivers. DB (`database/rdb`), Server (`server/`).                  |
 | **DI**             | `internal/di/`             | Dependency Injection wiring using manual factory functions.                      |
 
+**Tags in entity ("unless necessary")**: event payloads published through `EventPublisher.PublishEvent` (`internal/entity/event_data.go` and the types they embed, e.g. `DiscoveredSeries`) and the Web Push `NotificationPayload` are wire contracts, so they carry `json` tags in `internal/entity`. The tags pin the field names on the wire so renaming a Go field cannot silently break in-flight messages or the service worker. Do not add tags to other entity types, and do not strip these tags without a wire-compatibility plan.
+
 ## Key Technical Decisions
 
 ### 1. RPC & Communication

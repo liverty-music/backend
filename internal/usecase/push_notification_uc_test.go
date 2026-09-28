@@ -55,10 +55,11 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 	ctx := context.Background()
 
 	type args struct {
-		userID   string
-		endpoint string
-		p256dh   string
-		auth     string
+		userID     string
+		endpoint   string
+		p256dh     string
+		auth       string
+		deviceType string
 	}
 
 	tests := []struct {
@@ -71,10 +72,11 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 		{
 			name: "persist subscription successfully and publish analytics event",
 			args: args{
-				userID:   "user-1",
-				endpoint: "https://fcm.googleapis.com/sub/abc",
-				p256dh:   "key123",
-				auth:     "auth456",
+				userID:     "user-1",
+				endpoint:   "https://fcm.googleapis.com/sub/abc",
+				p256dh:     "key123",
+				auth:       "auth456",
+				deviceType: "android",
 			},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
@@ -104,10 +106,11 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 			// liverty-music/backend#474.
 			name: "return the id the repository stored the subscription under",
 			args: args{
-				userID:   "user-1",
-				endpoint: "https://fcm.googleapis.com/sub/abc",
-				p256dh:   "key123",
-				auth:     "auth456",
+				userID:     "user-1",
+				endpoint:   "https://fcm.googleapis.com/sub/abc",
+				p256dh:     "key123",
+				auth:       "auth456",
+				deviceType: "android",
 			},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
@@ -139,10 +142,11 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 		{
 			name: "return error when repository fails",
 			args: args{
-				userID:   "user-1",
-				endpoint: "https://push.example.com/sub/abc",
-				p256dh:   "key123",
-				auth:     "auth456",
+				userID:     "user-1",
+				endpoint:   "https://push.example.com/sub/abc",
+				p256dh:     "key123",
+				auth:       "auth456",
+				deviceType: "other",
 			},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
@@ -168,7 +172,7 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			sub, err := d.uc.Create(ctx, tt.args.userID, tt.args.endpoint, tt.args.p256dh, tt.args.auth)
+			sub, err := d.uc.Create(ctx, tt.args.userID, tt.args.endpoint, tt.args.p256dh, tt.args.auth, tt.args.deviceType)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -266,8 +270,9 @@ func TestPushNotificationUseCase_Delete(t *testing.T) {
 	ctx := context.Background()
 
 	type args struct {
-		userID   string
-		endpoint string
+		userID     string
+		endpoint   string
+		deviceType string
 	}
 
 	tests := []struct {
@@ -278,7 +283,7 @@ func TestPushNotificationUseCase_Delete(t *testing.T) {
 	}{
 		{
 			name: "delete subscription successfully and publish analytics event",
-			args: args{userID: "user-1", endpoint: "https://fcm.googleapis.com/sub/abc"},
+			args: args{userID: "user-1", endpoint: "https://fcm.googleapis.com/sub/abc", deviceType: "android"},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
 				d.pushSubRepo.EXPECT().
@@ -296,7 +301,7 @@ func TestPushNotificationUseCase_Delete(t *testing.T) {
 		},
 		{
 			name: "publish error is non-fatal when repository delete succeeds",
-			args: args{userID: "user-1", endpoint: "https://web.push.apple.com/sub/abc"},
+			args: args{userID: "user-1", endpoint: "https://web.push.apple.com/sub/abc", deviceType: "apple"},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
 				d.pushSubRepo.EXPECT().
@@ -315,7 +320,7 @@ func TestPushNotificationUseCase_Delete(t *testing.T) {
 		},
 		{
 			name: "return error when repository fails",
-			args: args{userID: "user-1", endpoint: "https://push.example.com/sub"},
+			args: args{userID: "user-1", endpoint: "https://push.example.com/sub", deviceType: "other"},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
 				t.Helper()
 				d.pushSubRepo.EXPECT().
@@ -336,7 +341,7 @@ func TestPushNotificationUseCase_Delete(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			err := d.uc.Delete(ctx, tt.args.userID, tt.args.endpoint)
+			err := d.uc.Delete(ctx, tt.args.userID, tt.args.endpoint, tt.args.deviceType)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)

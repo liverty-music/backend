@@ -25,10 +25,11 @@ var _ organizerv1connect.ConcertServiceHandler = (*OrganizerConcertHandler)(nil)
 // caller's organizer, enforces ownership, and delegates to the authoring or
 // media use case. No business logic lives here.
 type OrganizerConcertHandler struct {
-	authoringUC usecase.ConcertAuthoringUseCase
-	organizerUC usecase.OrganizerUseCase
-	mediaUC     usecase.MediaUseCase
-	logger      *logging.Logger
+	authoringUC     usecase.ConcertAuthoringUseCase
+	organizerUC     usecase.OrganizerUseCase
+	mediaUC         usecase.MediaUseCase
+	mediaURLBuilder *mapper.MediaURLBuilder
+	logger          *logging.Logger
 }
 
 // NewOrganizerConcertHandler creates a new OrganizerConcertHandler.
@@ -36,13 +37,15 @@ func NewOrganizerConcertHandler(
 	authoringUC usecase.ConcertAuthoringUseCase,
 	organizerUC usecase.OrganizerUseCase,
 	mediaUC usecase.MediaUseCase,
+	mediaURLBuilder *mapper.MediaURLBuilder,
 	logger *logging.Logger,
 ) *OrganizerConcertHandler {
 	return &OrganizerConcertHandler{
-		authoringUC: authoringUC,
-		organizerUC: organizerUC,
-		mediaUC:     mediaUC,
-		logger:      logger,
+		authoringUC:     authoringUC,
+		organizerUC:     organizerUC,
+		mediaUC:         mediaUC,
+		mediaURLBuilder: mediaURLBuilder,
+		logger:          logger,
 	}
 }
 
@@ -137,7 +140,7 @@ func (h *OrganizerConcertHandler) Create(
 	}
 
 	return connect.NewResponse(&organizerv1.CreateResponse{
-		Concert: mapper.AuthoredConcertToProto(series, events, artists),
+		Concert: h.mediaURLBuilder.AuthoredConcertToProto(series, events, artists),
 	}), nil
 }
 
@@ -159,7 +162,7 @@ func (h *OrganizerConcertHandler) Update(
 	}
 
 	return connect.NewResponse(&organizerv1.UpdateResponse{
-		Concert: mapper.AuthoredConcertToProto(series, events, artists),
+		Concert: h.mediaURLBuilder.AuthoredConcertToProto(series, events, artists),
 	}), nil
 }
 
@@ -180,7 +183,7 @@ func (h *OrganizerConcertHandler) Publish(
 	}
 
 	return connect.NewResponse(&organizerv1.PublishResponse{
-		Concert: mapper.AuthoredConcertToProto(series, events, artists),
+		Concert: h.mediaURLBuilder.AuthoredConcertToProto(series, events, artists),
 	}), nil
 }
 
@@ -295,7 +298,7 @@ func (h *OrganizerConcertHandler) List(
 		if allArtists[i] != nil {
 			arts = *allArtists[i]
 		}
-		concerts = append(concerts, mapper.AuthoredConcertToProto(s, evs, arts))
+		concerts = append(concerts, h.mediaURLBuilder.AuthoredConcertToProto(s, evs, arts))
 	}
 
 	return connect.NewResponse(&organizerv1.ListResponse{Concerts: concerts}), nil

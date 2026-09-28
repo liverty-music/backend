@@ -1,23 +1,52 @@
 package mapper
 
 import (
+	"strings"
+
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
 	"github.com/liverty-music/backend/internal/entity"
+	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// MediaURLBuilder composes public CDN URLs for organizer series media
+// variants (thumb/large). The CDN base is sourced from the
+// ORGANIZER_MEDIA_CDN_BASE environment variable via config
+// (config.ServerConfig.OrganizerMediaCDNBase) and injected here at DI wiring
+// time (see internal/di/provider.go), so this adapter — not the entity
+// package — owns the environment read.
+type MediaURLBuilder struct {
+	cdnBase string
+}
+
+// NewMediaURLBuilder creates a MediaURLBuilder for the given CDN base URL.
+// Trailing slashes are trimmed so composed URLs never contain a double slash.
+func NewMediaURLBuilder(cdnBase string) *MediaURLBuilder {
+	return &MediaURLBuilder{cdnBase: strings.TrimRight(cdnBase, "/")}
+}
+
+// VariantURL composes the public CDN URL for one variant of a series media
+// image: {cdnBase}/{VariantObjectKey}. Returns "" when no CDN base is
+// configured, so callers never emit a malformed relative URL.
+//
+// variant must be one of "thumb" or "large".
+func (b *MediaURLBuilder) VariantURL(organizerID, mediaID, variant string) string {
+	if b == nil || b.cdnBase == "" {
+		return ""
+	}
+	return b.cdnBase + "/" + gcsstorage.VariantObjectKey(organizerID, mediaID, variant)
+}
+
 // seriesMediaProto builds the entityv1.Media message for a series' cover media.
-// Thumb and large variant URLs are composed server-side as
-// {ORGANIZER_MEDIA_CDN_BASE}/cdn/{org}/{mediaId}/{variant}.webp.
-// Returns nil when the series has no cover media or when the CDN base env var
-// is unset, so callers never emit a proto with empty URL fields.
-func seriesMediaProto(s *entity.Series) *entityv1.Media {
+// Returns nil when the series has no cover media or when the CDN base is
+// unset, so callers never emit a proto with empty URL fields.
+func (b *MediaURLBuilder) seriesMediaProto(s *entity.Series) *entityv1.Media {
 	if s.CoverMedia == nil {
 		return nil
 	}
-	thumbURL := entity.VariantURL(s.CoverMedia.OrganizerID, s.CoverMedia.ID, "thumb")
-	largeURL := entity.VariantURL(s.CoverMedia.OrganizerID, s.CoverMedia.ID, "large")
+	thumbURL := b.VariantURL(s.CoverMedia.OrganizerID, s.CoverMedia.ID, "thumb")
+	largeURL := b.VariantURL(s.CoverMedia.OrganizerID, s.CoverMedia.ID, "large")
 	if thumbURL == "" || largeURL == "" {
 		// CDN base not configured — omit rather than emit broken URLs.
 		return nil
@@ -34,9 +63,9 @@ func seriesMediaProto(s *entity.Series) *entityv1.Media {
 
 // AuthoredConcertToProto converts the three-part authored concert tuple
 // (series, events, artists) into the wire-format AuthoredConcert message.
-func AuthoredConcertToProto(s *entity.Series, events []*entity.Event, artists []*entity.Artist) *organizerv1.AuthoredConcert {
+func (b *MediaURLBuilder) AuthoredConcertToProto(s *entity.Series, events []*entity.Event, artists []*entity.Artist) *organizerv1.AuthoredConcert {
 	return &organizerv1.AuthoredConcert{
-		Series:     AuthoredSeriesToProto(s),
+		Series:     b.AuthoredSeriesToProto(s),
 		Events:     AuthoredEventsToProto(events),
 		Performers: ArtistsToProto(artists),
 	}
@@ -44,7 +73,7 @@ func AuthoredConcertToProto(s *entity.Series, events []*entity.Event, artists []
 
 // AuthoredSeriesToProto maps a domain Series (including authoring fields) to
 // the entityv1.Series proto message.
-func AuthoredSeriesToProto(s *entity.Series) *entityv1.Series {
+func (b *MediaURLBuilder) AuthoredSeriesToProto(s *entity.Series) *entityv1.Series {
 	if s == nil {
 		return nil
 	}
@@ -59,7 +88,7 @@ func AuthoredSeriesToProto(s *entity.Series) *entityv1.Series {
 	if s.Description != nil {
 		proto.Description = &entityv1.Description{Value: *s.Description}
 	}
-	if m := seriesMediaProto(s); m != nil {
+	if m := b.seriesMediaProto(s); m != nil {
 		proto.Media = m
 	}
 	if s.Visibility != nil {
