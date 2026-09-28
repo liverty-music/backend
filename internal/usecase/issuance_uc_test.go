@@ -112,14 +112,14 @@ func (s *stubJourneyRepo) ListUserIDsTrackingSeries(ctx context.Context, seriesI
 }
 
 type stubCapturePort struct {
-	getCapturedPaymentFn func(ctx context.Context, paymentIntentRef string) (*usecase.CapturedPayment, error)
+	getCapturedPaymentFn func(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error)
 }
 
-func (s *stubCapturePort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*usecase.CapturedPayment, error) {
+func (s *stubCapturePort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error) {
 	if s.getCapturedPaymentFn != nil {
 		return s.getCapturedPaymentFn(ctx, paymentIntentRef)
 	}
-	return &usecase.CapturedPayment{
+	return &entity.CapturedPayment{
 		Provider:  entity.PaymentProviderStripe,
 		AmountJPY: 10000,
 		Currency:  "JPY",
@@ -387,7 +387,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		phaseRepo := &stubPhaseRepo{getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
 			return basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour)), nil
 		}}
-		capturePort := &stubCapturePort{getCapturedPaymentFn: func(_ context.Context, _ string) (*usecase.CapturedPayment, error) {
+		capturePort := &stubCapturePort{getCapturedPaymentFn: func(_ context.Context, _ string) (*entity.CapturedPayment, error) {
 			return nil, apperr.New(apperr.ErrFailedPrecondition.Code, "payment intent is not captured")
 		}}
 
@@ -597,7 +597,7 @@ func TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 		getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 			return entity.PayoutOnboardingStatusPending, nil
 		},
-		createTransferFn: func(_ context.Context, _ usecase.TransferParams) (string, error) {
+		createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
 			transferCalled = true
 			return "tr_should_not_happen", nil
 		},

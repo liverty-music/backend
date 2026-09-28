@@ -126,7 +126,7 @@ type refundOrderUseCase struct {
 	refundRepo         entity.RefundRepository
 	settlementRepo     entity.SettlementRepository
 	rescheduleTimeRepo EventRescheduleTimeRepository
-	settlementPort     PaymentSettlementPort
+	settlementPort     entity.PaymentSettlementPort
 	logger             *logging.Logger
 }
 
@@ -140,7 +140,7 @@ func NewRefundOrderUseCase(
 	refundRepo entity.RefundRepository,
 	settlementRepo entity.SettlementRepository,
 	rescheduleTimeRepo EventRescheduleTimeRepository,
-	settlementPort PaymentSettlementPort,
+	settlementPort entity.PaymentSettlementPort,
 	logger *logging.Logger,
 ) RefundOrderUseCase {
 	return &refundOrderUseCase{
@@ -259,7 +259,7 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 			return nil, err
 		}
 
-		refundRef, err = uc.settlementPort.CreateRefund(ctx, RefundParams{
+		refundRef, err = uc.settlementPort.CreateRefund(ctx, entity.RefundParams{
 			OrderID:   orderID,
 			ChargeRef: chargeRef,
 			Amount:    order.Amount,
@@ -354,7 +354,7 @@ func (uc *refundOrderUseCase) reverseSplits(ctx context.Context, settlement *ent
 			// Already reversed; idempotent skip.
 			continue
 		}
-		reversalRef, err := uc.settlementPort.ReverseTransfer(ctx, ReverseTransferParams{
+		reversalRef, err := uc.settlementPort.ReverseTransfer(ctx, entity.ReverseTransferParams{
 			SettlementID: settlement.ID,
 			TransferRef:  split.TransferRef,
 			Amount:       split.Amount,

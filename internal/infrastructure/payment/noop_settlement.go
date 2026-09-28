@@ -5,14 +5,13 @@ import (
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
 // Compile-time interface compliance check.
-var _ usecase.PaymentSettlementPort = (*NoopSettlementPort)(nil)
+var _ entity.PaymentSettlementPort = (*NoopSettlementPort)(nil)
 
 // NoopSettlementPort is used when no Stripe secret key is configured (local
 // development). Every method returns Unavailable so callers receive a clear
@@ -35,7 +34,7 @@ func (p *NoopSettlementPort) ResolveChargeRef(ctx context.Context, paymentIntent
 }
 
 // CreateTransfer returns Unavailable because no Stripe key is configured.
-func (p *NoopSettlementPort) CreateTransfer(ctx context.Context, params usecase.TransferParams) (string, error) {
+func (p *NoopSettlementPort) CreateTransfer(ctx context.Context, params entity.TransferParams) (string, error) {
 	p.logger.Warn(ctx, "settlement transfer skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("settlement_id", string(params.SettlementID)))
 	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
@@ -63,7 +62,7 @@ func (p *NoopSettlementPort) CreateOnboardingLink(ctx context.Context, accountRe
 }
 
 // CreateRefund returns Unavailable because no Stripe key is configured.
-func (p *NoopSettlementPort) CreateRefund(ctx context.Context, params usecase.RefundParams) (string, error) {
+func (p *NoopSettlementPort) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	p.logger.Warn(ctx, "refund skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("order_id", string(params.OrderID)),
 		slog.String("charge_ref", params.ChargeRef))
@@ -71,7 +70,7 @@ func (p *NoopSettlementPort) CreateRefund(ctx context.Context, params usecase.Re
 }
 
 // ReverseTransfer returns Unavailable because no Stripe key is configured.
-func (p *NoopSettlementPort) ReverseTransfer(ctx context.Context, params usecase.ReverseTransferParams) (string, error) {
+func (p *NoopSettlementPort) ReverseTransfer(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
 	p.logger.Warn(ctx, "transfer reversal skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("settlement_id", string(params.SettlementID)),
 		slog.String("transfer_ref", params.TransferRef))

@@ -12,42 +12,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// CapturedPayment is the read-back of ④'s captured winning payment from the
-// provider: the authoritative amount/currency actually captured plus the
-// display-only card facets. It NEVER carries raw card data (no PAN/CVC/expiry).
-// Returned by [PaymentCapturePort.GetCapturedPayment].
-type CapturedPayment struct {
-	// Provider backs the captured payment (Stripe for the MVP).
-	Provider entity.PaymentProvider
-	// AmountJPY is the captured amount in whole yen.
-	AmountJPY int64
-	// Currency is the ISO 4217 code of the captured amount (JPY for the MVP).
-	Currency string
-	// CardBrand is a display-only brand facet (e.g. "visa"). May be empty.
-	CardBrand string
-	// CardLast4 is the display-only last four digits. May be empty.
-	CardLast4 string
-}
-
-// PaymentCapturePort reads a captured payment's authoritative details from the
-// provider. It is the ⑤-side read counterpart to ④'s
-// [PaymentAuthorizationPort] (which owns authorize/capture/cancel). Defined here
-// (consumer package) per Clean Architecture; the Stripe implementation lives in
-// internal/infrastructure/payment/.
-type PaymentCapturePort interface {
-	// GetCapturedPayment retrieves the captured PaymentIntent referenced by
-	// paymentIntentRef and returns its amount, currency, and display facets. ⑤
-	// does NOT capture or charge — ④ already captured; this only reads.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the payment intent is not in a captured/succeeded
-	//    state (④'s capture has not settled).
-	//  - NotFound: the payment intent does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*CapturedPayment, error)
-}
-
 // EventOrganizerRepository resolves the Organizer that owns an event, via its
 // Series, so the issuance path can stamp the denormalized OrganizerID on the
 // Held Settlement it creates alongside the Order (backend#468). A minimal
@@ -113,7 +77,7 @@ type issuanceUseCase struct {
 	eventOrganizerRepo   EventOrganizerRepository
 	verifiedIdentityRepo entity.VerifiedIdentityRepository
 	journeyRepo          entity.TicketJourneyRepository
-	capturePort          PaymentCapturePort
+	capturePort          entity.PaymentCapturePort
 	clock                Clock
 	logger               *logging.Logger
 }
@@ -131,7 +95,7 @@ func NewIssuanceUseCase(
 	eventOrganizerRepo EventOrganizerRepository,
 	verifiedIdentityRepo entity.VerifiedIdentityRepository,
 	journeyRepo entity.TicketJourneyRepository,
-	capturePort PaymentCapturePort,
+	capturePort entity.PaymentCapturePort,
 	clock Clock,
 	logger *logging.Logger,
 ) IssuanceUseCase {

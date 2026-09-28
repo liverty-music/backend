@@ -182,7 +182,7 @@ func (s *stubVerifiedIdentityRepo) Delete(ctx context.Context, id string) error 
 	return nil
 }
 
-// stubPaymentPort stubs [usecase.PaymentAuthorizationPort] with function fields
+// stubPaymentPort stubs [entity.PaymentAuthorizationPort] with function fields
 // so each test case can inject targeted behavior without running mockery.
 type stubPaymentPort struct {
 	createAuthFn  func(ctx context.Context, amountJPY int64) (string, string, error)
@@ -245,7 +245,7 @@ func newLotteryUC(
 	phaseRepo entity.LotteryPhaseRepository,
 	appRepo entity.TicketApplicationRepository,
 	eventState usecase.EventPublishStatePort,
-	paymentPort usecase.PaymentAuthorizationPort,
+	paymentPort entity.PaymentAuthorizationPort,
 	clockTime time.Time,
 	viRepo ...entity.VerifiedIdentityRepository,
 ) usecase.LotteryUseCase {

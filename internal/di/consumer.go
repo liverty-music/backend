@@ -163,7 +163,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	artistImageSyncUC := usecase.NewArtistImageSyncUseCase(artistRepo, fanarttvClient, logoFetcher, logger)
 
 	// Infrastructure - Zitadel API client (optional, nil in local dev).
-	var emailVerifier usecase.EmailVerifier
+	var emailVerifier entity.EmailVerifier
 	if cfg.ZitadelMachineKeyForBackendAppPath != "" {
 		ev, err := infrazitadel.NewEmailVerifier(ctx, cfg.ZitadelDomain, cfg.ZitadelMachineKeyForBackendAppPath, logger)
 		if err != nil {

@@ -30,7 +30,7 @@ var _ userv1connect.UserServiceHandler = (*UserHandler)(nil)
 // UserHandler implements the UserService Connect interface.
 type UserHandler struct {
 	userUseCase   usecase.UserUseCase
-	emailVerifier usecase.EmailVerifier
+	emailVerifier entity.EmailVerifier
 	logger        *logging.Logger
 
 	// resendMu protects resendLog for concurrent access.
@@ -40,7 +40,7 @@ type UserHandler struct {
 
 // NewUserHandler creates a new user handler.
 // emailVerifier may be nil when the Zitadel API client is not configured (local dev).
-func NewUserHandler(userUseCase usecase.UserUseCase, emailVerifier usecase.EmailVerifier, logger *logging.Logger) *UserHandler {
+func NewUserHandler(userUseCase usecase.UserUseCase, emailVerifier entity.EmailVerifier, logger *logging.Logger) *UserHandler {
 	return &UserHandler{
 		userUseCase:   userUseCase,
 		emailVerifier: emailVerifier,

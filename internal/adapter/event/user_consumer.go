@@ -7,14 +7,13 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
 
 // UserConsumer handles user.created events by triggering email verification
 // via the Zitadel API.
 type UserConsumer struct {
-	emailVerifier usecase.EmailVerifier
+	emailVerifier entity.EmailVerifier
 	logger        *logging.Logger
 }
 
@@ -22,7 +21,7 @@ type UserConsumer struct {
 // If emailVerifier is nil, the consumer logs a warning and acknowledges
 // messages without processing (local dev without Zitadel key).
 func NewUserConsumer(
-	emailVerifier usecase.EmailVerifier,
+	emailVerifier entity.EmailVerifier,
 	logger *logging.Logger,
 ) *UserConsumer {
 	return &UserConsumer{

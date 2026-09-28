@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/api"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
@@ -35,11 +34,11 @@ const stripeHTTPTimeout = 30 * time.Second
 
 // Compile-time interface compliance checks.
 var (
-	_ usecase.PaymentAuthorizationPort = (*StripeAuthorizationPort)(nil)
-	_ usecase.PaymentCapturePort       = (*StripeAuthorizationPort)(nil)
+	_ entity.PaymentAuthorizationPort = (*StripeAuthorizationPort)(nil)
+	_ entity.PaymentCapturePort       = (*StripeAuthorizationPort)(nil)
 )
 
-// StripeAuthorizationPort implements [usecase.PaymentAuthorizationPort] via the
+// StripeAuthorizationPort implements [entity.PaymentAuthorizationPort] via the
 // Stripe PaymentIntents API using the manual-capture authorization-hold model.
 type StripeAuthorizationPort struct {
 	client *stripe.Client
@@ -63,7 +62,7 @@ func NewStripeAuthorizationPort(secretKey string, logger *logging.Logger) *Strip
 	}
 }
 
-// CreateAuthorization implements [usecase.PaymentAuthorizationPort].
+// CreateAuthorization implements [entity.PaymentAuthorizationPort].
 //
 // It creates a Stripe PaymentIntent with capture_method=manual and returns the
 // intent ID and client secret. The frontend passes the client secret to
@@ -96,7 +95,7 @@ func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amoun
 	return pi.ID, pi.ClientSecret, nil
 }
 
-// VerifyAuthorization implements [usecase.PaymentAuthorizationPort].
+// VerifyAuthorization implements [entity.PaymentAuthorizationPort].
 //
 // It retrieves the PaymentIntent (with latest_charge expanded) and asserts:
 //   - status == requires_capture (3DS completed, hold placed)
@@ -144,7 +143,7 @@ func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, payme
 	return nil
 }
 
-// CancelAuthorization implements [usecase.PaymentAuthorizationPort].
+// CancelAuthorization implements [entity.PaymentAuthorizationPort].
 //
 // It cancels the PaymentIntent, releasing the authorization hold on the fan's
 // card. Used when the fan withdraws or the draw determines a loss.
@@ -167,7 +166,7 @@ func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, payme
 	return nil
 }
 
-// CaptureAuthorization implements [usecase.PaymentAuthorizationPort].
+// CaptureAuthorization implements [entity.PaymentAuthorizationPort].
 //
 // It captures the held authorization, charging the fan's card. Used by the
 // draw job when an application wins.
@@ -191,14 +190,14 @@ func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paym
 	return nil
 }
 
-// GetCapturedPayment implements [usecase.PaymentCapturePort].
+// GetCapturedPayment implements [entity.PaymentCapturePort].
 //
 // It retrieves the PaymentIntent (with latest_charge expanded) and returns the
 // authoritative captured amount, currency, and display-only card facets. ⑤ does
 // not capture — ④ already captured at the draw — so this only reads. A
 // PaymentIntent that has not succeeded (not yet captured) is reported as
 // FailedPrecondition.
-func (p *StripeAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*usecase.CapturedPayment, error) {
+func (p *StripeAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error) {
 	params := &stripe.PaymentIntentRetrieveParams{}
 	params.AddExpand("latest_charge")
 
@@ -215,7 +214,7 @@ func (p *StripeAuthorizationPort) GetCapturedPayment(ctx context.Context, paymen
 	}
 
 	brand, last4 := extractCardFacets(pi)
-	return &usecase.CapturedPayment{
+	return &entity.CapturedPayment{
 		Provider:  entity.PaymentProviderStripe,
 		AmountJPY: pi.AmountReceived,
 		Currency:  strings.ToUpper(string(pi.Currency)),

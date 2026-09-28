@@ -3,9 +3,9 @@ package usecase
 import "context"
 
 // OrganizerProvisioner provisions and tears down an Organizer's isolated Zitadel
-// tenant. It wraps the Zitadel Management API (an external service), so — like
-// EmailVerifier — the interface lives in the usecase layer where it is consumed,
-// not in entity.
+// tenant. It wraps the Zitadel Management API (an external service); unlike
+// [entity.EmailVerifier], the interface lives in the usecase layer where it is
+// consumed, not in entity.
 type OrganizerProvisioner interface {
 	// ProvisionTenant is idempotent and compensating: keyed on organizerID, it
 	// creates the tenant org (if absent) with a passkey-primary login policy,

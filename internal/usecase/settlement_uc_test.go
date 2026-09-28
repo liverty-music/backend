@@ -88,12 +88,12 @@ func (s *stubEventStartTimeRepo) GetEventStartTime(ctx context.Context, eventID 
 
 type stubPaymentSettlementPort struct {
 	resolveChargeRefFn       func(ctx context.Context, piRef string) (string, error)
-	createTransferFn         func(ctx context.Context, params usecase.TransferParams) (string, error)
+	createTransferFn         func(ctx context.Context, params entity.TransferParams) (string, error)
 	createConnectedAccountFn func(ctx context.Context, organizerID string) (string, error)
 	getAccountStatusFn       func(ctx context.Context, accountRef string) (entity.PayoutOnboardingStatus, error)
 	createOnboardingLinkFn   func(ctx context.Context, accountRef, returnURL string) (string, error)
-	createRefundFn           func(ctx context.Context, params usecase.RefundParams) (string, error)
-	reverseTransferFn        func(ctx context.Context, params usecase.ReverseTransferParams) (string, error)
+	createRefundFn           func(ctx context.Context, params entity.RefundParams) (string, error)
+	reverseTransferFn        func(ctx context.Context, params entity.ReverseTransferParams) (string, error)
 }
 
 func (s *stubPaymentSettlementPort) ResolveChargeRef(ctx context.Context, piRef string) (string, error) {
@@ -102,7 +102,7 @@ func (s *stubPaymentSettlementPort) ResolveChargeRef(ctx context.Context, piRef 
 	}
 	return "ch_test", nil
 }
-func (s *stubPaymentSettlementPort) CreateTransfer(ctx context.Context, params usecase.TransferParams) (string, error) {
+func (s *stubPaymentSettlementPort) CreateTransfer(ctx context.Context, params entity.TransferParams) (string, error) {
 	if s.createTransferFn != nil {
 		return s.createTransferFn(ctx, params)
 	}
@@ -126,13 +126,13 @@ func (s *stubPaymentSettlementPort) CreateOnboardingLink(ctx context.Context, ac
 	}
 	return "https://connect.stripe.com/onboarding/test", nil
 }
-func (s *stubPaymentSettlementPort) CreateRefund(ctx context.Context, params usecase.RefundParams) (string, error) {
+func (s *stubPaymentSettlementPort) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	if s.createRefundFn != nil {
 		return s.createRefundFn(ctx, params)
 	}
 	return "re_test", nil
 }
-func (s *stubPaymentSettlementPort) ReverseTransfer(ctx context.Context, params usecase.ReverseTransferParams) (string, error) {
+func (s *stubPaymentSettlementPort) ReverseTransfer(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
 	if s.reverseTransferFn != nil {
 		return s.reverseTransferFn(ctx, params)
 	}
@@ -410,7 +410,7 @@ func TestPayoutSweeper_HappyPath(t *testing.T) {
 		},
 		&stubPaymentSettlementPort{
 			resolveChargeRefFn: func(_ context.Context, _ string) (string, error) { return chRef, nil },
-			createTransferFn: func(_ context.Context, p usecase.TransferParams) (string, error) {
+			createTransferFn: func(_ context.Context, p entity.TransferParams) (string, error) {
 				assert.Equal(t, chRef, p.SourceTransactionRef)
 				assert.Equal(t, acctRef, p.PayeeAccountRef)
 				assert.Equal(t, int64(9000), p.Amount)
@@ -483,7 +483,7 @@ func TestPayoutSweeper_OrganizerNotActive_PayoutWithheld(t *testing.T) {
 			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 				return entity.PayoutOnboardingStatusPending, nil
 			},
-			createTransferFn: func(_ context.Context, _ usecase.TransferParams) (string, error) {
+			createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
 				transferCalled = true
 				return "tr_should_not_happen", nil
 			},
@@ -547,7 +547,7 @@ func TestPayoutSweeper_GateNotPassed_NoTransfer(t *testing.T) {
 			getFn: func(_ context.Context, _ string) (*time.Time, error) { return futureStart, nil },
 		},
 		&stubPaymentSettlementPort{
-			createTransferFn: func(_ context.Context, _ usecase.TransferParams) (string, error) {
+			createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
 				transferCalled = true
 				return "tr_should_not_happen", nil
 			},
@@ -611,7 +611,7 @@ func TestPayoutSweeper_IdempotentRerun_NoDoubleTransfer(t *testing.T) {
 			getFn: func(_ context.Context, _ string) (*time.Time, error) { return pastStart, nil },
 		},
 		&stubPaymentSettlementPort{
-			createTransferFn: func(_ context.Context, _ usecase.TransferParams) (string, error) {
+			createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
 				transferCallCount++
 				return "tr_idem", nil
 			},

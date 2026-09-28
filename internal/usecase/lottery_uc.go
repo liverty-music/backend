@@ -46,82 +46,6 @@ type EventPublishStatePort interface {
 	GetEventOrganizerID(ctx context.Context, eventID string) (string, error)
 }
 
-// PaymentAuthorizationPort abstracts the payment provider (Stripe) for the
-// authorization-hold payment model used by the lottery. Implementations live
-// in internal/infrastructure/; the port is defined here (consumer package) per
-// Clean Architecture conventions.
-//
-// Authorization hold flow:
-//  1. [CreateAuthorization] — creates a manual-capture PaymentIntent
-//     (capture_method=manual, JPY) and returns the client secret needed by the
-//     frontend to complete 3DS. The hold is placed on the fan's card.
-//  2. [VerifyAuthorization] — called at Apply to confirm the intent is in a
-//     valid authorized state, for the expected JPY amount, on an accepted
-//     card brand (Visa/Mastercard/JCB/Diners/Discover; not American Express).
-//  3. [CancelAuthorization] — releases the hold (used on loss or withdrawal).
-//  4. [CaptureAuthorization] — captures the held amount (used by the draw job
-//     on win).
-//
-// TODO: replace with concrete Stripe implementation in internal/infrastructure/
-// after the Stripe adapter is added.
-type PaymentAuthorizationPort interface {
-	// CreateAuthorization creates a Stripe PaymentIntent with
-	// capture_method=manual in JPY for the given amount, placing a hold on the
-	// fan's card.
-	//
-	// Returns the PaymentIntent ID (paymentIntentRef) and the client secret
-	// (clientSecret) that the frontend passes to Stripe.js to complete 3DS
-	// confirmation. The intent must be confirmed by the frontend before
-	// [VerifyAuthorization] is called.
-	//
-	// # Possible errors
-	//
-	//  - Unavailable: the payment provider is unreachable.
-	//  - InvalidArgument: amountJPY is non-positive.
-	//  - Internal: unexpected provider error.
-	CreateAuthorization(ctx context.Context, amountJPY int64) (paymentIntentRef string, clientSecret string, err error)
-
-	// VerifyAuthorization confirms that the given PaymentIntent is a valid
-	// authorization hold for exactly expectedAmountJPY on an accepted JPY card
-	// (Visa/Mastercard/JCB/Diners/Discover). It rejects American Express cards
-	// and non-JPY currency.
-	//
-	// Called at [Apply] time after the frontend has confirmed the intent.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: the intent is not in requires_capture state, the
-	//    amount does not match, or the currency is not JPY.
-	//  - FailedPrecondition: the card brand is American Express or otherwise
-	//    unsupported (authorization cannot be held for the window duration).
-	//  - NotFound: the payment intent does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	VerifyAuthorization(ctx context.Context, paymentIntentRef string, expectedAmountJPY int64) error
-
-	// CancelAuthorization releases the authorization hold on the fan's card.
-	// Used when the fan withdraws before the draw, or when the draw determines
-	// the application is a loss.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: the payment intent does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	//  - FailedPrecondition: the intent cannot be cancelled (already captured
-	//    or fully cancelled).
-	CancelAuthorization(ctx context.Context, paymentIntentRef string) error
-
-	// CaptureAuthorization captures the held authorization, charging the fan's
-	// card. Used by the draw job when the application wins.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: the payment intent does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	//  - FailedPrecondition: the intent is not in a capturable state (e.g.
-	//    already captured, cancelled, or the card has been closed).
-	CaptureAuthorization(ctx context.Context, paymentIntentRef string) error
-}
-
 // ConfigureLotteryPhaseInput carries the organizer-supplied parameters for a
 // new lottery phase.
 //
@@ -220,7 +144,7 @@ type ApplyInput struct {
 
 	// PaymentIntentRef is the Stripe PaymentIntent ID returned by
 	// [CreateAuthorization] after the frontend has completed 3DS confirmation.
-	// [Apply] calls [PaymentAuthorizationPort.VerifyAuthorization] to confirm
+	// [Apply] calls [entity.PaymentAuthorizationPort.VerifyAuthorization] to confirm
 	// the intent is valid before persisting the application.
 	PaymentIntentRef string
 }
@@ -370,7 +294,7 @@ type lotteryUseCase struct {
 	phaseRepo            entity.LotteryPhaseRepository
 	appRepo              entity.TicketApplicationRepository
 	eventState           EventPublishStatePort
-	paymentPort          PaymentAuthorizationPort
+	paymentPort          entity.PaymentAuthorizationPort
 	verifiedIdentityRepo entity.VerifiedIdentityRepository
 	clock                Clock
 	logger               *logging.Logger
@@ -385,7 +309,7 @@ func NewLotteryUseCase(
 	phaseRepo entity.LotteryPhaseRepository,
 	appRepo entity.TicketApplicationRepository,
 	eventState EventPublishStatePort,
-	paymentPort PaymentAuthorizationPort,
+	paymentPort entity.PaymentAuthorizationPort,
 	verifiedIdentityRepo entity.VerifiedIdentityRepository,
 	clock Clock,
 	logger *logging.Logger,

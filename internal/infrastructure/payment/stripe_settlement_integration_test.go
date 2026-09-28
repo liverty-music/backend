@@ -9,7 +9,6 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/payment"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	stripe "github.com/stripe/stripe-go/v86"
@@ -158,7 +157,7 @@ func TestStripeSettlementPort_MoneyOut_Integration(t *testing.T) {
 	settlementID := entity.SettlementID("it-settlement-" + time.Now().UTC().Format("20060102T150405.000"))
 
 	// ── Transfer the Organizer's net share ─────────────────────────────────
-	transferRef, err := settlement.CreateTransfer(ctx, usecase.TransferParams{
+	transferRef, err := settlement.CreateTransfer(ctx, entity.TransferParams{
 		SettlementID:         settlementID,
 		PayeeAccountRef:      payeeAccountRef,
 		SourceTransactionRef: chargeRef,
@@ -180,7 +179,7 @@ func TestStripeSettlementPort_MoneyOut_Integration(t *testing.T) {
 
 	// A retried sweep must not double-transfer: the idempotency key is derived
 	// from the settlement id, so Stripe replays the original transfer.
-	replayRef, err := settlement.CreateTransfer(ctx, usecase.TransferParams{
+	replayRef, err := settlement.CreateTransfer(ctx, entity.TransferParams{
 		SettlementID:         settlementID,
 		PayeeAccountRef:      payeeAccountRef,
 		SourceTransactionRef: chargeRef,
@@ -193,7 +192,7 @@ func TestStripeSettlementPort_MoneyOut_Integration(t *testing.T) {
 	// ── Cancellation: refund the buyer and claw the transfer back ──────────
 	orderID := entity.OrderID("it-order-" + time.Now().UTC().Format("20060102T150405.000"))
 
-	refundRef, err := settlement.CreateRefund(ctx, usecase.RefundParams{
+	refundRef, err := settlement.CreateRefund(ctx, entity.RefundParams{
 		OrderID:   orderID,
 		ChargeRef: chargeRef,
 		Amount:    grossJPY,
@@ -201,7 +200,7 @@ func TestStripeSettlementPort_MoneyOut_Integration(t *testing.T) {
 	require.NoError(t, err, "refund the buyer from the platform balance")
 	require.True(t, strings.HasPrefix(refundRef, "re_"), "expected an re_ reference, got %q", refundRef)
 
-	reversalRef, err := settlement.ReverseTransfer(ctx, usecase.ReverseTransferParams{
+	reversalRef, err := settlement.ReverseTransfer(ctx, entity.ReverseTransferParams{
 		SettlementID: settlementID,
 		TransferRef:  transferRef,
 		Amount:       netJPY,
@@ -216,7 +215,7 @@ func TestStripeSettlementPort_MoneyOut_Integration(t *testing.T) {
 	assert.True(t, tr.Reversed, "transfer must be marked reversed")
 
 	// Replaying the clawback must not reverse twice.
-	replayReversal, err := settlement.ReverseTransfer(ctx, usecase.ReverseTransferParams{
+	replayReversal, err := settlement.ReverseTransfer(ctx, entity.ReverseTransferParams{
 		SettlementID: settlementID,
 		TransferRef:  transferRef,
 		Amount:       netJPY,
