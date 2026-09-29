@@ -704,6 +704,29 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 			wantErr: apperr.ErrInternal,
 		},
 		{
+			// @spec components/usecase/notification/notify-new-concerts "Every matched follower is requested"
+			name: "request a notification for each of three matched AWAY followers",
+			args: args{data: usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}}},
+			setup: func(t *testing.T, d *pushNotificationTestDeps) {
+				t.Helper()
+				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(concertsInArea(&tokyoArea), nil).Once()
+				followers := []*entity.Follower{
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-2"}, Hype: entity.HypeAway},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-3"}, Hype: entity.HypeAway},
+				}
+				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+				// One request per follower, each Once(): an extra, missing or
+				// mismatched request fails the mock.
+				expectNotificationRequested(t, d.publisher, "user-1", entity.NotificationTypeNewConcerts)
+				expectNotificationRequested(t, d.publisher, "user-2", entity.NotificationTypeNewConcerts)
+				expectNotificationRequested(t, d.publisher, "user-3", entity.NotificationTypeNewConcerts)
+			},
+			wantErr: nil,
+		},
+		{
+			// @spec components/usecase/notification/notify-new-concerts "Request fails for one follower"
 			name: "return error when publishing the notification request fails",
 			args: args{data: usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}}},
 			setup: func(t *testing.T, d *pushNotificationTestDeps) {
@@ -712,10 +735,16 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(concertsInArea(&tokyoArea), nil).Once()
 				followers := []*entity.Follower{
 					{ArtistID: "artist-1", User: &entity.User{ID: "user-1"}, Hype: entity.HypeAway},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-2"}, Hype: entity.HypeAway},
+					{ArtistID: "artist-1", User: &entity.User{ID: "user-3"}, Hype: entity.HypeAway},
 				}
 				d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+				expectNotificationRequested(t, d.publisher, "user-1", entity.NotificationTypeNewConcerts)
+				// The second publish fails; no request is expected for user-3,
+				// so a third publish would fail the mock.
 				d.publisher.EXPECT().
-					PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), mock.AnythingOfType("entity.NotificationRequestedData")).
+					PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"),
+						mock.MatchedBy(func(data entity.NotificationRequestedData) bool { return data.UserID == "user-2" })).
 					Return(apperr.ErrInternal).
 					Once()
 			},

@@ -734,6 +734,7 @@ func TestUserUseCase_ResolveCaller(t *testing.T) {
 
 	ctx := context.Background()
 
+	// @spec components/usecase/user/resolve-caller "Own account"
 	t.Run("success — reqUserID matches the caller's own id", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -747,6 +748,7 @@ func TestUserUseCase_ResolveCaller(t *testing.T) {
 		assert.Equal(t, expectedUser, result)
 	})
 
+	// @spec components/usecase/user/resolve-caller "Missing user id"
 	t.Run("InvalidArgument — reqUserID is empty", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -760,6 +762,7 @@ func TestUserUseCase_ResolveCaller(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
+	// @spec components/usecase/user/resolve-caller "Another user's account"
 	t.Run("PermissionDenied — reqUserID does not match the caller's own id", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -773,6 +776,7 @@ func TestUserUseCase_ResolveCaller(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 
+	// @spec components/usecase/user/resolve-caller "Caller has no account"
 	t.Run("NotFound — no user exists for externalID", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -797,6 +801,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 
 	ctx := context.Background()
 
+	// @spec components/usecase/user/resend-email-verification "Caller resends their own email"
 	t.Run("success — sends the verification email", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -810,6 +815,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	// @spec components/usecase/user/resend-email-verification "Verification unavailable"
 	t.Run("Unavailable — email verifier is not configured (nil)", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDepsNoVerifier(t)
@@ -833,6 +839,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
+	// @spec components/usecase/user/resend-email-verification "Another user's account"
 	t.Run("PermissionDenied — reqUserID does not match the caller's own id", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -846,6 +853,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 
+	// @spec components/usecase/user/resend-email-verification "Already verified"
 	t.Run("FailedPrecondition — email already verified propagates from the verifier", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -864,6 +872,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 	// memory, scoped to this process/instance — see the Go doc on
 	// UserUseCase.ResendEmailVerification. A 4th request within the window
 	// is rejected with ResourceExhausted before the verifier is called.
+	// @spec components/usecase/user/resend-email-verification "Too many requests"
 	t.Run("ResourceExhausted — 4th request within the 10-minute window is rate-limited", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -884,8 +893,34 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrResourceExhausted)
 	})
 
+	// Every request counts toward the limit once the caller is resolved, whether
+	// or not the send then succeeds: three FailedPrecondition failures use up
+	// the quota, and the fourth request is rejected without calling the verifier.
+	// @spec components/usecase/user/resend-email-verification "Failed attempts count"
+	t.Run("failed attempts count toward the limit", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+
+		const rateExtID = "ext-rate-failed"
+		const rateUserID = "user-rate-failed"
+		rateUser := &entity.User{ID: rateUserID, ExternalID: rateExtID}
+
+		d.repo.EXPECT().GetByExternalID(ctx, rateExtID).Return(rateUser, nil).Times(4)
+		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).
+			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Times(3)
+
+		for range 3 {
+			err := d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID)
+			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		}
+
+		err := d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID)
+		assert.ErrorIs(t, err, apperr.ErrResourceExhausted)
+	})
+
 	// The rate limit is per externalID: a different user is unaffected by
 	// another user's exhausted quota.
+	// @spec components/usecase/user/resend-email-verification "Limit is per user"
 	t.Run("rate limit is scoped per user", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)

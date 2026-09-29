@@ -447,6 +447,7 @@ func TestConcertUseCase_SearchNewConcertsOnFirstFollow(t *testing.T) {
 		wantErr error
 	}{
 		{
+			// @spec components/usecase/concert/search-new-concerts-on-first-follow "Artist never searched"
 			name: "first follow - never searched, triggers discovery",
 			args: args{artistID: "artist-1"},
 			setup: func(t *testing.T, d *concertTestDeps) {
@@ -470,6 +471,7 @@ func TestConcertUseCase_SearchNewConcertsOnFirstFollow(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			// @spec components/usecase/concert/search-new-concerts-on-first-follow "Artist searched before"
 			name: "already searched - no-op",
 			args: args{artistID: "artist-1"},
 			setup: func(t *testing.T, d *concertTestDeps) {
@@ -485,11 +487,31 @@ func TestConcertUseCase_SearchNewConcertsOnFirstFollow(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			// @spec components/usecase/concert/search-new-concerts-on-first-follow "Search history unreadable"
 			name: "search log lookup fails - returns error",
 			args: args{artistID: "artist-1"},
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				d.searchLogRepo.EXPECT().GetByArtistID(ctx, "artist-1").Return(nil, apperr.ErrInternal).Once()
+			},
+			wantErr: apperr.ErrInternal,
+		},
+		{
+			// @spec components/usecase/concert/search-new-concerts-on-first-follow "Search fails"
+			name: "search fails - returns error",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				artistID := "artist-1"
+
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Twice()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
+				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
+				d.searcher.EXPECT().Search(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, apperr.ErrInternal).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusFailed).Return(nil).Once()
 			},
 			wantErr: apperr.ErrInternal,
 		},

@@ -375,6 +375,7 @@ func TestOrganizerUseCase_ListOwnArtists(t *testing.T) {
 		wantErr           error
 	}{
 		{
+			// @spec components/usecase/organizer/list-own-artists "Own roster"
 			name:              "return own roster when reqOrganizerID matches the caller",
 			callerOrganizerID: "org-1",
 			reqOrganizerID:    "org-1",
@@ -393,6 +394,7 @@ func TestOrganizerUseCase_ListOwnArtists(t *testing.T) {
 			want: []*entity.Artist{{ID: "artist-1"}, {ID: "artist-2"}},
 		},
 		{
+			// @spec components/usecase/organizer/list-own-artists "Another Organizer's roster"
 			name:              "PermissionDenied when reqOrganizerID does not match the caller",
 			callerOrganizerID: "org-1",
 			reqOrganizerID:    "org-999",
@@ -401,6 +403,7 @@ func TestOrganizerUseCase_ListOwnArtists(t *testing.T) {
 			wantErr: apperr.ErrPermissionDenied,
 		},
 		{
+			// @spec components/usecase/organizer/list-own-artists "Own Organizer gone"
 			name:              "NotFound when the caller's own organizer no longer exists",
 			callerOrganizerID: "org-1",
 			reqOrganizerID:    "org-1",
@@ -448,6 +451,7 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 		wantErr      error
 	}{
 		{
+			// @spec components/usecase/organizer/resolve-caller "Active Organizer"
 			name:         "return the organizer when active",
 			zitadelOrgID: "zitadel-org-1",
 			setup: func(t *testing.T, d *organizerTestDeps) {
@@ -460,6 +464,7 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 			want: &entity.Organizer{ID: "org-1", ZitadelOrgID: "zitadel-org-1", Status: entity.OrganizerStatusActive},
 		},
 		{
+			// @spec components/usecase/organizer/resolve-caller "Deactivated Organizer"
 			name:         "FailedPrecondition when the organizer is deactivated",
 			zitadelOrgID: "zitadel-org-deactivated",
 			setup: func(t *testing.T, d *organizerTestDeps) {
@@ -475,6 +480,7 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 			// Non-revealing per spec D3: any non-Active, non-Deactivated
 			// status (e.g. still provisioning) collapses into the same
 			// PermissionDenied as "no such organizer."
+			// @spec components/usecase/organizer/resolve-caller "Provisioning Organizer"
 			name:         "PermissionDenied when the organizer is still provisioning",
 			zitadelOrgID: "zitadel-org-provisioning",
 			setup: func(t *testing.T, d *organizerTestDeps) {
@@ -487,6 +493,7 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 			wantErr: apperr.ErrPermissionDenied,
 		},
 		{
+			// @spec components/usecase/organizer/resolve-caller "Tenant with no Organizer"
 			name:         "PermissionDenied (non-revealing) when no organizer is linked",
 			zitadelOrgID: "zitadel-org-unknown",
 			setup: func(t *testing.T, d *organizerTestDeps) {
@@ -499,16 +506,17 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 			wantErr: apperr.ErrPermissionDenied,
 		},
 		{
+			// @spec components/usecase/organizer/resolve-caller "Organizer unreadable"
 			name:         "propagates a non-NotFound repository failure unchanged",
 			zitadelOrgID: "zitadel-org-broken",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()
 				d.orgRepo.EXPECT().
 					GetByZitadelOrgID(ctx, "zitadel-org-broken").
-					Return(nil, apperr.New(codes.Unavailable, "db unavailable")).
+					Return(nil, apperr.New(codes.Internal, "db down")).
 					Once()
 			},
-			wantErr: apperr.ErrUnavailable,
+			wantErr: apperr.ErrInternal,
 		},
 	}
 

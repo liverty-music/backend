@@ -36,6 +36,7 @@ func newUserIDProto(id string) *entitypb.UserId {
 func TestUserHandler_Get(t *testing.T) {
 	t.Parallel()
 
+	// @spec components/adapter/fan/api/rpc/user "Own account"
 	t.Run("returns user when the use case resolves the caller", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
@@ -61,6 +62,7 @@ func TestUserHandler_Get(t *testing.T) {
 		assert.Equal(t, "test@example.com", resp.Msg.User.Email.Value)
 	})
 
+	// @spec components/adapter/fan/api/rpc/user "Another user's account"
 	t.Run("propagates PermissionDenied from ResolveCaller on user_id mismatch", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
@@ -80,6 +82,7 @@ func TestUserHandler_Get(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
 
+	// @spec components/adapter/fan/api/rpc/user "Missing user id"
 	t.Run("propagates InvalidArgument from ResolveCaller when user_id is empty", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
@@ -99,6 +102,7 @@ func TestUserHandler_Get(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 
+	// @spec components/adapter/fan/api/rpc/user "Caller has no account"
 	t.Run("returns error when user not found", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
@@ -354,6 +358,7 @@ func TestUserHandler_UpdatePreferredLanguage(t *testing.T) {
 func TestUserHandler_ResendEmailVerification(t *testing.T) {
 	t.Parallel()
 
+	// @spec components/adapter/fan/api/rpc/user "Caller resends their own email"
 	t.Run("delegates to the use case and returns an empty response on success", func(t *testing.T) {
 		t.Parallel()
 		logger, err := logging.New()
@@ -374,6 +379,7 @@ func TestUserHandler_ResendEmailVerification(t *testing.T) {
 		assert.NotNil(t, resp)
 	})
 
+	// @spec components/adapter/fan/api/rpc/user "Usecase failure returned unchanged"
 	t.Run("propagates the use case's error unchanged", func(t *testing.T) {
 		// The use case owns the ownership check, the resend rate limit, and
 		// the Zitadel call (see TestUserUseCase_ResendEmailVerification in

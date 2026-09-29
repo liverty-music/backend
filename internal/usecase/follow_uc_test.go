@@ -125,6 +125,7 @@ func TestFollowUseCase_Follow_PublishesAnalyticsEvent(t *testing.T) {
 
 	ctx := context.Background()
 
+	// @spec components/usecase/follow/follow "New follow announced"
 	t.Run("publishes ARTIST.followed on first follow", func(t *testing.T) {
 		t.Parallel()
 		d := newFollowTestDeps(t)
@@ -147,6 +148,32 @@ func TestFollowUseCase_Follow_PublishesAnalyticsEvent(t *testing.T) {
 		d.artistRepo.EXPECT().Get(mock.Anything, "artist-1").
 			Return(&entity.Artist{ID: "artist-1"}, nil).Maybe()
 
+		err := d.uc.Follow(ctx, "user-1", "artist-1")
+		assert.NoError(t, err)
+	})
+
+	// @spec components/usecase/follow/follow "Announcement fails"
+	t.Run("tolerates publisher failure (non-fatal)", func(t *testing.T) {
+		t.Parallel()
+		d := newFollowTestDeps(t)
+
+		d.followRepo.EXPECT().
+			Follow(ctx, "user-1", "artist-1").
+			Return(nil).Once()
+		d.publisher.EXPECT().
+			PublishEvent(ctx, entity.SubjectArtistFollowed, entity.ArtistFollowedData{
+				UserID:   "user-1",
+				ArtistID: "artist-1",
+			}).
+			Return(apperr.ErrInternal).Once()
+
+		d.artistRepo.EXPECT().GetOfficialSite(mock.Anything, "artist-1").
+			Return(nil, apperr.ErrNotFound).Maybe()
+		d.artistRepo.EXPECT().Get(mock.Anything, "artist-1").
+			Return(&entity.Artist{ID: "artist-1"}, nil).Maybe()
+
+		// Follow contract: succeeds despite publish failure because the
+		// relationship is already persisted.
 		err := d.uc.Follow(ctx, "user-1", "artist-1")
 		assert.NoError(t, err)
 	})
