@@ -40,9 +40,9 @@ func GetCallerOrgID(ctx context.Context) (string, bool) {
 // On success it stores the resolved caller Zitadel org id in the context via
 // WithCallerOrgID so handlers can call GetCallerOrgID without re-reading claims.
 //
-// Organizer resolution (GetByZitadelOrgID) and status checks happen in the
-// handlers because they require the repository. This interceptor does only the
-// token-level checks.
+// Organizer resolution (OrganizerUseCase.ResolveCaller) and status checks
+// happen in the handlers because they require the repository. This
+// interceptor does only the token-level checks.
 //
 // All failures return connect.CodePermissionDenied (non-revealing). The
 // UNAUTHENTICATED case is already handled by the upstream authn middleware
