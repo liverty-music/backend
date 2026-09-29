@@ -59,6 +59,7 @@ func expectAnnouncementRequested(t *testing.T, publisher *ucmocks.MockEventPubli
 		Once()
 }
 
+// @spec components/usecase/sales-phase/announce-discovered-phase "Two recipients"
 func TestAnnounceDiscoveredPhase_LocalizesCopyPerRecipient(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -156,6 +157,7 @@ func TestAnnounceDiscoveredPhase_EmptyAudience_NoOp(t *testing.T) {
 	d.publisher.AssertNotCalled(t, "PublishEventWithID")
 }
 
+// @spec components/usecase/sales-phase/announce-discovered-phase "Request fails"
 func TestAnnounceDiscoveredPhase_PublishError_PropagatesAndAborts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -165,20 +167,31 @@ func TestAnnounceDiscoveredPhase_PublishError_PropagatesAndAborts(t *testing.T) 
 
 	d.journeyRepo.EXPECT().
 		ListUserIDsTrackingSeries(ctx, "series-1").
-		Return([]string{"user-1"}, nil).
+		Return([]string{"user-1", "user-2", "user-3"}, nil).
 		Once()
-	d.userRepo.EXPECT().Get(ctx, "user-1").Return(&entity.User{ID: "user-1", PreferredLanguage: "en"}, nil).Once()
+	for _, uid := range []string{"user-1", "user-2", "user-3"} {
+		d.userRepo.EXPECT().Get(ctx, uid).Return(&entity.User{ID: uid, PreferredLanguage: "en"}, nil).Once()
+	}
 	d.concertRepo.EXPECT().ListEventsBySeries(ctx, "series-1").Return(nil, nil).Once()
 
+	requestedFor := func(userID string) any {
+		return mock.MatchedBy(func(data entity.NotificationRequestedData) bool { return data.UserID == userID })
+	}
 	publishErr := errors.New("nats unavailable")
 	d.publisher.EXPECT().
-		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), mock.AnythingOfType("entity.NotificationRequestedData")).
+		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), requestedFor("user-1")).
+		Return(nil).
+		Once()
+	d.publisher.EXPECT().
+		PublishEventWithID(anyCtx, entity.SubjectNotificationRequested, mock.AnythingOfType("string"), requestedFor("user-2")).
 		Return(publishErr).
 		Once()
+	// No request is expected for user-3: a third publish would fail the mock.
 
 	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, publishErr)
+	d.publisher.AssertNumberOfCalls(t, "PublishEventWithID", 2)
 }
 
 // @spec components/usecase/sales-phase/announce-discovered-phase "No upcoming event"

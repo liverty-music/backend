@@ -29,6 +29,7 @@ func TestDeliverNotificationConsumer_Handle(t *testing.T) {
 		Payload: entity.NewNotificationPayload("Artist", "1 new concert found", "/concerts/c1", "concert-artist-1"),
 	}
 
+	// @spec components/usecase/notification/deliver "Notification requested"
 	t.Run("delegates to NotificationUseCase.Deliver", func(t *testing.T) {
 		t.Parallel()
 
@@ -48,6 +49,7 @@ func TestDeliverNotificationConsumer_Handle(t *testing.T) {
 	// router retries (and, if retries are exhausted, poison-queues and logs
 	// it) — a failed push send is instead an outcome Deliver already recorded,
 	// never an error, so it never reaches this path.
+	// @spec components/usecase/notification/deliver "Recording fails for one request"
 	t.Run("returns error when Deliver fails", func(t *testing.T) {
 		t.Parallel()
 

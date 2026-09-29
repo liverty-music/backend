@@ -23,6 +23,7 @@ func makeArtistFollowedMsg(t *testing.T, data entity.ArtistFollowedData) *messag
 func TestFollowSearchConsumer_Handle(t *testing.T) {
 	t.Parallel()
 
+	// @spec components/usecase/concert/search-new-concerts-on-first-follow "Follow announced"
 	t.Run("delegates to SearchNewConcertsOnFirstFollow", func(t *testing.T) {
 		t.Parallel()
 
