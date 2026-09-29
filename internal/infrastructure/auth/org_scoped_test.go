@@ -112,6 +112,7 @@ func TestOrgScopedInterceptor_WrapUnary(t *testing.T) {
 		{
 			// Simulates a multi-org operator whose token has roles for two orgs;
 			// extractRoleOrgIDs returns an empty LoginScopeOrgID when len > 1.
+			// @spec components/adapter/organizer/api/rpc/payout-onboarding "Roles in several tenants"
 			name: "deny when multiple login-scope orgs are present (ambiguous)",
 			args: args{
 				claims:    happyClaims(withLoginScopeOrgID(""), withRoleOrgIDs("org-A", "org-B")),

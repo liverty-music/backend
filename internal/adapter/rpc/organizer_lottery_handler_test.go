@@ -143,6 +143,7 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 		wantErr      bool
 	}{
 		{
+			// @spec components/adapter/organizer/api/rpc/lottery "Active Organizer configures a phase"
 			name: "success: returns created phase",
 			ctx:  orgLotteryAuthedCtx("org-1"),
 			req:  validReq,
@@ -164,6 +165,7 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 			// The Organizer-status→code mapping now lives in
 			// OrganizerUseCase.ResolveCaller (see organizer_uc_test.go);
 			// the handler only needs to forward whatever it returns.
+			// @spec components/adapter/organizer/api/rpc/lottery "Tenant with no Organizer"
 			name: "error: organizer not found returns PermissionDenied",
 			ctx:  orgLotteryAuthedCtx("org-unknown"),
 			req:  validReq,
@@ -175,6 +177,7 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 			wantErr:  true,
 		},
 		{
+			// @spec components/adapter/organizer/api/rpc/lottery "Deactivated Organizer"
 			name: "error: deactivated organizer returns FailedPrecondition",
 			ctx:  orgLotteryAuthedCtx("org-deactivated"),
 			req:  validReq,

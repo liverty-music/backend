@@ -72,6 +72,7 @@ func TestNewAuthFunc(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/adapter/organizer/api/rpc/payout-onboarding "Not signed in"
 			name: "return unauthenticated error when Authorization header is missing",
 			args: args{
 				url:              "/test.Service/Method",
