@@ -1,11 +1,9 @@
 <poly-repo-context repo="backend">
   <responsibilities>Go API server following Clean Architecture. Connect-RPC services,
-  pgx for PostgreSQL, Google Wire for DI, Atlas for DB migrations.</responsibilities>
+  pgx for PostgreSQL, manual factory functions for DI, Atlas for DB migrations.</responsibilities>
   <essential-commands>
     atlas migrate diff --env local &lt;name&gt;  # Generate DB migration
     atlas migrate apply --env local            # Apply migrations locally
-    mockery                                    # Generate mocks from interfaces
-    docker compose up -d postgres              # Start local DB for integration tests
   </essential-commands>
 </poly-repo-context>
 
@@ -25,117 +23,39 @@ This repository carries no planning of its own. `openspec/config.yaml` declares 
 
 This repo is one of four under `liverty-music/`: `specification` (proto schema + OpenSpec store), `backend`, `frontend`, `cloud-provisioning`. The full release process lives in the specification repo's AGENTS.md; the rules that bind work here are:
 
-- **Dependency order**: specification PR merge → GitHub Release (`vX.Y.Z`) → BSR remote generation → this repo can build with the new types. Never generate protobuf code locally; consume it from BSR (see "Consuming New Proto Types" below).
+- **Dependency order**: specification PR merge → GitHub Release (`vX.Y.Z`) → BSR remote generation → this repo can build with the new types. Never generate protobuf code locally; consume it from BSR (see the `consume-proto-release` skill).
 - **Do not open a PR, even a draft, before BSR gen completes.** CI fails on the missing types and creates review noise. Prepare the branch locally and push only after the generated package is upgraded and placeholder types are swapped. Exception: the user explicitly asks for parallel review; then annotate the PR with "Depends on BSR gen for vX.Y.Z".
 - **Start downstream work early.** As soon as the proto surface is agreed (approved OpenSpec change or open specification PR), write handlers, use cases, repositories and tests against the planned type shape, with local placeholders marked `TODO: swap to generated type after BSR gen`.
 - Monitor BSR gen with `gh run list --repo liverty-music/specification --workflow buf-release.yml --limit 3`.
 
-## Core Architecture
+## Entity Tags
 
-| Layer              | Path                       | Responsibility                                                                  |
-| ------------------ | -------------------------- | ------------------------------------------------------------------------------- |
-| **Entity**         | `internal/entity/`         | Core business objects (User, Artist). Pure structs, no tags (unless necessary). |
-| **Use Case**       | `internal/usecase/`        | Business logic & Application rules. Interfaces defined here.                    |
-| **Adapter**        | `internal/adapter/`        | Interface adapters. RPC handlers (`ipc/`) convert Proto <-> Entity.             |
-| **Infrastructure** | `internal/infrastructure/` | Frameworks & Drivers. DB (`database/rdb`), Server (`server/`).                  |
-| **DI**             | `internal/di/`             | Dependency Injection wiring using manual factory functions.                      |
-
-**Tags in entity ("unless necessary")**: event payloads published through `EventPublisher.PublishEvent` (`internal/entity/event_data.go` and the types they embed, e.g. `DiscoveredSeries`) and the Web Push `NotificationPayload` are wire contracts, so they carry `json` tags in `internal/entity`. The tags pin the field names on the wire so renaming a Go field cannot silently break in-flight messages or the service worker. Do not add tags to other entity types, and do not strip these tags without a wire-compatibility plan.
+Entity types in `internal/entity/` are pure structs without struct tags, with one exception. Event payloads published through `EventPublisher.PublishEvent` (`internal/entity/event_data.go` and the types they embed, e.g. `DiscoveredSeries`) and the Web Push `NotificationPayload` are wire contracts, so they carry `json` tags in `internal/entity`. The tags pin the field names on the wire so renaming a Go field cannot silently break in-flight messages or the service worker. Do not add tags to other entity types, and do not strip these tags without a wire-compatibility plan.
 
 ## Key Technical Decisions
 
-### 1. RPC & Communication
-
-- **Framework**: Connect-RPC (`connectrpc.com/connect`).
-- **Schema**: Managed via BSR (`buf.build/liverty-music/schema`).
-- **Pattern**: Handlers should strictly map Proto messages to Domain Entities and delegate logic to UseCases.
-
-### 2. Naming Conventions
+### Naming Conventions
 
 - **Timestamps**:
     - **Database**: Use `_at` suffix (e.g., `start_at`, `created_at`). Type: `TIMESTAMPTZ`.
     - **Go Entity**: Use `Time` suffix (e.g., `StartTime`, `CreateTime`). Type: `time.Time`.
     - **Reasoning**: Adheres to SQL standards for columns and Google AIP/Protobuf standards for code. Mappings should be handled in the Repository layer.
 
-### 3. Testing & Mocking
-
-- **Mocking**: Configured via `.mockery.yml`. Run `mockery` to generate mocks from interfaces.
-- **Pattern**: Define interfaces where consumed. Accept interfaces, return concrete types.
-
 ## Development Workflows
 
 ### Consuming New Proto Types (after BSR gen)
 
-When a specification Release has published new schema to BSR (see the
-specification repo's AGENTS.md for the cross-repo release flow), upgrade and
-adopt the generated types here:
-
-```bash
-# Pin to the released schema version
-go get buf.build/gen/go/liverty-music/schema/...@vX.Y.Z
-go mod tidy
-make check
-```
-
-Then swap the placeholder types for the generated ones at each
-`TODO: swap to generated type after BSR gen` marker and run `make check` again.
-Open (or push) the PR only after this succeeds — do NOT open a draft PR before
-BSR gen completes, as CI will fail on the missing types.
+Upgrade and placeholder-swap procedure: see the `consume-proto-release` skill.
 
 ### Database Migrations
 
-Database migrations are managed by **Atlas** with two distinct workflows:
-
-#### Local Development
-
-```bash
-# Generate a new migration from schema changes
-atlas migrate diff --env local <migration_name>
-
-# Apply migrations locally
-atlas migrate apply --env local
-
-# Validate migration integrity
-atlas migrate validate --env local
-```
-
-Migration files live in `k8s/atlas/base/migrations/`. The desired-state schema is at `internal/infrastructure/database/rdb/schema/schema.sql`.
-
-#### Production (GKE)
-
 Production migrations are handled by the **Atlas Kubernetes Operator** — the backend application does NOT run migrations at startup.
 
-- **AtlasMigration CRD** + **ConfigMap** are defined in `k8s/atlas/base/`
-- ArgoCD syncs from `k8s/atlas/overlays/<env>` via a dedicated `backend-migrations` Application
-- The operator connects to Cloud SQL as the `postgres` user (password from K8s Secret synced by ESO)
-- All tables reside in the `app` schema (`search_path=app`)
-- Sync wave ordering ensures migrations complete before the backend Deployment starts
-
-When adding a new migration:
-1. Create the migration file with `atlas migrate diff --env local`
-2. Add the new file to `k8s/atlas/base/kustomization.yaml` under `configMapGenerator.files`
-3. Both changes go in the same PR
-
-
-### Development Commands
-
-```bash
-make lint              # Format check + golangci-lint (matches CI)
-make fix               # Auto-fix formatting (gofmt -w)
-make test              # Unit tests with local DB (docker compose + atlas migrate)
-make test-integration  # Integration tests (DB must already be running, used by CI)
-make check             # Full pre-commit check (lint + test)
-```
-
-`make check` is automatically enforced before `git commit` by the Claude Code PreToolUse hook in `.claude/settings.json`.
-
-### Integration Tests
-
-Integration tests under `internal/infrastructure/database/rdb/` require a local PostgreSQL instance. `make test` handles DB startup automatically via `docker compose up -d postgres --wait`.
+Migration workflow (local generation, operator deployment, kustomization update): see the `db-migration-workflow` skill.
 
 ### Gemini A/B Evaluation Harness
 
-The matrix-based A/B harness at `internal/infrastructure/gcp/gemini/searcher_integration_test.go` runs only when `GEMINI_AB_EVAL=1`. It compares concert-search performance across Gemini models, temperatures, and thinking levels against a frozen ground-truth fixture. See [`internal/infrastructure/gcp/gemini/testdata/README.md`](internal/infrastructure/gcp/gemini/testdata/README.md) for the full matrix, run command, fixture format, and how to interpret results.
+See `internal/infrastructure/gcp/gemini/CLAUDE.md`.
 
 ### Dev DB Access (Cloud SQL via port-forward)
 
