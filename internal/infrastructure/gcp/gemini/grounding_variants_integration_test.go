@@ -19,6 +19,7 @@ const (
 	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"         // "1" enables the run
 	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT" // A (production baseline), C, D, or E (one variant per run)
 	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"    // optional repetition override (e.g. 1 for a smoke run)
+	groundingEvalTempEnvVar    = "GEMINI_GROUNDING_EVAL_TEMP"    // optional temperature override (default 1.0)
 
 	groundingEvalArtist   = "Vaundy"
 	groundingEvalModel    = "gemini-3.8-flash"
@@ -155,6 +156,15 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 		reps = n
 	}
 
+	temp := groundingEvalTemp
+	if v := strings.TrimSpace(os.Getenv(groundingEvalTempEnvVar)); v != "" {
+		f, err := strconv.ParseFloat(v, 32)
+		if err != nil || f < 0 || f > 2 {
+			t.Fatalf("%s must be a number in [0, 2] (got %q)", groundingEvalTempEnvVar, v)
+		}
+		temp = float32(f)
+	}
+
 	gt, err := gemini.LoadGroundTruth()
 	if err != nil {
 		t.Fatalf("load ground truth: %v", err)
@@ -202,7 +212,7 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	for r := 0; r < reps; r++ {
 		cell := abCell{
 			Model:       groundingEvalModel,
-			Temperature: groundingEvalTemp,
+			Temperature: temp,
 			Thinking:    groundingEvalThinking,
 			Artist:      artist,
 			Repetition:  r,
@@ -210,8 +220,8 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 			Slices:      slices,
 		}
 		res := runCell(ctx, t, logger, cell, from, rawDir, r+1)
-		t.Logf("variant=%s rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d latency=%dms err=%q",
-			variant, r, res.RecallPublic, res.Precision, res.ReturnedCount, res.MatchedCount,
+		t.Logf("variant=%s temp=%.1f rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d latency=%dms err=%q",
+			variant, temp, r, res.RecallPublic, res.Precision, res.ReturnedCount, res.MatchedCount,
 			res.FalsePositives, res.FestivalLeaks, res.LatencyMillis, res.Error)
 		results = append(results, res)
 		totalCost += res.CostUSD
