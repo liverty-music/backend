@@ -17,7 +17,7 @@ import (
 
 const (
 	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"         // "1" enables the run
-	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT" // C, D, or E (one variant per run)
+	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT" // A (production baseline), C, D, or E (one variant per run)
 	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"    // optional repetition override (e.g. 1 for a smoke run)
 
 	groundingEvalArtist   = "Vaundy"
@@ -114,6 +114,9 @@ func groundingVariant(t *testing.T, name string) ([]gemini.Step1Slice, bool) {
 		UseFullURL:        true,
 	}
 	switch name {
+	case "A":
+		// Baseline: the production Step 1 slices (current prompt, bare host).
+		return nil, false
 	case "C":
 		return []gemini.Step1Slice{base}, false
 	case "D":
@@ -123,7 +126,7 @@ func groundingVariant(t *testing.T, name string) ([]gemini.Step1Slice, bool) {
 		base.SearchStart = groundingEvalSince
 		return []gemini.Step1Slice{base}, true
 	default:
-		t.Fatalf("%s must be C, D, or E (got %q)", groundingEvalVariantEnvVar, name)
+		t.Fatalf("%s must be A, C, D, or E (got %q)", groundingEvalVariantEnvVar, name)
 		return nil, false
 	}
 }
