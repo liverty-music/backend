@@ -252,6 +252,7 @@ var DefaultPricing = PricingTable{
 	"gemini-3.5-flash":       {InputPerM: 1.50, OutputPerM: 9.00, CachedPerM: 0.15, SearchPerK: googleSearchPerK},
 	"gemini-3.6-flash":       {InputPerM: 0.75, OutputPerM: 3.75, CachedPerM: 0.075, SearchPerK: googleSearchPerK},
 	"gemini-3.7-flash":       {InputPerM: 0.75, OutputPerM: 3.75, CachedPerM: 0.075, SearchPerK: googleSearchPerK},
+	"gemini-3.8-flash":       {InputPerM: 0.75, OutputPerM: 3.75, CachedPerM: 0.075, SearchPerK: googleSearchPerK},
 }
 
 // CostUSD returns the standard-tier dollar cost for a single call.

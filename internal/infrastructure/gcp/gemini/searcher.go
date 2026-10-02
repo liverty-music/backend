@@ -384,6 +384,9 @@ type ConcertSearcher struct {
 	client *genai.Client
 	config Config
 	logger *logging.Logger
+	// slices overrides defaultStep1Slices when non-nil. Only the A/B harness
+	// sets it (via export_test.go) to evaluate prompt / search-window variants.
+	slices []Step1Slice
 }
 
 // PassMetadata captures observation data for a single Gemini call.
@@ -642,11 +645,18 @@ type Step1Slice struct {
 	// SystemInstruction is the Step 1 system instruction for this slice.
 	SystemInstruction string
 	// PromptTemplate is the Step 1 prompt template. It carries 3 %s
-	// placeholders in order: from_date, artist name, official site host.
+	// placeholders in order: from_date, artist name, official site (host, or
+	// the full URL when UseFullURL is set).
 	PromptTemplate string
 	// FromMonthsOffset is the offset in calendar months added to the
 	// base date (time.Now()) to compute the slice's from_date.
 	FromMonthsOffset int
+	// UseFullURL passes the official-site URL verbatim (scheme included)
+	// instead of its bare host. The URL context tool only fetches full URLs.
+	UseFullURL bool
+	// SearchStart is the GoogleSearch TimeRangeFilter start. Zero means the
+	// default window of the last 6 months.
+	SearchStart time.Time
 }
 
 // defaultStep1Slices is the single grounded slice used by SearchExt. One
@@ -677,21 +687,29 @@ func (s *ConcertSearcher) runStep1Grounded(
 	officialSiteURL string,
 	attrs []slog.Attr,
 ) (string, *PassMetadata, []*PassMetadata, error) {
-	host := hostOf(officialSiteURL)
 	baseDate := time.Now().UTC()
+
+	slices := defaultStep1Slices
+	if s.slices != nil {
+		slices = s.slices
+	}
 
 	type sliceResult struct {
 		envelope string
 		pm       *PassMetadata
 		err      error
 	}
-	results := make([]sliceResult, len(defaultStep1Slices))
+	results := make([]sliceResult, len(slices))
 	var wg sync.WaitGroup
-	for i, sl := range defaultStep1Slices {
+	for i, sl := range slices {
 		wg.Add(1)
 		go func(idx int, slice Step1Slice) {
 			defer wg.Done()
-			env, pm, err := s.runStep1Slice(ctx, slice, artist.Name, host, baseDate, attrs)
+			site := hostOf(officialSiteURL)
+			if slice.UseFullURL {
+				site = officialSiteURL
+			}
+			env, pm, err := s.runStep1Slice(ctx, slice, artist.Name, site, baseDate, attrs)
 			results[idx] = sliceResult{envelope: env, pm: pm, err: err}
 		}(i, sl)
 	}
@@ -738,18 +756,22 @@ func (s *ConcertSearcher) runStep1Grounded(
 func (s *ConcertSearcher) runStep1Slice(
 	ctx context.Context,
 	slice Step1Slice,
-	artistName, officialSiteHost string,
+	artistName, officialSite string,
 	baseDate time.Time,
 	attrs []slog.Attr,
 ) (string, *PassMetadata, error) {
 	from := baseDate.AddDate(0, slice.FromMonthsOffset, 0).Format("2006-01-02")
-	prompt := fmt.Sprintf(slice.PromptTemplate, from, artistName, officialSiteHost)
+	prompt := fmt.Sprintf(slice.PromptTemplate, from, artistName, officialSite)
 
 	now := time.Now().UTC().Truncate(time.Second)
+	searchStart := now.AddDate(0, -6, 0)
+	if !slice.SearchStart.IsZero() {
+		searchStart = slice.SearchStart
+	}
 	searchTool := &genai.Tool{
 		GoogleSearch: &genai.GoogleSearch{
 			TimeRangeFilter: &genai.Interval{
-				StartTime: now.AddDate(0, -6, 0),
+				StartTime: searchStart,
 				EndTime:   now,
 			},
 		},

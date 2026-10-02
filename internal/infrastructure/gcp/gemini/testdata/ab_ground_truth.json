@@ -1,6 +1,6 @@
 {
-  "evaluation_from": "2026-08-23",
-  "captured_at": "2026-08-24",
+  "evaluation_from": "2026-10-01",
+  "captured_at": "2026-10-01",
   "artists": [
     {
       "id": "019e302a-01ec-7b8e-80e4-2111c2e4fe0a",
@@ -203,98 +203,6 @@
       "name": "Vaundy",
       "official_site_url": "https://vaundy.jp/",
       "events": [
-        {
-          "event_name": "音楽と髭達2026 -TIME MACHINE-",
-          "venue": "HARD OFF ECOスタジアム新潟",
-          "admin_area": "新潟県",
-          "local_date": "2026-08-29",
-          "open_time": "2026-08-29T09:00:00+09:00",
-          "start_time": "2026-08-29T11:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11193",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "SWEET LOVE SHOWER 2026",
-          "venue": "山中湖交流プラザ きらら",
-          "admin_area": "山梨県",
-          "local_date": "2026-08-30",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11185",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "幕張メッセ 9・11ホール",
-          "admin_area": "千葉県",
-          "local_date": "2026-09-05",
-          "open_time": "2026-09-05T16:30:00+09:00",
-          "start_time": "2026-09-05T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "幕張メッセ 9・11ホール",
-          "admin_area": "千葉県",
-          "local_date": "2026-09-06",
-          "open_time": "2026-09-06T14:30:00+09:00",
-          "start_time": "2026-09-06T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "ROCK IN JAPAN FESTIVAL 2026",
-          "venue": "千葉市蘇我スポーツ公園",
-          "admin_area": "千葉県",
-          "local_date": "2026-09-12",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11206",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "INSPIRE ARENA",
-          "admin_area": "",
-          "local_date": "2026-09-19",
-          "open_time": "2026-09-19T15:00:00+09:00",
-          "start_time": "2026-09-19T17:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "INSPIRE ARENA",
-          "admin_area": "",
-          "local_date": "2026-09-20",
-          "open_time": "2026-09-20T14:00:00+09:00",
-          "start_time": "2026-09-20T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "熱闘甲子園 presents 熱闘 JAM 2026",
-          "venue": "GLION ARENA KOBE",
-          "admin_area": "兵庫県",
-          "local_date": "2026-09-23",
-          "open_time": "2026-09-23T14:00:00+09:00",
-          "start_time": "2026-09-23T15:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11200",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
         {
           "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
           "venue": "AsiaWorld-Arena",
@@ -540,6 +448,28 @@
         },
         {
           "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
+          "venue": "横浜アリーナ",
+          "admin_area": "神奈川県",
+          "local_date": "2027-11-27",
+          "open_time": "2027-11-27T17:00:00+09:00",
+          "start_time": "2027-11-27T18:00:00+09:00",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
+          "venue": "横浜アリーナ",
+          "admin_area": "神奈川県",
+          "local_date": "2027-11-28",
+          "open_time": "2027-11-28T15:00:00+09:00",
+          "start_time": "2027-11-28T16:00:00+09:00",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
           "venue": "サンドーム福井",
           "admin_area": "福井県",
           "local_date": "2027-12-11",
@@ -668,50 +598,6 @@
           "start_time": "2028-02-27T16:00:00+09:00",
           "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "",
-          "admin_area": "",
-          "local_date": "2026-11-14",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "tentative",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "",
-          "admin_area": "",
-          "local_date": "2026-11-15",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "tentative",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
-          "venue": "",
-          "admin_area": "神奈川県",
-          "local_date": "2027-11-27",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
-          "confidence": "tentative",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
-          "venue": "",
-          "admin_area": "神奈川県",
-          "local_date": "2027-11-28",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
-          "confidence": "tentative",
           "visibility": "public"
         }
       ]

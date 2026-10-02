@@ -137,6 +137,10 @@ type abCell struct {
 	Thinking    string
 	Artist      gemini.GroundTruthArtist
 	Repetition  int
+	// Variant labels a Step 1 prompt / search-window variant; Slices, when
+	// non-nil, replaces the production Step 1 slices for this cell.
+	Variant string
+	Slices  []gemini.Step1Slice
 }
 
 type cellResult struct {
@@ -146,6 +150,7 @@ type cellResult struct {
 	ArtistID      string  `json:"artist_id"`
 	ArtistName    string  `json:"artist_name"`
 	Repetition    int     `json:"repetition"`
+	Variant       string  `json:"variant,omitempty"`
 	// Precision and recall split.
 	// Precision = matched_public / (returned - festival_leaks)
 	//   (a festival leak is a returned event matching an excluded_per_spec
@@ -344,6 +349,7 @@ func runCell(
 		ArtistID:      cell.Artist.ID,
 		ArtistName:    cell.Artist.Name,
 		Repetition:    cell.Repetition,
+		Variant:       cell.Variant,
 	}
 
 	// In the matrix harness, cell.Model sets the Step 1 (extract) model —
@@ -372,6 +378,9 @@ func runCell(
 		res.Error = "construct searcher: " + err.Error()
 		writeRawResponse(t, rawDir, cellIdx, cell, nil, nil, res.Error)
 		return res
+	}
+	if cell.Slices != nil {
+		gemini.SetStep1Slices(s, cell.Slices)
 	}
 
 	artist := &entity.Artist{ID: cell.Artist.ID, Name: cell.Artist.Name}
@@ -471,8 +480,12 @@ func writeRawResponse(
 ) {
 	t.Helper()
 	safeArtist := strings.ReplaceAll(cell.Artist.Name, " ", "_")
-	fname := fmt.Sprintf("cell_%03d_%s_T%.1f_th-%s_%s_rep%d.json",
-		cellIdx, cell.Model, cell.Temperature, cell.Thinking, safeArtist, cell.Repetition)
+	variant := ""
+	if cell.Variant != "" {
+		variant = "_v-" + cell.Variant
+	}
+	fname := fmt.Sprintf("cell_%03d_%s_T%.1f_th-%s%s_%s_rep%d.json",
+		cellIdx, cell.Model, cell.Temperature, cell.Thinking, variant, safeArtist, cell.Repetition)
 	path := filepath.Join(dir, fname)
 
 	payload := map[string]any{
@@ -484,6 +497,7 @@ func writeRawResponse(
 		"artist_name":     cell.Artist.Name,
 		"official_site":   cell.Artist.OfficialSiteURL,
 		"repetition":      cell.Repetition,
+		"variant":         cell.Variant,
 		"parsed_concerts": parsed,
 		"error":           errMsg,
 	}
