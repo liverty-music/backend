@@ -20,6 +20,8 @@ const (
 	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"  // A (production baseline), C, D, D2, E, or E2 (one variant per run)
 	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"     // optional repetition override (e.g. 1 for a smoke run)
 	groundingEvalThinkEnvVar   = "GEMINI_GROUNDING_EVAL_THINKING" // optional thinking level override (default low)
+	groundingEvalArtistEnvVar  = "GEMINI_GROUNDING_EVAL_ARTIST"   // optional fixture artist name (default Vaundy)
+	groundingEvalTempEnvVar    = "GEMINI_GROUNDING_EVAL_TEMP"     // optional temperature; temperature is not sent when unset
 
 	groundingEvalArtist   = "Vaundy"
 	groundingEvalModel    = "gemini-3.8-flash"
@@ -189,6 +191,21 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	if v := strings.TrimSpace(os.Getenv(groundingEvalThinkEnvVar)); v != "" {
 		thinking = v
 	}
+	artistName := groundingEvalArtist
+	if v := strings.TrimSpace(os.Getenv(groundingEvalArtistEnvVar)); v != "" {
+		artistName = v
+	}
+	// Temperature is not sent unless set: the Gemini 3.8 Flash migration
+	// guide says to strip it from generation configs.
+	var temp float32
+	omitTemp := true
+	if v := strings.TrimSpace(os.Getenv(groundingEvalTempEnvVar)); v != "" {
+		f, err := strconv.ParseFloat(v, 32)
+		if err != nil {
+			t.Fatalf("%s must be a number (got %q)", groundingEvalTempEnvVar, v)
+		}
+		temp, omitTemp = float32(f), false
+	}
 
 	gt, err := gemini.LoadGroundTruth()
 	if err != nil {
@@ -200,12 +217,12 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	}
 	var artist gemini.GroundTruthArtist
 	for _, a := range gt.Artists {
-		if a.Name == groundingEvalArtist {
+		if a.Name == artistName {
 			artist = a
 		}
 	}
 	if artist.ID == "" {
-		t.Fatalf("artist %s not in fixture", groundingEvalArtist)
+		t.Fatalf("artist %s not in fixture", artistName)
 	}
 	if narrow {
 		// Keep the in-scope events announced since groundingEvalSince plus the
@@ -236,19 +253,18 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	totalCost := 0.0
 	for r := 0; r < reps; r++ {
 		cell := abCell{
-			Model:      groundingEvalModel,
-			Thinking:   thinking,
-			Artist:     artist,
-			Repetition: r,
-			Variant:    variant,
-			Slices:     slices,
-			// The Gemini 3.8 Flash migration guide says to strip temperature
-			// from generation configs, so it is never sent.
-			OmitTemperature: true,
+			Model:           groundingEvalModel,
+			Temperature:     temp,
+			Thinking:        thinking,
+			Artist:          artist,
+			Repetition:      r,
+			Variant:         variant,
+			Slices:          slices,
+			OmitTemperature: omitTemp,
 		}
 		res := runCell(ctx, t, logger, cell, from, rawDir, r+1)
-		t.Logf("variant=%s thinking=%s rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d latency=%dms err=%q",
-			variant, thinking, r, res.RecallPublic, res.Precision, res.ReturnedCount, res.MatchedCount,
+		t.Logf("artist=%s variant=%s temp=%s thinking=%s rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d latency=%dms err=%q",
+			artist.Name, variant, tempLabel(temp, omitTemp), thinking, r, res.RecallPublic, res.Precision, res.ReturnedCount, res.MatchedCount,
 			res.FalsePositives, res.FestivalLeaks, res.LatencyMillis, res.Error)
 		results = append(results, res)
 		totalCost += res.CostUSD
@@ -267,4 +283,12 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	}
 	t.Logf("variant %s complete: %d cells, started %s, finished %s (match against billing-export hour)",
 		variant, len(results), meta.StartedAt, meta.FinishedAt)
+}
+
+// tempLabel renders the temperature for logs ("unset" when not sent).
+func tempLabel(temp float32, omit bool) string {
+	if omit {
+		return "unset"
+	}
+	return strconv.FormatFloat(float64(temp), 'f', 1, 32)
 }
