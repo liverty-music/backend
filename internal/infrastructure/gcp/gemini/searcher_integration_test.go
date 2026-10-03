@@ -141,6 +141,9 @@ type abCell struct {
 	// non-nil, replaces the production Step 1 slices for this cell.
 	Variant string
 	Slices  []gemini.Step1Slice
+	// OmitTemperature leaves temperature unset in requests (Temperature is
+	// then ignored), per the Gemini 3.8 Flash migration guide.
+	OmitTemperature bool
 }
 
 type cellResult struct {
@@ -151,6 +154,7 @@ type cellResult struct {
 	ArtistName    string  `json:"artist_name"`
 	Repetition    int     `json:"repetition"`
 	Variant       string  `json:"variant,omitempty"`
+	OmitTemp      bool    `json:"omit_temperature,omitempty"`
 	// Precision and recall split.
 	// Precision = matched_public / (returned - festival_leaks)
 	//   (a festival leak is a returned event matching an excluded_per_spec
@@ -350,6 +354,7 @@ func runCell(
 		ArtistName:    cell.Artist.Name,
 		Repetition:    cell.Repetition,
 		Variant:       cell.Variant,
+		OmitTemp:      cell.OmitTemperature,
 	}
 
 	// In the matrix harness, cell.Model sets the Step 1 (extract) model —
@@ -370,6 +375,7 @@ func runCell(
 		ModelExtract:    extractModel,
 		ModelParse:      parseModel,
 		Temperature:     cell.Temperature,
+		OmitTemperature: cell.OmitTemperature,
 		ThinkingLevel:   cell.Thinking,
 		ThinkingExtract: strings.TrimSpace(os.Getenv(abEvalThinkingExtractEnvVar)),
 		ThinkingParse:   strings.TrimSpace(os.Getenv(abEvalThinkingParseEnvVar)),
@@ -484,8 +490,12 @@ func writeRawResponse(
 	if cell.Variant != "" {
 		variant = "_v-" + cell.Variant
 	}
-	fname := fmt.Sprintf("cell_%03d_%s_T%.1f_th-%s%s_%s_rep%d.json",
-		cellIdx, cell.Model, cell.Temperature, cell.Thinking, variant, safeArtist, cell.Repetition)
+	temp := fmt.Sprintf("T%.1f", cell.Temperature)
+	if cell.OmitTemperature {
+		temp = "Tunset"
+	}
+	fname := fmt.Sprintf("cell_%03d_%s_%s_th-%s%s_%s_rep%d.json",
+		cellIdx, cell.Model, temp, cell.Thinking, variant, safeArtist, cell.Repetition)
 	path := filepath.Join(dir, fname)
 
 	payload := map[string]any{

@@ -16,15 +16,14 @@ import (
 )
 
 const (
-	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"         // "1" enables the run
-	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT" // A (production baseline), C, D, or E (one variant per run)
-	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"    // optional repetition override (e.g. 1 for a smoke run)
-	groundingEvalTempEnvVar    = "GEMINI_GROUNDING_EVAL_TEMP"    // optional temperature override (default 1.0)
+	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"          // "1" enables the run
+	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"  // A (production baseline), C, D, D2, or E (one variant per run)
+	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"     // optional repetition override (e.g. 1 for a smoke run)
+	groundingEvalThinkEnvVar   = "GEMINI_GROUNDING_EVAL_THINKING" // optional thinking level override (default low)
 
 	groundingEvalArtist   = "Vaundy"
 	groundingEvalModel    = "gemini-3.8-flash"
 	groundingEvalThinking = "low"
-	groundingEvalTemp     = float32(1.0)
 	groundingEvalReps     = 3
 )
 
@@ -33,7 +32,11 @@ const (
 // dates (announced 2026-09-06), which makes the expected output exact.
 var groundingEvalSince = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 
-// groundingEvalSinceDates are the fixture dates expected for variants D and E.
+// groundingEvalSinceDates are the fixture dates expected for variants D, D2,
+// and E. D2 uses an earlier cutoff (2026-08-03) with the same expected set: the
+// only other Vaundy item announced since then is バズリズム LIVE 2026 (an
+// excluded multi-artist event), and the Zepp Sapporo shows announced on 08-03
+// were held on 08-12/13.
 var groundingEvalSinceDates = map[string]bool{"2027-11-27": true, "2027-11-28": true}
 
 // systemInstructionMinimal is the simplified Step 1 system instruction under
@@ -104,6 +107,23 @@ Only include concerts first announced on or after 2026-09-01. If the announcemen
 Official site: %[3]s
 `
 
+// promptAnnouncedWithUpdates is the variant D2 user prompt. Variant D dropped
+// dates newly added to an already-announced tour because the model judged the
+// announcement date per tour; D2 makes per-date additions and newly announced
+// venues / times explicitly in scope. It carries a single date (the
+// announcement cutoff) and no event-date bound; past dates are dropped
+// downstream by the from-date filter. The from_date argument is unused.
+const promptAnnouncedWithUpdates = `Extract tours and standalone shows by %[2]s first announced on or after 2026-08-03, including added dates and changes to venues or schedules. If the announcement date cannot be determined, include the concert.
+
+Official site: %[3]s
+`
+
+// systemInstructionAnnounced is systemInstructionMinimal without the
+// event-date bound, which the D2 prompt no longer supplies.
+var systemInstructionAnnounced = strings.Replace(systemInstructionMinimal,
+	"- Concerts and tours organized by the artist that take place on or after the given start date.",
+	"- Concerts and tours organized by the artist.", 1)
+
 // groundingVariant returns the Step 1 slices for a variant and whether the
 // fixture must be narrowed to the concerts announced since groundingEvalSince.
 func groundingVariant(t *testing.T, name string) ([]gemini.Step1Slice, bool) {
@@ -123,11 +143,15 @@ func groundingVariant(t *testing.T, name string) ([]gemini.Step1Slice, bool) {
 	case "D":
 		base.PromptTemplate = promptAnnounced
 		return []gemini.Step1Slice{base}, true
+	case "D2":
+		base.SystemInstruction = systemInstructionAnnounced
+		base.PromptTemplate = promptAnnouncedWithUpdates
+		return []gemini.Step1Slice{base}, true
 	case "E":
 		base.SearchStart = groundingEvalSince
 		return []gemini.Step1Slice{base}, true
 	default:
-		t.Fatalf("%s must be A, C, D, or E (got %q)", groundingEvalVariantEnvVar, name)
+		t.Fatalf("%s must be A, C, D, D2, or E (got %q)", groundingEvalVariantEnvVar, name)
 		return nil, false
 	}
 }
@@ -156,13 +180,9 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 		reps = n
 	}
 
-	temp := groundingEvalTemp
-	if v := strings.TrimSpace(os.Getenv(groundingEvalTempEnvVar)); v != "" {
-		f, err := strconv.ParseFloat(v, 32)
-		if err != nil || f < 0 || f > 2 {
-			t.Fatalf("%s must be a number in [0, 2] (got %q)", groundingEvalTempEnvVar, v)
-		}
-		temp = float32(f)
+	thinking := groundingEvalThinking
+	if v := strings.TrimSpace(os.Getenv(groundingEvalThinkEnvVar)); v != "" {
+		thinking = v
 	}
 
 	gt, err := gemini.LoadGroundTruth()
@@ -211,17 +231,19 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	totalCost := 0.0
 	for r := 0; r < reps; r++ {
 		cell := abCell{
-			Model:       groundingEvalModel,
-			Temperature: temp,
-			Thinking:    groundingEvalThinking,
-			Artist:      artist,
-			Repetition:  r,
-			Variant:     variant,
-			Slices:      slices,
+			Model:      groundingEvalModel,
+			Thinking:   thinking,
+			Artist:     artist,
+			Repetition: r,
+			Variant:    variant,
+			Slices:     slices,
+			// The Gemini 3.8 Flash migration guide says to strip temperature
+			// from generation configs, so it is never sent.
+			OmitTemperature: true,
 		}
 		res := runCell(ctx, t, logger, cell, from, rawDir, r+1)
-		t.Logf("variant=%s temp=%.1f rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d latency=%dms err=%q",
-			variant, temp, r, res.RecallPublic, res.Precision, res.ReturnedCount, res.MatchedCount,
+		t.Logf("variant=%s thinking=%s rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d latency=%dms err=%q",
+			variant, thinking, r, res.RecallPublic, res.Precision, res.ReturnedCount, res.MatchedCount,
 			res.FalsePositives, res.FestivalLeaks, res.LatencyMillis, res.Error)
 		results = append(results, res)
 		totalCost += res.CostUSD

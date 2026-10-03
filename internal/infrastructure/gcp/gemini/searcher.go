@@ -49,6 +49,11 @@ type Config struct {
 	ModelParse   string
 
 	Temperature float32
+	// OmitTemperature leaves temperature unset in every request so the model
+	// default applies, as the Gemini 3.8 Flash migration guide recommends
+	// ("Strip temperature, top_p, and top_k from generation configs").
+	// When set, Temperature is ignored.
+	OmitTemperature bool
 
 	// ThinkingLevel is the legacy fallback used when ThinkingExtract /
 	// ThinkingParse are unset for a given step.
@@ -64,6 +69,16 @@ type Config struct {
 	//   - Parse:   "low" (mechanical transformation; schema bounds output)
 	ThinkingExtract string
 	ThinkingParse   string
+}
+
+// temperature returns the request temperature, or nil when OmitTemperature
+// is set so the field is not sent.
+func (c *Config) temperature() *float32 {
+	if c.OmitTemperature {
+		return nil
+	}
+	t := c.Temperature
+	return &t
 }
 
 func (c *Config) modelExtract() string { return c.ModelExtract }
@@ -777,14 +792,13 @@ func (s *ConcertSearcher) runStep1Slice(
 		},
 	}
 	urlCtxTool := &genai.Tool{URLContext: &genai.URLContext{}}
-	temperature := s.config.Temperature
 
 	cfg := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{Text: slice.SystemInstruction}},
 		},
 		Tools:           []*genai.Tool{searchTool, urlCtxTool},
-		Temperature:     &temperature,
+		Temperature:     s.config.temperature(),
 		MaxOutputTokens: maxOutputTokens,
 	}
 	if level := thinkingLevelFromConfig(s.config.thinkingExtract()); level != genai.ThinkingLevelUnspecified {
@@ -965,14 +979,13 @@ func (s *ConcertSearcher) runStep2Parse(
 		return nil, nil, backoff.Permanent(toAppErr(err, "failed to marshal step 2 input", attrs...))
 	}
 	prompt := string(payload)
-	temperature := s.config.Temperature
 
 	cfg := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{Text: systemInstructionStep2Parse}},
 		},
 		// Tools intentionally empty — no URLContext, no GoogleSearch.
-		Temperature:        &temperature,
+		Temperature:        s.config.temperature(),
 		MaxOutputTokens:    maxOutputTokens,
 		ResponseMIMEType:   "application/json",
 		ResponseJsonSchema: responseJSONSchema,
