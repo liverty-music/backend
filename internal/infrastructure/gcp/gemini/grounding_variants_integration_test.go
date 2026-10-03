@@ -17,7 +17,7 @@ import (
 
 const (
 	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"          // "1" enables the run
-	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"  // A (production baseline), C, D, D2, or E (one variant per run)
+	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"  // A (production baseline), C, D, D2, E, or E2 (one variant per run)
 	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"     // optional repetition override (e.g. 1 for a smoke run)
 	groundingEvalThinkEnvVar   = "GEMINI_GROUNDING_EVAL_THINKING" // optional thinking level override (default low)
 
@@ -150,8 +150,13 @@ func groundingVariant(t *testing.T, name string) ([]gemini.Step1Slice, bool) {
 	case "E":
 		base.SearchStart = groundingEvalSince
 		return []gemini.Step1Slice{base}, true
+	case "E2":
+		// All concerts on or after today (no announcement-date condition), with
+		// the GoogleSearch window narrowed to the last 2 months.
+		base.SearchStart = time.Now().UTC().AddDate(0, -2, 0)
+		return []gemini.Step1Slice{base}, false
 	default:
-		t.Fatalf("%s must be A, C, D, D2, or E (got %q)", groundingEvalVariantEnvVar, name)
+		t.Fatalf("%s must be A, C, D, D2, E, or E2 (got %q)", groundingEvalVariantEnvVar, name)
 		return nil, false
 	}
 }
