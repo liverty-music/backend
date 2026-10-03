@@ -781,7 +781,9 @@ func (s *ConcertSearcher) runStep1Slice(
 	now := time.Now().UTC().Truncate(time.Second)
 	searchStart := now.AddDate(0, -6, 0)
 	if !slice.SearchStart.IsZero() {
-		searchStart = slice.SearchStart
+		// The API rejects sub-second precision in time_range_filter
+		// ("Granularity of nano is not supported").
+		searchStart = slice.SearchStart.UTC().Truncate(time.Second)
 	}
 	searchTool := &genai.Tool{
 		GoogleSearch: &genai.GoogleSearch{
