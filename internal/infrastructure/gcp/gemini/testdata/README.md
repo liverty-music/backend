@@ -7,7 +7,7 @@ workload. Not a CI test — runs only when `GEMINI_AB_EVAL=1` is set.
 
 | Path | Purpose |
 |---|---|
-| `ab_ground_truth.json` | Frozen fixture of expected concerts per artist (UVERworld / Vaundy / SUPER BEAVER / BRADIO — 91 events), as of `evaluation_from = 2026-10-01`. Only Vaundy was re-captured on 2026-10-01; the other artists still reflect 2026-08-23 and must be refreshed before evaluating them. |
+| `ab_ground_truth.json` | Frozen fixture of expected concerts per artist (UVERworld / Vaundy / SUPER BEAVER / BRADIO — 111 events), as of `evaluation_from = 2026-10-01`. Vaundy was captured on 2026-10-01 and the other artists on 2026-10-03, from official sources only. |
 | `ab_results/` | Per-run outputs (`<RFC3339-utc>.json` + `.csv`). Generated files are gitignored; force-add the most recent run when committing for PR review. |
 
 ## How to run
