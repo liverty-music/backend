@@ -176,7 +176,7 @@ var systemInstructionJSONReadFirst = strings.Replace(systemInstructionJSON,
 // Tool choice is left to the model (no url_context / google_search rules).
 const systemInstructionFinal = `You are a data-extraction agent for a live-music information system.
 
-Extract the concerts of the given artist taking place on or after the given start date: solo shows, co-headliner bills (対バン), and tours organized by the artist. Exclude music festivals.
+Extract the concerts of the given artist taking place on or after the given start date: solo shows, co-headliner bills (対バン), and tours organized by the artist. Exclude music festivals and cancelled shows.
 
 Use only the artist's official site and official tour pages as sources. Do not use third-party sites.
 

@@ -1690,23 +1690,23 @@ type singleStepResponse struct {
 	Standalones []singleStepSeries `json:"standalones"`
 }
 
-// singleStepEventSchema describes one event: verbatim fields as in the XML
-// envelope, coerced fields as in the Step 2 schema.
+// singleStepEventSchema describes one concert date. Field formats and the
+// verbatim rules live here, not in the system instruction.
 var singleStepEventSchema = map[string]any{
 	"type":                 "object",
 	"additionalProperties": false,
 	"properties": map[string]any{
 		"venue": map[string]any{
 			"type":        "string",
-			"description": "Venue name copied verbatim (character for character) as printed on the source page, in its original language; use the Japanese form even when the page offers an English view. Do not translate or romanize.",
+			"description": "Venue name exactly as printed on the source page for this date, character for character in its original language and spacing, including annotations such as a former name in parentheses (e.g. 「クロコくんホール（旧 日本ガイシホール）」). Do not translate it or replace it with a name you know.",
 		},
 		"country": map[string]any{
 			"type":        "string",
-			"description": "ISO 3166-1 alpha-2 code of the country where the concert is held.",
+			"description": "ISO 3166-1 alpha-2 code of the country where the concert is held (e.g. JP, TW).",
 		},
 		"admin_area": map[string]any{
 			"type":        "string",
-			"description": "Administrative area (prefecture / state / province) of the venue, in the local form (e.g. 愛知県, 東京都). \"\" when uncertain or outside Japan's prefecture system.",
+			"description": "ISO 3166-2 code of the venue's first-level subdivision (e.g. JP-13, TW-TPE, KR-11, US-CA). \"\" when uncertain.",
 		},
 		"local_date": map[string]any{
 			"type":        "string",
@@ -1714,33 +1714,58 @@ var singleStepEventSchema = map[string]any{
 		},
 		"open_time": map[string]any{
 			"type":        "string",
-			"description": "Doors-open time in RFC3339 with the venue country's UTC offset (JP/KR +09:00, HK/TW/CN +08:00, etc.), e.g. 2026-02-14T17:30:00+09:00. \"\" when not published.",
+			"description": "Doors-open time in RFC3339 with the venue's UTC offset (e.g. 2026-02-14T17:30:00+09:00). \"\" when not published.",
 		},
 		"start_time": map[string]any{
 			"type":        "string",
-			"description": "Show start time in RFC3339 with the venue country's UTC offset, e.g. 2026-02-14T18:30:00+09:00. \"\" when not published.",
+			"description": "Show start time in RFC3339 with the venue's UTC offset (e.g. 2026-02-14T18:30:00+09:00). \"\" when not published.",
 		},
 	},
 	"required": []string{"venue", "country", "admin_area", "local_date", "open_time", "start_time"},
 }
 
-// singleStepSeriesSchema describes one tour or standalone show.
-var singleStepSeriesSchema = map[string]any{
+// singleStepTitleSchema and singleStepSourceURLSchema are shared by tours
+// and standalone shows.
+var (
+	singleStepTitleSchema = map[string]any{
+		"type":        "string",
+		"description": "Tour or show title exactly as printed on the source page, character for character in its original language. Do not translate it.",
+	}
+	singleStepSourceURLSchema = map[string]any{
+		"type":        "string",
+		"description": "URL of the tour's dedicated page; if there is none, the URL of the official site's detail page for this concert.",
+	}
+)
+
+// singleStepTourSchema describes one tour (one or more dates).
+var singleStepTourSchema = map[string]any{
 	"type":                 "object",
 	"additionalProperties": false,
 	"properties": map[string]any{
-		"title": map[string]any{
-			"type":        "string",
-			"description": "Tour or show title copied verbatim (character for character) as printed on the source page, in its original language; use the Japanese form even when the page offers an English view. Do not translate or romanize.",
-		},
-		"source_url": map[string]any{
-			"type":        "string",
-			"description": "URL of the official page dedicated to this specific tour or show (its tour feature page or the news article announcing it), not the site's top page.",
-		},
+		"title":      singleStepTitleSchema,
+		"source_url": singleStepSourceURLSchema,
 		"events": map[string]any{
 			"type":        "array",
 			"description": "One entry per concert date.",
+			"minItems":    1,
 			"items":       singleStepEventSchema,
+		},
+	},
+	"required": []string{"title", "source_url", "events"},
+}
+
+// singleStepStandaloneSchema describes one standalone show (exactly one date).
+var singleStepStandaloneSchema = map[string]any{
+	"type":                 "object",
+	"additionalProperties": false,
+	"properties": map[string]any{
+		"title":      singleStepTitleSchema,
+		"source_url": singleStepSourceURLSchema,
+		"events": map[string]any{
+			"type":     "array",
+			"minItems": 1,
+			"maxItems": 1,
+			"items":    singleStepEventSchema,
 		},
 	},
 	"required": []string{"title", "source_url", "events"},
@@ -1751,17 +1776,17 @@ var singleStepSeriesSchema = map[string]any{
 var singleStepResponseSchema = map[string]any{
 	"type":                 "object",
 	"additionalProperties": false,
-	"description":          "All tours and standalone shows found. Use \"\" for unknown string fields; never null.",
+	"description":          "Use \"\" for unknown string fields; never null.",
 	"properties": map[string]any{
 		"tours": map[string]any{
 			"type":        "array",
-			"description": "Multi-venue / multi-date runs, one entry per tour.",
-			"items":       singleStepSeriesSchema,
+			"description": "Multi-venue or multi-date runs, one entry per tour.",
+			"items":       singleStepTourSchema,
 		},
 		"standalones": map[string]any{
 			"type":        "array",
-			"description": "One-off shows (solo, fan-club-only, or 2-4 act co-headliner bills), one entry per show with exactly one event.",
-			"items":       singleStepSeriesSchema,
+			"description": "One-off shows, one entry per show.",
+			"items":       singleStepStandaloneSchema,
 		},
 	},
 	"required": []string{"tours", "standalones"},
