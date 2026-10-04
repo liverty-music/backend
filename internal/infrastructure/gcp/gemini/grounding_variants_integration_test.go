@@ -17,7 +17,7 @@ import (
 
 const (
 	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"            // "1" enables the run
-	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"    // A (production baseline), C, D, D2, E, E2, E2U, E2UJ, or E2P (one variant per run)
+	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"    // A (production baseline), C, D, D2, E, E2, E2U, E2UJ, E2UJA, or E2P (one variant per run)
 	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"       // optional repetition override (e.g. 1 for a smoke run)
 	groundingEvalThinkEnvVar   = "GEMINI_GROUNDING_EVAL_THINKING"   // optional thinking level override (default low)
 	groundingEvalArtistEnvVar  = "GEMINI_GROUNDING_EVAL_ARTIST"     // optional fixture artist name (default Vaundy)
@@ -161,6 +161,15 @@ Extraction rules:
 Respond with JSON that follows the response schema.
 `
 
+// systemInstructionJSONReadFirst is systemInstructionJSON with a mandatory
+// first action placed at the very top (prompting guide: put essential
+// behavioral constraints at the beginning of the system instruction), to
+// make the model read the official site with url_context before searching.
+var systemInstructionJSONReadFirst = strings.Replace(systemInstructionJSON,
+	"Extract official concert information for the given artist.\n",
+	"Extract official concert information for the given artist.\n\n"+
+		"MANDATORY FIRST STEP: before any google_search call, read the official site URL given in the prompt with the url_context tool. Then read, with url_context, the official pages it links to that list concerts (live, schedule, tour, or news pages). Call google_search only if a page you still need cannot be reached this way.\n", 1)
+
 // groundingEvalSchedulePages maps fixture artists to their official
 // live-schedule page (variant E2P).
 var groundingEvalSchedulePages = map[string]string{
@@ -213,6 +222,12 @@ func groundingVariant(t *testing.T, name, artistName string) ([]gemini.Step1Slic
 		base.SystemInstruction = systemInstructionJSON
 		base.JSONOutput = true
 		return []gemini.Step1Slice{base}, false
+	case "E2UJA":
+		// E2UJ with the url_context-first instruction at the top.
+		base.SearchStart = time.Now().UTC().AddDate(0, -2, 0)
+		base.SystemInstruction = systemInstructionJSONReadFirst
+		base.JSONOutput = true
+		return []gemini.Step1Slice{base}, false
 	case "E2P":
 		// E2 plus the artist's official live-schedule page URL in the prompt.
 		page, ok := groundingEvalSchedulePages[artistName]
@@ -223,7 +238,7 @@ func groundingVariant(t *testing.T, name, artistName string) ([]gemini.Step1Slic
 		base.PromptTemplate = promptMinimal + "Live schedule page: " + page + "\n"
 		return []gemini.Step1Slice{base}, false
 	default:
-		t.Fatalf("%s must be A, C, D, D2, E, E2, E2U, E2UJ, or E2P (got %q)", groundingEvalVariantEnvVar, name)
+		t.Fatalf("%s must be A, C, D, D2, E, E2, E2U, E2UJ, E2UJA, or E2P (got %q)", groundingEvalVariantEnvVar, name)
 		return nil, false
 	}
 }
