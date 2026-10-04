@@ -170,13 +170,18 @@ var systemInstructionJSONReadFirst = strings.Replace(systemInstructionJSON,
 	"Extract official concert information for the given artist.\n\n"+
 		"MANDATORY FIRST STEP: before any google_search call, read the official site URL given in the prompt with the url_context tool. Then read, with url_context, the official pages it links to that list concerts (live, schedule, tour, or news pages). Call google_search only if a page you still need cannot be reached this way.\n", 1)
 
-// systemInstructionFinal is the candidate production instruction:
-// systemInstructionJSON (mild url_context guidance, no forced first step)
-// with the scope wording fixed so co-headliner bills hosted by another
-// artist are in scope (they were dropped as "not organized by the artist").
-var systemInstructionFinal = strings.Replace(systemInstructionJSON,
-	"- Concerts and tours organized by the artist that take place on or after the given start date.\n",
-	"- Concerts and tours the artist performs in that take place on or after the given start date: the artist's own tours and shows, and 2-4 act co-headliner bills even when another artist hosts them.\n", 1)
+// systemInstructionFinal is the candidate production instruction. It holds
+// only scope, sources and the output contract; field formats and verbatim
+// rules live in singleStepResponseSchema, and duplicate removal is done in Go.
+// Tool choice is left to the model (no url_context / google_search rules).
+const systemInstructionFinal = `You are a data-extraction agent for a live-music information system.
+
+Extract the concerts of the given artist taking place on or after the given start date: solo shows, co-headliner bills (対バン), and tours organized by the artist. Exclude music festivals.
+
+Use only the artist's official site and official tour pages as sources. Do not use third-party sites.
+
+Respond with JSON that follows the response schema.
+`
 
 // groundingEvalSchedulePages maps fixture artists to their official
 // live-schedule page (variant E2P).

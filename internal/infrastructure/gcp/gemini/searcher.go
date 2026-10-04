@@ -1698,7 +1698,7 @@ var singleStepEventSchema = map[string]any{
 	"properties": map[string]any{
 		"venue": map[string]any{
 			"type":        "string",
-			"description": "Venue name copied verbatim in its original language as printed on the source page.",
+			"description": "Venue name copied verbatim (character for character) as printed on the source page, in its original language; use the Japanese form even when the page offers an English view. Do not translate or romanize.",
 		},
 		"country": map[string]any{
 			"type":        "string",
@@ -1731,11 +1731,11 @@ var singleStepSeriesSchema = map[string]any{
 	"properties": map[string]any{
 		"title": map[string]any{
 			"type":        "string",
-			"description": "Tour or show title copied verbatim as printed on the source page.",
+			"description": "Tour or show title copied verbatim (character for character) as printed on the source page, in its original language; use the Japanese form even when the page offers an English view. Do not translate or romanize.",
 		},
 		"source_url": map[string]any{
 			"type":        "string",
-			"description": "URL of the official page dedicated to this tour or show.",
+			"description": "URL of the official page dedicated to this specific tour or show (its tour feature page or the news article announcing it), not the site's top page.",
 		},
 		"events": map[string]any{
 			"type":        "array",
