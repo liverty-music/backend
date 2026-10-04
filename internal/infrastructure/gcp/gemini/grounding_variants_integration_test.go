@@ -17,7 +17,7 @@ import (
 
 const (
 	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"            // "1" enables the run
-	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"    // A (production baseline), C, D, D2, E, or E2 (one variant per run)
+	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"    // A (production baseline), C, D, D2, E, E2, E2U, or E2P (one variant per run)
 	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"       // optional repetition override (e.g. 1 for a smoke run)
 	groundingEvalThinkEnvVar   = "GEMINI_GROUNDING_EVAL_THINKING"   // optional thinking level override (default low)
 	groundingEvalArtistEnvVar  = "GEMINI_GROUNDING_EVAL_ARTIST"     // optional fixture artist name (default Vaundy)
@@ -127,9 +127,27 @@ var systemInstructionAnnounced = strings.Replace(systemInstructionMinimal,
 	"- Concerts and tours organized by the artist that take place on or after the given start date.",
 	"- Concerts and tours organized by the artist.", 1)
 
+// systemInstructionReadWithURLContext is systemInstructionMinimal plus a
+// tool-usage rule: the captured search queries showed the model using
+// google_search to read page details (e.g. site: queries per show for open
+// times) instead of reading the pages with url_context.
+var systemInstructionReadWithURLContext = strings.Replace(systemInstructionMinimal,
+	"Sources: use only the official site given in the prompt, or official tour-specific pages. Do not use third-party sites.\n",
+	"Sources: use only the official site given in the prompt, or official tour-specific pages. Do not use third-party sites.\n\n"+
+		"Tool usage: read page content with the url_context tool, starting from the official site URL. Use google_search only to discover the URL of a page you cannot reach otherwise; never use google_search to look up details (dates, venues, open/start times) that are on a page you can read.\n", 1)
+
+// groundingEvalSchedulePages maps fixture artists to their official
+// live-schedule page (variant E2P).
+var groundingEvalSchedulePages = map[string]string{
+	"UVERworld":    "https://www.uverworld.jp/feature/2026_live",
+	"Vaundy":       "https://vaundy.jp/live/",
+	"SUPER BEAVER": "https://sp.super-beaver.com/live_information/list/?range=future&sort=asc",
+	"BRADIO":       "https://bradio.jp/show/?range=future_event_end_time&sort=asc",
+}
+
 // groundingVariant returns the Step 1 slices for a variant and whether the
 // fixture must be narrowed to the concerts announced since groundingEvalSince.
-func groundingVariant(t *testing.T, name string) ([]gemini.Step1Slice, bool) {
+func groundingVariant(t *testing.T, name, artistName string) ([]gemini.Step1Slice, bool) {
 	t.Helper()
 	base := gemini.Step1Slice{
 		Name:              "all",
@@ -158,8 +176,23 @@ func groundingVariant(t *testing.T, name string) ([]gemini.Step1Slice, bool) {
 		// the GoogleSearch window narrowed to the last 2 months.
 		base.SearchStart = time.Now().UTC().AddDate(0, -2, 0)
 		return []gemini.Step1Slice{base}, false
+	case "E2U":
+		// E2 plus an instruction to read pages with url_context and use
+		// google_search only to discover URLs.
+		base.SearchStart = time.Now().UTC().AddDate(0, -2, 0)
+		base.SystemInstruction = systemInstructionReadWithURLContext
+		return []gemini.Step1Slice{base}, false
+	case "E2P":
+		// E2 plus the artist's official live-schedule page URL in the prompt.
+		page, ok := groundingEvalSchedulePages[artistName]
+		if !ok {
+			t.Fatalf("no live schedule page registered for %s", artistName)
+		}
+		base.SearchStart = time.Now().UTC().AddDate(0, -2, 0)
+		base.PromptTemplate = promptMinimal + "Live schedule page: " + page + "\n"
+		return []gemini.Step1Slice{base}, false
 	default:
-		t.Fatalf("%s must be A, C, D, D2, E, or E2 (got %q)", groundingEvalVariantEnvVar, name)
+		t.Fatalf("%s must be A, C, D, D2, E, E2, E2U, or E2P (got %q)", groundingEvalVariantEnvVar, name)
 		return nil, false
 	}
 }
@@ -177,7 +210,6 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 		t.Fatalf("%s is required", abEvalAPIKeyVar)
 	}
 	variant := strings.ToUpper(strings.TrimSpace(os.Getenv(groundingEvalVariantEnvVar)))
-	slices, narrow := groundingVariant(t, variant)
 
 	reps := groundingEvalReps
 	if v := strings.TrimSpace(os.Getenv(groundingEvalRepsEnvVar)); v != "" {
@@ -196,6 +228,7 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	if v := strings.TrimSpace(os.Getenv(groundingEvalArtistEnvVar)); v != "" {
 		artistName = v
 	}
+	slices, narrow := groundingVariant(t, variant, artistName)
 	// Temperature is not sent unless set: the Gemini 3.8 Flash migration
 	// guide says to strip it from generation configs.
 	var temp float32
