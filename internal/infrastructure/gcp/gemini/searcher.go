@@ -609,6 +609,27 @@ func (s *ConcertSearcher) SearchExt(
 		return nil, md, nil
 	}
 
+	// Single-step mode: Step 1 already returned the coerced events as JSON,
+	// so skip the XML parse and Step 2 and run the shared merge directly.
+	if s.singleStepJSON() {
+		drafts, coerced, err := parseSingleStepJSON(envelope)
+		md.DraftCount = len(drafts)
+		if err != nil {
+			s.logger.Warn(ctx, "single-step JSON response could not be parsed",
+				append(attrs, slog.String("error", err.Error()))...)
+			return nil, md, backoff.Permanent(errInvalidJSON)
+		}
+		if len(drafts) == 0 {
+			s.logger.Warn(ctx, "single-step JSON produced 0 events, returning empty results", attrs...)
+			return nil, md, nil
+		}
+		results, err := s.parseStep2Response(ctx, coerced, drafts, from, md, attrs...)
+		if err != nil {
+			return nil, md, err
+		}
+		return results, md, nil
+	}
+
 	// Go-side XML parse: title / source_url / venue / country / raw
 	// date-time fields are extracted verbatim from Step 1's <extracted>
 	// envelope and held in EventDraft. Step 2 only sees the subset it
@@ -677,6 +698,11 @@ type Step1Slice struct {
 	// SearchStart is the GoogleSearch TimeRangeFilter start. Zero means the
 	// default window of the last 6 months.
 	SearchStart time.Time
+	// JSONOutput makes this grounded call return the final coerced events as
+	// JSON (singleStepResponseSchema) instead of the XML envelope, so Step 2
+	// is skipped. Gemini 3 supports structured outputs together with
+	// built-in tools (Preview).
+	JSONOutput bool
 }
 
 // defaultStep1Slices is the single grounded slice used by SearchExt. One
@@ -815,7 +841,13 @@ func (s *ConcertSearcher) runStep1Slice(
 		include := true
 		cfg.ToolConfig = &genai.ToolConfig{IncludeServerSideToolInvocations: &include}
 	}
-	if err := assertStepInvariants("step1_grounded", cfg); err != nil {
+	step := "step1_grounded"
+	if slice.JSONOutput {
+		step = "step1_grounded_json"
+		cfg.ResponseMIMEType = "application/json"
+		cfg.ResponseJsonSchema = singleStepResponseSchema
+	}
+	if err := assertStepInvariants(step, cfg); err != nil {
 		return "", nil, err
 	}
 
@@ -1306,6 +1338,13 @@ func assertStepInvariants(step string, cfg *genai.GenerateContentConfig) error {
 		if hasSchema {
 			return fmt.Errorf("internal error: step1_grounded MUST NOT set ResponseJsonSchema")
 		}
+	case "step1_grounded_json":
+		if !hasGSearch || !hasURLCtx || otherTool {
+			return fmt.Errorf("internal error: step1_grounded_json MUST have exactly {GoogleSearch, URLContext}")
+		}
+		if !hasSchema {
+			return fmt.Errorf("internal error: step1_grounded_json MUST set ResponseJsonSchema")
+		}
 	case "step2_parse":
 		if hasGSearch || hasURLCtx || otherTool {
 			return fmt.Errorf("internal error: step2_parse MUST NOT set any tools")
@@ -1615,4 +1654,166 @@ func searchQueriesOf(args map[string]any) []string {
 		}
 	}
 	return queries
+}
+
+// singleStepJSON reports whether the configured Step 1 slices return the
+// final events as JSON (Step 2 skipped). The mode applies only to a single
+// slice; multi-slice fan-out keeps the XML envelope path.
+func (s *ConcertSearcher) singleStepJSON() bool {
+	return len(s.slices) == 1 && s.slices[0].JSONOutput
+}
+
+// singleStepEvent is one event in the single-step JSON response. It carries
+// the verbatim fields of the Step 1 XML envelope plus the coerced fields
+// Step 2 would otherwise produce.
+type singleStepEvent struct {
+	Venue     string `json:"venue"`
+	Country   string `json:"country"`
+	AdminArea string `json:"admin_area"`
+	LocalDate string `json:"local_date"`
+	OpenTime  string `json:"open_time"`
+	StartTime string `json:"start_time"`
+}
+
+// singleStepSeries is one tour or standalone show in the single-step JSON
+// response.
+type singleStepSeries struct {
+	Title     string            `json:"title"`
+	SourceURL string            `json:"source_url"`
+	Events    []singleStepEvent `json:"events"`
+}
+
+// singleStepResponse is the top-level single-step JSON shape (matches
+// singleStepResponseSchema).
+type singleStepResponse struct {
+	Tours       []singleStepSeries `json:"tours"`
+	Standalones []singleStepSeries `json:"standalones"`
+}
+
+// singleStepEventSchema describes one event: verbatim fields as in the XML
+// envelope, coerced fields as in the Step 2 schema.
+var singleStepEventSchema = map[string]any{
+	"type":                 "object",
+	"additionalProperties": false,
+	"properties": map[string]any{
+		"venue": map[string]any{
+			"type":        "string",
+			"description": "Venue name copied verbatim in its original language as printed on the source page.",
+		},
+		"country": map[string]any{
+			"type":        "string",
+			"description": "ISO 3166-1 alpha-2 code of the country where the concert is held.",
+		},
+		"admin_area": map[string]any{
+			"type":        "string",
+			"description": "Administrative area (prefecture / state / province) of the venue, in the local form (e.g. 愛知県, 東京都). \"\" when uncertain or outside Japan's prefecture system.",
+		},
+		"local_date": map[string]any{
+			"type":        "string",
+			"description": "Calendar date in YYYY-MM-DD. When the page omits the year, infer it from page context.",
+		},
+		"open_time": map[string]any{
+			"type":        "string",
+			"description": "Doors-open time in RFC3339 with the venue country's UTC offset (JP/KR +09:00, HK/TW/CN +08:00, etc.), e.g. 2026-02-14T17:30:00+09:00. \"\" when not published.",
+		},
+		"start_time": map[string]any{
+			"type":        "string",
+			"description": "Show start time in RFC3339 with the venue country's UTC offset, e.g. 2026-02-14T18:30:00+09:00. \"\" when not published.",
+		},
+	},
+	"required": []string{"venue", "country", "admin_area", "local_date", "open_time", "start_time"},
+}
+
+// singleStepSeriesSchema describes one tour or standalone show.
+var singleStepSeriesSchema = map[string]any{
+	"type":                 "object",
+	"additionalProperties": false,
+	"properties": map[string]any{
+		"title": map[string]any{
+			"type":        "string",
+			"description": "Tour or show title copied verbatim as printed on the source page.",
+		},
+		"source_url": map[string]any{
+			"type":        "string",
+			"description": "URL of the official page dedicated to this tour or show.",
+		},
+		"events": map[string]any{
+			"type":        "array",
+			"description": "One entry per concert date.",
+			"items":       singleStepEventSchema,
+		},
+	},
+	"required": []string{"title", "source_url", "events"},
+}
+
+// singleStepResponseSchema is the structured-output schema for the
+// single-step mode.
+var singleStepResponseSchema = map[string]any{
+	"type":                 "object",
+	"additionalProperties": false,
+	"description":          "All tours and standalone shows found. Use \"\" for unknown string fields; never null.",
+	"properties": map[string]any{
+		"tours": map[string]any{
+			"type":        "array",
+			"description": "Multi-venue / multi-date runs, one entry per tour.",
+			"items":       singleStepSeriesSchema,
+		},
+		"standalones": map[string]any{
+			"type":        "array",
+			"description": "One-off shows (solo, fan-club-only, or 2-4 act co-headliner bills), one entry per show with exactly one event.",
+			"items":       singleStepSeriesSchema,
+		},
+	},
+	"required": []string{"tours", "standalones"},
+}
+
+// parseSingleStepJSON converts the single-step JSON response into the
+// drafts and the Step 2-shaped coerced JSON consumed by parseStep2Response,
+// so the merge (past-date filter, dedup, series grouping) is shared.
+func parseSingleStepJSON(raw string) ([]EventDraft, string, error) {
+	text := strings.TrimSpace(raw)
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	var resp singleStepResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &resp); err != nil {
+		return nil, "", fmt.Errorf("unmarshal single-step response: %w", err)
+	}
+	var drafts []EventDraft
+	var coerced step2Response
+	add := func(series singleStepSeries, isTour bool, group int, ev singleStepEvent) {
+		coerced.Events = append(coerced.Events, step2OutputEvent{
+			Index:     len(drafts),
+			AdminArea: ev.AdminArea,
+			LocalDate: ev.LocalDate,
+			StartTime: ev.StartTime,
+			OpenTime:  ev.OpenTime,
+		})
+		drafts = append(drafts, EventDraft{
+			Title:     series.Title,
+			SourceURL: series.SourceURL,
+			Venue:     ev.Venue,
+			Country:   ev.Country,
+			LocalDate: ev.LocalDate,
+			StartTime: ev.StartTime,
+			OpenTime:  ev.OpenTime,
+			IsTour:    isTour,
+			TourGroup: group,
+		})
+	}
+	for i, t := range resp.Tours {
+		for _, ev := range t.Events {
+			add(t, true, i+1, ev)
+		}
+	}
+	for _, st := range resp.Standalones {
+		for _, ev := range st.Events {
+			add(st, false, 0, ev)
+		}
+	}
+	out, err := json.Marshal(coerced)
+	if err != nil {
+		return nil, "", fmt.Errorf("marshal coerced events: %w", err)
+	}
+	return drafts, string(out), nil
 }

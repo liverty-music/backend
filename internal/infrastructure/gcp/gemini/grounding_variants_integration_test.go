@@ -17,7 +17,7 @@ import (
 
 const (
 	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"            // "1" enables the run
-	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"    // A (production baseline), C, D, D2, E, E2, E2U, or E2P (one variant per run)
+	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"    // A (production baseline), C, D, D2, E, E2, E2U, E2UJ, or E2P (one variant per run)
 	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"       // optional repetition override (e.g. 1 for a smoke run)
 	groundingEvalThinkEnvVar   = "GEMINI_GROUNDING_EVAL_THINKING"   // optional thinking level override (default low)
 	groundingEvalArtistEnvVar  = "GEMINI_GROUNDING_EVAL_ARTIST"     // optional fixture artist name (default Vaundy)
@@ -136,6 +136,31 @@ var systemInstructionReadWithURLContext = strings.Replace(systemInstructionMinim
 	"Sources: use only the official site given in the prompt, or official tour-specific pages. Do not use third-party sites.\n\n"+
 		"Tool usage: read page content with the url_context tool, starting from the official site URL. Use google_search only to discover the URL of a page you cannot reach otherwise; never use google_search to look up details (dates, venues, open/start times) that are on a page you can read.\n", 1)
 
+// systemInstructionJSON is the single-step (variant E2UJ) system
+// instruction: the E2U scope, sources and tool-usage rules, with the XML
+// envelope replaced by the structured-output schema and the Step 2 coercion
+// rules folded in.
+const systemInstructionJSON = `You are a data-extraction agent for a live-music information system. Extract official concert information for the given artist.
+
+Scope:
+- Concerts and tours organized by the artist that take place on or after the given start date.
+- Tours: multi-venue / multi-date runs. Emit one entry in "tours" per tour, with one event per date.
+- Standalone shows: solo one-off shows, fan-club-only shows, and 2-4 act named co-headliner bills (対バン). Emit one entry in "standalones" with exactly one event.
+- Exclude music festivals and other multi-artist events where the artist is one of many performers.
+
+Sources: use only the official site given in the prompt, or official tour-specific pages. Do not use third-party sites.
+
+Tool usage: read page content with the url_context tool, starting from the official site URL. Use google_search only to discover the URL of a page you cannot reach otherwise; never use google_search to look up details (dates, venues, open/start times) that are on a page you can read.
+
+Extraction rules:
+- title, source_url and venue MUST be copied verbatim (character for character) in their ORIGINAL LANGUAGE as printed on the source page. Do NOT translate, romanize, or localize them. Even when a page offers a multilingual or English view, always use the Japanese-language form.
+- source_url: the official page dedicated to THIS specific tour/show (a tour feature page or the news article announcing it).
+- local_date, open_time, start_time and admin_area follow the formats in the response schema. Use "" when the page does not provide the information.
+- Treat concerts that share the same venue, local_date, and start_time as duplicates and drop them.
+
+Respond with JSON that follows the response schema.
+`
+
 // groundingEvalSchedulePages maps fixture artists to their official
 // live-schedule page (variant E2P).
 var groundingEvalSchedulePages = map[string]string{
@@ -182,6 +207,12 @@ func groundingVariant(t *testing.T, name, artistName string) ([]gemini.Step1Slic
 		base.SearchStart = time.Now().UTC().AddDate(0, -2, 0)
 		base.SystemInstruction = systemInstructionReadWithURLContext
 		return []gemini.Step1Slice{base}, false
+	case "E2UJ":
+		// E2U with the parse step folded in: structured JSON output, no Step 2.
+		base.SearchStart = time.Now().UTC().AddDate(0, -2, 0)
+		base.SystemInstruction = systemInstructionJSON
+		base.JSONOutput = true
+		return []gemini.Step1Slice{base}, false
 	case "E2P":
 		// E2 plus the artist's official live-schedule page URL in the prompt.
 		page, ok := groundingEvalSchedulePages[artistName]
@@ -192,7 +223,7 @@ func groundingVariant(t *testing.T, name, artistName string) ([]gemini.Step1Slic
 		base.PromptTemplate = promptMinimal + "Live schedule page: " + page + "\n"
 		return []gemini.Step1Slice{base}, false
 	default:
-		t.Fatalf("%s must be A, C, D, D2, E, E2, E2U, or E2P (got %q)", groundingEvalVariantEnvVar, name)
+		t.Fatalf("%s must be A, C, D, D2, E, E2, E2U, E2UJ, or E2P (got %q)", groundingEvalVariantEnvVar, name)
 		return nil, false
 	}
 }
