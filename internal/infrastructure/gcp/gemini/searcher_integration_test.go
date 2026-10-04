@@ -144,6 +144,9 @@ type abCell struct {
 	// OmitTemperature leaves temperature unset in requests (Temperature is
 	// then ignored), per the Gemini 3.8 Flash migration guide.
 	OmitTemperature bool
+	// IncludeToolInvocations returns the server-side tool calls (search
+	// queries) in the Step 1 response.
+	IncludeToolInvocations bool
 }
 
 type cellResult struct {
@@ -377,8 +380,10 @@ func runCell(
 		Temperature:     cell.Temperature,
 		OmitTemperature: cell.OmitTemperature,
 		ThinkingLevel:   cell.Thinking,
-		ThinkingExtract: strings.TrimSpace(os.Getenv(abEvalThinkingExtractEnvVar)),
-		ThinkingParse:   strings.TrimSpace(os.Getenv(abEvalThinkingParseEnvVar)),
+
+		IncludeServerSideToolInvocations: cell.IncludeToolInvocations,
+		ThinkingExtract:                  strings.TrimSpace(os.Getenv(abEvalThinkingExtractEnvVar)),
+		ThinkingParse:                    strings.TrimSpace(os.Getenv(abEvalThinkingParseEnvVar)),
 	}, nil, logger)
 	if err != nil {
 		res.Error = "construct searcher: " + err.Error()

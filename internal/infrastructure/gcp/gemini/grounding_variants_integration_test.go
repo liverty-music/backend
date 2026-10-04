@@ -16,12 +16,13 @@ import (
 )
 
 const (
-	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"          // "1" enables the run
-	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"  // A (production baseline), C, D, D2, E, or E2 (one variant per run)
-	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"     // optional repetition override (e.g. 1 for a smoke run)
-	groundingEvalThinkEnvVar   = "GEMINI_GROUNDING_EVAL_THINKING" // optional thinking level override (default low)
-	groundingEvalArtistEnvVar  = "GEMINI_GROUNDING_EVAL_ARTIST"   // optional fixture artist name (default Vaundy)
-	groundingEvalTempEnvVar    = "GEMINI_GROUNDING_EVAL_TEMP"     // optional temperature; temperature is not sent when unset
+	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"            // "1" enables the run
+	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"    // A (production baseline), C, D, D2, E, or E2 (one variant per run)
+	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"       // optional repetition override (e.g. 1 for a smoke run)
+	groundingEvalThinkEnvVar   = "GEMINI_GROUNDING_EVAL_THINKING"   // optional thinking level override (default low)
+	groundingEvalArtistEnvVar  = "GEMINI_GROUNDING_EVAL_ARTIST"     // optional fixture artist name (default Vaundy)
+	groundingEvalTempEnvVar    = "GEMINI_GROUNDING_EVAL_TEMP"       // optional temperature; temperature is not sent when unset
+	groundingEvalToolCallsEnv  = "GEMINI_GROUNDING_EVAL_TOOL_CALLS" // "1" returns server-side tool calls (search queries)
 
 	groundingEvalArtist   = "Vaundy"
 	groundingEvalModel    = "gemini-3.8-flash"
@@ -261,6 +262,8 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 			Variant:         variant,
 			Slices:          slices,
 			OmitTemperature: omitTemp,
+
+			IncludeToolInvocations: os.Getenv(groundingEvalToolCallsEnv) == "1",
 		}
 		res := runCell(ctx, t, logger, cell, from, rawDir, r+1)
 		t.Logf("artist=%s variant=%s temp=%s thinking=%s rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d latency=%dms err=%q",

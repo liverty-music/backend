@@ -54,6 +54,11 @@ type Config struct {
 	// ("Strip temperature, top_p, and top_k from generation configs").
 	// When set, Temperature is ignored.
 	OmitTemperature bool
+	// IncludeServerSideToolInvocations asks the API to return the server-side
+	// tool calls (Preview, Gemini 3) in the Step 1 response, so the Google
+	// Search queries the model ran are visible even when groundingMetadata
+	// is absent.
+	IncludeServerSideToolInvocations bool
 
 	// ThinkingLevel is the legacy fallback used when ThinkingExtract /
 	// ThinkingParse are unset for a given step.
@@ -806,6 +811,10 @@ func (s *ConcertSearcher) runStep1Slice(
 	if level := thinkingLevelFromConfig(s.config.thinkingExtract()); level != genai.ThinkingLevelUnspecified {
 		cfg.ThinkingConfig = &genai.ThinkingConfig{ThinkingLevel: level}
 	}
+	if s.config.IncludeServerSideToolInvocations {
+		include := true
+		cfg.ToolConfig = &genai.ToolConfig{IncludeServerSideToolInvocations: &include}
+	}
 	if err := assertStepInvariants("step1_grounded", cfg); err != nil {
 		return "", nil, err
 	}
@@ -1161,6 +1170,9 @@ func (s *ConcertSearcher) executePass(
 
 		var textBuf strings.Builder
 		var totalParts, thoughtParts, textParts int
+		// toolQueries collects the Google Search queries from server-side
+		// tool-call parts (present only with IncludeServerSideToolInvocations).
+		var toolQueries []string
 		// Content can be nil when the response was filtered out (SAFETY,
 		// RECITATION, etc.). The FinishReason check below would surface the
 		// failure, but a nil-pointer dereference here would panic the goroutine
@@ -1172,6 +1184,12 @@ func (s *ConcertSearcher) executePass(
 					continue
 				}
 				totalParts++
+				if tc := p.ToolCall; tc != nil {
+					if tc.ToolType == genai.ToolTypeGoogleSearchWeb {
+						toolQueries = append(toolQueries, searchQueriesOf(tc.Args)...)
+					}
+					continue
+				}
 				if p.Thought {
 					thoughtParts++
 					continue
@@ -1186,6 +1204,13 @@ func (s *ConcertSearcher) executePass(
 		pm.PartsTotal = totalParts
 		pm.ThoughtParts = thoughtParts
 		pm.TextParts = textParts
+		if len(pm.WebSearchQueriesList) == 0 && len(toolQueries) > 0 {
+			// groundingMetadata is often absent on Gemini 3 when the search
+			// runs during thinking; fall back to the tool-call queries.
+			pm.WebSearchQueriesList = toolQueries
+			pm.WebSearchQueries = len(toolQueries)
+		}
+		candidateAttrs = append(candidateAttrs, slog.Int("search_tool_queries", len(toolQueries)))
 		joined := textBuf.String()
 		pm.RawResponseText = joined
 		if joined == "" {
@@ -1574,4 +1599,20 @@ func (s *ConcertSearcher) toDiscoveredEvent(
 		StartTime:       startTime,
 		OpenTime:        openTime,
 	}
+}
+
+// searchQueriesOf extracts the "queries" argument of a Google Search
+// server-side tool call.
+func searchQueriesOf(args map[string]any) []string {
+	raw, ok := args["queries"].([]any)
+	if !ok {
+		return nil
+	}
+	queries := make([]string, 0, len(raw))
+	for _, q := range raw {
+		if s, ok := q.(string); ok && s != "" {
+			queries = append(queries, s)
+		}
+	}
+	return queries
 }
