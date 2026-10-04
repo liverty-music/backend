@@ -323,6 +323,16 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	if artist.ID == "" {
 		t.Fatalf("artist %s not in fixture", artistName)
 	}
+	// The prompt's start date is today (JST), so fixture dates that have
+	// already passed are no longer expected.
+	today := time.Now().In(time.FixedZone("JST", 9*60*60)).Format("2006-01-02")
+	upcoming := artist.Events[:0:0]
+	for _, e := range artist.Events {
+		if e.LocalDate >= today {
+			upcoming = append(upcoming, e)
+		}
+	}
+	artist.Events = upcoming
 	if narrow {
 		// Keep the in-scope events announced since groundingEvalSince plus the
 		// excluded entries, so festival leaks are still classified as such.
