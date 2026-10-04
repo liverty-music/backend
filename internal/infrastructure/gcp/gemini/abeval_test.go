@@ -18,14 +18,14 @@ func TestNormalizeVenue(t *testing.T) {
 		want string
 	}{
 		// Prefecture prefix ("PREFECTURE・<venue>")
-		{"prefix_osaka", "大阪府・Billborad Live OSAKA", "billborad live osaka"},
-		{"prefix_tokyo", "東京都・Billborad Live TOKYO", "billborad live tokyo"},
+		{"prefix_osaka", "大阪府・Billborad Live OSAKA", "billboradliveosaka"},
+		{"prefix_tokyo", "東京都・Billborad Live TOKYO", "billboradlivetokyo"},
 		{"prefix_kyoto", "京都府・磔磔", "磔磔"},
-		{"prefix_saitama", "埼玉県・HEAVEN'S ROCK さいたま新都心 VJ-3", "heaven's rock さいたま新都心 vj 3"},
+		{"prefix_saitama", "埼玉県・HEAVEN'S ROCK さいたま新都心 VJ-3", "heaven'srockさいたま新都心vj3"},
 
 		// Parenthesised prefecture suffix
-		{"paren_chiba", "幕張メッセ 9・11ホール（千葉県）", "幕張メッセ 9 11ホール"},
-		{"paren_ascii", "Zepp Haneda (東京都)", "zepp haneda"},
+		{"paren_chiba", "幕張メッセ 9・11ホール（千葉県）", "幕張メッセ911ホール"},
+		{"paren_ascii", "Zepp Haneda (東京都)", "zepphaneda"},
 
 		// Both — prefix and inner paren (rare but possible)
 		{"prefix_and_paren", "大阪府・京セラドーム大阪（大阪府）", "京セラドーム大阪"},
@@ -43,8 +43,18 @@ func TestNormalizeVenue(t *testing.T) {
 		{"tbd_coming_soon", "Coming Soon", ""},
 
 		// Original punctuation / whitespace handling preserved
-		{"basic_lowercase", "Zepp Tokyo", "zepp tokyo"},
-		{"middle_dot_split", "幕張メッセ 9・11ホール", "幕張メッセ 9 11ホール"},
+		{"basic_lowercase", "Zepp Tokyo", "zepptokyo"},
+		{"middle_dot_split", "幕張メッセ 9・11ホール", "幕張メッセ911ホール"},
+
+		// Notation variants across official pages of the same venue
+		{"nfkc_cjk_radical", "クロコくんホール(旧 ⽇本ガイシホール)", "日本ガイシホール"},
+		{"latin1_middle_dot", "朱鷺メッセ·新潟コンベンションセンター", "朱鷺メッセ新潟コンベンションセンター"},
+		{"katakana_middle_dot", "朱鷺メッセ・新潟コンベンションセンター", "朱鷺メッセ新潟コンベンションセンター"},
+		{"fullwidth_parens", "盛岡タカヤアリーナ（盛岡市総合アリーナ）", "盛岡タカヤアリーナ盛岡市総合アリーナ"},
+		{"halfwidth_parens_spaced", "盛岡タカヤアリーナ (盛岡市総合アリーナ)", "盛岡タカヤアリーナ盛岡市総合アリーナ"},
+		{"spacing", "渋谷 CLUB QUATTRO", "渋谷clubquattro"},
+		{"no_spacing", "渋谷CLUB QUATTRO", "渋谷clubquattro"},
+		{"fullwidth_alnum", "マリンメッセ福岡Ａ館（福岡県）", "マリンメッセ福岡a館"},
 	}
 
 	for _, tt := range tests {

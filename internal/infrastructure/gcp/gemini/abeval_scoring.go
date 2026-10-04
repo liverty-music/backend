@@ -7,6 +7,7 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
+	"golang.org/x/text/unicode/norm"
 )
 
 // venuePunctStripper is the punctuation set the matching algorithm strips
@@ -15,6 +16,7 @@ var venuePunctStripper = strings.NewReplacer(
 	",", " ",
 	".", " ",
 	"・", " ",
+	"·", " ",
 	"–", " ",
 	"-", " ",
 	"(", " ",
@@ -43,18 +45,18 @@ var (
 
 // tbdVenueMarkers are the strings that artist sites use to signal "venue
 // not yet announced". Normalised representations are compared post-
-// punctuation-strip, so a marker like "-STAY TUNED-" becomes "stay tuned"
-// before this check fires.
+// punctuation-strip and whitespace removal, so a marker like "-STAY TUNED-"
+// becomes "staytuned" before this check fires.
 var tbdVenueMarkers = map[string]struct{}{
-	"":                {},
-	"stay tuned":      {},
-	"tba":             {},
-	"tbd":             {},
-	"未定":              {},
-	"後日発表":            {},
-	"coming soon":     {},
-	"announced":       {}, // "to be announced"-style truncated remainders
-	"to be announced": {},
+	"":              {},
+	"staytuned":     {},
+	"tba":           {},
+	"tbd":           {},
+	"未定":            {},
+	"後日発表":          {},
+	"comingsoon":    {},
+	"announced":     {}, // "to be announced"-style truncated remainders
+	"tobeannounced": {},
 }
 
 // NormalizeVenue lowercases, strips prefecture qualifiers, strips a fixed
@@ -69,13 +71,19 @@ var tbdVenueMarkers = map[string]struct{}{
 // either. Stripping the prefecture from both sides before comparison
 // resolves the mismatch without changing either source of truth.
 func NormalizeVenue(s string) string {
+	// NFKC first: official pages mix full-width and half-width forms
+	// （（）vs ()）, compatibility characters (the CJK radical ⽇ U+2F47 for 日)
+	// and half-width katakana (･), all of which NFKC folds together.
+	s = norm.NFKC.String(s)
 	// Strip prefecture markers BEFORE lowercasing so the alternation matches
 	// the original-case Japanese characters.
 	s = prefecturePrefixRe.ReplaceAllString(s, "")
 	s = prefectureParenRe.ReplaceAllString(s, "")
 	s = strings.ToLower(s)
 	s = venuePunctStripper.Replace(s)
-	s = strings.Join(strings.Fields(s), " ")
+	// Drop all whitespace: pages disagree on spacing inside names
+	// ("渋谷CLUB QUATTRO" vs "渋谷 CLUB QUATTRO").
+	s = strings.Join(strings.Fields(s), "")
 	// "某所" (an undisclosed place, e.g. "横浜某所") is a venue-TBD placeholder the
 	// model emits for announced dates whose venue is not yet public; collapse it
 	// like the other TBD markers so it matches an empty fixture venue.
