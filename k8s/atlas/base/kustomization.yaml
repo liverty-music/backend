@@ -104,3 +104,4 @@ configMapGenerator:
   - migrations/20261005000000_add_artists_official_site_checked_at.sql
   - migrations/20261006000000_tune_sales_phase_search.sql
   - migrations/20261006010000_drop_unused_uuid_ossp_and_series_backup.sql
+  - migrations/20261006020000_grant_human_iam_users_readonly_app_schema.sql
