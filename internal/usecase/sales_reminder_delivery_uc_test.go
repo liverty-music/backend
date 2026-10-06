@@ -186,6 +186,8 @@ func TestDeliverReminder_DeliveryErrorReturnsErr(t *testing.T) {
 
 // TestDeliverReminder_NilPayloadSkips verifies the nil-payload defensive guard
 // returns nil without attempting a send — no send was attempted.
+//
+// @spec components/usecase/sales-phase-reminder/deliver-reminder "Empty request"
 func TestDeliverReminder_NilPayloadSkips(t *testing.T) {
 	t.Parallel()
 
@@ -284,7 +286,6 @@ func TestDeliverReminder_AllStagesDeliver(t *testing.T) {
 	}{
 		{entity.ReminderStageApplyOpen, "APPLY_OPEN"},
 		{entity.ReminderStageApplyClose24H, "APPLY_CLOSE_24H"},
-		{entity.ReminderStageApplyClose1H, "APPLY_CLOSE_1H"},
 		{entity.ReminderStageResultDay, "RESULT_DAY"},
 	}
 

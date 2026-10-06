@@ -13,9 +13,10 @@ import (
 // sales phases to the relevant followers.
 type SalesPhaseAnnouncementUseCase interface {
 	// AnnounceDiscoveredPhase resolves the audience for the given discovered
-	// phase and pushes an announcement to all eligible followers.
+	// phase and requests an announcement for each fan tracking its series,
+	// naming the sale and the tour and linking to the fan's tracked event.
 	//
-	// An empty covered-event list is a no-op (nil error). Only infrastructure
+	// A request without a series is a no-op (nil error). Only infrastructure
 	// failures return a non-nil error.
 	AnnounceDiscoveredPhase(ctx context.Context, data entity.SalesPhaseDiscoveredData) error
 }
@@ -23,7 +24,7 @@ type SalesPhaseAnnouncementUseCase interface {
 type salesPhaseAnnouncementUseCase struct {
 	userRepo    entity.UserRepository
 	journeyRepo entity.TicketJourneyRepository
-	concertRepo entity.ConcertRepository
+	seriesRepo  entity.SeriesRepository
 	publisher   EventPublisher
 	logger      *logging.Logger
 }
@@ -35,14 +36,14 @@ var _ SalesPhaseAnnouncementUseCase = (*salesPhaseAnnouncementUseCase)(nil)
 func NewSalesPhaseAnnouncementUseCase(
 	userRepo entity.UserRepository,
 	journeyRepo entity.TicketJourneyRepository,
-	concertRepo entity.ConcertRepository,
+	seriesRepo entity.SeriesRepository,
 	publisher EventPublisher,
 	logger *logging.Logger,
 ) *salesPhaseAnnouncementUseCase {
 	return &salesPhaseAnnouncementUseCase{
 		userRepo:    userRepo,
 		journeyRepo: journeyRepo,
-		concertRepo: concertRepo,
+		seriesRepo:  seriesRepo,
 		publisher:   publisher,
 		logger:      logger,
 	}
@@ -57,89 +58,65 @@ func (uc *salesPhaseAnnouncementUseCase) AnnounceDiscoveredPhase(ctx context.Con
 		return nil
 	}
 
-	userIDs, err := ResolveSalesPhaseAudience(ctx, data.SeriesID, uc.journeyRepo)
+	trackers, err := ResolveSalesPhaseAudience(ctx, data.SeriesID, uc.journeyRepo)
 	if err != nil {
 		return fmt.Errorf("sales_phase_announcement: resolve audience: %w", err)
 	}
-	if len(userIDs) == 0 {
+	if len(trackers) == 0 {
 		return nil
 	}
 
-	// Hydrate recipients to localize the announcement copy by preferred language.
-	// TODO(perf): batch user hydration when UserRepository gains ListByIDs.
-	langByUser := make(map[string]string, len(userIDs))
-	for _, uid := range userIDs {
-		u, err := uc.userRepo.Get(ctx, uid)
-		if err != nil {
-			uc.logger.Warn(ctx, "sales_phase_announcement: failed to hydrate user; skipping",
-				slog.String("user_id", uid),
-				slog.String("error", err.Error()),
-			)
-			continue
-		}
-		langByUser[uid] = u.PreferredLanguage
+	series, err := uc.seriesRepo.Get(ctx, data.SeriesID)
+	if err != nil {
+		return fmt.Errorf("sales_phase_announcement: get series: %w", err)
 	}
-
-	url := ResolveSeriesLinkURL(ctx, data.SeriesID, uc.concertRepo, uc.logger)
-	tag := fmt.Sprintf("sales-phase-%s", data.PhaseID)
+	phase := &entity.SalesPhase{
+		ID:             data.PhaseID,
+		SeriesID:       data.SeriesID,
+		Method:         entity.SalesMethod(data.Method),
+		ApplyStartTime: data.ApplyStartTime,
+	}
 
 	// Request one announcement per audience member: publish NOTIFICATION.requested
 	// (deterministic id — see notification_delivery.go) so the deliver-notification
 	// consumer records a durable Notification and dispatches the push. This
 	// announcement fires once immediately from the discovery job's daily
-	// 21:00 JST run (no quiet-hours constraint); only the copy is personalised,
-	// by the recipient's preferred language (default en).
-	for _, userID := range userIDs {
+	// 21:00 JST run (no quiet-hours constraint); the copy follows the
+	// recipient's language and time zone, and the link opens the recipient's
+	// tracked event.
+	for _, tr := range trackers {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		lang := langByUser[userID]
-		payload := entity.NewNotificationPayload(
-			announcementTitle(lang),
-			announcementBody(lang),
-			url,
-			tag,
-		)
+		// TODO(perf): batch user hydration when UserRepository gains ListByIDs.
+		user, err := uc.userRepo.Get(ctx, tr.UserID)
+		if err != nil {
+			uc.logger.Warn(ctx, "sales_phase_announcement: failed to hydrate user; skipping",
+				slog.String("user_id", tr.UserID),
+				slog.String("error", err.Error()),
+			)
+			continue
+		}
+
+		payload := buildAnnouncementPayload(phase, user, series.Title, tr.EventID)
 		// Deterministic id: same phase + same recipient always derives the same
 		// id, so a retried SALES_PHASE.discovered delivery republishes an
 		// identical NOTIFICATION.requested that the stream's Duplicates window
 		// discards rather than requesting delivery twice.
-		reqID := notificationRequestMsgID(entity.NotificationTypeSalesPhaseAnnouncement, userID, data.PhaseID)
+		reqID := notificationRequestMsgID(entity.NotificationTypeSalesPhaseAnnouncement, tr.UserID, data.PhaseID)
 		if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectNotificationRequested, reqID, entity.NotificationRequestedData{
-			UserID:  userID,
+			UserID:  tr.UserID,
 			Type:    entity.NotificationTypeSalesPhaseAnnouncement,
 			Payload: payload,
 		}); err != nil {
 			// Publish failure: surface so the consumer's at-least-once retry
 			// re-drives the batch. Repeat pushes are deduplicated both by the
 			// Duplicates window above and, browser-side, by the per-phase Tag.
-			return fmt.Errorf("sales_phase_announcement: publish notification request for user %s: %w", userID, err)
+			return fmt.Errorf("sales_phase_announcement: publish notification request for user %s: %w", tr.UserID, err)
 		}
 	}
 	return nil
-}
-
-// announcementTitle returns the new-phase announcement title for the given
-// language, falling back to English for empty or unsupported codes.
-func announcementTitle(lang string) string {
-	switch lang {
-	case "ja":
-		return "チケット販売情報の新着"
-	default:
-		return "New Ticket Sales Phase"
-	}
-}
-
-// announcementBody returns the new-phase announcement body for the given
-// language, falling back to English for empty or unsupported codes.
-func announcementBody(lang string) string {
-	switch lang {
-	case "ja":
-		return "チケットの販売情報が新たに公開されました。詳細をご確認ください。"
-	default:
-		return "A new ticket sales phase was announced. Check the details."
-	}
 }

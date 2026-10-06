@@ -232,7 +232,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	salesPhaseAnnouncementUC := usecase.NewSalesPhaseAnnouncementUseCase(
 		userRepo,
 		ticketJourneyRepo,
-		concertRepo,
+		seriesRepo,
 		eventPublisher,
 		logger,
 	)

@@ -190,23 +190,23 @@ func (_c *MockTicketJourneyRepository_ListByUser_Call) RunAndReturn(run func(con
 }
 
 // ListUserIDsTrackingSeries provides a mock function with given fields: ctx, seriesID
-func (_m *MockTicketJourneyRepository) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]string, error) {
+func (_m *MockTicketJourneyRepository) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]*entity.SeriesTracker, error) {
 	ret := _m.Called(ctx, seriesID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListUserIDsTrackingSeries")
 	}
 
-	var r0 []string
+	var r0 []*entity.SeriesTracker
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) ([]string, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.SeriesTracker, error)); ok {
 		return rf(ctx, seriesID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) []string); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.SeriesTracker); ok {
 		r0 = rf(ctx, seriesID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]string)
+			r0 = ret.Get(0).([]*entity.SeriesTracker)
 		}
 	}
 
@@ -238,12 +238,12 @@ func (_c *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call) Run(run fu
 	return _c
 }
 
-func (_c *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call) Return(_a0 []string, _a1 error) *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call {
+func (_c *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call) Return(_a0 []*entity.SeriesTracker, _a1 error) *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call) RunAndReturn(run func(context.Context, string) ([]string, error)) *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call {
+func (_c *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call) RunAndReturn(run func(context.Context, string) ([]*entity.SeriesTracker, error)) *MockTicketJourneyRepository_ListUserIDsTrackingSeries_Call {
 	_c.Call.Return(run)
 	return _c
 }

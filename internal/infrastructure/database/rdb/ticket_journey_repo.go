@@ -37,15 +37,18 @@ const (
 		FROM ticket_journeys
 		WHERE user_id = $1
 	`
-	// ticketJourneyListUserIDsTrackingSeriesQuery returns the distinct user IDs
-	// with a Tracking journey (status = 1) on any event of the given series.
-	// Joins ticket_journeys to events to resolve each tracked event's series.
+	// ticketJourneyListUserIDsTrackingSeriesQuery returns each user with a
+	// Tracking journey (status = 1) on any event of the given series, once,
+	// with the user's linked event: the earliest upcoming tracked event
+	// (past events sort after upcoming ones), otherwise the earliest tracked
+	// event. e.id breaks ties between events on the same date.
 	ticketJourneyListUserIDsTrackingSeriesQuery = `
-		SELECT DISTINCT tj.user_id
+		SELECT DISTINCT ON (tj.user_id) tj.user_id, tj.event_id
 		FROM ticket_journeys tj
 		JOIN events e ON e.id = tj.event_id
 		WHERE e.series_id = $1
 		  AND tj.status = 1
+		ORDER BY tj.user_id, (e.local_event_date < current_date), e.local_event_date, e.id
 	`
 )
 
@@ -137,29 +140,29 @@ func (r *TicketJourneyRepository) ListByUser(ctx context.Context, userID string)
 	return journeys, nil
 }
 
-// ListUserIDsTrackingSeries returns the distinct user IDs with a Tracking
-// journey on any event of the given series.
-func (r *TicketJourneyRepository) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]string, error) {
+// ListUserIDsTrackingSeries returns each user with a Tracking journey on any
+// event of the given series, with the user's linked event.
+func (r *TicketJourneyRepository) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]*entity.SeriesTracker, error) {
 	if seriesID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "series ID must not be empty")
 	}
 
 	rows, err := r.db.Pool.Query(ctx, ticketJourneyListUserIDsTrackingSeriesQuery, seriesID)
 	if err != nil {
-		return nil, toAppErr(err, "failed to list user IDs tracking series", slog.String("series_id", seriesID))
+		return nil, toAppErr(err, "failed to list users tracking series", slog.String("series_id", seriesID))
 	}
 	defer rows.Close()
 
-	var userIDs []string
+	var trackers []*entity.SeriesTracker
 	for rows.Next() {
-		var userID string
-		if err := rows.Scan(&userID); err != nil {
-			return nil, toAppErr(err, "failed to scan tracking user ID")
+		var tr entity.SeriesTracker
+		if err := rows.Scan(&tr.UserID, &tr.EventID); err != nil {
+			return nil, toAppErr(err, "failed to scan series tracker")
 		}
-		userIDs = append(userIDs, userID)
+		trackers = append(trackers, &tr)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "error iterating tracking user ID rows")
+		return nil, toAppErr(err, "error iterating series tracker rows")
 	}
-	return userIDs, nil
+	return trackers, nil
 }

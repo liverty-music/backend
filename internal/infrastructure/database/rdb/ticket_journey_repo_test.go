@@ -3,6 +3,7 @@ package rdb_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -152,46 +153,122 @@ func TestTicketJourneyRepository_ListUserIDsTrackingSeries(t *testing.T) {
 	repo := rdb.NewTicketJourneyRepository(testDB)
 	ctx := context.Background()
 
-	t.Run("returns only distinct users tracking any event of the series", func(t *testing.T) {
+	// day returns the date offset from today, so "upcoming" and "past" hold
+	// whenever the test runs.
+	day := func(offset int) string {
+		return time.Now().AddDate(0, 0, offset).Format(time.DateOnly)
+	}
+	track := func(t *testing.T, userID, eventID string, status entity.TicketJourneyStatus) {
+		t.Helper()
+		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userID, EventID: eventID, Status: status}))
+	}
+	byUser := func(trackers []*entity.SeriesTracker) map[string]string {
+		out := make(map[string]string, len(trackers))
+		for _, tr := range trackers {
+			out[tr.UserID] = tr.EventID
+		}
+		return out
+	}
+
+	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "Fans tracking events of the series"
+	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "A fan past the Tracking stage"
+	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "Tracking an event of another series"
+	t.Run("Fans tracking events of the series", func(t *testing.T) {
 		cleanDatabase(t)
 
 		artistID := seedArtist(t, "track-artist", "11112222-3333-4444-5555-666677778888")
 		venueID := seedVenue(t, "track-venue")
 		seriesID := seedSeriesOnly(t, "TrackTour")
-		eventA := seedEventForSeries(t, seriesID, venueID, artistID, "2026-09-01")
-		eventB := seedEventForSeries(t, seriesID, venueID, artistID, "2026-09-02")
+		eventA := seedEventForSeries(t, seriesID, venueID, artistID, day(10))
+		eventB := seedEventForSeries(t, seriesID, venueID, artistID, day(11))
 
-		// Another series whose tracking users must NOT leak in.
 		otherSeriesID := seedSeriesOnly(t, "OtherTour")
-		otherEvent := seedEventForSeries(t, otherSeriesID, venueID, artistID, "2026-10-01")
+		otherEvent := seedEventForSeries(t, otherSeriesID, venueID, artistID, day(20))
 
-		userTrackingA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
-		userTrackingB := seedUser(t, "track-b", "track-b@test.com", "ext-track-b")
-		userApplied := seedUser(t, "applied", "applied@test.com", "ext-applied")
-		userOther := seedUser(t, "other-series", "other@test.com", "ext-other")
+		fanA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
+		fanB := seedUser(t, "track-b", "track-b@test.com", "ext-track-b")
+		fanC := seedUser(t, "applied", "applied@test.com", "ext-applied")
+		fanD := seedUser(t, "other-series", "other@test.com", "ext-other")
 
-		// Tracking on series events → must be returned.
-		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userTrackingA, EventID: eventA, Status: entity.TicketJourneyStatusTracking}))
-		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userTrackingB, EventID: eventB, Status: entity.TicketJourneyStatusTracking}))
-		// Same user tracking two events of the same series → counted once.
-		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userTrackingA, EventID: eventB, Status: entity.TicketJourneyStatusTracking}))
-		// Applied (not Tracking) on a series event → must be excluded.
-		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userApplied, EventID: eventA, Status: entity.TicketJourneyStatusApplied}))
-		// Tracking on a different series → must be excluded.
-		require.NoError(t, repo.Upsert(ctx, &entity.TicketJourney{UserID: userOther, EventID: otherEvent, Status: entity.TicketJourneyStatusTracking}))
+		track(t, fanA, eventA, entity.TicketJourneyStatusTracking)
+		track(t, fanA, eventB, entity.TicketJourneyStatusTracking)
+		track(t, fanB, eventB, entity.TicketJourneyStatusTracking)
+		track(t, fanC, eventA, entity.TicketJourneyStatusApplied)
+		track(t, fanD, otherEvent, entity.TicketJourneyStatusTracking)
 
-		userIDs, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
+		trackers, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{userTrackingA, userTrackingB}, userIDs)
+		assert.Len(t, trackers, 2, "each fan appears once")
+		assert.Equal(t, map[string]string{fanA: eventA, fanB: eventB}, byUser(trackers))
 	})
 
-	t.Run("returns empty when no one tracks the series", func(t *testing.T) {
+	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "Linked event is the earliest upcoming tracked event"
+	t.Run("Linked event is the earliest upcoming tracked event", func(t *testing.T) {
+		cleanDatabase(t)
+
+		artistID := seedArtist(t, "track-artist", "11112222-3333-4444-5555-666677778888")
+		venueID := seedVenue(t, "track-venue")
+		seriesID := seedSeriesOnly(t, "TrackTour")
+		past := seedEventForSeries(t, seriesID, venueID, artistID, day(-30))
+		_ = seedEventForSeries(t, seriesID, venueID, artistID, day(14)) // earlier, untracked
+		nov1 := seedEventForSeries(t, seriesID, venueID, artistID, day(26))
+		nov15 := seedEventForSeries(t, seriesID, venueID, artistID, day(40))
+
+		fanA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
+		track(t, fanA, nov15, entity.TicketJourneyStatusTracking)
+		track(t, fanA, past, entity.TicketJourneyStatusTracking)
+		track(t, fanA, nov1, entity.TicketJourneyStatusTracking)
+
+		trackers, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{fanA: nov1}, byUser(trackers))
+	})
+
+	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "Every tracked event is past"
+	t.Run("Every tracked event is past", func(t *testing.T) {
+		cleanDatabase(t)
+
+		artistID := seedArtist(t, "track-artist", "11112222-3333-4444-5555-666677778888")
+		venueID := seedVenue(t, "track-venue")
+		seriesID := seedSeriesOnly(t, "TrackTour")
+		sep1 := seedEventForSeries(t, seriesID, venueID, artistID, day(-35))
+		sep5 := seedEventForSeries(t, seriesID, venueID, artistID, day(-31))
+
+		fanA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
+		track(t, fanA, sep5, entity.TicketJourneyStatusTracking)
+		track(t, fanA, sep1, entity.TicketJourneyStatusTracking)
+
+		trackers, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{fanA: sep1}, byUser(trackers))
+	})
+
+	t.Run("an event today counts as upcoming", func(t *testing.T) {
+		cleanDatabase(t)
+
+		artistID := seedArtist(t, "track-artist", "11112222-3333-4444-5555-666677778888")
+		venueID := seedVenue(t, "track-venue")
+		seriesID := seedSeriesOnly(t, "TrackTour")
+		past := seedEventForSeries(t, seriesID, venueID, artistID, day(-3))
+		today := seedEventForSeries(t, seriesID, venueID, artistID, day(0))
+
+		fanA := seedUser(t, "track-a", "track-a@test.com", "ext-track-a")
+		track(t, fanA, past, entity.TicketJourneyStatusTracking)
+		track(t, fanA, today, entity.TicketJourneyStatusTracking)
+
+		trackers, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{fanA: today}, byUser(trackers))
+	})
+
+	// @spec components/entity/ticket-journey/list-user-ids-tracking-series "Nobody is tracking"
+	t.Run("Nobody is tracking", func(t *testing.T) {
 		cleanDatabase(t)
 		seriesID := seedSeriesOnly(t, "EmptyTrackTour")
 
-		userIDs, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
+		trackers, err := repo.ListUserIDsTrackingSeries(ctx, seriesID)
 		require.NoError(t, err)
-		assert.Empty(t, userIDs)
+		assert.Empty(t, trackers)
 	})
 }
 

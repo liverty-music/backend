@@ -20,7 +20,7 @@ import (
 type announcementTestDeps struct {
 	userRepo    *entitymocks.MockUserRepository
 	journeyRepo *entitymocks.MockTicketJourneyRepository
-	concertRepo *entitymocks.MockConcertRepository
+	seriesRepo  *entitymocks.MockSeriesRepository
 	publisher   *ucmocks.MockEventPublisher
 	uc          usecase.SalesPhaseAnnouncementUseCase
 }
@@ -30,13 +30,13 @@ func newAnnouncementTestDeps(t *testing.T) *announcementTestDeps {
 	d := &announcementTestDeps{
 		userRepo:    entitymocks.NewMockUserRepository(t),
 		journeyRepo: entitymocks.NewMockTicketJourneyRepository(t),
-		concertRepo: entitymocks.NewMockConcertRepository(t),
+		seriesRepo:  entitymocks.NewMockSeriesRepository(t),
 		publisher:   ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewSalesPhaseAnnouncementUseCase(
 		d.userRepo,
 		d.journeyRepo,
-		d.concertRepo,
+		d.seriesRepo,
 		d.publisher,
 		newTestLogger(t),
 	)
@@ -45,9 +45,7 @@ func newAnnouncementTestDeps(t *testing.T) *announcementTestDeps {
 
 // expectAnnouncementRequested sets up a PublishEventWithID expectation
 // matching a NOTIFICATION.requested publish for the given recipient with a
-// sales-phase-announcement payload satisfying payloadMatches. AnnounceDiscoveredPhase
-// now requests delivery per recipient instead of calling NotificationUseCase.Deliver
-// directly, so these tests assert on the publish rather than on a mocked Notify call.
+// sales-phase-announcement payload satisfying payloadMatches.
 func expectAnnouncementRequested(t *testing.T, publisher *ucmocks.MockEventPublisher, userID string, payloadMatches func(p *entity.NotificationPayload) bool) *mock.Call {
 	t.Helper()
 	return publisher.EXPECT().
@@ -59,102 +57,97 @@ func expectAnnouncementRequested(t *testing.T, publisher *ucmocks.MockEventPubli
 		Once()
 }
 
+// announcementJST is Asia/Tokyo for building phase times.
+var announcementJST = time.FixedZone("JST", 9*60*60)
+
+// discoveredLottery is a lottery opening on 5 October 2026 18:00 JST.
+func discoveredLottery() entity.SalesPhaseDiscoveredData {
+	return entity.SalesPhaseDiscoveredData{
+		SeriesID:       "series-1",
+		PhaseID:        "phase-1",
+		Method:         int16(entity.SalesMethodLottery),
+		ApplyStartTime: time.Date(2026, 10, 5, 18, 0, 0, 0, announcementJST),
+	}
+}
+
+func trackers(userEvents ...string) []*entity.SeriesTracker {
+	out := make([]*entity.SeriesTracker, 0, len(userEvents)/2)
+	for i := 0; i+1 < len(userEvents); i += 2 {
+		out = append(out, &entity.SeriesTracker{UserID: userEvents[i], EventID: userEvents[i+1]})
+	}
+	return out
+}
+
 // @spec components/usecase/sales-phase/announce-discovered-phase "Two recipients"
-func TestAnnounceDiscoveredPhase_LocalizesCopyPerRecipient(t *testing.T) {
+// @spec components/usecase/sales-phase/announce-discovered-phase "Tracking fan"
+// @spec components/usecase/sales-phase/announce-discovered-phase "Two fans tracking different shows"
+func TestAnnounceDiscoveredPhase_OneRequestPerRecipient(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
 	d := newAnnouncementTestDeps(t)
-	data := entity.SalesPhaseDiscoveredData{SeriesID: "series-1", PhaseID: "phase-1"}
-
 	d.journeyRepo.EXPECT().
 		ListUserIDsTrackingSeries(ctx, "series-1").
-		Return([]string{"user-ja", "user-en", "user-unset"}, nil).
+		Return(trackers("fan-a", "event-osaka", "fan-b", "event-tokyo"), nil).
 		Once()
-	d.userRepo.EXPECT().Get(ctx, "user-ja").Return(&entity.User{ID: "user-ja", PreferredLanguage: "ja"}, nil).Once()
-	d.userRepo.EXPECT().Get(ctx, "user-en").Return(&entity.User{ID: "user-en", PreferredLanguage: "en"}, nil).Once()
-	d.userRepo.EXPECT().Get(ctx, "user-unset").Return(&entity.User{ID: "user-unset"}, nil).Once()
-	d.concertRepo.EXPECT().
-		ListEventsBySeries(ctx, "series-1").
-		Return([]*entity.Event{{ID: "event-1", LocalDate: time.Now().UTC().AddDate(0, 0, 7)}}, nil).
-		Once()
+	d.seriesRepo.EXPECT().Get(ctx, "series-1").Return(&entity.Series{ID: "series-1", Title: "KICKOFF"}, nil).Once()
+	d.userRepo.EXPECT().Get(ctx, "fan-a").Return(&entity.User{ID: "fan-a", PreferredLanguage: "ja"}, nil).Once()
+	d.userRepo.EXPECT().Get(ctx, "fan-b").Return(&entity.User{ID: "fan-b", PreferredLanguage: "en"}, nil).Once()
 
-	// Assert each recipient's requested payload carries the correct localized
-	// title, language-independent URL (the series' resolved event, not the
-	// phase itself), and per-phase Tag.
-	// @spec components/usecase/sales-phase/announce-discovered-phase "Japanese-speaking fan"
-	expectAnnouncementRequested(t, d.publisher, "user-ja", func(p *entity.NotificationPayload) bool {
-		return p.Title == "チケット販売情報の新着" &&
-			p.Data[entity.NotificationDataKeyURL] == "/concerts/event-1" &&
-			p.Tag == "sales-phase-phase-1"
+	expectAnnouncementRequested(t, d.publisher, "fan-a", func(p *entity.NotificationPayload) bool {
+		return p.Data[entity.NotificationDataKeyURL] == "/concerts/event-osaka" && p.Tag == "sales-phase-phase-1"
 	})
-	expectAnnouncementRequested(t, d.publisher, "user-en", func(p *entity.NotificationPayload) bool {
-		return p.Title == "New Ticket Sales Phase" &&
-			p.Data[entity.NotificationDataKeyURL] == "/concerts/event-1" &&
-			p.Tag == "sales-phase-phase-1"
-	})
-	// @spec components/usecase/sales-phase/announce-discovered-phase "Other language"
-	// user-unset has no preferred language, matching the scenario's "or not set".
-	expectAnnouncementRequested(t, d.publisher, "user-unset", func(p *entity.NotificationPayload) bool {
-		// Unset language falls back to English.
-		return p.Title == "New Ticket Sales Phase" &&
-			p.Data[entity.NotificationDataKeyURL] == "/concerts/event-1" &&
-			p.Tag == "sales-phase-phase-1"
+	expectAnnouncementRequested(t, d.publisher, "fan-b", func(p *entity.NotificationPayload) bool {
+		return p.Data[entity.NotificationDataKeyURL] == "/concerts/event-tokyo" && p.Tag == "sales-phase-phase-1"
 	})
 
-	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
-	require.NoError(t, err)
+	require.NoError(t, d.uc.AnnounceDiscoveredPhase(ctx, discoveredLottery()))
 }
 
+// @spec components/usecase/sales-phase/announce-discovered-phase "Profile unreadable"
 func TestAnnounceDiscoveredPhase_HydrationError_SkipsButContinues(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
 	d := newAnnouncementTestDeps(t)
-	data := entity.SalesPhaseDiscoveredData{SeriesID: "series-1", PhaseID: "phase-1"}
-
 	d.journeyRepo.EXPECT().
 		ListUserIDsTrackingSeries(ctx, "series-1").
-		Return([]string{"user-ja", "user-broken"}, nil).
+		Return(trackers("user-ja", "event-1", "user-broken", "event-1"), nil).
 		Once()
+	d.seriesRepo.EXPECT().Get(ctx, "series-1").Return(&entity.Series{ID: "series-1", Title: "KICKOFF"}, nil).Once()
 	d.userRepo.EXPECT().Get(ctx, "user-ja").Return(&entity.User{ID: "user-ja", PreferredLanguage: "ja"}, nil).Once()
-	// user-broken fails hydration; the use case logs a warning and continues.
 	d.userRepo.EXPECT().Get(ctx, "user-broken").Return(nil, apperr.ErrInternal).Once()
-	// The series has no event: the link falls back to the dashboard. Not
-	// asserted below since this test only checks title localization.
-	d.concertRepo.EXPECT().ListEventsBySeries(ctx, "series-1").Return(nil, nil).Once()
 
-	// Both audience members still get a requested notification. user-broken
-	// falls back to the English copy because it never made it into the
-	// language map.
+	// Only the readable fan gets a request; a request for user-broken would
+	// fail the mock.
 	expectAnnouncementRequested(t, d.publisher, "user-ja", func(p *entity.NotificationPayload) bool {
-		return p.Title == "チケット販売情報の新着"
-	})
-	expectAnnouncementRequested(t, d.publisher, "user-broken", func(p *entity.NotificationPayload) bool {
-		// Hydration failure falls back to English.
-		return p.Title == "New Ticket Sales Phase"
+		return p.Title == "チケット抽選受付のお知らせ"
 	})
 
-	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
-	require.NoError(t, err)
+	require.NoError(t, d.uc.AnnounceDiscoveredPhase(ctx, discoveredLottery()))
 }
 
+// @spec components/usecase/sales-phase/announce-discovered-phase "Nobody tracking"
 func TestAnnounceDiscoveredPhase_EmptyAudience_NoOp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
 	d := newAnnouncementTestDeps(t)
-	data := entity.SalesPhaseDiscoveredData{SeriesID: "series-1", PhaseID: "phase-1"}
-
 	d.journeyRepo.EXPECT().
 		ListUserIDsTrackingSeries(ctx, "series-1").
-		Return([]string{}, nil).
+		Return(nil, nil).
 		Once()
-	// No user hydration, no publish calls expected.
+	// No series read, user hydration or publish expected.
 
-	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
-	require.NoError(t, err)
-	d.publisher.AssertNotCalled(t, "PublishEventWithID")
+	require.NoError(t, d.uc.AnnounceDiscoveredPhase(ctx, discoveredLottery()))
+}
+
+// @spec components/usecase/sales-phase/announce-discovered-phase "Request without a series"
+func TestAnnounceDiscoveredPhase_NoSeries_NoOp(t *testing.T) {
+	t.Parallel()
+
+	d := newAnnouncementTestDeps(t)
+	require.NoError(t, d.uc.AnnounceDiscoveredPhase(context.Background(), entity.SalesPhaseDiscoveredData{PhaseID: "phase-1"}))
 }
 
 // @spec components/usecase/sales-phase/announce-discovered-phase "Request fails"
@@ -163,16 +156,14 @@ func TestAnnounceDiscoveredPhase_PublishError_PropagatesAndAborts(t *testing.T) 
 	ctx := context.Background()
 
 	d := newAnnouncementTestDeps(t)
-	data := entity.SalesPhaseDiscoveredData{SeriesID: "series-1", PhaseID: "phase-1"}
-
 	d.journeyRepo.EXPECT().
 		ListUserIDsTrackingSeries(ctx, "series-1").
-		Return([]string{"user-1", "user-2", "user-3"}, nil).
+		Return(trackers("user-1", "e", "user-2", "e", "user-3", "e"), nil).
 		Once()
-	for _, uid := range []string{"user-1", "user-2", "user-3"} {
+	d.seriesRepo.EXPECT().Get(ctx, "series-1").Return(&entity.Series{ID: "series-1", Title: "KICKOFF"}, nil).Once()
+	for _, uid := range []string{"user-1", "user-2"} {
 		d.userRepo.EXPECT().Get(ctx, uid).Return(&entity.User{ID: uid, PreferredLanguage: "en"}, nil).Once()
 	}
-	d.concertRepo.EXPECT().ListEventsBySeries(ctx, "series-1").Return(nil, nil).Once()
 
 	requestedFor := func(userID string) any {
 		return mock.MatchedBy(func(data entity.NotificationRequestedData) bool { return data.UserID == userID })
@@ -188,64 +179,72 @@ func TestAnnounceDiscoveredPhase_PublishError_PropagatesAndAborts(t *testing.T) 
 		Once()
 	// No request is expected for user-3: a third publish would fail the mock.
 
-	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
+	err := d.uc.AnnounceDiscoveredPhase(ctx, discoveredLottery())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, publishErr)
 	d.publisher.AssertNumberOfCalls(t, "PublishEventWithID", 2)
 }
 
-// @spec components/usecase/sales-phase/announce-discovered-phase "No upcoming event"
-func TestAnnounceDiscoveredPhase_NoUpcomingEvent_LinksToEarliestEvent(t *testing.T) {
+func TestBuildAnnouncementPayload(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 
-	d := newAnnouncementTestDeps(t)
-	data := entity.SalesPhaseDiscoveredData{SeriesID: "series-1", PhaseID: "phase-1"}
+	tests := []struct {
+		name      string
+		phase     *entity.SalesPhase
+		user      *entity.User
+		tour      string
+		wantTitle string
+		wantText  string
+	}{
+		{
+			// @spec components/usecase/sales-phase/announce-discovered-phase "First-come sale in Japanese"
+			name: "First-come sale in Japanese",
+			phase: &entity.SalesPhase{ID: "p", Method: entity.SalesMethodFirstCome,
+				ApplyStartTime: time.Date(2026, 10, 6, 19, 0, 0, 0, announcementJST)},
+			user:      &entity.User{PreferredLanguage: "ja", TimeZone: "Asia/Tokyo"},
+			tour:      "星降る晩餐会",
+			wantTitle: "チケット先着販売のお知らせ",
+			wantText:  "10/6(火) 19:00からチケットの先着販売スタート!!\n星降る晩餐会",
+		},
+		{
+			// @spec components/usecase/sales-phase/announce-discovered-phase "Lottery in English"
+			name: "Lottery in English",
+			phase: &entity.SalesPhase{ID: "p", Method: entity.SalesMethodLottery,
+				ApplyStartTime: time.Date(2026, 10, 5, 18, 0, 0, 0, announcementJST)},
+			user:      &entity.User{PreferredLanguage: "fr"},
+			tour:      "KICKOFF",
+			wantTitle: "Ticket Lottery",
+			wantText:  "Ticket lottery entry starts Oct 5 (Mon) 18:00!\nKICKOFF",
+		},
+		{
+			name: "lottery in Japanese",
+			phase: &entity.SalesPhase{ID: "p", Method: entity.SalesMethodLottery,
+				ApplyStartTime: time.Date(2026, 10, 5, 18, 0, 0, 0, announcementJST)},
+			user:      &entity.User{PreferredLanguage: "ja"},
+			tour:      "KICKOFF",
+			wantTitle: "チケット抽選受付のお知らせ",
+			wantText:  "10/5(月) 18:00からチケットの抽選申し込みスタート!!\nKICKOFF",
+		},
+		{
+			name: "first-come in English, in the recipient's time zone",
+			phase: &entity.SalesPhase{ID: "p", Method: entity.SalesMethodFirstCome,
+				ApplyStartTime: time.Date(2026, 10, 6, 19, 0, 0, 0, announcementJST)},
+			user:      &entity.User{PreferredLanguage: "en", TimeZone: "Asia/Taipei"},
+			tour:      "Tour",
+			wantTitle: "First-Come Ticket Sale",
+			wantText:  "Ticket sale (first come) starts Oct 6 (Tue) 18:00!\nTour",
+		},
+	}
 
-	d.journeyRepo.EXPECT().
-		ListUserIDsTrackingSeries(ctx, "series-1").
-		Return([]string{"user-1"}, nil).
-		Once()
-	d.userRepo.EXPECT().Get(ctx, "user-1").Return(&entity.User{ID: "user-1", PreferredLanguage: "en"}, nil).Once()
-	// Every event of the series is in the past: the more recent one is
-	// nonetheless the "earliest" of the two, and is the one linked to.
-	past := time.Now().UTC().AddDate(0, 0, -30)
-	moreRecentPast := time.Now().UTC().AddDate(0, 0, -1)
-	d.concertRepo.EXPECT().
-		ListEventsBySeries(ctx, "series-1").
-		Return([]*entity.Event{
-			{ID: "event-oldest", LocalDate: past},
-			{ID: "event-recent", LocalDate: moreRecentPast},
-		}, nil).
-		Once()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	expectAnnouncementRequested(t, d.publisher, "user-1", func(p *entity.NotificationPayload) bool {
-		return p.Data[entity.NotificationDataKeyURL] == "/concerts/event-oldest"
-	})
-
-	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
-	require.NoError(t, err)
-}
-
-// @spec components/usecase/sales-phase/announce-discovered-phase "Series with no event"
-func TestAnnounceDiscoveredPhase_SeriesWithNoEvent_LinksToDashboard(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	d := newAnnouncementTestDeps(t)
-	data := entity.SalesPhaseDiscoveredData{SeriesID: "series-1", PhaseID: "phase-1"}
-
-	d.journeyRepo.EXPECT().
-		ListUserIDsTrackingSeries(ctx, "series-1").
-		Return([]string{"user-1"}, nil).
-		Once()
-	d.userRepo.EXPECT().Get(ctx, "user-1").Return(&entity.User{ID: "user-1", PreferredLanguage: "en"}, nil).Once()
-	d.concertRepo.EXPECT().ListEventsBySeries(ctx, "series-1").Return(nil, nil).Once()
-
-	expectAnnouncementRequested(t, d.publisher, "user-1", func(p *entity.NotificationPayload) bool {
-		return p.Data[entity.NotificationDataKeyURL] == "/dashboard"
-	})
-
-	err := d.uc.AnnounceDiscoveredPhase(ctx, data)
-	require.NoError(t, err)
+			p := usecase.ExportedBuildAnnouncementPayload(tt.phase, tt.user, tt.tour, "event-1")
+			assert.Equal(t, tt.wantTitle, p.Title)
+			assert.Equal(t, tt.wantText, p.Body)
+			assert.Equal(t, "/concerts/event-1", p.Data[entity.NotificationDataKeyURL])
+			assert.Equal(t, "sales-phase-p", p.Tag)
+		})
+	}
 }

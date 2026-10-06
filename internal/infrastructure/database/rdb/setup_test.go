@@ -37,11 +37,14 @@ func TestMain(m *testing.M) {
 
 func setupTestDatabase() *rdb.Database {
 	dbCfg := config.DatabaseConfig{
-		Host:              "localhost",
-		Port:              15432,
-		Name:              "test-db",
-		User:              "test-user",
-		SSLMode:           "disable",
+		Host:    "localhost",
+		Port:    15432,
+		Name:    "test-db",
+		User:    "test-user",
+		SSLMode: "disable",
+		// Same search_path as production (app, public): migrations that set
+		// search_path create their tables in app, older ones in public.
+		Schema:            "app",
 		MaxOpenConns:      10,
 		MaxIdleConns:      2,
 		ConnMaxLifetime:   1800,
@@ -163,6 +166,7 @@ func cleanTables(db *rdb.Database) {
 		"followed_artists",
 		"artist_official_site",
 		"sales_phase_reminders",
+		"sales_phase_search_logs",
 		"sales_phases",
 		"event_performers",
 		"concerts",

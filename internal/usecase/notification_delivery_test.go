@@ -37,12 +37,16 @@ func TestAnnounceDiscoveredPhase_RequestIDIsDeterministic(t *testing.T) {
 		t.Helper()
 		userRepo := entitymocks.NewMockUserRepository(t)
 		journeyRepo := entitymocks.NewMockTicketJourneyRepository(t)
-		concertRepo := entitymocks.NewMockConcertRepository(t)
+		seriesRepo := entitymocks.NewMockSeriesRepository(t)
 		publisher := ucmocks.NewMockEventPublisher(t)
-		uc := usecase.NewSalesPhaseAnnouncementUseCase(userRepo, journeyRepo, concertRepo, publisher, newTestLogger(t))
+		uc := usecase.NewSalesPhaseAnnouncementUseCase(userRepo, journeyRepo, seriesRepo, publisher, newTestLogger(t))
 
-		journeyRepo.EXPECT().ListUserIDsTrackingSeries(ctx, "series-1").Return(userIDs, nil).Once()
-		concertRepo.EXPECT().ListEventsBySeries(ctx, "series-1").Return(nil, nil).Once()
+		trackers := make([]*entity.SeriesTracker, len(userIDs))
+		for i, uid := range userIDs {
+			trackers[i] = &entity.SeriesTracker{UserID: uid, EventID: "event-1"}
+		}
+		journeyRepo.EXPECT().ListUserIDsTrackingSeries(ctx, "series-1").Return(trackers, nil).Once()
+		seriesRepo.EXPECT().Get(ctx, "series-1").Return(&entity.Series{ID: "series-1", Title: "Tour"}, nil).Once()
 		for _, uid := range userIDs {
 			userRepo.EXPECT().Get(ctx, uid).Return(&entity.User{ID: uid}, nil).Once()
 		}

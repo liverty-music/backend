@@ -17,8 +17,8 @@ var ExportedScheduledFireTime = scheduledFireTime
 // ExportedBuildReminderPayload exposes buildReminderPayload for black-box tests.
 var ExportedBuildReminderPayload = buildReminderPayload
 
-// ExportedChannelDisplayName exposes channelDisplayName for black-box tests.
-var ExportedChannelDisplayName = channelDisplayName
+// ExportedBuildAnnouncementPayload exposes buildAnnouncementPayload for black-box tests.
+var ExportedBuildAnnouncementPayload = buildAnnouncementPayload
 
 // ExportedUserTimezone exposes userTimezone for black-box tests.
 var ExportedUserTimezone = userTimezone

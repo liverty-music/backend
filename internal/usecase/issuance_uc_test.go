@@ -107,7 +107,7 @@ func (s *stubJourneyRepo) ListByUser(ctx context.Context, userID string) ([]*ent
 	return nil, nil
 }
 
-func (s *stubJourneyRepo) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]string, error) {
+func (s *stubJourneyRepo) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]*entity.SeriesTracker, error) {
 	return nil, nil
 }
 

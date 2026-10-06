@@ -389,44 +389,48 @@ COMMENT ON COLUMN notifications.read_at IS 'Timestamp when the user marked the n
 COMMENT ON COLUMN notifications.dismissed_at IS 'Timestamp when the user dismissed the notification; NULL until dismissed';
 
 -- Sales phases table
--- Represents a single series-level ticket-sales window (e.g. FC pre-sale, general
--- lottery, general on-sale). A phase applies to its series as a whole; there is no
--- per-event coverage subset. The surrogate id is the ONLY uniqueness key — there is
--- no compound unique constraint on (series_id, apply_start_at) because convergence
--- on that pair is enforced at the application layer (a UNIQUE index MAY be added
--- later as a safety net).
+-- Represents a single series-level ticket-sales window: one application period
+-- under one method (lottery or first come). A phase applies to its series as a
+-- whole; there is no per-event coverage subset. Re-discovery converges on
+-- (series_id, method, apply start date in Japan time), enforced by a unique key.
 CREATE TABLE IF NOT EXISTS sales_phases (
     id UUID PRIMARY KEY,
     series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
     method SMALLINT NOT NULL,
-    channel SMALLINT NOT NULL,
-    provider_name TEXT,
-    sequence INT NOT NULL DEFAULT 0,
     apply_start_at TIMESTAMPTZ NOT NULL,
     apply_end_at TIMESTAMPTZ,
     lottery_result_at TIMESTAMPTZ,
-    payment_deadline_at TIMESTAMPTZ,
-    url TEXT,
     discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    apply_start_date_jst DATE GENERATED ALWAYS AS ((apply_start_at AT TIME ZONE 'Asia/Tokyo')::date) STORED,
     CONSTRAINT chk_sales_phases_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_sales_phases_method CHECK (method BETWEEN 0 AND 2),
-    CONSTRAINT chk_sales_phases_channel CHECK (channel BETWEEN 0 AND 6),
-    CONSTRAINT chk_sales_phases_sequence CHECK (sequence >= 0)
+    CONSTRAINT chk_sales_phases_method CHECK (method IN (1, 2)),
+    CONSTRAINT chk_sales_phases_result_only_lottery CHECK (method = 1 OR lottery_result_at IS NULL),
+    CONSTRAINT chk_sales_phases_lottery_has_end CHECK (method = 2 OR apply_end_at IS NOT NULL),
+    CONSTRAINT chk_sales_phases_end_after_start CHECK (apply_end_at IS NULL OR apply_end_at > apply_start_at),
+    CONSTRAINT uq_sales_phases_series_method_start_date UNIQUE (series_id, method, apply_start_date_jst)
 );
 
-COMMENT ON TABLE sales_phases IS 'A single series-level ticket-sales window. The surrogate id is the only uniqueness key; application-layer matching on (series_id, apply_start_at) converges re-discovered phases onto existing rows.';
+COMMENT ON TABLE sales_phases IS 'A single series-level ticket-sales window. Re-discovered phases converge on (series_id, method, apply_start_date_jst).';
 COMMENT ON COLUMN sales_phases.id IS 'Unique sales phase identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN sales_phases.series_id IS 'Reference to the parent series that owns this sales phase';
-COMMENT ON COLUMN sales_phases.method IS 'Sales method: 0=UNSPECIFIED, 1=LOTTERY, 2=FIRST_COME';
-COMMENT ON COLUMN sales_phases.channel IS 'Sales channel: 0=UNSPECIFIED, 1=FAN_CLUB, 2=OFFICIAL, 3=PLAYGUIDE, 4=CREDIT_CARD, 5=MOBILE_CARRIER, 6=GENERAL. Concrete play-guide provider names go in provider_name.';
-COMMENT ON COLUMN sales_phases.provider_name IS 'Verbatim provider name from the source (e.g. "e+", "ローチケ"). NULL when indeterminate.';
-COMMENT ON COLUMN sales_phases.sequence IS 'Ordinal within the same channel for phases that occur in multiple rounds (0-based). Does not uniquely identify a phase.';
-COMMENT ON COLUMN sales_phases.apply_start_at IS 'Start of the application or on-sale window (required). Must be known for a phase to be persisted. Together with series_id it is the application-layer convergence key.';
-COMMENT ON COLUMN sales_phases.apply_end_at IS 'End of the application window (lottery) or close of on-sale (first-come). NULL when unknown.';
-COMMENT ON COLUMN sales_phases.lottery_result_at IS 'When lottery results are announced. NULL for first-come phases or when unknown.';
-COMMENT ON COLUMN sales_phases.payment_deadline_at IS 'Payment deadline after winning a lottery. NULL for first-come phases or when unknown.';
-COMMENT ON COLUMN sales_phases.url IS 'Direct URL to the sales page for this phase. NULL when not available.';
+COMMENT ON COLUMN sales_phases.method IS 'Sales method: 1=LOTTERY, 2=FIRST_COME';
+COMMENT ON COLUMN sales_phases.apply_start_at IS 'Start of the application or on-sale window (required).';
+COMMENT ON COLUMN sales_phases.apply_end_at IS 'End of the application window. Required for a lottery; NULL for a first-come sale that ends when tickets run out.';
+COMMENT ON COLUMN sales_phases.lottery_result_at IS 'When lottery results are announced. NULL for first-come phases or when not announced.';
 COMMENT ON COLUMN sales_phases.discovered_at IS 'Timestamp when this sales phase row was first inserted. Used as the first-sight guard: stages whose natural trigger is before discovered_at are not fired.';
+COMMENT ON COLUMN sales_phases.apply_start_date_jst IS 'Calendar date of apply_start_at in Asia/Tokyo; part of the re-discovery convergence key.';
+
+-- Sales phase search logs
+-- Records when each series was last searched for sales phases, so discovery
+-- searches a series at most once per interval whether or not it found anything.
+CREATE TABLE IF NOT EXISTS sales_phase_search_logs (
+    series_id UUID PRIMARY KEY REFERENCES series(id) ON DELETE CASCADE,
+    searched_at TIMESTAMPTZ NOT NULL
+);
+
+COMMENT ON TABLE sales_phase_search_logs IS 'When each series was last searched for ticket sales phases. One row per series.';
+COMMENT ON COLUMN sales_phase_search_logs.series_id IS 'The series that was searched';
+COMMENT ON COLUMN sales_phase_search_logs.searched_at IS 'When the series was last searched successfully';
 
 -- Sales phase reminders sent-log
 -- Tracks which reminder stages have already been dispatched to each user for a
@@ -446,7 +450,7 @@ COMMENT ON TABLE sales_phase_reminders IS 'Sent-log for sales phase reminder not
 COMMENT ON COLUMN sales_phase_reminders.id IS 'Unique reminder record identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN sales_phase_reminders.user_id IS 'Reference to the user who received the reminder';
 COMMENT ON COLUMN sales_phase_reminders.sales_phase_id IS 'Reference to the sales phase this reminder relates to';
-COMMENT ON COLUMN sales_phase_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at apply_start_time), 2=APPLY_CLOSE_24H (24h before apply_end_time), 3=APPLY_CLOSE_1H (1h before apply_end_time), 4=RESULT_DAY (09:00 on lottery_result_time day). Payment-deadline stage deferred.';
+COMMENT ON COLUMN sales_phase_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at apply_start_time for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before apply_end_time, lottery only), 4=RESULT_DAY (09:00 on lottery_result_time day). 3 was APPLY_CLOSE_1H and is unused.';
 COMMENT ON COLUMN sales_phase_reminders.sent_at IS 'Timestamp when the reminder was dispatched';
 
 -- Staged concerts (approval queue)
