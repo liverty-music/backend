@@ -25,3 +25,6 @@ var ExportedUserTimezone = userTimezone
 
 // ReminderScanLookbackMargin exposes reminderScanLookbackMargin for black-box tests.
 const ReminderScanLookbackMargin = reminderScanLookbackMargin
+
+// ExportedOfficialSiteRefreshBatchSize exposes officialSiteRefreshBatchSize for black-box tests.
+var ExportedOfficialSiteRefreshBatchSize = officialSiteRefreshBatchSize
