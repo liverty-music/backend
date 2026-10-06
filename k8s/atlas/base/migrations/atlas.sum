@@ -1,4 +1,4 @@
-h1:MHlDajhH/fE/SqBsxq510e2F2s9P60fG5Ksdw7t0b44=
+h1:ZaM3stVbKBNrmblsz8fWsKW37IkmByw2WGpLuj3ijxg=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -89,3 +89,4 @@ h1:MHlDajhH/fE/SqBsxq510e2F2s9P60fG5Ksdw7t0b44=
 20260915000000_add_events_rescheduled_at.sql h1:r8FSFZT63NuWghbRQjQkRNZAkrIMVoQv9xu5gi4FeDM=
 20261005000000_add_artists_official_site_checked_at.sql h1:Sp5m4hhTNru4zwL7wB8q9kbpj7zhyuVFQGC6Y/kJno8=
 20261006000000_tune_sales_phase_search.sql h1:8mtG4oQ505hyVLe/wV6HEgJhVxgyHW0B3Ccx59Xii3I=
+20261006010000_drop_unused_uuid_ossp_and_series_backup.sql h1:u+DgyDE0x5WsgeL5PHSQretXRiQxBd+bhg9UHLw8W6U=
