@@ -65,6 +65,8 @@ func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscov
 	concertRepo := rdb.NewConcertRepository(db)
 	artistRepo := rdb.NewArtistRepository(db)
 	salesPhaseRepo := rdb.NewSalesPhaseRepository(db)
+	salesPhaseSearchLogRepo := rdb.NewSalesPhaseSearchLogRepository(db)
+	journeyRepo := rdb.NewTicketJourneyRepository(db)
 
 	// Messaging
 	//
@@ -92,13 +94,9 @@ func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscov
 	}
 	geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	searcher, err := gemini.NewSalesPhaseSearcher(ctx, gemini.SalesPhaseConfig{
-		APIKey:          cfg.GCP.GeminiSearchAPIKey,
-		ModelExtract:    cfg.GCP.SearchModelExtract(),
-		ModelParse:      cfg.GCP.SearchModelParse(),
-		Temperature:     cfg.GCP.GeminiSearchTemperature,
-		ThinkingLevel:   cfg.GCP.GeminiSearchThinkingLevel,
-		ThinkingExtract: cfg.GCP.GeminiSearchThinkingExtract,
-		ThinkingParse:   cfg.GCP.GeminiSearchThinkingParse,
+		APIKey:   cfg.GCP.GeminiSearchAPIKey,
+		Model:    cfg.GCP.SalesPhaseSearchModel(),
+		Thinking: cfg.GCP.SalesPhaseSearchThinking(),
 	}, geminiHTTPClient, logger)
 	if err != nil {
 		return nil, err
@@ -111,9 +109,10 @@ func InitializeSalesPhaseDiscoveryJobApp(ctx context.Context) (*SalesPhaseDiscov
 		concertRepo,
 		artistRepo,
 		salesPhaseRepo,
+		salesPhaseSearchLogRepo,
+		journeyRepo,
 		searcher,
 		eventPublisher,
-		cfg.GCP.SalesPhaseWindow(),
 		logger,
 	)
 

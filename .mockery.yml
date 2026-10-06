@@ -59,6 +59,7 @@ packages:
       SalesPhaseRepository:
       SalesPhaseReminderRepository:
       SalesPhaseSearcher:
+      SalesPhaseSearchLogRepository:
       StagedConcertRepository:
       RejectedConcertLogRepository:
       SuppressedConcertRepository:

@@ -85,13 +85,16 @@ type TicketJourneyRepository interface {
 	//   - Internal: database query failure.
 	ListByUser(ctx context.Context, userID string) ([]*TicketJourney, error)
 
-	// ListUserIDsTrackingSeries returns the distinct user IDs that have a
-	// Tracking ticket journey ([TicketJourneyStatusTracking]) on any event of
-	// the given series. It is the reverse-lookup the sales-phase announcement
-	// and reminder paths use to resolve their audience from explicit fan intent
-	// (a Tracking journey is a "notify me about this sale" signal) rather than
-	// follower proximity. Fans in later lifecycle states (Applied/Paid/…) are
-	// intentionally excluded.
+	// ListUserIDsTrackingSeries returns every user that has a Tracking ticket
+	// journey ([TicketJourneyStatusTracking]) on any event of the given series,
+	// once each, with the event to link that user to: the earliest upcoming
+	// event (date today or later) the user tracks in the series, otherwise the
+	// earliest event the user tracks there. It is the reverse-lookup the
+	// sales-phase announcement and reminder paths use to resolve their audience
+	// from explicit fan intent (a Tracking journey is a "notify me about this
+	// sale" signal) rather than follower proximity. Fans in later lifecycle
+	// states (Applied/Paid/…) are intentionally excluded. The result has no
+	// particular order.
 	//
 	// An empty result (no one tracking) returns (nil, nil).
 	//
@@ -99,5 +102,15 @@ type TicketJourneyRepository interface {
 	//
 	//   - InvalidArgument: If seriesID is empty.
 	//   - Internal: database query failure.
-	ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]string, error)
+	ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]*SeriesTracker, error)
+}
+
+// SeriesTracker is a user tracking a series, with the event a notification
+// about that series links the user to.
+type SeriesTracker struct {
+	// UserID is the tracking user.
+	UserID string
+	// EventID is the user's linked event: the earliest upcoming event the user
+	// tracks in the series, otherwise the earliest one the user tracks there.
+	EventID string
 }

@@ -7,6 +7,8 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"uuid"
@@ -23,151 +25,324 @@ func TestSalesPhaseRepository_Upsert(t *testing.T) {
 	repo := rdb.NewSalesPhaseRepository(testDB)
 	ctx := context.Background()
 
-	// t0 is a reference time used across test cases.
-	t0 := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	jst := time.FixedZone("JST", 9*60*60)
+	oct5At16 := time.Date(2026, 10, 5, 16, 0, 0, 0, jst)
+	oct5At18 := time.Date(2026, 10, 5, 18, 0, 0, 0, jst)
+	oct22Close := time.Date(2026, 10, 22, 23, 59, 0, 0, jst)
+	nov3Result := time.Date(2026, 11, 3, 15, 0, 0, 0, jst)
 
-	t.Run("same (series, apply_start) converges and updates descriptive fields last-write-wins", func(t *testing.T) {
-		cleanDatabase(t)
-
-		seriesID := seedSeriesOnly(t, "TestTour")
-
-		first := &entity.SalesPhaseCandidate{
+	lottery := func(seriesID string, start time.Time) *entity.SalesPhaseCandidate {
+		return &entity.SalesPhaseCandidate{
 			SeriesID:       seriesID,
 			Method:         entity.SalesMethodLottery,
-			Channel:        entity.SalesChannelFanClub,
-			ApplyStartTime: t0,
+			ApplyStartTime: start,
+			ApplyEndTime:   oct22Close,
 		}
-		upsertPhase(t, repo, ctx, first)
+	}
+
+	// @spec components/entity/sales-phase/upsert "Re-discovery with a corrected time"
+	t.Run("Re-discovery with a corrected time", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		firstID, outcome := upsertPhase(t, repo, ctx, lottery(seriesID, oct5At16))
+		assert.Equal(t, entity.UpsertOutcomeInserted, outcome)
+
+		id, outcome := upsertPhase(t, repo, ctx, lottery(seriesID, oct5At18))
+		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome)
+		assert.Equal(t, firstID, id)
 
 		phases, err := repo.GetBySeries(ctx, seriesID)
 		require.NoError(t, err)
 		require.Len(t, phases, 1)
-		firstID := phases[0].ID
-
-		// Re-discover the same window (same apply_start) with reclassified
-		// descriptive fields — must converge onto the existing row.
-		second := &entity.SalesPhaseCandidate{
-			SeriesID:       seriesID,
-			Method:         entity.SalesMethodFirstCome,
-			Channel:        entity.SalesChannelGeneral,
-			ProviderName:   "ローチケ",
-			ApplyStartTime: t0,
-			URL:            "https://example.com/ticket",
-		}
-		upsertPhase(t, repo, ctx, second)
-
-		phases, err = repo.GetBySeries(ctx, seriesID)
-		require.NoError(t, err)
-		assert.Len(t, phases, 1)
-		assert.Equal(t, firstID, phases[0].ID, "phase ID must be stable after convergence")
-		// apply_start is identity (unchanged); descriptive fields are LWW-updated.
-		assert.True(t, t0.Equal(phases[0].ApplyStartTime), "apply_start_time is identity and unchanged")
-		assert.Equal(t, entity.SalesMethodFirstCome, phases[0].Method)
-		assert.Equal(t, entity.SalesChannelGeneral, phases[0].Channel)
-		assert.Equal(t, "ローチケ", phases[0].ProviderName)
-		assert.Equal(t, "https://example.com/ticket", phases[0].URL)
+		assert.True(t, oct5At18.Equal(phases[0].ApplyStartTime))
 	})
 
-	t.Run("different apply_start produces separate rows", func(t *testing.T) {
+	// @spec components/entity/sales-phase/upsert "Re-discovery with more detail"
+	t.Run("Re-discovery with more detail", func(t *testing.T) {
 		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
 
-		seriesID := seedSeriesOnly(t, "TestTour2")
+		firstID, _ := upsertPhase(t, repo, ctx, lottery(seriesID, oct5At18))
 
-		early := &entity.SalesPhaseCandidate{
-			SeriesID:       seriesID,
-			Method:         entity.SalesMethodLottery,
-			Channel:        entity.SalesChannelFanClub,
-			ApplyStartTime: t0,
-		}
-		later := &entity.SalesPhaseCandidate{
-			SeriesID:       seriesID,
-			Method:         entity.SalesMethodFirstCome,
-			Channel:        entity.SalesChannelGeneral,
-			ApplyStartTime: t0.Add(24 * time.Hour),
-		}
-		upsertPhase(t, repo, ctx, early)
-		upsertPhase(t, repo, ctx, later)
+		detailed := lottery(seriesID, oct5At18)
+		detailed.LotteryResultTime = nov3Result
+		id, outcome := upsertPhase(t, repo, ctx, detailed)
+		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome)
+		assert.Equal(t, firstID, id)
 
 		phases, err := repo.GetBySeries(ctx, seriesID)
 		require.NoError(t, err)
-		assert.Len(t, phases, 2, "phases with distinct apply_start must be stored as separate rows")
+		require.Len(t, phases, 1)
+		assert.True(t, nov3Result.Equal(phases[0].LotteryResultTime))
 	})
 
-	t.Run("reclassification with same apply_start does not duplicate", func(t *testing.T) {
+	// @spec components/entity/sales-phase/upsert "Different start dates stay separate"
+	t.Run("Different start dates stay separate", func(t *testing.T) {
 		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
 
-		seriesID := seedSeriesOnly(t, "TestTour3")
+		firstID, _ := upsertPhase(t, repo, ctx, lottery(seriesID, oct5At18))
 
-		unspec := &entity.SalesPhaseCandidate{
-			SeriesID:       seriesID,
-			Method:         entity.SalesMethodUnspecified,
-			Channel:        entity.SalesChannelUnspecified,
-			ApplyStartTime: t0,
-		}
-		_, unspecOutcome := upsertPhase(t, repo, ctx, unspec)
-		assert.Equal(t, entity.UpsertOutcomeInserted, unspecOutcome)
-
-		// Same apply_start, reclassified channel/sequence — must converge.
-		fc := &entity.SalesPhaseCandidate{
+		nov10 := &entity.SalesPhaseCandidate{
 			SeriesID:       seriesID,
 			Method:         entity.SalesMethodLottery,
-			Channel:        entity.SalesChannelFanClub,
-			Sequence:       1,
-			ApplyStartTime: t0,
+			ApplyStartTime: time.Date(2026, 11, 10, 12, 0, 0, 0, jst),
+			ApplyEndTime:   time.Date(2026, 11, 20, 23, 59, 0, 0, jst),
 		}
-		_, fcOutcome := upsertPhase(t, repo, ctx, fc)
-		assert.Equal(t, entity.UpsertOutcomeUpdated, fcOutcome,
-			"reclassification (UNSPECIFIED→FAN_CLUB) at the same apply_start must UPDATE, not INSERT")
-
-		phases, err := repo.GetBySeries(ctx, seriesID)
-		require.NoError(t, err)
-		assert.Len(t, phases, 1, "reclassification must converge to one row")
-		assert.Equal(t, entity.SalesChannelFanClub, phases[0].Channel)
-		assert.Equal(t, 1, phases[0].Sequence)
-	})
-
-	t.Run("upsert returns inserted then updated outcome", func(t *testing.T) {
-		cleanDatabase(t)
-
-		seriesID := seedSeriesOnly(t, "TestTour7")
-
-		candidate := &entity.SalesPhaseCandidate{
-			SeriesID:       seriesID,
-			Method:         entity.SalesMethodLottery,
-			Channel:        entity.SalesChannelFanClub,
-			ApplyStartTime: t0,
-		}
-		phaseID, outcome, err := repo.Upsert(ctx, candidate)
-		require.NoError(t, err)
+		id, outcome := upsertPhase(t, repo, ctx, nov10)
 		assert.Equal(t, entity.UpsertOutcomeInserted, outcome)
-		assert.NotEmpty(t, phaseID)
+		assert.NotEqual(t, firstID, id)
 
-		// Second call on same candidate (same apply_start) must return updated.
-		phaseID2, outcome2, err := repo.Upsert(ctx, candidate)
+		phases, err := repo.GetBySeries(ctx, seriesID)
 		require.NoError(t, err)
-		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome2)
-		assert.Equal(t, phaseID, phaseID2, "updated row ID must match inserted row ID")
+		assert.Len(t, phases, 2)
 	})
 
-	t.Run("persistence guard drops candidate with zero apply_start_time", func(t *testing.T) {
+	// @spec components/entity/sales-phase/upsert "Different methods on one day stay separate"
+	t.Run("Different methods on one day stay separate", func(t *testing.T) {
 		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
 
-		seriesID := seedSeriesOnly(t, "TestTour5")
+		upsertPhase(t, repo, ctx, lottery(seriesID, oct5At18))
 
-		candidate := &entity.SalesPhaseCandidate{
+		firstCome := &entity.SalesPhaseCandidate{
 			SeriesID:       seriesID,
-			Method:         entity.SalesMethodLottery,
-			Channel:        entity.SalesChannelFanClub,
-			ApplyStartTime: time.Time{}, // zero — must be dropped
+			Method:         entity.SalesMethodFirstCome,
+			ApplyStartTime: oct5At18,
 		}
-		phaseID, outcome, err := repo.Upsert(ctx, candidate)
+		_, outcome := upsertPhase(t, repo, ctx, firstCome)
+		assert.Equal(t, entity.UpsertOutcomeInserted, outcome)
+
+		phases, err := repo.GetBySeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Len(t, phases, 2)
+	})
+
+	t.Run("same instant on different Japan dates stays separate", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		// 23:30 and 00:30 JST are an hour apart but on different Japan dates.
+		late := lottery(seriesID, time.Date(2026, 10, 5, 23, 30, 0, 0, jst))
+		early := lottery(seriesID, time.Date(2026, 10, 6, 0, 30, 0, 0, jst))
+		upsertPhase(t, repo, ctx, late)
+		_, outcome := upsertPhase(t, repo, ctx, early)
+		assert.Equal(t, entity.UpsertOutcomeInserted, outcome)
+	})
+
+	// @spec components/entity/sales-phase/upsert "Omitted value clears the stored one"
+	t.Run("Omitted value clears the stored one", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		withResult := lottery(seriesID, oct5At18)
+		withResult.LotteryResultTime = nov3Result
+		upsertPhase(t, repo, ctx, withResult)
+
+		_, outcome := upsertPhase(t, repo, ctx, lottery(seriesID, oct5At18))
+		assert.Equal(t, entity.UpsertOutcomeUpdated, outcome)
+
+		phases, err := repo.GetBySeries(ctx, seriesID)
+		require.NoError(t, err)
+		require.Len(t, phases, 1)
+		assert.True(t, phases[0].LotteryResultTime.IsZero())
+	})
+
+	// @spec components/entity/sales-phase/upsert "Unknown start"
+	t.Run("Unknown start", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		phaseID, outcome, err := repo.Upsert(ctx, &entity.SalesPhaseCandidate{
+			SeriesID: seriesID,
+			Method:   entity.SalesMethodLottery,
+		})
 		require.NoError(t, err)
 		assert.Equal(t, entity.UpsertOutcomeSkipped, outcome)
 		assert.Empty(t, phaseID)
 
 		phases, err := repo.GetBySeries(ctx, seriesID)
 		require.NoError(t, err)
-		assert.Empty(t, phases, "guard must prevent insertion when apply_start_time is zero")
+		assert.Empty(t, phases)
+	})
+
+	// @spec components/entity/sales-phase/upsert "Phase no longer discovered"
+	t.Run("Phase no longer discovered", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		upsertPhase(t, repo, ctx, lottery(seriesID, oct5At18))
+		// A later discovery that returns no phases makes no Upsert call; the
+		// stored phase stays.
+		phases, err := repo.GetBySeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Len(t, phases, 1)
+	})
+
+	// @spec components/entity/sales-phase/upsert "No series"
+	t.Run("No series", func(t *testing.T) {
+		cleanDatabase(t)
+
+		_, _, err := repo.Upsert(ctx, lottery("", oct5At18))
+		assertAppErrCode(t, err, codes.InvalidArgument)
+	})
+
+	// @spec components/entity/sales-phase/upsert "Unknown series"
+	t.Run("Unknown series", func(t *testing.T) {
+		cleanDatabase(t)
+
+		_, _, err := repo.Upsert(ctx, lottery(mustNewV7(), oct5At18))
+		assertAppErrCode(t, err, codes.FailedPrecondition)
+	})
+
+	t.Run("lottery without a close is rejected", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		_, _, err := repo.Upsert(ctx, &entity.SalesPhaseCandidate{
+			SeriesID:       seriesID,
+			Method:         entity.SalesMethodLottery,
+			ApplyStartTime: oct5At18,
+		})
+		assertAppErrCode(t, err, codes.InvalidArgument)
+	})
+}
+
+func TestSalesPhaseRepository_GetBySeries(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	repo := rdb.NewSalesPhaseRepository(testDB)
+	ctx := context.Background()
+	jst := time.FixedZone("JST", 9*60*60)
+
+	// @spec components/entity/sales-phase/get-by-series "Series with two phases"
+	t.Run("Series with two phases", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		nov10 := time.Date(2026, 11, 10, 12, 0, 0, 0, jst)
+		oct5 := time.Date(2026, 10, 5, 18, 0, 0, 0, jst)
+		// Insert the later one first so the order comes from the query.
+		upsertPhase(t, repo, ctx, &entity.SalesPhaseCandidate{
+			SeriesID: seriesID, Method: entity.SalesMethodLottery,
+			ApplyStartTime: nov10, ApplyEndTime: nov10.Add(72 * time.Hour),
+		})
+		upsertPhase(t, repo, ctx, &entity.SalesPhaseCandidate{
+			SeriesID: seriesID, Method: entity.SalesMethodLottery,
+			ApplyStartTime: oct5, ApplyEndTime: oct5.Add(72 * time.Hour),
+		})
+
+		phases, err := repo.GetBySeries(ctx, seriesID)
+		require.NoError(t, err)
+		require.Len(t, phases, 2)
+		assert.True(t, oct5.Equal(phases[0].ApplyStartTime))
+		assert.True(t, nov10.Equal(phases[1].ApplyStartTime))
+	})
+
+	// @spec components/entity/sales-phase/get-by-series "Series with no phase"
+	t.Run("Series with no phase", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+
+		phases, err := repo.GetBySeries(ctx, seriesID)
+		require.NoError(t, err)
+		assert.Empty(t, phases)
+	})
+
+	// @spec components/entity/sales-phase/get-by-series "No series given"
+	t.Run("No series given", func(t *testing.T) {
+		_, err := repo.GetBySeries(ctx, "")
+		assertAppErrCode(t, err, codes.InvalidArgument)
+	})
+}
+
+func TestSalesPhaseRepository_ListPhasesWithPendingMilestones(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+
+	repo := rdb.NewSalesPhaseRepository(testDB)
+	ctx := context.Background()
+	now := time.Now()
+	lookahead := 7 * 24 * time.Hour
+	lookback := 2 * time.Hour
+
+	ids := func(phases []*entity.SalesPhase) []string {
+		out := make([]string, 0, len(phases))
+		for _, p := range phases {
+			out = append(out, p.ID)
+		}
+		return out
+	}
+
+	// @spec components/entity/sales-phase/list-phases-with-pending-milestones "Opened weeks ago, result tomorrow"
+	t.Run("Opened weeks ago, result tomorrow", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+		id, _ := upsertPhase(t, repo, ctx, &entity.SalesPhaseCandidate{
+			SeriesID: seriesID, Method: entity.SalesMethodLottery,
+			ApplyStartTime:    now.Add(-21 * 24 * time.Hour),
+			ApplyEndTime:      now.Add(-14 * 24 * time.Hour),
+			LotteryResultTime: now.Add(24 * time.Hour),
+		})
+
+		phases, err := repo.ListPhasesWithPendingMilestones(ctx, lookahead, lookback)
+		require.NoError(t, err)
+		assert.Equal(t, []string{id}, ids(phases))
+	})
+
+	// @spec components/entity/sales-phase/list-phases-with-pending-milestones "Opens beyond the lookahead"
+	t.Run("Opens beyond the lookahead", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+		upsertPhase(t, repo, ctx, &entity.SalesPhaseCandidate{
+			SeriesID: seriesID, Method: entity.SalesMethodFirstCome,
+			ApplyStartTime: now.Add(10 * 24 * time.Hour),
+		})
+
+		phases, err := repo.ListPhasesWithPendingMilestones(ctx, lookahead, lookback)
+		require.NoError(t, err)
+		assert.Empty(t, phases)
+	})
+
+	// @spec components/entity/sales-phase/list-phases-with-pending-milestones "All milestones long past"
+	t.Run("All milestones long past", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+		upsertPhase(t, repo, ctx, &entity.SalesPhaseCandidate{
+			SeriesID: seriesID, Method: entity.SalesMethodFirstCome,
+			ApplyStartTime: now.Add(-3 * time.Hour),
+		})
+
+		phases, err := repo.ListPhasesWithPendingMilestones(ctx, lookahead, lookback)
+		require.NoError(t, err)
+		assert.Empty(t, phases)
+	})
+
+	// @spec components/entity/sales-phase/list-phases-with-pending-milestones "Latest milestone just past"
+	t.Run("Latest milestone just past", func(t *testing.T) {
+		cleanDatabase(t)
+		seriesID := seedSeriesOnly(t, "Tour")
+		id, _ := upsertPhase(t, repo, ctx, &entity.SalesPhaseCandidate{
+			SeriesID: seriesID, Method: entity.SalesMethodFirstCome,
+			ApplyStartTime: now.Add(-1 * time.Hour),
+		})
+
+		phases, err := repo.ListPhasesWithPendingMilestones(ctx, lookahead, lookback)
+		require.NoError(t, err)
+		assert.Equal(t, []string{id}, ids(phases))
+	})
+
+	// @spec components/entity/sales-phase/list-phases-with-pending-milestones "Nothing pending"
+	t.Run("Nothing pending", func(t *testing.T) {
+		cleanDatabase(t)
+
+		phases, err := repo.ListPhasesWithPendingMilestones(ctx, lookahead, lookback)
+		require.NoError(t, err)
+		assert.Empty(t, phases)
 	})
 }
 
@@ -236,8 +411,8 @@ func TestSalesPhaseRepository_DiscoveredTime(t *testing.T) {
 	candidate := &entity.SalesPhaseCandidate{
 		SeriesID:       seriesID,
 		Method:         entity.SalesMethodLottery,
-		Channel:        entity.SalesChannelFanClub,
 		ApplyStartTime: t0,
+		ApplyEndTime:   t0.Add(72 * time.Hour),
 	}
 	before := time.Now().UTC().Add(-time.Second)
 	upsertPhase(t, repo, ctx, candidate)
@@ -256,9 +431,9 @@ func TestSalesPhaseRepository_DiscoveredTime(t *testing.T) {
 	// DiscoveredTime is unchanged.
 	updated := &entity.SalesPhaseCandidate{
 		SeriesID:       seriesID,
-		Method:         entity.SalesMethodFirstCome,
-		Channel:        entity.SalesChannelFanClub,
+		Method:         entity.SalesMethodLottery,
 		ApplyStartTime: t0,
+		ApplyEndTime:   t0.Add(96 * time.Hour),
 	}
 	upsertPhase(t, repo, ctx, updated)
 
@@ -287,8 +462,8 @@ func TestSalesPhaseReminderRepository_ListSentStages(t *testing.T) {
 	phaseID, _, err := phaseRepo.Upsert(ctx, &entity.SalesPhaseCandidate{
 		SeriesID:       seriesID,
 		Method:         entity.SalesMethodLottery,
-		Channel:        entity.SalesChannelFanClub,
 		ApplyStartTime: t0,
+		ApplyEndTime:   t0.Add(72 * time.Hour),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, phaseID)
@@ -315,4 +490,13 @@ func TestSalesPhaseReminderRepository_ListSentStages(t *testing.T) {
 	empty, err := reminderRepo.ListSentStages(ctx, phaseID, nil)
 	require.NoError(t, err)
 	assert.Empty(t, empty)
+}
+
+// assertAppErrCode asserts err is an apperr carrying the given code.
+func assertAppErrCode(t *testing.T, err error, want codes.Code) {
+	t.Helper()
+	require.Error(t, err)
+	var ae *apperr.AppErr
+	require.ErrorAs(t, err, &ae)
+	assert.Equal(t, want, ae.Code, "got error: %v", err)
 }

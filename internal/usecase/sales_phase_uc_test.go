@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -19,122 +20,351 @@ import (
 
 // discoveryMocks bundles the mocks for the per-artist discovery pipeline.
 type discoveryMocks struct {
-	concertRepo *entitymocks.MockConcertRepository
-	artistRepo  *entitymocks.MockArtistRepository
-	salesRepo   *entitymocks.MockSalesPhaseRepository
-	searcher    *entitymocks.MockSalesPhaseSearcher
-	pub         *ucmocks.MockEventPublisher
+	concertRepo   *entitymocks.MockConcertRepository
+	artistRepo    *entitymocks.MockArtistRepository
+	salesRepo     *entitymocks.MockSalesPhaseRepository
+	searchLogRepo *entitymocks.MockSalesPhaseSearchLogRepository
+	journeyRepo   *entitymocks.MockTicketJourneyRepository
+	searcher      *entitymocks.MockSalesPhaseSearcher
+	pub           *ucmocks.MockEventPublisher
+}
+
+func newDiscoveryMocks(t *testing.T) *discoveryMocks {
+	t.Helper()
+	return &discoveryMocks{
+		concertRepo:   entitymocks.NewMockConcertRepository(t),
+		artistRepo:    entitymocks.NewMockArtistRepository(t),
+		salesRepo:     entitymocks.NewMockSalesPhaseRepository(t),
+		searchLogRepo: entitymocks.NewMockSalesPhaseSearchLogRepository(t),
+		journeyRepo:   entitymocks.NewMockTicketJourneyRepository(t),
+		searcher:      entitymocks.NewMockSalesPhaseSearcher(t),
+		pub:           ucmocks.NewMockEventPublisher(t),
+	}
+}
+
+const (
+	discoveryArtistID    = "artist-001"
+	discoveryOfficialURL = "https://official.example"
+)
+
+var discoveryArtist = &entity.Artist{ID: discoveryArtistID, Name: "TestArtist"}
+
+func upcomingConcert(seriesID, title string, date time.Time) *entity.Concert {
+	return &entity.Concert{
+		ID:        "event-" + seriesID + "-" + date.Format(time.DateOnly),
+		SeriesID:  seriesID,
+		LocalDate: date,
+		Series:    &entity.Series{ID: seriesID, Title: title},
+	}
+}
+
+func (m *discoveryMocks) concerts(cs ...*entity.Concert) {
+	m.concertRepo.EXPECT().ListByArtist(mock.Anything, discoveryArtistID, true).Return(cs, nil).Once()
+}
+
+func (m *discoveryMocks) tracked(seriesID string, tracked bool) {
+	var trackers []*entity.SeriesTracker
+	if tracked {
+		trackers = []*entity.SeriesTracker{{UserID: "fan-1", EventID: "event-1"}}
+	}
+	m.journeyRepo.EXPECT().ListUserIDsTrackingSeries(mock.Anything, seriesID).Return(trackers, nil).Once()
+}
+
+func (m *discoveryMocks) phases(seriesID string, phases ...*entity.SalesPhase) {
+	m.salesRepo.EXPECT().GetBySeries(mock.Anything, seriesID).Return(phases, nil).Once()
+}
+
+func (m *discoveryMocks) searchLogs(seriesIDs []string, logs ...*entity.SalesPhaseSearchLog) {
+	m.searchLogRepo.EXPECT().ListBySeries(mock.Anything, seriesIDs).Return(logs, nil).Once()
+}
+
+func (m *discoveryMocks) officialSite() {
+	m.artistRepo.EXPECT().GetOfficialSite(mock.Anything, discoveryArtistID).
+		Return(&entity.OfficialSite{ArtistID: discoveryArtistID, URL: discoveryOfficialURL}, nil).Once()
+}
+
+// search expects one search over exactly the given series and returns result.
+func (m *discoveryMocks) search(seriesIDs []string, result []*entity.SalesPhaseCandidate, err error) {
+	m.searcher.EXPECT().SearchSalesPhases(mock.Anything, mock.MatchedBy(func(in *entity.SalesPhaseSearchInput) bool {
+		if in.ArtistName != discoveryArtist.Name || in.OfficialSiteURL != discoveryOfficialURL || len(in.Series) != len(seriesIDs) {
+			return false
+		}
+		for i, ref := range in.Series {
+			if ref.SeriesID != seriesIDs[i] || len(ref.EventDates) == 0 {
+				return false
+			}
+		}
+		return true
+	})).Return(result, err).Once()
+}
+
+func (m *discoveryMocks) record(seriesIDs []string, err error) {
+	m.searchLogRepo.EXPECT().Record(mock.Anything, seriesIDs, mock.AnythingOfType("time.Time")).Return(err).Once()
 }
 
 func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 	t.Parallel()
 
-	logger, _ := logging.New()
-	ctx := context.Background()
-	window := 90 * 24 * time.Hour
-
-	artist := &entity.Artist{ID: "artist-001", Name: "TestArtist"}
-	seriesID := "series-aaa"
-	officialURL := "https://official.example"
-	t0 := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
-
-	upcomingConcert := &entity.Concert{
-		ID:        "event-001",
-		SeriesID:  seriesID,
-		LocalDate: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		Series:    &entity.Series{ID: seriesID, Title: "TestTour 2026"},
-	}
-
+	now := time.Now()
+	nextMonth := now.AddDate(0, 1, 0)
 	candidate := &entity.SalesPhaseCandidate{
-		SeriesID:       seriesID,
+		SeriesID:       "series-a",
 		Method:         entity.SalesMethodLottery,
-		Channel:        entity.SalesChannelFanClub,
-		ApplyStartTime: t0,
+		ApplyStartTime: now.AddDate(0, 0, 7),
+		ApplyEndTime:   now.AddDate(0, 0, 14),
 	}
-
-	// matchArtistInput verifies the per-artist search input carries the artist,
-	// the seeded official-site URL, and the series ref.
-	matchArtistInput := mock.MatchedBy(func(in *entity.SalesPhaseSearchInput) bool {
-		return in != nil && in.ArtistName == artist.Name && in.OfficialSiteURL == officialURL &&
-			len(in.Series) == 1 && in.Series[0].SeriesID == seriesID
-	})
-
-	// withOfficialSite wires the grounding-seed URL lookup for cases that reach
-	// the searcher.
-	withOfficialSite := func(m *discoveryMocks) {
-		m.artistRepo.On("GetOfficialSite", ctx, artist.ID).Return(&entity.OfficialSite{ArtistID: artist.ID, URL: officialURL}, nil)
+	candidate2 := &entity.SalesPhaseCandidate{
+		SeriesID:       "series-a",
+		Method:         entity.SalesMethodFirstCome,
+		ApplyStartTime: now.AddDate(0, 0, 20),
 	}
+	candidate3 := &entity.SalesPhaseCandidate{
+		SeriesID:       "series-a",
+		Method:         entity.SalesMethodFirstCome,
+		ApplyStartTime: now.AddDate(0, 0, 25),
+	}
+	discovered := func(phaseID string, c *entity.SalesPhaseCandidate) entity.SalesPhaseDiscoveredData {
+		return entity.SalesPhaseDiscoveredData{
+			PhaseID: phaseID, SeriesID: c.SeriesID, Method: int16(c.Method), ApplyStartTime: c.ApplyStartTime,
+		}
+	}
+	// searchedAgo returns a log of series-a last searched d ago.
+	searchedAgo := func(d time.Duration) *entity.SalesPhaseSearchLog {
+		return &entity.SalesPhaseSearchLog{SeriesID: "series-a", SearchedTime: now.Add(-d)}
+	}
+	const day = 24 * time.Hour
+	searchErr := apperr.New(codes.ResourceExhausted, "spend cap reached")
 
 	tests := []struct {
-		name         string
-		setupMocks   func(m *discoveryMocks)
-		wantNewCount int
+		name       string
+		setup      func(m *discoveryMocks)
+		wantCount  int
+		wantErr    error
+		wantErrMsg string
 	}{
 		{
-			name: "new phase discovered → published once",
-			setupMocks: func(m *discoveryMocks) {
-				m.concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				withOfficialSite(m)
-				m.searcher.On("SearchSalesPhases", ctx, matchArtistInput).Return([]*entity.SalesPhaseCandidate{candidate}, nil)
-				m.salesRepo.On("Upsert", ctx, candidate).Return("phase-111", entity.UpsertOutcomeInserted, nil)
-				m.pub.On("PublishEvent", ctx, entity.SubjectSalesPhaseDiscovered, entity.SalesPhaseDiscoveredData{
-					PhaseID:  "phase-111",
-					SeriesID: seriesID,
-				}).Return(nil)
+			// @spec components/usecase/sales-phase/discover-for-artist "Tracked series with nothing pending"
+			// @spec components/usecase/sales-phase/discover-for-artist "New phase"
+			name: "Tracked series with nothing pending",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"}, searchedAgo(40*day))
+				m.officialSite()
+				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate}, nil)
+				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeInserted, nil).Once()
+				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectSalesPhaseDiscovered, discovered("phase-1", candidate)).Return(nil).Once()
+				m.record([]string{"series-a"}, nil)
 			},
-			wantNewCount: 1,
+			wantCount: 1,
 		},
 		{
-			name: "re-discovery → update, not re-announced",
-			setupMocks: func(m *discoveryMocks) {
-				m.concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				withOfficialSite(m)
-				m.searcher.On("SearchSalesPhases", ctx, matchArtistInput).Return([]*entity.SalesPhaseCandidate{candidate}, nil)
-				m.salesRepo.On("Upsert", ctx, candidate).Return("phase-111", entity.UpsertOutcomeUpdated, nil)
+			// @spec components/usecase/sales-phase/discover-for-artist "Nobody tracks the series"
+			name: "Nobody tracks the series",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", false)
 			},
-			wantNewCount: 0,
 		},
 		{
-			name: "no upcoming concerts → zero new phases (no search)",
-			setupMocks: func(m *discoveryMocks) {
-				m.concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{}, nil)
+			// @spec components/usecase/sales-phase/discover-for-artist "A phase is still open"
+			name: "A phase is still open",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a", &entity.SalesPhase{
+					SeriesID: "series-a", Method: entity.SalesMethodLottery,
+					ApplyStartTime: now.AddDate(0, 0, -3), ApplyEndTime: now.AddDate(0, 0, 7),
+				})
 			},
-			wantNewCount: 0,
 		},
 		{
-			name: "no official site → benign skip, searcher not called",
-			setupMocks: func(m *discoveryMocks) {
-				m.concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				m.artistRepo.On("GetOfficialSite", ctx, artist.ID).Return(nil, apperr.New(codes.NotFound, "no official site"))
+			// @spec components/usecase/sales-phase/discover-for-artist "First-come sale until sold out has opened"
+			name: "First-come sale until sold out has opened",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a", &entity.SalesPhase{
+					SeriesID: "series-a", Method: entity.SalesMethodFirstCome, ApplyStartTime: now.AddDate(0, 0, -1),
+				})
+				m.searchLogs([]string{"series-a"}, searchedAgo(31*day))
+				m.officialSite()
+				m.search([]string{"series-a"}, nil, nil)
+				m.record([]string{"series-a"}, nil)
 			},
-			wantNewCount: 0,
 		},
 		{
-			name: "empty official site URL → benign skip, searcher not called",
-			setupMocks: func(m *discoveryMocks) {
-				m.concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				m.artistRepo.On("GetOfficialSite", ctx, artist.ID).Return(&entity.OfficialSite{ArtistID: artist.ID, URL: ""}, nil)
+			// @spec components/usecase/sales-phase/discover-for-artist "Searched recently"
+			name: "Searched recently",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"}, searchedAgo(10*day))
 			},
-			wantNewCount: 0,
 		},
 		{
-			name: "searcher returns empty → nothing upserted",
-			setupMocks: func(m *discoveryMocks) {
-				m.concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				withOfficialSite(m)
-				m.searcher.On("SearchSalesPhases", ctx, matchArtistInput).Return([]*entity.SalesPhaseCandidate{}, nil)
+			// @spec components/usecase/sales-phase/discover-for-artist "Events far ahead"
+			name: "Events far ahead",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", now.AddDate(0, 10, 0)))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"})
+				m.officialSite()
+				m.search([]string{"series-a"}, nil, nil)
+				m.record([]string{"series-a"}, nil)
 			},
-			wantNewCount: 0,
 		},
 		{
-			name: "upsert guard drops candidate → skipped outcome, nothing published",
-			setupMocks: func(m *discoveryMocks) {
-				m.concertRepo.On("ListByArtist", ctx, artist.ID, true).Return([]*entity.Concert{upcomingConcert}, nil)
-				withOfficialSite(m)
-				m.searcher.On("SearchSalesPhases", ctx, matchArtistInput).Return([]*entity.SalesPhaseCandidate{candidate}, nil)
-				m.salesRepo.On("Upsert", ctx, candidate).Return("", entity.UpsertOutcomeSkipped, nil)
+			// @spec components/usecase/sales-phase/discover-for-artist "Two tracked series"
+			name: "Two tracked series",
+			setup: func(m *discoveryMocks) {
+				m.concerts(
+					upcomingConcert("series-a", "Tour A", nextMonth),
+					upcomingConcert("series-b", "Tour B", nextMonth.AddDate(0, 0, 3)),
+					upcomingConcert("series-a", "Tour A", nextMonth.AddDate(0, 0, 7)),
+				)
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.tracked("series-b", true)
+				m.phases("series-b")
+				m.searchLogs([]string{"series-a", "series-b"})
+				m.officialSite()
+				m.search([]string{"series-a", "series-b"}, nil, nil)
+				m.record([]string{"series-a", "series-b"}, nil)
 			},
-			wantNewCount: 0,
+		},
+		{
+			// @spec components/usecase/sales-phase/discover-for-artist "No official site"
+			name: "No official site",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"})
+				m.artistRepo.EXPECT().GetOfficialSite(mock.Anything, discoveryArtistID).
+					Return(nil, apperr.New(codes.NotFound, "no official site")).Once()
+			},
+		},
+		{
+			name: "empty official site URL",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"})
+				m.artistRepo.EXPECT().GetOfficialSite(mock.Anything, discoveryArtistID).
+					Return(&entity.OfficialSite{ArtistID: discoveryArtistID}, nil).Once()
+			},
+		},
+		{
+			name: "no upcoming concerts",
+			setup: func(m *discoveryMocks) {
+				m.concerts()
+			},
+		},
+		{
+			// @spec components/usecase/sales-phase/discover-for-artist "Search finds nothing"
+			name: "Search finds nothing",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"})
+				m.officialSite()
+				m.search([]string{"series-a"}, nil, nil)
+				m.record([]string{"series-a"}, nil)
+			},
+		},
+		{
+			// @spec components/usecase/sales-phase/discover-for-artist "Search fails"
+			name: "Search fails",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"})
+				m.officialSite()
+				m.search([]string{"series-a"}, nil, searchErr)
+				// No Record: the next daily run searches the series again.
+			},
+			wantErr: searchErr,
+		},
+		{
+			name: "recording fails after the phases are stored",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"})
+				m.officialSite()
+				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate}, nil)
+				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeInserted, nil).Once()
+				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectSalesPhaseDiscovered, discovered("phase-1", candidate)).Return(nil).Once()
+				m.record([]string{"series-a"}, errors.New("db down"))
+			},
+			wantCount:  1,
+			wantErrMsg: "db down",
+		},
+		{
+			name: "trackers cannot be read",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.journeyRepo.EXPECT().ListUserIDsTrackingSeries(mock.Anything, "series-a").Return(nil, errors.New("db down")).Once()
+			},
+			wantErrMsg: "db down",
+		},
+		{
+			// @spec components/usecase/sales-phase/discover-for-artist "Known phase discovered again"
+			name: "Known phase discovered again",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"})
+				m.officialSite()
+				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate}, nil)
+				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeUpdated, nil).Once()
+				m.record([]string{"series-a"}, nil)
+			},
+		},
+		{
+			// @spec components/usecase/sales-phase/discover-for-artist "One phase cannot be stored"
+			name: "One phase cannot be stored",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"})
+				m.officialSite()
+				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate, candidate2, candidate3}, nil)
+				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeInserted, nil).Once()
+				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate2).Return("", entity.UpsertOutcomeSkipped, errors.New("db down")).Once()
+				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate3).Return("phase-3", entity.UpsertOutcomeInserted, nil).Once()
+				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectSalesPhaseDiscovered, discovered("phase-1", candidate)).Return(nil).Once()
+				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectSalesPhaseDiscovered, discovered("phase-3", candidate3)).Return(nil).Once()
+				m.record([]string{"series-a"}, nil)
+			},
+			wantCount: 2,
+		},
+		{
+			// @spec components/usecase/sales-phase/discover-for-artist "Announcement request fails"
+			name: "Announcement request fails",
+			setup: func(m *discoveryMocks) {
+				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
+				m.tracked("series-a", true)
+				m.phases("series-a")
+				m.searchLogs([]string{"series-a"})
+				m.officialSite()
+				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate}, nil)
+				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeInserted, nil).Once()
+				m.pub.EXPECT().PublishEvent(mock.Anything, entity.SubjectSalesPhaseDiscovered, discovered("phase-1", candidate)).
+					Return(errors.New("nats down")).Once()
+				m.record([]string{"series-a"}, nil)
+			},
+			wantCount: 1,
 		},
 	}
 
@@ -142,23 +372,26 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			m := &discoveryMocks{
-				concertRepo: entitymocks.NewMockConcertRepository(t),
-				artistRepo:  entitymocks.NewMockArtistRepository(t),
-				salesRepo:   entitymocks.NewMockSalesPhaseRepository(t),
-				searcher:    entitymocks.NewMockSalesPhaseSearcher(t),
-				pub:         ucmocks.NewMockEventPublisher(t),
-			}
-			tt.setupMocks(m)
+			logger, err := logging.New()
+			require.NoError(t, err)
+			m := newDiscoveryMocks(t)
+			tt.setup(m)
 
 			uc := usecase.NewSalesPhaseDiscoveryUseCase(
-				m.concertRepo, m.artistRepo, m.salesRepo,
-				m.searcher, m.pub, window, logger,
+				m.concertRepo, m.artistRepo, m.salesRepo, m.searchLogRepo, m.journeyRepo,
+				m.searcher, m.pub, logger,
 			)
-			got, err := uc.DiscoverForArtist(ctx, artist)
+			got, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)
 
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantNewCount, got)
+			switch {
+			case tt.wantErr != nil:
+				require.ErrorIs(t, err, tt.wantErr)
+			case tt.wantErrMsg != "":
+				require.ErrorContains(t, err, tt.wantErrMsg)
+			default:
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantCount, got)
 		})
 	}
 }

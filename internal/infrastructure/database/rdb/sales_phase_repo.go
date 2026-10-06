@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 
@@ -25,45 +26,21 @@ func NewSalesPhaseRepository(db *Database) *SalesPhaseRepository {
 }
 
 const (
-	// matchByApplyStartQuery returns the ID of the existing sales_phases row for
-	// the given series whose apply_start_at equals the candidate's. This is the
-	// convergence key: same series + same application start instant identify the
-	// same real sales window, independent of channel/sequence reclassification.
-	// apply_start_at is a timestamptz (absolute instant), so the equality is
-	// timezone-agnostic and correct for non-JST events.
-	matchByApplyStartQuery = `
-		SELECT id
-		FROM sales_phases
-		WHERE series_id = $1 AND apply_start_at = $2
-		ORDER BY id ASC
-		LIMIT 1
-	`
-
-	// updatePhaseQuery updates the descriptive (last-write-wins) fields of an
-	// existing phase row. series_id and apply_start_at (the identity) and
-	// discovered_at (the first-sight guard) are intentionally not updated.
-	updatePhaseQuery = `
-		UPDATE sales_phases
-		SET method              = $2,
-		    channel             = $3,
-		    provider_name       = $4,
-		    sequence            = $5,
-		    apply_end_at        = $6,
-		    lottery_result_at   = $7,
-		    payment_deadline_at = $8,
-		    url                 = $9
-		WHERE id = $1
-	`
-
-	// insertPhaseQuery inserts a new sales_phases row and returns the
-	// DB-generated discovered_at so the in-memory entity is fully populated.
-	insertPhaseQuery = `
+	// upsertPhaseQuery converges a candidate onto the phase with the same
+	// series, method and apply start date in Japan time, or inserts a new row.
+	// The match uses the uq_sales_phases_series_method_start_date key over the
+	// generated apply_start_date_jst column. On a match the milestones are
+	// replaced (NULL clears a stored value) and id, series_id, method and
+	// discovered_at are kept. xmax = 0 is true only for a freshly inserted row.
+	upsertPhaseQuery = `
 		INSERT INTO sales_phases (
-			id, series_id, method, channel, provider_name,
-			sequence, apply_start_at, apply_end_at, lottery_result_at,
-			payment_deadline_at, url
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING discovered_at
+			id, series_id, method, apply_start_at, apply_end_at, lottery_result_at
+		) VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (series_id, method, apply_start_date_jst) DO UPDATE
+		SET apply_start_at    = EXCLUDED.apply_start_at,
+		    apply_end_at      = EXCLUDED.apply_end_at,
+		    lottery_result_at = EXCLUDED.lottery_result_at
+		RETURNING id, (xmax = 0) AS inserted
 	`
 
 	// listPhasesWithPendingMilestonesQuery returns phases that have at least
@@ -91,9 +68,8 @@ const (
 	//
 	// $1 = lookahead seconds, $2 = lookback margin seconds.
 	listPhasesWithPendingMilestonesQuery = `
-		SELECT id, series_id, method, channel, provider_name,
-		       sequence, apply_start_at, apply_end_at, lottery_result_at,
-		       payment_deadline_at, url, discovered_at
+		SELECT id, series_id, method, apply_start_at, apply_end_at,
+		       lottery_result_at, discovered_at
 		FROM sales_phases
 		WHERE apply_start_at <= NOW() + make_interval(secs => $1)
 		  AND GREATEST(
@@ -104,20 +80,20 @@ const (
 		ORDER BY apply_start_at ASC
 	`
 
-	// getBySeriesQuery fetches all phases belonging to a series.
+	// getBySeriesQuery fetches all phases belonging to a series, earliest
+	// apply start first.
 	getBySeriesQuery = `
-		SELECT id, series_id, method, channel, provider_name,
-		       sequence, apply_start_at, apply_end_at, lottery_result_at,
-		       payment_deadline_at, url, discovered_at
+		SELECT id, series_id, method, apply_start_at, apply_end_at,
+		       lottery_result_at, discovered_at
 		FROM sales_phases
 		WHERE series_id = $1
 		ORDER BY apply_start_at ASC
 	`
 )
 
-// Upsert converges the candidate onto an existing phase matched on
-// (series_id, apply_start_at) or inserts a new row. It is a no-op when the
-// candidate fails the persistence guard (zero ApplyStartTime), returning
+// Upsert converges the candidate onto the phase with the same series, method
+// and apply start date in Japan time, or inserts a new row, in one statement.
+// It is a no-op when the candidate has a zero ApplyStartTime, returning
 // ("", UpsertOutcomeSkipped, nil). It is upsert-only: it never deletes rows.
 //
 // Returns the affected phase ID alongside the outcome:
@@ -132,89 +108,37 @@ func (r *SalesPhaseRepository) Upsert(ctx context.Context, candidate *entity.Sal
 		return "", entity.UpsertOutcomeSkipped, apperr.New(codes.InvalidArgument, "sales phase candidate SeriesID must not be empty")
 	}
 
-	// Persistence guard: skip unless apply_start_time is known. A known start is
-	// the sole persistence requirement.
+	// Persistence guard: a phase without a known start is skipped, not stored.
 	if candidate.ApplyStartTime.IsZero() {
 		r.db.logger.Info(ctx, "sales_phase_repo: dropping candidate with zero apply_start_time",
 			slog.String("series_id", candidate.SeriesID),
 		)
 		return "", entity.UpsertOutcomeSkipped, nil
 	}
+	if err := candidate.Validate(); err != nil {
+		return "", entity.UpsertOutcomeSkipped, apperr.New(codes.InvalidArgument, err.Error())
+	}
 
-	// Match an existing phase for this series on the application start instant.
-	var existingID string
-	err := r.db.Pool.QueryRow(ctx, matchByApplyStartQuery,
+	var (
+		id       string
+		inserted bool
+	)
+	if err := r.db.Pool.QueryRow(ctx, upsertPhaseQuery,
+		newPhaseID(),
 		candidate.SeriesID,
+		int16(candidate.Method),
 		candidate.ApplyStartTime,
-	).Scan(&existingID)
-
-	switch {
-	case err == nil:
-		// Same (series_id, apply_start_at) — update descriptive fields in place.
-		if err := r.updateExisting(ctx, existingID, candidate); err != nil {
-			return "", entity.UpsertOutcomeSkipped, err
-		}
-		return existingID, entity.UpsertOutcomeUpdated, nil
-	case isNoRows(err):
-		// No match — insert a new phase row.
-		newID := newPhaseID()
-		if err := r.insertNewWithID(ctx, newID, candidate); err != nil {
-			return "", entity.UpsertOutcomeSkipped, err
-		}
-		return newID, entity.UpsertOutcomeInserted, nil
-	default:
-		return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to match sales phase by apply_start_at",
+		nullableTime(candidate.ApplyEndTime),
+		nullableTime(candidate.LotteryResultTime),
+	).Scan(&id, &inserted); err != nil {
+		return "", entity.UpsertOutcomeSkipped, toAppErr(err, "failed to upsert sales phase",
 			slog.String("series_id", candidate.SeriesID),
 		)
 	}
-}
-
-// updateExisting applies last-write-wins logic to an existing phase row's
-// descriptive fields.
-func (r *SalesPhaseRepository) updateExisting(
-	ctx context.Context,
-	phaseID string,
-	c *entity.SalesPhaseCandidate,
-) error {
-	_, err := r.db.Pool.Exec(ctx, updatePhaseQuery,
-		phaseID,
-		int16(c.Method),
-		int16(c.Channel),
-		nullableString(c.ProviderName),
-		c.Sequence,
-		nullableTime(c.ApplyEndTime),
-		nullableTime(c.LotteryResultTime),
-		nullableTime(c.PaymentDeadlineTime),
-		nullableString(c.URL),
-	)
-	if err != nil {
-		return toAppErr(err, "failed to update sales phase", slog.String("phase_id", phaseID))
+	if inserted {
+		return id, entity.UpsertOutcomeInserted, nil
 	}
-	return nil
-}
-
-// insertNewWithID inserts a fresh sales_phases row with the provided phaseID.
-func (r *SalesPhaseRepository) insertNewWithID(ctx context.Context, phaseID string, c *entity.SalesPhaseCandidate) error {
-	// Use QueryRow to consume the RETURNING discovered_at. The value is discarded
-	// here because insertNewWithID doesn't return the full entity; the field is
-	// populated on subsequent reads via scanPhaseRows.
-	var discardDiscoveredAt time.Time
-	if err := r.db.Pool.QueryRow(ctx, insertPhaseQuery,
-		phaseID,
-		c.SeriesID,
-		int16(c.Method),
-		int16(c.Channel),
-		nullableString(c.ProviderName),
-		c.Sequence,
-		c.ApplyStartTime,
-		nullableTime(c.ApplyEndTime),
-		nullableTime(c.LotteryResultTime),
-		nullableTime(c.PaymentDeadlineTime),
-		nullableString(c.URL),
-	).Scan(&discardDiscoveredAt); err != nil {
-		return toAppErr(err, "failed to insert sales phase", slog.String("series_id", c.SeriesID))
-	}
-	return nil
+	return id, entity.UpsertOutcomeUpdated, nil
 }
 
 // ListPhasesWithPendingMilestones returns every sales phase that has at least
@@ -258,7 +182,8 @@ func (r *SalesPhaseRepository) ListPhasesWithPendingMilestones(ctx context.Conte
 	return scanPhaseRows(rows)
 }
 
-// GetBySeries returns all sales phases for the given series.
+// GetBySeries returns all sales phases for the given series, earliest apply
+// start first.
 func (r *SalesPhaseRepository) GetBySeries(ctx context.Context, seriesID string) ([]*entity.SalesPhase, error) {
 	if seriesID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "series ID must not be empty")
@@ -281,46 +206,28 @@ func scanPhaseRows(rows pgx.Rows) ([]*entity.SalesPhase, error) {
 	var phases []*entity.SalesPhase
 	for rows.Next() {
 		var (
-			p                 entity.SalesPhase
-			method, channel   int16
-			providerName      *string
-			applyEndAt        *time.Time
-			lotteryResultAt   *time.Time
-			paymentDeadlineAt *time.Time
-			rawURL            *string
+			p               entity.SalesPhase
+			method          int16
+			applyEndAt      sql.NullTime
+			lotteryResultAt sql.NullTime
 		)
 		if err := rows.Scan(
 			&p.ID,
 			&p.SeriesID,
 			&method,
-			&channel,
-			&providerName,
-			&p.Sequence,
 			&p.ApplyStartTime,
 			&applyEndAt,
 			&lotteryResultAt,
-			&paymentDeadlineAt,
-			&rawURL,
 			&p.DiscoveredTime,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan sales phase row")
 		}
 		p.Method = entity.SalesMethod(method)
-		p.Channel = entity.SalesChannel(channel)
-		if providerName != nil {
-			p.ProviderName = *providerName
+		if applyEndAt.Valid {
+			p.ApplyEndTime = applyEndAt.Time
 		}
-		if applyEndAt != nil {
-			p.ApplyEndTime = *applyEndAt
-		}
-		if lotteryResultAt != nil {
-			p.LotteryResultTime = *lotteryResultAt
-		}
-		if paymentDeadlineAt != nil {
-			p.PaymentDeadlineTime = *paymentDeadlineAt
-		}
-		if rawURL != nil {
-			p.URL = *rawURL
+		if lotteryResultAt.Valid {
+			p.LotteryResultTime = lotteryResultAt.Time
 		}
 		phases = append(phases, &p)
 	}
@@ -330,15 +237,6 @@ func scanPhaseRows(rows pgx.Rows) ([]*entity.SalesPhase, error) {
 	return phases, nil
 }
 
-// nullableString returns a *string pointer (nil for empty strings) so pgx
-// maps the value to SQL NULL rather than an empty string.
-func nullableString(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
 // nullableTime returns a *time.Time pointer (nil for zero times) so pgx
 // maps the value to SQL NULL when no time is known.
 func nullableTime(t time.Time) *time.Time {
@@ -346,11 +244,6 @@ func nullableTime(t time.Time) *time.Time {
 		return nil
 	}
 	return &t
-}
-
-// isNoRows reports whether err is the pgx "no rows" sentinel.
-func isNoRows(err error) bool {
-	return err == pgx.ErrNoRows
 }
 
 // newPhaseID generates a new UUIDv7 string for a sales_phases primary key,

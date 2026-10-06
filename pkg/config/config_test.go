@@ -486,6 +486,23 @@ func TestGCPConfig_ConcertSearchResolution(t *testing.T) {
 	}
 }
 
+func TestGCPConfig_SalesPhaseSearchResolution(t *testing.T) {
+	t.Run("env overrides take precedence", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchModelExtract: "gemini-3.6-flash", GeminiSearchThinkingExtract: "medium", GeminiSearchThinkingLevel: "high"}
+		assert.Equal(t, "gemini-3.6-flash", c.SalesPhaseSearchModel())
+		assert.Equal(t, "medium", c.SalesPhaseSearchThinking())
+	})
+	t.Run("thinking falls back to the workload level", func(t *testing.T) {
+		c := GCPConfig{GeminiSearchThinkingLevel: "high"}
+		assert.Equal(t, "high", c.SalesPhaseSearchThinking())
+	})
+	t.Run("defaults applied when unset", func(t *testing.T) {
+		c := GCPConfig{}
+		assert.Equal(t, "gemini-3.8-flash", c.SalesPhaseSearchModel())
+		assert.Equal(t, "low", c.SalesPhaseSearchThinking())
+	})
+}
+
 func TestGCPConfig_SearchCacheTTLResolution(t *testing.T) {
 	t.Run("env override takes precedence", func(t *testing.T) {
 		c := GCPConfig{GeminiSearchCacheTTL: 72 * time.Hour}

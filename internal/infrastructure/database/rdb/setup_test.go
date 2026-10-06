@@ -163,6 +163,7 @@ func cleanTables(db *rdb.Database) {
 		"followed_artists",
 		"artist_official_site",
 		"sales_phase_reminders",
+		"sales_phase_search_logs",
 		"sales_phases",
 		"event_performers",
 		"concerts",

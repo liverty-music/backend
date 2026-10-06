@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/liverty-music/backend/internal/adapter/event"
@@ -36,8 +37,10 @@ func TestSalesPhaseAnnouncementConsumer_Handle(t *testing.T) {
 	t.Parallel()
 
 	validData := entity.SalesPhaseDiscoveredData{
-		PhaseID:  "phase-001",
-		SeriesID: "series-001",
+		PhaseID:        "phase-001",
+		SeriesID:       "series-001",
+		Method:         int16(entity.SalesMethodLottery),
+		ApplyStartTime: time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC),
 	}
 
 	t.Run("delegates to use case on success", func(t *testing.T) {
@@ -91,10 +94,11 @@ func TestSalesReminderConsumer_Handle(t *testing.T) {
 	validData := entity.SalesPhaseReminderDueData{
 		UserID:  "user-001",
 		PhaseID: "phase-001",
-		Stage:   int16(entity.ReminderStageApplyOpen),
-		Payload: entity.NewNotificationPayload("Ticket Sales Open", "Sales open now", "/series/s1", "tag-1"),
+		Stage:   int16(entity.ReminderStageApplyClose24H),
+		Payload: entity.NewNotificationPayload("Ticket Lottery Closing Soon", "Ticket lottery entry closes Oct 22 (Thu) 23:59!\nKICKOFF", "/concerts/e1", "tag-1"),
 	}
 
+	// @spec components/usecase/sales-phase-reminder/deliver-reminder "Reminder requested"
 	t.Run("delegates to use case on success", func(t *testing.T) {
 		t.Parallel()
 

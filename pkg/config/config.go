@@ -400,12 +400,6 @@ type GCPConfig struct {
 	// same events). Empty/zero falls back to defaultSearchDiscoveryWindow.
 	GeminiSearchDiscoveryWindow time.Duration `envconfig:"GCP_GEMINI_SEARCH_DISCOVERY_WINDOW"`
 
-	// Look-ahead window for the sales-phase discovery job. A series is
-	// included in the discovery run when its upcoming events fall within
-	// [now, now+window]. Zero falls back to defaultSalesPhaseDiscoveryWindow
-	// (90 days — sales phases are announced well ahead of the event).
-	SalesPhaseDiscoveryWindow time.Duration `envconfig:"GCP_SALES_PHASE_DISCOVERY_WINDOW"`
-
 	// Look-ahead window for the sales-reminders scan. Phases whose
 	// apply_start_at falls within [now, now+window] are included in the
 	// reminder evaluation pass. Zero falls back to
@@ -441,21 +435,38 @@ const (
 
 // Defaults for the sales-phase discovery and reminder jobs.
 const (
-	// defaultSalesPhaseDiscoveryWindow scans series with events in the next
-	// 90 days; sales phases are typically announced 1–3 months ahead.
-	defaultSalesPhaseDiscoveryWindow = 90 * 24 * time.Hour
+	// defaultSalesPhaseSearchModel is the grounded model of the single-call
+	// sales-phase searcher.
+	defaultSalesPhaseSearchModel = "gemini-3.8-flash"
+	// defaultSalesPhaseSearchThinking is the sales-phase searcher's thinking
+	// level.
+	defaultSalesPhaseSearchThinking = "low"
 	// defaultSalesReminderWindow covers phases whose apply_start_at is within
 	// 7 days. Stages due within that horizon are evaluated each scan run.
 	defaultSalesReminderWindow = 7 * 24 * time.Hour
 )
 
-// SalesPhaseWindow returns the sales-phase discovery look-ahead window.
-// Resolution: env override (GCP_SALES_PHASE_DISCOVERY_WINDOW) → built-in default.
-func (c *GCPConfig) SalesPhaseWindow() time.Duration {
-	if c.SalesPhaseDiscoveryWindow > 0 {
-		return c.SalesPhaseDiscoveryWindow
+// SalesPhaseSearchModel returns the model of the sales-phase searcher.
+// Resolution: env override (GCP_GEMINI_SEARCH_MODEL_EXTRACT, set per job) →
+// built-in default. It does not share the concert searcher's default.
+func (c *GCPConfig) SalesPhaseSearchModel() string {
+	if c.GeminiSearchModelExtract != "" {
+		return c.GeminiSearchModelExtract
 	}
-	return defaultSalesPhaseDiscoveryWindow
+	return defaultSalesPhaseSearchModel
+}
+
+// SalesPhaseSearchThinking returns the thinking level of the sales-phase
+// searcher. Resolution: GCP_GEMINI_SEARCH_THINKING_EXTRACT →
+// GCP_GEMINI_SEARCH_THINKING_LEVEL → built-in default.
+func (c *GCPConfig) SalesPhaseSearchThinking() string {
+	if c.GeminiSearchThinkingExtract != "" {
+		return c.GeminiSearchThinkingExtract
+	}
+	if c.GeminiSearchThinkingLevel != "" {
+		return c.GeminiSearchThinkingLevel
+	}
+	return defaultSalesPhaseSearchThinking
 }
 
 // SalesReminderScanWindow returns the reminder scan look-ahead window.

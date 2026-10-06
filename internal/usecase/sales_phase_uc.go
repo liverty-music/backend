@@ -11,15 +11,17 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// SalesPhaseDiscoveryUseCase enumerates upcoming series for followed artists,
-// calls the sales-phase searcher once per artist (grounded across all of that
-// artist's upcoming series in a single call), upserts the results, and
-// publishes a SALES_PHASE.discovered event for each brand-new phase.
+// salesPhaseSearchInterval is how long a searched series is not searched
+// again, unless all of its known sales have ended.
+const salesPhaseSearchInterval = 30 * 24 * time.Hour
+
+// SalesPhaseDiscoveryUseCase selects the series of an artist that need a
+// sales-phase search, calls the searcher once for the artist over those
+// series, upserts the results, records the search, and publishes a
+// SALES_PHASE.discovered event for each brand-new phase.
 type SalesPhaseDiscoveryUseCase interface {
-	// DiscoverForArtist runs the full discovery pipeline for one artist: list
-	// their upcoming concerts, group by series, search once for the artist
-	// across all of those series, upsert. Returns the number of new phases
-	// announced.
+	// DiscoverForArtist runs the discovery pipeline for one artist and
+	// returns the number of new phases announced.
 	DiscoverForArtist(ctx context.Context, artist *entity.Artist) (int, error)
 }
 
@@ -27,9 +29,10 @@ type salesPhaseDiscoveryUseCase struct {
 	concertRepo    entity.ConcertRepository
 	artistRepo     entity.ArtistRepository
 	salesPhaseRepo entity.SalesPhaseRepository
+	searchLogRepo  entity.SalesPhaseSearchLogRepository
+	journeyRepo    entity.TicketJourneyRepository
 	searcher       entity.SalesPhaseSearcher
 	publisher      EventPublisher
-	window         time.Duration
 	logger         *logging.Logger
 }
 
@@ -37,41 +40,41 @@ type salesPhaseDiscoveryUseCase struct {
 var _ SalesPhaseDiscoveryUseCase = (*salesPhaseDiscoveryUseCase)(nil)
 
 // NewSalesPhaseDiscoveryUseCase wires the discovery use case.
-//
-// window is the look-ahead used to filter upcoming concerts from the database;
-// it only controls which series are included in the discovery run.
 func NewSalesPhaseDiscoveryUseCase(
 	concertRepo entity.ConcertRepository,
 	artistRepo entity.ArtistRepository,
 	salesPhaseRepo entity.SalesPhaseRepository,
+	searchLogRepo entity.SalesPhaseSearchLogRepository,
+	journeyRepo entity.TicketJourneyRepository,
 	searcher entity.SalesPhaseSearcher,
 	publisher EventPublisher,
-	window time.Duration,
 	logger *logging.Logger,
 ) SalesPhaseDiscoveryUseCase {
 	return &salesPhaseDiscoveryUseCase{
 		concertRepo:    concertRepo,
 		artistRepo:     artistRepo,
 		salesPhaseRepo: salesPhaseRepo,
+		searchLogRepo:  searchLogRepo,
+		journeyRepo:    journeyRepo,
 		searcher:       searcher,
 		publisher:      publisher,
-		window:         window,
 		logger:         logger,
 	}
 }
 
 // DiscoverForArtist implements [SalesPhaseDiscoveryUseCase].
 //
-// Pipeline (ONE grounded search per artist):
-//  1. List the artist's upcoming concerts and group them into series refs
-//     (series_id, title, known event dates).
-//  2. Resolve the artist's official-site URL (the grounding seed) and the
-//     incremental lower bound (last-searched timestamp minus an overlap margin).
-//  3. Call SalesPhaseSearcher.SearchSalesPhases ONCE for the artist.
-//  4. Upsert each returned candidate; publish SALES_PHASE.discovered for newly
-//     inserted phases. On success, record the new last-searched timestamp.
+// Pipeline (at most ONE grounded search per artist):
+//  1. Group the artist's upcoming concerts into series refs (series_id,
+//     title, upcoming event dates).
+//  2. Keep the series that need a search, cheapest check first: a fan tracks
+//     it, no stored phase's application has not ended, and it was not
+//     searched in the last 30 days.
+//  3. Resolve the artist's official-site URL (the grounding seed).
+//  4. Call SalesPhaseSearcher.SearchSalesPhases ONCE for the kept series.
+//  5. Upsert each returned candidate and publish SALES_PHASE.discovered for
+//     newly inserted phases, then record the search of every kept series.
 func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, artist *entity.Artist) (int, error) {
-	now := time.Now().UTC()
 	attrs := []slog.Attr{
 		slog.String("artist_id", artist.ID),
 		slog.String("artist_name", artist.Name),
@@ -82,37 +85,20 @@ func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	if err != nil {
 		return 0, err
 	}
-	if len(concerts) == 0 {
-		uc.logger.Info(ctx, "sales_phase_discovery: no upcoming concerts for artist", attrs...)
+	seriesRefs := groupSalesSeries(concerts)
+	if len(seriesRefs) == 0 {
+		uc.logger.Info(ctx, "sales_phase_discovery: no upcoming series for artist", attrs...)
 		return 0, nil
 	}
 
-	// Group concerts into series refs (stable insertion order), collecting each
-	// series' known upcoming event dates for the model to disambiguate.
-	order := make([]string, 0)
-	bySeriesID := make(map[string]*entity.SalesSeriesRef)
-	for _, c := range concerts {
-		if c.SeriesID == "" || c.Series == nil {
-			continue
-		}
-		if uc.window > 0 && c.LocalDate.After(now.Add(uc.window)) {
-			continue
-		}
-		ref, ok := bySeriesID[c.SeriesID]
-		if !ok {
-			ref = &entity.SalesSeriesRef{SeriesID: c.SeriesID, Title: c.Series.Title}
-			bySeriesID[c.SeriesID] = ref
-			order = append(order, c.SeriesID)
-		}
-		ref.EventDates = append(ref.EventDates, c.LocalDate)
+	now := time.Now()
+	seriesRefs, err = uc.selectSeriesToSearch(ctx, seriesRefs, now)
+	if err != nil {
+		return 0, err
 	}
-	if len(order) == 0 {
-		uc.logger.Info(ctx, "sales_phase_discovery: no series in window for artist", attrs...)
+	if len(seriesRefs) == 0 {
+		uc.logger.Info(ctx, "sales_phase_discovery: no series needs a search", attrs...)
 		return 0, nil
-	}
-	seriesRefs := make([]*entity.SalesSeriesRef, len(order))
-	for i, sid := range order {
-		seriesRefs[i] = bySeriesID[sid]
 	}
 
 	// Resolve the grounding seed URL. Without a usable official-site URL the
@@ -133,17 +119,19 @@ func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		return 0, nil
 	}
 
+	searchedTime := time.Now()
 	candidates, err := uc.searcher.SearchSalesPhases(ctx, &entity.SalesPhaseSearchInput{
 		ArtistName:      artist.Name,
 		OfficialSiteURL: site.URL,
 		Series:          seriesRefs,
 	})
 	if err != nil {
+		// Nothing is recorded, so the next daily run searches these series again.
 		uc.logger.Error(ctx, "sales_phase_discovery: searcher failed for artist", err, attrs...)
 		return 0, err
 	}
 	uc.logger.Info(ctx, "sales_phase_discovery: searcher returned candidates",
-		append(attrs, slog.Int("series_count", len(order)), slog.Int("count", len(candidates)))...)
+		append(attrs, slog.Int("series_count", len(seriesRefs)), slog.Int("count", len(candidates)))...)
 
 	var totalNew int
 	for _, candidate := range candidates {
@@ -163,9 +151,100 @@ func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 		}
 	}
 
+	searchedIDs := make([]string, len(seriesRefs))
+	for i, ref := range seriesRefs {
+		searchedIDs[i] = ref.SeriesID
+	}
+	if err := uc.searchLogRepo.Record(ctx, searchedIDs, searchedTime); err != nil {
+		return totalNew, err
+	}
+
 	uc.logger.Info(ctx, "sales_phase_discovery: complete for artist",
-		append(attrs, slog.Int("series_count", len(order)), slog.Int("new_phases", totalNew))...)
+		append(attrs, slog.Int("series_count", len(seriesRefs)), slog.Int("new_phases", totalNew))...)
 	return totalNew, nil
+}
+
+// groupSalesSeries groups upcoming concerts into series refs in first-seen
+// order, collecting each series' upcoming event dates.
+func groupSalesSeries(concerts []*entity.Concert) []*entity.SalesSeriesRef {
+	var refs []*entity.SalesSeriesRef
+	bySeriesID := make(map[string]*entity.SalesSeriesRef)
+	for _, c := range concerts {
+		if c.SeriesID == "" || c.Series == nil {
+			continue
+		}
+		ref, ok := bySeriesID[c.SeriesID]
+		if !ok {
+			ref = &entity.SalesSeriesRef{SeriesID: c.SeriesID, Title: c.Series.Title}
+			bySeriesID[c.SeriesID] = ref
+			refs = append(refs, ref)
+		}
+		ref.EventDates = append(ref.EventDates, c.LocalDate)
+	}
+	return refs
+}
+
+// selectSeriesToSearch keeps the series that need a search, in this order:
+// a fan tracks it, none of its stored phases' applications is still running,
+// and it was never searched or last searched at least 30 days ago.
+func (uc *salesPhaseDiscoveryUseCase) selectSeriesToSearch(
+	ctx context.Context,
+	refs []*entity.SalesSeriesRef,
+	now time.Time,
+) ([]*entity.SalesSeriesRef, error) {
+	kept := make([]*entity.SalesSeriesRef, 0, len(refs))
+	for _, ref := range refs {
+		trackers, err := uc.journeyRepo.ListUserIDsTrackingSeries(ctx, ref.SeriesID)
+		if err != nil {
+			return nil, err
+		}
+		if len(trackers) == 0 {
+			continue
+		}
+		phases, err := uc.salesPhaseRepo.GetBySeries(ctx, ref.SeriesID)
+		if err != nil {
+			return nil, err
+		}
+		if hasRunningApplication(phases, now) {
+			continue
+		}
+		kept = append(kept, ref)
+	}
+	if len(kept) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, len(kept))
+	for i, ref := range kept {
+		ids[i] = ref.SeriesID
+	}
+	logs, err := uc.searchLogRepo.ListBySeries(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	searchedAt := make(map[string]time.Time, len(logs))
+	for _, l := range logs {
+		searchedAt[l.SeriesID] = l.SearchedTime
+	}
+
+	out := kept[:0]
+	for _, ref := range kept {
+		if t, ok := searchedAt[ref.SeriesID]; ok && now.Sub(t) < salesPhaseSearchInterval {
+			continue
+		}
+		out = append(out, ref)
+	}
+	return out, nil
+}
+
+// hasRunningApplication reports whether any phase's application has not ended.
+func hasRunningApplication(phases []*entity.SalesPhase, now time.Time) bool {
+	for _, p := range phases {
+		if !p.HasApplicationEnded(now) {
+			return true
+		}
+	}
+	return false
 }
 
 // publishDiscovered publishes a SALES_PHASE.discovered event. Failure is
@@ -178,8 +257,10 @@ func (uc *salesPhaseDiscoveryUseCase) publishDiscovered(
 	attrs []slog.Attr,
 ) {
 	data := entity.SalesPhaseDiscoveredData{
-		PhaseID:  phaseID,
-		SeriesID: c.SeriesID,
+		PhaseID:        phaseID,
+		SeriesID:       c.SeriesID,
+		Method:         int16(c.Method),
+		ApplyStartTime: c.ApplyStartTime,
 	}
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectSalesPhaseDiscovered, data); err != nil {
 		uc.logger.Warn(ctx, "sales_phase_discovery: failed to publish SALES_PHASE.discovered",

@@ -1,5 +1,7 @@
 package entity
 
+import "time"
+
 // Event subject constants for domain events published via messaging.
 //
 // Subjects follow the UPPERCASE two-segment convention enforced by the
@@ -336,6 +338,12 @@ type SalesPhaseDiscoveredData struct {
 	// resolves its audience from the Tracking ticket journeys on this series'
 	// events.
 	SeriesID string `json:"series_id"`
+	// Method is the phase's SalesMethod int16 value; the announcement copy
+	// depends on it.
+	Method int16 `json:"method"`
+	// ApplyStartTime is when the phase's application opens; the announcement
+	// names it.
+	ApplyStartTime time.Time `json:"apply_start_time"`
 }
 
 // SalesPhaseReminderDueData is the payload for SALES_PHASE.reminder.due events.

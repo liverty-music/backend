@@ -8,8 +8,9 @@ import (
 )
 
 // ResolveSalesPhaseAudience resolves the audience for a sales-phase notification
-// from explicit fan intent: the distinct users who have a Tracking ticket
-// journey on any event of the phase's series. A Tracking journey is a "notify
+// from explicit fan intent: the users who have a Tracking ticket journey on
+// any event of the phase's series, each with the event a notification links
+// them to. A Tracking journey is a "notify
 // me about this sale" signal, so the audience no longer depends on covered-event
 // performers, follower lists, or hype-level proximity (geographic relevance was
 // already applied upstream when the fan chose to track the concert).
@@ -21,10 +22,10 @@ func ResolveSalesPhaseAudience(
 	ctx context.Context,
 	seriesID string,
 	journeyRepo entity.TicketJourneyRepository,
-) ([]string, error) {
-	userIDs, err := journeyRepo.ListUserIDsTrackingSeries(ctx, seriesID)
+) ([]*entity.SeriesTracker, error) {
+	trackers, err := journeyRepo.ListUserIDsTrackingSeries(ctx, seriesID)
 	if err != nil {
 		return nil, fmt.Errorf("sales_phase_audience: list tracking users for series %s: %w", seriesID, err)
 	}
-	return userIDs, nil
+	return trackers, nil
 }
