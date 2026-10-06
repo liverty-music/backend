@@ -6,8 +6,11 @@ var IsRetryable = isRetryable
 // ErrInvalidJSON exports errInvalidJSON for testing.
 var ErrInvalidJSON = errInvalidJSON
 
-// ParseStep1Envelope exports parseStep1Envelope for testing.
-var ParseStep1Envelope = parseStep1Envelope
+// ErrNoCandidates exports errNoCandidates for testing.
+var ErrNoCandidates = errNoCandidates
 
-// SetStep1Slices overrides the Step 1 slices of s for A/B variant runs.
-func SetStep1Slices(s *ConcertSearcher, slices []Step1Slice) { s.slices = slices }
+// SetPrompt overrides the prompt of s for A/B variant runs.
+func SetPrompt(s *ConcertSearcher, p Prompt) { s.prompt = p }
+
+// ParseSingleStepJSON exports parseSingleStepJSON for testing.
+var ParseSingleStepJSON = parseSingleStepJSON

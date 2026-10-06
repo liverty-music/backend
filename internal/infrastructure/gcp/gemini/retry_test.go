@@ -2,205 +2,176 @@ package gemini_test
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	errBody429 = `{"error":{"code":429,"message":"Resource exhausted","status":"RESOURCE_EXHAUSTED"}}`
+	errBody503 = `{"error":{"code":503,"message":"Service unavailable","status":"UNAVAILABLE"}}`
+	errBody504 = `{"error":{"code":504,"message":"Deadline exceeded","status":"DEADLINE_EXCEEDED"}}`
+	errBody400 = `{"error":{"code":400,"message":"Bad Request","status":"INVALID_ARGUMENT"}}`
+)
+
+// @spec components/entity/concert/search "Recovered on retry"
 func TestSearch_RetryOnTransientError(t *testing.T) {
-	t.Skip("pending rewrite for Go-side draft + Step 2 coercion split (#303)")
 	t.Parallel()
 
-	logger, _ := logging.New()
-	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
+	successBody := `{"series": [{"title": "Retry Success", "source_url": "https://example.com/retry", "events": [
+		{"venue": "Test Hall", "country": "JP", "admin_area": "", "local_date": "2026-03-01", "open_time": "", "start_time": "2026-03-01T18:00:00Z"}]}]}`
 
-	successBody := `{
-		"tours": [],
-		"standalones": [{
-			"event_title": "Retry Success Tour",
-			"venue": "Test Hall",
-			"local_date": "2026-03-01",
-			"start_time": "2026-03-01T18:00:00Z",
-			"source_url": "https://example.com/retry"
-		}]
-	}`
-
-	var callCount atomic.Int32
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := callCount.Add(1)
-
-		// First call returns 503 (retryable), second succeeds
+	s, calls := newTestSearcher(t, gemini.Config{}, nil, func(n int32, _ map[string]any) (int, string) {
+		// The first attempt times out; the second succeeds.
 		if n == 1 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			if _, err := w.Write([]byte(`{"error":{"code":503,"message":"Service unavailable","status":"UNAVAILABLE"}}`)); err != nil {
-				t.Fatal(err)
-			}
-			return
+			return http.StatusGatewayTimeout, errBody504
 		}
+		return http.StatusOK, geminiResponse(successBody, "STOP")
+	})
 
-		fullResponse := fmt.Sprintf(`{
-			"candidates": [{
-				"content": {"parts": [{"text": %s}]},
-				"finishReason": "STOP",
-				"groundingMetadata": {"webSearchQueries": ["test"]}
-			}],
-			"usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 10, "totalTokenCount": 20}
-		}`, strconv.Quote(successBody))
+	got, err := s.Search(context.Background(), artist, officialSite, from)
 
-		w.Header().Set("Content-Type", "application/json")
-		if _, err := w.Write([]byte(fullResponse)); err != nil {
-			t.Fatal(err)
-		}
-	}))
-	defer ts.Close()
-
-	httpClient := &http.Client{Transport: &rewriteTransport{URL: ts.URL}}
-	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		APIKey: "test", ModelExtract: "gemini-pro", ModelParse: "gemini-pro",
-	}, httpClient, logger)
 	require.NoError(t, err)
-
-	got, err := s.Search(ctx, artist, officialSite, from)
-
-	assert.NoError(t, err)
 	require.Len(t, got, 1)
-	assert.Equal(t, "Retry Success Tour", got[0].Title)
-	// Step 1 runs a single grounded slice. The first request returns 503
-	// and retries once; the retry succeeds. Step 2 parses the envelope.
-	// Total: 1 (503) + 1 (retry success) + 1 (parse) = 3 calls.
-	assert.Equal(t, int32(3), callCount.Load(), "1 slice + 1 retry + Step 2 = 3 calls")
+	assert.Equal(t, "Retry Success", got[0].Title)
+	assert.Equal(t, int32(2), calls.Load(), "1 timeout + 1 retry success")
 }
 
+// @spec components/entity/concert/search "All attempts transient"
 func TestSearch_AllRetriesExhausted(t *testing.T) {
 	t.Parallel()
 
-	logger, _ := logging.New()
-	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
-	var callCount atomic.Int32
+	s, calls := newTestSearcher(t, gemini.Config{}, nil, func(int32, map[string]any) (int, string) {
+		return http.StatusTooManyRequests, errBody429
+	})
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount.Add(1)
-		w.WriteHeader(http.StatusServiceUnavailable)
-		if _, err := w.Write([]byte(`{"error":{"code":503,"message":"Service unavailable","status":"UNAVAILABLE"}}`)); err != nil {
-			t.Fatal(err)
-		}
-	}))
-	defer ts.Close()
+	got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
 
-	httpClient := &http.Client{Transport: &rewriteTransport{URL: ts.URL}}
-	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		APIKey: "test", ModelExtract: "gemini-pro", ModelParse: "gemini-pro",
-	}, httpClient, logger)
-	require.NoError(t, err)
-
-	got, err := s.Search(ctx, artist, officialSite, from)
-
-	// Graceful-degradation semantics (post-review-2): transient exhaustion
-	// on every Step 1 slice surfaces as an empty result, NOT an error.
-	// The exhaustion is observable via the WARN logs (one per slice) and
-	// via `SearchMetadata.Step1Grounded.ExhaustedTransient = true`.
-	// Promoting it to a hard error would have lost the work of any sibling
-	// slice that succeeded, so the contract is "swallow transient
-	// exhaustion at the slice level; fail hard only on permanent errors".
+	// Transient exhaustion degrades to no results, flagged in the metadata.
 	assert.NoError(t, err)
 	assert.Empty(t, got)
-	// 1 grounded slice × 3 retries = 3 total slice attempts. Step 2 is
-	// skipped because the slice exhausts retries (empty envelope set →
-	// runStep1Grounded returns "" → runStep2Parse short-circuits on the
-	// empty draft list).
-	assert.Equal(t, int32(3), callCount.Load(), "1 slice × 3 retries = 3 calls")
+	require.NotNil(t, md.Grounded)
+	assert.True(t, md.Grounded.ExhaustedTransient)
+	assert.Equal(t, int32(3), calls.Load(), "3 attempts in total")
 }
 
 func TestSearch_NonRetryableErrorStopsImmediately(t *testing.T) {
 	t.Parallel()
 
-	logger, _ := logging.New()
-	ctx := context.Background()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
-	var callCount atomic.Int32
+	s, calls := newTestSearcher(t, gemini.Config{}, nil, func(int32, map[string]any) (int, string) {
+		return http.StatusBadRequest, errBody400
+	})
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount.Add(1)
-		w.WriteHeader(http.StatusBadRequest)
-		if _, err := w.Write([]byte(`{"error":{"code":400,"message":"Bad Request","status":"INVALID_ARGUMENT"}}`)); err != nil {
-			t.Fatal(err)
-		}
-	}))
-	defer ts.Close()
-
-	httpClient := &http.Client{Transport: &rewriteTransport{URL: ts.URL}}
-	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		APIKey: "test", ModelExtract: "gemini-pro", ModelParse: "gemini-pro",
-	}, httpClient, logger)
-	require.NoError(t, err)
-
-	got, err := s.Search(ctx, artist, officialSite, from)
+	got, err := s.Search(context.Background(), artist, officialSite, from)
 
 	assert.Nil(t, got)
-	assert.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	// The single Step 1 slice hits the 400. Permanent errors abort the
-	// slice immediately (no retries). Step 2 is skipped because
-	// runStep1Grounded surfaces the error. Total: 1 call.
-	assert.Equal(t, int32(1), callCount.Load(), "1 slice × 1 (non-retryable) = 1 call")
+	assert.Equal(t, int32(1), calls.Load(), "permanent errors are not retried")
 }
 
+// @spec components/entity/concert/search "Caller deadline expires"
 func TestSearch_ContextCancellationStopsRetry(t *testing.T) {
 	t.Parallel()
 
-	logger, _ := logging.New()
 	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	artist := &entity.Artist{Name: "Test Artist"}
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 
-	var callCount atomic.Int32
+	s, calls := newTestSearcher(t, gemini.Config{}, nil, func(int32, map[string]any) (int, string) {
+		return http.StatusServiceUnavailable, errBody503
+	})
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount.Add(1)
-		w.WriteHeader(http.StatusServiceUnavailable)
-		if _, err := w.Write([]byte(`{"error":{"code":503,"message":"Service unavailable","status":"UNAVAILABLE"}}`)); err != nil {
-			t.Fatal(err)
-		}
-	}))
-	defer ts.Close()
-
-	// Create a context that will be cancelled before the retry backoff completes
+	// The deadline expires during the first retry backoff.
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-
-	httpClient := &http.Client{Transport: &rewriteTransport{URL: ts.URL}}
-	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
-		APIKey: "test", ModelExtract: "gemini-pro", ModelParse: "gemini-pro",
-	}, httpClient, logger)
-	require.NoError(t, err)
 
 	got, err := s.Search(ctx, artist, officialSite, from)
 
 	assert.Nil(t, got)
 	assert.Error(t, err)
-	// 1 slice × 3 retries would be 3 calls if backoff ran to completion.
-	// Context cancellation during the first backoff stops further retries.
-	assert.Less(t, callCount.Load(), int32(3), "should not exhaust all retries when context is cancelled")
+	assert.Less(t, calls.Load(), int32(3), "should not exhaust all retries when context is cancelled")
+}
+
+// TestSearch_IncompleteResponseWithoutTextIsRetried locks in that an
+// incomplete response carrying no text (e.g. TOO_MANY_TOOL_CALLS after a long
+// search chain) is retried as a transient failure instead of being read as
+// "no concerts" on the first attempt.
+func TestSearch_IncompleteResponseWithoutTextIsRetried(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{Name: "Test Artist"}
+	officialSite := &entity.OfficialSite{URL: "https://example.com"}
+	noText := `{"candidates": [{"content": {"parts": [
+		{"toolCall": {"toolType": "GOOGLE_SEARCH_WEB", "args": {"queries": ["Test Artist live"]}}}
+	]}, "finishReason": "TOO_MANY_TOOL_CALLS"}]}`
+	successBody := `{"series": [{"title": "Show", "source_url": "https://example.com/show", "events": [
+		{"venue": "Test Hall", "country": "JP", "admin_area": "", "local_date": "2026-03-01", "open_time": "", "start_time": ""}]}]}`
+
+	tests := []struct {
+		name      string
+		respond   func(n int32) string
+		wantTitle []string
+		wantCalls int32
+		wantFlag  bool
+	}{
+		{
+			name: "recovered on the next attempt",
+			respond: func(n int32) string {
+				if n == 1 {
+					return noText
+				}
+				return geminiResponse(successBody, "STOP")
+			},
+			wantTitle: []string{"Show"},
+			wantCalls: 2,
+		},
+		{
+			name:      "every attempt incomplete degrades to no results",
+			respond:   func(int32) string { return noText },
+			wantCalls: 3,
+			wantFlag:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s, calls := newTestSearcher(t, gemini.Config{}, nil, func(n int32, _ map[string]any) (int, string) {
+				return http.StatusOK, tt.respond(n)
+			})
+
+			got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
+
+			require.NoError(t, err)
+			titles := make([]string, 0, len(got))
+			for _, ds := range got {
+				titles = append(titles, ds.Title)
+			}
+			if tt.wantTitle == nil {
+				assert.Empty(t, titles)
+			} else {
+				assert.Equal(t, tt.wantTitle, titles)
+			}
+			assert.Equal(t, tt.wantCalls, calls.Load())
+			require.NotNil(t, md.Grounded)
+			assert.Equal(t, tt.wantFlag, md.Grounded.ExhaustedTransient)
+		})
+	}
 }

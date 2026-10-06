@@ -99,8 +99,8 @@ func (e *DiscoveredEvent) ToConcertUnderSeries(artistID, seriesID, eventID, venu
 // DiscoveredSeries groups the events of one discovered tour or standalone show
 // under shared series-level metadata. Grouping is structural — every event in
 // Events belongs to this one series — so per-event fragmentation is impossible
-// by construction. A Gemini <tour> block maps to Type SERIES_TYPE_TOUR with one
-// event per date; a <standalone> block maps to SINGLE with exactly one event.
+// by construction. The searcher sets Type from the venues: TOUR when the events
+// are at two or more venues, SINGLE otherwise.
 //
 // JSON tags support serialization as the concert.discovered event payload.
 type DiscoveredSeries struct {

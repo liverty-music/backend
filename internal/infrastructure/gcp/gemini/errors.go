@@ -27,6 +27,15 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 		return apperr.Wrap(err, codes.Canceled, msg, attrs...)
 	}
 
+	// A response without a candidate: the service answered but produced no
+	// result, so the search can succeed on a later run.
+	if errors.Is(err, errNoCandidates) {
+		return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
+	}
+	if errors.Is(err, errInvalidJSON) {
+		return apperr.Wrap(err, codes.Internal, msg, attrs...)
+	}
+
 	// Handle Gemini API errors
 	if apiErr, ok := errors.AsType[genai.APIError](err); ok {
 		var code codes.Code
