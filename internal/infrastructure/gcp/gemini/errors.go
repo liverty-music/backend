@@ -27,9 +27,10 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 		return apperr.Wrap(err, codes.Canceled, msg, attrs...)
 	}
 
-	// A response without a candidate: the service answered but produced no
-	// result, so the search can succeed on a later run.
-	if errors.Is(err, errNoCandidates) {
+	// A response without a candidate or one stopped by too many tool calls:
+	// the service answered but produced no result, so the search can succeed
+	// on a later run.
+	if errors.Is(err, errNoCandidates) || errors.Is(err, errTooManyToolCalls) {
 		return apperr.Wrap(err, codes.Unavailable, msg, attrs...)
 	}
 	if errors.Is(err, errInvalidJSON) {

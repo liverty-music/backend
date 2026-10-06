@@ -31,6 +31,13 @@ var (
 	// request is likely to fail the same way. Failing the Search marks the
 	// Artist's SearchLog failed so the next daily run searches again.
 	errNoCandidates = errors.New("gemini returned no candidates")
+
+	// errTooManyToolCalls is returned when the model stops with
+	// TOO_MANY_TOOL_CALLS. It is not retried: the call has already run its
+	// search queries (40-70 in prod) and a repeat usually falls into the same
+	// search-only mode. Failing the Search marks the Artist's SearchLog failed
+	// so the next daily run searches again.
+	errTooManyToolCalls = errors.New("gemini stopped after too many tool calls")
 )
 
 // Config holds the configuration for Gemini searcher.
@@ -392,7 +399,8 @@ func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, now t
 //   - (pm, rawText, false, nil) on success
 //   - (pm, "", true, nil) when retries are exhausted with transient errors
 //   - (pm, "", false, err) on permanent error, including a response with no
-//     candidate (errNoCandidates, not retried)
+//     candidate (errNoCandidates) or one stopped by TOO_MANY_TOOL_CALLS
+//     (errTooManyToolCalls), neither retried
 //
 // Non-STOP finish_reason is treated as transient and retried.
 func (s *ConcertSearcher) executePass(
@@ -578,9 +586,17 @@ func (s *ConcertSearcher) executePass(
 			slog.Int("text_parts", textParts),
 		)
 
+		if candidate.FinishReason == genai.FinishReasonTooManyToolCalls {
+			lastWasFinish = false
+			sawPermanent = true
+			s.logger.Warn(ctx, "gemini stopped after too many tool calls (permanent, not retrying)",
+				append(attrs, candidateAttrs...)...)
+			return "", backoff.Permanent(errTooManyToolCalls)
+		}
+
 		// The finish reason is checked before the text: an incomplete response
-		// (e.g. TOO_MANY_TOOL_CALLS) often carries no text at all and must be
-		// retried, not read as "no concerts".
+		// often carries no text at all and must be retried, not read as
+		// "no concerts".
 		if candidate.FinishReason != genai.FinishReasonStop && candidate.FinishReason != "" {
 			lastWasFinish = true
 			finishErr := fmt.Errorf("gemini response not completed normally: finish_reason=%s", candidate.FinishReason)

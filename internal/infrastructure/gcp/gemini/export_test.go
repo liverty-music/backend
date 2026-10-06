@@ -9,6 +9,9 @@ var ErrInvalidJSON = errInvalidJSON
 // ErrNoCandidates exports errNoCandidates for testing.
 var ErrNoCandidates = errNoCandidates
 
+// ErrTooManyToolCalls exports errTooManyToolCalls for testing.
+var ErrTooManyToolCalls = errTooManyToolCalls
+
 // SetPrompt overrides the prompt of s for A/B variant runs.
 func SetPrompt(s *ConcertSearcher, p Prompt) { s.prompt = p }
 

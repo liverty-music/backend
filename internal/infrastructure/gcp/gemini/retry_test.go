@@ -110,9 +110,9 @@ func TestSearch_ContextCancellationStopsRetry(t *testing.T) {
 }
 
 // TestSearch_IncompleteResponseWithoutTextIsRetried locks in that an
-// incomplete response carrying no text (e.g. TOO_MANY_TOOL_CALLS after a long
-// search chain) is retried as a transient failure instead of being read as
-// "no concerts" on the first attempt.
+// incomplete response carrying no text (e.g. MAX_TOKENS) is retried as a
+// transient failure instead of being read as "no concerts" on the first
+// attempt.
 func TestSearch_IncompleteResponseWithoutTextIsRetried(t *testing.T) {
 	t.Parallel()
 
@@ -121,7 +121,7 @@ func TestSearch_IncompleteResponseWithoutTextIsRetried(t *testing.T) {
 	officialSite := &entity.OfficialSite{URL: "https://example.com"}
 	noText := `{"candidates": [{"content": {"parts": [
 		{"toolCall": {"toolType": "GOOGLE_SEARCH_WEB", "args": {"queries": ["Test Artist live"]}}}
-	]}, "finishReason": "TOO_MANY_TOOL_CALLS"}]}`
+	]}, "finishReason": "MAX_TOKENS"}]}`
 	successBody := `{"series": [{"title": "Show", "source_url": "https://example.com/show", "events": [
 		{"venue": "Test Hall", "country": "JP", "admin_area": "", "local_date": "2026-03-01", "open_time": "", "start_time": ""}]}]}`
 
@@ -174,4 +174,29 @@ func TestSearch_IncompleteResponseWithoutTextIsRetried(t *testing.T) {
 			assert.Equal(t, tt.wantFlag, md.Grounded.ExhaustedTransient)
 		})
 	}
+}
+
+// @spec components/entity/concert/search "Too many tool calls"
+func TestSearch_TooManyToolCallsFailsWithoutRetry(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{Name: "Test Artist"}
+	officialSite := &entity.OfficialSite{URL: "https://example.com"}
+	stopped := `{"candidates": [{"content": {"parts": [
+		{"toolCall": {"toolType": "GOOGLE_SEARCH_WEB", "args": {"queries": ["Test Artist live", "Test Artist tour"]}}}
+	]}, "finishReason": "TOO_MANY_TOOL_CALLS"}]}`
+
+	s, calls := newTestSearcher(t, gemini.Config{}, nil, func(int32, map[string]any) (int, string) {
+		return http.StatusOK, stopped
+	})
+
+	got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, gemini.ErrTooManyToolCalls)
+	assert.ErrorIs(t, err, apperr.ErrUnavailable)
+	assert.Equal(t, int32(1), calls.Load(), "not retried")
+	require.NotNil(t, md.Grounded)
+	assert.Equal(t, 2, md.Grounded.WebSearchQueries, "the stopped call's queries are still recorded")
 }
