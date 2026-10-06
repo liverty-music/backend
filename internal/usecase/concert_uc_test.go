@@ -15,6 +15,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -343,6 +344,26 @@ func TestConcertUseCase_SearchNewConcerts(t *testing.T) {
 				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusFailed).Return(nil).Once()
 			},
 			wantErr: apperr.ErrInternal,
+		},
+		{
+			// @spec components/usecase/concert/search-new-concerts "External search fails"
+			name: "failure - Gemini returns no candidates, marks search as failed",
+			args: args{artistID: "artist-1"},
+			setup: func(t *testing.T, d *concertTestDeps) {
+				t.Helper()
+				artistID := "artist-1"
+				d.searchLogRepo.EXPECT().GetByArtistID(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
+				d.searchLogRepo.EXPECT().Upsert(ctx, artistID, entity.SearchLogStatusPending).Return(nil).Once()
+				d.artistRepo.EXPECT().Get(ctx, artistID).Return(&entity.Artist{ID: artistID, Name: "Test Artist", MBID: "11111111-1111-1111-1111-111111111111"}, nil).Once()
+				d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(&entity.OfficialSite{}, nil).Once()
+				d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
+				d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).Return(nil, nil).Once()
+				// The searcher fails an empty (candidate-less) response with Unavailable.
+				d.searcher.EXPECT().Search(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil, apperr.New(codes.Unavailable, "gemini returned no candidates")).Once()
+				d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, artistID, entity.SearchLogStatusFailed).Return(nil).Once()
+			},
+			wantErr: apperr.ErrUnavailable,
 		},
 		{
 			name: "success - no official site record, search continues with nil site",
