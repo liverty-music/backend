@@ -57,11 +57,11 @@ Migration workflow (local generation, operator deployment, kustomization update)
 
 See `internal/infrastructure/gcp/gemini/CLAUDE.md`.
 
-### Dev DB Access (Cloud SQL via port-forward)
+### Cloud SQL Access (dev and prod, via port-forward)
 
-**Dev Cloud SQL only** — for integration tests use `docker compose up -d postgres` instead.
+For integration tests use `docker compose up -d postgres` instead.
 
-See [docs/dev-db-access.md](docs/dev-db-access.md) for port-forward command and psql connection string.
+See [docs/dev-db-access.md](docs/dev-db-access.md), which points to the cloud-provisioning runbook (ephemeral `db-proxy` Pod, personal IAM login, read-only).
 
 ## Review criteria (flag violations; quote the rule + link the existing code compared against)
 
