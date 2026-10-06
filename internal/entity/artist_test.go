@@ -1,6 +1,7 @@
 package entity_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -81,6 +82,36 @@ func TestFilterArtistsByMBID(t *testing.T) {
 	}
 }
 
+func TestNewArtist(t *testing.T) {
+	t.Parallel()
+
+	// @spec components/entity/artist "New artist"
+	t.Run("New artist", func(t *testing.T) {
+		t.Parallel()
+
+		got := entity.NewArtist("羊文学", "a1b2c3d4-0000-0000-0000-000000000001")
+
+		assert.NotEmpty(t, got.ID)
+		assert.Equal(t, "羊文学", got.Name)
+		assert.Equal(t, "a1b2c3d4-0000-0000-0000-000000000001", got.MBID)
+		assert.Nil(t, got.Fanart)
+		assert.Nil(t, got.FanartSyncTime)
+		assert.Nil(t, got.OfficialSiteCheckTime)
+	})
+
+	// @spec components/entity/artist "Two new artists"
+	t.Run("Two new artists", func(t *testing.T) {
+		t.Parallel()
+
+		a := entity.NewArtist("羊文学", "a1b2c3d4-0000-0000-0000-000000000001")
+		b := entity.NewArtist("羊文学", "a1b2c3d4-0000-0000-0000-000000000001")
+
+		assert.NotEqual(t, a.ID, b.ID)
+		assert.Nil(t, a.OfficialSiteCheckTime)
+		assert.Nil(t, b.OfficialSiteCheckTime)
+	})
+}
+
 func TestNewOfficialSite(t *testing.T) {
 	t.Parallel()
 
@@ -102,4 +133,35 @@ func TestNewOfficialSite(t *testing.T) {
 
 		assert.NotEqual(t, a.ID, b.ID)
 	})
+}
+
+func TestValidateOfficialSiteURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		url     string
+		wantErr error
+	}{
+		{name: "valid https URL", url: "https://www.hitsujibungaku.info/", wantErr: nil},
+		{name: "valid URL of exactly 2048 characters", url: "https://example.com/" + strings.Repeat("a", 2048-len("https://example.com/")), wantErr: nil},
+		{name: "empty URL", url: "", wantErr: assert.AnError},
+		{name: "URL longer than 2048 characters", url: "https://example.com/" + strings.Repeat("a", 2049), wantErr: assert.AnError},
+		{name: "relative reference is not an absolute URI", url: "/artist/yorushika", wantErr: assert.AnError},
+		{name: "malformed URI", url: "https://exa mple.com/%zz", wantErr: assert.AnError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := entity.ValidateOfficialSiteURL(tt.url)
+
+			if tt.wantErr != nil {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

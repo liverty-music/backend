@@ -438,6 +438,66 @@ func (_c *MockArtistRepository_ListByMBIDs_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
+// ListStaleOfficialSite provides a mock function with given fields: ctx, age, limit
+func (_m *MockArtistRepository) ListStaleOfficialSite(ctx context.Context, age time.Duration, limit int) ([]*entity.Artist, error) {
+	ret := _m.Called(ctx, age, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListStaleOfficialSite")
+	}
+
+	var r0 []*entity.Artist
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, time.Duration, int) ([]*entity.Artist, error)); ok {
+		return rf(ctx, age, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, time.Duration, int) []*entity.Artist); ok {
+		r0 = rf(ctx, age, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Artist)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, time.Duration, int) error); ok {
+		r1 = rf(ctx, age, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockArtistRepository_ListStaleOfficialSite_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListStaleOfficialSite'
+type MockArtistRepository_ListStaleOfficialSite_Call struct {
+	*mock.Call
+}
+
+// ListStaleOfficialSite is a helper method to define mock.On call
+//   - ctx context.Context
+//   - age time.Duration
+//   - limit int
+func (_e *MockArtistRepository_Expecter) ListStaleOfficialSite(ctx interface{}, age interface{}, limit interface{}) *MockArtistRepository_ListStaleOfficialSite_Call {
+	return &MockArtistRepository_ListStaleOfficialSite_Call{Call: _e.mock.On("ListStaleOfficialSite", ctx, age, limit)}
+}
+
+func (_c *MockArtistRepository_ListStaleOfficialSite_Call) Run(run func(ctx context.Context, age time.Duration, limit int)) *MockArtistRepository_ListStaleOfficialSite_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Duration), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_ListStaleOfficialSite_Call) Return(_a0 []*entity.Artist, _a1 error) *MockArtistRepository_ListStaleOfficialSite_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockArtistRepository_ListStaleOfficialSite_Call) RunAndReturn(run func(context.Context, time.Duration, int) ([]*entity.Artist, error)) *MockArtistRepository_ListStaleOfficialSite_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListStaleOrMissingFanart provides a mock function with given fields: ctx, staleDuration, limit
 func (_m *MockArtistRepository) ListStaleOrMissingFanart(ctx context.Context, staleDuration time.Duration, limit int) ([]*entity.Artist, error) {
 	ret := _m.Called(ctx, staleDuration, limit)
@@ -494,6 +554,54 @@ func (_c *MockArtistRepository_ListStaleOrMissingFanart_Call) Return(_a0 []*enti
 }
 
 func (_c *MockArtistRepository_ListStaleOrMissingFanart_Call) RunAndReturn(run func(context.Context, time.Duration, int) ([]*entity.Artist, error)) *MockArtistRepository_ListStaleOrMissingFanart_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// MarkOfficialSiteChecked provides a mock function with given fields: ctx, artistID, checkTime
+func (_m *MockArtistRepository) MarkOfficialSiteChecked(ctx context.Context, artistID string, checkTime time.Time) error {
+	ret := _m.Called(ctx, artistID, checkTime)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkOfficialSiteChecked")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) error); ok {
+		r0 = rf(ctx, artistID, checkTime)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockArtistRepository_MarkOfficialSiteChecked_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkOfficialSiteChecked'
+type MockArtistRepository_MarkOfficialSiteChecked_Call struct {
+	*mock.Call
+}
+
+// MarkOfficialSiteChecked is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+//   - checkTime time.Time
+func (_e *MockArtistRepository_Expecter) MarkOfficialSiteChecked(ctx interface{}, artistID interface{}, checkTime interface{}) *MockArtistRepository_MarkOfficialSiteChecked_Call {
+	return &MockArtistRepository_MarkOfficialSiteChecked_Call{Call: _e.mock.On("MarkOfficialSiteChecked", ctx, artistID, checkTime)}
+}
+
+func (_c *MockArtistRepository_MarkOfficialSiteChecked_Call) Run(run func(ctx context.Context, artistID string, checkTime time.Time)) *MockArtistRepository_MarkOfficialSiteChecked_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_MarkOfficialSiteChecked_Call) Return(_a0 error) *MockArtistRepository_MarkOfficialSiteChecked_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockArtistRepository_MarkOfficialSiteChecked_Call) RunAndReturn(run func(context.Context, string, time.Time) error) *MockArtistRepository_MarkOfficialSiteChecked_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -591,6 +699,54 @@ func (_c *MockArtistRepository_UpdateName_Call) Return(_a0 error) *MockArtistRep
 }
 
 func (_c *MockArtistRepository_UpdateName_Call) RunAndReturn(run func(context.Context, string, string) error) *MockArtistRepository_UpdateName_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateOfficialSiteURL provides a mock function with given fields: ctx, artistID, url
+func (_m *MockArtistRepository) UpdateOfficialSiteURL(ctx context.Context, artistID string, url string) error {
+	ret := _m.Called(ctx, artistID, url)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateOfficialSiteURL")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, artistID, url)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockArtistRepository_UpdateOfficialSiteURL_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateOfficialSiteURL'
+type MockArtistRepository_UpdateOfficialSiteURL_Call struct {
+	*mock.Call
+}
+
+// UpdateOfficialSiteURL is a helper method to define mock.On call
+//   - ctx context.Context
+//   - artistID string
+//   - url string
+func (_e *MockArtistRepository_Expecter) UpdateOfficialSiteURL(ctx interface{}, artistID interface{}, url interface{}) *MockArtistRepository_UpdateOfficialSiteURL_Call {
+	return &MockArtistRepository_UpdateOfficialSiteURL_Call{Call: _e.mock.On("UpdateOfficialSiteURL", ctx, artistID, url)}
+}
+
+func (_c *MockArtistRepository_UpdateOfficialSiteURL_Call) Run(run func(ctx context.Context, artistID string, url string)) *MockArtistRepository_UpdateOfficialSiteURL_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockArtistRepository_UpdateOfficialSiteURL_Call) Return(_a0 error) *MockArtistRepository_UpdateOfficialSiteURL_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockArtistRepository_UpdateOfficialSiteURL_Call) RunAndReturn(run func(context.Context, string, string) error) *MockArtistRepository_UpdateOfficialSiteURL_Call {
 	_c.Call.Return(run)
 	return _c
 }

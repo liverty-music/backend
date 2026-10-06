@@ -74,6 +74,15 @@ func (r *fakeArtistRepo) UpdateFanart(_ context.Context, _ string, _ *entity.Fan
 func (r *fakeArtistRepo) ListStaleOrMissingFanart(_ context.Context, _ time.Duration, _ int) ([]*entity.Artist, error) {
 	return nil, nil
 }
+func (r *fakeArtistRepo) ListStaleOfficialSite(_ context.Context, _ time.Duration, _ int) ([]*entity.Artist, error) {
+	return nil, nil
+}
+func (r *fakeArtistRepo) UpdateOfficialSiteURL(_ context.Context, _, _ string) error {
+	return nil
+}
+func (r *fakeArtistRepo) MarkOfficialSiteChecked(_ context.Context, _ string, _ time.Time) error {
+	return nil
+}
 
 // approvalTestDeps bundles dependencies for AdminConcertUseCase tests.
 type approvalTestDeps struct {

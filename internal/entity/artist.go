@@ -3,7 +3,11 @@ package entity
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/url"
 	"time"
+	"unicode/utf8"
 )
 
 // Artist represents a musical artist or group recorded in the system.
@@ -25,6 +29,10 @@ type Artist struct {
 	// FanartSyncTime is the timestamp of the last successful fanart.tv sync.
 	// nil when no sync has occurred.
 	FanartSyncTime *time.Time
+	// OfficialSiteCheckTime is when the artist's official site was last
+	// checked in MusicBrainz, whatever the check found.
+	// nil when the official site has never been checked.
+	OfficialSiteCheckTime *time.Time
 }
 
 // NewArtist creates a new Artist with an auto-generated UUIDv7 ID.
@@ -49,6 +57,30 @@ type OfficialSite struct {
 	ArtistID string
 	// URL is the validated HTTPS address of the website.
 	URL string
+}
+
+// maxOfficialSiteURLLength is the longest official site URL accepted, in characters.
+const maxOfficialSiteURLLength = 2048
+
+// ValidateOfficialSiteURL checks that raw is a valid official site URL: an
+// absolute URI of 1 to 2048 characters. It mirrors the protovalidate
+// constraint on liverty_music.entity.v1.Url. The entity layer returns stdlib
+// errors; callers wrap them with the appropriate apperr code.
+func ValidateOfficialSiteURL(raw string) error {
+	if raw == "" {
+		return errors.New("official site url must not be empty")
+	}
+	if n := utf8.RuneCountInString(raw); n > maxOfficialSiteURLLength {
+		return fmt.Errorf("official site url must be at most %d characters, got %d", maxOfficialSiteURLLength, n)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("official site url is not a valid URI: %w", err)
+	}
+	if u.Scheme == "" {
+		return fmt.Errorf("official site url must be an absolute URI, got %q", raw)
+	}
+	return nil
 }
 
 // FilterArtistsByMBID removes artists with an empty MBID and deduplicates the
@@ -170,6 +202,38 @@ type ArtistRepository interface {
 	//
 	//   - Internal: database query failure.
 	ListStaleOrMissingFanart(ctx context.Context, staleDuration time.Duration, limit int) ([]*Artist, error)
+
+	// Official site refresh operations
+
+	// ListStaleOfficialSite returns the artists followed by at least one user
+	// whose official site is due for a check: never checked, or last checked
+	// longer ago than age. Artists are returned whether or not they have an
+	// official site, never-checked first and then oldest check first, each at
+	// most once, and at most limit artists.
+	//
+	// # Possible errors:
+	//
+	//   - Internal: database query failure.
+	ListStaleOfficialSite(ctx context.Context, age time.Duration, limit int) ([]*Artist, error)
+
+	// UpdateOfficialSiteURL replaces the URL of the official site stored for
+	// the artist, keeping the site's id. The stored site is unchanged on failure.
+	//
+	// # Possible errors:
+	//
+	//   - InvalidArgument: the URL is not a valid official site URL.
+	//   - NotFound: the artist has no official site, or no artist has the id.
+	//   - Internal: database execution failure.
+	UpdateOfficialSiteURL(ctx context.Context, artistID, url string) error
+
+	// MarkOfficialSiteChecked records checkTime as the artist's official site
+	// check time, whether or not the artist has an official site.
+	//
+	// # Possible errors:
+	//
+	//   - NotFound: no artist exists with the provided ID.
+	//   - Internal: database execution failure.
+	MarkOfficialSiteChecked(ctx context.Context, artistID string, checkTime time.Time) error
 }
 
 // ArtistSearcher defines discovery operations for finding artists in external catalogs.
