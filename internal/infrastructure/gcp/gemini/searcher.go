@@ -3,14 +3,11 @@ package gemini
 import (
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
@@ -21,67 +18,61 @@ import (
 	"google.golang.org/genai"
 )
 
-// errInvalidJSON is a sentinel error returned by parseStep2Response when the
-// Gemini Step 2 response is not valid JSON or fails responseJSONSchema
-// validation. Step 2 callers wrap this in `backoff.Permanent` before
-// returning, so it propagates as a hard error rather than triggering another
-// retry — the model produced a structurally broken envelope and retrying the
-// same prompt is unlikely to fix it.
-var errInvalidJSON = errors.New("gemini returned invalid JSON")
+var (
+	// errInvalidJSON is returned when the grounded call's response is not
+	// JSON of the singleStepResponseSchema shape. It is not retried: the model
+	// produced a structurally broken response and the same prompt is unlikely
+	// to fix it.
+	errInvalidJSON = errors.New("gemini returned invalid JSON")
+
+	// errNoCandidates is returned when the API answers successfully but with
+	// no candidate. It is not retried: the empty response is billed (tens to
+	// hundreds of thousands of tool-use tokens) and a repeat of the same
+	// request is likely to fail the same way. Failing the Search marks the
+	// Artist's SearchLog failed so the next daily run searches again.
+	errNoCandidates = errors.New("gemini returned no candidates")
+)
 
 // Config holds the configuration for Gemini searcher.
 //
 // The searcher exclusively targets the Gemini API direct backend
-// (BackendGeminiAPI). The two-step grounded-extract pipeline depends on
-// URLContext and GoogleSearch.TimeRangeFilter, neither of which is
-// supported on Vertex AI; APIKey is therefore required.
+// (BackendGeminiAPI). The grounded call depends on URLContext and
+// GoogleSearch.TimeRangeFilter, neither of which is supported on Vertex AI;
+// APIKey is therefore required.
 type Config struct {
 	// APIKey selects the Gemini API direct backend. REQUIRED — no Vertex
 	// AI fallback exists for this workload.
 	APIKey string
 
-	// Per-step model names for the two-step pipeline.
-	//   - ModelExtract: Step 1 (grounded search + verbatim extract —
-	//     GoogleSearch + URLContext, no schema).
-	//   - ModelParse:   Step 2 (structured-output JSON parse, no tools).
-	// Both REQUIRED — the constructor errors on empty.
-	ModelExtract string
-	ModelParse   string
+	// Model is the model of the grounded call (GoogleSearch + URLContext
+	// with a JSON response schema). REQUIRED — the constructor errors on
+	// empty.
+	Model string
 
 	Temperature float32
+	// OmitTemperature leaves temperature unset in every request so the model
+	// default applies, as the Gemini 3.8 Flash migration guide recommends
+	// ("Strip temperature, top_p, and top_k from generation configs").
+	// When set, Temperature is ignored.
+	OmitTemperature bool
+	// IncludeServerSideToolInvocations asks the API to return the server-side
+	// tool calls (Preview, Gemini 3) in the response, so the Google Search
+	// queries the model ran are visible even when groundingMetadata is absent.
+	IncludeServerSideToolInvocations bool
 
-	// ThinkingLevel is the legacy fallback used when ThinkingExtract /
-	// ThinkingParse are unset for a given step.
+	// ThinkingLevel is the thinking level of the grounded call. Empty leaves
+	// the model default in place.
 	ThinkingLevel string
-
-	// Per-step thinking levels for the two-step pipeline.
-	//   - ThinkingExtract: Step 1 (grounded search + verbatim extract).
-	//   - ThinkingParse:   Step 2 (XML → JSON transformation).
-	// Empty fields fall back to ThinkingLevel.
-	//
-	// Recommended split for flash:
-	//   - Extract: "medium" or "high" (agentic chain benefits from depth)
-	//   - Parse:   "low" (mechanical transformation; schema bounds output)
-	ThinkingExtract string
-	ThinkingParse   string
 }
 
-func (c *Config) modelExtract() string { return c.ModelExtract }
-func (c *Config) modelParse() string   { return c.ModelParse }
-
-// thinkingExtract / thinkingParse resolve the per-step thinking level
-// with fallback to the legacy ThinkingLevel field.
-func (c *Config) thinkingExtract() string {
-	if c.ThinkingExtract != "" {
-		return c.ThinkingExtract
+// temperature returns the request temperature, or nil when OmitTemperature
+// is set so the field is not sent.
+func (c *Config) temperature() *float32 {
+	if c.OmitTemperature {
+		return nil
 	}
-	return c.ThinkingLevel
-}
-func (c *Config) thinkingParse() string {
-	if c.ThinkingParse != "" {
-		return c.ThinkingParse
-	}
-	return c.ThinkingLevel
+	t := c.Temperature
+	return &t
 }
 
 func thinkingLevelFromConfig(level string) genai.ThinkingLevel {
@@ -100,82 +91,37 @@ func thinkingLevelFromConfig(level string) genai.ThinkingLevel {
 }
 
 const (
-	// systemInstructionStep1 is the single consolidated Step 1 system
-	// instruction. It extracts both tours and standalones in one grounded
-	// call (English; url_context + google_search), including off-domain tour
-	// pages, and excludes multi-artist festivals.
-	systemInstructionStep1 = `You are a data-extraction agent for a live-music information system. Your goal is to extract accurate official concert information to serve music fans. Follow the workflow below.
+	// systemInstruction states only scope, sources and the output contract.
+	// The default-language rule keeps multilingual official pages (e.g. a
+	// tour page with ?lang=en) from yielding romanized venue names. The
+	// tour-page rule keeps the model from rebuilding a tour's dates from search
+	// snippets: runs that never used url_context issued 25-80 queries and
+	// misread dates and venues.
+	// Field formats and verbatim rules live in singleStepResponseSchema;
+	// repeat removal is done in Go. Reading the top page is not forced: that
+	// made the model read it every time but did not reduce searches, because
+	// URL context does not follow links.
+	systemInstruction = `You are a data-extraction agent for a live-music information system.
 
-1. Starting from the artist's official-site host, use the url_context and google_search tools to comprehensively discover the artist's tour and concert pages. A tour may have a dedicated page on a domain different from the official site — include those too so nothing is missed.
+Extract the tours and shows of the given artist taking place on or after the given start date: tours, one-off shows, and co-headliner bills (対バン) organized by the artist. Exclude music festivals and cancelled shows. Return each tour or show as one series with one event per date.
 
-2. Extract both of the following that take place on or after the given start date:
-   - Tours: multi-venue / multi-date runs. Emit one <tour> block per tour, with one <event> per date.
-   - Standalone shows: solo one-off shows, fan-club-only shows, and 2-4 act named co-headliner bills (対バン). Emit one <standalone> block with a single <event>.
-   Exclude music festivals that have a multi-artist lineup (events where the target artist is only one of many performers). A 2-4 act named co-headliner bill is NOT a festival and MUST be extracted as a standalone.
+Use only the artist's official site and official tour pages as sources. Do not use third-party sites. When a tour has a dedicated page, read that page with url_context and take every date of the tour from it. When a page is offered in several languages, read its default-language version (the URL without a language parameter such as ?lang=) and copy text in that language.
 
-3. Read each page's exact information and set the fields in the output format below.
-
-<extracted>
-  <tour>
-    <title>UVERworld TYCOON LIVE -DOCUMENT-</title>
-    <source_url>https://www.uverworld.jp/feature/2026_live</source_url>
-    <event>
-      <venue>Zepp Nagoya</venue>
-      <country>JP</country>
-      <local_date>2026年3月15日(土)</local_date>
-      <open_time>開場 17:00</open_time>
-      <start_time>開演 18:00</start_time>
-    </event>
-  </tour>
-  <standalone>
-    <title>UVERworld 武道館単独公演 2026</title>
-    <source_url>https://www.uverworld.jp/news/detail/budokan</source_url>
-    <event>
-      <venue>日本武道館</venue>
-      <country>JP</country>
-      <local_date>2026/04/01</local_date>
-      <open_time></open_time>
-      <start_time>19:00</start_time>
-    </event>
-  </standalone>
-</extracted>
-
-Extraction rules:
-- source_url: the artist's page dedicated to THIS specific tour/show — a tour special/feature page (e.g. a /feature/ or /tour/ page) or the specific news/detail article announcing it. Prefer this tour-specific page over the official-site top page or a generic news-list page. Among candidates, pick the one specific to this tour with the most detailed information.
-- country: the ISO 3166-1 alpha-2 code of the country where the concert is held.
-- Every field except country MUST be copied verbatim (character for character) in its ORIGINAL LANGUAGE as printed on the source page. Do NOT translate, romanize, anglicize, or otherwise localize any value. Extract venue names in their native language exactly as written (Japanese venues in Japanese — e.g. "幕張メッセ 9・11ホール", never "Makuhari Messe Halls 9 & 11"; "クロコくんホール（旧 日本ガイシホール）", never "Crocodile Hall"). Even when a page offers a multilingual or English view, always extract the Japanese-language form.
-- Leave a tag empty when the page does not provide that information.
-- When local_date has no year (e.g. "01.16. sat" or "8月7日", i.e. only MM.DD), infer the year from page context (the year in the title, the heading's event year, the sequence of the run's dates) and prepend it to the verbatim date. Example: if the title is "TOUR 2026-2027" and the January-March dates fall in the following year, emit "2027.01.16. sat".
-
-4. Treat concerts that share the same venue, local_date, and start_time as duplicates and drop them.
-
-5. Verify that every tour and standalone on or after the start date is covered (MECE).
-
-6. Respond with the XML only — no extra text.
+Respond with JSON that follows the response schema.
 `
 
-	// systemInstructionStep2Parse is the Step 2 system instruction. Static
-	// (no placeholders) so it caches across all parse calls.
-	systemInstructionStep2Parse = `You are an AI agent specialised in data transformation, running as a backend for a live-music information system.
-You receive a JSON array of input events with raw venue, country, and date/time strings. Produce a JSON response per the schema in which each input event appears exactly once, with admin_area inferred from venue and date/time coerced to ISO formats.
+	// promptTemplate carries the per-call variables: %[1]s the start date
+	// (YYYY-MM-DD), %[2]s the artist name, %[3]s the official-site URL. The
+	// URL is passed in full because URL context only fetches URLs with a
+	// scheme.
+	promptTemplate = `Extract the tours and shows of %[2]s taking place on or after %[1]s.
 
-[Constraints]
-1. The output MUST contain exactly one entry per input event. Preserve the input index unchanged — it is the join key the caller uses to merge your output back with title / source_url fields you never see.
-2. Per-field coercion rules (admin_area inference from venue, local_date YYYY-MM-DD, start_time / open_time RFC3339 composed from local_date + the raw time + country timezone, empty-string handling) are defined in each schema field's description — follow them.
-3. Output only the JSON defined by the schema. No Markdown decoration or comments.
+Official site: %[3]s
 `
 
-	// promptTemplateStep1 carries the per-call variables for the single Step 1
-	// slice. Placeholders (3): from_date (YYYY-MM-DD), artist name, official
-	// site host. The discovery window is open-ended (no end date).
-	promptTemplateStep1 = `Extract all tours and standalone shows taking place on or after %s for %s. Exclude music festivals with a multi-artist lineup.
-
-Official site host: %s
-`
-
-	// Step 2's prompt body is the JSON list payload itself (output of
-	// json.Marshal on []step2InputEvent); all task / rules live in
-	// systemInstructionStep2Parse, so no template wrapper is needed.
+	// searchWindowMonths bounds the GoogleSearch TimeRangeFilter to pages
+	// from the last 2 months.
+	searchWindowMonths = 2
 
 	// maxOutputTokens is the default response cap.
 	maxOutputTokens = int32(16384)
@@ -184,206 +130,43 @@ Official site host: %s
 	geminiCallTimeout = 120 * time.Second
 )
 
-// Step 2 field descriptions. Per-field descriptions cover ONLY the
-// fields Step 2 still produces (admin_area + coerced date/time);
-// title / source_url / venue are now carried verbatim through Go-side
-// XML parsing and never enter Step 2's schema.
-var (
-	indexField = map[string]any{
-		"type":        "integer",
-		"description": "Echo the input event's index unchanged. Used to align this output with the corresponding input event (positional order MAY differ; index is the authoritative key).",
-	}
-	adminAreaField = map[string]any{
-		"type":        "string",
-		"description": "Administrative area (prefecture / state / province) of the venue, in the local form (e.g. 愛知県, 東京都). Derived from the input event's venue. \"\" when uncertain.",
-	}
-	localDateField = map[string]any{
-		"type":        "string",
-		"description": "Calendar date in YYYY-MM-DD, coerced from the input event's local_date (whose raw value may be e.g. \"2026年3月1日\", \"2026.3.15(土)\", or \"March 1, 2026\"). \"\" when the input is empty or coercion is ambiguous.",
-	}
-	startTimeField = map[string]any{
-		"type":        "string",
-		"description": "RFC3339 (e.g. 2026-02-14T18:30:00+09:00). Composed from the input event's local_date + start_time + the timezone of country (JP → +09:00, KR → +09:00, HK → +08:00, TW → +08:00, CN → +08:00, etc.). \"\" when any of them is empty or coercion is ambiguous.",
-	}
-	openTimeField = map[string]any{
-		"type":        "string",
-		"description": "RFC3339. Composed from the input event's local_date + open_time + the timezone of country. \"\" when any of them is empty or coercion is ambiguous.",
-	}
-)
-
-// responseJSONSchema is the Step 2 response schema. Step 2 receives a
-// JSON list of input events (index + venue + country + raw date/time
-// strings) and returns the coerced fields keyed back by index. Title,
-// source_url and the verbatim venue are not part of Step 2's universe —
-// Go carries them through from the Step 1 XML envelope.
-var responseJSONSchema = map[string]any{
-	"type":                 "object",
-	"additionalProperties": false,
-	"description":          "Coerced fields for each input event. For any field whose input is empty or unparseable, emit \"\"; never emit null.",
-	"properties": map[string]any{
-		"events": map[string]any{
-			"type":        "array",
-			"description": "One coerced entry per input event. The output MAY be in any order; the index field is the authoritative key. Every input event MUST appear in the output, even if all coerced fields end up empty.",
-			"items": map[string]any{
-				"type":                 "object",
-				"additionalProperties": false,
-				"properties": map[string]any{
-					"index":      indexField,
-					"admin_area": adminAreaField,
-					"local_date": localDateField,
-					"start_time": startTimeField,
-					"open_time":  openTimeField,
-				},
-				"required": []string{"index", "admin_area", "local_date", "start_time", "open_time"},
-			},
-		},
-	},
-	"required": []string{"events"},
+// Prompt is the system instruction and user prompt template of the grounded
+// call. Template carries the indexed verbs described on promptTemplate.
+type Prompt struct {
+	SystemInstruction string
+	Template          string
 }
 
-// EventDraft is the intermediate working buffer between Step 1 (XML
-// envelope) and Step 2 (coerced JSON). Go-side XML parsing populates
-// every field; Step 2 only modifies AdminArea and coerces LocalDate /
-// StartTime / OpenTime into ISO 8601 form. Title, SourceURL and Venue
-// pass through verbatim and never enter Step 2's schema, eliminating
-// the LLM-side hallucination paths observed in prior smokes (venue
-// translation, source_url fabrication, title decoration).
+// defaultPrompt is the production prompt.
+var defaultPrompt = Prompt{SystemInstruction: systemInstruction, Template: promptTemplate}
+
+// EventDraft is one event of the grounded call's JSON response, flattened
+// with its series-level fields, before the past-date filter, repeat removal
+// and series grouping.
 type EventDraft struct {
-	Title     string // verbatim <title> tag content (per tour/standalone).
-	SourceURL string // verbatim <source_url> tag content (per tour/standalone).
-	Venue     string // verbatim <venue> tag content.
-	Country   string // verbatim <country> tag content (ISO 3166-1 alpha-2).
-	LocalDate string // raw <local_date> tag content (un-coerced).
-	StartTime string // raw <start_time> tag content (un-coerced).
-	OpenTime  string // raw <open_time> tag content (un-coerced).
-	// IsTour reports whether this draft originated from a <tour> block (as
-	// opposed to <standalone>). It drives SeriesType downstream (TOUR vs SINGLE).
-	IsTour bool
-	// TourGroup ties together all drafts from the same <tour> block so the
-	// caller can persist them under one Series. It is an intra-run handle:
-	// unique within a single parse only, NOT a cross-run series key (series
-	// identity is adopted from already-persisted member events downstream).
-	// Tour blocks are numbered from 1; standalone drafts carry 0.
-	TourGroup int
+	Title     string // series title, verbatim.
+	SourceURL string // series source page.
+	Venue     string // venue name, verbatim.
+	Country   string // ISO 3166-1 alpha-2.
+	AdminArea string // ISO 3166-2 as returned by the model (normalized later).
+	LocalDate string // YYYY-MM-DD.
+	StartTime string // RFC3339 or "".
+	OpenTime  string // RFC3339 or "".
+	// Group ties together all drafts from the same series entry of the
+	// response so the caller can persist them under one Series. It is an
+	// intra-run handle: unique within a single parse only, NOT a cross-run
+	// series key (series identity is adopted from already-persisted member
+	// events downstream). Entries are numbered from 1.
+	Group int
 }
 
-// step2InputEvent is the per-event payload sent to Step 2. It is a
-// pure subset of EventDraft — only the fields that Step 2 needs to
-// produce its coerced output. Title and SourceURL are intentionally
-// absent; they never leave Go.
-type step2InputEvent struct {
-	Index     int    `json:"index"`
-	Venue     string `json:"venue"`
-	Country   string `json:"country"`
-	LocalDate string `json:"local_date"`
-	StartTime string `json:"start_time"`
-	OpenTime  string `json:"open_time"`
-}
-
-// step2OutputEvent is Step 2's per-event response. Index is the join
-// key back to the EventDraft list.
-type step2OutputEvent struct {
-	Index     int    `json:"index"`
-	AdminArea string `json:"admin_area"`
-	LocalDate string `json:"local_date"`
-	StartTime string `json:"start_time"`
-	OpenTime  string `json:"open_time"`
-}
-
-// step2Response is the top-level Step 2 JSON shape (matches
-// responseJSONSchema).
-type step2Response struct {
-	Events []step2OutputEvent `json:"events"`
-}
-
-// ----- Step 1 envelope XML parsing -----
-
-type step1Envelope struct {
-	XMLName     xml.Name          `xml:"extracted"`
-	Tours       []step1Tour       `xml:"tour"`
-	Standalones []step1Standalone `xml:"standalone"`
-}
-
-type step1Tour struct {
-	Title     string       `xml:"title"`
-	SourceURL string       `xml:"source_url"`
-	Events    []step1Event `xml:"event"`
-}
-
-type step1Standalone struct {
-	Title     string     `xml:"title"`
-	SourceURL string     `xml:"source_url"`
-	Event     step1Event `xml:"event"`
-}
-
-type step1Event struct {
-	Venue     string `xml:"venue"`
-	Country   string `xml:"country"`
-	LocalDate string `xml:"local_date"`
-	OpenTime  string `xml:"open_time"`
-	StartTime string `xml:"start_time"`
-}
-
-// parseStep1Envelope unmarshals the merged Step 1 <extracted>...</extracted>
-// envelope into a flat list of EventDraft. <tour> blocks contribute one
-// draft per child <event>, with Title and SourceURL taken from the tour's
-// own <title> / <source_url> children. <standalone> blocks contribute
-// exactly one draft each (a standalone has a single <event> child).
-//
-// Returns an empty slice (no error) on unparseable input — Step 1 may
-// emit non-XML fallback text (e.g. when the model misbehaves), in which
-// case we degrade gracefully rather than failing the whole Search.
-func parseStep1Envelope(envelope string) []EventDraft {
-	envelope = strings.TrimSpace(envelope)
-	if envelope == "" {
-		return nil
-	}
-	var env step1Envelope
-	if err := xml.Unmarshal([]byte(envelope), &env); err != nil {
-		return nil
-	}
-	var drafts []EventDraft
-	for i, tour := range env.Tours {
-		title := strings.TrimSpace(tour.Title)
-		srcURL := strings.TrimSpace(tour.SourceURL)
-		// Tour blocks are numbered from 1 so the handle never collides with
-		// the 0 reserved for standalone drafts.
-		groupID := i + 1
-		for _, ev := range tour.Events {
-			drafts = append(drafts, EventDraft{
-				Title:     title,
-				SourceURL: srcURL,
-				Venue:     strings.TrimSpace(ev.Venue),
-				Country:   strings.TrimSpace(ev.Country),
-				LocalDate: strings.TrimSpace(ev.LocalDate),
-				StartTime: strings.TrimSpace(ev.StartTime),
-				OpenTime:  strings.TrimSpace(ev.OpenTime),
-				IsTour:    true,
-				TourGroup: groupID,
-			})
-		}
-	}
-	for _, sa := range env.Standalones {
-		drafts = append(drafts, EventDraft{
-			Title:     strings.TrimSpace(sa.Title),
-			SourceURL: strings.TrimSpace(sa.SourceURL),
-			Venue:     strings.TrimSpace(sa.Event.Venue),
-			Country:   strings.TrimSpace(sa.Event.Country),
-			LocalDate: strings.TrimSpace(sa.Event.LocalDate),
-			StartTime: strings.TrimSpace(sa.Event.StartTime),
-			OpenTime:  strings.TrimSpace(sa.Event.OpenTime),
-			IsTour:    false,
-			TourGroup: 0,
-		})
-	}
-	return drafts
-}
-
-// ConcertSearcher implements entity.ConcertSearcher using Vertex AI Gemini.
+// ConcertSearcher implements entity.ConcertSearcher using Gemini with
+// Google Search grounding.
 type ConcertSearcher struct {
 	client *genai.Client
 	config Config
 	logger *logging.Logger
+	prompt Prompt
 }
 
 // PassMetadata captures observation data for a single Gemini call.
@@ -409,69 +192,32 @@ type PassMetadata struct {
 
 	URLContextRetrieved []URLRetrieval
 
-	// ExhaustedTransient is true when the per-step retry policy ran to the
-	// end with the call still in a transient-error state and the caller
-	// chose to swallow that into an empty result (Step 1 slice → empty
-	// envelope; Step 2 → empty draft list). Surfaced so observability /
-	// alerting can distinguish "model found nothing" (this flag is false)
-	// from "infra failed, output was forced to empty" (this flag is true).
-	// Aggregated by OR in aggregatePassMetadata.
+	// ExhaustedTransient is true when the retry policy ran to the end with
+	// the call still in a transient-error state and the result was forced to
+	// empty. Surfaced so observability can distinguish "model found nothing"
+	// (false) from "infra failed, output was forced to empty" (true).
 	ExhaustedTransient bool
 }
 
 // SearchMetadata captures per-call observation data used by the A/B
-// evaluation harness. Top-level token / finish-reason fields mirror
-// Step2Parse.
+// evaluation harness.
 type SearchMetadata struct {
-	// Step1Grounded — aggregated metadata across all parallel Step 1
-	// slices (sum of tokens, concatenated lists, etc.). Used by the cost
-	// calculator and dashboards that expect a single "Step 1 total".
-	Step1Grounded *PassMetadata
-	// Step1Slices — per-slice metadata in slice-definition order (see
-	// defaultStep1Slices). Surfaced for diagnostics so a failing slice
-	// can be identified without re-running.
-	Step1Slices []*PassMetadata
-	// Step2Parse — JSON parse, schema enforced, no tools. Nil when every
-	// Step 1 slice failed and no envelope was produced.
-	Step2Parse *PassMetadata
+	// Grounded is the metadata of the grounded call. Nil only when the
+	// request could not be built.
+	Grounded *PassMetadata
 
 	// DiscoveredURLs surfaces URLs the model actually fetched via
-	// url_context during Step 1, for harness reporting convenience.
+	// url_context, for harness reporting convenience.
 	DiscoveredURLs     []string
 	DiscoveredURLCount int
 
-	// DraftCount is the number of EventDraft entries Go parsed from the
-	// merged Step 1 envelope before sending to Step 2. Useful for
-	// diagnostics: a large drop between DraftCount and ToursCount +
-	// StandalonesCount points to Step 2 losing rows during coercion.
-	DraftCount int
-
-	// Mirror Step2Parse onto top-level (back-compat with log consumers).
-	PromptTokens     int32
-	CandidatesTokens int32
-	ThinkingTokens   int32
-	ToolUseTokens    int32
-	TotalTokens      int32
-	FinishReason     string
-	FinishMessage    string
-	AvgLogprobs      float64
-	RetryCount       int
-	InvalidJSON      bool
-
-	WebSearchQueries     int
-	WebSearchQueriesList []string
-	GroundingChunkURLs   []string
-	RenderedParts        int
+	// DraftCount is the number of events in the JSON response before the
+	// past-date filter and repeat removal.
+	DraftCount  int
+	InvalidJSON bool
 
 	ToursCount       int
 	StandalonesCount int
-
-	PartsTotal      int
-	ThoughtParts    int
-	TextParts       int
-	RawResponseText string
-
-	URLContextRetrieved []URLRetrieval
 }
 
 // URLRetrieval is one entry in URLContextMetadata.
@@ -482,20 +228,16 @@ type URLRetrieval struct {
 
 // NewConcertSearcher creates a new ConcertSearcher.
 //
-// The constructor fast-fails when APIKey, ModelExtract, or ModelParse is
-// empty. The two-step pipeline targets the Gemini API direct backend
-// exclusively (Vertex AI does not support URLContext or
-// GoogleSearch.TimeRangeFilter), so a missing APIKey would only surface
-// as an opaque API error on the first Search call.
+// The constructor fast-fails when APIKey or Model is empty. The grounded
+// call targets the Gemini API direct backend exclusively (Vertex AI does not
+// support URLContext or GoogleSearch.TimeRangeFilter), so a missing APIKey
+// would only surface as an opaque API error on the first Search call.
 func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client, logger *logging.Logger) (*ConcertSearcher, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("gemini.NewConcertSearcher: APIKey is empty; set GCP_GEMINI_SEARCH_API_KEY (Gemini API direct is the only supported backend for this workload)")
 	}
-	if cfg.ModelExtract == "" {
-		return nil, fmt.Errorf("gemini.NewConcertSearcher: ModelExtract is empty; set GCP_GEMINI_SEARCH_MODEL_EXTRACT (Step 1 grounded extract model)")
-	}
-	if cfg.ModelParse == "" {
-		return nil, fmt.Errorf("gemini.NewConcertSearcher: ModelParse is empty; set GCP_GEMINI_SEARCH_MODEL_PARSE (Step 2 JSON coerce model)")
+	if cfg.Model == "" {
+		return nil, fmt.Errorf("gemini.NewConcertSearcher: Model is empty; set GCP_GEMINI_SEARCH_MODEL_EXTRACT (grounded extract model)")
 	}
 
 	cc := &genai.ClientConfig{
@@ -513,11 +255,12 @@ func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client
 		client: client,
 		config: cfg,
 		logger: logger,
+		prompt: defaultPrompt,
 	}, nil
 }
 
-// Search discovers new concerts for a given artist using the two-step
-// Gemini pipeline.
+// Search discovers new concerts for a given artist with one grounded Gemini
+// call.
 func (s *ConcertSearcher) Search(
 	ctx context.Context,
 	artist *entity.Artist,
@@ -531,15 +274,10 @@ func (s *ConcertSearcher) Search(
 // SearchExt is identical to Search but additionally returns per-call
 // metadata. Used by the A/B evaluation harness.
 //
-// Two-step pipeline:
-//  1. Grounded — GoogleSearch + URLContext together, no schema. The model
-//     uses google_search to find brand-domain pages, then url_context to
-//     fetch the most relevant ones, then emits an <extracted><source>...
-//     verbatim envelope. Officially recommended per
-//     https://ai.google.dev/gemini-api/docs/google-search.
-//  2. Parse — responseJsonSchema enforced, no tools. The envelope is
-//     parsed into the existing {tours[], standalones[]} JSON. Officially
-//     supported tool/schema combination on gemini-3.5-flash.
+// One grounded call (GoogleSearch + URLContext with a JSON response schema;
+// structured output with built-in tools is supported on Gemini 3, Preview)
+// returns the events as JSON. Go then drops past events, removes repeats and
+// groups the events into series.
 func (s *ConcertSearcher) SearchExt(
 	ctx context.Context,
 	artist *entity.Artist,
@@ -553,8 +291,7 @@ func (s *ConcertSearcher) SearchExt(
 
 	attrs := []slog.Attr{
 		slog.String("artistID", artist.ID),
-		slog.String("model_grounded", s.config.modelExtract()),
-		slog.String("model_parse", s.config.modelParse()),
+		slog.String("model", s.config.Model),
 		slog.String("artist", artist.Name),
 		slog.String("official_site", officialSiteURL),
 		slog.String("from", from.Format("2006-01-02")),
@@ -563,431 +300,90 @@ func (s *ConcertSearcher) SearchExt(
 
 	md := &SearchMetadata{}
 
-	// ===== Step 1: Grounded search + verbatim extract (parallel slices) =====
-	envelope, step1, step1Slices, err := s.runStep1Grounded(ctx, artist, officialSiteURL, attrs)
-	md.Step1Grounded = step1
-	md.Step1Slices = step1Slices
-	if err != nil {
-		s.logger.Warn(ctx, "step 1 (grounded) failed permanently, aborting Search",
-			append(attrs, slog.String("error", err.Error()))...)
-		return nil, md, err
-	}
-	// Surface URLs the model actually fetched via url_context.
-	if step1 != nil {
-		urls := make([]string, 0, len(step1.URLContextRetrieved))
-		for _, u := range step1.URLContextRetrieved {
+	prompt, cfg := s.buildRequest(artist.Name, officialSiteURL, time.Now().UTC())
+	pm, rawText, transient, err := s.executePass(ctx, s.config.Model, prompt, cfg, attrs)
+	md.Grounded = pm
+	if pm != nil {
+		urls := make([]string, 0, len(pm.URLContextRetrieved))
+		for _, u := range pm.URLContextRetrieved {
 			urls = append(urls, u.URL)
 		}
 		md.DiscoveredURLs = urls
 		md.DiscoveredURLCount = len(urls)
 	}
-	if envelope == "" {
-		s.logger.Warn(ctx, "step 1 produced empty envelope, returning empty results", attrs...)
-		return nil, md, nil
-	}
-
-	// Go-side XML parse: title / source_url / venue / country / raw
-	// date-time fields are extracted verbatim from Step 1's <extracted>
-	// envelope and held in EventDraft. Step 2 only sees the subset it
-	// needs to coerce (venue + country + raw date-time strings).
-	drafts := parseStep1Envelope(envelope)
-	md.DraftCount = len(drafts)
-	if len(drafts) == 0 {
-		s.logger.Warn(ctx, "step 1 envelope produced 0 parseable events, returning empty results", attrs...)
-		return nil, md, nil
-	}
-
-	// ===== Step 2: Structured parse (no tools, schema enforced) =====
-	results, step2, err := s.runStep2Parse(ctx, drafts, from, md, attrs)
-	md.Step2Parse = step2
-	mirrorStep2(md, step2)
 	if err != nil {
+		s.logger.Warn(ctx, "grounded call failed permanently, aborting Search",
+			append(attrs, slog.String("error", err.Error()))...)
 		return nil, md, err
 	}
-	return results, md, nil
-}
-
-// mirrorStep2 copies Step 2 values into top-level SearchMetadata fields.
-// Existing log consumers expect a single token snapshot per Search.
-func mirrorStep2(md *SearchMetadata, pm *PassMetadata) {
-	if md == nil || pm == nil {
-		return
+	if transient {
+		s.logger.Warn(ctx, "grounded call exhausted retries with transient error, returning empty results", attrs...)
+		pm.ExhaustedTransient = true
+		return nil, md, nil
 	}
-	md.PromptTokens = pm.PromptTokens
-	md.CandidatesTokens = pm.CandidatesTokens
-	md.ThinkingTokens = pm.ThinkingTokens
-	md.ToolUseTokens = pm.ToolUseTokens
-	md.TotalTokens = pm.TotalTokens
-	md.FinishReason = pm.FinishReason
-	md.FinishMessage = pm.FinishMessage
-	md.AvgLogprobs = pm.AvgLogprobs
-	md.RetryCount = pm.RetryCount
-	md.PartsTotal = pm.PartsTotal
-	md.ThoughtParts = pm.ThoughtParts
-	md.TextParts = pm.TextParts
-	md.RawResponseText = pm.RawResponseText
-	md.WebSearchQueries = pm.WebSearchQueries
-	md.WebSearchQueriesList = pm.WebSearchQueriesList
-	md.GroundingChunkURLs = pm.GroundingChunkURLs
-	md.RenderedParts = pm.RenderedParts
-	md.URLContextRetrieved = pm.URLContextRetrieved
-}
-
-// Step1Slice describes one parallel search slice in Step 1. The slice
-// design keeps each Gemini call narrowly scoped so the model is less
-// likely to truncate output mid-discovery.
-type Step1Slice struct {
-	// Name is a stable identifier used in logs and per-slice metadata.
-	Name string
-	// SystemInstruction is the Step 1 system instruction for this slice.
-	SystemInstruction string
-	// PromptTemplate is the Step 1 prompt template. It carries 3 %s
-	// placeholders in order: from_date, artist name, official site host.
-	PromptTemplate string
-	// FromMonthsOffset is the offset in calendar months added to the
-	// base date (time.Now()) to compute the slice's from_date.
-	FromMonthsOffset int
-}
-
-// defaultStep1Slices is the single grounded slice used by SearchExt. One
-// call extracts both tours and standalones from the base date onward
-// (open-ended window). The fan-out mechanism is retained so the slice
-// count stays configurable, but the default is one. Duplicates are removed
-// downstream by parseStep2Response's (local_date, venue, start_time) dedup.
-var defaultStep1Slices = []Step1Slice{
-	{
-		Name:              "all",
-		SystemInstruction: systemInstructionStep1,
-		PromptTemplate:    promptTemplateStep1,
-		FromMonthsOffset:  0,
-	},
-}
-
-// runStep1Grounded executes Step 1 as a fan-out across defaultStep1Slices.
-// Each slice fires its own Gemini call in parallel. Successful envelopes
-// are merged with <source url> dedup before being returned.
-//
-// Returns the merged envelope, the aggregated PassMetadata (sum of all
-// slice tokens), the per-slice metadata, and an error. Permanent errors
-// from any slice are surfaced; transient exhaustion on a single slice is
-// logged and that slice is skipped.
-func (s *ConcertSearcher) runStep1Grounded(
-	ctx context.Context,
-	artist *entity.Artist,
-	officialSiteURL string,
-	attrs []slog.Attr,
-) (string, *PassMetadata, []*PassMetadata, error) {
-	host := hostOf(officialSiteURL)
-	baseDate := time.Now().UTC()
-
-	type sliceResult struct {
-		envelope string
-		pm       *PassMetadata
-		err      error
+	if rawText == "" {
+		s.logger.Warn(ctx, "grounded call returned no text, returning empty results", attrs...)
+		return nil, md, nil
 	}
-	results := make([]sliceResult, len(defaultStep1Slices))
-	var wg sync.WaitGroup
-	for i, sl := range defaultStep1Slices {
-		wg.Add(1)
-		go func(idx int, slice Step1Slice) {
-			defer wg.Done()
-			env, pm, err := s.runStep1Slice(ctx, slice, artist.Name, host, baseDate, attrs)
-			results[idx] = sliceResult{envelope: env, pm: pm, err: err}
-		}(i, sl)
-	}
-	wg.Wait()
 
-	// Surface the first permanent error encountered.
-	var firstErr error
-	envelopes := make([]string, 0, len(results))
-	perSlice := make([]*PassMetadata, len(results))
-	for i, r := range results {
-		perSlice[i] = r.pm
-		if r.err != nil && firstErr == nil {
-			firstErr = r.err
+	drafts, err := parseSingleStepJSON(rawText)
+	md.DraftCount = len(drafts)
+	if err != nil {
+		md.InvalidJSON = true
+		truncated := rawText
+		if len(truncated) > maxRawTextLogLen {
+			truncated = truncated[:maxRawTextLogLen]
 		}
-		if r.envelope != "" {
-			envelopes = append(envelopes, r.envelope)
-		}
-	}
-	agg := aggregatePassMetadata(perSlice)
-	if firstErr != nil {
-		// Partial-success: if any slice produced a usable envelope, do
-		// not throw away the work. Surface the error via WARN so the
-		// loss is visible, but let Step 2 run with whatever Step 1
-		// extracted from the surviving slices. Only fail hard when
-		// every slice failed (no envelopes at all).
-		if len(envelopes) == 0 {
-			return "", agg, perSlice, firstErr
-		}
-		s.logger.Warn(ctx, "step 1: one or more slices failed permanently, continuing with partial results",
+		return nil, md, toAppErr(err, "gemini returned invalid JSON",
 			append(attrs,
-				slog.Int("succeeded_envelopes", len(envelopes)),
-				slog.String("first_error", firstErr.Error()),
+				slog.String("raw_text_truncated", truncated),
+				slog.Int("raw_text_len", len(rawText)),
 			)...)
 	}
-
-	merged := mergeAndDedupEnvelopes(envelopes)
-	return merged, agg, perSlice, nil
+	if len(drafts) == 0 {
+		s.logger.Info(ctx, "grounded call returned 0 events", attrs...)
+		return nil, md, nil
+	}
+	return s.mergeDrafts(ctx, drafts, from, md, attrs), md, nil
 }
 
-// runStep1Slice runs a single slice call.
-//
-// Returns (envelope, metadata, nil) on success; ("", metadata, err) on
-// permanent error; ("", metadata, nil) on transient retry exhaustion.
-func (s *ConcertSearcher) runStep1Slice(
-	ctx context.Context,
-	slice Step1Slice,
-	artistName, officialSiteHost string,
-	baseDate time.Time,
-	attrs []slog.Attr,
-) (string, *PassMetadata, error) {
-	from := baseDate.AddDate(0, slice.FromMonthsOffset, 0).Format("2006-01-02")
-	prompt := fmt.Sprintf(slice.PromptTemplate, from, artistName, officialSiteHost)
+// buildRequest returns the user prompt and the request config of the
+// grounded call. now anchors the prompt's start date and the GoogleSearch
+// time range.
+func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, now time.Time) (string, *genai.GenerateContentConfig) {
+	prompt := fmt.Sprintf(s.prompt.Template, now.Format("2006-01-02"), artistName, officialSiteURL)
 
-	now := time.Now().UTC().Truncate(time.Second)
+	// The API rejects sub-second precision in time_range_filter
+	// ("Granularity of nano is not supported").
+	end := now.UTC().Truncate(time.Second)
 	searchTool := &genai.Tool{
 		GoogleSearch: &genai.GoogleSearch{
 			TimeRangeFilter: &genai.Interval{
-				StartTime: now.AddDate(0, -6, 0),
-				EndTime:   now,
+				StartTime: end.AddDate(0, -searchWindowMonths, 0),
+				EndTime:   end,
 			},
 		},
 	}
 	urlCtxTool := &genai.Tool{URLContext: &genai.URLContext{}}
-	temperature := s.config.Temperature
 
 	cfg := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{{Text: slice.SystemInstruction}},
+			Parts: []*genai.Part{{Text: s.prompt.SystemInstruction}},
 		},
-		Tools:           []*genai.Tool{searchTool, urlCtxTool},
-		Temperature:     &temperature,
-		MaxOutputTokens: maxOutputTokens,
-	}
-	if level := thinkingLevelFromConfig(s.config.thinkingExtract()); level != genai.ThinkingLevelUnspecified {
-		cfg.ThinkingConfig = &genai.ThinkingConfig{ThinkingLevel: level}
-	}
-	if err := assertStepInvariants("step1_grounded", cfg); err != nil {
-		return "", nil, err
-	}
-
-	// Build stepAttrs on a fresh backing array. The parent `attrs` slice is
-	// shared across slice goroutines; if `attrs` has spare capacity,
-	// `append(attrs, ...)` writes through to the shared array — a data race
-	// observed under `go test -race` and the cause of intermittent panics
-	// during concurrent slice execution.
-	stepAttrs := make([]slog.Attr, 0, len(attrs)+2)
-	stepAttrs = append(stepAttrs, attrs...)
-	stepAttrs = append(stepAttrs,
-		slog.String("step", "1_grounded"),
-		slog.String("slice", slice.Name),
-	)
-	pm, rawText, transient, err := s.executePass(ctx, s.config.modelExtract(), prompt, cfg, stepAttrs)
-	if err != nil {
-		return "", pm, err
-	}
-	if transient {
-		s.logger.Warn(ctx, "step 1 slice exhausted retries with transient error", stepAttrs...)
-		pm.ExhaustedTransient = true
-		return "", pm, nil
-	}
-	return rawText, pm, nil
-}
-
-// aggregatePassMetadata sums per-slice token counts and concatenates
-// list-valued fields. The returned PassMetadata stands in for the
-// "Step 1 totals" so the existing cost calculator (which reads
-// PromptTokens / CandidatesTokens / ThinkingTokens / ToolUseTokens) keeps
-// working.
-func aggregatePassMetadata(slices []*PassMetadata) *PassMetadata {
-	agg := &PassMetadata{}
-	for _, s := range slices {
-		if s == nil {
-			continue
-		}
-		agg.PromptTokens += s.PromptTokens
-		agg.CandidatesTokens += s.CandidatesTokens
-		agg.ThinkingTokens += s.ThinkingTokens
-		agg.ToolUseTokens += s.ToolUseTokens
-		agg.TotalTokens += s.TotalTokens
-		agg.RetryCount += s.RetryCount
-		agg.PartsTotal += s.PartsTotal
-		agg.ThoughtParts += s.ThoughtParts
-		agg.TextParts += s.TextParts
-		agg.WebSearchQueries += s.WebSearchQueries
-		agg.WebSearchQueriesList = append(agg.WebSearchQueriesList, s.WebSearchQueriesList...)
-		agg.GroundingChunkURLs = append(agg.GroundingChunkURLs, s.GroundingChunkURLs...)
-		agg.RenderedParts += s.RenderedParts
-		agg.URLContextRetrieved = append(agg.URLContextRetrieved, s.URLContextRetrieved...)
-		// ExhaustedTransient is OR-ed across slices: a single slice
-		// exhausting retries is enough to flag the aggregated metadata.
-		agg.ExhaustedTransient = agg.ExhaustedTransient || s.ExhaustedTransient
-		// FinishReason aggregation: the goal is "show the worst reason
-		// seen". Slot empty → use whatever the slice reported (including
-		// STOP). Slot already STOP → overwrite only with a non-STOP /
-		// non-empty failure reason (RECITATION, SAFETY, MAX_TOKENS).
-		// Slot already non-STOP failure → keep it (later slices' STOPs
-		// don't paper over an earlier failure).
-		switch {
-		case agg.FinishReason == "":
-			agg.FinishReason = s.FinishReason
-		case agg.FinishReason == string(genai.FinishReasonStop) &&
-			s.FinishReason != "" && s.FinishReason != string(genai.FinishReasonStop):
-			agg.FinishReason = s.FinishReason
-		}
-		if agg.FinishMessage == "" {
-			agg.FinishMessage = s.FinishMessage
-		}
-		// AvgLogprobs: take the last reported (mean would be more accurate
-		// but per-slice samples differ in size; not worth the complexity).
-		if s.AvgLogprobs != 0 {
-			agg.AvgLogprobs = s.AvgLogprobs
-		}
-		// RawResponseText: concatenate so diagnostics still surface every
-		// emission. mergeAndDedupEnvelopes is what feeds Step 2.
-		if s.RawResponseText != "" {
-			if agg.RawResponseText != "" {
-				agg.RawResponseText += "\n"
-			}
-			agg.RawResponseText += s.RawResponseText
-		}
-	}
-	return agg
-}
-
-// extractedInnerRe captures the inner body between <extracted> and
-// </extracted>. Group 1 = inner XML.
-var extractedInnerRe = regexp.MustCompile(`(?s)<extracted>(.*?)</extracted>`)
-
-// mergeAndDedupEnvelopes merges several Step 1 slice envelopes into one
-// <extracted>...</extracted> wrapper. The inner content of each slice's
-// envelope (its <tour> and <standalone> children) is concatenated into
-// the merged wrapper. Cross-slice event-level dedup is NOT performed here;
-// it is handled in parseStep2Response by the (local_date, venue,
-// start_time) triple.
-//
-// Fallback: if none of the envelopes contain a parseable <extracted>
-// wrapper (e.g. unit-test mocks that return a JSON body where Step 1
-// would normally emit XML), the first non-empty envelope is returned
-// verbatim so Step 2 still receives something to parse.
-func mergeAndDedupEnvelopes(envelopes []string) string {
-	if len(envelopes) == 0 {
-		return ""
-	}
-	var bodies []string
-	for _, env := range envelopes {
-		matches := extractedInnerRe.FindAllStringSubmatch(env, -1)
-		for _, m := range matches {
-			body := strings.TrimSpace(m[1])
-			if body != "" {
-				bodies = append(bodies, body)
-			}
-		}
-	}
-
-	if len(bodies) == 0 {
-		for _, e := range envelopes {
-			if strings.TrimSpace(e) != "" {
-				return e
-			}
-		}
-		return ""
-	}
-
-	var out strings.Builder
-	out.WriteString("<extracted>\n")
-	for _, body := range bodies {
-		out.WriteString(body)
-		out.WriteByte('\n')
-	}
-	out.WriteString("</extracted>")
-	return out.String()
-}
-
-// runStep2Parse executes Step 2 — coercion of the per-event raw
-// fields produced by Step 1 into ISO-formatted output, plus
-// admin_area inference. No tools, responseJsonSchema enforced.
-//
-// drafts is the Go-side parsed Step 1 envelope. Title / SourceURL /
-// Venue pass through Go untouched and are merged back with the
-// coerced output by index. Step 2 never sees these fields.
-func (s *ConcertSearcher) runStep2Parse(
-	ctx context.Context,
-	drafts []EventDraft,
-	from time.Time,
-	md *SearchMetadata,
-	attrs []slog.Attr,
-) ([]*entity.DiscoveredSeries, *PassMetadata, error) {
-	if len(drafts) == 0 {
-		return nil, nil, nil
-	}
-
-	// Build the Step 2 input payload. JSON list of {index, venue,
-	// country, local_date, start_time, open_time}.
-	inputs := make([]step2InputEvent, len(drafts))
-	for i, d := range drafts {
-		inputs[i] = step2InputEvent{
-			Index:     i,
-			Venue:     d.Venue,
-			Country:   d.Country,
-			LocalDate: d.LocalDate,
-			StartTime: d.StartTime,
-			OpenTime:  d.OpenTime,
-		}
-	}
-	payload, err := json.Marshal(inputs)
-	if err != nil {
-		// json.Marshal on a list of strings should never fail; treat as
-		// permanent if it does.
-		return nil, nil, backoff.Permanent(toAppErr(err, "failed to marshal step 2 input", attrs...))
-	}
-	prompt := string(payload)
-	temperature := s.config.Temperature
-
-	cfg := &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{{Text: systemInstructionStep2Parse}},
-		},
-		// Tools intentionally empty — no URLContext, no GoogleSearch.
-		Temperature:        &temperature,
+		Tools:              []*genai.Tool{searchTool, urlCtxTool},
+		Temperature:        s.config.temperature(),
 		MaxOutputTokens:    maxOutputTokens,
 		ResponseMIMEType:   "application/json",
-		ResponseJsonSchema: responseJSONSchema,
+		ResponseJsonSchema: singleStepResponseSchema,
 	}
-	if level := thinkingLevelFromConfig(s.config.thinkingParse()); level != genai.ThinkingLevelUnspecified {
+	if level := thinkingLevelFromConfig(s.config.ThinkingLevel); level != genai.ThinkingLevelUnspecified {
 		cfg.ThinkingConfig = &genai.ThinkingConfig{ThinkingLevel: level}
 	}
-	if err := assertStepInvariants("step2_parse", cfg); err != nil {
-		return nil, nil, err
+	if s.config.IncludeServerSideToolInvocations {
+		include := true
+		cfg.ToolConfig = &genai.ToolConfig{IncludeServerSideToolInvocations: &include}
 	}
-
-	// Build stepAttrs on a fresh backing array to mirror the safe pattern
-	// in runStep1Slice. Step 2 runs single-goroutine so the data race that
-	// motivated the Step 1 copy is not present here, but using the same
-	// idiom keeps the two sites consistent and removes a "why is this
-	// different?" footgun for future contributors.
-	stepAttrs := make([]slog.Attr, 0, len(attrs)+1)
-	stepAttrs = append(stepAttrs, attrs...)
-	stepAttrs = append(stepAttrs, slog.String("step", "2_parse"))
-	pm, rawText, transient, err := s.executePass(ctx, s.config.modelParse(), prompt, cfg, stepAttrs)
-	if err != nil {
-		return nil, pm, err
-	}
-	if transient {
-		s.logger.Warn(ctx, "step 2 exhausted retries, returning empty results", stepAttrs...)
-		pm.ExhaustedTransient = true
-		return nil, pm, nil
-	}
-
-	parsed, perr := s.parseStep2Response(ctx, rawText, drafts, from, md, stepAttrs...)
-	if perr != nil {
-		if errors.Is(perr, errInvalidJSON) {
-			md.InvalidJSON = true
-		}
-		return nil, pm, perr
-	}
-	return parsed, pm, nil
+	return prompt, cfg
 }
 
 // executePass runs one Gemini call wrapped in exponential backoff
@@ -995,7 +391,8 @@ func (s *ConcertSearcher) runStep2Parse(
 // into a fresh PassMetadata. Returns:
 //   - (pm, rawText, false, nil) on success
 //   - (pm, "", true, nil) when retries are exhausted with transient errors
-//   - (pm, "", false, err) on permanent error
+//   - (pm, "", false, err) on permanent error, including a response with no
+//     candidate (errNoCandidates, not retried)
 //
 // Non-STOP finish_reason is treated as transient and retried.
 func (s *ConcertSearcher) executePass(
@@ -1075,8 +472,16 @@ func (s *ConcertSearcher) executePass(
 		}
 
 		if len(resp.Candidates) == 0 {
-			s.logger.Info(ctx, "Gemini returned no candidates", append(attrs, respAttrs...)...)
-			return "", nil
+			lastWasFinish = false
+			sawPermanent = true
+			if pf := resp.PromptFeedback; pf != nil {
+				respAttrs = append(respAttrs, slog.Group("prompt_feedback",
+					slog.String("block_reason", string(pf.BlockReason)),
+					slog.String("block_reason_message", pf.BlockReasonMessage),
+				))
+			}
+			s.logger.Warn(ctx, "Gemini returned no candidates (permanent, not retrying)", append(attrs, respAttrs...)...)
+			return "", backoff.Permanent(errNoCandidates)
 		}
 
 		candidate := resp.Candidates[0]
@@ -1114,16 +519,11 @@ func (s *ConcertSearcher) executePass(
 			}
 		}
 
-		candidateAttrs := append(respAttrs,
-			slog.String("finish_reason", pm.FinishReason),
-			slog.String("finish_message", pm.FinishMessage),
-			slog.Float64("avg_logprobs", pm.AvgLogprobs),
-			slog.Int("web_search_queries", pm.WebSearchQueries),
-			slog.Int("url_context_retrieved", len(pm.URLContextRetrieved)),
-		)
-
 		var textBuf strings.Builder
 		var totalParts, thoughtParts, textParts int
+		// toolQueries collects the Google Search queries from server-side
+		// tool-call parts (present only with IncludeServerSideToolInvocations).
+		var toolQueries []string
 		// Content can be nil when the response was filtered out (SAFETY,
 		// RECITATION, etc.). The FinishReason check below would surface the
 		// failure, but a nil-pointer dereference here would panic the goroutine
@@ -1135,6 +535,12 @@ func (s *ConcertSearcher) executePass(
 					continue
 				}
 				totalParts++
+				if tc := p.ToolCall; tc != nil {
+					if tc.ToolType == genai.ToolTypeGoogleSearchWeb {
+						toolQueries = append(toolQueries, searchQueriesOf(tc.Args)...)
+					}
+					continue
+				}
 				if p.Thought {
 					thoughtParts++
 					continue
@@ -1149,21 +555,32 @@ func (s *ConcertSearcher) executePass(
 		pm.PartsTotal = totalParts
 		pm.ThoughtParts = thoughtParts
 		pm.TextParts = textParts
-		joined := textBuf.String()
-		pm.RawResponseText = joined
-		if joined == "" {
-			s.logger.Debug(ctx, "candidate has no text parts",
-				append(attrs, candidateAttrs...)...)
-			return "", nil
+		if len(pm.WebSearchQueriesList) == 0 && len(toolQueries) > 0 {
+			// groundingMetadata is often absent on Gemini 3 when the search
+			// runs during thinking; fall back to the tool-call queries.
+			pm.WebSearchQueriesList = toolQueries
+			pm.WebSearchQueries = len(toolQueries)
 		}
 
-		s.logger.Info(ctx, "successfully received Gemini response",
-			append(attrs, append(candidateAttrs,
-				slog.Int("parts_total", totalParts),
-				slog.Int("thought_parts", thoughtParts),
-				slog.Int("text_parts", textParts),
-			)...)...)
+		candidateAttrs := append(respAttrs,
+			slog.String("finish_reason", pm.FinishReason),
+			slog.String("finish_message", pm.FinishMessage),
+			slog.Float64("avg_logprobs", pm.AvgLogprobs),
+			slog.Any("search_queries", pm.WebSearchQueriesList),
+			slog.Int("web_search_queries", pm.WebSearchQueries),
+			slog.Int("url_context_retrieved", len(pm.URLContextRetrieved)),
+		)
+		joined := textBuf.String()
+		pm.RawResponseText = joined
+		candidateAttrs = append(candidateAttrs,
+			slog.Int("parts_total", totalParts),
+			slog.Int("thought_parts", thoughtParts),
+			slog.Int("text_parts", textParts),
+		)
 
+		// The finish reason is checked before the text: an incomplete response
+		// (e.g. TOO_MANY_TOOL_CALLS) often carries no text at all and must be
+		// retried, not read as "no concerts".
 		if candidate.FinishReason != genai.FinishReasonStop && candidate.FinishReason != "" {
 			lastWasFinish = true
 			finishErr := fmt.Errorf("gemini response not completed normally: finish_reason=%s", candidate.FinishReason)
@@ -1171,8 +588,16 @@ func (s *ConcertSearcher) executePass(
 				append(attrs, candidateAttrs...)...)
 			return "", finishErr
 		}
-
 		lastWasFinish = false
+
+		if joined == "" {
+			s.logger.Warn(ctx, "candidate has no text parts",
+				append(attrs, candidateAttrs...)...)
+			return "", nil
+		}
+
+		s.logger.Info(ctx, "successfully received Gemini response",
+			append(attrs, candidateAttrs...)...)
 		return joined, nil
 	}, backoff.WithBackOff(bo), backoff.WithMaxTries(3))
 
@@ -1194,11 +619,7 @@ func (s *ConcertSearcher) executePass(
 		}
 		// Transient network exhaustion (HTTP 503, rate-limit, etc.): the
 		// per-attempt RPC failed three times without ever reaching a
-		// permanent / non-STOP-FinishReason path. The function docstring
-		// promises `(pm, "", true, nil)` for exhausted transient errors;
-		// surfacing this as a hard error would propagate as a permanent
-		// failure to runStep1Grounded / SearchExt and lose the other
-		// slices' work. Degrade gracefully instead.
+		// permanent / non-STOP-FinishReason path. Degrade to no results.
 		s.logger.Warn(ctx, "executePass exhausted retries with transient network error",
 			append(attrs, slog.String("last_error", err.Error()))...)
 		return pm, "", true, nil
@@ -1206,250 +627,68 @@ func (s *ConcertSearcher) executePass(
 	return pm, rawText, false, nil
 }
 
-// assertStepInvariants enforces the per-step tool / schema contract.
+// mergeDrafts turns the drafts into discovered series: it drops events dated
+// before from, removes repeats by (local_date, normalized venue, start_time)
+// keeping the first, groups events under their originating series entry, and
+// classifies each series by its venues (seriesTypeOf).
 //
-// Step contracts (two-step pipeline):
-//   - "step1_grounded" → tools MUST be exactly {GoogleSearch, URLContext};
-//     no schema.
-//   - "step2_parse"    → no tools; schema MUST be set.
-//
-// Rationale: gemini-3.1-flash-lite does not officially support combining
-// responseJsonSchema with built-in tools. The pipeline keeps Step 1
-// tools-only and Step 2 schema-only so every individual call is in a
-// supported configuration.
-func assertStepInvariants(step string, cfg *genai.GenerateContentConfig) error {
-	if cfg == nil {
-		return fmt.Errorf("internal error: nil GenerateContentConfig for step %q", step)
-	}
-	var hasURLCtx, hasGSearch, otherTool bool
-	for _, t := range cfg.Tools {
-		if t == nil {
-			continue
-		}
-		switch {
-		case t.GoogleSearch != nil:
-			hasGSearch = true
-		case t.URLContext != nil:
-			hasURLCtx = true
-		default:
-			otherTool = true
-		}
-	}
-	hasSchema := cfg.ResponseJsonSchema != nil
-	switch step {
-	case "step1_grounded":
-		if !hasGSearch || !hasURLCtx || otherTool {
-			return fmt.Errorf("internal error: step1_grounded MUST have exactly {GoogleSearch, URLContext}")
-		}
-		if hasSchema {
-			return fmt.Errorf("internal error: step1_grounded MUST NOT set ResponseJsonSchema")
-		}
-	case "step2_parse":
-		if hasGSearch || hasURLCtx || otherTool {
-			return fmt.Errorf("internal error: step2_parse MUST NOT set any tools")
-		}
-		if !hasSchema {
-			return fmt.Errorf("internal error: step2_parse MUST set ResponseJsonSchema")
-		}
-	default:
-		return fmt.Errorf("internal error: unknown step %q", step)
-	}
-	return nil
-}
-
-// hostOf parses u and returns its host (lowercased, without scheme/port/path).
-func hostOf(u string) string {
-	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
-		return ""
-	}
-	rest := u
-	if strings.HasPrefix(rest, "http://") {
-		rest = rest[len("http://"):]
-	} else {
-		rest = rest[len("https://"):]
-	}
-	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
-		rest = rest[:i]
-	}
-	if at := strings.LastIndex(rest, "@"); at >= 0 {
-		rest = rest[at+1:]
-	}
-	if colon := strings.LastIndex(rest, ":"); colon >= 0 {
-		rest = rest[:colon]
-	}
-	return strings.ToLower(rest)
-}
-
-// parseStep2Response parses the Step 2 JSON output and merges its
-// coerced fields back into the input EventDraft list (matched by
-// index), producing the final []*entity.ScrapedConcert. Drafts with
-// no matching Step 2 entry are skipped; drafts whose coerced
-// local_date is empty or in the past are also dropped.
-//
-// drafts is the source-of-truth for Title / SourceURL / Venue —
-// those values pass through verbatim and never see Step 2.
-func (s *ConcertSearcher) parseStep2Response(
+// start_time is part of the repeat key so that two shows on the same date at
+// the same venue (e.g. Billboard Live 1st stage / 2nd stage) survive as
+// distinct events. Two events that share (local_date, venue) AND both lack a
+// published start_time collapse to one: we prefer to dedup conservatively
+// when the disambiguator is missing. The trade-off is recall loss for the
+// rare case of two genuinely distinct shows announced before their start
+// times are published.
+func (s *ConcertSearcher) mergeDrafts(
 	ctx context.Context,
-	rawText string,
 	drafts []EventDraft,
 	from time.Time,
 	md *SearchMetadata,
-	attrs ...slog.Attr,
-) ([]*entity.DiscoveredSeries, error) {
-	text := strings.TrimSpace(rawText)
-	if strings.Contains(text, "```") {
-		parts := strings.SplitSeq(text, "```")
-		for p := range parts {
-			p = strings.TrimSpace(p)
-			if after, ok := strings.CutPrefix(p, "json"); ok {
-				text = after
-				break
-			}
-			if len(p) > 0 {
-				text = p
-			}
-		}
-	}
-	text = strings.TrimSpace(text)
-
-	if text == "" || text == "{}" || text == `{"events":[]}` {
-		s.logger.Info(ctx, "Gemini response is effectively empty", append(attrs, slog.String("raw_text", rawText))...)
-		return nil, nil
-	}
-
-	if !json.Valid([]byte(text)) {
-		truncated := rawText
-		if len(truncated) > maxRawTextLogLen {
-			truncated = truncated[:maxRawTextLogLen]
-		}
-		s.logger.Warn(ctx, "gemini returned invalid JSON (permanent, not retrying)",
-			append(attrs,
-				slog.String("raw_text_truncated", truncated),
-				slog.Int("raw_text_len", len(rawText)),
-			)...)
-		return nil, backoff.Permanent(errInvalidJSON)
-	}
-
-	var resp step2Response
-	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		return nil, backoff.Permanent(toAppErr(err, "failed to unmarshal gemini response",
-			append(attrs, slog.String("text", text))...,
-		))
-	}
-
-	// Build a lookup from index → step2OutputEvent so out-of-order or
-	// partial returns still match correctly. Duplicate indices in Step 2's
-	// output (the model returning the same join key twice with different
-	// coerced fields) would silently overwrite the first occurrence;
-	// surface that as a WARN so the corruption is visible in logs.
-	byIndex := make(map[int]step2OutputEvent, len(resp.Events))
-	for _, ev := range resp.Events {
-		if ev.Index < 0 || ev.Index >= len(drafts) {
-			s.logger.Warn(ctx, "step 2 returned event with out-of-range index, skipping",
-				append(attrs, slog.Int("index", ev.Index))...)
-			continue
-		}
-		if _, dup := byIndex[ev.Index]; dup {
-			s.logger.Warn(ctx, "step 2 returned duplicate index, last occurrence wins",
-				append(attrs, slog.Int("index", ev.Index))...)
-		}
-		byIndex[ev.Index] = ev
-	}
-
-	// Merge drafts + coerced output → discovered series, applying past-date
-	// filter and (local_date, venue, start_time) dedup along the way, while
-	// grouping events under their originating <tour>/<standalone> block. The
-	// Step 1 XML grouping is carried through EventDraft.IsTour / TourGroup and
-	// preserved end-to-end here — it is NOT re-derived from titles downstream.
-	//
-	// start_time is part of the dedup key so that two shows on the same date at
-	// the same venue (e.g. Billboard Live 1st stage / 2nd stage) survive as
-	// distinct events.
-	//
-	// Note on empty start_time: two events that share (local_date, venue) AND
-	// both lack a published start_time collapse to one row here (the second is
-	// dropped, logged via the "duplicate event dropped" WARN below). This is
-	// intentional — we prefer to dedup conservatively when the disambiguator is
-	// missing rather than false-positive two rows. The trade-off is recall loss
-	// for the rare case of two genuinely distinct shows announced before their
-	// start times are published.
+	attrs []slog.Attr,
+) []*entity.DiscoveredSeries {
 	type dedupKey struct {
 		date      string
 		venue     string
 		startTime string
 	}
-	// seriesBucket accumulates the coerced events of one <tour>/<standalone>
-	// block along with its series-level metadata, preserving first-seen order.
-	type seriesBucket struct {
-		series *entity.DiscoveredSeries
-	}
 	seen := make(map[dedupKey]struct{}, len(drafts))
-	buckets := make(map[string]*seriesBucket, len(drafts))
-	var order []string
-	// standaloneSeq gives each standalone draft its own series bucket even when
-	// two standalones share a title (they are genuinely distinct shows). Tour
-	// drafts group by their TourGroup handle so a multi-date tour is one series.
-	standaloneSeq := 0
-	for i, draft := range drafts {
-		coerced, ok := byIndex[i]
-		if !ok {
-			// Step 2 dropped this event. Possible causes: model truncated
-			// the response, or it deduped silently. Log and move on.
-			s.logger.Warn(ctx, "step 2 omitted event from response, skipping",
-				append(attrs, slog.Int("index", i), slog.String("title", draft.Title))...)
-			continue
-		}
-		ev := s.toDiscoveredEvent(ctx, draft, coerced, from, attrs)
+	buckets := make(map[int]*entity.DiscoveredSeries, len(drafts))
+	var order []int
+	for _, draft := range drafts {
+		ev := s.toDiscoveredEvent(ctx, draft, from, attrs)
 		if ev == nil {
 			continue
 		}
-		// Use the normalized venue form as the dedup key so cross-slice
-		// duplicates with slightly different verbatim prefixes ("大阪府・X"
-		// vs "X") collapse correctly. The returned DiscoveredEvent keeps
-		// `draft.Venue` verbatim — normalization only affects the key.
-		key := dedupKey{date: coerced.LocalDate, venue: NormalizeVenue(draft.Venue), startTime: coerced.StartTime}
+		// The normalized venue only forms the key; the returned event keeps
+		// the venue as written.
+		key := dedupKey{date: draft.LocalDate, venue: NormalizeVenue(draft.Venue), startTime: draft.StartTime}
 		if _, dup := seen[key]; dup {
 			s.logger.Warn(ctx, "duplicate event dropped by (local_date, normalized_venue, start_time) dedup",
 				append(attrs,
 					slog.String("title", draft.Title),
-					slog.String("date", coerced.LocalDate),
+					slog.String("date", draft.LocalDate),
 					slog.String("venue_raw", draft.Venue),
-					slog.String("venue_normalized", NormalizeVenue(draft.Venue)),
-					slog.String("start_time", coerced.StartTime),
+					slog.String("venue_normalized", key.venue),
+					slog.String("start_time", draft.StartTime),
 				)...)
 			continue
 		}
 		seen[key] = struct{}{}
 
-		// Resolve the series bucket this event belongs to. Tour drafts share a
-		// bucket per TourGroup; each standalone draft gets a fresh bucket.
-		var bucketKey string
-		var seriesType entity.SeriesType
-		if draft.IsTour {
-			bucketKey = fmt.Sprintf("T%d", draft.TourGroup)
-			seriesType = entity.SeriesTypeTour
-		} else {
-			standaloneSeq++
-			bucketKey = fmt.Sprintf("S%d", standaloneSeq)
-			seriesType = entity.SeriesTypeSingle
-		}
-		b, ok := buckets[bucketKey]
+		series, ok := buckets[draft.Group]
 		if !ok {
-			b = &seriesBucket{series: &entity.DiscoveredSeries{
-				Title:     draft.Title,
-				Type:      seriesType,
-				SourceURL: draft.SourceURL,
-			}}
-			buckets[bucketKey] = b
-			order = append(order, bucketKey)
+			series = &entity.DiscoveredSeries{Title: draft.Title, SourceURL: draft.SourceURL}
+			buckets[draft.Group] = series
+			order = append(order, draft.Group)
 		}
-		b.series.Events = append(b.series.Events, ev)
+		series.Events = append(series.Events, ev)
 	}
 
 	discovered := make([]*entity.DiscoveredSeries, 0, len(order))
 	var toursCount, standalonesCount, eventCount int
 	for _, k := range order {
-		ds := buckets[k].series
+		ds := buckets[k]
+		ds.Type = seriesTypeOf(ds.Events)
 		discovered = append(discovered, ds)
 		eventCount += len(ds.Events)
 		if ds.Type == entity.SeriesTypeTour {
@@ -1466,48 +705,62 @@ func (s *ConcertSearcher) parseStep2Response(
 	s.logger.Info(ctx, "successfully parsed new concerts",
 		append(attrs,
 			slog.Int("draft_count", len(drafts)),
-			slog.Int("step2_returned", len(resp.Events)),
 			slog.Int("series_count", len(discovered)),
 			slog.Int("event_count", eventCount),
 			slog.Int("tours_count", toursCount),
 			slog.Int("standalones_count", standalonesCount),
 		)...,
 	)
-	return discovered, nil
+	return discovered
 }
 
-// toDiscoveredEvent merges a Go-side EventDraft (Venue pass-through) with the
-// Step 2 coerced output (AdminArea / LocalDate / StartTime / OpenTime in ISO
-// form) into an entity.DiscoveredEvent. Series-level fields (Title / SourceURL /
-// Type) are NOT carried here — the caller places the event under its parent
-// DiscoveredSeries. Returns nil if the event must be skipped (unparseable date,
-// or local_date is before `from`).
+// seriesTypeOf classifies a series by its venues, following the SeriesType
+// definitions: TOUR when its events are at two or more venues (compared by
+// NormalizeVenue, ignoring venues not yet announced), SINGLE otherwise — a
+// one-off show or several days at one venue.
+func seriesTypeOf(events []*entity.DiscoveredEvent) entity.SeriesType {
+	venues := make(map[string]struct{}, len(events))
+	for _, ev := range events {
+		if v := NormalizeVenue(ev.ListedVenueName); v != "" {
+			venues[v] = struct{}{}
+		}
+	}
+	if len(venues) >= 2 {
+		return entity.SeriesTypeTour
+	}
+	return entity.SeriesTypeSingle
+}
+
+// toDiscoveredEvent converts a draft into an entity.DiscoveredEvent.
+// Series-level fields (Title / SourceURL / Type) are NOT carried here — the
+// caller places the event under its parent DiscoveredSeries. Returns nil if
+// the event must be skipped (unparseable date, or local_date is before
+// `from`).
 func (s *ConcertSearcher) toDiscoveredEvent(
 	ctx context.Context,
 	draft EventDraft,
-	coerced step2OutputEvent,
 	from time.Time,
 	attrs []slog.Attr,
 ) *entity.DiscoveredEvent {
-	date, err := time.Parse("2006-01-02", coerced.LocalDate)
+	date, err := time.Parse("2006-01-02", draft.LocalDate)
 	if err != nil {
 		s.logger.Warn(ctx, "failed to parse event date and skip",
-			append(attrs, slog.String("date", coerced.LocalDate), slog.String("title", draft.Title))...)
+			append(attrs, slog.String("date", draft.LocalDate), slog.String("title", draft.Title))...)
 		return nil
 	}
 
 	if date.Before(from.Truncate(24 * time.Hour)) {
 		s.logger.Debug(ctx, "filtered past event",
-			append(attrs, slog.String("title", draft.Title), slog.String("date", coerced.LocalDate))...,
+			append(attrs, slog.String("title", draft.Title), slog.String("date", draft.LocalDate))...,
 		)
 		return nil
 	}
 
 	var startTime time.Time
-	if coerced.StartTime != "" && coerced.StartTime != "null" {
-		if st, err := time.Parse(time.RFC3339, coerced.StartTime); err != nil {
+	if draft.StartTime != "" && draft.StartTime != "null" {
+		if st, err := time.Parse(time.RFC3339, draft.StartTime); err != nil {
 			s.logger.Warn(ctx, "failed to parse event start time, using zero",
-				append(attrs, slog.String("start_time", coerced.StartTime))...,
+				append(attrs, slog.String("start_time", draft.StartTime))...,
 			)
 		} else {
 			startTime = st
@@ -1515,10 +768,10 @@ func (s *ConcertSearcher) toDiscoveredEvent(
 	}
 
 	var openTime time.Time
-	if coerced.OpenTime != "" && coerced.OpenTime != "null" {
-		if ot, err := time.Parse(time.RFC3339, coerced.OpenTime); err != nil {
+	if draft.OpenTime != "" && draft.OpenTime != "null" {
+		if ot, err := time.Parse(time.RFC3339, draft.OpenTime); err != nil {
 			s.logger.Warn(ctx, "failed to parse event open time, using zero",
-				append(attrs, slog.String("open_time", coerced.OpenTime))...,
+				append(attrs, slog.String("open_time", draft.OpenTime))...,
 			)
 		} else {
 			openTime = ot
@@ -1526,8 +779,8 @@ func (s *ConcertSearcher) toDiscoveredEvent(
 	}
 
 	var adminArea *string
-	if coerced.AdminArea != "" {
-		adminArea = geo.NormalizeAdminArea(coerced.AdminArea)
+	if draft.AdminArea != "" {
+		adminArea = geo.NormalizeAdminArea(draft.AdminArea)
 	}
 
 	return &entity.DiscoveredEvent{
@@ -1537,4 +790,149 @@ func (s *ConcertSearcher) toDiscoveredEvent(
 		StartTime:       startTime,
 		OpenTime:        openTime,
 	}
+}
+
+// searchQueriesOf extracts the "queries" argument of a Google Search
+// server-side tool call.
+func searchQueriesOf(args map[string]any) []string {
+	raw, ok := args["queries"].([]any)
+	if !ok {
+		return nil
+	}
+	queries := make([]string, 0, len(raw))
+	for _, q := range raw {
+		if s, ok := q.(string); ok && s != "" {
+			queries = append(queries, s)
+		}
+	}
+	return queries
+}
+
+// singleStepEvent is one event in the JSON response.
+type singleStepEvent struct {
+	Venue     string `json:"venue"`
+	Country   string `json:"country"`
+	AdminArea string `json:"admin_area"`
+	LocalDate string `json:"local_date"`
+	OpenTime  string `json:"open_time"`
+	StartTime string `json:"start_time"`
+}
+
+// singleStepSeries is one tour or show in the JSON response.
+type singleStepSeries struct {
+	Title     string            `json:"title"`
+	SourceURL string            `json:"source_url"`
+	Events    []singleStepEvent `json:"events"`
+}
+
+// singleStepResponse is the top-level JSON shape (matches
+// singleStepResponseSchema).
+type singleStepResponse struct {
+	Series []singleStepSeries `json:"series"`
+}
+
+// singleStepEventSchema describes one concert date. Field formats and the
+// verbatim rules live here, not in the system instruction.
+var singleStepEventSchema = map[string]any{
+	"type":                 "object",
+	"additionalProperties": false,
+	"properties": map[string]any{
+		"venue": map[string]any{
+			"type":        "string",
+			"description": "Venue name exactly as printed on the source page for this date, character for character in its original language and spacing. Keep annotations about the venue itself, such as a former name in parentheses (e.g. 「クロコくんホール（旧 日本ガイシホール）」), but leave out show titles and subtitles printed next to it (e.g. 「～TAKUYA∞ 生誕祭～」). Do not translate it or replace it with a name you know.",
+		},
+		"country": map[string]any{
+			"type":        "string",
+			"description": "ISO 3166-1 alpha-2 code of the country where the concert is held (e.g. JP, TW).",
+		},
+		"admin_area": map[string]any{
+			"type":        "string",
+			"description": "ISO 3166-2 code of the venue's first-level subdivision (e.g. JP-13, TW-TPE, KR-11, US-CA). \"\" when uncertain.",
+		},
+		"local_date": map[string]any{
+			"type":        "string",
+			"description": "Calendar date in YYYY-MM-DD. When the page omits the year, infer it from page context.",
+		},
+		"open_time": map[string]any{
+			"type":        "string",
+			"description": "Doors-open time in RFC3339 with the venue's UTC offset (e.g. 2026-02-14T17:30:00+09:00). \"\" when not published.",
+		},
+		"start_time": map[string]any{
+			"type":        "string",
+			"description": "Show start time in RFC3339 with the venue's UTC offset (e.g. 2026-02-14T18:30:00+09:00). \"\" when not published.",
+		},
+	},
+	"required": []string{"venue", "country", "admin_area", "local_date", "open_time", "start_time"},
+}
+
+// singleStepSeriesSchema describes one tour or show (one or more dates).
+var singleStepSeriesSchema = map[string]any{
+	"type":                 "object",
+	"additionalProperties": false,
+	"properties": map[string]any{
+		"title": map[string]any{
+			"type":        "string",
+			"description": "Tour or show title exactly as printed on the source page, character for character in its original language. Do not translate it.",
+		},
+		"source_url": map[string]any{
+			"type":        "string",
+			"description": "URL of the tour's dedicated page; if there is none, the URL of the official site's detail page for this concert.",
+		},
+		"events": map[string]any{
+			"type":        "array",
+			"description": "One entry per concert date of this tour or show.",
+			"minItems":    1,
+			"items":       singleStepEventSchema,
+		},
+	},
+	"required": []string{"title", "source_url", "events"},
+}
+
+// singleStepResponseSchema is the structured-output schema of the grounded
+// call. Tours and one-off shows share one list; Go classifies each series by
+// its venues.
+var singleStepResponseSchema = map[string]any{
+	"type":                 "object",
+	"additionalProperties": false,
+	"description":          "Use \"\" for unknown string fields; never null.",
+	"properties": map[string]any{
+		"series": map[string]any{
+			"type":        "array",
+			"description": "One entry per tour or show. Put all dates of one tour or show in the same entry; put different shows in separate entries, even when their titles match.",
+			"items":       singleStepSeriesSchema,
+		},
+	},
+	"required": []string{"series"},
+}
+
+// parseSingleStepJSON converts the JSON response into a flat list of drafts
+// in response order. Leading/trailing whitespace and a Markdown code fence are
+// tolerated; anything else that does not unmarshal fails with errInvalidJSON.
+func parseSingleStepJSON(raw string) ([]EventDraft, error) {
+	text := strings.TrimSpace(raw)
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	var resp singleStepResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &resp); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidJSON, err)
+	}
+	var drafts []EventDraft
+	for i, sr := range resp.Series {
+		for _, ev := range sr.Events {
+			drafts = append(drafts, EventDraft{
+				Title:     strings.TrimSpace(sr.Title),
+				SourceURL: strings.TrimSpace(sr.SourceURL),
+				Venue:     strings.TrimSpace(ev.Venue),
+				Country:   strings.TrimSpace(ev.Country),
+				AdminArea: strings.TrimSpace(ev.AdminArea),
+				LocalDate: strings.TrimSpace(ev.LocalDate),
+				StartTime: strings.TrimSpace(ev.StartTime),
+				OpenTime:  strings.TrimSpace(ev.OpenTime),
+				// Entries are numbered from 1.
+				Group: i + 1,
+			})
+		}
+	}
+	return drafts, nil
 }

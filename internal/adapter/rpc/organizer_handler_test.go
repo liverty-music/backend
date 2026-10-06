@@ -31,12 +31,10 @@ import (
 // at runtime. This helper performs the same mapping so these unit tests can
 // assert the client-visible code without standing up that interceptor.
 func connectCodeOf(err error) connect.Code {
-	var ce *connect.Error
-	if errors.As(err, &ce) {
+	if ce, ok := errors.AsType[*connect.Error](err); ok {
 		return ce.Code()
 	}
-	var ae *apperr.AppErr
-	if errors.As(err, &ae) {
+	if ae, ok := errors.AsType[*apperr.AppErr](err); ok {
 		return connect.Code(ae.Code)
 	}
 	return connect.CodeUnknown

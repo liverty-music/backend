@@ -18,9 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ptr returns a pointer to v, used to build test fixtures inline.
-func ptr[T any](v T) *T { return &v }
-
 // validPublishEvents returns a one-event slice that satisfies the publish
 // readiness gate (a non-blank venue and a non-zero local date), so tests that
 // exercise the notification / conflict paths are not blocked by the gate.
@@ -28,7 +25,7 @@ func validPublishEvents() []*entity.Event {
 	return []*entity.Event{
 		{
 			ID:              "evt-1",
-			ListedVenueName: ptr("Zepp Tokyo"),
+			ListedVenueName: new("Zepp Tokyo"),
 			LocalDate:       time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
 		},
 	}
@@ -106,7 +103,7 @@ func TestConcertAuthoringUseCase_Publish_NotifyOncePublic(t *testing.T) {
 		ID:           seriesID,
 		Title:        "Tour",
 		Type:         entity.SeriesTypeTour,
-		OrganizerID:  ptr(orgID),
+		OrganizerID:  new(orgID),
 		Visibility:   &pub,
 		PublishState: &ps,
 	}
@@ -153,7 +150,7 @@ func TestConcertAuthoringUseCase_Publish_NoNotifyDraft(t *testing.T) {
 	ps := entity.SeriesPublishStateDraft
 	s := &entity.Series{
 		ID: seriesID, Title: "Secret", Type: entity.SeriesTypeSingle,
-		OrganizerID: ptr(orgID), Visibility: &unl, PublishState: &ps,
+		OrganizerID: new(orgID), Visibility: &unl, PublishState: &ps,
 	}
 
 	newEventIDs := []string{"evt-x"}
@@ -182,7 +179,7 @@ func TestConcertAuthoringUseCase_Publish_SupersedeClaimedNoDoubleNotify(t *testi
 	ps := entity.SeriesPublishStateDraft
 	s := &entity.Series{
 		ID: seriesID, Title: "Tour", Type: entity.SeriesTypeTour,
-		OrganizerID: ptr(orgID), Visibility: &pub, PublishState: &ps,
+		OrganizerID: new(orgID), Visibility: &pub, PublishState: &ps,
 	}
 
 	// PublishDraft returns empty new-event-ids: all slots were claimed (no new).
@@ -210,7 +207,7 @@ func TestConcertAuthoringUseCase_Publish_SuppressedSlot(t *testing.T) {
 	ps := entity.SeriesPublishStateDraft
 	s := &entity.Series{
 		ID: seriesID, Title: "Tour", Type: entity.SeriesTypeTour,
-		OrganizerID: ptr(orgID), Visibility: &pub, PublishState: &ps,
+		OrganizerID: new(orgID), Visibility: &pub, PublishState: &ps,
 	}
 
 	suppErr := apperr.New(codes.FailedPrecondition, "publish blocked: one or more event slots are suppressed")
@@ -236,7 +233,7 @@ func TestConcertAuthoringUseCase_Publish_CrossOrgConflict(t *testing.T) {
 	ps := entity.SeriesPublishStateDraft
 	s := &entity.Series{
 		ID: seriesID, Title: "Tour", Type: entity.SeriesTypeTour,
-		OrganizerID: ptr(orgID), Visibility: &pub, PublishState: &ps,
+		OrganizerID: new(orgID), Visibility: &pub, PublishState: &ps,
 	}
 
 	conflictErr := apperr.New(codes.FailedPrecondition, "publish blocked: event slot already claimed by another organizer")
@@ -261,7 +258,7 @@ func TestConcertAuthoringUseCase_Publish_RejectsIncompleteDraft(t *testing.T) {
 	base := func() *entity.Series {
 		return &entity.Series{
 			ID: seriesID, Title: "Tour", Type: entity.SeriesTypeTour,
-			OrganizerID: ptr(orgID), Visibility: &pub, PublishState: &ps,
+			OrganizerID: new(orgID), Visibility: &pub, PublishState: &ps,
 		}
 	}
 
@@ -292,14 +289,14 @@ func TestConcertAuthoringUseCase_Publish_RejectsIncompleteDraft(t *testing.T) {
 		{
 			name:    "event missing date",
 			series:  base(),
-			events:  []*entity.Event{{ID: "evt-1", ListedVenueName: ptr("Zepp Tokyo")}},
+			events:  []*entity.Event{{ID: "evt-1", ListedVenueName: new("Zepp Tokyo")}},
 			artists: []*entity.Artist{{ID: "artist-1"}},
 		},
 		{
 			name: "blank title",
 			series: &entity.Series{
 				ID: seriesID, Title: "   ", Type: entity.SeriesTypeTour,
-				OrganizerID: ptr(orgID), Visibility: &pub, PublishState: &ps,
+				OrganizerID: new(orgID), Visibility: &pub, PublishState: &ps,
 			},
 			events:  validPublishEvents(),
 			artists: []*entity.Artist{{ID: "artist-1"}},
@@ -338,7 +335,7 @@ func TestConcertAuthoringUseCase_RegenerateToken(t *testing.T) {
 	ps := entity.SeriesPublishStatePublished
 	s := &entity.Series{
 		ID: seriesID, Title: "Secret", Type: entity.SeriesTypeSingle,
-		OrganizerID: ptr(orgID), Visibility: &unl, PublishState: &ps,
+		OrganizerID: new(orgID), Visibility: &unl, PublishState: &ps,
 	}
 
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
@@ -362,7 +359,7 @@ func TestConcertAuthoringUseCase_Cancel_EmitsCancelled(t *testing.T) {
 	ps := entity.SeriesPublishStatePublished
 	s := &entity.Series{
 		ID: seriesID, Title: "Tour", Type: entity.SeriesTypeTour,
-		OrganizerID: ptr(orgID), Visibility: &pub, PublishState: &ps,
+		OrganizerID: new(orgID), Visibility: &pub, PublishState: &ps,
 	}
 
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
@@ -391,7 +388,7 @@ func TestConcertAuthoringUseCase_Cancel_AlreadyCancelled(t *testing.T) {
 	ps := entity.SeriesPublishStateCancelled
 	s := &entity.Series{
 		ID: seriesID, Title: "Tour", Type: entity.SeriesTypeTour,
-		OrganizerID: ptr(orgID), PublishState: &ps,
+		OrganizerID: new(orgID), PublishState: &ps,
 	}
 
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)

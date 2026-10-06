@@ -165,7 +165,7 @@ func TestMediaUseCase_AttachMedia_InsertsAndPublishes(t *testing.T) {
 		seriesID = "series-1"
 		mediaID  = "media-1"
 	)
-	s := &entity.Series{ID: seriesID, OrganizerID: ptr(orgID)}
+	s := &entity.Series{ID: seriesID, OrganizerID: new(orgID)}
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
 	d.mediaRepo.EXPECT().InsertMedia(mock.Anything, mock.MatchedBy(func(m *entity.Media) bool {
 		return m.ID == mediaID && m.OrganizerID == orgID && m.Kind == entity.MediaKindImage
@@ -189,7 +189,7 @@ func TestMediaUseCase_AttachMedia_NonOwnerDenied(t *testing.T) {
 		mediaID  = "media-1"
 	)
 	// Series is owned by a different organizer.
-	s := &entity.Series{ID: seriesID, OrganizerID: ptr("org-owner")}
+	s := &entity.Series{ID: seriesID, OrganizerID: new("org-owner")}
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
 
 	err := d.uc.AttachMedia(ctx, orgID, seriesID, mediaID)
@@ -209,7 +209,7 @@ func TestMediaUseCase_AttachMedia_Idempotent(t *testing.T) {
 		seriesID = "series-1"
 		mediaID  = "media-dup"
 	)
-	s := &entity.Series{ID: seriesID, OrganizerID: ptr(orgID)}
+	s := &entity.Series{ID: seriesID, OrganizerID: new(orgID)}
 	// Both calls use the same mock stubs — idempotent at the DB layer.
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil).Times(2)
 	d.mediaRepo.EXPECT().InsertMedia(mock.Anything, mock.Anything).Return(nil).Times(2)

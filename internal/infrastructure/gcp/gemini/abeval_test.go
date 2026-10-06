@@ -9,60 +9,13 @@ import (
 	"uuid"
 )
 
-func TestNormalizeVenue(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		// Prefecture prefix ("PREFECTURE・<venue>")
-		{"prefix_osaka", "大阪府・Billborad Live OSAKA", "billborad live osaka"},
-		{"prefix_tokyo", "東京都・Billborad Live TOKYO", "billborad live tokyo"},
-		{"prefix_kyoto", "京都府・磔磔", "磔磔"},
-		{"prefix_saitama", "埼玉県・HEAVEN'S ROCK さいたま新都心 VJ-3", "heaven's rock さいたま新都心 vj 3"},
-
-		// Parenthesised prefecture suffix
-		{"paren_chiba", "幕張メッセ 9・11ホール（千葉県）", "幕張メッセ 9 11ホール"},
-		{"paren_ascii", "Zepp Haneda (東京都)", "zepp haneda"},
-
-		// Both — prefix and inner paren (rare but possible)
-		{"prefix_and_paren", "大阪府・京セラドーム大阪（大阪府）", "京セラドーム大阪"},
-
-		// Prefecture embedded in venue name MUST NOT be stripped — only
-		// matches the regex pattern (prefix `・` or parenthesised), so
-		// "新潟県民会館" stays intact.
-		{"embedded_safe", "新潟県民会館", "新潟県民会館"},
-
-		// TBD markers collapse to empty
-		{"tbd_empty", "", ""},
-		{"tbd_dashed", "-STAY TUNED-", ""},
-		{"tbd_japanese", "未定", ""},
-		{"tbd_tba", "TBA", ""},
-		{"tbd_coming_soon", "Coming Soon", ""},
-
-		// Original punctuation / whitespace handling preserved
-		{"basic_lowercase", "Zepp Tokyo", "zepp tokyo"},
-		{"middle_dot_split", "幕張メッセ 9・11ホール", "幕張メッセ 9 11ホール"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := gemini.NormalizeVenue(tt.in)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestLoadGroundTruth_FixtureWellFormed(t *testing.T) {
 	t.Parallel()
 
 	gt, err := gemini.LoadGroundTruth()
 	require.NoError(t, err)
 
-	assert.Equal(t, "2026-08-23", gt.EvaluationFrom)
+	assert.Equal(t, "2026-10-01", gt.EvaluationFrom)
 	assert.NotEmpty(t, gt.CapturedAt)
 	require.Len(t, gt.Artists, 4, "fixture must cover 4 artists")
 

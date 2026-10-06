@@ -74,11 +74,11 @@ func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amoun
 	}
 
 	params := &stripe.PaymentIntentCreateParams{
-		Amount:        stripe.Int64(amountJPY),
+		Amount:        new(amountJPY),
 		Currency:      stripe.String(string(stripe.CurrencyJPY)),
 		CaptureMethod: stripe.String(string(stripe.PaymentIntentCaptureMethodManual)),
 		AutomaticPaymentMethods: &stripe.PaymentIntentCreateAutomaticPaymentMethodsParams{
-			Enabled:        stripe.Bool(true),
+			Enabled:        new(true),
 			AllowRedirects: stripe.String(string(stripe.PaymentIntentAutomaticPaymentMethodsAllowRedirectsNever)),
 		},
 	}

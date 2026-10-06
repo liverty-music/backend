@@ -12,11 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// timePtr returns a pointer to t, for building *time.Time fields inline.
-func timePtr(t time.Time) *time.Time {
-	return &t
-}
-
 func TestResolveSeriesLinkURL(t *testing.T) {
 	t.Parallel()
 
@@ -78,8 +73,8 @@ func TestResolveSeriesLinkURL(t *testing.T) {
 			dep: dep{
 				events: []*entity.Event{
 					{ID: "event-no-time", LocalDate: tomorrow},
-					{ID: "event-earlier-time", LocalDate: tomorrow, StartTime: timePtr(tomorrow.Add(10 * time.Hour))},
-					{ID: "event-later-time", LocalDate: tomorrow, StartTime: timePtr(tomorrow.Add(20 * time.Hour))},
+					{ID: "event-earlier-time", LocalDate: tomorrow, StartTime: new(tomorrow.Add(10 * time.Hour))},
+					{ID: "event-later-time", LocalDate: tomorrow, StartTime: new(tomorrow.Add(20 * time.Hour))},
 				},
 			},
 			want: "/concerts/event-earlier-time",

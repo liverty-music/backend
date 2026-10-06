@@ -233,7 +233,7 @@ func findActiveRecipient(ctx context.Context, t *testing.T, key string) string {
 
 	sc := stripe.NewClient(key)
 	accounts := sc.V1Accounts.List(ctx, &stripe.AccountListParams{
-		ListParams: stripe.ListParams{Limit: stripe.Int64(100)},
+		Limit: stripe.Int64(100),
 	})
 	for account, err := range accounts.All(ctx) {
 		require.NoError(t, err, "list connected accounts")

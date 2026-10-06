@@ -1,6 +1,6 @@
 {
-  "evaluation_from": "2026-08-23",
-  "captured_at": "2026-08-24",
+  "evaluation_from": "2026-10-01",
+  "captured_at": "2026-10-03",
   "artists": [
     {
       "id": "019e302a-01ec-7b8e-80e4-2111c2e4fe0a",
@@ -8,50 +8,28 @@
       "official_site_url": "http://uverworld.jp/",
       "events": [
         {
-          "event_name": "WILD BUNCH FEST. 2026",
-          "venue": "山口きらら博記念公園",
-          "admin_area": "山口県",
-          "local_date": "2026-08-23",
-          "open_time": "2026-08-23T10:00:00+09:00",
-          "start_time": "2026-08-23T11:30:00+09:00",
-          "source_url": "https://www.uverworld.jp/schedule/detail/3173",
+          "event_name": "Xnterstellar Music Festival 2026",
+          "venue": "仁川パラダイスシティ",
+          "admin_area": "",
+          "local_date": "2026-10-04",
+          "open_time": "",
+          "start_time": "",
+          "source_url": "https://www.uverworld.jp/news/detail/3222",
           "confidence": "confirmed",
           "visibility": "public",
           "excluded_per_spec": true
         },
         {
-          "event_name": "音楽と髭達2026-TIME MACHINE-",
-          "venue": "HARD OFF ECO スタジアム新潟",
-          "admin_area": "新潟県",
-          "local_date": "2026-08-29",
-          "open_time": "2026-08-29T09:00:00+09:00",
-          "start_time": "2026-08-29T11:00:00+09:00",
-          "source_url": "https://www.uverworld.jp/schedule/detail/3175",
+          "event_name": "YURIN LIVE vol.5",
+          "venue": "大阪城ホール",
+          "admin_area": "大阪府",
+          "local_date": "2026-10-28",
+          "open_time": "2026-10-28T17:30:00+09:00",
+          "start_time": "2026-10-28T18:30:00+09:00",
+          "source_url": "https://www.uverworld.jp/news/detail/3199",
           "confidence": "confirmed",
           "visibility": "public",
           "excluded_per_spec": true
-        },
-        {
-          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
-          "venue": "KT Zepp Yokohama",
-          "admin_area": "神奈川県",
-          "local_date": "2026-09-24",
-          "open_time": "2026-09-24T17:30:00+09:00",
-          "start_time": "2026-09-24T18:30:00+09:00",
-          "source_url": "https://www.uverworld.jp/feature/2026_live",
-          "confidence": "confirmed",
-          "visibility": "members-only"
-        },
-        {
-          "event_name": "UVERworld LIVE \"危ない\" TOUR 2026 ～誠果 生誕祭～",
-          "venue": "KT Zepp Yokohama",
-          "admin_area": "神奈川県",
-          "local_date": "2026-09-25",
-          "open_time": "2026-09-25T17:30:00+09:00",
-          "start_time": "2026-09-25T18:30:00+09:00",
-          "source_url": "https://www.uverworld.jp/feature/2026_live",
-          "confidence": "confirmed",
-          "visibility": "public"
         },
         {
           "event_name": "UVERworld LIVE \"危ない\" TOUR 2026 ～真太郎 生誕祭～",
@@ -128,7 +106,8 @@
           "start_time": "2026-12-11T19:00:00+09:00",
           "source_url": "https://www.uverworld.jp/news/detail/3219",
           "confidence": "confirmed",
-          "visibility": "public"
+          "visibility": "public",
+          "excluded_per_spec": true
         },
         {
           "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
@@ -175,6 +154,17 @@
           "visibility": "public"
         },
         {
+          "event_name": "UVERworld VS シリーズ \"UVERworld vs BE:FIRST\"",
+          "venue": "日本武道館",
+          "admin_area": "東京都",
+          "local_date": "2026-12-26",
+          "open_time": "2026-12-26T17:00:00+09:00",
+          "start_time": "2026-12-26T18:00:00+09:00",
+          "source_url": "https://www.uverworld.jp/news/detail/3231",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
           "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
           "venue": "マリンメッセ福岡A館",
           "admin_area": "福岡県",
@@ -203,98 +193,6 @@
       "name": "Vaundy",
       "official_site_url": "https://vaundy.jp/",
       "events": [
-        {
-          "event_name": "音楽と髭達2026 -TIME MACHINE-",
-          "venue": "HARD OFF ECOスタジアム新潟",
-          "admin_area": "新潟県",
-          "local_date": "2026-08-29",
-          "open_time": "2026-08-29T09:00:00+09:00",
-          "start_time": "2026-08-29T11:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11193",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "SWEET LOVE SHOWER 2026",
-          "venue": "山中湖交流プラザ きらら",
-          "admin_area": "山梨県",
-          "local_date": "2026-08-30",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11185",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "幕張メッセ 9・11ホール",
-          "admin_area": "千葉県",
-          "local_date": "2026-09-05",
-          "open_time": "2026-09-05T16:30:00+09:00",
-          "start_time": "2026-09-05T18:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "幕張メッセ 9・11ホール",
-          "admin_area": "千葉県",
-          "local_date": "2026-09-06",
-          "open_time": "2026-09-06T14:30:00+09:00",
-          "start_time": "2026-09-06T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "ROCK IN JAPAN FESTIVAL 2026",
-          "venue": "千葉市蘇我スポーツ公園",
-          "admin_area": "千葉県",
-          "local_date": "2026-09-12",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://vaundy.jp/news/detail/11206",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "INSPIRE ARENA",
-          "admin_area": "",
-          "local_date": "2026-09-19",
-          "open_time": "2026-09-19T15:00:00+09:00",
-          "start_time": "2026-09-19T17:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "INSPIRE ARENA",
-          "admin_area": "",
-          "local_date": "2026-09-20",
-          "open_time": "2026-09-20T14:00:00+09:00",
-          "start_time": "2026-09-20T16:00:00+09:00",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "熱闘甲子園 presents 熱闘 JAM 2026",
-          "venue": "GLION ARENA KOBE",
-          "admin_area": "兵庫県",
-          "local_date": "2026-09-23",
-          "open_time": "2026-09-23T14:00:00+09:00",
-          "start_time": "2026-09-23T15:00:00+09:00",
-          "source_url": "https://vaundy.jp/news/detail/11200",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
         {
           "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
           "venue": "AsiaWorld-Arena",
@@ -540,6 +438,28 @@
         },
         {
           "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
+          "venue": "横浜アリーナ",
+          "admin_area": "神奈川県",
+          "local_date": "2027-11-27",
+          "open_time": "2027-11-27T17:00:00+09:00",
+          "start_time": "2027-11-27T18:00:00+09:00",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
+          "venue": "横浜アリーナ",
+          "admin_area": "神奈川県",
+          "local_date": "2027-11-28",
+          "open_time": "2027-11-28T15:00:00+09:00",
+          "start_time": "2027-11-28T16:00:00+09:00",
+          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
           "venue": "サンドーム福井",
           "admin_area": "福井県",
           "local_date": "2027-12-11",
@@ -669,50 +589,6 @@
           "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
           "confidence": "confirmed",
           "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "",
-          "admin_area": "",
-          "local_date": "2026-11-14",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "tentative",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy ASIA ARENA TOUR 2026 \"HORO\"",
-          "venue": "",
-          "admin_area": "",
-          "local_date": "2026-11-15",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
-          "confidence": "tentative",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
-          "venue": "",
-          "admin_area": "神奈川県",
-          "local_date": "2027-11-27",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
-          "confidence": "tentative",
-          "visibility": "public"
-        },
-        {
-          "event_name": "Vaundy JAPAN ARENA TOUR 2027-2028",
-          "venue": "",
-          "admin_area": "神奈川県",
-          "local_date": "2027-11-28",
-          "open_time": "",
-          "start_time": "",
-          "source_url": "https://member.vaundy.jp/feature/ARENATOUR_2728",
-          "confidence": "tentative",
-          "visibility": "public"
         }
       ]
     },
@@ -721,72 +597,6 @@
       "name": "SUPER BEAVER",
       "official_site_url": "http://www.super-beaver.com/",
       "events": [
-        {
-          "event_name": "都会のラクダ TOUR 2026-2027 〜ラクダの人生、ゴーゴーゴー〜",
-          "venue": "来島高知重工ホール（高知県立県民文化ホール）・オレンジホール",
-          "admin_area": "高知県",
-          "local_date": "2026-08-28",
-          "open_time": "2026-08-28T17:30:00+09:00",
-          "start_time": "2026-08-28T18:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/feature/tour2627",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "都会のラクダ TOUR 2026-2027 〜ラクダの人生、ゴーゴーゴー〜",
-          "venue": "舞鶴市総合文化会館",
-          "admin_area": "京都府",
-          "local_date": "2026-09-03",
-          "open_time": "2026-09-03T17:30:00+09:00",
-          "start_time": "2026-09-03T18:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/feature/tour2627",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "都会のラクダ TOUR 2026-2027 〜ラクダの人生、ゴーゴーゴー〜",
-          "venue": "とりぎん文化会館 梨花ホール",
-          "admin_area": "鳥取県",
-          "local_date": "2026-09-05",
-          "open_time": "2026-09-05T16:30:00+09:00",
-          "start_time": "2026-09-05T17:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/feature/tour2627",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "都会のラクダ TOUR 2026-2027 〜ラクダの人生、ゴーゴーゴー〜",
-          "venue": "札幌文化芸術劇場hitaru",
-          "admin_area": "北海道",
-          "local_date": "2026-09-10",
-          "open_time": "2026-09-10T17:30:00+09:00",
-          "start_time": "2026-09-10T18:30:00+09:00",
-          "source_url": "https://sp.super-beaver.com/feature/tour2627",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "都会のラクダ DOME TOUR 2026",
-          "venue": "東京ドーム",
-          "admin_area": "東京都",
-          "local_date": "2026-09-22",
-          "open_time": "2026-09-22T16:00:00+09:00",
-          "start_time": "2026-09-22T18:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6033",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "都会のラクダ DOME TOUR 2026",
-          "venue": "東京ドーム",
-          "admin_area": "東京都",
-          "local_date": "2026-09-23",
-          "open_time": "2026-09-23T16:00:00+09:00",
-          "start_time": "2026-09-23T18:00:00+09:00",
-          "source_url": "https://sp.super-beaver.com/live_information/detail/6034",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
         {
           "event_name": "都会のラクダ TOUR 2026-2027 〜ラクダの人生、ゴーゴーゴー〜",
           "venue": "沖縄コンベンションセンター劇場棟",
@@ -963,6 +773,314 @@
           "source_url": "https://sp.super-beaver.com/feature/tour2627",
           "confidence": "confirmed",
           "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "ポートメッセなごや 第1展示館",
+          "admin_area": "愛知県",
+          "local_date": "2027-09-24",
+          "open_time": "2027-09-24T17:30:00+09:00",
+          "start_time": "2027-09-24T18:30:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "ポートメッセなごや 第1展示館",
+          "admin_area": "愛知県",
+          "local_date": "2027-09-25",
+          "open_time": "2027-09-25T16:00:00+09:00",
+          "start_time": "2027-09-25T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "Kアリーナ横浜",
+          "admin_area": "神奈川県",
+          "local_date": "2027-10-02",
+          "open_time": "2027-10-02T15:30:00+09:00",
+          "start_time": "2027-10-02T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "Kアリーナ横浜",
+          "admin_area": "神奈川県",
+          "local_date": "2027-10-03",
+          "open_time": "2027-10-03T15:30:00+09:00",
+          "start_time": "2027-10-03T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "GMOアリーナさいたま(さいたまスーパーアリーナ)・スタジアムモード",
+          "admin_area": "埼玉県",
+          "local_date": "2027-10-23",
+          "open_time": "2027-10-23T15:30:00+09:00",
+          "start_time": "2027-10-23T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "GMOアリーナさいたま(さいたまスーパーアリーナ)・スタジアムモード",
+          "admin_area": "埼玉県",
+          "local_date": "2027-10-24",
+          "open_time": "2027-10-24T15:30:00+09:00",
+          "start_time": "2027-10-24T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "静岡エコパアリーナ",
+          "admin_area": "静岡県",
+          "local_date": "2027-11-02",
+          "open_time": "2027-11-02T17:30:00+09:00",
+          "start_time": "2027-11-02T18:30:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "静岡エコパアリーナ",
+          "admin_area": "静岡県",
+          "local_date": "2027-11-03",
+          "open_time": "2027-11-03T16:00:00+09:00",
+          "start_time": "2027-11-03T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "朱鷺メッセ 新潟コンベンションセンター",
+          "admin_area": "新潟県",
+          "local_date": "2027-11-20",
+          "open_time": "2027-11-20T16:00:00+09:00",
+          "start_time": "2027-11-20T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "朱鷺メッセ 新潟コンベンションセンター",
+          "admin_area": "新潟県",
+          "local_date": "2027-11-21",
+          "open_time": "2027-11-21T16:00:00+09:00",
+          "start_time": "2027-11-21T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "北海道立総合体育センター 北海きたえーる",
+          "admin_area": "北海道",
+          "local_date": "2027-11-27",
+          "open_time": "2027-11-27T16:00:00+09:00",
+          "start_time": "2027-11-27T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "北海道立総合体育センター 北海きたえーる",
+          "admin_area": "北海道",
+          "local_date": "2027-11-28",
+          "open_time": "2027-11-28T16:00:00+09:00",
+          "start_time": "2027-11-28T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "Kアリーナ横浜",
+          "admin_area": "神奈川県",
+          "local_date": "2027-12-11",
+          "open_time": "2027-12-11T15:30:00+09:00",
+          "start_time": "2027-12-11T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "Kアリーナ横浜",
+          "admin_area": "神奈川県",
+          "local_date": "2027-12-12",
+          "open_time": "2027-12-12T15:30:00+09:00",
+          "start_time": "2027-12-12T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "GLION ARENA KOBE",
+          "admin_area": "兵庫県",
+          "local_date": "2027-12-18",
+          "open_time": "2027-12-18T16:00:00+09:00",
+          "start_time": "2027-12-18T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "GLION ARENA KOBE",
+          "admin_area": "兵庫県",
+          "local_date": "2027-12-19",
+          "open_time": "2027-12-19T16:00:00+09:00",
+          "start_time": "2027-12-19T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "大阪城ホール",
+          "admin_area": "大阪府",
+          "local_date": "2028-01-12",
+          "open_time": "2028-01-12T17:30:00+09:00",
+          "start_time": "2028-01-12T18:30:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "大阪城ホール",
+          "admin_area": "大阪府",
+          "local_date": "2028-01-13",
+          "open_time": "2028-01-13T17:30:00+09:00",
+          "start_time": "2028-01-13T18:30:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "マリンメッセ福岡A館",
+          "admin_area": "福岡県",
+          "local_date": "2028-01-29",
+          "open_time": "2028-01-29T16:00:00+09:00",
+          "start_time": "2028-01-29T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "マリンメッセ福岡A館",
+          "admin_area": "福岡県",
+          "local_date": "2028-01-30",
+          "open_time": "2028-01-30T16:00:00+09:00",
+          "start_time": "2028-01-30T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "広島グリーンアリーナ",
+          "admin_area": "広島県",
+          "local_date": "2028-02-19",
+          "open_time": "2028-02-19T16:00:00+09:00",
+          "start_time": "2028-02-19T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "広島グリーンアリーナ",
+          "admin_area": "広島県",
+          "local_date": "2028-02-20",
+          "open_time": "2028-02-20T16:00:00+09:00",
+          "start_time": "2028-02-20T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "あなぶきアリーナ香川",
+          "admin_area": "香川県",
+          "local_date": "2028-02-26",
+          "open_time": "2028-02-26T16:00:00+09:00",
+          "start_time": "2028-02-26T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "あなぶきアリーナ香川",
+          "admin_area": "香川県",
+          "local_date": "2028-02-27",
+          "open_time": "2028-02-27T16:00:00+09:00",
+          "start_time": "2028-02-27T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "宮城セキスイハイムスーパーアリーナ",
+          "admin_area": "宮城県",
+          "local_date": "2028-03-04",
+          "open_time": "2028-03-04T16:00:00+09:00",
+          "start_time": "2028-03-04T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "宮城セキスイハイムスーパーアリーナ",
+          "admin_area": "宮城県",
+          "local_date": "2028-03-05",
+          "open_time": "2028-03-05T16:00:00+09:00",
+          "start_time": "2028-03-05T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "大阪城ホール",
+          "admin_area": "大阪府",
+          "local_date": "2028-03-18",
+          "open_time": "2028-03-18T16:00:00+09:00",
+          "start_time": "2028-03-18T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
+          "event_name": "都会のラクダ TOUR 2027-2028 〜ラクダムーンと、サンサンサンライズ〜",
+          "venue": "大阪城ホール",
+          "admin_area": "大阪府",
+          "local_date": "2028-03-19",
+          "open_time": "2028-03-19T16:00:00+09:00",
+          "start_time": "2028-03-19T17:00:00+09:00",
+          "source_url": "https://sp.super-beaver.com/feature/tour2728",
+          "confidence": "confirmed",
+          "visibility": "public"
         }
       ]
     },
@@ -971,39 +1089,6 @@
       "name": "BRADIO",
       "official_site_url": "https://bradio.jp/",
       "events": [
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026｜埼玉",
-          "venue": "HEAVEN'S ROCK さいたま新都心 VJ-3",
-          "admin_area": "埼玉県",
-          "local_date": "2026-09-20",
-          "open_time": "2026-09-20T16:30:00+09:00",
-          "start_time": "2026-09-20T17:00:00+09:00",
-          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026｜神奈川",
-          "venue": "F.A.D YOKOHAMA",
-          "admin_area": "神奈川県",
-          "local_date": "2026-09-21",
-          "open_time": "2026-09-21T16:30:00+09:00",
-          "start_time": "2026-09-21T17:00:00+09:00",
-          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
-        {
-          "event_name": "BRADIO DANCE PARTY TOUR 2026｜長野",
-          "venue": "CLUB JUNK BOX",
-          "admin_area": "長野県",
-          "local_date": "2026-09-26",
-          "open_time": "2026-09-26T16:30:00+09:00",
-          "start_time": "2026-09-26T17:00:00+09:00",
-          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
-          "confidence": "confirmed",
-          "visibility": "public"
-        },
         {
           "event_name": "BRADIO DANCE PARTY TOUR 2026｜香川",
           "venue": "MONSTER",
@@ -1071,6 +1156,29 @@
           "visibility": "public"
         },
         {
+          "event_name": "SHUNAN Orbit 2026｜山口",
+          "venue": "周南 RISING HALL&LIVE rise SHUNAN",
+          "admin_area": "山口県",
+          "local_date": "2026-11-03",
+          "open_time": "2026-11-03T10:30:00+09:00",
+          "start_time": "2026-11-03T11:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/5?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public",
+          "excluded_per_spec": true
+        },
+        {
+          "event_name": "BRADIO LIVING ROOM LIVE｜京都",
+          "venue": "紫明会館",
+          "admin_area": "京都府",
+          "local_date": "2026-11-05",
+          "open_time": "2026-11-05T18:30:00+09:00",
+          "start_time": "2026-11-05T19:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public"
+        },
+        {
           "event_name": "BRADIO DANCE PARTY TOUR 2026｜石川",
           "venue": "REDSUN",
           "admin_area": "石川県",
@@ -1088,7 +1196,7 @@
           "local_date": "2026-11-14",
           "open_time": "2026-11-14T16:30:00+09:00",
           "start_time": "2026-11-14T17:00:00+09:00",
-          "source_url": "https://bradio.jp/show/list/4?page=2&sort=asc&range=future_event_end_time",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
           "confidence": "confirmed",
           "visibility": "public"
         },
@@ -1099,9 +1207,21 @@
           "local_date": "2026-11-15",
           "open_time": "2026-11-15T16:30:00+09:00",
           "start_time": "2026-11-15T17:00:00+09:00",
-          "source_url": "https://bradio.jp/show/list/4?page=2&sort=asc&range=future_event_end_time",
+          "source_url": "https://bradio.jp/show/list/4?range=future_event_end_time&sort=asc",
           "confidence": "confirmed",
           "visibility": "public"
+        },
+        {
+          "event_name": "SNAZZY TUNES×over print pre. 『 over fest 2026 』｜東京",
+          "venue": "下北沢シャングリラ / SHELTER / 近松 / 近道 / WAVER / LIVEHOLIC / ろくでもない夜 / ERA / LIVE HAUS",
+          "admin_area": "東京都",
+          "local_date": "2026-11-21",
+          "open_time": "2026-11-21T11:30:00+09:00",
+          "start_time": "2026-11-21T12:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/5?range=future_event_end_time&sort=asc",
+          "confidence": "confirmed",
+          "visibility": "public",
+          "excluded_per_spec": true
         },
         {
           "event_name": "BRADIO DANCE PARTY TOUR 2026｜愛知",
@@ -1126,28 +1246,15 @@
           "visibility": "public"
         },
         {
-          "event_name": "LOCAL CONNECT pre. LIGHT YOU 2026｜京都",
-          "venue": "長岡京記念文化会館",
-          "admin_area": "京都府",
-          "local_date": "2026-09-27",
-          "open_time": "2026-09-27T12:00:00+09:00",
-          "start_time": "2026-09-27T12:45:00+09:00",
-          "source_url": "https://bradio.jp/show/list/5?range=future_event_end_time&sort=asc",
+          "event_name": "THANKS PARTY 2026｜東京",
+          "venue": "渋谷CLUB QUATTRO",
+          "admin_area": "東京都",
+          "local_date": "2026-12-12",
+          "open_time": "2026-12-12T16:15:00+09:00",
+          "start_time": "2026-12-12T17:00:00+09:00",
+          "source_url": "https://bradio.jp/show/list/4?page=2&sort=asc&range=future_event_end_time",
           "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
-        },
-        {
-          "event_name": "SHUNAN Orbit 2026｜山口",
-          "venue": "周南 RISING HALL&LIVE rise SHUNAN",
-          "admin_area": "山口県",
-          "local_date": "2026-11-03",
-          "open_time": "2026-11-03T10:30:00+09:00",
-          "start_time": "2026-11-03T11:00:00+09:00",
-          "source_url": "https://bradio.jp/show/list/5?range=future_event_end_time&sort=asc",
-          "confidence": "confirmed",
-          "visibility": "public",
-          "excluded_per_spec": true
+          "visibility": "public"
         }
       ]
     }

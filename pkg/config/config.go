@@ -350,32 +350,33 @@ type GCPConfig struct {
 	// Gemini Model Name (legacy, fallback when workload-specific vars are unset).
 	GeminiModel string `envconfig:"GCP_GEMINI_MODEL" default:"gemini-3-flash-preview"`
 
-	// Per-step model overrides for the two-step grounded-extract concert
-	// searcher pipeline. Each unset value falls back to the step-specific
-	// default below; defaults are intentionally different per step so
-	// there is no shared workload-wide fallback.
+	// Model overrides for the Gemini searchers. Each unset value falls back
+	// to a built-in default that depends on the searcher.
 	//
-	// Step defaults:
-	//   - Step 1 (grounded extract, GoogleSearch + URLContext, no schema): gemini-3.6-flash
-	//   - Step 2 (JSON coerce, responseJsonSchema, no tools): gemini-3.1-flash-lite
+	// Extract (grounded call, GoogleSearch + URLContext):
+	//   - concert searcher: gemini-3.8-flash (ConcertSearchModel)
+	//   - sales-phase searcher Step 1: gemini-3.6-flash (SearchModelExtract)
+	// Parse (sales-phase searcher Step 2, JSON coerce, no tools):
+	//   gemini-3.1-flash-lite (SearchModelParse)
 	GeminiSearchModelExtract string `envconfig:"GCP_GEMINI_SEARCH_MODEL_EXTRACT"`
 	GeminiSearchModelParse   string `envconfig:"GCP_GEMINI_SEARCH_MODEL_PARSE"`
 
 	// Gemini Model Name for the email parser workload. Empty falls back to GeminiModel.
 	GeminiParserModel string `envconfig:"GCP_GEMINI_PARSER_MODEL"`
 
-	// Sampling temperature for the concert searcher's GenerateContent call.
+	// Sampling temperature for the sales-phase searcher's GenerateContent
+	// calls. The concert searcher does not send a temperature.
 	GeminiSearchTemperature float32 `envconfig:"GCP_GEMINI_SEARCH_TEMPERATURE" default:"1.0"`
 
 	// Thinking level for the concert searcher (Gemini 3 series). Empty leaves the SDK/model
 	// default in place. Accepted: "", "low", "medium", "high".
 	GeminiSearchThinkingLevel string `envconfig:"GCP_GEMINI_SEARCH_THINKING_LEVEL"`
 
-	// Per-step thinking level overrides for the two-step grounded-extract pipeline.
-	// Each unset value falls back to GeminiSearchThinkingLevel. Recommended split
-	// (per docs/gemini-concert-searcher-tuning.md §10.7):
-	//   - Extract (Step 1, grounded search + URLContext): "medium" or "high"
-	//   - Parse   (Step 2, mechanical JSON coercion):     "low"
+	// Per-step thinking level overrides. Each unset value falls back to
+	// GeminiSearchThinkingLevel; the concert searcher (extract only) then
+	// falls back to "low" (ConcertSearchThinkingLevel).
+	//   - Extract: the grounded call (GoogleSearch + URLContext)
+	//   - Parse:   the sales-phase searcher's Step 2 (JSON coercion)
 	// Accepted: "", "low", "medium", "high".
 	GeminiSearchThinkingExtract string `envconfig:"GCP_GEMINI_SEARCH_THINKING_EXTRACT"`
 	GeminiSearchThinkingParse   string `envconfig:"GCP_GEMINI_SEARCH_THINKING_PARSE"`
@@ -412,13 +413,21 @@ type GCPConfig struct {
 	SalesReminderWindow time.Duration `envconfig:"GCP_SALES_REMINDER_WINDOW"`
 }
 
-// Default models for each step of the two-step grounded-extract search
-// pipeline. Step 1 is grounded (search + URLContext) and benefits from
-// flash's reliability with those tools; Step 2 is a pure text-to-JSON
-// coercion with no tools where lite is cheap and reliable.
+// Default models for the sales-phase searcher's two-step pipeline. Step 1
+// is grounded (search + URLContext) and benefits from flash's reliability
+// with those tools; Step 2 is a pure text-to-JSON coercion with no tools
+// where lite is cheap and reliable.
 const (
 	defaultSearchModelExtract = "gemini-3.6-flash"
 	defaultSearchModelParse   = "gemini-3.1-flash-lite"
+)
+
+// Defaults for the concert searcher's single grounded call (evaluated in the
+// tune-concert-search-grounding change: thinking "medium" produced timeouts
+// and empty responses).
+const (
+	defaultConcertSearchModel    = "gemini-3.8-flash"
+	defaultConcertSearchThinking = "low"
 )
 
 // Defaults for the concert-search skip windows. The freshness TTL bounds how
@@ -476,7 +485,30 @@ func (c *GCPConfig) SearchDiscoveryWindow() time.Duration {
 	return defaultSearchDiscoveryWindow
 }
 
-// SearchModelExtract returns the model name for Step 1 (grounded extract:
+// ConcertSearchModel returns the model name for the concert searcher's
+// grounded call. Resolution: env override (GCP_GEMINI_SEARCH_MODEL_EXTRACT)
+// → built-in default.
+func (c *GCPConfig) ConcertSearchModel() string {
+	if c.GeminiSearchModelExtract != "" {
+		return c.GeminiSearchModelExtract
+	}
+	return defaultConcertSearchModel
+}
+
+// ConcertSearchThinkingLevel returns the thinking level for the concert
+// searcher's grounded call. Resolution: GCP_GEMINI_SEARCH_THINKING_EXTRACT →
+// GCP_GEMINI_SEARCH_THINKING_LEVEL → built-in default.
+func (c *GCPConfig) ConcertSearchThinkingLevel() string {
+	if c.GeminiSearchThinkingExtract != "" {
+		return c.GeminiSearchThinkingExtract
+	}
+	if c.GeminiSearchThinkingLevel != "" {
+		return c.GeminiSearchThinkingLevel
+	}
+	return defaultConcertSearchThinking
+}
+
+// SearchModelExtract returns the model name for the sales-phase searcher's Step 1 (grounded extract:
 // GoogleSearch + URLContext, no schema). Resolution: step-specific env
 // override → built-in default.
 func (c *GCPConfig) SearchModelExtract() string {
@@ -486,7 +518,7 @@ func (c *GCPConfig) SearchModelExtract() string {
 	return defaultSearchModelExtract
 }
 
-// SearchModelParse returns the model name for Step 2 (JSON coerce with
+// SearchModelParse returns the model name for the sales-phase searcher's Step 2 (JSON coerce with
 // responseJsonSchema, no tools). Resolution: step-specific env override →
 // built-in default.
 func (c *GCPConfig) SearchModelParse() string {

@@ -85,9 +85,9 @@ func TestStripeConnect_Settlement_PoC(t *testing.T) {
 		Amount:        stripe.Int64(gross),
 		Currency:      stripe.String(string(stripe.CurrencyJPY)),
 		PaymentMethod: stripe.String("pm_card_visa"), // test PaymentMethod
-		Confirm:       stripe.Bool(true),
+		Confirm:       new(true),
 		AutomaticPaymentMethods: &stripe.PaymentIntentCreateAutomaticPaymentMethodsParams{
-			Enabled:        stripe.Bool(true),
+			Enabled:        new(true),
 			AllowRedirects: stripe.String(string(stripe.PaymentIntentAutomaticPaymentMethodsAllowRedirectsNever)),
 		},
 	}
@@ -220,7 +220,7 @@ func ensureRecipientAccount(ctx context.Context, t *testing.T, sc *stripe.Client
 				Capabilities: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesParams{
 					StripeBalance: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesStripeBalanceParams{
 						StripeTransfers: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesStripeBalanceStripeTransfersParams{
-							Requested: stripe.Bool(true),
+							Requested: new(true),
 						},
 					},
 				},

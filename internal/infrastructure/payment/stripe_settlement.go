@@ -202,7 +202,7 @@ func (p *StripeSettlementPort) CreateConnectedAccount(ctx context.Context, organ
 				Capabilities: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesParams{
 					StripeBalance: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesStripeBalanceParams{
 						StripeTransfers: &stripe.V2CoreAccountCreateConfigurationRecipientCapabilitiesStripeBalanceStripeTransfersParams{
-							Requested: stripe.Bool(true),
+							Requested: new(true),
 						},
 					},
 				},
