@@ -111,6 +111,14 @@ func groundingVariant(t *testing.T, name string) *gemini.Prompt {
 //
 // @spec components/entity/concert/search "Default language of a multilingual tour page"
 // @spec components/entity/concert/search "Show subtitle kept out of the venue"
+//
+// The fixture also covers source text as written: Vaundy's tour pages offer
+// English and Korean views (scored against the Japanese venue names), and its
+// JAPAN ARENA TOUR 2027-2028 lists dates without a year after 2027 dates
+// (scored by exact local date).
+//
+// @spec components/entity/concert/search "Japanese venue on a multilingual page"
+// @spec components/entity/concert/search "Year inferred from a two-year tour title"
 func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	if os.Getenv(groundingEvalEnvVar) != "1" {
 		t.Skipf("set %s=1 to run the grounding variant evaluation", groundingEvalEnvVar)
