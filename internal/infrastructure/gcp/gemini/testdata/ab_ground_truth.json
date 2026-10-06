@@ -28,7 +28,8 @@
           "start_time": "2026-10-28T18:30:00+09:00",
           "source_url": "https://www.uverworld.jp/news/detail/3199",
           "confidence": "confirmed",
-          "visibility": "public"
+          "visibility": "public",
+          "excluded_per_spec": true
         },
         {
           "event_name": "UVERworld LIVE \"危ない\" TOUR 2026 ～真太郎 生誕祭～",
@@ -105,7 +106,8 @@
           "start_time": "2026-12-11T19:00:00+09:00",
           "source_url": "https://www.uverworld.jp/news/detail/3219",
           "confidence": "confirmed",
-          "visibility": "public"
+          "visibility": "public",
+          "excluded_per_spec": true
         },
         {
           "event_name": "UVERworld LIVE \"危ない\" TOUR 2026",
