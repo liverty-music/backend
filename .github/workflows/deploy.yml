@@ -5,9 +5,10 @@ name: Deploy Backend
 #                         main runs this workflow (no paths: trigger gate).
 #                         A per-run "build vs inherit" decision over the
 #                         pushed range (event.before..sha) picks one of:
-#                           * build:   7× docker/build-push-action across the
+#                           * build:   8× docker/build-push-action across the
 #                                      strategy matrix (server, consumer,
 #                                      concert-discovery, artist-image-sync,
+#                                      official-site-refresh,
 #                                      sales-phase-discovery, sales-reminders,
 #                                      media-consumer),
 #                                      pushing :latest, :main, :<sha>.
@@ -17,7 +18,7 @@ name: Deploy Backend
 #                                      push changed no build-relevant file
 #                                      (CI config / docs only).
 #  - release published -> retag dev AR digest into prod AR
-#                         (liverty-music-prod/backend). 7× `crane copy`
+#                         (liverty-music-prod/backend). 8× `crane copy`
 #                         across the matrix — no rebuild. Each matrix
 #                         entry resolves its own dev AR digest for
 #                         github.sha and promotes that exact digest to
@@ -99,6 +100,8 @@ jobs:
             target: concert-discovery
           - name: artist-image-sync
             target: artist-image-sync
+          - name: official-site-refresh
+            target: official-site-refresh
           - name: sales-phase-discovery
             target: sales-phase-discovery
           - name: sales-reminders

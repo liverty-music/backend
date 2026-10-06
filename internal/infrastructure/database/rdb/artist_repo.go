@@ -3,6 +3,7 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"time"
@@ -26,22 +27,22 @@ const (
 	`
 	// Fetch back MBID artists preserving the input array order via WITH ORDINALITY.
 	selectArtistsByMBIDsQuery = `
-		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
 		FROM artists a
 		JOIN unnest($1::varchar[]) WITH ORDINALITY AS t(mbid, ord) ON a.mbid = t.mbid
 		ORDER BY t.ord
 	`
 	listArtistsQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at
+		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
 		FROM artists
 	`
 	getArtistQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at
+		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
 		FROM artists
 		WHERE id = $1
 	`
 	getArtistByMBIDQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at
+		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
 		FROM artists
 		WHERE mbid = $1
 	`
@@ -49,7 +50,7 @@ const (
 		UPDATE artists SET fanart = $2, fanart_synced_at = $3 WHERE id = $1
 	`
 	listStaleOrMissingFanartQuery = `
-		SELECT id, name, mbid, fanart, fanart_synced_at
+		SELECT id, name, mbid, fanart, fanart_synced_at, official_site_checked_at
 		FROM artists
 		WHERE fanart_synced_at IS NULL OR fanart_synced_at < $1
 		ORDER BY fanart_synced_at ASC NULLS FIRST
@@ -67,6 +68,20 @@ const (
 	updateArtistNameQuery = `
 		UPDATE artists SET name = $2 WHERE id = $1
 	`
+	listStaleOfficialSiteQuery = `
+		SELECT a.id, a.name, a.mbid, a.fanart, a.fanart_synced_at, a.official_site_checked_at
+		FROM artists a
+		WHERE EXISTS (SELECT 1 FROM followed_artists f WHERE f.artist_id = a.id)
+		  AND (a.official_site_checked_at IS NULL OR a.official_site_checked_at < $1)
+		ORDER BY a.official_site_checked_at ASC NULLS FIRST, a.id ASC
+		LIMIT $2
+	`
+	updateOfficialSiteURLQuery = `
+		UPDATE artist_official_site SET url = $2 WHERE artist_id = $1
+	`
+	markOfficialSiteCheckedQuery = `
+		UPDATE artists SET official_site_checked_at = $2 WHERE id = $1
+	`
 )
 
 // NewArtistRepository creates a new artist repository instance.
@@ -74,14 +89,19 @@ func NewArtistRepository(db *Database) *ArtistRepository {
 	return &ArtistRepository{db: db}
 }
 
-// scanArtist scans a row into an Artist entity including nullable fanart columns.
+// scanArtist scans a row into an Artist entity including nullable fanart and
+// official site check columns.
 func scanArtist(scan func(dest ...any) error) (*entity.Artist, error) {
 	var a entity.Artist
 	var fanartJSON []byte
 	var syncedAt *time.Time
+	var officialSiteCheckedAt sql.NullTime
 
-	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt); err != nil {
+	if err := scan(&a.ID, &a.Name, &a.MBID, &fanartJSON, &syncedAt, &officialSiteCheckedAt); err != nil {
 		return nil, err
+	}
+	if officialSiteCheckedAt.Valid {
+		a.OfficialSiteCheckTime = &officialSiteCheckedAt.Time
 	}
 
 	if len(fanartJSON) > 0 {
@@ -332,4 +352,63 @@ func (r *ArtistRepository) ListStaleOrMissingFanart(ctx context.Context, staleDu
 		return nil, toAppErr(err, "error iterating stale fanart rows")
 	}
 	return artists, nil
+}
+
+// ListStaleOfficialSite returns followed artists whose official site is due
+// for a check. Never-checked artists come first, then the oldest checks.
+func (r *ArtistRepository) ListStaleOfficialSite(ctx context.Context, age time.Duration, limit int) ([]*entity.Artist, error) {
+	staleThreshold := time.Now().Add(-age)
+
+	rows, err := r.db.Pool.Query(ctx, listStaleOfficialSiteQuery, staleThreshold, limit)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list stale official sites")
+	}
+	defer rows.Close()
+
+	artists := []*entity.Artist{}
+	for rows.Next() {
+		a, err := scanArtist(rows.Scan)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan artist")
+		}
+		artists = append(artists, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "error iterating stale official site rows")
+	}
+	return artists, nil
+}
+
+// UpdateOfficialSiteURL replaces the URL of the artist's official site,
+// keeping the site's id.
+func (r *ArtistRepository) UpdateOfficialSiteURL(ctx context.Context, artistID, url string) error {
+	if err := entity.ValidateOfficialSiteURL(url); err != nil {
+		return apperr.Wrap(err, codes.InvalidArgument, "invalid official site url", slog.String("artist_id", artistID))
+	}
+
+	tag, err := r.db.Pool.Exec(ctx, updateOfficialSiteURLQuery, artistID, url)
+	if err != nil {
+		return toAppErr(err, "failed to update official site url", slog.String("artist_id", artistID))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "official site not found")
+	}
+
+	r.db.logger.Info(ctx, "official site url updated",
+		slog.String("entityType", "artist_official_site"),
+		slog.String("artistID", artistID),
+	)
+	return nil
+}
+
+// MarkOfficialSiteChecked records when the artist's official site was last checked.
+func (r *ArtistRepository) MarkOfficialSiteChecked(ctx context.Context, artistID string, checkTime time.Time) error {
+	tag, err := r.db.Pool.Exec(ctx, markOfficialSiteCheckedQuery, artistID, checkTime)
+	if err != nil {
+		return toAppErr(err, "failed to mark official site checked", slog.String("artist_id", artistID))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "artist not found")
+	}
+	return nil
 }

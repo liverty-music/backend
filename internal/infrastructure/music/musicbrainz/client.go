@@ -249,25 +249,38 @@ func (c *client) ResolveOfficialSiteURL(ctx context.Context, mbid string) (strin
 }
 
 // selectOfficialSiteURL picks the best official homepage URL from a list of url relations.
-// Priority: name-matched active > unattributed active > any active > empty string.
+// Only active (not ended) official homepage relations are considered. When any of
+// them points at a site's top page, deeper links (such as /artist/<name> pages on
+// label sites) are dropped. Among the remaining relations the priority is:
+// name-matched > unattributed > any > empty string.
 func selectOfficialSiteURL(artistName string, relations []urlRelation) string {
 	const officialHomepage = "official homepage"
 
-	var fallbackEmpty, fallbackAny string
-
+	var active, topPages []urlRelation
 	for _, r := range relations {
 		if r.Type != officialHomepage || r.Ended {
 			continue
 		}
-		url := r.URL.Resource
+		active = append(active, r)
+		if isTopPageURL(r.URL.Resource) {
+			topPages = append(topPages, r)
+		}
+	}
+	if len(topPages) > 0 {
+		active = topPages
+	}
+
+	var fallbackEmpty, fallbackAny string
+	for _, r := range active {
+		resource := r.URL.Resource
 		if strings.EqualFold(r.SourceCredit, artistName) {
-			return url
+			return resource
 		}
 		if r.SourceCredit == "" && fallbackEmpty == "" {
-			fallbackEmpty = url
+			fallbackEmpty = resource
 		}
 		if fallbackAny == "" {
-			fallbackAny = url
+			fallbackAny = resource
 		}
 	}
 
@@ -275,6 +288,16 @@ func selectOfficialSiteURL(artistName string, relations []urlRelation) string {
 		return fallbackEmpty
 	}
 	return fallbackAny
+}
+
+// isTopPageURL reports whether raw points at a site's top page: a URL with a
+// host, no path other than "/", no query and no fragment.
+func isTopPageURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return (u.Path == "" || u.Path == "/") && u.RawQuery == "" && !u.ForceQuery && u.Fragment == ""
 }
 
 // escapeLucenePhrase escapes characters that are special inside a Lucene

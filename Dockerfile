@@ -61,6 +61,18 @@ ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
 COPY --from=build-artist-image-sync /out /artist-image-sync
 ENTRYPOINT ["/artist-image-sync"]
 
+# --- Official Site Refresh Job target ---
+FROM builder AS build-official-site-refresh
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags='-w -s' \
+    -pgo=auto \
+    -o /out ./cmd/job/official-site-refresh
+
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3 AS official-site-refresh
+ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=warn
+COPY --from=build-official-site-refresh /out /official-site-refresh
+ENTRYPOINT ["/official-site-refresh"]
+
 # --- Sales Phase Discovery Job target ---
 FROM builder AS build-sales-phase-discovery
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
