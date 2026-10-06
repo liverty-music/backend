@@ -84,7 +84,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 
 	// -- each fan: authorize a real hold, confirm 3DS (server-side test card), apply --
 	appIDs := make([]entity.TicketApplicationID, 0, applicants)
-	for i := 0; i < applicants; i++ {
+	for range applicants {
 		userID := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 
 		auth, err := uc.CreateAuthorization(ctx, usecase.CreateAuthorizationInput{
