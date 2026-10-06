@@ -746,26 +746,6 @@ COMMENT ON INDEX uq_active_pocket_sign_user_id IS 'At most one ACTIVE verified i
 CREATE INDEX IF NOT EXISTS idx_verified_identities_user_id ON verified_identities(user_id);
 COMMENT ON INDEX idx_verified_identities_user_id IS 'Optimizes lookup of a user''s active verification record.';
 
--- Rollback snapshot for the one-time series-consolidation migration
--- (20260826000000_consolidate_fragmented_series). Created and populated by that
--- migration before it re-points events/sales_phases and re-types series, and
--- INTENTIONALLY RETAINED afterwards as a manual rollback safety net for the
--- production data mutation. Declared here as desired state so `atlas migrate
--- diff` does not generate a DROP that would destroy the snapshot. Safe to drop
--- manually once the consolidation is verified in production (change task 5.4).
-CREATE TABLE IF NOT EXISTS _series_consolidation_backup (
-    entity TEXT NOT NULL,
-    id UUID NOT NULL,
-    old_series_id UUID,
-    old_type series_type,
-    PRIMARY KEY (entity, id)
-);
-COMMENT ON TABLE _series_consolidation_backup IS 'One-time rollback snapshot of series/events/sales_phases series_id (and series type) captured by the series-consolidation migration; retained for manual rollback, droppable once verified in prod.';
-COMMENT ON COLUMN _series_consolidation_backup.entity IS 'Which table the row snapshots: event | sales_phase | series';
-COMMENT ON COLUMN _series_consolidation_backup.id IS 'Primary key of the snapshotted row in its source table';
-COMMENT ON COLUMN _series_consolidation_backup.old_series_id IS 'Pre-migration series_id (for event/sales_phase rows) or the series own id (for series rows)';
-COMMENT ON COLUMN _series_consolidation_backup.old_type IS 'Pre-migration series.type (series rows only; NULL otherwise)';
-
 -- ============================================================
 -- Lottery tables (organizer-authored lottery sales)
 -- ============================================================
