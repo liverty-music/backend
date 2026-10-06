@@ -117,12 +117,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 			APIKey:          cfg.GCP.GeminiSearchAPIKey,
-			ModelExtract:    cfg.GCP.SearchModelExtract(),
-			ModelParse:      cfg.GCP.SearchModelParse(),
-			Temperature:     cfg.GCP.GeminiSearchTemperature,
-			ThinkingLevel:   cfg.GCP.GeminiSearchThinkingLevel,
-			ThinkingExtract: cfg.GCP.GeminiSearchThinkingExtract,
-			ThinkingParse:   cfg.GCP.GeminiSearchThinkingParse,
+			Model:           cfg.GCP.ConcertSearchModel(),
+			ThinkingLevel:   cfg.GCP.ConcertSearchThinkingLevel(),
+			OmitTemperature: true,
+
+			IncludeServerSideToolInvocations: true,
 		}, geminiHTTPClient, logger)
 		if err != nil {
 			return nil, err

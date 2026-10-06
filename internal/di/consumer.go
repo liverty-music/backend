@@ -174,12 +174,11 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	if cfg.GCP.GeminiSearchAPIKey != "" {
 		searcher, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 			APIKey:          cfg.GCP.GeminiSearchAPIKey,
-			ModelExtract:    cfg.GCP.SearchModelExtract(),
-			ModelParse:      cfg.GCP.SearchModelParse(),
-			Temperature:     cfg.GCP.GeminiSearchTemperature,
-			ThinkingLevel:   cfg.GCP.GeminiSearchThinkingLevel,
-			ThinkingExtract: cfg.GCP.GeminiSearchThinkingExtract,
-			ThinkingParse:   cfg.GCP.GeminiSearchThinkingParse,
+			Model:           cfg.GCP.ConcertSearchModel(),
+			ThinkingLevel:   cfg.GCP.ConcertSearchThinkingLevel(),
+			OmitTemperature: true,
+
+			IncludeServerSideToolInvocations: true,
 		}, extHTTPClient, logger)
 		if err != nil {
 			return nil, fmt.Errorf("create gemini concert searcher: %w", err)

@@ -449,6 +449,43 @@ func TestGCPConfig_SearchModelExtractResolution(t *testing.T) {
 	})
 }
 
+func TestGCPConfig_ConcertSearchResolution(t *testing.T) {
+	t.Parallel()
+
+	type want struct {
+		model    string
+		thinking string
+	}
+	tests := []struct {
+		name string
+		cfg  GCPConfig
+		want want
+	}{
+		{
+			name: "defaults applied when unset",
+			cfg:  GCPConfig{},
+			want: want{model: "gemini-3.8-flash", thinking: "low"},
+		},
+		{
+			name: "extract overrides take precedence",
+			cfg:  GCPConfig{GeminiSearchModelExtract: "gemini-3.6-flash", GeminiSearchThinkingExtract: "medium", GeminiSearchThinkingLevel: "high"},
+			want: want{model: "gemini-3.6-flash", thinking: "medium"},
+		},
+		{
+			name: "shared thinking level used when extract level unset",
+			cfg:  GCPConfig{GeminiSearchThinkingLevel: "high"},
+			want: want{model: "gemini-3.8-flash", thinking: "high"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want.model, tt.cfg.ConcertSearchModel())
+			assert.Equal(t, tt.want.thinking, tt.cfg.ConcertSearchThinkingLevel())
+		})
+	}
+}
+
 func TestGCPConfig_SearchCacheTTLResolution(t *testing.T) {
 	t.Run("env override takes precedence", func(t *testing.T) {
 		c := GCPConfig{GeminiSearchCacheTTL: 72 * time.Hour}
