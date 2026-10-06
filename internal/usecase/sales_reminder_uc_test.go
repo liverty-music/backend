@@ -68,6 +68,7 @@ func TestScheduledFireTime(t *testing.T) {
 		wantOK     bool
 	}{
 		// @spec components/entity/sales-phase-reminder "Lottery stages"
+		// @spec stories/get-reminded-of-ticket-sale-milestones "Lottery reminders"
 		{
 			name: "Lottery stages: APPLY_OPEN at the apply start", stage: entity.ReminderStageApplyOpen, phase: kickoff, tz: jst,
 			wantTime: jstAt(2026, 10, 5, 18, 0), wantExpiry: jstAt(2026, 10, 22, 23, 59), wantOK: true,
