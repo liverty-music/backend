@@ -4,6 +4,8 @@
 -- Every stored phase is deleted: many break the new rules (method UNSPECIFIED,
 -- a lottery without a close), no reminder was ever sent for any of them, and
 -- discovery finds the sales that are still upcoming again.
+SET search_path TO app, public;
+
 DELETE FROM "sales_phase_reminders";
 DELETE FROM "sales_phases";
 
