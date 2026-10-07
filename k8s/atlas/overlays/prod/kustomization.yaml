@@ -11,9 +11,10 @@ kind: Kustomization
 # host):
 #   - `spec.credentials.host` → prod Cloud SQL PSC DNS
 #     (`298474959c18.25pf3r4b6sfkn.asia-northeast2.sql.goog`)
-#   - No `devURL` / `devDB` patch: those are dev-only schema-diffing knobs
-#     used by `atlas migrate diff`. Prod runs `atlas migrate apply` only —
-#     no devDB pod is needed.
+#   - `spec.devDB` / `spec.devURL` → a required-Spot copy of the operator's
+#     default dev database (see the patch below). Before every
+#     `atlas migrate apply` with pending files the operator scales up a
+#     `backend-migration-atlas-dev-db` Deployment, then scales it back to 0.
 #
 # Migration source: the same `configMapGenerator` from `../../base` is
 # reused unchanged. Both envs apply identical forward migrations from the
@@ -44,3 +45,55 @@ patches:
     - op: replace
       path: /spec/credentials/host
       value: "298474959c18.25pf3r4b6sfkn.asia-northeast2.sql.goog"
+    # The operator scales up a dev database Pod while it plans pending
+    # migrations (500m / 2Gi after Autopilot defaults) and scales it to 0
+    # afterwards. Its default Pod has no Spot selector, so it can land on
+    # on-demand capacity. The Pod is short-lived, so a Spot preemption only
+    # retries the plan (OpenSpec change `optimize-prod-gke-cost`, D7).
+    #
+    # `spec.devDB` copies the operator's default (AutomaticDevDBSpec in
+    # atlas-operator 0.8.0) and adds the Spot selector. The CRD requires
+    # `devURL` with a custom `devDB`; it is the operator's default template,
+    # and the operator replaces `localhost` with the Pod IP at runtime. The
+    # password is the throwaway in-Pod dev database's, not a real secret.
+    #
+    # The operator creates the dev database Deployment only when it does not
+    # exist and never updates its Pod template. An existing Deployment must
+    # be deleted once for this spec to take effect.
+    - op: add
+      path: /spec/devURL
+      value: "postgres://postgres:pass@localhost:5432/postgres?search_path=public&sslmode=disable"
+    - op: add
+      path: /spec/devDB
+      value:
+        spec:
+          nodeSelector:
+            cloud.google.com/gke-spot: "true"
+          containers:
+          - name: postgres
+            image: postgres:latest
+            ports:
+            - name: postgres
+              containerPort: 5432
+            env:
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: pass
+            startupProbe:
+              exec:
+                command:
+                - pg_isready
+              failureThreshold: 30
+              periodSeconds: 10
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 999
+              allowPrivilegeEscalation: false
+              seccompProfile:
+                type: RuntimeDefault
+              capabilities:
+                drop:
+                - ALL
