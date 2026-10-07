@@ -108,8 +108,9 @@ type ApplicantIdentity struct {
 	// FullName is the applicant's legal name as it appears on their ID.
 	FullName string
 
-	// PhoneNumber is the contact phone number in E.164 format or any local format
-	// accepted by the venue.
+	// PhoneNumber is the contact phone number in E.164 format (e.g. "+819012345678").
+	// The proto rule on ApplicantIdentity rejects any other format at the RPC
+	// boundary, and a CHECK constraint enforces it in storage.
 	PhoneNumber string
 }
 

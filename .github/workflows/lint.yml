@@ -44,6 +44,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # The Connect and protocolbuffers schema SDKs are separate modules that
+      # Renovate does not manage; fail when they are on different schema builds.
+      - name: Check schema SDK modules share one schema commit
+        run: scripts/check-schema-sdk-commit.sh
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
