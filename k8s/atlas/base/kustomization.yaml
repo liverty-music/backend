@@ -105,3 +105,5 @@ configMapGenerator:
   - migrations/20261006000000_tune_sales_phase_search.sql
   - migrations/20261006010000_drop_unused_uuid_ossp_and_series_backup.sql
   - migrations/20261006020000_grant_human_iam_users_readonly_app_schema.sql
+  - migrations/20261007000000_normalize_phone_numbers_e164.sql
+  - migrations/20261007010000_add_phone_number_e164_checks.sql

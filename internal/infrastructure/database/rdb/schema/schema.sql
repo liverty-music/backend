@@ -802,7 +802,8 @@ CREATE TABLE IF NOT EXISTS ticket_applications (
     draw_sequence         BIGINT,
     CONSTRAINT chk_ticket_applications_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_ticket_applications_count_positive CHECK (requested_ticket_count > 0),
-    CONSTRAINT chk_ticket_applications_state CHECK (state IN (1, 2, 3, 5))
+    CONSTRAINT chk_ticket_applications_state CHECK (state IN (1, 2, 3, 5)),
+    CONSTRAINT chk_ticket_applications_applicant_phone_e164 CHECK (applicant_phone_number ~ '^\+[1-9][0-9]{1,14}$')
 );
 
 COMMENT ON TABLE ticket_applications IS 'Fan applications to a lottery sales phase. One row per attempt; re-application after withdrawal creates a fresh row. State: 1=Applied, 2=Won, 3=Lost, 5=Withdrawn.';
@@ -811,7 +812,7 @@ COMMENT ON COLUMN ticket_applications.phase_id IS 'The lottery phase this applic
 COMMENT ON COLUMN ticket_applications.applicant_id IS 'The fan user ID (references users.id at application layer; no FK to survive user lifecycle independently)';
 COMMENT ON COLUMN ticket_applications.requested_ticket_count IS 'Companion-group size (all-or-nothing allocation). Must be positive.';
 COMMENT ON COLUMN ticket_applications.applicant_full_name IS 'Applicant legal name for 本人確認 at the venue';
-COMMENT ON COLUMN ticket_applications.applicant_phone_number IS 'Contact phone number for 本人確認 at the venue';
+COMMENT ON COLUMN ticket_applications.applicant_phone_number IS 'Contact phone number for 本人確認 at the venue, in E.164 form (enforced by CHECK)';
 COMMENT ON COLUMN ticket_applications.payment_intent_ref IS 'Stripe PaymentIntent ID for the authorization hold placed at apply time';
 COMMENT ON COLUMN ticket_applications.state IS 'Lifecycle state: 1=Applied (hold in place), 2=Won (captured), 3=Lost (hold released), 5=Withdrawn (fan-cancelled, hold released)';
 COMMENT ON COLUMN ticket_applications.draw_sequence IS 'Zero-based position in the draw shuffle. NULL until the draw runs; used to order the loser waitlist for official-resale.';
@@ -890,7 +891,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     issued_at                         TIMESTAMPTZ NOT NULL,
     CONSTRAINT chk_tickets_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_tickets_status CHECK (status IN (1, 2)),
-    CONSTRAINT chk_tickets_resale_prohibited CHECK (resale_without_consent_prohibited = TRUE)
+    CONSTRAINT chk_tickets_resale_prohibited CHECK (resale_without_consent_prohibited = TRUE),
+    CONSTRAINT chk_tickets_holder_phone_e164 CHECK (holder_phone_number ~ '^\+[1-9][0-9]{1,14}$')
 );
 
 COMMENT ON TABLE tickets IS 'Account-bound covered tickets (特定興行入場券) issued from a captured lottery win. Each carries the three covered-ticket conditions: resale-without-consent prohibited, date/venue+eligible-person (event_id + holder identity), and bound 本人確認.';
@@ -899,7 +901,7 @@ COMMENT ON COLUMN tickets.order_id IS 'The order that issued this ticket';
 COMMENT ON COLUMN tickets.holder_id IS 'The account the ticket is bound to (current holder; reassigned by official resale)';
 COMMENT ON COLUMN tickets.event_id IS 'The event this ticket admits to (supplies the covered-ticket face date/venue)';
 COMMENT ON COLUMN tickets.holder_full_name IS 'Holder legal name (本人確認) noted on the covered-ticket face';
-COMMENT ON COLUMN tickets.holder_phone_number IS 'Holder contact phone (本人確認)';
+COMMENT ON COLUMN tickets.holder_phone_number IS 'Holder contact phone (本人確認), in E.164 form (enforced by CHECK)';
 COMMENT ON COLUMN tickets.verified_identity_id IS 'Authoritative verified identity when the phase required verification; NULL otherwise. No FK so privacy deletion of a verified identity is independent.';
 COMMENT ON COLUMN tickets.resale_without_consent_prohibited IS 'Covered-ticket condition (i): always true (enforced by CHECK) so every issued ticket qualifies as a 特定興行入場券';
 COMMENT ON COLUMN tickets.status IS 'Ticket status: 1=Issued, 2=Voided (on refund)';
