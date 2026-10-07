@@ -150,7 +150,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"}, searchedAgo(40*day))
+				m.searchLogs([]string{"series-a"}, searchedAgo(12*day))
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate}, nil)
 				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeInserted, nil).Once()
@@ -188,7 +188,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.phases("series-a", &entity.SalesPhase{
 					SeriesID: "series-a", Method: entity.SalesMethodFirstCome, ApplyStartTime: now.AddDate(0, 0, -1),
 				})
-				m.searchLogs([]string{"series-a"}, searchedAgo(31*day))
+				m.searchLogs([]string{"series-a"}, searchedAgo(11*day))
 				m.officialSite()
 				m.search([]string{"series-a"}, nil, nil)
 				m.record([]string{"series-a"}, nil)
@@ -201,7 +201,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"}, searchedAgo(10*day))
+				m.searchLogs([]string{"series-a"}, searchedAgo(5*day))
 			},
 		},
 		{
@@ -392,6 +392,51 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				require.NoError(t, err)
 			}
 			assert.Equal(t, tt.wantCount, got)
+		})
+	}
+}
+
+func TestSalesPhaseSearchDue(t *testing.T) {
+	t.Parallel()
+
+	jst := time.FixedZone("JST", 9*60*60)
+	searched := time.Date(2026, 10, 7, 21, 0, 30, 0, jst)
+
+	tests := []struct {
+		name string
+		now  time.Time
+		want bool
+	}{
+		{
+			// @spec components/usecase/sales-phase/discover-for-artist "Ten days counted by date"
+			name: "Ten days counted by date",
+			now:  time.Date(2026, 10, 17, 21, 0, 0, 0, jst),
+			want: true,
+		},
+		{
+			// @spec components/usecase/sales-phase/discover-for-artist "Nine days counted by date"
+			name: "Nine days counted by date",
+			now:  time.Date(2026, 10, 16, 23, 59, 0, 0, jst),
+			want: false,
+		},
+		{
+			name: "dates are taken in Japan time, not UTC",
+			// 17 October 08:59 JST is still 16 October in UTC.
+			now:  time.Date(2026, 10, 16, 23, 59, 0, 0, time.UTC),
+			want: true,
+		},
+		{
+			name: "same day",
+			now:  time.Date(2026, 10, 7, 23, 0, 0, 0, jst),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, usecase.ExportedSalesPhaseSearchDue(searched, tt.now))
 		})
 	}
 }

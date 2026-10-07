@@ -28,3 +28,6 @@ const ReminderScanLookbackMargin = reminderScanLookbackMargin
 
 // ExportedOfficialSiteRefreshBatchSize exposes officialSiteRefreshBatchSize for black-box tests.
 var ExportedOfficialSiteRefreshBatchSize = officialSiteRefreshBatchSize
+
+// ExportedSalesPhaseSearchDue exposes salesPhaseSearchDue for black-box tests.
+var ExportedSalesPhaseSearchDue = salesPhaseSearchDue

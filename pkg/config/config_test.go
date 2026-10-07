@@ -92,10 +92,9 @@ func TestLoad_ServerConfig(t *testing.T) {
 					PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
 				},
 				GCP: GCPConfig{
-					ProjectID:               "test-project",
-					Location:                "us-central1",
-					GeminiModel:             "gemini-3-flash-preview",
-					GeminiSearchTemperature: 1.0,
+					ProjectID:   "test-project",
+					Location:    "us-central1",
+					GeminiModel: "gemini-3-flash-preview",
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
@@ -191,10 +190,9 @@ func TestLoad_ServerConfig(t *testing.T) {
 					PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
 				},
 				GCP: GCPConfig{
-					ProjectID:               "custom-project",
-					Location:                "us-central1",
-					GeminiModel:             "gemini-3-flash-preview",
-					GeminiSearchTemperature: 1.0,
+					ProjectID:   "custom-project",
+					Location:    "us-central1",
+					GeminiModel: "gemini-3-flash-preview",
 				},
 				JWT: JWTConfig{
 					Issuer:              "https://custom-issuer.com",
@@ -435,18 +433,6 @@ func TestGCPConfig_ParserModelResolution(t *testing.T) {
 			assert.Equal(t, tt.wantParser, c.ParserModel())
 		})
 	}
-}
-
-func TestGCPConfig_SearchModelExtractResolution(t *testing.T) {
-	t.Run("env override takes precedence", func(t *testing.T) {
-		c := GCPConfig{GeminiSearchModelExtract: "gemini-3.5-flash"}
-		assert.Equal(t, "gemini-3.5-flash", c.SearchModelExtract())
-	})
-	t.Run("default applied when unset", func(t *testing.T) {
-		c := GCPConfig{}
-		assert.Equal(t, defaultSearchModelExtract, c.SearchModelExtract())
-		assert.Equal(t, "gemini-3.6-flash", c.SearchModelExtract())
-	})
 }
 
 func TestGCPConfig_ConcertSearchResolution(t *testing.T) {
