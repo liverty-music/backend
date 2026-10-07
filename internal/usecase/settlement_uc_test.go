@@ -185,20 +185,6 @@ func TestIsReleaseEligible(t *testing.T) {
 			startTime: time.Time{},
 			want:      false,
 		},
-		{
-			name: "return false after postponement resets clock to a future date",
-			// Originally 2026-09-01; postponed to 2026-11-01.
-			// now = 2026-09-15 (would have been eligible for the old date).
-			now:       time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC),
-			startTime: time.Date(2026, 11, 1, 18, 0, 0, 0, time.UTC),
-			want:      false,
-		},
-		{
-			name:      "return true after the postponed date plus buffer has elapsed",
-			now:       time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC),
-			startTime: time.Date(2026, 11, 1, 18, 0, 0, 0, time.UTC),
-			want:      true,
-		},
 	}
 
 	for _, tc := range tests {
@@ -560,6 +546,109 @@ func TestPayoutSweeper_GateNotPassed_NoTransfer(t *testing.T) {
 	require.NoError(t, uc.ReleaseDueSettlements(ctx))
 	assert.False(t, transferCalled, "Transfer must NOT be created before gate passes")
 	assert.False(t, markCalled, "MarkReleased must NOT be called before gate passes")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Release gate: the event's current start time is read on every run
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestPayoutSweeper_ReleaseGate(t *testing.T) {
+	t.Parallel()
+
+	const buffer = 7 * 24 * time.Hour
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	ptr := func(t time.Time) *time.Time { return &t }
+
+	tests := []struct {
+		name string
+		// startTimes is the event start time returned on each successive run;
+		// nil means the event has no start time yet.
+		startTimes []*time.Time
+		// wantReleased is whether the Settlement is released on each run.
+		wantReleased []bool
+	}{
+		{
+			// @spec components/usecase/settlement/release-due-settlements "Before the event plus 7 days"
+			name:         "keep the settlement held when the event started 3 days ago",
+			startTimes:   []*time.Time{ptr(now.Add(-3 * 24 * time.Hour))},
+			wantReleased: []bool{false},
+		},
+		{
+			// @spec components/usecase/settlement/release-due-settlements "Event start unknown"
+			name:         "keep the settlement held when the event has no start time",
+			startTimes:   []*time.Time{nil},
+			wantReleased: []bool{false},
+		},
+		{
+			// @spec components/usecase/settlement/release-due-settlements "Start time filled in after the purchase"
+			name:         "release on the next run once a start time 8 days ago is filled in",
+			startTimes:   []*time.Time{nil, ptr(now.Add(-8 * 24 * time.Hour))},
+			wantReleased: []bool{false, true},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			settlement := &entity.Settlement{
+				ID: "settle-gate", OrderID: "order-gate",
+				OrganizerID: "org-gate", EventID: "event-gate",
+				Splits: []entity.SettlementSplit{{PayeeOrganizerID: "org-gate", Amount: 9000}},
+				Status: entity.SettlementStatusHeld,
+			}
+
+			run := 0
+			released := false
+
+			uc := usecase.NewPayoutSweeperUseCase(
+				&stubSettlementRepo{
+					listHeldFn: func(_ context.Context) ([]*entity.Settlement, error) {
+						return []*entity.Settlement{settlement}, nil
+					},
+					markReleasedFn: func(_ context.Context, _ entity.SettlementID, _ string, _ time.Time, _ []entity.SettlementSplit) error {
+						released = true
+						return nil
+					},
+				},
+				&stubOrderRepo{
+					getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) {
+						return &entity.Order{ID: "order-gate", Amount: 10000, Currency: "JPY",
+							Payment: entity.Payment{PaymentIntentRef: "pi_gate"}}, nil
+					},
+				},
+				&stubConnectedAccountRepo{
+					getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.OrganizerConnectedAccount, error) {
+						return &entity.OrganizerConnectedAccount{
+							OrganizerID: "org-gate", AccountRef: "acct_gate",
+							Status: entity.PayoutOnboardingStatusActive,
+						}, nil
+					},
+				},
+				&stubEventStartTimeRepo{
+					getFn: func(_ context.Context, _ string) (*time.Time, error) { return tc.startTimes[run], nil },
+				},
+				&stubPaymentSettlementPort{
+					resolveChargeRefFn: func(_ context.Context, _ string) (string, error) { return "ch_gate", nil },
+					createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
+						return "tr_gate", nil
+					},
+					getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
+						return entity.PayoutOnboardingStatusActive, nil
+					},
+				},
+				buffer,
+				func() time.Time { return now },
+				newTestLogger(t),
+			)
+
+			for ; run < len(tc.startTimes); run++ {
+				released = false
+				require.NoError(t, uc.ReleaseDueSettlements(context.Background()))
+				assert.Equal(t, tc.wantReleased[run], released, "run %d", run+1)
+			}
+		})
+	}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

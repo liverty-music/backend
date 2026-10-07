@@ -335,9 +335,9 @@ func PlatformFee(amountJPY int64) int64 {
 //  1. The event's current start_time has passed (counter-performance gate).
 //  2. A dispute-safety buffer has elapsed since the event started.
 //
-// On a postponement, the caller reads the updated start_time from the database
-// so the reset is implicit: if start_time is a future date the gate is not yet
-// passed. A nil start_time means the event time is not yet published; the
+// The caller reads the event's current start_time from the database on every
+// sweep, so a start_time filled in after the purchase takes effect on the next
+// run. A nil start_time means the event time is not yet published; the
 // settlement is withheld (not failed).
 //
 // This is a pure function so it can be unit-tested without a database.

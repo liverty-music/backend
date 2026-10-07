@@ -108,7 +108,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	connectedAccountRepo := rdb.NewOrganizerConnectedAccountRepository(db)
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
-	eventRescheduleTimeRepo := rdb.NewEventRescheduleTimeRepository(db)
 	processedWebhookEventRepo := rdb.NewProcessedWebhookEventRepository(db)
 
 	// Infrastructure - Gemini (optional)
@@ -281,7 +280,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// refundRepo provides the single atomic DB commit (settlement→reversed +
 	// tickets→voided + order→refunded in one pgx tx). refundUC performs the
 	// idempotent Stripe calls first, then commits via refundRepo.
-	refundUC := usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, eventRescheduleTimeRepo, settlementPort, logger)
+	refundUC := usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, settlementPort, logger)
 
 	// Settlement task 4.3: Stripe webhook ingest — idempotent dispatch.
 	// settlementRepo removed from constructor: it was previously injected but

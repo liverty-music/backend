@@ -12,31 +12,6 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// PostponementRefundWindow is the default holder-initiated refund window after a
-// postponement announcement. Counted from Event.RescheduleTime (the moment the
-// organizer announced the rescheduling), NOT from PaidTime.
-//
-// 14 days is an MVP default. The spec does not pin a numeric value; a per-event
-// or admin-configurable window is a follow-up improvement.
-const PostponementRefundWindow = 14 * 24 * time.Hour
-
-// EventRescheduleTimeRepository reads the rescheduled_at timestamp for the
-// event associated with a given order. A minimal interface so the refund use
-// case does not depend on the full ConcertRepository.
-// Interfaces are defined where consumed (AGENTS.md rule).
-type EventRescheduleTimeRepository interface {
-	// GetRescheduleTimeByOrder returns the rescheduled_at timestamp for the
-	// event that the given order's tickets are issued for. A nil result means
-	// the event has not been marked as rescheduled; the postponement refund
-	// gate falls back to admin-authoritative in that case.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no tickets (and therefore no event) found for this order.
-	//  - Internal: database query failure.
-	GetRescheduleTimeByOrder(ctx context.Context, orderID entity.OrderID) (*time.Time, error)
-}
-
 // RefundOrderUseCase handles ⑤'s refund policy and delegates the actual money
 // movement to the settlement layer. ⑤ owns the policy (why + who); settlement
 // owns the execution (Refund + transfer_reversal + status transitions).
@@ -53,11 +28,6 @@ type RefundOrderUseCase interface {
 	//
 	//   - CANCELLATION: always allowed while the Order is Paid. Refunds current
 	//     holder (face + system/発券 fee; processor fee retained).
-	//   - POSTPONEMENT_WINDOW: allowed while within PostponementRefundWindow of the
-	//     event's RescheduleTime. When RescheduleTime is nil (event not yet marked
-	//     as rescheduled) the gate falls back to admin-authoritative and the refund
-	//     proceeds unconditionally. When the window has closed, returns
-	//     FailedPrecondition.
 	//   - DISPUTE: always allowed (platform absorbs via negative-balance
 	//     responsibility); funds already paid out are clawed back via
 	//     transfer_reversal.
@@ -72,8 +42,7 @@ type RefundOrderUseCase interface {
 	// # Possible errors
 	//
 	//  - NotFound: the Order does not exist.
-	//  - FailedPrecondition: the Order is not refundable (already refunded, or
-	//    POSTPONEMENT_WINDOW called after the 14-day window has closed).
+	//  - FailedPrecondition: the Order is not refundable (not Paid).
 	//  - InvalidArgument: the reason is UNSPECIFIED.
 	//  - Internal: database or payment provider failure.
 	RefundOrder(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
@@ -91,16 +60,6 @@ const (
 	// refund (face + system/発券 fee; processor fee retained). Always allowed
 	// while Order is Paid.
 	RefundReasonCancellation RefundReason = 1
-	// RefundReasonPostponementWindow is a holder-initiated refund for a
-	// postponed event (延期). The refund is gated on PostponementRefundWindow
-	// measured from Event.RescheduleTime (the moment the organizer announced
-	// the rescheduling).
-	//
-	// When Event.RescheduleTime is nil (no organizer reschedule flow has yet
-	// stamped events.rescheduled_at) the gate is unenforced and the refund
-	// proceeds unconditionally — the admin call remains authoritative until
-	// the organizer reschedule flow is implemented.
-	RefundReasonPostponementWindow RefundReason = 2
 	// RefundReasonDispute is a chargeback / dispute. Funds clawed back via
 	// transfer_reversal; platform absorbs negative-balance responsibility.
 	RefundReasonDispute RefundReason = 3
@@ -111,8 +70,6 @@ func (r RefundReason) String() string {
 	switch r {
 	case RefundReasonCancellation:
 		return "cancellation"
-	case RefundReasonPostponementWindow:
-		return "postponement_window"
 	case RefundReasonDispute:
 		return "dispute"
 	default:
@@ -122,12 +79,11 @@ func (r RefundReason) String() string {
 
 // refundOrderUseCase implements [RefundOrderUseCase].
 type refundOrderUseCase struct {
-	orderRepo          entity.OrderRepository
-	refundRepo         entity.RefundRepository
-	settlementRepo     entity.SettlementRepository
-	rescheduleTimeRepo EventRescheduleTimeRepository
-	settlementPort     entity.PaymentSettlementPort
-	logger             *logging.Logger
+	orderRepo      entity.OrderRepository
+	refundRepo     entity.RefundRepository
+	settlementRepo entity.SettlementRepository
+	settlementPort entity.PaymentSettlementPort
+	logger         *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -139,17 +95,15 @@ func NewRefundOrderUseCase(
 	orderRepo entity.OrderRepository,
 	refundRepo entity.RefundRepository,
 	settlementRepo entity.SettlementRepository,
-	rescheduleTimeRepo EventRescheduleTimeRepository,
 	settlementPort entity.PaymentSettlementPort,
 	logger *logging.Logger,
 ) RefundOrderUseCase {
 	return &refundOrderUseCase{
-		orderRepo:          orderRepo,
-		refundRepo:         refundRepo,
-		settlementRepo:     settlementRepo,
-		rescheduleTimeRepo: rescheduleTimeRepo,
-		settlementPort:     settlementPort,
-		logger:             logger,
+		orderRepo:      orderRepo,
+		refundRepo:     refundRepo,
+		settlementRepo: settlementRepo,
+		settlementPort: settlementPort,
+		logger:         logger,
 	}
 }
 
@@ -179,34 +133,6 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 			"order is not in a refundable state (must be paid)")
 	}
 
-	// -- POSTPONEMENT_WINDOW gate: enforce the 14-day holder-refund window. --
-	//
-	// The gate is keyed on Event.RescheduleTime (events.rescheduled_at), which
-	// marks when the organizer announced the rescheduling (延期). This is the
-	// correct anchor: PaidTime would measure time since purchase, which wrongly
-	// rejects legitimate refunds for tickets bought far in advance.
-	//
-	// Fallback: when RescheduleTime is nil (no organizer reschedule flow has
-	// yet stamped rescheduled_at) the gate is unenforced and the refund
-	// proceeds unconditionally. An Info log records the unenforced state so the
-	// on-call team can observe the fallback in production.
-	//
-	// The dependency (organizer reschedule flow must stamp rescheduled_at)
-	// remains outstanding; until then this code path always falls back.
-	if reason == RefundReasonPostponementWindow {
-		rescheduleTime, err := uc.rescheduleTimeRepo.GetRescheduleTimeByOrder(ctx, orderID)
-		if err != nil {
-			return nil, err
-		}
-		if rescheduleTime == nil {
-			uc.logger.Info(ctx, "refund order: postponement window unenforced (rescheduled_at not set; organizer reschedule flow not yet implemented)",
-				slog.String("order_id", string(orderID)),
-			)
-		} else if now.After(rescheduleTime.Add(PostponementRefundWindow)) {
-			return nil, apperr.New(codes.FailedPrecondition, "postponement refund window has closed")
-		}
-	}
-
 	// -- load the settlement (may not exist yet if payout sweep hasn't run). --
 	settlement, err := uc.settlementRepo.GetByOrderID(ctx, orderID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
@@ -220,7 +146,7 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 	// A crash after Stripe but before the DB commit means the next invocation
 	// replays Stripe calls (no-ops at provider) and re-attempts the DB tx.
 
-	// -- issue the platform-balance Refund (CANCELLATION / POSTPONEMENT_WINDOW only).
+	// -- issue the platform-balance Refund (CANCELLATION only).
 	//
 	// For DISPUTE we do NOT call CreateRefund. When a cardholder opens a
 	// chargeback the card network immediately reverses the charge and debits the
@@ -238,8 +164,7 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 	//   short the buyer by an amount they never agreed to forfeit. Stripe does not
 	//   return the processor fee on refunds; the platform absorbs it, which is the
 	//   JP norm. Precise per-fee subtraction is intentionally deferred: it requires
-	//   expanding the BalanceTransaction to obtain the exact fee, and the fee model
-	//   (who absorbs what) has not been finalized for the postponement path.
+	//   expanding the BalanceTransaction to obtain the exact fee.
 	var refundRef string
 	if reason != RefundReasonDispute {
 		// Guard: non-Stripe orders or missing pi_ cannot be refunded via Stripe.

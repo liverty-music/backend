@@ -23,7 +23,7 @@ const (
 	// TicketStatusIssued is the normal state on issuance from a captured win.
 	TicketStatusIssued TicketStatus = 1
 	// TicketStatusVoided means the ticket's Order was refunded (cancellation /
-	// postponement refund window / dispute), so it is no longer valid for entry.
+	// dispute), so it is no longer valid for entry.
 	TicketStatusVoided TicketStatus = 2
 )
 

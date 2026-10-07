@@ -104,8 +104,8 @@ func (uc *payoutSweeperUseCase) releaseOne(ctx context.Context, s *entity.Settle
 
 	// -- release gate: event start_time + dispute buffer. --
 	// A nil start_time means the event time is not yet published; withhold
-	// (do not error). On postponement the DB row is updated to the new date
-	// so reading it fresh each sweep automatically resets the gate.
+	// (do not error). Reading it fresh each sweep picks up a start_time that is
+	// filled in after the purchase.
 	eventStartTime, err := uc.eventStartTimeRepo.GetEventStartTime(ctx, s.EventID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
