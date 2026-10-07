@@ -11,9 +11,25 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// salesPhaseSearchInterval is how long a searched series is not searched
-// again, unless all of its known sales have ended.
-const salesPhaseSearchInterval = 30 * 24 * time.Hour
+// salesPhaseSearchIntervalDays is how many Japan-time dates a searched series
+// waits before it is searched again, unless all of its known sales have ended.
+const salesPhaseSearchIntervalDays = 10
+
+// salesPhaseSearchZone is Japan time, the zone the daily discovery run is
+// scheduled in. JST has no DST, so a fixed zone is exact.
+var salesPhaseSearchZone = time.FixedZone("JST", 9*60*60)
+
+// salesPhaseSearchDue reports whether a series last searched at searched is
+// due again at now. It compares Japan-time dates rather than elapsed time, so
+// a search recorded a little after 21:00 does not push the next search to the
+// following day's run.
+func salesPhaseSearchDue(searched, now time.Time) bool {
+	date := func(t time.Time) time.Time {
+		local := t.In(salesPhaseSearchZone)
+		return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, salesPhaseSearchZone)
+	}
+	return !date(now).Before(date(searched).AddDate(0, 0, salesPhaseSearchIntervalDays))
+}
 
 // SalesPhaseDiscoveryUseCase selects the series of an artist that need a
 // sales-phase search, calls the searcher once for the artist over those
@@ -69,7 +85,7 @@ func NewSalesPhaseDiscoveryUseCase(
 //     title, upcoming event dates).
 //  2. Keep the series that need a search, cheapest check first: a fan tracks
 //     it, no stored phase's application has not ended, and it was not
-//     searched in the last 30 days.
+//     searched in the last 10 Japan-time dates.
 //  3. Resolve the artist's official-site URL (the grounding seed).
 //  4. Call SalesPhaseSearcher.SearchSalesPhases ONCE for the kept series.
 //  5. Upsert each returned candidate and publish SALES_PHASE.discovered for
@@ -186,7 +202,7 @@ func groupSalesSeries(concerts []*entity.Concert) []*entity.SalesSeriesRef {
 
 // selectSeriesToSearch keeps the series that need a search, in this order:
 // a fan tracks it, none of its stored phases' applications is still running,
-// and it was never searched or last searched at least 30 days ago.
+// and it was never searched or last searched at least 10 Japan-time dates ago.
 func (uc *salesPhaseDiscoveryUseCase) selectSeriesToSearch(
 	ctx context.Context,
 	refs []*entity.SalesSeriesRef,
@@ -229,7 +245,7 @@ func (uc *salesPhaseDiscoveryUseCase) selectSeriesToSearch(
 
 	out := kept[:0]
 	for _, ref := range kept {
-		if t, ok := searchedAt[ref.SeriesID]; ok && now.Sub(t) < salesPhaseSearchInterval {
+		if t, ok := searchedAt[ref.SeriesID]; ok && !salesPhaseSearchDue(t, now) {
 			continue
 		}
 		out = append(out, ref)
