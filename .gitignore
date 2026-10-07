@@ -9,6 +9,7 @@
 # new file there from being committed — which is why pkg/api had no tests.
 /main
 /api
+/media-processor
 
 # Test binary, built with `go test -c`
 *.test
