@@ -59,6 +59,11 @@ jobs:
           install-only: true
       - name: Run make lint
         run: make lint
+      # `make check` runs the go fix modernizers, but neither the pre-commit
+      # hook nor any other CI job did, so code that `make check` rejects could
+      # still merge.
+      - name: Check go fix modernizers
+        run: make modernize
 
   lint-skip:
     needs: changes
