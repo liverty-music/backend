@@ -467,7 +467,7 @@ func TestSalesPhaseSearcher_LogsSearchQueries(t *testing.T) {
 	require.NoError(t, err)
 
 	var line map[string]any
-	for _, l := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {
 		if strings.Contains(l, "gemini response metadata") {
 			require.NoError(t, json.Unmarshal([]byte(l), &line))
 		}
