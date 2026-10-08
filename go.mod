@@ -30,8 +30,8 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20261008021458-d414aca75ea3.1
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261008021458-d414aca75ea3.2
+	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20261008034927-ef3177c77e40.1
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261008034927-ef3177c77e40.2
 	buf.build/gen/go/pocketsign/apis/connectrpc/go v1.20.0-20260826021924-0ff29b2b0335.1
 	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20260826021924-0ff29b2b0335.1
 	buf.build/go/protovalidate v1.4.0

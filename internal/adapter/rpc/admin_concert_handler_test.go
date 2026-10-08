@@ -7,7 +7,7 @@ import (
 	"time"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	adminv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/v1"
+	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -73,7 +73,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 		dep      dep
 		wantErr  bool
 		wantCode connect.Code
-		check    func(t *testing.T, resp *connect.Response[adminv1.ListResponse])
+		check    func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse])
 	}{
 		{
 			name: "map use-case concerts to ListResponse.Concerts",
@@ -83,7 +83,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 					m.EXPECT().List(mock.Anything).Return([]*entity.Concert{concertA, concertB}, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[adminv1.ListResponse]) {
+			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse]) {
 				t.Helper()
 				require.Len(t, resp.Msg.Concerts, 2)
 				assert.Equal(t, "event-1", resp.Msg.Concerts[0].GetId().GetValue())
@@ -100,7 +100,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 					m.EXPECT().List(mock.Anything).Return(nil, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[adminv1.ListResponse]) {
+			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse]) {
 				t.Helper()
 				assert.Empty(t, resp.Msg.Concerts)
 			},
@@ -125,7 +125,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.List(tt.args.ctx, connect.NewRequest(&adminv1.ListRequest{}))
+			resp, err := h.List(tt.args.ctx, connect.NewRequest(&adminconcertv1.ListRequest{}))
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -189,7 +189,7 @@ func TestAdminConcertHandler_ListPending(t *testing.T) {
 		dep      dep
 		wantErr  bool
 		wantCode connect.Code
-		check    func(t *testing.T, resp *connect.Response[adminv1.ListPendingResponse])
+		check    func(t *testing.T, resp *connect.Response[adminconcertv1.ListPendingResponse])
 	}{
 		{
 			name: "return pending concerts with resolved venue",
@@ -201,7 +201,7 @@ func TestAdminConcertHandler_ListPending(t *testing.T) {
 					}, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[adminv1.ListPendingResponse]) {
+			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListPendingResponse]) {
 				t.Helper()
 				require.Len(t, resp.Msg.PendingConcerts, 1)
 				pc := resp.Msg.PendingConcerts[0]
@@ -229,7 +229,7 @@ func TestAdminConcertHandler_ListPending(t *testing.T) {
 					}, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[adminv1.ListPendingResponse]) {
+			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListPendingResponse]) {
 				t.Helper()
 				require.Len(t, resp.Msg.PendingConcerts, 1)
 				pc := resp.Msg.PendingConcerts[0]
@@ -248,7 +248,7 @@ func TestAdminConcertHandler_ListPending(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.ListPending(tt.args.ctx, connect.NewRequest(&adminv1.ListPendingRequest{}))
+			resp, err := h.ListPending(tt.args.ctx, connect.NewRequest(&adminconcertv1.ListPendingRequest{}))
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -304,7 +304,7 @@ func TestAdminConcertHandler_Approve(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.Approve(tt.args.ctx, connect.NewRequest(&adminv1.ApproveRequest{
+			resp, err := h.Approve(tt.args.ctx, connect.NewRequest(&adminconcertv1.ApproveRequest{
 				StagedId: &entityv1.StagedConcertId{Value: tt.args.stagedID},
 			}))
 
@@ -363,7 +363,7 @@ func TestAdminConcertHandler_Reject(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.Reject(tt.args.ctx, connect.NewRequest(&adminv1.RejectRequest{
+			resp, err := h.Reject(tt.args.ctx, connect.NewRequest(&adminconcertv1.RejectRequest{
 				StagedId: &entityv1.StagedConcertId{Value: tt.args.stagedID},
 				Reason:   tt.args.reason,
 			}))
@@ -401,7 +401,7 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 		dep      dep
 		wantErr  bool
 		wantCode connect.Code
-		check    func(t *testing.T, resp *connect.Response[adminv1.DeleteResponse])
+		check    func(t *testing.T, resp *connect.Response[adminconcertv1.DeleteResponse])
 	}{
 		{
 			name: "pass event id through and return DeleteResponse",
@@ -411,7 +411,7 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 					m.EXPECT().Delete(mock.Anything, "event-abc").Return(nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[adminv1.DeleteResponse]) {
+			check: func(t *testing.T, resp *connect.Response[adminconcertv1.DeleteResponse]) {
 				t.Helper()
 				assert.NotNil(t, resp.Msg)
 			},
@@ -436,7 +436,7 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.Delete(tt.args.ctx, connect.NewRequest(&adminv1.DeleteRequest{
+			resp, err := h.Delete(tt.args.ctx, connect.NewRequest(&adminconcertv1.DeleteRequest{
 				EventId: &entityv1.EventId{Value: tt.args.eventID},
 			}))
 

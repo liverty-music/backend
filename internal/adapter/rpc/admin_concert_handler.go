@@ -3,9 +3,9 @@ package rpc
 import (
 	"context"
 
-	adminv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/v1/adminv1connect"
+	adminconcertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	adminv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/v1"
+	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
@@ -15,7 +15,7 @@ import (
 )
 
 // Compile-time check that AdminConcertHandler implements the generated service interface.
-var _ adminv1connect.ConcertServiceHandler = (*AdminConcertHandler)(nil)
+var _ adminconcertv1connect.ConcertServiceHandler = (*AdminConcertHandler)(nil)
 
 // AdminConcertHandler implements the admin ConcertService Connect interface.
 //
@@ -42,14 +42,14 @@ func NewAdminConcertHandler(
 // console groups the flat result by performing artist client-side.
 func (h *AdminConcertHandler) List(
 	ctx context.Context,
-	_ *connect.Request[adminv1.ListRequest],
-) (*connect.Response[adminv1.ListResponse], error) {
+	_ *connect.Request[adminconcertv1.ListRequest],
+) (*connect.Response[adminconcertv1.ListResponse], error) {
 	concerts, err := h.concertUseCase.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&adminv1.ListResponse{
+	return connect.NewResponse(&adminconcertv1.ListResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
 	}), nil
 }
@@ -58,19 +58,19 @@ func (h *AdminConcertHandler) List(
 // Performer resolution is delegated to the use case.
 func (h *AdminConcertHandler) ListPending(
 	ctx context.Context,
-	_ *connect.Request[adminv1.ListPendingRequest],
-) (*connect.Response[adminv1.ListPendingResponse], error) {
+	_ *connect.Request[adminconcertv1.ListPendingRequest],
+) (*connect.Response[adminconcertv1.ListPendingResponse], error) {
 	reviews, err := h.concertUseCase.ListPending(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	pending := make([]*adminv1.PendingConcert, 0, len(reviews))
+	pending := make([]*adminconcertv1.PendingConcert, 0, len(reviews))
 	for _, r := range reviews {
 		pending = append(pending, mapper.PendingConcertToProto(r.Staged, r.Performer))
 	}
 
-	return connect.NewResponse(&adminv1.ListPendingResponse{
+	return connect.NewResponse(&adminconcertv1.ListPendingResponse{
 		PendingConcerts: pending,
 	}), nil
 }
@@ -81,8 +81,8 @@ func (h *AdminConcertHandler) ListPending(
 // Approve with a resolution. The operation is idempotent on a missing staged row.
 func (h *AdminConcertHandler) Approve(
 	ctx context.Context,
-	req *connect.Request[adminv1.ApproveRequest],
-) (*connect.Response[adminv1.ApproveResponse], error) {
+	req *connect.Request[adminconcertv1.ApproveRequest],
+) (*connect.Response[adminconcertv1.ApproveResponse], error) {
 	// Reviewer identity is captured from the admin JWT (as in Reject) so a
 	// keep-existing reconciliation can attribute the rejection-log entry.
 	claims, ok := auth.GetClaims(ctx)
@@ -99,7 +99,7 @@ func (h *AdminConcertHandler) Approve(
 		return nil, err
 	}
 
-	resp := &adminv1.ApproveResponse{}
+	resp := &adminconcertv1.ApproveResponse{}
 	if result != nil && result.Conflict != nil {
 		resp.Conflict = duplicateConflictToProto(result.Conflict)
 	}
@@ -108,11 +108,11 @@ func (h *AdminConcertHandler) Approve(
 
 // approveResolutionFromProto maps the generated Resolution enum to the usecase's
 // resolution selector, defaulting to Unspecified for unknown values.
-func approveResolutionFromProto(r adminv1.Resolution) usecase.ApproveResolution {
+func approveResolutionFromProto(r adminconcertv1.Resolution) usecase.ApproveResolution {
 	switch r {
-	case adminv1.Resolution_RESOLUTION_KEEP_EXISTING:
+	case adminconcertv1.Resolution_RESOLUTION_KEEP_EXISTING:
 		return usecase.ApproveResolutionKeepExisting
-	case adminv1.Resolution_RESOLUTION_ADOPT_STAGED:
+	case adminconcertv1.Resolution_RESOLUTION_ADOPT_STAGED:
 		return usecase.ApproveResolutionAdoptStaged
 	default:
 		return usecase.ApproveResolutionUnspecified
@@ -121,8 +121,8 @@ func approveResolutionFromProto(r adminv1.Resolution) usecase.ApproveResolution 
 
 // duplicateConflictToProto maps a usecase DuplicateConflict to the wire message:
 // the existing event's display fields plus the staged concert preview.
-func duplicateConflictToProto(dc *usecase.DuplicateConflict) *adminv1.DuplicateConflict {
-	return &adminv1.DuplicateConflict{
+func duplicateConflictToProto(dc *usecase.DuplicateConflict) *adminconcertv1.DuplicateConflict {
+	return &adminconcertv1.DuplicateConflict{
 		Existing: existingEventToProto(dc.Existing),
 		Staged:   mapper.PendingConcertToProto(dc.Staged, dc.StagedPerformer),
 	}
@@ -130,8 +130,8 @@ func duplicateConflictToProto(dc *usecase.DuplicateConflict) *adminv1.DuplicateC
 
 // existingEventToProto maps the existing-event display DTO to its wire message.
 // Optional start/open times are omitted when unset.
-func existingEventToProto(e *usecase.ExistingEventDisplay) *adminv1.ExistingEvent {
-	proto := &adminv1.ExistingEvent{
+func existingEventToProto(e *usecase.ExistingEventDisplay) *adminconcertv1.ExistingEvent {
+	proto := &adminconcertv1.ExistingEvent{
 		EventId:         &entityv1.EventId{Value: e.EventID},
 		Title:           &entityv1.Title{Value: e.Title},
 		ListedVenueName: &entityv1.ListedVenueName{Value: e.ListedVenueName},
@@ -150,8 +150,8 @@ func existingEventToProto(e *usecase.ExistingEventDisplay) *adminv1.ExistingEven
 // reviewer's identity and reason for search-quality analysis.
 func (h *AdminConcertHandler) Reject(
 	ctx context.Context,
-	req *connect.Request[adminv1.RejectRequest],
-) (*connect.Response[adminv1.RejectResponse], error) {
+	req *connect.Request[adminconcertv1.RejectRequest],
+) (*connect.Response[adminconcertv1.RejectResponse], error) {
 	claims, ok := auth.GetClaims(ctx)
 	reviewerSub := ""
 	if ok && claims != nil {
@@ -164,19 +164,19 @@ func (h *AdminConcertHandler) Reject(
 		return nil, err
 	}
 
-	return connect.NewResponse(&adminv1.RejectResponse{}), nil
+	return connect.NewResponse(&adminconcertv1.RejectResponse{}), nil
 }
 
 // Delete permanently removes a published concert by its event id. The delete
 // cascades to all referencing rows and is idempotent on a missing id.
 func (h *AdminConcertHandler) Delete(
 	ctx context.Context,
-	req *connect.Request[adminv1.DeleteRequest],
-) (*connect.Response[adminv1.DeleteResponse], error) {
+	req *connect.Request[adminconcertv1.DeleteRequest],
+) (*connect.Response[adminconcertv1.DeleteResponse], error) {
 	eventID := req.Msg.GetEventId().GetValue()
 	if err := h.concertUseCase.Delete(ctx, eventID); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&adminv1.DeleteResponse{}), nil
+	return connect.NewResponse(&adminconcertv1.DeleteResponse{}), nil
 }

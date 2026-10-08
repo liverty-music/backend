@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	adminv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/v1"
+	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
 	artistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
 	"connectrpc.com/connect"
 
-	adminv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/v1/adminv1connect"
+	adminconcertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 
 	"github.com/liverty-music/backend/internal/adapter/rpc"
@@ -64,7 +64,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 			return artistv1connect.NewArtistServiceHandler(rpc.NewArtistHandler(artistUC, logger), opts...)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminv1connect.NewConcertServiceHandler(rpc.NewAdminConcertHandler(concertUC, logger), opts...)
+			return adminconcertv1connect.NewConcertServiceHandler(rpc.NewAdminConcertHandler(concertUC, logger), opts...)
 		},
 	}
 
@@ -137,8 +137,8 @@ func TestAdminServer_Authorization(t *testing.T) {
 		return err
 	}
 	callConcertListPending := func(ctx context.Context, token string) error {
-		client := adminv1connect.NewConcertServiceClient(httpClient, ts.URL)
-		req := connect.NewRequest(&adminv1.ListPendingRequest{})
+		client := adminconcertv1connect.NewConcertServiceClient(httpClient, ts.URL)
+		req := connect.NewRequest(&adminconcertv1.ListPendingRequest{})
 		if token != "" {
 			req.Header().Set("Authorization", "Bearer "+token)
 		}

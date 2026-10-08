@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
+	payoutonboardingv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_onboarding/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -31,10 +31,10 @@ func (s *failingOnboardingUCStub) GetOrCreateOnboarding(context.Context, string)
 	return nil, "", nil
 }
 
-// TestPayoutOnboardingHandler_GetPayoutOnboarding verifies that a failure of
+// TestPayoutOnboardingHandler_Get verifies that a failure of
 // OrganizerUseCase.ResolveCaller is returned unchanged and stops the request
 // before the onboarding usecase runs.
-func TestPayoutOnboardingHandler_GetPayoutOnboarding(t *testing.T) {
+func TestPayoutOnboardingHandler_Get(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -79,7 +79,7 @@ func TestPayoutOnboardingHandler_GetPayoutOnboarding(t *testing.T) {
 			require.NoError(t, err)
 			h := rpc.NewPayoutOnboardingHandler(&failingOnboardingUCStub{t: t}, organizerUC, logger)
 
-			resp, err := h.GetPayoutOnboarding(tt.args.ctx, connect.NewRequest(&organizerv1.GetPayoutOnboardingRequest{}))
+			resp, err := h.Get(tt.args.ctx, connect.NewRequest(&payoutonboardingv1.GetRequest{}))
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, tt.dep.resolveCallerErr)

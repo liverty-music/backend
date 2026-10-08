@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	organizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
-	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
+	payoutonboardingv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_onboarding/v1/payout_onboardingv1connect"
+	payoutonboardingv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_onboarding/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -17,7 +17,7 @@ import (
 
 // Compile-time assertion that PayoutOnboardingHandler satisfies the generated
 // interface.
-var _ organizerv1connect.PayoutOnboardingServiceHandler = (*PayoutOnboardingHandler)(nil)
+var _ payoutonboardingv1connect.PayoutOnboardingServiceHandler = (*PayoutOnboardingHandler)(nil)
 
 // PayoutOnboardingHandler implements the organizer-facing
 // PayoutOnboardingService Connect interface. Org-scoped authorization (token
@@ -44,7 +44,7 @@ func NewPayoutOnboardingHandler(
 	}
 }
 
-// GetPayoutOnboarding returns the caller's own payout-recipient account and
+// Get returns the caller's own payout-recipient account and
 // its onboarding status, plus an optional provider-hosted URL to start or
 // continue verification when the account is not yet Active.
 //
@@ -52,10 +52,10 @@ func NewPayoutOnboardingHandler(
 //   - FAILED_PRECONDITION: The caller's Organizer has been deactivated.
 //   - PERMISSION_DENIED: Token carries no organizer-console role or Org
 //     resolution failed. Response never reveals whether such an Organizer exists.
-func (h *PayoutOnboardingHandler) GetPayoutOnboarding(
+func (h *PayoutOnboardingHandler) Get(
 	ctx context.Context,
-	_ *connect.Request[organizerv1.GetPayoutOnboardingRequest],
-) (*connect.Response[organizerv1.GetPayoutOnboardingResponse], error) {
+	_ *connect.Request[payoutonboardingv1.GetRequest],
+) (*connect.Response[payoutonboardingv1.GetResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (h *PayoutOnboardingHandler) GetPayoutOnboarding(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.GetPayoutOnboardingResponse{
+	return connect.NewResponse(&payoutonboardingv1.GetResponse{
 		Account:       mapper.OrganizerConnectedAccountToProto(acct),
 		OnboardingUrl: onboardingURL,
 	}), nil

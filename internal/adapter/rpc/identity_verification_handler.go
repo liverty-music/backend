@@ -57,7 +57,7 @@ func NewIdentityVerificationHandler(
 	}
 }
 
-// StartVerify creates a Pocket Sign Stamp session for the authenticated caller.
+// Start creates a Pocket Sign Stamp session for the authenticated caller.
 // Returns the session id and the redirect URL the client must open in the
 // PocketSign app so the fan can read their card.
 //
@@ -67,10 +67,10 @@ func NewIdentityVerificationHandler(
 //   - INVALID_ARGUMENT: method is UNSPECIFIED or user_id is empty.
 //   - NOT_FOUND: the user account does not exist.
 //   - UNAVAILABLE: Pocket Sign Stamp API is not configured.
-func (h *IdentityVerificationHandler) StartVerify(
+func (h *IdentityVerificationHandler) Start(
 	ctx context.Context,
-	req *connect.Request[identityv1.StartVerifyRequest],
-) (*connect.Response[identityv1.StartVerifyResponse], error) {
+	req *connect.Request[identityv1.StartRequest],
+) (*connect.Response[identityv1.StartResponse], error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -91,13 +91,13 @@ func (h *IdentityVerificationHandler) StartVerify(
 		return nil, err
 	}
 
-	return connect.NewResponse(&identityv1.StartVerifyResponse{
+	return connect.NewResponse(&identityv1.StartResponse{
 		SessionId:   sessionID,
 		RedirectUrl: &entityv1.Url{Value: redirectURL},
 	}), nil
 }
 
-// CompleteVerify finalizes the Stamp session and creates a VerifiedIdentity.
+// Complete finalizes the Stamp session and creates a VerifiedIdentity.
 // The card signature is performed in the PocketSign app; no signed payload is
 // sent on this request.
 //
@@ -109,10 +109,10 @@ func (h *IdentityVerificationHandler) StartVerify(
 //   - ALREADY_EXISTS: the Pocket Sign User.id is already bound to a different
 //     account (duplicate-person); includes a recovery-path message.
 //   - UNAVAILABLE: Pocket Sign Stamp API is not configured.
-func (h *IdentityVerificationHandler) CompleteVerify(
+func (h *IdentityVerificationHandler) Complete(
 	ctx context.Context,
-	req *connect.Request[identityv1.CompleteVerifyRequest],
-) (*connect.Response[identityv1.CompleteVerifyResponse], error) {
+	req *connect.Request[identityv1.CompleteRequest],
+) (*connect.Response[identityv1.CompleteResponse], error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func (h *IdentityVerificationHandler) CompleteVerify(
 		return nil, err
 	}
 
-	return connect.NewResponse(&identityv1.CompleteVerifyResponse{
+	return connect.NewResponse(&identityv1.CompleteResponse{
 		VerifiedIdentity:  mapper.VerifiedIdentityToProto(vi),
 		VerificationLevel: mapper.VerificationLevelToProto(verifiedIdentityLevel(vi)),
 	}), nil
@@ -172,17 +172,17 @@ func (h *IdentityVerificationHandler) ReCheck(
 	}), nil
 }
 
-// GetMyVerificationStatus returns the caller's current verification level and
+// GetStatus returns the caller's current verification level and
 // backing VerifiedIdentity.
 //
 // Errors:
 //   - UNAUTHENTICATED: no valid JWT.
 //   - PERMISSION_DENIED: user_id mismatch.
 //   - NOT_FOUND: the user does not exist.
-func (h *IdentityVerificationHandler) GetMyVerificationStatus(
+func (h *IdentityVerificationHandler) GetStatus(
 	ctx context.Context,
-	req *connect.Request[identityv1.GetMyVerificationStatusRequest],
-) (*connect.Response[identityv1.GetMyVerificationStatusResponse], error) {
+	req *connect.Request[identityv1.GetStatusRequest],
+) (*connect.Response[identityv1.GetStatusResponse], error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -198,7 +198,7 @@ func (h *IdentityVerificationHandler) GetMyVerificationStatus(
 		return nil, err
 	}
 
-	resp := &identityv1.GetMyVerificationStatusResponse{
+	resp := &identityv1.GetStatusResponse{
 		VerificationLevel: mapper.VerificationLevelToProto(level),
 	}
 	if vi != nil {

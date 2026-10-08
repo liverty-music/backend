@@ -19,7 +19,7 @@ func VerifiedIdentityToProto(vi *entity.VerifiedIdentity) *entityv1.VerifiedIden
 		Method:           verificationMethodToProto(vi.Method),
 		PocketSignUserId: &entityv1.PocketSignUserId{Value: vi.PocketSignUserID},
 		DedupeStrength:   dedupeStrengthToProto(vi.DedupeStrength),
-		VerifiedAt:       timestamppb.New(vi.VerifiedTime),
+		VerifyTime:       timestamppb.New(vi.VerifiedTime),
 		Status:           verificationStatusToProto(vi.Status),
 	}
 }

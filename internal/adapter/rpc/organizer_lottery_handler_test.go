@@ -6,7 +6,7 @@ import (
 	"time"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
+	organizerlotteryv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/lottery/v1"
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -118,13 +118,13 @@ func activeOrganizerWithID(id string) *entity.Organizer {
 	return &entity.Organizer{ID: id, Status: entity.OrganizerStatusActive}
 }
 
-func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
+func TestOrganizerLotteryHandler_Configure(t *testing.T) {
 	t.Parallel()
 
 	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	close := open.Add(7 * 24 * time.Hour)
 
-	validReq := &organizerv1.ConfigureLotteryPhaseRequest{
+	validReq := &organizerlotteryv1.ConfigureRequest{
 		EventId:                  &entityv1.EventId{Value: "event-1"},
 		OpenTime:                 timestamppb.New(open),
 		CloseTime:                timestamppb.New(close),
@@ -136,7 +136,7 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 	tests := []struct {
 		name         string
 		ctx          context.Context
-		req          *organizerv1.ConfigureLotteryPhaseRequest
+		req          *organizerlotteryv1.ConfigureRequest
 		setup        func(uc *ucmocks.MockOrganizerUseCase)
 		lotterySetup func(stub *handlerLotteryUCStub)
 		wantCode     connect.Code
@@ -221,7 +221,7 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 			}
 
 			h := handler.NewOrganizerLotteryHandler(lotteryUC, organizerUC, logger)
-			resp, err := h.ConfigureLotteryPhase(tt.ctx, connect.NewRequest(tt.req))
+			resp, err := h.Configure(tt.ctx, connect.NewRequest(tt.req))
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -238,17 +238,17 @@ func TestOrganizerLotteryHandler_ConfigureLotteryPhase(t *testing.T) {
 	}
 }
 
-func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
+func TestOrganizerLotteryHandler_GetStatus(t *testing.T) {
 	t.Parallel()
 
-	validReq := &organizerv1.GetLotteryPhaseStatusRequest{
+	validReq := &organizerlotteryv1.GetStatusRequest{
 		PhaseId: &entityv1.LotterySalesPhaseId{Value: "phase-uuid-1"},
 	}
 
 	tests := []struct {
 		name         string
 		ctx          context.Context
-		req          *organizerv1.GetLotteryPhaseStatusRequest
+		req          *organizerlotteryv1.GetStatusRequest
 		setup        func(uc *ucmocks.MockOrganizerUseCase)
 		lotterySetup func(stub *handlerLotteryUCStub)
 		wantCode     connect.Code
@@ -331,7 +331,7 @@ func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
 			}
 
 			h := handler.NewOrganizerLotteryHandler(lotteryUC, organizerUC, logger)
-			resp, err := h.GetLotteryPhaseStatus(tt.ctx, connect.NewRequest(tt.req))
+			resp, err := h.GetStatus(tt.ctx, connect.NewRequest(tt.req))
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -348,7 +348,7 @@ func TestOrganizerLotteryHandler_GetLotteryPhaseStatus(t *testing.T) {
 	}
 }
 
-func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
+func TestOrganizerLotteryHandler_SetVerificationRequirement(t *testing.T) {
 	t.Parallel()
 
 	phaseID := &entityv1.LotterySalesPhaseId{Value: "phase-uuid-1"}
@@ -356,7 +356,7 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 	tests := []struct {
 		name         string
 		ctx          context.Context
-		req          *organizerv1.SetPhaseVerificationRequirementRequest
+		req          *organizerlotteryv1.SetVerificationRequirementRequest
 		setup        func(uc *ucmocks.MockOrganizerUseCase)
 		lotterySetup func(stub *handlerLotteryUCStub)
 		wantCode     connect.Code
@@ -366,7 +366,7 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 		{
 			name: "success: owner sets JPKI_ONLY — returns updated phase",
 			ctx:  orgLotteryAuthedCtx("org-1"),
-			req: &organizerv1.SetPhaseVerificationRequirementRequest{
+			req: &organizerlotteryv1.SetVerificationRequirementRequest{
 				PhaseId:                 phaseID,
 				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
 			},
@@ -379,7 +379,7 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 		{
 			name: "success: owner sets VERIFIED_ANY — returns updated phase",
 			ctx:  orgLotteryAuthedCtx("org-1"),
-			req: &organizerv1.SetPhaseVerificationRequirementRequest{
+			req: &organizerlotteryv1.SetVerificationRequirementRequest{
 				PhaseId:                 phaseID,
 				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_VERIFIED_ANY,
 			},
@@ -392,7 +392,7 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 		{
 			name: "error: unauthenticated — no org id in context returns PermissionDenied",
 			ctx:  context.Background(),
-			req: &organizerv1.SetPhaseVerificationRequirementRequest{
+			req: &organizerlotteryv1.SetVerificationRequirementRequest{
 				PhaseId:                 phaseID,
 				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
 			},
@@ -403,7 +403,7 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 		{
 			name: "error: non-owner organizer returns PermissionDenied",
 			ctx:  orgLotteryAuthedCtx("org-other"),
-			req: &organizerv1.SetPhaseVerificationRequirementRequest{
+			req: &organizerlotteryv1.SetVerificationRequirementRequest{
 				PhaseId:                 phaseID,
 				VerificationRequirement: entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY,
 			},
@@ -432,7 +432,7 @@ func TestOrganizerLotteryHandler_SetPhaseVerificationRequirement(t *testing.T) {
 			}
 
 			h := handler.NewOrganizerLotteryHandler(lotteryUC, organizerUC, logger)
-			resp, err := h.SetPhaseVerificationRequirement(tt.ctx, connect.NewRequest(tt.req))
+			resp, err := h.SetVerificationRequirement(tt.ctx, connect.NewRequest(tt.req))
 
 			if tt.wantErr {
 				assert.Error(t, err)

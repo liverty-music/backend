@@ -80,7 +80,7 @@ func TestTicketHandler_GetOrder(t *testing.T) {
 	})
 }
 
-func TestTicketHandler_GetMyTickets(t *testing.T) {
+func TestTicketHandler_List(t *testing.T) {
 	t.Parallel()
 
 	ctx := ticketAuthedCtx("ext-1")
@@ -93,7 +93,7 @@ func TestTicketHandler_GetMyTickets(t *testing.T) {
 			{ID: "t-2", OrderID: "order-1", HolderID: "user-1", EventID: "event-1", ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
 		}, nil)
 
-	resp, err := h.GetMyTickets(ctx, connect.NewRequest(&ticketv1.GetMyTicketsRequest{}))
+	resp, err := h.List(ctx, connect.NewRequest(&ticketv1.ListRequest{}))
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.Tickets, 2)
 	assert.Equal(t, "t-1", resp.Msg.Tickets[0].Id.Value)

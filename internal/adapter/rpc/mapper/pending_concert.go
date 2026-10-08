@@ -2,24 +2,24 @@ package mapper
 
 import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	adminv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/v1"
+	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // PendingConcertToProto converts a domain StagedConcert and its resolved Artist
-// performer into the adminv1.PendingConcert wire message shown to reviewers.
+// performer into the adminconcertv1.PendingConcert wire message shown to reviewers.
 //
 // ResolvedVenue is omitted when both ResolvedPlaceID and ResolvedVenueName are
 // nil (venue was not resolved by Google Places). SourceUrl is omitted when the
 // staged row carries no source URL. StartTime is omitted when the source did
 // not state a start time.
-func PendingConcertToProto(sc *entity.StagedConcert, performer *entity.Artist) *adminv1.PendingConcert {
+func PendingConcertToProto(sc *entity.StagedConcert, performer *entity.Artist) *adminconcertv1.PendingConcert {
 	if sc == nil {
 		return nil
 	}
 
-	proto := &adminv1.PendingConcert{
+	proto := &adminconcertv1.PendingConcert{
 		StagedId:        &entityv1.StagedConcertId{Value: sc.ID},
 		Performer:       ArtistToProto(performer),
 		Title:           &entityv1.Title{Value: sc.Title},
@@ -50,8 +50,8 @@ func PendingConcertToProto(sc *entity.StagedConcert, performer *entity.Artist) *
 // resolvedVenueToProto builds the ResolvedVenue preview DTO from the resolved
 // fields denormalised on the staged concert row. Called only when at least one
 // resolved field is non-nil.
-func resolvedVenueToProto(sc *entity.StagedConcert) *adminv1.ResolvedVenue {
-	rv := &adminv1.ResolvedVenue{}
+func resolvedVenueToProto(sc *entity.StagedConcert) *adminconcertv1.ResolvedVenue {
+	rv := &adminconcertv1.ResolvedVenue{}
 
 	if sc.ResolvedVenueName != nil {
 		rv.Name = &entityv1.VenueName{Value: *sc.ResolvedVenueName}
