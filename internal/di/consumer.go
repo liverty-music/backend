@@ -179,7 +179,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			OmitTemperature: true,
 
 			IncludeServerSideToolInvocations: true,
-		}, extHTTPClient, logger)
+		}, extHTTPClient, gemini.NewOfficialPageClient(), logger)
 		if err != nil {
 			return nil, fmt.Errorf("create gemini concert searcher: %w", err)
 		}

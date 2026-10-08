@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -126,6 +127,13 @@ Respond with JSON that follows the response schema.
 Official site: %[3]s
 `
 
+	// linkedPagesHeader opens the prompt block that lists the concert pages
+	// the official top page links to, one URL per line. Without it the model
+	// guesses tour URLs, fails to fetch them and rebuilds dates from search
+	// snippets; with it, search queries fell from 22.3 to 4.4 per call in
+	// evaluation (backend #543).
+	linkedPagesHeader = "\nConcert pages linked from the official site (read these with url_context):\n"
+
 	// searchWindowMonths bounds the GoogleSearch TimeRangeFilter to pages
 	// from the last 2 months.
 	searchWindowMonths = 2
@@ -174,6 +182,11 @@ type ConcertSearcher struct {
 	config Config
 	logger *logging.Logger
 	prompt Prompt
+
+	// pageClient fetches the official top page for link discovery. Nil
+	// disables link discovery.
+	pageClient  *http.Client
+	linkProfile linkProfile
 }
 
 // PassMetadata captures observation data for a single Gemini call.
@@ -186,18 +199,37 @@ type PassMetadata struct {
 	FinishReason     string
 	FinishMessage    string
 	AvgLogprobs      float64
-	RetryCount       int
-	PartsTotal       int
-	ThoughtParts     int
-	TextParts        int
-	RawResponseText  string
+	// RetryCount is the number of requests sent, across both passes when the
+	// request was re-sent without the tool-invocation report.
+	RetryCount      int
+	PartsTotal      int
+	ThoughtParts    int
+	TextParts       int
+	RawResponseText string
 
 	WebSearchQueries     int
 	WebSearchQueriesList []string
 	GroundingChunkURLs   []string
 	RenderedParts        int
 
+	// URLContextRetrieved is the candidate's URLContextMetadata. It can omit
+	// fetches that only failed; URLContextCalls and URLContextSucceeded count
+	// from the server-side tool parts instead.
 	URLContextRetrieved []URLRetrieval
+	// URLContextCalls is the number of URL context tool calls the model made.
+	URLContextCalls int
+	// URLContextSucceeded is the number of URLs those calls retrieved with
+	// URL_RETRIEVAL_STATUS_SUCCESS.
+	URLContextSucceeded int
+
+	// LinkedPageURLs are the official site's concert pages listed in the
+	// prompt.
+	LinkedPageURLs []string
+
+	// ToolReportDropped is true when the request was rejected as invalid and
+	// re-sent without the server-side tool-invocation report, so the call's
+	// search queries are not visible.
+	ToolReportDropped bool
 
 	// ExhaustedTransient is true when the retry policy ran to the end with
 	// the call still in a transient-error state and the result was forced to
@@ -239,7 +271,11 @@ type URLRetrieval struct {
 // call targets the Gemini API direct backend exclusively (Vertex AI does not
 // support URLContext or GoogleSearch.TimeRangeFilter), so a missing APIKey
 // would only surface as an opaque API error on the first Search call.
-func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client, logger *logging.Logger) (*ConcertSearcher, error) {
+//
+// httpClient carries the Gemini API calls. pageClient fetches the official
+// top page whose concert links go into the prompt; pass
+// NewOfficialPageClient(), or nil to search without links.
+func NewConcertSearcher(ctx context.Context, cfg Config, httpClient, pageClient *http.Client, logger *logging.Logger) (*ConcertSearcher, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("gemini.NewConcertSearcher: APIKey is empty; set GCP_GEMINI_SEARCH_API_KEY (Gemini API direct is the only supported backend for this workload)")
 	}
@@ -259,10 +295,12 @@ func NewConcertSearcher(ctx context.Context, cfg Config, httpClient *http.Client
 	}
 
 	return &ConcertSearcher{
-		client: client,
-		config: cfg,
-		logger: logger,
-		prompt: defaultPrompt,
+		client:      client,
+		config:      cfg,
+		logger:      logger,
+		prompt:      defaultPrompt,
+		pageClient:  pageClient,
+		linkProfile: concertSearchProfile,
 	}, nil
 }
 
@@ -307,8 +345,26 @@ func (s *ConcertSearcher) SearchExt(
 
 	md := &SearchMetadata{}
 
-	prompt, cfg := s.buildRequest(artist.Name, officialSiteURL, time.Now().UTC())
+	links := s.linkedPages(ctx, officialSiteURL, attrs)
+	attrs = append(attrs, slog.Int("linked_pages", len(links)), slog.Any("linked_page_urls", links))
+
+	prompt, cfg := s.buildRequest(artist.Name, officialSiteURL, links, time.Now().UTC())
 	pm, rawText, transient, err := s.executePass(ctx, s.config.Model, prompt, cfg, attrs)
+	if err != nil && cfg.ToolConfig != nil && isInvalidRequest(err) {
+		// Some pages break the Preview tool-invocation report after URL
+		// context reads them, and the request fails with 400 (backend #542).
+		// Re-send it once without the report.
+		s.logger.Warn(ctx, "grounded call rejected as invalid, retrying once without the tool-invocation report",
+			append(attrs, slog.String("error", err.Error()))...)
+		reduced := *cfg
+		reduced.ToolConfig = nil
+		first := pm
+		pm, rawText, transient, err = s.executePass(ctx, s.config.Model, prompt, &reduced,
+			append(slices.Clone(attrs), slog.Bool("tool_report_dropped", true)))
+		pm.RetryCount += first.RetryCount
+		pm.ToolReportDropped = true
+	}
+	pm.LinkedPageURLs = links
 	md.Grounded = pm
 	if pm != nil {
 		urls := make([]string, 0, len(pm.URLContextRetrieved))
@@ -354,11 +410,31 @@ func (s *ConcertSearcher) SearchExt(
 	return s.mergeDrafts(ctx, drafts, from, md, attrs), md, nil
 }
 
+// linkedPages returns the concert pages the official top page links to, or
+// nil when there is no official site, link discovery is disabled, or the page
+// cannot be read. A page that cannot be read never fails Search.
+func (s *ConcertSearcher) linkedPages(ctx context.Context, officialSiteURL string, attrs []slog.Attr) []string {
+	if officialSiteURL == "" || s.pageClient == nil {
+		return nil
+	}
+	links, err := officialPageLinks(ctx, s.pageClient, officialSiteURL, s.linkProfile)
+	if err != nil {
+		s.logger.Info(ctx, "official top page could not be read, searching without linked pages",
+			append(attrs, slog.String("error", err.Error()))...)
+		return nil
+	}
+	return links
+}
+
 // buildRequest returns the user prompt and the request config of the
-// grounded call. now anchors the prompt's start date and the GoogleSearch
-// time range.
-func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, now time.Time) (string, *genai.GenerateContentConfig) {
+// grounded call. links are listed after the official site when present; with
+// none the prompt is the plain template. now anchors the prompt's start date
+// and the GoogleSearch time range.
+func (s *ConcertSearcher) buildRequest(artistName, officialSiteURL string, links []string, now time.Time) (string, *genai.GenerateContentConfig) {
 	prompt := fmt.Sprintf(s.prompt.Template, now.Format("2006-01-02"), artistName, officialSiteURL)
+	if len(links) > 0 {
+		prompt += linkedPagesHeader + strings.Join(links, "\n") + "\n"
+	}
 
 	// The API rejects sub-second precision in time_range_filter
 	// ("Granularity of nano is not supported").
@@ -459,6 +535,7 @@ func (s *ConcertSearcher) executePass(
 		pm.WebSearchQueriesList = nil
 		pm.WebSearchQueries = 0
 		pm.RenderedParts = 0
+		pm.URLContextCalls, pm.URLContextSucceeded = 0, 0
 
 		if u := resp.UsageMetadata; u != nil {
 			pm.PromptTokens = u.PromptTokenCount
@@ -538,6 +615,7 @@ func (s *ConcertSearcher) executePass(
 		// before that guard runs. Treat nil Content as "no text" and let the
 		// FinishReason / empty-text branches handle the diagnostic.
 		if candidate.Content != nil {
+			pm.URLContextCalls, pm.URLContextSucceeded = urlContextCounts(candidate.Content.Parts)
 			for _, p := range candidate.Content.Parts {
 				if p == nil {
 					continue
@@ -577,6 +655,8 @@ func (s *ConcertSearcher) executePass(
 			slog.Any("search_queries", pm.WebSearchQueriesList),
 			slog.Int("web_search_queries", pm.WebSearchQueries),
 			slog.Int("url_context_retrieved", len(pm.URLContextRetrieved)),
+			slog.Int("url_context_calls", pm.URLContextCalls),
+			slog.Int("url_context_succeeded", pm.URLContextSucceeded),
 		)
 		joined := textBuf.String()
 		pm.RawResponseText = joined
@@ -822,6 +902,40 @@ func searchQueriesOf(args map[string]any) []string {
 		}
 	}
 	return queries
+}
+
+// urlContextCounts counts, among server-side tool parts, the URL context
+// calls and the URLs those calls retrieved with
+// URL_RETRIEVAL_STATUS_SUCCESS. A URL context tool response carries
+// {"url_metadata": [{"retrieved_url": ..., "url_retrieval_status": ...}]}.
+func urlContextCounts(parts []*genai.Part) (calls, succeeded int) {
+	for _, p := range parts {
+		if p == nil {
+			continue
+		}
+		if tc := p.ToolCall; tc != nil && tc.ToolType == genai.ToolTypeURLContext {
+			calls++
+		}
+		tr := p.ToolResponse
+		if tr == nil || tr.ToolType != genai.ToolTypeURLContext {
+			continue
+		}
+		metadata, _ := tr.Response["url_metadata"].([]any)
+		for _, m := range metadata {
+			entry, _ := m.(map[string]any)
+			if entry["url_retrieval_status"] == string(genai.URLRetrievalStatusSuccess) {
+				succeeded++
+			}
+		}
+	}
+	return calls, succeeded
+}
+
+// isInvalidRequest reports whether err is the Gemini API rejecting the
+// request as invalid (HTTP 400).
+func isInvalidRequest(err error) bool {
+	apiErr, ok := errors.AsType[genai.APIError](err)
+	return ok && apiErr.Code == http.StatusBadRequest
 }
 
 // singleStepEvent is one event in the JSON response.

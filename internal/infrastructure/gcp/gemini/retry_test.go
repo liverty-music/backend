@@ -3,6 +3,7 @@ package gemini_test
 import (
 	"context"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -199,4 +200,95 @@ func TestSearch_TooManyToolCallsFailsWithoutRetry(t *testing.T) {
 	assert.Equal(t, int32(1), calls.Load(), "not retried")
 	require.NotNil(t, md.Grounded)
 	assert.Equal(t, 2, md.Grounded.WebSearchQueries, "the stopped call's queries are still recorded")
+}
+
+func TestSearch_InvalidRequestRetriedWithoutToolReport(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{Name: "Test Artist"}
+	officialSite := &entity.OfficialSite{URL: "https://example.com"}
+	successBody := `{"series": [{"title": "Recovered", "source_url": "https://example.com/tour", "events": [
+		{"venue": "Test Hall", "country": "JP", "admin_area": "", "local_date": "2026-03-01", "open_time": "", "start_time": ""}]}]}`
+
+	type want struct {
+		titles      []string
+		err         error
+		calls       int32
+		toolConfigs []bool
+	}
+	tests := []struct {
+		name    string
+		cfg     gemini.Config
+		respond func(n int32) (int, string)
+		want    want
+	}{
+		{
+			// @spec components/entity/concert/search "Invalid request recovered without the tool report"
+			name: "Invalid request recovered without the tool report",
+			cfg:  gemini.Config{IncludeServerSideToolInvocations: true},
+			respond: func(n int32) (int, string) {
+				if n == 1 {
+					return http.StatusBadRequest, errBody400
+				}
+				return http.StatusOK, geminiResponse(successBody, "STOP")
+			},
+			want: want{titles: []string{"Recovered"}, calls: 2, toolConfigs: []bool{true, false}},
+		},
+		{
+			// @spec components/entity/concert/search "Invalid request rejected twice"
+			name: "Invalid request rejected twice",
+			cfg:  gemini.Config{IncludeServerSideToolInvocations: true},
+			respond: func(int32) (int, string) {
+				return http.StatusBadRequest, errBody400
+			},
+			want: want{err: apperr.ErrInvalidArgument, calls: 2, toolConfigs: []bool{true, false}},
+		},
+		{
+			name: "no re-send when the tool report is off",
+			cfg:  gemini.Config{},
+			respond: func(int32) (int, string) {
+				return http.StatusBadRequest, errBody400
+			},
+			want: want{err: apperr.ErrInvalidArgument, calls: 1, toolConfigs: []bool{false}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var (
+				mu          sync.Mutex
+				toolConfigs []bool
+			)
+			s, calls := newTestSearcher(t, tt.cfg, nil, func(n int32, body map[string]any) (int, string) {
+				mu.Lock()
+				_, has := body["toolConfig"]
+				toolConfigs = append(toolConfigs, has)
+				mu.Unlock()
+				return tt.respond(n)
+			})
+
+			got, md, err := s.SearchExt(context.Background(), artist, officialSite, from)
+
+			titles := make([]string, 0, len(got))
+			for _, ds := range got {
+				titles = append(titles, ds.Title)
+			}
+			if tt.want.err != nil {
+				assert.ErrorIs(t, err, tt.want.err)
+				assert.Empty(t, titles)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.want.titles, titles)
+			}
+			assert.Equal(t, tt.want.calls, calls.Load())
+			mu.Lock()
+			assert.Equal(t, tt.want.toolConfigs, toolConfigs, "whether each request carried toolConfig")
+			mu.Unlock()
+			require.NotNil(t, md.Grounded)
+			assert.Equal(t, int(tt.want.calls), md.Grounded.RetryCount, "requests across both passes")
+			assert.Equal(t, tt.want.calls == 2, md.Grounded.ToolReportDropped)
+		})
+	}
 }

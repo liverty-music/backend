@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -139,6 +140,11 @@ type abCell struct {
 	// IncludeToolInvocations returns the server-side tool calls (search
 	// queries) in the response.
 	IncludeToolInvocations bool
+	// PageLinks lists the concert pages the official top page links to in
+	// the prompt, as production does. LinkProfile, when non-nil, replaces
+	// the production link profile.
+	PageLinks   bool
+	LinkProfile *gemini.LinkProfile
 }
 
 type cellResult struct {
@@ -186,6 +192,13 @@ type cellResult struct {
 	URLContextSuccess int `json:"url_context_success"`
 	URLContextError   int `json:"url_context_error"`
 	URLContextOther   int `json:"url_context_other"`
+	// URLContextCalls / URLContextSucceeded count from the server-side tool
+	// parts, which also hold fetches that only failed.
+	URLContextCalls     int `json:"url_context_calls"`
+	URLContextSucceeded int `json:"url_context_succeeded"`
+	// LinkedPages is the number of official concert pages listed in the
+	// prompt.
+	LinkedPages int `json:"linked_pages"`
 	// GroundingSearchQueries is the number of GoogleSearch queries the model
 	// issued — billed separately at $14/1K (5,000/month free, shared across
 	// Gemini 3.x). Together with URLContextTotal this is the full grounding
@@ -346,6 +359,10 @@ func runCell(
 		OmitTemp:      cell.OmitTemperature,
 	}
 
+	var pageClient *http.Client
+	if cell.PageLinks {
+		pageClient = gemini.NewOfficialPageClient()
+	}
 	s, err := gemini.NewConcertSearcher(ctx, gemini.Config{
 		APIKey:          os.Getenv(abEvalAPIKeyVar),
 		Model:           cell.Model,
@@ -354,7 +371,7 @@ func runCell(
 		ThinkingLevel:   cell.Thinking,
 
 		IncludeServerSideToolInvocations: cell.IncludeToolInvocations,
-	}, nil, logger)
+	}, nil, pageClient, logger)
 	if err != nil {
 		res.Error = "construct searcher: " + err.Error()
 		writeRawResponse(t, rawDir, cellIdx, cell, nil, nil, res.Error)
@@ -362,6 +379,9 @@ func runCell(
 	}
 	if cell.Prompt != nil {
 		gemini.SetPrompt(s, *cell.Prompt)
+	}
+	if cell.LinkProfile != nil {
+		gemini.SetLinkProfile(s, *cell.LinkProfile)
 	}
 
 	artist := &entity.Artist{ID: cell.Artist.ID, Name: cell.Artist.Name}
@@ -391,6 +411,9 @@ func runCell(
 		res.FinishMessage = pm.FinishMessage
 		res.AvgLogprobs = pm.AvgLogprobs
 		res.URLContextTotal = len(pm.URLContextRetrieved)
+		res.URLContextCalls = pm.URLContextCalls
+		res.URLContextSucceeded = pm.URLContextSucceeded
+		res.LinkedPages = len(pm.LinkedPageURLs)
 		for _, u := range pm.URLContextRetrieved {
 			switch {
 			case strings.Contains(u.Status, "SUCCESS"):
@@ -514,6 +537,10 @@ func passMetadataPayload(pm *gemini.PassMetadata) map[string]any {
 		"grounding_chunk_urls":  pm.GroundingChunkURLs,
 		"rendered_parts":        pm.RenderedParts,
 		"url_context_retrieved": pm.URLContextRetrieved,
+		"url_context_calls":     pm.URLContextCalls,
+		"url_context_succeeded": pm.URLContextSucceeded,
+		"linked_page_urls":      pm.LinkedPageURLs,
+		"tool_report_dropped":   pm.ToolReportDropped,
 	}
 }
 
@@ -662,6 +689,7 @@ func writeOutputs(t *testing.T, rf runFile) error {
 		"tours_count", "standalones_count",
 		"parts_total", "thought_parts", "text_parts",
 		"url_ctx_total", "url_ctx_success", "url_ctx_error", "url_ctx_other",
+		"url_ctx_calls", "url_ctx_succeeded", "linked_pages",
 		"search_queries", "finish_reason", "finish_message", "avg_logprobs",
 		"discovered_url_count",
 		"venue_acc", "admin_area_acc", "local_date_acc", "start_time_acc", "open_time_acc", "source_url_acc",
@@ -695,6 +723,9 @@ func writeOutputs(t *testing.T, rf runFile) error {
 			strconv.Itoa(c.URLContextSuccess),
 			strconv.Itoa(c.URLContextError),
 			strconv.Itoa(c.URLContextOther),
+			strconv.Itoa(c.URLContextCalls),
+			strconv.Itoa(c.URLContextSucceeded),
+			strconv.Itoa(c.LinkedPages),
 			strconv.Itoa(c.GroundingSearchQueries),
 			c.FinishReason,
 			c.FinishMessage,

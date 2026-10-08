@@ -17,10 +17,11 @@ import (
 
 const (
 	groundingEvalEnvVar        = "GEMINI_GROUNDING_EVAL"            // "1" enables the run
-	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"    // FINAL (production, default), FINAL_TP, E2UJ, or E2UJA (one variant per run)
+	groundingEvalVariantEnvVar = "GEMINI_GROUNDING_EVAL_VARIANT"    // FINAL (default), LINKS (production), E2UJ, or E2UJA (one variant per run)
 	groundingEvalRepsEnvVar    = "GEMINI_GROUNDING_EVAL_REPS"       // optional repetition override (e.g. 1 for a smoke run)
 	groundingEvalThinkEnvVar   = "GEMINI_GROUNDING_EVAL_THINKING"   // optional thinking level override (default low)
 	groundingEvalArtistEnvVar  = "GEMINI_GROUNDING_EVAL_ARTIST"     // optional fixture artist name (default Vaundy)
+	groundingEvalSiteEnvVar    = "GEMINI_GROUNDING_EVAL_SITE"       // official site of an artist outside the fixture (recall is not scored)
 	groundingEvalTempEnvVar    = "GEMINI_GROUNDING_EVAL_TEMP"       // optional temperature; temperature is not sent when unset
 	groundingEvalToolCallsEnv  = "GEMINI_GROUNDING_EVAL_TOOL_CALLS" // "1" returns server-side tool calls (search queries)
 
@@ -68,23 +69,38 @@ var systemInstructionJSONReadFirst = strings.Replace(systemInstructionJSON,
 	"Extract official concert information for the given artist.\n\n"+
 		"MANDATORY FIRST STEP: before any google_search call, read the official site URL given in the prompt with the url_context tool. Then read, with url_context, the official pages it links to that list concerts (live, schedule, tour, or news pages). Call google_search only if a page you still need cannot be reached this way.\n", 1)
 
-// groundingVariant returns the prompt for a variant; nil means the
-// production prompt.
-func groundingVariant(t *testing.T, name string) *gemini.Prompt {
+// groundingSetup is how a variant configures the searcher: Prompt, when
+// non-nil, replaces the production prompt; PageLinks lists the official
+// site's concert pages in the prompt; LinkProfile, when non-nil, replaces the
+// production link profile.
+type groundingSetup struct {
+	Prompt      *gemini.Prompt
+	PageLinks   bool
+	LinkProfile *gemini.LinkProfile
+}
+
+// groundingVariant returns the searcher setup of a variant.
+func groundingVariant(t *testing.T, name string) groundingSetup {
 	t.Helper()
 	switch name {
 	case "FINAL":
-		// Production configuration.
-		return nil
+		// The production prompt without linked pages (the baseline before
+		// steer-concert-search-to-official-pages).
+		return groundingSetup{}
+	case "LINKS":
+		// Production configuration: the concert and news pages the official
+		// top page links to are listed in the prompt. (Evaluated as
+		// LINKS_NEWS on 2026-10-07; see testdata/README.md.)
+		return groundingSetup{PageLinks: true}
 	case "E2UJ":
 		// Explicit url_context-first tool-usage and extraction rules.
-		return &gemini.Prompt{SystemInstruction: systemInstructionJSON, Template: promptMinimal}
+		return groundingSetup{Prompt: &gemini.Prompt{SystemInstruction: systemInstructionJSON, Template: promptMinimal}}
 	case "E2UJA":
 		// E2UJ with the url_context-first instruction at the top.
-		return &gemini.Prompt{SystemInstruction: systemInstructionJSONReadFirst, Template: promptMinimal}
+		return groundingSetup{Prompt: &gemini.Prompt{SystemInstruction: systemInstructionJSONReadFirst, Template: promptMinimal}}
 	default:
-		t.Fatalf("%s must be FINAL, E2UJ, or E2UJA (got %q)", groundingEvalVariantEnvVar, name)
-		return nil
+		t.Fatalf("%s must be FINAL, LINKS, E2UJ, or E2UJA (got %q)", groundingEvalVariantEnvVar, name)
+		return groundingSetup{}
 	}
 }
 
@@ -148,7 +164,7 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 	if v := strings.TrimSpace(os.Getenv(groundingEvalArtistEnvVar)); v != "" {
 		artistName = v
 	}
-	prompt := groundingVariant(t, variant)
+	setup := groundingVariant(t, variant)
 	// Temperature is not sent unless set: the Gemini 3.8 Flash migration
 	// guide says to strip it from generation configs.
 	var temp float32
@@ -176,7 +192,13 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 		}
 	}
 	if artist.ID == "" {
-		t.Fatalf("artist %s not in fixture", artistName)
+		// An artist outside the fixture runs with its official site only:
+		// search queries, URL context use and cost are recorded, recall is not.
+		site := strings.TrimSpace(os.Getenv(groundingEvalSiteEnvVar))
+		if site == "" {
+			t.Fatalf("artist %s not in fixture; set %s to run it unscored", artistName, groundingEvalSiteEnvVar)
+		}
+		artist = gemini.GroundTruthArtist{ID: "unscored-" + artistName, Name: artistName, OfficialSiteURL: site}
 	}
 	// The prompt's start date is today (JST), so fixture dates that have
 	// already passed are no longer expected.
@@ -211,15 +233,18 @@ func TestConcertSearcher_GroundingVariants(t *testing.T) {
 			Artist:          artist,
 			Repetition:      r,
 			Variant:         variant,
-			Prompt:          prompt,
+			Prompt:          setup.Prompt,
 			OmitTemperature: omitTemp,
 
 			IncludeToolInvocations: os.Getenv(groundingEvalToolCallsEnv) == "1",
+			PageLinks:              setup.PageLinks,
+			LinkProfile:            setup.LinkProfile,
 		}
 		res := runCell(ctx, t, logger, cell, from, rawDir, r+1)
-		t.Logf("artist=%s variant=%s temp=%s thinking=%s rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d latency=%dms err=%q",
+		t.Logf("artist=%s variant=%s temp=%s thinking=%s rep=%d recall_public=%.2f precision=%.2f returned=%d matched=%d fp=%d leaks=%d queries=%d linked=%d url_ctx=%d/%d cost=$%.3f latency=%dms err=%q",
 			artist.Name, variant, tempLabel(temp, omitTemp), thinking, r, res.RecallPublic, res.Precision, res.ReturnedCount, res.MatchedCount,
-			res.FalsePositives, res.FestivalLeaks, res.LatencyMillis, res.Error)
+			res.FalsePositives, res.FestivalLeaks, res.GroundingSearchQueries, res.LinkedPages, res.URLContextSucceeded, res.URLContextCalls,
+			res.CostUSD, res.LatencyMillis, res.Error)
 		results = append(results, res)
 		totalCost += res.CostUSD
 	}

@@ -38,8 +38,12 @@ GEMINI_AB_EVAL=1 GEMINI_AB_EVAL_SMOKE=1 GCP_GEMINI_SEARCH_API_KEY=<gemini-api-ke
 ```
 
 Prompt variants (`TestConcertSearcher_GroundingVariants`, one artist per run):
-`FINAL` (production prompt, default), `E2UJ` (explicit url_context-first tool
-rules), `E2UJA` (E2UJ with a mandatory first url_context step). Set
+`FINAL` (production prompt without linked pages, default), `LINKS`
+(production: the concert and news pages the official top page links to are
+listed in the prompt), `E2UJ` (explicit url_context-first tool rules), `E2UJA`
+(E2UJ with a mandatory first url_context step). An artist outside the fixture
+runs unscored (search queries, URL context use and cost only) when
+`GEMINI_GROUNDING_EVAL_SITE` gives its official site. Set
 `GEMINI_GROUNDING_EVAL_TOOL_CALLS=1` to record each call's search queries from
 the server-side tool calls; otherwise compare against the billing export's
 hourly "search query" SKU count (one variant per clock hour).
@@ -60,7 +64,42 @@ Prerequisites:
 - Budget for the run: each call bills its search queries (roughly 6-70 per
   call) and URL context input tokens.
 
-## Latest result (2026-10-01..04, tune-concert-search-grounding)
+## Latest result (2026-10-07, steer-concert-search-to-official-pages)
+
+`gemini-3.8-flash`, thinking `low`, temperature unset, tool calls on, 3 reps
+per artist and variant. `LINKS` lists the top page's concert pages only;
+`LINKS_NEWS` adds news indexes and articles as a lower tier and became the
+production `LINKS`. Unscored artists are compared with the 2026-10-06 prod
+run (n=1 each).
+
+| artist | FINAL queries (recall) | LINKS queries (recall) | LINKS_NEWS queries (recall) |
+|---|---|---|---|
+| UVERworld | 40.0 (1.00) | 2.7 (1.00) | 1.3 (1.00) |
+| Vaundy | 25.0 (1.00) | 1.7 (1.00) | 0.0 (1.00) |
+| SUPER BEAVER | 71.7 (0.67, 1 of 3 TOO_MANY_TOOL_CALLS) | 0.0 (1.00) | same links as LINKS, not run |
+| BRADIO | 14.3 (1.00) | 16.7 (0.97) | 12.7 (0.97) |
+| Novelbright (unscored) | prod 18 after a 46-query attempt | 10.3 | 22.3 |
+| go!go!vanillas (unscored) | prod 400 twice, then 85 and stopped | 51.0 (0 links) | 35.0 (8 links) |
+| YOASOBI (unscored, no links) | prod 19 | 41.7 (prompt identical to FINAL) | same as LINKS, not run |
+| Ed Sheeran (unscored) | 5.7 | 3.7 | same links as LINKS, not run |
+
+Cost per call on the fixture artists fell from $0.59 (FINAL) to $0.13
+(LINKS). Against LINKS, LINKS_NEWS cut queries by 13% on the five artists
+where the links differ (16.5 to 14.3) and cost from $0.29 to $0.25; it was
+adopted.
+
+Two D8 criteria were not met to the letter and were accepted as noise:
+
+- BRADIO's queries did not fall (LINKS reps 3, 14 and 33). Its recall of 0.97
+  is one rep copying venue names with a prefecture prefix as the show page
+  prints them (「大阪県・BananaHall」), not a missed show.
+- YOASOBI's 41.7 queries are outside ±30% of the prod run's 19, but its prompt
+  is byte-identical to FINAL (no extractable links); the reps ranged 25-56.
+
+The #542 400 did not reproduce in these 54 calls; the reduced retry is covered
+by unit tests and checked in prod.
+
+## Earlier result (2026-10-01..04, tune-concert-search-grounding)
 
 `gemini-3.8-flash`, thinking `low`, temperature unset.
 

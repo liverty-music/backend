@@ -178,7 +178,10 @@ func NewSalesPhaseSearcher(
 // grounded call (GoogleSearch limited to the last 30 days, plus URL context)
 // that returns JSON, then drops every sale that fails the deterministic checks
 // in validateSalesPhase. Any failure of the call fails the search; there is no
-// retry, because a failed grounded call is still billed.
+// retry, because a failed grounded call is still billed. The one exception is
+// a request rejected as invalid: some pages break the Preview tool-invocation
+// report after URL context reads them (backend #542), so the request is sent
+// once more without the report.
 func (s *SalesPhaseSearcher) SearchSalesPhases(
 	ctx context.Context,
 	in *entity.SalesPhaseSearchInput,
@@ -213,9 +216,15 @@ func (s *SalesPhaseSearcher) SearchSalesPhases(
 	cfg := s.buildConfig(now, seriesIDs)
 	prompt := salesPhaseUserPrompt(now, in, seriesIDs, series)
 
-	reqCtx, cancel := context.WithTimeout(ctx, salesPhaseCallTimeout)
-	defer cancel()
-	resp, err := s.generate(reqCtx, s.config.Model, genai.Text(prompt), cfg)
+	resp, err := s.call(ctx, prompt, cfg)
+	if err != nil && cfg.ToolConfig != nil && isInvalidRequest(err) {
+		s.logger.Warn(ctx, "SalesPhaseSearcher: request rejected as invalid, retrying once without the tool-invocation report",
+			append(attrs, slog.String("error", err.Error()))...)
+		reduced := *cfg
+		reduced.ToolConfig = nil
+		attrs = append(attrs, slog.Bool("tool_report_dropped", true))
+		resp, err = s.call(ctx, prompt, &reduced)
+	}
 	if err != nil {
 		return nil, salesPhaseCallErr(err, attrs...)
 	}
@@ -255,6 +264,17 @@ func (s *SalesPhaseSearcher) SearchSalesPhases(
 			slog.Int("kept_count", len(candidates)),
 		)...)
 	return candidates, nil
+}
+
+// call makes one grounded call within salesPhaseCallTimeout.
+func (s *SalesPhaseSearcher) call(
+	ctx context.Context,
+	prompt string,
+	cfg *genai.GenerateContentConfig,
+) (*genai.GenerateContentResponse, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, salesPhaseCallTimeout)
+	defer cancel()
+	return s.generate(reqCtx, s.config.Model, genai.Text(prompt), cfg)
 }
 
 // buildConfig builds the request configuration (design D1). Temperature is
@@ -502,6 +522,15 @@ func (s *SalesPhaseSearcher) logResponseMetadata(
 		slog.String("finish_reason", string(c.FinishReason)),
 		slog.String("finish_message", c.FinishMessage),
 	)
+	if c.Content != nil {
+		// url_context_retrieved can omit fetches that only failed; these
+		// count from the server-side tool parts.
+		calls, succeeded := urlContextCounts(c.Content.Parts)
+		fields = append(fields,
+			slog.Int("url_context_calls", calls),
+			slog.Int("url_context_succeeded", succeeded),
+		)
+	}
 	if g := c.GroundingMetadata; g != nil {
 		urls := make([]string, 0, len(g.GroundingChunks))
 		for _, ch := range g.GroundingChunks {
