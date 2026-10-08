@@ -6,10 +6,10 @@ buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250903170917-c4be0f57
 buf.build/gen/go/bufbuild/registry/connectrpc/go v1.18.1-20250903170917-c4be0f57e197.1/go.mod h1:eGjb9P6sl1irS46NKyXnxkyozT2aWs3BF4tbYWQuCsw=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.9-20250903170917-c4be0f57e197.1 h1:q+tABqEH2Cpcp8fO9TBZlvKok7zorHGy+/UyywXaAKo=
 buf.build/gen/go/bufbuild/registry/protocolbuffers/go v1.36.9-20250903170917-c4be0f57e197.1/go.mod h1:Y3m+VD8IH6JTgnFYggPHvFul/ry6dL3QDliy8xH7610=
-buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20261006123206-e1f8da3822a6.1 h1:AYy4w3hIRnxEorTN/EQpU7Mg7Idla76TvUFB0Sjgp24=
-buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20261006123206-e1f8da3822a6.1/go.mod h1:J3IVAj6l6RxlA+zYoaXIkFKBvSJ9S4TIpt7fiSY6fmg=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261006123206-e1f8da3822a6.2 h1:DBLjwulh+/u+KaVx4in4caHMUZEPfGXe37Y4ArrWrX4=
-buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261006123206-e1f8da3822a6.2/go.mod h1:2M17ko2Uc/VH8xuRTHM6PuuYXqtRdNoeHfIqmsqMRZg=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20261007151852-8b9911a08dd0.1 h1:/IMWiQPcbbvfoi5+GiPg7mM0LXtHZQzozTGdou0RV2o=
+buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20261007151852-8b9911a08dd0.1/go.mod h1:VrrvpevaCqDz0f62C/vRPysk1nvaMz0MfmmW4pUPIQE=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261007151852-8b9911a08dd0.2 h1:GDDee4tazVQU945GOT6C1Qxyj65fzQMITBDZPSyNvvk=
+buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261007151852-8b9911a08dd0.2/go.mod h1:2M17ko2Uc/VH8xuRTHM6PuuYXqtRdNoeHfIqmsqMRZg=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1 h1:KuP+b+in6LGh2ukof5KgDCD8hPXotEq6EVOo13Wg1pE=
 buf.build/gen/go/pluginrpc/pluginrpc/protocolbuffers/go v1.36.8-20241007202033-cf42259fcbfc.1/go.mod h1:dV1Kz6zdmyXt7QWm5OXby44OFpyLemllUDBUG5HMLio=
 buf.build/gen/go/pocketsign/apis/connectrpc/go v1.20.0-20260826021924-0ff29b2b0335.1 h1:zyTVINLYxfjytemCnh6wZuO0U4Vn6AjH10yylHtnvm4=

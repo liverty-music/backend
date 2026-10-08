@@ -61,9 +61,9 @@ const (
 	// balance) when the Order exists.
 	OrderStatusPaid OrderStatus = 1
 	// OrderStatusRefunded means the captured payment was refunded (event
-	// cancellation, a postponement holder-initiated refund, or dispute). ⑤ owns
-	// the refund policy and sets this status; the Refund + transfer_reversal money
-	// movement is executed by ticket-settlement-and-payout.
+	// cancellation or dispute). ⑤ owns the refund policy and sets this status;
+	// the Refund + transfer_reversal money movement is executed by
+	// ticket-settlement-and-payout.
 	OrderStatusRefunded OrderStatus = 2
 	// OrderStatusFailed is the capture-succeeded-but-issuance-refunded edge: the
 	// capture succeeded but issuance could not complete, so the captured payment
@@ -144,7 +144,7 @@ type Order struct {
 	// time.
 	PaidTime time.Time
 	// RefundRef is the opaque provider Refund reference ("re_...") set when the
-	// Order is refunded via CANCELLATION or POSTPONEMENT_WINDOW. Empty for orders
+	// Order is refunded via CANCELLATION. Empty for orders
 	// refunded via DISPUTE (the chargeback reversed the charge at the card
 	// network; no Stripe Refund object is created) and for orders not yet
 	// refunded.

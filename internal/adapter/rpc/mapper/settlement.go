@@ -93,8 +93,6 @@ func ProtoRefundReasonToDomain(r adminv1.RefundReason) usecase.RefundReason {
 	switch r {
 	case adminv1.RefundReason_REFUND_REASON_CANCELLATION:
 		return usecase.RefundReasonCancellation
-	case adminv1.RefundReason_REFUND_REASON_POSTPONEMENT_WINDOW:
-		return usecase.RefundReasonPostponementWindow
 	case adminv1.RefundReason_REFUND_REASON_DISPUTE:
 		return usecase.RefundReasonDispute
 	default:
