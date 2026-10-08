@@ -12,8 +12,9 @@ import (
 type TicketID string
 
 // TicketStatus is the lifecycle of an issued Ticket as owned by ⑤. ⑤ issues a
-// ticket as Issued and voids it when its Order is refunded. ⑥
-// ticket-wallet-and-checkin appends wallet / check-in states on top of this.
+// ticket as Issued and voids it when its Order is refunded. Admission at the
+// venue (⑥ ticket-wallet-and-checkin) is not a status: it is the ticket's
+// AdmittedTime, kept when the ticket is later voided.
 // Values mirror the proto enum liverty_music.entity.v1.TicketStatus.
 type TicketStatus int16
 
@@ -45,8 +46,8 @@ func (s TicketStatus) IsValid() bool {
 }
 
 // Ticket is a Web2, account-bound admission right issued from a captured
-// lottery win. ⑤ DEFINES this entity; ⑥ ticket-wallet-and-checkin later adds
-// wallet / rotating-QR / check-in behavior on top of it.
+// lottery win. ⑤ DEFINES this entity; ⑥ ticket-wallet-and-checkin adds
+// admission at the venue on top of it (AdmittedTime, [TicketRepository.Admit]).
 //
 // Every issued Ticket is a covered ticket (特定興行入場券) carrying ALL THREE legal
 // conditions:
@@ -92,6 +93,40 @@ type Ticket struct {
 	// IssuedTime is when the ticket was issued (= the Order's capture/issuance
 	// time).
 	IssuedTime time.Time
+	// AdmittedTime is when the ticket was admitted at the venue; nil until
+	// admitted. Set once, together with its [Admission], and kept when the
+	// ticket is later Voided.
+	AdmittedTime *time.Time
+}
+
+// IsAdmissible reports whether the ticket can be admitted: it is Issued and
+// has no admitted time. A Voided ticket is never admissible, and an admitted
+// ticket is never admissible again.
+func (t *Ticket) IsAdmissible() bool {
+	return t.Status == TicketStatusIssued && t.AdmittedTime == nil
+}
+
+// AdmitOutcome is the outcome of [TicketRepository.Admit].
+type AdmitOutcome int
+
+const (
+	// AdmitOutcomeAdmitted means the ticket was admitted by this call.
+	AdmitOutcomeAdmitted AdmitOutcome = iota + 1
+	// AdmitOutcomeAlreadyAdmitted means the ticket already had an admitted
+	// time; nothing changed.
+	AdmitOutcomeAlreadyAdmitted
+	// AdmitOutcomeVoided means the ticket is Voided and was never admitted;
+	// nothing changed.
+	AdmitOutcomeVoided
+)
+
+// AdmitResult is what [TicketRepository.Admit] reports.
+type AdmitResult struct {
+	// Outcome is Admitted, AlreadyAdmitted or Voided.
+	Outcome AdmitOutcome
+	// AdmittedTime is the ticket's admitted time: the given time when
+	// Admitted, the earlier one when AlreadyAdmitted, zero when Voided.
+	AdmittedTime time.Time
 }
 
 // TicketRepository defines the persistence contract for [Ticket] records.
@@ -114,8 +149,34 @@ type TicketRepository interface {
 	//  - Internal: database query failure.
 	ListByHolder(ctx context.Context, holderID UserID) ([]*Ticket, error)
 
+	// ListByHolderAndEvent returns every ticket held by the account for the
+	// event, Issued and Voided alike, in issue order; empty when none.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database query failure.
+	ListByHolderAndEvent(ctx context.Context, holderID UserID, eventID string) ([]*Ticket, error)
+
+	// Admit admits the ticket through the reception link at admittedTime, at
+	// most once. When the ticket is admissible it sets the admitted time and
+	// stores the [Admission] in one indivisible step (a per-ticket conditional
+	// update, never a table lock) and reports Admitted; of any number of
+	// concurrent calls for one ticket exactly one reports Admitted. A ticket
+	// with an admitted time reports AlreadyAdmitted with that time; a Voided
+	// ticket without one reports Voided. The link must still be usable when
+	// the ticket is admitted, so a link revoked mid-scan admits nothing more.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no ticket has the id.
+	//  - PermissionDenied (cause [ErrReceptionLinkNotUsable]): the link is
+	//    Revoked or does not exist; nothing changed.
+	//  - Internal: database failure.
+	Admit(ctx context.Context, ticketID TicketID, linkID ReceptionLinkID, admittedTime time.Time) (AdmitResult, error)
+
 	// VoidByOrder marks every ticket of the given Order as Voided (on a refund).
-	// Idempotent: voiding already-voided tickets is a no-op.
+	// Idempotent: voiding already-voided tickets is a no-op. The admitted time
+	// is kept.
 	//
 	// # Possible errors
 	//

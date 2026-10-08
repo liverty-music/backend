@@ -59,7 +59,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	// verification gate (phase has None requirement), so a nil repo is safe —
 	// the gate is skipped when VerificationRequirement == None.
 	verifiedIdentityRepo := rdb.NewVerifiedIdentityRepository(testDB)
-	uc := usecase.NewLotteryUseCase(phaseRepo, appRepo, eventState, stripePort, verifiedIdentityRepo, clock, logger)
+	uc := usecase.NewLotteryUseCase(phaseRepo, appRepo, eventState, rdb.NewEventRepository(testDB), stripePort, verifiedIdentityRepo, clock, logger)
 
 	// -- seed a phase with capacity 2 so 3 single-ticket applicants force one loss --
 	artistID := seedArtist(t, "pipeline-artist", uuid.NewV7().String())

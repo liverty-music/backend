@@ -82,6 +82,7 @@ func TestTicketHandler_GetOrder(t *testing.T) {
 
 func TestTicketHandler_List(t *testing.T) {
 	t.Parallel()
+	// @spec components/adapter/fan/api/rpc/ticket "Fan lists their tickets"
 
 	ctx := ticketAuthedCtx("ext-1")
 	h, uc, ur := newTicketHandler(t)
@@ -99,4 +100,26 @@ func TestTicketHandler_List(t *testing.T) {
 	assert.Equal(t, "t-1", resp.Msg.Tickets[0].Id.Value)
 	assert.True(t, resp.Msg.Tickets[0].ResaleWithoutConsentProhibited)
 	assert.Equal(t, entityv1.TicketStatus_TICKET_STATUS_ISSUED, resp.Msg.Tickets[1].Status)
+}
+
+func TestTicketHandler_GetOrder_Boundary(t *testing.T) {
+	t.Parallel()
+
+	t.Run("not signed in", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/ticket "Not signed in"
+		h, _, _ := newTicketHandler(t)
+		_, err := h.GetOrder(context.Background(), connect.NewRequest(&ticketv1.GetOrderRequest{
+			OrderId: &entityv1.OrderId{Value: "order-1"},
+		}))
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+
+	t.Run("missing order", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/ticket "Missing order"
+		h, _, _ := newTicketHandler(t)
+		_, err := h.GetOrder(ticketAuthedCtx("ext-1"), connect.NewRequest(&ticketv1.GetOrderRequest{}))
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
 }

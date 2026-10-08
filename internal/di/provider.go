@@ -2,6 +2,7 @@ package di
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -19,11 +20,14 @@ import (
 	organizerconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/concert/v1/concertv1connect"
 	organizerlotteryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/lottery/v1/lotteryv1connect"
 	payoutonboardingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_onboarding/v1/payout_onboardingv1connect"
+	receptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
+	receptionlinkconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception_link/v1/reception_linkv1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
+	walletpublickeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
 	"github.com/ThreeDotsLabs/watermill"
@@ -55,6 +59,16 @@ import (
 	"github.com/liverty-music/backend/pkg/telemetry"
 	"github.com/pannpers/go-logging/logging"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+)
+
+const (
+	// receptionUnknownTokenLimit is how many calls with unknown reception link
+	// tokens a client may make within receptionUnknownTokenWindow before
+	// further reception calls are refused with ResourceExhausted.
+	receptionUnknownTokenLimit = 10
+	// receptionUnknownTokenWindow is the window over which unknown reception
+	// link tokens are counted per client.
+	receptionUnknownTokenWindow = 10 * time.Minute
 )
 
 // InitializeApp creates a new App with all dependencies wired up manually.
@@ -113,6 +127,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	connectedAccountRepo := rdb.NewOrganizerConnectedAccountRepository(db)
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
+	eventRepo := rdb.NewEventRepository(db)
+	walletPublicKeyRepo := rdb.NewWalletPublicKeyRepository(db)
+	receptionLinkRepo := rdb.NewReceptionLinkRepository(db)
+	admissionRepo := rdb.NewAdmissionRepository(db)
+	rejectedScanRepo := rdb.NewRejectedScanRepository(db)
 	processedWebhookEventRepo := rdb.NewProcessedWebhookEventRepository(db)
 
 	// Infrastructure - Gemini (optional)
@@ -275,11 +294,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		paymentPort, capturePort = noopPort, noopPort
 		settlementPort = infrapayment.NewNoopSettlementPort(logger)
 	}
-	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, paymentPort, verifiedIdentityRepo, time.Now, logger)
+	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, eventRepo, paymentPort, verifiedIdentityRepo, time.Now, logger)
 
 	// ⑤ issuance pipeline: turn ④'s Won-captured applications into Orders + tickets.
 	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, ticketApplicationRepo, lotteryPhaseRepo, eventOrganizerRepo, verifiedIdentityRepo, ticketJourneyRepo, capturePort, time.Now, logger)
-	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, logger)
+	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, receptionLinkRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
+
+	// ⑥ ticket wallet and venue reception.
+	walletPublicKeyUC := usecase.NewWalletPublicKeyUseCase(walletPublicKeyRepo, logger)
+	receptionLinkUC := usecase.NewReceptionLinkUseCase(receptionLinkRepo, eventRepo, eventOrganizerRepo, eventPublishState, logger)
 
 	// ⑤ task 4.1: refund policy + settlement money-movement.
 	// refundRepo provides the single atomic DB commit (settlement→reversed +
@@ -386,6 +409,11 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// is identical; only the public-procedure allowlist differs.
 	adminAuthFunc := auth.NewAuthFunc(jwtValidator, nil)
 
+	// The organizer server gets its own AuthFunc too: only the reception
+	// procedures a venue staff device calls (no sign-in; link token + device
+	// signature) are public there. The fan allowlist never applies to it.
+	organizerAuthFunc := auth.NewAuthFunc(jwtValidator, auth.OrganizerPublicProcedures())
+
 	// Health check handler (public, outside authn middleware).
 	// Keep a reference so App.Shutdown can call SetShuttingDown.
 	healthChecker := rpc.NewHealthCheckHandler(db, logger)
@@ -476,6 +504,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
+		// Fan-facing WalletPublicKeyService: Register, Get (signed-in fan only).
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return walletpublickeyconnect.NewWalletPublicKeyServiceHandler(
+				rpc.NewWalletPublicKeyHandler(walletPublicKeyUC, userRepo, logger),
+				opts...,
+			)
+		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return identityconnect.NewIdentityVerificationServiceHandler(
 				rpc.NewIdentityVerificationHandler(identityVerificationUC, userUC, logger),
@@ -543,11 +578,24 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// own port and CORS allowlist, serving ONLY the organizer-facing
 	// OrganizerService. Its server-wide OrgScopedInterceptor enforces token
 	// audience, login-scope org derivation, and role cross-check before any
-	// handler runs. No fan or admin services are registered here.
+	// handler runs, except for the ReceptionService procedures exempted by
+	// OrganizerPublicProcedures (their caller is a reception link token and
+	// the bound device's signature). No fan or admin services are registered
+	// here.
 	organizerServerCfg := cfg.Server
 	organizerServerCfg.Port = cfg.Server.OrganizerPort
 	organizerServerCfg.AllowedOrigins = cfg.Server.OrganizerAllowedOrigins
-	organizerInterceptors := []connect.Interceptor{auth.NewOrgScopedInterceptor(cfg.OrganizerConsoleProjectID)}
+	organizerInterceptors := []connect.Interceptor{
+		auth.NewOrgScopedInterceptor(cfg.OrganizerConsoleProjectID, auth.OrganizerPublicProcedures()),
+		// Clients that make receptionUnknownTokenLimit reception calls with
+		// unknown link tokens within receptionUnknownTokenWindow are refused
+		// with ResourceExhausted until the window passes.
+		ratelimit.NewUnknownTokenInterceptor(
+			ratelimit.NewUnknownTokenThrottle(receptionUnknownTokenLimit, receptionUnknownTokenWindow, time.Now),
+			auth.OrganizerPublicProcedures(),
+			func(err error) bool { return errors.Is(err, usecase.ErrUnknownReceptionLinkToken) },
+		),
+	}
 	organizerHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerconnect.NewOrganizerServiceHandler(
@@ -575,8 +623,23 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
+		// Organizer-facing ReceptionLinkService: Issue, List, Revoke.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return receptionlinkconnect.NewReceptionLinkServiceHandler(
+				rpc.NewOrganizerReceptionLinkHandler(receptionLinkUC, organizerUC, logger),
+				opts...,
+			)
+		},
+		// ReceptionService: Open, Admit — called by a venue staff device
+		// without a sign-in (see OrganizerPublicProcedures).
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return receptionconnect.NewReceptionServiceHandler(
+				rpc.NewReceptionHandler(receptionLinkUC, ticketUC, logger),
+				opts...,
+			)
+		},
 	}
-	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, authFunc, rateLimiter, healthHandler, organizerInterceptors, nil, nil, organizerHandlers...)
+	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, organizerAuthFunc, rateLimiter, healthHandler, organizerInterceptors, nil, nil, organizerHandlers...)
 
 	// Zitadel Actions v2 webhook listener — runs on a separate port so the
 	// webhook paths are unreachable via the public GKE Gateway. Validators

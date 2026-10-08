@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"context"
 	"time"
 )
 
@@ -40,4 +41,18 @@ type Event struct {
 	StartTime *time.Time
 	// OpenTime is the time when doors open (optional).
 	OpenTime *time.Time
+}
+
+// EventRepository reads one [Event]'s current date and times.
+// Implementations live in internal/infrastructure/database/rdb/.
+type EventRepository interface {
+	// Get returns the event's id, series, venue, current local date, open
+	// time and start time, read afresh; an unknown time is nil. Venue is not
+	// resolved.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no event has the id.
+	//  - Internal: database failure.
+	Get(ctx context.Context, id string) (*Event, error)
 }

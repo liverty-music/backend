@@ -137,6 +137,20 @@ func (s *stubEventState) GetEventOrganizerID(ctx context.Context, eventID string
 	return "", nil
 }
 
+// stubEventRepo stubs [entity.EventRepository]. By default the event exists
+// and starts at 19:00 JST without a doors-open time.
+type stubEventRepo struct {
+	getFn func(ctx context.Context, id string) (*entity.Event, error)
+}
+
+func (s *stubEventRepo) Get(ctx context.Context, id string) (*entity.Event, error) {
+	if s.getFn != nil {
+		return s.getFn(ctx, id)
+	}
+	start := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	return &entity.Event{ID: id, LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC), StartTime: &start}, nil
+}
+
 // stubVerifiedIdentityRepo stubs [entity.VerifiedIdentityRepository] with
 // function fields so each test case can inject targeted behavior.
 type stubVerifiedIdentityRepo struct {
@@ -257,7 +271,7 @@ func newLotteryUC(
 		repo = &stubVerifiedIdentityRepo{}
 	}
 	return usecase.NewLotteryUseCase(
-		phaseRepo, appRepo, eventState, paymentPort, repo,
+		phaseRepo, appRepo, eventState, &stubEventRepo{}, paymentPort, repo,
 		fixedClock(clockTime), newTestLogger(t),
 	)
 }
@@ -287,12 +301,33 @@ func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
 		mutate        func(*usecase.ConfigureLotteryPhaseInput)
 		published     func(context.Context, string) (bool, error)
 		organizerIDFn func(context.Context, string) (string, error)
+		getEventFn    func(context.Context, string) (*entity.Event, error)
 		wantErr       error
 		wantCalled    bool // expect phaseRepo.Create to be invoked
 	}{
 		{
+			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Organizer configures a phase"
 			name:       "success: valid 7-day window creates phase",
 			mutate:     func(in *usecase.ConfigureLotteryPhaseInput) {},
+			wantCalled: true,
+		},
+		{
+			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Start time not yet announced"
+			name:   "reject: published event without a start time returns FailedPrecondition",
+			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {},
+			getEventFn: func(_ context.Context, id string) (*entity.Event, error) {
+				return &entity.Event{ID: id, LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)}, nil
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Doors-open time not announced"
+			name:   "success: event with a start time and no doors-open time creates phase",
+			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {},
+			getEventFn: func(_ context.Context, id string) (*entity.Event, error) {
+				start := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+				return &entity.Event{ID: id, LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC), StartTime: &start}, nil
+			},
 			wantCalled: true,
 		},
 		{
@@ -345,6 +380,7 @@ func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
+			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Invalid configuration"
 			name:    "reject: zero ticket price",
 			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.TicketPrice = 0 },
 			wantErr: apperr.ErrInvalidArgument,
@@ -355,12 +391,14 @@ func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
+			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Event not published"
 			name:      "reject: event not published returns FailedPrecondition",
 			mutate:    func(in *usecase.ConfigureLotteryPhaseInput) {},
 			published: func(context.Context, string) (bool, error) { return false, nil },
 			wantErr:   apperr.ErrFailedPrecondition,
 		},
 		{
+			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Unknown event"
 			name:   "reject: event not found propagates NotFound",
 			mutate: func(in *usecase.ConfigureLotteryPhaseInput) { in.CallerOrgID = "org-1" },
 			organizerIDFn: func(context.Context, string) (string, error) {
@@ -390,7 +428,10 @@ func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
 				},
 			}
 			eventState := &stubEventState{fn: tt.published, organizerIDFn: tt.organizerIDFn}
-			uc := newLotteryUC(t, phaseRepo, &stubAppRepo{}, eventState, &stubPaymentPort{}, open)
+			uc := usecase.NewLotteryUseCase(
+				phaseRepo, &stubAppRepo{}, eventState, &stubEventRepo{getFn: tt.getEventFn}, &stubPaymentPort{},
+				&stubVerifiedIdentityRepo{}, fixedClock(open), newTestLogger(t),
+			)
 
 			in := base()
 			tt.mutate(&in)

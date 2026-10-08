@@ -49,6 +49,10 @@ func TicketToProto(ticket *entity.Ticket) *entityv1.Ticket {
 	if ticket.VerifiedIdentityID != "" {
 		t.VerifiedIdentityRef = &entityv1.VerifiedIdentityId{Value: ticket.VerifiedIdentityID}
 	}
+	// The admitted time is present only once the ticket was admitted.
+	if ticket.AdmittedTime != nil {
+		t.AdmitTime = timestamppb.New(*ticket.AdmittedTime)
+	}
 	return t
 }
 

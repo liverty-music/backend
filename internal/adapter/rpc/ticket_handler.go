@@ -43,13 +43,17 @@ func (h *TicketHandler) GetOrder(ctx context.Context, req *connect.Request[rpc.G
 	if err != nil {
 		return nil, err
 	}
+	orderID := req.Msg.GetOrderId().GetValue()
+	if orderID == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("order_id is required"))
+	}
 	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
 	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
 
-	order, err := h.ticketUC.GetOrder(ctx, entity.UserID(user.ID), entity.OrderID(req.Msg.OrderId.Value))
+	order, err := h.ticketUC.GetOrder(ctx, entity.UserID(user.ID), entity.OrderID(orderID))
 	if err != nil {
 		return nil, err
 	}
@@ -75,11 +79,4 @@ func (h *TicketHandler) List(ctx context.Context, _ *connect.Request[rpc.ListReq
 	}
 
 	return connect.NewResponse(&rpc.ListResponse{Tickets: mapper.TicketsToProto(tickets)}), nil
-}
-
-// RegisterWalletPublicKey binds a device wallet public key to the caller.
-// The ticket wallet is not implemented yet, so it always returns
-// CodeUnimplemented.
-func (h *TicketHandler) RegisterWalletPublicKey(_ context.Context, _ *connect.Request[rpc.RegisterWalletPublicKeyRequest]) (*connect.Response[rpc.RegisterWalletPublicKeyResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("RegisterWalletPublicKey is not implemented"))
 }

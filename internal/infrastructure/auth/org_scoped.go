@@ -68,17 +68,25 @@ type OrgScopedInterceptor struct {
 	// organizer-console application. It must be present in the token's "aud"
 	// claim for every request that reaches this interceptor.
 	organizerConsoleProjectID string
+	// exemptProcedures are procedures that skip the org-scoped checks because
+	// they authenticate their caller another way (see
+	// OrganizerPublicProcedures). They receive no caller org id.
+	exemptProcedures map[string]bool
 }
 
 // NewOrgScopedInterceptor creates an OrgScopedInterceptor that requires the
-// given organizerConsoleProjectID in the token's audience claim.
-func NewOrgScopedInterceptor(organizerConsoleProjectID string) OrgScopedInterceptor {
-	return OrgScopedInterceptor{organizerConsoleProjectID: organizerConsoleProjectID}
+// given organizerConsoleProjectID in the token's audience claim for every
+// procedure except exemptProcedures.
+func NewOrgScopedInterceptor(organizerConsoleProjectID string, exemptProcedures map[string]bool) OrgScopedInterceptor {
+	return OrgScopedInterceptor{organizerConsoleProjectID: organizerConsoleProjectID, exemptProcedures: exemptProcedures}
 }
 
 // WrapUnary enforces org-scoped authorization for unary RPCs.
 func (i OrgScopedInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		if req != nil && i.exemptProcedures[req.Spec().Procedure] {
+			return next(ctx, req)
+		}
 		ctx, err := i.authorize(ctx)
 		if err != nil {
 			return nil, err
@@ -95,6 +103,9 @@ func (i OrgScopedInterceptor) WrapStreamingClient(next connect.StreamingClientFu
 // WrapStreamingHandler enforces org-scoped authorization for streaming RPCs.
 func (i OrgScopedInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		if conn != nil && i.exemptProcedures[conn.Spec().Procedure] {
+			return next(ctx, conn)
+		}
 		ctx, err := i.authorize(ctx)
 		if err != nil {
 			return err
