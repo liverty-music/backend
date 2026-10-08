@@ -1089,9 +1089,11 @@ func TestNotifyNewConcerts_SameDayEarlierStart(t *testing.T) {
 		t := time.Date(2026, 9, 3, h-9, m, 0, 0, time.UTC) // JST wall time
 		return &t
 	}
+	// The IDs sort opposite to the start times, so the ID tie-break in
+	// concertEarlier cannot pick the earlier concert by itself.
 	concerts := []*entity.Concert{
-		{ID: "late", LocalDate: day, StartTime: at(19, 30), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
-		{ID: "early", LocalDate: day, StartTime: at(18, 0), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "a-late", LocalDate: day, StartTime: at(19, 30), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "z-early", LocalDate: day, StartTime: at(18, 0), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
 	}
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	followers := []*entity.Follower{
@@ -1099,13 +1101,13 @@ func TestNotifyNewConcerts_SameDayEarlierStart(t *testing.T) {
 	}
 
 	d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
-	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"late", "early"}).Return(concerts, nil).Once()
+	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"a-late", "z-early"}).Return(concerts, nil).Once()
 	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
 
 	expectNotificationRequestedMatching(t, d.publisher, "user-away", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
-		return payloadURL(p) == "/concerts/early"
+		return payloadURL(p) == "/concerts/z-early"
 	})
 
-	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"late", "early"}})
+	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"a-late", "z-early"}})
 	assert.NoError(t, err)
 }
