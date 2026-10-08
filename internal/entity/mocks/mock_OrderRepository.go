@@ -199,6 +199,65 @@ func (_c *MockOrderRepository_GetByPaymentIntentRef_Call) RunAndReturn(run func(
 	return _c
 }
 
+// ListByBuyer provides a mock function with given fields: ctx, buyerID
+func (_m *MockOrderRepository) ListByBuyer(ctx context.Context, buyerID entity.UserID) ([]*entity.Order, error) {
+	ret := _m.Called(ctx, buyerID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByBuyer")
+	}
+
+	var r0 []*entity.Order
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) ([]*entity.Order, error)); ok {
+		return rf(ctx, buyerID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) []*entity.Order); ok {
+		r0 = rf(ctx, buyerID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Order)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.UserID) error); ok {
+		r1 = rf(ctx, buyerID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockOrderRepository_ListByBuyer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByBuyer'
+type MockOrderRepository_ListByBuyer_Call struct {
+	*mock.Call
+}
+
+// ListByBuyer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - buyerID entity.UserID
+func (_e *MockOrderRepository_Expecter) ListByBuyer(ctx interface{}, buyerID interface{}) *MockOrderRepository_ListByBuyer_Call {
+	return &MockOrderRepository_ListByBuyer_Call{Call: _e.mock.On("ListByBuyer", ctx, buyerID)}
+}
+
+func (_c *MockOrderRepository_ListByBuyer_Call) Run(run func(ctx context.Context, buyerID entity.UserID)) *MockOrderRepository_ListByBuyer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.UserID))
+	})
+	return _c
+}
+
+func (_c *MockOrderRepository_ListByBuyer_Call) Return(_a0 []*entity.Order, _a1 error) *MockOrderRepository_ListByBuyer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockOrderRepository_ListByBuyer_Call) RunAndReturn(run func(context.Context, entity.UserID) ([]*entity.Order, error)) *MockOrderRepository_ListByBuyer_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateStatus provides a mock function with given fields: ctx, id, status
 func (_m *MockOrderRepository) UpdateStatus(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error {
 	ret := _m.Called(ctx, id, status)

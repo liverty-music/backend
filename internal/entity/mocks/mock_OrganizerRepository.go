@@ -188,6 +188,54 @@ func (_c *MockOrganizerRepository_Create_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
+// Delete provides a mock function with given fields: ctx, id, dryRun
+func (_m *MockOrganizerRepository) Delete(ctx context.Context, id string, dryRun bool) error {
+	ret := _m.Called(ctx, id, dryRun)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, bool) error); ok {
+		r0 = rf(ctx, id, dryRun)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockOrganizerRepository_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
+type MockOrganizerRepository_Delete_Call struct {
+	*mock.Call
+}
+
+// Delete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - dryRun bool
+func (_e *MockOrganizerRepository_Expecter) Delete(ctx interface{}, id interface{}, dryRun interface{}) *MockOrganizerRepository_Delete_Call {
+	return &MockOrganizerRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, id, dryRun)}
+}
+
+func (_c *MockOrganizerRepository_Delete_Call) Run(run func(ctx context.Context, id string, dryRun bool)) *MockOrganizerRepository_Delete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *MockOrganizerRepository_Delete_Call) Return(_a0 error) *MockOrganizerRepository_Delete_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockOrganizerRepository_Delete_Call) RunAndReturn(run func(context.Context, string, bool) error) *MockOrganizerRepository_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DisassociateArtist provides a mock function with given fields: ctx, organizerID, artistID
 func (_m *MockOrganizerRepository) DisassociateArtist(ctx context.Context, organizerID string, artistID string) error {
 	ret := _m.Called(ctx, organizerID, artistID)

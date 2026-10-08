@@ -16,18 +16,24 @@ import (
 )
 
 type userTestDeps struct {
-	repo          *mocks.MockUserRepository
-	emailVerifier *mocks.MockEmailVerifier
-	uc            usecase.UserUseCase
+	repo            *mocks.MockUserRepository
+	ticketRepo      *mocks.MockTicketRepository
+	orderRepo       *mocks.MockOrderRepository
+	emailVerifier   *mocks.MockEmailVerifier
+	identityRemover *mocks.MockIdentityRemover
+	uc              usecase.UserUseCase
 }
 
 func newUserTestDeps(t *testing.T) *userTestDeps {
 	t.Helper()
 	d := &userTestDeps{
-		repo:          mocks.NewMockUserRepository(t),
-		emailVerifier: mocks.NewMockEmailVerifier(t),
+		repo:            mocks.NewMockUserRepository(t),
+		ticketRepo:      mocks.NewMockTicketRepository(t),
+		orderRepo:       mocks.NewMockOrderRepository(t),
+		emailVerifier:   mocks.NewMockEmailVerifier(t),
+		identityRemover: mocks.NewMockIdentityRemover(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, messaging.NewEventPublisher(newTestPublisher()), d.emailVerifier, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, d.ticketRepo, d.orderRepo, messaging.NewEventPublisher(newTestPublisher()), d.emailVerifier, d.identityRemover, newTestLogger(t))
 	return d
 }
 
@@ -38,7 +44,7 @@ func newUserTestDepsNoVerifier(t *testing.T) *userTestDeps {
 	d := &userTestDeps{
 		repo: mocks.NewMockUserRepository(t),
 	}
-	d.uc = usecase.NewUserUseCase(d.repo, messaging.NewEventPublisher(newTestPublisher()), nil, newTestLogger(t))
+	d.uc = usecase.NewUserUseCase(d.repo, nil, nil, messaging.NewEventPublisher(newTestPublisher()), nil, nil, newTestLogger(t))
 	return d
 }
 
@@ -942,5 +948,116 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		}
 
 		assert.NoError(t, d.uc.ResendEmailVerification(ctx, otherExtID, otherUserID))
+	})
+}
+
+func TestUserUseCase_Delete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const userID = "019a0000-0000-7000-8000-0000000000u1"
+	user := &entity.User{ID: userID, ExternalID: "zitadel-user-1"}
+	uid := entity.UserID(userID)
+	refunded := []*entity.Order{{ID: "order-1", BuyerID: uid, Status: entity.OrderStatusRefunded}}
+	voided := []*entity.Ticket{{ID: "ticket-1", HolderID: uid, Status: entity.TicketStatusVoided}}
+
+	tests := []struct {
+		name    string
+		setup   func(d *userTestDeps)
+		wantErr error
+	}{
+		{
+			// @spec components/usecase/user/delete "Existing user"
+			name: "removes the identity and then the user",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
+				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(nil, nil).Once()
+				d.orderRepo.EXPECT().ListByBuyer(ctx, uid).Return([]*entity.Order{}, nil).Once()
+				identity := d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").Return(nil).Once()
+				d.repo.EXPECT().Delete(ctx, userID).Return(nil).Once().NotBefore(identity)
+			},
+		},
+		{
+			// @spec components/usecase/user/delete "Unknown user"
+			name: "returns NotFound for an unknown user",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, userID).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+		{
+			// @spec components/usecase/user/delete "User holding a ticket"
+			name: "refuses a user holding an issued ticket and removes nothing",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
+				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).
+					Return([]*entity.Ticket{{ID: "ticket-1", HolderID: uid, Status: entity.TicketStatusIssued}}, nil).Once()
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			name: "refuses a user with a paid order and removes nothing",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
+				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(voided, nil).Once()
+				d.orderRepo.EXPECT().ListByBuyer(ctx, uid).
+					Return([]*entity.Order{{ID: "order-1", BuyerID: uid, Status: entity.OrderStatusPaid}}, nil).Once()
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			// @spec components/usecase/user/delete "User with only refunded purchases"
+			name: "removes a user whose only order is refunded and whose ticket is voided",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
+				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(voided, nil).Once()
+				d.orderRepo.EXPECT().ListByBuyer(ctx, uid).Return(refunded, nil).Once()
+				d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").Return(nil).Once()
+				d.repo.EXPECT().Delete(ctx, userID).Return(nil).Once()
+			},
+		},
+		{
+			name: "keeps the user record when the identity cannot be removed",
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
+				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(nil, nil).Once()
+				d.orderRepo.EXPECT().ListByBuyer(ctx, uid).Return(nil, nil).Once()
+				d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").
+					Return(apperr.New(codes.Internal, "delete zitadel user")).Once()
+			},
+			wantErr: apperr.ErrInternal,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newUserTestDeps(t)
+			tt.setup(d)
+
+			err := d.uc.Delete(ctx, userID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+
+	// @spec components/usecase/user/delete "Retry after the record failed"
+	t.Run("a second call removes the user after the record removal failed", func(t *testing.T) {
+		t.Parallel()
+		d := newUserTestDeps(t)
+		d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Twice()
+		d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(nil, nil).Twice()
+		d.orderRepo.EXPECT().ListByBuyer(ctx, uid).Return(nil, nil).Twice()
+		// The identity is already gone on the retry, which DeleteIdentity
+		// reports as success.
+		d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").Return(nil).Twice()
+		d.repo.EXPECT().Delete(ctx, userID).Return(apperr.New(codes.Unavailable, "db down")).Once()
+		d.repo.EXPECT().Delete(ctx, userID).Return(nil).Once()
+
+		assert.ErrorIs(t, d.uc.Delete(ctx, userID), apperr.ErrUnavailable)
+		assert.NoError(t, d.uc.Delete(ctx, userID))
 	})
 }

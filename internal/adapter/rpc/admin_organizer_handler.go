@@ -111,3 +111,16 @@ func (h *AdminOrganizerHandler) Deactivate(
 	}
 	return connect.NewResponse(&organizerv1.DeactivateResponse{}), nil
 }
+
+// Delete permanently removes a deactivated Organizer with its files, tenant
+// and records. Returns NotFound when no organizer with the given id exists and
+// FailedPrecondition when it is not deactivated or deletion is blocked.
+func (h *AdminOrganizerHandler) Delete(
+	ctx context.Context,
+	req *connect.Request[organizerv1.DeleteRequest],
+) (*connect.Response[organizerv1.DeleteResponse], error) {
+	if err := h.organizerUseCase.Delete(ctx, req.Msg.GetOrganizerId().GetValue()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&organizerv1.DeleteResponse{}), nil
+}

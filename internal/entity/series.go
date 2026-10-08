@@ -229,6 +229,15 @@ type MediaRepository interface {
 	//
 	//  - Internal: if the delete fails for a reason other than "not found".
 	DeleteMedia(ctx context.Context, mediaID string) error
+
+	// ListMediaByOrganizer returns every media row owned by the organizer, whether or
+	// not a series uses it as its cover. It returns an empty slice when the
+	// organizer owns none.
+	//
+	// # Possible errors
+	//
+	//  - Internal: if the query fails.
+	ListMediaByOrganizer(ctx context.Context, organizerID string) ([]*Media, error)
 }
 
 // SeriesRepository defines the data access interface for [Series].

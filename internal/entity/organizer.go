@@ -118,4 +118,25 @@ type OrganizerRepository interface {
 	//
 	//  - Internal: database query failure.
 	IsArtistRepresentedByActiveOrganizer(ctx context.Context, artistID string) (bool, error)
+
+	// Delete permanently removes, in one transaction, a deactivated Organizer
+	// together with its first-party Series and their Events (with their lottery
+	// sales phases, ticket applications, ticket journeys, performers, reception
+	// links, admissions and rejected scans), the refunded Orders, their Tickets
+	// and their Reversed Settlements for those Events, its Media records, its
+	// artist associations and its payout-account record. It removes nothing when
+	// the Organizer is not deactivated, when any of its Events has an Order that
+	// is not Refunded or a Settlement that is not Reversed, or when the
+	// Organizer has a payout-account record.
+	//
+	// With dryRun it runs the same checks and removes nothing, so a caller can
+	// learn whether deletion is blocked before removing anything kept outside
+	// the database.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no organizer with the id exists.
+	//  - FailedPrecondition: the organizer is not deactivated, or a purchase or
+	//    payout account blocks deletion.
+	Delete(ctx context.Context, id string, dryRun bool) error
 }

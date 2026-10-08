@@ -72,11 +72,20 @@ type UserUseCase interface {
 	//  - NotFound: If the user does not exist.
 	UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error)
 
-	// Delete removes a user from the system.
+	// Delete permanently removes a fan user at an admin's request: first the
+	// user's sign-in identity, then the user record with everything it owns.
+	// The user's Orders, Tickets and ticket applications are kept. Nothing is
+	// removed while the user holds an Issued Ticket or has an Order that is not
+	// Refunded. An identity that is already gone counts as removed, so calling
+	// Delete again completes a deletion whose record removal failed.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If the user does not exist.
+	//  - FailedPrecondition: If the user holds an Issued Ticket or has an Order
+	//    that is not Refunded.
+	//  - Internal: If the identity could not be removed, or identity removal
+	//    is not configured.
 	Delete(ctx context.Context, id string) error
 
 	// ResolveCaller returns the user identified by externalID (the Zitadel
@@ -119,10 +128,13 @@ type UserUseCase interface {
 
 // userUseCase implements the UserUseCase interface.
 type userUseCase struct {
-	userRepo      entity.UserRepository
-	publisher     EventPublisher
-	emailVerifier entity.EmailVerifier
-	logger        *logging.Logger
+	userRepo        entity.UserRepository
+	ticketRepo      entity.TicketRepository
+	orderRepo       entity.OrderRepository
+	publisher       EventPublisher
+	emailVerifier   entity.EmailVerifier
+	identityRemover entity.IdentityRemover
+	logger          *logging.Logger
 
 	// resendMu protects resendLog for concurrent access.
 	resendMu  sync.Mutex
@@ -133,16 +145,29 @@ type userUseCase struct {
 var _ UserUseCase = (*userUseCase)(nil)
 
 // NewUserUseCase creates a new user use case.
-// It requires a user repository for data persistence, a publisher for domain
-// events, an email verifier for triggering verification emails (nil when the
-// Zitadel API client is not configured, e.g. local dev), and a logger.
-func NewUserUseCase(userRepo entity.UserRepository, publisher EventPublisher, emailVerifier entity.EmailVerifier, logger *logging.Logger) UserUseCase {
+// It requires a user repository for data persistence, the ticket and order
+// repositories that deletion checks for live purchases, a publisher for domain
+// events, an email verifier for triggering verification emails and an
+// identity remover for deletion (both nil when the Zitadel API client is not
+// configured, e.g. local dev), and a logger.
+func NewUserUseCase(
+	userRepo entity.UserRepository,
+	ticketRepo entity.TicketRepository,
+	orderRepo entity.OrderRepository,
+	publisher EventPublisher,
+	emailVerifier entity.EmailVerifier,
+	identityRemover entity.IdentityRemover,
+	logger *logging.Logger,
+) UserUseCase {
 	return &userUseCase{
-		userRepo:      userRepo,
-		publisher:     publisher,
-		emailVerifier: emailVerifier,
-		logger:        logger,
-		resendLog:     make(map[string][]time.Time),
+		userRepo:        userRepo,
+		ticketRepo:      ticketRepo,
+		orderRepo:       orderRepo,
+		publisher:       publisher,
+		emailVerifier:   emailVerifier,
+		identityRemover: identityRemover,
+		logger:          logger,
+		resendLog:       make(map[string][]time.Time),
 	}
 }
 
@@ -308,14 +333,47 @@ func (uc *userUseCase) UpdateHome(ctx context.Context, id string, home *entity.H
 	return user, nil
 }
 
-// Delete deletes a user by ID.
+// Delete removes the user's identity and then the user, after checking that
+// the user holds no Issued Ticket and has no Order that is not Refunded.
 func (uc *userUseCase) Delete(ctx context.Context, id string) error {
-	err := uc.userRepo.Delete(ctx, id)
+	user, err := uc.userRepo.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	uc.logger.Info(ctx, "User deleted successfully", slog.String("user_id", id))
+	tickets, err := uc.ticketRepo.ListByHolder(ctx, entity.UserID(id))
+	if err != nil {
+		return err
+	}
+	for _, t := range tickets {
+		if t.Status == entity.TicketStatusIssued {
+			return apperr.New(codes.FailedPrecondition, "user holds an issued ticket", slog.String("user_id", id))
+		}
+	}
+	orders, err := uc.orderRepo.ListByBuyer(ctx, entity.UserID(id))
+	if err != nil {
+		return err
+	}
+	for _, o := range orders {
+		if o.Status != entity.OrderStatusRefunded {
+			return apperr.New(codes.FailedPrecondition, "user has an order that is not refunded", slog.String("user_id", id))
+		}
+	}
+
+	if uc.identityRemover == nil {
+		return apperr.New(codes.Internal, "identity removal is not configured")
+	}
+	if err := uc.identityRemover.DeleteIdentity(ctx, user.ExternalID); err != nil {
+		return err
+	}
+	if err := uc.userRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	uc.logger.Info(ctx, "User deleted successfully",
+		slog.String("user_id", id),
+		slog.String("external_id", user.ExternalID),
+	)
 
 	return nil
 }

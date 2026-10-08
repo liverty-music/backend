@@ -298,3 +298,137 @@ func (r *OrganizerRepository) IsArtistRepresentedByActiveOrganizer(ctx context.C
 	}
 	return exists, nil
 }
+
+// organizerEventIDsSubquery selects the ids of every Event in a Series owned by
+// the organizer bound to $1. It is shared by the deletion check and the
+// deletion statements below.
+const organizerEventIDsSubquery = `
+	SELECT e.id FROM events e JOIN series s ON s.id = e.series_id WHERE s.organizer_id = $1
+`
+
+const (
+	lockOrganizerStatusQuery = `
+		SELECT status FROM organizers WHERE id = $1 FOR UPDATE
+	`
+	// organizerDeletionBlockersQuery reports, for the organizer bound to $1,
+	// whether any of its Events has an Order that is not Refunded or a
+	// Settlement that is not Reversed, and whether it has a payout account.
+	organizerDeletionBlockersQuery = `
+		SELECT
+			EXISTS (
+				SELECT 1 FROM orders o
+				JOIN ticket_applications ta ON ta.id = o.application_id
+				JOIN lottery_sales_phases p ON p.id = ta.phase_id
+				WHERE p.event_id IN (` + organizerEventIDsSubquery + `) AND o.status <> $2
+			),
+			EXISTS (
+				SELECT 1 FROM settlements st
+				WHERE st.event_id IN (` + organizerEventIDsSubquery + `) AND st.status <> $3
+			),
+			EXISTS (SELECT 1 FROM organizer_connected_accounts WHERE organizer_id = $1)
+	`
+	deleteOrganizerAdmissionsQuery = `
+		DELETE FROM admissions WHERE event_id IN (` + organizerEventIDsSubquery + `)
+	`
+	deleteOrganizerRejectedScansQuery = `
+		DELETE FROM rejected_scans WHERE event_id IN (` + organizerEventIDsSubquery + `)
+	`
+	deleteOrganizerReceptionLinksQuery = `
+		DELETE FROM reception_links WHERE event_id IN (` + organizerEventIDsSubquery + `)
+	`
+	// The purchase deletions below are filtered by status as well as by event:
+	// a Paid Order committed after the blocker check is then left in place, and
+	// the Series delete fails on its RESTRICT foreign key instead of removing it.
+	deleteOrganizerSettlementsQuery = `
+		DELETE FROM settlements WHERE event_id IN (` + organizerEventIDsSubquery + `) AND status = $2
+	`
+	deleteOrganizerTicketsQuery = `
+		DELETE FROM tickets t USING orders o
+		WHERE t.order_id = o.id AND t.event_id IN (` + organizerEventIDsSubquery + `) AND o.status = $2
+	`
+	deleteOrganizerOrdersQuery = `
+		DELETE FROM orders o USING ticket_applications ta, lottery_sales_phases p
+		WHERE ta.id = o.application_id AND p.id = ta.phase_id
+		  AND p.event_id IN (` + organizerEventIDsSubquery + `) AND o.status = $2
+	`
+	deleteOrganizerSeriesQuery = `
+		DELETE FROM series WHERE organizer_id = $1
+	`
+	deleteOrganizerMediaQuery = `
+		DELETE FROM media WHERE organizer_id = $1
+	`
+	deleteOrganizerQuery = `
+		DELETE FROM organizers WHERE id = $1
+	`
+)
+
+// Delete permanently removes a deactivated Organizer and every record kept for
+// it, in one transaction (see entity.OrganizerRepository.Delete). The
+// organizer row is locked first and the blockers are checked under that lock;
+// with dryRun the transaction is rolled back after the check.
+//
+// The statements run in RESTRICT-safe order: reception records, then the
+// refunded purchases, then the Series (which cascades Events, phases,
+// applications, journeys, performers and series_media), then the Media rows
+// and finally the organizer row (which cascades organizer_artists).
+func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool) error {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return toAppErr(err, "failed to begin organizer delete transaction", slog.String("id", id))
+	}
+	// Rollback is a no-op after a successful Commit.
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var status int16
+	if err := tx.QueryRow(ctx, lockOrganizerStatusQuery, id).Scan(&status); err != nil {
+		return toAppErr(err, "failed to lock organizer", slog.String("id", id))
+	}
+	if entity.OrganizerStatus(status) != entity.OrganizerStatusDeactivated {
+		return apperr.New(codes.FailedPrecondition, "organizer is not deactivated", slog.String("id", id))
+	}
+
+	var unrefundedOrder, unreversedSettlement, payoutAccount bool
+	if err := tx.QueryRow(ctx, organizerDeletionBlockersQuery, id,
+		int16(entity.OrderStatusRefunded), int16(entity.SettlementStatusReversed),
+	).Scan(&unrefundedOrder, &unreversedSettlement, &payoutAccount); err != nil {
+		return toAppErr(err, "failed to check organizer deletion blockers", slog.String("id", id))
+	}
+	switch {
+	case unrefundedOrder:
+		return apperr.New(codes.FailedPrecondition, "an event of the organizer has an order that is not refunded", slog.String("id", id))
+	case unreversedSettlement:
+		return apperr.New(codes.FailedPrecondition, "an event of the organizer has a settlement that is not reversed", slog.String("id", id))
+	case payoutAccount:
+		return apperr.New(codes.FailedPrecondition, "the organizer has a payout account", slog.String("id", id))
+	}
+	if dryRun {
+		return nil
+	}
+
+	statements := []struct {
+		query string
+		args  []any
+		what  string
+	}{
+		{deleteOrganizerAdmissionsQuery, []any{id}, "admissions"},
+		{deleteOrganizerRejectedScansQuery, []any{id}, "rejected scans"},
+		{deleteOrganizerReceptionLinksQuery, []any{id}, "reception links"},
+		{deleteOrganizerSettlementsQuery, []any{id, int16(entity.SettlementStatusReversed)}, "settlements"},
+		{deleteOrganizerTicketsQuery, []any{id, int16(entity.OrderStatusRefunded)}, "tickets"},
+		{deleteOrganizerOrdersQuery, []any{id, int16(entity.OrderStatusRefunded)}, "orders"},
+		{deleteOrganizerSeriesQuery, []any{id}, "series"},
+		{deleteOrganizerMediaQuery, []any{id}, "media"},
+		{deleteOrganizerQuery, []any{id}, "organizer"},
+	}
+	for _, st := range statements {
+		if _, err := tx.Exec(ctx, st.query, st.args...); err != nil {
+			return toAppErr(err, "failed to delete organizer "+st.what, slog.String("id", id))
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return toAppErr(err, "failed to commit organizer delete", slog.String("id", id))
+	}
+	r.db.logger.Info(ctx, "organizer deleted", slog.String("entityType", "organizer"), slog.String("id", id))
+	return nil
+}

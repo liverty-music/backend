@@ -108,22 +108,55 @@ type OrganizerUseCase interface {
 	// repeatedly (the saga is idempotent); per-organizer failures are logged and
 	// skipped so one bad row does not stall the sweep.
 	ReconcileProvisioning(ctx context.Context) error
+
+	// Delete permanently removes a deactivated Organizer: the original and
+	// served files of every Media it owns, then its tenant (when it has one),
+	// then its records. Before anything is removed it runs the record deletion
+	// as a dry run, so a purchase or payout account that blocks deletion stops
+	// the call with nothing removed. Removed files and tenants count as removed
+	// on a retry, so calling Delete again completes a deletion that failed
+	// partway.
+	//
+	// # Possible errors:
+	//   - NotFound: the organizer does not exist.
+	//   - FailedPrecondition: the organizer is not deactivated, or an Order
+	//     that is not Refunded, a Settlement that is not Reversed or a payout
+	//     account blocks deletion.
+	//   - Internal: a file or the tenant could not be removed, or media
+	//     storage is not configured while the organizer owns media.
+	Delete(ctx context.Context, organizerID string) error
+}
+
+// OrganizerMediaBuckets names the GCS buckets that hold Organizer media: the
+// internal bucket for uploaded originals and the served bucket for the
+// processed variants.
+type OrganizerMediaBuckets struct {
+	Internal string
+	Served   string
 }
 
 type organizerUseCase struct {
 	organizerRepo entity.OrganizerRepository
 	artistRepo    entity.ArtistRepository
 	provisioner   OrganizerProvisioner
+	mediaRepo     entity.MediaRepository
+	imageStorer   ImageStorer
+	mediaBuckets  OrganizerMediaBuckets
 	publisher     EventPublisher
 	metrics       OrganizerMetrics
 	logger        *logging.Logger
 }
 
-// NewOrganizerUseCase creates a new OrganizerUseCase.
+// NewOrganizerUseCase creates a new OrganizerUseCase. imageStorer may be nil
+// in local development; Delete then fails with Internal for an Organizer that
+// owns media rather than leaving its files behind.
 func NewOrganizerUseCase(
 	organizerRepo entity.OrganizerRepository,
 	artistRepo entity.ArtistRepository,
 	provisioner OrganizerProvisioner,
+	mediaRepo entity.MediaRepository,
+	imageStorer ImageStorer,
+	mediaBuckets OrganizerMediaBuckets,
 	publisher EventPublisher,
 	metrics OrganizerMetrics,
 	logger *logging.Logger,
@@ -132,6 +165,9 @@ func NewOrganizerUseCase(
 		organizerRepo: organizerRepo,
 		artistRepo:    artistRepo,
 		provisioner:   provisioner,
+		mediaRepo:     mediaRepo,
+		imageStorer:   imageStorer,
+		mediaBuckets:  mediaBuckets,
 		publisher:     publisher,
 		metrics:       metrics,
 		logger:        logger,
@@ -373,5 +409,54 @@ func (uc *organizerUseCase) Deactivate(ctx context.Context, organizerID string) 
 		return err
 	}
 	uc.logger.Info(ctx, "organizer deactivated", slog.String("organizer_id", organizerID))
+	return nil
+}
+
+// Delete removes a deactivated Organizer in the order of design D1: the dry-run
+// blocker check, the media files, the tenant, and finally the records. The
+// records go last because they are what lets a retry find the tenant and the
+// media ids again.
+func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) error {
+	org, err := uc.organizerRepo.Get(ctx, organizerID)
+	if err != nil {
+		return err
+	}
+	if org.Status != entity.OrganizerStatusDeactivated {
+		return apperr.New(codes.FailedPrecondition, "organizer is not deactivated", slog.String("organizer_id", organizerID))
+	}
+	if err := uc.organizerRepo.Delete(ctx, organizerID, true); err != nil {
+		return err
+	}
+
+	media, err := uc.mediaRepo.ListMediaByOrganizer(ctx, organizerID)
+	if err != nil {
+		return err
+	}
+	if len(media) > 0 && (uc.imageStorer == nil || uc.mediaBuckets.Internal == "" || uc.mediaBuckets.Served == "") {
+		return apperr.New(codes.Internal, "organizer media storage is not configured", slog.String("organizer_id", organizerID))
+	}
+	for _, m := range media {
+		if err := uc.imageStorer.DeleteOriginal(ctx, uc.mediaBuckets.Internal, organizerID, m.ID); err != nil {
+			return err
+		}
+		if err := uc.imageStorer.DeleteVariants(ctx, uc.mediaBuckets.Served, organizerID, m.ID); err != nil {
+			return err
+		}
+	}
+
+	if org.ZitadelOrgID != "" {
+		if err := uc.provisioner.DeleteTenant(ctx, org.ZitadelOrgID); err != nil {
+			return err
+		}
+	}
+
+	if err := uc.organizerRepo.Delete(ctx, organizerID, false); err != nil {
+		return err
+	}
+	uc.logger.Info(ctx, "organizer deleted",
+		slog.String("organizer_id", organizerID),
+		slog.String("zitadel_org_id", org.ZitadelOrgID),
+		slog.Int("media_count", len(media)),
+	)
 	return nil
 }

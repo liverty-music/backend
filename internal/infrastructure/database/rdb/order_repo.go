@@ -26,6 +26,7 @@ const (
 	orderGetByApplicationIDQuery    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE application_id = $1`
 	orderGetByPaymentIntentRefQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE payment_intent_ref = $1`
 	orderUpdateStatusQuery          = `UPDATE orders SET status = $2 WHERE id = $1`
+	orderListByBuyerQuery           = `SELECT ` + orderSelectColumns + ` FROM orders WHERE buyer_id = $1 ORDER BY paid_at, id`
 )
 
 // NewOrderRepository creates a new order repository instance.
@@ -78,6 +79,29 @@ func (r *OrderRepository) UpdateStatus(ctx context.Context, id entity.OrderID, s
 		return apperr.New(codes.NotFound, "order not found")
 	}
 	return nil
+}
+
+// ListByBuyer returns every order the given user bought, in any status, oldest
+// first. Returns an empty slice when the user bought nothing.
+func (r *OrderRepository) ListByBuyer(ctx context.Context, buyerID entity.UserID) ([]*entity.Order, error) {
+	rows, err := r.db.Pool.Query(ctx, orderListByBuyerQuery, string(buyerID))
+	if err != nil {
+		return nil, toAppErr(err, "failed to list orders by buyer", slog.String("buyer_id", string(buyerID)))
+	}
+	defer rows.Close()
+
+	orders := []*entity.Order{}
+	for rows.Next() {
+		order, err := scanOrder(rows)
+		if err != nil {
+			return nil, toAppErr(err, "failed to scan order", slog.String("buyer_id", string(buyerID)))
+		}
+		orders = append(orders, order)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to iterate orders", slog.String("buyer_id", string(buyerID)))
+	}
+	return orders, nil
 }
 
 // orderScanner is satisfied by both pgx.Row and pgx.Rows, so scanOrder works

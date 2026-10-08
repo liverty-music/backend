@@ -20,6 +20,8 @@ type organizerTestDeps struct {
 	orgRepo     *mocks.MockOrganizerRepository
 	artistRepo  *mocks.MockArtistRepository
 	provisioner *ucmocks.MockOrganizerProvisioner
+	mediaRepo   *mocks.MockMediaRepository
+	imageStorer *ucmocks.MockImageStorer
 	publisher   *ucmocks.MockEventPublisher
 	metrics     *ucmocks.MockOrganizerMetrics
 	uc          usecase.OrganizerUseCase
@@ -31,6 +33,8 @@ func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 		orgRepo:     mocks.NewMockOrganizerRepository(t),
 		artistRepo:  mocks.NewMockArtistRepository(t),
 		provisioner: ucmocks.NewMockOrganizerProvisioner(t),
+		mediaRepo:   mocks.NewMockMediaRepository(t),
+		imageStorer: ucmocks.NewMockImageStorer(t),
 		publisher:   ucmocks.NewMockEventPublisher(t),
 		metrics:     ucmocks.NewMockOrganizerMetrics(t),
 	}
@@ -38,12 +42,20 @@ func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 		d.orgRepo,
 		d.artistRepo,
 		d.provisioner,
+		d.mediaRepo,
+		d.imageStorer,
+		usecase.OrganizerMediaBuckets{Internal: testInternalBucket, Served: testServedBucket},
 		d.publisher,
 		d.metrics,
 		newTestLogger(t),
 	)
 	return d
 }
+
+const (
+	testInternalBucket = "organizer-media-internal"
+	testServedBucket   = "organizer-media"
+)
 
 func TestOrganizerUseCase_Create(t *testing.T) {
 	t.Parallel()
@@ -926,5 +938,160 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 		d := newOrganizerTestDeps(t)
 		d.orgRepo.EXPECT().ListByStatus(ctx, entity.OrganizerStatusProvisioning).Return(nil, apperr.ErrInternal).Once()
 		assert.ErrorIs(t, d.uc.ReconcileProvisioning(ctx), apperr.ErrInternal)
+	})
+}
+
+func TestOrganizerUseCase_Delete(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const orgID = "org-delete"
+	deactivated := &entity.Organizer{ID: orgID, ZitadelOrgID: "zitadel-tenant", Status: entity.OrganizerStatusDeactivated}
+	media := []*entity.Media{{ID: "media-cover", OrganizerID: orgID}, {ID: "media-unused", OrganizerID: orgID}}
+	errTenant := apperr.New(codes.Internal, "remove tenant org")
+
+	// expectRemoval expects every removal step of a deactivated organizer and
+	// appends each step to calls as it runs.
+	expectRemoval := func(d *organizerTestDeps, org *entity.Organizer, calls *[]string, tenantErr error) {
+		d.orgRepo.EXPECT().Get(ctx, orgID).Return(org, nil).Once()
+		d.orgRepo.EXPECT().Delete(ctx, orgID, true).Run(func(context.Context, string, bool) {
+			*calls = append(*calls, "check")
+		}).Return(nil).Once()
+		d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(media, nil).Once()
+		for _, m := range media {
+			d.imageStorer.EXPECT().DeleteOriginal(ctx, testInternalBucket, orgID, m.ID).Run(func(context.Context, string, string, string) {
+				*calls = append(*calls, "original:"+m.ID)
+			}).Return(nil).Once()
+			d.imageStorer.EXPECT().DeleteVariants(ctx, testServedBucket, orgID, m.ID).Run(func(context.Context, string, string, string) {
+				*calls = append(*calls, "variants:"+m.ID)
+			}).Return(nil).Once()
+		}
+		if org.ZitadelOrgID != "" {
+			d.provisioner.EXPECT().DeleteTenant(ctx, org.ZitadelOrgID).Run(func(context.Context, string) {
+				*calls = append(*calls, "tenant")
+			}).Return(tenantErr).Once()
+		}
+		if tenantErr == nil {
+			d.orgRepo.EXPECT().Delete(ctx, orgID, false).Run(func(context.Context, string, bool) {
+				*calls = append(*calls, "records")
+			}).Return(nil).Once()
+		}
+	}
+	filesThen := func(tail ...string) []string {
+		return append([]string{"check",
+			"original:media-cover", "variants:media-cover",
+			"original:media-unused", "variants:media-unused",
+		}, tail...)
+	}
+
+	tests := []struct {
+		name string
+		// noStorage builds the usecase without an image storer or buckets.
+		noStorage bool
+		setup     func(d *organizerTestDeps, calls *[]string)
+		wantCalls []string
+		wantErr   error
+	}{
+		{
+			// @spec components/usecase/organizer/delete "Deactivated test Organizer"
+			name: "removes the media files, then the tenant, then the records",
+			setup: func(d *organizerTestDeps, calls *[]string) {
+				expectRemoval(d, deactivated, calls, nil)
+			},
+			wantCalls: filesThen("tenant", "records"),
+		},
+		{
+			// @spec components/usecase/organizer/delete "Refunded order"
+			name: "removes an organizer whose only order is refunded, as the record check passes",
+			setup: func(d *organizerTestDeps, calls *[]string) {
+				expectRemoval(d, deactivated, calls, nil)
+			},
+			wantCalls: filesThen("tenant", "records"),
+		},
+		{
+			// @spec components/usecase/organizer/delete "Organizer without a tenant"
+			name: "skips the tenant when the organizer has no tenant link",
+			setup: func(d *organizerTestDeps, calls *[]string) {
+				noTenant := *deactivated
+				noTenant.ZitadelOrgID = ""
+				expectRemoval(d, &noTenant, calls, nil)
+			},
+			wantCalls: filesThen("records"),
+		},
+		{
+			// @spec components/usecase/organizer/delete "Active Organizer"
+			name: "refuses an active organizer and removes nothing",
+			setup: func(d *organizerTestDeps, _ *[]string) {
+				d.orgRepo.EXPECT().Get(ctx, orgID).Return(&entity.Organizer{ID: orgID, ZitadelOrgID: "zitadel-tenant", Status: entity.OrganizerStatusActive}, nil).Once()
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			// @spec components/usecase/organizer/delete "Unknown Organizer"
+			name: "returns NotFound for an unknown organizer",
+			setup: func(d *organizerTestDeps, _ *[]string) {
+				d.orgRepo.EXPECT().Get(ctx, orgID).Return(nil, apperr.New(codes.NotFound, "organizer not found")).Once()
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+		{
+			// @spec components/usecase/organizer/delete "Paid order"
+			name: "refuses before any file or the tenant is removed when the record check is blocked",
+			setup: func(d *organizerTestDeps, _ *[]string) {
+				d.orgRepo.EXPECT().Get(ctx, orgID).Return(deactivated, nil).Once()
+				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(apperr.New(codes.FailedPrecondition, "order not refunded")).Once()
+			},
+			wantErr: apperr.ErrFailedPrecondition,
+		},
+		{
+			name:      "returns Internal before removing anything when media storage is not configured",
+			noStorage: true,
+			setup: func(d *organizerTestDeps, _ *[]string) {
+				d.orgRepo.EXPECT().Get(ctx, orgID).Return(deactivated, nil).Once()
+				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
+				d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(media, nil).Once()
+			},
+			wantErr: apperr.ErrInternal,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newOrganizerTestDeps(t)
+			if tt.noStorage {
+				d.uc = usecase.NewOrganizerUseCase(d.orgRepo, d.artistRepo, d.provisioner, d.mediaRepo, nil,
+					usecase.OrganizerMediaBuckets{}, d.publisher, d.metrics, newTestLogger(t))
+			}
+			var calls []string
+			tt.setup(d, &calls)
+
+			err := d.uc.Delete(ctx, orgID)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantCalls, calls)
+		})
+	}
+
+	// @spec components/usecase/organizer/delete "Tenant removal fails"
+	t.Run("a failed tenant removal leaves the records and a second call completes the deletion", func(t *testing.T) {
+		t.Parallel()
+		d := newOrganizerTestDeps(t)
+		var calls []string
+		expectRemoval(d, deactivated, &calls, errTenant)
+
+		err := d.uc.Delete(ctx, orgID)
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+		assert.Equal(t, filesThen("tenant"), calls, "the records must remain after the tenant fails")
+
+		calls = nil
+		expectRemoval(d, deactivated, &calls, nil)
+
+		assert.NoError(t, d.uc.Delete(ctx, orgID))
+		assert.Equal(t, filesThen("tenant", "records"), calls)
 	})
 }

@@ -267,6 +267,25 @@ func (p *OrganizerProvisioner) DeactivateOperators(ctx context.Context, zitadelO
 	return nil
 }
 
+// DeleteTenant removes the tenant org, which removes every user in it. The org
+// is addressed through the x-zitadel-orgid header, as RemoveOrg acts on the
+// org of the request. A NotFound response means the org is already gone and
+// counts as success, so a retry after a partial deletion completes.
+func (p *OrganizerProvisioner) DeleteTenant(ctx context.Context, zitadelOrgID string) error {
+	orgCtx := middleware.SetOrgID(ctx, zitadelOrgID)
+
+	//nolint:staticcheck // SA1019: Zitadel Management API v1 is legacy but fully supported; v2 migration deferred until a live Zitadel is available to verify the provisioning saga (esp. the passkey registration email link).
+	if _, err := p.mgmt.RemoveOrg(orgCtx, &mgmtpb.RemoveOrgRequest{}); err != nil {
+		if isNotFound(err) {
+			p.logger.Info(ctx, "tenant org already removed", slog.String("zitadel_org_id", zitadelOrgID))
+			return nil
+		}
+		return apperr.Wrap(err, codes.Internal, fmt.Sprintf("remove tenant org %s", zitadelOrgID))
+	}
+	p.logger.Info(ctx, "tenant org removed", slog.String("zitadel_org_id", zitadelOrgID))
+	return nil
+}
+
 // ensureOrg creates the tenant org if it does not already exist. On an
 // AlreadyExists response it queries for the org by name and returns its id.
 func (p *OrganizerProvisioner) ensureOrg(ctx context.Context, orgName string) (string, error) {

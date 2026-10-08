@@ -11,6 +11,7 @@ import (
 	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert/v1/concertv1connect"
 	adminorderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/order/v1/orderv1connect"
 	adminorganizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
+	adminuserconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/user/v1/userv1connect"
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
@@ -185,6 +186,16 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		}
 		emailVerifier = ev
 	}
+	// Fan identity removal uses the same backend-app credential, whose
+	// ORG_USER_MANAGER membership on the product org carries user.delete.
+	var identityRemover entity.IdentityRemover
+	if cfg.ZitadelMachineKeyForBackendAppPath != "" {
+		ir, err := infrazitadel.NewIdentityRemover(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForBackendAppPath, logger)
+		if err != nil {
+			return nil, fmt.Errorf("create zitadel identity remover: %w", err)
+		}
+		identityRemover = ir
+	}
 
 	// Business metrics
 	businessMetrics := infratelemetry.NewBusinessMetrics()
@@ -192,7 +203,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Use Cases
 	eventPublisher := messaging.NewEventPublisher(publisher)
 
-	userUC := usecase.NewUserUseCase(userRepo, eventPublisher, emailVerifier, logger)
+	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, emailVerifier, identityRemover, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
@@ -209,13 +220,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	} else {
 		organizerProvisioner = infrazitadel.NewNoopOrganizerProvisioner(logger)
 	}
-	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, eventPublisher, businessMetrics, logger)
-	// Run the provisioning reconciler only where the real provisioner credential
-	// is mounted (the isolated admin workload); it completes any organizer left
-	// in the provisioning state after a partial failure.
-	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
-		startOrganizerReconciler(ctx, organizerUC, logger)
-	}
 	// GCS image storer for organizer media (optional: nil when GCP credentials
 	// are unavailable in local dev so signed-URL issuance returns Internal
 	// rather than panicking during startup).
@@ -230,6 +234,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			imageStorer = storer
 			shutdown.AddExternalPhase(storer)
 		}
+	}
+	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, seriesRepo, imageStorer,
+		usecase.OrganizerMediaBuckets{Internal: cfg.OrganizerMediaInternalBucket, Served: cfg.OrganizerMediaBucket},
+		eventPublisher, businessMetrics, logger)
+	// Run the provisioning reconciler only where the real provisioner credential
+	// is mounted (the isolated admin workload); it completes any organizer left
+	// in the provisioning state after a partial failure.
+	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
+		startOrganizerReconciler(ctx, organizerUC, logger)
 	}
 	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerRepo, eventPublisher, logger)
 
@@ -448,6 +461,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return artistconnect.NewArtistServiceHandler(
 				rpc.NewArtistHandler(artistUC, logger),
+				opts...,
+			)
+		},
+		// Admin UserService: Delete (admin-delete-test-data). Removes a fan
+		// User and its Zitadel identity; never mounted on the consumer server.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return adminuserconnect.NewUserServiceHandler(
+				rpc.NewAdminUserHandler(userUC, logger),
 				opts...,
 			)
 		},

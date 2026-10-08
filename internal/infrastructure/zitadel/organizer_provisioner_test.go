@@ -10,8 +10,10 @@ import (
 	userv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	grpcstatus "google.golang.org/grpc/status"
 
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,6 +65,20 @@ type stubMgmt struct {
 	removeUserCallIDs []string
 	// removeUserErrs maps user id → error; nil entry means success.
 	removeUserErrs map[string]error
+
+	// removeOrgOrgIDs records the x-zitadel-orgid header of each RemoveOrg
+	// call; removeOrgErr controls its error.
+	removeOrgOrgIDs []string
+	removeOrgErr    error
+}
+
+func (s *stubMgmt) RemoveOrg(ctx context.Context, _ *mgmtpb.RemoveOrgRequest, _ ...grpc.CallOption) (*mgmtpb.RemoveOrgResponse, error) {
+	md, _ := metadata.FromOutgoingContext(ctx)
+	s.removeOrgOrgIDs = append(s.removeOrgOrgIDs, md.Get("x-zitadel-orgid")...)
+	if s.removeOrgErr != nil {
+		return nil, s.removeOrgErr
+	}
+	return &mgmtpb.RemoveOrgResponse{}, nil
 }
 
 func (s *stubMgmt) AddOrg(_ context.Context, in *mgmtpb.AddOrgRequest, _ ...grpc.CallOption) (*mgmtpb.AddOrgResponse, error) {
@@ -558,6 +574,47 @@ func TestOrganizerProvisioner_DeactivateOperators(t *testing.T) {
 			}
 			assert.Len(t, tt.stub.deactivateUserCallIDs, tt.wantCallCount)
 			assert.Len(t, tt.stub.removeUserCallIDs, tt.wantRemoveCount)
+		})
+	}
+}
+
+func TestOrganizerProvisioner_DeleteTenant(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		stub    *stubMgmt
+		wantErr error
+	}{
+		{
+			// @spec components/entity/organizer/delete-tenant "Tenant with operators"
+			name: "removes the tenant org, which removes its operators",
+			stub: &stubMgmt{},
+		},
+		{
+			// @spec components/entity/organizer/delete-tenant "Already removed"
+			name: "succeeds when the tenant org no longer exists",
+			stub: &stubMgmt{removeOrgErr: grpcstatus.Error(grpccodes.NotFound, "org not found")},
+		},
+		{
+			name:    "returns Internal when the tenant org cannot be removed",
+			stub:    &stubMgmt{removeOrgErr: grpcstatus.Error(grpccodes.Unavailable, "zitadel down")},
+			wantErr: apperr.ErrInternal,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := newTestProvisioner(t, tt.stub, nil)
+
+			err := p.DeleteTenant(context.Background(), "zitadel-org-tenant")
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, []string{"zitadel-org-tenant"}, tt.stub.removeOrgOrgIDs, "RemoveOrg must target the tenant org")
 		})
 	}
 }

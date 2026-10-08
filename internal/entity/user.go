@@ -233,3 +233,16 @@ type EmailVerifier interface {
 	//  - Unavailable: The Zitadel API client is not configured.
 	ResendVerification(ctx context.Context, externalID string) error
 }
+
+// IdentityRemover removes a User's sign-in identity at the identity provider.
+// Implementations call the Zitadel API.
+type IdentityRemover interface {
+	// DeleteIdentity removes the identity-provider user identified by
+	// externalID (the Zitadel subject claim), so it can no longer sign in. An
+	// identity that no longer exists counts as removed.
+	//
+	// # Possible errors
+	//
+	//  - Internal: the identity provider failed to remove the identity.
+	DeleteIdentity(ctx context.Context, externalID string) error
+}

@@ -118,6 +118,11 @@ type ServerConfig struct {
 	// media-consumer). Signed PUT URLs point here.
 	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
 
+	// OrganizerMediaBucket is the CDN-served GCS bucket that holds the
+	// processed thumb/large WebP variants. The admin Organizer deletion removes
+	// a deleted Organizer's variants from it.
+	OrganizerMediaBucket string `envconfig:"ORGANIZER_MEDIA_BUCKET"`
+
 	// OrganizerMediaCDNBase is the public CDN base URL used to compose served
 	// series-media variant URLs (thumb/large). Injected into
 	// mapper.MediaURLBuilder at DI wiring time; empty disables cover-media URLs
