@@ -100,8 +100,8 @@ type ReceptionLinkUseCase interface {
 	//
 	//  - InvalidArgument: the public key is not a valid P-256 key.
 	//  - PermissionDenied: no link holds the token (cause
-	//    [ErrUnknownReceptionLinkToken]), the link is Revoked, or the call is
-	//    not proven by the bound device. Not told apart.
+	//    [ErrUnknownReceptionLinkToken]), the call is not proven by the given
+	//    public key (nothing is bound), or the link is Revoked. Not told apart.
 	//  - FailedPrecondition: the link is bound to another device.
 	//  - Internal: database failure.
 	Open(ctx context.Context, in OpenReceptionLinkInput) (*OpenReceptionLinkResult, error)
@@ -232,11 +232,9 @@ func (uc *receptionLinkUseCase) Open(ctx context.Context, in OpenReceptionLinkIn
 		SignTime:  in.SignTime,
 		Signature: in.Signature,
 	}
-	// An Unused link is bound only to a key whose private half signed this
-	// call, so an unproven call cannot leave the link bound to a key no device
-	// holds. The outcome is the PermissionDenied the post-bind proof below
-	// would give; only the binding is not kept.
-	if link.Status == entity.ReceptionLinkStatusUnused && !call.IsSignedBy(in.PublicKey, in.Now) {
+	// The call must be proven by the given key before anything is bound, so a
+	// link is only ever bound to a key whose private half the device holds.
+	if !call.IsSignedBy(in.PublicKey, in.Now) {
 		return nil, receptionRefused(errReceptionLinkRefused)
 	}
 
@@ -249,9 +247,6 @@ func (uc *receptionLinkUseCase) Open(ctx context.Context, in OpenReceptionLinkIn
 		return nil, receptionRefused(errReceptionLinkRefused)
 	case entity.BindOutcomeOtherDevice:
 		return nil, apperr.New(codes.FailedPrecondition, "the reception link is already in use on another device")
-	}
-	if !bound.Proves(call, in.Now) {
-		return nil, receptionRefused(errReceptionLinkRefused)
 	}
 
 	event, err := uc.events.Get(ctx, bound.EventID)

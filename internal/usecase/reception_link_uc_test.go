@@ -333,8 +333,9 @@ func TestReceptionLinkUseCase_Open(t *testing.T) {
 		assert.ErrorIs(t, err, usecase.ErrUnknownReceptionLinkToken)
 	})
 
-	t.Run("call not proven by the key being bound is refused without binding", func(t *testing.T) {
+	t.Run("signature from another key", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/reception-link/open "Signature from another key"
 		f := newReceptionLinkFixture(t)
 		device := testutil.NewDeviceKey(t)
 		now := evening(16, 0, 0)
@@ -356,11 +357,10 @@ func TestReceptionLinkUseCase_Open(t *testing.T) {
 		in.Now = now
 		bound := boundTo(t, f, device, evening(14, 10, 0))
 		f.links.EXPECT().GetByToken(mock.Anything, "tok-1").Return(bound, nil)
-		f.links.EXPECT().BindDevice(mock.Anything, entity.ReceptionLinkID("l1"), device.PublicKey(t), now).
-			Return(entity.BindOutcomeBound, bound, nil)
 
 		_, err := f.uc.Open(context.Background(), in)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
+		f.links.AssertNotCalled(t, "BindDevice", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("invalid public key", func(t *testing.T) {

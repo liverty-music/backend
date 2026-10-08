@@ -65,6 +65,7 @@ func TestAdmissionCode_Validate(t *testing.T) {
 		// @spec components/entity/admission-code "Too many tickets"
 		{name: "eleven tickets", tickets: 11, wantErr: true},
 		{name: "no ticket", tickets: 0, wantErr: true},
+		// @spec components/entity/admission-code "Same ticket twice"
 		{name: "same ticket twice", tickets: 2, dup: true, wantErr: true},
 	}
 	for _, tt := range tests {

@@ -364,13 +364,12 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 	t.Run("someone else's ticket", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/ticket/admit "Someone else's ticket"
-		// @spec components/entity/admission-code "Tickets of two events"
 		f := newAdmitFixture(t)
 		f.expectLinkAndEvent()
 		f.expectFanKey()
 		f.expectAppend()
 		own := f.heldTickets(2)
-		foreign := entity.TicketID(entity.NewID()) // another account's, or a ticket of another event
+		foreign := entity.TicketID(entity.NewID()) // held by another account
 		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(own, nil)
 		for _, tk := range own {
 			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.link.ID, now).
@@ -385,6 +384,33 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		require.Len(t, f.appended, 1)
 		assert.Equal(t, foreign, f.appended[0].TicketID)
 		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, foreign, mock.Anything, mock.Anything)
+	})
+
+	t.Run("ticket of another event in the code", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/ticket/admit "Ticket of another event in the code"
+		f := newAdmitFixture(t)
+		f.expectLinkAndEvent()
+		f.expectFanKey()
+		f.expectAppend()
+		own := f.heldTickets(2)
+		// The fan's own ticket for another event: ListByHolderAndEvent for
+		// this event does not return it.
+		otherEvent := entity.TicketID(entity.NewID())
+		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(own, nil)
+		for _, tk := range own {
+			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.link.ID, now).
+				Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: now}, nil).Once()
+		}
+
+		got, err := f.admit(f.staff, f.code(f.event.ID, now, own[0].ID, otherEvent, own[1].ID), now)
+		require.NoError(t, err)
+		assert.Equal(t, 2, got.AdmittedTicketCount, "the others are decided as usual")
+		require.Len(t, got.RejectedTickets, 1)
+		assert.Equal(t, entity.RejectedScanReasonNotHolder, got.RejectedTickets[0].Reason)
+		require.Len(t, f.appended, 1)
+		assert.Equal(t, otherEvent, f.appended[0].TicketID)
+		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, otherEvent, mock.Anything, mock.Anything)
 	})
 
 	t.Run("refunded ticket", func(t *testing.T) {
@@ -459,6 +485,9 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 
 	t.Run("earlier admission unreadable still reports the admitted time", func(t *testing.T) {
 		t.Parallel()
+		// AlreadyAdmitted carries the admitted time alone when
+		// Admission.GetByTicket fails (Each presented ticket admitted exactly
+		// once).
 		f := newAdmitFixture(t)
 		f.expectLinkAndEvent()
 		f.expectFanKey()
@@ -492,18 +521,47 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
 
-	t.Run("link revoked mid-scan", func(t *testing.T) {
+	t.Run("revoked during a group scan", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/ticket/admit "Revoked during a group scan"
 		f := newAdmitFixture(t)
 		f.expectLinkAndEvent()
 		f.expectFanKey()
-		tickets := f.heldTickets(1)
+		tickets := f.heldTickets(3)
 		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		// The first ticket is admitted, then the link is revoked: the store
+		// refuses the second (see the "link revoked before the admission"
+		// contract test of Ticket.Admit).
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
-			Return(entity.AdmitResult{}, apperr.Wrap(entity.ErrReceptionLinkNotUsable, codes.PermissionDenied, "revoked"))
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: now}, nil).Once()
+		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.link.ID, now).
+			Return(entity.AdmitResult{}, apperr.Wrap(entity.ErrReceptionLinkNotUsable, codes.PermissionDenied, "revoked")).Once()
 
 		_, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 		assert.NotErrorIs(t, err, usecase.ErrUnknownReceptionLinkToken)
+		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, tickets[2].ID, mock.Anything, mock.Anything)
+
+		// A later scan through a new link reports the first ticket
+		// AlreadyAdmitted (the store kept its admission).
+		later := evening(18, 40, 0)
+		next := newAdmitFixture(t)
+		next.fan, next.fanID, next.event = f.fan, f.fanID, f.event
+		next.link.EventID = f.event.ID
+		next.link.Number = 2
+		next.expectLinkAndEvent()
+		next.expectFanKey()
+		next.expectAppend()
+		next.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets[:1], nil)
+		next.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, next.link.ID, later).
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: now}, nil)
+		next.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).
+			Return(&entity.Admission{TicketID: tickets[0].ID, ReceptionLinkNumber: 1, AdmittedTime: now}, nil)
+
+		got, err := next.admit(next.staff, next.code(f.event.ID, later, tickets[0].ID), later)
+		require.NoError(t, err)
+		require.Len(t, got.RejectedTickets, 1)
+		assert.Equal(t, entity.RejectedScanReasonAlreadyAdmitted, got.RejectedTickets[0].Reason)
+		assert.Equal(t, 1, got.RejectedTickets[0].EarlierReceptionLinkNumber)
 	})
 }

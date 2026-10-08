@@ -2,6 +2,7 @@ package rdb_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -141,4 +143,61 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		assert.Equal(t, int16(entity.RejectedScanReasonAlreadyAdmitted), reason)
 		assert.Equal(t, string(s.links[1].ID), linkID)
 	})
+}
+
+// TestReceptionLinkUseCase_Open_Integration opens one Unused link from two
+// devices at once against the real store: exactly one is bound, and the other
+// is told the link is in use on another device (FailedPrecondition), never
+// PermissionDenied.
+func TestReceptionLinkUseCase_Open_Integration(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+	logger, err := logging.New()
+	require.NoError(t, err)
+	const openProcedure = "/liverty_music.rpc.organizer.reception.v1.ReceptionService/Open"
+
+	cleanDatabase(t)
+	eventID := seedReceptionEvent(t)
+	_, err = testDB.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, eventID, nov20(19, 0))
+	require.NoError(t, err)
+	link := seedLink(t, eventID)
+	uc := usecase.NewReceptionLinkUseCase(rdb.NewReceptionLinkRepository(testDB), rdb.NewEventRepository(testDB),
+		rdb.NewEventOrganizerRepository(testDB), rdb.NewEventPublishStateRepository(testDB), logger)
+
+	now := nov20(14, 10)
+	var (
+		wg   sync.WaitGroup
+		errs [2]error
+	)
+	start := make(chan struct{})
+	for i := range 2 {
+		device := testutil.NewDeviceKey(t)
+		key := device.PublicKey(t)
+		call := device.SignCall(t, openProcedure, link.Token, key.Base64URL(), now)
+		wg.Go(func() {
+			<-start
+			_, errs[i] = uc.Open(ctx, usecase.OpenReceptionLinkInput{
+				Procedure: openProcedure, LinkToken: link.Token, PublicKey: key,
+				SignTime: call.SignTime, Signature: call.Signature, Now: now,
+			})
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	succeeded, otherDevice := 0, 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, apperr.ErrFailedPrecondition):
+			otherDevice++
+		default:
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	assert.Equal(t, 1, succeeded)
+	assert.Equal(t, 1, otherDevice)
 }
