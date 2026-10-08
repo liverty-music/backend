@@ -739,10 +739,5 @@ func provideLogger(logCfg config.LoggingConfig) (*logging.Logger, error) {
 	case "json":
 		opts = append(opts, logging.WithFormat(logging.FormatJSON))
 	}
-	logger, err := logging.New(opts...)
-	if err != nil {
-		return nil, err
-	}
-	logProtoExtensionConflicts(context.Background(), logger)
-	return logger, nil
+	return logging.New(opts...)
 }
