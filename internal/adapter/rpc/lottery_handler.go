@@ -112,12 +112,12 @@ func (h *LotteryHandler) Apply(
 	}), nil
 }
 
-// WithdrawApplication cancels the caller's own active application for the
+// Withdraw cancels the caller's own active application for the
 // given phase.
-func (h *LotteryHandler) WithdrawApplication(
+func (h *LotteryHandler) Withdraw(
 	ctx context.Context,
-	req *connect.Request[lotteryv1.WithdrawApplicationRequest],
-) (*connect.Response[lotteryv1.WithdrawApplicationResponse], error) {
+	req *connect.Request[lotteryv1.WithdrawRequest],
+) (*connect.Response[lotteryv1.WithdrawResponse], error) {
 	applicantID, err := h.resolveApplicantID(ctx)
 	if err != nil {
 		return nil, err
@@ -137,14 +137,14 @@ func (h *LotteryHandler) WithdrawApplication(
 		return nil, err
 	}
 
-	return connect.NewResponse(&lotteryv1.WithdrawApplicationResponse{}), nil
+	return connect.NewResponse(&lotteryv1.WithdrawResponse{}), nil
 }
 
-// GetMyApplication returns the caller's active application for the given phase.
-func (h *LotteryHandler) GetMyApplication(
+// GetApplication returns the caller's active application for the given phase.
+func (h *LotteryHandler) GetApplication(
 	ctx context.Context,
-	req *connect.Request[lotteryv1.GetMyApplicationRequest],
-) (*connect.Response[lotteryv1.GetMyApplicationResponse], error) {
+	req *connect.Request[lotteryv1.GetApplicationRequest],
+) (*connect.Response[lotteryv1.GetApplicationResponse], error) {
 	applicantID, err := h.resolveApplicantID(ctx)
 	if err != nil {
 		return nil, err
@@ -157,7 +157,7 @@ func (h *LotteryHandler) GetMyApplication(
 		return nil, err
 	}
 
-	return connect.NewResponse(&lotteryv1.GetMyApplicationResponse{
+	return connect.NewResponse(&lotteryv1.GetApplicationResponse{
 		Application: mapper.TicketApplicationToProto(app),
 	}), nil
 }

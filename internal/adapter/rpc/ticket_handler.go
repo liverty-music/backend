@@ -2,7 +2,9 @@ package rpc
 
 import (
 	"context"
+	"errors"
 
+	ticketv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -10,6 +12,9 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-logging/logging"
 )
+
+// Compile-time assertion that TicketHandler satisfies the generated interface.
+var _ ticketv1connect.TicketServiceHandler = (*TicketHandler)(nil)
 
 // TicketHandler implements the TicketService Connect interface — the buyer-facing
 // read surface over a caller's own Orders and issued Tickets.
@@ -52,8 +57,8 @@ func (h *TicketHandler) GetOrder(ctx context.Context, req *connect.Request[rpc.G
 	return connect.NewResponse(&rpc.GetOrderResponse{Order: mapper.OrderToProto(order)}), nil
 }
 
-// GetMyTickets returns all account-bound tickets issued to the caller.
-func (h *TicketHandler) GetMyTickets(ctx context.Context, _ *connect.Request[rpc.GetMyTicketsRequest]) (*connect.Response[rpc.GetMyTicketsResponse], error) {
+// List returns all account-bound tickets issued to the caller.
+func (h *TicketHandler) List(ctx context.Context, _ *connect.Request[rpc.ListRequest]) (*connect.Response[rpc.ListResponse], error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -69,5 +74,12 @@ func (h *TicketHandler) GetMyTickets(ctx context.Context, _ *connect.Request[rpc
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.GetMyTicketsResponse{Tickets: mapper.TicketsToProto(tickets)}), nil
+	return connect.NewResponse(&rpc.ListResponse{Tickets: mapper.TicketsToProto(tickets)}), nil
+}
+
+// RegisterWalletPublicKey binds a device wallet public key to the caller.
+// The ticket wallet is not implemented yet, so it always returns
+// CodeUnimplemented.
+func (h *TicketHandler) RegisterWalletPublicKey(_ context.Context, _ *connect.Request[rpc.RegisterWalletPublicKeyRequest]) (*connect.Response[rpc.RegisterWalletPublicKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("RegisterWalletPublicKey is not implemented"))
 }

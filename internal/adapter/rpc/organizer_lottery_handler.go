@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	organizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
-	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
+	organizerlotteryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/lottery/v1/lotteryv1connect"
+	organizerlotteryv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/lottery/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -16,7 +16,7 @@ import (
 
 // Compile-time assertion that OrganizerLotteryHandler satisfies the generated
 // interface.
-var _ organizerv1connect.LotteryServiceHandler = (*OrganizerLotteryHandler)(nil)
+var _ organizerlotteryv1connect.LotteryServiceHandler = (*OrganizerLotteryHandler)(nil)
 
 // OrganizerLotteryHandler implements the organizer-facing LotteryService
 // Connect interface. Org-scoped authorization is enforced structurally by the
@@ -55,12 +55,12 @@ func (h *OrganizerLotteryHandler) resolveCallerOrganizer(ctx context.Context) (*
 	return h.organizerUC.ResolveCaller(ctx, callerOrgID)
 }
 
-// ConfigureLotteryPhase attaches a new lottery sales phase to a published event
+// Configure attaches a new lottery sales phase to a published event
 // owned by the caller's organizer.
-func (h *OrganizerLotteryHandler) ConfigureLotteryPhase(
+func (h *OrganizerLotteryHandler) Configure(
 	ctx context.Context,
-	req *connect.Request[organizerv1.ConfigureLotteryPhaseRequest],
-) (*connect.Response[organizerv1.ConfigureLotteryPhaseResponse], error) {
+	req *connect.Request[organizerlotteryv1.ConfigureRequest],
+) (*connect.Response[organizerlotteryv1.ConfigureResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -82,16 +82,16 @@ func (h *OrganizerLotteryHandler) ConfigureLotteryPhase(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.ConfigureLotteryPhaseResponse{
+	return connect.NewResponse(&organizerlotteryv1.ConfigureResponse{
 		Phase: mapper.LotterySalesPhaseToProto(phase),
 	}), nil
 }
 
-// GetLotteryPhaseStatus returns the phase and its aggregate tallies.
-func (h *OrganizerLotteryHandler) GetLotteryPhaseStatus(
+// GetStatus returns the phase and its aggregate tallies.
+func (h *OrganizerLotteryHandler) GetStatus(
 	ctx context.Context,
-	req *connect.Request[organizerv1.GetLotteryPhaseStatusRequest],
-) (*connect.Response[organizerv1.GetLotteryPhaseStatusResponse], error) {
+	req *connect.Request[organizerlotteryv1.GetStatusRequest],
+) (*connect.Response[organizerlotteryv1.GetStatusResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (h *OrganizerLotteryHandler) GetLotteryPhaseStatus(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.GetLotteryPhaseStatusResponse{
+	return connect.NewResponse(&organizerlotteryv1.GetStatusResponse{
 		Phase:                      mapper.LotterySalesPhaseToProto(status.Phase),
 		DrawCompleted:              status.DrawCompleted,
 		ApplicationCount:           int32(status.ApplicationCount),
@@ -115,13 +115,13 @@ func (h *OrganizerLotteryHandler) GetLotteryPhaseStatus(
 	}), nil
 }
 
-// SetPhaseVerificationRequirement changes the identity-verification requirement
+// SetVerificationRequirement changes the identity-verification requirement
 // on an existing lottery phase. The caller must be an active organizer
 // (enforced by the OrgScopedInterceptor and resolveCallerOrganizer).
-func (h *OrganizerLotteryHandler) SetPhaseVerificationRequirement(
+func (h *OrganizerLotteryHandler) SetVerificationRequirement(
 	ctx context.Context,
-	req *connect.Request[organizerv1.SetPhaseVerificationRequirementRequest],
-) (*connect.Response[organizerv1.SetPhaseVerificationRequirementResponse], error) {
+	req *connect.Request[organizerlotteryv1.SetVerificationRequirementRequest],
+) (*connect.Response[organizerlotteryv1.SetVerificationRequirementResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -138,7 +138,7 @@ func (h *OrganizerLotteryHandler) SetPhaseVerificationRequirement(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.SetPhaseVerificationRequirementResponse{
+	return connect.NewResponse(&organizerlotteryv1.SetVerificationRequirementResponse{
 		Phase: mapper.LotterySalesPhaseToProto(phase),
 	}), nil
 }

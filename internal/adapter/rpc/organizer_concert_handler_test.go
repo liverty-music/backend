@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
+	organizerconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -73,7 +73,7 @@ func TestOrganizerConcertHandler_List(t *testing.T) {
 			).
 			Once()
 
-		resp, err := d.handler.List(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerv1.ListRequest{}))
+		resp, err := d.handler.List(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerconcertv1.ListRequest{}))
 
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -95,35 +95,35 @@ func TestOrganizerConcertHandler_ResolveCallerFailure(t *testing.T) {
 		call func(ctx context.Context, h *rpc.OrganizerConcertHandler) error
 	}{
 		{"Create", func(ctx context.Context, h *rpc.OrganizerConcertHandler) error {
-			_, err := h.Create(ctx, connect.NewRequest(&organizerv1.CreateRequest{}))
+			_, err := h.Create(ctx, connect.NewRequest(&organizerconcertv1.CreateRequest{}))
 			return err
 		}},
 		{"Update", func(ctx context.Context, h *rpc.OrganizerConcertHandler) error {
-			_, err := h.Update(ctx, connect.NewRequest(&organizerv1.UpdateRequest{}))
+			_, err := h.Update(ctx, connect.NewRequest(&organizerconcertv1.UpdateRequest{}))
 			return err
 		}},
 		{"Publish", func(ctx context.Context, h *rpc.OrganizerConcertHandler) error {
-			_, err := h.Publish(ctx, connect.NewRequest(&organizerv1.PublishRequest{}))
+			_, err := h.Publish(ctx, connect.NewRequest(&organizerconcertv1.PublishRequest{}))
 			return err
 		}},
 		{"Cancel", func(ctx context.Context, h *rpc.OrganizerConcertHandler) error {
-			_, err := h.Cancel(ctx, connect.NewRequest(&organizerv1.CancelRequest{}))
+			_, err := h.Cancel(ctx, connect.NewRequest(&organizerconcertv1.CancelRequest{}))
 			return err
 		}},
 		{"List", func(ctx context.Context, h *rpc.OrganizerConcertHandler) error {
-			_, err := h.List(ctx, connect.NewRequest(&organizerv1.ListRequest{}))
+			_, err := h.List(ctx, connect.NewRequest(&organizerconcertv1.ListRequest{}))
 			return err
 		}},
 		{"RegenerateToken", func(ctx context.Context, h *rpc.OrganizerConcertHandler) error {
-			_, err := h.RegenerateToken(ctx, connect.NewRequest(&organizerv1.RegenerateTokenRequest{}))
+			_, err := h.RegenerateToken(ctx, connect.NewRequest(&organizerconcertv1.RegenerateTokenRequest{}))
 			return err
 		}},
 		{"CreateMediaUploadURL", func(ctx context.Context, h *rpc.OrganizerConcertHandler) error {
-			_, err := h.CreateMediaUploadURL(ctx, connect.NewRequest(&organizerv1.CreateMediaUploadURLRequest{}))
+			_, err := h.CreateMediaUploadURL(ctx, connect.NewRequest(&organizerconcertv1.CreateMediaUploadURLRequest{}))
 			return err
 		}},
 		{"AttachMedia", func(ctx context.Context, h *rpc.OrganizerConcertHandler) error {
-			_, err := h.AttachMedia(ctx, connect.NewRequest(&organizerv1.AttachMediaRequest{}))
+			_, err := h.AttachMedia(ctx, connect.NewRequest(&organizerconcertv1.AttachMediaRequest{}))
 			return err
 		}},
 	}

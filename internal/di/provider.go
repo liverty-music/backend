@@ -7,14 +7,18 @@ import (
 	"net/http"
 	"time"
 
+	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert/v1/concertv1connect"
+	adminorderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/order/v1/orderv1connect"
 	adminorganizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
-	adminconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/v1/adminv1connect"
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
 	identityconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity/v1/identityv1connect"
 	lotteryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery/v1/lotteryv1connect"
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
+	organizerconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/concert/v1/concertv1connect"
+	organizerlotteryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/lottery/v1/lotteryv1connect"
+	payoutonboardingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_onboarding/v1/payout_onboardingv1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
@@ -395,7 +399,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// surface cannot be reached via the consumer host.
 	adminHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminconnect.NewConcertServiceHandler(
+			return adminconcertconnect.NewConcertServiceHandler(
 				rpc.NewAdminConcertHandler(concertUC, logger),
 				opts...,
 			)
@@ -419,9 +423,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-		// OrderAdminService: RefundOrder (⑤ task 4.1).
+		// Admin OrderService: Refund (⑤ task 4.1).
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminconnect.NewOrderAdminServiceHandler(
+			return adminorderconnect.NewOrderServiceHandler(
 				rpc.NewAdminOrderHandler(refundUC, logger),
 				opts...,
 			)
@@ -480,8 +484,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 	}
 
-	// Fan-facing LotteryService: CreateAuthorization, Apply, WithdrawApplication,
-	// GetMyApplication, GetResult. Authenticated by the standard auth interceptor.
+	// Fan-facing LotteryService: CreateAuthorization, Apply, Withdraw,
+	// GetApplication, GetResult. Authenticated by the standard auth interceptor.
 	handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 		return lotteryv1connect.NewLotteryServiceHandler(
 			rpc.NewLotteryHandler(lotteryUC, userRepo, logger),
@@ -552,21 +556,21 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerconnect.NewConcertServiceHandler(
+			return organizerconcertconnect.NewConcertServiceHandler(
 				rpc.NewOrganizerConcertHandler(concertAuthoringUC, organizerUC, mediaUC, mediaURLBuilder, logger),
 				opts...,
 			)
 		},
-		// Organizer-facing LotteryService: ConfigureLotteryPhase, GetLotteryPhaseStatus.
+		// Organizer-facing LotteryService: Configure, GetStatus, SetVerificationRequirement.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerconnect.NewLotteryServiceHandler(
+			return organizerlotteryconnect.NewLotteryServiceHandler(
 				rpc.NewOrganizerLotteryHandler(lotteryUC, organizerUC, logger),
 				opts...,
 			)
 		},
-		// Organizer-facing PayoutOnboardingService: GetPayoutOnboarding.
+		// Organizer-facing PayoutOnboardingService: Get.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerconnect.NewPayoutOnboardingServiceHandler(
+			return payoutonboardingconnect.NewPayoutOnboardingServiceHandler(
 				rpc.NewPayoutOnboardingHandler(onboardingUC, organizerUC, logger),
 				opts...,
 			)

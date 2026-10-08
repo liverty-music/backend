@@ -25,7 +25,7 @@ func OrderToProto(order *entity.Order) *entityv1.Order {
 		Status:   orderStatusToProto(order.Status),
 		Amount:   order.Amount,
 		Currency: order.Currency,
-		PaidAt:   timestamppb.New(order.PaidTime),
+		PayTime:  timestamppb.New(order.PaidTime),
 	}
 }
 
@@ -42,7 +42,7 @@ func TicketToProto(ticket *entity.Ticket) *entityv1.Ticket {
 		HolderIdentity:                 applicantIdentityToProto(ticket.HolderIdentity),
 		ResaleWithoutConsentProhibited: ticket.ResaleWithoutConsentProhibited,
 		Status:                         ticketStatusToProto(ticket.Status),
-		IssuedAt:                       timestamppb.New(ticket.IssuedTime),
+		IssueTime:                      timestamppb.New(ticket.IssuedTime),
 	}
 	// The verified-identity binding is present only when the phase required
 	// identity verification.

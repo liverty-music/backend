@@ -2,7 +2,7 @@ package mapper
 
 import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	adminv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/v1"
+	adminorderv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/order/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -50,7 +50,7 @@ func SettlementToProto(s *entity.Settlement) *entityv1.Settlement {
 		Status:    settlementStatusToProto(s.Status),
 	}
 	if !s.ReleasedTime.IsZero() {
-		proto.ReleasedAt = timestamppb.New(s.ReleasedTime)
+		proto.ReleaseTime = timestamppb.New(s.ReleasedTime)
 	}
 	return proto
 }
@@ -89,11 +89,11 @@ func settlementStatusToProto(s entity.SettlementStatus) entityv1.SettlementStatu
 // logic (AGENTS.md: handlers map Proto↔Entity via mapper/ and call a UseCase).
 // UNSPECIFIED is passed through as-is; the use case validates it and returns
 // InvalidArgument.
-func ProtoRefundReasonToDomain(r adminv1.RefundReason) usecase.RefundReason {
+func ProtoRefundReasonToDomain(r adminorderv1.RefundReason) usecase.RefundReason {
 	switch r {
-	case adminv1.RefundReason_REFUND_REASON_CANCELLATION:
+	case adminorderv1.RefundReason_REFUND_REASON_CANCELLATION:
 		return usecase.RefundReasonCancellation
-	case adminv1.RefundReason_REFUND_REASON_DISPUTE:
+	case adminorderv1.RefundReason_REFUND_REASON_DISPUTE:
 		return usecase.RefundReasonDispute
 	default:
 		return usecase.RefundReasonUnspecified

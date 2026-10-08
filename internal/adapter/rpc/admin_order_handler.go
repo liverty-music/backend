@@ -5,8 +5,8 @@ import (
 	"errors"
 	"time"
 
-	adminv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/v1/adminv1connect"
-	adminv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/v1"
+	adminorderv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/order/v1/orderv1connect"
+	adminorderv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/order/v1"
 	"connectrpc.com/connect"
 
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -17,9 +17,9 @@ import (
 )
 
 // Compile-time assertion that AdminOrderHandler satisfies the generated interface.
-var _ adminv1connect.OrderAdminServiceHandler = (*AdminOrderHandler)(nil)
+var _ adminorderv1connect.OrderServiceHandler = (*AdminOrderHandler)(nil)
 
-// AdminOrderHandler implements the admin-facing OrderAdminService Connect
+// AdminOrderHandler implements the admin-facing OrderService Connect
 // interface. Server-wide RequireRoleInterceptor(admin) gates every method
 // before this handler runs; the handler only maps Proto↔Entity and delegates
 // business logic to the use case.
@@ -39,21 +39,21 @@ func NewAdminOrderHandler(
 	}
 }
 
-// RefundOrder implements [adminv1connect.OrderAdminServiceHandler].
+// Refund implements [adminorderv1connect.OrderServiceHandler].
 //
 // It maps the proto RefundReason to the domain RefundReason and delegates to
 // RefundOrderUseCase. The handler applies no business logic; error mapping from
 // apperr to Connect codes is the sole responsibility here.
-func (h *AdminOrderHandler) RefundOrder(
+func (h *AdminOrderHandler) Refund(
 	ctx context.Context,
-	req *connect.Request[adminv1.RefundOrderRequest],
-) (*connect.Response[adminv1.RefundOrderResponse], error) {
+	req *connect.Request[adminorderv1.RefundRequest],
+) (*connect.Response[adminorderv1.RefundResponse], error) {
 	if req.Msg.GetOrderId() == nil || req.Msg.GetOrderId().GetValue() == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("order_id is required"))
 	}
 
 	protoReason := req.Msg.GetReason()
-	if protoReason == adminv1.RefundReason_REFUND_REASON_UNSPECIFIED {
+	if protoReason == adminorderv1.RefundReason_REFUND_REASON_UNSPECIFIED {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("reason must be specified"))
 	}
 
@@ -74,7 +74,7 @@ func (h *AdminOrderHandler) RefundOrder(
 		return nil, err
 	}
 
-	return connect.NewResponse(&adminv1.RefundOrderResponse{
+	return connect.NewResponse(&adminorderv1.RefundResponse{
 		Order: mapper.OrderToProto(order),
 	}), nil
 }

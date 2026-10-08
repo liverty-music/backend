@@ -48,7 +48,7 @@ type RefundOrderUseCase interface {
 	RefundOrder(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
 }
 
-// RefundReason mirrors the proto enum liverty_music.rpc.admin.v1.RefundReason;
+// RefundReason mirrors the proto enum liverty_music.rpc.admin.order.v1.RefundReason;
 // defined here as an entity-layer type so the use case layer is independent of
 // generated proto code.
 type RefundReason int32

@@ -143,7 +143,7 @@ func (r *LotteryPhaseRepository) ListPhasesDueForDraw(ctx context.Context, now t
 
 // UpdateVerificationRequirement changes the identity-verification requirement on
 // a lottery phase. Returns the updated phase. Used by the
-// SetPhaseVerificationRequirement organizer RPC.
+// SetVerificationRequirement organizer RPC.
 func (r *LotteryPhaseRepository) UpdateVerificationRequirement(ctx context.Context, id entity.LotteryPhaseID, req entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
 	if id == "" {
 		return nil, apperr.New(codes.InvalidArgument, "lottery phase ID must not be empty")

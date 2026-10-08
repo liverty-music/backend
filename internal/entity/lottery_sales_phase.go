@@ -362,7 +362,7 @@ type LotteryPhaseRepository interface {
 
 	// UpdateVerificationRequirement sets the identity-verification requirement on
 	// the given phase and returns the updated row. Used by the organizer
-	// SetPhaseVerificationRequirement RPC.
+	// SetVerificationRequirement RPC.
 	//
 	// # Possible errors
 	//

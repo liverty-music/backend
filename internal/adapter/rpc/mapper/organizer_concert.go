@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
+	organizerconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/concert/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -63,8 +63,8 @@ func (b *MediaURLBuilder) seriesMediaProto(s *entity.Series) *entityv1.Media {
 
 // AuthoredConcertToProto converts the three-part authored concert tuple
 // (series, events, artists) into the wire-format AuthoredConcert message.
-func (b *MediaURLBuilder) AuthoredConcertToProto(s *entity.Series, events []*entity.Event, artists []*entity.Artist) *organizerv1.AuthoredConcert {
-	return &organizerv1.AuthoredConcert{
+func (b *MediaURLBuilder) AuthoredConcertToProto(s *entity.Series, events []*entity.Event, artists []*entity.Artist) *organizerconcertv1.AuthoredConcert {
+	return &organizerconcertv1.AuthoredConcert{
 		Series:     b.AuthoredSeriesToProto(s),
 		Events:     AuthoredEventsToProto(events),
 		Performers: ArtistsToProto(artists),

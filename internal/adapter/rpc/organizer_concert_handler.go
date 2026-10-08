@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	organizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
+	organizerconcertv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/concert/v1/concertv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/v1"
+	organizerconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/concert/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -16,7 +16,7 @@ import (
 )
 
 // Compile-time assertion that OrganizerConcertHandler satisfies the generated interface.
-var _ organizerv1connect.ConcertServiceHandler = (*OrganizerConcertHandler)(nil)
+var _ organizerconcertv1connect.ConcertServiceHandler = (*OrganizerConcertHandler)(nil)
 
 // OrganizerConcertHandler implements the organizer-facing ConcertService Connect
 // interface. Org-scoped authorization is enforced structurally by the
@@ -63,7 +63,7 @@ func (h *OrganizerConcertHandler) resolveCallerOrganizer(ctx context.Context) (*
 
 // seriesDraftToInputs converts the proto SeriesDraft payload into the domain
 // types expected by the authoring use case.
-func seriesDraftToInputs(draft *organizerv1.SeriesDraft) (*entity.Series, []*usecase.DraftEventInput, []string) {
+func seriesDraftToInputs(draft *organizerconcertv1.SeriesDraft) (*entity.Series, []*usecase.DraftEventInput, []string) {
 	seriesType := mapper.SeriesTypeFromProto(draft.GetType())
 	visibility := mapper.VisibilityFromProto(draft.GetVisibility())
 
@@ -111,8 +111,8 @@ func seriesDraftToInputs(draft *organizerv1.SeriesDraft) (*entity.Series, []*use
 // Create authors a new first-party concert draft.
 func (h *OrganizerConcertHandler) Create(
 	ctx context.Context,
-	req *connect.Request[organizerv1.CreateRequest],
-) (*connect.Response[organizerv1.CreateResponse], error) {
+	req *connect.Request[organizerconcertv1.CreateRequest],
+) (*connect.Response[organizerconcertv1.CreateResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -124,7 +124,7 @@ func (h *OrganizerConcertHandler) Create(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.CreateResponse{
+	return connect.NewResponse(&organizerconcertv1.CreateResponse{
 		Concert: h.mediaURLBuilder.AuthoredConcertToProto(series, events, artists),
 	}), nil
 }
@@ -132,8 +132,8 @@ func (h *OrganizerConcertHandler) Create(
 // Update edits an existing series.
 func (h *OrganizerConcertHandler) Update(
 	ctx context.Context,
-	req *connect.Request[organizerv1.UpdateRequest],
-) (*connect.Response[organizerv1.UpdateResponse], error) {
+	req *connect.Request[organizerconcertv1.UpdateRequest],
+) (*connect.Response[organizerconcertv1.UpdateResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -146,7 +146,7 @@ func (h *OrganizerConcertHandler) Update(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.UpdateResponse{
+	return connect.NewResponse(&organizerconcertv1.UpdateResponse{
 		Concert: h.mediaURLBuilder.AuthoredConcertToProto(series, events, artists),
 	}), nil
 }
@@ -154,8 +154,8 @@ func (h *OrganizerConcertHandler) Update(
 // Publish transitions a DRAFT series to PUBLISHED.
 func (h *OrganizerConcertHandler) Publish(
 	ctx context.Context,
-	req *connect.Request[organizerv1.PublishRequest],
-) (*connect.Response[organizerv1.PublishResponse], error) {
+	req *connect.Request[organizerconcertv1.PublishRequest],
+) (*connect.Response[organizerconcertv1.PublishResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func (h *OrganizerConcertHandler) Publish(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.PublishResponse{
+	return connect.NewResponse(&organizerconcertv1.PublishResponse{
 		Concert: h.mediaURLBuilder.AuthoredConcertToProto(series, events, artists),
 	}), nil
 }
@@ -175,8 +175,8 @@ func (h *OrganizerConcertHandler) Publish(
 // Cancel marks a series CANCELLED.
 func (h *OrganizerConcertHandler) Cancel(
 	ctx context.Context,
-	req *connect.Request[organizerv1.CancelRequest],
-) (*connect.Response[organizerv1.CancelResponse], error) {
+	req *connect.Request[organizerconcertv1.CancelRequest],
+) (*connect.Response[organizerconcertv1.CancelResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -186,14 +186,14 @@ func (h *OrganizerConcertHandler) Cancel(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.CancelResponse{}), nil
+	return connect.NewResponse(&organizerconcertv1.CancelResponse{}), nil
 }
 
 // CreateMediaUploadURL mints a signed GCS PUT URL for a direct-to-storage upload.
 func (h *OrganizerConcertHandler) CreateMediaUploadURL(
 	ctx context.Context,
-	req *connect.Request[organizerv1.CreateMediaUploadURLRequest],
-) (*connect.Response[organizerv1.CreateMediaUploadURLResponse], error) {
+	req *connect.Request[organizerconcertv1.CreateMediaUploadURLRequest],
+) (*connect.Response[organizerconcertv1.CreateMediaUploadURLResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -206,7 +206,7 @@ func (h *OrganizerConcertHandler) CreateMediaUploadURL(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.CreateMediaUploadURLResponse{
+	return connect.NewResponse(&organizerconcertv1.CreateMediaUploadURLResponse{
 		UploadUrl: &entityv1.Url{Value: out.UploadURL},
 		MediaId:   &entityv1.MediaId{Value: out.MediaID},
 		MaxBytes:  out.MaxBytes,
@@ -217,8 +217,8 @@ func (h *OrganizerConcertHandler) CreateMediaUploadURL(
 // publishes MEDIA.uploaded so the processor generates variants.
 func (h *OrganizerConcertHandler) AttachMedia(
 	ctx context.Context,
-	req *connect.Request[organizerv1.AttachMediaRequest],
-) (*connect.Response[organizerv1.AttachMediaResponse], error) {
+	req *connect.Request[organizerconcertv1.AttachMediaRequest],
+) (*connect.Response[organizerconcertv1.AttachMediaResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -232,14 +232,14 @@ func (h *OrganizerConcertHandler) AttachMedia(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerv1.AttachMediaResponse{}), nil
+	return connect.NewResponse(&organizerconcertv1.AttachMediaResponse{}), nil
 }
 
 // RegenerateToken issues a fresh share token for an UNLISTED series.
 func (h *OrganizerConcertHandler) RegenerateToken(
 	ctx context.Context,
-	req *connect.Request[organizerv1.RegenerateTokenRequest],
-) (*connect.Response[organizerv1.RegenerateTokenResponse], error) {
+	req *connect.Request[organizerconcertv1.RegenerateTokenRequest],
+) (*connect.Response[organizerconcertv1.RegenerateTokenResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -253,7 +253,7 @@ func (h *OrganizerConcertHandler) RegenerateToken(
 	// Return the raw token as the share URL value; the frontend appends the
 	// base URL. This matches the unlisted-token design where only the token
 	// component is backend-authoritative.
-	return connect.NewResponse(&organizerv1.RegenerateTokenResponse{
+	return connect.NewResponse(&organizerconcertv1.RegenerateTokenResponse{
 		ShareUrl: &entityv1.Url{Value: token},
 	}), nil
 }
@@ -261,8 +261,8 @@ func (h *OrganizerConcertHandler) RegenerateToken(
 // List returns the concerts authored by the caller's own Organizer.
 func (h *OrganizerConcertHandler) List(
 	ctx context.Context,
-	_ *connect.Request[organizerv1.ListRequest],
-) (*connect.Response[organizerv1.ListResponse], error) {
+	_ *connect.Request[organizerconcertv1.ListRequest],
+) (*connect.Response[organizerconcertv1.ListResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -273,7 +273,7 @@ func (h *OrganizerConcertHandler) List(
 		return nil, err
 	}
 
-	concerts := make([]*organizerv1.AuthoredConcert, 0, len(allSeries))
+	concerts := make([]*organizerconcertv1.AuthoredConcert, 0, len(allSeries))
 	for i, s := range allSeries {
 		var evs []*entity.Event
 		var arts []*entity.Artist
@@ -286,5 +286,5 @@ func (h *OrganizerConcertHandler) List(
 		concerts = append(concerts, h.mediaURLBuilder.AuthoredConcertToProto(s, evs, arts))
 	}
 
-	return connect.NewResponse(&organizerv1.ListResponse{Concerts: concerts}), nil
+	return connect.NewResponse(&organizerconcertv1.ListResponse{Concerts: concerts}), nil
 }

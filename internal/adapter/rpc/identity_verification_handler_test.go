@@ -66,7 +66,7 @@ func sampleNeedsReverificationVI(userID, psid string) *entity.VerifiedIdentity {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // TestVerifiedIdentityLevel exercises the level derivation logic by driving
-// GetMyVerificationStatus through the handler, which calls verifiedIdentityLevel
+// GetStatus through the handler, which calls verifiedIdentityLevel
 // internally. This validates three distinct branches in a single function call.
 func TestVerifiedIdentityLevel(t *testing.T) {
 	t.Parallel()
@@ -114,11 +114,11 @@ func TestVerifiedIdentityLevel(t *testing.T) {
 				Return(wantLevel, tt.vi, nil).Once()
 
 			ctx := authedCtx(testCallerExtID)
-			req := connect.NewRequest(&identityv1.GetMyVerificationStatusRequest{
+			req := connect.NewRequest(&identityv1.GetStatusRequest{
 				UserId: newUserIDProto(testCallerUserID),
 			})
 
-			resp, err := h.GetMyVerificationStatus(ctx, req)
+			resp, err := h.GetStatus(ctx, req)
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
@@ -128,10 +128,10 @@ func TestVerifiedIdentityLevel(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// StartVerify
+// Start
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestIdentityVerificationHandler_StartVerify(t *testing.T) {
+func TestIdentityVerificationHandler_Start(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -261,12 +261,12 @@ func TestIdentityVerificationHandler_StartVerify(t *testing.T) {
 			tt.dep.setupIdentityUC(identityUC)
 
 			h := newIdentityHandler(t, identityUC, userUC)
-			req := connect.NewRequest(&identityv1.StartVerifyRequest{
+			req := connect.NewRequest(&identityv1.StartRequest{
 				UserId: newUserIDProto(tt.args.userID),
 				Method: tt.args.method,
 			})
 
-			resp, err := h.StartVerify(tt.args.ctx, req)
+			resp, err := h.Start(tt.args.ctx, req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -287,10 +287,10 @@ func TestIdentityVerificationHandler_StartVerify(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CompleteVerify
+// Complete
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestIdentityVerificationHandler_CompleteVerify(t *testing.T) {
+func TestIdentityVerificationHandler_Complete(t *testing.T) {
 	t.Parallel()
 
 	const testSessionID = "sess-complete-1"
@@ -393,12 +393,12 @@ func TestIdentityVerificationHandler_CompleteVerify(t *testing.T) {
 			tt.dep.setupIdentityUC(identityUC)
 
 			h := newIdentityHandler(t, identityUC, userUC)
-			req := connect.NewRequest(&identityv1.CompleteVerifyRequest{
+			req := connect.NewRequest(&identityv1.CompleteRequest{
 				UserId:    newUserIDProto(tt.args.userID),
 				SessionId: tt.args.sessionID,
 			})
 
-			resp, err := h.CompleteVerify(tt.args.ctx, req)
+			resp, err := h.Complete(tt.args.ctx, req)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -605,10 +605,10 @@ func TestIdentityVerificationHandler_ReCheck_NilVI_ReturnsInternal(t *testing.T)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GetMyVerificationStatus
+// GetStatus
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestIdentityVerificationHandler_GetMyVerificationStatus(t *testing.T) {
+func TestIdentityVerificationHandler_GetStatus(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -722,11 +722,11 @@ func TestIdentityVerificationHandler_GetMyVerificationStatus(t *testing.T) {
 			tt.dep.setupIdentityUC(identityUC)
 
 			h := newIdentityHandler(t, identityUC, userUC)
-			req := connect.NewRequest(&identityv1.GetMyVerificationStatusRequest{
+			req := connect.NewRequest(&identityv1.GetStatusRequest{
 				UserId: newUserIDProto(tt.args.userID),
 			})
 
-			resp, err := h.GetMyVerificationStatus(tt.args.ctx, req)
+			resp, err := h.GetStatus(tt.args.ctx, req)
 
 			if tt.wantErr {
 				require.Error(t, err)

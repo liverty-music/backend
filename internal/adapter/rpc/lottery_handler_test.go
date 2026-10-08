@@ -197,17 +197,17 @@ func TestLotteryHandler_Apply(t *testing.T) {
 	}
 }
 
-func TestLotteryHandler_WithdrawApplication(t *testing.T) {
+func TestLotteryHandler_Withdraw(t *testing.T) {
 	t.Parallel()
 
-	validReq := &lotteryv1.WithdrawApplicationRequest{
+	validReq := &lotteryv1.WithdrawRequest{
 		PhaseId: &entityv1.LotterySalesPhaseId{Value: "phase-uuid-1"},
 	}
 
 	tests := []struct {
 		name     string
 		ctx      context.Context
-		req      *lotteryv1.WithdrawApplicationRequest
+		req      *lotteryv1.WithdrawRequest
 		setup    func(f *lotteryHandlerFixture)
 		wantCode connect.Code
 		wantErr  bool
@@ -250,7 +250,7 @@ func TestLotteryHandler_WithdrawApplication(t *testing.T) {
 			f := newLotteryHandlerFixture(t)
 			tt.setup(f)
 
-			resp, err := f.h.WithdrawApplication(tt.ctx, connect.NewRequest(tt.req))
+			resp, err := f.h.Withdraw(tt.ctx, connect.NewRequest(tt.req))
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -265,17 +265,17 @@ func TestLotteryHandler_WithdrawApplication(t *testing.T) {
 	}
 }
 
-func TestLotteryHandler_GetMyApplication(t *testing.T) {
+func TestLotteryHandler_GetApplication(t *testing.T) {
 	t.Parallel()
 
-	validReq := &lotteryv1.GetMyApplicationRequest{
+	validReq := &lotteryv1.GetApplicationRequest{
 		PhaseId: &entityv1.LotterySalesPhaseId{Value: "phase-uuid-1"},
 	}
 
 	tests := []struct {
 		name     string
 		ctx      context.Context
-		req      *lotteryv1.GetMyApplicationRequest
+		req      *lotteryv1.GetApplicationRequest
 		setup    func(f *lotteryHandlerFixture)
 		wantCode connect.Code
 		wantErr  bool
@@ -318,7 +318,7 @@ func TestLotteryHandler_GetMyApplication(t *testing.T) {
 			f := newLotteryHandlerFixture(t)
 			tt.setup(f)
 
-			resp, err := f.h.GetMyApplication(tt.ctx, connect.NewRequest(tt.req))
+			resp, err := f.h.GetApplication(tt.ctx, connect.NewRequest(tt.req))
 
 			if tt.wantErr {
 				assert.Error(t, err)
