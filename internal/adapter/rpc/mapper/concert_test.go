@@ -370,6 +370,21 @@ func TestVenueToProto(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/adapter/fan/api/rpc/concert "Venue without coordinates"
+			name: "venue with known coordinates returns its id, name and admin area only",
+			args: &entity.Venue{
+				ID:          "venue-id-3",
+				Name:        "Zepp Haneda",
+				AdminArea:   &adminArea,
+				Coordinates: &entity.Coordinates{Latitude: 35.55, Longitude: 139.75},
+			},
+			want: &entityv1.Venue{
+				Id:        &entityv1.VenueId{Value: "venue-id-3"},
+				Name:      &entityv1.VenueName{Value: "Zepp Haneda"},
+				AdminArea: &entityv1.AdminArea{Value: adminArea},
+			},
+		},
+		{
 			name: "venue with admin area",
 			args: &entity.Venue{
 				ID:        "venue-id-2",

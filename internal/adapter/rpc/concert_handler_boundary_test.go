@@ -2,6 +2,7 @@ package rpc_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/type/date"
 )
 
 // newConcertBoundaryClient serves the fan ConcertService behind the same
@@ -127,11 +129,79 @@ func TestConcertHandler_ListBySeries_Boundary(t *testing.T) {
 	})
 
 	t.Run("return UNAUTHENTICATED for a guest calling ListByFollower", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Guest asks for followed artists' concerts"
 		t.Parallel()
 		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
 
 		_, err := client.ListByFollower(context.Background(), connect.NewRequest(&concertv1.ListByFollowerRequest{}))
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+}
+
+func TestConcertHandler_PublicLists_Boundary(t *testing.T) {
+	t.Parallel()
+
+	artistID := func(i int) *entityv1.ArtistId {
+		return &entityv1.ArtistId{Value: fmt.Sprintf("019a0000-0000-7000-8000-%012d", i)}
+	}
+	home := &entityv1.Home{CountryCode: "JP", Level_1: "JP-13"}
+
+	t.Run("run ListByArtists for a guest", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Guest lists concerts of chosen artists"
+		t.Parallel()
+		concertUC := mocks.NewMockConcertUseCase(t)
+		concertUC.EXPECT().ListByArtists(mock.Anything, []string{artistID(1).GetValue(), artistID(2).GetValue()}, mock.Anything).
+			Return([]*entity.ProximityGroup{}, nil).Once()
+		client := newConcertBoundaryClient(t, concertUC)
+
+		_, err := client.ListByArtists(context.Background(), connect.NewRequest(&concertv1.ListByArtistsRequest{
+			ArtistIds: []*entityv1.ArtistId{artistID(1), artistID(2)},
+			Home:      home,
+		}))
+
+		require.NoError(t, err)
+	})
+
+	t.Run("return INVALID_ARGUMENT for 51 artists", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Too many artists"
+		t.Parallel()
+		ids := make([]*entityv1.ArtistId, 51)
+		for i := range ids {
+			ids[i] = artistID(i)
+		}
+		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
+
+		_, err := client.ListByArtists(context.Background(), connect.NewRequest(&concertv1.ListByArtistsRequest{
+			ArtistIds: ids,
+			Home:      home,
+		}))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	t.Run("return INVALID_ARGUMENT for a range that ends before it starts", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Range backwards"
+		t.Parallel()
+		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
+
+		_, err := client.ListByLocation(context.Background(), connect.NewRequest(&concertv1.ListByLocationRequest{
+			Location: &entityv1.GeoLocation{Latitude: 35.68, Longitude: 139.76, AdminArea: "JP-13"},
+			From:     &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 2}},
+			To:       &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 1}},
+		}))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	t.Run("return INVALID_ARGUMENT for a search without an artist", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Search without an artist"
+		t.Parallel()
+		// The mock fails the test if SearchNewConcerts runs.
+		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
+
+		_, err := client.SearchNewConcerts(context.Background(), connect.NewRequest(&concertv1.SearchNewConcertsRequest{}))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 }
