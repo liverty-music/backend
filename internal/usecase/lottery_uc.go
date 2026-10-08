@@ -169,7 +169,7 @@ type LotteryUseCase interface {
 	//  - NotFound: the event does not exist.
 	//  - PermissionDenied: the event exists but its series is not owned by
 	//    CallerOrgID.
-	//  - FailedPrecondition: the event is not PUBLISHED.
+	//  - FailedPrecondition: the event is not PUBLISHED, or has no start time.
 	ConfigureLotteryPhase(ctx context.Context, in ConfigureLotteryPhaseInput) (*entity.LotterySalesPhase, error)
 
 	// SetPhaseVerificationRequirement changes the identity-verification
@@ -294,6 +294,7 @@ type lotteryUseCase struct {
 	phaseRepo            entity.LotteryPhaseRepository
 	appRepo              entity.TicketApplicationRepository
 	eventState           EventPublishStatePort
+	eventRepo            entity.EventRepository
 	paymentPort          entity.PaymentAuthorizationPort
 	verifiedIdentityRepo entity.VerifiedIdentityRepository
 	clock                Clock
@@ -309,6 +310,7 @@ func NewLotteryUseCase(
 	phaseRepo entity.LotteryPhaseRepository,
 	appRepo entity.TicketApplicationRepository,
 	eventState EventPublishStatePort,
+	eventRepo entity.EventRepository,
 	paymentPort entity.PaymentAuthorizationPort,
 	verifiedIdentityRepo entity.VerifiedIdentityRepository,
 	clock Clock,
@@ -318,6 +320,7 @@ func NewLotteryUseCase(
 		phaseRepo:            phaseRepo,
 		appRepo:              appRepo,
 		eventState:           eventState,
+		eventRepo:            eventRepo,
 		paymentPort:          paymentPort,
 		verifiedIdentityRepo: verifiedIdentityRepo,
 		clock:                clock,
@@ -418,6 +421,19 @@ func (uc *lotteryUseCase) ConfigureLotteryPhase(ctx context.Context, in Configur
 	}
 	if !published {
 		return nil, apperr.New(codes.FailedPrecondition, "event is not published; configure a lottery phase only for published events")
+	}
+
+	// -- precondition: event must have a start time --
+	//
+	// A ticket names the start time on its face, and venue reception opens
+	// from it when the doors-open time is not announced. The doors-open time
+	// stays optional.
+	event, err := uc.eventRepo.Get(ctx, in.EventID)
+	if err != nil {
+		return nil, err
+	}
+	if event.StartTime == nil {
+		return nil, apperr.New(codes.FailedPrecondition, "event has no start time; configure a lottery phase only for an event with a start time")
 	}
 
 	// -- persist --

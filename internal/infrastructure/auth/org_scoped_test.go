@@ -170,7 +170,7 @@ func TestOrgScopedInterceptor_WrapUnary(t *testing.T) {
 				ctx = context.Background()
 			}
 
-			interceptor := auth.NewOrgScopedInterceptor(tt.args.projectID)
+			interceptor := auth.NewOrgScopedInterceptor(tt.args.projectID, nil)
 
 			var capturedCallerOrgID string
 			next := connect.UnaryFunc(func(innerCtx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
@@ -205,7 +205,7 @@ func TestOrgScopedInterceptor_WrapStreamingHandler(t *testing.T) {
 		t.Parallel()
 
 		ctx := contextWithClaims(happyClaims(withAudiences("wrong")))
-		interceptor := auth.NewOrgScopedInterceptor(projectID)
+		interceptor := auth.NewOrgScopedInterceptor(projectID, nil)
 
 		nextCalled := false
 		next := connect.StreamingHandlerFunc(func(_ context.Context, _ connect.StreamingHandlerConn) error {
@@ -225,7 +225,7 @@ func TestOrgScopedInterceptor_WrapStreamingHandler(t *testing.T) {
 		t.Parallel()
 
 		ctx := contextWithClaims(happyClaims())
-		interceptor := auth.NewOrgScopedInterceptor(projectID)
+		interceptor := auth.NewOrgScopedInterceptor(projectID, nil)
 
 		nextCalled := false
 		next := connect.StreamingHandlerFunc(func(_ context.Context, _ connect.StreamingHandlerConn) error {
