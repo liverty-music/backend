@@ -108,3 +108,5 @@ configMapGenerator:
   - migrations/20261007000000_normalize_phone_numbers_e164.sql
   - migrations/20261007010000_add_phone_number_e164_checks.sql
   - migrations/20261007020000_drop_events_rescheduled_at.sql
+  - migrations/20261008000000_add_ticket_wallet_and_reception.sql
+  - migrations/20261008010000_grant_organizer_console_api_reception.sql
