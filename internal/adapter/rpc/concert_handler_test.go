@@ -102,6 +102,7 @@ func TestConcertHandler_List(t *testing.T) {
 	})
 
 	t.Run("returns empty slice when no concerts exist", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Artist without concerts"
 		t.Parallel()
 		logger, err := logging.New()
 		require.NoError(t, err)

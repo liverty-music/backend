@@ -773,6 +773,8 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 
 // TestNotifyNewConcerts_LocalizesBodyPerRecipient verifies that each recipient
 // receives a Notify call whose payload Body is localized to their preferred language.
+// @spec components/usecase/notification/notify-new-concerts "One concert in English"
+// @spec components/usecase/notification/notify-new-concerts "Unsupported or missing language"
 func TestNotifyNewConcerts_LocalizesBodyPerRecipient(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -811,6 +813,7 @@ func TestNotifyNewConcerts_LocalizesBodyPerRecipient(t *testing.T) {
 
 // TestNotifyNewConcerts_PluralBodyPerLanguage verifies that the plural form is
 // used in each language's body when there are multiple new concerts.
+// @spec components/usecase/notification/notify-new-concerts "Japanese"
 func TestNotifyNewConcerts_PluralBodyPerLanguage(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -938,6 +941,7 @@ func payloadURL(p *entity.NotificationPayload) string {
 // TestNotifyNewConcerts_DeepLinksToEarliestMatched verifies that an AWAY
 // recipient's notification deep-links to the earliest concert of the batch,
 // regardless of the order the concerts arrive in.
+// @spec components/usecase/notification/notify-new-concerts "Link to the earliest matched concert"
 func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1006,6 +1010,7 @@ func TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage(t *testing.T) {
 // home-hype scenario: with 3 new concerts (1 in JP-13, 2 in JP-40), a home
 // recipient in JP-13 sees a count of 1 and deep-links to the in-area concert —
 // never the earlier, out-of-area JP-40 concert.
+// @spec components/usecase/notification/notify-new-concerts "Home follower links to their in-area concert"
 func TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1034,5 +1039,73 @@ func TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink(t *testing.T) {
 	})
 
 	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"aichi-early", "tokyo-later", "aichi-early2"}})
+	assert.NoError(t, err)
+}
+
+// TestNotifyNewConcerts_SeveralConcertsInEnglish verifies the English plural
+// body counts every matched concert.
+func TestNotifyNewConcerts_SeveralConcertsInEnglish(t *testing.T) {
+	// @spec components/usecase/notification/notify-new-concerts "Several concerts in English"
+	t.Parallel()
+	ctx := context.Background()
+
+	d := newPushNotificationTestDeps(t)
+
+	tokyoArea := "JP-13"
+	concerts := []*entity.Concert{
+		{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c2", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c3", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+	}
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	followers := []*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-en", PreferredLanguage: "en"}, Hype: entity.HypeAway},
+	}
+
+	d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1", "c2", "c3"}).Return(concerts, nil).Once()
+	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+
+	expectNotificationRequestedMatching(t, d.publisher, "user-en", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return p.Body == "3 new concerts found"
+	})
+
+	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2", "c3"}})
+	assert.NoError(t, err)
+}
+
+// TestNotifyNewConcerts_SameDayEarlierStart verifies two concerts on the same
+// date link to the one that starts earlier.
+func TestNotifyNewConcerts_SameDayEarlierStart(t *testing.T) {
+	// @spec components/usecase/notification/notify-new-concerts "Same day, earlier start"
+	t.Parallel()
+	ctx := context.Background()
+
+	d := newPushNotificationTestDeps(t)
+
+	tokyoArea := "JP-13"
+	day := time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)
+	at := func(h, m int) *time.Time {
+		t := time.Date(2026, 9, 3, h-9, m, 0, 0, time.UTC) // JST wall time
+		return &t
+	}
+	concerts := []*entity.Concert{
+		{ID: "late", LocalDate: day, StartTime: at(19, 30), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "early", LocalDate: day, StartTime: at(18, 0), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+	}
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	followers := []*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-away"}, Hype: entity.HypeAway},
+	}
+
+	d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"late", "early"}).Return(concerts, nil).Once()
+	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+
+	expectNotificationRequestedMatching(t, d.publisher, "user-away", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return payloadURL(p) == "/concerts/early"
+	})
+
+	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"late", "early"}})
 	assert.NoError(t, err)
 }
