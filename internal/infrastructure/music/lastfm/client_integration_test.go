@@ -21,6 +21,7 @@ func TestClient_Integration(t *testing.T) {
 	t.Setenv("DATABASE_NAME", "test-db")
 	t.Setenv("DATABASE_USER", "test-user")
 	t.Setenv("OIDC_ISSUER_URL", "https://test-issuer.example.com")
+	t.Setenv("FAN_WEB_BASE_URL", "http://localhost:9000")
 
 	cfg, err := config.Load[config.ServerConfig]()
 	require.NoError(t, err)
