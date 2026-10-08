@@ -24,6 +24,7 @@ import (
 	"connectrpc.com/grpchealth"
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
+	"github.com/liverty-music/backend/internal/adapter/linkpreview"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/adapter/webhook"
@@ -365,18 +366,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		jwtValidator = jwtValidator.WithAcceptedIssuers(all)
 	}
 
-	// Public procedures accessible without authentication during onboarding.
-	// Read-only endpoints that return publicly available data (artist charts,
-	// concert schedules). Write endpoints remain fully authenticated.
-	publicProcedures := map[string]bool{
-		"/" + artistconnect.ArtistServiceName + "/ListTop":             true,
-		"/" + artistconnect.ArtistServiceName + "/ListSimilar":         true,
-		"/" + artistconnect.ArtistServiceName + "/Search":              true,
-		"/" + concertconnect.ConcertServiceName + "/List":              true,
-		"/" + concertconnect.ConcertServiceName + "/SearchNewConcerts": true,
-		"/" + concertconnect.ConcertServiceName + "/ListByArtists":     true,
-		"/" + concertconnect.ConcertServiceName + "/ListByLocation":    true,
-	}
+	publicProcedures := auth.FanPublicProcedures()
 
 	authFunc := auth.NewAuthFunc(jwtValidator, publicProcedures)
 
@@ -505,7 +495,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		{
 			HandlerFunc: func(opts ...connect.HandlerOption) (string, http.Handler) {
 				return concertconnect.NewConcertServiceHandler(
-					rpc.NewConcertHandler(concertUC, userRepo, logger),
+					rpc.NewConcertHandler(concertUC, userRepo, mediaURLBuilder, logger),
 					opts...,
 				)
 			},
@@ -522,7 +512,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Consumer Connect server — all consumer services, no admin service, no
 	// extra interceptors.
-	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, nil, longTimeoutHandlers, handlers...)
+	// Link preview tags for the fan web's /events/{id} HTML (fetched by Caddy
+	// templates). Public and outside the RPC rate limit, since every crawler
+	// request reaches fan-api from Caddy's Pod IP.
+	linkPreviewHandler := linkpreview.NewHandler(concertUC, linkpreview.NewTagBuilder(cfg.FanWebBaseURL, mediaURLBuilder), logger)
+	publicRoutes := []server.PublicHTTPRoute{
+		{Pattern: linkpreview.Pattern, Handler: linkPreviewHandler},
+	}
+
+	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, nil, publicRoutes, longTimeoutHandlers, handlers...)
 
 	// Admin Connect server — a second listener in the same binary on its own
 	// port and CORS allowlist, serving ONLY admin services. Its server-wide
@@ -535,7 +533,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	adminServerCfg.Port = cfg.Server.AdminPort
 	adminServerCfg.AllowedOrigins = cfg.Server.AdminAllowedOrigins
 	adminInterceptors := []connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}
-	adminSrv := server.NewConnectServer(adminServerCfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, adminHandlers...)
+	adminSrv := server.NewConnectServer(adminServerCfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, nil, adminHandlers...)
 
 	// Organizer Connect server — a third listener in the same binary on its
 	// own port and CORS allowlist, serving ONLY the organizer-facing
@@ -574,7 +572,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 	}
-	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, authFunc, rateLimiter, healthHandler, organizerInterceptors, nil, organizerHandlers...)
+	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, authFunc, rateLimiter, healthHandler, organizerInterceptors, nil, nil, organizerHandlers...)
 
 	// Zitadel Actions v2 webhook listener — runs on a separate port so the
 	// webhook paths are unreachable via the public GKE Gateway. Validators

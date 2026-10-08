@@ -42,6 +42,18 @@ type LongTimeoutRPCHandler struct {
 	Timeout     time.Duration
 }
 
+// PublicHTTPRoute is a plain HTTP handler served on the Connect server's root
+// mux, beside the health check and outside the authn middleware and the
+// Connect interceptor chain (so no per-IP rate limit applies). It is only for
+// endpoints that return data already public through an RPC, such as the link
+// preview tags of an Event page.
+type PublicHTTPRoute struct {
+	// Pattern is the [http.ServeMux] pattern, e.g. "GET /link-preview/events/{id}".
+	Pattern string
+	// Handler serves the route; it is wrapped with the server's HandlerTimeout.
+	Handler http.Handler
+}
+
 // NewConnectServer creates a new Connect server instance.
 //
 // It is the shared factory for both the consumer and the admin Connect servers:
@@ -53,6 +65,7 @@ type LongTimeoutRPCHandler struct {
 // interceptor-chain-ordering invariants for both servers.
 //
 // longTimeoutHandlers are wrapped with their own http.TimeoutHandler instead of the default.
+// publicRoutes are served without authentication; see [PublicHTTPRoute].
 func NewConnectServer(
 	serverCfg config.ServerSettings,
 	logger *logging.Logger,
@@ -60,6 +73,7 @@ func NewConnectServer(
 	rateLimiter *ratelimit.Limiter,
 	healthHandler HealthHandlerFunc,
 	extraInterceptors []connect.Interceptor,
+	publicRoutes []PublicHTTPRoute,
 	longTimeoutHandlers []LongTimeoutRPCHandler,
 	handlerFuncs ...RPCHandlerFunc,
 ) *ConnectServer {
@@ -151,6 +165,9 @@ func NewConnectServer(
 	// Root mux: health check is public, everything else requires auth
 	rootMux := http.NewServeMux()
 	rootMux.Handle(healthPath, http.TimeoutHandler(healthH, serverCfg.HandlerTimeout, ""))
+	for _, route := range publicRoutes {
+		rootMux.Handle(route.Pattern, http.TimeoutHandler(route.Handler, serverCfg.HandlerTimeout, ""))
+	}
 	rootMux.Handle("/", authMiddleware.Wrap(protectedMux))
 
 	address := net.JoinHostPort(serverCfg.Host, strconv.Itoa(serverCfg.Port))

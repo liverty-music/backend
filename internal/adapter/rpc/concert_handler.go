@@ -14,22 +14,53 @@ import (
 
 // ConcertHandler implements the ConcertService Connect interface.
 type ConcertHandler struct {
-	concertUseCase usecase.ConcertUseCase
-	userRepo       entity.UserRepository
-	logger         *logging.Logger
+	concertUseCase  usecase.ConcertUseCase
+	userRepo        entity.UserRepository
+	mediaURLBuilder *mapper.MediaURLBuilder
+	logger          *logging.Logger
 }
 
-// NewConcertHandler creates a new concert handler.
+// NewConcertHandler creates a new concert handler. mediaURLBuilder composes
+// the cover image URLs of the first-party Series returned by Get and
+// ListBySeries.
 func NewConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
 	userRepo entity.UserRepository,
+	mediaURLBuilder *mapper.MediaURLBuilder,
 	logger *logging.Logger,
 ) *ConcertHandler {
 	return &ConcertHandler{
-		concertUseCase: concertUseCase,
-		userRepo:       userRepo,
-		logger:         logger,
+		concertUseCase:  concertUseCase,
+		userRepo:        userRepo,
+		mediaURLBuilder: mediaURLBuilder,
+		logger:          logger,
 	}
+}
+
+// Get returns the Concert of one Event whose Series has an event page.
+// Authentication is not required.
+func (h *ConcertHandler) Get(ctx context.Context, req *connect.Request[concertv1.GetRequest]) (*connect.Response[concertv1.GetResponse], error) {
+	concert, err := h.concertUseCase.Get(ctx, req.Msg.GetEventId().GetValue())
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&concertv1.GetResponse{
+		Concert: h.mediaURLBuilder.ConcertToProto(concert),
+	}), nil
+}
+
+// ListBySeries returns the Concerts of one Series that has an event page, in
+// date and start-time order. Authentication is not required.
+func (h *ConcertHandler) ListBySeries(ctx context.Context, req *connect.Request[concertv1.ListBySeriesRequest]) (*connect.Response[concertv1.ListBySeriesResponse], error) {
+	concerts, err := h.concertUseCase.ListBySeries(ctx, req.Msg.GetSeriesId().GetValue())
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&concertv1.ListBySeriesResponse{
+		Concerts: h.mediaURLBuilder.ConcertsToProto(concerts),
+	}), nil
 }
 
 // List returns a list of concerts, optionally filtered by artist.

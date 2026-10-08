@@ -163,6 +163,19 @@ func (s *Series) IsPubliclyVisible() bool {
 		*s.Visibility == SeriesVisibilityPublic
 }
 
+// HasEventPage reports whether the Events of the series have a public event
+// page (/events/:id). Only a first-party series that is PUBLIC and either
+// PUBLISHED or CANCELLED has one. Unlike [Series.IsPubliclyVisible], a
+// CANCELLED series keeps its event page so a shared link can still explain
+// the cancellation; discovered, DRAFT and UNLISTED series have none.
+func (s *Series) HasEventPage() bool {
+	if !s.IsFirstParty() || s.Visibility == nil || *s.Visibility != SeriesVisibilityPublic {
+		return false
+	}
+	return s.PublishState != nil &&
+		(*s.PublishState == SeriesPublishStatePublished || *s.PublishState == SeriesPublishStateCancelled)
+}
+
 // NewSeries creates a new Series with an auto-generated UUIDv7 ID.
 func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 	return &Series{

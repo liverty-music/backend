@@ -125,6 +125,13 @@ type ServerConfig struct {
 	// malformed relative URL.
 	OrganizerMediaCDNBase string `envconfig:"ORGANIZER_MEDIA_CDN_BASE"`
 
+	// FanWebBaseURL is the fan web origin (scheme and host only, e.g.
+	// "https://liverty-music.app") used for the canonical og:url and the
+	// default og:image of an Event page's link preview. Required with no
+	// default: a wrong origin would publish links to another environment in
+	// every shared preview, so a missing value must stop the server.
+	FanWebBaseURL string `envconfig:"FAN_WEB_BASE_URL" required:"true"`
+
 	// PocketSign holds the Pocket Sign Stamp API credentials. When any of the
 	// four required fields (BaseURL, Token, TenantID, CallbackURL) is empty
 	// the server falls back to the StubVerifier, which returns UNAVAILABLE on
@@ -750,6 +757,10 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("JWT issuer is required")
 	}
 
+	if err := validateOrigin(c.FanWebBaseURL, c.IsLocal()); err != nil {
+		return fmt.Errorf("invalid FAN_WEB_BASE_URL: %w", err)
+	}
+
 	if c.JWT.JWKSRefreshInterval <= 0 {
 		return fmt.Errorf("JWT JWKS refresh interval must be positive")
 	}
@@ -1031,5 +1042,27 @@ func (c StripeConfig) Validate() error {
 				"and disputes are silently never processed")
 	}
 
+	return nil
+}
+
+// validateOrigin checks that raw is an absolute origin: https (or http when
+// allowHTTP), a host, and no path, query, fragment or user info.
+func validateOrigin(raw string, allowHTTP bool) error {
+	if raw == "" {
+		return fmt.Errorf("must not be empty")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("parse %q: %w", raw, err)
+	}
+	if u.Scheme != "https" && (!allowHTTP || u.Scheme != "http") {
+		return fmt.Errorf("%q must use https", raw)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("%q has no host", raw)
+	}
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return fmt.Errorf("%q must be an origin without path, query, fragment or user info", raw)
+	}
 	return nil
 }

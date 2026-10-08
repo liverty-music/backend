@@ -92,6 +92,37 @@ type ConcertUseCase interface {
 	//
 	//  - Internal: search log lookup or search failure.
 	SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error
+
+	// Get returns the Concert of one Event when its Series has an event page
+	// (see [entity.Series.HasEventPage]). The returned Concert carries the
+	// full Series as read by SeriesRepository.Get, including its description,
+	// cover media, visibility and publish state. No signed-in caller is needed.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If no Concert has the id, or its Series has no event page.
+	//    The same error is returned in every case so a caller cannot learn
+	//    whether a DRAFT or UNLISTED event exists.
+	//  - Any other repository error, returned unchanged.
+	Get(ctx context.Context, eventID string) (*entity.Concert, error)
+
+	// ListBySeries returns every Concert of one Series that has an event page,
+	// ordered by local date and then by start time (as
+	// ConcertRepository.ListEventsBySeries orders them). Each Concert carries
+	// the full Series as read by SeriesRepository.Get. No signed-in caller is
+	// needed.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If no Series has the id, or the Series has no event page.
+	//  - Any other repository error, returned unchanged.
+	ListBySeries(ctx context.Context, seriesID string) ([]*entity.Concert, error)
+}
+
+// errNoEventPage is the single NotFound returned by Get and ListBySeries for
+// every miss, so the response never reveals why an event has no page.
+func errNoEventPage() error {
+	return apperr.New(codes.NotFound, "event page not found")
 }
 
 // concertUseCase implements both the consumer-facing ConcertUseCase and the
@@ -182,6 +213,85 @@ func (uc *concertUseCase) ListByArtist(ctx context.Context, artistID string) ([]
 	}
 
 	return concerts, nil
+}
+
+// Get returns the Concert of one Event when its Series has an event page.
+func (uc *concertUseCase) Get(ctx context.Context, eventID string) (*entity.Concert, error) {
+	concerts, err := uc.concertRepo.ListByIDs(ctx, []string{eventID})
+	if err != nil {
+		return nil, err
+	}
+	if len(concerts) == 0 {
+		return nil, errNoEventPage()
+	}
+	concert := concerts[0]
+
+	series, err := uc.eventPageSeries(ctx, concert.SeriesID)
+	if err != nil {
+		return nil, err
+	}
+	concert.Series = series
+	return concert, nil
+}
+
+// ListBySeries returns the Concerts of one Series that has an event page, in
+// ListEventsBySeries order.
+func (uc *concertUseCase) ListBySeries(ctx context.Context, seriesID string) ([]*entity.Concert, error) {
+	series, err := uc.eventPageSeries(ctx, seriesID)
+	if err != nil {
+		return nil, err
+	}
+
+	events, err := uc.concertRepo.ListEventsBySeries(ctx, seriesID)
+	if err != nil {
+		return nil, err
+	}
+	if len(events) == 0 {
+		return []*entity.Concert{}, nil
+	}
+
+	ids := make([]string, len(events))
+	for i, e := range events {
+		ids[i] = e.ID
+	}
+	concerts, err := uc.concertRepo.ListByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	// ListByIDs orders by date only; restore the ListEventsBySeries order so
+	// same-day shows are ordered by start time.
+	byID := make(map[string]*entity.Concert, len(concerts))
+	for _, c := range concerts {
+		byID[c.ID] = c
+	}
+	ordered := make([]*entity.Concert, 0, len(concerts))
+	for _, id := range ids {
+		c, ok := byID[id]
+		if !ok {
+			continue
+		}
+		c.Series = series
+		ordered = append(ordered, c)
+	}
+	return ordered, nil
+}
+
+// eventPageSeries reads the Series and returns it only when it has an event
+// page. A missing Series and a Series without an event page both yield the
+// same NotFound; any other read failure is returned unchanged.
+func (uc *concertUseCase) eventPageSeries(ctx context.Context, seriesID string) (*entity.Series, error) {
+	series, err := uc.seriesRepo.Get(ctx, seriesID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			return nil, errNoEventPage()
+		}
+		return nil, err
+	}
+	if !series.HasEventPage() {
+		return nil, errNoEventPage()
+	}
+	return series, nil
 }
 
 // ListByFollower returns concerts for artists followed by the given user whose

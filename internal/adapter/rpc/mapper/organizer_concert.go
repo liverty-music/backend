@@ -74,33 +74,42 @@ func (b *MediaURLBuilder) AuthoredConcertToProto(s *entity.Series, events []*ent
 // AuthoredSeriesToProto maps a domain Series (including authoring fields) to
 // the entityv1.Series proto message.
 func (b *MediaURLBuilder) AuthoredSeriesToProto(s *entity.Series) *entityv1.Series {
-	if s == nil {
+	return b.SeriesToProto(s)
+}
+
+// SeriesToProto maps a domain Series like [SeriesToProto] and additionally
+// sets its cover media with CDN URLs when the Series has one.
+func (b *MediaURLBuilder) SeriesToProto(s *entity.Series) *entityv1.Series {
+	proto := SeriesToProto(s)
+	if proto == nil {
 		return nil
-	}
-	proto := &entityv1.Series{
-		Id:    &entityv1.SeriesId{Value: s.ID},
-		Title: &entityv1.Title{Value: s.Title},
-		Type:  seriesTypeToProto(s.Type),
-	}
-	if s.SourceURL != "" {
-		proto.SourceUrl = &entityv1.Url{Value: s.SourceURL}
-	}
-	if s.Description != nil {
-		proto.Description = &entityv1.Description{Value: *s.Description}
 	}
 	if m := b.seriesMediaProto(s); m != nil {
 		proto.Media = m
 	}
-	if s.Visibility != nil {
-		proto.Visibility = visibilityToProto(*s.Visibility)
-	}
-	if s.PublishState != nil {
-		proto.PublishState = publishStateToProto(*s.PublishState)
-	}
-	if s.OrganizerID != nil {
-		proto.OrganizerId = &entityv1.OrganizerId{Value: *s.OrganizerID}
-	}
 	return proto
+}
+
+// ConcertToProto maps a domain Concert like [ConcertToProto] and additionally
+// sets its Series' cover media with CDN URLs when the Series has one.
+func (b *MediaURLBuilder) ConcertToProto(c *entity.Concert) *entityv1.Concert {
+	proto := ConcertToProto(c)
+	if proto == nil || c.Series == nil {
+		return proto
+	}
+	proto.Series = b.SeriesToProto(c.Series)
+	return proto
+}
+
+// ConcertsToProto maps a slice of Concerts with [MediaURLBuilder.ConcertToProto].
+func (b *MediaURLBuilder) ConcertsToProto(concerts []*entity.Concert) []*entityv1.Concert {
+	out := make([]*entityv1.Concert, 0, len(concerts))
+	for _, c := range concerts {
+		if p := b.ConcertToProto(c); p != nil {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // AuthoredEventsToProto converts a slice of domain Event entities into the

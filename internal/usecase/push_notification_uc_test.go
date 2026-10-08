@@ -968,6 +968,40 @@ func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage verifies that when the
+// earliest matched concert belongs to an Organizer's Series, the notification
+// deep-links to its public event page instead of the dashboard detail sheet.
+func TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage(t *testing.T) {
+	// @spec components/usecase/notification/notify-new-concerts "First-party concert links to its event page"
+	t.Parallel()
+	ctx := context.Background()
+
+	d := newPushNotificationTestDeps(t)
+
+	tokyoArea := "JP-13"
+	organizerID := "organizer-1"
+	date := func(day int) time.Time { return time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC) }
+	concerts := []*entity.Concert{
+		{ID: "discovered-late", LocalDate: date(10), Series: &entity.Series{ID: "s-discovered"}, Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "first-party-early", LocalDate: date(3), Series: &entity.Series{ID: "s-first-party", OrganizerID: &organizerID}, Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+	}
+	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
+	followers := []*entity.Follower{
+		{ArtistID: "artist-1", User: &entity.User{ID: "user-away"}, Hype: entity.HypeAway},
+	}
+
+	d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
+	d.concertRepo.EXPECT().ListByIDs(ctx, []string{"discovered-late", "first-party-early"}).Return(concerts, nil).Once()
+	d.followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return(followers, nil).Once()
+
+	expectNotificationRequestedMatching(t, d.publisher, "user-away", entity.NotificationTypeNewConcerts, func(p *entity.NotificationPayload) bool {
+		return payloadURL(p) == "/events/first-party-early"
+	})
+
+	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"discovered-late", "first-party-early"}})
+	assert.NoError(t, err)
+}
+
 // TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink verifies the spec's
 // home-hype scenario: with 3 new concerts (1 in JP-13, 2 in JP-40), a home
 // recipient in JP-13 sees a count of 1 and deep-links to the in-area concert —
