@@ -27,6 +27,7 @@ import (
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
+	walletpublickeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
 	"connectrpc.com/connect"
 	"connectrpc.com/grpchealth"
 	"github.com/ThreeDotsLabs/watermill"
@@ -499,7 +500,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketconnect.NewTicketServiceHandler(
-				rpc.NewTicketHandler(ticketUC, walletPublicKeyUC, userRepo, logger),
+				rpc.NewTicketHandler(ticketUC, userRepo, logger),
+				opts...,
+			)
+		},
+		// Fan-facing WalletPublicKeyService: Register, Get (signed-in fan only).
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return walletpublickeyconnect.NewWalletPublicKeyServiceHandler(
+				rpc.NewWalletPublicKeyHandler(walletPublicKeyUC, userRepo, logger),
 				opts...,
 			)
 		},

@@ -30,7 +30,7 @@ func newTicketHandler(t *testing.T) (*handler.TicketHandler, *ucmocks.MockTicket
 	ur := entitymocks.NewMockUserRepository(t)
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return handler.NewTicketHandler(uc, ucmocks.NewMockWalletPublicKeyUseCase(t), ur, logger), uc, ur
+	return handler.NewTicketHandler(uc, ur, logger), uc, ur
 }
 
 func TestTicketHandler_GetOrder(t *testing.T) {

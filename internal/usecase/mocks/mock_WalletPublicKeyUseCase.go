@@ -26,6 +26,65 @@ func (_m *MockWalletPublicKeyUseCase) EXPECT() *MockWalletPublicKeyUseCase_Expec
 	return &MockWalletPublicKeyUseCase_Expecter{mock: &_m.Mock}
 }
 
+// Get provides a mock function with given fields: ctx, userID
+func (_m *MockWalletPublicKeyUseCase) Get(ctx context.Context, userID entity.UserID) (*entity.WalletPublicKey, error) {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Get")
+	}
+
+	var r0 *entity.WalletPublicKey
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) (*entity.WalletPublicKey, error)); ok {
+		return rf(ctx, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) *entity.WalletPublicKey); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.WalletPublicKey)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.UserID) error); ok {
+		r1 = rf(ctx, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockWalletPublicKeyUseCase_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
+type MockWalletPublicKeyUseCase_Get_Call struct {
+	*mock.Call
+}
+
+// Get is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID entity.UserID
+func (_e *MockWalletPublicKeyUseCase_Expecter) Get(ctx interface{}, userID interface{}) *MockWalletPublicKeyUseCase_Get_Call {
+	return &MockWalletPublicKeyUseCase_Get_Call{Call: _e.mock.On("Get", ctx, userID)}
+}
+
+func (_c *MockWalletPublicKeyUseCase_Get_Call) Run(run func(ctx context.Context, userID entity.UserID)) *MockWalletPublicKeyUseCase_Get_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.UserID))
+	})
+	return _c
+}
+
+func (_c *MockWalletPublicKeyUseCase_Get_Call) Return(_a0 *entity.WalletPublicKey, _a1 error) *MockWalletPublicKeyUseCase_Get_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockWalletPublicKeyUseCase_Get_Call) RunAndReturn(run func(context.Context, entity.UserID) (*entity.WalletPublicKey, error)) *MockWalletPublicKeyUseCase_Get_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Register provides a mock function with given fields: ctx, userID, key, now
 func (_m *MockWalletPublicKeyUseCase) Register(ctx context.Context, userID entity.UserID, key entity.PublicKey, now time.Time) (*usecase.RegisterWalletPublicKeyResult, error) {
 	ret := _m.Called(ctx, userID, key, now)

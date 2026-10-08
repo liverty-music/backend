@@ -423,3 +423,35 @@ func TestWalletPublicKeyUseCase_Register(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	})
 }
+
+func TestWalletPublicKeyUseCase_Get(t *testing.T) {
+	t.Parallel()
+
+	user := entity.UserID(entity.NewID())
+
+	t.Run("fan with an entry device", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/wallet-public-key/get "Fan with an entry device"
+		keys := entitymocks.NewMockWalletPublicKeyRepository(t)
+		k2 := testutil.NewDeviceKey(t).PublicKey(t)
+		registered := evening(10, 0, 0)
+		keys.EXPECT().GetByUser(mock.Anything, user).
+			Return(&entity.WalletPublicKey{UserID: user, PublicKey: k2, RegisteredTime: registered}, nil)
+
+		got, err := usecase.NewWalletPublicKeyUseCase(keys, newTestLogger(t)).Get(context.Background(), user)
+		require.NoError(t, err)
+		assert.Equal(t, k2, got.PublicKey)
+		assert.True(t, got.RegisteredTime.Equal(registered))
+		keys.AssertNotCalled(t, "Register", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("fan without an entry device", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/wallet-public-key/get "Fan without an entry device"
+		keys := entitymocks.NewMockWalletPublicKeyRepository(t)
+		keys.EXPECT().GetByUser(mock.Anything, user).Return(nil, apperr.New(codes.NotFound, "no key"))
+
+		_, err := usecase.NewWalletPublicKeyUseCase(keys, newTestLogger(t)).Get(context.Background(), user)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+}

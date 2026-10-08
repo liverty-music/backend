@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"errors"
-	"time"
 
 	ticketv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
@@ -21,7 +20,6 @@ var _ ticketv1connect.TicketServiceHandler = (*TicketHandler)(nil)
 // read surface over a caller's own Orders and issued Tickets.
 type TicketHandler struct {
 	ticketUC usecase.TicketUseCase
-	walletUC usecase.WalletPublicKeyUseCase
 	userRepo entity.UserRepository
 	logger   *logging.Logger
 }
@@ -29,13 +27,11 @@ type TicketHandler struct {
 // NewTicketHandler creates a new instance of the ticket RPC service handler.
 func NewTicketHandler(
 	ticketUC usecase.TicketUseCase,
-	walletUC usecase.WalletPublicKeyUseCase,
 	userRepo entity.UserRepository,
 	logger *logging.Logger,
 ) *TicketHandler {
 	return &TicketHandler{
 		ticketUC: ticketUC,
-		walletUC: walletUC,
 		userRepo: userRepo,
 		logger:   logger,
 	}
@@ -83,31 +79,4 @@ func (h *TicketHandler) List(ctx context.Context, _ *connect.Request[rpc.ListReq
 	}
 
 	return connect.NewResponse(&rpc.ListResponse{Tickets: mapper.TicketsToProto(tickets)}), nil
-}
-
-// RegisterWalletPublicKey records the public key of the caller's device as
-// the caller's WalletPublicKey, replacing any other device's key.
-func (h *TicketHandler) RegisterWalletPublicKey(ctx context.Context, req *connect.Request[rpc.RegisterWalletPublicKeyRequest]) (*connect.Response[rpc.RegisterWalletPublicKeyResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(req.Msg.GetPublicKey().GetValue()) == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("public_key is required"))
-	}
-	// Resolve the internal users.id from the JWT sub claim (Zitadel external_id).
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := h.walletUC.Register(ctx, entity.UserID(user.ID), entity.PublicKey(req.Msg.GetPublicKey().GetValue()), time.Now())
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&rpc.RegisterWalletPublicKeyResponse{
-		WalletPublicKey:  mapper.WalletPublicKeyToProto(result.Key),
-		ReplacedOtherKey: result.ReplacedOtherKey,
-	}), nil
 }

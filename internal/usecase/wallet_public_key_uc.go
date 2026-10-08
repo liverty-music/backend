@@ -32,6 +32,15 @@ type WalletPublicKeyUseCase interface {
 	//    unchanged).
 	//  - Internal: database failure.
 	Register(ctx context.Context, userID entity.UserID, key entity.PublicKey, now time.Time) (*RegisterWalletPublicKeyResult, error)
+
+	// Get returns the fan's current WalletPublicKey, so the tickets screen can
+	// tell whether it runs on the fan's entry device. It changes nothing.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: the fan has no key.
+	//  - Internal: database failure.
+	Get(ctx context.Context, userID entity.UserID) (*entity.WalletPublicKey, error)
 }
 
 // walletPublicKeyUseCase implements [WalletPublicKeyUseCase].
@@ -56,4 +65,9 @@ func (uc *walletPublicKeyUseCase) Register(ctx context.Context, userID entity.Us
 		return nil, err
 	}
 	return &RegisterWalletPublicKeyResult{Key: registered, ReplacedOtherKey: replaced}, nil
+}
+
+// Get implements [WalletPublicKeyUseCase].
+func (uc *walletPublicKeyUseCase) Get(ctx context.Context, userID entity.UserID) (*entity.WalletPublicKey, error) {
+	return uc.keys.GetByUser(ctx, userID)
 }
