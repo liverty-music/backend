@@ -110,3 +110,4 @@ configMapGenerator:
   - migrations/20261007020000_drop_events_rescheduled_at.sql
   - migrations/20261008000000_add_ticket_wallet_and_reception.sql
   - migrations/20261008010000_grant_organizer_console_api_reception.sql
+  - migrations/20261008020000_restrict_organizer_console_api_and_zitadel_app_grants.sql

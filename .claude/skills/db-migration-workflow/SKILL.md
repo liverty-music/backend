@@ -36,3 +36,11 @@ When adding a new migration:
 1. Create the migration file with `atlas migrate diff --env local`
 2. Add the new file to `k8s/atlas/base/kustomization.yaml` under `configMapGenerator.files`
 3. Both changes go in the same PR
+
+#### Grant migrations (Cloud SQL IAM users)
+
+Privileges are not part of `schema.sql`, so grant migrations are written by hand (`atlas migrate new <name>`, then `atlas migrate hash`). Rules:
+
+- Grant a new workload's IAM user by its own name pattern (e.g. `rolname LIKE 'fan-api@%.iam'`), never with a generic `rolname LIKE '%@%.iam'` loop.
+- If a generic loop is unavoidable, it MUST exclude the narrow-privilege roles: `AND rolname NOT LIKE 'organizer-console-api@%' AND rolname NOT LIKE 'zitadel@%'`. `ALTER DEFAULT PRIVILEGES` in such a loop reaches every table created later, because migrations run as `postgres`.
+- When the organizer server gains a new write, add the exact grant (column-level `UPDATE` where possible) in a new migration and extend `organizerWrites` in `internal/infrastructure/database/rdb/migration_grants_integration_test.go`. That test applies every migration with fake IAM roles present and fails on any privilege outside the list.
