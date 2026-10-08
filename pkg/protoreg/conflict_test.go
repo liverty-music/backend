@@ -9,7 +9,6 @@ import (
 	"github.com/liverty-music/backend/pkg/protoreg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -170,15 +169,15 @@ func newExtensionTypes(t *testing.T, exts []extension) iter.Seq[protoreflect.Ext
 	types := make([]protoreflect.ExtensionType, 0, len(exts))
 	for i, ext := range exts {
 		fdp := &descriptorpb.FileDescriptorProto{
-			Name:       proto.String(fmt.Sprintf("%s/%s_%d.proto", ext.pkg, ext.name, i)),
-			Package:    proto.String(ext.pkg),
+			Name:       new(fmt.Sprintf("%s/%s_%d.proto", ext.pkg, ext.name, i)),
+			Package:    new(ext.pkg),
 			Dependency: []string{"google/protobuf/descriptor.proto"},
 			Extension: []*descriptorpb.FieldDescriptorProto{{
-				Name:     proto.String(ext.name),
-				Number:   proto.Int32(ext.number),
+				Name:     new(ext.name),
+				Number:   new(ext.number),
 				Label:    descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
 				Type:     descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
-				Extendee: proto.String(ext.extendee),
+				Extendee: new(ext.extendee),
 			}},
 		}
 		fd, err := protodesc.NewFile(fdp, protoregistry.GlobalFiles)
