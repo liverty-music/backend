@@ -1304,6 +1304,9 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		require.Len(t, got, 2, "past from should include past concerts")
 		assert.Equal(t, "Past Concert", got[0].Series.Title)
 		assert.Equal(t, "Future Concert", got[1].Series.Title)
+		assert.Nil(t, got[0].Series.OrganizerID, "a discovered series carries no organizer")
+		assert.Nil(t, got[0].Series.Visibility)
+		assert.Nil(t, got[0].Series.PublishState)
 
 		// From after all concerts: empty list, not an error.
 		afterAll := futureDate.AddDate(0, 0, 1)
@@ -1369,6 +1372,19 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		require.Len(t, got, 1, "only the PUBLISHED+PUBLIC first-party series should be visible")
 		require.NotNil(t, got[0].Series)
 		assert.Equal(t, "Published Public Series Concert", got[0].Series.Title)
+		require.NotNil(t, got[0].Series.OrganizerID, "a first-party series carries its organizer")
+		assert.Equal(t, organizerID, *got[0].Series.OrganizerID)
+		require.NotNil(t, got[0].Series.Visibility)
+		assert.Equal(t, entity.SeriesVisibilityPublic, *got[0].Series.Visibility)
+		require.NotNil(t, got[0].Series.PublishState)
+		assert.Equal(t, entity.SeriesPublishStatePublished, *got[0].Series.PublishState)
+
+		// ListByIDs ignores visibility and carries the same first-party attributes.
+		byID, err := concertRepo.ListByIDs(ctx, []string{got[0].ID})
+		require.NoError(t, err)
+		require.Len(t, byID, 1)
+		require.NotNil(t, byID[0].Series.OrganizerID)
+		assert.Equal(t, organizerID, *byID[0].Series.OrganizerID)
 	})
 }
 

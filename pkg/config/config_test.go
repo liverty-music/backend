@@ -33,6 +33,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 				"GCP_PROJECT_ID":                  "test-project",
 				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "test-datastore",
 				"OIDC_ISSUER_URL":                 "https://test-issuer.com",
+				"FAN_WEB_BASE_URL":                "http://localhost:9000",
 			},
 			want: &ServerConfig{
 				Environment:     "local",
@@ -103,7 +104,8 @@ func TestLoad_ServerConfig(t *testing.T) {
 				VAPID: VAPIDConfig{
 					Contact: "mailto:pepperoni9@gmail.com",
 				},
-				NATS: NATSConfig{},
+				NATS:          NATSConfig{},
+				FanWebBaseURL: "http://localhost:9000",
 				Stripe: StripeConfig{
 					SettlementDisputeBufferDays: 7,
 				},
@@ -131,6 +133,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 				"GCP_VERTEX_AI_SEARCH_DATA_STORE": "custom-datastore",
 				"OIDC_ISSUER_URL":                 "https://custom-issuer.com",
 				"JWKS_REFRESH_INTERVAL":           "30m",
+				"FAN_WEB_BASE_URL":                "https://liverty-music.app",
 			},
 			want: &ServerConfig{
 				Environment:     "production",
@@ -201,7 +204,8 @@ func TestLoad_ServerConfig(t *testing.T) {
 				VAPID: VAPIDConfig{
 					Contact: "mailto:pepperoni9@gmail.com",
 				},
-				NATS: NATSConfig{},
+				NATS:          NATSConfig{},
+				FanWebBaseURL: "https://liverty-music.app",
 				Stripe: StripeConfig{
 					SettlementDisputeBufferDays: 7,
 				},
@@ -279,6 +283,7 @@ func TestServerConfig_Validate(t *testing.T) {
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
 				},
+				FanWebBaseURL: "https://liverty-music.app",
 			},
 			wantErr: false,
 		},
@@ -293,6 +298,7 @@ func TestServerConfig_Validate(t *testing.T) {
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
 				},
+				FanWebBaseURL: "https://liverty-music.app",
 			},
 			wantErr: true,
 		},
@@ -323,6 +329,7 @@ func TestServerConfig_Validate(t *testing.T) {
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
 				},
+				FanWebBaseURL: "https://liverty-music.app",
 			},
 			wantErr: true,
 		},
@@ -338,6 +345,7 @@ func TestServerConfig_Validate(t *testing.T) {
 					Issuer:              "https://test-issuer.com",
 					JWKSRefreshInterval: 15 * time.Minute,
 				},
+				FanWebBaseURL: "https://liverty-music.app",
 			},
 			wantErr: false,
 		},
@@ -687,6 +695,7 @@ func TestServerConfig_Validate_PocketSignPropagation(t *testing.T) {
 			Issuer:              "https://test-issuer.com",
 			JWKSRefreshInterval: 15 * time.Minute,
 		},
+		FanWebBaseURL: "https://liverty-music.app",
 		PocketSign: PocketSignConfig{
 			BaseURL: "https://verify.mock.p8n.app",
 			// Token, TenantID, CallbackURL deliberately omitted — partial config.
@@ -773,6 +782,7 @@ func TestServerConfig_Validate_StripePropagation(t *testing.T) {
 			Issuer:              "https://test-issuer.com",
 			JWKSRefreshInterval: 15 * time.Minute,
 		},
+		FanWebBaseURL: "https://liverty-music.app",
 		Stripe: StripeConfig{
 			SecretKey: "sk_test_x",
 			// WebhookSigningSecret deliberately omitted.
@@ -785,4 +795,47 @@ func TestServerConfig_Validate_StripePropagation(t *testing.T) {
 		"a half-configured Stripe setup must cause ServerConfig.Validate to fail")
 	assert.Contains(t, err.Error(), "STRIPE_WEBHOOK_SIGNING_SECRET must be set",
 		"error message must identify the missing field")
+}
+
+func TestLoad_ServerConfig_RequiresFanWebBaseURL(t *testing.T) {
+	t.Setenv("DATABASE_NAME", "testdb")
+	t.Setenv("DATABASE_USER", "testuser")
+	t.Setenv("OIDC_ISSUER_URL", "https://test-issuer.com")
+
+	_, err := Load[ServerConfig]()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FAN_WEB_BASE_URL")
+}
+
+func TestValidateOrigin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		raw       string
+		allowHTTP bool
+		wantErr   bool
+	}{
+		{name: "accept an https origin", raw: "https://liverty-music.app"},
+		{name: "accept an https origin with a trailing slash", raw: "https://dev.liverty-music.app/"},
+		{name: "accept an http origin when allowed", raw: "http://localhost:9000", allowHTTP: true},
+		{name: "reject an http origin when not allowed", raw: "http://liverty-music.app", wantErr: true},
+		{name: "reject an empty value", raw: "", wantErr: true},
+		{name: "reject a value without a scheme", raw: "liverty-music.app", wantErr: true},
+		{name: "reject a value with a path", raw: "https://liverty-music.app/events", wantErr: true},
+		{name: "reject a value with a query", raw: "https://liverty-music.app?ref=x", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateOrigin(tt.raw, tt.allowHTTP)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }

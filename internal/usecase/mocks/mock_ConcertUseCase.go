@@ -24,6 +24,65 @@ func (_m *MockConcertUseCase) EXPECT() *MockConcertUseCase_Expecter {
 	return &MockConcertUseCase_Expecter{mock: &_m.Mock}
 }
 
+// Get provides a mock function with given fields: ctx, eventID
+func (_m *MockConcertUseCase) Get(ctx context.Context, eventID string) (*entity.Concert, error) {
+	ret := _m.Called(ctx, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Get")
+	}
+
+	var r0 *entity.Concert
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Concert, error)); ok {
+		return rf(ctx, eventID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Concert); ok {
+		r0 = rf(ctx, eventID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Concert)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, eventID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertUseCase_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
+type MockConcertUseCase_Get_Call struct {
+	*mock.Call
+}
+
+// Get is a helper method to define mock.On call
+//   - ctx context.Context
+//   - eventID string
+func (_e *MockConcertUseCase_Expecter) Get(ctx interface{}, eventID interface{}) *MockConcertUseCase_Get_Call {
+	return &MockConcertUseCase_Get_Call{Call: _e.mock.On("Get", ctx, eventID)}
+}
+
+func (_c *MockConcertUseCase_Get_Call) Run(run func(ctx context.Context, eventID string)) *MockConcertUseCase_Get_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_Get_Call) Return(_a0 *entity.Concert, _a1 error) *MockConcertUseCase_Get_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertUseCase_Get_Call) RunAndReturn(run func(context.Context, string) (*entity.Concert, error)) *MockConcertUseCase_Get_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByArtist provides a mock function with given fields: ctx, artistID
 func (_m *MockConcertUseCase) ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error) {
 	ret := _m.Called(ctx, artistID)
@@ -321,6 +380,65 @@ func (_c *MockConcertUseCase_ListByLocation_Call) Return(_a0 []*entity.Proximity
 }
 
 func (_c *MockConcertUseCase_ListByLocation_Call) RunAndReturn(run func(context.Context, *entity.GeoLocation, time.Time, time.Time) ([]*entity.ProximityGroup, error)) *MockConcertUseCase_ListByLocation_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListBySeries provides a mock function with given fields: ctx, seriesID
+func (_m *MockConcertUseCase) ListBySeries(ctx context.Context, seriesID string) ([]*entity.Concert, error) {
+	ret := _m.Called(ctx, seriesID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListBySeries")
+	}
+
+	var r0 []*entity.Concert
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Concert, error)); ok {
+		return rf(ctx, seriesID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Concert); ok {
+		r0 = rf(ctx, seriesID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Concert)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, seriesID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertUseCase_ListBySeries_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListBySeries'
+type MockConcertUseCase_ListBySeries_Call struct {
+	*mock.Call
+}
+
+// ListBySeries is a helper method to define mock.On call
+//   - ctx context.Context
+//   - seriesID string
+func (_e *MockConcertUseCase_Expecter) ListBySeries(ctx interface{}, seriesID interface{}) *MockConcertUseCase_ListBySeries_Call {
+	return &MockConcertUseCase_ListBySeries_Call{Call: _e.mock.On("ListBySeries", ctx, seriesID)}
+}
+
+func (_c *MockConcertUseCase_ListBySeries_Call) Run(run func(ctx context.Context, seriesID string)) *MockConcertUseCase_ListBySeries_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListBySeries_Call) Return(_a0 []*entity.Concert, _a1 error) *MockConcertUseCase_ListBySeries_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertUseCase_ListBySeries_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Concert, error)) *MockConcertUseCase_ListBySeries_Call {
 	_c.Call.Return(run)
 	return _c
 }

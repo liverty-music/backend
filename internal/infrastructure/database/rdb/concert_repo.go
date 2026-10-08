@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 
@@ -138,6 +139,7 @@ const (
 	listConcertsByArtistQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
+		       s.organizer_id, s.description, s.visibility, s.publish_state,
 		       v.id, v.name, v.admin_area
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -151,6 +153,7 @@ const (
 	listUpcomingConcertsByArtistQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
+		       s.organizer_id, s.description, s.visibility, s.publish_state,
 		       v.id, v.name, v.admin_area
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -167,6 +170,7 @@ const (
 	listConcertsByArtistsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
+		       s.organizer_id, s.description, s.visibility, s.publish_state,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -189,6 +193,7 @@ const (
 	listConcertsByLocationQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
+		       s.organizer_id, s.description, s.visibility, s.publish_state,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -209,6 +214,7 @@ const (
 	listAllConcertsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
+		       s.organizer_id, s.description, s.visibility, s.publish_state,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -245,6 +251,7 @@ const (
 	listConcertsByIDsQuery = `
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
+		       s.organizer_id, s.description, s.visibility, s.publish_state,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -267,6 +274,7 @@ const (
 	listConcertsByFollowerQuery = `
 		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
+		       s.organizer_id, s.description, s.visibility, s.publish_state,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
@@ -302,18 +310,28 @@ func NewConcertRepository(db *Database) *ConcertRepository {
 // scanConcertRow scans a row from the standard JOIN (events + series + venue)
 // into a Concert without populating Performers. Pass withCoords=true when the
 // query selects venue lat/lng (used by ListByArtists / ListByFollower).
+//
+// The Series carries its first-party attributes (organizer, description,
+// visibility, publish state) so callers can tell first-party concerts from
+// discovered ones. The cover media and the share token are not read here;
+// SeriesRepository.Get returns them.
 func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.Concert, error) {
 	var (
-		c         entity.Concert
-		series    entity.Series
-		venue     entity.Venue
-		seriesT   string
-		sourceURL *string
-		lat, lng  *float64
+		c            entity.Concert
+		series       entity.Series
+		venue        entity.Venue
+		seriesT      string
+		sourceURL    *string
+		organizerID  sql.NullString
+		description  sql.NullString
+		visibility   sql.NullString
+		publishState sql.NullString
+		lat, lng     *float64
 	)
 	dests := []any{
 		&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime,
 		&series.Title, &seriesT, &sourceURL,
+		&organizerID, &description, &visibility, &publishState,
 		&venue.ID, &venue.Name, &venue.AdminArea,
 	}
 	if withCoords {
@@ -343,6 +361,22 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 	}
 	if sourceURL != nil {
 		series.SourceURL = *sourceURL
+	}
+	if organizerID.Valid {
+		v := organizerID.String
+		series.OrganizerID = &v
+	}
+	if description.Valid {
+		v := description.String
+		series.Description = &v
+	}
+	if visibility.Valid {
+		v := entity.SeriesVisibility(visibility.String)
+		series.Visibility = &v
+	}
+	if publishState.Valid {
+		v := entity.SeriesPublishState(publishState.String)
+		series.PublishState = &v
 	}
 	if lat != nil && lng != nil {
 		venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}

@@ -325,10 +325,8 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 		payload := entity.NewNotificationPayload(
 			artist.Name,
 			concertNotificationBody(len(subset), f.User.PreferredLanguage),
-			// Deep-link to the earliest hype-matched concert. The frontend's
-			// canonical concert-detail URL routes to the dashboard and opens the
-			// concert's detail sheet, filtered to its artist.
-			fmt.Sprintf("/concerts/%s", earliest.ID),
+			// Deep-link to the earliest hype-matched concert.
+			concertDeepLink(earliest),
 			fmt.Sprintf("concert-%s", artist.ID),
 		)
 		// Deterministic id: same artist + same concert batch + same recipient
@@ -377,4 +375,15 @@ func concertNotificationBody(concertCount int, lang string) string {
 		}
 		return fmt.Sprintf("%d new concerts found", concertCount)
 	}
+}
+
+// concertDeepLink returns the fan web path a new-concert notification opens for
+// c: the public event page /events/<id> when c's Series is first-party, and
+// otherwise /concerts/<id>, which routes to the dashboard and opens the
+// concert's detail sheet.
+func concertDeepLink(c *entity.Concert) string {
+	if c.Series != nil && c.Series.IsFirstParty() {
+		return "/events/" + c.ID
+	}
+	return "/concerts/" + c.ID
 }

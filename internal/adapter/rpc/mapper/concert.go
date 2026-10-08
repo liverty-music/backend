@@ -31,6 +31,11 @@ func seriesTypeToProto(t entity.SeriesType) entityv1.SeriesType {
 
 // SeriesToProto converts a domain Series entity to the protobuf Series message.
 // Returns nil when the input is nil so callers can pass through optional values.
+//
+// The first-party attributes (organizer id, description, visibility and publish
+// state) are set when the Series has them, so the fan app can tell first-party
+// concerts from discovered ones. The cover media needs the CDN base and is set
+// by [MediaURLBuilder.SeriesToProto]. The share token is never mapped.
 func SeriesToProto(s *entity.Series) *entityv1.Series {
 	if s == nil {
 		return nil
@@ -42,6 +47,18 @@ func SeriesToProto(s *entity.Series) *entityv1.Series {
 	}
 	if s.SourceURL != "" {
 		proto.SourceUrl = &entityv1.Url{Value: s.SourceURL}
+	}
+	if s.Description != nil {
+		proto.Description = &entityv1.Description{Value: *s.Description}
+	}
+	if s.Visibility != nil {
+		proto.Visibility = visibilityToProto(*s.Visibility)
+	}
+	if s.PublishState != nil {
+		proto.PublishState = publishStateToProto(*s.PublishState)
+	}
+	if s.OrganizerID != nil {
+		proto.OrganizerId = &entityv1.OrganizerId{Value: *s.OrganizerID}
 	}
 	return proto
 }

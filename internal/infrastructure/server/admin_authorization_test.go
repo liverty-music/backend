@@ -76,7 +76,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 		IdleTimeout:       5 * time.Second,
 	}
 	adminInterceptors := []connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}
-	adminSrv := server.NewConnectServer(cfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, handlers...)
+	adminSrv := server.NewConnectServer(cfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, nil, handlers...)
 
 	ts := httptest.NewServer(adminSrv.Handler())
 	t.Cleanup(ts.Close)
