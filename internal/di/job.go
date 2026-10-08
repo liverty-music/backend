@@ -82,7 +82,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 			OmitTemperature: true,
 
 			IncludeServerSideToolInvocations: true,
-		}, geminiHTTPClient, logger)
+		}, geminiHTTPClient, gemini.NewOfficialPageClient(), logger)
 		if err != nil {
 			return nil, err
 		}

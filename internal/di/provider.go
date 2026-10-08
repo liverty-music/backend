@@ -121,7 +121,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			OmitTemperature: true,
 
 			IncludeServerSideToolInvocations: true,
-		}, geminiHTTPClient, logger)
+		}, geminiHTTPClient, gemini.NewOfficialPageClient(), logger)
 		if err != nil {
 			return nil, err
 		}

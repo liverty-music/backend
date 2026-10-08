@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -54,8 +55,16 @@ func geminiResponse(bodyText, finishReason string) string {
 }
 
 // newTestSearcher starts a mock Gemini server that answers every request with
-// respond, and returns a searcher pointed at it plus the request counter.
+// respond, and returns a searcher pointed at it plus the request counter. The
+// searcher has no official-page client, so it searches without linked pages.
 func newTestSearcher(t *testing.T, cfg gemini.Config, logger *logging.Logger, respond func(n int32, body map[string]any) (int, string)) (*gemini.ConcertSearcher, *atomic.Int32) {
+	t.Helper()
+	return newTestSearcherWithPages(t, cfg, logger, nil, respond)
+}
+
+// newTestSearcherWithPages is newTestSearcher with pageClient fetching the
+// official top page.
+func newTestSearcherWithPages(t *testing.T, cfg gemini.Config, logger *logging.Logger, pageClient *http.Client, respond func(n int32, body map[string]any) (int, string)) (*gemini.ConcertSearcher, *atomic.Int32) {
 	t.Helper()
 	var calls atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +90,7 @@ func newTestSearcher(t *testing.T, cfg gemini.Config, logger *logging.Logger, re
 		require.NoError(t, err)
 	}
 	s, err := gemini.NewConcertSearcher(context.Background(), cfg,
-		&http.Client{Transport: &rewriteTransport{URL: ts.URL}}, logger)
+		&http.Client{Transport: &rewriteTransport{URL: ts.URL}}, pageClient, logger)
 	require.NoError(t, err)
 	return s, &calls
 }
@@ -572,4 +581,128 @@ func findLogEntry(t *testing.T, logs []byte, msg string) map[string]any {
 	}
 	require.Failf(t, "log entry not found", "no %q entry in logs:\n%s", msg, logs)
 	return nil
+}
+
+// promptOf returns the user prompt of a captured Gemini request body.
+func promptOf(t *testing.T, body map[string]any) string {
+	t.Helper()
+	require.NotNil(t, body)
+	return body["contents"].([]any)[0].(map[string]any)["parts"].([]any)[0].(map[string]any)["text"].(string)
+}
+
+// TestConcertSearcher_Search_LinkedPages asserts that the concert pages the
+// official top page links to are listed in the prompt, and that the prompt is
+// the plain one when the page has none or cannot be read.
+func TestConcertSearcher_Search_LinkedPages(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{ID: "artist-1", Name: "Vaundy"}
+	site := &entity.OfficialSite{URL: "http://vaundy.jp/"}
+
+	tests := []struct {
+		name      string
+		page      http.HandlerFunc
+		wantLinks []string
+	}{
+		{
+			name: "top page with concert links",
+			page: htmlPage(anchors("/live/", "https://member.vaundy.jp/feature/ASIAARENATOUR_2026", "/news/")),
+			wantLinks: []string{
+				"http://vaundy.jp/live/",
+				"https://member.vaundy.jp/feature/ASIAARENATOUR_2026",
+				"http://vaundy.jp/news/",
+			},
+		},
+		{
+			name: "top page without concert or news links",
+			page: htmlPage(anchors("/profile/", "/discography/")),
+		},
+		{
+			name: "top page unavailable",
+			page: func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			capture := func(dst *map[string]any, mu *sync.Mutex) func(int32, map[string]any) (int, string) {
+				return func(_ int32, body map[string]any) (int, string) {
+					mu.Lock()
+					*dst = body
+					mu.Unlock()
+					return http.StatusOK, geminiResponse(`{"series":[]}`, "STOP")
+				}
+			}
+			var (
+				mu               sync.Mutex
+				withPages, plain map[string]any
+				pageClient       = newSiteClient(t, map[string]http.HandlerFunc{"vaundy.jp": tt.page})
+				linked, _        = newTestSearcherWithPages(t, gemini.Config{}, nil, pageClient, capture(&withPages, &mu))
+				withoutClient, _ = newTestSearcher(t, gemini.Config{}, nil, capture(&plain, &mu))
+			)
+
+			_, md, err := linked.SearchExt(context.Background(), artist, site, from)
+			require.NoError(t, err)
+			_, err = withoutClient.Search(context.Background(), artist, site, from)
+			require.NoError(t, err)
+
+			mu.Lock()
+			defer mu.Unlock()
+			got, base := promptOf(t, withPages), promptOf(t, plain)
+			require.NotNil(t, md.Grounded)
+			if tt.wantLinks == nil {
+				assert.Equal(t, base, got, "the prompt is unchanged without linked pages")
+				assert.Empty(t, md.Grounded.LinkedPageURLs)
+				return
+			}
+			want := base + "\nConcert pages linked from the official site (read these with url_context):\n" +
+				strings.Join(tt.wantLinks, "\n") + "\n"
+			assert.Equal(t, want, got)
+			assert.Equal(t, tt.wantLinks, md.Grounded.LinkedPageURLs)
+		})
+	}
+}
+
+// TestConcertSearcher_Search_LogsURLContextCounts feeds the URL context tool
+// parts recorded from gemini-3.8-flash (2026-10-07; thought signatures and
+// text trimmed): one call for two URLs, one retrieved and one not.
+func TestConcertSearcher_Search_LogsURLContextCounts(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	artist := &entity.Artist{ID: "artist-1", Name: "Vaundy"}
+	site := &entity.OfficialSite{URL: "http://vaundy.jp/"}
+	response := `{"candidates": [{"content": {"parts": [
+		{"toolCall": {"toolType": "URL_CONTEXT", "args": {"urls": ["https://vaundy.jp/live/", "https://vaundy.jp/this-page-does-not-exist-xyz/"]}, "id": "call_655975"}},
+		{"toolResponse": {"toolType": "URL_CONTEXT", "response": {"url_metadata": [
+			{"retrieved_url": "https://vaundy.jp/live/", "url_retrieval_status": "URL_RETRIEVAL_STATUS_SUCCESS"},
+			{"retrieved_url": "https://vaundy.jp/this-page-does-not-exist-xyz/", "url_retrieval_status": "URL_RETRIEVAL_STATUS_ERROR"}
+		]}, "id": "call_655975"}},
+		{"text": ` + strconv.Quote(`{"series":[]}`) + `}
+	]}, "finishReason": "STOP",
+	"urlContextMetadata": {"urlMetadata": [
+		{"retrievedUrl": "https://vaundy.jp/live/", "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS"}
+	]}}]}`
+
+	var buf syncBuffer
+	logger, err := logging.New(logging.WithWriter(&buf), logging.WithFormat(logging.FormatJSON))
+	require.NoError(t, err)
+	pageClient := newSiteClient(t, map[string]http.HandlerFunc{"vaundy.jp": htmlPage(anchors("/live/"))})
+	s, _ := newTestSearcherWithPages(t, gemini.Config{IncludeServerSideToolInvocations: true}, logger, pageClient,
+		func(int32, map[string]any) (int, string) { return http.StatusOK, response })
+
+	_, md, err := s.SearchExt(context.Background(), artist, site, from)
+	require.NoError(t, err)
+
+	require.NotNil(t, md.Grounded)
+	assert.Equal(t, 1, md.Grounded.URLContextCalls)
+	assert.Equal(t, 1, md.Grounded.URLContextSucceeded)
+	entry := findLogEntry(t, buf.Bytes(), "successfully received Gemini response")
+	assert.EqualValues(t, 1, entry["url_context_calls"])
+	assert.EqualValues(t, 1, entry["url_context_succeeded"])
+	assert.EqualValues(t, 1, entry["url_context_retrieved"])
+	assert.EqualValues(t, 1, entry["linked_pages"])
+	assert.Equal(t, []any{"http://vaundy.jp/live/"}, entry["linked_page_urls"])
 }

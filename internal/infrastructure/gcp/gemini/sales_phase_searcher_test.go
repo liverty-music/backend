@@ -51,14 +51,17 @@ func spInput() *entity.SalesPhaseSearchInput {
 	}
 }
 
-// fakeGemini records the request and answers with a canned response.
+// fakeGemini records the request and answers with a canned response, or with
+// respond when it is set.
 type fakeGemini struct {
-	resp  *genai.GenerateContentResponse
-	err   error
-	calls int
-	model string
-	text  string
-	cfg   *genai.GenerateContentConfig
+	resp    *genai.GenerateContentResponse
+	err     error
+	respond func(call int) (*genai.GenerateContentResponse, error)
+	calls   int
+	model   string
+	text    string
+	cfg     *genai.GenerateContentConfig
+	cfgs    []*genai.GenerateContentConfig
 }
 
 func (f *fakeGemini) generate(
@@ -67,10 +70,15 @@ func (f *fakeGemini) generate(
 	f.calls++
 	f.model = model
 	f.cfg = cfg
+	f.cfgs = append(f.cfgs, cfg)
+	f.text = ""
 	for _, c := range contents {
 		for _, p := range c.Parts {
 			f.text += p.Text
 		}
+	}
+	if f.respond != nil {
+		return f.respond(f.calls)
 	}
 	return f.resp, f.err
 }
@@ -373,10 +381,11 @@ func TestSalesPhaseSearcher_Failures(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		resp     *genai.GenerateContentResponse
-		err      error
-		wantCode codes.Code
+		name      string
+		resp      *genai.GenerateContentResponse
+		err       error
+		wantCode  codes.Code
+		wantCalls int
 	}{
 		{
 			// @spec components/entity/sales-phase/search-sales-phases "Spend cap reached"
@@ -402,9 +411,11 @@ func TestSalesPhaseSearcher_Failures(t *testing.T) {
 			wantCode: codes.Unavailable,
 		},
 		{
-			name:     "rejected request",
-			err:      genai.APIError{Code: http.StatusBadRequest, Message: "bad request"},
-			wantCode: codes.InvalidArgument,
+			// @spec components/entity/sales-phase/search-sales-phases "Invalid request rejected twice"
+			name:      "Invalid request rejected twice",
+			err:       genai.APIError{Code: http.StatusBadRequest, Message: "bad request"},
+			wantCode:  codes.InvalidArgument,
+			wantCalls: 2,
 		},
 		{
 			name:     "deadline",
@@ -438,7 +449,11 @@ func TestSalesPhaseSearcher_Failures(t *testing.T) {
 			got, err := s.SearchSalesPhases(context.Background(), spInput())
 			require.Error(t, err)
 			assert.Nil(t, got)
-			assert.Equal(t, 1, f.calls, "single attempt")
+			wantCalls := tt.wantCalls
+			if wantCalls == 0 {
+				wantCalls = 1
+			}
+			assert.Equal(t, wantCalls, f.calls)
 			var ae *apperr.AppErr
 			require.ErrorAs(t, err, &ae)
 			assert.Equal(t, tt.wantCode, ae.Code, "got error: %v", err)
@@ -489,4 +504,67 @@ func TestSalesPhaseSearcher_ParseCandidateTimes(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.True(t, mustTime(t, start).Equal(got[0].ApplyStartTime))
 	assert.True(t, got[0].ApplyEndTime.IsZero())
+}
+
+// @spec components/entity/sales-phase/search-sales-phases "Invalid request recovered without the tool report"
+func TestSalesPhaseSearcher_InvalidRequestRetriedWithoutToolReport(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	f := &fakeGemini{respond: func(call int) (*genai.GenerateContentResponse, error) {
+		if call == 1 {
+			return nil, genai.APIError{Code: http.StatusBadRequest, Status: "INVALID_ARGUMENT", Message: "bad request"}
+		}
+		return jsonResponse(t, phase(spTourB, "lottery", "2026-10-10T12:00:00+09:00", "2026-10-15T23:59:00+09:00", nil)), nil
+	}}
+	s := newTestSalesPhaseSearcher(t, f, &logs)
+
+	got, err := s.SearchSalesPhases(context.Background(), spInput())
+
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, spTourB, got[0].SeriesID)
+	require.Len(t, f.cfgs, 2)
+	assert.NotNil(t, f.cfgs[0].ToolConfig, "the first request carries the tool-invocation report")
+	assert.Nil(t, f.cfgs[1].ToolConfig, "the second request drops it")
+	assert.Equal(t, f.cfgs[0].Tools, f.cfgs[1].Tools, "the rest of the request is unchanged")
+	assert.Contains(t, logs.String(), `"tool_report_dropped":true`)
+}
+
+// TestSalesPhaseSearcher_LogsURLContextCounts feeds the URL context tool parts
+// recorded from gemini-3.8-flash (2026-10-07): one call for two URLs, one
+// retrieved and one not.
+func TestSalesPhaseSearcher_LogsURLContextCounts(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	resp := textResponse(`{"phases":[]}`, genai.FinishReasonStop,
+		&genai.Part{ToolCall: &genai.ToolCall{
+			ID:       "call_655975",
+			ToolType: genai.ToolTypeURLContext,
+			Args:     map[string]any{"urls": []any{"https://kinggnu.jp/live/", "https://kinggnu.jp/missing/"}},
+		}},
+		&genai.Part{ToolResponse: &genai.ToolResponse{
+			ID:       "call_655975",
+			ToolType: genai.ToolTypeURLContext,
+			Response: map[string]any{"url_metadata": []any{
+				map[string]any{"retrieved_url": "https://kinggnu.jp/live/", "url_retrieval_status": "URL_RETRIEVAL_STATUS_SUCCESS"},
+				map[string]any{"retrieved_url": "https://kinggnu.jp/missing/", "url_retrieval_status": "URL_RETRIEVAL_STATUS_ERROR"},
+			}},
+		}},
+	)
+	s := newTestSalesPhaseSearcher(t, &fakeGemini{resp: resp}, &logs)
+
+	_, err := s.SearchSalesPhases(context.Background(), spInput())
+	require.NoError(t, err)
+
+	var line map[string]any
+	for l := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {
+		if strings.Contains(l, "gemini response metadata") {
+			require.NoError(t, json.Unmarshal([]byte(l), &line))
+		}
+	}
+	require.NotNil(t, line, "metadata line is logged")
+	assert.EqualValues(t, 1, line["url_context_calls"])
+	assert.EqualValues(t, 1, line["url_context_succeeded"])
 }
