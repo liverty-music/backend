@@ -109,6 +109,10 @@ func (s *stubOrganizerRepoForOnboarding) IsArtistRepresentedByActiveOrganizer(ct
 	return false, nil
 }
 
+func (s *stubOrganizerRepoForOnboarding) Delete(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+
 func newOnboardingUC(t *testing.T,
 	acctRepo entity.OrganizerConnectedAccountRepository,
 	port entity.PaymentSettlementPort,

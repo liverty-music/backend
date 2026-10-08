@@ -45,6 +45,7 @@ packages:
       FollowRepository:
       ConcertRepository:
       SeriesRepository:
+      MediaRepository:
       ConcertSearcher:
       UserRepository:
       SearchLogRepository:
@@ -73,6 +74,7 @@ packages:
       IssuanceRepository:
       OrderRepository:
       EmailVerifier:
+      IdentityRemover:
       PaymentAuthorizationPort:
       PaymentCapturePort:
       PaymentSettlementPort:

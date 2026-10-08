@@ -86,6 +86,10 @@ func (s *stubOrderRepo) UpdateStatus(ctx context.Context, id entity.OrderID, sta
 	return nil
 }
 
+func (s *stubOrderRepo) ListByBuyer(_ context.Context, _ entity.UserID) ([]*entity.Order, error) {
+	return nil, nil
+}
+
 type stubJourneyRepo struct {
 	upsertFn func(ctx context.Context, journey *entity.TicketJourney) error
 }

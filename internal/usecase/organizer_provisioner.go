@@ -17,4 +17,13 @@ type OrganizerProvisioner interface {
 
 	// DeactivateOperators deactivates every operator in the Organizer's tenant org.
 	DeactivateOperators(ctx context.Context, zitadelOrgID string) error
+
+	// DeleteTenant removes the Organizer's tenant org together with every
+	// operator in it. A tenant org that no longer exists counts as removed, so a
+	// repeated call succeeds.
+	//
+	// # Possible errors
+	//
+	//  - Internal: the tenant org could not be removed.
+	DeleteTenant(ctx context.Context, zitadelOrgID string) error
 }

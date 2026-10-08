@@ -229,6 +229,15 @@ const (
 	// deleteMediaByIDQuery removes a media row by id. Missing rows are silently
 	// skipped via the WHERE guard so DELETE is idempotent.
 	deleteMediaByIDQuery = `DELETE FROM media WHERE id = $1`
+
+	// listMediaByOrganizerQuery retrieves every media row an organizer owns,
+	// including rows no series uses as its cover.
+	listMediaByOrganizerQuery = `
+		SELECT id, organizer_id, kind, attributes
+		FROM media
+		WHERE organizer_id = $1
+		ORDER BY id
+	`
 )
 
 // scanSeries scans a single series row (including the nullable first-party
@@ -1138,4 +1147,37 @@ func (r *SeriesRepository) DeleteMedia(ctx context.Context, mediaID string) erro
 		return toAppErr(err, "failed to delete media row", slog.String("media_id", mediaID))
 	}
 	return nil
+}
+
+// ListMediaByOrganizer returns every media row owned by the organizer, ordered by id
+// (creation order, as ids are UUIDv7). Returns an empty slice when it owns none.
+func (r *SeriesRepository) ListMediaByOrganizer(ctx context.Context, organizerID string) ([]*entity.Media, error) {
+	rows, err := r.db.Pool.Query(ctx, listMediaByOrganizerQuery, organizerID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to list media by organizer", slog.String("organizer_id", organizerID))
+	}
+	defer rows.Close()
+
+	media := []*entity.Media{}
+	for rows.Next() {
+		var (
+			m        entity.Media
+			kindStr  string
+			attrsRaw []byte
+		)
+		if err := rows.Scan(&m.ID, &m.OrganizerID, &kindStr, &attrsRaw); err != nil {
+			return nil, toAppErr(err, "failed to scan media", slog.String("organizer_id", organizerID))
+		}
+		m.Kind = entity.MediaKind(kindStr)
+		if len(attrsRaw) > 0 {
+			if err := json.Unmarshal(attrsRaw, &m.Attributes); err != nil {
+				return nil, apperr.New(codes.Internal, fmt.Sprintf("unmarshal media attributes: %v", err))
+			}
+		}
+		media = append(media, &m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "failed to iterate media", slog.String("organizer_id", organizerID))
+	}
+	return media, nil
 }

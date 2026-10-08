@@ -278,6 +278,14 @@ type OrderRepository interface {
 	//  - NotFound: no Order with the id exists.
 	//  - Internal: database execution failure.
 	UpdateStatus(ctx context.Context, id OrderID, status OrderStatus) error
+
+	// ListByBuyer returns every Order whose buyer is the given User, in any
+	// status. It returns an empty slice when the User bought nothing.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database query failure.
+	ListByBuyer(ctx context.Context, buyerID UserID) ([]*Order, error)
 }
 
 // CapturedPayment is the read-back of ④'s captured winning payment from the

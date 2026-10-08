@@ -68,6 +68,53 @@ func (_c *MockOrganizerProvisioner_DeactivateOperators_Call) RunAndReturn(run fu
 	return _c
 }
 
+// DeleteTenant provides a mock function with given fields: ctx, zitadelOrgID
+func (_m *MockOrganizerProvisioner) DeleteTenant(ctx context.Context, zitadelOrgID string) error {
+	ret := _m.Called(ctx, zitadelOrgID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteTenant")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, zitadelOrgID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockOrganizerProvisioner_DeleteTenant_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteTenant'
+type MockOrganizerProvisioner_DeleteTenant_Call struct {
+	*mock.Call
+}
+
+// DeleteTenant is a helper method to define mock.On call
+//   - ctx context.Context
+//   - zitadelOrgID string
+func (_e *MockOrganizerProvisioner_Expecter) DeleteTenant(ctx interface{}, zitadelOrgID interface{}) *MockOrganizerProvisioner_DeleteTenant_Call {
+	return &MockOrganizerProvisioner_DeleteTenant_Call{Call: _e.mock.On("DeleteTenant", ctx, zitadelOrgID)}
+}
+
+func (_c *MockOrganizerProvisioner_DeleteTenant_Call) Run(run func(ctx context.Context, zitadelOrgID string)) *MockOrganizerProvisioner_DeleteTenant_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockOrganizerProvisioner_DeleteTenant_Call) Return(_a0 error) *MockOrganizerProvisioner_DeleteTenant_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockOrganizerProvisioner_DeleteTenant_Call) RunAndReturn(run func(context.Context, string) error) *MockOrganizerProvisioner_DeleteTenant_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ProvisionTenant provides a mock function with given fields: ctx, organizerID, name, operatorEmail
 func (_m *MockOrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID string, name string, operatorEmail string) (string, error) {
 	ret := _m.Called(ctx, organizerID, name, operatorEmail)
