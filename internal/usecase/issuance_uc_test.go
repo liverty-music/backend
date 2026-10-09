@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,29 +92,12 @@ func (s *stubOrderRepo) ListByBuyer(_ context.Context, _ entity.UserID) ([]*enti
 	return nil, nil
 }
 
-type stubJourneyRepo struct {
-	upsertFn func(ctx context.Context, journey *entity.TicketJourney) error
-}
-
-func (s *stubJourneyRepo) Get(ctx context.Context, userID, eventID string) (*entity.TicketJourney, error) {
+func (s *stubOrderRepo) GetByReservationID(_ context.Context, _ entity.ReservationID) (*entity.Order, error) {
 	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
 }
 
-func (s *stubJourneyRepo) Upsert(ctx context.Context, journey *entity.TicketJourney) error {
-	if s.upsertFn != nil {
-		return s.upsertFn(ctx, journey)
-	}
+func (s *stubOrderRepo) MarkConfirmationSent(_ context.Context, _ entity.OrderID, _ time.Time) error {
 	return nil
-}
-
-func (s *stubJourneyRepo) Delete(ctx context.Context, userID, eventID string) error { return nil }
-
-func (s *stubJourneyRepo) ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error) {
-	return nil, nil
-}
-
-func (s *stubJourneyRepo) ListUserIDsTrackingSeries(ctx context.Context, seriesID string) ([]*entity.SeriesTracker, error) {
-	return nil, nil
 }
 
 type stubCapturePort struct {
@@ -132,6 +117,39 @@ func (s *stubCapturePort) GetCapturedPayment(ctx context.Context, paymentIntentR
 	}, nil
 }
 
+// lotteryIssuanceDeps are the lottery-side dependencies of an issuance test.
+type lotteryIssuanceDeps struct {
+	issuanceRepo         entity.IssuanceRepository
+	orderRepo            entity.OrderRepository
+	appRepo              entity.TicketApplicationRepository
+	phaseRepo            entity.LotteryPhaseRepository
+	eventOrganizerRepo   usecase.EventOrganizerRepository
+	verifiedIdentityRepo entity.VerifiedIdentityRepository
+	capturePort          entity.PaymentCapturePort
+	clock                usecase.Clock
+}
+
+// newLotteryIssuanceUC builds an IssuanceUseCase for the lottery path, whose
+// Organizer is at the 5% pilot rate.
+func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.IssuanceUseCase {
+	t.Helper()
+	organizers := entitymocks.NewMockOrganizerRepository(t)
+	organizers.EXPECT().Get(mock.Anything, mock.Anything).
+		Return(&entity.Organizer{ID: "organizer-1", PlatformFeeRateBps: 500}, nil).Maybe()
+	return usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
+		IssuanceRepo:         d.issuanceRepo,
+		OrderRepo:            d.orderRepo,
+		AppRepo:              d.appRepo,
+		PhaseRepo:            d.phaseRepo,
+		EventOrganizerRepo:   d.eventOrganizerRepo,
+		OrganizerRepo:        organizers,
+		VerifiedIdentityRepo: d.verifiedIdentityRepo,
+		CapturePort:          d.capturePort,
+		Clock:                d.clock,
+		Logger:               newTestLogger(t),
+	})
+}
+
 // wonApplication returns a Won-captured application for 2 tickets on phase-1.
 func wonApplication() *entity.TicketApplication {
 	return &entity.TicketApplication{
@@ -139,7 +157,7 @@ func wonApplication() *entity.TicketApplication {
 		PhaseID:              "phase-1",
 		ApplicantID:          "user-1",
 		RequestedTicketCount: 2,
-		Identity:             entity.ApplicantIdentity{FullName: "山田 太郎", PhoneNumber: "+818000000000"},
+		Identity:             entity.HolderIdentity{FullName: "山田 太郎", PhoneNumber: "+818000000000"},
 		Authorization:        entity.PaymentAuthorization{PaymentIntentRef: "pi_won_1"},
 		State:                entity.TicketApplicationStateWon,
 	}
@@ -150,20 +168,15 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
 	// @spec components/usecase/order/issue-from-captured-win "Won application issued"
-	t.Run("creates a paid Order, issues N covered tickets, and sets journey PAID", func(t *testing.T) {
+	t.Run("creates a paid Order, issues N covered tickets and a Held Settlement at the Organizer's rate", func(t *testing.T) {
 		t.Parallel()
 
 		var issuedOrder *entity.Order
 		var issuedTickets []*entity.Ticket
 		var issuedSettlement *entity.Settlement
-		var journeyUpsert *entity.TicketJourney
 
 		issuanceRepo := &stubIssuanceRepo{issueFn: func(_ context.Context, o *entity.Order, ts []*entity.Ticket, s *entity.Settlement) error {
 			issuedOrder, issuedTickets, issuedSettlement = o, ts, s
-			return nil
-		}}
-		journeyRepo := &stubJourneyRepo{upsertFn: func(_ context.Context, j *entity.TicketJourney) error {
-			journeyUpsert = j
 			return nil
 		}}
 		appRepo := &stubAppRepo{getFn: func(_ context.Context, _ entity.TicketApplicationID) (*entity.TicketApplication, error) {
@@ -177,8 +190,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			return "organizer-1", nil
 		}}
 
-		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo, organizerRepo,
-			&stubVerifiedIdentityRepo{}, journeyRepo, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: &stubOrderRepo{}, appRepo: appRepo, phaseRepo: phaseRepo, eventOrganizerRepo: organizerRepo, verifiedIdentityRepo: &stubVerifiedIdentityRepo{}, capturePort: &stubCapturePort{}, clock: fixedClock(now)})
 
 		order, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
 		require.NoError(t, err)
@@ -209,25 +221,20 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			assert.Empty(t, tk.VerifiedIdentityID) // phase required no verification
 		}
 
-		// Journey set to PAID for the buyer + event.
-		require.NotNil(t, journeyUpsert)
-		assert.Equal(t, "user-1", journeyUpsert.UserID)
-		assert.Equal(t, "event-1", journeyUpsert.EventID)
-		assert.Equal(t, entity.TicketJourneyStatusPaid, journeyUpsert.Status)
-
 		// A Held settlement for the event's Organizer, with one split for the
-		// Order's amount less the flat 5% platform fee (backend#468: the payout
-		// sweeper needs this row to have anything to release). 10000 yen order
-		// -> 500 yen fee -> 9500 yen Organizer split.
+		// Order's amount less the platform fee at the Organizer's 5% rate
+		// (backend#468: the payout sweeper needs this row to have anything to
+		// release). 10000 yen order -> 500 yen fee -> 9500 yen Organizer split.
 		require.NotNil(t, issuedSettlement)
 		assert.Equal(t, order.ID, issuedSettlement.OrderID)
 		assert.Equal(t, "organizer-1", issuedSettlement.OrganizerID)
 		assert.Equal(t, "event-1", issuedSettlement.EventID)
 		assert.Equal(t, entity.SettlementStatusHeld, issuedSettlement.Status)
 		assert.Equal(t, now, issuedSettlement.CreatedTime)
+		assert.Equal(t, 500, issuedSettlement.PlatformFeeRateBps)
 		require.Len(t, issuedSettlement.Splits, 1)
 		assert.Equal(t, "organizer-1", issuedSettlement.Splits[0].PayeeOrganizerID)
-		assert.Equal(t, order.Amount-entity.PlatformFee(order.Amount), issuedSettlement.Splits[0].Amount)
+		assert.Equal(t, order.Amount-entity.PlatformFee(order.Amount, 500), issuedSettlement.Splits[0].Amount)
 		assert.Equal(t, int64(9500), issuedSettlement.Splits[0].Amount)
 	})
 
@@ -244,20 +251,13 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			issueCalled = true
 			return nil
 		}}
-		journeyCalled := false
-		journeyRepo := &stubJourneyRepo{upsertFn: func(_ context.Context, _ *entity.TicketJourney) error {
-			journeyCalled = true
-			return nil
-		}}
 
-		uc := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, &stubAppRepo{}, &stubPhaseRepo{}, &stubEventOrganizerRepo{},
-			&stubVerifiedIdentityRepo{}, journeyRepo, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: orderRepo, appRepo: &stubAppRepo{}, phaseRepo: &stubPhaseRepo{}, eventOrganizerRepo: &stubEventOrganizerRepo{}, verifiedIdentityRepo: &stubVerifiedIdentityRepo{}, capturePort: &stubCapturePort{}, clock: fixedClock(now)})
 
 		order, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
 		require.NoError(t, err)
 		assert.Same(t, existing, order)
 		assert.False(t, issueCalled, "must not re-issue when an Order already exists")
-		assert.False(t, journeyCalled, "must not re-write journey on an idempotent replay")
 	})
 
 	// @spec components/usecase/order/issue-from-captured-win "Application not won"
@@ -275,8 +275,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			return nil
 		}}
 
-		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, &stubPhaseRepo{}, &stubEventOrganizerRepo{},
-			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: &stubOrderRepo{}, appRepo: appRepo, phaseRepo: &stubPhaseRepo{}, eventOrganizerRepo: &stubEventOrganizerRepo{}, verifiedIdentityRepo: &stubVerifiedIdentityRepo{}, capturePort: &stubCapturePort{}, clock: fixedClock(now)})
 
 		_, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
 		require.Error(t, err)
@@ -304,8 +303,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			return &entity.VerifiedIdentity{ID: "vi-1", UserID: "user-1", Status: entity.VerificationStatusActive}, nil
 		}}
 
-		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo, &stubEventOrganizerRepo{},
-			viRepo, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: &stubOrderRepo{}, appRepo: appRepo, phaseRepo: phaseRepo, eventOrganizerRepo: &stubEventOrganizerRepo{}, verifiedIdentityRepo: viRepo, capturePort: &stubCapturePort{}, clock: fixedClock(now)})
 
 		_, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
 		require.NoError(t, err)
@@ -340,8 +338,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			return basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour)), nil
 		}}
 
-		uc := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, appRepo, phaseRepo, &stubEventOrganizerRepo{},
-			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: orderRepo, appRepo: appRepo, phaseRepo: phaseRepo, eventOrganizerRepo: &stubEventOrganizerRepo{}, verifiedIdentityRepo: &stubVerifiedIdentityRepo{}, capturePort: &stubCapturePort{}, clock: fixedClock(now)})
 
 		order, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
 		require.NoError(t, err)
@@ -367,8 +364,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			return "", apperr.New(apperr.ErrNotFound.Code, "event's series has no organizer")
 		}}
 
-		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo, organizerRepo,
-			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: &stubOrderRepo{}, appRepo: appRepo, phaseRepo: phaseRepo, eventOrganizerRepo: organizerRepo, verifiedIdentityRepo: &stubVerifiedIdentityRepo{}, capturePort: &stubCapturePort{}, clock: fixedClock(now)})
 
 		_, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
 		require.Error(t, err)
@@ -395,8 +391,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			return nil, apperr.New(apperr.ErrFailedPrecondition.Code, "payment intent is not captured")
 		}}
 
-		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo, &stubEventOrganizerRepo{},
-			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, capturePort, fixedClock(now), newTestLogger(t))
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: &stubOrderRepo{}, appRepo: appRepo, phaseRepo: phaseRepo, eventOrganizerRepo: &stubEventOrganizerRepo{}, verifiedIdentityRepo: &stubVerifiedIdentityRepo{}, capturePort: capturePort, clock: fixedClock(now)})
 
 		_, err := uc.IssueFromCapturedWin(context.Background(), "app-1")
 		require.Error(t, err)
@@ -442,8 +437,7 @@ func TestIssuanceUseCase_ThroughSettlementRelease(t *testing.T) {
 		return "organizer-1", nil
 	}}
 
-	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, appRepo, phaseRepo, organizerRepo,
-		&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+	issuanceUC := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: orderRepo, appRepo: appRepo, phaseRepo: phaseRepo, eventOrganizerRepo: organizerRepo, verifiedIdentityRepo: &stubVerifiedIdentityRepo{}, capturePort: &stubCapturePort{}, clock: fixedClock(now)})
 
 	order, err := issuanceUC.IssueFromCapturedWin(context.Background(), "app-1")
 	require.NoError(t, err)
@@ -482,7 +476,7 @@ func TestIssuanceUseCase_ThroughSettlementRelease(t *testing.T) {
 	require.NotNil(t, released, "the settlement issuance created must be released once due")
 	require.Len(t, releasedSplits, 1)
 	assert.Equal(t, "organizer-1", releasedSplits[0].PayeeOrganizerID)
-	assert.Equal(t, order.Amount-entity.PlatformFee(order.Amount), releasedSplits[0].Amount)
+	assert.Equal(t, order.Amount-entity.PlatformFee(order.Amount, 500), releasedSplits[0].Amount)
 }
 
 func TestIssuanceUseCase_IssueDueWins(t *testing.T) {
@@ -515,8 +509,7 @@ func TestIssuanceUseCase_IssueDueWins(t *testing.T) {
 			return basePhase(now.Add(-48*time.Hour), now.Add(-24*time.Hour)), nil
 		}}
 
-		uc := usecase.NewIssuanceUseCase(issuanceRepo, &stubOrderRepo{}, appRepo, phaseRepo, &stubEventOrganizerRepo{},
-			&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: &stubOrderRepo{}, appRepo: appRepo, phaseRepo: phaseRepo, eventOrganizerRepo: &stubEventOrganizerRepo{}, verifiedIdentityRepo: &stubVerifiedIdentityRepo{}, capturePort: &stubCapturePort{}, clock: fixedClock(now)})
 
 		err := uc.IssueDueWins(context.Background())
 		require.NoError(t, err)
@@ -561,8 +554,7 @@ func TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 		return "organizer-pending", nil
 	}}
 
-	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, appRepo, phaseRepo, organizerRepo,
-		&stubVerifiedIdentityRepo{}, &stubJourneyRepo{}, &stubCapturePort{}, fixedClock(now), newTestLogger(t))
+	issuanceUC := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, orderRepo: orderRepo, appRepo: appRepo, phaseRepo: phaseRepo, eventOrganizerRepo: organizerRepo, verifiedIdentityRepo: &stubVerifiedIdentityRepo{}, capturePort: &stubCapturePort{}, clock: fixedClock(now)})
 
 	// -- the fan is charged and holds Issued Tickets regardless of the
 	//    Organizer's payout readiness. --

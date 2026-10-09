@@ -129,6 +129,53 @@ func (_c *MockTicketJourneyUseCase_ListByUser_Call) RunAndReturn(run func(contex
 	return _c
 }
 
+// MarkPaid provides a mock function with given fields: ctx, paid
+func (_m *MockTicketJourneyUseCase) MarkPaid(ctx context.Context, paid entity.OrderPaidData) error {
+	ret := _m.Called(ctx, paid)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkPaid")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.OrderPaidData) error); ok {
+		r0 = rf(ctx, paid)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockTicketJourneyUseCase_MarkPaid_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkPaid'
+type MockTicketJourneyUseCase_MarkPaid_Call struct {
+	*mock.Call
+}
+
+// MarkPaid is a helper method to define mock.On call
+//   - ctx context.Context
+//   - paid entity.OrderPaidData
+func (_e *MockTicketJourneyUseCase_Expecter) MarkPaid(ctx interface{}, paid interface{}) *MockTicketJourneyUseCase_MarkPaid_Call {
+	return &MockTicketJourneyUseCase_MarkPaid_Call{Call: _e.mock.On("MarkPaid", ctx, paid)}
+}
+
+func (_c *MockTicketJourneyUseCase_MarkPaid_Call) Run(run func(ctx context.Context, paid entity.OrderPaidData)) *MockTicketJourneyUseCase_MarkPaid_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.OrderPaidData))
+	})
+	return _c
+}
+
+func (_c *MockTicketJourneyUseCase_MarkPaid_Call) Return(_a0 error) *MockTicketJourneyUseCase_MarkPaid_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockTicketJourneyUseCase_MarkPaid_Call) RunAndReturn(run func(context.Context, entity.OrderPaidData) error) *MockTicketJourneyUseCase_MarkPaid_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetStatus provides a mock function with given fields: ctx, userID, eventID, status
 func (_m *MockTicketJourneyUseCase) SetStatus(ctx context.Context, userID string, eventID string, status entity.TicketJourneyStatus) error {
 	ret := _m.Called(ctx, userID, eventID, status)

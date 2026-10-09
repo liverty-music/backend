@@ -140,7 +140,7 @@ type ApplyInput struct {
 	RequestedTicketCount int
 
 	// Identity carries the applicant's legal name and phone number (本人確認).
-	Identity entity.ApplicantIdentity
+	Identity entity.HolderIdentity
 
 	// PaymentIntentRef is the Stripe PaymentIntent ID returned by
 	// [CreateAuthorization] after the frontend has completed 3DS confirmation.

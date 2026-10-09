@@ -22,6 +22,52 @@ func (_m *MockIssuanceUseCase) EXPECT() *MockIssuanceUseCase_Expecter {
 	return &MockIssuanceUseCase_Expecter{mock: &_m.Mock}
 }
 
+// IssueDueReservations provides a mock function with given fields: ctx
+func (_m *MockIssuanceUseCase) IssueDueReservations(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IssueDueReservations")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockIssuanceUseCase_IssueDueReservations_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueDueReservations'
+type MockIssuanceUseCase_IssueDueReservations_Call struct {
+	*mock.Call
+}
+
+// IssueDueReservations is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockIssuanceUseCase_Expecter) IssueDueReservations(ctx interface{}) *MockIssuanceUseCase_IssueDueReservations_Call {
+	return &MockIssuanceUseCase_IssueDueReservations_Call{Call: _e.mock.On("IssueDueReservations", ctx)}
+}
+
+func (_c *MockIssuanceUseCase_IssueDueReservations_Call) Run(run func(ctx context.Context)) *MockIssuanceUseCase_IssueDueReservations_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockIssuanceUseCase_IssueDueReservations_Call) Return(_a0 error) *MockIssuanceUseCase_IssueDueReservations_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIssuanceUseCase_IssueDueReservations_Call) RunAndReturn(run func(context.Context) error) *MockIssuanceUseCase_IssueDueReservations_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // IssueDueWins provides a mock function with given fields: ctx
 func (_m *MockIssuanceUseCase) IssueDueWins(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -123,6 +169,66 @@ func (_c *MockIssuanceUseCase_IssueFromCapturedWin_Call) Return(_a0 *entity.Orde
 }
 
 func (_c *MockIssuanceUseCase_IssueFromCapturedWin_Call) RunAndReturn(run func(context.Context, entity.TicketApplicationID) (*entity.Order, error)) *MockIssuanceUseCase_IssueFromCapturedWin_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// IssueFromReservation provides a mock function with given fields: ctx, reservationID, caller
+func (_m *MockIssuanceUseCase) IssueFromReservation(ctx context.Context, reservationID entity.ReservationID, caller *entity.UserID) (*entity.Order, error) {
+	ret := _m.Called(ctx, reservationID, caller)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IssueFromReservation")
+	}
+
+	var r0 *entity.Order
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.ReservationID, *entity.UserID) (*entity.Order, error)); ok {
+		return rf(ctx, reservationID, caller)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.ReservationID, *entity.UserID) *entity.Order); ok {
+		r0 = rf(ctx, reservationID, caller)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Order)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.ReservationID, *entity.UserID) error); ok {
+		r1 = rf(ctx, reservationID, caller)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockIssuanceUseCase_IssueFromReservation_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueFromReservation'
+type MockIssuanceUseCase_IssueFromReservation_Call struct {
+	*mock.Call
+}
+
+// IssueFromReservation is a helper method to define mock.On call
+//   - ctx context.Context
+//   - reservationID entity.ReservationID
+//   - caller *entity.UserID
+func (_e *MockIssuanceUseCase_Expecter) IssueFromReservation(ctx interface{}, reservationID interface{}, caller interface{}) *MockIssuanceUseCase_IssueFromReservation_Call {
+	return &MockIssuanceUseCase_IssueFromReservation_Call{Call: _e.mock.On("IssueFromReservation", ctx, reservationID, caller)}
+}
+
+func (_c *MockIssuanceUseCase_IssueFromReservation_Call) Run(run func(ctx context.Context, reservationID entity.ReservationID, caller *entity.UserID)) *MockIssuanceUseCase_IssueFromReservation_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.ReservationID), args[2].(*entity.UserID))
+	})
+	return _c
+}
+
+func (_c *MockIssuanceUseCase_IssueFromReservation_Call) Return(_a0 *entity.Order, _a1 error) *MockIssuanceUseCase_IssueFromReservation_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockIssuanceUseCase_IssueFromReservation_Call) RunAndReturn(run func(context.Context, entity.ReservationID, *entity.UserID) (*entity.Order, error)) *MockIssuanceUseCase_IssueFromReservation_Call {
 	_c.Call.Return(run)
 	return _c
 }

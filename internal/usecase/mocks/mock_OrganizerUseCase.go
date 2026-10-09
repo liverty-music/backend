@@ -613,6 +613,126 @@ func (_c *MockOrganizerUseCase_ResolveCaller_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// SetPlatformFeeRate provides a mock function with given fields: ctx, organizerID, rateBps
+func (_m *MockOrganizerUseCase) SetPlatformFeeRate(ctx context.Context, organizerID string, rateBps int) (*entity.Organizer, error) {
+	ret := _m.Called(ctx, organizerID, rateBps)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetPlatformFeeRate")
+	}
+
+	var r0 *entity.Organizer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) (*entity.Organizer, error)); ok {
+		return rf(ctx, organizerID, rateBps)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) *entity.Organizer); ok {
+		r0 = rf(ctx, organizerID, rateBps)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Organizer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, int) error); ok {
+		r1 = rf(ctx, organizerID, rateBps)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockOrganizerUseCase_SetPlatformFeeRate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPlatformFeeRate'
+type MockOrganizerUseCase_SetPlatformFeeRate_Call struct {
+	*mock.Call
+}
+
+// SetPlatformFeeRate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - organizerID string
+//   - rateBps int
+func (_e *MockOrganizerUseCase_Expecter) SetPlatformFeeRate(ctx interface{}, organizerID interface{}, rateBps interface{}) *MockOrganizerUseCase_SetPlatformFeeRate_Call {
+	return &MockOrganizerUseCase_SetPlatformFeeRate_Call{Call: _e.mock.On("SetPlatformFeeRate", ctx, organizerID, rateBps)}
+}
+
+func (_c *MockOrganizerUseCase_SetPlatformFeeRate_Call) Run(run func(ctx context.Context, organizerID string, rateBps int)) *MockOrganizerUseCase_SetPlatformFeeRate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_SetPlatformFeeRate_Call) Return(_a0 *entity.Organizer, _a1 error) *MockOrganizerUseCase_SetPlatformFeeRate_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_SetPlatformFeeRate_Call) RunAndReturn(run func(context.Context, string, int) (*entity.Organizer, error)) *MockOrganizerUseCase_SetPlatformFeeRate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateSellerDetails provides a mock function with given fields: ctx, organizerID, details
+func (_m *MockOrganizerUseCase) UpdateSellerDetails(ctx context.Context, organizerID string, details entity.SellerDetails) (*entity.Organizer, error) {
+	ret := _m.Called(ctx, organizerID, details)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateSellerDetails")
+	}
+
+	var r0 *entity.Organizer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.SellerDetails) (*entity.Organizer, error)); ok {
+		return rf(ctx, organizerID, details)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.SellerDetails) *entity.Organizer); ok {
+		r0 = rf(ctx, organizerID, details)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Organizer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, entity.SellerDetails) error); ok {
+		r1 = rf(ctx, organizerID, details)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockOrganizerUseCase_UpdateSellerDetails_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateSellerDetails'
+type MockOrganizerUseCase_UpdateSellerDetails_Call struct {
+	*mock.Call
+}
+
+// UpdateSellerDetails is a helper method to define mock.On call
+//   - ctx context.Context
+//   - organizerID string
+//   - details entity.SellerDetails
+func (_e *MockOrganizerUseCase_Expecter) UpdateSellerDetails(ctx interface{}, organizerID interface{}, details interface{}) *MockOrganizerUseCase_UpdateSellerDetails_Call {
+	return &MockOrganizerUseCase_UpdateSellerDetails_Call{Call: _e.mock.On("UpdateSellerDetails", ctx, organizerID, details)}
+}
+
+func (_c *MockOrganizerUseCase_UpdateSellerDetails_Call) Run(run func(ctx context.Context, organizerID string, details entity.SellerDetails)) *MockOrganizerUseCase_UpdateSellerDetails_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(entity.SellerDetails))
+	})
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_UpdateSellerDetails_Call) Return(_a0 *entity.Organizer, _a1 error) *MockOrganizerUseCase_UpdateSellerDetails_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_UpdateSellerDetails_Call) RunAndReturn(run func(context.Context, string, entity.SellerDetails) (*entity.Organizer, error)) *MockOrganizerUseCase_UpdateSellerDetails_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockOrganizerUseCase creates a new instance of MockOrganizerUseCase. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockOrganizerUseCase(t interface {

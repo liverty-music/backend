@@ -633,7 +633,7 @@ func TestLotteryUseCase_Apply(t *testing.T) {
 			PhaseID:              "phase-1",
 			ApplicantID:          "user-1",
 			RequestedTicketCount: 2,
-			Identity:             entity.ApplicantIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
+			Identity:             entity.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
 			PaymentIntentRef:     "pi_test_ref",
 		}
 	}
@@ -810,7 +810,7 @@ func TestLotteryUseCase_Apply_VerifiesCorrectAmount(t *testing.T) {
 		PhaseID:              "phase-1",
 		ApplicantID:          "user-1",
 		RequestedTicketCount: 3,
-		Identity:             entity.ApplicantIdentity{FullName: "田中花子", PhoneNumber: "+819011112222"},
+		Identity:             entity.HolderIdentity{FullName: "田中花子", PhoneNumber: "+819011112222"},
 		PaymentIntentRef:     "pi_xyz",
 	})
 	require.NoError(t, err)
@@ -1318,7 +1318,7 @@ func TestLotteryUseCase_Apply_VerificationGate(t *testing.T) {
 			PhaseID:              "phase-1",
 			ApplicantID:          "user-1",
 			RequestedTicketCount: 1,
-			Identity:             entity.ApplicantIdentity{FullName: "田中太郎", PhoneNumber: "+819000000001"},
+			Identity:             entity.HolderIdentity{FullName: "田中太郎", PhoneNumber: "+819000000001"},
 			PaymentIntentRef:     "pi_test",
 		}
 	}
