@@ -28,7 +28,7 @@ func TestTicketSale_Validate(t *testing.T) {
 	t.Run("usual sale gets the default limit", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/ticket-sale "Usual sale"
-		sale := entity.NewTicketSale("event-1", start, end, 3000, 150, 0, start)
+		sale := entity.NewTicketSale("event-1", start, end, 3000, 150, 0)
 
 		assert.NoError(t, sale.Validate())
 		assert.Equal(t, 4, sale.PerAccountLimit)
@@ -68,7 +68,7 @@ func TestTicketSale_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			sale := entity.NewTicketSale("event-1", tt.start, tt.end, tt.price, tt.qty, tt.limit, start)
+			sale := entity.NewTicketSale("event-1", tt.start, tt.end, tt.price, tt.qty, tt.limit)
 
 			assert.Error(t, sale.Validate())
 		})

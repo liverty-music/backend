@@ -15,13 +15,12 @@ func TestNewReservation(t *testing.T) {
 	sale := &entity.TicketSale{ID: "sale-1", Price: 3000}
 	now := time.Date(2026, 11, 5, 18, 0, 0, 0, jst)
 
-	r := entity.NewReservation(sale, "user-1", 2, now, "trace-1")
+	r := entity.NewReservation(sale, "user-1", 2, now)
 
 	assert.Equal(t, entity.ReservationStatusHeld, r.Status)
 	assert.Equal(t, int64(6000), r.Amount)
 	assert.Equal(t, time.Date(2026, 11, 5, 18, 15, 0, 0, jst), r.HoldExpireTime)
 	assert.Equal(t, sale.ID, r.TicketSaleID)
-	assert.Equal(t, "trace-1", r.TraceID)
 }
 
 func TestReservation_IsHoldingAt(t *testing.T) {

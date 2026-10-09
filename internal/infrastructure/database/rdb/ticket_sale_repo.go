@@ -23,7 +23,7 @@ var _ entity.TicketSaleRepository = (*TicketSaleRepository)(nil)
 // count at $2 and whether any reservation was ever created for it.
 const ticketSaleColumns = `
 	ts.id, ts.event_id, ts.method, ts.sale_start_at, ts.sale_end_at, ts.price,
-	ts.quantity, ts.per_account_limit, ts.sold_count, ts.configured_at,
+	ts.quantity, ts.per_account_limit, ts.sold_count,
 	(SELECT COALESCE(SUM(r.ticket_count), 0)::int FROM reservations r
 		WHERE r.ticket_sale_id = ts.id AND r.status = 1 AND r.hold_expire_at > $2),
 	EXISTS (SELECT 1 FROM reservations r WHERE r.ticket_sale_id = ts.id)
@@ -33,8 +33,8 @@ const (
 	ticketSaleInsertQuery = `
 		INSERT INTO ticket_sales (
 			id, event_id, method, sale_start_at, sale_end_at, price,
-			quantity, per_account_limit, sold_count, configured_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)
+			quantity, per_account_limit, sold_count
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
 	`
 	ticketSaleGetQuery        = `SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts WHERE ts.id = $1`
 	ticketSaleGetByEventQuery = `SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts WHERE ts.event_id = $1`
@@ -64,7 +64,7 @@ func (r *TicketSaleRepository) Create(ctx context.Context, sale *entity.TicketSa
 	}
 	if _, err := r.db.Pool.Exec(ctx, ticketSaleInsertQuery,
 		string(sale.ID), sale.EventID, int16(sale.Method), sale.SaleStartTime, sale.SaleEndTime,
-		sale.Price, sale.Quantity, sale.PerAccountLimit, sale.CreateTime,
+		sale.Price, sale.Quantity, sale.PerAccountLimit,
 	); err != nil {
 		return nil, toAppErr(err, "failed to insert ticket sale", slog.String("event_id", sale.EventID))
 	}
@@ -154,7 +154,7 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 	)
 	if err := row.Scan(
 		&id, &s.EventID, &method, &s.SaleStartTime, &s.SaleEndTime, &s.Price,
-		&s.Quantity, &s.PerAccountLimit, &s.SoldCount, &s.CreateTime,
+		&s.Quantity, &s.PerAccountLimit, &s.SoldCount,
 		&s.HeldCount, &s.HasReservations,
 	); err != nil {
 		return nil, err

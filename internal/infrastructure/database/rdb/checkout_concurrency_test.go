@@ -37,9 +37,14 @@ func (c *countingCardHold) CaptureAuthorization(_ context.Context, ref string) (
 
 func (c *countingCardHold) CancelAuthorization(context.Context, string) error { return nil }
 
+// GetCapturedPayment reads back the charged payment's facets.
+func (c *countingCardHold) GetCapturedPayment(_ context.Context, ref string) (*entity.CapturedPayment, error) {
+	return &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: ref, AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}, nil
+}
+
 // newCheckoutIssuance wires IssuanceUseCase on the real repositories and the
 // counting card hold, at a fixed time.
-func newCheckoutIssuance(t *testing.T, cardHold entity.ReservationAuthorizationPort, now time.Time) usecase.IssuanceUseCase {
+func newCheckoutIssuance(t *testing.T, cardHold *countingCardHold, now time.Time) usecase.IssuanceUseCase {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -52,6 +57,7 @@ func newCheckoutIssuance(t *testing.T, cardHold entity.ReservationAuthorizationP
 		TicketSaleRepo:     rdb.NewTicketSaleRepository(testDB),
 		EventState:         rdb.NewEventPublishStateRepository(testDB),
 		ReservationAuth:    cardHold,
+		CapturePort:        cardHold,
 		Clock:              func() time.Time { return now },
 		Logger:             logger,
 	})

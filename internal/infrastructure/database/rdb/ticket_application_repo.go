@@ -60,6 +60,15 @@ const (
 		WHERE id = $1
 	`
 
+	getTicketApplicationByPaymentIntentRefQuery = `
+		SELECT id, phase_id, applicant_id, requested_ticket_count,
+		       applicant_full_name, applicant_phone_number, payment_intent_ref,
+		       state, draw_sequence
+		FROM ticket_applications
+		WHERE payment_intent_ref = $1
+		ORDER BY id DESC
+		LIMIT 1
+	`
 	updateTicketApplicationStateQuery = `
 		UPDATE ticket_applications
 		SET state = $2
@@ -212,6 +221,19 @@ func (r *TicketApplicationRepository) Get(ctx context.Context, id entity.TicketA
 	if err != nil {
 		return nil, toAppErr(err, "failed to get ticket application",
 			slog.String("application_id", string(id)),
+		)
+	}
+	return app, nil
+}
+
+// GetByPaymentIntentRef returns the ticket application whose card
+// authorization has the given reference.
+func (r *TicketApplicationRepository) GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*entity.TicketApplication, error) {
+	row := r.db.Pool.QueryRow(ctx, getTicketApplicationByPaymentIntentRefQuery, paymentIntentRef)
+	app, err := scanTicketApplication(row.Scan)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get ticket application by payment intent",
+			slog.String("payment_intent_ref", paymentIntentRef),
 		)
 	}
 	return app, nil

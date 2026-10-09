@@ -91,29 +91,20 @@ type Reservation struct {
 	AuthorizationReleaseTime *time.Time
 	// Status is the checkout's lifecycle status.
 	Status ReservationStatus
-	// HoldExpireTime is 15 minutes after CreateTime; never extended.
+	// HoldExpireTime is 15 minutes after the checkout started; never extended.
 	HoldExpireTime time.Time
-	// CreateTime is when the checkout started.
-	CreateTime time.Time
 	// CommitTime is when the tickets were committed; nil until committed and
 	// kept when a commit is given back.
 	CommitTime *time.Time
-	// CaptureTime is when the card was charged; nil until charged. Set once.
+	// CaptureTime is when the card hold (AuthorizationRef) was charged; nil
+	// until charged. Set once.
 	CaptureTime *time.Time
-	// PaymentRef, CardBrand and CardLast4 are the charged payment's reference
-	// and display facets; empty until charged.
-	PaymentRef string
-	CardBrand  string
-	CardLast4  string
-	// TraceID is the OpenTelemetry trace id of the request that started the
-	// checkout, recorded for correlation only (never a dedupe key).
-	TraceID string
 }
 
 // NewReservation returns a Held Reservation for count tickets of sale, with a
 // generated UUIDv7 id, an amount of the sale's price × count and a hold expiry
 // 15 minutes after now.
-func NewReservation(sale *TicketSale, userID UserID, count int, now time.Time, traceID string) *Reservation {
+func NewReservation(sale *TicketSale, userID UserID, count int, now time.Time) *Reservation {
 	return &Reservation{
 		ID:             ReservationID(NewID()),
 		TicketSaleID:   sale.ID,
@@ -122,8 +113,6 @@ func NewReservation(sale *TicketSale, userID UserID, count int, now time.Time, t
 		Amount:         sale.Price * int64(count),
 		Status:         ReservationStatusHeld,
 		HoldExpireTime: now.Add(ReservationHoldDuration),
-		CreateTime:     now,
-		TraceID:        traceID,
 	}
 }
 
@@ -198,7 +187,7 @@ type ReservationRepository interface {
 	//  - FailedPrecondition: the per-account limit would be exceeded.
 	//  - NotFound: no TicketSale has the id.
 	//  - Internal: database failure.
-	GetOrCreateHeld(ctx context.Context, saleID TicketSaleID, userID UserID, count int, now time.Time, traceID string) (*Reservation, error)
+	GetOrCreateHeld(ctx context.Context, saleID TicketSaleID, userID UserID, count int, now time.Time) (*Reservation, error)
 
 	// Get returns the Reservation with the given id, whatever its status.
 	//
@@ -207,6 +196,15 @@ type ReservationRepository interface {
 	//  - NotFound: no Reservation has the id.
 	//  - Internal: database failure.
 	Get(ctx context.Context, id ReservationID) (*Reservation, error)
+
+	// GetByAuthorizationRef returns the Reservation whose card hold has the
+	// given reference.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no Reservation has the reference.
+	//  - Internal: database failure.
+	GetByAuthorizationRef(ctx context.Context, authorizationRef string) (*Reservation, error)
 
 	// SetAuthorization stores the holder identity and the card hold's
 	// reference of a Held Reservation. With the same reference already set it
@@ -253,15 +251,16 @@ type ReservationRepository interface {
 	//  - Internal: database failure.
 	RevertCommit(ctx context.Context, id ReservationID) error
 
-	// RecordCapture stores the capture time and the charged payment of a
-	// Committed Reservation. It changes nothing when a capture time is set.
+	// RecordCapture stores the capture time of a Committed Reservation; the
+	// charged payment is its card hold. It changes nothing when a capture time
+	// is set.
 	//
 	// # Possible errors
 	//
 	//  - FailedPrecondition: the Reservation is not Committed.
 	//  - NotFound: no Reservation has the id.
 	//  - Internal: database failure.
-	RecordCapture(ctx context.Context, id ReservationID, at time.Time, payment *CapturedPayment) error
+	RecordCapture(ctx context.Context, id ReservationID, at time.Time) error
 
 	// RecordAuthorizationRelease sets the authorization release time of an
 	// Expired or Released Reservation that has an authorization reference. It
@@ -275,7 +274,7 @@ type ReservationRepository interface {
 	//  - Internal: database failure.
 	RecordAuthorizationRelease(ctx context.Context, id ReservationID, at time.Time) error
 
-	// ListDue returns, oldest first, the Held Reservations whose hold expired
+	// ListDue returns, oldest hold first, the Held Reservations whose hold expired
 	// at or before now, the Expired and Released Reservations with an
 	// authorization reference and no authorization release time, and the
 	// Committed Reservations committed more than 1 minute before now.
@@ -303,7 +302,6 @@ type AuthorizationMetadata struct {
 	ReservationID ReservationID
 	TicketSaleID  TicketSaleID
 	EventID       string
-	TraceID       string
 }
 
 // ReservationAuthorizationPort is the card hold of a first-come checkout: a

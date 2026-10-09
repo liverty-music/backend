@@ -2,7 +2,6 @@ package rdb
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -11,9 +10,8 @@ import (
 )
 
 // IssuanceRepository implements entity.IssuanceRepository for PostgreSQL: it
-// persists an Order, its N tickets, its Held settlement and its ORDER.paid
-// outbox row atomically in one transaction, and completes a source
-// reservation (backend#468).
+// persists an Order, its N tickets and its Held settlement atomically in one
+// transaction, and completes a source reservation (backend#468).
 type IssuanceRepository struct {
 	db *Database
 }
@@ -38,8 +36,8 @@ const (
 	// issued Order. Settlement.organizer_id/event_id are NOT NULL, so the
 	// caller (IssuanceUseCase) must resolve the Organizer before calling Issue.
 	issuanceInsertSettlementQuery = `
-		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, settled_at, platform_fee_rate_bps)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, settled_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	// issuanceInsertSettlementSplitQuery inserts one payout split for the
 	// settlement just created. transfer_ref/transfer_reversal_ref default to
@@ -55,12 +53,6 @@ const (
 		WHERE id = $1 AND status = 2 AND capture_at IS NOT NULL
 	`
 	issuanceReservationHasOrderQuery = `SELECT EXISTS (SELECT 1 FROM orders WHERE reservation_id = $1)`
-	// issuanceInsertOutboxQuery records the Order's ORDER.paid announcement in
-	// the issuance transaction; the outbox relay publishes it.
-	issuanceInsertOutboxQuery = `
-		INSERT INTO outbox (id, subject, message_id, payload, recorded_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`
 	// issuanceListAwaitingQuery returns Won (state 2) applications that have no
 	// order yet — the issuance sweeper work-list.
 	issuanceListAwaitingQuery = `
@@ -88,20 +80,6 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	if err := order.ValidateSource(); err != nil {
 		return apperr.Wrap(err, codes.InvalidArgument, "invalid order source")
 	}
-	payload, err := json.Marshal(entity.OrderPaidData{
-		OrderID:       string(order.ID),
-		BuyerID:       string(order.BuyerID),
-		EventID:       settlement.EventID,
-		TicketCount:   len(tickets),
-		Amount:        order.Amount,
-		Currency:      order.Currency,
-		ApplicationID: string(order.ApplicationID),
-		ReservationID: string(order.ReservationID),
-	})
-	if err != nil {
-		return apperr.Wrap(err, codes.Internal, "failed to encode the order paid event")
-	}
-
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return toAppErr(err, "failed to begin issuance transaction")
@@ -154,7 +132,7 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 
 	if _, err := tx.Exec(ctx, issuanceInsertSettlementQuery,
 		string(settlement.ID), string(settlement.OrderID), settlement.OrganizerID, settlement.EventID,
-		int16(settlement.Status), settlement.CreatedTime, settlement.PlatformFeeRateBps,
+		int16(settlement.Status), settlement.CreatedTime,
 	); err != nil {
 		return toAppErr(err, "failed to insert settlement", slog.String("settlement_id", string(settlement.ID)))
 	}
@@ -166,12 +144,6 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 				slog.String("settlement_id", string(settlement.ID)),
 				slog.String("payee_organizer_id", split.PayeeOrganizerID))
 		}
-	}
-
-	if _, err := tx.Exec(ctx, issuanceInsertOutboxQuery,
-		entity.NewID(), entity.SubjectOrderPaid, string(order.ID), payload, order.PaidTime,
-	); err != nil {
-		return toAppErr(err, "failed to record the order paid event", slog.String("order_id", string(order.ID)))
 	}
 
 	if err := tx.Commit(ctx); err != nil {

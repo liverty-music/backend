@@ -37,7 +37,6 @@ func nextFan(t *testing.T) entity.UserID {
 
 var (
 	holderIdentity = entity.HolderIdentity{FullName: "山田 花子", PhoneNumber: "+819012345678"}
-	capturedPay    = &entity.CapturedPayment{PaymentIntentRef: "pi_test", CardBrand: "visa", CardLast4: "4242"}
 )
 
 func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
@@ -55,16 +54,13 @@ func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
 		sale := seedTicketSale(t, 150, 0)
 		setSold(t, sale.ID, 106)
 
-		res, err := repo.GetOrCreateHeld(ctx, sale.ID, nextFan(t), 2, at, "trace-1")
+		res, err := repo.GetOrCreateHeld(ctx, sale.ID, nextFan(t), 2, at)
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.ReservationStatusHeld, res.Status)
 		assert.Equal(t, 2, res.TicketCount)
 		assert.Equal(t, int64(6000), res.Amount)
 		assert.Equal(t, at.Add(15*time.Minute), res.HoldExpireTime)
-		stored, err := repo.Get(ctx, res.ID)
-		require.NoError(t, err)
-		assert.Equal(t, "trace-1", stored.TraceID)
 		got, err := sales.Get(ctx, sale.ID, at)
 		require.NoError(t, err)
 		assert.Equal(t, 2, got.HeldCount)
@@ -79,7 +75,7 @@ func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
 		results := make([]*entity.Reservation, 2)
 		errs := make([]error, 2)
 		for i := range 2 {
-			wg.Go(func() { results[i], errs[i] = repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at, "") })
+			wg.Go(func() { results[i], errs[i] = repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at) })
 		}
 		wg.Wait()
 
@@ -95,10 +91,10 @@ func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
 		// @spec components/entity/reservation/get-or-create-held "Count changed"
 		sale := seedTicketSale(t, 150, 0)
 		fan := nextFan(t)
-		first, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at, "")
+		first, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at)
 		require.NoError(t, err)
 
-		second, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 3, at.Add(time.Minute), "")
+		second, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 3, at.Add(time.Minute))
 
 		require.NoError(t, err)
 		assert.NotEqual(t, first.ID, second.ID)
@@ -113,10 +109,10 @@ func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
 		sale := seedTicketSale(t, 10, 4)
 		setSold(t, sale.ID, 7)
 		fan := nextFan(t)
-		held, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at, "")
+		held, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at)
 		require.NoError(t, err)
 
-		_, err = repo.GetOrCreateHeld(ctx, sale.ID, fan, 4, at, "")
+		_, err = repo.GetOrCreateHeld(ctx, sale.ID, fan, 4, at)
 
 		assert.ErrorIs(t, err, apperr.ErrResourceExhausted)
 		still, err := repo.Get(ctx, held.ID)
@@ -133,7 +129,7 @@ func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
 		var wg sync.WaitGroup
 		errs := make([]error, 2)
 		for i := range 2 {
-			wg.Go(func() { _, errs[i] = repo.GetOrCreateHeld(ctx, sale.ID, fans[i], 1, at, "") })
+			wg.Go(func() { _, errs[i] = repo.GetOrCreateHeld(ctx, sale.ID, fans[i], 1, at) })
 		}
 		wg.Wait()
 
@@ -155,13 +151,13 @@ func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
 		// @spec components/entity/reservation/get-or-create-held "Over the per-account limit"
 		sale := seedTicketSale(t, 150, 4)
 		fan := nextFan(t)
-		bought, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 3, at, "")
+		bought, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 3, at)
 		require.NoError(t, err)
 		outcome, err := repo.Commit(ctx, bought.ID, at)
 		require.NoError(t, err)
 		require.Equal(t, entity.CommitOutcomeCommitted, outcome)
 
-		_, err = repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at, "")
+		_, err = repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -169,10 +165,10 @@ func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
 	t.Run("a lapsed hold is expired when the fan starts again", func(t *testing.T) {
 		sale := seedTicketSale(t, 150, 0)
 		fan := nextFan(t)
-		lapsed, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at, "")
+		lapsed, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at)
 		require.NoError(t, err)
 
-		fresh, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at.Add(16*time.Minute), "")
+		fresh, err := repo.GetOrCreateHeld(ctx, sale.ID, fan, 2, at.Add(16*time.Minute))
 
 		require.NoError(t, err)
 		assert.NotEqual(t, lapsed.ID, fresh.ID)
@@ -182,7 +178,7 @@ func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
 	})
 
 	t.Run("unknown sale", func(t *testing.T) {
-		_, err := repo.GetOrCreateHeld(ctx, entity.TicketSaleID(entity.NewID()), nextFan(t), 1, at, "")
+		_, err := repo.GetOrCreateHeld(ctx, entity.TicketSaleID(entity.NewID()), nextFan(t), 1, at)
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -192,7 +188,7 @@ func TestReservationRepository_GetOrCreateHeld(t *testing.T) {
 func heldReservation(t *testing.T, repo *rdb.ReservationRepository, count int, at time.Time) *entity.Reservation {
 	t.Helper()
 	sale := seedTicketSale(t, 150, 10)
-	res, err := repo.GetOrCreateHeld(context.Background(), sale.ID, nextFan(t), count, at, "")
+	res, err := repo.GetOrCreateHeld(context.Background(), sale.ID, nextFan(t), count, at)
 	require.NoError(t, err)
 	return res
 }
@@ -352,7 +348,7 @@ func TestReservationRepository_Lifecycle(t *testing.T) {
 		charged := heldReservation(t, repo, 2, start)
 		_, err = repo.Commit(ctx, charged.ID, committedAt)
 		require.NoError(t, err)
-		require.NoError(t, repo.RecordCapture(ctx, charged.ID, committedAt, capturedPay))
+		require.NoError(t, repo.RecordCapture(ctx, charged.ID, committedAt))
 		assert.ErrorIs(t, repo.RevertCommit(ctx, charged.ID), apperr.ErrFailedPrecondition)
 		got, err = repo.Get(ctx, charged.ID)
 		require.NoError(t, err)
@@ -366,22 +362,19 @@ func TestReservationRepository_Lifecycle(t *testing.T) {
 		chargedAt := start.Add(14 * time.Minute)
 
 		// @spec components/entity/reservation/record-capture "First charge"
-		require.NoError(t, repo.RecordCapture(ctx, res.ID, chargedAt, capturedPay))
+		require.NoError(t, repo.RecordCapture(ctx, res.ID, chargedAt))
 		got, err := repo.Get(ctx, res.ID)
 		require.NoError(t, err)
 		assert.Equal(t, chargedAt, got.CaptureTime.UTC())
-		assert.Equal(t, "pi_test", got.PaymentRef)
-		assert.Equal(t, "4242", got.CardLast4)
 
 		// @spec components/entity/reservation/record-capture "Recorded twice"
-		require.NoError(t, repo.RecordCapture(ctx, res.ID, chargedAt.Add(time.Hour), &entity.CapturedPayment{PaymentIntentRef: "pi_other"}))
+		require.NoError(t, repo.RecordCapture(ctx, res.ID, chargedAt.Add(time.Hour)))
 		got, err = repo.Get(ctx, res.ID)
 		require.NoError(t, err)
 		assert.Equal(t, chargedAt, got.CaptureTime.UTC())
-		assert.Equal(t, "pi_test", got.PaymentRef)
 
 		held := heldReservation(t, repo, 1, start)
-		assert.ErrorIs(t, repo.RecordCapture(ctx, held.ID, chargedAt, capturedPay), apperr.ErrFailedPrecondition)
+		assert.ErrorIs(t, repo.RecordCapture(ctx, held.ID, chargedAt), apperr.ErrFailedPrecondition)
 	})
 
 	t.Run("record authorization release", func(t *testing.T) {
@@ -497,8 +490,7 @@ func completedReservation(t *testing.T, repo *rdb.ReservationRepository, issuanc
 	require.NoError(t, repo.SetAuthorization(ctx, res.ID, holderIdentity, "pi_"+string(res.ID)))
 	_, err := repo.Commit(ctx, res.ID, start.Add(time.Minute))
 	require.NoError(t, err)
-	require.NoError(t, repo.RecordCapture(ctx, res.ID, start.Add(2*time.Minute),
-		&entity.CapturedPayment{PaymentIntentRef: "pi_" + string(res.ID), CardBrand: "visa", CardLast4: "4242"}))
+	require.NoError(t, repo.RecordCapture(ctx, res.ID, start.Add(2*time.Minute)))
 	order, tickets, settlement := checkoutOrder(t, res, start.Add(2*time.Minute))
 	require.NoError(t, issuance.Issue(ctx, order, tickets, settlement))
 	return res
@@ -531,4 +523,32 @@ func checkoutOrder(t *testing.T, res *entity.Reservation, now time.Time) (*entit
 	}
 	settlement := entity.NewHeldSettlement(order, seedOrganizer(t), eventID, 800, now)
 	return order, tickets, settlement
+}
+
+func TestReservationRepository_GetByAuthorizationRef(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	repo := rdb.NewReservationRepository(testDB)
+	ctx := context.Background()
+	start := saleWindowStart.Add(time.Hour)
+
+	t.Run("charged checkout", func(t *testing.T) {
+		// @spec components/entity/reservation/get-by-authorization-ref "Charged checkout"
+		res := heldReservation(t, repo, 1, start)
+		ref := "pi_lookup_" + string(res.ID)
+		require.NoError(t, repo.SetAuthorization(ctx, res.ID, holderIdentity, ref))
+
+		got, err := repo.GetByAuthorizationRef(ctx, ref)
+
+		require.NoError(t, err)
+		assert.Equal(t, res.ID, got.ID)
+	})
+
+	t.Run("unknown hold", func(t *testing.T) {
+		// @spec components/entity/reservation/get-by-authorization-ref "Unknown hold"
+		_, err := repo.GetByAuthorizationRef(ctx, "pi_unknown_"+entity.NewID())
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
 }

@@ -108,15 +108,11 @@ type Settlement struct {
 	// CreatedTime is when this settlement row was created (= Order issuance
 	// time; inserted atomically by [IssuanceRepository.Issue]).
 	CreatedTime time.Time
-	// PlatformFeeRateBps is the Organizer's platform fee rate, in basis points,
-	// applied when the settlement was created. Kept so a later change to the
-	// Organizer's rate never alters this settlement.
-	PlatformFeeRateBps int
 }
 
 // NewHeldSettlement returns a Held Settlement for the Order, paying the
-// Organizer the Order's amount minus the platform fee at rateBps, and keeping
-// that rate.
+// Organizer the Order's amount minus the platform fee at rateBps. The split is
+// fixed here, so a later change to the Organizer's rate never alters it.
 func NewHeldSettlement(order *Order, organizerID, eventID string, rateBps int, now time.Time) *Settlement {
 	return &Settlement{
 		ID:          SettlementID(NewID()),
@@ -127,8 +123,7 @@ func NewHeldSettlement(order *Order, organizerID, eventID string, rateBps int, n
 		Splits: []SettlementSplit{
 			{PayeeOrganizerID: organizerID, Amount: order.Amount - PlatformFee(order.Amount, rateBps)},
 		},
-		CreatedTime:        now,
-		PlatformFeeRateBps: rateBps,
+		CreatedTime: now,
 	}
 }
 

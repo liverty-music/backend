@@ -73,8 +73,8 @@ func TestPlatformFee(t *testing.T) {
 	}
 }
 
-// TestNewHeldSettlement verifies that the settlement keeps the rate it was
-// created with.
+// TestNewHeldSettlement verifies that the settlement's split is fixed at
+// creation.
 func TestNewHeldSettlement(t *testing.T) {
 	t.Parallel()
 
@@ -84,8 +84,7 @@ func TestNewHeldSettlement(t *testing.T) {
 	s := entity.NewHeldSettlement(order, org.ID, "event-1", org.PlatformFeeRateBps, time.Now())
 	org.PlatformFeeRateBps = 800
 
-	assert.Equal(t, 500, s.PlatformFeeRateBps)
-	assert.Equal(t, int64(9500), s.Splits[0].Amount)
+	assert.Equal(t, int64(9500), s.Splits[0].Amount, "the split stays at the 5% fee")
 	assert.Equal(t, entity.SettlementStatusHeld, s.Status)
 	assert.Equal(t, order.ID, s.OrderID)
 }

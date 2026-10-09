@@ -21,7 +21,7 @@ var saleWindowStart = time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)
 func seedTicketSale(t *testing.T, quantity, limit int) *entity.TicketSale {
 	t.Helper()
 	repo := rdb.NewTicketSaleRepository(testDB)
-	sale := entity.NewTicketSale(seedPublishedEvent(t), saleWindowStart, saleWindowStart.Add(20*24*time.Hour), 3000, quantity, limit, saleWindowStart)
+	sale := entity.NewTicketSale(seedPublishedEvent(t), saleWindowStart, saleWindowStart.Add(20*24*time.Hour), 3000, quantity, limit)
 	created, err := repo.Create(context.Background(), sale)
 	require.NoError(t, err)
 	return created
@@ -58,7 +58,7 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 	t.Run("second sale for the event", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/create "Second sale for the event"
 		sale := seedTicketSale(t, 150, 0)
-		second := entity.NewTicketSale(sale.EventID, saleWindowStart, saleWindowStart.Add(time.Hour), 3000, 10, 0, saleWindowStart)
+		second := entity.NewTicketSale(sale.EventID, saleWindowStart, saleWindowStart.Add(time.Hour), 3000, 10, 0)
 
 		_, err := repo.Create(ctx, second)
 
@@ -68,7 +68,7 @@ func TestTicketSaleRepository_Create(t *testing.T) {
 	})
 
 	t.Run("invalid sale", func(t *testing.T) {
-		bad := entity.NewTicketSale(seedPublishedEvent(t), saleWindowStart, saleWindowStart.Add(time.Hour), 3000, 10, 11, saleWindowStart)
+		bad := entity.NewTicketSale(seedPublishedEvent(t), saleWindowStart, saleWindowStart.Add(time.Hour), 3000, 10, 11)
 
 		_, err := repo.Create(ctx, bad)
 
@@ -89,7 +89,7 @@ func TestTicketSaleRepository_Get(t *testing.T) {
 	t.Run("sale with holds", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/get "Sale with holds"
 		sale := seedTicketSale(t, 150, 0)
-		_, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(seedUser(t, "a", "a-sale-get@example.com", "ext-a-sale-get")), 3, at, "")
+		_, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(seedUser(t, "a", "a-sale-get@example.com", "ext-a-sale-get")), 3, at)
 		require.NoError(t, err)
 
 		got, err := repo.Get(ctx, sale.ID, at)
@@ -159,7 +159,7 @@ func TestTicketSaleRepository_Update(t *testing.T) {
 		// @spec components/entity/ticket-sale/update "Fewer than sold and held"
 		sale := seedTicketSale(t, 150, 10)
 		setSold(t, sale.ID, 100)
-		_, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(seedUser(t, "b", "b-sale-upd@example.com", "ext-b-sale-upd")), 6, at, "")
+		_, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(seedUser(t, "b", "b-sale-upd@example.com", "ext-b-sale-upd")), 6, at)
 		require.NoError(t, err)
 		sale.Quantity = 105
 
@@ -182,7 +182,7 @@ func TestTicketSaleRepository_Update(t *testing.T) {
 
 		holdErr, updErr := make(chan error, 1), make(chan error, 1)
 		go func() {
-			_, err := reservations.GetOrCreateHeld(ctx, sale.ID, userID, 5, at, "")
+			_, err := reservations.GetOrCreateHeld(ctx, sale.ID, userID, 5, at)
 			holdErr <- err
 		}()
 		go func() {
@@ -208,7 +208,7 @@ func TestTicketSaleRepository_Update(t *testing.T) {
 	t.Run("price after checkout started", func(t *testing.T) {
 		// @spec components/entity/ticket-sale/update "Price after checkout started"
 		sale := seedTicketSale(t, 150, 0)
-		_, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(seedUser(t, "d", "d-sale-upd@example.com", "ext-d-sale-upd")), 1, at, "")
+		_, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(seedUser(t, "d", "d-sale-upd@example.com", "ext-d-sale-upd")), 1, at)
 		require.NoError(t, err)
 		sale.Price = 3500
 
@@ -221,7 +221,7 @@ func TestTicketSaleRepository_Update(t *testing.T) {
 	})
 
 	t.Run("unknown sale", func(t *testing.T) {
-		missing := entity.NewTicketSale(seedPublishedEvent(t), saleWindowStart, saleWindowStart.Add(time.Hour), 3000, 10, 0, saleWindowStart)
+		missing := entity.NewTicketSale(seedPublishedEvent(t), saleWindowStart, saleWindowStart.Add(time.Hour), 3000, 10, 0)
 
 		_, err := repo.Update(ctx, missing, at)
 

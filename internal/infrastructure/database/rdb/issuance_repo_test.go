@@ -2,7 +2,6 @@ package rdb_test
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -90,15 +89,6 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	}
 	require.NoError(t, issuanceRepo.Issue(ctx, order, tickets, settlement))
 
-	// -- The announcement that the Order is paid is recorded once, with the
-	//    Order's content and its source. --
-	paid := outboxOrderPaid(t, order.ID)
-	require.Len(t, paid, 1)
-	assert.Equal(t, entity.OrderPaidData{
-		OrderID: string(order.ID), BuyerID: buyerID, EventID: eventID, TicketCount: 2,
-		Amount: 10000, Currency: "JPY", ApplicationID: string(app.ID),
-	}, paid[0])
-
 	// -- Order reads. --
 	gotByApp, err := orderRepo.GetByApplicationID(ctx, app.ID)
 	require.NoError(t, err)
@@ -168,7 +158,6 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 
 	_, err = settlementRepo.Get(ctx, dupSettlement.ID)
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "the rolled-back transaction must not leave an orphan settlement")
-	assert.Len(t, outboxOrderPaid(t, dup.ID), 0, "a rejected duplicate is not announced")
 
 	// -- Refund side: status update + ticket void. --
 	require.NoError(t, orderRepo.UpdateStatus(ctx, order.ID, entity.OrderStatusRefunded))
@@ -293,25 +282,6 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "no Settlement must be stored when the transaction fails")
 }
 
-// outboxOrderPaid returns the ORDER.paid payloads recorded for the order.
-func outboxOrderPaid(t *testing.T, orderID entity.OrderID) []entity.OrderPaidData {
-	t.Helper()
-	rows, err := testDB.Pool.Query(context.Background(),
-		`SELECT payload FROM outbox WHERE subject = $1 AND message_id = $2`, entity.SubjectOrderPaid, string(orderID))
-	require.NoError(t, err)
-	defer rows.Close()
-	var out []entity.OrderPaidData
-	for rows.Next() {
-		var raw []byte
-		require.NoError(t, rows.Scan(&raw))
-		var data entity.OrderPaidData
-		require.NoError(t, json.Unmarshal(raw, &data))
-		out = append(out, data)
-	}
-	require.NoError(t, rows.Err())
-	return out
-}
-
 // TestIssuanceRepository_IssueFromCheckout covers issuance whose source is a
 // Reservation: it is completed in the same transaction, only when Committed
 // and charged, and at most once.
@@ -335,11 +305,6 @@ func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
 		got, err := reservations.Get(ctx, res.ID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.ReservationStatusCompleted, got.Status)
-		paid := outboxOrderPaid(t, order.ID)
-		require.Len(t, paid, 1)
-		assert.Equal(t, string(res.ID), paid[0].ReservationID)
-		assert.Empty(t, paid[0].ApplicationID)
-		assert.Equal(t, 2, paid[0].TicketCount)
 
 		// @spec components/entity/order/get-by-reservation-id "Paid checkout"
 		byRes, err := orderRepo.GetByReservationID(ctx, res.ID)
@@ -354,7 +319,6 @@ func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 		_, err = orderRepo.Get(ctx, dup.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
-		assert.Empty(t, outboxOrderPaid(t, dup.ID))
 	})
 
 	t.Run("reservation not charged", func(t *testing.T) {
@@ -385,7 +349,6 @@ func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
 		require.Error(t, err)
 		_, err = orderRepo.Get(ctx, order.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
-		assert.Empty(t, outboxOrderPaid(t, order.ID))
 		got, err := reservations.Get(ctx, res.ID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.ReservationStatusCommitted, got.Status)
@@ -419,7 +382,6 @@ func chargedReservation(t *testing.T, repo *rdb.ReservationRepository, start tim
 	require.NoError(t, repo.SetAuthorization(ctx, res.ID, holderIdentity, "pi_"+string(res.ID)))
 	_, err := repo.Commit(ctx, res.ID, start.Add(time.Minute))
 	require.NoError(t, err)
-	require.NoError(t, repo.RecordCapture(ctx, res.ID, start.Add(2*time.Minute),
-		&entity.CapturedPayment{PaymentIntentRef: "pi_" + string(res.ID), CardBrand: "visa", CardLast4: "4242"}))
+	require.NoError(t, repo.RecordCapture(ctx, res.ID, start.Add(2*time.Minute)))
 	return res
 }

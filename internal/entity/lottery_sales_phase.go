@@ -379,6 +379,14 @@ type TicketApplicationRepository interface {
 	//  - NotFound: no active application for the (phase, applicant) pair.
 	GetByPhaseAndApplicant(ctx context.Context, phaseID LotteryPhaseID, applicantID UserID) (*TicketApplication, error)
 
+	// GetByPaymentIntentRef returns the application whose card authorization
+	// has the given reference.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no application has the reference.
+	GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*TicketApplication, error)
+
 	// Get returns the application by its own ID.
 	//
 	// # Possible errors

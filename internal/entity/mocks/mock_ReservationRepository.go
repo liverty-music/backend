@@ -141,9 +141,68 @@ func (_c *MockReservationRepository_Get_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// GetOrCreateHeld provides a mock function with given fields: ctx, saleID, userID, count, now, traceID
-func (_m *MockReservationRepository) GetOrCreateHeld(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID, count int, now time.Time, traceID string) (*entity.Reservation, error) {
-	ret := _m.Called(ctx, saleID, userID, count, now, traceID)
+// GetByAuthorizationRef provides a mock function with given fields: ctx, authorizationRef
+func (_m *MockReservationRepository) GetByAuthorizationRef(ctx context.Context, authorizationRef string) (*entity.Reservation, error) {
+	ret := _m.Called(ctx, authorizationRef)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByAuthorizationRef")
+	}
+
+	var r0 *entity.Reservation
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Reservation, error)); ok {
+		return rf(ctx, authorizationRef)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Reservation); ok {
+		r0 = rf(ctx, authorizationRef)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Reservation)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, authorizationRef)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockReservationRepository_GetByAuthorizationRef_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByAuthorizationRef'
+type MockReservationRepository_GetByAuthorizationRef_Call struct {
+	*mock.Call
+}
+
+// GetByAuthorizationRef is a helper method to define mock.On call
+//   - ctx context.Context
+//   - authorizationRef string
+func (_e *MockReservationRepository_Expecter) GetByAuthorizationRef(ctx interface{}, authorizationRef interface{}) *MockReservationRepository_GetByAuthorizationRef_Call {
+	return &MockReservationRepository_GetByAuthorizationRef_Call{Call: _e.mock.On("GetByAuthorizationRef", ctx, authorizationRef)}
+}
+
+func (_c *MockReservationRepository_GetByAuthorizationRef_Call) Run(run func(ctx context.Context, authorizationRef string)) *MockReservationRepository_GetByAuthorizationRef_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockReservationRepository_GetByAuthorizationRef_Call) Return(_a0 *entity.Reservation, _a1 error) *MockReservationRepository_GetByAuthorizationRef_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockReservationRepository_GetByAuthorizationRef_Call) RunAndReturn(run func(context.Context, string) (*entity.Reservation, error)) *MockReservationRepository_GetByAuthorizationRef_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetOrCreateHeld provides a mock function with given fields: ctx, saleID, userID, count, now
+func (_m *MockReservationRepository) GetOrCreateHeld(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID, count int, now time.Time) (*entity.Reservation, error) {
+	ret := _m.Called(ctx, saleID, userID, count, now)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetOrCreateHeld")
@@ -151,19 +210,19 @@ func (_m *MockReservationRepository) GetOrCreateHeld(ctx context.Context, saleID
 
 	var r0 *entity.Reservation
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.UserID, int, time.Time, string) (*entity.Reservation, error)); ok {
-		return rf(ctx, saleID, userID, count, now, traceID)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.UserID, int, time.Time) (*entity.Reservation, error)); ok {
+		return rf(ctx, saleID, userID, count, now)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.UserID, int, time.Time, string) *entity.Reservation); ok {
-		r0 = rf(ctx, saleID, userID, count, now, traceID)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.UserID, int, time.Time) *entity.Reservation); ok {
+		r0 = rf(ctx, saleID, userID, count, now)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Reservation)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, entity.UserID, int, time.Time, string) error); ok {
-		r1 = rf(ctx, saleID, userID, count, now, traceID)
+	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, entity.UserID, int, time.Time) error); ok {
+		r1 = rf(ctx, saleID, userID, count, now)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -182,14 +241,13 @@ type MockReservationRepository_GetOrCreateHeld_Call struct {
 //   - userID entity.UserID
 //   - count int
 //   - now time.Time
-//   - traceID string
-func (_e *MockReservationRepository_Expecter) GetOrCreateHeld(ctx interface{}, saleID interface{}, userID interface{}, count interface{}, now interface{}, traceID interface{}) *MockReservationRepository_GetOrCreateHeld_Call {
-	return &MockReservationRepository_GetOrCreateHeld_Call{Call: _e.mock.On("GetOrCreateHeld", ctx, saleID, userID, count, now, traceID)}
+func (_e *MockReservationRepository_Expecter) GetOrCreateHeld(ctx interface{}, saleID interface{}, userID interface{}, count interface{}, now interface{}) *MockReservationRepository_GetOrCreateHeld_Call {
+	return &MockReservationRepository_GetOrCreateHeld_Call{Call: _e.mock.On("GetOrCreateHeld", ctx, saleID, userID, count, now)}
 }
 
-func (_c *MockReservationRepository_GetOrCreateHeld_Call) Run(run func(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID, count int, now time.Time, traceID string)) *MockReservationRepository_GetOrCreateHeld_Call {
+func (_c *MockReservationRepository_GetOrCreateHeld_Call) Run(run func(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID, count int, now time.Time)) *MockReservationRepository_GetOrCreateHeld_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.TicketSaleID), args[2].(entity.UserID), args[3].(int), args[4].(time.Time), args[5].(string))
+		run(args[0].(context.Context), args[1].(entity.TicketSaleID), args[2].(entity.UserID), args[3].(int), args[4].(time.Time))
 	})
 	return _c
 }
@@ -199,7 +257,7 @@ func (_c *MockReservationRepository_GetOrCreateHeld_Call) Return(_a0 *entity.Res
 	return _c
 }
 
-func (_c *MockReservationRepository_GetOrCreateHeld_Call) RunAndReturn(run func(context.Context, entity.TicketSaleID, entity.UserID, int, time.Time, string) (*entity.Reservation, error)) *MockReservationRepository_GetOrCreateHeld_Call {
+func (_c *MockReservationRepository_GetOrCreateHeld_Call) RunAndReturn(run func(context.Context, entity.TicketSaleID, entity.UserID, int, time.Time) (*entity.Reservation, error)) *MockReservationRepository_GetOrCreateHeld_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -311,17 +369,17 @@ func (_c *MockReservationRepository_RecordAuthorizationRelease_Call) RunAndRetur
 	return _c
 }
 
-// RecordCapture provides a mock function with given fields: ctx, id, at, payment
-func (_m *MockReservationRepository) RecordCapture(ctx context.Context, id entity.ReservationID, at time.Time, payment *entity.CapturedPayment) error {
-	ret := _m.Called(ctx, id, at, payment)
+// RecordCapture provides a mock function with given fields: ctx, id, at
+func (_m *MockReservationRepository) RecordCapture(ctx context.Context, id entity.ReservationID, at time.Time) error {
+	ret := _m.Called(ctx, id, at)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RecordCapture")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.ReservationID, time.Time, *entity.CapturedPayment) error); ok {
-		r0 = rf(ctx, id, at, payment)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.ReservationID, time.Time) error); ok {
+		r0 = rf(ctx, id, at)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -338,14 +396,13 @@ type MockReservationRepository_RecordCapture_Call struct {
 //   - ctx context.Context
 //   - id entity.ReservationID
 //   - at time.Time
-//   - payment *entity.CapturedPayment
-func (_e *MockReservationRepository_Expecter) RecordCapture(ctx interface{}, id interface{}, at interface{}, payment interface{}) *MockReservationRepository_RecordCapture_Call {
-	return &MockReservationRepository_RecordCapture_Call{Call: _e.mock.On("RecordCapture", ctx, id, at, payment)}
+func (_e *MockReservationRepository_Expecter) RecordCapture(ctx interface{}, id interface{}, at interface{}) *MockReservationRepository_RecordCapture_Call {
+	return &MockReservationRepository_RecordCapture_Call{Call: _e.mock.On("RecordCapture", ctx, id, at)}
 }
 
-func (_c *MockReservationRepository_RecordCapture_Call) Run(run func(ctx context.Context, id entity.ReservationID, at time.Time, payment *entity.CapturedPayment)) *MockReservationRepository_RecordCapture_Call {
+func (_c *MockReservationRepository_RecordCapture_Call) Run(run func(ctx context.Context, id entity.ReservationID, at time.Time)) *MockReservationRepository_RecordCapture_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.ReservationID), args[2].(time.Time), args[3].(*entity.CapturedPayment))
+		run(args[0].(context.Context), args[1].(entity.ReservationID), args[2].(time.Time))
 	})
 	return _c
 }
@@ -355,7 +412,7 @@ func (_c *MockReservationRepository_RecordCapture_Call) Return(_a0 error) *MockR
 	return _c
 }
 
-func (_c *MockReservationRepository_RecordCapture_Call) RunAndReturn(run func(context.Context, entity.ReservationID, time.Time, *entity.CapturedPayment) error) *MockReservationRepository_RecordCapture_Call {
+func (_c *MockReservationRepository_RecordCapture_Call) RunAndReturn(run func(context.Context, entity.ReservationID, time.Time) error) *MockReservationRepository_RecordCapture_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -26,12 +26,13 @@ var _ entity.ReservationRepository = (*ReservationRepository)(nil)
 
 const reservationColumns = `
 	id, ticket_sale_id, user_id, ticket_count, amount, holder_full_name, holder_phone_number,
-	authorization_ref, authorization_released_at, status, hold_expire_at, started_at,
-	committed_at, capture_at, payment_ref, card_brand, card_last4, trace_id
+	authorization_ref, authorization_released_at, status, hold_expire_at,
+	committed_at, capture_at
 `
 
 const (
-	reservationGetQuery = `SELECT ` + reservationColumns + ` FROM reservations WHERE id = $1`
+	reservationGetQuery                   = `SELECT ` + reservationColumns + ` FROM reservations WHERE id = $1`
+	reservationGetByAuthorizationRefQuery = `SELECT ` + reservationColumns + ` FROM reservations WHERE authorization_ref = $1`
 	// reservationHeldOfUserQuery locks the user's Held reservation of the sale
 	// (at most one, by the partial unique index), lapsed or not.
 	reservationHeldOfUserQuery = `
@@ -46,9 +47,8 @@ const (
 	reservationEndHeldQuery = `UPDATE reservations SET status = $2 WHERE id = $1 AND status = 1`
 	reservationInsertQuery  = `
 		INSERT INTO reservations (
-			id, ticket_sale_id, user_id, ticket_count, amount, status,
-			hold_expire_at, started_at, trace_id
-		) VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8)
+			id, ticket_sale_id, user_id, ticket_count, amount, status, hold_expire_at
+		) VALUES ($1, $2, $3, $4, $5, 1, $6)
 	`
 	reservationSetAuthorizationQuery = `
 		UPDATE reservations
@@ -69,7 +69,7 @@ const (
 		WHERE id = $1 AND status = 2 AND capture_at IS NULL
 	`
 	reservationRecordCaptureQuery = `
-		UPDATE reservations SET capture_at = $2, payment_ref = $3, card_brand = $4, card_last4 = $5
+		UPDATE reservations SET capture_at = $2
 		WHERE id = $1 AND status = 2 AND capture_at IS NULL
 	`
 	reservationRecordAuthorizationReleaseQuery = `
@@ -81,7 +81,7 @@ const (
 		WHERE (status = 1 AND hold_expire_at <= $1)
 		   OR (status IN (4, 5) AND authorization_ref IS NOT NULL AND authorization_released_at IS NULL)
 		   OR (status = 2 AND committed_at < $2)
-		ORDER BY started_at, id
+		ORDER BY hold_expire_at, id
 	`
 	// reservationAdvisoryLockQuery takes a transaction-scoped advisory lock
 	// keyed on the reservation id; it is released at commit or rollback, and
@@ -96,7 +96,7 @@ func NewReservationRepository(db *Database) *ReservationRepository {
 
 // GetOrCreateHeld returns the user's holding reservation with the same count,
 // or creates a new Held one under the sale's row lock.
-func (r *ReservationRepository) GetOrCreateHeld(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID, count int, now time.Time, traceID string) (*entity.Reservation, error) {
+func (r *ReservationRepository) GetOrCreateHeld(ctx context.Context, saleID entity.TicketSaleID, userID entity.UserID, count int, now time.Time) (*entity.Reservation, error) {
 	attrs := []slog.Attr{slog.String("ticket_sale_id", string(saleID)), slog.String("user_id", string(userID))}
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -145,10 +145,10 @@ func (r *ReservationRepository) GetOrCreateHeld(ctx context.Context, saleID enti
 		}
 	}
 
-	res := entity.NewReservation(sale, userID, count, now, traceID)
+	res := entity.NewReservation(sale, userID, count, now)
 	if _, err := tx.Exec(ctx, reservationInsertQuery,
 		string(res.ID), string(res.TicketSaleID), string(res.UserID), res.TicketCount, res.Amount,
-		res.HoldExpireTime, res.CreateTime, res.TraceID,
+		res.HoldExpireTime,
 	); err != nil {
 		return nil, toAppErr(err, "failed to insert reservation", attrs...)
 	}
@@ -163,6 +163,16 @@ func (r *ReservationRepository) Get(ctx context.Context, id entity.ReservationID
 	res, err := scanReservation(r.db.Pool.QueryRow(ctx, reservationGetQuery, string(id)))
 	if err != nil {
 		return nil, toAppErr(err, "failed to get reservation", slog.String("reservation_id", string(id)))
+	}
+	return res, nil
+}
+
+// GetByAuthorizationRef returns the reservation whose card hold has the given
+// reference.
+func (r *ReservationRepository) GetByAuthorizationRef(ctx context.Context, authorizationRef string) (*entity.Reservation, error) {
+	res, err := scanReservation(r.db.Pool.QueryRow(ctx, reservationGetByAuthorizationRefQuery, authorizationRef))
+	if err != nil {
+		return nil, toAppErr(err, "failed to get reservation by authorization", slog.String("authorization_ref", authorizationRef))
 	}
 	return res, nil
 }
@@ -305,10 +315,9 @@ func (r *ReservationRepository) RevertCommit(ctx context.Context, id entity.Rese
 	return nil
 }
 
-// RecordCapture stores the charge of a Committed reservation once.
-func (r *ReservationRepository) RecordCapture(ctx context.Context, id entity.ReservationID, at time.Time, payment *entity.CapturedPayment) error {
-	tag, err := r.db.Pool.Exec(ctx, reservationRecordCaptureQuery, string(id), at,
-		payment.PaymentIntentRef, payment.CardBrand, payment.CardLast4)
+// RecordCapture stores the capture time of a Committed reservation once.
+func (r *ReservationRepository) RecordCapture(ctx context.Context, id entity.ReservationID, at time.Time) error {
+	tag, err := r.db.Pool.Exec(ctx, reservationRecordCaptureQuery, string(id), at)
 	if err != nil {
 		return toAppErr(err, "failed to record reservation capture", slog.String("reservation_id", string(id)))
 	}
@@ -348,7 +357,7 @@ func (r *ReservationRepository) RecordAuthorizationRelease(ctx context.Context, 
 }
 
 // ListDue returns the lapsed holds, the card holds to give back and the
-// stalled commits, oldest first.
+// stalled commits, oldest hold first.
 func (r *ReservationRepository) ListDue(ctx context.Context, now time.Time) ([]*entity.Reservation, error) {
 	rows, err := r.db.Pool.Query(ctx, reservationListDueQuery, now, now.Add(-entity.ReservationStalledCommitAge))
 	if err != nil {
@@ -394,14 +403,13 @@ func scanReservation(row pgx.Row) (*entity.Reservation, error) {
 		res                                    entity.Reservation
 		id, saleID, userID                     string
 		holderName, holderPhone, authRef       sql.NullString
-		paymentRef                             sql.NullString
 		authReleasedAt, committedAt, captureAt sql.NullTime
 		status                                 int16
 	)
 	if err := row.Scan(
 		&id, &saleID, &userID, &res.TicketCount, &res.Amount, &holderName, &holderPhone,
-		&authRef, &authReleasedAt, &status, &res.HoldExpireTime, &res.CreateTime,
-		&committedAt, &captureAt, &paymentRef, &res.CardBrand, &res.CardLast4, &res.TraceID,
+		&authRef, &authReleasedAt, &status, &res.HoldExpireTime,
+		&committedAt, &captureAt,
 	); err != nil {
 		return nil, err
 	}
@@ -415,9 +423,6 @@ func scanReservation(row pgx.Row) (*entity.Reservation, error) {
 	}
 	if authRef.Valid {
 		res.AuthorizationRef = authRef.String
-	}
-	if paymentRef.Valid {
-		res.PaymentRef = paymentRef.String
 	}
 	res.AuthorizationReleaseTime = optionalTime(authReleasedAt)
 	res.CommitTime = optionalTime(committedAt)

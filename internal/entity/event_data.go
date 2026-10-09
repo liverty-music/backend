@@ -93,10 +93,10 @@ const (
 	// Duplicates window (2 minutes) deduplicates broker-side. Already covered
 	// by the existing NOTIFICATION.* stream — see streams.go.
 	SubjectNotificationRequested = "NOTIFICATION.requested"
-	// SubjectOrderPaid announces that an Order is paid: once per issued Order,
-	// for a won lottery application or a completed checkout. It is recorded in
-	// the issuance transaction (transactional outbox) and published by the
-	// outbox relay with the Order id as the message id. Two consumers run from
+	// SubjectOrderPaid announces that an Order is paid, for a won lottery
+	// application or a completed checkout. IssuanceUseCase.FulfillPayment
+	// publishes it on the payment provider's completed-charge webhook, with the
+	// Order id as the message id. Two consumers run from
 	// it: the purchase confirmation (NotificationUseCase.SendOrderConfirmation)
 	// and the ticket journey (TicketJourneyUseCase.MarkPaid).
 	SubjectOrderPaid = "ORDER.paid"
@@ -136,8 +136,9 @@ var AllSubjects = []string{
 // amounts only, never personal data; consumers read the rest by id. Exactly
 // one of ApplicationID and ReservationID is set: the Order's source.
 type OrderPaidData struct {
-	// OrderID is the paid Order; also the event's message id, so a republished
-	// row is deduplicated and consumers are idempotent by it.
+	// OrderID is the paid Order; also the event's message id, so a
+	// republished announcement is deduplicated and consumers are idempotent by
+	// it.
 	OrderID string `json:"order_id"`
 	// BuyerID is the platform-internal user id of the buyer.
 	BuyerID string `json:"buyer_id"`

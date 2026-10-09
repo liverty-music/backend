@@ -140,6 +140,65 @@ func (_c *MockTicketApplicationRepository_Get_Call) RunAndReturn(run func(contex
 	return _c
 }
 
+// GetByPaymentIntentRef provides a mock function with given fields: ctx, paymentIntentRef
+func (_m *MockTicketApplicationRepository) GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*entity.TicketApplication, error) {
+	ret := _m.Called(ctx, paymentIntentRef)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByPaymentIntentRef")
+	}
+
+	var r0 *entity.TicketApplication
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.TicketApplication, error)); ok {
+		return rf(ctx, paymentIntentRef)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.TicketApplication); ok {
+		r0 = rf(ctx, paymentIntentRef)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.TicketApplication)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, paymentIntentRef)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockTicketApplicationRepository_GetByPaymentIntentRef_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByPaymentIntentRef'
+type MockTicketApplicationRepository_GetByPaymentIntentRef_Call struct {
+	*mock.Call
+}
+
+// GetByPaymentIntentRef is a helper method to define mock.On call
+//   - ctx context.Context
+//   - paymentIntentRef string
+func (_e *MockTicketApplicationRepository_Expecter) GetByPaymentIntentRef(ctx interface{}, paymentIntentRef interface{}) *MockTicketApplicationRepository_GetByPaymentIntentRef_Call {
+	return &MockTicketApplicationRepository_GetByPaymentIntentRef_Call{Call: _e.mock.On("GetByPaymentIntentRef", ctx, paymentIntentRef)}
+}
+
+func (_c *MockTicketApplicationRepository_GetByPaymentIntentRef_Call) Run(run func(ctx context.Context, paymentIntentRef string)) *MockTicketApplicationRepository_GetByPaymentIntentRef_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockTicketApplicationRepository_GetByPaymentIntentRef_Call) Return(_a0 *entity.TicketApplication, _a1 error) *MockTicketApplicationRepository_GetByPaymentIntentRef_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockTicketApplicationRepository_GetByPaymentIntentRef_Call) RunAndReturn(run func(context.Context, string) (*entity.TicketApplication, error)) *MockTicketApplicationRepository_GetByPaymentIntentRef_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetByPhaseAndApplicant provides a mock function with given fields: ctx, phaseID, applicantID
 func (_m *MockTicketApplicationRepository) GetByPhaseAndApplicant(ctx context.Context, phaseID entity.LotteryPhaseID, applicantID entity.UserID) (*entity.TicketApplication, error) {
 	ret := _m.Called(ctx, phaseID, applicantID)

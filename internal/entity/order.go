@@ -223,17 +223,17 @@ type RefundRepository interface {
 }
 
 // IssuanceRepository is the atomic write path for ⑤ issuance: it persists an
-// Order, its N tickets, the Order's Held Settlement and its [OrderPaidData]
-// announcement in a single transaction, and completes a source Reservation,
+// Order, its N tickets and the Order's Held Settlement in a single
+// transaction, and completes a source Reservation,
 // so a capture never yields an Order without its tickets or its payout record
 // (backend#468). Implementations live in internal/infrastructure/database/rdb/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type IssuanceRepository interface {
-	// Issue atomically inserts the Order, its N account-bound tickets, the Held
-	// settlement (with its splits) that pays out the Order's event Organizer and
-	// the Order's [OrderPaidData] announcement, and makes a source Reservation
-	// Completed, all in one transaction. One Order per source is enforced by
+	// Issue atomically inserts the Order, its N account-bound tickets and the
+	// Held settlement (with its splits) that pays out the Order's event
+	// Organizer, and makes a source Reservation Completed, all in one
+	// transaction. One Order per source is enforced by
 	// unique indexes on orders.application_id and orders.reservation_id; a
 	// duplicate surfaces as AlreadyExists so a replay re-reads the existing
 	// Order rather than double-issuing.

@@ -194,7 +194,6 @@ func cleanTables(db *rdb.Database) {
 		"homes",
 		"users",
 		"organizers",
-		"outbox",
 	}
 
 	for _, table := range tables {

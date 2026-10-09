@@ -82,8 +82,6 @@ type TicketSale struct {
 	// SoldCount is the number of tickets on the sale's Committed and Completed
 	// Reservations.
 	SoldCount int
-	// CreateTime is when the sale was set up.
-	CreateTime time.Time
 
 	// HeldCount is the number of tickets on the sale's Reservations that are
 	// holding at the time the sale was read. It is computed by the repository
@@ -94,10 +92,10 @@ type TicketSale struct {
 	HasReservations bool
 }
 
-// NewTicketSale returns a FirstCome TicketSale with a generated UUIDv7 id, a
-// sold count of 0 and the given created time. A perAccountLimit of 0 means
-// none was given, and the limit is [TicketSaleDefaultPerAccountLimit].
-func NewTicketSale(eventID string, saleStart, saleEnd time.Time, price int64, quantity, perAccountLimit int, now time.Time) *TicketSale {
+// NewTicketSale returns a FirstCome TicketSale with a generated UUIDv7 id and
+// a sold count of 0. A perAccountLimit of 0 means none was given, and the
+// limit is [TicketSaleDefaultPerAccountLimit].
+func NewTicketSale(eventID string, saleStart, saleEnd time.Time, price int64, quantity, perAccountLimit int) *TicketSale {
 	if perAccountLimit == 0 {
 		perAccountLimit = TicketSaleDefaultPerAccountLimit
 	}
@@ -110,7 +108,6 @@ func NewTicketSale(eventID string, saleStart, saleEnd time.Time, price int64, qu
 		Price:           price,
 		Quantity:        quantity,
 		PerAccountLimit: perAccountLimit,
-		CreateTime:      now,
 	}
 }
 
