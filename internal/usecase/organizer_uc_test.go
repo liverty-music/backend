@@ -61,53 +61,75 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	const (
+		orgName = "Acme Music"
+		email   = "operator@acme.com"
+	)
+	errEmailTaken := apperr.New(codes.AlreadyExists, "operator email is already used by another account")
 
-	type args struct {
-		name          string
-		operatorEmail string
+	// expectInsert expects the operator-email check and the provisioning row
+	// insert, returning the inserted row.
+	expectInsert := func(d *organizerTestDeps) {
+		d.provisioner.EXPECT().CheckOperatorEmailAvailable(ctx, email).Return(nil).Once()
+		d.orgRepo.EXPECT().
+			Create(ctx, mock.AnythingOfType("*entity.Organizer")).
+			Return(&entity.Organizer{ID: "org-1", Name: orgName, OperatorEmail: email, Status: entity.OrganizerStatusProvisioning}, nil).
+			Once()
+	}
+	// expectTenantOrg expects the org creation and the immediate recording of
+	// its id.
+	expectTenantOrg := func(d *organizerTestDeps, calls *[]string) {
+		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, "org-1").Run(func(context.Context, string) {
+			*calls = append(*calls, "ensure-org")
+		}).Return("zitadel-org-1", nil).Once()
+		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, "org-1", "zitadel-org-1").Run(func(context.Context, string, string) {
+			*calls = append(*calls, "store-org-id")
+		}).Return(nil).Once()
+	}
+	// expectDiscard expects the compensation of a permanent failure: Deactivate
+	// then Delete of the row and its tenant org. deleteErr fails the final
+	// record deletion.
+	expectDiscard := func(d *organizerTestDeps, calls *[]string, deleteErr error) {
+		withOrg := &entity.Organizer{ID: "org-1", ZitadelOrgID: "zitadel-org-1", Status: entity.OrganizerStatusProvisioning}
+		deactivated := &entity.Organizer{ID: "org-1", ZitadelOrgID: "zitadel-org-1", Status: entity.OrganizerStatusDeactivated}
+		d.orgRepo.EXPECT().Get(mock.Anything, "org-1").Return(withOrg, nil).Once()
+		d.provisioner.EXPECT().DeactivateOperators(mock.Anything, "zitadel-org-1").Return(nil).Once()
+		d.orgRepo.EXPECT().FreeArtists(mock.Anything, "org-1").Return(nil).Once()
+		d.orgRepo.EXPECT().SetStatus(mock.Anything, "org-1", entity.OrganizerStatusDeactivated).Run(func(context.Context, string, entity.OrganizerStatus) {
+			*calls = append(*calls, "deactivate")
+		}).Return(nil).Once()
+		d.orgRepo.EXPECT().Get(mock.Anything, "org-1").Return(deactivated, nil).Once()
+		d.orgRepo.EXPECT().Delete(mock.Anything, "org-1", true).Return(nil).Once()
+		d.mediaRepo.EXPECT().ListMediaByOrganizer(mock.Anything, "org-1").Return(nil, nil).Once()
+		d.provisioner.EXPECT().DeleteTenant(mock.Anything, "zitadel-org-1").Run(func(context.Context, string) {
+			*calls = append(*calls, "delete-tenant")
+		}).Return(nil).Once()
+		d.orgRepo.EXPECT().Delete(mock.Anything, "org-1", false).Run(func(context.Context, string, bool) {
+			*calls = append(*calls, "delete-row")
+		}).Return(deleteErr).Once()
 	}
 
 	tests := []struct {
-		name    string
-		args    args
-		setup   func(t *testing.T, d *organizerTestDeps)
-		want    func(t *testing.T, got *entity.Organizer)
-		wantErr error
+		name      string
+		setup     func(d *organizerTestDeps, calls *[]string)
+		want      func(t *testing.T, got *entity.Organizer)
+		wantCalls []string
+		wantErr   error
 	}{
 		{
-			name: "return active organizer with ZitadelOrgID set when all steps succeed",
-			args: args{
-				name:          "Acme Music",
-				operatorEmail: "operator@acme.com",
-			},
-			setup: func(t *testing.T, d *organizerTestDeps) {
-				t.Helper()
-				provisioning := &entity.Organizer{
-					ID:            "org-1",
-					Name:          "Acme Music",
-					OperatorEmail: "operator@acme.com",
-					Status:        entity.OrganizerStatusProvisioning,
-				}
-				d.orgRepo.EXPECT().
-					Create(ctx, mock.AnythingOfType("*entity.Organizer")).
-					Return(provisioning, nil).
-					Once()
-				d.provisioner.EXPECT().
-					ProvisionTenant(mock.Anything, "org-1", "Acme Music", "operator@acme.com").
-					Return("zitadel-org-1", nil).
-					Once()
-				d.metrics.EXPECT().
-					RecordOrganizerProvisioning(mock.Anything, "success").
-					Return().
-					Once()
-				d.orgRepo.EXPECT().
-					SetZitadelOrgID(mock.Anything, "org-1", "zitadel-org-1").
-					Return(nil).
-					Once()
+			// @spec components/usecase/organizer/create "Organizer is created"
+			name: "return active organizer with ZitadelOrgID set when all steps succeed, recording the org id before the remaining steps",
+			setup: func(d *organizerTestDeps, calls *[]string) {
+				expectInsert(d)
+				expectTenantOrg(d, calls)
+				d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-1", "zitadel-org-1", email).Run(func(context.Context, string, string, string) {
+					*calls = append(*calls, "provision")
+				}).Return(nil).Once()
 				d.orgRepo.EXPECT().
 					CompareAndSetStatus(mock.Anything, "org-1", entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).
 					Return(true, nil).
 					Once()
+				d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
 				d.publisher.EXPECT().
 					PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: "org-1"}).
 					Return(nil).
@@ -119,63 +141,69 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 				assert.Equal(t, "zitadel-org-1", got.ZitadelOrgID)
 				assert.Equal(t, "org-1", got.ID)
 			},
+			wantCalls: []string{"ensure-org", "store-org-id", "provision"},
 		},
 		{
-			name: "return error and record failed metric when provisioner fails",
-			args: args{
-				name:          "Acme Music",
-				operatorEmail: "operator@acme.com",
+			name: "fail with AlreadyExists and create nothing when the operator email is used by another account",
+			setup: func(d *organizerTestDeps, _ *[]string) {
+				// No row, no org: the check runs before anything is created.
+				d.provisioner.EXPECT().CheckOperatorEmailAvailable(ctx, email).Return(errEmailTaken).Once()
 			},
-			setup: func(t *testing.T, d *organizerTestDeps) {
-				t.Helper()
-				provisioning := &entity.Organizer{
-					ID:            "org-1",
-					Name:          "Acme Music",
-					OperatorEmail: "operator@acme.com",
-					Status:        entity.OrganizerStatusProvisioning,
-				}
-				d.orgRepo.EXPECT().
-					Create(ctx, mock.AnythingOfType("*entity.Organizer")).
-					Return(provisioning, nil).
-					Once()
-				d.provisioner.EXPECT().
-					ProvisionTenant(mock.Anything, "org-1", "Acme Music", "operator@acme.com").
-					Return("", apperr.ErrInternal).
-					Once()
-				d.metrics.EXPECT().
-					RecordOrganizerProvisioning(mock.Anything, "failed").
-					Return().
-					Once()
-				// SetZitadelOrgID and SetStatus(active) must NOT be called.
+			wantErr: apperr.ErrAlreadyExists,
+		},
+		{
+			name: "remove the tenant org and the row when provisioning finds the email used by a user in another org",
+			setup: func(d *organizerTestDeps, calls *[]string) {
+				expectInsert(d)
+				expectTenantOrg(d, calls)
+				d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-1", "zitadel-org-1", email).Return(errEmailTaken).Once()
+				d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "failed").Return().Once()
+				expectDiscard(d, calls, nil)
+			},
+			wantCalls: []string{"ensure-org", "store-org-id", "deactivate", "delete-tenant", "delete-row"},
+			wantErr:   apperr.ErrAlreadyExists,
+		},
+		{
+			name: "still return AlreadyExists, leaving a deactivated row, when the compensation cannot delete the row",
+			setup: func(d *organizerTestDeps, calls *[]string) {
+				expectInsert(d)
+				expectTenantOrg(d, calls)
+				d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-1", "zitadel-org-1", email).Return(errEmailTaken).Once()
+				d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "failed").Return().Once()
+				expectDiscard(d, calls, apperr.New(codes.Internal, "db down"))
+			},
+			wantCalls: []string{"ensure-org", "store-org-id", "deactivate", "delete-tenant", "delete-row"},
+			wantErr:   apperr.ErrAlreadyExists,
+		},
+		{
+			// @spec components/usecase/organizer/create "Provisioning fails"
+			name: "leave the row provisioning with its org id recorded when a step after org creation fails transiently",
+			setup: func(d *organizerTestDeps, calls *[]string) {
+				expectInsert(d)
+				expectTenantOrg(d, calls)
+				d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-1", "zitadel-org-1", email).Return(apperr.ErrInternal).Once()
+				d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "failed").Return().Once()
+				// No compensation: the reconciler retries with the recorded id.
+			},
+			wantCalls: []string{"ensure-org", "store-org-id"},
+			wantErr:   apperr.ErrInternal,
+		},
+		{
+			name: "return error and record failed metric when the tenant org cannot be created",
+			setup: func(d *organizerTestDeps, _ *[]string) {
+				expectInsert(d)
+				d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, "org-1").Return("", apperr.ErrInternal).Once()
+				d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "failed").Return().Once()
 			},
 			wantErr: apperr.ErrInternal,
 		},
 		{
+			// @spec components/usecase/organizer/create "Deactivated meanwhile"
 			name: "do not clobber a concurrent deactivation when activation is superseded",
-			args: args{
-				name:          "Raced Corp",
-				operatorEmail: "op@raced.com",
-			},
-			setup: func(t *testing.T, d *organizerTestDeps) {
-				t.Helper()
-				provisioning := &entity.Organizer{
-					ID:            "org-1",
-					Name:          "Raced Corp",
-					OperatorEmail: "op@raced.com",
-					Status:        entity.OrganizerStatusProvisioning,
-				}
-				d.orgRepo.EXPECT().
-					Create(ctx, mock.AnythingOfType("*entity.Organizer")).
-					Return(provisioning, nil).
-					Once()
-				d.provisioner.EXPECT().
-					ProvisionTenant(mock.Anything, "org-1", "Raced Corp", "op@raced.com").
-					Return("zitadel-org-1", nil).
-					Once()
-				d.orgRepo.EXPECT().
-					SetZitadelOrgID(mock.Anything, "org-1", "zitadel-org-1").
-					Return(nil).
-					Once()
+			setup: func(d *organizerTestDeps, calls *[]string) {
+				expectInsert(d)
+				expectTenantOrg(d, calls)
+				d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-1", "zitadel-org-1", email).Return(nil).Once()
 				// A concurrent Deactivate already moved the row out of provisioning,
 				// so the CAS does not apply. The saga must NOT record success, emit
 				// organizer.created, or force the row back to active.
@@ -186,19 +214,14 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 			},
 			want: func(t *testing.T, got *entity.Organizer) {
 				t.Helper()
-				// The returned row is the untouched provisioning record — the saga
-				// deferred to the concurrent deactivation instead of overwriting it.
 				assert.Equal(t, entity.OrganizerStatusProvisioning, got.Status)
 			},
+			wantCalls: []string{"ensure-org", "store-org-id"},
 		},
 		{
 			name: "return error when repository Create fails",
-			args: args{
-				name:          "Fail Corp",
-				operatorEmail: "op@fail.com",
-			},
-			setup: func(t *testing.T, d *organizerTestDeps) {
-				t.Helper()
+			setup: func(d *organizerTestDeps, _ *[]string) {
+				d.provisioner.EXPECT().CheckOperatorEmailAvailable(ctx, email).Return(nil).Once()
 				d.orgRepo.EXPECT().
 					Create(ctx, mock.AnythingOfType("*entity.Organizer")).
 					Return(nil, apperr.ErrInternal).
@@ -212,12 +235,12 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := newOrganizerTestDeps(t)
-			if tt.setup != nil {
-				tt.setup(t, d)
-			}
+			var calls []string
+			tt.setup(d, &calls)
 
-			got, err := d.uc.Create(ctx, tt.args.name, tt.args.operatorEmail)
+			got, err := d.uc.Create(ctx, orgName, email)
 
+			assert.Equal(t, tt.wantCalls, calls)
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
 				assert.Nil(t, got)
@@ -819,7 +842,36 @@ func TestOrganizerUseCase_Deactivate(t *testing.T) {
 			},
 		},
 		{
-			name:        "skip DeactivateOperators when ZitadelOrgID is empty but still free artists and set status",
+			name:        "deactivate the operators of a provisioning organizer whose unrecorded tenant org is found by name",
+			organizerID: "org-3",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					Get(ctx, "org-3").
+					Return(&entity.Organizer{ID: "org-3", Status: entity.OrganizerStatusProvisioning}, nil).
+					Once()
+				d.provisioner.EXPECT().FindTenantOrg(ctx, "org-3").Return("zitadel-org-3", nil).Once()
+				d.provisioner.EXPECT().DeactivateOperators(ctx, "zitadel-org-3").Return(nil).Once()
+				d.orgRepo.EXPECT().FreeArtists(ctx, "org-3").Return(nil).Once()
+				d.orgRepo.EXPECT().SetStatus(ctx, "org-3", entity.OrganizerStatusDeactivated).Return(nil).Once()
+			},
+		},
+		{
+			name:        "return the error and keep the status when the unrecorded tenant org cannot be searched",
+			organizerID: "org-3",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					Get(ctx, "org-3").
+					Return(&entity.Organizer{ID: "org-3", Status: entity.OrganizerStatusProvisioning}, nil).
+					Once()
+				d.provisioner.EXPECT().FindTenantOrg(ctx, "org-3").Return("", apperr.ErrInternal).Once()
+			},
+			wantErr: apperr.ErrInternal,
+		},
+		{
+			// @spec components/usecase/organizer/deactivate "Provisioning Organizer without a tenant"
+			name:        "skip DeactivateOperators when the organizer has no tenant org but still free artists and set status",
 			organizerID: "org-2",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()
@@ -831,6 +883,7 @@ func TestOrganizerUseCase_Deactivate(t *testing.T) {
 						ZitadelOrgID: "", // not yet provisioned
 					}, nil).
 					Once()
+				d.provisioner.EXPECT().FindTenantOrg(ctx, "org-2").Return("", apperr.New(codes.NotFound, "tenant org not found")).Once()
 				// provisioner.DeactivateOperators must NOT be called.
 				d.orgRepo.EXPECT().
 					FreeArtists(ctx, "org-2").
@@ -890,49 +943,82 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	t.Run("completes every organizer stuck in provisioning", func(t *testing.T) {
+	// expectActivation expects the tail of a successful completion.
+	expectActivation := func(d *organizerTestDeps, id string) {
+		d.orgRepo.EXPECT().CompareAndSetStatus(mock.Anything, id, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).Return(true, nil).Once()
+		d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
+		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: id}).Return(nil).Once()
+	}
+
+	// @spec components/usecase/organizer/reconcile-provisioning "Organizer left provisioning"
+	t.Run("completes every organizer stuck in provisioning, reusing a recorded org id and resolving a missing one", func(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerTestDeps(t)
 		stuck := []*entity.Organizer{
-			{ID: "org-1", Name: "Acme", OperatorEmail: "a@acme.com", Status: entity.OrganizerStatusProvisioning},
+			// Failed after the org id was recorded: the retry reuses the id and
+			// never creates or searches for the org.
+			{ID: "org-1", Name: "Acme", OperatorEmail: "a@acme.com", ZitadelOrgID: "z-org-1", Status: entity.OrganizerStatusProvisioning},
+			// Left by an older release that never recorded the id: the org is
+			// resolved (EnsureTenantOrg finds it by name) and recorded.
 			{ID: "org-2", Name: "Beta", OperatorEmail: "b@beta.com", Status: entity.OrganizerStatusProvisioning},
 		}
 		d.orgRepo.EXPECT().ListByStatus(ctx, entity.OrganizerStatusProvisioning).Return(stuck, nil).Once()
-		for _, o := range stuck {
-			d.provisioner.EXPECT().ProvisionTenant(mock.Anything, o.ID, o.Name, o.OperatorEmail).Return("z-"+o.ID, nil).Once()
-			d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
-			d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, o.ID, "z-"+o.ID).Return(nil).Once()
-			d.orgRepo.EXPECT().CompareAndSetStatus(mock.Anything, o.ID, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).Return(true, nil).Once()
-			d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: o.ID}).Return(nil).Once()
-		}
+
+		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-1", "z-org-1", "a@acme.com").Return(nil).Once()
+		expectActivation(d, "org-1")
+
+		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, "org-2").Return("z-org-2", nil).Once()
+		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, "org-2", "z-org-2").Return(nil).Once()
+		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-2", "z-org-2", "b@beta.com").Return(nil).Once()
+		expectActivation(d, "org-2")
 
 		assert.NoError(t, d.uc.ReconcileProvisioning(ctx))
+		// EnsureTenantOrg must not run for org-1 (mockery fails on unexpected calls).
 	})
 
-	t.Run("skips a failing organizer and continues the sweep", func(t *testing.T) {
+	// @spec components/usecase/organizer/reconcile-provisioning "One Organizer fails"
+	t.Run("skips a transiently failing organizer, leaving it provisioning, and continues the sweep", func(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerTestDeps(t)
 		stuck := []*entity.Organizer{
-			{ID: "org-bad", Name: "Bad", OperatorEmail: "x@bad.com", Status: entity.OrganizerStatusProvisioning},
-			{ID: "org-ok", Name: "Ok", OperatorEmail: "y@ok.com", Status: entity.OrganizerStatusProvisioning},
+			{ID: "org-bad", Name: "Bad", OperatorEmail: "x@bad.com", ZitadelOrgID: "z-bad", Status: entity.OrganizerStatusProvisioning},
+			{ID: "org-ok", Name: "Ok", OperatorEmail: "y@ok.com", ZitadelOrgID: "z-ok", Status: entity.OrganizerStatusProvisioning},
 		}
 		d.orgRepo.EXPECT().ListByStatus(ctx, entity.OrganizerStatusProvisioning).Return(stuck, nil).Once()
 
-		// org-bad: provisioner still failing -> failed metric, no set calls, sweep continues.
-		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-bad", "Bad", "x@bad.com").Return("", apperr.ErrInternal).Once()
+		// org-bad: still failing transiently -> failed metric, no status change.
+		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-bad", "z-bad", "x@bad.com").Return(apperr.ErrInternal).Once()
 		d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "failed").Return().Once()
 
-		// org-ok: completes.
-		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-ok", "Ok", "y@ok.com").Return("z-ok", nil).Once()
-		d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Once()
-		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, "org-ok", "z-ok").Return(nil).Once()
-		d.orgRepo.EXPECT().CompareAndSetStatus(mock.Anything, "org-ok", entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).Return(true, nil).Once()
-		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: "org-ok"}).Return(nil).Once()
+		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-ok", "z-ok", "y@ok.com").Return(nil).Once()
+		expectActivation(d, "org-ok")
 
-		// Per-organizer failures are logged and skipped, not returned.
 		assert.NoError(t, d.uc.ReconcileProvisioning(ctx))
 	})
 
+	t.Run("deactivates an organizer whose operator email is used by another account so it is not retried forever", func(t *testing.T) {
+		t.Parallel()
+		d := newOrganizerTestDeps(t)
+		// The prod shape of #564: the row never recorded its org id.
+		stuck := &entity.Organizer{ID: "org-taken", Name: "Taken", OperatorEmail: "admin@example.com", Status: entity.OrganizerStatusProvisioning}
+		d.orgRepo.EXPECT().ListByStatus(ctx, entity.OrganizerStatusProvisioning).Return([]*entity.Organizer{stuck}, nil).Once()
+
+		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, "org-taken").Return("394277002850336802", nil).Once()
+		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, "org-taken", "394277002850336802").Return(nil).Once()
+		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-taken", "394277002850336802", "admin@example.com").
+			Return(apperr.New(codes.AlreadyExists, "operator email is already used by another account")).Once()
+		d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "failed").Return().Once()
+
+		// Terminal: Deactivate moves it out of provisioning; nothing is deleted.
+		d.orgRepo.EXPECT().Get(ctx, "org-taken").Return(&entity.Organizer{ID: "org-taken", ZitadelOrgID: "394277002850336802", Status: entity.OrganizerStatusProvisioning}, nil).Once()
+		d.provisioner.EXPECT().DeactivateOperators(ctx, "394277002850336802").Return(nil).Once()
+		d.orgRepo.EXPECT().FreeArtists(ctx, "org-taken").Return(nil).Once()
+		d.orgRepo.EXPECT().SetStatus(ctx, "org-taken", entity.OrganizerStatusDeactivated).Return(nil).Once()
+
+		assert.NoError(t, d.uc.ReconcileProvisioning(ctx))
+	})
+
+	// @spec components/usecase/organizer/reconcile-provisioning "Listing fails"
 	t.Run("returns error when listing stuck organizers fails", func(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerTestDeps(t)
@@ -970,6 +1056,9 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			d.provisioner.EXPECT().DeleteTenant(ctx, org.ZitadelOrgID).Run(func(context.Context, string) {
 				*calls = append(*calls, "tenant")
 			}).Return(tenantErr).Once()
+		} else {
+			// No recorded link: the tenant org is searched by name and absent.
+			d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return("", apperr.New(codes.NotFound, "tenant org not found")).Once()
 		}
 		if tenantErr == nil {
 			d.orgRepo.EXPECT().Delete(ctx, orgID, false).Run(func(context.Context, string, bool) {
@@ -1017,6 +1106,38 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 				expectRemoval(d, &noTenant, calls, nil)
 			},
 			wantCalls: filesThen("records"),
+		},
+		{
+			name: "removes a tenant org whose link was never recorded, found by its name",
+			setup: func(d *organizerTestDeps, calls *[]string) {
+				// A provisioning Organizer from before the org id was recorded
+				// early, deactivated by the admin: its org must not be orphaned.
+				unlinked := *deactivated
+				unlinked.ZitadelOrgID = ""
+				d.orgRepo.EXPECT().Get(ctx, orgID).Return(&unlinked, nil).Once()
+				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
+				d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
+				d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return("394277002850336802", nil).Once()
+				d.provisioner.EXPECT().DeleteTenant(ctx, "394277002850336802").Run(func(context.Context, string) {
+					*calls = append(*calls, "tenant")
+				}).Return(nil).Once()
+				d.orgRepo.EXPECT().Delete(ctx, orgID, false).Run(func(context.Context, string, bool) {
+					*calls = append(*calls, "records")
+				}).Return(nil).Once()
+			},
+			wantCalls: []string{"tenant", "records"},
+		},
+		{
+			name: "keeps the records when the unrecorded tenant org cannot be searched",
+			setup: func(d *organizerTestDeps, _ *[]string) {
+				unlinked := *deactivated
+				unlinked.ZitadelOrgID = ""
+				d.orgRepo.EXPECT().Get(ctx, orgID).Return(&unlinked, nil).Once()
+				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
+				d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
+				d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return("", apperr.ErrInternal).Once()
+			},
+			wantErr: apperr.ErrInternal,
 		},
 		{
 			// @spec components/usecase/organizer/delete "Active Organizer"
@@ -1094,4 +1215,47 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 		assert.NoError(t, d.uc.Delete(ctx, orgID))
 		assert.Equal(t, filesThen("tenant", "records"), calls)
 	})
+}
+
+// TestOrganizerUseCase_CleanUpStuckProvisioningOrganizer walks the admin
+// cleanup of an Organizer stuck in provisioning without a recorded tenant link
+// (the prod shape of #564): Deactivate accepts it, and Delete then removes the
+// tenant org found by name, so nothing is orphaned in Zitadel.
+func TestOrganizerUseCase_CleanUpStuckProvisioningOrganizer(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const (
+		orgID        = "01a11dec-968d-762a-a64d-17f4ce185b92"
+		zitadelOrgID = "394277002850336802"
+	)
+	d := newOrganizerTestDeps(t)
+
+	// Deactivate: the provisioning row is accepted and its tenant is resolved.
+	d.orgRepo.EXPECT().Get(ctx, orgID).Return(&entity.Organizer{ID: orgID, Status: entity.OrganizerStatusProvisioning}, nil).Once()
+	d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return(zitadelOrgID, nil).Once()
+	d.provisioner.EXPECT().DeactivateOperators(ctx, zitadelOrgID).Return(nil).Once()
+	d.orgRepo.EXPECT().FreeArtists(ctx, orgID).Return(nil).Once()
+	d.orgRepo.EXPECT().SetStatus(ctx, orgID, entity.OrganizerStatusDeactivated).Return(nil).Once()
+
+	assert.NoError(t, d.uc.Deactivate(ctx, orgID))
+
+	// Delete: the blocker check runs first, then the tenant org found by name
+	// is removed, then the records.
+	var calls []string
+	d.orgRepo.EXPECT().Get(ctx, orgID).Return(&entity.Organizer{ID: orgID, Status: entity.OrganizerStatusDeactivated}, nil).Once()
+	d.orgRepo.EXPECT().Delete(ctx, orgID, true).Run(func(context.Context, string, bool) {
+		calls = append(calls, "check")
+	}).Return(nil).Once()
+	d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
+	d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return(zitadelOrgID, nil).Once()
+	d.provisioner.EXPECT().DeleteTenant(ctx, zitadelOrgID).Run(func(context.Context, string) {
+		calls = append(calls, "tenant")
+	}).Return(nil).Once()
+	d.orgRepo.EXPECT().Delete(ctx, orgID, false).Run(func(context.Context, string, bool) {
+		calls = append(calls, "records")
+	}).Return(nil).Once()
+
+	assert.NoError(t, d.uc.Delete(ctx, orgID))
+	assert.Equal(t, []string{"check", "tenant", "records"}, calls)
 }
