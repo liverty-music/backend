@@ -47,7 +47,7 @@ The backend service for Liverty Music - a concert notification platform that tra
 
 - Go 1.25 or later
 - Atlas CLI (binary installation required)
-- golangci-lint (binary installation required)
+- golangci-lint (version pinned in `.mise.toml`; install with `mise install`)
 - PostgreSQL (for database development)
 - Protocol Buffers compiler (for gRPC development)
 
@@ -76,9 +76,8 @@ This project uses binary installations for tools like Atlas and golangci-lint to
 # Install Atlas CLI
 curl -sSf https://atlasgo.sh | sh
 
-# Install golangci-lint (Binary)
-# See https://golangci-lint.run/usage/install/#local-installation
-curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.64.5
+# Install golangci-lint at the version pinned in .mise.toml (official release binary)
+mise install
 ```
 
 4. Start the database (optional, for local development):
