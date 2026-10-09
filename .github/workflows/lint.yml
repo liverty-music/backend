@@ -29,7 +29,6 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - '.golangci.yml'
-              - '.mise.toml'
               - 'Makefile'
               - '.github/workflows/**'
             schema:
@@ -53,20 +52,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      # Version comes from .mise.toml, the single pin shared with local runs
-      # and the pre-commit hook, and the one Renovate updates (mise manager).
-      - name: Read golangci-lint version
-        id: golangci-lint
-        run: |
-          set -euo pipefail
-          version="$(sed -n 's/^golangci-lint = "\(.*\)"$/\1/p' .mise.toml)"
-          test -n "$version"
-          echo "version=v${version}" >> "$GITHUB_OUTPUT"
-      - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
-        with:
-          version: ${{ steps.golangci-lint.outputs.version }}
-          install-only: true
+      # `make lint` installs the golangci-lint version pinned in the Makefile,
+      # the same binary local runs and the pre-commit hook use.
       - name: Run make lint
         run: make lint
       # `make check` runs the go fix modernizers, but neither the pre-commit

@@ -47,7 +47,7 @@ The backend service for Liverty Music - a concert notification platform that tra
 
 - Go 1.25 or later
 - Atlas CLI (binary installation required)
-- golangci-lint (version pinned in `.mise.toml`; install with `mise install`)
+- golangci-lint (installed automatically by `make lint` at the version pinned in the Makefile)
 - PostgreSQL (for database development)
 - Protocol Buffers compiler (for gRPC development)
 
@@ -76,8 +76,8 @@ This project uses binary installations for tools like Atlas and golangci-lint to
 # Install Atlas CLI
 curl -sSf https://atlasgo.sh | sh
 
-# Install golangci-lint at the version pinned in .mise.toml (official release binary)
-mise install
+# golangci-lint needs no manual step: `make lint` installs the official release
+# binary pinned in the Makefile (GOLANGCI_LINT_VERSION) into ./bin.
 ```
 
 4. Start the database (optional, for local development):
@@ -128,8 +128,8 @@ go test -cover ./...
 # Run static analysis
 go vet ./...
 
-# Run linter (requires golangci-lint binary)
-golangci-lint run ./...
+# Run linters (installs the pinned golangci-lint on first run)
+make lint
 ```
 
 ### Gemini Integration Testing
@@ -270,11 +270,11 @@ See `cloud-provisioning/docs/runbooks/prod-image-tag-pinning.md` for the retag-f
 
 #### Linting
 
-This project uses `golangci-lint` for linting. Install the binary as described in Prerequisites, then run:
+This project uses `golangci-lint` for linting. `make lint` installs the version pinned in the Makefile and runs it:
 
 ```bash
 # This will run all configured linters
-golangci-lint run ./...
+make lint
 ```
 
 #### Logger Usage

@@ -10,6 +10,8 @@
 /main
 /api
 /media-processor
+# Pinned developer tools installed by the Makefile (golangci-lint).
+/bin/
 
 # Test binary, built with `go test -c`
 *.test
