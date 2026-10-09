@@ -1,13 +1,31 @@
 .PHONY: lint lint-schema modernize fix test test-integration test-stripe-e2e check
 
+# golangci-lint is installed as the official release binary, the method its
+# docs recommend (https://golangci-lint.run/docs/welcome/install/local/); a
+# go.mod `tool` install is unsupported upstream. This is the single version pin
+# for local runs, the pre-commit hook and CI, and Renovate updates it (see the
+# custom manager in renovate.json). The versioned file name makes a bump
+# reinstall on the next `make lint`.
+GOLANGCI_LINT_VERSION := v2.14.0
+GOLANGCI_LINT := bin/golangci-lint-$(GOLANGCI_LINT_VERSION)
+
 ## lint: format check + static analysis (matches CI)
-lint:
+lint: $(GOLANGCI_LINT)
 	@echo "==> Checking gofmt..."
 	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
 	@echo "==> Running go vet..."
 	go vet -tags=integration ./...
 	@echo "==> Running golangci-lint..."
-	golangci-lint run --timeout=3m --build-tags=integration ./...
+	$(GOLANGCI_LINT) run --timeout=3m --build-tags=integration ./...
+
+# The install script is taken from the same tag as the binary, and it verifies
+# the release tarball against the release's checksums.
+$(GOLANGCI_LINT):
+	@echo "==> Installing golangci-lint $(GOLANGCI_LINT_VERSION)..."
+	@rm -rf bin/.golangci-lint-tmp
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/$(GOLANGCI_LINT_VERSION)/install.sh | sh -s -- -b bin/.golangci-lint-tmp $(GOLANGCI_LINT_VERSION)
+	mv bin/.golangci-lint-tmp/golangci-lint $@
+	@rm -rf bin/.golangci-lint-tmp
 
 ## lint-schema: check schema.sql against design policies
 lint-schema:
