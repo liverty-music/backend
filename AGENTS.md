@@ -42,6 +42,7 @@ Entity types in `internal/entity/` are pure structs without struct tags, with on
     - **Database**: Use `_at` suffix (e.g., `start_at`, `created_at`). Type: `TIMESTAMPTZ`.
     - **Go Entity**: Use `Time` suffix (e.g., `StartTime`, `CreateTime`). Type: `time.Time`.
     - **Reasoning**: Adheres to SQL standards for columns and Google AIP/Protobuf standards for code. Mappings should be handled in the Repository layer.
+    - **When a timestamp exists**: only when an entity field in the spec needs it; no audit metadata (`updated_at`, `deleted_at` are rejected by `scripts/lint-schema.sh`). When the field means "when the record was created", name it `created_at` / `CreateTime` / proto `create_time` (AIP-148), not a synonym such as `configured_at` or `recorded_at`.
 
 ## Development Workflows
 
@@ -72,5 +73,6 @@ See [docs/dev-db-access.md](docs/dev-db-access.md), which points to the cloud-pr
 - A new handler MUST be registered in `internal/di/provider.go` in the correct list (admin vs consumer).
 - Interfaces are defined where consumed (`internal/entity/`, `internal/usecase/`); impls in `infrastructure/`/`adapter/`.
 - Nullable columns scan into `sql.Null*` and are `.Valid`-checked before assignment (cf. `user_repo.go scanUser`).
+- Every new column (timestamps included) maps to an entity field the spec defines; a column no spec requirement uses is a violation, and a creation-time column is named `created_at`, not a synonym.
 
 </agent-rules>
