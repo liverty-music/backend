@@ -5,6 +5,8 @@ import (
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
@@ -24,11 +26,28 @@ func NewNoopOrganizerProvisioner(logger *logging.Logger) *NoopOrganizerProvision
 	return &NoopOrganizerProvisioner{logger: logger}
 }
 
-// ProvisionTenant performs no real provisioning and returns a placeholder org id.
-func (p *NoopOrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID, name, operatorEmail string) (string, error) {
-	p.logger.Warn(ctx, "organizer provisioning skipped: no organizer-provisioner credential configured",
+// CheckOperatorEmailAvailable performs no check; every email is available.
+func (p *NoopOrganizerProvisioner) CheckOperatorEmailAvailable(context.Context, string) error {
+	return nil
+}
+
+// EnsureTenantOrg performs no real provisioning and returns a placeholder org id.
+func (p *NoopOrganizerProvisioner) EnsureTenantOrg(ctx context.Context, organizerID string) (string, error) {
+	p.logger.Warn(ctx, "organizer tenant org creation skipped: no organizer-provisioner credential configured",
 		slog.String("organizer_id", organizerID))
 	return "local-org-" + organizerID, nil
+}
+
+// FindTenantOrg reports NotFound: no tenant org exists without a live Zitadel.
+func (p *NoopOrganizerProvisioner) FindTenantOrg(_ context.Context, organizerID string) (string, error) {
+	return "", apperr.New(codes.NotFound, "tenant org not found", slog.String("organizer_id", organizerID))
+}
+
+// ProvisionTenant performs no real provisioning.
+func (p *NoopOrganizerProvisioner) ProvisionTenant(ctx context.Context, organizerID, _, _ string) error {
+	p.logger.Warn(ctx, "organizer provisioning skipped: no organizer-provisioner credential configured",
+		slog.String("organizer_id", organizerID))
+	return nil
 }
 
 // DeactivateOperators performs no real teardown.
