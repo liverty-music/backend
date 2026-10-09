@@ -257,42 +257,44 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 	}
 }
 
-// @spec components/usecase/organizer/create "Same name and operator email again"
-func TestOrganizerUseCase_Create_sameNameAndEmailTwice(t *testing.T) {
+// @spec components/usecase/organizer/create "Same name again"
+func TestOrganizerUseCase_Create_sameNameTwice(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	const (
-		orgName = "Acme Music"
-		email   = "operator@acme.com"
-	)
+	const orgName = "Acme Music"
 	d := newOrganizerTestDeps(t)
 
-	// Create never looks up an existing Organizer: each call inserts its own row
-	// and creates its own tenant org.
-	d.provisioner.EXPECT().CheckOperatorEmailAvailable(ctx, email).Return(nil).Times(2)
-	for _, id := range []string{"org-1", "org-2"} {
+	// Create never looks up an existing Organizer by name: each call with its
+	// own available operator email inserts its own row and creates its own
+	// tenant org.
+	creations := []struct{ id, email string }{
+		{id: "org-1", email: "first@acme.com"},
+		{id: "org-2", email: "second@acme.com"},
+	}
+	for _, c := range creations {
+		d.provisioner.EXPECT().CheckOperatorEmailAvailable(ctx, c.email).Return(nil).Once()
 		d.orgRepo.EXPECT().
-			Create(ctx, mock.AnythingOfType("*entity.Organizer")).
-			Return(&entity.Organizer{ID: id, Name: orgName, OperatorEmail: email, Status: entity.OrganizerStatusProvisioning}, nil).
+			Create(ctx, mock.MatchedBy(func(o *entity.Organizer) bool { return o.OperatorEmail == c.email })).
+			Return(&entity.Organizer{ID: c.id, Name: orgName, OperatorEmail: c.email, Status: entity.OrganizerStatusProvisioning}, nil).
 			Once()
-		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, id).Return("zitadel-"+id, nil).Once()
-		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, id, "zitadel-"+id).Return(nil).Once()
-		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, id, "zitadel-"+id, email).Return(nil).Once()
+		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, c.id).Return("zitadel-"+c.id, nil).Once()
+		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, c.id, "zitadel-"+c.id).Return(nil).Once()
+		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, c.id, "zitadel-"+c.id, c.email).Return(nil).Once()
 		d.orgRepo.EXPECT().
-			CompareAndSetStatus(mock.Anything, id, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).
+			CompareAndSetStatus(mock.Anything, c.id, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).
 			Return(true, nil).
 			Once()
 		d.publisher.EXPECT().
-			PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: id}).
+			PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: c.id}).
 			Return(nil).
 			Once()
 	}
 	d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Times(2)
 
-	first, err := d.uc.Create(ctx, orgName, email)
+	first, err := d.uc.Create(ctx, orgName, creations[0].email)
 	require.NoError(t, err)
-	second, err := d.uc.Create(ctx, orgName, email)
+	second, err := d.uc.Create(ctx, orgName, creations[1].email)
 	require.NoError(t, err)
 
 	assert.NotEqual(t, first.ID, second.ID, "two Organizers exist")
