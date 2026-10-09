@@ -77,7 +77,7 @@ type Ticket struct {
 	// and bound to the account — condition (iii) and the eligible person of
 	// condition (ii). Where the phase required identity verification this matches
 	// the verified 本人確認 (see VerifiedIdentityID).
-	HolderIdentity ApplicantIdentity
+	HolderIdentity HolderIdentity
 	// VerifiedIdentityID is the authoritative verified identity this ticket is
 	// bound to, set only when the phase required identity verification. Empty
 	// when the phase required no verification (then HolderIdentity is ④'s

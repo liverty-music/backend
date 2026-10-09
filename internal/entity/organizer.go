@@ -1,6 +1,11 @@
 package entity
 
-import "context"
+import (
+	"context"
+	"errors"
+	"net/mail"
+	"unicode/utf8"
+)
 
 // OrganizerStatus is the operational provisioning lifecycle of an Organizer. It
 // is a backend-only marker (not exposed on the consumer proto) and is distinct
@@ -33,16 +38,89 @@ type Organizer struct {
 	OperatorEmail string
 	ZitadelOrgID  string // empty until tenant provisioning persists the tenant link
 	Status        OrganizerStatus
+	// SellerDetails is the 特商法 seller disclosure entered by an admin at
+	// vetting; nil until entered.
+	SellerDetails *SellerDetails
+	// PlatformFeeRateBps is the platform fee applied to the Organizer's future
+	// Orders, in basis points (0 to 3000).
+	PlatformFeeRateBps int
 }
 
+const (
+	// DefaultPlatformFeeRateBps is a new Organizer's platform fee rate: 8%.
+	DefaultPlatformFeeRateBps = 800
+	// MaxPlatformFeeRateBps is the highest platform fee rate allowed: 30%.
+	MaxPlatformFeeRateBps = 3000
+)
+
 // NewOrganizer creates a new Organizer in the provisioning state with a generated
-// UUIDv7 id.
+// UUIDv7 id and the default platform fee rate.
 func NewOrganizer(name string) *Organizer {
 	return &Organizer{
-		ID:     NewID(),
-		Name:   name,
-		Status: OrganizerStatusProvisioning,
+		ID:                 NewID(),
+		Name:               name,
+		Status:             OrganizerStatusProvisioning,
+		PlatformFeeRateBps: DefaultPlatformFeeRateBps,
 	}
+}
+
+// HasCompleteSellerDetails reports whether the Organizer has seller details
+// with all five values present and valid.
+func (o *Organizer) HasCompleteSellerDetails() bool {
+	return o.SellerDetails != nil && o.SellerDetails.Validate() == nil
+}
+
+// ValidatePlatformFeeRate reports whether rateBps is within 0 to 30%.
+func ValidatePlatformFeeRate(rateBps int) error {
+	if rateBps < 0 || rateBps > MaxPlatformFeeRateBps {
+		return errors.New("platform fee rate must be 0 to 3000 basis points")
+	}
+	return nil
+}
+
+// SellerDetails is an Organizer's 特商法 (Specified Commercial Transactions
+// Act) 販売業者 disclosure, shown to fans at checkout and in the confirmation
+// email. It is replaced as a whole.
+//
+// Mirrors liverty_music.entity.v1.SellerDetails.
+type SellerDetails struct {
+	// LegalName is the seller's legal name, 1 to 200 characters.
+	LegalName string
+	// RepresentativeName is the representative or responsible person, 1 to 100
+	// characters.
+	RepresentativeName string
+	// Address is the seller's address, 1 to 300 characters.
+	Address string
+	// PhoneNumber is the seller's phone number in E.164 form.
+	PhoneNumber string
+	// ContactEmail is the seller's contact email address.
+	ContactEmail string
+}
+
+// Validate reports whether all five seller details are present and valid.
+func (d *SellerDetails) Validate() error {
+	if !lenBetween(d.LegalName, 1, 200) {
+		return errors.New("legal name must be 1 to 200 characters")
+	}
+	if !lenBetween(d.RepresentativeName, 1, 100) {
+		return errors.New("representative must be 1 to 100 characters")
+	}
+	if !lenBetween(d.Address, 1, 300) {
+		return errors.New("address must be 1 to 300 characters")
+	}
+	if !IsE164(d.PhoneNumber) {
+		return errors.New("phone number must be in E.164 form")
+	}
+	if addr, err := mail.ParseAddress(d.ContactEmail); err != nil || addr.Address != d.ContactEmail {
+		return errors.New("contact email must be an email address")
+	}
+	return nil
+}
+
+// lenBetween reports whether s has between lo and hi characters inclusive.
+func lenBetween(s string, lo, hi int) bool {
+	n := utf8.RuneCountInString(s)
+	return n >= lo && n <= hi
 }
 
 // OrganizerRepository persists Organizers and their artist associations.
@@ -118,6 +196,21 @@ type OrganizerRepository interface {
 	//
 	//  - Internal: database query failure.
 	IsArtistRepresentedByActiveOrganizer(ctx context.Context, artistID string) (bool, error)
+
+	// SetSellerDetails replaces the Organizer's seller details as a whole.
+	//
+	// # Possible errors
+	//   - InvalidArgument: any detail is missing or breaks the seller details rules.
+	//   - NotFound: no organizer with the id exists.
+	SetSellerDetails(ctx context.Context, id string, details SellerDetails) error
+
+	// SetPlatformFeeRate stores the platform fee rate applied to the
+	// Organizer's future Orders.
+	//
+	// # Possible errors
+	//   - InvalidArgument: the rate is outside 0 to 3000 basis points.
+	//   - NotFound: no organizer with the id exists.
+	SetPlatformFeeRate(ctx context.Context, id string, rateBps int) error
 
 	// Delete permanently removes, in one transaction, a deactivated Organizer
 	// together with its first-party Series and their Events (with their lottery

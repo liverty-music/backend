@@ -682,6 +682,102 @@ func (_c *MockOrganizerRepository_ListByStatus_Call) RunAndReturn(run func(conte
 	return _c
 }
 
+// SetPlatformFeeRate provides a mock function with given fields: ctx, id, rateBps
+func (_m *MockOrganizerRepository) SetPlatformFeeRate(ctx context.Context, id string, rateBps int) error {
+	ret := _m.Called(ctx, id, rateBps)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetPlatformFeeRate")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int) error); ok {
+		r0 = rf(ctx, id, rateBps)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockOrganizerRepository_SetPlatformFeeRate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetPlatformFeeRate'
+type MockOrganizerRepository_SetPlatformFeeRate_Call struct {
+	*mock.Call
+}
+
+// SetPlatformFeeRate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - rateBps int
+func (_e *MockOrganizerRepository_Expecter) SetPlatformFeeRate(ctx interface{}, id interface{}, rateBps interface{}) *MockOrganizerRepository_SetPlatformFeeRate_Call {
+	return &MockOrganizerRepository_SetPlatformFeeRate_Call{Call: _e.mock.On("SetPlatformFeeRate", ctx, id, rateBps)}
+}
+
+func (_c *MockOrganizerRepository_SetPlatformFeeRate_Call) Run(run func(ctx context.Context, id string, rateBps int)) *MockOrganizerRepository_SetPlatformFeeRate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *MockOrganizerRepository_SetPlatformFeeRate_Call) Return(_a0 error) *MockOrganizerRepository_SetPlatformFeeRate_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockOrganizerRepository_SetPlatformFeeRate_Call) RunAndReturn(run func(context.Context, string, int) error) *MockOrganizerRepository_SetPlatformFeeRate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetSellerDetails provides a mock function with given fields: ctx, id, details
+func (_m *MockOrganizerRepository) SetSellerDetails(ctx context.Context, id string, details entity.SellerDetails) error {
+	ret := _m.Called(ctx, id, details)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetSellerDetails")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.SellerDetails) error); ok {
+		r0 = rf(ctx, id, details)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockOrganizerRepository_SetSellerDetails_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetSellerDetails'
+type MockOrganizerRepository_SetSellerDetails_Call struct {
+	*mock.Call
+}
+
+// SetSellerDetails is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - details entity.SellerDetails
+func (_e *MockOrganizerRepository_Expecter) SetSellerDetails(ctx interface{}, id interface{}, details interface{}) *MockOrganizerRepository_SetSellerDetails_Call {
+	return &MockOrganizerRepository_SetSellerDetails_Call{Call: _e.mock.On("SetSellerDetails", ctx, id, details)}
+}
+
+func (_c *MockOrganizerRepository_SetSellerDetails_Call) Run(run func(ctx context.Context, id string, details entity.SellerDetails)) *MockOrganizerRepository_SetSellerDetails_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(entity.SellerDetails))
+	})
+	return _c
+}
+
+func (_c *MockOrganizerRepository_SetSellerDetails_Call) Return(_a0 error) *MockOrganizerRepository_SetSellerDetails_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockOrganizerRepository_SetSellerDetails_Call) RunAndReturn(run func(context.Context, string, entity.SellerDetails) error) *MockOrganizerRepository_SetSellerDetails_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetStatus provides a mock function with given fields: ctx, id, status
 func (_m *MockOrganizerRepository) SetStatus(ctx context.Context, id string, status entity.OrganizerStatus) error {
 	ret := _m.Called(ctx, id, status)
