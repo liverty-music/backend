@@ -854,16 +854,14 @@ func TestValidateOrigin(t *testing.T) {
 // workload that carries every setting required outside local.
 func validNonLocalServerConfig(workload string) *ServerConfig {
 	cfg := &ServerConfig{
-		BaseConfig: BaseConfig{
-			Environment: "development",
-			Database: DatabaseConfig{
-				Port:                   5432,
-				InstanceConnectionName: "project:region:instance",
-			},
-			Logging:   LoggingConfig{Level: "info", Format: "json"},
-			Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		Environment: "development",
+		Database: DatabaseConfig{
+			Port:                   5432,
+			InstanceConnectionName: "project:region:instance",
 		},
-		Workload: workload,
+		Logging:   LoggingConfig{Level: "info", Format: "json"},
+		Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		Workload:  workload,
 		Server: ServerSettings{
 			Port:                    8080,
 			AdminPort:               8090,
@@ -1004,14 +1002,14 @@ func TestServerConfig_WorkloadDuties(t *testing.T) {
 		{
 			name: "local with both credentials does both",
 			cfg: &ServerConfig{
-				BaseConfig: BaseConfig{Environment: "local"},
-				Stripe:     StripeConfig{SecretKey: "sk_test_x"},
+				Environment: "local",
+				Stripe:      StripeConfig{SecretKey: "sk_test_x"},
 				ZitadelMachineKeyForOrganizerProvisionerPath: "/secrets/organizer-provisioner.json",
 			},
 			wantSweepers:     true,
 			wantProvisioning: true,
 		},
-		{name: "local without credentials does neither", cfg: &ServerConfig{BaseConfig: BaseConfig{Environment: "local"}}},
+		{name: "local without credentials does neither", cfg: &ServerConfig{Environment: "local"}},
 	}
 
 	for _, tt := range tests {
@@ -1027,16 +1025,14 @@ func TestConsumerConfig_Validate_RequiresCredentialsOutsideLocal(t *testing.T) {
 	t.Parallel()
 
 	cfg := &ConsumerConfig{
-		BaseConfig: BaseConfig{
-			Environment: "development",
-			Database: DatabaseConfig{
-				Port:                   5432,
-				InstanceConnectionName: "project:region:instance",
-			},
-			Logging:   LoggingConfig{Level: "info", Format: "json"},
-			Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		Environment: "development",
+		Database: DatabaseConfig{
+			Port:                   5432,
+			InstanceConnectionName: "project:region:instance",
 		},
-		NATS: NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
+		Logging:   LoggingConfig{Level: "info", Format: "json"},
+		Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		NATS:      NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
 	}
 
 	err := cfg.Validate()
@@ -1057,15 +1053,13 @@ func TestMediaConsumerConfig_Validate_RequiresBucketsOutsideLocal(t *testing.T) 
 	t.Parallel()
 
 	cfg := &MediaConsumerConfig{
-		BaseConfig: BaseConfig{
-			Environment: "development",
-			Database: DatabaseConfig{
-				Port:                   5432,
-				InstanceConnectionName: "project:region:instance",
-			},
-			Logging:   LoggingConfig{Level: "info", Format: "json"},
-			Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		Environment: "development",
+		Database: DatabaseConfig{
+			Port:                   5432,
+			InstanceConnectionName: "project:region:instance",
 		},
+		Logging:   LoggingConfig{Level: "info", Format: "json"},
+		Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
 	}
 
 	err := cfg.Validate()
@@ -1077,10 +1071,9 @@ func TestMediaConsumerConfig_Validate_RequiresBucketsOutsideLocal(t *testing.T) 
 	cfg.OrganizerMediaBucket = "media"
 	assert.NoError(t, cfg.Validate())
 
-	local := &MediaConsumerConfig{BaseConfig: BaseConfig{
+	local := &MediaConsumerConfig{
 		Environment: "local",
 		Database:    DatabaseConfig{Port: 5432},
-		Logging:     LoggingConfig{Level: "info", Format: "json"},
-	}}
+		Logging:     LoggingConfig{Level: "info", Format: "json"}}
 	assert.NoError(t, local.Validate())
 }
