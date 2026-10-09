@@ -925,6 +925,17 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 	}{
 		{name: "accept a complete fan workload", mutate: func(*ServerConfig) {}},
 		{name: "accept a complete organizer workload", mutate: func(c *ServerConfig) { c.Workload = WorkloadOrganizer }},
+		{name: "accept a complete reception workload", mutate: func(c *ServerConfig) { c.Workload = WorkloadReception }},
+		{
+			name:    "reject missing reception CORS origins",
+			mutate:  func(c *ServerConfig) { c.Server.ReceptionAllowedOrigins = nil },
+			wantErr: "RECEPTION_CORS_ALLOWED_ORIGINS",
+		},
+		{
+			name:    "reject a reception port shared with another listener",
+			mutate:  func(c *ServerConfig) { c.Server.ReceptionPort = c.Server.OrganizerPort },
+			wantErr: "must be unique",
+		},
 		{
 			name:    "reject a missing workload",
 			mutate:  func(c *ServerConfig) { c.Workload = "" },
@@ -1005,6 +1016,7 @@ func TestServerConfig_WorkloadDuties(t *testing.T) {
 		{name: "fan runs the payment sweepers", cfg: validNonLocalServerConfig(WorkloadFan), wantSweepers: true},
 		{name: "admin provisions organizers", cfg: validNonLocalServerConfig(WorkloadAdmin), wantProvisioning: true},
 		{name: "organizer does neither", cfg: validNonLocalServerConfig(WorkloadOrganizer)},
+		{name: "reception does neither", cfg: validNonLocalServerConfig(WorkloadReception)},
 		{
 			name: "local with both credentials does both",
 			cfg: &ServerConfig{

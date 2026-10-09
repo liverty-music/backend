@@ -76,9 +76,9 @@ type BaseConfig struct {
 type ServerConfig struct {
 	BaseConfig
 
-	// Workload names the API deployment this process runs as: fan, admin or
-	// organizer. Every deployment runs the same binary with all four
-	// listeners, so this, not the presence of a credential, decides the
+	// Workload names the API deployment this process runs as: fan, admin,
+	// organizer or reception. Every deployment runs the same binary with all
+	// five listeners, so this, not the presence of a credential, decides the
 	// work only one deployment may do: the payment sweepers run on fan, and
 	// organizer tenant provisioning (with its reconciler) runs on admin.
 	// Required outside local; local runs as every workload at once.
@@ -849,13 +849,17 @@ func (c *ServerConfig) Validate() error {
 		return fmt.Errorf("invalid organizer server port: %d", c.Server.OrganizerPort)
 	}
 
-	// All four ports (fan, admin, organizer, webhook) must be distinct.
-	ports := []int{c.Server.Port, c.Server.AdminPort, c.Server.OrganizerPort, c.Webhook.Port}
+	if c.Server.ReceptionPort <= 0 || c.Server.ReceptionPort > 65535 {
+		return fmt.Errorf("invalid reception server port: %d", c.Server.ReceptionPort)
+	}
+
+	// All five ports (fan, admin, organizer, reception, webhook) must be distinct.
+	ports := []int{c.Server.Port, c.Server.AdminPort, c.Server.OrganizerPort, c.Server.ReceptionPort, c.Webhook.Port}
 	seen := make(map[int]bool, len(ports))
 	for _, p := range ports {
 		if seen[p] {
-			return fmt.Errorf("all server ports (fan %d, admin %d, organizer %d, webhook %d) must be unique",
-				c.Server.Port, c.Server.AdminPort, c.Server.OrganizerPort, c.Webhook.Port)
+			return fmt.Errorf("all server ports (fan %d, admin %d, organizer %d, reception %d, webhook %d) must be unique",
+				c.Server.Port, c.Server.AdminPort, c.Server.OrganizerPort, c.Server.ReceptionPort, c.Webhook.Port)
 		}
 		seen[p] = true
 	}
@@ -892,12 +896,13 @@ const (
 	WorkloadFan       = "fan"
 	WorkloadAdmin     = "admin"
 	WorkloadOrganizer = "organizer"
+	WorkloadReception = "reception"
 )
 
-var apiWorkloads = []string{WorkloadFan, WorkloadAdmin, WorkloadOrganizer}
+var apiWorkloads = []string{WorkloadFan, WorkloadAdmin, WorkloadOrganizer, WorkloadReception}
 
 // validateWorkloadSettings requires, outside local, every setting the API
-// servers use. Each deployment runs all four listeners, so the requirements
+// servers use. Each deployment runs all five listeners, so the requirements
 // are the same for every workload except the organizer-provisioner
 // credential, which only the admin workload may carry.
 func (c *ServerConfig) validateWorkloadSettings() error {
@@ -916,6 +921,7 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 		{"POCKET_SIGN_CALLBACK_URL", c.PocketSign.CallbackURL},
 		{"POCKET_SIGN_TENANT_ID", c.PocketSign.TenantID},
 		{"POCKET_SIGN_TOKEN", c.PocketSign.Token},
+		{"RECEPTION_CORS_ALLOWED_ORIGINS", strings.Join(c.Server.ReceptionAllowedOrigins, ",")},
 		{"STRIPE_ONBOARDING_RETURN_URL", c.Stripe.OnboardingReturnURL},
 		{"STRIPE_SECRET_KEY", c.Stripe.SecretKey},
 		{"STRIPE_WEBHOOK_SIGNING_SECRET", c.Stripe.WebhookSigningSecret},
