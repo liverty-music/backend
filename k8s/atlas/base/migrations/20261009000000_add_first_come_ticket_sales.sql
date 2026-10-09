@@ -1,8 +1,7 @@
 -- First-come ticket sales (first-come-ticket-sales): the first-party sale of an
--- event's tickets, its 15-minute checkouts (reservations), the transactional
--- outbox, an Order source that can be a reservation, the Organizer's 特商法
--- seller details and platform fee rate, the fan's holder identity, and the fee
--- rate kept on each settlement.
+-- event's tickets, its 15-minute checkouts (reservations), an Order source that
+-- can be a reservation, the Organizer's 特商法 seller details and platform fee
+-- rate, and the fan's holder identity.
 
 SET search_path TO app, public;
 
@@ -19,7 +18,6 @@ CREATE TABLE IF NOT EXISTS ticket_sales (
     quantity          INTEGER     NOT NULL,
     per_account_limit INTEGER     NOT NULL,
     sold_count        INTEGER     NOT NULL DEFAULT 0,
-    configured_at     TIMESTAMPTZ NOT NULL,
     CONSTRAINT chk_ticket_sales_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_ticket_sales_method CHECK (method IN (1)),
     CONSTRAINT chk_ticket_sales_window CHECK (sale_end_at > sale_start_at),
@@ -40,7 +38,6 @@ COMMENT ON COLUMN ticket_sales.price IS 'Price of one ticket in yen, tax-inclusi
 COMMENT ON COLUMN ticket_sales.quantity IS 'Tickets offered; can shrink only down to sold plus held';
 COMMENT ON COLUMN ticket_sales.per_account_limit IS 'Most tickets one user may hold or have bought from the sale';
 COMMENT ON COLUMN ticket_sales.sold_count IS 'Tickets on Committed and Completed reservations; changed together with the reservation status under the sale row lock';
-COMMENT ON COLUMN ticket_sales.configured_at IS 'When the sale was set up';
 
 -- Reservations: one fan's checkout on a ticket sale. A hold lasts exactly 15
 -- minutes and is never extended. A charged reservation (capture_at set) is
@@ -57,13 +54,8 @@ CREATE TABLE IF NOT EXISTS reservations (
     authorization_released_at TIMESTAMPTZ,
     status                    SMALLINT    NOT NULL,
     hold_expire_at            TIMESTAMPTZ NOT NULL,
-    started_at                TIMESTAMPTZ NOT NULL,
     committed_at              TIMESTAMPTZ,
     capture_at                TIMESTAMPTZ,
-    payment_ref               TEXT,
-    card_brand                TEXT        NOT NULL DEFAULT '',
-    card_last4                TEXT        NOT NULL DEFAULT '',
-    trace_id                  TEXT        NOT NULL DEFAULT '',
     CONSTRAINT chk_reservations_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_reservations_ticket_count CHECK (ticket_count BETWEEN 1 AND 10),
     CONSTRAINT chk_reservations_amount_positive CHECK (amount > 0),
@@ -75,8 +67,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     CONSTRAINT chk_reservations_released_needs_ref CHECK (authorization_released_at IS NULL OR authorization_ref IS NOT NULL),
     CONSTRAINT chk_reservations_committed_time CHECK (status NOT IN (2, 3) OR committed_at IS NOT NULL),
     CONSTRAINT chk_reservations_charged_never_ended CHECK (capture_at IS NULL OR status IN (2, 3)),
-    CONSTRAINT chk_reservations_completed_charged CHECK (status <> 3 OR capture_at IS NOT NULL),
-    CONSTRAINT chk_reservations_payment_with_capture CHECK ((payment_ref IS NULL) = (capture_at IS NULL))
+    CONSTRAINT chk_reservations_completed_charged CHECK (status <> 3 OR capture_at IS NOT NULL)
 );
 
 COMMENT ON TABLE reservations IS 'One fan''s checkout on a ticket sale: holds a count of tickets for 15 minutes, then is committed, charged and completed, or expires or is released. Status 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released.';
@@ -90,14 +81,9 @@ COMMENT ON COLUMN reservations.holder_phone_number IS '本人確認 phone in E.1
 COMMENT ON COLUMN reservations.authorization_ref IS 'Payment provider reference of the card hold (Stripe pi_...); NULL until the fan authorizes, then set once';
 COMMENT ON COLUMN reservations.authorization_released_at IS 'When the card hold was given back without a charge; NULL unless released';
 COMMENT ON COLUMN reservations.status IS 'Lifecycle: 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released';
-COMMENT ON COLUMN reservations.hold_expire_at IS 'When the hold lapses: 15 minutes after started_at, never extended; a commit needs hold_expire_at > now';
-COMMENT ON COLUMN reservations.started_at IS 'When the checkout started';
+COMMENT ON COLUMN reservations.hold_expire_at IS 'When the hold lapses: 15 minutes after the checkout started, never extended; a commit needs hold_expire_at > now';
 COMMENT ON COLUMN reservations.committed_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
-COMMENT ON COLUMN reservations.capture_at IS 'When the card was charged; set once, and a row with it is never Expired or Released';
-COMMENT ON COLUMN reservations.payment_ref IS 'Payment provider reference of the charged payment; set with capture_at';
-COMMENT ON COLUMN reservations.card_brand IS 'Display-only card brand of the charged payment; empty until charged';
-COMMENT ON COLUMN reservations.card_last4 IS 'Display-only last four digits of the charged card; empty until charged';
-COMMENT ON COLUMN reservations.trace_id IS 'OpenTelemetry trace id of the request that started the checkout, for correlation only';
+COMMENT ON COLUMN reservations.capture_at IS 'When the card hold (authorization_ref) was charged; set once, and a row with it is never Expired or Released';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_reservations_held ON reservations(ticket_sale_id, user_id) WHERE status = 1;
 COMMENT ON INDEX uq_reservations_held IS 'At most one Held reservation per (sale, user): a concurrent second insert loses and reads the winner';
@@ -107,34 +93,6 @@ COMMENT ON INDEX idx_reservations_sale_status IS 'Optimizes the held and per-use
 
 CREATE INDEX IF NOT EXISTS idx_reservations_due ON reservations(status, hold_expire_at) WHERE status IN (1, 2) OR (status IN (4, 5) AND authorization_ref IS NOT NULL AND authorization_released_at IS NULL);
 COMMENT ON INDEX idx_reservations_due IS 'Optimizes ListDue: lapsed holds, card holds to give back and stalled commits';
-
--- Outbox: events written in the same transaction as the state they announce,
--- published by the relay with message_id as the JetStream deduplication id.
-CREATE TABLE IF NOT EXISTS outbox (
-    id          UUID        PRIMARY KEY,
-    subject     TEXT        NOT NULL,
-    message_id  TEXT        NOT NULL,
-    payload     JSONB       NOT NULL,
-    recorded_at TIMESTAMPTZ NOT NULL,
-    sent_at     TIMESTAMPTZ,
-    attempts    INTEGER     NOT NULL DEFAULT 0,
-    CONSTRAINT chk_outbox_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_outbox_subject_not_empty CHECK (subject <> ''),
-    CONSTRAINT chk_outbox_message_id_not_empty CHECK (message_id <> ''),
-    CONSTRAINT uq_outbox_subject_message_id UNIQUE (subject, message_id)
-);
-
-COMMENT ON TABLE outbox IS 'Transactional outbox: events recorded with the state they announce and published by the relay (FOR UPDATE SKIP LOCKED), then marked sent';
-COMMENT ON COLUMN outbox.id IS 'Unique outbox row identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN outbox.subject IS 'Messaging subject the event is published on (e.g. ORDER.paid)';
-COMMENT ON COLUMN outbox.message_id IS 'Stable message id used for JetStream deduplication (e.g. the Order id)';
-COMMENT ON COLUMN outbox.payload IS 'Event payload as JSON';
-COMMENT ON COLUMN outbox.recorded_at IS 'When the event was recorded';
-COMMENT ON COLUMN outbox.sent_at IS 'When the relay published the event; NULL until published';
-COMMENT ON COLUMN outbox.attempts IS 'Failed publish attempts so far';
-
-CREATE INDEX IF NOT EXISTS idx_outbox_unsent ON outbox(recorded_at) WHERE sent_at IS NULL;
-COMMENT ON INDEX idx_outbox_unsent IS 'Optimizes the relay poll over unsent events, oldest first';
 
 -- Orders: an order comes from exactly one source, a won application or a
 -- Committed, charged reservation, with one order per source.
@@ -183,11 +141,3 @@ ALTER TABLE users ADD CONSTRAINT chk_users_holder_phone_e164 CHECK (holder_phone
 
 COMMENT ON COLUMN users.holder_full_name IS '本人確認 name the user last checked out with; NULL until the first checkout';
 COMMENT ON COLUMN users.holder_phone_number IS '本人確認 phone in E.164 form the user last checked out with; NULL until the first checkout';
-
--- Settlements: the Organizer's fee rate applied at issuance. Settlements that
--- existed before per-organizer rates were all at the flat 5%.
-ALTER TABLE settlements ADD COLUMN IF NOT EXISTS platform_fee_rate_bps INTEGER NOT NULL DEFAULT 500;
-ALTER TABLE settlements ALTER COLUMN platform_fee_rate_bps DROP DEFAULT;
-ALTER TABLE settlements ADD CONSTRAINT chk_settlements_platform_fee_rate_bps CHECK (platform_fee_rate_bps BETWEEN 0 AND 3000);
-
-COMMENT ON COLUMN settlements.platform_fee_rate_bps IS 'The Organizer''s platform fee rate (basis points, 0-3000) applied when the settlement was created; a later rate change never alters it';
