@@ -28,6 +28,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 		{
 			name: "load with default values",
 			envVars: map[string]string{
+				"ENVIRONMENT":                     "local",
 				"DATABASE_NAME":                   "defaultdb",
 				"DATABASE_USER":                   "defaultuser",
 				"GCP_PROJECT_ID":                  "test-project",
@@ -211,6 +212,18 @@ func TestLoad_ServerConfig(t *testing.T) {
 				},
 			},
 		},
+		{
+			// A missing ENVIRONMENT used to default to local, which skips every
+			// check that only applies outside local development.
+			name: "fail without ENVIRONMENT",
+			envVars: map[string]string{
+				"DATABASE_NAME":    "testdb",
+				"DATABASE_USER":    "testuser",
+				"OIDC_ISSUER_URL":  "https://test-issuer.com",
+				"FAN_WEB_BASE_URL": "https://liverty-music.app",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -233,6 +246,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 
 func TestLoad_JobConfig(t *testing.T) {
 	t.Run("loads without OIDC_ISSUER_URL", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "local")
 		t.Setenv("DATABASE_NAME", "testdb")
 		t.Setenv("DATABASE_USER", "testuser")
 
@@ -245,6 +259,7 @@ func TestLoad_JobConfig(t *testing.T) {
 
 func TestLoad_ConsumerConfig(t *testing.T) {
 	t.Run("loads without OIDC_ISSUER_URL", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "local")
 		t.Setenv("DATABASE_NAME", "testdb")
 		t.Setenv("DATABASE_USER", "testuser")
 		t.Setenv("NATS_URL", "nats://localhost:4222")
@@ -262,29 +277,8 @@ func TestServerConfig_Validate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "valid development config",
-			config: &ServerConfig{
-				Environment: "development",
-				Database: DatabaseConfig{
-					Port:                   5432,
-					InstanceConnectionName: "project:region:instance",
-				},
-				Logging: LoggingConfig{Level: "info", Format: "json"},
-				Server: ServerSettings{
-					Port:                    8080,
-					AdminPort:               8090,
-					OrganizerPort:           8091,
-					AllowedOrigins:          []string{"http://localhost:9000"},
-					OrganizerAllowedOrigins: []string{"http://localhost:9001"},
-				},
-				Webhook: validWebhookSettings(),
-				NATS:    NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
-				JWT: JWTConfig{
-					Issuer:              "https://test-issuer.com",
-					JWKSRefreshInterval: 15 * time.Minute,
-				},
-				FanWebBaseURL: "https://liverty-music.app",
-			},
+			name:    "valid development config",
+			config:  validNonLocalServerConfig(WorkloadFan),
 			wantErr: false,
 		},
 		{
@@ -380,9 +374,24 @@ func TestJobConfig_Validate(t *testing.T) {
 				Port:                   5432,
 				InstanceConnectionName: "project:region:instance",
 			},
-			Logging: LoggingConfig{Level: "info", Format: "json"},
+			Logging:   LoggingConfig{Level: "info", Format: "json"},
+			Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
 		}
 		assert.NoError(t, cfg.Validate())
+	})
+
+	t.Run("missing OTLP endpoint in development", func(t *testing.T) {
+		cfg := &JobConfig{
+			Environment: "development",
+			Database: DatabaseConfig{
+				Port:                   5432,
+				InstanceConnectionName: "project:region:instance",
+			},
+			Logging: LoggingConfig{Level: "info", Format: "json"},
+		}
+		err := cfg.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "TELEMETRY_OTLP_ENDPOINT")
 	})
 }
 
@@ -718,8 +727,8 @@ func TestStripeConfig_Validate(t *testing.T) {
 		wantErr string // substring; empty means no error
 	}{
 		{
-			// Local development and the dev environment run with no Stripe
-			// account at all; the noop adapters stand in.
+			// Local development runs with no Stripe account at all; the noop
+			// adapters stand in. Outside local, ServerConfig requires the key.
 			name: "empty is valid (noop adapters used)",
 			cfg:  StripeConfig{},
 		},
@@ -798,6 +807,7 @@ func TestServerConfig_Validate_StripePropagation(t *testing.T) {
 }
 
 func TestLoad_ServerConfig_RequiresFanWebBaseURL(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "local")
 	t.Setenv("DATABASE_NAME", "testdb")
 	t.Setenv("DATABASE_USER", "testuser")
 	t.Setenv("OIDC_ISSUER_URL", "https://test-issuer.com")
@@ -838,4 +848,239 @@ func TestValidateOrigin(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+// validNonLocalServerConfig returns a development ServerConfig for the given
+// workload that carries every setting required outside local.
+func validNonLocalServerConfig(workload string) *ServerConfig {
+	cfg := &ServerConfig{
+		BaseConfig: BaseConfig{
+			Environment: "development",
+			Database: DatabaseConfig{
+				Port:                   5432,
+				InstanceConnectionName: "project:region:instance",
+			},
+			Logging:   LoggingConfig{Level: "info", Format: "json"},
+			Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		},
+		Workload: workload,
+		Server: ServerSettings{
+			Port:                    8080,
+			AdminPort:               8090,
+			OrganizerPort:           8091,
+			AllowedOrigins:          []string{"https://dev.liverty-music.app"},
+			AdminAllowedOrigins:     []string{"https://admin.dev.liverty-music.app"},
+			OrganizerAllowedOrigins: []string{"https://organizer.dev.liverty-music.app"},
+		},
+		Webhook: WebhookSettings{
+			Port:                   9090,
+			PreAccessTokenAudience: "urn:liverty-music:webhook:pre-access-token",
+			LoginEventSigningKey:   "login-key",
+		},
+		NATS: NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
+		JWT: JWTConfig{
+			Issuer:              "https://test-issuer.com",
+			JWKSRefreshInterval: 15 * time.Minute,
+		},
+		GCP:                                GCPConfig{GeminiSearchAPIKey: "gemini-key"},
+		VAPID:                              VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"},
+		ZitadelMachineKeyForBackendAppPath: "/secrets/backend-app.json",
+		LastFMAPIKey:                       "lastfm-key",
+		OrganizerMediaInternalBucket:       "media-internal",
+		OrganizerMediaBucket:               "media",
+		OrganizerMediaCDNBase:              "https://cdn.dev.liverty-music.app",
+		FanWebBaseURL:                      "https://dev.liverty-music.app",
+		PocketSign: PocketSignConfig{
+			BaseURL:     "https://verify.mock.p8n.app",
+			Token:       "ps-token",
+			TenantID:    "ps-tenant",
+			CallbackURL: "https://api.dev.liverty-music.app/pocket-sign/callback",
+		},
+		Stripe: StripeConfig{
+			SecretKey:            "sk_test_x",
+			WebhookSigningSecret: "whsec_x",
+			OnboardingReturnURL:  "https://organizer.dev.liverty-music.app/",
+		},
+	}
+	if workload == WorkloadAdmin {
+		cfg.OrganizerConsoleProjectID = "organizer-console-project"
+		cfg.ZitadelMachineKeyForOrganizerProvisionerPath = "/secrets/organizer-provisioner.json"
+	}
+	return cfg
+}
+
+// Outside local, a missing setting must stop the server at startup with the
+// variable's name, never start it with the feature switched off.
+func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(c *ServerConfig)
+		wantErr string // substring; empty means no error
+	}{
+		{name: "accept a complete fan workload", mutate: func(*ServerConfig) {}},
+		{name: "accept a complete organizer workload", mutate: func(c *ServerConfig) { c.Workload = WorkloadOrganizer }},
+		{
+			name:    "reject a missing workload",
+			mutate:  func(c *ServerConfig) { c.Workload = "" },
+			wantErr: "API_WORKLOAD is required",
+		},
+		{
+			name:    "reject an unknown workload",
+			mutate:  func(c *ServerConfig) { c.Workload = "console" },
+			wantErr: "invalid API_WORKLOAD",
+		},
+		{
+			// The gap that blocked admin refunds: the server started without a
+			// Stripe key and every payment call returned Unavailable.
+			name:    "reject a missing Stripe key",
+			mutate:  func(c *ServerConfig) { c.Stripe = StripeConfig{OnboardingReturnURL: c.Stripe.OnboardingReturnURL} },
+			wantErr: "STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SIGNING_SECRET",
+		},
+		{
+			name: "name every missing variable at once",
+			mutate: func(c *ServerConfig) {
+				c.Stripe.OnboardingReturnURL = ""
+				c.OrganizerMediaInternalBucket = ""
+				c.PocketSign = PocketSignConfig{}
+			},
+			wantErr: "ORGANIZER_MEDIA_INTERNAL_BUCKET, POCKET_SIGN_BASE_URL, POCKET_SIGN_CALLBACK_URL, POCKET_SIGN_TENANT_ID, POCKET_SIGN_TOKEN, STRIPE_ONBOARDING_RETURN_URL",
+		},
+		{
+			name:    "reject a relative onboarding return URL",
+			mutate:  func(c *ServerConfig) { c.Stripe.OnboardingReturnURL = "/payout" },
+			wantErr: "invalid STRIPE_ONBOARDING_RETURN_URL",
+		},
+		{
+			name:    "reject an admin workload without the provisioner credential",
+			mutate:  func(c *ServerConfig) { c.Workload = WorkloadAdmin },
+			wantErr: "ORGANIZER_CONSOLE_PROJECT_ID, ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH",
+		},
+		{
+			name: "reject the provisioner credential outside the admin workload",
+			mutate: func(c *ServerConfig) {
+				c.ZitadelMachineKeyForOrganizerProvisionerPath = "/secrets/organizer-provisioner.json"
+			},
+			wantErr: "belongs to the admin workload only",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := validNonLocalServerConfig(WorkloadFan)
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+
+	t.Run("accept a complete admin workload", func(t *testing.T) {
+		t.Parallel()
+		assert.NoError(t, validNonLocalServerConfig(WorkloadAdmin).Validate())
+	})
+}
+
+func TestServerConfig_WorkloadDuties(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		cfg              *ServerConfig
+		wantSweepers     bool
+		wantProvisioning bool
+	}{
+		{name: "fan runs the payment sweepers", cfg: validNonLocalServerConfig(WorkloadFan), wantSweepers: true},
+		{name: "admin provisions organizers", cfg: validNonLocalServerConfig(WorkloadAdmin), wantProvisioning: true},
+		{name: "organizer does neither", cfg: validNonLocalServerConfig(WorkloadOrganizer)},
+		{
+			name: "local with both credentials does both",
+			cfg: &ServerConfig{
+				BaseConfig: BaseConfig{Environment: "local"},
+				Stripe:     StripeConfig{SecretKey: "sk_test_x"},
+				ZitadelMachineKeyForOrganizerProvisionerPath: "/secrets/organizer-provisioner.json",
+			},
+			wantSweepers:     true,
+			wantProvisioning: true,
+		},
+		{name: "local without credentials does neither", cfg: &ServerConfig{BaseConfig: BaseConfig{Environment: "local"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.wantSweepers, tt.cfg.RunsPaymentSweepers())
+			assert.Equal(t, tt.wantProvisioning, tt.cfg.ProvisionsOrganizers())
+		})
+	}
+}
+
+func TestConsumerConfig_Validate_RequiresCredentialsOutsideLocal(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ConsumerConfig{
+		BaseConfig: BaseConfig{
+			Environment: "development",
+			Database: DatabaseConfig{
+				Port:                   5432,
+				InstanceConnectionName: "project:region:instance",
+			},
+			Logging:   LoggingConfig{Level: "info", Format: "json"},
+			Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		},
+		NATS: NATSConfig{URL: "nats://nats.nats.svc.cluster.local:4222"},
+	}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FANARTTV_API_KEY, GCP_GEMINI_SEARCH_API_KEY, GCP_PROJECT_ID, OIDC_ISSUER_URL, "+
+		"POSTHOG_PROJECT_API_KEY, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY, ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH")
+
+	cfg.FanartTVAPIKey = "fanart-key"
+	cfg.GCP = GCPConfig{GeminiSearchAPIKey: "gemini-key", ProjectID: "project"}
+	cfg.ZitadelDomain = "https://auth.dev.liverty-music.app"
+	cfg.PostHog.ProjectAPIKey = "phc_x"
+	cfg.VAPID = VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"}
+	cfg.ZitadelMachineKeyForBackendAppPath = "/secrets/backend-app.json"
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestMediaConsumerConfig_Validate_RequiresBucketsOutsideLocal(t *testing.T) {
+	t.Parallel()
+
+	cfg := &MediaConsumerConfig{
+		BaseConfig: BaseConfig{
+			Environment: "development",
+			Database: DatabaseConfig{
+				Port:                   5432,
+				InstanceConnectionName: "project:region:instance",
+			},
+			Logging:   LoggingConfig{Level: "info", Format: "json"},
+			Telemetry: TelemetryConfig{OTLPEndpoint: "otel-collector:4318"},
+		},
+	}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NATS_URL, ORGANIZER_MEDIA_INTERNAL_BUCKET, ORGANIZER_MEDIA_BUCKET")
+
+	cfg.NATS.URL = "nats://nats.nats.svc.cluster.local:4222"
+	cfg.OrganizerMediaInternalBucket = "media-internal"
+	cfg.OrganizerMediaBucket = "media"
+	assert.NoError(t, cfg.Validate())
+
+	local := &MediaConsumerConfig{BaseConfig: BaseConfig{
+		Environment: "local",
+		Database:    DatabaseConfig{Port: 5432},
+		Logging:     LoggingConfig{Level: "info", Format: "json"},
+	}}
+	assert.NoError(t, local.Validate())
 }
