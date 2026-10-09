@@ -4,7 +4,10 @@
 # Checks:
 #   1. No SERIAL / BIGSERIAL (use UUIDv7)
 #   2. No bare TIMESTAMP (use TIMESTAMPTZ)
-#   3. No audit columns (created_at, updated_at, deleted_at)
+#   3. No audit columns (updated_at, deleted_at). created_at is allowed: a
+#      timestamp column exists only when an entity field needs it, and when that
+#      field means "when the record was created" it is named created_at rather
+#      than a synonym. Whether the column is needed is a review judgment.
 #   4. No VARCHAR (use TEXT + CHECK constraint)
 #   5. COMMENT ON TABLE coverage
 #   6. COMMENT ON COLUMN coverage
@@ -49,9 +52,9 @@ check_timestamp() {
 # ── Check 3: audit columns ────────────────────────────────────────────
 check_audit_columns() {
   local hits
-  hits=$(grep -nE '\b(created_at|updated_at|deleted_at)\b' "$SCHEMA" || true)
+  hits=$(grep -nE '\b(updated_at|deleted_at)\b' "$SCHEMA" || true)
   if [ -n "$hits" ]; then
-    echo "FAIL: Prohibited audit columns detected:" >&2
+    echo "FAIL: Prohibited audit columns detected (updated_at is audit metadata; deleted_at is a soft delete):" >&2
     echo "$hits" >&2
     errors=$((errors + 1))
   fi
