@@ -33,25 +33,49 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const organizerOrigin = "https://organizer.liverty-music.test"
+const (
+	receptionOrigin = "https://reception.liverty-music.test"
+	organizerOrigin = "https://organizer.liverty-music.test"
+)
 
-// newOrganizerTestServer builds the organizer Connect server the way
-// di.InitializeApp does: the organizer AuthFunc with OrganizerPublicProcedures,
-// the OrgScopedInterceptor exempting them, and the ReceptionLinkService and
-// ReceptionService handlers over mocked use cases.
-func newOrganizerTestServer(t *testing.T) (*httptest.Server, *usecasemocks.MockReceptionLinkUseCase) {
+// testServerSettings returns the listener settings shared by the test servers,
+// allowing CORS from origin only.
+func testServerSettings(origin string) config.ServerSettings {
+	return config.ServerSettings{
+		Host:              "127.0.0.1",
+		AllowedOrigins:    []string{origin},
+		HandlerTimeout:    5 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		ReadTimeout:       2 * time.Second,
+		IdleTimeout:       5 * time.Second,
+	}
+}
+
+// newTestRateLimiter returns a rate limiter loose enough not to interfere.
+func newTestRateLimiter(t *testing.T) *ratelimit.Limiter {
+	t.Helper()
+	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
+	t.Cleanup(func() { _ = rateLimiter.Close() })
+	return rateLimiter
+}
+
+func unusedHealthHandler(_ ...connect.HandlerOption) (string, http.Handler) {
+	return "/unused-health-check/", http.NotFoundHandler()
+}
+
+// newReceptionTestServer builds the reception Connect server the way
+// di.InitializeApp does: the reception AuthFunc with ReceptionPublicProcedures,
+// the unknown-token interceptor, and only the ReceptionService handler over
+// mocked use cases.
+func newReceptionTestServer(t *testing.T) (*httptest.Server, *usecasemocks.MockReceptionLinkUseCase) {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{AuthRPS: 100, AuthBurst: 100, AnonRPS: 100, AnonBurst: 100}, time.Minute)
-	t.Cleanup(func() { _ = rateLimiter.Close() })
-
-	public := auth.OrganizerPublicProcedures()
+	public := auth.ReceptionPublicProcedures()
 	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), public)
 	throttle := ratelimit.NewUnknownTokenThrottle(10, 10*time.Minute, time.Now)
 	interceptors := []connect.Interceptor{
-		auth.NewOrgScopedInterceptor("organizer-console-project", public),
 		ratelimit.NewUnknownTokenInterceptor(throttle, public, func(err error) bool {
 			return errors.Is(err, usecase.ErrUnknownReceptionLinkToken)
 		}),
@@ -59,39 +83,59 @@ func newOrganizerTestServer(t *testing.T) (*httptest.Server, *usecasemocks.MockR
 
 	linkUC := usecasemocks.NewMockReceptionLinkUseCase(t)
 	ticketUC := usecasemocks.NewMockTicketUseCase(t)
-	organizerUC := usecasemocks.NewMockOrganizerUseCase(t)
-	healthHandler := func(_ ...connect.HandlerOption) (string, http.Handler) {
-		return "/unused-health-check/", http.NotFoundHandler()
-	}
 	handlers := []server.RPCHandlerFunc{
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return receptionlinkv1connect.NewReceptionLinkServiceHandler(rpc.NewOrganizerReceptionLinkHandler(linkUC, organizerUC, logger), opts...)
-		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return receptionv1connect.NewReceptionServiceHandler(rpc.NewReceptionHandler(linkUC, ticketUC, logger), opts...)
 		},
 	}
-	cfg := config.ServerSettings{
-		Host:              "127.0.0.1",
-		AllowedOrigins:    []string{organizerOrigin},
-		HandlerTimeout:    5 * time.Second,
-		ReadHeaderTimeout: 2 * time.Second,
-		ReadTimeout:       2 * time.Second,
-		IdleTimeout:       5 * time.Second,
-	}
-	srv := server.NewConnectServer(cfg, logger, authFunc, rateLimiter, healthHandler, interceptors, nil, nil, handlers...)
+	srv := server.NewConnectServer(testServerSettings(receptionOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, nil, handlers...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, linkUC
 }
 
-func TestOrganizerServer_Reception(t *testing.T) {
+// newOrganizerTestServer builds the organizer Connect server the way
+// di.InitializeApp does as far as reception is concerned: an AuthFunc with no
+// public procedures, the OrgScopedInterceptor, and the ReceptionLinkService
+// handler over mocked use cases.
+func newOrganizerTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	logger, err := logging.New()
+	require.NoError(t, err)
+
+	authFunc := auth.NewAuthFunc(authmocks.NewMockTokenValidator(t), nil)
+	interceptors := []connect.Interceptor{auth.NewOrgScopedInterceptor("organizer-console-project")}
+	linkUC := usecasemocks.NewMockReceptionLinkUseCase(t)
+	organizerUC := usecasemocks.NewMockOrganizerUseCase(t)
+	handlers := []server.RPCHandlerFunc{
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return receptionlinkv1connect.NewReceptionLinkServiceHandler(rpc.NewOrganizerReceptionLinkHandler(linkUC, organizerUC, logger), opts...)
+		},
+	}
+	srv := server.NewConnectServer(testServerSettings(organizerOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, nil, handlers...)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// openRequest returns a well-formed Open request with no bearer token.
+func openRequest(t *testing.T) *connect.Request[receptionv1.OpenRequest] {
+	t.Helper()
+	return connect.NewRequest(&receptionv1.OpenRequest{
+		LinkToken: &entityv1.ReceptionLinkToken{Value: "tok_0123456789abcdefghijklmn"},
+		SignTime:  timestamppb.Now(),
+		Signature: &entityv1.Signature{Value: make([]byte, 64)},
+		PublicKey: &entityv1.PublicKey{Value: testutil.NewDeviceKey(t).PublicKey(t)},
+	})
+}
+
+func TestReceptionServer(t *testing.T) {
 	t.Parallel()
 
 	t.Run("staff device without an account", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/organizer/api/rpc/reception "Staff device without an account"
-		ts, linkUC := newOrganizerTestServer(t)
+		ts, linkUC := newReceptionTestServer(t)
 		linkUC.EXPECT().Open(mock.Anything, mock.MatchedBy(func(in usecase.OpenReceptionLinkInput) bool {
 			return in.LinkToken == "tok_0123456789abcdefghijklmn"
 		})).Return(&usecase.OpenReceptionLinkResult{
@@ -99,19 +143,14 @@ func TestOrganizerServer_Reception(t *testing.T) {
 		}, nil)
 
 		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
-		resp, err := client.Open(context.Background(), connect.NewRequest(&receptionv1.OpenRequest{
-			LinkToken: &entityv1.ReceptionLinkToken{Value: "tok_0123456789abcdefghijklmn"},
-			SignTime:  timestamppb.Now(),
-			Signature: &entityv1.Signature{Value: make([]byte, 64)},
-			PublicKey: &entityv1.PublicKey{Value: testutil.NewDeviceKey(t).PublicKey(t)},
-		}))
+		resp, err := client.Open(context.Background(), openRequest(t))
 		require.NoError(t, err, "no bearer token is needed for the reception service")
 		assert.Equal(t, int32(1), resp.Msg.ReceptionLink.Number.Value)
 	})
 
 	t.Run("malformed reception call is refused by validation", func(t *testing.T) {
 		t.Parallel()
-		ts, _ := newOrganizerTestServer(t)
+		ts, _ := newReceptionTestServer(t)
 		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
 		_, err := client.Admit(context.Background(), connect.NewRequest(&receptionv1.AdmitRequest{
 			LinkToken: &entityv1.ReceptionLinkToken{Value: "tok_0123456789abcdefghijklmn"},
@@ -121,39 +160,40 @@ func TestOrganizerServer_Reception(t *testing.T) {
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 
-	t.Run("not signed in", func(t *testing.T) {
+	t.Run("no other service is served", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/reception-link "Not signed in"
-		ts, _ := newOrganizerTestServer(t)
+		ts, _ := newReceptionTestServer(t)
 		client := receptionlinkv1connect.NewReceptionLinkServiceClient(ts.Client(), ts.URL)
 		_, err := client.Issue(context.Background(), connect.NewRequest(&receptionlinkv1.IssueRequest{
 			EventId: &entityv1.EventId{Value: "019a0000-0000-7000-8000-0000000000e1"},
 		}))
-		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+		assert.Contains(t, []connect.Code{connect.CodeUnauthenticated, connect.CodeUnimplemented}, connect.CodeOf(err))
 	})
 
-	t.Run("CORS preflight from the organizer web origin", func(t *testing.T) {
+	t.Run("CORS preflight from the reception web origin", func(t *testing.T) {
 		t.Parallel()
-		ts, _ := newOrganizerTestServer(t)
+		ts, _ := newReceptionTestServer(t)
 		req, err := http.NewRequest(http.MethodOptions, ts.URL+receptionv1connect.ReceptionServiceAdmitProcedure, nil)
 		require.NoError(t, err)
-		req.Header.Set("Origin", organizerOrigin)
+		req.Header.Set("Origin", receptionOrigin)
 		req.Header.Set("Access-Control-Request-Method", http.MethodPost)
 		req.Header.Set("Access-Control-Request-Headers", "connect-protocol-version,content-type") // browsers send the list sorted
 		resp, err := ts.Client().Do(req)
 		require.NoError(t, err)
 		_ = resp.Body.Close()
-		assert.Equal(t, organizerOrigin, resp.Header.Get("Access-Control-Allow-Origin"))
+		assert.Equal(t, receptionOrigin, resp.Header.Get("Access-Control-Allow-Origin"))
 
-		req.Header.Set("Origin", "https://evil.example")
-		resp, err = ts.Client().Do(req)
-		require.NoError(t, err)
-		_ = resp.Body.Close()
-		assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"), "other origins are not allowed")
+		for _, origin := range []string{organizerOrigin, "https://evil.example"} {
+			req.Header.Set("Origin", origin)
+			resp, err = ts.Client().Do(req)
+			require.NoError(t, err)
+			_ = resp.Body.Close()
+			assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"), "%s is not allowed", origin)
+		}
 	})
 }
 
-func TestOrganizerServer_ReceptionTokenGuessing(t *testing.T) {
+func TestReceptionServer_TokenGuessing(t *testing.T) {
 	t.Parallel()
 
 	// openFrom sends an Open with a fresh unknown-looking token from ip.
@@ -173,7 +213,7 @@ func TestOrganizerServer_ReceptionTokenGuessing(t *testing.T) {
 	t.Run("token guessing", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/organizer/api/rpc/reception "Token guessing"
-		ts, linkUC := newOrganizerTestServer(t)
+		ts, linkUC := newReceptionTestServer(t)
 		unknown := apperr.Wrap(usecase.ErrUnknownReceptionLinkToken, codes.PermissionDenied, "reception link refused")
 		linkUC.EXPECT().Open(mock.Anything, mock.Anything).Return(nil, unknown).Times(11)
 		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
@@ -197,12 +237,35 @@ func TestOrganizerServer_ReceptionTokenGuessing(t *testing.T) {
 
 	t.Run("refusals other than unknown tokens do not count", func(t *testing.T) {
 		t.Parallel()
-		ts, linkUC := newOrganizerTestServer(t)
+		ts, linkUC := newReceptionTestServer(t)
 		linkUC.EXPECT().Open(mock.Anything, mock.Anything).
 			Return(nil, apperr.New(codes.PermissionDenied, "reception link refused")).Times(12)
 		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
 		for range 12 {
 			assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(openFrom(t, client, "203.0.113.8")))
 		}
+	})
+}
+
+func TestOrganizerServer_NoPublicProcedures(t *testing.T) {
+	t.Parallel()
+
+	t.Run("not signed in", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/organizer/api/rpc/reception-link "Not signed in"
+		ts := newOrganizerTestServer(t)
+		client := receptionlinkv1connect.NewReceptionLinkServiceClient(ts.Client(), ts.URL)
+		_, err := client.Issue(context.Background(), connect.NewRequest(&receptionlinkv1.IssueRequest{
+			EventId: &entityv1.EventId{Value: "019a0000-0000-7000-8000-0000000000e1"},
+		}))
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+
+	t.Run("reception service is not served", func(t *testing.T) {
+		t.Parallel()
+		ts := newOrganizerTestServer(t)
+		client := receptionv1connect.NewReceptionServiceClient(ts.Client(), ts.URL)
+		_, err := client.Open(context.Background(), openRequest(t))
+		assert.Contains(t, []connect.Code{connect.CodeUnauthenticated, connect.CodeUnimplemented}, connect.CodeOf(err))
 	})
 }

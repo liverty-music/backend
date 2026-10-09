@@ -266,6 +266,18 @@ type ServerSettings struct {
 	// servers' CORS lists.
 	OrganizerAllowedOrigins []string `envconfig:"ORGANIZER_CORS_ALLOWED_ORIGINS"`
 
+	// ReceptionPort is the port for the dedicated reception Connect server
+	// (the unauthenticated ReceptionService a venue staff device calls). It
+	// runs as a fourth listener in the same backend binary, exposed only by the
+	// reception-api workload on its own ingress host
+	// (api.reception.{base-domain}).
+	ReceptionPort int `envconfig:"RECEPTION_SERVER_PORT" default:"8092"`
+
+	// ReceptionAllowedOrigins is the CORS allowlist for the reception server
+	// (the reception web origin only), configured independently of other
+	// servers' CORS lists.
+	ReceptionAllowedOrigins []string `envconfig:"RECEPTION_CORS_ALLOWED_ORIGINS"`
+
 	// Rate limiting configuration
 	RateLimit RateLimitConfig `envconfig:""`
 }

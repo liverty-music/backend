@@ -61,11 +61,11 @@ func run() error {
 		return err
 	}
 
-	// Start all three Connect-RPC servers (fan, admin, organizer) and the
+	// Start all four Connect-RPC servers (fan, admin, organizer, reception) and the
 	// Zitadel webhook listener in separate goroutines. The webhook listener
 	// runs on a distinct port (default 9090) that is only exposed by the
 	// internal-only `server-webhook-svc` Service — not by the public Gateway.
-	errChan := make(chan error, 4)
+	errChan := make(chan error, 5)
 
 	go func() {
 		if err := app.Server.Start(); err != nil {
@@ -85,6 +85,14 @@ func run() error {
 	// exposed only via the organizer ingress / `api.organizer.{env}` route.
 	go func() {
 		if err := app.OrganizerServer.Start(); err != nil {
+			errChan <- err
+		}
+	}()
+
+	// Reception Connect server — fourth listener in this binary on its own port,
+	// exposed only by the reception-api workload / `api.reception.{env}` route.
+	go func() {
+		if err := app.ReceptionServer.Start(); err != nil {
 			errChan <- err
 		}
 	}()

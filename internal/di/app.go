@@ -22,6 +22,12 @@ type App struct {
 	// host (api.organizer.{base-domain}), with org-scoped role-claim
 	// authorization via OrgScopedInterceptor.
 	OrganizerServer *server.ConnectServer
+	// ReceptionServer is a fourth Connect listener in the same binary serving
+	// only the ReceptionService a venue staff device calls without a sign-in,
+	// on its own port and ingress host (api.reception.{base-domain}). It is
+	// exposed only by the reception-api workload, whose database role holds
+	// the reception grants alone.
+	ReceptionServer *server.ConnectServer
 	// WebhookServer handles Zitadel Actions v2 callbacks
 	// (/pre-access-token) on a separate internal-only port. See
 	// `internal/infrastructure/server/webhook.go` for the port-isolation

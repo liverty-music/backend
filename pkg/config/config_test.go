@@ -82,6 +82,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 					AdminPort:               8090,
 					AdminAllowedOrigins:     nil,
 					OrganizerPort:           8091,
+					ReceptionPort:           8092,
 					OrganizerAllowedOrigins: nil,
 					RateLimit:               RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
 				},
@@ -182,6 +183,7 @@ func TestLoad_ServerConfig(t *testing.T) {
 					AdminPort:               9190,
 					AdminAllowedOrigins:     []string{"https://admin.example.com"},
 					OrganizerPort:           8091,
+					ReceptionPort:           8092,
 					OrganizerAllowedOrigins: nil,
 					RateLimit:               RateLimitConfig{AuthRPS: 100, AuthBurst: 200, AnonRPS: 30, AnonBurst: 60},
 				},
@@ -333,7 +335,7 @@ func TestServerConfig_Validate(t *testing.T) {
 				Environment: "local",
 				Database:    DatabaseConfig{Port: 5432},
 				Logging:     LoggingConfig{Level: "info", Format: "json"},
-				Server:      ServerSettings{Port: 8080, AdminPort: 8090, OrganizerPort: 8091},
+				Server:      ServerSettings{Port: 8080, AdminPort: 8090, OrganizerPort: 8091, ReceptionPort: 8092},
 				Webhook:     validWebhookSettings(),
 				JWT: JWTConfig{
 					Issuer:              "https://test-issuer.com",
@@ -698,6 +700,7 @@ func TestServerConfig_Validate_PocketSignPropagation(t *testing.T) {
 			Port:          8080,
 			AdminPort:     8090,
 			OrganizerPort: 8091,
+			ReceptionPort: 8092,
 		},
 		Webhook: validWebhookSettings(),
 		JWT: JWTConfig{
@@ -785,6 +788,7 @@ func TestServerConfig_Validate_StripePropagation(t *testing.T) {
 			Port:          8080,
 			AdminPort:     8090,
 			OrganizerPort: 8091,
+			ReceptionPort: 8092,
 		},
 		Webhook: validWebhookSettings(),
 		JWT: JWTConfig{
@@ -866,9 +870,11 @@ func validNonLocalServerConfig(workload string) *ServerConfig {
 			Port:                    8080,
 			AdminPort:               8090,
 			OrganizerPort:           8091,
+			ReceptionPort:           8092,
 			AllowedOrigins:          []string{"https://dev.liverty-music.app"},
 			AdminAllowedOrigins:     []string{"https://admin.dev.liverty-music.app"},
 			OrganizerAllowedOrigins: []string{"https://organizer.dev.liverty-music.app"},
+			ReceptionAllowedOrigins: []string{"https://reception.dev.liverty-music.app"},
 		},
 		Webhook: WebhookSettings{
 			Port:                   9090,
