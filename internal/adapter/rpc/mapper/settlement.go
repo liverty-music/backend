@@ -43,11 +43,12 @@ func SettlementToProto(s *entity.Settlement) *entityv1.Settlement {
 		return nil
 	}
 	proto := &entityv1.Settlement{
-		Id:        &entityv1.SettlementId{Value: string(s.ID)},
-		OrderId:   &entityv1.OrderId{Value: string(s.OrderID)},
-		ChargeRef: s.ChargeRef,
-		Splits:    settlementSplitsToProto(s.Splits),
-		Status:    settlementStatusToProto(s.Status),
+		Id:                 &entityv1.SettlementId{Value: string(s.ID)},
+		OrderId:            &entityv1.OrderId{Value: string(s.OrderID)},
+		ChargeRef:          s.ChargeRef,
+		Splits:             settlementSplitsToProto(s.Splits),
+		Status:             settlementStatusToProto(s.Status),
+		PlatformFeeRateBps: int32(s.PlatformFeeRateBps),
 	}
 	if !s.ReleasedTime.IsZero() {
 		proto.ReleaseTime = timestamppb.New(s.ReleasedTime)

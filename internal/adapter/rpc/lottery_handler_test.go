@@ -125,7 +125,7 @@ func TestLotteryHandler_Apply(t *testing.T) {
 	validReq := &lotteryv1.ApplyRequest{
 		PhaseId:              &entityv1.LotterySalesPhaseId{Value: "phase-uuid-1"},
 		RequestedTicketCount: 2,
-		Identity: &entityv1.ApplicantIdentity{
+		Identity: &entityv1.HolderIdentity{
 			FullName:    "山田太郎",
 			PhoneNumber: "+819012345678",
 		},

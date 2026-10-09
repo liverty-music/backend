@@ -11,10 +11,9 @@ func OrderToProto(order *entity.Order) *entityv1.Order {
 	if order == nil {
 		return nil
 	}
-	return &entityv1.Order{
-		Id:            &entityv1.OrderId{Value: string(order.ID)},
-		BuyerId:       &entityv1.UserId{Value: string(order.BuyerID)},
-		ApplicationId: &entityv1.TicketApplicationId{Value: string(order.ApplicationID)},
+	pb := &entityv1.Order{
+		Id:      &entityv1.OrderId{Value: string(order.ID)},
+		BuyerId: &entityv1.UserId{Value: string(order.BuyerID)},
 		Payment: &entityv1.Payment{
 			Provider:         paymentProviderToProto(order.Payment.Provider),
 			PaymentIntentRef: order.Payment.PaymentIntentRef,
@@ -27,6 +26,13 @@ func OrderToProto(order *entity.Order) *entityv1.Order {
 		Currency: order.Currency,
 		PayTime:  timestamppb.New(order.PaidTime),
 	}
+	// The source is exactly one of the application and the reservation.
+	if order.ReservationID != "" {
+		pb.Source = &entityv1.Order_ReservationId{ReservationId: &entityv1.ReservationId{Value: string(order.ReservationID)}}
+	} else {
+		pb.Source = &entityv1.Order_ApplicationId{ApplicationId: &entityv1.TicketApplicationId{Value: string(order.ApplicationID)}}
+	}
+	return pb
 }
 
 // TicketToProto converts a domain Ticket to the wire-format entityv1.Ticket.
@@ -39,7 +45,7 @@ func TicketToProto(ticket *entity.Ticket) *entityv1.Ticket {
 		OrderId:                        &entityv1.OrderId{Value: string(ticket.OrderID)},
 		HolderId:                       &entityv1.UserId{Value: string(ticket.HolderID)},
 		EventId:                        &entityv1.EventId{Value: ticket.EventID},
-		HolderIdentity:                 applicantIdentityToProto(ticket.HolderIdentity),
+		HolderIdentity:                 holderIdentityToProto(ticket.HolderIdentity),
 		ResaleWithoutConsentProhibited: ticket.ResaleWithoutConsentProhibited,
 		Status:                         ticketStatusToProto(ticket.Status),
 		IssueTime:                      timestamppb.New(ticket.IssuedTime),
