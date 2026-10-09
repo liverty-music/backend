@@ -72,6 +72,12 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 	rejectedConcertRepo := rdb.NewRejectedConcertLogRepository(db)
 
 	// Infrastructure - Gemini
+	//
+	// Fail fast in non-local environments: without the key the job would run
+	// with no searcher and discover nothing. Local development may run without.
+	if !cfg.IsLocal() && cfg.GCP.GeminiSearchAPIKey == "" {
+		return nil, fmt.Errorf("GCP_GEMINI_SEARCH_API_KEY is required for the discovery job in non-local environments")
+	}
 	var geminiSearcher entity.ConcertSearcher
 	if cfg.GCP.GeminiSearchAPIKey != "" {
 		geminiHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}

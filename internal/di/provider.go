@@ -207,41 +207,43 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
-	// Organizer tenant provisioner: the real Zitadel Management-API client when the
-	// dedicated organizer-provisioner credential is mounted (isolated admin
-	// workload), otherwise a no-op for local dev (no live Zitadel).
+	// Organizer tenant provisioner: the real Zitadel Management-API client on the
+	// workload that provisions organizers (the isolated admin workload, which
+	// mounts the dedicated organizer-provisioner credential). Other workloads
+	// outside local refuse every call, and local dev without the credential uses
+	// a no-op (no live Zitadel).
 	var organizerProvisioner usecase.OrganizerProvisioner
-	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
+	switch {
+	case cfg.ProvisionsOrganizers():
 		op, err := infrazitadel.NewOrganizerProvisioner(ctx, cfg.JWT.Issuer, cfg.ZitadelMachineKeyForOrganizerProvisionerPath, cfg.OrganizerConsoleProjectID, logger)
 		if err != nil {
 			return nil, fmt.Errorf("create organizer provisioner: %w", err)
 		}
 		organizerProvisioner = op
-	} else {
+	case cfg.IsLocal():
 		organizerProvisioner = infrazitadel.NewNoopOrganizerProvisioner(logger)
+	default:
+		organizerProvisioner = infrazitadel.NewUnavailableOrganizerProvisioner(cfg.Workload)
 	}
-	// GCS image storer for organizer media (optional: nil when GCP credentials
-	// are unavailable in local dev so signed-URL issuance returns Internal
-	// rather than panicking during startup).
+	// GCS image storer for organizer media. Local dev has no GCP credentials,
+	// so it runs without one and signed-URL issuance returns Internal; outside
+	// local a storer that cannot be created stops the server.
 	var imageStorer usecase.ImageStorer
 	if !cfg.IsLocal() {
 		storer, err := gcsstorage.NewGCSStorer(ctx, logger)
 		if err != nil {
-			logger.Warn(ctx, "failed to create GCS image storer; media upload disabled",
-				slog.Any("error", err),
-			)
-		} else {
-			imageStorer = storer
-			shutdown.AddExternalPhase(storer)
+			return nil, fmt.Errorf("create GCS image storer: %w", err)
 		}
+		imageStorer = storer
+		shutdown.AddExternalPhase(storer)
 	}
 	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, seriesRepo, imageStorer,
 		usecase.OrganizerMediaBuckets{Internal: cfg.OrganizerMediaInternalBucket, Served: cfg.OrganizerMediaBucket},
 		eventPublisher, businessMetrics, logger)
-	// Run the provisioning reconciler only where the real provisioner credential
-	// is mounted (the isolated admin workload); it completes any organizer left
+	// Run the provisioning reconciler only on the workload that provisions
+	// organizers (the isolated admin workload); it completes any organizer left
 	// in the provisioning state after a partial failure.
-	if cfg.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
+	if cfg.ProvisionsOrganizers() {
 		startOrganizerReconciler(ctx, organizerUC, logger)
 	}
 	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerRepo, eventPublisher, logger)
@@ -289,8 +291,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Payment authorization port: use the real Stripe adapter when a secret key
 	// is configured, otherwise a no-op that returns Unavailable so local
-	// development starts cleanly without a Stripe account. The secret key value
-	// is provisioned externally via GCP Secret Manager / ESO and injected as
+	// development starts cleanly without a Stripe account (outside local the key
+	// is required, see config.ServerConfig.Validate). The secret key value is
+	// provisioned externally via GCP Secret Manager / ESO and injected as
 	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
 	paymentConfigured := cfg.Stripe.SecretKey != ""
 	var (
@@ -354,16 +357,16 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		logger,
 	)
 
-	// Start the periodic draw sweeper ONLY where a real payment provider is
-	// configured. The draw captures winners / releases losers, so whichever
-	// workload wins the (idempotent) draw race MUST be able to reach Stripe. This
-	// binary is shared by fan-api (which carries STRIPE_SECRET_KEY) and the
-	// admin/organizer consoles (which deliberately do NOT) — without this gate a
-	// Stripe-less console pod could win the race and, unable to capture, demote
-	// EVERY winner to a loser while leaving their holds unreleased. Gating on the
-	// configured payment provider keeps the sweeper on fan-api; the draw remains
-	// idempotent across fan-api's own pods.
-	if paymentConfigured {
+	// Start the periodic draw sweeper only on the workload that runs the payment
+	// sweepers: the fan workload outside local, or local with a Stripe key (see
+	// config.ServerConfig.RunsPaymentSweepers). The draw captures winners /
+	// releases losers, so it MUST run where Stripe is reachable; a Stripe-less
+	// pod winning the race would demote EVERY winner to a loser while leaving
+	// their holds unreleased. The gate used to be the presence of the key, which
+	// kept it off the consoles only because they lacked one; it is now explicit,
+	// so the consoles can carry the key for refunds and payout onboarding. The
+	// draw remains idempotent across fan-api's own pods.
+	if cfg.RunsPaymentSweepers() {
 		startLotteryDrawSweeper(ctx, lotteryUC, logger)
 		// The issuance sweeper reads ④'s captured payments, so it too requires a
 		// real payment provider and runs on the same (fan-api) workload. Both are
@@ -374,7 +377,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// on the same (fan-api) workload and is idempotent across pods.
 		startSettlementSweeper(ctx, payoutSweeperUC, logger)
 	} else {
-		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled: STRIPE_SECRET_KEY not configured (no payment provider)")
+		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled on this workload",
+			slog.String("workload", cfg.Workload))
 	}
 
 	followUC := usecase.NewFollowUseCase(followRepo, artistRepo, musicbrainzClient, eventPublisher, businessMetrics, logger)

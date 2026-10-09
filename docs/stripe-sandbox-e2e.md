@@ -20,26 +20,26 @@ tests (`make test`); this harness covers the Stripe-facing legs those mock.
 
 ## Environment sandboxes
 
-There are **two** Stripe contexts, not one per deployment environment. Keys live in
-env/secret vaults, **never** in source.
+Each context has its own Stripe sandbox. Keys live in env/secret vaults,
+**never** in source.
 
 | Context | Stripe account | Key location |
 |---|---|---|
 | test — local | `local` sandbox | shell env / gitignored `.env` |
 | test — ci | `ci` sandbox | GitHub Actions repo secret `STRIPE_TEST_SECRET_KEY` |
-| prod | the real account (test mode until the livemode flip) | Pulumi ESC → GSM → ESO (`esc env set liverty-music/prod pulumiConfig.stripeSecretKey`) |
+| dev | `dev` sandbox | Pulumi ESC → GSM → ESO (`pulumi env set liverty-music/dev pulumiConfig.stripeSecretKey`) |
+| prod | the real account (test mode until the livemode flip) | Pulumi ESC → GSM → ESO (`pulumi env set liverty-music/prod pulumiConfig.stripeSecretKey`) |
 
-> **`dev` has no Stripe key, by design.** `pulumiConfig.stripeSecretKey` is unset for
-> `liverty-music/dev`, so the backend there runs `NoopAuthorizationPort` and the Stripe
-> webhook handler fails closed (503). There is no dev Stripe environment and therefore no
-> dev webhook endpoint to register — prod's is the only endpoint ever registered with
-> Stripe, and that happens at launch. Verify webhook handling locally by forwarding events
-> with the Stripe CLI (below) instead of pointing Stripe at a deployed URL. See the
-> `ticket-settlement-and-payout` design decision "Stripe environments: prod + test only".
+> **Every deployed environment needs Stripe.** Outside `ENVIRONMENT=local` the API
+> refuses to start without `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SIGNING_SECRET`, so
+> dev has its own `dev` sandbox. The Pulumi stack of each environment registers that
+> environment's webhook endpoint with `pulumiConfig.stripeWebhookAdminKey` and stores
+> the returned signing secret in GSM. Locally, verify webhook handling by forwarding
+> events with the Stripe CLI (below) instead of pointing Stripe at a deployed URL.
 
 > A previous revision of this file said accounts are capped at one sandbox until business
 > verification, and advised pointing every environment at a single shared sandbox. That no
-> longer applies: the named `local` and `ci` sandboxes both exist.
+> longer applies: the named `local`, `ci` and `dev` sandboxes all exist.
 
 ## Get a restricted key
 

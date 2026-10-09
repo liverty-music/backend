@@ -26,7 +26,12 @@
 //
 // # Validation
 //
-// Each config type implements Validate() with workload-appropriate checks:
+// Each config type implements Validate() with workload-appropriate checks.
+// Outside ENVIRONMENT=local, every setting a workload depends on is required:
+// a missing one stops the process at startup with the variable's name, instead
+// of starting with the feature silently switched off (a no-op adapter, a stub,
+// or an empty bucket name that only fails on the first call). Only local
+// development may leave them empty.
 //
 //	if err := cfg.Validate(); err != nil {
 //		log.Fatalf("Invalid configuration: %v", err)
@@ -45,8 +50,10 @@ import (
 
 // BaseConfig contains fields shared by all backend workloads.
 type BaseConfig struct {
-	// Environment
-	Environment string `envconfig:"ENVIRONMENT" default:"local"`
+	// Environment is one of local, development, staging or production.
+	// Required with no default: a missing value used to mean "local", which
+	// skips every check that only applies outside local development.
+	Environment string `envconfig:"ENVIRONMENT" required:"true"`
 
 	// Shutdown timeout
 	ShutdownTimeout time.Duration `envconfig:"SHUTDOWN_TIMEOUT" default:"30s"`
@@ -68,6 +75,14 @@ type BaseConfig struct {
 // ServerConfig is the configuration for the API server workload.
 type ServerConfig struct {
 	BaseConfig
+
+	// Workload names the API deployment this process runs as: fan, admin or
+	// organizer. Every deployment runs the same binary with all four
+	// listeners, so this, not the presence of a credential, decides the
+	// work only one deployment may do: the payment sweepers run on fan, and
+	// organizer tenant provisioning (with its reconciler) runs on admin.
+	// Required outside local; local runs as every workload at once.
+	Workload string `envconfig:"API_WORKLOAD"`
 
 	// Server settings (port, host, timeouts, CORS)
 	Server ServerSettings `envconfig:""`
@@ -91,9 +106,9 @@ type ServerConfig struct {
 
 	// ZitadelMachineKeyForBackendAppPath is the file path to the
 	// `backend-app` Zitadel MachineUser's private key JSON, mounted
-	// from GSM secret `zitadel-machine-key-for-backend-app`. When empty,
-	// the Zitadel API client is disabled (email verification features
-	// are unavailable).
+	// from GSM secret `zitadel-machine-key-for-backend-app`. Required
+	// outside local; empty in local development disables the Zitadel API
+	// client (email verification and fan identity removal).
 	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
 
 	// ZitadelMachineKeyForOrganizerProvisionerPath is the file path to the
@@ -101,8 +116,8 @@ type ServerConfig struct {
 	// from GSM secret `zitadel-machine-key-for-organizer-provisioner`. This
 	// credential grants IAM_ORG_MANAGER (tenant org creation + cross-org
 	// grants) and is mounted only into the isolated admin workload
-	// (`admin-console-api`), never the consumer surface. When empty, organizer
-	// tenant provisioning is disabled.
+	// (`admin-console-api`), never the consumer surface. Required for the admin
+	// workload outside local; other workloads must not carry it.
 	ZitadelMachineKeyForOrganizerProvisionerPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH"`
 
 	// OrganizerConsoleProjectID is the Zitadel `organizer-console` project id,
@@ -125,9 +140,9 @@ type ServerConfig struct {
 
 	// OrganizerMediaCDNBase is the public CDN base URL used to compose served
 	// series-media variant URLs (thumb/large). Injected into
-	// mapper.MediaURLBuilder at DI wiring time; empty disables cover-media URLs
-	// on organizer-facing ConcertService responses rather than emitting a
-	// malformed relative URL.
+	// mapper.MediaURLBuilder at DI wiring time. Required outside local; empty in
+	// local development disables cover-media URLs on organizer-facing
+	// ConcertService responses rather than emitting a malformed relative URL.
 	OrganizerMediaCDNBase string `envconfig:"ORGANIZER_MEDIA_CDN_BASE"`
 
 	// FanWebBaseURL is the fan web origin (scheme and host only, e.g.
@@ -137,11 +152,10 @@ type ServerConfig struct {
 	// every shared preview, so a missing value must stop the server.
 	FanWebBaseURL string `envconfig:"FAN_WEB_BASE_URL" required:"true"`
 
-	// PocketSign holds the Pocket Sign Stamp API credentials. When any of the
-	// four required fields (BaseURL, Token, TenantID, CallbackURL) is empty
-	// the server falls back to the StubVerifier, which returns UNAVAILABLE on
-	// every identity verification call — the safe default for local dev before
-	// vendor onboarding completes.
+	// PocketSign holds the Pocket Sign Stamp API credentials. Required outside
+	// local. In local development, leaving all four fields empty selects the
+	// StubVerifier, which returns UNAVAILABLE on every identity verification
+	// call.
 	PocketSign PocketSignConfig `envconfig:""`
 
 	// Stripe holds configuration for the Stripe payment provider.
@@ -149,9 +163,10 @@ type ServerConfig struct {
 	// ESO (ExternalSecretOperator) and injected as the STRIPE_SECRET_KEY
 	// environment variable. Stripe KYC and live-mode key activation are
 	// prerequisites handled outside this codebase; see the cloud-provisioning
-	// repo for the ESO/Secret Manager resource definitions. When StripeSecretKey
-	// is empty the binary uses a no-op payment adapter that returns Unavailable
-	// so local development can start without a Stripe account.
+	// repo for the ESO/Secret Manager resource definitions. Required outside
+	// local. In local development an empty StripeSecretKey selects a no-op
+	// payment adapter that returns Unavailable, so it starts without a Stripe
+	// account.
 	Stripe StripeConfig `envconfig:""`
 }
 
@@ -192,8 +207,9 @@ type ConsumerConfig struct {
 
 	// ZitadelMachineKeyForBackendAppPath is the file path to the
 	// `backend-app` Zitadel MachineUser's private key JSON, mounted
-	// from GSM secret `zitadel-machine-key-for-backend-app`. When empty,
-	// the email verification consumer skips processing with a warning.
+	// from GSM secret `zitadel-machine-key-for-backend-app`. Required outside
+	// local; empty in local development makes the email verification consumer
+	// skip processing with a warning.
 	ZitadelMachineKeyForBackendAppPath string `envconfig:"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH"`
 
 	// FanartTV API Key for artist image resolution
@@ -643,12 +659,44 @@ type MediaConsumerConfig struct {
 	OrganizerMediaBucket string `envconfig:"ORGANIZER_MEDIA_BUCKET"`
 }
 
-// Validate validates MediaConsumerConfig including base checks.
+// Validate validates MediaConsumerConfig including base checks. Outside local
+// the NATS URL and both media buckets are required.
 func (c *MediaConsumerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
 	}
-	return c.GCP.Validate()
+	if err := c.GCP.Validate(); err != nil {
+		return err
+	}
+	if c.IsLocal() {
+		return nil
+	}
+	return requireSet(
+		envVar{"NATS_URL", c.NATS.URL},
+		envVar{"ORGANIZER_MEDIA_INTERNAL_BUCKET", c.OrganizerMediaInternalBucket},
+		envVar{"ORGANIZER_MEDIA_BUCKET", c.OrganizerMediaBucket},
+	)
+}
+
+// envVar pairs an environment variable's name with its loaded value.
+type envVar struct {
+	name  string
+	value string
+}
+
+// requireSet fails naming every variable whose value is empty, so a single
+// startup error lists everything a deployment is missing.
+func requireSet(vars ...envVar) error {
+	var missing []string
+	for _, v := range vars {
+		if strings.TrimSpace(v.value) == "" {
+			missing = append(missing, v.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("required outside local but not set: %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // Loadable constrains the config types that can be loaded from environment variables.
@@ -697,7 +745,8 @@ func (c *GCPConfig) Validate() error {
 //   - Environment: local, development, staging, or production
 //   - Log level: debug, info, warn, or error
 //   - Log format: json or text
-//   - Database instance connection name: required for non-local environments
+//   - Database instance connection name and OTLP endpoint: required for
+//     non-local environments
 func (c *BaseConfig) Validate() error {
 	if c.Database.Port <= 0 || c.Database.Port > 65535 {
 		return fmt.Errorf("invalid database port: %d", c.Database.Port)
@@ -728,6 +777,10 @@ func (c *BaseConfig) Validate() error {
 		return fmt.Errorf("database instance connection name is required for non-local environments")
 	}
 
+	if !c.IsLocal() {
+		return requireSet(envVar{"TELEMETRY_OTLP_ENDPOINT", c.Telemetry.OTLPEndpoint})
+	}
+
 	return nil
 }
 
@@ -737,6 +790,8 @@ func (c *BaseConfig) Validate() error {
 //   - NATS URL: required for non-local environments
 //   - JWT issuer: required
 //   - JWKS refresh interval: must be positive
+//   - API_WORKLOAD and every credential, bucket and URL the servers use:
+//     required for non-local environments (see validateWorkloadSettings)
 func (c *ServerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
@@ -809,7 +864,94 @@ func (c *ServerConfig) Validate() error {
 		return err
 	}
 
+	if c.Workload != "" && !slices.Contains(apiWorkloads, c.Workload) {
+		return fmt.Errorf("invalid API_WORKLOAD: %q (allowed: %s)", c.Workload, strings.Join(apiWorkloads, ", "))
+	}
+
+	if !c.IsLocal() {
+		return c.validateWorkloadSettings()
+	}
+
 	return nil
+}
+
+// API workloads: the deployments that run the API binary.
+const (
+	WorkloadFan       = "fan"
+	WorkloadAdmin     = "admin"
+	WorkloadOrganizer = "organizer"
+)
+
+var apiWorkloads = []string{WorkloadFan, WorkloadAdmin, WorkloadOrganizer}
+
+// validateWorkloadSettings requires, outside local, every setting the API
+// servers use. Each deployment runs all four listeners, so the requirements
+// are the same for every workload except the organizer-provisioner
+// credential, which only the admin workload may carry.
+func (c *ServerConfig) validateWorkloadSettings() error {
+	if c.Workload == "" {
+		return fmt.Errorf("API_WORKLOAD is required outside local (allowed: %s)", strings.Join(apiWorkloads, ", "))
+	}
+
+	required := []envVar{
+		{"ADMIN_CORS_ALLOWED_ORIGINS", strings.Join(c.Server.AdminAllowedOrigins, ",")},
+		{"GCP_GEMINI_SEARCH_API_KEY", c.GCP.GeminiSearchAPIKey},
+		{"LASTFM_API_KEY", c.LastFMAPIKey},
+		{"ORGANIZER_MEDIA_BUCKET", c.OrganizerMediaBucket},
+		{"ORGANIZER_MEDIA_CDN_BASE", c.OrganizerMediaCDNBase},
+		{"ORGANIZER_MEDIA_INTERNAL_BUCKET", c.OrganizerMediaInternalBucket},
+		{"POCKET_SIGN_BASE_URL", c.PocketSign.BaseURL},
+		{"POCKET_SIGN_CALLBACK_URL", c.PocketSign.CallbackURL},
+		{"POCKET_SIGN_TENANT_ID", c.PocketSign.TenantID},
+		{"POCKET_SIGN_TOKEN", c.PocketSign.Token},
+		{"STRIPE_ONBOARDING_RETURN_URL", c.Stripe.OnboardingReturnURL},
+		{"STRIPE_SECRET_KEY", c.Stripe.SecretKey},
+		{"STRIPE_WEBHOOK_SIGNING_SECRET", c.Stripe.WebhookSigningSecret},
+		{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
+		{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
+		{"WEBHOOK_LOGIN_EVENT_SIGNING_KEY", c.Webhook.LoginEventSigningKey},
+		{"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.ZitadelMachineKeyForBackendAppPath},
+	}
+	if c.Workload == WorkloadAdmin {
+		required = append(required,
+			envVar{"ORGANIZER_CONSOLE_PROJECT_ID", c.OrganizerConsoleProjectID},
+			envVar{"ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH", c.ZitadelMachineKeyForOrganizerProvisionerPath},
+		)
+	} else if c.ZitadelMachineKeyForOrganizerProvisionerPath != "" {
+		return fmt.Errorf("ZITADEL_MACHINE_KEY_FOR_ORGANIZER_PROVISIONER_PATH is set on the %s workload: "+
+			"the organizer-provisioner credential belongs to the admin workload only", c.Workload)
+	}
+	if err := requireSet(required...); err != nil {
+		return err
+	}
+
+	u, err := url.Parse(c.Stripe.OnboardingReturnURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("invalid STRIPE_ONBOARDING_RETURN_URL: %q (must be an absolute https URL)", c.Stripe.OnboardingReturnURL)
+	}
+
+	return nil
+}
+
+// RunsPaymentSweepers reports whether this process runs the lottery draw,
+// issuance and settlement sweepers. Outside local only the fan workload does:
+// every API workload carries the Stripe key, and the sweepers must still run
+// on one deployment. Local runs them whenever a Stripe key is configured.
+func (c *ServerConfig) RunsPaymentSweepers() bool {
+	if c.IsLocal() {
+		return c.Stripe.SecretKey != ""
+	}
+	return c.Workload == WorkloadFan
+}
+
+// ProvisionsOrganizers reports whether this process provisions organizer
+// tenants (and runs the provisioning reconciler). Outside local only the admin
+// workload does; local does whenever the provisioner credential is mounted.
+func (c *ServerConfig) ProvisionsOrganizers() bool {
+	if c.IsLocal() {
+		return c.ZitadelMachineKeyForOrganizerProvisionerPath != ""
+	}
+	return c.Workload == WorkloadAdmin
 }
 
 // Validate validates JobConfig including base checks.
@@ -822,7 +964,8 @@ func (c *JobConfig) Validate() error {
 	return c.GCP.Validate()
 }
 
-// Validate validates ConsumerConfig including base checks plus NATS URL for non-local environments.
+// Validate validates ConsumerConfig including base checks. Outside local the
+// NATS URL and every credential the consumers use are required.
 func (c *ConsumerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
@@ -836,7 +979,19 @@ func (c *ConsumerConfig) Validate() error {
 		return fmt.Errorf("NATS URL is required for non-local environments")
 	}
 
-	return nil
+	if c.IsLocal() {
+		return nil
+	}
+	return requireSet(
+		envVar{"FANARTTV_API_KEY", c.FanartTVAPIKey},
+		envVar{"GCP_GEMINI_SEARCH_API_KEY", c.GCP.GeminiSearchAPIKey},
+		envVar{"GCP_PROJECT_ID", c.GCP.ProjectID},
+		envVar{"OIDC_ISSUER_URL", c.ZitadelDomain},
+		envVar{"POSTHOG_PROJECT_API_KEY", c.PostHog.ProjectAPIKey},
+		envVar{"VAPID_PRIVATE_KEY", c.VAPID.PrivateKey},
+		envVar{"VAPID_PUBLIC_KEY", c.VAPID.PublicKey},
+		envVar{"ZITADEL_MACHINE_KEY_FOR_BACKEND_APP_PATH", c.ZitadelMachineKeyForBackendAppPath},
+	)
 }
 
 // GetDSN returns the database connection string.
@@ -1003,8 +1158,9 @@ type StripeConfig struct {
 
 	// OnboardingReturnURL is the URL the Stripe-hosted Connect onboarding flow
 	// redirects the Organizer to after completing (or abandoning) verification.
-	// Typically the organizer console's payout settings page. Left empty in
-	// local development; the noop adapter never follows the URL.
+	// Typically the organizer console's payout settings page. Required outside
+	// local; left empty in local development, where the noop adapter never
+	// follows the URL.
 	OnboardingReturnURL string `envconfig:"STRIPE_ONBOARDING_RETURN_URL"`
 
 	// WebhookSigningSecret is the signing secret for the Stripe webhook
@@ -1021,8 +1177,9 @@ type StripeConfig struct {
 // state, partially configured is not.
 //
 // With no SecretKey there is no Stripe integration at all — the adapters fall
-// back to their noop implementations. That is the deliberate state in local
-// development and in the dev environment, which has no Stripe account.
+// back to their noop implementations. That state is allowed only in local
+// development: outside local, ServerConfig.Validate requires the key on every
+// API workload.
 //
 // Once SecretKey IS set the service moves real money, and the webhook signing
 // secret stops being optional: without it the handler cannot verify a single

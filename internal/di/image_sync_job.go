@@ -2,6 +2,7 @@ package di
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -54,6 +55,12 @@ func InitializeImageSyncJobApp(ctx context.Context) (*ImageSyncJobApp, error) {
 	artistRepo := rdb.NewArtistRepository(db)
 
 	// Infrastructure - fanart.tv
+	//
+	// Fail fast in non-local environments: without the key every lookup fails
+	// and the job syncs nothing.
+	if !cfg.IsLocal() && cfg.FanartTVAPIKey == "" {
+		return nil, fmt.Errorf("FANARTTV_API_KEY is required for the artist image sync job in non-local environments")
+	}
 	extHTTPClient := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	fanarttvClient := fanarttv.NewClient(cfg.FanartTVAPIKey, extHTTPClient, logger)
 	logoFetcher := fanarttv.NewLogoFetcher(extHTTPClient)
