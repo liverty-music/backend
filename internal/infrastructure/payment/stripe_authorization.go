@@ -38,11 +38,49 @@ var (
 	_ entity.PaymentCapturePort       = (*StripeAuthorizationPort)(nil)
 )
 
+// CardHoldPolicy is what differs between the callers of the card-hold port:
+// which card brands a hold accepts, and the prefix of every idempotency key it
+// sends, so the keys of one caller never collide with another's.
+type CardHoldPolicy struct {
+	// AcceptAllBrands accepts every card brand, American Express included.
+	// When false, only the brands [entity.IsAcceptedCardBrand] accepts pass.
+	AcceptAllBrands bool
+	// KeyPrefix prefixes every idempotency key, e.g. "lottery-capture:pi_...".
+	KeyPrefix string
+}
+
+var (
+	// LotteryCardHoldPolicy rejects American Express, whose hold cannot last
+	// the application window, and keys requests "lottery-*".
+	LotteryCardHoldPolicy = CardHoldPolicy{AcceptAllBrands: false, KeyPrefix: "lottery"}
+	// TicketSaleCardHoldPolicy accepts every brand, because a checkout's hold
+	// lasts seconds, and keys requests "ticket-sale-*".
+	TicketSaleCardHoldPolicy = CardHoldPolicy{AcceptAllBrands: true, KeyPrefix: "ticket-sale"}
+)
+
+// idempotencyKey returns the policy's key for an operation on ref.
+func (c CardHoldPolicy) idempotencyKey(operation, ref string) string {
+	return c.KeyPrefix + "-" + operation + ":" + ref
+}
+
+// newStripeClient returns a Stripe client whose API calls are bounded by
+// stripeHTTPTimeout. A non-empty apiURL replaces Stripe's API base URL (tests).
+func newStripeClient(secretKey, apiURL string) *stripe.Client {
+	cfg := &stripe.BackendConfig{HTTPClient: &http.Client{Timeout: stripeHTTPTimeout}}
+	if apiURL != "" {
+		cfg.URL = stripe.String(apiURL)
+	}
+	backends := &stripe.Backends{API: stripe.GetBackendWithConfig(stripe.APIBackend, cfg)}
+	return stripe.NewClient(secretKey, stripe.WithBackends(backends))
+}
+
 // StripeAuthorizationPort implements [entity.PaymentAuthorizationPort] via the
-// Stripe PaymentIntents API using the manual-capture authorization-hold model.
+// Stripe PaymentIntents API using the manual-capture authorization-hold model,
+// with the lottery's [CardHoldPolicy].
 type StripeAuthorizationPort struct {
 	client *stripe.Client
 	logger *logging.Logger
+	policy CardHoldPolicy
 }
 
 // NewStripeAuthorizationPort creates a StripeAuthorizationPort with the given
@@ -51,14 +89,10 @@ type StripeAuthorizationPort struct {
 // Callers should use [NewNoopAuthorizationPort] when the key is empty (local
 // development without a Stripe account) so that the binary starts cleanly.
 func NewStripeAuthorizationPort(secretKey string, logger *logging.Logger) *StripeAuthorizationPort {
-	backends := &stripe.Backends{
-		API: stripe.GetBackendWithConfig(stripe.APIBackend, &stripe.BackendConfig{
-			HTTPClient: &http.Client{Timeout: stripeHTTPTimeout},
-		}),
-	}
 	return &StripeAuthorizationPort{
-		client: stripe.NewClient(secretKey, stripe.WithBackends(backends)),
+		client: newStripeClient(secretKey, ""),
 		logger: logger,
+		policy: LotteryCardHoldPolicy,
 	}
 }
 
@@ -136,7 +170,7 @@ func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, payme
 	// Card brand check via latest_charge.payment_method_details.card.brand.
 	// American Express is not accepted; other brands (visa, mastercard, jcb,
 	// diners, discover) are allowed.
-	if err := verifyCardBrand(pi); err != nil {
+	if err := p.verifyCardBrand(pi); err != nil {
 		return err
 	}
 
@@ -153,7 +187,7 @@ func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, payme
 // original result rather than erroring on an already-cancelled intent.
 func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, paymentIntentRef string) error {
 	params := &stripe.PaymentIntentCancelParams{}
-	params.SetIdempotencyKey("lottery-cancel:" + paymentIntentRef)
+	params.SetIdempotencyKey(p.policy.idempotencyKey("cancel", paymentIntentRef))
 
 	_, err := p.client.V1PaymentIntents.Cancel(ctx, paymentIntentRef, params)
 	if err != nil {
@@ -177,7 +211,7 @@ func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, payme
 // of a duplicate-charge attempt or a spurious error.
 func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paymentIntentRef string) error {
 	params := &stripe.PaymentIntentCaptureParams{}
-	params.SetIdempotencyKey("lottery-capture:" + paymentIntentRef)
+	params.SetIdempotencyKey(p.policy.idempotencyKey("capture", paymentIntentRef))
 
 	_, err := p.client.V1PaymentIntents.Capture(ctx, paymentIntentRef, params)
 	if err != nil {
@@ -236,12 +270,12 @@ func extractCardFacets(pi *stripe.PaymentIntent) (brand string, last4 string) {
 	return string(details.Card.Brand), details.Card.Last4
 }
 
-// verifyCardBrand rejects card brands the lottery does not accept, delegating
+// verifyCardBrand rejects card brands the policy does not accept, delegating
 // the accept/reject decision to the domain rule [entity.IsAcceptedCardBrand].
 // It extracts the brand from the latest charge; an absent charge or card
 // details yields an empty brand, which the domain rule accepts.
-func verifyCardBrand(pi *stripe.PaymentIntent) error {
-	if entity.IsAcceptedCardBrand(extractCardBrand(pi)) {
+func (p *StripeAuthorizationPort) verifyCardBrand(pi *stripe.PaymentIntent) error {
+	if p.policy.AcceptAllBrands || entity.IsAcceptedCardBrand(extractCardBrand(pi)) {
 		return nil
 	}
 	return apperr.New(codes.FailedPrecondition,

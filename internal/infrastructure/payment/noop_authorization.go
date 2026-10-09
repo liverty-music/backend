@@ -63,3 +63,40 @@ func (p *NoopAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentI
 		slog.String("payment_intent_ref", paymentIntentRef))
 	return nil, apperr.New(codes.Unavailable, "payment provider is not configured")
 }
+
+// Compile-time interface compliance check.
+var _ entity.ReservationAuthorizationPort = (*NoopReservationAuthorizationPort)(nil)
+
+// NoopReservationAuthorizationPort is the checkout card-hold port used when no
+// Stripe secret key is configured (local development). Every method returns
+// Unavailable.
+type NoopReservationAuthorizationPort struct {
+	logger *logging.Logger
+}
+
+// NewNoopReservationAuthorizationPort creates a NoopReservationAuthorizationPort.
+func NewNoopReservationAuthorizationPort(logger *logging.Logger) *NoopReservationAuthorizationPort {
+	return &NoopReservationAuthorizationPort{logger: logger}
+}
+
+// CreateAuthorization returns Unavailable because no Stripe key is configured.
+func (p *NoopReservationAuthorizationPort) CreateAuthorization(ctx context.Context, amountJPY int64, meta entity.AuthorizationMetadata) (string, string, error) {
+	p.logger.Warn(ctx, "checkout payment skipped: STRIPE_SECRET_KEY is not configured",
+		slog.String("reservation_id", string(meta.ReservationID)))
+	return "", "", apperr.New(codes.Unavailable, "payment provider is not configured")
+}
+
+// VerifyAuthorization returns Unavailable because no Stripe key is configured.
+func (p *NoopReservationAuthorizationPort) VerifyAuthorization(ctx context.Context, authorizationRef string, expectedAmountJPY int64) error {
+	return apperr.New(codes.Unavailable, "payment provider is not configured")
+}
+
+// CaptureAuthorization returns Unavailable because no Stripe key is configured.
+func (p *NoopReservationAuthorizationPort) CaptureAuthorization(ctx context.Context, authorizationRef string) (*entity.CapturedPayment, error) {
+	return nil, apperr.New(codes.Unavailable, "payment provider is not configured")
+}
+
+// CancelAuthorization returns Unavailable because no Stripe key is configured.
+func (p *NoopReservationAuthorizationPort) CancelAuthorization(ctx context.Context, authorizationRef string) error {
+	return apperr.New(codes.Unavailable, "payment provider is not configured")
+}
