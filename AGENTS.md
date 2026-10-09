@@ -58,7 +58,7 @@ Migration workflow (local generation, operator deployment, kustomization update)
 
 ### Gemini A/B Evaluation Harness
 
-See `internal/infrastructure/gcp/gemini/CLAUDE.md`.
+See `internal/infrastructure/gcp/gemini/AGENTS.md`.
 
 ### Cloud SQL Access (dev and prod, via port-forward)
 
