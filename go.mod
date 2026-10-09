@@ -44,7 +44,7 @@ require (
 	connectrpc.com/otelconnect v0.8.0
 	connectrpc.com/validate v0.7.0
 	github.com/SherClockHolmes/webpush-go v1.4.0
-	github.com/ThreeDotsLabs/watermill v1.5.1
+	github.com/ThreeDotsLabs/watermill v1.5.3
 	github.com/ThreeDotsLabs/watermill-nats/v2 v2.1.3
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/davidbyttow/govips/v2 v2.18.0
