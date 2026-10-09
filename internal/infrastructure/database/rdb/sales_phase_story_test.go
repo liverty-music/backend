@@ -189,7 +189,7 @@ func newStoryDeps(t *testing.T) *storyDeps {
 		logger: logger,
 	}
 	pushSubs := rdb.NewPushSubscriptionRepository(testDB)
-	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.pub, storyMetrics{}, logger)
+	d.deliver = usecase.NewNotificationUseCase(d.notifs, pushSubs, d.push, d.pub, storyMetrics{}, logger, usecase.OrderConfirmationDeps{})
 	d.reminder = usecase.NewSalesReminderDeliveryUseCase(
 		rdb.NewSalesPhaseReminderRepository(testDB), d.notifs, pushSubs, d.push, d.pub, storyMetrics{}, logger)
 	return d

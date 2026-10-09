@@ -26,7 +26,7 @@ func seedApplication(
 		PhaseID:              phaseID,
 		ApplicantID:          entity.UserID(applicantID),
 		RequestedTicketCount: 2,
-		Identity: entity.ApplicantIdentity{
+		Identity: entity.HolderIdentity{
 			FullName:    "山田太郎",
 			PhoneNumber: "+819012345678",
 		},
@@ -60,7 +60,7 @@ func TestTicketApplicationRepository_Create(t *testing.T) {
 			PhaseID:              phase.ID,
 			ApplicantID:          entity.UserID(userID),
 			RequestedTicketCount: 3,
-			Identity: entity.ApplicantIdentity{
+			Identity: entity.HolderIdentity{
 				FullName:    "田中花子",
 				PhoneNumber: "+819011112222",
 			},
@@ -367,7 +367,7 @@ func TestTicketApplicationRepository_UniqueIndex_ActiveConstraint(t *testing.T) 
 			PhaseID:              phase.ID,
 			ApplicantID:          entity.UserID(userID),
 			RequestedTicketCount: 1,
-			Identity: entity.ApplicantIdentity{
+			Identity: entity.HolderIdentity{
 				FullName:    "重複太郎",
 				PhoneNumber: "+819099998888",
 			},
@@ -402,7 +402,7 @@ func TestTicketApplicationRepository_UniqueIndex_ActiveConstraint(t *testing.T) 
 			PhaseID:              phase.ID,
 			ApplicantID:          entity.UserID(userID),
 			RequestedTicketCount: 1,
-			Identity: entity.ApplicantIdentity{
+			Identity: entity.HolderIdentity{
 				FullName:    "再申請太郎",
 				PhoneNumber: "+819012341234",
 			},

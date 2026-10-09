@@ -2,7 +2,9 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -20,13 +22,22 @@ var _ entity.OrderRepository = (*OrderRepository)(nil)
 const (
 	orderSelectColumns = `
 		id, buyer_id, application_id, provider, payment_intent_ref, payment_method_ref,
-		card_brand, card_last4, status, amount, currency, paid_at, refund_ref
+		card_brand, card_last4, status, amount, currency, paid_at, refund_ref,
+		reservation_id, confirmation_sent_at
 	`
 	orderGetQuery                   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
 	orderGetByApplicationIDQuery    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE application_id = $1`
+	orderGetByReservationIDQuery    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE reservation_id = $1`
 	orderGetByPaymentIntentRefQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE payment_intent_ref = $1`
-	orderUpdateStatusQuery          = `UPDATE orders SET status = $2 WHERE id = $1`
-	orderListByBuyerQuery           = `SELECT ` + orderSelectColumns + ` FROM orders WHERE buyer_id = $1 ORDER BY paid_at, id`
+	// orderMarkConfirmationSentQuery sets the confirmation-sent time only when
+	// it is unset, so a second call keeps the first time.
+	orderMarkConfirmationSentQuery = `
+		UPDATE orders SET confirmation_sent_at = $2
+		WHERE id = $1 AND confirmation_sent_at IS NULL
+	`
+	orderExistsQuery       = `SELECT EXISTS (SELECT 1 FROM orders WHERE id = $1)`
+	orderUpdateStatusQuery = `UPDATE orders SET status = $2 WHERE id = $1`
+	orderListByBuyerQuery  = `SELECT ` + orderSelectColumns + ` FROM orders WHERE buyer_id = $1 ORDER BY paid_at, id`
 )
 
 // NewOrderRepository creates a new order repository instance.
@@ -53,6 +64,38 @@ func (r *OrderRepository) GetByApplicationID(ctx context.Context, applicationID 
 		return nil, toAppErr(err, "failed to get order by application", slog.String("application_id", string(applicationID)))
 	}
 	return order, nil
+}
+
+// GetByReservationID retrieves the order whose source is the given
+// reservation. Returns apperr.ErrNotFound when the reservation has no order.
+func (r *OrderRepository) GetByReservationID(ctx context.Context, reservationID entity.ReservationID) (*entity.Order, error) {
+	row := r.db.Pool.QueryRow(ctx, orderGetByReservationIDQuery, string(reservationID))
+	order, err := scanOrder(row)
+	if err != nil {
+		return nil, toAppErr(err, "failed to get order by reservation", slog.String("reservation_id", string(reservationID)))
+	}
+	return order, nil
+}
+
+// MarkConfirmationSent sets the order's confirmation-sent time when it is
+// unset; an already set time is kept. Returns apperr.ErrNotFound when no
+// order has the id.
+func (r *OrderRepository) MarkConfirmationSent(ctx context.Context, id entity.OrderID, at time.Time) error {
+	tag, err := r.db.Pool.Exec(ctx, orderMarkConfirmationSentQuery, string(id), at)
+	if err != nil {
+		return toAppErr(err, "failed to mark order confirmation sent", slog.String("order_id", string(id)))
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	var exists bool
+	if err := r.db.Pool.QueryRow(ctx, orderExistsQuery, string(id)).Scan(&exists); err != nil {
+		return toAppErr(err, "failed to check order", slog.String("order_id", string(id)))
+	}
+	if !exists {
+		return apperr.New(codes.NotFound, "order not found")
+	}
+	return nil
 }
 
 // GetByPaymentIntentRef retrieves the order whose Payment.PaymentIntentRef
@@ -113,25 +156,36 @@ type orderScanner interface {
 // scanOrder maps one orders row into an entity.Order.
 func scanOrder(s orderScanner) (*entity.Order, error) {
 	var (
-		o        entity.Order
-		id       string
-		buyerID  string
-		appID    string
-		provider int16
-		status   int16
+		o                  entity.Order
+		id                 string
+		buyerID            string
+		appID              sql.NullString
+		provider           int16
+		status             int16
+		reservationID      sql.NullString
+		confirmationSentAt sql.NullTime
 	)
 	if err := s.Scan(
 		&id, &buyerID, &appID, &provider,
 		&o.Payment.PaymentIntentRef, &o.Payment.PaymentMethodRef,
 		&o.Payment.CardBrand, &o.Payment.CardLast4,
 		&status, &o.Amount, &o.Currency, &o.PaidTime,
-		&o.RefundRef,
+		&o.RefundRef, &reservationID, &confirmationSentAt,
 	); err != nil {
 		return nil, err
 	}
 	o.ID = entity.OrderID(id)
 	o.BuyerID = entity.UserID(buyerID)
-	o.ApplicationID = entity.TicketApplicationID(appID)
+	if appID.Valid {
+		o.ApplicationID = entity.TicketApplicationID(appID.String)
+	}
+	if reservationID.Valid {
+		o.ReservationID = entity.ReservationID(reservationID.String)
+	}
+	if confirmationSentAt.Valid {
+		sentAt := confirmationSentAt.Time
+		o.ConfirmationSentTime = &sentAt
+	}
 	o.Payment.Provider = entity.PaymentProvider(provider)
 	o.Status = entity.OrderStatus(status)
 	return &o, nil

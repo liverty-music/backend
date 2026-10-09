@@ -116,7 +116,7 @@ func seedPurchase(t *testing.T, o deletableOrganizer, orderStatus entity.OrderSt
 	exec(`INSERT INTO tickets (id, order_id, holder_id, event_id, holder_full_name, holder_phone_number, status, issued_at)
 		VALUES ($1, $2, $3, $4, '山田太郎', '+819012345678', $5, $6)`,
 		p.ticketID, p.orderID, buyerID, o.eventID, int16(ticketStatus), paidAt)
-	exec(`INSERT INTO settlements (id, order_id, organizer_id, event_id, status, settled_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+	exec(`INSERT INTO settlements (id, order_id, organizer_id, event_id, status, settled_at, platform_fee_rate_bps) VALUES ($1, $2, $3, $4, $5, $6, 500)`,
 		p.settlementID, p.orderID, o.organizerID, o.eventID, int16(settlementStatus), paidAt)
 	exec(`INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount) VALUES ($1, $2, 4000)`,
 		p.settlementID, o.organizerID)
@@ -272,4 +272,58 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOrganizerRepository_DeleteWithTicketSale covers an Organizer whose
+// event was sold first come: its checkouts and sale are removed with it, and a
+// charged checkout that has no Order blocks the deletion, since its money was
+// taken without a purchase record to refund.
+func TestOrganizerRepository_DeleteWithTicketSale(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+	repo := rdb.NewOrganizerRepository(testDB)
+	sales := rdb.NewTicketSaleRepository(testDB)
+	reservations := rdb.NewReservationRepository(testDB)
+	start := time.Date(2026, 10, 1, 1, 0, 0, 0, time.UTC)
+
+	seedSale := func(t *testing.T, o deletableOrganizer) *entity.TicketSale {
+		t.Helper()
+		sale, err := sales.Create(ctx, entity.NewTicketSale(o.eventID, start.Add(-time.Hour), start.Add(48*time.Hour), 3000, 10, 0, start))
+		require.NoError(t, err)
+		return sale
+	}
+
+	t.Run("removes the sale and its ended checkouts", func(t *testing.T) {
+		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
+		sale := seedSale(t, o)
+		res, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(o.followerID), 2, start, "")
+		require.NoError(t, err)
+		_, err = reservations.Release(ctx, res.ID, start.Add(time.Hour))
+		require.NoError(t, err)
+
+		require.NoError(t, repo.Delete(ctx, o.organizerID, false))
+
+		_, err = sales.Get(ctx, sale.ID, start)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		_, err = reservations.Get(ctx, res.ID)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("refuses a charged checkout without an order", func(t *testing.T) {
+		o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
+		sale := seedSale(t, o)
+		res, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(o.followerID), 2, start, "")
+		require.NoError(t, err)
+		_, err = reservations.Commit(ctx, res.ID, start.Add(time.Minute))
+		require.NoError(t, err)
+		require.NoError(t, reservations.RecordCapture(ctx, res.ID, start.Add(2*time.Minute), &entity.CapturedPayment{PaymentIntentRef: "pi_del"}))
+
+		err = repo.Delete(ctx, o.organizerID, false)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		_, err = reservations.Get(ctx, res.ID)
+		assert.NoError(t, err, "nothing is removed")
+	})
 }
