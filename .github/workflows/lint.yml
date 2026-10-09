@@ -55,7 +55,7 @@ jobs:
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v2.13.2 # first release built with Go 1.27, decodes Go 1.27 export data
+          version: v2.14.0 # v2.13.2 cannot decode go1.27.2 export data (v5); v2.14.0 can
           install-only: true
       - name: Run make lint
         run: make lint
