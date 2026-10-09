@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
+	objectv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/object/v2"
 	orgv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/org/v2"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user"
 	userv2pb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
@@ -274,6 +275,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 		check   func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2)
 	}{
 		{
+			// @spec components/entity/organizer/provision-tenant "Organizer is provisioned"
 			name: "happy path: completes every step on the given tenant org without creating an org",
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
@@ -303,9 +305,12 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				assert.Equal(t, "proj-1", grant.GetProjectId())
 				assert.Equal(t, []string{"owner"}, grant.GetRoleKeys())
 				assert.Empty(t, userV2.listUsersReqs, "no user search on the happy path")
+				require.NotNil(t, userV2.createInviteReq, "the operator is invited to register a passkey")
+				assert.Equal(t, "operator-user-1", userV2.createInviteReq.GetUserId())
 			},
 		},
 		{
+			// @spec components/entity/organizer/provision-tenant "Repeated call"
 			name: "true retry: the operator already exists in the tenant org and is reused; duplicate steps are swallowed",
 			stub: &stubMgmt{
 				addCustomLoginPolicyErr: alreadyExists("policy exists"),
@@ -331,6 +336,7 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/entity/organizer/provision-tenant "Operator email used in another tenant"
 			name: "email collision: the email belongs to a user in another org, fails with AlreadyExists and grants nothing",
 			stub: &stubMgmt{},
 			userV2: &stubUserV2{
@@ -346,6 +352,29 @@ func TestOrganizerProvisioner_ProvisionTenant(t *testing.T) {
 				assert.Equal(t, zitadelOrgID, orgIDFilter(userV2.listUsersReqs[0]))
 				assert.Empty(t, stub.addUserGrantReqs, "no owner grant for a foreign user")
 				assert.Nil(t, userV2.createInviteReq, "no invite to a foreign user")
+			},
+		},
+		{
+			// @spec components/entity/organizer/provision-tenant "Retry after a partial failure"
+			name: "partial retry: an earlier attempt stopped before the owner grant; the existing operator is reused and granted owner",
+			stub: &stubMgmt{
+				// The policy and project grant were created by the failed attempt;
+				// the owner grant was not.
+				addCustomLoginPolicyErr: alreadyExists("policy exists"),
+				addProjectGrantErr:      alreadyExists("grant exists"),
+			},
+			userV2: &stubUserV2{
+				addHumanUserErr: alreadyExists("user exists"),
+				listUsersResp:   tenantUsers("existing-operator-id"),
+			},
+			check: func(t *testing.T, stub *stubMgmt, userV2 *stubUserV2) {
+				t.Helper()
+				assert.Equal(t, 1, userV2.addHumanUserCalls, "no second operator is created")
+				require.Len(t, userV2.listUsersReqs, 1)
+				assert.Equal(t, zitadelOrgID, orgIDFilter(userV2.listUsersReqs[0]))
+				require.Len(t, stub.addUserGrantReqs, 1)
+				assert.Equal(t, "existing-operator-id", stub.addUserGrantReqs[0].GetUserId())
+				assert.Equal(t, []string{"owner"}, stub.addUserGrantReqs[0].GetRoleKeys())
 			},
 		},
 		{
@@ -447,11 +476,13 @@ func TestOrganizerProvisioner_EnsureTenantOrg(t *testing.T) {
 		wantErr error
 	}{
 		{
+			// @spec components/entity/organizer/ensure-tenant-org "First attempt"
 			name: "creates the org named after the organizer",
 			stub: &stubMgmt{addOrgResp: &mgmtpb.AddOrgResponse{Id: "zitadel-org-new"}},
 			want: "zitadel-org-new",
 		},
 		{
+			// @spec components/entity/organizer/ensure-tenant-org "Earlier attempt created the tenant"
 			name: "resolves an org created by an earlier attempt by its exact name",
 			stub: &stubMgmt{addOrgErr: alreadyExists("org exists")},
 			orgV2: &stubOrgV2{listOrgsResp: &orgv2pb.ListOrganizationsResponse{Result: []*orgv2pb.Organization{
@@ -502,6 +533,7 @@ func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
 		wantErr error
 	}{
 		{
+			// @spec components/entity/organizer/find-tenant-org "Tenant left by a failed attempt"
 			name: "returns the org whose name matches exactly",
 			orgV2: &stubOrgV2{listOrgsResp: &orgv2pb.ListOrganizationsResponse{Result: []*orgv2pb.Organization{
 				{Id: "394277002850336802", Name: orgName, State: orgv2pb.OrganizationState_ORGANIZATION_STATE_ACTIVE},
@@ -517,6 +549,7 @@ func TestOrganizerProvisioner_FindTenantOrg(t *testing.T) {
 			wantErr: apperr.ErrNotFound,
 		},
 		{
+			// @spec components/entity/organizer/find-tenant-org "No tenant"
 			name:    "returns NotFound when no org has the name",
 			orgV2:   &stubOrgV2{},
 			wantErr: apperr.ErrNotFound,
@@ -556,10 +589,12 @@ func TestOrganizerProvisioner_CheckOperatorEmailAvailable(t *testing.T) {
 		wantErr error
 	}{
 		{
+			// @spec components/entity/organizer/check-operator-email-available "Unused email"
 			name:   "available when no user in the instance uses the email",
 			userV2: &stubUserV2{listUsersResp: tenantUsers()},
 		},
 		{
+			// @spec components/entity/organizer/check-operator-email-available "Email of the platform administrator"
 			name:    "AlreadyExists when a user in any org uses the email",
 			userV2:  &stubUserV2{listUsersResp: tenantUsers("human-admin")},
 			wantErr: apperr.ErrAlreadyExists,
@@ -592,6 +627,27 @@ func TestOrganizerProvisioner_CheckOperatorEmailAvailable(t *testing.T) {
 			assert.Equal(t, "admin@example.com", or[2].GetLoginNameQuery().GetLoginName())
 		})
 	}
+}
+
+// @spec components/entity/organizer/check-operator-email-available "Different letter case"
+func TestOrganizerProvisioner_CheckOperatorEmailAvailable_ignoresLetterCase(t *testing.T) {
+	t.Parallel()
+
+	// Zitadel returns the user registered as Operator@Example.com for the
+	// case-insensitive search.
+	userV2 := &stubUserV2{listUsersResp: tenantUsers("operator-mixed-case")}
+	p := newTestProvisioner(t, nil, userV2)
+
+	err := p.CheckOperatorEmailAvailable(context.Background(), "operator@example.com")
+
+	assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+	require.Len(t, userV2.listUsersReqs, 1)
+	or := userV2.listUsersReqs[0].GetQueries()[0].GetOrQuery().GetQueries()
+	require.Len(t, or, 3)
+	ignoreCase := objectv2pb.TextQueryMethod_TEXT_QUERY_METHOD_EQUALS_IGNORE_CASE
+	assert.Equal(t, ignoreCase, or[0].GetEmailQuery().GetMethod(), "email is compared without regard to letter case")
+	assert.Equal(t, ignoreCase, or[1].GetUserNameQuery().GetMethod(), "user name is compared without regard to letter case")
+	assert.Equal(t, ignoreCase, or[2].GetLoginNameQuery().GetMethod(), "login name is compared without regard to letter case")
 }
 
 func TestOrganizerProvisioner_ProvisionTenant_sendsStandardVerifyInvite(t *testing.T) {

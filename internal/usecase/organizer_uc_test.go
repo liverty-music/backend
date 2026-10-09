@@ -13,6 +13,7 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // organizerTestDeps holds all dependencies for OrganizerUseCase tests.
@@ -144,6 +145,7 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 			wantCalls: []string{"ensure-org", "store-org-id", "provision"},
 		},
 		{
+			// @spec components/usecase/organizer/create "Operator email used by another account"
 			name: "fail with AlreadyExists and create nothing when the operator email is used by another account",
 			setup: func(d *organizerTestDeps, _ *[]string) {
 				// No row, no org: the check runs before anything is created.
@@ -152,6 +154,7 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 			wantErr: apperr.ErrAlreadyExists,
 		},
 		{
+			// @spec components/usecase/organizer/create "Operator email taken during provisioning"
 			name: "remove the tenant org and the row when provisioning finds the email used by a user in another org",
 			setup: func(d *organizerTestDeps, calls *[]string) {
 				expectInsert(d)
@@ -252,6 +255,52 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 			}
 		})
 	}
+}
+
+// @spec components/usecase/organizer/create "Same name again"
+func TestOrganizerUseCase_Create_sameNameTwice(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const orgName = "Acme Music"
+	d := newOrganizerTestDeps(t)
+
+	// Create never looks up an existing Organizer by name: each call with its
+	// own available operator email inserts its own row and creates its own
+	// tenant org.
+	creations := []struct{ id, email string }{
+		{id: "org-1", email: "first@acme.com"},
+		{id: "org-2", email: "second@acme.com"},
+	}
+	for _, c := range creations {
+		d.provisioner.EXPECT().CheckOperatorEmailAvailable(ctx, c.email).Return(nil).Once()
+		d.orgRepo.EXPECT().
+			Create(ctx, mock.MatchedBy(func(o *entity.Organizer) bool { return o.OperatorEmail == c.email })).
+			Return(&entity.Organizer{ID: c.id, Name: orgName, OperatorEmail: c.email, Status: entity.OrganizerStatusProvisioning}, nil).
+			Once()
+		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, c.id).Return("zitadel-"+c.id, nil).Once()
+		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, c.id, "zitadel-"+c.id).Return(nil).Once()
+		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, c.id, "zitadel-"+c.id, c.email).Return(nil).Once()
+		d.orgRepo.EXPECT().
+			CompareAndSetStatus(mock.Anything, c.id, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).
+			Return(true, nil).
+			Once()
+		d.publisher.EXPECT().
+			PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: c.id}).
+			Return(nil).
+			Once()
+	}
+	d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "success").Return().Times(2)
+
+	first, err := d.uc.Create(ctx, orgName, creations[0].email)
+	require.NoError(t, err)
+	second, err := d.uc.Create(ctx, orgName, creations[1].email)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, first.ID, second.ID, "two Organizers exist")
+	assert.NotEqual(t, first.ZitadelOrgID, second.ZitadelOrgID, "each Organizer has its own tenant")
+	assert.Equal(t, entity.OrganizerStatusActive, first.Status)
+	assert.Equal(t, entity.OrganizerStatusActive, second.Status)
 }
 
 func TestOrganizerUseCase_Get(t *testing.T) {
@@ -786,6 +835,7 @@ func TestOrganizerUseCase_Deactivate(t *testing.T) {
 		wantErr     error
 	}{
 		{
+			// @spec components/usecase/organizer/deactivate "Unknown Organizer"
 			name:        "return NotFound error when organizer does not exist",
 			organizerID: "missing-org",
 			setup: func(t *testing.T, d *organizerTestDeps) {
@@ -815,6 +865,7 @@ func TestOrganizerUseCase_Deactivate(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/usecase/organizer/deactivate "Active Organizer is deactivated"
 			name:        "deactivate provisioner operators, free artists, and set status when organizer is active with ZitadelOrgID",
 			organizerID: "org-1",
 			setup: func(t *testing.T, d *organizerTestDeps) {
@@ -842,6 +893,7 @@ func TestOrganizerUseCase_Deactivate(t *testing.T) {
 			},
 		},
 		{
+			// @spec components/usecase/organizer/deactivate "Unlinked tenant"
 			name:        "deactivate the operators of a provisioning organizer whose unrecorded tenant org is found by name",
 			organizerID: "org-3",
 			setup: func(t *testing.T, d *organizerTestDeps) {
@@ -950,6 +1002,7 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 		d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{OrganizerID: id}).Return(nil).Once()
 	}
 
+	// @spec components/usecase/organizer/reconcile-provisioning "Tenant already recorded"
 	// @spec components/usecase/organizer/reconcile-provisioning "Organizer left provisioning"
 	t.Run("completes every organizer stuck in provisioning, reusing a recorded org id and resolving a missing one", func(t *testing.T) {
 		t.Parallel()
@@ -996,6 +1049,7 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 		assert.NoError(t, d.uc.ReconcileProvisioning(ctx))
 	})
 
+	// @spec components/usecase/organizer/reconcile-provisioning "Operator email taken"
 	t.Run("deactivates an organizer whose operator email is used by another account so it is not retried forever", func(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerTestDeps(t)
