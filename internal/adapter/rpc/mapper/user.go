@@ -36,9 +36,6 @@ func UserToProto(user *entity.User) *proto.User {
 		lang := user.PreferredLanguage
 		pb.PreferredLanguage = &lang
 	}
-	if user.HolderIdentity != nil {
-		pb.HolderIdentity = holderIdentityToProto(*user.HolderIdentity)
-	}
 	return pb
 }
 

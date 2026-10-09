@@ -42,7 +42,6 @@ func TestStripeReservationAuthorizationPort_Integration(t *testing.T) {
 			ReservationID: entity.ReservationID(entity.NewID()),
 			TicketSaleID:  entity.TicketSaleID(entity.NewID()),
 			EventID:       entity.NewID(),
-			TraceID:       "0af7651916cd43dd8448eb211c80319c",
 		}
 		ref, secret, err := port.CreateAuthorization(ctx, amountJPY, meta)
 		require.NoError(t, err)

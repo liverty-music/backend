@@ -54,7 +54,18 @@ func newWebhookSvc(
 	refundUC usecase.RefundOrderUseCase,
 	t *testing.T,
 ) usecase.StripeWebhookService {
-	return usecase.NewStripeWebhookService(processedRepo, orderRepo, refundUC, newTestLogger(t))
+	return usecase.NewStripeWebhookService(processedRepo, orderRepo, refundUC, &stubFulfiller{}, newTestLogger(t))
+}
+
+// stubFulfiller records the charges it was asked to fulfill.
+type stubFulfiller struct {
+	refs []string
+	err  error
+}
+
+func (s *stubFulfiller) FulfillPayment(_ context.Context, paymentRef string) error {
+	s.refs = append(s.refs, paymentRef)
+	return s.err
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -364,4 +375,40 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 	})
 	// Fix #4: error must propagate so handler returns 500 → Stripe retries.
 	require.Error(t, err, "MarkProcessed failure must propagate so Stripe retries")
+}
+
+func TestStripeWebhook_PaymentIntentSucceeded(t *testing.T) {
+	t.Parallel()
+	event := usecase.StripeWebhookEvent{
+		ProviderEventID:  "evt_pi_1",
+		Type:             usecase.StripeEventPaymentIntentSucceeded,
+		PaymentIntentRef: "pi_1",
+		ReceivedAt:       time.Now(),
+	}
+
+	t.Run("checkout charge completes", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/webhook/payment-events "Checkout charge completes"
+		processed := &stubProcessedWebhookEventRepo{}
+		fulfiller := &stubFulfiller{}
+		svc := usecase.NewStripeWebhookService(processed, &stubOrderRepo{}, &stubRefundUC{}, fulfiller, newTestLogger(t))
+
+		require.NoError(t, svc.HandleEvent(context.Background(), event))
+
+		assert.Equal(t, []string{"pi_1"}, fulfiller.refs)
+	})
+
+	t.Run("fulfillment fails", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/webhook/payment-events "Fulfillment fails"
+		marked := 0
+		processed := &stubProcessedWebhookEventRepo{markProcessedFn: func(context.Context, string) error { marked++; return nil }}
+		fulfiller := &stubFulfiller{err: apperr.New(apperr.ErrUnavailable.Code, "nats down")}
+		svc := usecase.NewStripeWebhookService(processed, &stubOrderRepo{}, &stubRefundUC{}, fulfiller, newTestLogger(t))
+
+		err := svc.HandleEvent(context.Background(), event)
+
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+		assert.Zero(t, marked, "the notice is not counted as applied, so a redelivery fulfills it")
+	})
 }

@@ -80,6 +80,10 @@ func (s *stubAppRepo) GetByPhaseAndApplicant(ctx context.Context, phaseID entity
 	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
 }
 
+func (s *stubAppRepo) GetByPaymentIntentRef(context.Context, string) (*entity.TicketApplication, error) {
+	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
+}
+
 func (s *stubAppRepo) Get(ctx context.Context, id entity.TicketApplicationID) (*entity.TicketApplication, error) {
 	if s.getFn != nil {
 		return s.getFn(ctx, id)

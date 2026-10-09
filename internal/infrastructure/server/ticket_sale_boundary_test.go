@@ -72,7 +72,13 @@ func TestFanServer_TicketSaleGet(t *testing.T) {
 			SaleStartTime: time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC), SaleEndTime: time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC),
 			Price: 3000, Quantity: 150, PerAccountLimit: 4, SoldCount: 135,
 		}
-		uc.EXPECT().Get(mock.Anything, saleEventID).Return(&usecase.TicketSaleView{Sale: sale, State: entity.TicketSaleStateOnSale, LowStock: true}, nil)
+		uc.EXPECT().Get(mock.Anything, saleEventID).Return(&usecase.TicketSaleView{
+			Sale: sale, State: entity.TicketSaleStateOnSale, LowStock: true,
+			SellerDetails: &entity.SellerDetails{
+				LegalName: "株式会社リバティ", RepresentativeName: "代表 太郎", Address: "東京都渋谷区1-2-3",
+				PhoneNumber: "+81312345678", ContactEmail: "contact@example.com",
+			},
+		}, nil)
 		ts := newTestFanTicketSaleServer(t, uc)
 
 		// No Authorization header: the procedure is public.
@@ -85,6 +91,7 @@ func TestFanServer_TicketSaleGet(t *testing.T) {
 		assert.Equal(t, int64(3000), resp.Msg.TicketSale.Price)
 		assert.Nil(t, resp.Msg.TicketSale.Quantity, "the quantity is never shown to fans")
 		assert.Nil(t, resp.Msg.TicketSale.SoldCount, "the sold count is never shown to fans")
+		assert.Equal(t, "株式会社リバティ", resp.Msg.SellerDetails.GetLegalName(), "the 特商法 seller details are public")
 	})
 
 	t.Run("missing event", func(t *testing.T) {

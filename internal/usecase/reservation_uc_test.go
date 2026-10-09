@@ -45,8 +45,7 @@ func newReservationFixture(t *testing.T, now time.Time) *reservationFixture {
 func fanReservation(startedAt time.Time) *entity.Reservation {
 	return &entity.Reservation{
 		ID: "res-1", TicketSaleID: "sale-1", UserID: "fan-1", TicketCount: 2, Amount: 6000,
-		Status: entity.ReservationStatusHeld, CreateTime: startedAt, HoldExpireTime: startedAt.Add(15 * time.Minute),
-		TraceID: "trace-1",
+		Status: entity.ReservationStatusHeld, HoldExpireTime: startedAt.Add(15 * time.Minute),
 	}
 }
 
@@ -61,7 +60,7 @@ func TestReservationUseCase_Start(t *testing.T) {
 		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-1"), now).Return(saleWith(150, 0, 0), nil)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		res := fanReservation(now)
-		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketSaleID("sale-1"), entity.UserID("fan-1"), 2, now, "").Return(res, nil)
+		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketSaleID("sale-1"), entity.UserID("fan-1"), 2, now).Return(res, nil)
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1"}, nil)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "sale-1", 2)
@@ -79,7 +78,7 @@ func TestReservationUseCase_Start(t *testing.T) {
 		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-1"), mock.Anything).Return(saleWith(150, 0, 2), nil)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		original := fanReservation(now)
-		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketSaleID("sale-1"), entity.UserID("fan-1"), 2, mock.Anything, mock.Anything).Return(original, nil)
+		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketSaleID("sale-1"), entity.UserID("fan-1"), 2, mock.Anything).Return(original, nil)
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1"}, nil)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "sale-1", 2)
@@ -94,7 +93,7 @@ func TestReservationUseCase_Start(t *testing.T) {
 		f := newReservationFixture(t, now)
 		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-1"), now).Return(saleWith(150, 0, 0), nil)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fanReservation(now), nil)
+		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fanReservation(now), nil)
 		saved := &entity.HolderIdentity{FullName: "山田 花子", PhoneNumber: "+819012345678"}
 		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", HolderIdentity: saved}, nil)
 
@@ -135,7 +134,7 @@ func TestReservationUseCase_Start(t *testing.T) {
 		f := newReservationFixture(t, now)
 		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-1"), now).Return(saleWith(150, 147, 3), nil)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(nil, apperr.New(apperr.ErrResourceExhausted.Code, "not enough tickets remain"))
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "sale-1", 2)
@@ -253,7 +252,7 @@ func TestReservationUseCase_Authorize(t *testing.T) {
 		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(fanReservation(start), nil)
 		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-1"), mock.Anything).Return(saleWith(150, 0, 2), nil)
 		f.auth.EXPECT().CreateAuthorization(mock.Anything, int64(6000), entity.AuthorizationMetadata{
-			ReservationID: "res-1", TicketSaleID: "sale-1", EventID: "event-1", TraceID: "trace-1",
+			ReservationID: "res-1", TicketSaleID: "sale-1", EventID: "event-1",
 		}).Return("pi_1", "secret_1", nil)
 		f.reservations.EXPECT().SetAuthorization(mock.Anything, entity.ReservationID("res-1"), identity, "pi_1").Return(nil)
 		f.users.EXPECT().UpdateHolderIdentity(mock.Anything, "fan-1", identity).Return(&entity.User{ID: "fan-1"}, nil)

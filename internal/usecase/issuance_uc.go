@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -97,6 +98,19 @@ type IssuanceUseCase interface {
 	//
 	//  - The listing's error; nothing is issued then.
 	IssueDueReservations(ctx context.Context) error
+
+	// FulfillPayment turns a charge the payment provider reports as completed
+	// into an issued Order and announces it as ORDER.paid, with the Order id
+	// as the message id. It finds the charge's source — a Reservation by its
+	// card hold, else a TicketApplication by its authorization — and runs the
+	// idempotent issuance for it, so a repeated report finds the same Order. A
+	// charge of no source succeeds without effect.
+	//
+	// # Possible errors
+	//
+	//  - The issuance's or the announcement's error, unchanged; the provider
+	//    reports the charge again.
+	FulfillPayment(ctx context.Context, paymentRef string) error
 }
 
 // issuanceUseCase implements [IssuanceUseCase].
@@ -113,6 +127,7 @@ type issuanceUseCase struct {
 	ticketSaleRepo       entity.TicketSaleRepository
 	eventState           EventPublishStatePort
 	reservationAuth      entity.ReservationAuthorizationPort
+	publisher            EventPublisher
 	clock                Clock
 	logger               *logging.Logger
 }
@@ -134,6 +149,7 @@ type IssuanceDeps struct {
 	TicketSaleRepo       entity.TicketSaleRepository
 	EventState           EventPublishStatePort
 	ReservationAuth      entity.ReservationAuthorizationPort
+	Publisher            EventPublisher
 	Clock                Clock
 	Logger               *logging.Logger
 }
@@ -153,6 +169,7 @@ func NewIssuanceUseCase(d IssuanceDeps) IssuanceUseCase {
 		ticketSaleRepo:       d.TicketSaleRepo,
 		eventState:           d.EventState,
 		reservationAuth:      d.ReservationAuth,
+		publisher:            d.Publisher,
 		clock:                d.Clock,
 		logger:               d.Logger,
 	}
@@ -402,7 +419,7 @@ func (uc *issuanceUseCase) issueFromReservation(ctx context.Context, reservation
 
 	// Charge once: a Reservation with a capture time is never charged again.
 	if !res.IsCharged() {
-		payment, err := uc.reservationAuth.CaptureAuthorization(ctx, res.AuthorizationRef)
+		_, err := uc.reservationAuth.CaptureAuthorization(ctx, res.AuthorizationRef)
 		if err != nil {
 			if errors.Is(err, apperr.ErrFailedPrecondition) {
 				if revertErr := uc.reservationRepo.RevertCommit(ctx, reservationID); revertErr != nil {
@@ -412,16 +429,19 @@ func (uc *issuanceUseCase) issueFromReservation(ctx context.Context, reservation
 			}
 			return nil, err
 		}
-		if err := uc.reservationRepo.RecordCapture(ctx, reservationID, uc.clock(), payment); err != nil {
-			return nil, err
-		}
-		if res, err = uc.reservationRepo.Get(ctx, reservationID); err != nil {
+		if err := uc.reservationRepo.RecordCapture(ctx, reservationID, uc.clock()); err != nil {
 			return nil, err
 		}
 	}
 
 	if res.HolderIdentity == nil {
 		return nil, apperr.New(codes.Internal, "a charged reservation has no holder identity", attrs)
+	}
+	// The charge is the card hold; its facets are read back from the provider,
+	// as for a lottery win.
+	captured, err := uc.capturePort.GetCapturedPayment(ctx, res.AuthorizationRef)
+	if err != nil {
+		return nil, err
 	}
 	return uc.issue(ctx, issuanceSource{
 		reservationID: res.ID,
@@ -432,10 +452,10 @@ func (uc *issuanceUseCase) issueFromReservation(ctx context.Context, reservation
 		amount:        res.Amount,
 		currency:      "JPY",
 		payment: entity.Payment{
-			Provider:         entity.PaymentProviderStripe,
-			PaymentIntentRef: res.PaymentRef,
-			CardBrand:        res.CardBrand,
-			CardLast4:        res.CardLast4,
+			Provider:         captured.Provider,
+			PaymentIntentRef: res.AuthorizationRef,
+			CardBrand:        captured.CardBrand,
+			CardLast4:        captured.CardLast4,
 		},
 	})
 }
@@ -455,7 +475,7 @@ func (uc *issuanceUseCase) IssueDueReservations(ctx context.Context) error {
 			uc.logger.Error(ctx, LogKeyNeedsOperator,
 				errors.New("a charged checkout is still not issued"),
 				slog.String("reservation_id", string(res.ID)),
-				slog.String("payment_ref", res.PaymentRef),
+				slog.String("payment_ref", res.AuthorizationRef),
 				slog.Time("capture_time", *res.CaptureTime),
 			)
 		}
@@ -468,4 +488,73 @@ func (uc *issuanceUseCase) IssueDueReservations(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// FulfillPayment implements [IssuanceUseCase].
+func (uc *issuanceUseCase) FulfillPayment(ctx context.Context, paymentRef string) error {
+	paid, err := uc.fulfill(ctx, paymentRef)
+	if err != nil || paid == nil {
+		return err
+	}
+	if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectOrderPaid, paid.OrderID, paid); err != nil {
+		return fmt.Errorf("announce order %s as paid: %w", paid.OrderID, err)
+	}
+	uc.logger.Info(ctx, "order announced as paid",
+		slog.String("order_id", paid.OrderID),
+		slog.String("payment_ref", paymentRef),
+	)
+	return nil
+}
+
+// fulfill issues, or finds, the Order of the charge's source and returns its
+// announcement; nil when the charge has no source here.
+func (uc *issuanceUseCase) fulfill(ctx context.Context, paymentRef string) (*entity.OrderPaidData, error) {
+	res, err := uc.reservationRepo.GetByAuthorizationRef(ctx, paymentRef)
+	switch {
+	case err == nil:
+		order, err := uc.IssueFromReservation(ctx, res.ID, nil)
+		if err != nil {
+			return nil, err
+		}
+		sale, err := uc.ticketSaleRepo.Get(ctx, res.TicketSaleID, uc.clock())
+		if err != nil {
+			return nil, err
+		}
+		return orderPaid(order, sale.EventID, res.TicketCount), nil
+	case !errors.Is(err, apperr.ErrNotFound):
+		return nil, err
+	}
+
+	app, err := uc.appRepo.GetByPaymentIntentRef(ctx, paymentRef)
+	if errors.Is(err, apperr.ErrNotFound) {
+		uc.logger.Info(ctx, "completed charge of no checkout or application; nothing to fulfill",
+			slog.String("payment_ref", paymentRef))
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	order, err := uc.IssueFromCapturedWin(ctx, app.ID)
+	if err != nil {
+		return nil, err
+	}
+	phase, err := uc.phaseRepo.Get(ctx, app.PhaseID)
+	if err != nil {
+		return nil, err
+	}
+	return orderPaid(order, phase.EventID, app.RequestedTicketCount), nil
+}
+
+// orderPaid builds the ORDER.paid payload of an issued Order.
+func orderPaid(order *entity.Order, eventID string, ticketCount int) *entity.OrderPaidData {
+	return &entity.OrderPaidData{
+		OrderID:       string(order.ID),
+		BuyerID:       string(order.BuyerID),
+		EventID:       eventID,
+		TicketCount:   ticketCount,
+		Amount:        order.Amount,
+		Currency:      order.Currency,
+		ApplicationID: string(order.ApplicationID),
+		ReservationID: string(order.ReservationID),
+	}
 }

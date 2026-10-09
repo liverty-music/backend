@@ -68,7 +68,6 @@ func (p *StripeReservationAuthorizationPort) CreateAuthorization(ctx context.Con
 	params.AddMetadata("reservation_id", string(meta.ReservationID))
 	params.AddMetadata("ticket_sale_id", string(meta.TicketSaleID))
 	params.AddMetadata("event_id", meta.EventID)
-	params.AddMetadata("trace_id", meta.TraceID)
 	params.SetIdempotencyKey(p.policy.idempotencyKey("authorize", string(meta.ReservationID)))
 
 	pi, err := p.client.V1PaymentIntents.Create(ctx, params)

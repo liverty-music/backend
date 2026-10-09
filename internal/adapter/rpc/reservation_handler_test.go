@@ -58,7 +58,7 @@ func TestReservationHandler(t *testing.T) {
 		m.signedIn(ctx)
 		m.reservations.EXPECT().Start(ctx, entity.UserID("fan-1"), entity.TicketSaleID(testSaleID), 2).Return(&usecase.StartedReservation{
 			Reservation: &entity.Reservation{ID: testReservationID, TicketSaleID: testSaleID, UserID: "fan-1", TicketCount: 2, Amount: 6000,
-				Status: entity.ReservationStatusHeld, HoldExpireTime: expiry, CreateTime: expiry.Add(-15 * time.Minute)},
+				Status: entity.ReservationStatusHeld, HoldExpireTime: expiry},
 			TicketPrice:   3000,
 			SavedIdentity: &entity.HolderIdentity{FullName: "山田 花子", PhoneNumber: "+819012345678"},
 		}, nil)

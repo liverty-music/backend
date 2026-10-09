@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -24,6 +25,10 @@ type checkoutIssuanceFixture struct {
 	sales        *entitymocks.MockTicketSaleRepository
 	events       *ucmocks.MockEventPublishStatePort
 	auth         *entitymocks.MockReservationAuthorizationPort
+	captured     *entitymocks.MockPaymentCapturePort
+	apps         *entitymocks.MockTicketApplicationRepository
+	phases       *entitymocks.MockLotteryPhaseRepository
+	publisher    *ucmocks.MockEventPublisher
 	uc           usecase.IssuanceUseCase
 }
 
@@ -37,7 +42,13 @@ func newCheckoutIssuanceFixture(t *testing.T, now time.Time) *checkoutIssuanceFi
 		sales:        entitymocks.NewMockTicketSaleRepository(t),
 		events:       ucmocks.NewMockEventPublishStatePort(t),
 		auth:         entitymocks.NewMockReservationAuthorizationPort(t),
+		captured:     entitymocks.NewMockPaymentCapturePort(t),
+		apps:         entitymocks.NewMockTicketApplicationRepository(t),
+		phases:       entitymocks.NewMockLotteryPhaseRepository(t),
+		publisher:    ucmocks.NewMockEventPublisher(t),
 	}
+	// The charge's facets are read back from the provider at issuance.
+	f.captured.EXPECT().GetCapturedPayment(mock.Anything, "pi_1").Return(coPayment, nil).Maybe()
 	// Serialize runs the call under the lock.
 	f.reservations.EXPECT().Serialize(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, _ entity.ReservationID, fn func(context.Context) error) error {
@@ -54,6 +65,10 @@ func newCheckoutIssuanceFixture(t *testing.T, now time.Time) *checkoutIssuanceFi
 		TicketSaleRepo:     f.sales,
 		EventState:         f.events,
 		ReservationAuth:    f.auth,
+		CapturePort:        f.captured,
+		AppRepo:            f.apps,
+		PhaseRepo:          f.phases,
+		Publisher:          f.publisher,
 		Clock:              fixedClock(now),
 		Logger:             newTestLogger(t),
 	})
@@ -81,7 +96,7 @@ func committedCopy(r *entity.Reservation, captured bool) *entity.Reservation {
 	c.Status, c.CommitTime = entity.ReservationStatusCommitted, &committedAt
 	if captured {
 		capturedAt := coStart.Add(11 * time.Minute)
-		c.CaptureTime, c.PaymentRef, c.CardBrand, c.CardLast4 = &capturedAt, "pi_1", "visa", "4242"
+		c.CaptureTime = &capturedAt
 	}
 	return &c
 }
@@ -103,8 +118,7 @@ func TestIssuanceUseCase_IssueFromReservation(t *testing.T) {
 		f.reservations.EXPECT().Commit(mock.Anything, entity.ReservationID("res-1"), placeAt).Return(entity.CommitOutcomeCommitted, nil)
 		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(committedCopy(held, false), nil).Once()
 		f.auth.EXPECT().CaptureAuthorization(mock.Anything, "pi_1").Return(coPayment, nil).Once()
-		f.reservations.EXPECT().RecordCapture(mock.Anything, entity.ReservationID("res-1"), placeAt, coPayment).Return(nil)
-		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(committedCopy(held, true), nil).Once()
+		f.reservations.EXPECT().RecordCapture(mock.Anything, entity.ReservationID("res-1"), placeAt).Return(nil)
 
 		var gotOrder *entity.Order
 		var gotTickets []*entity.Ticket
@@ -134,7 +148,6 @@ func TestIssuanceUseCase_IssueFromReservation(t *testing.T) {
 		}
 		require.Len(t, gotSettlement.Splits, 1)
 		assert.Equal(t, int64(5520), gotSettlement.Splits[0].Amount, "6000 yen at 8%")
-		assert.Equal(t, 800, gotSettlement.PlatformFeeRateBps)
 	})
 
 	t.Run("hold lapsed before placing", func(t *testing.T) {
@@ -302,8 +315,7 @@ func TestIssuanceUseCase_IssueDueReservations(t *testing.T) {
 		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(committed, nil).Once()
 		f.orders.EXPECT().GetByReservationID(mock.Anything, entity.ReservationID("res-1")).Return(nil, apperr.ErrNotFound)
 		f.auth.EXPECT().CaptureAuthorization(mock.Anything, "pi_1").Return(coPayment, nil).Once()
-		f.reservations.EXPECT().RecordCapture(mock.Anything, entity.ReservationID("res-1"), now, coPayment).Return(nil)
-		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(committedCopy(authorizedReservation(), true), nil).Once()
+		f.reservations.EXPECT().RecordCapture(mock.Anything, entity.ReservationID("res-1"), now).Return(nil)
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 		require.NoError(t, f.uc.IssueDueReservations(context.Background()))
@@ -364,5 +376,85 @@ func TestIssuanceUseCase_IssueDueReservations(t *testing.T) {
 		f.reservations.EXPECT().ListDue(mock.Anything, now).Return(nil, apperr.ErrInternal)
 
 		assert.ErrorIs(t, f.uc.IssueDueReservations(context.Background()), apperr.ErrInternal)
+	})
+}
+
+func TestIssuanceUseCase_FulfillPayment(t *testing.T) {
+	t.Parallel()
+	now := coStart.Add(12 * time.Minute)
+	checkoutOrder := &entity.Order{ID: "order-1", BuyerID: fan1, ReservationID: "res-1", Amount: 6000, Currency: "JPY"}
+
+	t.Run("checkout charged", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/fulfill-payment "Checkout charged"
+		f := newCheckoutIssuanceFixture(t, now)
+		completed := committedCopy(authorizedReservation(), true)
+		completed.Status = entity.ReservationStatusCompleted
+		f.reservations.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_1").Return(completed, nil)
+		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(completed, nil)
+		f.orders.EXPECT().GetByReservationID(mock.Anything, entity.ReservationID("res-1")).Return(checkoutOrder, nil)
+		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-1", &entity.OrderPaidData{
+			OrderID: "order-1", BuyerID: "fan-1", EventID: "event-1", TicketCount: 2, Amount: 6000, Currency: "JPY", ReservationID: "res-1",
+		}).Return(nil).Once()
+
+		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_1"))
+	})
+
+	t.Run("lottery win charged", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/fulfill-payment "Lottery win charged"
+		f := newCheckoutIssuanceFixture(t, now)
+		f.reservations.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_won").Return(nil, apperr.ErrNotFound)
+		app := wonApplication()
+		f.apps.EXPECT().GetByPaymentIntentRef(mock.Anything, "pi_won").Return(app, nil)
+		winOrder := &entity.Order{ID: "order-2", BuyerID: app.ApplicantID, ApplicationID: app.ID, Amount: 10000, Currency: "JPY"}
+		f.orders.EXPECT().GetByApplicationID(mock.Anything, app.ID).Return(winOrder, nil)
+		f.phases.EXPECT().Get(mock.Anything, app.PhaseID).Return(&entity.LotterySalesPhase{ID: app.PhaseID, EventID: "event-2"}, nil)
+		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-2", &entity.OrderPaidData{
+			OrderID: "order-2", BuyerID: "user-1", EventID: "event-2", TicketCount: 2, Amount: 10000, Currency: "JPY", ApplicationID: "app-1",
+		}).Return(nil).Once()
+
+		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_won"))
+	})
+
+	t.Run("charge reported twice", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/fulfill-payment "Charge reported twice"
+		// Both reports find the same Order and announce it under the same
+		// message id, which JetStream deduplicates; no second Order is issued.
+		f := newCheckoutIssuanceFixture(t, now)
+		completed := committedCopy(authorizedReservation(), true)
+		completed.Status = entity.ReservationStatusCompleted
+		f.reservations.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_1").Return(completed, nil).Twice()
+		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(completed, nil).Twice()
+		f.orders.EXPECT().GetByReservationID(mock.Anything, entity.ReservationID("res-1")).Return(checkoutOrder, nil).Twice()
+		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-1", mock.Anything).Return(nil).Twice()
+
+		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_1"))
+		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_1"))
+	})
+
+	t.Run("messaging unavailable", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/fulfill-payment "Messaging unavailable"
+		f := newCheckoutIssuanceFixture(t, now)
+		completed := committedCopy(authorizedReservation(), true)
+		completed.Status = entity.ReservationStatusCompleted
+		f.reservations.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_1").Return(completed, nil)
+		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(completed, nil)
+		f.orders.EXPECT().GetByReservationID(mock.Anything, entity.ReservationID("res-1")).Return(checkoutOrder, nil)
+		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-1", mock.Anything).Return(errors.New("nats down"))
+
+		assert.Error(t, f.uc.FulfillPayment(context.Background(), "pi_1"))
+	})
+
+	t.Run("charge of another system", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/order/fulfill-payment "Charge of another system"
+		f := newCheckoutIssuanceFixture(t, now)
+		f.reservations.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_other").Return(nil, apperr.ErrNotFound)
+		f.apps.EXPECT().GetByPaymentIntentRef(mock.Anything, "pi_other").Return(nil, apperr.ErrNotFound)
+
+		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_other"))
 	})
 }

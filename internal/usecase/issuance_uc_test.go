@@ -231,7 +231,6 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.Equal(t, "event-1", issuedSettlement.EventID)
 		assert.Equal(t, entity.SettlementStatusHeld, issuedSettlement.Status)
 		assert.Equal(t, now, issuedSettlement.CreatedTime)
-		assert.Equal(t, 500, issuedSettlement.PlatformFeeRateBps)
 		require.Len(t, issuedSettlement.Splits, 1)
 		assert.Equal(t, "organizer-1", issuedSettlement.Splits[0].PayeeOrganizerID)
 		assert.Equal(t, order.Amount-entity.PlatformFee(order.Amount, 500), issuedSettlement.Splits[0].Amount)

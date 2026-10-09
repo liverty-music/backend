@@ -20,7 +20,6 @@ func TicketSaleToProto(s *entity.TicketSale, withCounts bool) *entityv1.TicketSa
 		SaleEndTime:     timestamppb.New(s.SaleEndTime),
 		Price:           s.Price,
 		PerAccountLimit: int32(s.PerAccountLimit),
-		CreateTime:      timestamppb.New(s.CreateTime),
 	}
 	if withCounts {
 		quantity, sold := int32(s.Quantity), int32(s.SoldCount)
@@ -62,15 +61,10 @@ func ReservationToProto(r *entity.Reservation) *entityv1.Reservation {
 	pb := &entityv1.Reservation{
 		Id:             &entityv1.ReservationId{Value: string(r.ID)},
 		TicketSaleId:   &entityv1.TicketSaleId{Value: string(r.TicketSaleID)},
-		UserId:         &entityv1.UserId{Value: string(r.UserID)},
 		TicketCount:    int32(r.TicketCount),
 		Amount:         r.Amount,
 		Status:         reservationStatusToProto(r.Status),
 		HoldExpireTime: timestamppb.New(r.HoldExpireTime),
-		CreateTime:     timestamppb.New(r.CreateTime),
-	}
-	if r.HolderIdentity != nil {
-		pb.HolderIdentity = holderIdentityToProto(*r.HolderIdentity)
 	}
 	if r.CommitTime != nil {
 		pb.CommitTime = timestamppb.New(*r.CommitTime)

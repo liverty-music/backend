@@ -9,7 +9,6 @@ import (
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/liverty-music/backend/internal/entity"
 )
@@ -143,7 +142,7 @@ func (uc *reservationUseCase) Start(ctx context.Context, userID entity.UserID, s
 		return nil, apperr.New(codes.InvalidArgument, "the count must be 1 to the sale's per-account limit")
 	}
 
-	res, err := uc.reservationRepo.GetOrCreateHeld(ctx, saleID, userID, count, now, traceIDOf(ctx))
+	res, err := uc.reservationRepo.GetOrCreateHeld(ctx, saleID, userID, count, now)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +209,6 @@ func (uc *reservationUseCase) Authorize(ctx context.Context, userID entity.UserI
 		ReservationID: res.ID,
 		TicketSaleID:  res.TicketSaleID,
 		EventID:       sale.EventID,
-		TraceID:       res.TraceID,
 	})
 	if err != nil {
 		return "", err
@@ -265,14 +263,4 @@ func (uc *reservationUseCase) giveBackCardHold(ctx context.Context, res *entity.
 		uc.logger.Warn(ctx, "release sweep: failed to record card hold release; retrying next run",
 			slog.String("reservation_id", string(res.ID)), slog.Any("error", err))
 	}
-}
-
-// traceIDOf returns the OpenTelemetry trace id of ctx, or "" without a valid
-// span. It is recorded for correlation only.
-func traceIDOf(ctx context.Context) string {
-	sc := trace.SpanContextFromContext(ctx)
-	if !sc.HasTraceID() {
-		return ""
-	}
-	return sc.TraceID().String()
 }

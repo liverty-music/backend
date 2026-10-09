@@ -334,6 +334,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		TicketSaleRepo:       ticketSaleRepo,
 		EventState:           eventPublishState,
 		ReservationAuth:      reservationAuth,
+		Publisher:            eventPublisher,
 		Clock:                time.Now,
 		Logger:               logger,
 	})
@@ -360,6 +361,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		processedWebhookEventRepo,
 		orderRepo,
 		refundUC,
+		issuanceUC,
 		logger,
 	)
 
@@ -417,14 +419,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// The API never sends order confirmations (the consumer does), so the
 	// order-confirmation dependencies stay empty here.
 	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger, usecase.OrderConfirmationDeps{})
-	// The outbox relay publishes the events recorded with the state they
-	// announce (ORDER.paid). Orders are issued only where a payment provider
-	// is configured (fan-api), so the relay runs there too; the console
-	// workloads' database roles cannot claim outbox rows. Rows are claimed
-	// with SKIP LOCKED, so fan-api pods never publish the same row at once.
-	if paymentConfigured {
-		startOutboxRelay(ctx, rdb.NewOutboxRelay(db, eventPublisher, time.Now), logger)
-	}
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		concertRepo,

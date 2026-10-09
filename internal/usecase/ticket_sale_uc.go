@@ -20,6 +20,9 @@ type TicketSaleView struct {
 	// LowStock reports whether the sale is OnSale with at most a tenth of its
 	// quantity left.
 	LowStock bool
+	// SellerDetails are the event's Organizer's 特商法 seller details, set by
+	// Get for the checkout's final confirmation; nil from GetOwn.
+	SellerDetails *entity.SellerDetails
 }
 
 // ConfigureTicketSaleInput is what an Organizer sets on its event's sale.
@@ -52,8 +55,9 @@ type TicketSaleUseCase interface {
 	//    sale breaks the TicketSale rules.
 	Configure(ctx context.Context, organizerID string, in ConfigureTicketSaleInput) (*entity.TicketSale, error)
 
-	// Get returns an event's sale for anyone, with its state now and whether
-	// stock is low. The view's counts are not for display.
+	// Get returns an event's sale for anyone, with its state now, whether stock
+	// is low, and the event's Organizer's seller details for the checkout's
+	// 特商法 final confirmation. The view's counts are not for display.
 	//
 	// # Possible errors
 	//
@@ -159,7 +163,7 @@ func (uc *ticketSaleUseCase) Configure(ctx context.Context, organizerID string, 
 		if in.PerAccountLimit != nil {
 			limit = *in.PerAccountLimit
 		}
-		return uc.saleRepo.Create(ctx, entity.NewTicketSale(in.EventID, in.SaleStart, saleEnd, in.Price, in.Quantity, limit, now))
+		return uc.saleRepo.Create(ctx, entity.NewTicketSale(in.EventID, in.SaleStart, saleEnd, in.Price, in.Quantity, limit))
 	}
 
 	changed := *current
@@ -187,7 +191,20 @@ func (uc *ticketSaleUseCase) Get(ctx context.Context, eventID string) (*TicketSa
 	if !published {
 		return nil, apperr.New(codes.NotFound, "the event's sale is not shown")
 	}
-	return &TicketSaleView{Sale: sale, State: sale.StateAt(now), LowStock: sale.IsLowStockAt(now)}, nil
+	organizerID, err := uc.eventState.GetEventOrganizerID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	organizer, err := uc.organizerRepo.Get(ctx, organizerID)
+	if err != nil {
+		return nil, err
+	}
+	return &TicketSaleView{
+		Sale:          sale,
+		State:         sale.StateAt(now),
+		LowStock:      sale.IsLowStockAt(now),
+		SellerDetails: organizer.SellerDetails,
+	}, nil
 }
 
 // GetOwn implements [TicketSaleUseCase].

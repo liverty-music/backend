@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -255,4 +256,49 @@ func TestStripeWebhookHandler_ServiceError_Returns500(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code,
 		"a service error must return 500 so Stripe retries")
+}
+
+// TestStripeWebhookHandler_PaymentIntentSucceeded checks that a completed
+// charge notice passes the PaymentIntent id (data.object.id) to the service,
+// and that a fulfillment failure is answered with an error status so Stripe
+// delivers it again.
+func TestStripeWebhookHandler_PaymentIntentSucceeded(t *testing.T) {
+	t.Parallel()
+	const secret = "whsec_test_secret_pi"
+
+	send := func(t *testing.T, svc *stubWebhookSvc) *httptest.ResponseRecorder {
+		t.Helper()
+		payload := map[string]any{
+			"id":     "evt_pi_001",
+			"object": "event",
+			"type":   "payment_intent.succeeded",
+			"data":   map[string]any{"object": map[string]any{"id": "pi_charged", "object": "payment_intent", "status": "succeeded"}},
+		}
+		body, sigHeader := signedBody(t, payload, secret)
+		req := httptest.NewRequest(http.MethodPost, "/stripe-webhook", bytes.NewReader(body))
+		req.Header.Set("Stripe-Signature", sigHeader)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		webhook.NewStripeWebhookHandler(secret, svc, newTestLoggerWH(t)).ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("passes the PaymentIntent id", func(t *testing.T) {
+		t.Parallel()
+		var got usecase.StripeWebhookEvent
+		w := send(t, &stubWebhookSvc{handleFn: func(_ context.Context, e usecase.StripeWebhookEvent) error { got = e; return nil }})
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, usecase.StripeEventPaymentIntentSucceeded, got.Type)
+		assert.Equal(t, "pi_charged", got.PaymentIntentRef)
+	})
+
+	t.Run("a failed fulfillment is redelivered", func(t *testing.T) {
+		t.Parallel()
+		w := send(t, &stubWebhookSvc{handleFn: func(context.Context, usecase.StripeWebhookEvent) error {
+			return errors.New("fulfillment failed")
+		}})
+
+		assert.GreaterOrEqual(t, w.Code, http.StatusInternalServerError)
+	})
 }

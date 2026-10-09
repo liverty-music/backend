@@ -31,7 +31,20 @@ const (
 	StripeEventPayoutPaid StripeEventType = "payout.paid"
 	// StripeEventPayoutFailed fires when the platform's own payout fails.
 	StripeEventPayoutFailed StripeEventType = "payout.failed"
+	// StripeEventPaymentIntentSucceeded fires when a PaymentIntent is charged:
+	// a checkout's capture or a lottery win's capture at the draw. It drives
+	// the fulfillment that announces the paid Order.
+	StripeEventPaymentIntentSucceeded StripeEventType = "payment_intent.succeeded"
 )
+
+// PaymentFulfiller turns a completed charge into an issued, announced Order.
+// IssuanceUseCase satisfies it. Interfaces are defined where consumed
+// (AGENTS.md rule).
+type PaymentFulfiller interface {
+	// FulfillPayment issues, or finds, the Order of the charge's source and
+	// announces it as paid. A charge of no source succeeds without effect.
+	FulfillPayment(ctx context.Context, paymentRef string) error
+}
 
 // StripeWebhookEvent carries the parsed, signature-verified payload from a
 // Stripe webhook call. The caller (HTTP handler) is responsible for signature
@@ -89,6 +102,7 @@ type stripeWebhookService struct {
 	// this service calls GetByPaymentIntentRef.
 	orderRepo entity.OrderRepository
 	refundUC  RefundOrderUseCase
+	fulfiller PaymentFulfiller
 	logger    *logging.Logger
 }
 
@@ -101,12 +115,14 @@ func NewStripeWebhookService(
 	processedRepo ProcessedWebhookEventRepository,
 	orderRepo entity.OrderRepository,
 	refundUC RefundOrderUseCase,
+	fulfiller PaymentFulfiller,
 	logger *logging.Logger,
 ) StripeWebhookService {
 	return &stripeWebhookService{
 		processedRepo: processedRepo,
 		orderRepo:     orderRepo,
 		refundUC:      refundUC,
+		fulfiller:     fulfiller,
 		logger:        logger,
 	}
 }
@@ -159,6 +175,8 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 	switch event.Type {
 	case StripeEventChargeDisputeCreated:
 		return s.handleDisputeCreated(ctx, event)
+	case StripeEventPaymentIntentSucceeded:
+		return s.handlePaymentIntentSucceeded(ctx, event)
 	case StripeEventChargeRefunded:
 		// A refund that we initiated via RefundOrder is already applied by the
 		// use case. This event confirms it at the Stripe level; informational.
@@ -185,6 +203,24 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 		)
 		return nil
 	}
+}
+
+// handlePaymentIntentSucceeded handles payment_intent.succeeded: the charge
+// is fulfilled (its Order issued, or found, and announced as paid). A failure
+// is returned as Internal so the event is not marked processed and Stripe
+// delivers it again.
+func (s *stripeWebhookService) handlePaymentIntentSucceeded(ctx context.Context, event StripeWebhookEvent) error {
+	if event.PaymentIntentRef == "" {
+		s.logger.Warn(ctx, "stripe webhook: payment_intent.succeeded without a PaymentIntent id; skipped",
+			slog.String("event_id", event.ProviderEventID))
+		return nil
+	}
+	if err := s.fulfiller.FulfillPayment(ctx, event.PaymentIntentRef); err != nil {
+		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to fulfill the completed charge",
+			slog.String("event_id", event.ProviderEventID),
+			slog.String("payment_intent_ref", event.PaymentIntentRef))
+	}
+	return nil
 }
 
 // handleDisputeCreated handles charge.dispute.created — a chargeback opened

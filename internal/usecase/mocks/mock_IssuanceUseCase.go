@@ -22,6 +22,53 @@ func (_m *MockIssuanceUseCase) EXPECT() *MockIssuanceUseCase_Expecter {
 	return &MockIssuanceUseCase_Expecter{mock: &_m.Mock}
 }
 
+// FulfillPayment provides a mock function with given fields: ctx, paymentRef
+func (_m *MockIssuanceUseCase) FulfillPayment(ctx context.Context, paymentRef string) error {
+	ret := _m.Called(ctx, paymentRef)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FulfillPayment")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, paymentRef)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockIssuanceUseCase_FulfillPayment_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FulfillPayment'
+type MockIssuanceUseCase_FulfillPayment_Call struct {
+	*mock.Call
+}
+
+// FulfillPayment is a helper method to define mock.On call
+//   - ctx context.Context
+//   - paymentRef string
+func (_e *MockIssuanceUseCase_Expecter) FulfillPayment(ctx interface{}, paymentRef interface{}) *MockIssuanceUseCase_FulfillPayment_Call {
+	return &MockIssuanceUseCase_FulfillPayment_Call{Call: _e.mock.On("FulfillPayment", ctx, paymentRef)}
+}
+
+func (_c *MockIssuanceUseCase_FulfillPayment_Call) Run(run func(ctx context.Context, paymentRef string)) *MockIssuanceUseCase_FulfillPayment_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockIssuanceUseCase_FulfillPayment_Call) Return(_a0 error) *MockIssuanceUseCase_FulfillPayment_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIssuanceUseCase_FulfillPayment_Call) RunAndReturn(run func(context.Context, string) error) *MockIssuanceUseCase_FulfillPayment_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // IssueDueReservations provides a mock function with given fields: ctx
 func (_m *MockIssuanceUseCase) IssueDueReservations(ctx context.Context) error {
 	ret := _m.Called(ctx)
