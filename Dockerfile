@@ -21,15 +21,14 @@ COPY . .
 # neither SDK nor our code reflects on at runtime, so the collision is harmless
 # (note: lookups by number resolve to the LAST registration, not the first).
 #
-# `ignore` rather than `warn`: `warn` prints plain text to stderr during init,
-# which GKE ingests as severity=ERROR and trips the per-workload ERROR-log
-# alerts on every rollout. Instead, provideLogger (internal/di/proto_conflict.go)
-# re-reports every extension collision as structured JSON once the logger is
-# up: accepted ones at WARN, unexpected ones at ERROR.
+# `ignore` rather than `warn`: both accept the collision identically, but `warn`
+# prints plain text to stderr during init, which GKE ingests as severity=ERROR
+# and trips the per-workload ERROR-log alerts on every start.
 #
 # protobuf reads this env var during its own init, so it MUST be a process env
-# baked into the image (it cannot be set from main()) — hence the `ENV` on every
-# runtime stage below.
+# (it cannot be set from main()) — hence the `ENV` on every runtime stage below.
+# The k8s ConfigMaps in cloud-provisioning set the same value and take
+# precedence over this `ENV`; keep the two in sync.
 # See https://protobuf.dev/reference/go/faq#namespace-conflict
 
 # --- Server target ---
