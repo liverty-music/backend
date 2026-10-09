@@ -19,6 +19,7 @@ import (
 const (
 	grantsOrganizerRole = "organizer-console-api@test.iam"
 	grantsZitadelRole   = "zitadel@test.iam"
+	grantsReceptionRole = "reception-api@test.iam"
 
 	// grantsProbeTable is created after every migration has run, to check the
 	// default privileges a future table inherits.
@@ -53,7 +54,8 @@ type organizerTableWrites struct {
 }
 
 // organizerWrites is every write the organizer server performs (see
-// 20261008020000_restrict_organizer_console_api_and_zitadel_app_grants.sql).
+// 20261008020000_restrict_organizer_console_api_and_zitadel_app_grants.sql and
+// 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql).
 // Any other app table is SELECT-only for the role.
 var organizerWrites = map[string]organizerTableWrites{
 	"series": {insert: true, updateColumns: []string{
@@ -70,17 +72,36 @@ var organizerWrites = map[string]organizerTableWrites{
 	"media":                        {insert: true},
 	"lottery_sales_phases":         {insert: true, updateColumns: []string{"verification_requirement"}},
 	"organizer_connected_accounts": {insert: true, updateColumns: []string{"account_ref", "status", "status_synced_at"}},
-	"reception_links":              {insert: true, updateColumns: []string{"status", "bound_public_key", "bound_at", "token", "revoked_at"}},
-	"tickets":                      {updateColumns: []string{"admitted_at"}},
-	"admissions":                   {insert: true},
-	"rejected_scans":               {insert: true},
+	"reception_links":              {insert: true, updateColumns: []string{"status", "token", "revoked_at"}},
+}
+
+// receptionTableAccess is the access of the reception-api role to one app
+// table. updateColumns lists the only columns it may UPDATE; table-level
+// UPDATE is never granted.
+type receptionTableAccess struct {
+	selects       bool
+	insert        bool
+	updateColumns []string
+}
+
+// receptionAccess is every read and write the reception server performs (see
+// 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql).
+// The role has no privilege on any other app table.
+var receptionAccess = map[string]receptionTableAccess{
+	"reception_links":    {selects: true, updateColumns: []string{"status", "bound_public_key", "bound_at", "token"}},
+	"events":             {selects: true},
+	"wallet_public_keys": {selects: true},
+	"tickets":            {selects: true, updateColumns: []string{"admitted_at"}},
+	"admissions":         {selects: true, insert: true},
+	"rejected_scans":     {insert: true},
 }
 
 // TestMigrationGrants_IAMRoles applies every Atlas migration to a scratch
 // database in which the IAM service-account roles already exist, then checks
 // the privileges each role ends up with on schema app. It fails when a
 // migration (for example a generic `%@%.iam` grant loop) widens the
-// organizer-console-api write set or gives zitadel any app privilege.
+// organizer-console-api write set or the reception-api access, or gives
+// zitadel any app privilege.
 func TestMigrationGrants_IAMRoles(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
@@ -92,6 +113,9 @@ func TestMigrationGrants_IAMRoles(t *testing.T) {
 	require.Contains(t, tables, grantsProbeTable)
 	for table := range organizerWrites {
 		require.Contains(t, tables, table, "organizer write table missing from schema app")
+	}
+	for table := range receptionAccess {
+		require.Contains(t, tables, table, "reception table missing from schema app")
 	}
 
 	t.Run("organizer-console-api reads every table and writes only its write set", func(t *testing.T) {
@@ -119,6 +143,24 @@ func TestMigrationGrants_IAMRoles(t *testing.T) {
 			assert.False(t, hasAnyColumnPrivilege(t, ctx, conn, grantsOrganizerRole, table, "UPDATE"), "UPDATE on %s", table)
 			assert.False(t, hasTablePrivilege(t, ctx, conn, grantsOrganizerRole, table, "DELETE"), "DELETE on %s", table)
 		}
+	})
+
+	t.Run("reception-api holds only the reception reads and writes", func(t *testing.T) {
+		assert.True(t, hasSchemaUsage(t, ctx, conn, grantsReceptionRole))
+		for _, table := range tables {
+			want := receptionAccess[table]
+			assert.Equal(t, want.selects, hasTablePrivilege(t, ctx, conn, grantsReceptionRole, table, "SELECT"), "SELECT on %s", table)
+			assert.Equal(t, want.insert, hasTablePrivilege(t, ctx, conn, grantsReceptionRole, table, "INSERT"), "INSERT on %s", table)
+			for _, privilege := range []string{"UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} {
+				assert.False(t, hasTablePrivilege(t, ctx, conn, grantsReceptionRole, table, privilege), "table-level %s on %s", privilege, table)
+			}
+			for _, column := range listColumns(t, ctx, conn, table) {
+				assert.Equal(t, slices.Contains(want.updateColumns, column),
+					hasColumnPrivilege(t, ctx, conn, grantsReceptionRole, table, column, "UPDATE"),
+					"UPDATE on %s.%s", table, column)
+			}
+		}
+		assert.False(t, hasAnySequencePrivilege(t, ctx, conn, grantsReceptionRole), "sequence privilege")
 	})
 
 	t.Run("zitadel holds no app privileges", func(t *testing.T) {
@@ -173,7 +215,7 @@ func setupGrantsDatabase(t *testing.T, ctx context.Context) *pgx.Conn {
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
 
-	roles := append([]string{grantsOrganizerRole, grantsZitadelRole}, grantsReadWriteRoles...)
+	roles := append([]string{grantsOrganizerRole, grantsZitadelRole, grantsReceptionRole}, grantsReadWriteRoles...)
 	t.Cleanup(func() {
 		ctx := context.Background()
 		resetGrantsDatabase(t, ctx, conn, roles)

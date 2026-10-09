@@ -19,8 +19,9 @@ import (
 var _ receptionv1connect.ReceptionServiceHandler = (*ReceptionHandler)(nil)
 
 // ReceptionHandler implements the ReceptionService a reception device calls.
-// It is exempt from the organizer-console sign-in: the caller is a reception
-// link token plus the bound device's signature, checked by the use cases.
+// It is served only by the reception server, without a sign-in: the caller is
+// a reception link token plus the bound device's signature, checked by the
+// use cases.
 // The handler only checks that the call carries them and maps Proto↔Entity;
 // clients that guess tokens are throttled by the unknown-token interceptor
 // (ratelimit.NewUnknownTokenInterceptor) registered for these procedures.

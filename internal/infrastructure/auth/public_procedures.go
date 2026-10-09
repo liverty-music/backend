@@ -25,14 +25,13 @@ func FanPublicProcedures() map[string]bool {
 	}
 }
 
-// OrganizerPublicProcedures returns the organizer-server Connect procedures
-// that are exempt from the organizer-console sign-in: the ReceptionService a
-// venue staff device calls. Its caller is identified by a reception link
-// token and the bound device's signature, checked by the use cases, so the
-// authn middleware lets these calls through without a token and the
-// OrgScopedInterceptor skips them. Every other organizer procedure stays
-// fully authenticated.
-func OrganizerPublicProcedures() map[string]bool {
+// ReceptionPublicProcedures returns the reception-server Connect procedures,
+// all of which are called without a sign-in: the ReceptionService a venue
+// staff device calls. Its caller is identified by a reception link token and
+// the bound device's signature, checked by the use cases, so the authn
+// middleware lets these calls through without a token. The organizer server
+// has no public procedures.
+func ReceptionPublicProcedures() map[string]bool {
 	return map[string]bool{
 		receptionconnect.ReceptionServiceOpenProcedure:  true,
 		receptionconnect.ReceptionServiceAdmitProcedure: true,

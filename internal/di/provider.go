@@ -426,10 +426,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// is identical; only the public-procedure allowlist differs.
 	adminAuthFunc := auth.NewAuthFunc(jwtValidator, nil)
 
-	// The organizer server gets its own AuthFunc too: only the reception
-	// procedures a venue staff device calls (no sign-in; link token + device
-	// signature) are public there. The fan allowlist never applies to it.
-	organizerAuthFunc := auth.NewAuthFunc(jwtValidator, auth.OrganizerPublicProcedures())
+	// The organizer server gets its own AuthFunc too, with no public
+	// procedures: every organizer call is a signed-in operator's.
+	organizerAuthFunc := auth.NewAuthFunc(jwtValidator, nil)
+
+	// The reception server's AuthFunc makes only the reception procedures
+	// public (no sign-in; link token + device signature). Nothing else is
+	// mounted there.
+	receptionAuthFunc := auth.NewAuthFunc(jwtValidator, auth.ReceptionPublicProcedures())
 
 	// Health check handler (public, outside authn middleware).
 	// Keep a reference so App.Shutdown can call SetShuttingDown.
@@ -603,23 +607,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// own port and CORS allowlist, serving ONLY the organizer-facing
 	// OrganizerService. Its server-wide OrgScopedInterceptor enforces token
 	// audience, login-scope org derivation, and role cross-check before any
-	// handler runs, except for the ReceptionService procedures exempted by
-	// OrganizerPublicProcedures (their caller is a reception link token and
-	// the bound device's signature). No fan or admin services are registered
-	// here.
+	// handler runs. It has no public procedures; no fan, admin or reception
+	// services are registered here.
 	organizerServerCfg := cfg.Server
 	organizerServerCfg.Port = cfg.Server.OrganizerPort
 	organizerServerCfg.AllowedOrigins = cfg.Server.OrganizerAllowedOrigins
 	organizerInterceptors := []connect.Interceptor{
-		auth.NewOrgScopedInterceptor(cfg.OrganizerConsoleProjectID, auth.OrganizerPublicProcedures()),
-		// Clients that make receptionUnknownTokenLimit reception calls with
-		// unknown link tokens within receptionUnknownTokenWindow are refused
-		// with ResourceExhausted until the window passes.
-		ratelimit.NewUnknownTokenInterceptor(
-			ratelimit.NewUnknownTokenThrottle(receptionUnknownTokenLimit, receptionUnknownTokenWindow, time.Now),
-			auth.OrganizerPublicProcedures(),
-			func(err error) bool { return errors.Is(err, usecase.ErrUnknownReceptionLinkToken) },
-		),
+		auth.NewOrgScopedInterceptor(cfg.OrganizerConsoleProjectID),
 	}
 	organizerHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
@@ -655,8 +649,29 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-		// ReceptionService: Open, Admit — called by a venue staff device
-		// without a sign-in (see OrganizerPublicProcedures).
+	}
+	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, organizerAuthFunc, rateLimiter, healthHandler, organizerInterceptors, nil, nil, organizerHandlers...)
+
+	// Reception Connect server — a fourth listener in the same binary on its
+	// own port and CORS allowlist, serving ONLY ReceptionService (Open, Admit),
+	// called by a venue staff device without a sign-in. Its caller is a
+	// reception link token and the bound device's signature, checked by the
+	// use cases. It is exposed only by the reception-api workload, apart from
+	// the organizer console's workload and database role.
+	receptionServerCfg := cfg.Server
+	receptionServerCfg.Port = cfg.Server.ReceptionPort
+	receptionServerCfg.AllowedOrigins = cfg.Server.ReceptionAllowedOrigins
+	receptionInterceptors := []connect.Interceptor{
+		// Clients that make receptionUnknownTokenLimit reception calls with
+		// unknown link tokens within receptionUnknownTokenWindow are refused
+		// with ResourceExhausted until the window passes.
+		ratelimit.NewUnknownTokenInterceptor(
+			ratelimit.NewUnknownTokenThrottle(receptionUnknownTokenLimit, receptionUnknownTokenWindow, time.Now),
+			auth.ReceptionPublicProcedures(),
+			func(err error) bool { return errors.Is(err, usecase.ErrUnknownReceptionLinkToken) },
+		),
+	}
+	receptionHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return receptionconnect.NewReceptionServiceHandler(
 				rpc.NewReceptionHandler(receptionLinkUC, ticketUC, logger),
@@ -664,7 +679,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 	}
-	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, organizerAuthFunc, rateLimiter, healthHandler, organizerInterceptors, nil, nil, organizerHandlers...)
+	receptionSrv := server.NewConnectServer(receptionServerCfg, logger, receptionAuthFunc, rateLimiter, healthHandler, receptionInterceptors, nil, nil, receptionHandlers...)
 
 	// Zitadel Actions v2 webhook listener — runs on a separate port so the
 	// webhook paths are unreachable via the public GKE Gateway. Validators
@@ -706,7 +721,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Register shutdown phases.
 	// Drain: health → NOT_SERVING, then servers drain in-flight requests,
 	// then cache cleanup goroutine stops.
-	shutdown.AddDrainPhase(healthChecker, srv, adminSrv, organizerSrv, webhookSrv, rateLimiter, artistCache)
+	shutdown.AddDrainPhase(healthChecker, srv, adminSrv, organizerSrv, receptionSrv, webhookSrv, rateLimiter, artistCache)
 	shutdown.AddFlushPhase(publisher)
 	shutdown.AddExternalPhase(lastfmClient, musicbrainzClient)
 	shutdown.AddObservePhase(telemetryCloser)
@@ -719,6 +734,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Server:          srv,
 		AdminServer:     adminSrv,
 		OrganizerServer: organizerSrv,
+		ReceptionServer: receptionSrv,
 		WebhookServer:   webhookSrv,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,

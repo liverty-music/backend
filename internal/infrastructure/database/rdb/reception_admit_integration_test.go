@@ -3,14 +3,18 @@ package rdb_test
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/testutil"
 	"github.com/liverty-music/backend/internal/usecase"
+	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -18,11 +22,69 @@ import (
 	"uuid"
 )
 
-const integrationAdmitProcedure = "/liverty_music.rpc.organizer.reception.v1.ReceptionService/Admit"
+const (
+	integrationAdmitProcedure = "/liverty_music.rpc.organizer.reception.v1.ReceptionService/Admit"
+
+	// receptionTestRole is a login role named like the reception-api Cloud
+	// SQL IAM user, so the reception grant migration applies to it. It differs
+	// from the grants test's role because roles are cluster-wide.
+	receptionTestRole = "reception-api@admit-test.iam"
+
+	// receptionGrantMigration grants the reception-api role its reads and
+	// writes.
+	receptionGrantMigration = "../../../../k8s/atlas/base/migrations/20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql"
+)
+
+// connectAsReceptionRole returns a connection to the test database as a role
+// holding only what the reception grant migration gives reception-api, so a
+// reception path that needs a missing grant fails here rather than at the
+// door. Seeding and assertions keep using testDB.
+func connectAsReceptionRole(t *testing.T) *rdb.Database {
+	t.Helper()
+	ctx := context.Background()
+	role := pgx.Identifier{receptionTestRole}.Sanitize()
+
+	var exists bool
+	require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, receptionTestRole).Scan(&exists))
+	if !exists {
+		_, err := testDB.Pool.Exec(ctx, "CREATE ROLE "+role+" LOGIN")
+		require.NoError(t, err)
+	}
+	migration, err := os.ReadFile(receptionGrantMigration)
+	require.NoError(t, err)
+	_, err = testDB.Pool.Exec(ctx, string(migration))
+	require.NoError(t, err)
+
+	logger, err := logging.New()
+	require.NoError(t, err)
+	db, err := rdb.New(ctx, config.DatabaseConfig{
+		Host:              "localhost",
+		Port:              15432,
+		Name:              "test-db",
+		User:              receptionTestRole,
+		SSLMode:           "disable",
+		Schema:            "app",
+		MaxOpenConns:      4,
+		MaxIdleConns:      1,
+		ConnMaxLifetime:   1800,
+		MaxConnIdleTime:   600,
+		HealthCheckPeriod: 60,
+	}, true, logger)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx := context.Background()
+		assert.NoError(t, db.Close())
+		_, err := testDB.Pool.Exec(ctx, "DROP OWNED BY "+role)
+		assert.NoError(t, err)
+		_, err = testDB.Pool.Exec(ctx, "DROP ROLE "+role)
+		assert.NoError(t, err)
+	})
+	return db
+}
 
 // TestTicketUseCase_Admit_Integration runs TicketUseCase.Admit against the
-// real store: the same fan code scanned at two entrances at once, and a
-// ticket presented again later.
+// real store, connected as the reception-api role: the same fan code scanned
+// at two entrances at once, and a ticket presented again later.
 func TestTicketUseCase_Admit_Integration(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
@@ -31,13 +93,15 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 	logger, err := logging.New()
 	require.NoError(t, err)
 
-	ticketRepo := rdb.NewTicketRepository(testDB)
+	receptionDB := connectAsReceptionRole(t)
+	uc := usecase.NewTicketUseCase(
+		rdb.NewOrderRepository(receptionDB), rdb.NewTicketRepository(receptionDB), rdb.NewReceptionLinkRepository(receptionDB),
+		rdb.NewEventRepository(receptionDB), rdb.NewWalletPublicKeyRepository(receptionDB), rdb.NewAdmissionRepository(receptionDB),
+		rdb.NewRejectedScanRepository(receptionDB), logger,
+	)
+	// Seeding runs as the test superuser.
 	linkRepo := rdb.NewReceptionLinkRepository(testDB)
 	keyRepo := rdb.NewWalletPublicKeyRepository(testDB)
-	uc := usecase.NewTicketUseCase(
-		rdb.NewOrderRepository(testDB), ticketRepo, linkRepo, rdb.NewEventRepository(testDB),
-		keyRepo, rdb.NewAdmissionRepository(testDB), rdb.NewRejectedScanRepository(testDB), logger,
-	)
 
 	// setup seeds an event opening 18:00 / starting 19:00 on 2026-11-20, a
 	// fan holding n tickets with a registered wallet key, and two links
@@ -146,7 +210,8 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 }
 
 // TestReceptionLinkUseCase_Open_Integration opens one Unused link from two
-// devices at once against the real store: exactly one is bound, and the other
+// devices at once against the real store, connected as the reception-api
+// role: exactly one is bound, and the other
 // is told the link is in use on another device (FailedPrecondition), never
 // PermissionDenied.
 func TestReceptionLinkUseCase_Open_Integration(t *testing.T) {
@@ -163,8 +228,9 @@ func TestReceptionLinkUseCase_Open_Integration(t *testing.T) {
 	_, err = testDB.Pool.Exec(ctx, `UPDATE events SET start_at = $2 WHERE id = $1`, eventID, nov20(19, 0))
 	require.NoError(t, err)
 	link := seedLink(t, eventID)
-	uc := usecase.NewReceptionLinkUseCase(rdb.NewReceptionLinkRepository(testDB), rdb.NewEventRepository(testDB),
-		rdb.NewEventOrganizerRepository(testDB), rdb.NewEventPublishStateRepository(testDB), logger)
+	receptionDB := connectAsReceptionRole(t)
+	uc := usecase.NewReceptionLinkUseCase(rdb.NewReceptionLinkRepository(receptionDB), rdb.NewEventRepository(receptionDB),
+		rdb.NewEventOrganizerRepository(receptionDB), rdb.NewEventPublishStateRepository(receptionDB), logger)
 
 	now := nov20(14, 10)
 	var (
