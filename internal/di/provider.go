@@ -692,6 +692,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
+		// Organizer-facing TicketSaleService: Configure, Get (first-come sale).
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return organizerticketsaleconnect.NewTicketSaleServiceHandler(
+				rpc.NewOrganizerTicketSaleHandler(ticketSaleUC, organizerUC, logger),
+				opts...,
+			)
+		},
 	}
 	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, organizerAuthFunc, rateLimiter, healthHandler, organizerInterceptors, nil, organizerHandlers...)
 
@@ -718,13 +725,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return receptionconnect.NewReceptionServiceHandler(
 				rpc.NewReceptionHandler(receptionLinkUC, ticketUC, logger),
-				opts...,
-			)
-		},
-		// Organizer-facing TicketSaleService: Configure, Get (first-come sale).
-		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerticketsaleconnect.NewTicketSaleServiceHandler(
-				rpc.NewOrganizerTicketSaleHandler(ticketSaleUC, organizerUC, logger),
 				opts...,
 			)
 		},
