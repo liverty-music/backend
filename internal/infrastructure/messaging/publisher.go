@@ -6,7 +6,6 @@ package messaging
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -44,9 +43,7 @@ func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCha
 			nats.ConnectHandler(func(_ *nats.Conn) {
 				logger.Info(ctx, "NATS publisher connected")
 			}),
-			nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
-				logger.Warn(ctx, "NATS publisher disconnected", slog.Any("error", err))
-			}),
+			nats.DisconnectErrHandler(warnOnDisconnect(ctx, logger, "NATS publisher disconnected")),
 			nats.ReconnectHandler(func(_ *nats.Conn) {
 				logger.Info(ctx, "NATS publisher reconnected")
 			}),

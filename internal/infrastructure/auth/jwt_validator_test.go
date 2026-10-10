@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -88,54 +89,79 @@ func createTestToken(t *testing.T, privateKey *rsa.PrivateKey, issuer, subject, 
 	return string(signedToken)
 }
 
-func TestNewJWTValidator(t *testing.T) {
+// flakyJWKS serves keySet, or 503 while down, and counts requests.
+type flakyJWKS struct {
+	down     atomic.Bool
+	requests atomic.Int32
+	keySet   jwk.Set
+}
+
+func (f *flakyJWKS) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
+	f.requests.Add(1)
+	if f.down.Load() {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(f.keySet)
+}
+
+// newKeySet returns a private key and the JWKS publishing its public half.
+func newKeySet(t *testing.T) (*rsa.PrivateKey, jwk.Set) {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	publicKey, err := jwk.FromRaw(privateKey.PublicKey)
+	require.NoError(t, err)
+	require.NoError(t, publicKey.Set(jwk.KeyIDKey, "test-key-id"))
+	require.NoError(t, publicKey.Set(jwk.AlgorithmKey, jwa.RS256))
+	keySet := jwk.NewSet()
+	require.NoError(t, keySet.AddKey(publicKey))
+	return privateKey, keySet
+}
+
+// @spec components/infrastructure/backend/process/startup-dependencies "Start while the sign-in service is down"
+func TestNewJWTValidator_SignInServiceDown(t *testing.T) {
 	t.Parallel()
+	_, keySet := newKeySet(t)
+	jwks := &flakyJWKS{keySet: keySet}
+	jwks.down.Store(true)
+	server := httptest.NewServer(jwks)
+	t.Cleanup(server.Close)
 
-	tests := []struct {
-		name       string
-		setup      func(t *testing.T) (issuer, jwksURL string, cleanup func())
-		wantIssuer func(issuer string) string
-		wantErr    error
-	}{
-		{
-			name: "return validator with correct issuer when JWKS URL is reachable",
-			setup: func(t *testing.T) (string, string, func()) {
-				t.Helper()
-				server, _, _ := setupTestJWKS(t)
-				return server.URL, server.URL + "/.well-known/jwks.json", server.Close
-			},
-			wantIssuer: func(issuer string) string { return issuer },
-		},
-		{
-			name: "return error when JWKS URL is unreachable",
-			setup: func(t *testing.T) (string, string, func()) {
-				t.Helper()
-				return "http://invalid", "http://invalid/.well-known/jwks.json", func() {}
-			},
-			wantErr: errors.New("invalid JWKS URL"),
-		},
-	}
+	validator, err := auth.NewJWTValidator(server.URL, server.URL+"/oauth/v2/keys", 15*time.Minute)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	require.NoError(t, err)
+	assert.Equal(t, server.URL, auth.JWTValidatorIssuer(validator))
+	assert.Zero(t, jwks.requests.Load(), "building the validator must make no request")
+}
 
-			issuer, jwksURL, cleanup := tt.setup(t)
-			defer cleanup()
+// @spec components/infrastructure/backend/process/startup-dependencies "Recovery without restart"
+func TestValidateToken_RecoversWhenSignInServiceReturns(t *testing.T) {
+	t.Parallel()
+	privateKey, keySet := newKeySet(t)
+	jwks := &flakyJWKS{keySet: keySet}
+	jwks.down.Store(true)
+	server := httptest.NewServer(jwks)
+	t.Cleanup(server.Close)
+	validator, err := auth.NewJWTValidator(server.URL, server.URL+"/oauth/v2/keys", 15*time.Minute)
+	require.NoError(t, err)
+	token := createTestToken(t, privateKey, server.URL, "user-1", "fan@example.com", "", time.Hour)
 
-			validator, err := auth.NewJWTValidator(issuer, jwksURL, 15*time.Minute)
+	_, err = validator.ValidateToken(context.Background(), token)
+	require.Error(t, err, "the keys cannot be fetched while the sign-in service is down")
+	_, err = validator.ValidateToken(context.Background(), token)
+	require.Error(t, err)
 
-			if tt.wantErr != nil {
-				assert.Error(t, err)
-				assert.Nil(t, validator)
-				return
-			}
+	jwks.down.Store(false)
+	claims, err := validator.ValidateToken(context.Background(), token)
+	require.NoError(t, err, "the first validation after recovery fetches the keys")
+	assert.Equal(t, "user-1", claims.Sub)
 
-			assert.NoError(t, err)
-			assert.NotNil(t, validator)
-			assert.Equal(t, tt.wantIssuer(issuer), auth.JWTValidatorIssuer(validator))
-		})
-	}
+	requests := jwks.requests.Load()
+	_, err = validator.ValidateToken(context.Background(), token)
+	require.NoError(t, err)
+	assert.Equal(t, requests, jwks.requests.Load(), "fetched keys are served from the cache")
 }
 
 func TestValidateToken(t *testing.T) {

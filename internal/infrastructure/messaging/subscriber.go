@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -29,9 +28,9 @@ import (
 // shutdown (after all watermill subscribers have been closed).
 func ConnectNATS(ctx context.Context, cfg config.NATSConfig, health *ConsumerHealth, logger *logging.Logger) (*natsgo.Conn, error) {
 	nc, err := connectWithRetry(ctx, cfg.URL, natsStartupBudget, logger,
-		natsgo.DisconnectErrHandler(func(_ *natsgo.Conn, err error) {
+		natsgo.DisconnectErrHandler(func(nc *natsgo.Conn, err error) {
 			health.SetConnected(false)
-			logger.Warn(ctx, "NATS disconnected", slog.Any("error", err))
+			warnOnDisconnect(ctx, logger, "NATS disconnected")(nc, err)
 		}),
 		natsgo.ReconnectHandler(func(_ *natsgo.Conn) {
 			health.SetConnected(true)
