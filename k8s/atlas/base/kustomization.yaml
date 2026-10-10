@@ -112,5 +112,5 @@ configMapGenerator:
   - migrations/20261008010000_grant_organizer_console_api_reception.sql
   - migrations/20261008020000_restrict_organizer_console_api_and_zitadel_app_grants.sql
   - migrations/20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql
-  - migrations/20261009000000_add_first_come_ticket_sales.sql
-  - migrations/20261009010000_grant_organizer_console_api_ticket_sales.sql
+  - migrations/20261010000000_add_first_come_ticket_sales.sql
+  - migrations/20261010010000_grant_organizer_console_api_ticket_sales.sql

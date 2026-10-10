@@ -9,7 +9,7 @@
 --                  the sale row lock (SELECT ... FOR UPDATE) Update takes.
 --
 -- sold_count stays read-only for the role: only checkouts (the fan server)
--- move it. Reservations and the outbox stay SELECT-only.
+-- move it. Reservations stay SELECT-only.
 --
 -- Pattern mirrors 20261008010000: loop over pg_roles so the migration is
 -- idempotent and skips the role where it does not exist yet.

@@ -56,7 +56,7 @@ type organizerTableWrites struct {
 // organizerWrites is every write the organizer server performs (see
 // 20261008020000_restrict_organizer_console_api_and_zitadel_app_grants.sql,
 // 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql and
-// 20261009010000_grant_organizer_console_api_ticket_sales.sql).
+// 20261010010000_grant_organizer_console_api_ticket_sales.sql).
 // Any other app table is SELECT-only for the role.
 var organizerWrites = map[string]organizerTableWrites{
 	"series": {insert: true, updateColumns: []string{
