@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
-	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -41,19 +40,28 @@ type IdentityRemover struct {
 //
 // issuerURL is the OIDC issuer URL (e.g., "https://auth.dev.liverty-music.app").
 // keyPath is the file path to the backend-app machine key JSON.
-func NewIdentityRemover(ctx context.Context, issuerURL, keyPath string, logger *logging.Logger) (*IdentityRemover, error) {
+// opts are additional zitadel connection options (e.g., WithInsecure for testing).
+//
+// Construction makes no network request; the token is fetched on the first
+// DeleteIdentity call.
+func NewIdentityRemover(ctx context.Context, issuerURL, keyPath string, logger *logging.Logger, opts ...zitadelconn.Option) (*IdentityRemover, error) {
 	apiEndpoint, err := grpcEndpoint(issuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse zitadel domain: %w", err)
 	}
+
+	connOpts := []zitadelconn.Option{
+		zitadelconn.WithJWTProfileTokenSource(jwtProfileFromPath(ctx, keyPath)),
+		zitadelconn.WithDialOptions(grpc.WithStatsHandler(otelgrpc.NewClientHandler())),
+	}
+	connOpts = append(connOpts, opts...)
 
 	conn, err := zitadelconn.NewConnection(
 		ctx,
 		issuerURL,
 		apiEndpoint,
 		[]string{oidc.ScopeOpenID, zitadelconn.ScopeZitadelAPI()},
-		zitadelconn.WithJWTProfileTokenSource(middleware.JWTProfileFromPath(ctx, keyPath)),
-		zitadelconn.WithDialOptions(grpc.WithStatsHandler(otelgrpc.NewClientHandler())),
+		connOpts...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create zitadel connection: %w", err)

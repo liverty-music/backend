@@ -70,7 +70,7 @@ func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) 
 		}, wmLogger)
 	}
 
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel)
+	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
@@ -120,7 +120,7 @@ func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) 
 	} else {
 		// Open the long-lived shared *nats.Conn. NACK (the external operator)
 		// owns durable lifecycle — the app only binds to pre-existing durables.
-		sharedConn, err := messaging.ConnectNATS(ctx, cfg.NATS, consumerHealth)
+		sharedConn, err := messaging.ConnectNATS(ctx, cfg.NATS, consumerHealth, logger)
 		if err != nil {
 			return nil, fmt.Errorf("connect NATS: %w", err)
 		}

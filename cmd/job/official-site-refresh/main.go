@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -18,18 +19,19 @@ import (
 const fallbackShutdownTimeout = 10 * time.Second
 
 func main() {
-	if err := run(); err != nil {
-		logger, _ := logging.New()
+	logger := di.NewBootstrapLogger()
+	if err := run(logger); err != nil {
 		logger.Error(context.Background(), "official site refresh job failed", err)
-		// Exit 0 to prevent K8s CronJob from retrying on systemic failures.
+		// Exit non-zero so the Job is recorded as failed. The CronJob's
+		// backoffLimit: 0 keeps a systemic failure from being retried.
+		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(bootLogger *logging.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	bootLogger, _ := logging.New()
 	bootLogger.Info(ctx, "starting official site refresh job")
 
 	// Register shutdown before DI so partially-initialized resources are

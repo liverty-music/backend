@@ -148,7 +148,8 @@ func AddDatastorePhase(c ...io.Closer) {
 // Errors from individual closers are aggregated and returned as a
 // single joined error.
 // Shutdown is safe to call multiple times; only the first call
-// executes the teardown sequence.
+// executes the teardown sequence. Before [Init] it does nothing and returns
+// nil.
 func Shutdown(ctx context.Context) error {
 	var result error
 	once.Do(func() {
@@ -158,8 +159,12 @@ func Shutdown(ctx context.Context) error {
 }
 
 func run(ctx context.Context) error {
+	// Without Init the process failed to start before its resources were
+	// handed over, so there is nothing to tear down. The start failure itself
+	// is logged by main; returning an error here would log a second ERROR
+	// entry for the same start.
 	if logger == nil {
-		return errors.New("shutdown: Init() must be called before Shutdown()")
+		return nil
 	}
 
 	start := time.Now()

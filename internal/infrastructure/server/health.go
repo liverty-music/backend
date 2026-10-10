@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"sync/atomic"
@@ -67,13 +68,17 @@ func (h *HealthServer) Handler() http.Handler {
 }
 
 // Start begins listening and serving. It blocks until the server is stopped.
-// It returns http.ErrServerClosed when Shutdown is called.
+// A stop through Close is the normal end of the process and returns nil, so
+// callers log only real failures.
 func (h *HealthServer) Start() error {
 	ln, err := net.Listen("tcp", h.srv.Addr)
 	if err != nil {
 		return err
 	}
-	return h.srv.Serve(ln)
+	if err := h.srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // SetReady transitions the readiness endpoint from 503 to 200,

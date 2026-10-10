@@ -712,8 +712,10 @@ func requireSet(vars ...envVar) error {
 }
 
 // Loadable constrains the config types that can be loaded from environment variables.
+// LoggingConfig is loadable on its own so a process can build its logger
+// before, and independently of, its workload config.
 type Loadable interface {
-	ServerConfig | JobConfig | ConsumerConfig | MediaConsumerConfig
+	ServerConfig | JobConfig | ConsumerConfig | MediaConsumerConfig | LoggingConfig
 }
 
 // Load loads configuration from environment variables into the specified workload config type.

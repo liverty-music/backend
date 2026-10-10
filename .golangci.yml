@@ -6,6 +6,7 @@ run:
 
 linters:
   enable:
+    - forbidigo
     - revive
   settings:
     revive:
@@ -16,3 +17,24 @@ linters:
           arguments:
             - "checkPrivateReceivers"
             - "sayRepetitiveInsteadOfStutters"
+    # Every log line a deployed process writes must go through the injected
+    # *logging.Logger, which writes JSON with a `severity` field. Package-level
+    # slog and the standard log package write text that Cloud Logging records
+    # at the wrong severity.
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^slog\.(Debug|Info|Warn|Error|Log|LogAttrs|Default)(Context)?$
+          pkg: ^log/slog$
+          msg: use the injected *logging.Logger
+        - pattern: ^log\.(Print|Fatal|Panic)(f|ln)?$
+          pkg: ^log$
+          msg: use the injected *logging.Logger
+  exclusions:
+    rules:
+      # Tests, and the local analysis CLIs whose stderr is read by a human at
+      # a terminal, are not deployed.
+      - path: _test\.go
+        linters: [forbidigo]
+      - path: ^cmd/(analyze-[^/]+|replay-ab-log|annotated-fixture)/
+        linters: [forbidigo]

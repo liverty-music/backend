@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -11,29 +12,33 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // ConnectNATS opens a shared *nats.Conn for use across all per-behavior
-// subscribers. It registers the three connection lifecycle handlers so the
-// ConsumerHealth reflects the real connection state immediately when NATS
-// disconnects, reconnects, or closes — without waiting for a Subscribe call.
+// subscribers. It blocks until the first connection is established, for up to
+// 5 minutes bounded by ctx, because the router binds durables with JetStream
+// API requests right after it returns. Each failed attempt is logged at
+// WARNING.
+//
+// It registers the connection lifecycle handlers so the ConsumerHealth
+// reflects the real connection state immediately when NATS disconnects,
+// reconnects, or closes — without waiting for a Subscribe call.
 //
 // The caller owns the returned connection and must drain/close it during
 // shutdown (after all watermill subscribers have been closed).
-func ConnectNATS(ctx context.Context, cfg config.NATSConfig, health *ConsumerHealth) (*natsgo.Conn, error) {
-	nc, err := connectWithRetry(ctx, cfg.URL,
-		// Reflect the live NATS connection state into the health tracker so a
-		// dropped connection (which stops all consumption) makes the liveness
-		// probe report unhealthy. These handlers are set once on the shared
-		// conn, not repeated per-subscriber.
-		natsgo.DisconnectErrHandler(func(_ *natsgo.Conn, _ error) {
+func ConnectNATS(ctx context.Context, cfg config.NATSConfig, health *ConsumerHealth, logger *logging.Logger) (*natsgo.Conn, error) {
+	nc, err := connectWithRetry(ctx, cfg.URL, natsStartupBudget, logger,
+		natsgo.DisconnectErrHandler(func(_ *natsgo.Conn, err error) {
 			health.SetConnected(false)
+			logger.Warn(ctx, "NATS disconnected", slog.Any("error", err))
 		}),
 		natsgo.ReconnectHandler(func(_ *natsgo.Conn) {
 			health.SetConnected(true)
+			logger.Info(ctx, "NATS reconnected")
 		}),
 		natsgo.ClosedHandler(func(_ *natsgo.Conn) {
-			health.SetConnected(false)
+			health.SetClosed()
 		}),
 	)
 	if err != nil {

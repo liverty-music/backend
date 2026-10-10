@@ -18,7 +18,7 @@ func TestNewPublisher_GoChannelFallback(t *testing.T) {
 	logger := watermill.NopLogger{}
 	ch := gochannel.NewGoChannel(gochannel.Config{}, logger)
 
-	pub, err := messaging.NewPublisher(cfg, logger, ch)
+	pub, err := messaging.NewPublisher(cfg, logger, ch, nil)
 
 	require.NoError(t, err)
 	assert.NotNil(t, pub)
@@ -30,7 +30,7 @@ func TestNewPublisher_NilGoChannelWithEmptyURLReturnsError(t *testing.T) {
 	cfg := config.NATSConfig{URL: ""}
 	logger := watermill.NopLogger{}
 
-	pub, err := messaging.NewPublisher(cfg, logger, nil)
+	pub, err := messaging.NewPublisher(cfg, logger, nil, nil)
 
 	require.Error(t, err)
 	assert.Nil(t, pub)

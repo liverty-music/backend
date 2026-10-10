@@ -8,7 +8,6 @@ import (
 	"net/url"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
-	"github.com/zitadel/zitadel-go/v3/pkg/client/middleware"
 	zitadelconn "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel"
 	mgmtpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/management"
 	userpb "github.com/zitadel/zitadel-go/v3/pkg/client/zitadel/user/v2"
@@ -74,7 +73,7 @@ func NewEmailVerifier(ctx context.Context, issuerURL, keyPath string, logger *lo
 
 	connOpts := []zitadelconn.Option{
 		zitadelconn.WithJWTProfileTokenSource(
-			middleware.JWTProfileFromPath(ctx, keyPath),
+			jwtProfileFromPath(ctx, keyPath),
 		),
 		zitadelconn.WithDialOptions(
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),

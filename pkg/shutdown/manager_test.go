@@ -1,9 +1,11 @@
 package shutdown_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type stubCloser struct {
@@ -257,13 +260,22 @@ func TestShutdown_InitIgnoresSecondCall(t *testing.T) {
 	assert.True(t, stub.closed.Load())
 }
 
-func TestShutdown_WithoutInitReturnsError(t *testing.T) {
+// @spec components/infrastructure/backend/process/structured-logging "Failed start"
+func TestShutdown_WithoutInitAddsNoErrorEntry(t *testing.T) {
 	t.Cleanup(shutdown.Reset)
-	// Do NOT call shutdown.Init — logger is nil.
+	buf := &bytes.Buffer{}
+	logger, err := logging.New(logging.WithFormat(logging.FormatJSON), logging.WithWriter(buf))
+	require.NoError(t, err)
 
-	err := shutdown.Shutdown(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "Init() must be called before Shutdown()")
+	// The flow of every main when DI fails before shutdown.Init: run's
+	// deferred cleanup, then main's fatal log.
+	startErr := errors.New("failed to ping database: connection refused")
+	if err := shutdown.Shutdown(context.Background()); err != nil {
+		logger.Error(context.Background(), "error during shutdown", err)
+	}
+	logger.Error(context.Background(), "server failed", startErr)
+
+	assert.Equal(t, 1, strings.Count(buf.String(), `"level":"ERROR"`), buf.String())
 }
 
 type countCloser struct {

@@ -58,7 +58,6 @@ import (
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
-	"github.com/pannpers/go-logging/logging"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -172,7 +171,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			OutputChannelBuffer: 256,
 		}, wmLogger)
 	}
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel)
+	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
@@ -437,7 +436,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Health check handler (public, outside authn middleware).
 	// Keep a reference so App.Shutdown can call SetShuttingDown.
-	healthChecker := rpc.NewHealthCheckHandler(db, logger)
+	healthChecker := rpc.NewHealthCheckHandler(db.Pool, logger)
 	healthHandler := func(opts ...connect.HandlerOption) (string, http.Handler) {
 		return grpchealth.NewHandler(healthChecker, opts...)
 	}
@@ -739,25 +738,4 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,
 	}, nil
-}
-
-func provideLogger(logCfg config.LoggingConfig) (*logging.Logger, error) {
-	var opts []logging.Option
-	switch logCfg.Level {
-	case "debug":
-		opts = append(opts, logging.WithLevel(slog.LevelDebug))
-	case "info":
-		opts = append(opts, logging.WithLevel(slog.LevelInfo))
-	case "warn":
-		opts = append(opts, logging.WithLevel(slog.LevelWarn))
-	case "error":
-		opts = append(opts, logging.WithLevel(slog.LevelError))
-	}
-	switch logCfg.Format {
-	case "text":
-		opts = append(opts, logging.WithFormat(logging.FormatText))
-	case "json":
-		opts = append(opts, logging.WithFormat(logging.FormatJSON))
-	}
-	return logging.New(opts...)
 }
