@@ -413,10 +413,18 @@ func TestClient_ResolveOfficialSiteURL(t *testing.T) {
 			wantURL: "",
 		},
 		{
+			// @spec components/entity/artist/resolve-official-site-url "Catalog unreachable"
 			name:       "error - HTTP 503 service unavailable",
 			args:       args{mbid: "test-mbid"},
 			statusCode: http.StatusServiceUnavailable,
 			wantErr:    apperr.New(codes.Unavailable, "musicbrainz url-rels request failed"),
+		},
+		{
+			// @spec components/entity/artist/resolve-official-site-url "MBID unknown to the catalog"
+			name:       "error - HTTP 404 for an MBID the catalog does not know",
+			args:       args{mbid: "00000000-0000-4000-8000-000000000000"},
+			statusCode: http.StatusNotFound,
+			wantErr:    apperr.New(codes.NotFound, "musicbrainz url-rels request failed"),
 		},
 		{
 			name:        "error - invalid JSON response",

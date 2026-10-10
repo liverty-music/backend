@@ -137,6 +137,24 @@ func TestOfficialSiteRefreshUseCase_RefreshOfficialSite(t *testing.T) {
 		d.artistRepo.AssertNotCalled(t, "CreateOfficialSite", mock.Anything, mock.Anything)
 	})
 
+	// @spec components/usecase/artist/refresh-official-site "MBID unknown to the catalog"
+	t.Run("MBID unknown to the catalog", func(t *testing.T) {
+		t.Parallel()
+		d := newOfficialSiteRefreshTestDeps(t)
+		start := time.Now()
+
+		d.siteResolver.EXPECT().ResolveOfficialSiteURL(ctx, refreshMBID).
+			Return("", apperr.New(codes.NotFound, "musicbrainz url-rels request failed")).Once()
+		d.artistRepo.EXPECT().MarkOfficialSiteChecked(ctx, refreshArtistID, checkedNow(start)).Return(nil).Once()
+
+		err := d.uc.RefreshOfficialSite(ctx, refreshArtistID, refreshMBID)
+
+		assert.NoError(t, err)
+		d.artistRepo.AssertNotCalled(t, "GetOfficialSite", mock.Anything, mock.Anything)
+		d.artistRepo.AssertNotCalled(t, "UpdateOfficialSiteURL", mock.Anything, mock.Anything, mock.Anything)
+		d.artistRepo.AssertNotCalled(t, "CreateOfficialSite", mock.Anything, mock.Anything)
+	})
+
 	// @spec components/usecase/artist/refresh-official-site "Catalog unreachable"
 	t.Run("Catalog unreachable", func(t *testing.T) {
 		t.Parallel()

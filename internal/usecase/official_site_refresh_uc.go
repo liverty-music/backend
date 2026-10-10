@@ -105,9 +105,18 @@ func officialSiteRefreshBatchSize(followed int) int {
 }
 
 // RefreshOfficialSite brings the artist's stored official site in line with the catalog.
+// An MBID the catalog does not know counts as no URL found, so the check is
+// still recorded and the artist is not due again on every run.
 func (uc *officialSiteRefreshUseCase) RefreshOfficialSite(ctx context.Context, artistID, mbid string) error {
 	url, err := uc.siteResolver.ResolveOfficialSiteURL(ctx, mbid)
-	if err != nil {
+	switch {
+	case errors.Is(err, apperr.ErrNotFound):
+		uc.logger.Warn(ctx, "catalog has no artist for the MBID; recording the official site check",
+			slog.String("artist_id", artistID),
+			slog.String("mbid", mbid),
+		)
+		url = ""
+	case err != nil:
 		return fmt.Errorf("resolve official site url for artist %s: %w", artistID, err)
 	}
 
