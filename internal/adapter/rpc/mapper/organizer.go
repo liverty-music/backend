@@ -13,8 +13,35 @@ func OrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
 		return nil
 	}
 	return &entityv1.Organizer{
-		Id:   &entityv1.OrganizerId{Value: o.ID},
-		Name: &entityv1.OrganizerName{Value: o.Name},
+		Id:                 &entityv1.OrganizerId{Value: o.ID},
+		Name:               &entityv1.OrganizerName{Value: o.Name},
+		SellerDetails:      SellerDetailsToProto(o.SellerDetails),
+		PlatformFeeRateBps: int32(o.PlatformFeeRateBps),
+	}
+}
+
+// SellerDetailsToProto maps domain seller details to Protobuf, or nil.
+func SellerDetailsToProto(d *entity.SellerDetails) *entityv1.SellerDetails {
+	if d == nil {
+		return nil
+	}
+	return &entityv1.SellerDetails{
+		LegalName:          d.LegalName,
+		RepresentativeName: d.RepresentativeName,
+		Address:            d.Address,
+		PhoneNumber:        d.PhoneNumber,
+		ContactEmail:       d.ContactEmail,
+	}
+}
+
+// SellerDetailsFromProto maps Protobuf seller details to the domain value.
+func SellerDetailsFromProto(pb *entityv1.SellerDetails) entity.SellerDetails {
+	return entity.SellerDetails{
+		LegalName:          pb.GetLegalName(),
+		RepresentativeName: pb.GetRepresentativeName(),
+		Address:            pb.GetAddress(),
+		PhoneNumber:        pb.GetPhoneNumber(),
+		ContactEmail:       pb.GetContactEmail(),
 	}
 }
 

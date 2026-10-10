@@ -34,6 +34,16 @@ type TicketJourneyUseCase interface {
 	//
 	//   - Internal: query failure.
 	ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error)
+
+	// MarkPaid sets the buyer's ticket journey for the event to Paid for a paid
+	// Order, from a checkout or a won lottery, replacing whatever status the fan
+	// set. The change is not announced as a status change. Running it again for
+	// the same Order leaves the journey Paid.
+	//
+	// # Possible errors:
+	//
+	//   - The upsert's failure, unchanged; the announcement is redelivered.
+	MarkPaid(ctx context.Context, paid entity.OrderPaidData) error
 }
 
 // ticketJourneyUseCase implements the TicketJourneyUseCase interface.
@@ -116,4 +126,13 @@ func (uc *ticketJourneyUseCase) Delete(ctx context.Context, userID, eventID stri
 // ListByUser retrieves all ticket journeys for a user.
 func (uc *ticketJourneyUseCase) ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error) {
 	return uc.repo.ListByUser(ctx, userID)
+}
+
+// MarkPaid implements [TicketJourneyUseCase].
+func (uc *ticketJourneyUseCase) MarkPaid(ctx context.Context, paid entity.OrderPaidData) error {
+	return uc.repo.Upsert(ctx, &entity.TicketJourney{
+		UserID:  paid.BuyerID,
+		EventID: paid.EventID,
+		Status:  entity.TicketJourneyStatusPaid,
+	})
 }

@@ -175,6 +175,19 @@ type chargeObjectData struct {
 //
 // Returns empty strings for non-charge events or on parse failure.
 func (h *StripeWebhookHandler) extractChargeContext(ctx context.Context, event stripe.Event) (chargeRef, paymentIntentRef string) {
+	// For payment_intent.* events the data.object is the PaymentIntent itself.
+	if string(event.Type) == string(usecase.StripeEventPaymentIntentSucceeded) {
+		var pi struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(event.Data.Raw, &pi); err != nil || pi.ID == "" {
+			h.logger.Warn(ctx, "stripe webhook: could not extract the PaymentIntent id",
+				slog.String("event_id", event.ID))
+			return "", ""
+		}
+		return "", pi.ID
+	}
+
 	switch string(event.Type) {
 	case string(usecase.StripeEventChargeRefunded),
 		string(usecase.StripeEventChargeDisputeCreated):

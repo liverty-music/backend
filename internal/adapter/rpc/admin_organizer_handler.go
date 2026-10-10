@@ -124,3 +124,32 @@ func (h *AdminOrganizerHandler) Delete(
 	}
 	return connect.NewResponse(&organizerv1.DeleteResponse{}), nil
 }
+
+// UpdateSellerDetails records an Organizer's 特商法 seller details and returns
+// the Organizer with them. The request is validated by the server's
+// protovalidate interceptor before this runs.
+func (h *AdminOrganizerHandler) UpdateSellerDetails(
+	ctx context.Context,
+	req *connect.Request[organizerv1.UpdateSellerDetailsRequest],
+) (*connect.Response[organizerv1.UpdateSellerDetailsResponse], error) {
+	organizer, err := h.organizerUseCase.UpdateSellerDetails(ctx,
+		req.Msg.GetOrganizerId().GetValue(), mapper.SellerDetailsFromProto(req.Msg.GetSellerDetails()))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&organizerv1.UpdateSellerDetailsResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
+}
+
+// SetPlatformFeeRate sets the platform fee rate of an Organizer's future
+// Orders and returns the Organizer with it.
+func (h *AdminOrganizerHandler) SetPlatformFeeRate(
+	ctx context.Context,
+	req *connect.Request[organizerv1.SetPlatformFeeRateRequest],
+) (*connect.Response[organizerv1.SetPlatformFeeRateResponse], error) {
+	organizer, err := h.organizerUseCase.SetPlatformFeeRate(ctx,
+		req.Msg.GetOrganizerId().GetValue(), int(req.Msg.GetPlatformFeeRateBps()))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&organizerv1.SetPlatformFeeRateResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
+}

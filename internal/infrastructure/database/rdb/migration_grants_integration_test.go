@@ -29,7 +29,7 @@ const (
 	// superuser test-user. search_path=app matches the Atlas Operator
 	// connection (k8s/atlas/base/atlas-migration.yaml), so every table lands in
 	// schema app as in production.
-	grantsTestDSNFormat = "postgres://test-user@localhost:15432/%s?sslmode=disable&search_path=app"
+	grantsTestDSNFormat = "postgres://test-user@localhost:%d/%s?sslmode=disable&search_path=app"
 
 	// grantsTestDatabase is the scratch database the migrations are applied
 	// to, next to the shared test-db.
@@ -54,8 +54,9 @@ type organizerTableWrites struct {
 }
 
 // organizerWrites is every write the organizer server performs (see
-// 20261008020000_restrict_organizer_console_api_and_zitadel_app_grants.sql and
-// 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql).
+// 20261008020000_restrict_organizer_console_api_and_zitadel_app_grants.sql,
+// 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql and
+// 20261010010000_grant_organizer_console_api_ticket_sales.sql).
 // Any other app table is SELECT-only for the role.
 var organizerWrites = map[string]organizerTableWrites{
 	"series": {insert: true, updateColumns: []string{
@@ -73,6 +74,7 @@ var organizerWrites = map[string]organizerTableWrites{
 	"lottery_sales_phases":         {insert: true, updateColumns: []string{"verification_requirement"}},
 	"organizer_connected_accounts": {insert: true, updateColumns: []string{"account_ref", "status", "status_synced_at"}},
 	"reception_links":              {insert: true, updateColumns: []string{"status", "token", "revoked_at"}},
+	"ticket_sales":                 {insert: true, updateColumns: []string{"sale_start_at", "sale_end_at", "price", "quantity", "per_account_limit"}},
 }
 
 // receptionTableAccess is the access of the reception-api role to one app
@@ -211,7 +213,7 @@ func setupGrantsDatabase(t *testing.T, ctx context.Context) *pgx.Conn {
 		_, err := testDB.Pool.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{grantsTestDatabase}.Sanitize())
 		require.NoError(t, err)
 	}
-	dsn := fmt.Sprintf(grantsTestDSNFormat, grantsTestDatabase)
+	dsn := fmt.Sprintf(grantsTestDSNFormat, testDBPort(), grantsTestDatabase)
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
 

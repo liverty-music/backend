@@ -102,6 +102,9 @@ type User struct {
 	// Home is the user's home area. Nil when not set.
 	// Determines proximity classification (home/nearby/away).
 	Home *Home
+	// HolderIdentity is the 本人確認 name and phone the user last checked out
+	// with, kept to prefill the next checkout. Nil until the first checkout.
+	HolderIdentity *HolderIdentity
 }
 
 // NewUser represents data for creating a new user.
@@ -210,6 +213,15 @@ type UserRepository interface {
 	//
 	//  - NotFound: If the user does not exist.
 	UpdateHome(ctx context.Context, id string, home *Home) (*User, error)
+
+	// UpdateHolderIdentity replaces the user's holder full name and phone
+	// number and returns the updated user.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: either value breaks the holder identity rules.
+	//  - NotFound: If the user does not exist.
+	UpdateHolderIdentity(ctx context.Context, id string, identity HolderIdentity) (*User, error)
 
 	// List retrieves users with pagination.
 	List(ctx context.Context, limit, offset int) ([]*User, error)

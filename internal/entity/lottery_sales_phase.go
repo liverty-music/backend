@@ -100,21 +100,6 @@ type LotterySalesPhase struct {
 	VerificationRequirement VerificationRequirement
 }
 
-// ApplicantIdentity carries the full-name and phone number required for
-// ticket collection at the venue. Collected at application time and not used
-// in the draw algorithm.
-//
-// TODO: swap to generated liverty_music.entity.v1.ApplicantIdentity after BSR gen.
-type ApplicantIdentity struct {
-	// FullName is the applicant's legal name as it appears on their ID.
-	FullName string
-
-	// PhoneNumber is the contact phone number in E.164 format (e.g. "+819012345678").
-	// The proto rule on ApplicantIdentity rejects any other format at the RPC
-	// boundary, and a CHECK constraint enforces it in storage.
-	PhoneNumber string
-}
-
 // PaymentAuthorization carries the Stripe PaymentIntent reference created when
 // a fan authorizes (holds) the ticket amount at application time. No money is
 // captured until the draw runs.
@@ -251,7 +236,7 @@ type TicketApplication struct {
 	RequestedTicketCount int
 
 	// Identity carries the full name and phone number for ticket collection (本人確認).
-	Identity ApplicantIdentity
+	Identity HolderIdentity
 
 	// Authorization holds the Stripe PaymentIntent reference for the authorization
 	// placed on the fan's card at application time.
@@ -393,6 +378,14 @@ type TicketApplicationRepository interface {
 	//
 	//  - NotFound: no active application for the (phase, applicant) pair.
 	GetByPhaseAndApplicant(ctx context.Context, phaseID LotteryPhaseID, applicantID UserID) (*TicketApplication, error)
+
+	// GetByPaymentIntentRef returns the application whose card authorization
+	// has the given reference.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no application has the reference.
+	GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*TicketApplication, error)
 
 	// Get returns the application by its own ID.
 	//

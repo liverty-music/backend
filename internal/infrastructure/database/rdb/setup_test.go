@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -14,6 +15,16 @@ import (
 )
 
 var testDB *rdb.Database
+
+// testDBPort is the port of the integration-test PostgreSQL: TEST_DB_PORT when
+// set (to run against a throwaway container next to the shared one), else
+// the compose service's 15432.
+func testDBPort() int {
+	if port, err := strconv.Atoi(os.Getenv("TEST_DB_PORT")); err == nil {
+		return port
+	}
+	return 15432
+}
 
 func TestMain(m *testing.M) {
 	if !flag.Parsed() {
@@ -38,7 +49,7 @@ func TestMain(m *testing.M) {
 func setupTestDatabase() *rdb.Database {
 	dbCfg := config.DatabaseConfig{
 		Host:    "localhost",
-		Port:    15432,
+		Port:    testDBPort(),
 		Name:    "test-db",
 		User:    "test-user",
 		SSLMode: "disable",

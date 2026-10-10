@@ -93,6 +93,13 @@ const (
 	// Duplicates window (2 minutes) deduplicates broker-side. Already covered
 	// by the existing NOTIFICATION.* stream — see streams.go.
 	SubjectNotificationRequested = "NOTIFICATION.requested"
+	// SubjectOrderPaid announces that an Order is paid, for a won lottery
+	// application or a completed checkout. IssuanceUseCase.FulfillPayment
+	// publishes it on the payment provider's completed-charge webhook, with the
+	// Order id as the message id. Two consumers run from
+	// it: the purchase confirmation (NotificationUseCase.SendOrderConfirmation)
+	// and the ticket journey (TicketJourneyUseCase.MarkPaid).
+	SubjectOrderPaid = "ORDER.paid"
 )
 
 // AllSubjects is the canonical catalogue of every domain-event NATS subject
@@ -122,6 +129,31 @@ var AllSubjects = []string{
 	SubjectOrganizerConcertPublished,
 	SubjectMediaUploaded,
 	SubjectNotificationRequested,
+	SubjectOrderPaid,
+}
+
+// OrderPaidData is the payload for ORDER.paid events. It carries ids and
+// amounts only, never personal data; consumers read the rest by id. Exactly
+// one of ApplicationID and ReservationID is set: the Order's source.
+type OrderPaidData struct {
+	// OrderID is the paid Order; also the event's message id, so a
+	// republished announcement is deduplicated and consumers are idempotent by
+	// it.
+	OrderID string `json:"order_id"`
+	// BuyerID is the platform-internal user id of the buyer.
+	BuyerID string `json:"buyer_id"`
+	// EventID is the event the Order's tickets admit to.
+	EventID string `json:"event_id"`
+	// TicketCount is the number of Tickets the Order issued.
+	TicketCount int `json:"ticket_count"`
+	// Amount is the Order's amount in the currency's smallest unit (yen).
+	Amount int64 `json:"amount"`
+	// Currency is the ISO 4217 code of Amount.
+	Currency string `json:"currency"`
+	// ApplicationID is the won lottery application, when that is the source.
+	ApplicationID string `json:"application_id,omitempty"`
+	// ReservationID is the completed checkout, when that is the source.
+	ReservationID string `json:"reservation_id,omitempty"`
 }
 
 // ConcertCreatedData is the payload for CONCERT.created events.

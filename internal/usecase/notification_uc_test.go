@@ -66,6 +66,7 @@ func buildNotificationUC(
 		publisher,
 		noopMetrics{},
 		newTestLogger(t),
+		usecase.OrderConfirmationDeps{},
 	)
 }
 
@@ -455,7 +456,7 @@ func TestDeliver_FailedDeliveryEmitsWarningLogAndMetric(t *testing.T) {
 
 	metrics := &captureMetrics{}
 	logger, buf := newCaptureLogger(t)
-	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t), metrics, logger)
+	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t), metrics, logger, usecase.OrderConfirmationDeps{})
 
 	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)
@@ -496,7 +497,7 @@ func TestDeliver_SuccessEmitsNoWarningLog(t *testing.T) {
 
 	metrics := &captureMetrics{}
 	logger, buf := newCaptureLogger(t)
-	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, publisher, metrics, logger)
+	uc := usecase.NewNotificationUseCase(notifRepo, pushSubRepo, sender, publisher, metrics, logger, usecase.OrderConfirmationDeps{})
 
 	_, err := uc.Deliver(context.Background(), "user-1", entity.NotificationTypeNewConcerts, notifPayload())
 	require.NoError(t, err)

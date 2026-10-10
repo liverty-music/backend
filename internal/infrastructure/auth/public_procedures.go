@@ -4,6 +4,7 @@ import (
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	receptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
+	ticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
 )
 
 // FanPublicProcedures returns the consumer (fan) Connect procedures that are
@@ -22,6 +23,7 @@ func FanPublicProcedures() map[string]bool {
 		"/" + concertconnect.ConcertServiceName + "/ListByLocation":    true,
 		"/" + concertconnect.ConcertServiceName + "/Get":               true,
 		"/" + concertconnect.ConcertServiceName + "/ListBySeries":      true,
+		ticketsaleconnect.TicketSaleServiceGetProcedure:                true,
 	}
 }
 

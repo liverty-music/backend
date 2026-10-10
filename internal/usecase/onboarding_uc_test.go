@@ -113,6 +113,14 @@ func (s *stubOrganizerRepoForOnboarding) Delete(_ context.Context, _ string, _ b
 	return nil
 }
 
+func (s *stubOrganizerRepoForOnboarding) SetSellerDetails(_ context.Context, _ string, _ entity.SellerDetails) error {
+	return nil
+}
+
+func (s *stubOrganizerRepoForOnboarding) SetPlatformFeeRate(_ context.Context, _ string, _ int) error {
+	return nil
+}
+
 func newOnboardingUC(t *testing.T,
 	acctRepo entity.OrganizerConnectedAccountRepository,
 	port entity.PaymentSettlementPort,

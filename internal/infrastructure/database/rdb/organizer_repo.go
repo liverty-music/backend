@@ -2,6 +2,7 @@ package rdb
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -23,19 +24,29 @@ const (
 	insertOrganizerQuery = `
 		INSERT INTO organizers (id, name, operator_email, zitadel_org_id, status)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, name, operator_email, zitadel_org_id, status
+		RETURNING id, name, operator_email, zitadel_org_id, status,
+			seller_legal_name, seller_representative_name, seller_address, seller_phone_number, seller_contact_email,
+			platform_fee_rate_bps
 	`
 	getOrganizerQuery = `
-		SELECT id, name, operator_email, zitadel_org_id, status FROM organizers WHERE id = $1
+		SELECT id, name, operator_email, zitadel_org_id, status,
+			seller_legal_name, seller_representative_name, seller_address, seller_phone_number, seller_contact_email,
+			platform_fee_rate_bps FROM organizers WHERE id = $1
 	`
 	getOrganizerByZitadelOrgIDQuery = `
-		SELECT id, name, operator_email, zitadel_org_id, status FROM organizers WHERE zitadel_org_id = $1
+		SELECT id, name, operator_email, zitadel_org_id, status,
+			seller_legal_name, seller_representative_name, seller_address, seller_phone_number, seller_contact_email,
+			platform_fee_rate_bps FROM organizers WHERE zitadel_org_id = $1
 	`
 	listOrganizersQuery = `
-		SELECT id, name, operator_email, zitadel_org_id, status FROM organizers ORDER BY name
+		SELECT id, name, operator_email, zitadel_org_id, status,
+			seller_legal_name, seller_representative_name, seller_address, seller_phone_number, seller_contact_email,
+			platform_fee_rate_bps FROM organizers ORDER BY name
 	`
 	listOrganizersByStatusQuery = `
-		SELECT id, name, operator_email, zitadel_org_id, status FROM organizers WHERE status = $1 ORDER BY name
+		SELECT id, name, operator_email, zitadel_org_id, status,
+			seller_legal_name, seller_representative_name, seller_address, seller_phone_number, seller_contact_email,
+			platform_fee_rate_bps FROM organizers WHERE status = $1 ORDER BY name
 	`
 	setOrganizerZitadelOrgIDQuery = `
 		UPDATE organizers SET zitadel_org_id = $2 WHERE id = $1
@@ -62,21 +73,46 @@ const (
 	deleteOrganizerArtistsQuery = `
 		DELETE FROM organizer_artists WHERE organizer_id = $1
 	`
+	setOrganizerSellerDetailsQuery = `
+		UPDATE organizers
+		SET seller_legal_name = $2, seller_representative_name = $3, seller_address = $4,
+			seller_phone_number = $5, seller_contact_email = $6
+		WHERE id = $1
+	`
+	setOrganizerPlatformFeeRateQuery = `
+		UPDATE organizers SET platform_fee_rate_bps = $2 WHERE id = $1
+	`
 )
 
 // scanOrganizer extracts an Organizer from a pgx row.
 func scanOrganizer(scan func(dest ...any) error) (*entity.Organizer, error) {
-	var o entity.Organizer
-	var zitadelOrgID *string
-	var status int16
+	var (
+		o                                                  entity.Organizer
+		zitadelOrgID                                       *string
+		status                                             int16
+		legalName, representative, address, phone, contact sql.NullString
+		feeRate                                            int32
+	)
 
-	if err := scan(&o.ID, &o.Name, &o.OperatorEmail, &zitadelOrgID, &status); err != nil {
+	if err := scan(&o.ID, &o.Name, &o.OperatorEmail, &zitadelOrgID, &status,
+		&legalName, &representative, &address, &phone, &contact, &feeRate); err != nil {
 		return nil, err
 	}
 	if zitadelOrgID != nil {
 		o.ZitadelOrgID = *zitadelOrgID
 	}
 	o.Status = entity.OrganizerStatus(status)
+	// The seller details are stored all-or-none (CHECK constraint).
+	if legalName.Valid {
+		o.SellerDetails = &entity.SellerDetails{
+			LegalName:          legalName.String,
+			RepresentativeName: representative.String,
+			Address:            address.String,
+			PhoneNumber:        phone.String,
+			ContactEmail:       contact.String,
+		}
+	}
+	o.PlatformFeeRateBps = int(feeRate)
 	return &o, nil
 }
 
@@ -299,6 +335,21 @@ func (r *OrganizerRepository) IsArtistRepresentedByActiveOrganizer(ctx context.C
 	return exists, nil
 }
 
+// organizerOrderIDsSubquery selects the ids of every Order whose source — a
+// won application of a lottery phase or a reservation of a ticket sale — is
+// for an Event of the organizer bound to $1.
+const organizerOrderIDsSubquery = `
+	SELECT o.id FROM orders o
+	JOIN ticket_applications ta ON ta.id = o.application_id
+	JOIN lottery_sales_phases p ON p.id = ta.phase_id
+	WHERE p.event_id IN (` + organizerEventIDsSubquery + `)
+	UNION ALL
+	SELECT o.id FROM orders o
+	JOIN reservations rv ON rv.id = o.reservation_id
+	JOIN ticket_sales ts ON ts.id = rv.ticket_sale_id
+	WHERE ts.event_id IN (` + organizerEventIDsSubquery + `)
+`
+
 // organizerEventIDsSubquery selects the ids of every Event in a Series owned by
 // the organizer bound to $1. It is shared by the deletion check and the
 // deletion statements below.
@@ -317,9 +368,11 @@ const (
 		SELECT
 			EXISTS (
 				SELECT 1 FROM orders o
-				JOIN ticket_applications ta ON ta.id = o.application_id
-				JOIN lottery_sales_phases p ON p.id = ta.phase_id
-				WHERE p.event_id IN (` + organizerEventIDsSubquery + `) AND o.status <> $2
+				WHERE o.id IN (` + organizerOrderIDsSubquery + `) AND o.status <> $2
+			) OR EXISTS (
+				SELECT 1 FROM reservations rv
+				JOIN ticket_sales ts ON ts.id = rv.ticket_sale_id
+				WHERE ts.event_id IN (` + organizerEventIDsSubquery + `) AND rv.capture_at IS NOT NULL AND rv.status <> $4
 			),
 			EXISTS (
 				SELECT 1 FROM settlements st
@@ -347,9 +400,17 @@ const (
 		WHERE t.order_id = o.id AND t.event_id IN (` + organizerEventIDsSubquery + `) AND o.status = $2
 	`
 	deleteOrganizerOrdersQuery = `
-		DELETE FROM orders o USING ticket_applications ta, lottery_sales_phases p
-		WHERE ta.id = o.application_id AND p.id = ta.phase_id
-		  AND p.event_id IN (` + organizerEventIDsSubquery + `) AND o.status = $2
+		DELETE FROM orders o
+		WHERE o.id IN (` + organizerOrderIDsSubquery + `) AND o.status = $2
+	`
+	// A reservation still referenced by an Order (one not refunded) makes this
+	// delete fail on the RESTRICT foreign key instead of removing it.
+	deleteOrganizerReservationsQuery = `
+		DELETE FROM reservations rv USING ticket_sales ts
+		WHERE ts.id = rv.ticket_sale_id AND ts.event_id IN (` + organizerEventIDsSubquery + `)
+	`
+	deleteOrganizerTicketSalesQuery = `
+		DELETE FROM ticket_sales WHERE event_id IN (` + organizerEventIDsSubquery + `)
 	`
 	deleteOrganizerSeriesQuery = `
 		DELETE FROM series WHERE organizer_id = $1
@@ -368,7 +429,7 @@ const (
 // with dryRun the transaction is rolled back after the check.
 //
 // The statements run in RESTRICT-safe order: reception records, then the
-// refunded purchases, then the Series (which cascades Events, phases,
+// refunded purchases, then the checkouts and ticket sales, then the Series (which cascades Events, phases,
 // applications, journeys, performers and series_media), then the Media rows
 // and finally the organizer row (which cascades organizer_artists).
 func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool) error {
@@ -390,6 +451,7 @@ func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool
 	var unrefundedOrder, unreversedSettlement, payoutAccount bool
 	if err := tx.QueryRow(ctx, organizerDeletionBlockersQuery, id,
 		int16(entity.OrderStatusRefunded), int16(entity.SettlementStatusReversed),
+		int16(entity.ReservationStatusCompleted),
 	).Scan(&unrefundedOrder, &unreversedSettlement, &payoutAccount); err != nil {
 		return toAppErr(err, "failed to check organizer deletion blockers", slog.String("id", id))
 	}
@@ -416,6 +478,8 @@ func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool
 		{deleteOrganizerSettlementsQuery, []any{id, int16(entity.SettlementStatusReversed)}, "settlements"},
 		{deleteOrganizerTicketsQuery, []any{id, int16(entity.OrderStatusRefunded)}, "tickets"},
 		{deleteOrganizerOrdersQuery, []any{id, int16(entity.OrderStatusRefunded)}, "orders"},
+		{deleteOrganizerReservationsQuery, []any{id}, "reservations"},
+		{deleteOrganizerTicketSalesQuery, []any{id}, "ticket sales"},
 		{deleteOrganizerSeriesQuery, []any{id}, "series"},
 		{deleteOrganizerMediaQuery, []any{id}, "media"},
 		{deleteOrganizerQuery, []any{id}, "organizer"},
@@ -430,5 +494,37 @@ func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool
 		return toAppErr(err, "failed to commit organizer delete", slog.String("id", id))
 	}
 	r.db.logger.Info(ctx, "organizer deleted", slog.String("entityType", "organizer"), slog.String("id", id))
+	return nil
+}
+
+// SetSellerDetails replaces the organizer's seller details as a whole.
+func (r *OrganizerRepository) SetSellerDetails(ctx context.Context, id string, details entity.SellerDetails) error {
+	if err := details.Validate(); err != nil {
+		return apperr.Wrap(err, codes.InvalidArgument, "invalid seller details")
+	}
+	tag, err := r.db.Pool.Exec(ctx, setOrganizerSellerDetailsQuery, id,
+		details.LegalName, details.RepresentativeName, details.Address, details.PhoneNumber, details.ContactEmail)
+	if err != nil {
+		return toAppErr(err, "failed to set organizer seller details", slog.String("id", id))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "organizer not found")
+	}
+	return nil
+}
+
+// SetPlatformFeeRate stores the platform fee rate applied to the organizer's
+// future orders.
+func (r *OrganizerRepository) SetPlatformFeeRate(ctx context.Context, id string, rateBps int) error {
+	if err := entity.ValidatePlatformFeeRate(rateBps); err != nil {
+		return apperr.Wrap(err, codes.InvalidArgument, "invalid platform fee rate")
+	}
+	tag, err := r.db.Pool.Exec(ctx, setOrganizerPlatformFeeRateQuery, id, rateBps)
+	if err != nil {
+		return toAppErr(err, "failed to set organizer platform fee rate", slog.String("id", id))
+	}
+	if tag.RowsAffected() == 0 {
+		return apperr.New(codes.NotFound, "organizer not found")
+	}
 	return nil
 }

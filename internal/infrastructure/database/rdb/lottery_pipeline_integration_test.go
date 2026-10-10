@@ -98,7 +98,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 			PhaseID:              phase.ID,
 			ApplicantID:          entity.UserID(userID),
 			RequestedTicketCount: 1,
-			Identity:             entity.ApplicantIdentity{FullName: "Test Fan", PhoneNumber: "+819012345678"},
+			Identity:             entity.HolderIdentity{FullName: "Test Fan", PhoneNumber: "+819012345678"},
 			PaymentIntentRef:     auth.PaymentIntentRef,
 		})
 		require.NoError(t, err)

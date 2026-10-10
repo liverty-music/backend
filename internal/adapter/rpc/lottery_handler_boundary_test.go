@@ -34,7 +34,7 @@ func TestLotteryHandler_Apply_Boundary(t *testing.T) {
 		return &lotteryv1.ApplyRequest{
 			PhaseId:              &entityv1.LotterySalesPhaseId{Value: "01920000-0000-7000-8000-000000000001"},
 			RequestedTicketCount: 2,
-			Identity: &entityv1.ApplicantIdentity{
+			Identity: &entityv1.HolderIdentity{
 				FullName:    "山田太郎",
 				PhoneNumber: "+819012345678",
 			},

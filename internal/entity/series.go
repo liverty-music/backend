@@ -127,6 +127,10 @@ type Series struct {
 	// OrganizerID is the owning organizer for a first-party series. Nil marks
 	// a discovery-pipeline series.
 	OrganizerID *string
+	// Organizer is the owning organizer, resolved on concert reads so a fan
+	// sees who sells the tickets. Set exactly when OrganizerID is set on those
+	// reads; nil elsewhere.
+	Organizer *Organizer
 	// Visibility controls who can reach the series (PUBLIC or UNLISTED). Nil
 	// for discovered series.
 	Visibility *SeriesVisibility

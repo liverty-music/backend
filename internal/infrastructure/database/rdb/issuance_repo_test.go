@@ -70,7 +70,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 			OrderID:                        order.ID,
 			HolderID:                       entity.UserID(buyerID),
 			EventID:                        eventID,
-			HolderIdentity:                 entity.ApplicantIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
+			HolderIdentity:                 entity.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
 			IssuedTime:                     paidTime,
@@ -239,7 +239,7 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 			OrderID:                        order.ID,
 			HolderID:                       entity.UserID(buyerID),
 			EventID:                        eventID,
-			HolderIdentity:                 entity.ApplicantIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
+			HolderIdentity:                 entity.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
 			IssuedTime:                     paidTime,
@@ -252,7 +252,7 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 			OrderID:                        order.ID,
 			HolderID:                       entity.UserID(buyerID),
 			EventID:                        entity.NewID(),
-			HolderIdentity:                 entity.ApplicantIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
+			HolderIdentity:                 entity.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
 			IssuedTime:                     paidTime,
@@ -280,4 +280,108 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 
 	_, err = settlementRepo.GetByOrderID(ctx, order.ID)
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "no Settlement must be stored when the transaction fails")
+}
+
+// TestIssuanceRepository_IssueFromCheckout covers issuance whose source is a
+// Reservation: it is completed in the same transaction, only when Committed
+// and charged, and at most once.
+func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+	reservations := rdb.NewReservationRepository(testDB)
+	issuanceRepo := rdb.NewIssuanceRepository(testDB)
+	orderRepo := rdb.NewOrderRepository(testDB)
+	start := saleWindowStart.Add(time.Hour)
+
+	t.Run("order issued from a checkout", func(t *testing.T) {
+		// @spec components/entity/order/issue "Order issued from a checkout"
+		res := chargedReservation(t, reservations, start)
+		order, tickets, settlement := checkoutOrder(t, res, start.Add(3*time.Minute))
+
+		require.NoError(t, issuanceRepo.Issue(ctx, order, tickets, settlement))
+
+		got, err := reservations.Get(ctx, res.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.ReservationStatusCompleted, got.Status)
+
+		// @spec components/entity/order/get-by-reservation-id "Paid checkout"
+		byRes, err := orderRepo.GetByReservationID(ctx, res.ID)
+		require.NoError(t, err)
+		assert.Equal(t, order.ID, byRes.ID)
+		assert.Equal(t, res.ID, byRes.ReservationID)
+		assert.Empty(t, byRes.ApplicationID)
+
+		// @spec components/entity/order/issue "Second order for the reservation"
+		dup, dupTickets, dupSettlement := checkoutOrder(t, res, start.Add(4*time.Minute))
+		err = issuanceRepo.Issue(ctx, dup, dupTickets, dupSettlement)
+		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
+		_, err = orderRepo.Get(ctx, dup.ID)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("reservation not charged", func(t *testing.T) {
+		// @spec components/entity/order/issue "Reservation not charged"
+		res := heldReservation(t, reservations, 2, start)
+		require.NoError(t, reservations.SetAuthorization(ctx, res.ID, holderIdentity, "pi_nc"))
+		_, err := reservations.Commit(ctx, res.ID, start.Add(time.Minute))
+		require.NoError(t, err)
+		order, tickets, settlement := checkoutOrder(t, res, start.Add(2*time.Minute))
+
+		err = issuanceRepo.Issue(ctx, order, tickets, settlement)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		_, err = orderRepo.Get(ctx, order.ID)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		got, err := reservations.Get(ctx, res.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.ReservationStatusCommitted, got.Status)
+	})
+
+	t.Run("failure stores nothing and the reservation stays committed", func(t *testing.T) {
+		res := chargedReservation(t, reservations, start)
+		order, tickets, settlement := checkoutOrder(t, res, start.Add(3*time.Minute))
+		tickets[1].EventID = entity.NewID() // violates the tickets.event_id foreign key
+
+		err := issuanceRepo.Issue(ctx, order, tickets, settlement)
+
+		require.Error(t, err)
+		_, err = orderRepo.Get(ctx, order.ID)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		got, err := reservations.Get(ctx, res.ID)
+		require.NoError(t, err)
+		assert.Equal(t, entity.ReservationStatusCommitted, got.Status)
+	})
+
+	t.Run("checkout not paid", func(t *testing.T) {
+		// @spec components/entity/order/get-by-reservation-id "Checkout not paid"
+		res := heldReservation(t, reservations, 1, start)
+
+		_, err := orderRepo.GetByReservationID(ctx, res.ID)
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("two sources", func(t *testing.T) {
+		res := chargedReservation(t, reservations, start)
+		order, tickets, settlement := checkoutOrder(t, res, start.Add(3*time.Minute))
+		order.ApplicationID = entity.TicketApplicationID(entity.NewID())
+
+		err := issuanceRepo.Issue(ctx, order, tickets, settlement)
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}
+
+// chargedReservation returns a Committed reservation with a recorded charge.
+func chargedReservation(t *testing.T, repo *rdb.ReservationRepository, start time.Time) *entity.Reservation {
+	t.Helper()
+	ctx := context.Background()
+	res := heldReservation(t, repo, 2, start)
+	require.NoError(t, repo.SetAuthorization(ctx, res.ID, holderIdentity, "pi_"+string(res.ID)))
+	_, err := repo.Commit(ctx, res.ID, start.Add(time.Minute))
+	require.NoError(t, err)
+	require.NoError(t, repo.RecordCapture(ctx, res.ID, start.Add(2*time.Minute)))
+	return res
 }

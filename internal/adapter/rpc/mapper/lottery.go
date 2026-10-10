@@ -61,29 +61,29 @@ func TicketApplicationToProto(app *entity.TicketApplication) *entityv1.TicketApp
 		PhaseId:              &entityv1.LotterySalesPhaseId{Value: string(app.PhaseID)},
 		ApplicantId:          &entityv1.UserId{Value: string(app.ApplicantID)},
 		RequestedTicketCount: int32(app.RequestedTicketCount),
-		Identity:             applicantIdentityToProto(app.Identity),
+		Identity:             holderIdentityToProto(app.Identity),
 		Authorization:        paymentAuthorizationToProto(app.Authorization),
 		State:                ticketApplicationStateToProto(app.State),
 		DrawSequence:         app.DrawSequence,
 	}
 }
 
-// applicantIdentityToProto converts a domain ApplicantIdentity value to its
+// holderIdentityToProto converts a domain HolderIdentity value to its
 // proto counterpart.
-func applicantIdentityToProto(id entity.ApplicantIdentity) *entityv1.ApplicantIdentity {
-	return &entityv1.ApplicantIdentity{
+func holderIdentityToProto(id entity.HolderIdentity) *entityv1.HolderIdentity {
+	return &entityv1.HolderIdentity{
 		FullName:    id.FullName,
 		PhoneNumber: id.PhoneNumber,
 	}
 }
 
-// ApplicantIdentityFromProto converts a proto ApplicantIdentity message to the
+// HolderIdentityFromProto converts a proto HolderIdentity message to the
 // domain value object. Returns the zero value when pb is nil.
-func ApplicantIdentityFromProto(pb *entityv1.ApplicantIdentity) entity.ApplicantIdentity {
+func HolderIdentityFromProto(pb *entityv1.HolderIdentity) entity.HolderIdentity {
 	if pb == nil {
-		return entity.ApplicantIdentity{}
+		return entity.HolderIdentity{}
 	}
-	return entity.ApplicantIdentity{
+	return entity.HolderIdentity{
 		FullName:    pb.GetFullName(),
 		PhoneNumber: pb.GetPhoneNumber(),
 	}

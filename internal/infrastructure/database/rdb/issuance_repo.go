@@ -5,11 +5,13 @@ import (
 	"log/slog"
 
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // IssuanceRepository implements entity.IssuanceRepository for PostgreSQL: it
-// persists an Order, its N tickets, and its Held settlement atomically in one
-// transaction (backend#468).
+// persists an Order, its N tickets and its Held settlement atomically in one
+// transaction, and completes a source reservation (backend#468).
 type IssuanceRepository struct {
 	db *Database
 }
@@ -20,9 +22,9 @@ var _ entity.IssuanceRepository = (*IssuanceRepository)(nil)
 const (
 	issuanceInsertOrderQuery = `
 		INSERT INTO orders (
-			id, buyer_id, application_id, provider, payment_intent_ref, payment_method_ref,
+			id, buyer_id, application_id, reservation_id, provider, payment_intent_ref, payment_method_ref,
 			card_brand, card_last4, status, amount, currency, paid_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	issuanceInsertTicketQuery = `
 		INSERT INTO tickets (
@@ -44,6 +46,13 @@ const (
 		INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount)
 		VALUES ($1, $2, $3)
 	`
+	// issuanceCompleteReservationQuery completes the source reservation, only
+	// when it is Committed and charged.
+	issuanceCompleteReservationQuery = `
+		UPDATE reservations SET status = 3
+		WHERE id = $1 AND status = 2 AND capture_at IS NOT NULL
+	`
+	issuanceReservationHasOrderQuery = `SELECT EXISTS (SELECT 1 FROM orders WHERE reservation_id = $1)`
 	// issuanceListAwaitingQuery returns Won (state 2) applications that have no
 	// order yet — the issuance sweeper work-list.
 	issuanceListAwaitingQuery = `
@@ -68,6 +77,9 @@ func NewIssuanceRepository(db *Database) *IssuanceRepository {
 // settlement is required (non-nil); the caller resolves the event's Organizer
 // before calling Issue so the Order is never committed without its payout record.
 func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tickets []*entity.Ticket, settlement *entity.Settlement) error {
+	if err := order.ValidateSource(); err != nil {
+		return apperr.Wrap(err, codes.InvalidArgument, "invalid order source")
+	}
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return toAppErr(err, "failed to begin issuance transaction")
@@ -75,13 +87,36 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// A reservation is completed first, so an uncharged one stores nothing.
+	if order.ReservationID != "" {
+		tag, err := tx.Exec(ctx, issuanceCompleteReservationQuery, string(order.ReservationID))
+		if err != nil {
+			return toAppErr(err, "failed to complete reservation", slog.String("reservation_id", string(order.ReservationID)))
+		}
+		if tag.RowsAffected() == 0 {
+			// A reservation already issued is Completed: report the duplicate.
+			var issued bool
+			if err := tx.QueryRow(ctx, issuanceReservationHasOrderQuery, string(order.ReservationID)).Scan(&issued); err != nil {
+				return toAppErr(err, "failed to check the reservation's order", slog.String("reservation_id", string(order.ReservationID)))
+			}
+			if issued {
+				return apperr.New(codes.AlreadyExists, "an order already exists for the reservation",
+					slog.String("reservation_id", string(order.ReservationID)))
+			}
+			return apperr.New(codes.FailedPrecondition, "reservation is not Committed and charged",
+				slog.String("reservation_id", string(order.ReservationID)))
+		}
+	}
+
 	if _, err := tx.Exec(ctx, issuanceInsertOrderQuery,
-		string(order.ID), string(order.BuyerID), string(order.ApplicationID),
-		int16(order.Payment.Provider), order.Payment.PaymentIntentRef, order.Payment.PaymentMethodRef,
+		string(order.ID), string(order.BuyerID), nullableUUID(string(order.ApplicationID)),
+		nullableUUID(string(order.ReservationID)), int16(order.Payment.Provider), order.Payment.PaymentIntentRef, order.Payment.PaymentMethodRef,
 		order.Payment.CardBrand, order.Payment.CardLast4,
 		int16(order.Status), order.Amount, order.Currency, order.PaidTime,
 	); err != nil {
-		return toAppErr(err, "failed to insert order", slog.String("application_id", string(order.ApplicationID)))
+		return toAppErr(err, "failed to insert order",
+			slog.String("application_id", string(order.ApplicationID)),
+			slog.String("reservation_id", string(order.ReservationID)))
 	}
 
 	for _, t := range tickets {
@@ -119,6 +154,7 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 		slog.String("entityType", "orders"),
 		slog.String("orderID", string(order.ID)),
 		slog.String("applicationID", string(order.ApplicationID)),
+		slog.String("reservationID", string(order.ReservationID)),
 		slog.Int("ticketCount", len(tickets)),
 	)
 	return nil

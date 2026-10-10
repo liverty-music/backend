@@ -214,6 +214,25 @@ type ConsumerConfig struct {
 
 	// FanartTV API Key for artist image resolution
 	FanartTVAPIKey string `envconfig:"FANARTTV_API_KEY"`
+
+	// Postmark sends the purchase confirmation email. When its server token is
+	// empty the consumer uses a no-op sender that fails with Unavailable.
+	Postmark PostmarkConfig `envconfig:""`
+}
+
+// PostmarkConfig holds the Postmark transactional email settings. The server
+// API token is the one Zitadel's SMTP already uses; it is sourced from GCP
+// Secret Manager via ESO and injected as POSTMARK_SERVER_TOKEN.
+type PostmarkConfig struct {
+	// ServerToken is the Postmark Server API token. Empty in local
+	// development to disable email.
+	ServerToken string `envconfig:"POSTMARK_SERVER_TOKEN"`
+	// FromAddress is the sender address, on the domain verified in Postmark
+	// (noreply@mail.liverty-music.app in prod, mail.dev in dev).
+	FromAddress string `envconfig:"POSTMARK_FROM_ADDRESS" default:"Liverty Music <noreply@mail.liverty-music.app>"`
+	// MessageStream is the Postmark message stream; "outbound" is the
+	// default transactional stream.
+	MessageStream string `envconfig:"POSTMARK_MESSAGE_STREAM" default:"outbound"`
 }
 
 // ServerSettings represents HTTP server settings (port, host, timeouts, CORS).

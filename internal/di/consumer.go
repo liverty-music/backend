@@ -18,6 +18,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
+	"github.com/liverty-music/backend/internal/infrastructure/mail"
 	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
@@ -137,7 +138,31 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	notificationRepo := rdb.NewNotificationRepository(db)
-	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, infratelemetry.NewBusinessMetrics(), logger)
+	// Purchase confirmation: the email goes through Postmark when its token is
+	// configured, otherwise a no-op sender reports Unavailable.
+	orderRepo := rdb.NewOrderRepository(db)
+	var confirmationSender entity.OrderConfirmationSender
+	if cfg.Postmark.ServerToken != "" {
+		confirmationSender = mail.NewPostmarkConfirmationSender(orderRepo, cfg.Postmark.ServerToken,
+			cfg.Postmark.FromAddress, cfg.Postmark.MessageStream, time.Now, logger)
+	} else {
+		confirmationSender = mail.NewNoopConfirmationSender(logger)
+	}
+	japanTime, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		return nil, fmt.Errorf("load Asia/Tokyo time zone: %w", err)
+	}
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, infratelemetry.NewBusinessMetrics(), logger,
+		usecase.OrderConfirmationDeps{
+			Orders:         orderRepo,
+			Users:          userRepo,
+			Concerts:       concertRepo,
+			EventOrganizer: rdb.NewEventOrganizerRepository(db),
+			Organizers:     rdb.NewOrganizerRepository(db),
+			Mailer:         confirmationSender,
+			TimeZone:       japanTime,
+		})
+	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		concertRepo,
@@ -259,6 +284,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	salesReminderConsumer := event.NewSalesReminderConsumer(salesReminderDeliveryUC, logger)
 	followSearchConsumer := event.NewFollowSearchConsumer(concertUC, logger)
 	deliverNotificationConsumer := event.NewDeliverNotificationConsumer(notificationUC, logger)
+	orderPaidConsumer := event.NewOrderPaidConsumer(notificationUC, ticketJourneyUC, logger)
 
 	// behaviorTable is the canonical behavior → subject → handler mapping.
 	// Each row becomes one independent JetStream durable consumer with
@@ -287,6 +313,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		{"notify-sales-reminder", entity.SubjectSalesPhaseReminderDue, salesReminderConsumer.Handle},
 		{"search-first-followed-artist", entity.SubjectArtistFollowed, followSearchConsumer.Handle},
 		{"deliver-notification", entity.SubjectNotificationRequested, deliverNotificationConsumer.Handle},
+		{"send-order-confirmation", entity.SubjectOrderPaid, orderPaidConsumer.HandleSendOrderConfirmation},
+		{"mark-ticket-journey-paid", entity.SubjectOrderPaid, orderPaidConsumer.HandleMarkPaid},
 	}
 
 	// Router

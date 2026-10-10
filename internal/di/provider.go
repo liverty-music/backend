@@ -23,10 +23,13 @@ import (
 	payoutonboardingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_onboarding/v1/payout_onboardingv1connect"
 	receptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
 	receptionlinkconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception_link/v1/reception_linkv1connect"
+	organizerticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
+	reservationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/reservation/v1/reservationv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
+	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
 	userconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/user/v1/userv1connect"
 	walletpublickeyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/wallet_public_key/v1/wallet_public_keyv1connect"
 	"connectrpc.com/connect"
@@ -127,6 +130,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	connectedAccountRepo := rdb.NewOrganizerConnectedAccountRepository(db)
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
+	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
+	reservationRepo := rdb.NewReservationRepository(db)
 	eventRepo := rdb.NewEventRepository(db)
 	walletPublicKeyRepo := rdb.NewWalletPublicKeyRepository(db)
 	receptionLinkRepo := rdb.NewReceptionLinkRepository(db)
@@ -296,23 +301,46 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
 	paymentConfigured := cfg.Stripe.SecretKey != ""
 	var (
-		paymentPort    entity.PaymentAuthorizationPort
-		capturePort    entity.PaymentCapturePort
-		settlementPort entity.PaymentSettlementPort
+		paymentPort     entity.PaymentAuthorizationPort
+		capturePort     entity.PaymentCapturePort
+		settlementPort  entity.PaymentSettlementPort
+		reservationAuth entity.ReservationAuthorizationPort
 	)
 	if paymentConfigured {
 		stripePort := infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)
 		paymentPort, capturePort = stripePort, stripePort
 		settlementPort = infrapayment.NewStripeSettlementPort(cfg.Stripe.SecretKey, logger)
+		reservationAuth = infrapayment.NewStripeReservationAuthorizationPort(cfg.Stripe.SecretKey, logger)
 	} else {
 		noopPort := infrapayment.NewNoopAuthorizationPort(logger)
 		paymentPort, capturePort = noopPort, noopPort
 		settlementPort = infrapayment.NewNoopSettlementPort(logger)
+		reservationAuth = infrapayment.NewNoopReservationAuthorizationPort(logger)
 	}
 	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, eventRepo, paymentPort, verifiedIdentityRepo, time.Now, logger)
 
-	// ⑤ issuance pipeline: turn ④'s Won-captured applications into Orders + tickets.
-	issuanceUC := usecase.NewIssuanceUseCase(issuanceRepo, orderRepo, ticketApplicationRepo, lotteryPhaseRepo, eventOrganizerRepo, verifiedIdentityRepo, ticketJourneyRepo, capturePort, time.Now, logger)
+	// ⑤ issuance pipeline: turn ④'s Won-captured applications and first-come
+	// checkouts into Orders + tickets.
+	issuanceUC := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
+		IssuanceRepo:         issuanceRepo,
+		OrderRepo:            orderRepo,
+		AppRepo:              ticketApplicationRepo,
+		PhaseRepo:            lotteryPhaseRepo,
+		EventOrganizerRepo:   eventOrganizerRepo,
+		OrganizerRepo:        organizerRepo,
+		VerifiedIdentityRepo: verifiedIdentityRepo,
+		CapturePort:          capturePort,
+		ReservationRepo:      reservationRepo,
+		TicketSaleRepo:       ticketSaleRepo,
+		EventState:           eventPublishState,
+		ReservationAuth:      reservationAuth,
+		Publisher:            eventPublisher,
+		Clock:                time.Now,
+		Logger:               logger,
+	})
+	// First-come ticket sales: the sale and the fan's 15-minute checkout.
+	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, organizerRepo, eventPublishState, eventStartTimeRepo, time.Now)
+	reservationUC := usecase.NewReservationUseCase(reservationRepo, ticketSaleRepo, userRepo, eventPublishState, reservationAuth, time.Now, logger)
 	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, receptionLinkRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
 
 	// ⑥ ticket wallet and venue reception.
@@ -333,6 +361,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		processedWebhookEventRepo,
 		orderRepo,
 		refundUC,
+		issuanceUC,
 		logger,
 	)
 
@@ -375,6 +404,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// buffer. It also requires a real Stripe key (Transfer creation). It runs
 		// on the same (fan-api) workload and is idempotent across pods.
 		startSettlementSweeper(ctx, payoutSweeperUC, logger)
+		// The checkout sweepers release lapsed holds and card holds, and finish
+		// stalled commits; both reach Stripe, so they run beside the others.
+		startReservationSweepers(ctx, reservationUC, issuanceUC, logger)
 	} else {
 		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled on this workload",
 			slog.String("workload", cfg.Workload))
@@ -384,7 +416,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
 	webpushSender := infrawebpush.NewSender(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Contact)
 	notificationRepo := rdb.NewNotificationRepository(db)
-	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger)
+	// The API never sends order confirmations (the consumer does), so the
+	// order-confirmation dependencies stay empty here.
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger, usecase.OrderConfirmationDeps{})
 	pushNotificationUC := usecase.NewPushNotificationUseCase(
 		artistRepo,
 		concertRepo,
@@ -547,6 +581,23 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 	}
 
+	// Fan-facing first-come sale: TicketSaleService.Get (public) and the
+	// signed-in fan's ReservationService.
+	handlers = append(handlers,
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return ticketsalev1connect.NewTicketSaleServiceHandler(
+				rpc.NewTicketSaleHandler(ticketSaleUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return reservationv1connect.NewReservationServiceHandler(
+				rpc.NewReservationHandler(reservationUC, issuanceUC, userRepo, logger),
+				opts...,
+			)
+		},
+	)
+
 	// Fan-facing LotteryService: CreateAuthorization, Apply, Withdraw,
 	// GetApplication, GetResult. Authenticated by the standard auth interceptor.
 	handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
@@ -674,6 +725,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return receptionconnect.NewReceptionServiceHandler(
 				rpc.NewReceptionHandler(receptionLinkUC, ticketUC, logger),
+				opts...,
+			)
+		},
+		// Organizer-facing TicketSaleService: Configure, Get (first-come sale).
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return organizerticketsaleconnect.NewTicketSaleServiceHandler(
+				rpc.NewOrganizerTicketSaleHandler(ticketSaleUC, organizerUC, logger),
 				opts...,
 			)
 		},

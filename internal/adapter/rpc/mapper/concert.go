@@ -60,6 +60,15 @@ func SeriesToProto(s *entity.Series) *entityv1.Series {
 	if s.OrganizerID != nil {
 		proto.OrganizerId = &entityv1.OrganizerId{Value: *s.OrganizerID}
 	}
+	if s.Organizer != nil {
+		// The seller details are the public 特商法 disclosure; the platform fee
+		// rate is the Organizer's business with the platform and is never set.
+		proto.Organizer = &entityv1.Organizer{
+			Id:            &entityv1.OrganizerId{Value: s.Organizer.ID},
+			Name:          &entityv1.OrganizerName{Value: s.Organizer.Name},
+			SellerDetails: SellerDetailsToProto(s.Organizer.SellerDetails),
+		}
+	}
 	return proto
 }
 
@@ -69,7 +78,8 @@ func SeriesToProto(s *entity.Series) *entityv1.Series {
 // performing artists via the repeated `performers` field — see the new
 // schema published in liverty-music/specification v0.41.0. Series and
 // Performers MUST be populated by the repository before this mapper runs;
-// ConcertRepository.ListByIDs and friends do this via hydratePerformers.
+// ConcertRepository.ListByIDs and friends do this via hydrate, which also
+// resolves a first-party Series' Organizer.
 func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 	if c == nil {
 		return nil

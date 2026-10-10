@@ -2,11 +2,12 @@ package entity
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
-// OrderID is the opaque identifier for a single Order — one winning lottery
-// application's purchase record.
+// OrderID is the opaque identifier for a single Order — the purchase record of
+// one winning lottery application or one completed checkout.
 //
 // Mirrors liverty_music.entity.v1.OrderId.value (a UUID string); mapped to the
 // proto wrapper at the handler boundary.
@@ -112,10 +113,11 @@ type Payment struct {
 	CardLast4 string
 }
 
-// Order is a provider- and method-agnostic purchase record for one winning
-// lottery application: the opaque reference to ④'s captured winning payment,
-// its own status, total amount and currency, the capture time, and display
-// facets. ONE Order covers the N tickets of the winning application.
+// Order is a provider- and method-agnostic purchase record: the opaque
+// reference to the captured payment, its own status, total amount and
+// currency, the capture time, and display facets. It has exactly one source —
+// a won lottery application or a Committed, charged Reservation — and ONE
+// Order covers all N tickets of that source.
 //
 // It NEVER stores a PAN, CVC, or expiry — only opaque provider tokens and safe
 // display facets (PCI SAQ A). Mirrors liverty_music.entity.v1.Order.
@@ -126,9 +128,13 @@ type Order struct {
 	// to this account.
 	BuyerID UserID
 	// ApplicationID is the winning application this Order derives from (④'s
-	// Won-captured record). The one-Order-per-captured-application invariant
-	// (issuance idempotency) is keyed on this reference.
+	// Won-captured record). Empty when the source is a Reservation. The
+	// one-Order-per-application invariant is keyed on this reference.
 	ApplicationID TicketApplicationID
+	// ReservationID is the checkout this Order completes. Empty when the source
+	// is an application. The one-Order-per-Reservation invariant is keyed on
+	// this reference.
+	ReservationID ReservationID
 	// Payment is the opaque reference to ④'s captured winning payment plus safe
 	// display facets. Never raw card data.
 	Payment Payment
@@ -149,6 +155,19 @@ type Order struct {
 	// network; no Stripe Refund object is created) and for orders not yet
 	// refunded.
 	RefundRef string
+	// ConfirmationSentTime is when the purchase confirmation email was sent;
+	// nil until sent. It keeps the email to one per Order.
+	ConfirmationSentTime *time.Time
+}
+
+// ValidateSource reports whether the Order names exactly one source: a
+// TicketApplication or a Reservation.
+func (o *Order) ValidateSource() error {
+	hasApp, hasRes := o.ApplicationID != "", o.ReservationID != ""
+	if hasApp == hasRes {
+		return errors.New("an order must come from exactly one of an application and a reservation")
+	}
+	return nil
 }
 
 // RefundCommit bundles all of the DB state that must be persisted atomically
@@ -204,23 +223,28 @@ type RefundRepository interface {
 }
 
 // IssuanceRepository is the atomic write path for ⑤ issuance: it persists an
-// Order, its N tickets, and the Order's Held Settlement in a single transaction
+// Order, its N tickets and the Order's Held Settlement in a single
+// transaction, and completes a source Reservation,
 // so a capture never yields an Order without its tickets or its payout record
 // (backend#468). Implementations live in internal/infrastructure/database/rdb/.
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type IssuanceRepository interface {
-	// Issue atomically inserts the Order, its N account-bound tickets, and the
-	// Held settlement (with its splits) that pays out the Order's event Organizer,
-	// all in one transaction. The one-Order-per-application invariant is enforced
-	// by a unique index on orders.application_id; a duplicate surfaces as
-	// AlreadyExists so a replayed Won-captured signal re-reads the existing Order
-	// rather than double-issuing.
+	// Issue atomically inserts the Order, its N account-bound tickets and the
+	// Held settlement (with its splits) that pays out the Order's event
+	// Organizer, and makes a source Reservation Completed, all in one
+	// transaction. One Order per source is enforced by
+	// unique indexes on orders.application_id and orders.reservation_id; a
+	// duplicate surfaces as AlreadyExists so a replay re-reads the existing
+	// Order rather than double-issuing.
 	//
 	// # Possible errors
 	//
-	//  - AlreadyExists: an Order already exists for order.ApplicationID (idempotent
-	//    replay — the caller re-reads via [OrderRepository.GetByApplicationID]).
+	//  - AlreadyExists: an Order already exists for the same source (the caller
+	//    re-reads it).
+	//  - FailedPrecondition: the source Reservation is not Committed with a
+	//    capture time; nothing is stored.
+	//  - InvalidArgument: the Order does not name exactly one source.
 	//  - Internal: database transaction or query failure.
 	Issue(ctx context.Context, order *Order, tickets []*Ticket, settlement *Settlement) error
 
@@ -259,6 +283,15 @@ type OrderRepository interface {
 	//  - Internal: database query failure.
 	GetByApplicationID(ctx context.Context, applicationID TicketApplicationID) (*Order, error)
 
+	// GetByReservationID returns the Order whose source is the given
+	// Reservation.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: the Reservation has no Order.
+	//  - Internal: database query failure.
+	GetByReservationID(ctx context.Context, reservationID ReservationID) (*Order, error)
+
 	// GetByPaymentIntentRef returns the Order whose Payment.PaymentIntentRef
 	// matches the given pi_ value. Used by the Stripe webhook service to resolve
 	// a dispute's charge → payment_intent → Order without exposing repo access
@@ -286,6 +319,15 @@ type OrderRepository interface {
 	//
 	//  - Internal: database query failure.
 	ListByBuyer(ctx context.Context, buyerID UserID) ([]*Order, error)
+
+	// MarkConfirmationSent sets the Order's confirmation-sent time when it is
+	// unset; an already set time is kept.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no Order with the id exists.
+	//  - Internal: database execution failure.
+	MarkConfirmationSent(ctx context.Context, id OrderID, at time.Time) error
 }
 
 // CapturedPayment is the read-back of ④'s captured winning payment from the
@@ -295,6 +337,9 @@ type OrderRepository interface {
 type CapturedPayment struct {
 	// Provider backs the captured payment (Stripe for the MVP).
 	Provider PaymentProvider
+	// PaymentIntentRef is the provider's reference of the charged payment
+	// (a Stripe "pi_..." id).
+	PaymentIntentRef string
 	// AmountJPY is the captured amount in whole yen.
 	AmountJPY int64
 	// Currency is the ISO 4217 code of the captured amount (JPY for the MVP).
@@ -323,4 +368,33 @@ type PaymentCapturePort interface {
 	//  - NotFound: the payment intent does not exist.
 	//  - Unavailable: the payment provider is unreachable.
 	GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*CapturedPayment, error)
+}
+
+// OrderConfirmationEmail is the finished purchase confirmation message for one
+// Order, already rendered in the buyer's language.
+type OrderConfirmationEmail struct {
+	// Subject is the email subject line.
+	Subject string
+	// TextBody is the plain-text email body.
+	TextBody string
+}
+
+// OrderConfirmationSender sends an Order's purchase confirmation email at most
+// once. The implementation lives in internal/infrastructure/mail/.
+//
+// Interfaces are defined where consumed (AGENTS.md rule).
+type OrderConfirmationSender interface {
+	// SendConfirmationEmail sends msg to the buyer's address when the Order
+	// has no confirmation-sent time, then sets that time. When the time is
+	// already set it sends nothing and succeeds. A failure between sending and
+	// recording can lead to a second email on retry; no other case sends
+	// twice.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: the address or the message is empty.
+	//  - Unavailable: email cannot be sent; the confirmation-sent time stays
+	//    unset.
+	//  - NotFound: no Order has the id.
+	SendConfirmationEmail(ctx context.Context, orderID OrderID, to string, msg OrderConfirmationEmail) error
 }

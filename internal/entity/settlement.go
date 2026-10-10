@@ -110,6 +110,23 @@ type Settlement struct {
 	CreatedTime time.Time
 }
 
+// NewHeldSettlement returns a Held Settlement for the Order, paying the
+// Organizer the Order's amount minus the platform fee at rateBps. The split is
+// fixed here, so a later change to the Organizer's rate never alters it.
+func NewHeldSettlement(order *Order, organizerID, eventID string, rateBps int, now time.Time) *Settlement {
+	return &Settlement{
+		ID:          SettlementID(NewID()),
+		OrderID:     order.ID,
+		OrganizerID: organizerID,
+		EventID:     eventID,
+		Status:      SettlementStatusHeld,
+		Splits: []SettlementSplit{
+			{PayeeOrganizerID: organizerID, Amount: order.Amount - PlatformFee(order.Amount, rateBps)},
+		},
+		CreatedTime: now,
+	}
+}
+
 // SettlementRepository defines the persistence contract for Settlement records.
 // The row is created by [IssuanceRepository.Issue], not by this interface —
 // SettlementRepository only reads and updates settlements after issuance.
@@ -305,28 +322,21 @@ type PaymentSettlementPort interface {
 	ReverseTransfer(ctx context.Context, params ReverseTransferParams) (reversalRef string, err error)
 }
 
-// platformFeeRateNumerator and platformFeeRateDenominator define the
-// platform's flat fee rate: 5% of an Order's amount (specification#778). Kept
-// as a numerator/denominator pair so [PlatformFee] can use exact integer
-// division rather than floating-point arithmetic on money.
-const (
-	platformFeeRateNumerator   = 5
-	platformFeeRateDenominator = 100
-)
+// basisPointsPerUnit is the denominator of a rate in basis points (hundredths
+// of a percent).
+const basisPointsPerUnit = 10000
 
-// PlatformFee returns the platform's fee retained from an Order's amount: a
-// flat 5% of amountJPY, rounded down to the nearest whole yen using integer
-// arithmetic (floor(amountJPY * 5 / 100)). The Organizer's Settlement split is
-// the remainder (amountJPY - PlatformFee(amountJPY)), so the Organizer
-// absorbs the rounding remainder, never the platform.
+// PlatformFee returns the platform's fee retained from an Order's amount at
+// the Organizer's rate in basis points, rounded down to the nearest whole yen
+// using integer arithmetic (floor(amountJPY * rateBps / 10000)). The
+// Organizer's Settlement split is the remainder, so the Organizer absorbs the
+// rounding remainder, never the platform.
 //
-// For very small amounts the fee rounds down to 0 (e.g. any amount under 20
-// yen at the current 5% rate); the Organizer then receives the full amount as
-// their split, which still satisfies the Settlement split invariants (every
-// split greater than 0, the sum of splits no greater than the Order's
-// amount) as long as amountJPY itself is positive.
-func PlatformFee(amountJPY int64) int64 {
-	return amountJPY * platformFeeRateNumerator / platformFeeRateDenominator
+// For very small amounts the fee rounds down to 0 (e.g. 12 yen at 8%); the
+// Organizer then receives the full amount as their split, which still
+// satisfies the Settlement split invariants as long as amountJPY is positive.
+func PlatformFee(amountJPY int64, rateBps int) int64 {
+	return amountJPY * int64(rateBps) / basisPointsPerUnit
 }
 
 // IsReleaseEligible reports whether a settlement may be released.

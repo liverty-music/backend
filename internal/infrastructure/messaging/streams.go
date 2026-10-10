@@ -16,6 +16,16 @@ const PoisonQueueSubject = "POISON.queue"
 // a given subject belongs to (used by the pull subscriber to bind a durable).
 var streams = []nats.StreamConfig{
 	{
+		Name:       "ORDER",
+		Subjects:   []string{"ORDER.*"},
+		Retention:  nats.LimitsPolicy,
+		MaxAge:     7 * 24 * time.Hour,
+		Storage:    nats.FileStorage,
+		Discard:    nats.DiscardOld,
+		Replicas:   1,
+		Duplicates: 2 * time.Minute,
+	},
+	{
 		Name:       "CONCERT",
 		Subjects:   []string{"CONCERT.*"},
 		Retention:  nats.LimitsPolicy,

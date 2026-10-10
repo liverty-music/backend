@@ -137,6 +137,26 @@ type OrganizerUseCase interface {
 	//   - Internal: a file or the tenant could not be removed, or media
 	//     storage is not configured while the organizer owns media.
 	Delete(ctx context.Context, organizerID string) error
+
+	// UpdateSellerDetails records the Organizer's 特商法 seller details, checked
+	// by an admin at vetting, and returns the Organizer.
+	//
+	// # Possible errors
+	//
+	//   - NotFound: the organizer does not exist.
+	//   - FailedPrecondition: the organizer is deactivated.
+	//   - InvalidArgument: a detail is missing or breaks the seller details rules.
+	UpdateSellerDetails(ctx context.Context, organizerID string, details entity.SellerDetails) (*entity.Organizer, error)
+
+	// SetPlatformFeeRate sets the platform fee rate applied to the Organizer's
+	// future Orders and returns the Organizer. Issued Orders keep the rate of
+	// their Settlement.
+	//
+	// # Possible errors
+	//
+	//   - NotFound: the organizer does not exist.
+	//   - InvalidArgument: the rate is outside 0 to 3000 basis points.
+	SetPlatformFeeRate(ctx context.Context, organizerID string, rateBps int) (*entity.Organizer, error)
 }
 
 // OrganizerMediaBuckets names the GCS buckets that hold Organizer media: the
@@ -580,4 +600,29 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 		slog.Int("media_count", len(media)),
 	)
 	return nil
+}
+
+// UpdateSellerDetails implements [OrganizerUseCase].
+func (uc *organizerUseCase) UpdateSellerDetails(ctx context.Context, organizerID string, details entity.SellerDetails) (*entity.Organizer, error) {
+	org, err := uc.organizerRepo.Get(ctx, organizerID)
+	if err != nil {
+		return nil, err
+	}
+	if org.Status == entity.OrganizerStatusDeactivated {
+		return nil, apperr.New(codes.FailedPrecondition, "organizer is deactivated")
+	}
+	if err := uc.organizerRepo.SetSellerDetails(ctx, organizerID, details); err != nil {
+		return nil, err
+	}
+	return uc.organizerRepo.Get(ctx, organizerID)
+}
+
+// SetPlatformFeeRate implements [OrganizerUseCase].
+func (uc *organizerUseCase) SetPlatformFeeRate(ctx context.Context, organizerID string, rateBps int) (*entity.Organizer, error) {
+	if err := uc.organizerRepo.SetPlatformFeeRate(ctx, organizerID, rateBps); err != nil {
+		return nil, err
+	}
+	uc.logger.Info(ctx, "organizer platform fee rate set",
+		slog.String("organizer_id", organizerID), slog.Int("platform_fee_rate_bps", rateBps))
+	return uc.organizerRepo.Get(ctx, organizerID)
 }

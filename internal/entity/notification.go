@@ -16,6 +16,9 @@ const (
 	NotificationTypeSalesReminder NotificationType = "sales_reminder"
 	// NotificationTypeSalesPhaseAnnouncement announces a newly discovered sales phase.
 	NotificationTypeSalesPhaseAnnouncement NotificationType = "sales_phase_announcement"
+	// NotificationTypeOrderConfirmation confirms a paid Order (a completed
+	// checkout or a won lottery) and opens the Tickets screen.
+	NotificationTypeOrderConfirmation NotificationType = "order_confirmation"
 )
 
 // NotificationDeliveryStatus is the per-channel delivery state of a notification.

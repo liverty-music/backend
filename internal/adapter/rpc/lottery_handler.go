@@ -98,7 +98,7 @@ func (h *LotteryHandler) Apply(
 		PhaseID:              entity.LotteryPhaseID(req.Msg.GetPhaseId().GetValue()),
 		ApplicantID:          applicantID,
 		RequestedTicketCount: int(req.Msg.GetRequestedTicketCount()),
-		Identity:             mapper.ApplicantIdentityFromProto(req.Msg.GetIdentity()),
+		Identity:             mapper.HolderIdentityFromProto(req.Msg.GetIdentity()),
 		PaymentIntentRef:     req.Msg.GetAuthorization().GetPaymentIntentRef(),
 	}
 

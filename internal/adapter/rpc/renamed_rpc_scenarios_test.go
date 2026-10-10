@@ -106,7 +106,7 @@ func TestLotteryHandler_CallerScenarios(t *testing.T) {
 		_, err := f.h.Apply(lotteryAuthedCtx("ext-fan"), connect.NewRequest(&lotteryv1.ApplyRequest{
 			PhaseId:              phase,
 			RequestedTicketCount: 1,
-			Identity:             &entityv1.ApplicantIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
+			Identity:             &entityv1.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
 			Authorization:        &entityv1.PaymentAuthorization{PaymentIntentRef: "pi_1"},
 		}))
 		require.NoError(t, err)
@@ -140,7 +140,7 @@ func TestLotteryHandler_CallerScenarios(t *testing.T) {
 		_, err := f.h.Apply(lotteryAuthedCtx("ext-new"), connect.NewRequest(&lotteryv1.ApplyRequest{
 			PhaseId:              phase,
 			RequestedTicketCount: 1,
-			Identity:             &entityv1.ApplicantIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
+			Identity:             &entityv1.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
 			Authorization:        &entityv1.PaymentAuthorization{PaymentIntentRef: "pi_1"},
 		}))
 		assert.ErrorIs(t, err, apperr.ErrNotFound)

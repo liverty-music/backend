@@ -60,16 +60,28 @@ type NotificationUseCase interface {
 	//   - NotFound: no notification with that id exists.
 	//   - PermissionDenied: the notification belongs to a different user.
 	MarkDismissed(ctx context.Context, userID, notificationID string) error
+
+	// SendOrderConfirmation tells the buyer of a paid Order that the purchase
+	// went through: the confirmation email (at most once per Order) in the
+	// buyer's language, then an order_confirmation push that opens the Tickets
+	// screen. It runs for each ORDER.paid announcement, from a checkout or a
+	// won lottery.
+	//
+	// # Possible errors
+	//
+	//   - Any read or send failure, unchanged; the announcement is redelivered.
+	SendOrderConfirmation(ctx context.Context, paid entity.OrderPaidData) error
 }
 
 // notificationUseCase implements NotificationUseCase.
 type notificationUseCase struct {
-	notificationRepo entity.NotificationRepository
-	pushSubRepo      entity.PushSubscriptionRepository
-	sender           entity.PushNotificationSender
-	publisher        EventPublisher
-	metrics          PushMetrics
-	logger           *logging.Logger
+	notificationRepo  entity.NotificationRepository
+	pushSubRepo       entity.PushSubscriptionRepository
+	sender            entity.PushNotificationSender
+	publisher         EventPublisher
+	metrics           PushMetrics
+	logger            *logging.Logger
+	orderConfirmation OrderConfirmationDeps
 }
 
 // Compile-time interface compliance check.
@@ -86,14 +98,16 @@ func NewNotificationUseCase(
 	publisher EventPublisher,
 	metrics PushMetrics,
 	logger *logging.Logger,
+	orderConfirmation OrderConfirmationDeps,
 ) NotificationUseCase {
 	return &notificationUseCase{
-		notificationRepo: notificationRepo,
-		pushSubRepo:      pushSubRepo,
-		sender:           sender,
-		publisher:        publisher,
-		metrics:          metrics,
-		logger:           logger,
+		notificationRepo:  notificationRepo,
+		pushSubRepo:       pushSubRepo,
+		sender:            sender,
+		publisher:         publisher,
+		metrics:           metrics,
+		logger:            logger,
+		orderConfirmation: orderConfirmation,
 	}
 }
 

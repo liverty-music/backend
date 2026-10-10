@@ -3,6 +3,7 @@ package rdb_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
@@ -26,7 +27,7 @@ func seedApplication(
 		PhaseID:              phaseID,
 		ApplicantID:          entity.UserID(applicantID),
 		RequestedTicketCount: 2,
-		Identity: entity.ApplicantIdentity{
+		Identity: entity.HolderIdentity{
 			FullName:    "山田太郎",
 			PhoneNumber: "+819012345678",
 		},
@@ -60,7 +61,7 @@ func TestTicketApplicationRepository_Create(t *testing.T) {
 			PhaseID:              phase.ID,
 			ApplicantID:          entity.UserID(userID),
 			RequestedTicketCount: 3,
-			Identity: entity.ApplicantIdentity{
+			Identity: entity.HolderIdentity{
 				FullName:    "田中花子",
 				PhoneNumber: "+819011112222",
 			},
@@ -367,7 +368,7 @@ func TestTicketApplicationRepository_UniqueIndex_ActiveConstraint(t *testing.T) 
 			PhaseID:              phase.ID,
 			ApplicantID:          entity.UserID(userID),
 			RequestedTicketCount: 1,
-			Identity: entity.ApplicantIdentity{
+			Identity: entity.HolderIdentity{
 				FullName:    "重複太郎",
 				PhoneNumber: "+819099998888",
 			},
@@ -402,7 +403,7 @@ func TestTicketApplicationRepository_UniqueIndex_ActiveConstraint(t *testing.T) 
 			PhaseID:              phase.ID,
 			ApplicantID:          entity.UserID(userID),
 			RequestedTicketCount: 1,
-			Identity: entity.ApplicantIdentity{
+			Identity: entity.HolderIdentity{
 				FullName:    "再申請太郎",
 				PhoneNumber: "+819012341234",
 			},
@@ -534,5 +535,39 @@ func TestTicketApplicationRepository_PersistDrawOutcome(t *testing.T) {
 
 		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+}
+
+func TestTicketApplicationRepository_GetByPaymentIntentRef(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+	appRepo := rdb.NewTicketApplicationRepository(testDB)
+	artistID := seedArtist(t, "pi-lookup-artist", entity.NewID())
+	eventID := seedEvent(t, seedVenue(t, "pi-lookup-venue"), artistID, "pi-lookup-concert", "2026-11-03")
+	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	phase, err := rdb.NewLotteryPhaseRepository(testDB).Create(ctx, &entity.LotterySalesPhase{
+		ID: entity.LotteryPhaseID(entity.NewID()), EventID: eventID, OpenTime: open, CloseTime: open.Add(7 * 24 * time.Hour),
+		TicketCapacity: 100, MaxTicketsPerApplication: 4, TicketPrice: 5000,
+	})
+	require.NoError(t, err)
+
+	t.Run("charged win", func(t *testing.T) {
+		// @spec components/entity/ticket-application/get-by-payment-intent-ref "Charged win"
+		buyer := seedUser(t, "pi-buyer", entity.NewID()+"@example.test", entity.NewID())
+		app := seedApplication(t, appRepo, phase.ID, buyer, entity.TicketApplicationStateWon)
+
+		got, err := appRepo.GetByPaymentIntentRef(ctx, app.Authorization.PaymentIntentRef)
+
+		require.NoError(t, err)
+		assert.Equal(t, app.ID, got.ID)
+	})
+
+	t.Run("unknown authorization", func(t *testing.T) {
+		// @spec components/entity/ticket-application/get-by-payment-intent-ref "Unknown authorization"
+		_, err := appRepo.GetByPaymentIntentRef(ctx, "pi_unknown_"+entity.NewID())
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }
