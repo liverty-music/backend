@@ -75,7 +75,8 @@ type LotterySalesPhase struct {
 	TicketCapacity int
 
 	// MaxTicketsPerApplication is the maximum companion-group size a single fan
-	// can request. Must be in [1, TicketCapacity].
+	// can request. Must be in [1, min(TicketCapacity, 10)]: one entry QR code
+	// presents at most 10 tickets and the group enters with one code.
 	MaxTicketsPerApplication int
 
 	// TicketPrice is the price per ticket in JPY (whole yen). Must be positive.
