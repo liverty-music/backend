@@ -370,7 +370,7 @@ func seedSeriesOnly(t *testing.T, title string) string {
 }
 
 // seedEventForSeries inserts an event belonging to the given series and links
-// the artist via event_performers. Returns the event ID.
+// the artist via concert_artists. Returns the event ID.
 func seedEventForSeries(t *testing.T, seriesID, venueID, artistID, date string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -380,8 +380,10 @@ func seedEventForSeries(t *testing.T, seriesID, venueID, artistID, date string) 
 		eventID, seriesID, venueID, date,
 	)
 	require.NoError(t, err)
+	_, err = testDB.Pool.Exec(ctx, `INSERT INTO concerts (event_id) VALUES ($1)`, eventID)
+	require.NoError(t, err)
 	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO event_performers (event_id, artist_id) VALUES ($1, $2)`,
+		`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2)`,
 		eventID, artistID,
 	)
 	require.NoError(t, err)

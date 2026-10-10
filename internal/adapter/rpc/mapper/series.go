@@ -4,10 +4,8 @@ import (
 	"strings"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	organizerconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/concert/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // MediaURLBuilder composes public CDN URLs for organizer series media
@@ -61,22 +59,6 @@ func (b *MediaURLBuilder) seriesMediaProto(s *entity.Series) *entityv1.Media {
 	}
 }
 
-// AuthoredConcertToProto converts the three-part authored concert tuple
-// (series, events, artists) into the wire-format AuthoredConcert message.
-func (b *MediaURLBuilder) AuthoredConcertToProto(s *entity.Series, events []*entity.Event, artists []*entity.Artist) *organizerconcertv1.AuthoredConcert {
-	return &organizerconcertv1.AuthoredConcert{
-		Series:     b.AuthoredSeriesToProto(s),
-		Events:     AuthoredEventsToProto(events),
-		Performers: ArtistsToProto(artists),
-	}
-}
-
-// AuthoredSeriesToProto maps a domain Series (including authoring fields) to
-// the entityv1.Series proto message.
-func (b *MediaURLBuilder) AuthoredSeriesToProto(s *entity.Series) *entityv1.Series {
-	return b.SeriesToProto(s)
-}
-
 // SeriesToProto maps a domain Series like [SeriesToProto] and additionally
 // sets its cover media with CDN URLs when the Series has one.
 func (b *MediaURLBuilder) SeriesToProto(s *entity.Series) *entityv1.Series {
@@ -90,50 +72,31 @@ func (b *MediaURLBuilder) SeriesToProto(s *entity.Series) *entityv1.Series {
 	return proto
 }
 
-// ConcertToProto maps a domain Concert like [ConcertToProto] and additionally
-// sets its Series' cover media with CDN URLs when the Series has one.
-func (b *MediaURLBuilder) ConcertToProto(c *entity.Concert) *entityv1.Concert {
-	proto := ConcertToProto(c)
-	if proto == nil || c.Series == nil {
-		return proto
-	}
-	proto.Series = b.SeriesToProto(c.Series)
-	return proto
-}
-
-// ConcertsToProto maps a slice of Concerts with [MediaURLBuilder.ConcertToProto].
-func (b *MediaURLBuilder) ConcertsToProto(concerts []*entity.Concert) []*entityv1.Concert {
-	out := make([]*entityv1.Concert, 0, len(concerts))
+// ReferencedSeries returns every Series the concerts refer to, once each, in
+// the order the concerts first refer to them, each with its cover media.
+func (b *MediaURLBuilder) ReferencedSeries(concerts []*entity.Concert) []*entityv1.Series {
+	seen := make(map[string]bool)
+	out := make([]*entityv1.Series, 0)
 	for _, c := range concerts {
-		if p := b.ConcertToProto(c); p != nil {
-			out = append(out, p)
+		if c == nil || c.Series == nil || seen[c.Series.ID] {
+			continue
 		}
+		seen[c.Series.ID] = true
+		out = append(out, b.SeriesToProto(c.Series))
 	}
 	return out
 }
 
-// AuthoredEventsToProto converts a slice of domain Event entities into the
-// entityv1.Event proto messages carried by AuthoredConcert.Events.
-func AuthoredEventsToProto(events []*entity.Event) []*entityv1.Event {
-	out := make([]*entityv1.Event, 0, len(events))
+// AuthoredConcerts builds the Concerts of an authored Series: one per date,
+// each performed by the Series' artists. A DRAFT Series' dates are its
+// DraftEvents and its artists the draft performers.
+func AuthoredConcerts(s *entity.Series, events []*entity.Event, artists []*entity.Artist) []*entity.Concert {
+	out := make([]*entity.Concert, 0, len(events))
 	for _, ev := range events {
 		if ev == nil {
 			continue
 		}
-		proto := &entityv1.Event{
-			Id:        &entityv1.EventId{Value: ev.ID},
-			LocalDate: &entityv1.LocalDate{Value: TimeToDate(ev.LocalDate)},
-		}
-		if ev.SeriesID != "" {
-			proto.SeriesId = &entityv1.SeriesId{Value: ev.SeriesID}
-		}
-		if ev.StartTime != nil {
-			proto.StartTime = &entityv1.StartTime{Value: timestamppb.New(*ev.StartTime)}
-		}
-		if ev.OpenTime != nil {
-			proto.OpenTime = &entityv1.OpenTime{Value: timestamppb.New(*ev.OpenTime)}
-		}
-		out = append(out, proto)
+		out = append(out, &entity.Concert{Event: *ev, Series: s, Artists: artists})
 	}
 	return out
 }

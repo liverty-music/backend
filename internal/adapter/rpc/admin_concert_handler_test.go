@@ -10,6 +10,7 @@ import (
 	adminconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert/v1"
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
+	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
@@ -39,7 +40,7 @@ func newAdminConcertHandler(
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return handler.NewAdminConcertHandler(adminUC, logger)
+	return handler.NewAdminConcertHandler(adminUC, mapper.NewMediaURLBuilder(""), logger)
 }
 
 // ---------- List ----------
@@ -51,13 +52,21 @@ func TestAdminConcertHandler_List(t *testing.T) {
 
 	concertA := &entity.Concert{
 		ID: "event-1", VenueID: "venue-1", LocalDate: localDate,
-		Series:     &entity.Series{ID: "series-1", Title: "Tour Alpha", Type: entity.SeriesTypeTour},
-		Performers: []*entity.Artist{{ID: "artist-1", Name: "Artist Alpha", MBID: "mbid-a"}},
+		Series:  &entity.Series{ID: "series-1", Title: "Tour Alpha", Type: entity.SeriesTypeTour},
+		Artists: []*entity.Artist{{ID: "artist-1", Name: "Artist Alpha", MBID: "mbid-a"}},
 	}
 	concertB := &entity.Concert{
 		ID: "event-2", VenueID: "venue-2", LocalDate: localDate,
-		Series:     &entity.Series{ID: "series-2", Title: "Tour Beta", Type: entity.SeriesTypeTour},
-		Performers: []*entity.Artist{{ID: "artist-2", Name: "Artist Beta", MBID: "mbid-b"}},
+		Series:  &entity.Series{ID: "series-2", Title: "Tour Beta", Type: entity.SeriesTypeTour},
+		Artists: []*entity.Artist{{ID: "artist-2", Name: "Artist Beta", MBID: "mbid-b"}},
+	}
+	alpha := &entity.Artist{ID: "artist-1", Name: "Artist Alpha", MBID: "mbid-a"}
+	tourDay := func(id string) *entity.Concert {
+		return &entity.Concert{
+			ID: id, SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate,
+			Series:  &entity.Series{ID: "series-1", Title: "Tour Alpha", Type: entity.SeriesTypeTour},
+			Artists: []*entity.Artist{alpha},
+		}
 	}
 
 	type args struct {
@@ -86,10 +95,35 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse]) {
 				t.Helper()
 				require.Len(t, resp.Msg.Concerts, 2)
-				assert.Equal(t, "event-1", resp.Msg.Concerts[0].GetId().GetValue())
-				assert.Equal(t, "event-2", resp.Msg.Concerts[1].GetId().GetValue())
-				assert.Equal(t, "Tour Alpha", resp.Msg.Concerts[0].GetSeries().GetTitle().GetValue())
-				assert.Equal(t, "Artist Alpha", resp.Msg.Concerts[0].GetPerformers()[0].GetName().GetValue())
+				assert.Equal(t, "event-1", resp.Msg.Concerts[0].GetEvent().GetId().GetValue())
+				assert.Equal(t, "event-2", resp.Msg.Concerts[1].GetEvent().GetId().GetValue())
+				require.Len(t, resp.Msg.Series, 2)
+				assert.Equal(t, "Tour Alpha", resp.Msg.Series[0].GetTitle().GetValue())
+				require.Len(t, resp.Msg.Artists, 2)
+				assert.Equal(t, "Artist Alpha", resp.Msg.Artists[0].GetName().GetValue())
+			},
+		},
+		{
+			// @spec components/adapter/admin/api/rpc/concert "Two approved concerts of one series"
+			name: "return the shared series and artist once for two concerts of one series",
+			args: args{ctx: adminCtx()},
+			dep: dep{
+				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
+					m.EXPECT().List(mock.Anything).Return([]*entity.Concert{tourDay("event-1"), tourDay("event-2")}, nil).Once()
+				},
+			},
+			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse]) {
+				t.Helper()
+				require.Len(t, resp.Msg.Series, 1)
+				assert.Equal(t, "series-1", resp.Msg.Series[0].GetId().GetValue())
+				require.Len(t, resp.Msg.Artists, 1)
+				assert.Equal(t, "artist-1", resp.Msg.Artists[0].GetId().GetValue())
+				require.Len(t, resp.Msg.Concerts, 2)
+				for _, c := range resp.Msg.Concerts {
+					assert.Equal(t, "series-1", c.GetEvent().GetSeriesId().GetValue())
+					require.Len(t, c.GetArtistIds(), 1)
+					assert.Equal(t, "artist-1", c.GetArtistIds()[0].GetValue())
+				}
 			},
 		},
 		{
@@ -103,6 +137,8 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse]) {
 				t.Helper()
 				assert.Empty(t, resp.Msg.Concerts)
+				assert.Empty(t, resp.Msg.Series)
+				assert.Empty(t, resp.Msg.Artists)
 			},
 		},
 		{

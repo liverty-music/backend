@@ -21,8 +21,7 @@ type ConcertHandler struct {
 }
 
 // NewConcertHandler creates a new concert handler. mediaURLBuilder composes
-// the cover image URLs of the first-party Series returned by Get and
-// ListBySeries.
+// the cover image URLs of the first-party Series every response returns.
 func NewConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
 	userRepo entity.UserRepository,
@@ -46,7 +45,9 @@ func (h *ConcertHandler) Get(ctx context.Context, req *connect.Request[concertv1
 	}
 
 	return connect.NewResponse(&concertv1.GetResponse{
-		Concert: h.mediaURLBuilder.ConcertToProto(concert),
+		Concert: mapper.ConcertToProto(concert),
+		Series:  h.mediaURLBuilder.ReferencedSeries([]*entity.Concert{concert}),
+		Artists: mapper.ReferencedArtists([]*entity.Concert{concert}),
 	}), nil
 }
 
@@ -59,7 +60,9 @@ func (h *ConcertHandler) ListBySeries(ctx context.Context, req *connect.Request[
 	}
 
 	return connect.NewResponse(&concertv1.ListBySeriesResponse{
-		Concerts: h.mediaURLBuilder.ConcertsToProto(concerts),
+		Concerts: mapper.ConcertsToProto(concerts),
+		Series:   h.mediaURLBuilder.ReferencedSeries(concerts),
+		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
 }
 
@@ -77,6 +80,8 @@ func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[concertv
 
 	return connect.NewResponse(&concertv1.ListResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
+		Series:   h.mediaURLBuilder.ReferencedSeries(concerts),
+		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
 }
 
@@ -103,8 +108,11 @@ func (h *ConcertHandler) ListByFollower(ctx context.Context, req *connect.Reques
 		return nil, err
 	}
 
+	concerts := mapper.ConcertsOfGroups(groups)
 	return connect.NewResponse(&concertv1.ListByFollowerResponse{
-		Groups: mapper.ProximityGroupsToProto(groups),
+		Groups:  mapper.ProximityGroupsToProto(groups),
+		Series:  h.mediaURLBuilder.ReferencedSeries(concerts),
+		Artists: mapper.ReferencedArtists(concerts),
 	}), nil
 }
 
@@ -125,8 +133,11 @@ func (h *ConcertHandler) ListByArtists(ctx context.Context, req *connect.Request
 		return nil, err
 	}
 
+	concerts := mapper.ConcertsOfGroups(groups)
 	return connect.NewResponse(&concertv1.ListByArtistsResponse{
-		Groups: mapper.ProximityGroupsToProto(groups),
+		Groups:  mapper.ProximityGroupsToProto(groups),
+		Series:  h.mediaURLBuilder.ReferencedSeries(concerts),
+		Artists: mapper.ReferencedArtists(concerts),
 	}), nil
 }
 
@@ -143,20 +154,10 @@ func (h *ConcertHandler) ListByLocation(ctx context.Context, req *connect.Reques
 		return nil, err
 	}
 
+	concerts := mapper.ConcertsOfGroups(groups)
 	return connect.NewResponse(&concertv1.ListByLocationResponse{
-		Groups: mapper.ProximityGroupsToProto(groups),
-	}), nil
-}
-
-// SearchNewConcerts discovers new concerts for the given artist synchronously
-// and returns them in the response.
-func (h *ConcertHandler) SearchNewConcerts(ctx context.Context, req *connect.Request[concertv1.SearchNewConcertsRequest]) (*connect.Response[concertv1.SearchNewConcertsResponse], error) {
-	concerts, err := h.concertUseCase.SearchNewConcerts(ctx, req.Msg.GetArtistId().GetValue())
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&concertv1.SearchNewConcertsResponse{
-		Concerts: mapper.ConcertsToProto(concerts),
+		Groups:  mapper.ProximityGroupsToProto(groups),
+		Series:  h.mediaURLBuilder.ReferencedSeries(concerts),
+		Artists: mapper.ReferencedArtists(concerts),
 	}), nil
 }

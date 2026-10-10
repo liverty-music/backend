@@ -78,8 +78,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
 			SeriesID: seriesID, LocalDate: concertDate,
 			StartTime: &startTime, OpenTime: &openTime,
-			Series:     &entity.Series{ID: seriesID},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 		assert.NoError(t, err)
 	})
@@ -95,22 +95,22 @@ func TestConcertRepository_Create(t *testing.T) {
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49d1", VenueID: venueID,
 				SeriesID: s1, LocalDate: concertDate,
 				StartTime: &startTime, OpenTime: &openTime,
-				Series:     &entity.Series{ID: s1},
-				Performers: []*entity.Artist{{ID: artistID}},
+				Series:  &entity.Series{ID: s1},
+				Artists: []*entity.Artist{{ID: artistID}},
 			},
 			{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49d2", VenueID: venueID,
 				SeriesID: s2, LocalDate: concertDate.AddDate(0, 0, 1),
 				StartTime: &startTime, OpenTime: &openTime,
-				Series:     &entity.Series{ID: s2},
-				Performers: []*entity.Artist{{ID: artistID}},
+				Series:  &entity.Series{ID: s2},
+				Artists: []*entity.Artist{{ID: artistID}},
 			},
 			{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49d3", VenueID: venueID,
 				SeriesID: s3, LocalDate: concertDate.AddDate(0, 0, 2),
 				StartTime: &startTime, OpenTime: &openTime,
-				Series:     &entity.Series{ID: s3},
-				Performers: []*entity.Artist{{ID: artistID}},
+				Series:  &entity.Series{ID: s3},
+				Artists: []*entity.Artist{{ID: artistID}},
 			},
 		}
 		_, err := concertRepo.Create(ctx, concerts...)
@@ -129,8 +129,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
 			SeriesID: seriesID, LocalDate: concertDate,
 			StartTime: &startTime, OpenTime: &openTime,
-			Series:     &entity.Series{ID: seriesID},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID},
+			Artists: []*entity.Artist{{ID: artistID}},
 		}
 		_, err := concertRepo.Create(ctx, concert)
 		require.NoError(t, err)
@@ -150,8 +150,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
 			SeriesID: seriesID1, LocalDate: concertDate,
 			StartTime: &startTime, OpenTime: &openTime,
-			Series:     &entity.Series{ID: seriesID1},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID1},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 
 		// Batch: one existing (same ID) + one new.
@@ -160,15 +160,15 @@ func TestConcertRepository_Create(t *testing.T) {
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c1", VenueID: venueID,
 				SeriesID: seriesID1, LocalDate: concertDate,
 				StartTime: &startTime, OpenTime: &openTime,
-				Series:     &entity.Series{ID: seriesID1},
-				Performers: []*entity.Artist{{ID: artistID}},
+				Series:  &entity.Series{ID: seriesID1},
+				Artists: []*entity.Artist{{ID: artistID}},
 			},
 			&entity.Concert{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49e1", VenueID: venueID,
 				SeriesID: seriesID2, LocalDate: concertDate.AddDate(0, 0, 5),
 				StartTime: &startTime, OpenTime: &openTime,
-				Series:     &entity.Series{ID: seriesID2},
-				Performers: []*entity.Artist{{ID: artistID}},
+				Series:  &entity.Series{ID: seriesID2},
+				Artists: []*entity.Artist{{ID: artistID}},
 			},
 		)
 		assert.NoError(t, err)
@@ -186,8 +186,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49c2", VenueID: venueID,
 			SeriesID: seriesID, LocalDate: concertDate,
 			StartTime: &startTime, OpenTime: &openTime,
-			Series:     &entity.Series{ID: seriesID},
-			Performers: []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a0"}}, // does not exist
+			Series:  &entity.Series{ID: seriesID},
+			Artists: []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a0"}}, // does not exist
 		})
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -201,8 +201,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			VenueID:  "018b2f19-e591-7d12-bf9e-f0e74f1b49b0", // does not exist
 			SeriesID: seriesID, LocalDate: concertDate,
 			StartTime: &startTime, OpenTime: &openTime,
-			Series:     &entity.Series{ID: seriesID},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -227,8 +227,8 @@ func TestConcertRepository_Create(t *testing.T) {
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49f1", VenueID: venueID,
 				SeriesID: seriesID, LocalDate: concertDate,
 				StartTime: &startTime, OpenTime: &openTime,
-				Series:     &entity.Series{ID: seriesID},
-				Performers: []*entity.Artist{{ID: artistID}},
+				Series:  &entity.Series{ID: seriesID},
+				Artists: []*entity.Artist{{ID: artistID}},
 			},
 			nil,
 		)
@@ -249,8 +249,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c01", VenueID: venueID,
 			SeriesID: seriesID1, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime,
-			Series:     &entity.Series{ID: seriesID1, SourceURL: "https://example.com/1"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID1, SourceURL: "https://example.com/1"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 
 		// Second insert: same natural key (series_id+venue_id+date) but different UUID.
@@ -260,8 +260,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c02", VenueID: venueID,
 			SeriesID: seriesID1, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime,
-			Series:     &entity.Series{ID: seriesID1, SourceURL: "https://example.com/2"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID1, SourceURL: "https://example.com/2"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 		require.NoError(t, err)
 
@@ -284,8 +284,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c03", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/3"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID, SourceURL: "https://example.com/3"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 
 		// Second insert: same natural key but open_at is now non-NULL.
@@ -294,8 +294,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c04", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime, OpenTime: &openTime,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/4"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID, SourceURL: "https://example.com/4"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 		require.NoError(t, err)
 
@@ -316,8 +316,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c05", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime, OpenTime: &openTime,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/5"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID, SourceURL: "https://example.com/5"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 
 		// Second insert: same natural key but open_at = NULL.
@@ -326,8 +326,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c06", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/6"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID, SourceURL: "https://example.com/6"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 		require.NoError(t, err)
 
@@ -348,8 +348,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0b", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime, OpenTime: &openTime,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/11"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID, SourceURL: "https://example.com/11"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 
 		// Second insert: same natural key with a different non-NULL open_at.
@@ -360,8 +360,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0c", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime, OpenTime: &laterOpen,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/12"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID, SourceURL: "https://example.com/12"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 		require.NoError(t, err)
 
@@ -411,8 +411,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0d", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/coh-a"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID, SourceURL: "https://example.com/coh-a"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 		require.NoError(t, err)
 		require.Len(t, aIDs, 1, "artist A's discovery should surface the new event id")
@@ -423,8 +423,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c0e", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/coh-b"},
-			Performers: []*entity.Artist{{ID: artistB}},
+			Series:  &entity.Series{ID: seriesID, SourceURL: "https://example.com/coh-b"},
+			Artists: []*entity.Artist{{ID: artistB}},
 		})
 		require.NoError(t, err)
 		require.Len(t, bIDs, 1,
@@ -453,9 +453,9 @@ func TestConcertRepository_Create(t *testing.T) {
 		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c07", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
-			LocalDate:  concertDate,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/7"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			LocalDate: concertDate,
+			Series:    &entity.Series{ID: seriesID, SourceURL: "https://example.com/7"},
+			Artists:   []*entity.Artist{{ID: artistID}},
 		})
 
 		// Second insert: same series+venue+date, also start_at = NULL.
@@ -463,9 +463,9 @@ func TestConcertRepository_Create(t *testing.T) {
 		_, err := concertRepo.Create(ctx, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c08", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
-			LocalDate:  concertDate,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/8"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			LocalDate: concertDate,
+			Series:    &entity.Series{ID: seriesID, SourceURL: "https://example.com/8"},
+			Artists:   []*entity.Artist{{ID: artistID}},
 		})
 		require.NoError(t, err)
 
@@ -483,8 +483,8 @@ func TestConcertRepository_Create(t *testing.T) {
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6c09", VenueID: venueID,
 			SeriesID: seriesID, ListedVenueName: &listedVenue,
 			LocalDate: concertDate, StartTime: &startTime,
-			Series:     &entity.Series{ID: seriesID, SourceURL: "https://example.com/9"},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID, SourceURL: "https://example.com/9"},
+			Artists: []*entity.Artist{{ID: artistID}},
 		}
 		requireCreate(t, ctx, concertRepo, concert)
 
@@ -501,7 +501,7 @@ func TestConcertRepository_Create(t *testing.T) {
 }
 
 // TestConcertRepository_CoHeadliners verifies the M:N performers contract:
-// inserting a Concert with multiple Performers writes one event_performers row
+// inserting a Concert with multiple Performers writes one concert_artists row
 // per artist, and every row round-trips through the hydrate query so callers
 // see the full lineup. Covers the "Co-headliner persistence" scenario from the
 // event-management spec.
@@ -535,7 +535,7 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 	_, err = concertRepo.Create(ctx, &entity.Concert{
 		ID: eventID, SeriesID: seriesID, VenueID: venueID, LocalDate: concertDate,
 		Series: &entity.Series{ID: seriesID},
-		Performers: []*entity.Artist{
+		Artists: []*entity.Artist{
 			{ID: headliner},
 			{ID: support},
 			{ID: opener},
@@ -548,8 +548,8 @@ func TestConcertRepository_CoHeadliners(t *testing.T) {
 	got, err := concertRepo.ListByIDs(ctx, []string{eventID})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	require.Len(t, got[0].Performers, 3, "all three M:N rows must round-trip")
-	gotIDs := got[0].PerformerIDs()
+	require.Len(t, got[0].Artists, 3, "all three M:N rows must round-trip")
+	gotIDs := got[0].ArtistIDs()
 	assert.ElementsMatch(t, []string{headliner, support, opener}, gotIDs)
 
 	// And via ListByArtist for each performer — every artist should see this
@@ -601,13 +601,13 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	_, err = concertRepo.Create(ctx,
 		&entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1bd1c1", SeriesID: seriesA, VenueID: venueID, LocalDate: concertDate, StartTime: &evening,
-			Series:     &entity.Series{ID: seriesA},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesA},
+			Artists: []*entity.Artist{{ID: artistID}},
 		},
 		&entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1bd1c2", SeriesID: seriesB, VenueID: venueID, LocalDate: concertDate, StartTime: &evening,
-			Series:     &entity.Series{ID: seriesB},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesB},
+			Artists: []*entity.Artist{{ID: artistID}},
 		},
 	)
 	require.NoError(t, err)
@@ -620,8 +620,8 @@ func TestConcertRepository_PhysicalNaturalKey(t *testing.T) {
 	// is a distinct event.
 	_, err = concertRepo.Create(ctx, &entity.Concert{
 		ID: "018b2f19-e591-7d12-bf9e-f0e74f1bd1c3", SeriesID: seriesA, VenueID: venueID, LocalDate: concertDate, StartTime: &matinee,
-		Series:     &entity.Series{ID: seriesA},
-		Performers: []*entity.Artist{{ID: artistID}},
+		Series:  &entity.Series{ID: seriesA},
+		Artists: []*entity.Artist{{ID: artistID}},
 	})
 	require.NoError(t, err)
 
@@ -663,9 +663,9 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 					VenueID:  venueID,
 					SeriesID: seriesID,
 					// ListedVenueName intentionally omitted → stored as NULL.
-					LocalDate:  concertDate,
-					Series:     &entity.Series{ID: seriesID},
-					Performers: []*entity.Artist{{ID: artistID}},
+					LocalDate: concertDate,
+					Series:    &entity.Series{ID: seriesID},
+					Artists:   []*entity.Artist{{ID: artistID}},
 				})
 				require.NoError(t, err)
 			},
@@ -688,7 +688,7 @@ func TestConcertRepository_ListedVenueName(t *testing.T) {
 					ListedVenueName: &listedName,
 					LocalDate:       concertDate,
 					Series:          &entity.Series{ID: seriesID, SourceURL: "https://example.com/modern"},
-					Performers:      []*entity.Artist{{ID: artistID}},
+					Artists:         []*entity.Artist{{ID: artistID}},
 				})
 				require.NoError(t, err)
 			},
@@ -787,44 +787,44 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 	// testArtist2 has: 1 future concert.
 	concerts := []*entity.Concert{
 		{
-			ID:         "018b2f19-e591-7d12-bf9e-f0e74f1b49c4",
-			VenueID:    "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
-			SeriesID:   s1,
-			LocalDate:  futureDate,
-			StartTime:  &startTime,
-			OpenTime:   &openTime,
-			Series:     &entity.Series{ID: s1, Title: "Concert 1 (future)"},
-			Performers: []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2"}},
+			ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c4",
+			VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
+			SeriesID:  s1,
+			LocalDate: futureDate,
+			StartTime: &startTime,
+			OpenTime:  &openTime,
+			Series:    &entity.Series{ID: s1, Title: "Concert 1 (future)"},
+			Artists:   []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2"}},
 		},
 		{
-			ID:         "018b2f19-e591-7d12-bf9e-f0e74f1b49c5",
-			VenueID:    "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
-			SeriesID:   s2,
-			LocalDate:  futureDate.AddDate(0, 1, 0),
-			StartTime:  &startTime2,
-			OpenTime:   &openTime2,
-			Series:     &entity.Series{ID: s2, Title: "Concert 2 (future)"},
-			Performers: []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2"}},
+			ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c5",
+			VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
+			SeriesID:  s2,
+			LocalDate: futureDate.AddDate(0, 1, 0),
+			StartTime: &startTime2,
+			OpenTime:  &openTime2,
+			Series:    &entity.Series{ID: s2, Title: "Concert 2 (future)"},
+			Artists:   []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2"}},
 		},
 		{
-			ID:         "018b2f19-e591-7d12-bf9e-f0e74f1b49c7",
-			VenueID:    "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
-			SeriesID:   s3,
-			LocalDate:  pastDate,
-			StartTime:  &startTime,
-			OpenTime:   &openTime,
-			Series:     &entity.Series{ID: s3, Title: "Concert Past (should be hidden)"},
-			Performers: []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2"}},
+			ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c7",
+			VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
+			SeriesID:  s3,
+			LocalDate: pastDate,
+			StartTime: &startTime,
+			OpenTime:  &openTime,
+			Series:    &entity.Series{ID: s3, Title: "Concert Past (should be hidden)"},
+			Artists:   []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a2"}},
 		},
 		{
-			ID:         "018b2f19-e591-7d12-bf9e-f0e74f1b49c6",
-			VenueID:    "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
-			SeriesID:   s4,
-			LocalDate:  futureDate,
-			StartTime:  &startTime2, // different start_time to avoid UPSERT conflict with c4
-			OpenTime:   &openTime2,
-			Series:     &entity.Series{ID: s4, Title: "Concert 3"},
-			Performers: []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a3"}},
+			ID:        "018b2f19-e591-7d12-bf9e-f0e74f1b49c6",
+			VenueID:   "018b2f19-e591-7d12-bf9e-f0e74f1b49b2",
+			SeriesID:  s4,
+			LocalDate: futureDate,
+			StartTime: &startTime2, // different start_time to avoid UPSERT conflict with c4
+			OpenTime:  &openTime2,
+			Series:    &entity.Series{ID: s4, Title: "Concert 3"},
+			Artists:   []*entity.Artist{{ID: "018b2f19-e591-7d12-bf9e-f0e74f1b49a3"}},
 		},
 	}
 
@@ -859,8 +859,8 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 			wantErr: nil,
 			validate: func(t *testing.T, concerts []*entity.Concert) {
 				for _, c := range concerts {
-					require.NotEmpty(t, c.PerformerIDs())
-					assert.Equal(t, "018b2f19-e591-7d12-bf9e-f0e74f1b49a2", c.PerformerIDs()[0])
+					require.NotEmpty(t, c.ArtistIDs())
+					assert.Equal(t, "018b2f19-e591-7d12-bf9e-f0e74f1b49a2", c.ArtistIDs()[0])
 				}
 			},
 		},
@@ -954,9 +954,9 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 			VenueID:  venue.ID,
 			SeriesID: sid,
 			// ListedVenueName intentionally omitted → stored as NULL.
-			LocalDate:  concertDate,
-			Series:     &entity.Series{ID: sid},
-			Performers: []*entity.Artist{{ID: artist.ID}},
+			LocalDate: concertDate,
+			Series:    &entity.Series{ID: sid},
+			Artists:   []*entity.Artist{{ID: artist.ID}},
 		})
 		require.NoError(t, err)
 
@@ -989,7 +989,7 @@ func TestConcertRepository_ListByArtist(t *testing.T) {
 			ListedVenueName: &listedName,
 			LocalDate:       concertDate,
 			Series:          &entity.Series{ID: sid, SourceURL: "https://example.com/modern"},
-			Performers:      []*entity.Artist{{ID: artist.ID}},
+			Artists:         []*entity.Artist{{ID: artist.ID}},
 		})
 		require.NoError(t, err)
 
@@ -1038,14 +1038,14 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 			&entity.Concert{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6021", VenueID: venue.ID,
 				SeriesID: s1, LocalDate: concertDate, StartTime: &startTime,
-				Series:     &entity.Series{ID: s1, Title: "Multi Concert 1"},
-				Performers: []*entity.Artist{{ID: artist1.ID}},
+				Series:  &entity.Series{ID: s1, Title: "Multi Concert 1"},
+				Artists: []*entity.Artist{{ID: artist1.ID}},
 			},
 			&entity.Concert{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6022", VenueID: venue.ID,
 				SeriesID: s2, LocalDate: concertDate.AddDate(0, 0, 1), StartTime: &startTime,
-				Series:     &entity.Series{ID: s2, Title: "Multi Concert 2"},
-				Performers: []*entity.Artist{{ID: artist2.ID}},
+				Series:  &entity.Series{ID: s2, Title: "Multi Concert 2"},
+				Artists: []*entity.Artist{{ID: artist2.ID}},
 			},
 		)
 
@@ -1094,8 +1094,8 @@ func TestConcertRepository_ListByArtists(t *testing.T) {
 		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b6023", VenueID: venue.ID,
 			SeriesID: sid, LocalDate: concertDate,
-			Series:     &entity.Series{ID: sid},
-			Performers: []*entity.Artist{{ID: artist.ID}},
+			Series:  &entity.Series{ID: sid},
+			Artists: []*entity.Artist{{ID: artist.ID}},
 		})
 
 		got, err := concertRepo.ListByArtists(ctx, []string{artist.ID})
@@ -1152,14 +1152,14 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			&entity.Concert{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5031", VenueID: venue.ID,
 				SeriesID: s1, LocalDate: concertDate, StartTime: &startTime,
-				Series:     &entity.Series{ID: s1, Title: "Followed Concert 1"},
-				Performers: []*entity.Artist{{ID: artist1.ID}},
+				Series:  &entity.Series{ID: s1, Title: "Followed Concert 1"},
+				Artists: []*entity.Artist{{ID: artist1.ID}},
 			},
 			&entity.Concert{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5032", VenueID: venue.ID,
 				SeriesID: s2, LocalDate: concertDate.AddDate(0, 0, 1), StartTime: &startTime,
-				Series:     &entity.Series{ID: s2, Title: "Unfollowed Concert"},
-				Performers: []*entity.Artist{{ID: artist2.ID}},
+				Series:  &entity.Series{ID: s2, Title: "Unfollowed Concert"},
+				Artists: []*entity.Artist{{ID: artist2.ID}},
 			},
 		)
 
@@ -1209,8 +1209,8 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5041", VenueID: venue.ID,
 			SeriesID: sid, LocalDate: concertDate,
-			Series:     &entity.Series{ID: sid},
-			Performers: []*entity.Artist{{ID: artist.ID}},
+			Series:  &entity.Series{ID: sid},
+			Artists: []*entity.Artist{{ID: artist.ID}},
 		})
 
 		_, err = testDB.Pool.Exec(ctx,
@@ -1274,14 +1274,14 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			&entity.Concert{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5051", VenueID: venue.ID,
 				SeriesID: sPast, LocalDate: pastDate,
-				Series:     &entity.Series{ID: sPast, Title: "Past Concert"},
-				Performers: []*entity.Artist{{ID: artist.ID}},
+				Series:  &entity.Series{ID: sPast, Title: "Past Concert"},
+				Artists: []*entity.Artist{{ID: artist.ID}},
 			},
 			&entity.Concert{
 				ID: "018b2f19-e591-7d12-bf9e-f0e74f1b5052", VenueID: venue.ID,
 				SeriesID: sFuture, LocalDate: futureDate,
-				Series:     &entity.Series{ID: sFuture, Title: "Future Concert"},
-				Performers: []*entity.Artist{{ID: artist.ID}},
+				Series:  &entity.Series{ID: sFuture, Title: "Future Concert"},
+				Artists: []*entity.Artist{{ID: artist.ID}},
 			},
 		)
 
@@ -1334,8 +1334,8 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		// seedFirstPartySeriesEvent inserts a first-party series in the given
 		// publish_state/visibility with one event on date, linked to artistID
-		// via event_performers.
-		seedFirstPartySeriesEvent := func(title, publishState, visibility, date string) {
+		// via concert_artists.
+		seedFirstPartySeriesEvent := func(title, publishState, visibility, date string) string {
 			t.Helper()
 			seriesID := newTestID(t)
 			var publishedAt *time.Time
@@ -1355,17 +1355,25 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 				eventID, seriesID, venueID, date,
 			)
 			require.NoError(t, err)
+			_, err = testDB.Pool.Exec(ctx, "INSERT INTO concerts (event_id) VALUES ($1)", eventID)
+			require.NoError(t, err)
 			_, err = testDB.Pool.Exec(ctx,
-				"INSERT INTO event_performers (event_id, artist_id) VALUES ($1, $2)",
+				"INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2)",
 				eventID, artistID,
 			)
 			require.NoError(t, err)
+			return seriesID
 		}
 
 		seedFirstPartySeriesEvent("Draft Series Concert", string(entity.SeriesPublishStateDraft), string(entity.SeriesVisibilityPublic), "2027-06-01")
 		seedFirstPartySeriesEvent("Unlisted Series Concert", string(entity.SeriesPublishStatePublished), string(entity.SeriesVisibilityUnlisted), "2027-06-02")
 		seedFirstPartySeriesEvent("Cancelled Series Concert", string(entity.SeriesPublishStateCancelled), string(entity.SeriesVisibilityPublic), "2027-06-03")
-		seedFirstPartySeriesEvent("Published Public Series Concert", string(entity.SeriesPublishStatePublished), string(entity.SeriesVisibilityPublic), "2027-06-04")
+		publishedSeriesID := seedFirstPartySeriesEvent("Published Public Series Concert", string(entity.SeriesPublishStatePublished), string(entity.SeriesVisibilityPublic), "2027-06-04")
+		coverID := newTestID(t)
+		_, err = testDB.Pool.Exec(ctx, "INSERT INTO media (id, organizer_id, kind) VALUES ($1, $2, 'IMAGE')", coverID, organizerID)
+		require.NoError(t, err)
+		_, err = testDB.Pool.Exec(ctx, "INSERT INTO series_media (series_id, media_id) VALUES ($1, $2)", publishedSeriesID, coverID)
+		require.NoError(t, err)
 
 		got, err := concertRepo.ListByFollower(ctx, userID, &epoch)
 		require.NoError(t, err)
@@ -1378,6 +1386,10 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Equal(t, entity.SeriesVisibilityPublic, *got[0].Series.Visibility)
 		require.NotNil(t, got[0].Series.PublishState)
 		assert.Equal(t, entity.SeriesPublishStatePublished, *got[0].Series.PublishState)
+		require.NotNil(t, got[0].Series.CoverMedia, "a list read carries the series' cover, as the event page does")
+		assert.Equal(t, coverID, got[0].Series.CoverMedia.ID)
+		assert.Equal(t, organizerID, got[0].Series.CoverMedia.OrganizerID)
+		assert.Equal(t, entity.MediaKindImage, got[0].Series.CoverMedia.Kind)
 
 		require.NotNil(t, got[0].Series.Organizer, "a first-party series carries its Organizer")
 		assert.Equal(t, "Test Organizer", got[0].Series.Organizer.Name)
@@ -1397,6 +1409,8 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Equal(t, organizerID, *byID[0].Series.OrganizerID)
 		require.NotNil(t, byID[0].Series.Organizer)
 		assert.Equal(t, &details, byID[0].Series.Organizer.SellerDetails)
+		require.NotNil(t, byID[0].Series.CoverMedia)
+		assert.Equal(t, coverID, byID[0].Series.CoverMedia.ID)
 	})
 }
 
@@ -1426,13 +1440,13 @@ func TestConcertRepository_List(t *testing.T) {
 		requireCreate(t, ctx, concertRepo,
 			&entity.Concert{
 				ID: newTestID(t), VenueID: venueID, SeriesID: s1, LocalDate: concertDate,
-				Series:     &entity.Series{ID: s1},
-				Performers: []*entity.Artist{{ID: artistID}},
+				Series:  &entity.Series{ID: s1},
+				Artists: []*entity.Artist{{ID: artistID}},
 			},
 			&entity.Concert{
 				ID: newTestID(t), VenueID: venueID, SeriesID: s2, LocalDate: concertDate.AddDate(0, 0, 1),
-				Series:     &entity.Series{ID: s2},
-				Performers: []*entity.Artist{{ID: artistID}},
+				Series:  &entity.Series{ID: s2},
+				Artists: []*entity.Artist{{ID: artistID}},
 			},
 		)
 
@@ -1442,7 +1456,7 @@ func TestConcertRepository_List(t *testing.T) {
 		// Series, Venue, and Performers are hydrated like the other list methods.
 		require.NotNil(t, got[0].Series)
 		require.NotNil(t, got[0].Venue)
-		assert.NotEmpty(t, got[0].Performers)
+		assert.NotEmpty(t, got[0].Artists)
 	})
 
 	t.Run("returns empty when nothing is published", func(t *testing.T) {
@@ -1479,8 +1493,8 @@ func TestConcertRepository_Delete(t *testing.T) {
 		eventID := newTestID(t)
 		requireCreate(t, ctx, concertRepo, &entity.Concert{
 			ID: eventID, VenueID: venueID, SeriesID: seriesID, LocalDate: concertDate,
-			Series:     &entity.Series{ID: seriesID},
-			Performers: []*entity.Artist{{ID: artistID}},
+			Series:  &entity.Series{ID: seriesID},
+			Artists: []*entity.Artist{{ID: artistID}},
 		})
 
 		// Seed a fan-owned dependent row to prove the cascade reaches it.
@@ -1498,14 +1512,14 @@ func TestConcertRepository_Delete(t *testing.T) {
 
 		// Sanity: the event and its dependents exist before deletion.
 		assert.Equal(t, 1, countRows(t, ctx, "events", eventID))
-		assert.Equal(t, 1, countRows(t, ctx, "event_performers", eventID))
+		assert.Equal(t, 1, countRows(t, ctx, "concert_artists", eventID))
 		assert.Equal(t, 1, countRows(t, ctx, "ticket_journeys", eventID))
 
 		require.NoError(t, concertRepo.Delete(ctx, eventID))
 
 		// The event is gone and the FK cascade removed every referencing row.
 		assert.Equal(t, 0, countRows(t, ctx, "events", eventID), "event removed")
-		assert.Equal(t, 0, countRows(t, ctx, "event_performers", eventID), "event_performers cascaded")
+		assert.Equal(t, 0, countRows(t, ctx, "concert_artists", eventID), "concert_artists cascaded")
 		assert.Equal(t, 0, countRows(t, ctx, "ticket_journeys", eventID), "ticket_journeys cascaded")
 
 		got, err := concertRepo.List(ctx)
@@ -1563,7 +1577,7 @@ func TestConcertRepository_UpdateEventListedVenueName(t *testing.T) {
 			ListedVenueName: &oldName,
 			LocalDate:       concertDate,
 			Series:          &entity.Series{ID: sid, SourceURL: "https://example.com/adopt"},
-			Performers:      []*entity.Artist{{ID: artist.ID}},
+			Artists:         []*entity.Artist{{ID: artist.ID}},
 		})
 		require.NoError(t, err)
 
@@ -1621,19 +1635,19 @@ func TestConcertRepository_ListEventsBySeries(t *testing.T) {
 		requireCreate(t, ctx, concertRepo,
 			&entity.Concert{
 				ID: laterID, VenueID: venue.ID, SeriesID: seriesID, LocalDate: day2,
-				Series: &entity.Series{ID: seriesID}, Performers: []*entity.Artist{{ID: artist.ID}},
+				Series: &entity.Series{ID: seriesID}, Artists: []*entity.Artist{{ID: artist.ID}},
 			},
 			&entity.Concert{
 				ID: eveningID, VenueID: venue.ID, SeriesID: seriesID, LocalDate: day1, StartTime: &lateStart,
-				Series: &entity.Series{ID: seriesID}, Performers: []*entity.Artist{{ID: artist.ID}},
+				Series: &entity.Series{ID: seriesID}, Artists: []*entity.Artist{{ID: artist.ID}},
 			},
 			&entity.Concert{
 				ID: unannouncedID, VenueID: venue2.ID, SeriesID: seriesID, LocalDate: day1,
-				Series: &entity.Series{ID: seriesID}, Performers: []*entity.Artist{{ID: artist.ID}},
+				Series: &entity.Series{ID: seriesID}, Artists: []*entity.Artist{{ID: artist.ID}},
 			},
 			&entity.Concert{
 				ID: matineeID, VenueID: venue3.ID, SeriesID: seriesID, LocalDate: day1, StartTime: &earlyStart,
-				Series: &entity.Series{ID: seriesID}, Performers: []*entity.Artist{{ID: artist.ID}},
+				Series: &entity.Series{ID: seriesID}, Artists: []*entity.Artist{{ID: artist.ID}},
 			},
 		)
 

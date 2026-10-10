@@ -14,16 +14,15 @@ import (
 // authenticated. The admin server never uses this allowlist.
 func FanPublicProcedures() map[string]bool {
 	return map[string]bool{
-		"/" + artistconnect.ArtistServiceName + "/ListTop":             true,
-		"/" + artistconnect.ArtistServiceName + "/ListSimilar":         true,
-		"/" + artistconnect.ArtistServiceName + "/Search":              true,
-		"/" + concertconnect.ConcertServiceName + "/List":              true,
-		"/" + concertconnect.ConcertServiceName + "/SearchNewConcerts": true,
-		"/" + concertconnect.ConcertServiceName + "/ListByArtists":     true,
-		"/" + concertconnect.ConcertServiceName + "/ListByLocation":    true,
-		"/" + concertconnect.ConcertServiceName + "/Get":               true,
-		"/" + concertconnect.ConcertServiceName + "/ListBySeries":      true,
-		ticketsaleconnect.TicketSaleServiceGetProcedure:                true,
+		"/" + artistconnect.ArtistServiceName + "/ListTop":          true,
+		"/" + artistconnect.ArtistServiceName + "/ListSimilar":      true,
+		"/" + artistconnect.ArtistServiceName + "/Search":           true,
+		"/" + concertconnect.ConcertServiceName + "/List":           true,
+		"/" + concertconnect.ConcertServiceName + "/ListByArtists":  true,
+		"/" + concertconnect.ConcertServiceName + "/ListByLocation": true,
+		"/" + concertconnect.ConcertServiceName + "/Get":            true,
+		"/" + concertconnect.ConcertServiceName + "/ListBySeries":   true,
+		ticketsaleconnect.TicketSaleServiceGetProcedure:             true,
 	}
 }
 

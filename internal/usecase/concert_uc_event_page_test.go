@@ -19,7 +19,8 @@ const (
 )
 
 // eventPageSeries builds a first-party Series with the given visibility and
-// publish state, as SeriesRepository.Get returns it.
+// publish state, as ConcertRepository.ListByIDs and SeriesRepository.Get
+// return it.
 func eventPageSeries(visibility entity.SeriesVisibility, state entity.SeriesPublishState) *entity.Series {
 	organizerID := "019a0000-0000-7000-8000-0000000000f1"
 	description := "Two nights at Shibuya WWW."
@@ -35,16 +36,16 @@ func eventPageSeries(visibility entity.SeriesVisibility, state entity.SeriesPubl
 	}
 }
 
-// eventPageConcert builds a Concert as ConcertRepository.ListByIDs returns it:
-// its Series carries only the list columns (no first-party attributes).
-func eventPageConcert(id string, date time.Time, start *time.Time) *entity.Concert {
+// eventPageConcert builds a Concert of the given Series as
+// ConcertRepository.ListByIDs returns it.
+func eventPageConcert(id string, date time.Time, start *time.Time, series *entity.Series) *entity.Concert {
 	return &entity.Concert{
-		ID:         id,
-		SeriesID:   eventPageSeriesID,
-		LocalDate:  date,
-		StartTime:  start,
-		Series:     &entity.Series{ID: eventPageSeriesID, Title: "ONE MAN LIVE", Type: entity.SeriesTypeSingle},
-		Performers: []*entity.Artist{{ID: "019a0000-0000-7000-8000-0000000000b1", Name: "The Band"}},
+		ID:        id,
+		SeriesID:  eventPageSeriesID,
+		LocalDate: date,
+		StartTime: start,
+		Series:    series,
+		Artists:   []*entity.Artist{{ID: "019a0000-0000-7000-8000-0000000000b1", Name: "The Band"}},
 	}
 }
 
@@ -61,13 +62,11 @@ func TestConcertUseCase_Get(t *testing.T) {
 	}{
 		{
 			// @spec components/usecase/concert/get "Published public concert"
-			name: "return the concert with its full series when the series is PUBLISHED PUBLIC",
+			name: "return the concert with its series when the series is PUBLISHED PUBLIC",
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{eventPageEventID}).
-					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil)}, nil).Once()
-				d.seriesRepo.EXPECT().Get(ctx, eventPageSeriesID).
-					Return(eventPageSeries(entity.SeriesVisibilityPublic, entity.SeriesPublishStatePublished), nil).Once()
+					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil, eventPageSeries(entity.SeriesVisibilityPublic, entity.SeriesPublishStatePublished))}, nil).Once()
 			},
 			wantState: entity.SeriesPublishStatePublished,
 		},
@@ -77,9 +76,7 @@ func TestConcertUseCase_Get(t *testing.T) {
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{eventPageEventID}).
-					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil)}, nil).Once()
-				d.seriesRepo.EXPECT().Get(ctx, eventPageSeriesID).
-					Return(eventPageSeries(entity.SeriesVisibilityPublic, entity.SeriesPublishStateCancelled), nil).Once()
+					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil, eventPageSeries(entity.SeriesVisibilityPublic, entity.SeriesPublishStateCancelled))}, nil).Once()
 			},
 			wantState: entity.SeriesPublishStateCancelled,
 		},
@@ -98,9 +95,7 @@ func TestConcertUseCase_Get(t *testing.T) {
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{eventPageEventID}).
-					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil)}, nil).Once()
-				d.seriesRepo.EXPECT().Get(ctx, eventPageSeriesID).
-					Return(eventPageSeries(entity.SeriesVisibilityUnlisted, entity.SeriesPublishStatePublished), nil).Once()
+					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil, eventPageSeries(entity.SeriesVisibilityUnlisted, entity.SeriesPublishStatePublished))}, nil).Once()
 			},
 			wantCode: apperr.ErrNotFound,
 		},
@@ -109,9 +104,7 @@ func TestConcertUseCase_Get(t *testing.T) {
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{eventPageEventID}).
-					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil)}, nil).Once()
-				d.seriesRepo.EXPECT().Get(ctx, eventPageSeriesID).
-					Return(eventPageSeries(entity.SeriesVisibilityPublic, entity.SeriesPublishStateDraft), nil).Once()
+					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil, eventPageSeries(entity.SeriesVisibilityPublic, entity.SeriesPublishStateDraft))}, nil).Once()
 			},
 			wantCode: apperr.ErrNotFound,
 		},
@@ -121,25 +114,12 @@ func TestConcertUseCase_Get(t *testing.T) {
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{eventPageEventID}).
-					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil)}, nil).Once()
-				d.seriesRepo.EXPECT().Get(ctx, eventPageSeriesID).
-					Return(&entity.Series{ID: eventPageSeriesID, Title: "Discovered Tour"}, nil).Once()
+					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil, &entity.Series{ID: eventPageSeriesID, Title: "Discovered Tour"})}, nil).Once()
 			},
 			wantCode: apperr.ErrNotFound,
 		},
 		{
 			// @spec components/usecase/concert/get "Store unavailable"
-			name: "return Unavailable unchanged when Series.Get fails",
-			setup: func(t *testing.T, d *concertTestDeps) {
-				t.Helper()
-				d.concertRepo.EXPECT().ListByIDs(ctx, []string{eventPageEventID}).
-					Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil)}, nil).Once()
-				d.seriesRepo.EXPECT().Get(ctx, eventPageSeriesID).
-					Return(nil, apperr.New(codes.Unavailable, "db down")).Once()
-			},
-			wantCode: apperr.ErrUnavailable,
-		},
-		{
 			name: "return Unavailable unchanged when Concert.ListByIDs fails",
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
@@ -184,9 +164,8 @@ func TestConcertUseCase_Get_NotFoundIsIndistinguishable(t *testing.T) {
 
 	unlisted := newConcertTestDeps(t)
 	unlisted.concertRepo.EXPECT().ListByIDs(ctx, []string{eventPageEventID}).
-		Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil)}, nil).Once()
-	unlisted.seriesRepo.EXPECT().Get(ctx, eventPageSeriesID).
-		Return(eventPageSeries(entity.SeriesVisibilityUnlisted, entity.SeriesPublishStatePublished), nil).Once()
+		Return([]*entity.Concert{eventPageConcert(eventPageEventID, date, nil,
+			eventPageSeries(entity.SeriesVisibilityUnlisted, entity.SeriesPublishStatePublished))}, nil).Once()
 	_, unlistedErr := unlisted.uc.Get(ctx, eventPageEventID)
 
 	require.Error(t, unknownErr)
@@ -229,8 +208,8 @@ func TestConcertUseCase_ListBySeries(t *testing.T) {
 					{ID: idB, SeriesID: eventPageSeriesID, LocalDate: nov21},
 				}, nil).Once()
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{idA, idB}).Return([]*entity.Concert{
-					eventPageConcert(idB, nov21, nil),
-					eventPageConcert(idA, nov20, nil),
+					eventPageConcert(idB, nov21, nil, published()),
+					eventPageConcert(idA, nov20, nil, published()),
 				}, nil).Once()
 			},
 			wantIDs: []string{idA, idB},
@@ -247,8 +226,8 @@ func TestConcertUseCase_ListBySeries(t *testing.T) {
 				}, nil).Once()
 				// ListByIDs orders by date only, so same-day rows may come back in any order.
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{idB, idA}).Return([]*entity.Concert{
-					eventPageConcert(idA, nov20, at(18)),
-					eventPageConcert(idB, nov20, at(13)),
+					eventPageConcert(idA, nov20, at(18), published()),
+					eventPageConcert(idB, nov20, at(13), published()),
 				}, nil).Once()
 			},
 			wantIDs: []string{idB, idA},
@@ -335,7 +314,7 @@ func TestConcertUseCase_ListBySeries(t *testing.T) {
 			for _, c := range got {
 				gotIDs = append(gotIDs, c.ID)
 				require.NotNil(t, c.Series)
-				assert.NotNil(t, c.Series.OrganizerID, "each concert carries the full series")
+				assert.NotNil(t, c.Series.CoverMedia, "each concert carries its series with the cover")
 			}
 			assert.Equal(t, tt.wantIDs, gotIDs)
 		})

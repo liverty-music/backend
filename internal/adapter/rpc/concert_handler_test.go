@@ -37,11 +37,9 @@ func TestConcertHandler_List(t *testing.T) {
 		localDate := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
 		concertUC.EXPECT().ListByArtist(mock.Anything, artistID).Return([]*entity.Concert{
 			{
-				ID:        "concert-1",
-				VenueID:   "venue-1",
-				LocalDate: localDate,
-				Series:    &entity.Series{ID: "series-1", Title: "Summer Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/tour"},
-				Performers: []*entity.Artist{
+				ID: "concert-1", SeriesID: "series-1", VenueID: "venue-1", LocalDate: localDate,
+				Series: &entity.Series{ID: "series-1", Title: "Summer Tour", Type: entity.SeriesTypeTour, SourceURL: "https://example.com/tour"},
+				Artists: []*entity.Artist{
 					{ID: artistID, Name: "Headliner", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
 					{ID: supportID, Name: "Support", MBID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"},
 				},
@@ -58,18 +56,20 @@ func TestConcertHandler_List(t *testing.T) {
 		assert.NotNil(t, resp)
 		assert.Len(t, resp.Msg.Concerts, 1)
 		concert := resp.Msg.Concerts[0]
-		assert.Equal(t, "concert-1", concert.GetId().GetValue())
-		assert.Equal(t, "venue-1", concert.GetVenueId().GetValue())
-		assert.Equal(t, int32(2025), concert.GetLocalDate().GetValue().GetYear())
-		assert.Equal(t, int32(6), concert.GetLocalDate().GetValue().GetMonth())
-		assert.Equal(t, int32(15), concert.GetLocalDate().GetValue().GetDay())
-		// New Concert shape: title / source URL on the embedded Series,
-		// performers as a repeated Artist.
-		assert.Equal(t, "Summer Tour", concert.GetSeries().GetTitle().GetValue())
-		assert.Equal(t, "https://example.com/tour", concert.GetSeries().GetSourceUrl().GetValue())
-		require.Len(t, concert.GetPerformers(), 2, "multi-performer concert must round-trip both performers")
-		assert.Equal(t, artistID, concert.GetPerformers()[0].GetId().GetValue())
-		assert.Equal(t, supportID, concert.GetPerformers()[1].GetId().GetValue())
+		assert.Equal(t, "concert-1", concert.GetEvent().GetId().GetValue())
+		assert.Equal(t, "series-1", concert.GetEvent().GetSeriesId().GetValue())
+		assert.Equal(t, int32(2025), concert.GetEvent().GetLocalDate().GetValue().GetYear())
+		assert.Equal(t, int32(6), concert.GetEvent().GetLocalDate().GetValue().GetMonth())
+		assert.Equal(t, int32(15), concert.GetEvent().GetLocalDate().GetValue().GetDay())
+		// Title / source URL come with the Series in the side list, the
+		// performers as ids on the Concert and Artists in the side list.
+		require.Len(t, resp.Msg.Series, 1)
+		assert.Equal(t, "Summer Tour", resp.Msg.Series[0].GetTitle().GetValue())
+		assert.Equal(t, "https://example.com/tour", resp.Msg.Series[0].GetSourceUrl().GetValue())
+		require.Len(t, concert.GetArtistIds(), 2, "multi-performer concert must round-trip both performers")
+		assert.Equal(t, artistID, concert.GetArtistIds()[0].GetValue())
+		assert.Equal(t, supportID, concert.GetArtistIds()[1].GetValue())
+		require.Len(t, resp.Msg.Artists, 2)
 	})
 
 	t.Run("returns all concerts when artist_id is not specified", func(t *testing.T) {
@@ -83,11 +83,11 @@ func TestConcertHandler_List(t *testing.T) {
 		localDate := time.Date(2025, 7, 20, 0, 0, 0, 0, time.UTC)
 		concertUC.EXPECT().ListByArtist(mock.Anything, "").Return([]*entity.Concert{
 			{
-				ID:         "concert-2",
-				VenueID:    "venue-2",
-				LocalDate:  localDate,
-				Series:     &entity.Series{Title: "World Tour"},
-				Performers: []*entity.Artist{{ID: "artist-456"}},
+				ID:        "concert-2",
+				VenueID:   "venue-2",
+				LocalDate: localDate,
+				Series:    &entity.Series{Title: "World Tour"},
+				Artists:   []*entity.Artist{{ID: "artist-456"}},
 			},
 		}, nil).Once()
 
@@ -98,7 +98,7 @@ func TestConcertHandler_List(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, resp.Msg.Concerts, 1)
-		assert.Equal(t, "concert-2", resp.Msg.Concerts[0].Id.Value)
+		assert.Equal(t, "concert-2", resp.Msg.Concerts[0].GetEvent().GetId().GetValue())
 	})
 
 	t.Run("returns empty slice when no concerts exist", func(t *testing.T) {
@@ -142,96 +142,6 @@ func TestConcertHandler_List(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, resp)
 		assert.ErrorIs(t, err, assert.AnError)
-	})
-}
-
-func TestConcertHandler_SearchNewConcerts(t *testing.T) {
-	t.Parallel()
-
-	t.Run("success_returns_concerts", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		concertUC := mocks.NewMockConcertUseCase(t)
-		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
-
-		artistID := "artist-123"
-		date := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-		venueName := "Tokyo Dome"
-		concerts := []*entity.Concert{
-			{
-				ID:              "c1",
-				ListedVenueName: &venueName,
-				LocalDate:       date,
-				Series:          &entity.Series{Title: "Summer Live"},
-				Performers:      []*entity.Artist{{ID: artistID}},
-			},
-		}
-
-		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(concerts, nil)
-
-		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
-			ArtistId: &entityv1.ArtistId{Value: artistID},
-		})
-
-		resp, err := h.SearchNewConcerts(context.Background(), req)
-
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
-		assert.Len(t, resp.Msg.Concerts, 1)
-		assert.Equal(t, "Summer Live", resp.Msg.Concerts[0].GetSeries().GetTitle().GetValue())
-	})
-
-	t.Run("success_no_concerts", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		concertUC := mocks.NewMockConcertUseCase(t)
-		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
-
-		artistID := "artist-123"
-
-		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(nil, nil)
-
-		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
-			ArtistId: &entityv1.ArtistId{Value: artistID},
-		})
-
-		resp, err := h.SearchNewConcerts(context.Background(), req)
-
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
-		assert.Empty(t, resp.Msg.Concerts)
-	})
-
-	t.Run("failure", func(t *testing.T) {
-		t.Parallel()
-
-		logger, err := logging.New()
-		require.NoError(t, err)
-
-		concertUC := mocks.NewMockConcertUseCase(t)
-		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
-
-		artistID := "artist-123"
-
-		concertUC.EXPECT().SearchNewConcerts(mock.Anything, artistID).Return(nil, assert.AnError)
-
-		req := connect.NewRequest(&concertv1.SearchNewConcertsRequest{
-			ArtistId: &entityv1.ArtistId{Value: artistID},
-		})
-
-		resp, err := h.SearchNewConcerts(context.Background(), req)
-
-		assert.Error(t, err)
-		assert.Nil(t, resp)
 	})
 }
 

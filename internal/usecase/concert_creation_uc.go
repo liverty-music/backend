@@ -25,7 +25,7 @@ type ConcertCreationUseCase interface {
 	//   - resolved venue with a same-slot conflict → staged for reconciliation
 	//     (no publish), resolved later via AdminConcertUseCase.Approve;
 	//   - resolved venue, genuinely new → auto-published: the
-	//     series/events/event_performers rows are inserted and CONCERT.created is
+	//     series/events/concert_artists rows are inserted and CONCERT.created is
 	//     published so follower notifications fire immediately.
 	CreateFromDiscovered(ctx context.Context, data entity.ConcertDiscoveredData) error
 }

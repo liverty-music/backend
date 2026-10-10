@@ -200,19 +200,20 @@ CREATE TABLE IF NOT EXISTS concerts (
     event_id UUID PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE
 );
 
-COMMENT ON TABLE concerts IS 'Music-specific event extension, linked 1:1 with events. Currently a placeholder; reserved for future music-specific columns per the Event-Type Extensibility requirement.';
+COMMENT ON TABLE concerts IS 'Music-specific event extension, linked 1:1 with events. Its performing artists are in concert_artists.';
 COMMENT ON COLUMN concerts.event_id IS 'Reference to the generic event (PK/FK)';
 
--- Event performers (M:N between events and artists)
-CREATE TABLE IF NOT EXISTS event_performers (
-    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+-- Concert artists (M:N between concerts and artists). Keyed by the concert, not
+-- the generic event, so artists attach only to the music kind of event.
+CREATE TABLE IF NOT EXISTS concert_artists (
+    event_id UUID NOT NULL REFERENCES concerts(event_id) ON DELETE CASCADE,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     PRIMARY KEY (event_id, artist_id)
 );
 
-COMMENT ON TABLE event_performers IS 'M:N relation between events and performing artists. Supports festival lineups, co-headliners, and support acts.';
-COMMENT ON COLUMN event_performers.event_id IS 'Reference to the event';
-COMMENT ON COLUMN event_performers.artist_id IS 'Reference to the performing artist';
+COMMENT ON TABLE concert_artists IS 'M:N relation between concerts and performing artists. Supports festival lineups, co-headliners, and support acts.';
+COMMENT ON COLUMN concert_artists.event_id IS 'Reference to the concert (its event id)';
+COMMENT ON COLUMN concert_artists.artist_id IS 'Reference to the performing artist';
 
 -- Draft events (first-party authoring staging).
 -- While a first-party series is a DRAFT its performances are held here rather
@@ -244,7 +245,7 @@ COMMENT ON COLUMN draft_events.open_at IS 'Doors open time (absolute), if set';
 
 -- Draft series performers (series-level, first-party authoring).
 -- Performers are chosen at the series level (applied to every event) from the
--- organizer's represented artists. On publish these become event_performers on
+-- organizer's represented artists. On publish these become concert_artists on
 -- each materialized event.
 CREATE TABLE IF NOT EXISTS draft_series_performers (
     series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
@@ -252,7 +253,7 @@ CREATE TABLE IF NOT EXISTS draft_series_performers (
     PRIMARY KEY (series_id, artist_id)
 );
 
-COMMENT ON TABLE draft_series_performers IS 'Series-level performers of a first-party DRAFT series, materialized into event_performers for every event on publish.';
+COMMENT ON TABLE draft_series_performers IS 'Series-level performers of a first-party DRAFT series, materialized into concert_artists for every event on publish.';
 COMMENT ON COLUMN draft_series_performers.series_id IS 'Parent first-party series being authored';
 COMMENT ON COLUMN draft_series_performers.artist_id IS 'A performing artist the organizer represents';
 
@@ -613,9 +614,9 @@ COMMENT ON INDEX idx_events_venue_id IS 'Optimizes listing events by venue';
 CREATE INDEX IF NOT EXISTS idx_events_series_id ON events(series_id);
 COMMENT ON INDEX idx_events_series_id IS 'Optimizes listing all events belonging to a series';
 
--- Event performers indexes
-CREATE INDEX IF NOT EXISTS idx_event_performers_artist_id ON event_performers(artist_id);
-COMMENT ON INDEX idx_event_performers_artist_id IS 'Optimizes lookup of all events for a given artist (reverse direction of the composite PK)';
+-- Concert artists indexes
+CREATE INDEX IF NOT EXISTS idx_concert_artists_artist_id ON concert_artists(artist_id);
+COMMENT ON INDEX idx_concert_artists_artist_id IS 'Optimizes lookup of all events for a given artist (reverse direction of the composite PK)';
 
 -- Followed artists indexes
 CREATE INDEX IF NOT EXISTS idx_followed_artists_user_id ON followed_artists(user_id);

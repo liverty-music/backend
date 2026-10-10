@@ -308,8 +308,8 @@ func TestDiscoveredSeries_ToConcert(t *testing.T) {
 			venueID:  "venue-1",
 			wantCheck: func(t *testing.T, got *entity.Concert) {
 				t.Helper()
-				require.Len(t, got.Performers, 1)
-				assert.Equal(t, "artist-1", got.Performers[0].ID)
+				require.Len(t, got.Artists, 1)
+				assert.Equal(t, "artist-1", got.Artists[0].ID)
 				assert.Equal(t, "event-1", got.ID)
 				assert.Equal(t, "series-1", got.SeriesID)
 				assert.Equal(t, "venue-1", got.VenueID)
@@ -342,8 +342,8 @@ func TestDiscoveredSeries_ToConcert(t *testing.T) {
 			venueID:  "",
 			wantCheck: func(t *testing.T, got *entity.Concert) {
 				t.Helper()
-				require.Len(t, got.Performers, 1)
-				assert.Equal(t, "artist-2", got.Performers[0].ID)
+				require.Len(t, got.Artists, 1)
+				assert.Equal(t, "artist-2", got.Artists[0].ID)
 				assert.Empty(t, got.ID)
 				assert.Empty(t, got.VenueID)
 				assert.Nil(t, got.StartTime)
@@ -369,8 +369,8 @@ func TestDiscoveredSeries_ToConcert(t *testing.T) {
 			venueID:  "venue-A",
 			wantCheck: func(t *testing.T, got *entity.Concert) {
 				t.Helper()
-				require.Len(t, got.Performers, 1)
-				assert.Equal(t, "artist-A", got.Performers[0].ID)
+				require.Len(t, got.Artists, 1)
+				assert.Equal(t, "artist-A", got.Artists[0].ID)
 				assert.Equal(t, "event-A", got.ID)
 				assert.Equal(t, "series-A", got.SeriesID)
 				assert.Equal(t, "venue-A", got.VenueID)

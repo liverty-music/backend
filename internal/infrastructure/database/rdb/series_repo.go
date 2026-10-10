@@ -123,7 +123,7 @@ const (
 	getAuthoredSeriesPerformersQuery = `
 		SELECT DISTINCT a.id, a.name, a.mbid
 		FROM artists a
-		JOIN event_performers ep ON ep.artist_id = a.id
+		JOIN concert_artists ep ON ep.artist_id = a.id
 		JOIN events e ON e.id = ep.event_id
 		WHERE e.series_id = $1
 		ORDER BY a.id
@@ -970,7 +970,7 @@ func (r *SeriesRepository) PublishDraft(ctx context.Context, seriesID string, no
 			// Attach performers to the claimed event.
 			for _, artistID := range performerIDs {
 				if _, err := tx.Exec(ctx,
-					`INSERT INTO event_performers (event_id, artist_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+					`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 					existingID, artistID,
 				); err != nil {
 					return nil, toAppErr(err, "failed to link performer to claimed event")
@@ -1008,7 +1008,7 @@ func (r *SeriesRepository) PublishDraft(ctx context.Context, seriesID string, no
 		// Attach performers.
 		for _, artistID := range performerIDs {
 			if _, err := tx.Exec(ctx,
-				`INSERT INTO event_performers (event_id, artist_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+				`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
 				eventID, artistID,
 			); err != nil {
 				return nil, toAppErr(err, "failed to link performer to new event during publish")

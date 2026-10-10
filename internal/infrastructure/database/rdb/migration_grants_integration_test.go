@@ -67,7 +67,7 @@ var organizerWrites = map[string]organizerTableWrites{
 	"draft_series_performers":      {insert: true, delete: true},
 	"venues":                       {insert: true},
 	"events":                       {insert: true, updateColumns: []string{"series_id"}},
-	"event_performers":             {insert: true},
+	"concert_artists":              {insert: true},
 	"concerts":                     {insert: true},
 	"staged_concerts":              {delete: true},
 	"media":                        {insert: true},

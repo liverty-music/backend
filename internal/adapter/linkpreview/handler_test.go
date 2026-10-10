@@ -70,9 +70,9 @@ func newConcert(id string, date time.Time, o concertOpts) *entity.Concert {
 	return &entity.Concert{
 		ID: id, SeriesID: seriesID, LocalDate: date,
 		OpenTime: jstTime(18), StartTime: jstTime(19),
-		Venue:      &entity.Venue{Name: "Shibuya WWW", AdminArea: &area},
-		Series:     s,
-		Performers: []*entity.Artist{{Name: "The Band"}},
+		Venue:   &entity.Venue{Name: "Shibuya WWW", AdminArea: &area},
+		Series:  s,
+		Artists: []*entity.Artist{{Name: "The Band"}},
 	}
 }
 

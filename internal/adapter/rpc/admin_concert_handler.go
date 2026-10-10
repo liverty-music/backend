@@ -23,23 +23,29 @@ var _ adminconcertv1connect.ConcertServiceHandler = (*AdminConcertHandler)(nil)
 // RequireRoleInterceptor (admin role), not by per-method checks here; the handler
 // is pure proto<->entity mapping. See internal/infrastructure/auth/authz.go.
 type AdminConcertHandler struct {
-	concertUseCase usecase.AdminConcertUseCase
-	logger         *logging.Logger
+	concertUseCase  usecase.AdminConcertUseCase
+	mediaURLBuilder *mapper.MediaURLBuilder
+	logger          *logging.Logger
 }
 
-// NewAdminConcertHandler creates a new admin concert handler.
+// NewAdminConcertHandler creates a new admin concert handler. mediaURLBuilder
+// composes the cover image URLs of the Series List returns, so they carry the
+// same fields as on the fan concert service.
 func NewAdminConcertHandler(
 	concertUseCase usecase.AdminConcertUseCase,
+	mediaURLBuilder *mapper.MediaURLBuilder,
 	logger *logging.Logger,
 ) *AdminConcertHandler {
 	return &AdminConcertHandler{
-		concertUseCase: concertUseCase,
-		logger:         logger,
+		concertUseCase:  concertUseCase,
+		mediaURLBuilder: mediaURLBuilder,
+		logger:          logger,
 	}
 }
 
-// List returns every published concert for admin catalog management. The admin
-// console groups the flat result by performing artist client-side.
+// List returns every published concert for admin catalog management, with
+// each Series and Artist they refer to once. The admin console groups the
+// flat result by performing artist client-side.
 func (h *AdminConcertHandler) List(
 	ctx context.Context,
 	_ *connect.Request[adminconcertv1.ListRequest],
@@ -51,6 +57,8 @@ func (h *AdminConcertHandler) List(
 
 	return connect.NewResponse(&adminconcertv1.ListResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
+		Series:   h.mediaURLBuilder.ReferencedSeries(concerts),
+		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
 }
 

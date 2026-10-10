@@ -35,13 +35,6 @@ type RPCHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler)
 // HealthHandlerFunc is a function that returns a path and handler for the health check endpoint.
 type HealthHandlerFunc func(opts ...connect.HandlerOption) (string, http.Handler)
 
-// LongTimeoutRPCHandler groups an RPC handler that requires a longer timeout
-// than the default HandlerTimeout (e.g., ConcertService with Gemini API calls).
-type LongTimeoutRPCHandler struct {
-	HandlerFunc RPCHandlerFunc
-	Timeout     time.Duration
-}
-
 // PublicHTTPRoute is a plain HTTP handler served on the Connect server's root
 // mux, beside the health check and outside the authn middleware and the
 // Connect interceptor chain (so no per-IP rate limit applies). It is only for
@@ -58,13 +51,13 @@ type PublicHTTPRoute struct {
 //
 // It is the shared factory for both the consumer and the admin Connect servers:
 // the two are built identically except for the port and CORS origins (carried by
-// serverCfg), the handler set (longTimeoutHandlers/handlerFuncs), and any
+// serverCfg), the handler set (handlerFuncs), and any
 // extraInterceptors. The consumer server passes no extra interceptors; the admin
 // server passes its boundary admin-authorization interceptor. extraInterceptors are
 // inserted after the claims bridge and before validation, preserving the
 // interceptor-chain-ordering invariants for both servers.
 //
-// longTimeoutHandlers are wrapped with their own http.TimeoutHandler instead of the default.
+// Every RPC handler is wrapped with the server's HandlerTimeout.
 // publicRoutes are served without authentication; see [PublicHTTPRoute].
 func NewConnectServer(
 	serverCfg config.ServerSettings,
@@ -74,7 +67,6 @@ func NewConnectServer(
 	healthHandler HealthHandlerFunc,
 	extraInterceptors []connect.Interceptor,
 	publicRoutes []PublicHTTPRoute,
-	longTimeoutHandlers []LongTimeoutRPCHandler,
 	handlerFuncs ...RPCHandlerFunc,
 ) *ConnectServer {
 	// Create interceptors
@@ -144,13 +136,7 @@ func NewConnectServer(
 	// Protected mux — all RPC services
 	protectedMux := http.NewServeMux()
 
-	// Long-timeout handlers get their own http.TimeoutHandler wrapping.
-	for _, lth := range longTimeoutHandlers {
-		path, handler := lth.HandlerFunc(handlerOpts...)
-		protectedMux.Handle(path, http.TimeoutHandler(handler, lth.Timeout, ""))
-	}
-
-	// Default-timeout handlers — each wrapped with the standard HandlerTimeout.
+	// RPC handlers — each wrapped with the standard HandlerTimeout.
 	for _, handlerFunc := range handlerFuncs {
 		path, handler := handlerFunc(handlerOpts...)
 		protectedMux.Handle(path, http.TimeoutHandler(handler, serverCfg.HandlerTimeout, ""))

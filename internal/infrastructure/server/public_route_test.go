@@ -74,7 +74,7 @@ func TestConnectServer_LinkPreviewRouteIsNotRateLimited(t *testing.T) {
 		IdleTimeout:       5 * time.Second,
 	}
 	publicRoutes := []server.PublicHTTPRoute{{Pattern: linkpreview.Pattern, Handler: preview}}
-	srv := server.NewConnectServer(cfg, logger, authFunc, rateLimiter, healthHandler, nil, publicRoutes, nil, handlers...)
+	srv := server.NewConnectServer(cfg, logger, authFunc, rateLimiter, healthHandler, nil, publicRoutes, handlers...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 

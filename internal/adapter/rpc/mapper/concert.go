@@ -72,46 +72,18 @@ func SeriesToProto(s *entity.Series) *entityv1.Series {
 	return proto
 }
 
-// ConcertToProto converts a domain Concert entity to protobuf.
-//
-// The Concert proto now embeds the full Series parent and exposes the
-// performing artists via the repeated `performers` field — see the new
-// schema published in liverty-music/specification v0.41.0. Series and
-// Performers MUST be populated by the repository before this mapper runs;
-// ConcertRepository.ListByIDs and friends do this via hydrate, which also
-// resolves a first-party Series' Organizer.
+// ConcertToProto converts a domain Concert to protobuf: its Event and the ids
+// of its performing Artists. The Concert's Series and Artists are not
+// embedded; a response returns them once each beside the Concerts (see
+// [MediaURLBuilder.ReferencedSeries] and [ReferencedArtists]).
 func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 	if c == nil {
 		return nil
 	}
-
-	performers := make([]*entityv1.Artist, 0, len(c.Performers))
-	for _, a := range c.Performers {
-		if a == nil {
-			continue
-		}
-		performers = append(performers, ArtistToProto(a))
+	return &entityv1.Concert{
+		Event:     EventToProto(&c.Event),
+		ArtistIds: artistIDsToProto(c.ArtistIDs()),
 	}
-
-	proto := &entityv1.Concert{
-		Id:         &entityv1.EventId{Value: c.ID},
-		VenueId:    &entityv1.VenueId{Value: c.VenueID},
-		Venue:      VenueToProto(c.Venue),
-		LocalDate:  &entityv1.LocalDate{Value: TimeToDate(c.LocalDate)},
-		Series:     SeriesToProto(c.Series),
-		Performers: performers,
-	}
-	if c.StartTime != nil {
-		proto.StartTime = &entityv1.StartTime{Value: timestamppb.New(*c.StartTime)}
-	}
-	if c.OpenTime != nil {
-		proto.OpenTime = &entityv1.OpenTime{Value: timestamppb.New(*c.OpenTime)}
-	}
-	if c.ListedVenueName != nil {
-		proto.ListedVenueName = &entityv1.ListedVenueName{Value: *c.ListedVenueName}
-	}
-
-	return proto
 }
 
 // ConcertsToProto converts a slice of domain Concert entities to protobuf.
@@ -121,6 +93,73 @@ func ConcertsToProto(concerts []*entity.Concert) []*entityv1.Concert {
 		protoConcerts = append(protoConcerts, ConcertToProto(c))
 	}
 	return protoConcerts
+}
+
+// EventToProto converts a domain Event to protobuf. The Venue is set when the
+// Event carries it.
+func EventToProto(e *entity.Event) *entityv1.Event {
+	if e == nil {
+		return nil
+	}
+	proto := &entityv1.Event{
+		Id:        &entityv1.EventId{Value: e.ID},
+		Venue:     VenueToProto(e.Venue),
+		LocalDate: &entityv1.LocalDate{Value: TimeToDate(e.LocalDate)},
+	}
+	if e.SeriesID != "" {
+		proto.SeriesId = &entityv1.SeriesId{Value: e.SeriesID}
+	}
+	if e.StartTime != nil {
+		proto.StartTime = &entityv1.StartTime{Value: timestamppb.New(*e.StartTime)}
+	}
+	if e.OpenTime != nil {
+		proto.OpenTime = &entityv1.OpenTime{Value: timestamppb.New(*e.OpenTime)}
+	}
+	if e.ListedVenueName != nil {
+		proto.ListedVenueName = &entityv1.ListedVenueName{Value: *e.ListedVenueName}
+	}
+	return proto
+}
+
+// artistIDsToProto wraps artist ids in their proto message.
+func artistIDsToProto(ids []string) []*entityv1.ArtistId {
+	out := make([]*entityv1.ArtistId, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, &entityv1.ArtistId{Value: id})
+	}
+	return out
+}
+
+// ReferencedArtists returns every Artist the concerts refer to, once each, in
+// the order the concerts first refer to them.
+func ReferencedArtists(concerts []*entity.Concert) []*entityv1.Artist {
+	seen := make(map[string]bool)
+	out := make([]*entityv1.Artist, 0)
+	for _, c := range concerts {
+		if c == nil {
+			continue
+		}
+		for _, a := range c.Artists {
+			if a == nil || seen[a.ID] {
+				continue
+			}
+			seen[a.ID] = true
+			out = append(out, ArtistToProto(a))
+		}
+	}
+	return out
+}
+
+// ConcertsOfGroups flattens proximity groups into their concerts, in group
+// order and, within a group, home, nearby, then away.
+func ConcertsOfGroups(groups []*entity.ProximityGroup) []*entity.Concert {
+	var out []*entity.Concert
+	for _, g := range groups {
+		out = append(out, g.Home...)
+		out = append(out, g.Nearby...)
+		out = append(out, g.Away...)
+	}
+	return out
 }
 
 // ProximityGroupsToProto converts a slice of domain ProximityGroup entities to protobuf.

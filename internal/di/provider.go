@@ -18,11 +18,11 @@ import (
 	identityconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity/v1/identityv1connect"
 	lotteryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery/v1/lotteryv1connect"
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
-	organizerconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/concert/v1/concertv1connect"
 	organizerlotteryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/lottery/v1/lotteryv1connect"
 	payoutonboardingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_onboarding/v1/payout_onboardingv1connect"
 	receptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
 	receptionlinkconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception_link/v1/reception_linkv1connect"
+	organizerseriesconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series/v1/seriesv1connect"
 	organizerticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
 	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
@@ -482,7 +482,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	adminHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminconcertconnect.NewConcertServiceHandler(
-				rpc.NewAdminConcertHandler(concertUC, logger),
+				rpc.NewAdminConcertHandler(concertUC, mediaURLBuilder, logger),
 				opts...,
 			)
 		},
@@ -607,19 +607,12 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		)
 	})
 
-	// ConcertService requires a longer handler timeout because Gemini API + Google Search
-	// grounding takes 25-110s per call.
-	longTimeoutHandlers := []server.LongTimeoutRPCHandler{
-		{
-			HandlerFunc: func(opts ...connect.HandlerOption) (string, http.Handler) {
-				return concertconnect.NewConcertServiceHandler(
-					rpc.NewConcertHandler(concertUC, userRepo, mediaURLBuilder, logger),
-					opts...,
-				)
-			},
-			Timeout: cfg.Server.ConcertHandlerTimeout,
-		},
-	}
+	handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
+		return concertconnect.NewConcertServiceHandler(
+			rpc.NewConcertHandler(concertUC, userRepo, mediaURLBuilder, logger),
+			opts...,
+		)
+	})
 
 	rateLimiter := ratelimit.NewLimiter(ratelimit.Config{
 		AuthRPS:   cfg.Server.RateLimit.AuthRPS,
@@ -638,7 +631,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		{Pattern: linkpreview.Pattern, Handler: linkPreviewHandler},
 	}
 
-	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, nil, publicRoutes, longTimeoutHandlers, handlers...)
+	srv := server.NewConnectServer(cfg.Server, logger, authFunc, rateLimiter, healthHandler, nil, publicRoutes, handlers...)
 
 	// Admin Connect server — a second listener in the same binary on its own
 	// port and CORS allowlist, serving ONLY admin services. Its server-wide
@@ -651,7 +644,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	adminServerCfg.Port = cfg.Server.AdminPort
 	adminServerCfg.AllowedOrigins = cfg.Server.AdminAllowedOrigins
 	adminInterceptors := []connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}
-	adminSrv := server.NewConnectServer(adminServerCfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, nil, adminHandlers...)
+	adminSrv := server.NewConnectServer(adminServerCfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, adminHandlers...)
 
 	// Organizer Connect server — a third listener in the same binary on its
 	// own port and CORS allowlist, serving ONLY the organizer-facing
@@ -673,8 +666,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerconcertconnect.NewConcertServiceHandler(
-				rpc.NewOrganizerConcertHandler(concertAuthoringUC, organizerUC, mediaUC, mediaURLBuilder, logger),
+			return organizerseriesconnect.NewSeriesServiceHandler(
+				rpc.NewOrganizerSeriesHandler(concertAuthoringUC, organizerUC, mediaUC, mediaURLBuilder, logger),
 				opts...,
 			)
 		},
@@ -700,7 +693,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 	}
-	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, organizerAuthFunc, rateLimiter, healthHandler, organizerInterceptors, nil, nil, organizerHandlers...)
+	organizerSrv := server.NewConnectServer(organizerServerCfg, logger, organizerAuthFunc, rateLimiter, healthHandler, organizerInterceptors, nil, organizerHandlers...)
 
 	// Reception Connect server — a fourth listener in the same binary on its
 	// own port and CORS allowlist, serving ONLY ReceptionService (Open, Admit),
@@ -736,7 +729,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 	}
-	receptionSrv := server.NewConnectServer(receptionServerCfg, logger, receptionAuthFunc, rateLimiter, healthHandler, receptionInterceptors, nil, nil, receptionHandlers...)
+	receptionSrv := server.NewConnectServer(receptionServerCfg, logger, receptionAuthFunc, rateLimiter, healthHandler, receptionInterceptors, nil, receptionHandlers...)
 
 	// Zitadel Actions v2 webhook listener — runs on a separate port so the
 	// webhook paths are unreachable via the public GKE Gateway. Validators

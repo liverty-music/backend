@@ -88,7 +88,7 @@ func newReceptionTestServer(t *testing.T) (*httptest.Server, *usecasemocks.MockR
 			return receptionv1connect.NewReceptionServiceHandler(rpc.NewReceptionHandler(linkUC, ticketUC, logger), opts...)
 		},
 	}
-	srv := server.NewConnectServer(testServerSettings(receptionOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, nil, handlers...)
+	srv := server.NewConnectServer(testServerSettings(receptionOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, handlers...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, linkUC
@@ -112,7 +112,7 @@ func newOrganizerTestServer(t *testing.T) *httptest.Server {
 			return receptionlinkv1connect.NewReceptionLinkServiceHandler(rpc.NewOrganizerReceptionLinkHandler(linkUC, organizerUC, logger), opts...)
 		},
 	}
-	srv := server.NewConnectServer(testServerSettings(organizerOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, nil, handlers...)
+	srv := server.NewConnectServer(testServerSettings(organizerOrigin), logger, authFunc, newTestRateLimiter(t), unusedHealthHandler, interceptors, nil, handlers...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts

@@ -95,7 +95,7 @@ func TestNotifyNewConcerts_RequestIDIsDeterministic(t *testing.T) {
 		area := "JP-13"
 		artistRepo.EXPECT().Get(ctx, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist"}, nil).Once()
 		concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return([]*entity.Concert{
-			{ID: "c1", Venue: &entity.Venue{AdminArea: &area}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+			{ID: "c1", Venue: &entity.Venue{AdminArea: &area}, Artists: []*entity.Artist{{ID: "artist-1"}}},
 		}, nil).Once()
 		followRepo.EXPECT().ListFollowers(ctx, "artist-1").Return([]*entity.Follower{
 			{ArtistID: "artist-1", User: &entity.User{ID: userID}, Hype: entity.HypeAway},

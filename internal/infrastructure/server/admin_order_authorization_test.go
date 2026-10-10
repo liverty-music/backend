@@ -58,7 +58,7 @@ func TestAdminServer_OrderRefundAuthorization(t *testing.T) {
 		ReadTimeout: 2 * time.Second, IdleTimeout: 5 * time.Second,
 	}
 	srv := server.NewConnectServer(cfg, logger, auth.NewAuthFunc(validator, nil), rateLimiter, healthHandler,
-		[]connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}, nil, nil, handlers...)
+		[]connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}, nil, handlers...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 

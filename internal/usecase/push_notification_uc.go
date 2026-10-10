@@ -204,14 +204,14 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	hasPerformer := make(map[string]bool, len(concerts))
 	// orphanConcerts records concerts whose Performers slice is empty after
 	// hydration. The new M:N schema allows a structurally valid event row
-	// to exist with no event_performers links (e.g. a race between Create
+	// to exist with no concert_artists links (e.g. a race between Create
 	// and the natural-key JOIN in insertEventPerformersQuery, or an
 	// orphaned data state). Treat these as non-fatal — log + skip — rather
 	// than aborting the whole batch and indefinitely retrying the Pub/Sub
 	// message, which would block notifications for every other concert.
 	orphanConcerts := make(map[string]bool, len(concerts))
 	for _, c := range concerts {
-		if len(c.Performers) == 0 {
+		if len(c.Artists) == 0 {
 			orphanConcerts[c.ID] = true
 			uc.logger.Warn(ctx, "concert has no performers after hydration; skipping membership check",
 				slog.String("concert_id", c.ID),
@@ -219,7 +219,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 			)
 		}
 		hasPerformer[c.ID] = false
-		for _, p := range c.Performers {
+		for _, p := range c.Artists {
 			if p != nil && p.ID == data.ArtistID {
 				hasPerformer[c.ID] = true
 				break
@@ -245,7 +245,7 @@ func (uc *pushNotificationUseCase) NotifyNewConcerts(ctx context.Context, data C
 	// stayed in `concerts` they would still feed MatchingConcerts —
 	// qualifying a follower for HypeHome / HypeNearby (or padding the
 	// HypeAway count and deep-link) on a concert whose performer
-	// membership was never confirmed (orphan event_performers state).
+	// membership was never confirmed (orphan concert_artists state).
 	if len(orphanConcerts) > 0 {
 		kept := concerts[:0]
 		for _, c := range concerts {

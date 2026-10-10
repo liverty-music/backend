@@ -186,7 +186,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 
 		// Concert was created.
 		assert.Len(t, d.concertRepo.created, 1)
-		assert.Equal(t, artist.ID, d.concertRepo.created[0].PerformerIDs()[0])
+		assert.Equal(t, artist.ID, d.concertRepo.created[0].ArtistIDs()[0])
 
 		// Approve NEVER mints a series — the series row already exists (created at
 		// discovery time, referenced via StagedConcert.SeriesID).
@@ -580,14 +580,14 @@ func TestAdminConcertUseCase_List(t *testing.T) {
 		// Pre-seed two published concerts.
 		d.concertRepo.published = []*entity.Concert{
 			{
-				ID:         "event-1",
-				Series:     &entity.Series{ID: "series-1", Title: "Tour A"},
-				Performers: []*entity.Artist{artist},
+				ID:      "event-1",
+				Series:  &entity.Series{ID: "series-1", Title: "Tour A"},
+				Artists: []*entity.Artist{artist},
 			},
 			{
-				ID:         "event-2",
-				Series:     &entity.Series{ID: "series-2", Title: "Tour B"},
-				Performers: []*entity.Artist{artist},
+				ID:      "event-2",
+				Series:  &entity.Series{ID: "series-2", Title: "Tour B"},
+				Artists: []*entity.Artist{artist},
 			},
 		}
 

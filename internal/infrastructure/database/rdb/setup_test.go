@@ -138,10 +138,10 @@ func seedHome(t *testing.T, countryCode, level1 string) string {
 }
 
 // seedEvent inserts a minimal series + event record and links the given artist
-// via event_performers. Returns the event ID.
+// via concert_artists. Returns the event ID.
 //
 // The title argument is stored on the series row (1:1 SINGLE series per event).
-// artistID is linked via event_performers, matching the new schema.
+// artistID is linked via concert_artists, matching the new schema.
 func seedEvent(t *testing.T, venueID, artistID, title, date string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -157,8 +157,10 @@ func seedEvent(t *testing.T, venueID, artistID, title, date string) string {
 		eventID, seriesID, venueID, date,
 	)
 	require.NoError(t, err)
+	_, err = testDB.Pool.Exec(ctx, `INSERT INTO concerts (event_id) VALUES ($1)`, eventID)
+	require.NoError(t, err)
 	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO event_performers (event_id, artist_id) VALUES ($1, $2)`,
+		`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2)`,
 		eventID, artistID,
 	)
 	require.NoError(t, err)
@@ -179,7 +181,7 @@ func cleanTables(db *rdb.Database) {
 		"sales_phase_reminders",
 		"sales_phase_search_logs",
 		"sales_phases",
-		"event_performers",
+		"concert_artists",
 		"concerts",
 		"events",
 		"draft_series_performers",

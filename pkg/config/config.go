@@ -253,11 +253,6 @@ type ServerSettings struct {
 	// Individual RPC deadlines are controlled by client-side timeoutMs.
 	HandlerTimeout time.Duration `envconfig:"SERVER_HANDLER_TIMEOUT" default:"30s"`
 
-	// ConcertHandlerTimeout is the handler timeout for ConcertService RPCs.
-	// Gemini API + Google Search grounding takes 25-110s per call, so this
-	// must be larger than the default HandlerTimeout.
-	ConcertHandlerTimeout time.Duration `envconfig:"SERVER_CONCERT_HANDLER_TIMEOUT" default:"120s"`
-
 	// Idle timeout in seconds
 	IdleTimeout time.Duration `envconfig:"SERVER_IDLE_TIMEOUT" default:"3s"`
 
