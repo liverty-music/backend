@@ -13,8 +13,8 @@
         "gomod"
       ],
       "matchPackageNames": [
-        "github.com/bufbuild/buf/**",
-        "github.com/go-delve/delve/**",
+        "github.com/bufbuild/buf",
+        "github.com/go-delve/delve",
         "github.com/vektra/mockery/**",
         "mvdan.cc/gofumpt"
       ],
