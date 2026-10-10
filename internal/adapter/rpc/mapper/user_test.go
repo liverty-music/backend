@@ -184,6 +184,45 @@ func TestUserToProto(t *testing.T) {
 	}
 }
 
+func TestUserToProto_ProfileFields(t *testing.T) {
+	t.Parallel()
+
+	t.Run("user with home and language", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/user "User with home and language"
+		pb := mapper.UserToProto(&entity.User{
+			ID: "u-1", PreferredLanguage: "ja",
+			Home: &entity.Home{CountryCode: "JP", Level1: "JP-13"},
+		})
+
+		assert.Equal(t, "ja", pb.GetPreferredLanguage())
+		assert.Equal(t, "JP", pb.GetHome().GetCountryCode())
+		assert.Equal(t, "JP-13", pb.GetHome().GetLevel_1())
+	})
+
+	t.Run("user without optional values", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/user "User without optional values"
+		pb := mapper.UserToProto(&entity.User{ID: "u-1"})
+
+		assert.Nil(t, pb.PreferredLanguage)
+		assert.Nil(t, pb.GetHome())
+		assert.Nil(t, pb.GetHolderIdentity())
+	})
+
+	t.Run("returning buyer", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/user "Returning buyer"
+		pb := mapper.UserToProto(&entity.User{
+			ID:             "u-1",
+			HolderIdentity: &entity.HolderIdentity{FullName: "山田 花子", PhoneNumber: "+819012345678"},
+		})
+
+		assert.Equal(t, "山田 花子", pb.GetHolderIdentity().GetFullName())
+		assert.Equal(t, "+819012345678", pb.GetHolderIdentity().GetPhoneNumber())
+	})
+}
+
 func TestNewUserFromCreateRequest(t *testing.T) {
 	t.Parallel()
 

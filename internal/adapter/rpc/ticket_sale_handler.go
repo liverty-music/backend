@@ -41,10 +41,5 @@ func (h *TicketSaleHandler) Get(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.GetResponse{
-		TicketSale:    mapper.TicketSaleToProto(view.Sale, false),
-		State:         mapper.TicketSaleStateToProto(view.State),
-		LowStock:      view.LowStock,
-		SellerDetails: mapper.SellerDetailsToProto(view.SellerDetails),
-	}), nil
+	return connect.NewResponse(&ticketsalev1.GetResponse{TicketSale: mapper.TicketSaleToProto(view, false)}), nil
 }

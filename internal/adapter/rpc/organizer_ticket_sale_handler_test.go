@@ -51,14 +51,18 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		orgs.EXPECT().ResolveCaller(ctx, "zorg-1").Return(&entity.Organizer{ID: "org-1"}, nil)
 		sales.EXPECT().Configure(ctx, "org-1", usecase.ConfigureTicketSaleInput{
 			EventID: testEventID, SaleStart: start, Price: 3000, Quantity: 150,
-		}).Return(&entity.TicketSale{ID: "019a0000-0000-7000-8000-0000000000f4", EventID: testEventID, Method: entity.TicketSaleMethodFirstCome,
-			SaleStartTime: start, SaleEndTime: start.Add(19 * 24 * time.Hour), Price: 3000, Quantity: 150, PerAccountLimit: 4}, nil)
+		}).Return(&usecase.TicketSaleView{
+			Sale: &entity.TicketSale{ID: "019a0000-0000-7000-8000-0000000000f4", EventID: testEventID, Method: entity.TicketSaleMethodFirstCome,
+				SaleStartTime: start, SaleEndTime: start.Add(19 * 24 * time.Hour), Price: 3000, Quantity: 150, PerAccountLimit: 4},
+			State: entity.TicketSaleStateNotYetOnSale,
+		}, nil)
 
 		resp, err := h.Configure(ctx, connect.NewRequest(configureReq()))
 
 		require.NoError(t, err)
 		assert.Equal(t, int32(150), resp.Msg.TicketSale.GetQuantity())
 		assert.Equal(t, int32(4), resp.Msg.TicketSale.PerAccountLimit)
+		assert.Equal(t, entityv1.TicketSaleState_TICKET_SALE_STATE_NOT_YET_ON_SALE, resp.Msg.TicketSale.State)
 	})
 
 	t.Run("optional sale end and limit are passed on", func(t *testing.T) {
@@ -69,7 +73,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		limit := int32(2)
 		sales.EXPECT().Configure(ctx, "org-1", mock.MatchedBy(func(in usecase.ConfigureTicketSaleInput) bool {
 			return in.SaleEnd != nil && in.SaleEnd.Equal(end) && in.PerAccountLimit != nil && *in.PerAccountLimit == 2
-		})).Return(&entity.TicketSale{ID: "019a0000-0000-7000-8000-0000000000f4"}, nil)
+		})).Return(&usecase.TicketSaleView{Sale: &entity.TicketSale{ID: "019a0000-0000-7000-8000-0000000000f4"}}, nil)
 		req := configureReq()
 		req.SaleEndTime, req.PerAccountLimit = timestamppb.New(end), &limit
 
@@ -84,7 +88,7 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		h, sales, orgs := newOrganizerTicketSaleHandler(t)
 		orgs.EXPECT().ResolveCaller(ctx, "zorg-1").Return(&entity.Organizer{ID: "org-1"}, nil)
 		sales.EXPECT().GetOwn(ctx, "org-1", testEventID).Return(&usecase.TicketSaleView{
-			Sale:  &entity.TicketSale{ID: "019a0000-0000-7000-8000-0000000000f4", EventID: testEventID, Quantity: 150, SoldCount: 100, HeldCount: 6, HasReservations: true},
+			Sale:  &entity.TicketSale{ID: "019a0000-0000-7000-8000-0000000000f4", EventID: testEventID, Quantity: 150, SoldCount: 100, HeldCount: 6},
 			State: entity.TicketSaleStateOnSale,
 		}, nil)
 
@@ -93,9 +97,8 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int32(150), resp.Msg.TicketSale.GetQuantity())
 		assert.Equal(t, int32(100), resp.Msg.TicketSale.GetSoldCount())
-		assert.Equal(t, int32(6), resp.Msg.HeldCount)
-		assert.True(t, resp.Msg.PriceLocked)
-		assert.Equal(t, entityv1.TicketSaleState_TICKET_SALE_STATE_ON_SALE, resp.Msg.State)
+		assert.Equal(t, int32(6), resp.Msg.TicketSale.GetHeldCount())
+		assert.Equal(t, entityv1.TicketSaleState_TICKET_SALE_STATE_ON_SALE, resp.Msg.TicketSale.State)
 	})
 
 	t.Run("deactivated organizer", func(t *testing.T) {

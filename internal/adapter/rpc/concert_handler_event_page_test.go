@@ -95,6 +95,34 @@ func TestConcertHandler_Get(t *testing.T) {
 		assert.NotContains(t, s.String(), "secret-share-token", "the share token is never returned")
 	})
 
+	t.Run("show the seller of a first-party concert", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Seller shown for a first-party concert"
+		t.Parallel()
+		h, concertUC, _ := newEventPageHandler(t)
+		c := firstPartyConcert(eventID, date)
+		c.Series.Organizer = &entity.Organizer{
+			ID: eventPageOrganizerID, Name: "Liverty Records",
+			SellerDetails: &entity.SellerDetails{
+				LegalName: "株式会社リバティ", RepresentativeName: "山田 太郎", Address: "東京都渋谷区1-2-3",
+				PhoneNumber: "+81312345678", ContactEmail: "info@example.com",
+			},
+			PlatformFeeRateBps: 500,
+		}
+		concertUC.EXPECT().Get(mock.Anything, eventID).Return(c, nil).Once()
+
+		resp, err := h.Get(context.Background(), connect.NewRequest(&concertv1.GetRequest{
+			EventId: &entityv1.EventId{Value: eventID},
+		}))
+
+		require.NoError(t, err)
+		o := resp.Msg.GetConcert().GetSeries().GetOrganizer()
+		require.NotNil(t, o)
+		assert.Equal(t, eventPageOrganizerID, o.GetId().GetValue())
+		assert.Equal(t, "Liverty Records", o.GetName().GetValue())
+		assert.Equal(t, "株式会社リバティ", o.GetSellerDetails().GetLegalName())
+		assert.Zero(t, o.GetPlatformFeeRateBps(), "the platform fee rate is never returned")
+	})
+
 	t.Run("return the usecase error unchanged", func(t *testing.T) {
 		t.Parallel()
 		h, concertUC, _ := newEventPageHandler(t)

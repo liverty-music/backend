@@ -36,6 +36,7 @@ func UserToProto(user *entity.User) *proto.User {
 		lang := user.PreferredLanguage
 		pb.PreferredLanguage = &lang
 	}
+	pb.HolderIdentity = HolderIdentityToProto(user.HolderIdentity)
 	return pb
 }
 

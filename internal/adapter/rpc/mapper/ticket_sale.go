@@ -3,15 +3,18 @@ package mapper
 import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	"github.com/liverty-music/backend/internal/entity"
+	"github.com/liverty-music/backend/internal/usecase"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// TicketSaleToProto maps a domain TicketSale to Protobuf. withCounts sets the
-// quantity and the sold count, which only the owning Organizer may see.
-func TicketSaleToProto(s *entity.TicketSale, withCounts bool) *entityv1.TicketSale {
-	if s == nil {
+// TicketSaleToProto maps a TicketSale, with where it stood when read, to
+// Protobuf. withCounts sets the quantity, the sold count and the held count,
+// which only the owning Organizer may see.
+func TicketSaleToProto(v *usecase.TicketSaleView, withCounts bool) *entityv1.TicketSale {
+	if v == nil || v.Sale == nil {
 		return nil
 	}
+	s := v.Sale
 	pb := &entityv1.TicketSale{
 		Id:              &entityv1.TicketSaleId{Value: string(s.ID)},
 		EventId:         &entityv1.EventId{Value: s.EventID},
@@ -20,10 +23,12 @@ func TicketSaleToProto(s *entity.TicketSale, withCounts bool) *entityv1.TicketSa
 		SaleEndTime:     timestamppb.New(s.SaleEndTime),
 		Price:           s.Price,
 		PerAccountLimit: int32(s.PerAccountLimit),
+		State:           ticketSaleStateToProto(v.State),
+		LowStock:        v.LowStock,
 	}
 	if withCounts {
-		quantity, sold := int32(s.Quantity), int32(s.SoldCount)
-		pb.Quantity, pb.SoldCount = &quantity, &sold
+		quantity, sold, held := int32(s.Quantity), int32(s.SoldCount), int32(s.HeldCount)
+		pb.Quantity, pb.SoldCount, pb.HeldCount = &quantity, &sold, &held
 	}
 	return pb
 }
@@ -35,8 +40,8 @@ func ticketSaleMethodToProto(m entity.TicketSaleMethod) entityv1.TicketSaleMetho
 	return entityv1.TicketSaleMethod_TICKET_SALE_METHOD_UNSPECIFIED
 }
 
-// TicketSaleStateToProto maps a domain sale state to Protobuf.
-func TicketSaleStateToProto(s entity.TicketSaleState) entityv1.TicketSaleState {
+// ticketSaleStateToProto maps a domain sale state to Protobuf.
+func ticketSaleStateToProto(s entity.TicketSaleState) entityv1.TicketSaleState {
 	switch s {
 	case entity.TicketSaleStateNotYetOnSale:
 		return entityv1.TicketSaleState_TICKET_SALE_STATE_NOT_YET_ON_SALE

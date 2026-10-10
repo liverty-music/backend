@@ -11,7 +11,6 @@ import (
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
-	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
@@ -56,11 +55,9 @@ func TestReservationHandler(t *testing.T) {
 		ctx := ticketAuthedCtx("ext-1")
 		h, m := newReservationHandler(t)
 		m.signedIn(ctx)
-		m.reservations.EXPECT().Start(ctx, entity.UserID("fan-1"), entity.TicketSaleID(testSaleID), 2).Return(&usecase.StartedReservation{
-			Reservation: &entity.Reservation{ID: testReservationID, TicketSaleID: testSaleID, UserID: "fan-1", TicketCount: 2, Amount: 6000,
-				Status: entity.ReservationStatusHeld, HoldExpireTime: expiry},
-			TicketPrice:   3000,
-			SavedIdentity: &entity.HolderIdentity{FullName: "山田 花子", PhoneNumber: "+819012345678"},
+		m.reservations.EXPECT().Start(ctx, entity.UserID("fan-1"), entity.TicketSaleID(testSaleID), 2).Return(&entity.Reservation{
+			ID: testReservationID, TicketSaleID: testSaleID, UserID: "fan-1", TicketCount: 2, Amount: 6000,
+			Status: entity.ReservationStatusHeld, HoldExpireTime: expiry,
 		}, nil)
 
 		resp, err := h.Start(ctx, connect.NewRequest(&reservationv1.StartRequest{
@@ -71,8 +68,6 @@ func TestReservationHandler(t *testing.T) {
 		assert.Equal(t, testReservationID, resp.Msg.Reservation.Id.Value)
 		assert.Equal(t, int64(6000), resp.Msg.Reservation.Amount)
 		assert.True(t, resp.Msg.Reservation.HoldExpireTime.AsTime().Equal(expiry))
-		assert.Equal(t, int64(3000), resp.Msg.TicketPrice)
-		assert.Equal(t, "山田 花子", resp.Msg.SavedHolderIdentity.FullName)
 	})
 
 	t.Run("guest tries to buy", func(t *testing.T) {
@@ -156,20 +151,16 @@ func TestReservationHandler(t *testing.T) {
 		h, m := newReservationHandler(t)
 		m.signedIn(ctx)
 		committed := expiry.Add(-5 * time.Minute)
-		m.reservations.EXPECT().Get(ctx, entity.UserID("fan-1"), entity.ReservationID(testReservationID)).Return(&usecase.ReservationView{
-			Reservation: &entity.Reservation{ID: testReservationID, TicketSaleID: testSaleID, UserID: "fan-1", TicketCount: 2, Amount: 6000,
-				Status: entity.ReservationStatusCompleted, HoldExpireTime: expiry, CommitTime: &committed, CaptureTime: &committed},
-			Authorized: true,
-			OrderID:    "019a0000-0000-7000-8000-0000000000f3",
+		m.reservations.EXPECT().Get(ctx, entity.UserID("fan-1"), entity.ReservationID(testReservationID)).Return(&entity.Reservation{
+			ID: testReservationID, TicketSaleID: testSaleID, UserID: "fan-1", TicketCount: 2, Amount: 6000,
+			Status: entity.ReservationStatusCompleted, HoldExpireTime: expiry, CommitTime: &committed, CaptureTime: &committed,
 		}, nil)
 
 		resp, err := h.Get(ctx, connect.NewRequest(&reservationv1.GetRequest{ReservationId: &entityv1.ReservationId{Value: testReservationID}}))
 
 		require.NoError(t, err)
 		assert.Equal(t, entityv1.ReservationStatus_RESERVATION_STATUS_COMPLETED, resp.Msg.Reservation.Status)
-		assert.True(t, resp.Msg.Authorized)
-		assert.False(t, resp.Msg.Holding)
-		assert.Equal(t, "019a0000-0000-7000-8000-0000000000f3", resp.Msg.OrderId.Value)
+		assert.NotNil(t, resp.Msg.Reservation.CommitTime)
 		assert.NotNil(t, resp.Msg.Reservation.CaptureTime)
 	})
 

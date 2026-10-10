@@ -80,11 +80,11 @@ func (h *OrganizerTicketSaleHandler) Configure(
 		in.PerAccountLimit = &limit
 	}
 
-	sale, err := h.ticketSaleUC.Configure(ctx, organizer.ID, in)
+	view, err := h.ticketSaleUC.Configure(ctx, organizer.ID, in)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.ConfigureResponse{TicketSale: mapper.TicketSaleToProto(sale, true)}), nil
+	return connect.NewResponse(&ticketsalev1.ConfigureResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
 }
 
 // Get returns the sale of one of the caller's events with its counts.
@@ -105,10 +105,5 @@ func (h *OrganizerTicketSaleHandler) Get(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.GetResponse{
-		TicketSale:  mapper.TicketSaleToProto(view.Sale, true),
-		HeldCount:   int32(view.Sale.HeldCount),
-		State:       mapper.TicketSaleStateToProto(view.State),
-		PriceLocked: view.Sale.HasReservations,
-	}), nil
+	return connect.NewResponse(&ticketsalev1.GetResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
 }

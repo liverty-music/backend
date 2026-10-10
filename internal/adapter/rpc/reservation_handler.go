@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	reservationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/reservation/v1/reservationv1connect"
-	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	reservationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/reservation/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -69,18 +68,14 @@ func (h *ReservationHandler) Start(
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("ticket_count is required"))
 	}
 
-	started, err := h.reservationUC.Start(ctx, userID, entity.TicketSaleID(saleID), int(req.Msg.GetTicketCount()))
+	res, err := h.reservationUC.Start(ctx, userID, entity.TicketSaleID(saleID), int(req.Msg.GetTicketCount()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&reservationv1.StartResponse{
-		Reservation:         mapper.ReservationToProto(started.Reservation),
-		TicketPrice:         started.TicketPrice,
-		SavedHolderIdentity: mapper.HolderIdentityToProto(started.SavedIdentity),
-	}), nil
+	return connect.NewResponse(&reservationv1.StartResponse{Reservation: mapper.ReservationToProto(res)}), nil
 }
 
-// Get returns the caller's checkout and what became of it.
+// Get returns the caller's checkout as it stands now.
 func (h *ReservationHandler) Get(
 	ctx context.Context,
 	req *connect.Request[reservationv1.GetRequest],
@@ -94,19 +89,11 @@ func (h *ReservationHandler) Get(
 		return nil, err
 	}
 
-	view, err := h.reservationUC.Get(ctx, userID, entity.ReservationID(id))
+	res, err := h.reservationUC.Get(ctx, userID, entity.ReservationID(id))
 	if err != nil {
 		return nil, err
 	}
-	resp := &reservationv1.GetResponse{
-		Reservation: mapper.ReservationToProto(view.Reservation),
-		Holding:     view.Holding,
-		Authorized:  view.Authorized,
-	}
-	if view.OrderID != "" {
-		resp.OrderId = &entityv1.OrderId{Value: string(view.OrderID)}
-	}
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&reservationv1.GetResponse{Reservation: mapper.ReservationToProto(res)}), nil
 }
 
 // Authorize records the holder identity and opens the card hold.

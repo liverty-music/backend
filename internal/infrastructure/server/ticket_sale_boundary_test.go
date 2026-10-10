@@ -74,10 +74,6 @@ func TestFanServer_TicketSaleGet(t *testing.T) {
 		}
 		uc.EXPECT().Get(mock.Anything, saleEventID).Return(&usecase.TicketSaleView{
 			Sale: sale, State: entity.TicketSaleStateOnSale, LowStock: true,
-			SellerDetails: &entity.SellerDetails{
-				LegalName: "株式会社リバティ", RepresentativeName: "代表 太郎", Address: "東京都渋谷区1-2-3",
-				PhoneNumber: "+81312345678", ContactEmail: "contact@example.com",
-			},
 		}, nil)
 		ts := newTestFanTicketSaleServer(t, uc)
 
@@ -86,12 +82,34 @@ func TestFanServer_TicketSaleGet(t *testing.T) {
 			connect.NewRequest(&ticketsalev1.GetRequest{EventId: &entityv1.EventId{Value: saleEventID}}))
 
 		require.NoError(t, err)
-		assert.Equal(t, entityv1.TicketSaleState_TICKET_SALE_STATE_ON_SALE, resp.Msg.State)
-		assert.True(t, resp.Msg.LowStock)
+		assert.Equal(t, entityv1.TicketSaleState_TICKET_SALE_STATE_ON_SALE, resp.Msg.TicketSale.State)
+		assert.Equal(t, int64(3000), resp.Msg.TicketSale.Price)
+	})
+
+	t.Run("few left without a count", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/ticket-sale "Few left without a count"
+		uc := usecasemocks.NewMockTicketSaleUseCase(t)
+		sale := &entity.TicketSale{
+			ID: "019a0000-0000-7000-8000-0000000000e2", EventID: saleEventID, Method: entity.TicketSaleMethodFirstCome,
+			SaleStartTime: time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC), SaleEndTime: time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC),
+			Price: 3000, Quantity: 150, PerAccountLimit: 4, SoldCount: 130, HeldCount: 5,
+		}
+		uc.EXPECT().Get(mock.Anything, saleEventID).Return(&usecase.TicketSaleView{
+			Sale: sale, State: entity.TicketSaleStateOnSale, LowStock: true,
+		}, nil)
+		ts := newTestFanTicketSaleServer(t, uc)
+
+		resp, err := ticketsalev1connect.NewTicketSaleServiceClient(ts.Client(), ts.URL).Get(context.Background(),
+			connect.NewRequest(&ticketsalev1.GetRequest{EventId: &entityv1.EventId{Value: saleEventID}}))
+
+		require.NoError(t, err)
+		assert.Equal(t, entityv1.TicketSaleState_TICKET_SALE_STATE_ON_SALE, resp.Msg.TicketSale.State)
+		assert.True(t, resp.Msg.TicketSale.LowStock)
 		assert.Equal(t, int64(3000), resp.Msg.TicketSale.Price)
 		assert.Nil(t, resp.Msg.TicketSale.Quantity, "the quantity is never shown to fans")
 		assert.Nil(t, resp.Msg.TicketSale.SoldCount, "the sold count is never shown to fans")
-		assert.Equal(t, "株式会社リバティ", resp.Msg.SellerDetails.GetLegalName(), "the 特商法 seller details are public")
+		assert.Nil(t, resp.Msg.TicketSale.HeldCount, "the held count is never shown to fans")
 	})
 
 	t.Run("missing event", func(t *testing.T) {
