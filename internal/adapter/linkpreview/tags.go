@@ -101,8 +101,8 @@ func title(c *entity.Concert) string {
 	}
 	sb.WriteString(c.Series.Title)
 
-	names := make([]string, 0, len(c.Performers))
-	for _, p := range c.Performers {
+	names := make([]string, 0, len(c.Artists))
+	for _, p := range c.Artists {
 		if p != nil && p.Name != "" {
 			names = append(names, p.Name)
 		}

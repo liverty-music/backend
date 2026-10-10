@@ -59,7 +59,7 @@ const (
 	// pre-existing-event path silently skipped notifications because
 	// insertConcertsQuery only RETURNs UUIDs that won the UPSERT race.
 	insertEventPerformersQuery = `
-		INSERT INTO event_performers (event_id, artist_id)
+		INSERT INTO concert_artists (event_id, artist_id)
 		SELECT e.id, perf.artist_id
 		FROM unnest($1::uuid[], $2::date[], $3::timestamptz[], $4::uuid[])
 			AS perf(venue_id, local_event_date, start_at, artist_id)
@@ -85,14 +85,14 @@ const (
 
 	// findEventsByArtistDateQuery returns existing events on any of the given
 	// dates at which the artist already performs (joined through
-	// event_performers). DISTINCT collapses duplicate rows a multi-row join could
+	// concert_artists). DISTINCT collapses duplicate rows a multi-row join could
 	// produce. Projects the physical key + parent series + listed_venue_name so
 	// the discovery write path can both adopt the group's series and detect a
 	// per-event re-discovery (matching listed venue) that skips the Places API.
 	findEventsByArtistDateQuery = `
 		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at
 		FROM events e
-		JOIN event_performers ep ON ep.event_id = e.id
+		JOIN concert_artists ep ON ep.event_id = e.id
 		WHERE ep.artist_id = $1
 			AND e.local_event_date = ANY($2::date[])
 	`
@@ -132,7 +132,7 @@ const (
 	`
 
 	// listConcertsByArtistQuery returns concerts where the given artist appears
-	// in event_performers. The Series parent and the venue are joined; performer
+	// in concert_artists. The Series parent and the venue are joined; performer
 	// hydration happens in a follow-up query (listPerformersByEventIDsQuery).
 	// The firstPartyVisibilityGuard excludes DRAFT/UNLISTED/CANCELLED first-party
 	// series from this fan-facing surface.
@@ -140,12 +140,15 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       m.id, m.organizer_id, m.kind,
 		       v.id, v.name, v.admin_area
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
 		WHERE EXISTS (
-			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
+			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)` + firstPartyVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
@@ -154,12 +157,15 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       m.id, m.organizer_id, m.kind,
 		       v.id, v.name, v.admin_area
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
 		WHERE EXISTS (
-			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = $1
+			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
 		AND e.local_event_date >= CURRENT_DATE` + firstPartyVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
@@ -171,12 +177,15 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       m.id, m.organizer_id, m.kind,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
 		WHERE EXISTS (
-			SELECT 1 FROM event_performers ep WHERE ep.event_id = e.id AND ep.artist_id = ANY($1)
+			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = ANY($1)
 		)` + firstPartyVisibilityGuard + `
 		ORDER BY e.local_event_date ASC
 	`
@@ -194,10 +203,13 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       m.id, m.organizer_id, m.kind,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
 		WHERE e.local_event_date BETWEEN $1 AND $2
 		  AND (
 		    (v.latitude BETWEEN $3 AND $4 AND v.longitude BETWEEN $5 AND $6)
@@ -215,10 +227,13 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       m.id, m.organizer_id, m.kind,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -252,15 +267,18 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       m.id, m.organizer_id, m.kind,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
 		WHERE e.id = ANY($1)
 		ORDER BY e.local_event_date ASC
 	`
 
-	// listConcertsByFollowerQuery joins followed_artists via event_performers.
+	// listConcertsByFollowerQuery joins followed_artists via concert_artists.
 	// Distinct is required because an event could have multiple performers that
 	// are all followed by the same user; we want one row per event.
 	//
@@ -275,11 +293,14 @@ const (
 		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
+		       m.id, m.organizer_id, m.kind,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		JOIN event_performers ep ON ep.event_id = e.id
+		LEFT JOIN series_media sm ON sm.series_id = s.id
+		LEFT JOIN media m ON m.id = sm.media_id
+		JOIN concert_artists ep ON ep.event_id = e.id
 		JOIN followed_artists fa ON fa.artist_id = ep.artist_id
 		WHERE fa.user_id = $1
 		  AND e.local_event_date >= COALESCE($2, CURRENT_DATE)` + firstPartyVisibilityGuard + `
@@ -303,7 +324,7 @@ const (
 	// promoting a billing/role column when needed is tracked separately.
 	listPerformersByEventIDsQuery = `
 		SELECT ep.event_id, a.id, a.name, a.mbid
-		FROM event_performers ep
+		FROM concert_artists ep
 		JOIN artists a ON a.id = ep.artist_id
 		WHERE ep.event_id = ANY($1)
 		ORDER BY ep.event_id, a.id
@@ -315,14 +336,15 @@ func NewConcertRepository(db *Database) *ConcertRepository {
 	return &ConcertRepository{db: db}
 }
 
-// scanConcertRow scans a row from the standard JOIN (events + series + venue)
-// into a Concert without populating Performers. Pass withCoords=true when the
-// query selects venue lat/lng (used by ListByArtists / ListByFollower).
+// scanConcertRow scans a row from the standard JOIN (events + series + cover
+// media + venue) into a Concert without populating Artists. Pass
+// withCoords=true when the query selects venue lat/lng (used by ListByArtists /
+// ListByFollower).
 //
 // The Series carries its first-party attributes (organizer, description,
-// visibility, publish state) so callers can tell first-party concerts from
-// discovered ones. The cover media and the share token are not read here;
-// SeriesRepository.Get returns them.
+// visibility, publish state) and its cover media's identity, so every read
+// returns the same Series shape as the event page. The share token is never
+// read here.
 func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.Concert, error) {
 	var (
 		c            entity.Concert
@@ -334,12 +356,16 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		description  sql.NullString
 		visibility   sql.NullString
 		publishState sql.NullString
+		mediaID      sql.NullString
+		mediaOrgID   sql.NullString
+		mediaKind    sql.NullString
 		lat, lng     *float64
 	)
 	dests := []any{
 		&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime,
 		&series.Title, &seriesT, &sourceURL,
 		&organizerID, &description, &visibility, &publishState,
+		&mediaID, &mediaOrgID, &mediaKind,
 		&venue.ID, &venue.Name, &venue.AdminArea,
 	}
 	if withCoords {
@@ -385,6 +411,13 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 	if publishState.Valid {
 		v := entity.SeriesPublishState(publishState.String)
 		series.PublishState = &v
+	}
+	if mediaID.Valid {
+		series.CoverMedia = &entity.Media{
+			ID:          mediaID.String,
+			OrganizerID: mediaOrgID.String,
+			Kind:        entity.MediaKind(mediaKind.String),
+		}
 	}
 	if lat != nil && lng != nil {
 		venue.Coordinates = &entity.Coordinates{Latitude: *lat, Longitude: *lng}
@@ -444,8 +477,8 @@ func (r *ConcertRepository) hydrateOrganizers(ctx context.Context, concerts []*e
 	return nil
 }
 
-// hydratePerformers fetches event_performers + artists for the given concerts
-// and assigns each Concert.Performers slice. Concerts with no performers are
+// hydratePerformers fetches concert_artists + artists for the given concerts
+// and assigns each Concert.Artists slice. Concerts with no performers are
 // left with a nil slice; callers downstream are expected to treat that as a
 // data anomaly because every Event MUST have at least one performer.
 func (r *ConcertRepository) hydratePerformers(ctx context.Context, concerts []*entity.Concert) error {
@@ -479,7 +512,7 @@ func (r *ConcertRepository) hydratePerformers(ctx context.Context, concerts []*e
 			continue
 		}
 		a := artist
-		c.Performers = append(c.Performers, &a)
+		c.Artists = append(c.Artists, &a)
 	}
 	if err := rows.Err(); err != nil {
 		return toAppErr(err, "performer iteration ended with error")
@@ -715,12 +748,12 @@ func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID strin
 //
 // Caller MUST have already created the parent Series rows via
 // [SeriesRepository.Create]; this method only inserts into events, concerts, and
-// event_performers. Each concert MUST carry a non-empty SeriesID matching one of
+// concert_artists. Each concert MUST carry a non-empty SeriesID matching one of
 // those Series rows (FK enforced).
 //
 // Events use UPSERT on (series_id, local_event_date, venue_id). On conflict the
 // pre-existing event keeps its id and only NULL start/open times are filled.
-// The placeholder concerts row and the event_performers links are only inserted
+// The placeholder concerts row and the concert_artists links are only inserted
 // for events whose input UUID survived the UPSERT.
 //
 // Returns the event IDs of concerts that were genuinely inserted (i.e., not
@@ -806,7 +839,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		if c.SeriesID == "" {
 			return nil, apperr.New(codes.InvalidArgument, "concert must carry a SeriesID before insert")
 		}
-		if len(c.Performers) == 0 {
+		if len(c.Artists) == 0 {
 			return nil, apperr.New(codes.InvalidArgument, "concert must have at least one performer before insert")
 		}
 		eventIDs[i] = c.ID
@@ -816,7 +849,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 		eventDates[i] = c.LocalDate
 		startTimes[i] = c.StartTime
 		openTimes[i] = c.OpenTime
-		for _, p := range c.Performers {
+		for _, p := range c.Artists {
 			if p == nil || p.ID == "" {
 				return nil, apperr.New(codes.InvalidArgument, "performer ID must not be empty")
 			}
@@ -873,7 +906,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 	// covers the co-headliner notification case: when artist B is
 	// discovered for an event artist A already created, the events UPSERT
 	// keeps the existing row, insertConcertsQuery returns nothing — but
-	// the event_performers RETURNING surfaces the new (event, B) link so
+	// the concert_artists RETURNING surfaces the new (event, B) link so
 	// B's followers get notified.
 	var linkedEventIDs []string
 	if len(performerArtistIDs) > 0 {
@@ -881,7 +914,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 			performerVenueIDs, performerEventDates, performerStartAts, performerArtistIDs,
 		)
 		if err != nil {
-			return nil, toAppErr(err, "failed to insert event_performers",
+			return nil, toAppErr(err, "failed to insert concert_artists",
 				slog.Int("event_count", n),
 				slog.Int("link_count", len(performerArtistIDs)),
 			)
@@ -895,7 +928,7 @@ func (r *ConcertRepository) Create(ctx context.Context, concerts ...*entity.Conc
 			linkedEventIDs = append(linkedEventIDs, id)
 		}
 		if err := linkRows.Err(); err != nil {
-			return nil, toAppErr(err, "event_performers insert RETURNING iteration ended with error",
+			return nil, toAppErr(err, "concert_artists insert RETURNING iteration ended with error",
 				slog.Int("link_count", len(performerArtistIDs)),
 			)
 		}
@@ -972,7 +1005,7 @@ func (r *ConcertRepository) FindEventsByVenueAndDate(ctx context.Context, venueI
 
 // FindEventsByArtistAndDate implements entity.ConcertRepository. It returns
 // existing events on any of the supplied local event dates at which the artist
-// already performs (joined through event_performers), projected to the fields
+// already performs (joined through concert_artists), projected to the fields
 // discovery-time series resolution needs.
 func (r *ConcertRepository) FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*entity.Event, error) {
 	if artistID == "" || len(dates) == 0 {

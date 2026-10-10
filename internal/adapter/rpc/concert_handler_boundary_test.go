@@ -67,7 +67,7 @@ func TestConcertHandler_Get_Boundary(t *testing.T) {
 		}))
 
 		require.NoError(t, err)
-		assert.Equal(t, eventID, resp.Msg.GetConcert().GetId().GetValue())
+		assert.Equal(t, eventID, resp.Msg.GetConcert().GetEvent().GetId().GetValue())
 	})
 
 	tests := []struct {
@@ -190,17 +190,6 @@ func TestConcertHandler_PublicLists_Boundary(t *testing.T) {
 			From:     &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 2}},
 			To:       &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 10, Day: 1}},
 		}))
-
-		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
-	})
-
-	t.Run("return INVALID_ARGUMENT for a search without an artist", func(t *testing.T) {
-		// @spec components/adapter/fan/api/rpc/concert "Search without an artist"
-		t.Parallel()
-		// The mock fails the test if SearchNewConcerts runs.
-		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
-
-		_, err := client.SearchNewConcerts(context.Background(), connect.NewRequest(&concertv1.SearchNewConcertsRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})

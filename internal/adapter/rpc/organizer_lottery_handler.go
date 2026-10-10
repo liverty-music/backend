@@ -45,7 +45,7 @@ func NewOrganizerLotteryHandler(
 // resolveCallerOrganizer reads the Zitadel org id from context and delegates
 // to the usecase, which looks up the Organizer and enforces its lifecycle
 // status. Returns the active Organizer or the usecase's error. Mirrors the
-// same helper on OrganizerConcertHandler.
+// same helper on OrganizerSeriesHandler.
 func (h *OrganizerLotteryHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)
 	if !ok {

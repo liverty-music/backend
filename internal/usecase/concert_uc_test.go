@@ -97,7 +97,7 @@ func TestConcertUseCase_ListConcertsByArtist(t *testing.T) {
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
 				concerts := []*entity.Concert{
-					{ID: "c1", Series: &entity.Series{Title: "Concert 1"}, Performers: []*entity.Artist{{ID: "a1"}}},
+					{ID: "c1", Series: &entity.Series{Title: "Concert 1"}, Artists: []*entity.Artist{{ID: "a1"}}},
 				}
 				d.concertRepo.EXPECT().ListByArtist(ctx, "a1", false).Return(concerts, nil).Once()
 			},
@@ -151,20 +151,20 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 			// Date 1: Tokyo venue (HOME), Saitama venue (NEARBY), Osaka venue (AWAY)
 			{
 				ID: "c1", LocalDate: date1, Venue: &entity.Venue{ID: "v1", AdminArea: new("JP-13"), Coordinates: &entity.Coordinates{Latitude: tokyoLat, Longitude: tokyoLng}},
-				Performers: []*entity.Artist{{ID: "a1"}},
+				Artists: []*entity.Artist{{ID: "a1"}},
 			},
 			{
 				ID: "c2", LocalDate: date1, Venue: &entity.Venue{ID: "v2", AdminArea: new("JP-11"), Coordinates: &entity.Coordinates{Latitude: saitamaLat, Longitude: saitamaLng}},
-				Performers: []*entity.Artist{{ID: "a1"}},
+				Artists: []*entity.Artist{{ID: "a1"}},
 			},
 			{
 				ID: "c3", LocalDate: date1, Venue: &entity.Venue{ID: "v3", AdminArea: new("JP-27"), Coordinates: &entity.Coordinates{Latitude: osakaLat, Longitude: osakaLng}},
-				Performers: []*entity.Artist{{ID: "a1"}},
+				Artists: []*entity.Artist{{ID: "a1"}},
 			},
 			// Date 2: No venue coordinates (AWAY)
 			{
 				ID: "c4", LocalDate: date2, Venue: &entity.Venue{ID: "v4", AdminArea: new("JP-40")},
-				Performers: []*entity.Artist{{ID: "a2"}},
+				Artists: []*entity.Artist{{ID: "a2"}},
 			},
 		}
 		d.concertRepo.EXPECT().ListByFollower(ctx, "user-1", (*time.Time)(nil)).Return(concerts, nil).Once()

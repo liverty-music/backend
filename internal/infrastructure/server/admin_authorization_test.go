@@ -15,6 +15,7 @@ import (
 	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 
 	"github.com/liverty-music/backend/internal/adapter/rpc"
+	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	authmocks "github.com/liverty-music/backend/internal/infrastructure/auth/mocks"
@@ -64,7 +65,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 			return artistv1connect.NewArtistServiceHandler(rpc.NewArtistHandler(artistUC, logger), opts...)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminconcertv1connect.NewConcertServiceHandler(rpc.NewAdminConcertHandler(concertUC, logger), opts...)
+			return adminconcertv1connect.NewConcertServiceHandler(rpc.NewAdminConcertHandler(concertUC, mapper.NewMediaURLBuilder(""), logger), opts...)
 		},
 	}
 
@@ -76,7 +77,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 		IdleTimeout:       5 * time.Second,
 	}
 	adminInterceptors := []connect.Interceptor{auth.NewRequireRoleInterceptor("admin")}
-	adminSrv := server.NewConnectServer(cfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, nil, handlers...)
+	adminSrv := server.NewConnectServer(cfg, logger, adminAuthFunc, rateLimiter, healthHandler, adminInterceptors, nil, handlers...)
 
 	ts := httptest.NewServer(adminSrv.Handler())
 	t.Cleanup(ts.Close)

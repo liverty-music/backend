@@ -58,7 +58,8 @@ func seedDeletableOrganizer(t *testing.T, status entity.OrganizerStatus) deletab
 		o.seriesID, o.organizerID)
 	exec(`INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, '2026-11-20')`,
 		o.eventID, o.seriesID, venueID)
-	exec(`INSERT INTO event_performers (event_id, artist_id) VALUES ($1, $2)`, o.eventID, o.artistID)
+	exec(`INSERT INTO concerts (event_id) VALUES ($1)`, o.eventID)
+	exec(`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2)`, o.eventID, o.artistID)
 	exec(`INSERT INTO media (id, organizer_id, kind) VALUES ($1, $2, 'IMAGE'), ($3, $2, 'IMAGE')`,
 		o.coverID, o.organizerID, o.unusedID)
 	exec(`INSERT INTO series_media (series_id, media_id) VALUES ($1, $2)`, o.seriesID, o.coverID)
@@ -147,7 +148,7 @@ func assertOrganizerRecords(t *testing.T, o deletableOrganizer, wantExist bool) 
 		"organizer":      {`SELECT 1 FROM organizers WHERE id = $1`, o.organizerID},
 		"series":         {`SELECT 1 FROM series WHERE id = $1`, o.seriesID},
 		"event":          {`SELECT 1 FROM events WHERE id = $1`, o.eventID},
-		"performer":      {`SELECT 1 FROM event_performers WHERE event_id = $1`, o.eventID},
+		"performer":      {`SELECT 1 FROM concert_artists WHERE event_id = $1`, o.eventID},
 		"lottery phase":  {`SELECT 1 FROM lottery_sales_phases WHERE id = $1`, string(o.phaseID)},
 		"cover media":    {`SELECT 1 FROM media WHERE id = $1`, o.coverID},
 		"unused media":   {`SELECT 1 FROM media WHERE id = $1`, o.unusedID},

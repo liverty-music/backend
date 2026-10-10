@@ -404,7 +404,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 		return []*entity.Concert{
 			{
 				ID: "c1", Venue: &entity.Venue{AdminArea: adminArea},
-				Performers: []*entity.Artist{{ID: "artist-1"}},
+				Artists: []*entity.Artist{{ID: "artist-1"}},
 			},
 		}
 	}
@@ -501,7 +501,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				newConcerts := []*entity.Concert{
 					{
 						ID: "c-new", Venue: &entity.Venue{AdminArea: &kanazawaArea},
-						Performers: []*entity.Artist{{ID: "artist-1"}},
+						Artists: []*entity.Artist{{ID: "artist-1"}},
 					},
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c-new"}).Return(newConcerts, nil).Once()
@@ -543,7 +543,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 							AdminArea:   &saitamaArea,
 							Coordinates: &entity.Coordinates{Latitude: 35.8569, Longitude: 139.6489},
 						},
-						Performers: []*entity.Artist{{ID: "artist-1"}},
+						Artists: []*entity.Artist{{ID: "artist-1"}},
 					},
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(nearbyConcerts, nil).Once()
@@ -575,7 +575,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 							// ~150km west of the Tokyo (JP-13) centroid below.
 							Coordinates: &entity.Coordinates{Latitude: 35.6648, Longitude: 137.9898},
 						},
-						Performers: []*entity.Artist{{ID: "artist-1"}},
+						Artists: []*entity.Artist{{ID: "artist-1"}},
 					},
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(nearbyConcerts, nil).Once()
@@ -600,7 +600,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 							AdminArea:   &osakaArea,
 							Coordinates: &entity.Coordinates{Latitude: 34.6863, Longitude: 135.5200},
 						},
-						Performers: []*entity.Artist{{ID: "artist-1"}},
+						Artists: []*entity.Artist{{ID: "artist-1"}},
 					},
 				}
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return(farConcerts, nil).Once()
@@ -655,7 +655,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
 				// ListByIDs returns only c1 — c2 is missing from the result.
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1", "c2"}).Return([]*entity.Concert{
-					{ID: "c1", Performers: []*entity.Artist{{ID: "artist-1"}}},
+					{ID: "c1", Artists: []*entity.Artist{{ID: "artist-1"}}},
 				}, nil).Once()
 			},
 			wantErr: apperr.ErrInvalidArgument,
@@ -668,7 +668,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				d.artistRepo.EXPECT().Get(ctx, "artist-1").Return(artist, nil).Once()
 				// c1 exists but is performed by a different artist.
 				d.concertRepo.EXPECT().ListByIDs(ctx, []string{"c1"}).Return([]*entity.Concert{
-					{ID: "c1", Performers: []*entity.Artist{{ID: "artist-999"}}},
+					{ID: "c1", Artists: []*entity.Artist{{ID: "artist-999"}}},
 				}, nil).Once()
 			},
 			wantErr: apperr.ErrInvalidArgument,
@@ -783,7 +783,7 @@ func TestNotifyNewConcerts_LocalizesBodyPerRecipient(t *testing.T) {
 
 	tokyoArea := "JP-13"
 	concerts := []*entity.Concert{
-		{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
 	}
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	followers := []*entity.Follower{
@@ -822,8 +822,8 @@ func TestNotifyNewConcerts_PluralBodyPerLanguage(t *testing.T) {
 
 	tokyoArea := "JP-13"
 	concerts := []*entity.Concert{
-		{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
-		{ID: "c2", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c2", Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
 	}
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	followers := []*entity.Follower{
@@ -870,7 +870,7 @@ func TestNotifyNewConcerts_ZeroRecipientPathsAreLogged(t *testing.T) {
 	tokyoArea := "JP-13"
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	concert := []*entity.Concert{
-		{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
 	}
 
 	tests := []struct {
@@ -952,8 +952,8 @@ func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
 	date := func(day int) time.Time { return time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC) }
 	// The later concert is listed first to prove ordering is by date, not slice order.
 	concerts := []*entity.Concert{
-		{ID: "c-late", LocalDate: date(10), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
-		{ID: "c-early", LocalDate: date(3), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c-late", LocalDate: date(10), Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c-early", LocalDate: date(3), Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
 	}
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	followers := []*entity.Follower{
@@ -986,8 +986,8 @@ func TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage(t *testing.T) {
 	organizerID := "organizer-1"
 	date := func(day int) time.Time { return time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC) }
 	concerts := []*entity.Concert{
-		{ID: "discovered-late", LocalDate: date(10), Series: &entity.Series{ID: "s-discovered"}, Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
-		{ID: "first-party-early", LocalDate: date(3), Series: &entity.Series{ID: "s-first-party", OrganizerID: &organizerID}, Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "discovered-late", LocalDate: date(10), Series: &entity.Series{ID: "s-discovered"}, Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "first-party-early", LocalDate: date(3), Series: &entity.Series{ID: "s-first-party", OrganizerID: &organizerID}, Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
 	}
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	followers := []*entity.Follower{
@@ -1021,9 +1021,9 @@ func TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink(t *testing.T) {
 	aichiArea := "JP-40"
 	date := func(day int) time.Time { return time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC) }
 	concerts := []*entity.Concert{
-		{ID: "aichi-early", LocalDate: date(1), Venue: &entity.Venue{AdminArea: &aichiArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
-		{ID: "tokyo-later", LocalDate: date(5), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
-		{ID: "aichi-early2", LocalDate: date(2), Venue: &entity.Venue{AdminArea: &aichiArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "aichi-early", LocalDate: date(1), Venue: &entity.Venue{AdminArea: &aichiArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "tokyo-later", LocalDate: date(5), Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "aichi-early2", LocalDate: date(2), Venue: &entity.Venue{AdminArea: &aichiArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
 	}
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	followers := []*entity.Follower{
@@ -1053,9 +1053,9 @@ func TestNotifyNewConcerts_SeveralConcertsInEnglish(t *testing.T) {
 
 	tokyoArea := "JP-13"
 	concerts := []*entity.Concert{
-		{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
-		{ID: "c2", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
-		{ID: "c3", Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c1", Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c2", Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "c3", Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
 	}
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	followers := []*entity.Follower{
@@ -1092,8 +1092,8 @@ func TestNotifyNewConcerts_SameDayEarlierStart(t *testing.T) {
 	// The IDs sort opposite to the start times, so the ID tie-break in
 	// concertEarlier cannot pick the earlier concert by itself.
 	concerts := []*entity.Concert{
-		{ID: "a-late", LocalDate: day, StartTime: at(19, 30), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
-		{ID: "z-early", LocalDate: day, StartTime: at(18, 0), Venue: &entity.Venue{AdminArea: &tokyoArea}, Performers: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "a-late", LocalDate: day, StartTime: at(19, 30), Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
+		{ID: "z-early", LocalDate: day, StartTime: at(18, 0), Venue: &entity.Venue{AdminArea: &tokyoArea}, Artists: []*entity.Artist{{ID: "artist-1"}}},
 	}
 	artist := &entity.Artist{ID: "artist-1", Name: "Test Artist"}
 	followers := []*entity.Follower{

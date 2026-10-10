@@ -7,42 +7,41 @@ import (
 	"github.com/liverty-music/backend/pkg/geo"
 )
 
-// Concert is the user-facing DTO for a music live event.
+// Concert is the music kind of [Event]: one Event together with the artists
+// performing at it. Its id is the Event's id, and it has no title, type or
+// source page of its own; they are read from its [Series].
 //
-// It composes the underlying [Event] with its parent [Series] and the full list
-// of performing artists so that a single read carries everything the UI needs
-// without follow-up fetches. Series-level metadata (title, source URL, type)
-// lives on the embedded Series. The previously-singular ArtistID has been
-// replaced by Performers to support festival lineups and co-headliners.
-//
-// Corresponds to liverty_music.entity.v1.Concert.
+// Reads populate Series and Artists so a usecase has the whole Concert. On the
+// wire (liverty_music.entity.v1.Concert) a Concert carries only the Event and
+// the artist ids; the RPC mapper returns each referenced Series and Artist once
+// beside the Concerts.
 type Concert struct {
 	Event
 	// Series is the parent series that aggregates this concert with any sibling
 	// events sharing the same tour, festival, or multi-day run. Populated by
 	// the repository layer on read; required when building a Concert for write.
 	Series *Series
-	// Performers are the artists performing at this concert, in display order.
-	// Always contains at least one performer; multi-performer values cover
-	// festivals, co-headliners, and support acts. Populated by the repository
-	// layer on read.
-	Performers []*Artist
+	// Artists are the artists performing at this concert, in display order.
+	// Always contains at least one artist; more than one covers festivals,
+	// co-headliners, and support acts. Populated by the repository layer on
+	// read.
+	Artists []*Artist
 }
 
-// PerformerIDs returns the IDs of all performers attached to this concert.
+// ArtistIDs returns the IDs of all artists performing at this concert.
 // Convenient for callers that only need identifiers (e.g. mock comparisons,
 // repository writes, or hype checks against followed_artists).
 //
-// Nil entries in Performers (which the type system permits even though the
+// Nil entries in Artists (which the type system permits even though the
 // supported insert path rejects them) are skipped silently rather than
 // triggering a nil-pointer panic, so read-side callers can safely call this
 // on any Concert hydrated from external code paths or test fixtures.
-func (c *Concert) PerformerIDs() []string {
-	if len(c.Performers) == 0 {
+func (c *Concert) ArtistIDs() []string {
+	if len(c.Artists) == 0 {
 		return nil
 	}
-	ids := make([]string, 0, len(c.Performers))
-	for _, p := range c.Performers {
+	ids := make([]string, 0, len(c.Artists))
+	for _, p := range c.Artists {
 		if p == nil {
 			continue
 		}
@@ -89,7 +88,7 @@ func (e *DiscoveredEvent) ToConcertUnderSeries(artistID, seriesID, eventID, venu
 		VenueID:         venueID,
 		ListedVenueName: &listedName,
 		LocalDate:       e.LocalDate,
-		Performers:      []*Artist{{ID: artistID}},
+		Artists:         []*Artist{{ID: artistID}},
 	}
 	c.StartTime = NullableTime(e.StartTime)
 	c.OpenTime = NullableTime(e.OpenTime)
@@ -148,7 +147,7 @@ func (s *DiscoveredSeries) ToConcert(ev *DiscoveredEvent, artistID, seriesID, ev
 		ListedVenueName: &listedName,
 		LocalDate:       ev.LocalDate,
 		Series:          series,
-		Performers:      []*Artist{{ID: artistID}},
+		Artists:         []*Artist{{ID: artistID}},
 	}
 	c.StartTime = NullableTime(ev.StartTime)
 	c.OpenTime = NullableTime(ev.OpenTime)
@@ -415,7 +414,7 @@ func GroupByDateAndProximity(concerts []*Concert, home *Home) []*ProximityGroup 
 // ConcertRepository defines the data access interface for Concerts.
 type ConcertRepository interface {
 	// ListByArtist retrieves all concerts where the given artist appears in
-	// event_performers. if upcomingOnly is true, it only returns concerts with
+	// concert_artists. if upcomingOnly is true, it only returns concerts with
 	// LocalDate >= today.
 	//
 	// # Possible errors
@@ -427,7 +426,7 @@ type ConcertRepository interface {
 	// ascending. A nil from defaults to the current date (today onward).
 	ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*Concert, error)
 	// ListByArtists retrieves concerts where any of the given artists appear in
-	// event_performers, in a single query. Venue coordinates are included for
+	// concert_artists, in a single query. Venue coordinates are included for
 	// proximity classification. Results are ordered by local_event_date ascending.
 	ListByArtists(ctx context.Context, artistIDs []string) ([]*Concert, error)
 	// ListByLocation retrieves candidate concerts whose local_event_date falls
@@ -444,10 +443,10 @@ type ConcertRepository interface {
 	// inserted (or will be inserted in the same transaction) via SeriesRepository.
 	// Events are inserted with ON CONFLICT on the natural key
 	// (series_id, local_event_date, venue_id). When a conflict is detected the
-	// existing row is preserved and event_performers links are reconciled.
+	// existing row is preserved and concert_artists links are reconciled.
 	//
 	// Concert rows are only inserted for genuinely new events. Performer links
-	// (event_performers) are inserted for every concert in the batch and use
+	// (concert_artists) are inserted for every concert in the batch and use
 	// ON CONFLICT DO NOTHING so re-runs are idempotent.
 	//
 	// Nil elements in the input slice are silently skipped.
@@ -461,7 +460,7 @@ type ConcertRepository interface {
 	//  - FailedPrecondition: If a foreign key constraint is violated (e.g., invalid series, venue, or performer).
 	Create(ctx context.Context, concerts ...*Concert) ([]string, error)
 	// ListByIDs retrieves concerts by their event IDs. Venues, parent Series,
-	// and Performers are all populated so callers can render the response
+	// and Artists are all populated so callers can render the response
 	// without follow-up queries. IDs that do not match any row are silently
 	// omitted from the result.
 	//
@@ -478,19 +477,19 @@ type ConcertRepository interface {
 	// fills it instead of inserting a duplicate.
 	//
 	// Only physical-identity and parentage fields are populated (ID, SeriesID,
-	// VenueID, LocalDate, StartTime); Venue and Performers are not hydrated.
+	// VenueID, LocalDate, StartTime); Venue and Artists are not hydrated.
 	// Returns an empty slice (no error) when the inputs are empty.
 	FindEventsByVenueAndDate(ctx context.Context, venueIDs []string, dates []time.Time) ([]*Event, error)
 	// FindEventsByArtistAndDate returns existing events on any of the given local
 	// event dates at which the artist already performs (joined through
-	// event_performers). Used by the discovery write path to resolve a whole
+	// concert_artists). Used by the discovery write path to resolve a whole
 	// discovered series' identity BEFORE any Places API call: a full
 	// local_event_date makes an (artist, exact-date) collision across two
 	// different series practically impossible, so any matching event already
 	// belongs to this tour and its series_id is adopted for the group.
 	//
 	// Only physical-identity and parentage fields are populated (ID, SeriesID,
-	// VenueID, LocalDate, StartTime); Venue and Performers are not hydrated.
+	// VenueID, LocalDate, StartTime); Venue and Artists are not hydrated.
 	// Returns an empty slice (no error) when the inputs are empty.
 	FindEventsByArtistAndDate(ctx context.Context, artistID string, dates []time.Time) ([]*Event, error)
 	// ListEventsBySeries retrieves every event belonging to the given series,
@@ -500,7 +499,7 @@ type ConcertRepository interface {
 	// [SalesPhaseAnnouncementUseCase] and [SalesReminderUseCase]).
 	//
 	// Only physical-identity fields are populated (ID, SeriesID, LocalDate,
-	// StartTime); Venue and Performers are not hydrated. Returns an empty
+	// StartTime); Venue and Artists are not hydrated. Returns an empty
 	// slice (no error) when the series has no events.
 	ListEventsBySeries(ctx context.Context, seriesID string) ([]*Event, error)
 	// FillEventStartTimes sets start_at / open_at on existing events identified
@@ -514,14 +513,14 @@ type ConcertRepository interface {
 	// to replace the stored display name with the staged row's, leaving venue_id
 	// and google_place_id untouched. Idempotent on a missing id (no-op success).
 	UpdateEventListedVenueName(ctx context.Context, eventID string, listedVenueName string) error
-	// List retrieves every published concert with Series, Venue, and Performers
+	// List retrieves every published concert with Series, Venue, and Artists
 	// hydrated, ordered by local_event_date ascending. Unlike ListByArtist /
 	// ListByFollower it applies no audience filter — it returns the whole
 	// published catalog for admin review and management.
 	List(ctx context.Context) ([]*Concert, error)
 	// Delete removes a published event by id. The delete cascades through the
 	// database's ON DELETE CASCADE foreign keys to every row scoped to the
-	// event alone (the 1:1 concerts row, event_performers, ticket_journeys, and
+	// event alone (the 1:1 concerts row, concert_artists, ticket_journeys, and
 	// lottery_sales_phases). Rows that outlive the event but still reference it
 	// — tickets and settlements — are protected by ON DELETE RESTRICT, so the
 	// delete fails instead of orphaning them when any exist. The event's series

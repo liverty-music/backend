@@ -94,8 +94,8 @@ type ConcertUseCase interface {
 	SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error
 
 	// Get returns the Concert of one Event when its Series has an event page
-	// (see [entity.Series.HasEventPage]). The returned Concert carries the
-	// full Series as read by SeriesRepository.Get, including its description,
+	// (see [entity.Series.HasEventPage]). The returned Concert carries its
+	// Series as every Concert read returns it, including its description,
 	// cover media, visibility and publish state. No signed-in caller is needed.
 	//
 	// # Possible errors
@@ -109,7 +109,7 @@ type ConcertUseCase interface {
 	// ListBySeries returns every Concert of one Series that has an event page,
 	// ordered by local date and then by start time (as
 	// ConcertRepository.ListEventsBySeries orders them). Each Concert carries
-	// the full Series as read by SeriesRepository.Get. No signed-in caller is
+	// its Series as every Concert read returns it. No signed-in caller is
 	// needed.
 	//
 	// # Possible errors
@@ -225,20 +225,16 @@ func (uc *concertUseCase) Get(ctx context.Context, eventID string) (*entity.Conc
 		return nil, errNoEventPage()
 	}
 	concert := concerts[0]
-
-	series, err := uc.eventPageSeries(ctx, concert.SeriesID)
-	if err != nil {
-		return nil, err
+	if concert.Series == nil || !concert.Series.HasEventPage() {
+		return nil, errNoEventPage()
 	}
-	concert.Series = series
 	return concert, nil
 }
 
 // ListBySeries returns the Concerts of one Series that has an event page, in
 // ListEventsBySeries order.
 func (uc *concertUseCase) ListBySeries(ctx context.Context, seriesID string) ([]*entity.Concert, error) {
-	series, err := uc.eventPageSeries(ctx, seriesID)
-	if err != nil {
+	if _, err := uc.eventPageSeries(ctx, seriesID); err != nil {
 		return nil, err
 	}
 
@@ -271,7 +267,6 @@ func (uc *concertUseCase) ListBySeries(ctx context.Context, seriesID string) ([]
 		if !ok {
 			continue
 		}
-		c.Series = series
 		ordered = append(ordered, c)
 	}
 	return ordered, nil
@@ -654,7 +649,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 			// Replace ToConcert's id-only Performer shell with the resolved
 			// Artist entity so the response carries a complete performer with
 			// Name and MBID (validated non-empty by the guard above).
-			c.Performers = []*entity.Artist{artist}
+			c.Artists = []*entity.Artist{artist}
 			concerts = append(concerts, c)
 		}
 	}

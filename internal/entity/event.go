@@ -5,13 +5,13 @@ import (
 	"time"
 )
 
-// Event represents a single performance occurring on a specific date at a specific venue.
+// Event represents a single occurrence on a specific date at a specific venue.
 //
 // Every Event belongs to a parent [Series] that owns metadata shared across multiple
 // events of the same engagement (tour title, source URL, classification). Series-level
 // fields are intentionally absent from Event to avoid duplication when one series owns
-// several events. Performing artists are modelled as an M:N relation via event_performers
-// and surface on the [Concert] DTO as the Performers slice.
+// several events. Event is generic: a kind of event embeds it and adds its own data,
+// as [Concert] adds the performing artists (stored in concert_artists).
 //
 // See [EventProto] for the wire representation.
 //

@@ -35,187 +35,66 @@ func TestConcertToProto(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "minimal concert with required fields only",
+			// @spec components/entity/concert "Concert id is its event id"
+			name: "carry the event, whose id is the concert's id, and the artist id",
 			args: &entity.Concert{
-				ID:        "event-id-1",
-				VenueID:   "venue-id-1",
-				LocalDate: localDate,
-				Series: &entity.Series{
-					ID:    "series-id-1",
-					Title: "Summer Live 2025",
-					Type:  entity.SeriesTypeSingle,
-				},
-				Performers: []*entity.Artist{{ID: "artist-id-1", Name: "Sunny Day", MBID: "11111111-1111-1111-1111-111111111111"}},
+				ID: "event-id-1", SeriesID: "series-id-1", VenueID: "venue-id-1", LocalDate: localDate,
+				Series:  &entity.Series{ID: "series-id-1", Title: "Summer Live 2025", Type: entity.SeriesTypeSingle},
+				Artists: []*entity.Artist{{ID: "artist-id-1", Name: "Sunny Day"}},
 			},
 			want: &entityv1.Concert{
-				Id:        &entityv1.EventId{Value: "event-id-1"},
-				VenueId:   &entityv1.VenueId{Value: "venue-id-1"},
-				LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2025, Month: 6, Day: 15}},
-				Series: &entityv1.Series{
-					Id:    &entityv1.SeriesId{Value: "series-id-1"},
-					Title: &entityv1.Title{Value: "Summer Live 2025"},
-					Type:  entityv1.SeriesType_SERIES_TYPE_SINGLE,
+				Event: &entityv1.Event{
+					Id:        &entityv1.EventId{Value: "event-id-1"},
+					LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2025, Month: 6, Day: 15}},
+					SeriesId:  &entityv1.SeriesId{Value: "series-id-1"},
 				},
-				Performers: []*entityv1.Artist{{
-					Id:   &entityv1.ArtistId{Value: "artist-id-1"},
-					Name: &entityv1.ArtistName{Value: "Sunny Day"},
-					Mbid: &entityv1.Mbid{Value: "11111111-1111-1111-1111-111111111111"},
-				}},
+				ArtistIds: []*entityv1.ArtistId{{Value: "artist-id-1"}},
 			},
 		},
 		{
-			name: "concert with all optional fields",
+			name: "carry every optional event field and the venue",
 			args: &entity.Concert{
-				ID:              "event-id-2",
-				VenueID:         "venue-id-2",
-				LocalDate:       localDate,
-				StartTime:       &startTime,
-				OpenTime:        &openTime,
-				ListedVenueName: &listedVenueName,
-				Series: &entity.Series{
-					ID:        "series-id-2",
-					Title:     "Winter Tour",
-					Type:      entity.SeriesTypeTour,
-					SourceURL: "https://example.com/event",
-				},
-				Performers: []*entity.Artist{{ID: "artist-id-2", Name: "Frostbite", MBID: "22222222-2222-2222-2222-222222222222"}},
+				ID: "event-id-2", SeriesID: "series-id-2", VenueID: "venue-id-2", LocalDate: localDate,
+				StartTime: &startTime, OpenTime: &openTime, ListedVenueName: &listedVenueName,
+				Venue:   &entity.Venue{ID: "venue-id-2", Name: "Nippon Budokan", AdminArea: &adminArea},
+				Series:  &entity.Series{ID: "series-id-2", Title: "Winter Tour", Type: entity.SeriesTypeTour},
+				Artists: []*entity.Artist{{ID: "artist-id-2", Name: "Frostbite"}},
 			},
-			want: func() *entityv1.Concert {
-				p := &entityv1.Concert{
-					Id:        &entityv1.EventId{Value: "event-id-2"},
-					VenueId:   &entityv1.VenueId{Value: "venue-id-2"},
-					LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2025, Month: 6, Day: 15}},
-					Series: &entityv1.Series{
-						Id:        &entityv1.SeriesId{Value: "series-id-2"},
-						Title:     &entityv1.Title{Value: "Winter Tour"},
-						Type:      entityv1.SeriesType_SERIES_TYPE_TOUR,
-						SourceUrl: &entityv1.Url{Value: "https://example.com/event"},
+			want: &entityv1.Concert{
+				Event: &entityv1.Event{
+					Id: &entityv1.EventId{Value: "event-id-2"},
+					Venue: &entityv1.Venue{
+						Id:        &entityv1.VenueId{Value: "venue-id-2"},
+						Name:      &entityv1.VenueName{Value: "Nippon Budokan"},
+						AdminArea: &entityv1.AdminArea{Value: adminArea},
 					},
-					Performers: []*entityv1.Artist{{
-						Id:   &entityv1.ArtistId{Value: "artist-id-2"},
-						Name: &entityv1.ArtistName{Value: "Frostbite"},
-						Mbid: &entityv1.Mbid{Value: "22222222-2222-2222-2222-222222222222"},
-					}},
-					ListedVenueName: &entityv1.ListedVenueName{Value: listedVenueName},
+					LocalDate:       &entityv1.LocalDate{Value: &date.Date{Year: 2025, Month: 6, Day: 15}},
 					StartTime:       &entityv1.StartTime{Value: timestamppb.New(startTime)},
 					OpenTime:        &entityv1.OpenTime{Value: timestamppb.New(openTime)},
-				}
-				return p
-			}(),
-		},
-		{
-			name: "concert with embedded venue",
-			args: &entity.Concert{
-				ID:        "event-id-3",
-				VenueID:   "venue-id-3",
-				LocalDate: localDate,
-				Venue: &entity.Venue{
-					ID:        "venue-id-3",
-					Name:      "Zepp Tokyo",
-					AdminArea: &adminArea,
+					SeriesId:        &entityv1.SeriesId{Value: "series-id-2"},
+					ListedVenueName: &entityv1.ListedVenueName{Value: listedVenueName},
 				},
-				Series: &entity.Series{
-					ID:    "series-id-3",
-					Title: "Rock Night",
-					Type:  entity.SeriesTypeFestival,
-				},
-				Performers: []*entity.Artist{{ID: "artist-id-3", Name: "Loud", MBID: "33333333-3333-3333-3333-333333333333"}},
-			},
-			want: &entityv1.Concert{
-				Id:      &entityv1.EventId{Value: "event-id-3"},
-				VenueId: &entityv1.VenueId{Value: "venue-id-3"},
-				LocalDate: &entityv1.LocalDate{
-					Value: &date.Date{Year: 2025, Month: 6, Day: 15},
-				},
-				Series: &entityv1.Series{
-					Id:    &entityv1.SeriesId{Value: "series-id-3"},
-					Title: &entityv1.Title{Value: "Rock Night"},
-					Type:  entityv1.SeriesType_SERIES_TYPE_FESTIVAL,
-				},
-				Performers: []*entityv1.Artist{{
-					Id:   &entityv1.ArtistId{Value: "artist-id-3"},
-					Name: &entityv1.ArtistName{Value: "Loud"},
-					Mbid: &entityv1.Mbid{Value: "33333333-3333-3333-3333-333333333333"},
-				}},
-				Venue: &entityv1.Venue{
-					Id:        &entityv1.VenueId{Value: "venue-id-3"},
-					Name:      &entityv1.VenueName{Value: "Zepp Tokyo"},
-					AdminArea: &entityv1.AdminArea{Value: adminArea},
-				},
+				ArtistIds: []*entityv1.ArtistId{{Value: "artist-id-2"}},
 			},
 		},
 		{
-			name: "concert with empty source URL omits source_url field",
+			// @spec components/entity/concert "Co-headlined concert"
+			name: "list both co-headlining artists, each once",
 			args: &entity.Concert{
-				ID:        "event-id-4",
-				VenueID:   "venue-id-4",
-				LocalDate: localDate,
-				Series: &entity.Series{
-					ID:    "series-id-4",
-					Title: "Acoustic Session",
-					Type:  entity.SeriesTypeSingle,
-				},
-				Performers: []*entity.Artist{{ID: "artist-id-4", Name: "Quiet", MBID: "44444444-4444-4444-4444-444444444444"}},
-			},
-			want: &entityv1.Concert{
-				Id:        &entityv1.EventId{Value: "event-id-4"},
-				VenueId:   &entityv1.VenueId{Value: "venue-id-4"},
-				LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2025, Month: 6, Day: 15}},
-				Series: &entityv1.Series{
-					Id:    &entityv1.SeriesId{Value: "series-id-4"},
-					Title: &entityv1.Title{Value: "Acoustic Session"},
-					Type:  entityv1.SeriesType_SERIES_TYPE_SINGLE,
-				},
-				Performers: []*entityv1.Artist{{
-					Id:   &entityv1.ArtistId{Value: "artist-id-4"},
-					Name: &entityv1.ArtistName{Value: "Quiet"},
-					Mbid: &entityv1.Mbid{Value: "44444444-4444-4444-4444-444444444444"},
-				}},
-			},
-		},
-		{
-			name: "concert with multiple performers (festival lineup)",
-			args: &entity.Concert{
-				ID:        "event-id-5",
-				VenueID:   "venue-id-5",
-				LocalDate: localDate,
-				Series: &entity.Series{
-					ID:    "series-id-5",
-					Title: "Mini Fest",
-					Type:  entity.SeriesTypeFestival,
-				},
-				Performers: []*entity.Artist{
-					{ID: "headliner", Name: "Top Bill", MBID: "55555555-5555-5555-5555-555555555555"},
-					{ID: "support", Name: "Mid Card", MBID: "66666666-6666-6666-6666-666666666666"},
-					{ID: "opener", Name: "Early Set", MBID: "77777777-7777-7777-7777-777777777777"},
+				ID: "event-id-5", SeriesID: "series-id-5", LocalDate: localDate,
+				Series: &entity.Series{ID: "series-id-5", Title: "Double Bill", Type: entity.SeriesTypeSingle},
+				Artists: []*entity.Artist{
+					{ID: "headliner-a", Name: "Top Bill"},
+					{ID: "headliner-b", Name: "Co Bill"},
 				},
 			},
 			want: &entityv1.Concert{
-				Id:        &entityv1.EventId{Value: "event-id-5"},
-				VenueId:   &entityv1.VenueId{Value: "venue-id-5"},
-				LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2025, Month: 6, Day: 15}},
-				Series: &entityv1.Series{
-					Id:    &entityv1.SeriesId{Value: "series-id-5"},
-					Title: &entityv1.Title{Value: "Mini Fest"},
-					Type:  entityv1.SeriesType_SERIES_TYPE_FESTIVAL,
+				Event: &entityv1.Event{
+					Id:        &entityv1.EventId{Value: "event-id-5"},
+					LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2025, Month: 6, Day: 15}},
+					SeriesId:  &entityv1.SeriesId{Value: "series-id-5"},
 				},
-				Performers: []*entityv1.Artist{
-					{
-						Id:   &entityv1.ArtistId{Value: "headliner"},
-						Name: &entityv1.ArtistName{Value: "Top Bill"},
-						Mbid: &entityv1.Mbid{Value: "55555555-5555-5555-5555-555555555555"},
-					},
-					{
-						Id:   &entityv1.ArtistId{Value: "support"},
-						Name: &entityv1.ArtistName{Value: "Mid Card"},
-						Mbid: &entityv1.Mbid{Value: "66666666-6666-6666-6666-666666666666"},
-					},
-					{
-						Id:   &entityv1.ArtistId{Value: "opener"},
-						Name: &entityv1.ArtistName{Value: "Early Set"},
-						Mbid: &entityv1.Mbid{Value: "77777777-7777-7777-7777-777777777777"},
-					},
-				},
+				ArtistIds: []*entityv1.ArtistId{{Value: "headliner-a"}, {Value: "headliner-b"}},
 			},
 		},
 	}
@@ -237,35 +116,57 @@ func TestConcertToProto(t *testing.T) {
 	}
 }
 
-func TestConcertsToProto(t *testing.T) {
+func TestReferencedSeriesAndArtists(t *testing.T) {
 	t.Parallel()
 
 	localDate := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
-
-	concerts := []*entity.Concert{
-		{
-			ID: "event-1", VenueID: "venue-1", LocalDate: localDate,
-			Series:     &entity.Series{ID: "series-1", Title: "Concert 1", Type: entity.SeriesTypeSingle},
-			Performers: []*entity.Artist{{ID: "artist-1", Name: "First", MBID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}},
-		},
-		{
-			ID: "event-2", VenueID: "venue-2", LocalDate: localDate,
-			Series:     &entity.Series{ID: "series-2", Title: "Concert 2", Type: entity.SeriesTypeSingle},
-			Performers: []*entity.Artist{{ID: "artist-2", Name: "Second", MBID: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}},
-		},
+	concert := func(eventID, seriesID, title string, artists ...*entity.Artist) *entity.Concert {
+		return &entity.Concert{
+			ID: eventID, SeriesID: seriesID, LocalDate: localDate,
+			Series:  &entity.Series{ID: seriesID, Title: title, Type: entity.SeriesTypeTour},
+			Artists: artists,
+		}
 	}
+	a := &entity.Artist{ID: "artist-a", Name: "A"}
+	b := &entity.Artist{ID: "artist-b", Name: "B"}
 
-	got := mapper.ConcertsToProto(concerts)
+	t.Run("return each series and artist once, in first-seen order", func(t *testing.T) {
+		t.Parallel()
+		concerts := []*entity.Concert{
+			concert("event-1", "series-2", "Tour Two", b),
+			concert("event-2", "series-1", "Tour One", a, b),
+			concert("event-3", "series-2", "Tour Two", b),
+		}
 
-	require.Len(t, got, 2)
-	assert.Equal(t, "event-1", got[0].GetId().GetValue())
-	assert.Equal(t, "Concert 1", got[0].GetSeries().GetTitle().GetValue())
-	require.Len(t, got[0].GetPerformers(), 1)
-	assert.Equal(t, "artist-1", got[0].GetPerformers()[0].GetId().GetValue())
-	assert.Equal(t, "event-2", got[1].GetId().GetValue())
-	assert.Equal(t, "Concert 2", got[1].GetSeries().GetTitle().GetValue())
-	require.Len(t, got[1].GetPerformers(), 1)
-	assert.Equal(t, "artist-2", got[1].GetPerformers()[0].GetId().GetValue())
+		series := mapper.NewMediaURLBuilder("").ReferencedSeries(concerts)
+		artists := mapper.ReferencedArtists(concerts)
+
+		require.Len(t, series, 2)
+		assert.Equal(t, "series-2", series[0].GetId().GetValue())
+		assert.Equal(t, "series-1", series[1].GetId().GetValue())
+		require.Len(t, artists, 2)
+		assert.Equal(t, "artist-b", artists[0].GetId().GetValue())
+		assert.Equal(t, "artist-a", artists[1].GetId().GetValue())
+	})
+
+	// @spec components/entity/concert "Title comes from the series"
+	t.Run("give the concert the title of the series its event belongs to", func(t *testing.T) {
+		t.Parallel()
+		c := concert("event-1", "series-1", "ARENA TOUR 2026", a)
+
+		proto := mapper.ConcertToProto(c)
+		series := mapper.NewMediaURLBuilder("").ReferencedSeries([]*entity.Concert{c})
+
+		require.Len(t, series, 1)
+		assert.Equal(t, proto.GetEvent().GetSeriesId().GetValue(), series[0].GetId().GetValue())
+		assert.Equal(t, "ARENA TOUR 2026", series[0].GetTitle().GetValue())
+	})
+
+	t.Run("return empty lists for no concerts", func(t *testing.T) {
+		t.Parallel()
+		assert.Empty(t, mapper.NewMediaURLBuilder("").ReferencedSeries(nil))
+		assert.Empty(t, mapper.ReferencedArtists(nil))
+	})
 }
 
 func TestConcertsToProto_empty(t *testing.T) {
@@ -280,37 +181,21 @@ func TestProximityGroupsToProto(t *testing.T) {
 
 	date1 := time.Date(2025, 8, 10, 0, 0, 0, 0, time.UTC)
 	date2 := time.Date(2025, 8, 11, 0, 0, 0, 0, time.UTC)
+	concert := func(id string, d time.Time) *entity.Concert {
+		return &entity.Concert{
+			ID: id, LocalDate: d,
+			Series:  &entity.Series{ID: "series-" + id},
+			Artists: []*entity.Artist{{ID: "artist-" + id}},
+		}
+	}
 
 	groups := []*entity.ProximityGroup{
+		{Date: date1, Home: []*entity.Concert{concert("home-1", date1)}, Nearby: []*entity.Concert{}, Away: []*entity.Concert{}},
 		{
-			Date: date1,
-			Home: []*entity.Concert{
-				{
-					ID: "home-1", VenueID: "v1", LocalDate: date1,
-					Series:     &entity.Series{Title: "Home Concert"},
-					Performers: []*entity.Artist{{ID: "artist-1"}},
-				},
-			},
-			Nearby: []*entity.Concert{},
-			Away:   []*entity.Concert{},
-		},
-		{
-			Date: date2,
-			Home: []*entity.Concert{},
-			Nearby: []*entity.Concert{
-				{
-					ID: "nearby-1", VenueID: "v2", LocalDate: date2,
-					Series:     &entity.Series{Title: "Nearby Concert"},
-					Performers: []*entity.Artist{{ID: "artist-2"}},
-				},
-			},
-			Away: []*entity.Concert{
-				{
-					ID: "away-1", VenueID: "v3", LocalDate: date2,
-					Series:     &entity.Series{Title: "Away Concert"},
-					Performers: []*entity.Artist{{ID: "artist-3"}},
-				},
-			},
+			Date:   date2,
+			Home:   []*entity.Concert{},
+			Nearby: []*entity.Concert{concert("nearby-1", date2)},
+			Away:   []*entity.Concert{concert("away-1", date2)},
 		},
 	}
 
@@ -323,7 +208,7 @@ func TestProximityGroupsToProto(t *testing.T) {
 	assert.Equal(t, int32(8), got[0].GetDate().GetValue().GetMonth())
 	assert.Equal(t, int32(10), got[0].GetDate().GetValue().GetDay())
 	require.Len(t, got[0].GetHome(), 1)
-	assert.Equal(t, "home-1", got[0].GetHome()[0].GetId().GetValue())
+	assert.Equal(t, "home-1", got[0].GetHome()[0].GetEvent().GetId().GetValue())
 	assert.Empty(t, got[0].GetNearby())
 	assert.Empty(t, got[0].GetAway())
 
@@ -331,9 +216,14 @@ func TestProximityGroupsToProto(t *testing.T) {
 	assert.Equal(t, int32(11), got[1].GetDate().GetValue().GetDay())
 	assert.Empty(t, got[1].GetHome())
 	require.Len(t, got[1].GetNearby(), 1)
-	assert.Equal(t, "nearby-1", got[1].GetNearby()[0].GetId().GetValue())
+	assert.Equal(t, "nearby-1", got[1].GetNearby()[0].GetEvent().GetId().GetValue())
 	require.Len(t, got[1].GetAway(), 1)
-	assert.Equal(t, "away-1", got[1].GetAway()[0].GetId().GetValue())
+	assert.Equal(t, "away-1", got[1].GetAway()[0].GetEvent().GetId().GetValue())
+
+	// ConcertsOfGroups flattens in group order, then home, nearby, away.
+	flat := mapper.ConcertsOfGroups(groups)
+	require.Len(t, flat, 3)
+	assert.Equal(t, []string{"home-1", "nearby-1", "away-1"}, []string{flat[0].ID, flat[1].ID, flat[2].ID})
 }
 
 func TestProximityGroupsToProto_empty(t *testing.T) {

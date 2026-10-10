@@ -54,7 +54,7 @@ func newTestFanTicketSaleServer(t *testing.T, ticketSaleUC *usecasemocks.MockTic
 		ReadTimeout: 2 * time.Second, IdleTimeout: 5 * time.Second,
 	}
 	srv := server.NewConnectServer(cfg, logger, auth.NewAuthFunc(validator, auth.FanPublicProcedures()), rateLimiter, healthHandler,
-		nil, nil, nil, handlers...)
+		nil, nil, handlers...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts
