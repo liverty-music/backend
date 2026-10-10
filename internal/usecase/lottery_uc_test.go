@@ -331,6 +331,19 @@ func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
 			wantCalled: true,
 		},
 		{
+			// @spec components/entity/lottery-sales-phase "Valid sizing"
+			name: "success: capacity 100, max 4 and price 8000 creates phase",
+			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {
+				in.TicketCapacity, in.MaxTicketsPerApplication, in.TicketPrice = 100, 4, 8000
+			},
+			wantCalled: true,
+		},
+		{
+			name:       "success: max of exactly 10 is valid upper bound",
+			mutate:     func(in *usecase.ConfigureLotteryPhaseInput) { in.MaxTicketsPerApplication = 10 },
+			wantCalled: true,
+		},
+		{
 			name:       "success: window of exactly 1 day is valid lower bound",
 			mutate:     func(in *usecase.ConfigureLotteryPhaseInput) { in.CloseTime = in.OpenTime.Add(24 * time.Hour) },
 			wantCalled: true,
@@ -365,22 +378,36 @@ func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
+			// @spec components/entity/lottery-sales-phase "Non-positive value"
 			name:    "reject: non-positive capacity",
 			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.TicketCapacity = 0 },
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
+			// @spec components/entity/lottery-sales-phase "Non-positive value"
 			name:    "reject: non-positive max per application",
 			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.MaxTicketsPerApplication = 0 },
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
-			name:    "reject: max exceeds capacity",
-			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.MaxTicketsPerApplication = in.TicketCapacity + 1 },
+			// @spec components/entity/lottery-sales-phase "Group larger than capacity"
+			name: "reject: max exceeds capacity",
+			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {
+				in.TicketCapacity, in.MaxTicketsPerApplication = 3, 4
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			// @spec components/entity/lottery-sales-phase "Group larger than one entry code"
+			name: "reject: max above 10 exceeds one entry code",
+			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {
+				in.TicketCapacity, in.MaxTicketsPerApplication = 100, 11
+			},
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
 			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Invalid configuration"
+			// @spec components/entity/lottery-sales-phase "Non-positive value"
 			name:    "reject: zero ticket price",
 			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.TicketPrice = 0 },
 			wantErr: apperr.ErrInvalidArgument,

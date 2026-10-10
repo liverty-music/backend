@@ -71,7 +71,7 @@ type ConfigureLotteryPhaseInput struct {
 	TicketCapacity int
 
 	// MaxTicketsPerApplication is the maximum group size per application.
-	// Must be in [1, TicketCapacity].
+	// Must be in [1, min(TicketCapacity, 10)].
 	MaxTicketsPerApplication int
 
 	// TicketPrice is the per-ticket price in JPY (whole yen). Must be positive.
@@ -334,6 +334,10 @@ const (
 
 	// maxWindowDuration is the maximum allowed application window duration (14 days).
 	maxWindowDuration = 14 * 24 * time.Hour
+
+	// maxTicketsPerApplicationLimit caps the companion-group size: one entry
+	// QR code presents at most 10 tickets, and a group enters with one code.
+	maxTicketsPerApplicationLimit = 10
 )
 
 // assertOwnsEvent verifies that the event identified by eventID belongs to
@@ -399,6 +403,9 @@ func (uc *lotteryUseCase) ConfigureLotteryPhase(ctx context.Context, in Configur
 	}
 	if in.MaxTicketsPerApplication > in.TicketCapacity {
 		return nil, apperr.New(codes.InvalidArgument, "max_tickets_per_application must not exceed ticket_capacity")
+	}
+	if in.MaxTicketsPerApplication > maxTicketsPerApplicationLimit {
+		return nil, apperr.New(codes.InvalidArgument, "max_tickets_per_application must be at most 10")
 	}
 	if in.TicketPrice <= 0 {
 		return nil, apperr.New(codes.InvalidArgument, "ticket_price must be positive")
