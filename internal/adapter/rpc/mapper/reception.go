@@ -102,8 +102,6 @@ func RejectedScanReasonToProto(r entity.RejectedScanReason) entityv1.RejectedSca
 		return entityv1.RejectedScanReason_REJECTED_SCAN_REASON_EXPIRED
 	case entity.RejectedScanReasonOtherEvent:
 		return entityv1.RejectedScanReason_REJECTED_SCAN_REASON_OTHER_EVENT
-	case entity.RejectedScanReasonNotHolder:
-		return entityv1.RejectedScanReason_REJECTED_SCAN_REASON_NOT_HOLDER
 	case entity.RejectedScanReasonVoided:
 		return entityv1.RejectedScanReason_REJECTED_SCAN_REASON_VOIDED
 	case entity.RejectedScanReasonAlreadyAdmitted:

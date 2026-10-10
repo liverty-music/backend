@@ -10,14 +10,17 @@ import (
 
 // RejectedScanReason is why a scan, or one Ticket presented in it, was
 // refused at reception. Values mirror the proto enum
-// liverty_music.entity.v1.RejectedScanReason.
+// liverty_music.entity.v1.RejectedScanReason, except that value 4 (the
+// proto's NOT_HOLDER) is unused and invalid: a code presenting a Ticket the
+// user does not hold for the event is rejected as Forged.
 type RejectedScanReason int16
 
 const (
 	// RejectedScanReasonUnspecified is the zero value and is never persisted.
 	RejectedScanReasonUnspecified RejectedScanReason = 0
 	// RejectedScanReasonForged means the text is not an AdmissionCode, the
-	// user has no wallet key, or the signature does not verify. Applies to the
+	// user has no wallet key, the signature does not verify, or the code
+	// presents a Ticket the user does not hold for the event. Applies to the
 	// whole scan; names no Ticket.
 	RejectedScanReasonForged RejectedScanReason = 1
 	// RejectedScanReasonExpired means the code is genuine but not fresh.
@@ -26,9 +29,6 @@ const (
 	// RejectedScanReasonOtherEvent means a genuine, fresh code for another
 	// event. Applies to the whole scan.
 	RejectedScanReasonOtherEvent RejectedScanReason = 3
-	// RejectedScanReasonNotHolder means the presented Ticket is not held by
-	// the code's user for the event.
-	RejectedScanReasonNotHolder RejectedScanReason = 4
 	// RejectedScanReasonVoided means the presented Ticket was voided.
 	RejectedScanReasonVoided RejectedScanReason = 5
 	// RejectedScanReasonAlreadyAdmitted means the presented Ticket was let in
@@ -38,7 +38,13 @@ const (
 
 // IsValid reports whether r is a recognized, persistable reason.
 func (r RejectedScanReason) IsValid() bool {
-	return r >= RejectedScanReasonForged && r <= RejectedScanReasonAlreadyAdmitted
+	switch r {
+	case RejectedScanReasonForged, RejectedScanReasonExpired, RejectedScanReasonOtherEvent,
+		RejectedScanReasonVoided, RejectedScanReasonAlreadyAdmitted:
+		return true
+	default:
+		return false
+	}
 }
 
 // RejectedScan is the permanent note that a scan at the venue, or one Ticket
