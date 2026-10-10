@@ -19,26 +19,18 @@ type JWTValidator struct {
 }
 
 // NewJWTValidator creates a new JWT validator.
-// It initializes a JWKS cache that automatically refreshes from the given JWKS URL.
+// It registers the JWKS URL with a cache that refreshes it in the background.
+// Construction makes no network request: the keys are fetched on the first
+// validation, so a sign-in service that is down at startup does not stop the
+// process. Until a fetch succeeds, validation fails and every validation
+// fetches again; once fetched, the cached keys keep serving through later
+// outages.
 // issuer is the primary (and only) accepted issuer. Use WithAcceptedIssuers to add
 // additional accepted issuers for multi-provider scenarios (e.g., Option C migration).
 func NewJWTValidator(issuer, jwksURL string, refreshInterval time.Duration) (*JWTValidator, error) {
-	// Create JWKS cache with auto-refresh
 	cache := jwk.NewCache(context.Background())
-
-	// Register the JWKS URL for automatic refresh
-	err := cache.Register(jwksURL, jwk.WithMinRefreshInterval(refreshInterval))
-	if err != nil {
+	if err := cache.Register(jwksURL, jwk.WithMinRefreshInterval(refreshInterval)); err != nil {
 		return nil, fmt.Errorf("failed to register JWKS URL: %w", err)
-	}
-
-	// Fetch the keys immediately to verify connectivity
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	_, err = cache.Refresh(ctx, jwksURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
 	}
 
 	return &JWTValidator{
@@ -60,8 +52,15 @@ func (v *JWTValidator) WithAcceptedIssuers(issuers []string) *JWTValidator {
 
 // ValidateToken validates a JWT token and returns the claims.
 func (v *JWTValidator) ValidateToken(ctx context.Context, tokenString string) (*Claims, error) {
-	// Get the JWKS for validation
+	// Get the JWKS for validation. A failed fetch leaves the cache empty
+	// until its next scheduled refresh (JWKS_REFRESH_INTERVAL, 15 min by
+	// default), so while it is empty, fetch again on every call: the first
+	// call after the sign-in service recovers succeeds. Once fetched, the
+	// cached keys keep serving even if a later refresh fails.
 	keySet, err := v.jwks.Get(ctx, v.jwksURL)
+	if err != nil {
+		keySet, err = v.jwks.Refresh(ctx, v.jwksURL)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JWKS: %w", err)
 	}

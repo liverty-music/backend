@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"strconv"
 	"sync"
@@ -173,6 +174,34 @@ func TestNATSReconnectDelay(t *testing.T) {
 			got := messaging.NATSReconnectDelay(tt.attempts)
 			assert.GreaterOrEqual(t, got, tt.base)
 			assert.Less(t, got, tt.base+tt.base/5)
+		})
+	}
+}
+
+// @spec components/infrastructure/backend/process/structured-logging "Normal shutdown"
+func TestWarnOnDisconnect(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		err       error
+		wantLevel []string
+	}{
+		{name: "closed on purpose is a normal stop", err: nil, wantLevel: nil},
+		{name: "a dropped connection is a warning", err: errors.New("EOF"), wantLevel: []string{"WARN"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			logger, buf := newJSONLogger(t)
+
+			messaging.WarnOnDisconnect(context.Background(), logger, "NATS disconnected")(nil, tt.err)
+
+			var levels []string
+			for _, e := range buf.entries(t) {
+				levels = append(levels, e["level"].(string))
+			}
+			assert.Equal(t, tt.wantLevel, levels)
 		})
 	}
 }

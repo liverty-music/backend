@@ -110,3 +110,16 @@ func connectWithRetry(ctx context.Context, url string, budget time.Duration, log
 		return nil, fmt.Errorf("NATS unreachable for %s", budget)
 	}
 }
+
+// warnOnDisconnect returns a disconnect handler that logs msg at WARNING when
+// the connection drops. nats.go passes a nil error when the connection is
+// closed on purpose (shutdown, a job finishing), which is a normal stop and
+// is not logged.
+func warnOnDisconnect(ctx context.Context, logger *logging.Logger, msg string) nats.ConnErrHandler {
+	return func(_ *nats.Conn, err error) {
+		if err == nil {
+			return
+		}
+		logger.Warn(ctx, msg, slog.String("error", err.Error()))
+	}
+}
