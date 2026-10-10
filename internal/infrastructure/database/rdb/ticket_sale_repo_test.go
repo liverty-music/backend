@@ -96,7 +96,6 @@ func TestTicketSaleRepository_Get(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, 3, got.HeldCount)
-		assert.True(t, got.HasReservations)
 
 		// A hold that has lapsed by the read time no longer counts.
 		later, err := repo.Get(ctx, sale.ID, at.Add(entity.ReservationHoldDuration))
@@ -205,10 +204,10 @@ func TestTicketSaleRepository_Update(t *testing.T) {
 		assert.LessOrEqual(t, stored.SoldCount+stored.HeldCount, stored.Quantity)
 	})
 
-	t.Run("price after checkout started", func(t *testing.T) {
-		// @spec components/entity/ticket-sale/update "Price after checkout started"
+	t.Run("price while tickets are held", func(t *testing.T) {
+		// @spec components/entity/ticket-sale/update "Price while tickets are held"
 		sale := seedTicketSale(t, 150, 0)
-		_, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(seedUser(t, "d", "d-sale-upd@example.com", "ext-d-sale-upd")), 1, at)
+		_, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(seedUser(t, "d", "d-sale-upd@example.com", "ext-d-sale-upd")), 2, at)
 		require.NoError(t, err)
 		sale.Price = 3500
 
@@ -218,6 +217,19 @@ func TestTicketSaleRepository_Update(t *testing.T) {
 		stored, err := repo.Get(ctx, sale.ID, at)
 		require.NoError(t, err)
 		assert.Equal(t, int64(3000), stored.Price)
+	})
+
+	t.Run("price after every checkout lapsed", func(t *testing.T) {
+		sale := seedTicketSale(t, 150, 0)
+		_, err := reservations.GetOrCreateHeld(ctx, sale.ID, entity.UserID(seedUser(t, "e", "e-sale-upd@example.com", "ext-e-sale-upd")), 2, at)
+		require.NoError(t, err)
+		lapsed := at.Add(entity.ReservationHoldDuration)
+		sale.Price = 3500
+
+		got, err := repo.Update(ctx, sale, lapsed)
+
+		require.NoError(t, err)
+		assert.Equal(t, int64(3500), got.Price)
 	})
 
 	t.Run("unknown sale", func(t *testing.T) {

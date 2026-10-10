@@ -160,21 +160,47 @@ func TestTicketSale_StateAt(t *testing.T) {
 func TestTicketSale_ValidatePriceChange(t *testing.T) {
 	t.Parallel()
 
-	t.Run("price change before anyone checked out", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/entity/ticket-sale "Price change before anyone checked out"
-		sale := saleOf(150, 0, 0)
+	tests := []struct {
+		name      string
+		sale      *entity.TicketSale
+		wantFixed bool
+	}{
+		{
+			// @spec components/entity/ticket-sale "Price change before any ticket is held"
+			name: "price change before any ticket is held",
+			sale: saleOf(150, 0, 0),
+		},
+		{
+			// @spec components/entity/ticket-sale "Price change while tickets are held"
+			name:      "price change while tickets are held",
+			sale:      saleOf(150, 0, 2),
+			wantFixed: true,
+		},
+		{
+			// @spec components/entity/ticket-sale "Price change after tickets sold"
+			name:      "price change after tickets sold",
+			sale:      saleOf(150, 1, 0),
+			wantFixed: true,
+		},
+		{
+			// @spec components/entity/ticket-sale "Price change after every checkout lapsed"
+			name: "price change after every checkout lapsed",
+			// The only Reservation expired, so nothing is sold or held.
+			sale: saleOf(150, 0, 0),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		assert.NoError(t, sale.ValidatePriceChange(3500))
-	})
+			err := tt.sale.ValidatePriceChange(3500)
 
-	t.Run("price change after a checkout", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/entity/ticket-sale "Price change after a checkout"
-		sale := saleOf(150, 0, 0)
-		sale.HasReservations = true
-
-		assert.Error(t, sale.ValidatePriceChange(3500))
-		assert.NoError(t, sale.ValidatePriceChange(3000), "keeping the price is allowed")
-	})
+			if tt.wantFixed {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.NoError(t, tt.sale.ValidatePriceChange(3000), "keeping the price is allowed")
+		})
+	}
 }

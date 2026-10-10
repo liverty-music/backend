@@ -123,6 +123,16 @@ func (r *Reservation) IsHoldingAt(t time.Time) bool {
 	return r.Status == ReservationStatusHeld && t.Before(r.HoldExpireTime)
 }
 
+// StatusAt returns the Reservation's status as of t: a Held Reservation whose
+// hold has lapsed is Expired, since it can never be committed, even before the
+// sweeper stores that; any other status is returned as stored.
+func (r *Reservation) StatusAt(t time.Time) ReservationStatus {
+	if r.Status == ReservationStatusHeld && !r.IsHoldingAt(t) {
+		return ReservationStatusExpired
+	}
+	return r.Status
+}
+
 // IsCharged reports whether the Reservation's card was charged.
 func (r *Reservation) IsCharged() bool {
 	return r.CaptureTime != nil

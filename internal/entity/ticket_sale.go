@@ -87,9 +87,6 @@ type TicketSale struct {
 	// holding at the time the sale was read. It is computed by the repository
 	// on every read, never stored.
 	HeldCount int
-	// HasReservations reports whether any Reservation was ever created for the
-	// sale, which fixes its price. Computed by the repository on every read.
-	HasReservations bool
 }
 
 // NewTicketSale returns a FirstCome TicketSale with a generated UUIDv7 id and
@@ -165,11 +162,11 @@ func (s *TicketSale) IsLowStockAt(t time.Time) bool {
 }
 
 // ValidatePriceChange reports whether the price may change to newPrice: it
-// may only while no Reservation has ever been created for the sale. Keeping
-// the same price is always allowed.
+// may only while nothing is sold or held, so every fan who pays for the sale's
+// tickets pays the same price. Keeping the same price is always allowed.
 func (s *TicketSale) ValidatePriceChange(newPrice int64) error {
-	if newPrice != s.Price && s.HasReservations {
-		return errors.New("the price cannot change once a checkout has started")
+	if newPrice != s.Price && s.SoldCount+s.HeldCount > 0 {
+		return errors.New("the price cannot change while tickets are sold or held")
 	}
 	return nil
 }

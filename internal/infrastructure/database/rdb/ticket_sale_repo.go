@@ -20,13 +20,12 @@ type TicketSaleRepository struct {
 var _ entity.TicketSaleRepository = (*TicketSaleRepository)(nil)
 
 // ticketSaleColumns selects a ticket_sales row (aliased ts) with its held
-// count at $2 and whether any reservation was ever created for it.
+// count at $2.
 const ticketSaleColumns = `
 	ts.id, ts.event_id, ts.method, ts.sale_start_at, ts.sale_end_at, ts.price,
 	ts.quantity, ts.per_account_limit, ts.sold_count,
 	(SELECT COALESCE(SUM(r.ticket_count), 0)::int FROM reservations r
-		WHERE r.ticket_sale_id = ts.id AND r.status = 1 AND r.hold_expire_at > $2),
-	EXISTS (SELECT 1 FROM reservations r WHERE r.ticket_sale_id = ts.id)
+		WHERE r.ticket_sale_id = ts.id AND r.status = 1 AND r.hold_expire_at > $2)
 `
 
 const (
@@ -69,7 +68,7 @@ func (r *TicketSaleRepository) Create(ctx context.Context, sale *entity.TicketSa
 		return nil, toAppErr(err, "failed to insert ticket sale", slog.String("event_id", sale.EventID))
 	}
 	created := *sale
-	created.SoldCount, created.HeldCount, created.HasReservations = 0, 0, false
+	created.SoldCount, created.HeldCount = 0, 0
 	return &created, nil
 }
 
@@ -155,7 +154,7 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 	if err := row.Scan(
 		&id, &s.EventID, &method, &s.SaleStartTime, &s.SaleEndTime, &s.Price,
 		&s.Quantity, &s.PerAccountLimit, &s.SoldCount,
-		&s.HeldCount, &s.HasReservations,
+		&s.HeldCount,
 	); err != nil {
 		return nil, err
 	}
