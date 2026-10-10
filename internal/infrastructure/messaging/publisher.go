@@ -4,8 +4,9 @@
 package messaging
 
 import (
+	"context"
 	"fmt"
-	"time"
+	"log/slog"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -16,13 +17,19 @@ import (
 	watermillnats "github.com/ThreeDotsLabs/watermill-nats/v2/pkg/nats"
 
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/pannpers/go-logging/logging"
 )
 
 // NewPublisher creates a Watermill Publisher based on configuration.
 // When NATS_URL is set, it returns a NATS JetStream publisher.
 // When NATS_URL is empty (local development), it returns a GoChannel publisher
 // using the provided GoChannel instance.
-func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goChannel *gochannel.GoChannel) (message.Publisher, error) {
+//
+// The NATS publisher does not wait for the broker: when it is unreachable, the
+// connection keeps retrying in the background and a publish fails after the
+// JetStream ack timeout (5 s), so a server starts and serves calls that do not
+// need the broker. Connection state changes are logged.
+func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goChannel *gochannel.GoChannel, logger *logging.Logger) (message.Publisher, error) {
 	if cfg.URL == "" {
 		if goChannel == nil {
 			return nil, fmt.Errorf("GoChannel is required when NATS_URL is not set")
@@ -30,12 +37,20 @@ func NewPublisher(cfg config.NATSConfig, wmLogger watermill.LoggerAdapter, goCha
 		return wotel.NewPublisherDecorator(goChannel), nil
 	}
 
+	ctx := context.Background()
 	pub, err := watermillnats.NewPublisher(watermillnats.PublisherConfig{
 		URL: cfg.URL,
-		NatsOptions: []nats.Option{
-			nats.MaxReconnects(-1),
-			nats.ReconnectWait(time.Second),
-		},
+		NatsOptions: append(baseNATSOptions(),
+			nats.ConnectHandler(func(_ *nats.Conn) {
+				logger.Info(ctx, "NATS publisher connected")
+			}),
+			nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+				logger.Warn(ctx, "NATS publisher disconnected", slog.Any("error", err))
+			}),
+			nats.ReconnectHandler(func(_ *nats.Conn) {
+				logger.Info(ctx, "NATS publisher reconnected")
+			}),
+		),
 		JetStream: watermillnats.JetStreamConfig{
 			TrackMsgId: true,
 		},

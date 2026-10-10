@@ -20,7 +20,8 @@ type Database struct {
 	dialer *cloudsqlconn.Dialer
 }
 
-// New creates a new database instance with connection and ping verification.
+// New creates a new database instance and waits, for up to startupBudget,
+// until the database answers a ping.
 func New(ctx context.Context, dbCfg config.DatabaseConfig, isLocal bool, logger *logging.Logger) (*Database, error) {
 	dsn := dbCfg.GetDSN()
 
@@ -88,9 +89,10 @@ func New(ctx context.Context, dbCfg config.DatabaseConfig, isLocal bool, logger 
 		dialer: dialer,
 	}
 
-	if err := database.Ping(ctx); err != nil {
+	// Wait for a database that is briefly unreachable instead of exiting.
+	if err := waitForDatabase(ctx, database.Ping, logger, wallClock{}); err != nil {
 		_ = database.Close()
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		return nil, err
 	}
 
 	logger.Info(ctx, "Database connection established successfully",

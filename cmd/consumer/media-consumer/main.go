@@ -18,11 +18,13 @@ package main
 
 import (
 	"context"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/liverty-music/backend/internal/di"
+	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/pannpers/go-logging/logging"
 )
@@ -32,18 +34,35 @@ import (
 const fallbackShutdownTimeout = 10 * time.Second
 
 func main() {
-	if err := run(); err != nil {
-		logger, _ := logging.New()
+	logger := di.NewBootstrapLogger()
+	if err := run(logger); err != nil {
 		logger.Error(context.Background(), "media-consumer failed", err)
+		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(bootLogger *logging.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	bootLogger, _ := logging.New()
 	bootLogger.Info(ctx, "starting media-consumer")
+
+	// Start the health probe server before DI so K8s can observe the pod
+	// during initialization (healthz=200, readyz=503 until ready). The
+	// Deployment probes :8081 like the event consumer's.
+	healthSrv := server.NewHealthServer(":8081")
+	go func() {
+		if err := healthSrv.Start(); err != nil {
+			bootLogger.Error(ctx, "health server failed", err)
+		}
+	}()
+	// Ensure the health server is closed on all exit paths, including DI failure.
+	// HealthServer.Close() is idempotent — the Drain phase may call it again safely.
+	defer func() {
+		if err := healthSrv.Close(); err != nil {
+			bootLogger.Error(ctx, "health server close error", err)
+		}
+	}()
 
 	var app *di.MediaConsumerApp
 	defer func() {
@@ -63,6 +82,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	healthSrv.SetReady()
+	// /healthz reflects real consumption, as in the event consumer: unhealthy
+	// when, for 2 minutes, the router has stopped or the durable is unbound
+	// while NATS is connected.
+	healthSrv.SetLiveness(app.Health.Live)
+	shutdown.AddDrainPhase(healthSrv)
 
 	app.Logger.Info(ctx, "media-consumer ready; waiting for events")
 

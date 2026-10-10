@@ -99,7 +99,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		}, wmLogger)
 	}
 
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel)
+	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}
@@ -319,7 +319,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		// durables; per-handler isolation comes from distinct durable names, not
 		// separate connections. NACK (the external operator) owns durable
 		// lifecycle — the app only binds to pre-existing durables.
-		sharedConn, err := messaging.ConnectNATS(ctx, cfg.NATS, consumerHealth)
+		sharedConn, err := messaging.ConnectNATS(ctx, cfg.NATS, consumerHealth, logger)
 		if err != nil {
 			return nil, fmt.Errorf("connect shared NATS connection: %w", err)
 		}

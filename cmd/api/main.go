@@ -19,15 +19,14 @@ import (
 const fallbackShutdownTimeout = 10 * time.Second
 
 func main() {
-	if err := run(); err != nil {
-		// Bootstrap logger for fatal error before exit.
-		logger, _ := logging.New()
+	logger := di.NewBootstrapLogger()
+	if err := run(logger); err != nil {
 		logger.Error(context.Background(), "server failed", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(bootLogger *logging.Logger) error {
 	// Create a context that will be canceled when OS signals are received
 	ctx, stop := signal.NotifyContext(context.Background(),
 		os.Interrupt,    // SIGINT (Ctrl+C)
@@ -36,8 +35,6 @@ func run() error {
 	)
 	defer stop()
 
-	// Bootstrap logger for pre-initialization messages.
-	bootLogger, _ := logging.New()
 	bootLogger.Info(ctx, "starting server")
 
 	// Register shutdown before DI so partially-initialized resources are

@@ -23,14 +23,14 @@ import (
 const fallbackShutdownTimeout = 10 * time.Second
 
 func main() {
-	if err := run(); err != nil {
-		logger, _ := logging.New()
+	logger := di.NewBootstrapLogger()
+	if err := run(logger); err != nil {
 		logger.Error(context.Background(), "consumer failed", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(bootLogger *logging.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(),
 		os.Interrupt,
 		syscall.SIGTERM,
@@ -38,7 +38,6 @@ func run() error {
 	)
 	defer stop()
 
-	bootLogger, _ := logging.New()
 	bootLogger.Info(ctx, "starting event consumer")
 
 	// Start the health probe server before DI so K8s can observe the pod
@@ -87,9 +86,10 @@ func run() error {
 
 	healthSrv.SetReady()
 	// Now that the router and subscriber exist, make /healthz reflect real
-	// consumption: unhealthy when the router has stopped, the NATS connection is
-	// down, or any expected durable is unbound. This lets Kubernetes restart a
-	// wedged pod instead of leaving it Running while it consumes nothing.
+	// consumption: unhealthy when, for 2 minutes, the router has stopped or an
+	// expected durable is unbound while NATS is connected. This lets Kubernetes
+	// restart a wedged pod instead of leaving it Running while it consumes
+	// nothing; a NATS disconnection that is reconnecting does not count.
 	healthSrv.SetLiveness(app.Health.Live)
 	shutdown.AddDrainPhase(healthSrv)
 

@@ -74,7 +74,7 @@ func InitializeSalesRemindersJobApp(ctx context.Context) (*SalesRemindersJobApp,
 	if cfg.NATS.URL == "" {
 		goChannel = gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 256}, wmLogger)
 	}
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel)
+	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}

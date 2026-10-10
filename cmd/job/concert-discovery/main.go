@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -22,22 +23,19 @@ const (
 )
 
 func main() {
-	if err := run(); err != nil {
-		// Bootstrap logger for fatal error reporting.
-		logger, _ := logging.New()
+	logger := di.NewBootstrapLogger()
+	if err := run(logger); err != nil {
 		logger.Error(context.Background(), "concert discovery job failed", err)
-		// Design spec requires exit 0 to prevent K8s CronJob from retrying
-		// on systemic failures (e.g., API rate limits) that would hit the same issue.
-		// Monitoring relies on structured logging at ERROR level.
+		// Exit non-zero so the Job is recorded as failed. The CronJob's
+		// backoffLimit: 0 keeps a systemic failure from being retried.
+		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(bootLogger *logging.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Bootstrap logger for pre-initialization messages.
-	bootLogger, _ := logging.New()
 	bootLogger.Info(ctx, "starting concert discovery job")
 
 	// Register shutdown before DI so partially-initialized resources are

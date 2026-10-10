@@ -4,9 +4,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func get(t *testing.T, h *server.HealthServer, path string) int {
@@ -56,4 +58,24 @@ func TestHealthServer_ReadyzGatedUntilReady(t *testing.T) {
 
 	h.SetShuttingDown()
 	assert.Equal(t, http.StatusServiceUnavailable, get(t, h, "/readyz"), "not ready while shutting down")
+}
+
+// @spec components/infrastructure/backend/process/structured-logging "Normal shutdown"
+func TestHealthServer_StartReturnsNilOnClose(t *testing.T) {
+	t.Parallel()
+
+	// The event consumer logs a non-nil Start error at ERROR. Close is how
+	// every rollout stops the server, so it must not surface as an error.
+	h := server.NewHealthServer("127.0.0.1:0")
+	done := make(chan error, 1)
+	go func() { done <- h.Start() }()
+
+	require.NoError(t, h.Close())
+
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after Close")
+	}
 }

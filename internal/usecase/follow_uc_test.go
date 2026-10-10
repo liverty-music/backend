@@ -2,15 +2,21 @@ package usecase_test
 
 import (
 	"context"
+	"net"
 	"testing"
+	"time"
 
+	"github.com/ThreeDotsLabs/watermill"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/usecase"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // followTestDeps holds all dependencies for FollowUseCase tests.
@@ -204,6 +210,42 @@ func TestFollowUseCase_Follow_PublishesAnalyticsEvent(t *testing.T) {
 		err := d.uc.Follow(ctx, "user-1", "artist-1")
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
+}
+
+// TestFollowUseCase_Follow_BrokerDown runs Follow against the real NATS
+// publisher while nothing listens on the broker address: the publisher is
+// created without waiting for the broker, and the publish gives up within the
+// JetStream ack timeout instead of blocking the call.
+//
+// @spec components/infrastructure/backend/process/startup-dependencies "Follow while the broker is down"
+func TestFollowUseCase_Follow_BrokerDown(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	brokerURL := "nats://" + ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	logger := newTestLogger(t)
+	pub, err := messaging.NewPublisher(config.NATSConfig{URL: brokerURL}, watermill.NopLogger{}, nil, logger)
+	require.NoError(t, err, "the publisher must not need the broker to start")
+	t.Cleanup(func() { _ = pub.Close() })
+
+	followRepo := mocks.NewMockFollowRepository(t)
+	artistRepo := mocks.NewMockArtistRepository(t)
+	followRepo.EXPECT().Follow(ctx, "user-1", "artist-1").Return(nil).Once()
+	// Background official-site lookup: the site is already recorded.
+	artistRepo.EXPECT().GetOfficialSite(mock.Anything, "artist-1").
+		Return(&entity.OfficialSite{}, nil).Maybe()
+	uc := usecase.NewFollowUseCase(followRepo, artistRepo, mocks.NewMockOfficialSiteResolver(t),
+		messaging.NewEventPublisher(pub), noopMetrics{}, logger)
+
+	start := time.Now()
+	err = uc.Follow(ctx, "user-1", "artist-1")
+
+	assert.NoError(t, err, "the follow is stored even though the event is not published")
+	assert.Less(t, time.Since(start), 10*time.Second)
 }
 
 // TestFollowUseCase_Unfollow_PublishesAnalyticsEvent verifies that a

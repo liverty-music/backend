@@ -1,9 +1,6 @@
 package messaging
 
 import (
-	"context"
-	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -12,21 +9,6 @@ import (
 
 // PoisonQueueSubject is the NATS subject for messages that exceeded max retries.
 const PoisonQueueSubject = "POISON.queue"
-
-// natsConnectTimeout is the per-dial TCP timeout for NATS connections.
-// Set higher than the default 2s to accommodate kube-proxy rule propagation
-// on freshly provisioned GKE Autopilot Spot nodes.
-const natsConnectTimeout = 5 * time.Second
-
-// connectBackoff defines the exponential backoff intervals between
-// NATS connection retry attempts during stream setup.
-var connectBackoff = []time.Duration{
-	1 * time.Second,
-	2 * time.Second,
-	4 * time.Second,
-	8 * time.Second,
-	15 * time.Second,
-}
 
 // streams is the registry of JetStream streams and their subject filters.
 // NACK (the external operator) owns stream lifecycle — the application only
@@ -209,58 +191,4 @@ func subjectMatches(filter, subject string) bool {
 
 	// No '>' wildcard consumed the tail, so token counts must match exactly.
 	return len(filterTokens) == len(subjectTokens)
-}
-
-// connectWithRetry attempts to connect to NATS with exponential backoff.
-// It returns the first successful connection or the last error if the
-// context is cancelled or all attempts are exhausted. Extra options are
-// appended after the baseline reconnect/timeout options so callers may
-// register connection lifecycle handlers (e.g. DisconnectErrHandler) on the
-// connection that is ultimately returned.
-func connectWithRetry(ctx context.Context, url string, extra ...nats.Option) (*nats.Conn, error) {
-	var lastErr error
-
-	baseOpts := []nats.Option{
-		nats.MaxReconnects(-1),
-		nats.ReconnectWait(time.Second),
-		nats.Timeout(natsConnectTimeout),
-	}
-	opts := append(baseOpts, extra...)
-
-	for attempt := range connectBackoff {
-		nc, err := nats.Connect(url, opts...)
-		if err == nil {
-			if attempt > 0 {
-				slog.Info("NATS connection established after retry",
-					slog.Int("attempts", attempt+1),
-				)
-			}
-			return nc, nil
-		}
-
-		lastErr = err
-		delay := connectBackoff[attempt]
-
-		slog.Warn("NATS connection failed, retrying",
-			slog.Int("attempt", attempt+1),
-			slog.Duration("delay", delay),
-			slog.String("error", err.Error()),
-		)
-
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("%w (after %d attempts, last: %w)", context.Cause(ctx), attempt+1, lastErr)
-		case <-time.After(delay):
-		}
-	}
-
-	// Final attempt after exhausting backoff schedule.
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("%w (after %d attempts, last: %w)", context.Cause(ctx), len(connectBackoff), lastErr)
-	}
-	nc, err := nats.Connect(url, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("%w (after %d attempts)", err, len(connectBackoff)+1)
-	}
-	return nc, nil
 }

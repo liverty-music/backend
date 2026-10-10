@@ -111,7 +111,7 @@ func InitializeJobApp(ctx context.Context) (*JobApp, error) {
 			OutputChannelBuffer: 256,
 		}, wmLogger)
 	}
-	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel)
+	publisher, err := messaging.NewPublisher(cfg.NATS, wmLogger, goChannel, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create messaging publisher: %w", err)
 	}

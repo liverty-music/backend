@@ -22,3 +22,6 @@ type IdentityDeleteClient interface {
 func NewIdentityRemoverWithClient(client IdentityDeleteClient, logger *logging.Logger) *IdentityRemover {
 	return &IdentityRemover{client: client, logger: logger}
 }
+
+// TokenEndpoint exposes tokenEndpoint for testing.
+var TokenEndpoint = tokenEndpoint

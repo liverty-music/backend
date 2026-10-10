@@ -1,20 +1,26 @@
 package messaging
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
-// defaultLivenessGrace is the number of consecutive unhealthy observations the
-// liveness check tolerates before reporting unhealthy. It absorbs transient
-// blips (e.g. a brief NATS reconnect) so a healthy consumer is not restarted
-// for a momentary flap. It composes with — and is deliberately smaller than —
-// the Kubernetes probe's own failureThreshold.
-const defaultLivenessGrace = 3
+// livenessWindow is how long the consumer may stay unhealthy while connected
+// (or closed) before liveness reports it dead. Being time-based, it does not
+// depend on the probe period.
+const livenessWindow = 2 * time.Minute
 
 // ConsumerHealth tracks, in-process, whether the event consumer is actually
-// consuming: the NATS connection is up and every expected JetStream durable is
+// consuming: the router is running and every expected JetStream durable is
 // bound to an active subscription. The wedge that caused the 2026-07 outage
 // left the pod Running while consuming nothing; a plain HTTP-port liveness
 // probe could not see it. This tracker lets the liveness probe reflect real
 // consumption so Kubernetes restarts a wedged pod.
+//
+// A NATS disconnection that is still reconnecting is degraded, not dead: the
+// connection recovers by itself, and restarting the pod would not bring the
+// broker back sooner. Only a consumer that is connected (or whose connection
+// has given up) and not consuming is reported dead.
 //
 // ConsumerHealth is safe for concurrent use.
 type ConsumerHealth struct {
@@ -25,21 +31,29 @@ type ConsumerHealth struct {
 	// connection to lose and the NATS transport is connected by the time the
 	// subscriber is constructed; NATS connection handlers flip it thereafter.
 	connected bool
+	// closed reports that the NATS connection gave up reconnecting. It never
+	// recovers, so it counts against liveness like a wedge.
+	closed bool
 	// routerRunning probes whether the message router is actively running. It
 	// is injected after the router is built (nil before then, treated as up so
 	// startup readiness — not liveness — gates traffic during initialization).
 	routerRunning func() bool
-	// failures counts consecutive unhealthy observations for the grace window.
-	failures int
-	grace    int
+	// unhealthySince is when the current unhealthy period began; zero while
+	// healthy or reconnecting.
+	unhealthySince time.Time
+	now            func() time.Time
 }
 
-// NewConsumerHealth returns a ConsumerHealth with the default liveness grace.
+// NewConsumerHealth returns a ConsumerHealth using the wall clock.
 func NewConsumerHealth() *ConsumerHealth {
+	return newConsumerHealth(time.Now)
+}
+
+func newConsumerHealth(now func() time.Time) *ConsumerHealth {
 	return &ConsumerHealth{
 		expected:  make(map[string]bool),
 		connected: true,
-		grace:     defaultLivenessGrace,
+		now:       now,
 	}
 }
 
@@ -78,6 +92,14 @@ func (h *ConsumerHealth) SetConnected(connected bool) {
 	h.connected = connected
 }
 
+// SetClosed records that the NATS connection gave up reconnecting.
+func (h *ConsumerHealth) SetClosed() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.connected = false
+	h.closed = true
+}
+
 // SetRouterProbe injects a probe reporting whether the message router is
 // running. It is called once the router has been constructed.
 func (h *ConsumerHealth) SetRouterProbe(probe func() bool) {
@@ -86,12 +108,9 @@ func (h *ConsumerHealth) SetRouterProbe(probe func() bool) {
 	h.routerRunning = probe
 }
 
-// healthy reports the instantaneous health without applying the grace window.
-// The caller must hold h.mu.
-func (h *ConsumerHealth) healthy() bool {
-	if !h.connected {
-		return false
-	}
+// consuming reports whether the router runs and every expected durable is
+// bound. The caller must hold h.mu.
+func (h *ConsumerHealth) consuming() bool {
 	if h.routerRunning != nil && !h.routerRunning() {
 		return false
 	}
@@ -103,18 +122,23 @@ func (h *ConsumerHealth) healthy() bool {
 	return true
 }
 
-// Live reports whether the consumer should be considered alive. It applies the
-// grace window: an unhealthy observation is only fatal after `grace`
-// consecutive occurrences, which prevents restart flapping on transient blips.
-// A single healthy observation resets the counter.
+// Live reports whether the consumer should be considered alive. While the NATS
+// connection is reconnecting it is alive, whatever the durables report: they
+// cannot be bound until the broker is back. Otherwise it is dead once it has
+// been closed, or not consuming, continuously for livenessWindow.
 func (h *ConsumerHealth) Live() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.healthy() {
-		h.failures = 0
+	reconnecting := !h.connected && !h.closed
+	if reconnecting || (!h.closed && h.consuming()) {
+		h.unhealthySince = time.Time{}
 		return true
 	}
-	h.failures++
-	return h.failures < h.grace
+
+	now := h.now()
+	if h.unhealthySince.IsZero() {
+		h.unhealthySince = now
+	}
+	return now.Sub(h.unhealthySince) < livenessWindow
 }

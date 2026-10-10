@@ -90,7 +90,7 @@ func NewOrganizerProvisioner(
 
 	connOpts := []zitadelconn.Option{
 		zitadelconn.WithJWTProfileTokenSource(
-			middleware.JWTProfileFromPath(ctx, provisionerKeyPath),
+			jwtProfileFromPath(ctx, provisionerKeyPath),
 		),
 		zitadelconn.WithDialOptions(
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),

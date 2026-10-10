@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/liverty-music/backend/internal/di"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/pkg/config"
@@ -20,18 +21,17 @@ import (
 )
 
 func main() {
-	if err := run(); err != nil {
-		logger, _ := logging.New()
+	logger := di.NewBootstrapLogger()
+	if err := run(logger); err != nil {
 		logger.Error(context.Background(), "normalize-venue-names migration failed", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(bootLogger *logging.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	bootLogger, _ := logging.New()
 	bootLogger.Info(ctx, "starting normalize-venue-names migration")
 
 	cfg, err := config.Load[config.JobConfig]()
@@ -39,10 +39,7 @@ func run() error {
 		return err
 	}
 
-	logger, err := logging.New()
-	if err != nil {
-		return err
-	}
+	logger := bootLogger
 	slog.SetDefault(logger.Slog())
 
 	db, err := rdb.New(ctx, cfg.Database, cfg.IsLocal(), logger)

@@ -1,5 +1,12 @@
 .PHONY: lint lint-schema modernize fix test test-integration test-stripe-e2e check
 
+# Every binary links both the Pocket Sign and the Zitadel SDKs, which register
+# the same protobuf extension number; protobuf panics at init unless this is
+# set. The Dockerfile and the k8s ConfigMaps set the same value for the
+# deployed binaries (see the Dockerfile comment); tests of packages that link
+# the DI graph need it too.
+export GOLANG_PROTOBUF_REGISTRATION_CONFLICT := ignore
+
 # golangci-lint is installed as the official release binary, the method its
 # docs recommend (https://golangci-lint.run/docs/welcome/install/local/); a
 # go.mod `tool` install is unsupported upstream. This is the single version pin
