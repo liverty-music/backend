@@ -286,6 +286,14 @@ const (
 		ORDER BY e.local_event_date ASC
 	`
 
+	// listOrganizersByIDsQuery hydrates the Organizer of each first-party
+	// Series, with the columns scanOrganizer reads.
+	listOrganizersByIDsQuery = `
+		SELECT id, name, operator_email, zitadel_org_id, status,
+			seller_legal_name, seller_representative_name, seller_address, seller_phone_number, seller_contact_email,
+			platform_fee_rate_bps FROM organizers WHERE id = ANY($1)
+	`
+
 	// listPerformersByEventIDsQuery hydrates the Performers slice on each Concert.
 	// One row per (event_id, artist) pair so callers can group in Go.
 	// ORDER BY a.id keeps the per-event performer order stable across queries so
@@ -386,6 +394,56 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 	return &c, nil
 }
 
+// hydrate fills each Concert's Performers and its first-party Series'
+// Organizer.
+func (r *ConcertRepository) hydrate(ctx context.Context, concerts []*entity.Concert) error {
+	if err := r.hydratePerformers(ctx, concerts); err != nil {
+		return err
+	}
+	return r.hydrateOrganizers(ctx, concerts)
+}
+
+// hydrateOrganizers reads the Organizers of the concerts' first-party Series in
+// one query and sets each Series' Organizer.
+func (r *ConcertRepository) hydrateOrganizers(ctx context.Context, concerts []*entity.Concert) error {
+	var ids []string
+	seen := make(map[string]bool)
+	for _, c := range concerts {
+		if c.Series == nil || c.Series.OrganizerID == nil || seen[*c.Series.OrganizerID] {
+			continue
+		}
+		seen[*c.Series.OrganizerID] = true
+		ids = append(ids, *c.Series.OrganizerID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	rows, err := r.db.Pool.Query(ctx, listOrganizersByIDsQuery, ids)
+	if err != nil {
+		return toAppErr(err, "failed to list organizers of series", slog.Int("count", len(ids)))
+	}
+	defer rows.Close()
+
+	byID := make(map[string]*entity.Organizer, len(ids))
+	for rows.Next() {
+		o, err := scanOrganizer(rows.Scan)
+		if err != nil {
+			return toAppErr(err, "failed to scan organizer")
+		}
+		byID[o.ID] = o
+	}
+	if err := rows.Err(); err != nil {
+		return toAppErr(err, "organizer iteration ended with error")
+	}
+	for _, c := range concerts {
+		if c.Series != nil && c.Series.OrganizerID != nil {
+			c.Series.Organizer = byID[*c.Series.OrganizerID]
+		}
+	}
+	return nil
+}
+
 // hydratePerformers fetches event_performers + artists for the given concerts
 // and assigns each Concert.Performers slice. Concerts with no performers are
 // left with a nil slice; callers downstream are expected to treat that as a
@@ -460,7 +518,7 @@ func (r *ConcertRepository) ListByArtist(ctx context.Context, artistID string, u
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
 
-	if err := r.hydratePerformers(ctx, concerts); err != nil {
+	if err := r.hydrate(ctx, concerts); err != nil {
 		return nil, err
 	}
 	return concerts, nil
@@ -494,7 +552,7 @@ func (r *ConcertRepository) ListByIDs(ctx context.Context, ids []string) ([]*ent
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
 
-	if err := r.hydratePerformers(ctx, concerts); err != nil {
+	if err := r.hydrate(ctx, concerts); err != nil {
 		return nil, err
 	}
 	return concerts, nil
@@ -522,7 +580,7 @@ func (r *ConcertRepository) ListByFollower(ctx context.Context, userID string, f
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
 
-	if err := r.hydratePerformers(ctx, concerts); err != nil {
+	if err := r.hydrate(ctx, concerts); err != nil {
 		return nil, err
 	}
 	return concerts, nil
@@ -549,7 +607,7 @@ func (r *ConcertRepository) ListByArtists(ctx context.Context, artistIDs []strin
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
 
-	if err := r.hydratePerformers(ctx, concerts); err != nil {
+	if err := r.hydrate(ctx, concerts); err != nil {
 		return nil, err
 	}
 	return concerts, nil
@@ -600,7 +658,7 @@ func (r *ConcertRepository) ListByLocation(ctx context.Context, location *entity
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
 
-	if err := r.hydratePerformers(ctx, concerts); err != nil {
+	if err := r.hydrate(ctx, concerts); err != nil {
 		return nil, err
 	}
 	return concerts, nil
@@ -627,7 +685,7 @@ func (r *ConcertRepository) List(ctx context.Context) ([]*entity.Concert, error)
 		return nil, toAppErr(err, "concert row iteration ended with error")
 	}
 
-	if err := r.hydratePerformers(ctx, concerts); err != nil {
+	if err := r.hydrate(ctx, concerts); err != nil {
 		return nil, err
 	}
 	return concerts, nil
