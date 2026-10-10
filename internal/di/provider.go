@@ -340,7 +340,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	})
 	// First-come ticket sales: the sale and the fan's 15-minute checkout.
 	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, organizerRepo, eventPublishState, eventStartTimeRepo, time.Now)
-	reservationUC := usecase.NewReservationUseCase(reservationRepo, ticketSaleRepo, orderRepo, userRepo, eventPublishState, reservationAuth, time.Now, logger)
+	reservationUC := usecase.NewReservationUseCase(reservationRepo, ticketSaleRepo, userRepo, eventPublishState, reservationAuth, time.Now, logger)
 	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, receptionLinkRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
 
 	// ⑥ ticket wallet and venue reception.

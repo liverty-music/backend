@@ -80,12 +80,13 @@ func TestTicketSaleUseCase_Configure(t *testing.T) {
 		f.sales.EXPECT().Create(mock.Anything, mock.Anything).RunAndReturn(
 			func(_ context.Context, s *entity.TicketSale) (*entity.TicketSale, error) { return s, nil })
 
-		sale, err := f.uc.Configure(context.Background(), "org-1", configureInput())
+		view, err := f.uc.Configure(context.Background(), "org-1", configureInput())
 
 		require.NoError(t, err)
-		assert.Equal(t, *f.eventStart, sale.SaleEndTime, "the sale ends at the event's start")
-		assert.Equal(t, 4, sale.PerAccountLimit)
-		assert.Equal(t, 150, sale.Quantity)
+		assert.Equal(t, *f.eventStart, view.Sale.SaleEndTime, "the sale ends at the event's start")
+		assert.Equal(t, 4, view.Sale.PerAccountLimit)
+		assert.Equal(t, 150, view.Sale.Quantity)
+		assert.Equal(t, entity.TicketSaleStateNotYetOnSale, view.State)
 	})
 
 	t.Run("more tickets later", func(t *testing.T) {
@@ -102,10 +103,10 @@ func TestTicketSaleUseCase_Configure(t *testing.T) {
 		in := configureInput()
 		in.Quantity = 180
 
-		sale, err := f.uc.Configure(context.Background(), "org-1", in)
+		view, err := f.uc.Configure(context.Background(), "org-1", in)
 
 		require.NoError(t, err)
-		assert.Equal(t, 180, sale.Quantity)
+		assert.Equal(t, 180, view.Sale.Quantity)
 	})
 
 	t.Run("another organizer's event", func(t *testing.T) {
@@ -200,16 +201,13 @@ func TestTicketSaleUseCase_Get(t *testing.T) {
 		f := newTicketSaleFixture(t, noon)
 		f.sales.EXPECT().GetByEvent(mock.Anything, "event-1", noon).Return(saleWith(150, 135, 0), nil)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
-		f.organizerWithDetails(true)
 
 		view, err := f.uc.Get(context.Background(), "event-1")
 
 		require.NoError(t, err)
 		assert.Equal(t, entity.TicketSaleStateOnSale, view.State)
 		assert.True(t, view.LowStock)
-		require.NotNil(t, view.SellerDetails)
-		assert.Equal(t, "株式会社リバティ", view.SellerDetails.LegalName)
+		assert.Equal(t, int64(3000), view.Sale.Price)
 	})
 
 	t.Run("last tickets in checkouts", func(t *testing.T) {
@@ -218,8 +216,6 @@ func TestTicketSaleUseCase_Get(t *testing.T) {
 		f := newTicketSaleFixture(t, noon)
 		f.sales.EXPECT().GetByEvent(mock.Anything, "event-1", noon).Return(saleWith(150, 147, 3), nil)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
-		f.organizerWithDetails(true)
 
 		view, err := f.uc.Get(context.Background(), "event-1")
 
@@ -261,7 +257,6 @@ func TestTicketSaleUseCase_GetOwn(t *testing.T) {
 		f := newTicketSaleFixture(t, noon)
 		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
 		sale := saleWith(150, 100, 6)
-		sale.HasReservations = true
 		f.sales.EXPECT().GetByEvent(mock.Anything, "event-1", noon).Return(sale, nil)
 
 		view, err := f.uc.GetOwn(context.Background(), "org-1", "event-1")
@@ -270,7 +265,6 @@ func TestTicketSaleUseCase_GetOwn(t *testing.T) {
 		assert.Equal(t, 150, view.Sale.Quantity)
 		assert.Equal(t, 100, view.Sale.SoldCount)
 		assert.Equal(t, 6, view.Sale.HeldCount)
-		assert.True(t, view.Sale.HasReservations)
 		assert.Equal(t, entity.TicketSaleStateOnSale, view.State)
 	})
 

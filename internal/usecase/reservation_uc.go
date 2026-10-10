@@ -13,29 +13,6 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// StartedReservation is what the checkout shows after Start.
-type StartedReservation struct {
-	// Reservation is the holding checkout, with its count, amount and hold
-	// expiry.
-	Reservation *entity.Reservation
-	// TicketPrice is the sale's price of one ticket in yen, tax-inclusive.
-	TicketPrice int64
-	// SavedIdentity is the holder identity saved on the fan, or nil when the
-	// fan has not checked out before.
-	SavedIdentity *entity.HolderIdentity
-}
-
-// ReservationView is a fan's checkout and what became of it.
-type ReservationView struct {
-	Reservation *entity.Reservation
-	// Holding reports whether the checkout is Held with its hold not lapsed.
-	Holding bool
-	// Authorized reports whether a card hold was opened for the checkout.
-	Authorized bool
-	// OrderID is the Order the checkout completed as; empty unless Completed.
-	OrderID entity.OrderID
-}
-
 // ReservationUseCase runs a signed-in fan's first-come checkout: holding the
 // tickets, reading the checkout, and opening the card hold, plus the job that
 // ends lapsed checkouts and gives back leftover card holds.
@@ -51,14 +28,15 @@ type ReservationUseCase interface {
 	//  - InvalidArgument: count is below 1 or above the sale's per-account
 	//    limit.
 	//  - ResourceExhausted: not enough tickets remain.
-	Start(ctx context.Context, userID entity.UserID, saleID entity.TicketSaleID, count int) (*StartedReservation, error)
+	Start(ctx context.Context, userID entity.UserID, saleID entity.TicketSaleID, count int) (*entity.Reservation, error)
 
-	// Get returns the fan's own checkout and what became of it.
+	// Get returns the fan's own checkout as of now: a Held checkout whose hold
+	// has lapsed is returned Expired.
 	//
 	// # Possible errors
 	//
 	//  - PermissionDenied: the Reservation does not exist or is another fan's.
-	Get(ctx context.Context, userID entity.UserID, reservationID entity.ReservationID) (*ReservationView, error)
+	Get(ctx context.Context, userID entity.UserID, reservationID entity.ReservationID) (*entity.Reservation, error)
 
 	// Authorize records the holder identity for the fan's holding checkout,
 	// opens the card hold for its amount, saves the identity on the fan, and
@@ -87,7 +65,6 @@ type ReservationUseCase interface {
 type reservationUseCase struct {
 	reservationRepo entity.ReservationRepository
 	saleRepo        entity.TicketSaleRepository
-	orderRepo       entity.OrderRepository
 	userRepo        entity.UserRepository
 	eventState      EventPublishStatePort
 	auth            entity.ReservationAuthorizationPort
@@ -102,7 +79,6 @@ var _ ReservationUseCase = (*reservationUseCase)(nil)
 func NewReservationUseCase(
 	reservationRepo entity.ReservationRepository,
 	saleRepo entity.TicketSaleRepository,
-	orderRepo entity.OrderRepository,
 	userRepo entity.UserRepository,
 	eventState EventPublishStatePort,
 	auth entity.ReservationAuthorizationPort,
@@ -112,7 +88,6 @@ func NewReservationUseCase(
 	return &reservationUseCase{
 		reservationRepo: reservationRepo,
 		saleRepo:        saleRepo,
-		orderRepo:       orderRepo,
 		userRepo:        userRepo,
 		eventState:      eventState,
 		auth:            auth,
@@ -122,7 +97,7 @@ func NewReservationUseCase(
 }
 
 // Start implements [ReservationUseCase].
-func (uc *reservationUseCase) Start(ctx context.Context, userID entity.UserID, saleID entity.TicketSaleID, count int) (*StartedReservation, error) {
+func (uc *reservationUseCase) Start(ctx context.Context, userID entity.UserID, saleID entity.TicketSaleID, count int) (*entity.Reservation, error) {
 	now := uc.clock()
 	sale, err := uc.saleRepo.Get(ctx, saleID, now)
 	if err != nil {
@@ -142,15 +117,7 @@ func (uc *reservationUseCase) Start(ctx context.Context, userID entity.UserID, s
 		return nil, apperr.New(codes.InvalidArgument, "the count must be 1 to the sale's per-account limit")
 	}
 
-	res, err := uc.reservationRepo.GetOrCreateHeld(ctx, saleID, userID, count, now)
-	if err != nil {
-		return nil, err
-	}
-	user, err := uc.userRepo.Get(ctx, string(userID))
-	if err != nil {
-		return nil, err
-	}
-	return &StartedReservation{Reservation: res, TicketPrice: sale.Price, SavedIdentity: user.HolderIdentity}, nil
+	return uc.reservationRepo.GetOrCreateHeld(ctx, saleID, userID, count, now)
 }
 
 // ownReservation reads the Reservation and fails with PermissionDenied,
@@ -170,24 +137,14 @@ func (uc *reservationUseCase) ownReservation(ctx context.Context, userID entity.
 }
 
 // Get implements [ReservationUseCase].
-func (uc *reservationUseCase) Get(ctx context.Context, userID entity.UserID, reservationID entity.ReservationID) (*ReservationView, error) {
+func (uc *reservationUseCase) Get(ctx context.Context, userID entity.UserID, reservationID entity.ReservationID) (*entity.Reservation, error) {
 	res, err := uc.ownReservation(ctx, userID, reservationID)
 	if err != nil {
 		return nil, err
 	}
-	view := &ReservationView{
-		Reservation: res,
-		Holding:     res.IsHoldingAt(uc.clock()),
-		Authorized:  res.AuthorizationRef != "",
-	}
-	if res.Status == entity.ReservationStatusCompleted {
-		order, err := uc.orderRepo.GetByReservationID(ctx, reservationID)
-		if err != nil {
-			return nil, err
-		}
-		view.OrderID = order.ID
-	}
-	return view, nil
+	asOf := *res
+	asOf.Status = res.StatusAt(uc.clock())
+	return &asOf, nil
 }
 
 // Authorize implements [ReservationUseCase].

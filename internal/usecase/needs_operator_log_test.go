@@ -29,7 +29,7 @@ func TestNeedsOperatorReports(t *testing.T) {
 		now := coStart.Add(16 * time.Minute)
 		reservations := entitymocks.NewMockReservationRepository(t)
 		auth := entitymocks.NewMockReservationAuthorizationPort(t)
-		uc := usecase.NewReservationUseCase(reservations, entitymocks.NewMockTicketSaleRepository(t), entitymocks.NewMockOrderRepository(t),
+		uc := usecase.NewReservationUseCase(reservations, entitymocks.NewMockTicketSaleRepository(t),
 			entitymocks.NewMockUserRepository(t), ucmocks.NewMockEventPublishStatePort(t), auth, fixedClock(now), logger)
 		released := fanReservation(coStart)
 		released.Status, released.AuthorizationRef = entity.ReservationStatusReleased, "pi_charged"

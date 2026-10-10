@@ -19,7 +19,6 @@ import (
 type reservationFixture struct {
 	reservations *entitymocks.MockReservationRepository
 	sales        *entitymocks.MockTicketSaleRepository
-	orders       *entitymocks.MockOrderRepository
 	users        *entitymocks.MockUserRepository
 	events       *ucmocks.MockEventPublishStatePort
 	auth         *entitymocks.MockReservationAuthorizationPort
@@ -31,12 +30,11 @@ func newReservationFixture(t *testing.T, now time.Time) *reservationFixture {
 	f := &reservationFixture{
 		reservations: entitymocks.NewMockReservationRepository(t),
 		sales:        entitymocks.NewMockTicketSaleRepository(t),
-		orders:       entitymocks.NewMockOrderRepository(t),
 		users:        entitymocks.NewMockUserRepository(t),
 		events:       ucmocks.NewMockEventPublishStatePort(t),
 		auth:         entitymocks.NewMockReservationAuthorizationPort(t),
 	}
-	f.uc = usecase.NewReservationUseCase(f.reservations, f.sales, f.orders, f.users, f.events, f.auth, fixedClock(now), newTestLogger(t))
+	f.uc = usecase.NewReservationUseCase(f.reservations, f.sales, f.users, f.events, f.auth, fixedClock(now), newTestLogger(t))
 	return f
 }
 
@@ -61,14 +59,11 @@ func TestReservationUseCase_Start(t *testing.T) {
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		res := fanReservation(now)
 		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketSaleID("sale-1"), entity.UserID("fan-1"), 2, now).Return(res, nil)
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1"}, nil)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "sale-1", 2)
 
 		require.NoError(t, err)
-		assert.Same(t, res, got.Reservation)
-		assert.Equal(t, int64(3000), got.TicketPrice)
-		assert.Nil(t, got.SavedIdentity)
+		assert.Same(t, res, got)
 	})
 
 	t.Run("fan reloads mid-checkout", func(t *testing.T) {
@@ -79,28 +74,11 @@ func TestReservationUseCase_Start(t *testing.T) {
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		original := fanReservation(now)
 		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketSaleID("sale-1"), entity.UserID("fan-1"), 2, mock.Anything).Return(original, nil)
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1"}, nil)
 
 		got, err := f.uc.Start(context.Background(), "fan-1", "sale-1", 2)
 
 		require.NoError(t, err)
-		assert.Equal(t, original.HoldExpireTime, got.Reservation.HoldExpireTime)
-	})
-
-	t.Run("returning buyer", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/reservation/start "Returning buyer"
-		f := newReservationFixture(t, now)
-		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("sale-1"), now).Return(saleWith(150, 0, 0), nil)
-		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.reservations.EXPECT().GetOrCreateHeld(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fanReservation(now), nil)
-		saved := &entity.HolderIdentity{FullName: "山田 花子", PhoneNumber: "+819012345678"}
-		f.users.EXPECT().Get(mock.Anything, "fan-1").Return(&entity.User{ID: "fan-1", HolderIdentity: saved}, nil)
-
-		got, err := f.uc.Start(context.Background(), "fan-1", "sale-1", 2)
-
-		require.NoError(t, err)
-		assert.Equal(t, saved, got.SavedIdentity)
+		assert.Equal(t, original.HoldExpireTime, got.HoldExpireTime)
 	})
 
 	t.Run("sale not open yet", func(t *testing.T) {
@@ -159,17 +137,31 @@ func TestReservationUseCase_Get(t *testing.T) {
 	start := time.Date(2026, 11, 5, 18, 0, 0, 0, tsJST)
 	committed := start.Add(10 * time.Minute)
 
+	t.Run("within the hold", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/reservation/get "Within the hold"
+		f := newReservationFixture(t, start.Add(5*time.Minute))
+		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(fanReservation(start), nil)
+
+		got, err := f.uc.Get(context.Background(), "fan-1", "res-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.ReservationStatusHeld, got.Status)
+		assert.Equal(t, start.Add(15*time.Minute), got.HoldExpireTime)
+	})
+
 	t.Run("hold lapsed", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/reservation/get "Hold lapsed"
 		f := newReservationFixture(t, start.Add(20*time.Minute))
-		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(fanReservation(start), nil)
+		stored := fanReservation(start)
+		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(stored, nil)
 
-		view, err := f.uc.Get(context.Background(), "fan-1", "res-1")
+		got, err := f.uc.Get(context.Background(), "fan-1", "res-1")
 
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReservationStatusHeld, view.Reservation.Status)
-		assert.False(t, view.Holding)
+		assert.Equal(t, entity.ReservationStatusExpired, got.Status)
+		assert.Equal(t, entity.ReservationStatusHeld, stored.Status, "the stored Reservation is not changed")
 	})
 
 	t.Run("card no longer chargeable", func(t *testing.T) {
@@ -180,13 +172,12 @@ func TestReservationUseCase_Get(t *testing.T) {
 		res.Status, res.CommitTime, res.AuthorizationRef = entity.ReservationStatusReleased, &committed, "pi_1"
 		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(res, nil)
 
-		view, err := f.uc.Get(context.Background(), "fan-1", "res-1")
+		got, err := f.uc.Get(context.Background(), "fan-1", "res-1")
 
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReservationStatusReleased, view.Reservation.Status)
-		assert.NotNil(t, view.Reservation.CommitTime, "ever committed")
-		assert.Nil(t, view.Reservation.CaptureTime, "not charged")
-		assert.True(t, view.Authorized)
+		assert.Equal(t, entity.ReservationStatusReleased, got.Status)
+		assert.NotNil(t, got.CommitTime, "ever committed")
+		assert.Nil(t, got.CaptureTime, "not charged")
 	})
 
 	t.Run("replaced by a newer checkout", func(t *testing.T) {
@@ -197,25 +188,24 @@ func TestReservationUseCase_Get(t *testing.T) {
 		res.Status = entity.ReservationStatusReleased
 		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(res, nil)
 
-		view, err := f.uc.Get(context.Background(), "fan-1", "res-1")
+		got, err := f.uc.Get(context.Background(), "fan-1", "res-1")
 
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReservationStatusReleased, view.Reservation.Status)
-		assert.Nil(t, view.Reservation.CommitTime, "never committed")
+		assert.Equal(t, entity.ReservationStatusReleased, got.Status)
+		assert.Nil(t, got.CommitTime, "never committed")
 	})
 
-	t.Run("completed checkout carries its order", func(t *testing.T) {
+	t.Run("completed checkout stays completed after its hold expiry", func(t *testing.T) {
 		t.Parallel()
-		f := newReservationFixture(t, start.Add(14*time.Minute))
+		f := newReservationFixture(t, start.Add(30*time.Minute))
 		res := fanReservation(start)
 		res.Status, res.CommitTime, res.CaptureTime = entity.ReservationStatusCompleted, &committed, &committed
 		f.reservations.EXPECT().Get(mock.Anything, entity.ReservationID("res-1")).Return(res, nil)
-		f.orders.EXPECT().GetByReservationID(mock.Anything, entity.ReservationID("res-1")).Return(&entity.Order{ID: "order-1"}, nil)
 
-		view, err := f.uc.Get(context.Background(), "fan-1", "res-1")
+		got, err := f.uc.Get(context.Background(), "fan-1", "res-1")
 
 		require.NoError(t, err)
-		assert.Equal(t, entity.OrderID("order-1"), view.OrderID)
+		assert.Equal(t, entity.ReservationStatusCompleted, got.Status)
 	})
 
 	t.Run("someone else's checkout", func(t *testing.T) {
