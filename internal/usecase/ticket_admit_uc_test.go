@@ -299,6 +299,59 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		assert.Equal(t, f.event.ID, f.appended[0].EventID, "the event of the link that scanned")
 		f.tickets.AssertNotCalled(t, "ListByHolderAndEvent", mock.Anything, mock.Anything, mock.Anything)
 	})
+
+	// A genuine, fresh code for this event that also presents a ticket the
+	// user does not hold for it is rejected as a whole: ListByHolderAndEvent
+	// does not return that ticket, whoever holds it.
+	foreignTicketTests := []struct {
+		name string
+		// why describes the ticket ListByHolderAndEvent does not return.
+		why string
+	}{
+		// @spec components/usecase/ticket/admit "Someone else's ticket"
+		{name: "someone else's ticket", why: "held by another account"},
+		// @spec components/usecase/ticket/admit "Ticket of another event in the code"
+		{name: "ticket of another event in the code", why: "the fan's own ticket for another event"},
+	}
+	for _, tt := range foreignTicketTests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newAdmitFixture(t)
+			f.expectLinkAndEvent()
+			f.expectFanKey()
+			f.expectAppend()
+			own := f.heldTickets(2)
+			foreign := entity.TicketID(entity.NewID())
+			f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(own, nil)
+
+			got, err := f.admit(f.staff, f.code(f.event.ID, now, own[0].ID, foreign, own[1].ID), now)
+			require.NoError(t, err)
+			assert.Equal(t, entity.RejectedScanReasonForged, got.RejectedScanReason, tt.why)
+			assert.Zero(t, got.AdmittedTicketCount)
+			assert.Empty(t, got.RejectedTickets)
+			require.Len(t, f.appended, 1, "one RejectedScan for the whole scan")
+			assert.Equal(t, entity.RejectedScanReasonForged, f.appended[0].Reason)
+			assert.Empty(t, f.appended[0].TicketID, "a forged scan names no ticket")
+			assert.Equal(t, f.link.ID, f.appended[0].ReceptionLinkID)
+			assert.True(t, f.appended[0].ScannedTime.Equal(now))
+			f.tickets.AssertNotCalled(t, "Admit", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+
+	t.Run("ticket list failure fails the scan", func(t *testing.T) {
+		t.Parallel()
+		f := newAdmitFixture(t)
+		f.expectLinkAndEvent()
+		f.expectFanKey()
+		tickets := f.heldTickets(1)
+		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).
+			Return(nil, apperr.New(codes.Internal, "db down"))
+
+		_, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
+		assert.ErrorIs(t, err, apperr.ErrInternal)
+		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		f.rejects.AssertNotCalled(t, "Append", mock.Anything, mock.Anything)
+	})
 }
 
 func TestTicketUseCase_Admit_Tickets(t *testing.T) {
@@ -359,58 +412,6 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		assert.Equal(t, tickets[0].ID, f.appended[0].TicketID)
 		assert.Equal(t, f.link.ID, f.appended[0].ReceptionLinkID)
 		assert.True(t, f.appended[0].ScannedTime.Equal(later))
-	})
-
-	t.Run("someone else's ticket", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/ticket/admit "Someone else's ticket"
-		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
-		f.expectFanKey()
-		f.expectAppend()
-		own := f.heldTickets(2)
-		foreign := entity.TicketID(entity.NewID()) // held by another account
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(own, nil)
-		for _, tk := range own {
-			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.link.ID, now).
-				Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: now}, nil).Once()
-		}
-
-		got, err := f.admit(f.staff, f.code(f.event.ID, now, own[0].ID, foreign, own[1].ID), now)
-		require.NoError(t, err)
-		assert.Equal(t, 2, got.AdmittedTicketCount, "the fan's own tickets are decided as usual")
-		require.Len(t, got.RejectedTickets, 1)
-		assert.Equal(t, entity.RejectedScanReasonNotHolder, got.RejectedTickets[0].Reason)
-		require.Len(t, f.appended, 1)
-		assert.Equal(t, foreign, f.appended[0].TicketID)
-		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, foreign, mock.Anything, mock.Anything)
-	})
-
-	t.Run("ticket of another event in the code", func(t *testing.T) {
-		t.Parallel()
-		// @spec components/usecase/ticket/admit "Ticket of another event in the code"
-		f := newAdmitFixture(t)
-		f.expectLinkAndEvent()
-		f.expectFanKey()
-		f.expectAppend()
-		own := f.heldTickets(2)
-		// The fan's own ticket for another event: ListByHolderAndEvent for
-		// this event does not return it.
-		otherEvent := entity.TicketID(entity.NewID())
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(own, nil)
-		for _, tk := range own {
-			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.link.ID, now).
-				Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: now}, nil).Once()
-		}
-
-		got, err := f.admit(f.staff, f.code(f.event.ID, now, own[0].ID, otherEvent, own[1].ID), now)
-		require.NoError(t, err)
-		assert.Equal(t, 2, got.AdmittedTicketCount, "the others are decided as usual")
-		require.Len(t, got.RejectedTickets, 1)
-		assert.Equal(t, entity.RejectedScanReasonNotHolder, got.RejectedTickets[0].Reason)
-		require.Len(t, f.appended, 1)
-		assert.Equal(t, otherEvent, f.appended[0].TicketID)
-		f.tickets.AssertNotCalled(t, "Admit", mock.Anything, otherEvent, mock.Anything, mock.Anything)
 	})
 
 	t.Run("refunded ticket", func(t *testing.T) {

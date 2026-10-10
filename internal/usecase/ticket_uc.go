@@ -32,7 +32,7 @@ type AdmitInput struct {
 // RejectedTicket is why one presented ticket was rejected. It does not
 // identify the ticket or its holder.
 type RejectedTicket struct {
-	// Reason is NotHolder, Voided or AlreadyAdmitted.
+	// Reason is Voided or AlreadyAdmitted.
 	Reason entity.RejectedScanReason
 	// EarlierAdmittedTime is, for AlreadyAdmitted, when the ticket was
 	// admitted earlier.
@@ -77,9 +77,11 @@ type TicketUseCase interface {
 
 	// Admit decides one scan: through a usable link, from its bound device,
 	// inside its event's reception window, it admits each ticket a genuine and
-	// fresh AdmissionCode presents exactly once, records every refusal as a
-	// RejectedScan, and returns the head count and reasons. A rejected code or
-	// ticket is a result, not an error.
+	// fresh AdmissionCode for its event presents exactly once, records every
+	// refusal as a RejectedScan, and returns the head count and reasons. A code
+	// presenting any ticket that is not its user's own for the event is
+	// rejected as a whole as Forged. A rejected code or ticket is a result,
+	// not an error.
 	//
 	// # Possible errors
 	//
@@ -180,7 +182,7 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 		return nil, apperr.New(codes.FailedPrecondition, "outside the reception window")
 	}
 
-	// -- the code: genuine, fresh, for this event --
+	// -- the code: genuine, fresh, for this event, only the user's own tickets --
 	code, reason, err := uc.checkCode(ctx, in.ScannedText, link.EventID, in.Now)
 	if err != nil {
 		return nil, err
@@ -191,15 +193,6 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 	}
 
 	// -- each presented ticket, independently --
-	held, err := uc.ticketRepo.ListByHolderAndEvent(ctx, code.UserID, link.EventID)
-	if err != nil {
-		return nil, err
-	}
-	heldIDs := make(map[entity.TicketID]struct{}, len(held))
-	for _, t := range held {
-		heldIDs[t.ID] = struct{}{}
-	}
-
 	result := &AdmitResult{}
 	var rejections []*entity.RejectedScan
 	reject := func(ticketID entity.TicketID, rt RejectedTicket) {
@@ -207,10 +200,6 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 		rejections = append(rejections, entity.NewRejectedScan(link.EventID, link.ID, ticketID, rt.Reason, in.Now))
 	}
 	for _, ticketID := range code.TicketIDs {
-		if _, ok := heldIDs[ticketID]; !ok {
-			reject(ticketID, RejectedTicket{Reason: entity.RejectedScanReasonNotHolder})
-			continue
-		}
 		admitted, err := uc.ticketRepo.Admit(ctx, ticketID, link.ID, in.Now)
 		if err != nil {
 			// Refusals decided so far are still recorded.
@@ -236,7 +225,12 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 // checkCode decodes and verifies the scanned text. It returns the decoded
 // code (nil when Malformed) and, when the whole scan is rejected, the reason
 // (Forged, Expired or OtherEvent); the reason is Unspecified for a genuine,
-// fresh code for eventID.
+// fresh code for eventID that presents only the user's own tickets of it.
+//
+// A code presenting any ticket the user does not hold for eventID (another
+// account's, or the user's own for another event) is Forged as a whole: the
+// tickets screen only ever presents the user's own tickets of one event, and
+// a ticket's holder never changes, so such a code was built outside the app.
 func (uc *ticketUseCase) checkCode(ctx context.Context, text, eventID string, now time.Time) (*entity.AdmissionCode, entity.RejectedScanReason, error) {
 	code, ok := entity.DecodeAdmissionCode(text)
 	if !ok {
@@ -257,6 +251,19 @@ func (uc *ticketUseCase) checkCode(ctx context.Context, text, eventID string, no
 	}
 	if code.EventID != eventID {
 		return code, entity.RejectedScanReasonOtherEvent, nil
+	}
+	held, err := uc.ticketRepo.ListByHolderAndEvent(ctx, code.UserID, eventID)
+	if err != nil {
+		return nil, entity.RejectedScanReasonUnspecified, err
+	}
+	heldIDs := make(map[entity.TicketID]struct{}, len(held))
+	for _, t := range held {
+		heldIDs[t.ID] = struct{}{}
+	}
+	for _, id := range code.TicketIDs {
+		if _, ok := heldIDs[id]; !ok {
+			return code, entity.RejectedScanReasonForged, nil
+		}
 	}
 	return code, entity.RejectedScanReasonUnspecified, nil
 }

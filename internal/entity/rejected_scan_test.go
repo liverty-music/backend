@@ -23,7 +23,7 @@ func TestRejectedScan_Validate(t *testing.T) {
 		{name: "expired naming a presented ticket", reason: entity.RejectedScanReasonExpired, ticketID: "t-1", wantErr: false},
 		// @spec components/entity/rejected-scan "Forged scan naming a ticket"
 		{name: "forged naming a ticket", reason: entity.RejectedScanReasonForged, ticketID: "t-1", wantErr: true},
-		{name: "not holder without a ticket", reason: entity.RejectedScanReasonNotHolder, wantErr: true},
+		{name: "reserved reason 4 naming a ticket", reason: entity.RejectedScanReason(4), ticketID: "t-1", wantErr: true},
 		{name: "unspecified reason", reason: entity.RejectedScanReasonUnspecified, ticketID: "t-1", wantErr: true},
 	}
 	for _, tt := range tests {

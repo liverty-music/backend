@@ -731,7 +731,7 @@ func TestAdmissionRepository_GetByTicket(t *testing.T) {
 		ticket := seedHeldTickets(t, eventID, holder, 1)[0]
 		link := seedLink(t, eventID)
 		require.NoError(t, rdb.NewRejectedScanRepository(testDB).Append(ctx, []*entity.RejectedScan{
-			entity.NewRejectedScan(eventID, link.ID, ticket, entity.RejectedScanReasonNotHolder, nov20(18, 32)),
+			entity.NewRejectedScan(eventID, link.ID, ticket, entity.RejectedScanReasonVoided, nov20(18, 32)),
 		}))
 
 		_, err := repo.GetByTicket(ctx, ticket)
