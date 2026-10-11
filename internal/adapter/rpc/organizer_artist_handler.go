@@ -24,13 +24,14 @@ var _ organizerartistv1connect.ArtistServiceHandler = (*OrganizerArtistHandler)(
 // names an Organizer, so an operator cannot ask for another Organizer's
 // roster.
 type OrganizerArtistHandler struct {
+	artistUC    usecase.ArtistUseCase
 	organizerUC usecase.OrganizerUseCase
 	logger      *logging.Logger
 }
 
 // NewOrganizerArtistHandler creates a new OrganizerArtistHandler.
-func NewOrganizerArtistHandler(organizerUC usecase.OrganizerUseCase, logger *logging.Logger) *OrganizerArtistHandler {
-	return &OrganizerArtistHandler{organizerUC: organizerUC, logger: logger}
+func NewOrganizerArtistHandler(artistUC usecase.ArtistUseCase, organizerUC usecase.OrganizerUseCase, logger *logging.Logger) *OrganizerArtistHandler {
+	return &OrganizerArtistHandler{artistUC: artistUC, organizerUC: organizerUC, logger: logger}
 }
 
 // List returns every Artist the caller's own Organizer represents, empty when
@@ -57,7 +58,7 @@ func (h *OrganizerArtistHandler) List(
 
 	// The request names no Organizer, so the caller's own Organizer is both
 	// the caller and the requested one.
-	artists, err := h.organizerUC.ListOwnArtists(ctx, organizer.ID)
+	artists, err := h.artistUC.ListByOrganizer(ctx, organizer.ID)
 	if err != nil {
 		return nil, err
 	}

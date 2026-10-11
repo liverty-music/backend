@@ -31,9 +31,9 @@ func newAdminOrganizerClient(t *testing.T, organizerUC *usecasemocks.MockOrganiz
 
 // newAdminArtistClient builds an admin ArtistService client against the same
 // admin server, its ListByOrganizer served by the given OrganizerUseCase mock.
-func newAdminArtistClient(t *testing.T, organizerUC *usecasemocks.MockOrganizerUseCase) adminartistv1connect.ArtistServiceClient {
+func newAdminArtistClient(t *testing.T, artistUC *usecasemocks.MockArtistUseCase) adminartistv1connect.ArtistServiceClient {
 	t.Helper()
-	ts := newTestAdminDeleteServer(t, organizerUC, usecasemocks.NewMockUserUseCase(t))
+	ts := newTestAdminDeleteServer(t, usecasemocks.NewMockOrganizerUseCase(t), usecasemocks.NewMockUserUseCase(t), artistUC)
 	return adminartistv1connect.NewArtistServiceClient(ts.Client(), ts.URL)
 }
 
@@ -98,7 +98,8 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 			{ID: organizerID, Name: "Acme Music", Status: entity.OrganizerStatusActive},
 			{ID: otherID, Name: "Old Label", Status: entity.OrganizerStatusDeactivated},
 		}, nil).Once()
-		organizerUC.EXPECT().ListArtists(mock.Anything, organizerID).
+		artistUC := usecasemocks.NewMockArtistUseCase(t)
+		artistUC.EXPECT().ListByOrganizer(mock.Anything, organizerID).
 			Return([]*entity.Artist{{ID: artistID, Name: "The Band"}}, nil).Once()
 		client := newAdminOrganizerClient(t, organizerUC)
 
@@ -111,7 +112,7 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 		assert.Equal(t, []string{organizerID, otherID}, ids)
 
 		// The roster comes from the admin ArtistService, not the Organizer service.
-		roster, err := newAdminArtistClient(t, organizerUC).ListByOrganizer(context.Background(), asAdmin(&adminartistv1.ListByOrganizerRequest{
+		roster, err := newAdminArtistClient(t, artistUC).ListByOrganizer(context.Background(), asAdmin(&adminartistv1.ListByOrganizerRequest{
 			OrganizerId: &entityv1.OrganizerId{Value: organizerID},
 		}))
 		require.NoError(t, err)

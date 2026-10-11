@@ -67,7 +67,7 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 			Organizers:     f.organizers,
 			Mailer:         f.mailer,
 			TimeZone:       tsJST,
-		})
+		}, usecase.NewConcertsDeps{})
 	f.organizers.EXPECT().Get(mock.Anything, "org-1").Return(&entity.Organizer{ID: "org-1", BusinessDetails: &entity.BusinessDetails{
 		LegalName: "株式会社リバティ", RepresentativeName: "代表 太郎", BusinessAddress: "東京都渋谷区1-2-3",
 		BusinessPhoneNumber: "+81312345678", ContactEmail: "contact@example.com",

@@ -14,18 +14,18 @@ import (
 // push notification use case. It is a thin adapter: parse the CloudEvent and
 // hand off to the use case — no repository lookups or business logic here.
 type NotificationConsumer struct {
-	pushSubscriptionUC usecase.PushSubscriptionUseCase
-	logger             *logging.Logger
+	notificationUC usecase.NotificationUseCase
+	logger         *logging.Logger
 }
 
 // NewNotificationConsumer creates a new NotificationConsumer.
 func NewNotificationConsumer(
-	pushSubscriptionUC usecase.PushSubscriptionUseCase,
+	notificationUC usecase.NotificationUseCase,
 	logger *logging.Logger,
 ) *NotificationConsumer {
 	return &NotificationConsumer{
-		pushSubscriptionUC: pushSubscriptionUC,
-		logger:             logger,
+		notificationUC: notificationUC,
+		logger:         logger,
 	}
 }
 
@@ -44,7 +44,7 @@ func (h *NotificationConsumer) Handle(msg *message.Message) error {
 		slog.Int("concert_count", len(data.ConcertIDs)),
 	)
 
-	if err := h.pushSubscriptionUC.NotifyNewConcerts(ctx, data); err != nil {
+	if err := h.notificationUC.NotifyNewConcerts(ctx, data); err != nil {
 		return fmt.Errorf("notify for artist %s: %w", data.ArtistID, err)
 	}
 

@@ -21,14 +21,14 @@ import (
 
 const officialSiteTestArtistID = "019a0000-0000-7000-8000-0000000000a1"
 
-func newOfficialSiteHandler(t *testing.T, artistUC *mocks.MockArtistUseCase) *handler.OfficialSiteHandler {
+func newOfficialSiteHandler(t *testing.T, artistUC *mocks.MockOfficialSiteUseCase) *handler.OfficialSiteHandler {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
 	return handler.NewOfficialSiteHandler(artistUC, logger)
 }
 
-func newOfficialSiteBoundaryClient(t *testing.T, artistUC *mocks.MockArtistUseCase) officialsitev1connect.OfficialSiteServiceClient {
+func newOfficialSiteBoundaryClient(t *testing.T, artistUC *mocks.MockOfficialSiteUseCase) officialsitev1connect.OfficialSiteServiceClient {
 	t.Helper()
 	h := newOfficialSiteHandler(t, artistUC)
 	srv := newFanBoundaryServer(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
@@ -43,8 +43,8 @@ func TestOfficialSiteHandler_Create(t *testing.T) {
 	t.Run("create a site", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/official-site "Create a site"
-		artistUC := mocks.NewMockArtistUseCase(t)
-		artistUC.EXPECT().CreateOfficialSite(mock.Anything, officialSiteTestArtistID, "https://example.com").Return(nil).Once()
+		artistUC := mocks.NewMockOfficialSiteUseCase(t)
+		artistUC.EXPECT().Create(mock.Anything, officialSiteTestArtistID, "https://example.com").Return(nil).Once()
 
 		resp, err := newOfficialSiteBoundaryClient(t, artistUC).Create(context.Background(), withFanToken(connect.NewRequest(&officialsitev1.CreateRequest{
 			ArtistId: &entityv1.ArtistId{Value: officialSiteTestArtistID},
@@ -59,7 +59,7 @@ func TestOfficialSiteHandler_Create(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/official-site "Guest creates a site"
 		// The mock fails the test if any usecase method runs.
-		_, err := newOfficialSiteBoundaryClient(t, mocks.NewMockArtistUseCase(t)).Create(context.Background(), connect.NewRequest(&officialsitev1.CreateRequest{
+		_, err := newOfficialSiteBoundaryClient(t, mocks.NewMockOfficialSiteUseCase(t)).Create(context.Background(), connect.NewRequest(&officialsitev1.CreateRequest{
 			ArtistId: &entityv1.ArtistId{Value: officialSiteTestArtistID},
 			Url:      &entityv1.Url{Value: "https://example.com"},
 		}))
@@ -70,7 +70,7 @@ func TestOfficialSiteHandler_Create(t *testing.T) {
 	t.Run("malformed URL", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/official-site "Malformed URL"
-		_, err := newOfficialSiteBoundaryClient(t, mocks.NewMockArtistUseCase(t)).Create(context.Background(), withFanToken(connect.NewRequest(&officialsitev1.CreateRequest{
+		_, err := newOfficialSiteBoundaryClient(t, mocks.NewMockOfficialSiteUseCase(t)).Create(context.Background(), withFanToken(connect.NewRequest(&officialsitev1.CreateRequest{
 			ArtistId: &entityv1.ArtistId{Value: officialSiteTestArtistID},
 			Url:      &entityv1.Url{Value: "https://example.com/" + strings.Repeat("a", 2048)},
 		})))
@@ -80,8 +80,8 @@ func TestOfficialSiteHandler_Create(t *testing.T) {
 
 	t.Run("return the usecase failure unchanged", func(t *testing.T) {
 		t.Parallel()
-		artistUC := mocks.NewMockArtistUseCase(t)
-		artistUC.EXPECT().CreateOfficialSite(mock.Anything, "artist-1", "https://example.com").Return(apperr.ErrAlreadyExists).Once()
+		artistUC := mocks.NewMockOfficialSiteUseCase(t)
+		artistUC.EXPECT().Create(mock.Anything, "artist-1", "https://example.com").Return(apperr.ErrAlreadyExists).Once()
 
 		resp, err := newOfficialSiteHandler(t, artistUC).Create(context.Background(), connect.NewRequest(&officialsitev1.CreateRequest{
 			ArtistId: &entityv1.ArtistId{Value: "artist-1"},
@@ -100,7 +100,7 @@ func TestOfficialSiteHandler_Delete(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/official-site "Delete a site"
 		// The mock fails the test if any usecase method runs.
-		_, err := newOfficialSiteBoundaryClient(t, mocks.NewMockArtistUseCase(t)).Delete(context.Background(), withFanToken(connect.NewRequest(&officialsitev1.DeleteRequest{
+		_, err := newOfficialSiteBoundaryClient(t, mocks.NewMockOfficialSiteUseCase(t)).Delete(context.Background(), withFanToken(connect.NewRequest(&officialsitev1.DeleteRequest{
 			OfficialSiteId: &entityv1.OfficialSiteId{Value: "019a0000-0000-7000-8000-0000000000b1"},
 		})))
 

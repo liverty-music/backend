@@ -382,7 +382,7 @@ func TestOrganizerUseCase_List(t *testing.T) {
 	})
 }
 
-func TestOrganizerUseCase_ListArtists(t *testing.T) {
+func TestArtistUseCase_ListByOrganizer(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -395,6 +395,7 @@ func TestOrganizerUseCase_ListArtists(t *testing.T) {
 		wantErr     error
 	}{
 		{
+			// @spec components/usecase/artist/list-by-organizer "Organizer with Artists"
 			name:        "return artists for existing organizer",
 			organizerID: "org-1",
 			setup: func(t *testing.T, d *organizerTestDeps) {
@@ -412,6 +413,24 @@ func TestOrganizerUseCase_ListArtists(t *testing.T) {
 			want: []*entity.Artist{{ID: "artist-1"}, {ID: "artist-2"}},
 		},
 		{
+			// @spec components/usecase/artist/list-by-organizer "Deactivated Organizer"
+			name:        "return an empty roster for a deactivated organizer",
+			organizerID: "org-2",
+			setup: func(t *testing.T, d *organizerTestDeps) {
+				t.Helper()
+				d.orgRepo.EXPECT().
+					Get(ctx, "org-2").
+					Return(&entity.Organizer{ID: "org-2", Status: entity.OrganizerStatusDeactivated}, nil).
+					Once()
+				d.orgRepo.EXPECT().
+					ListArtists(ctx, "org-2").
+					Return([]*entity.Artist{}, nil).
+					Once()
+			},
+			want: []*entity.Artist{},
+		},
+		{
+			// @spec components/usecase/artist/list-by-organizer "Unknown Organizer"
 			name:        "return NotFound error when organizer does not exist",
 			organizerID: "missing-org",
 			setup: func(t *testing.T, d *organizerTestDeps) {
@@ -433,72 +452,7 @@ func TestOrganizerUseCase_ListArtists(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			got, err := d.uc.ListArtists(ctx, tt.organizerID)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-			assert.NoError(t, err)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestOrganizerUseCase_ListOwnArtists(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-
-	tests := []struct {
-		name              string
-		callerOrganizerID string
-		setup             func(t *testing.T, d *organizerTestDeps)
-		want              []*entity.Artist
-		wantErr           error
-	}{
-		{
-			// @spec components/usecase/organizer/list-own-artists "Caller's roster"
-			name:              "return the caller's own roster",
-			callerOrganizerID: "org-1",
-			setup: func(t *testing.T, d *organizerTestDeps) {
-				t.Helper()
-				d.orgRepo.EXPECT().
-					Get(ctx, "org-1").
-					Return(&entity.Organizer{ID: "org-1", Status: entity.OrganizerStatusActive}, nil).
-					Once()
-				want := []*entity.Artist{{ID: "artist-1"}, {ID: "artist-2"}}
-				d.orgRepo.EXPECT().
-					ListArtists(ctx, "org-1").
-					Return(want, nil).
-					Once()
-			},
-			want: []*entity.Artist{{ID: "artist-1"}, {ID: "artist-2"}},
-		},
-		{
-			// @spec components/usecase/organizer/list-own-artists "Caller's Organizer gone"
-			name:              "NotFound when the caller's own organizer no longer exists",
-			callerOrganizerID: "org-1",
-			setup: func(t *testing.T, d *organizerTestDeps) {
-				t.Helper()
-				d.orgRepo.EXPECT().
-					Get(ctx, "org-1").
-					Return(nil, apperr.New(codes.NotFound, "not found")).
-					Once()
-			},
-			wantErr: apperr.ErrNotFound,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			d := newOrganizerTestDeps(t)
-			if tt.setup != nil {
-				tt.setup(t, d)
-			}
-
-			got, err := d.uc.ListOwnArtists(ctx, tt.callerOrganizerID)
+			got, err := usecase.NewArtistUseCase(nil, d.orgRepo, nil, nil, nil, nil, newTestLogger(t)).ListByOrganizer(ctx, tt.organizerID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)

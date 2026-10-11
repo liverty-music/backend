@@ -129,7 +129,7 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 		ucmocks.NewMockEventPublisher(t), noopPushMetrics{}, logger, usecase.OrderConfirmationDeps{
 			Orders: orders, Users: users, Concerts: stubConcertReader{}, EventOrganizer: stubEventOrganizer{},
 			Organizers: organizers, Mailer: mailer, TimeZone: time.UTC,
-		})
+		}, usecase.NewConcertsDeps{})
 	journeys := entitymocks.NewMockTicketJourneyRepository(t)
 	paid := &entity.TicketJourney{UserID: "fan-1", EventID: "event-1", Status: entity.TicketJourneyStatusPaid}
 	journeys.EXPECT().Upsert(mock.Anything, paid).Return(nil).Twice()

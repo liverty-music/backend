@@ -21,13 +21,13 @@ var _ adminartistv1connect.ArtistServiceHandler = (*AdminArtistHandler)(nil)
 // (admin role), and requests are validated by the server's protovalidate
 // interceptor before this runs.
 type AdminArtistHandler struct {
-	organizerUseCase usecase.OrganizerUseCase
-	logger           *logging.Logger
+	artistUC usecase.ArtistUseCase
+	logger   *logging.Logger
 }
 
 // NewAdminArtistHandler creates a new AdminArtistHandler.
-func NewAdminArtistHandler(organizerUseCase usecase.OrganizerUseCase, logger *logging.Logger) *AdminArtistHandler {
-	return &AdminArtistHandler{organizerUseCase: organizerUseCase, logger: logger}
+func NewAdminArtistHandler(artistUC usecase.ArtistUseCase, logger *logging.Logger) *AdminArtistHandler {
+	return &AdminArtistHandler{artistUC: artistUC, logger: logger}
 }
 
 // ListByOrganizer returns the Artists the named Organizer represents, whatever
@@ -36,7 +36,7 @@ func (h *AdminArtistHandler) ListByOrganizer(
 	ctx context.Context,
 	req *connect.Request[adminartistv1.ListByOrganizerRequest],
 ) (*connect.Response[adminartistv1.ListByOrganizerResponse], error) {
-	artists, err := h.organizerUseCase.ListArtists(ctx, req.Msg.GetOrganizerId().GetValue())
+	artists, err := h.artistUC.ListByOrganizer(ctx, req.Msg.GetOrganizerId().GetValue())
 	if err != nil {
 		return nil, err
 	}

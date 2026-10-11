@@ -161,16 +161,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			Organizers:     rdb.NewOrganizerRepository(db),
 			Mailer:         confirmationSender,
 			TimeZone:       japanTime,
-		})
+		},
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
-	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(
-		artistRepo,
-		concertRepo,
-		followRepo,
-		pushSubRepo,
-		eventPublisher,
-		logger,
-	)
 	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db)
@@ -273,7 +266,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
-	notificationConsumer := event.NewNotificationConsumer(pushSubscriptionUC, logger)
+	notificationConsumer := event.NewNotificationConsumer(notificationUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(emailVerifier, logger)

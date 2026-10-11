@@ -33,8 +33,8 @@ func TestAdminServer_ArtistListByOrganizer(t *testing.T) {
 	t.Run("admin inspects a roster", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/artist "Admin inspects a roster"
-		uc := usecasemocks.NewMockOrganizerUseCase(t)
-		uc.EXPECT().ListArtists(mock.Anything, organizerID).Return([]*entity.Artist{
+		uc := usecasemocks.NewMockArtistUseCase(t)
+		uc.EXPECT().ListByOrganizer(mock.Anything, organizerID).Return([]*entity.Artist{
 			{ID: "artist-1", Name: "Band One"},
 			{ID: "artist-2", Name: "Band Two"},
 		}, nil).Once()
@@ -53,7 +53,7 @@ func TestAdminServer_ArtistListByOrganizer(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/artist "Missing OrganizerId"
 		// The strict mock fails the test if the usecase runs.
-		_, err := newAdminArtistClient(t, usecasemocks.NewMockOrganizerUseCase(t)).ListByOrganizer(context.Background(),
+		_, err := newAdminArtistClient(t, usecasemocks.NewMockArtistUseCase(t)).ListByOrganizer(context.Background(),
 			asAdmin(&adminartistv1.ListByOrganizerRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
@@ -62,8 +62,8 @@ func TestAdminServer_ArtistListByOrganizer(t *testing.T) {
 	t.Run("unknown Organizer", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/artist "Unknown Organizer"
-		uc := usecasemocks.NewMockOrganizerUseCase(t)
-		uc.EXPECT().ListArtists(mock.Anything, organizerID).Return(nil, apperr.New(codes.NotFound, "organizer not found")).Once()
+		uc := usecasemocks.NewMockArtistUseCase(t)
+		uc.EXPECT().ListByOrganizer(mock.Anything, organizerID).Return(nil, apperr.New(codes.NotFound, "organizer not found")).Once()
 
 		_, err := newAdminArtistClient(t, uc).ListByOrganizer(context.Background(), asAdmin(&adminartistv1.ListByOrganizerRequest{
 			OrganizerId: &entityv1.OrganizerId{Value: organizerID},
@@ -75,7 +75,7 @@ func TestAdminServer_ArtistListByOrganizer(t *testing.T) {
 	t.Run("non-admin reads a roster", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/artist "Non-admin reads a roster"
-		_, err := newAdminArtistClient(t, usecasemocks.NewMockOrganizerUseCase(t)).ListByOrganizer(context.Background(),
+		_, err := newAdminArtistClient(t, usecasemocks.NewMockArtistUseCase(t)).ListByOrganizer(context.Background(),
 			asNonAdmin(&adminartistv1.ListByOrganizerRequest{OrganizerId: &entityv1.OrganizerId{Value: organizerID}}))
 
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))

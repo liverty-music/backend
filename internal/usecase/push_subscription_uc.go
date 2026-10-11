@@ -4,15 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/liverty-music/backend/internal/entity"
-	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
-// PushSubscriptionUseCase defines the interface for Web Push notification business logic.
+// PushSubscriptionUseCase manages a user's Web Push subscriptions, one per
+// browser.
 type PushSubscriptionUseCase interface {
 	// Create registers or updates the browser push subscription for the given
 	// (userID, endpoint) pair. The subscription is keyed by endpoint: calling
@@ -53,35 +51,10 @@ type PushSubscriptionUseCase interface {
 	//
 	//   - Internal: subscription deletion failure.
 	Delete(ctx context.Context, userID, endpoint, deviceType string) error
-
-	// NotifyNewConcerts sends Web Push notifications to followers of the given
-	// artist for the specified newly created concerts. The delivery pipeline
-	// hydrates the artist and concert entities internally, applies hype-level
-	// filtering, and requests a push notification for all eligible followers.
-	//
-	// For each eligible recipient, NotifyNewConcerts publishes NOTIFICATION.requested
-	// (EventPublisher.PublishEventWithID with a deterministic id derived from the
-	// artist, the concert batch, and the recipient — see notification_delivery.go)
-	// so the deliver-notification consumer records the durable Notification and
-	// dispatches the push; the deterministic id makes an at-least-once retry of
-	// this same CONCERT.created delivery a broker-side no-op rather than a second
-	// request. Only a publish failure surfaces as an error, so the consumer's
-	// at-least-once retry re-drives the batch; per-channel delivery errors
-	// (including 410 Gone responses) happen later, inside the deliver-notification
-	// consumer, and never reach this method.
-	//
-	// # Possible errors
-	//
-	//   - Internal: failure to look up artist, concerts, or followers, or to
-	//     publish the notification request.
-	NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error
 }
 
-// pushNotificationUseCase implements PushSubscriptionUseCase.
+// pushSubscriptionUseCase implements PushSubscriptionUseCase.
 type pushSubscriptionUseCase struct {
-	artistRepo  entity.ArtistRepository
-	concertRepo entity.ConcertRepository
-	followRepo  entity.FollowRepository
 	pushSubRepo entity.PushSubscriptionRepository
 	publisher   EventPublisher
 	logger      *logging.Logger
@@ -92,17 +65,11 @@ var _ PushSubscriptionUseCase = (*pushSubscriptionUseCase)(nil)
 
 // NewPushSubscriptionUseCase creates a new PushSubscriptionUseCase.
 func NewPushSubscriptionUseCase(
-	artistRepo entity.ArtistRepository,
-	concertRepo entity.ConcertRepository,
-	followRepo entity.FollowRepository,
 	pushSubRepo entity.PushSubscriptionRepository,
 	publisher EventPublisher,
 	logger *logging.Logger,
 ) PushSubscriptionUseCase {
 	return &pushSubscriptionUseCase{
-		artistRepo:  artistRepo,
-		concertRepo: concertRepo,
-		followRepo:  followRepo,
 		pushSubRepo: pushSubRepo,
 		publisher:   publisher,
 		logger:      logger,
@@ -166,224 +133,4 @@ func (uc *pushSubscriptionUseCase) Delete(ctx context.Context, userID, endpoint,
 	}
 
 	return nil
-}
-
-// NotifyNewConcerts sends Web Push notifications to followers of the artist,
-// filtered by each follower's hype level. Only the concerts identified in data
-// are used for hype filtering and payload computation.
-//
-// For each follower the new-concert set is narrowed to that recipient's
-// hype-matched subset (see [entity.Hype.MatchingConcerts]):
-//   - WATCH: empty subset → no notification.
-//   - HOME: concerts whose venue adminArea matches the follower's home area.
-//   - NEARBY: concerts within 200km of the follower's home centroid.
-//   - AWAY: all concerts.
-//
-// A recipient is notified only when their subset is non-empty. The body count is
-// the subset size, and the deep-link (data.url) targets the earliest concert of
-// the subset (local date asc, tie-broken by start time asc).
-//
-// Individual delivery failures are logged but do not cause the method to return an error.
-func (uc *pushSubscriptionUseCase) NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error {
-	// 0. Hydrate artist and concerts from their IDs.
-	artist, err := uc.artistRepo.Get(ctx, data.ArtistID)
-	if err != nil {
-		return fmt.Errorf("failed to get artist %s: %w", data.ArtistID, err)
-	}
-
-	concerts, err := uc.concertRepo.ListByIDs(ctx, data.ConcertIDs)
-	if err != nil {
-		return fmt.Errorf("failed to list concerts by IDs: %w", err)
-	}
-
-	// Validate that every requested concert exists and that the specified
-	// artist is one of its performers. With M:N performers, "belongs to" is
-	// "is a performer at" — a single concert (e.g. a festival) may legitimately
-	// belong to multiple artists. This protects against operator mistakes on
-	// the debug RPC path and bad publisher state on the event path.
-	hasPerformer := make(map[string]bool, len(concerts))
-	// orphanConcerts records concerts whose Performers slice is empty after
-	// hydration. The new M:N schema allows a structurally valid event row
-	// to exist with no concert_artists links (e.g. a race between Create
-	// and the natural-key JOIN in insertEventPerformersQuery, or an
-	// orphaned data state). Treat these as non-fatal — log + skip — rather
-	// than aborting the whole batch and indefinitely retrying the Pub/Sub
-	// message, which would block notifications for every other concert.
-	orphanConcerts := make(map[string]bool, len(concerts))
-	for _, c := range concerts {
-		if len(c.Artists) == 0 {
-			orphanConcerts[c.ID] = true
-			uc.logger.Warn(ctx, "concert has no performers after hydration; skipping membership check",
-				slog.String("concert_id", c.ID),
-				slog.String("artist_id", data.ArtistID),
-			)
-		}
-		hasPerformer[c.ID] = false
-		for _, p := range c.Artists {
-			if p != nil && p.ID == data.ArtistID {
-				hasPerformer[c.ID] = true
-				break
-			}
-		}
-	}
-	for _, id := range data.ConcertIDs {
-		performs, exists := hasPerformer[id]
-		if !exists {
-			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not exist")
-		}
-		if orphanConcerts[id] {
-			// Already logged above; do not fail the batch on a data anomaly.
-			continue
-		}
-		if !performs {
-			return apperr.New(codes.InvalidArgument, "concert_id "+id+" does not feature artist "+data.ArtistID)
-		}
-	}
-
-	// Drop orphan concerts from the working slice. The membership check
-	// skipped them above so they don't abort the batch, but if they
-	// stayed in `concerts` they would still feed MatchingConcerts —
-	// qualifying a follower for HypeHome / HypeNearby (or padding the
-	// HypeAway count and deep-link) on a concert whose performer
-	// membership was never confirmed (orphan concert_artists state).
-	if len(orphanConcerts) > 0 {
-		kept := concerts[:0]
-		for _, c := range concerts {
-			if !orphanConcerts[c.ID] {
-				kept = append(kept, c)
-			}
-		}
-		concerts = kept
-	}
-
-	// If every concert was an orphan, there's nothing real to notify
-	// about — short-circuit before the hype loop. Without this guard,
-	// HypeAway.MatchingConcerts would return an empty subset for every
-	// recipient (so no push is sent), but short-circuiting here also skips
-	// the follower lookup entirely.
-	if len(concerts) == 0 {
-		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no deliverable concerts",
-			slog.String("artist_id", data.ArtistID),
-			slog.String("reason", "no_deliverable_concerts"),
-		)
-		return nil
-	}
-
-	// 1. Retrieve all followers with their hype level and home area.
-	followers, err := uc.followRepo.ListFollowers(ctx, artist.ID)
-	if err != nil {
-		return fmt.Errorf("failed to list followers for artist %s: %w", artist.ID, err)
-	}
-	if len(followers) == 0 {
-		uc.logger.Info(ctx, "new-concert fan-out sent nothing: artist has no followers",
-			slog.String("artist_id", artist.ID),
-			slog.String("reason", "no_followers"),
-		)
-		return nil
-	}
-
-	// 2. For each follower, narrow the new-concert set to that recipient's
-	//    hype-matched subset, then record and dispatch one notification per
-	//    eligible recipient through the notification service. Every recipient
-	//    gets a durable record and a delivery outcome; the service resolves each
-	//    recipient's push subscriptions, performs the send, cleans up gone (410)
-	//    endpoints, and records delivered/failed.
-	//
-	//    Both the body count and the deep-link target are computed from the
-	//    per-recipient subset — never from the unfiltered new-concert set — so a
-	//    home-hype fan sees an area-accurate count and lands on a concert that
-	//    actually matched their hype tier.
-	dispatched := 0
-	for _, f := range followers {
-		// Honour context cancellation before each recipient.
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// f.User may be nil if the join with users dropped a row (e.g. an
-		// orphaned follow). Skip the whole follower in that case — the
-		// MatchingConcerts call reads f.User.Home and the dispatch reads
-		// f.User.ID, both of which would panic on a nil user.
-		if f.User == nil {
-			continue
-		}
-
-		subset := f.Hype.MatchingConcerts(f.User.Home, concerts)
-		if len(subset) == 0 {
-			continue
-		}
-
-		earliest := entity.EarliestConcert(subset)
-		if earliest == nil {
-			// Defensive: a non-empty subset should always yield an earliest
-			// concert. Skip rather than emit a notification with no deep-link.
-			continue
-		}
-
-		payload := entity.NewNotificationPayload(
-			artist.Name,
-			concertNotificationBody(len(subset), f.User.PreferredLanguage),
-			// Deep-link to the earliest hype-matched concert.
-			concertDeepLink(earliest),
-			fmt.Sprintf("concert-%s", artist.ID),
-		)
-		// Deterministic id: same artist + same concert batch + same recipient
-		// always derives the same id, so a retried CONCERT.created delivery
-		// republishes an identical NOTIFICATION.requested that the stream's
-		// Duplicates window discards rather than requesting delivery twice.
-		reqID := notificationRequestMsgID(entity.NotificationTypeNewConcerts, f.User.ID,
-			artist.ID+"|"+strings.Join(data.ConcertIDs, ","))
-		if err := uc.publisher.PublishEventWithID(ctx, entity.SubjectNotificationRequested, reqID, entity.NotificationRequestedData{
-			UserID:  f.User.ID,
-			Type:    entity.NotificationTypeNewConcerts,
-			Payload: payload,
-		}); err != nil {
-			// Publish failure: surface so the consumer's at-least-once retry
-			// re-drives the batch. Repeat web pushes are deduplicated both by
-			// the Duplicates window above and, browser-side, by the per-artist Tag.
-			return fmt.Errorf("failed to publish notification request for user %s of new concerts for artist %s: %w", f.User.ID, artist.ID, err)
-		}
-		dispatched++
-	}
-
-	// The artist has followers, but none was eligible after hype filtering (every
-	// recipient's matched subset was empty). Log the empty outcome so "processed
-	// the event but sent nothing" is diagnosable from logs alone, rather than
-	// returning silently.
-	if dispatched == 0 {
-		uc.logger.Info(ctx, "new-concert fan-out sent nothing: no eligible recipients after hype filtering",
-			slog.String("artist_id", artist.ID),
-			slog.String("reason", "no_eligible_recipients"),
-			slog.Int("follower_count", len(followers)),
-		)
-	}
-
-	return nil
-}
-
-// concertNotificationBody renders the new-concert count in the recipient's
-// language, falling back to English for empty or unsupported codes.
-func concertNotificationBody(concertCount int, lang string) string {
-	switch lang {
-	case "ja":
-		return fmt.Sprintf("新しいライブが%d件見つかりました", concertCount)
-	default:
-		if concertCount == 1 {
-			return "1 new concert found"
-		}
-		return fmt.Sprintf("%d new concerts found", concertCount)
-	}
-}
-
-// concertDeepLink returns the fan web path a new-concert notification opens for
-// c: the public event page /events/<id> when c's Series is first-party, and
-// otherwise /concerts/<id>, which routes to the dashboard and opens the
-// concert's detail sheet.
-func concertDeepLink(c *entity.Concert) string {
-	if c.Series != nil && c.Series.IsFirstParty() {
-		return "/events/" + c.ID
-	}
-	return "/concerts/" + c.ID
 }

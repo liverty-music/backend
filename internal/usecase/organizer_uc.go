@@ -48,23 +48,6 @@ type OrganizerUseCase interface {
 	// List returns every Organizer.
 	List(ctx context.Context) ([]*entity.Organizer, error)
 
-	// ListArtists returns the artists an Organizer represents. Used by the
-	// admin-facing handler, which may query any Organizer — it performs no
-	// ownership check. The organizer-facing handler MUST use ListOwnArtists
-	// instead.
-	//
-	// # Possible errors:
-	//   - NotFound: no organizer with the id exists.
-	ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error)
-
-	// ListOwnArtists returns the artists represented by the caller's own
-	// Organizer, as ResolveCaller returned it. The organizer-facing request
-	// names no Organizer, so an operator can only read their own roster.
-	//
-	// # Possible errors:
-	//   - NotFound: the caller's Organizer no longer exists.
-	ListOwnArtists(ctx context.Context, callerOrganizerID string) ([]*entity.Artist, error)
-
 	// ResolveCaller returns the caller's own Organizer, resolved from the
 	// Zitadel organization id extracted from the authenticated request
 	// context by the organizer-facing handler, and enforces that the
@@ -418,21 +401,6 @@ func (uc *organizerUseCase) Get(ctx context.Context, id string) (*entity.Organiz
 // List returns every Organizer regardless of status.
 func (uc *organizerUseCase) List(ctx context.Context) ([]*entity.Organizer, error) {
 	return uc.organizerRepo.List(ctx)
-}
-
-// ListArtists returns the artists represented by an Organizer. Returns
-// NotFound when no organizer with the given id exists.
-func (uc *organizerUseCase) ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
-	if _, err := uc.organizerRepo.Get(ctx, organizerID); err != nil {
-		return nil, err
-	}
-	return uc.organizerRepo.ListArtists(ctx, organizerID)
-}
-
-// ListOwnArtists returns the artists represented by the caller's own
-// Organizer, and NotFound when that Organizer no longer exists.
-func (uc *organizerUseCase) ListOwnArtists(ctx context.Context, callerOrganizerID string) ([]*entity.Artist, error) {
-	return uc.ListArtists(ctx, callerOrganizerID)
 }
 
 // ResolveCaller returns the Organizer linked to zitadelOrgID, enforcing that

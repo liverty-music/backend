@@ -81,54 +81,6 @@ func (_c *MockArtistUseCase_Create_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
-// CreateOfficialSite provides a mock function with given fields: ctx, artistID, url
-func (_m *MockArtistUseCase) CreateOfficialSite(ctx context.Context, artistID string, url string) error {
-	ret := _m.Called(ctx, artistID, url)
-
-	if len(ret) == 0 {
-		panic("no return value specified for CreateOfficialSite")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, artistID, url)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockArtistUseCase_CreateOfficialSite_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateOfficialSite'
-type MockArtistUseCase_CreateOfficialSite_Call struct {
-	*mock.Call
-}
-
-// CreateOfficialSite is a helper method to define mock.On call
-//   - ctx context.Context
-//   - artistID string
-//   - url string
-func (_e *MockArtistUseCase_Expecter) CreateOfficialSite(ctx interface{}, artistID interface{}, url interface{}) *MockArtistUseCase_CreateOfficialSite_Call {
-	return &MockArtistUseCase_CreateOfficialSite_Call{Call: _e.mock.On("CreateOfficialSite", ctx, artistID, url)}
-}
-
-func (_c *MockArtistUseCase_CreateOfficialSite_Call) Run(run func(ctx context.Context, artistID string, url string)) *MockArtistUseCase_CreateOfficialSite_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockArtistUseCase_CreateOfficialSite_Call) Return(_a0 error) *MockArtistUseCase_CreateOfficialSite_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockArtistUseCase_CreateOfficialSite_Call) RunAndReturn(run func(context.Context, string, string) error) *MockArtistUseCase_CreateOfficialSite_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetOfficialSite provides a mock function with given fields: ctx, artistID
 func (_m *MockArtistUseCase) GetOfficialSite(ctx context.Context, artistID string) (*entity.OfficialSite, error) {
 	ret := _m.Called(ctx, artistID)
@@ -242,6 +194,65 @@ func (_c *MockArtistUseCase_List_Call) Return(_a0 []*entity.Artist, _a1 error) *
 }
 
 func (_c *MockArtistUseCase_List_Call) RunAndReturn(run func(context.Context) ([]*entity.Artist, error)) *MockArtistUseCase_List_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByOrganizer provides a mock function with given fields: ctx, organizerID
+func (_m *MockArtistUseCase) ListByOrganizer(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
+	ret := _m.Called(ctx, organizerID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByOrganizer")
+	}
+
+	var r0 []*entity.Artist
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Artist, error)); ok {
+		return rf(ctx, organizerID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Artist); ok {
+		r0 = rf(ctx, organizerID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Artist)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, organizerID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockArtistUseCase_ListByOrganizer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByOrganizer'
+type MockArtistUseCase_ListByOrganizer_Call struct {
+	*mock.Call
+}
+
+// ListByOrganizer is a helper method to define mock.On call
+//   - ctx context.Context
+//   - organizerID string
+func (_e *MockArtistUseCase_Expecter) ListByOrganizer(ctx interface{}, organizerID interface{}) *MockArtistUseCase_ListByOrganizer_Call {
+	return &MockArtistUseCase_ListByOrganizer_Call{Call: _e.mock.On("ListByOrganizer", ctx, organizerID)}
+}
+
+func (_c *MockArtistUseCase_ListByOrganizer_Call) Run(run func(ctx context.Context, organizerID string)) *MockArtistUseCase_ListByOrganizer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockArtistUseCase_ListByOrganizer_Call) Return(_a0 []*entity.Artist, _a1 error) *MockArtistUseCase_ListByOrganizer_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockArtistUseCase_ListByOrganizer_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Artist, error)) *MockArtistUseCase_ListByOrganizer_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -90,7 +90,8 @@ func TestNotifyNewConcerts_RequestIDIsDeterministic(t *testing.T) {
 		followRepo := entitymocks.NewMockFollowRepository(t)
 		pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
 		publisher := ucmocks.NewMockEventPublisher(t)
-		uc := usecase.NewPushSubscriptionUseCase(artistRepo, concertRepo, followRepo, pushSubRepo, publisher, newTestLogger(t))
+		uc := usecase.NewNotificationUseCase(nil, pushSubRepo, nil, publisher, noopMetrics{}, newTestLogger(t), usecase.OrderConfirmationDeps{},
+			usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
 
 		area := "JP-13"
 		artistRepo.EXPECT().Get(ctx, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist"}, nil).Once()

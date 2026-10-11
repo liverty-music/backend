@@ -71,6 +71,28 @@ type NotificationUseCase interface {
 	//
 	//   - Any read or send failure, unchanged; the announcement is redelivered.
 	SendOrderConfirmation(ctx context.Context, paid entity.OrderPaidData) error
+
+	// NotifyNewConcerts sends Web Push notifications to followers of the given
+	// artist for the specified newly created concerts. The delivery pipeline
+	// hydrates the artist and concert entities internally, applies hype-level
+	// filtering, and requests a push notification for all eligible followers.
+	//
+	// For each eligible recipient, NotifyNewConcerts publishes NOTIFICATION.requested
+	// (EventPublisher.PublishEventWithID with a deterministic id derived from the
+	// artist, the concert batch, and the recipient — see notification_delivery.go)
+	// so the deliver-notification consumer records the durable Notification and
+	// dispatches the push; the deterministic id makes an at-least-once retry of
+	// this same CONCERT.created delivery a broker-side no-op rather than a second
+	// request. Only a publish failure surfaces as an error, so the consumer's
+	// at-least-once retry re-drives the batch; per-channel delivery errors
+	// (including 410 Gone responses) happen later, inside the deliver-notification
+	// consumer, and never reach this method.
+	//
+	// # Possible errors
+	//
+	//   - Internal: failure to look up artist, concerts, or followers, or to
+	//     publish the notification request.
+	NotifyNewConcerts(ctx context.Context, data ConcertCreatedData) error
 }
 
 // notificationUseCase implements NotificationUseCase.
@@ -82,6 +104,9 @@ type notificationUseCase struct {
 	metrics           PushMetrics
 	logger            *logging.Logger
 	orderConfirmation OrderConfirmationDeps
+	artistRepo        entity.ArtistRepository
+	concertRepo       entity.ConcertRepository
+	followRepo        entity.FollowRepository
 }
 
 // Compile-time interface compliance check.
@@ -99,6 +124,7 @@ func NewNotificationUseCase(
 	metrics PushMetrics,
 	logger *logging.Logger,
 	orderConfirmation OrderConfirmationDeps,
+	newConcerts NewConcertsDeps,
 ) NotificationUseCase {
 	return &notificationUseCase{
 		notificationRepo:  notificationRepo,
@@ -108,7 +134,18 @@ func NewNotificationUseCase(
 		metrics:           metrics,
 		logger:            logger,
 		orderConfirmation: orderConfirmation,
+		artistRepo:        newConcerts.ArtistRepo,
+		concertRepo:       newConcerts.ConcertRepo,
+		followRepo:        newConcerts.FollowRepo,
 	}
+}
+
+// NewConcertsDeps are the dependencies of [NotificationUseCase.NotifyNewConcerts].
+// A process that never notifies of new concerts may leave them nil.
+type NewConcertsDeps struct {
+	ArtistRepo  entity.ArtistRepository
+	ConcertRepo entity.ConcertRepository
+	FollowRepo  entity.FollowRepository
 }
 
 // deps returns the entity ports bundled for [deliverNotification].

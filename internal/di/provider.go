@@ -254,7 +254,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, emailVerifier, identityRemover, logger)
 	centroidResolver := geo.NewCentroidResolver()
 	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
-	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
+	artistUC := usecase.NewArtistUseCase(artistRepo, organizerRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
 	// Organizer tenant provisioner: the real Zitadel Management-API client on the
 	// workload that provisions organizers (the isolated admin workload, which
 	// mounts the dedicated organizer-provisioner credential). Other workloads
@@ -478,15 +478,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	notificationRepo := rdb.NewNotificationRepository(db)
 	// The API never sends order confirmations (the consumer does), so the
 	// order-confirmation dependencies stay empty here.
-	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger, usecase.OrderConfirmationDeps{})
-	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(
-		artistRepo,
-		concertRepo,
-		followRepo,
-		pushSubRepo,
-		eventPublisher,
-		logger,
-	)
+	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger, usecase.OrderConfirmationDeps{},
+		usecase.NewConcertsDeps{ArtistRepo: artistRepo, ConcertRepo: concertRepo, FollowRepo: followRepo})
+	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(pushSubRepo, eventPublisher, logger)
 	// Auth - JWT Validator and Interceptor
 	jwtValidator, err := auth.NewJWTValidator(
 		cfg.JWT.Issuer,
@@ -590,14 +584,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Admin ArtistService: ListByOrganizer.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminartistconnect.NewArtistServiceHandler(
-				rpc.NewAdminArtistHandler(organizerUC, logger),
+				rpc.NewAdminArtistHandler(artistUC, logger),
 				opts...,
 			)
 		},
 		// Admin NotificationService: NotifyNewConcerts.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminnotificationconnect.NewNotificationServiceHandler(
-				rpc.NewAdminNotificationHandler(pushSubscriptionUC, cfg.BaseConfig, logger),
+				rpc.NewAdminNotificationHandler(notificationUC, cfg.BaseConfig, logger),
 				opts...,
 			)
 		},
@@ -655,7 +649,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return officialsiteconnect.NewOfficialSiteServiceHandler(
-				rpc.NewOfficialSiteHandler(artistUC, logger),
+				rpc.NewOfficialSiteHandler(usecase.NewOfficialSiteUseCase(artistRepo), logger),
 				opts...,
 			)
 		},
@@ -778,7 +772,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Organizer-facing ArtistService: List (the Organizer's own Artists).
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerartistconnect.NewArtistServiceHandler(
-				rpc.NewOrganizerArtistHandler(organizerUC, logger),
+				rpc.NewOrganizerArtistHandler(artistUC, organizerUC, logger),
 				opts...,
 			)
 		},

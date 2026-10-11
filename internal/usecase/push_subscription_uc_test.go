@@ -24,6 +24,7 @@ type pushNotificationTestDeps struct {
 	pushSubRepo *mocks.MockPushSubscriptionRepository
 	publisher   *ucmocks.MockEventPublisher
 	uc          usecase.PushSubscriptionUseCase
+	notify      usecase.NotificationUseCase
 }
 
 func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
@@ -35,14 +36,8 @@ func newPushNotificationTestDeps(t *testing.T) *pushNotificationTestDeps {
 		pushSubRepo: mocks.NewMockPushSubscriptionRepository(t),
 		publisher:   ucmocks.NewMockEventPublisher(t),
 	}
-	d.uc = usecase.NewPushSubscriptionUseCase(
-		d.artistRepo,
-		d.concertRepo,
-		d.followRepo,
-		d.pushSubRepo,
-		d.publisher,
-		newTestLogger(t),
-	)
+	d.uc = usecase.NewPushSubscriptionUseCase(d.pushSubRepo, d.publisher, newTestLogger(t))
+	d.notify = newNotifyNewConcertsUC(t, d, newTestLogger(t))
 	return d
 }
 
@@ -760,7 +755,7 @@ func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			err := d.uc.NotifyNewConcerts(ctx, tt.args.data)
+			err := d.notify.NotifyNewConcerts(ctx, tt.args.data)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -807,7 +802,7 @@ func TestNotifyNewConcerts_LocalizesBodyPerRecipient(t *testing.T) {
 		return p.Body == "1 new concert found" // unset language falls back to en
 	})
 
-	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}})
+	err := d.notify.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1"}})
 	assert.NoError(t, err)
 }
 
@@ -842,22 +837,24 @@ func TestNotifyNewConcerts_PluralBodyPerLanguage(t *testing.T) {
 		return p.Body == "2 new concerts found" // plural form for N>1
 	})
 
-	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2"}})
+	err := d.notify.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2"}})
 	assert.NoError(t, err)
 }
 
 // newPushNotificationUCWithLogger builds the use case with a capture logger so a
 // test can assert on the zero-recipient early-return logs.
-func newPushNotificationUCWithLogger(t *testing.T, d *pushNotificationTestDeps, logger *logging.Logger) usecase.PushSubscriptionUseCase {
+func newPushNotificationUCWithLogger(t *testing.T, d *pushNotificationTestDeps, logger *logging.Logger) usecase.NotificationUseCase {
 	t.Helper()
-	return usecase.NewPushSubscriptionUseCase(
-		d.artistRepo,
-		d.concertRepo,
-		d.followRepo,
-		d.pushSubRepo,
-		d.publisher,
-		logger,
-	)
+	return newNotifyNewConcertsUC(t, d, logger)
+}
+
+// newNotifyNewConcertsUC builds the NotificationUseCase that NotifyNewConcerts
+// runs on, over the fixture's repositories and publisher.
+func newNotifyNewConcertsUC(t *testing.T, d *pushNotificationTestDeps, logger *logging.Logger) usecase.NotificationUseCase {
+	t.Helper()
+	return usecase.NewNotificationUseCase(nil, d.pushSubRepo, nil, d.publisher, noopMetrics{}, logger,
+		usecase.OrderConfirmationDeps{},
+		usecase.NewConcertsDeps{ArtistRepo: d.artistRepo, ConcertRepo: d.concertRepo, FollowRepo: d.followRepo})
 }
 
 // TestNotifyNewConcerts_ZeroRecipientPathsAreLogged verifies each zero-dispatch
@@ -968,7 +965,7 @@ func TestNotifyNewConcerts_DeepLinksToEarliestMatched(t *testing.T) {
 		return payloadURL(p) == "/concerts/c-early" && p.Body == "2 new concerts found"
 	})
 
-	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c-late", "c-early"}})
+	err := d.notify.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c-late", "c-early"}})
 	assert.NoError(t, err)
 }
 
@@ -1002,7 +999,7 @@ func TestNotifyNewConcerts_FirstPartyDeepLinksToEventPage(t *testing.T) {
 		return payloadURL(p) == "/events/first-party-early"
 	})
 
-	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"discovered-late", "first-party-early"}})
+	err := d.notify.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"discovered-late", "first-party-early"}})
 	assert.NoError(t, err)
 }
 
@@ -1038,7 +1035,7 @@ func TestNotifyNewConcerts_HomeRecipientSubsetCountAndDeepLink(t *testing.T) {
 		return payloadURL(p) == "/concerts/tokyo-later" && p.Body == "1 new concert found"
 	})
 
-	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"aichi-early", "tokyo-later", "aichi-early2"}})
+	err := d.notify.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"aichi-early", "tokyo-later", "aichi-early2"}})
 	assert.NoError(t, err)
 }
 
@@ -1070,7 +1067,7 @@ func TestNotifyNewConcerts_SeveralConcertsInEnglish(t *testing.T) {
 		return p.Body == "3 new concerts found"
 	})
 
-	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2", "c3"}})
+	err := d.notify.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"c1", "c2", "c3"}})
 	assert.NoError(t, err)
 }
 
@@ -1108,6 +1105,6 @@ func TestNotifyNewConcerts_SameDayEarlierStart(t *testing.T) {
 		return payloadURL(p) == "/concerts/z-early"
 	})
 
-	err := d.uc.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"a-late", "z-early"}})
+	err := d.notify.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{ArtistID: "artist-1", ConcertIDs: []string{"a-late", "z-early"}})
 	assert.NoError(t, err)
 }

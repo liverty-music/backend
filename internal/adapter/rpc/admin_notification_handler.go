@@ -22,21 +22,21 @@ var _ adminnotificationv1connect.NotificationServiceHandler = (*AdminNotificatio
 // production only. The admin role is enforced at the admin server boundary by
 // its server-wide RequireRoleInterceptor.
 type AdminNotificationHandler struct {
-	pushUseCase  usecase.PushSubscriptionUseCase
-	isProduction bool
-	logger       *logging.Logger
+	notificationUC usecase.NotificationUseCase
+	isProduction   bool
+	logger         *logging.Logger
 }
 
 // NewAdminNotificationHandler creates a new AdminNotificationHandler.
 func NewAdminNotificationHandler(
-	pushUseCase usecase.PushSubscriptionUseCase,
+	notificationUC usecase.NotificationUseCase,
 	cfg config.BaseConfig,
 	logger *logging.Logger,
 ) *AdminNotificationHandler {
 	return &AdminNotificationHandler{
-		pushUseCase:  pushUseCase,
-		isProduction: cfg.IsProduction(),
-		logger:       logger,
+		notificationUC: notificationUC,
+		isProduction:   cfg.IsProduction(),
+		logger:         logger,
 	}
 }
 
@@ -70,7 +70,7 @@ func (h *AdminNotificationHandler) NotifyNewConcerts(ctx context.Context, req *c
 		concertIDs = append(concertIDs, id.GetValue())
 	}
 
-	if err := h.pushUseCase.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{
+	if err := h.notificationUC.NotifyNewConcerts(ctx, usecase.ConcertCreatedData{
 		ArtistID:   req.Msg.GetArtistId().GetValue(),
 		ConcertIDs: concertIDs,
 	}); err != nil {
