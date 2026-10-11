@@ -46,6 +46,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/gcp/gemini"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 	"github.com/liverty-music/backend/internal/infrastructure/geo"
+	googlemaps "github.com/liverty-music/backend/internal/infrastructure/maps/google"
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/lastfm"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
@@ -59,9 +60,13 @@ import (
 	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/liverty-music/backend/pkg/cache"
 	"github.com/liverty-music/backend/pkg/config"
+	"github.com/liverty-music/backend/pkg/httpx"
 	"github.com/liverty-music/backend/pkg/shutdown"
 	"github.com/liverty-music/backend/pkg/telemetry"
+	"github.com/pannpers/go-logging/logging"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 const (
@@ -73,6 +78,38 @@ const (
 	// link tokens are counted per client.
 	receptionUnknownTokenWindow = 10 * time.Minute
 )
+
+// newVenueMapCatalog builds the Google Maps Places client that serves the
+// organizer venue search and reads a picked place. It authenticates with
+// Application Default Credentials (Workload Identity in GKE) and bills the
+// given project. Outside local, missing credentials stop the server; local dev
+// without credentials gets a catalog whose every call fails with Unavailable.
+func newVenueMapCatalog(ctx context.Context, projectID string, isLocal bool, logger *logging.Logger) (*googlemaps.Client, error) {
+	ts, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		if !isLocal {
+			return nil, fmt.Errorf("obtain google maps token source: %w", err)
+		}
+		logger.Warn(ctx, "no application default credentials: venue search and new venues are unavailable", slog.Any("error", err))
+		ts = unavailableTokenSource{err: err}
+	}
+	httpClient := &http.Client{
+		Transport: otelhttp.NewTransport(httpx.NewRetryTransport(nil)),
+		Timeout:   10 * time.Second,
+	}
+	return googlemaps.NewClient(ts, projectID, httpClient, logger), nil
+}
+
+// unavailableTokenSource fails every token request, so a map catalog built on
+// it answers Unavailable. Used only in local dev without credentials.
+type unavailableTokenSource struct {
+	err error
+}
+
+// Token implements oauth2.TokenSource.
+func (s unavailableTokenSource) Token() (*oauth2.Token, error) {
+	return nil, s.err
+}
 
 // InitializeApp creates a new App with all dependencies wired up manually.
 func InitializeApp(ctx context.Context) (*App, error) {
@@ -250,7 +287,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if cfg.ProvisionsOrganizers() {
 		startOrganizerReconciler(ctx, organizerUC, logger)
 	}
-	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, organizerRepo, eventPublisher, logger)
+	// Map catalog (Google Maps Places API) that organizer operators pick event
+	// venues from.
+	mapCatalog, err := newVenueMapCatalog(ctx, cfg.GCP.ProjectID, cfg.IsLocal(), logger)
+	if err != nil {
+		return nil, err
+	}
+	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, mapCatalog, organizerRepo, eventPublisher, logger)
 
 	// Identity eKYC — select the real Pocket Sign Stamp client when all four
 	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are

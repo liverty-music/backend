@@ -47,6 +47,54 @@ type VenuePlaceSearcher interface {
 	SearchPlace(ctx context.Context, name, adminArea string) (*VenuePlace, error)
 }
 
+// MapPlaceCandidate is one place the map catalog offers for a venue name an
+// operator searched.
+type MapPlaceCandidate struct {
+	// PlaceID is the map catalog's place id (a Google Maps Place ID).
+	PlaceID string
+	// Name is the place's canonical name, in Japanese when the catalog has one.
+	Name string
+	// Address is the place's formatted address as the catalog gives it.
+	Address string
+}
+
+// MapPlace is one place read from the map catalog by its place id.
+type MapPlace struct {
+	// PlaceID is the map catalog's place id (a Google Maps Place ID).
+	PlaceID string
+	// Name is the place's canonical name, in Japanese when the catalog has one.
+	Name string
+	// Coordinates is the WGS 84 position of the place. Nil when the catalog
+	// gives none.
+	Coordinates *Coordinates
+	// AdminArea is the ISO 3166-2 code of the subdivision the place lies in
+	// (e.g. "JP-13"). Nil when the catalog names no subdivision that maps to a
+	// code.
+	AdminArea *string
+}
+
+// VenueMapCatalog is the external map catalog an organizer operator picks a
+// venue from. It is separate from VenuePlaceSearcher, which concert discovery
+// uses for a single best match and which MusicBrainz also implements.
+type VenueMapCatalog interface {
+	// SearchPlaces looks up a venue name and returns at most 5 candidate places,
+	// best match first, places in Japan before places elsewhere. It returns an
+	// empty slice when the catalog has no match.
+	//
+	// # Possible errors
+	//
+	//  - Unavailable: If the catalog cannot be reached.
+	SearchPlaces(ctx context.Context, text string) ([]*MapPlaceCandidate, error)
+
+	// GetPlace reads one place by its place id.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: If the catalog has no place with that id.
+	//  - Unavailable: If the catalog cannot be reached.
+	GetPlace(ctx context.Context, placeID string) (*MapPlace, error)
+}
+
 // VenueRepository defines the data access interface for Venues.
 type VenueRepository interface {
 	// Create inserts a new venue and returns the id of the surviving row. It is an

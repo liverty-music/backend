@@ -365,6 +365,66 @@ func (_c *MockConcertAuthoringUseCase_RegenerateToken_Call) RunAndReturn(run fun
 	return _c
 }
 
+// SearchPlaces provides a mock function with given fields: ctx, callerOrgID, text
+func (_m *MockConcertAuthoringUseCase) SearchPlaces(ctx context.Context, callerOrgID string, text string) ([]*entity.MapPlaceCandidate, error) {
+	ret := _m.Called(ctx, callerOrgID, text)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SearchPlaces")
+	}
+
+	var r0 []*entity.MapPlaceCandidate
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) ([]*entity.MapPlaceCandidate, error)); ok {
+		return rf(ctx, callerOrgID, text)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) []*entity.MapPlaceCandidate); ok {
+		r0 = rf(ctx, callerOrgID, text)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.MapPlaceCandidate)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, callerOrgID, text)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockConcertAuthoringUseCase_SearchPlaces_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SearchPlaces'
+type MockConcertAuthoringUseCase_SearchPlaces_Call struct {
+	*mock.Call
+}
+
+// SearchPlaces is a helper method to define mock.On call
+//   - ctx context.Context
+//   - callerOrgID string
+//   - text string
+func (_e *MockConcertAuthoringUseCase_Expecter) SearchPlaces(ctx interface{}, callerOrgID interface{}, text interface{}) *MockConcertAuthoringUseCase_SearchPlaces_Call {
+	return &MockConcertAuthoringUseCase_SearchPlaces_Call{Call: _e.mock.On("SearchPlaces", ctx, callerOrgID, text)}
+}
+
+func (_c *MockConcertAuthoringUseCase_SearchPlaces_Call) Run(run func(ctx context.Context, callerOrgID string, text string)) *MockConcertAuthoringUseCase_SearchPlaces_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockConcertAuthoringUseCase_SearchPlaces_Call) Return(_a0 []*entity.MapPlaceCandidate, _a1 error) *MockConcertAuthoringUseCase_SearchPlaces_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockConcertAuthoringUseCase_SearchPlaces_Call) RunAndReturn(run func(context.Context, string, string) ([]*entity.MapPlaceCandidate, error)) *MockConcertAuthoringUseCase_SearchPlaces_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateDraft provides a mock function with given fields: ctx, callerOrgID, seriesID, draft, eventInputs, performerArtistIDs
 func (_m *MockConcertAuthoringUseCase) UpdateDraft(ctx context.Context, callerOrgID string, seriesID string, draft *entity.Series, eventInputs []*usecase.DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
 	ret := _m.Called(ctx, callerOrgID, seriesID, draft, eventInputs, performerArtistIDs)

@@ -305,3 +305,24 @@ func (h *OrganizerSeriesHandler) List(
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
 }
+
+// SearchVenues looks up a venue name in the map catalog for the caller's own
+// active Organizer and returns the candidate places.
+func (h *OrganizerSeriesHandler) SearchVenues(
+	ctx context.Context,
+	req *connect.Request[organizerseriesv1.SearchVenuesRequest],
+) (*connect.Response[organizerseriesv1.SearchVenuesResponse], error) {
+	organizer, err := h.resolveCallerOrganizer(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates, err := h.authoringUC.SearchPlaces(ctx, organizer.ID, req.Msg.GetText())
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&organizerseriesv1.SearchVenuesResponse{
+		Candidates: mapper.VenueCandidatesToProto(candidates),
+	}), nil
+}

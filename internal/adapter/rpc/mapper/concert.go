@@ -195,6 +195,9 @@ func VenueToProto(v *entity.Venue) *entityv1.Venue {
 	if v.AdminArea != nil {
 		result.AdminArea = &entityv1.AdminArea{Value: *v.AdminArea}
 	}
+	if v.GooglePlaceID != nil && *v.GooglePlaceID != "" {
+		result.PlaceId = &entityv1.PlaceId{Value: *v.GooglePlaceID}
+	}
 	return result
 }
 

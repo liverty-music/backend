@@ -135,6 +135,103 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 	})
 }
 
+// TestOrganizerSeriesHandler_List_EventVenue verifies that each Concert's
+// event in the List response carries the Venue the authored read filled: id,
+// name, admin area and place id, so the editor can show and resend the picked
+// place.
+func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
+	t.Parallel()
+	d := newOrganizerSeriesHandlerDeps(t)
+
+	d.organizerUC.EXPECT().
+		ResolveCaller(mock.Anything, testZitadelOrgID).
+		Return(activeOrganizer(), nil).
+		Once()
+	ev := authoredEvent("event-1", "series-1", 1)
+	ev.VenueID = "venue-1"
+	ev.ListedVenueName = new("Zepp Haneda")
+	ev.Venue = &entity.Venue{
+		ID:            "venue-1",
+		Name:          "Zepp Haneda (TOKYO)",
+		AdminArea:     new("JP-13"),
+		GooglePlaceID: new("ChIJeVmAOuphGGARoWY4-GPmhhA"),
+	}
+	events := []*entity.Event{ev}
+	d.authoringUC.EXPECT().
+		ListOwn(mock.Anything, testOrganizerID).
+		Return(
+			[]*entity.Series{{ID: "series-1", Title: "ONE MAN LIVE"}},
+			[]*[]*entity.Event{&events},
+			[]*[]*entity.Artist{nil},
+			nil,
+		).
+		Once()
+
+	resp, err := d.handler.List(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Concerts, 1)
+	venue := resp.Msg.Concerts[0].GetEvent().GetVenue()
+	require.NotNil(t, venue)
+	assert.Equal(t, "venue-1", venue.GetId().GetValue())
+	assert.Equal(t, "Zepp Haneda (TOKYO)", venue.GetName().GetValue())
+	assert.Equal(t, "JP-13", venue.GetAdminArea().GetValue())
+	assert.Equal(t, "ChIJeVmAOuphGGARoWY4-GPmhhA", venue.GetPlaceId().GetValue())
+	assert.Equal(t, "Zepp Haneda", resp.Msg.Concerts[0].GetEvent().GetListedVenueName().GetValue())
+}
+
+func TestOrganizerSeriesHandler_SearchVenues(t *testing.T) {
+	t.Parallel()
+
+	// @spec components/adapter/organizer/api/rpc/series "Venue search for an active Organizer"
+	t.Run("return the candidate places for an operator of an active organizer", func(t *testing.T) {
+		t.Parallel()
+		d := newOrganizerSeriesHandlerDeps(t)
+
+		d.organizerUC.EXPECT().
+			ResolveCaller(mock.Anything, testZitadelOrgID).
+			Return(activeOrganizer(), nil).
+			Once()
+		d.authoringUC.EXPECT().
+			SearchPlaces(mock.Anything, testOrganizerID, "Zepp Haneda").
+			Return([]*entity.MapPlaceCandidate{
+				{PlaceID: "ChIJeVmAOuphGGARoWY4-GPmhhA", Name: "Zepp Haneda (TOKYO)", Address: "〒144-0041 東京都大田区羽田空港１丁目１−４"},
+				{PlaceID: "ChIJother", Name: "Zepp DiverCity (TOKYO)", Address: "〒135-0064 東京都江東区青海１丁目１−１０"},
+			}, nil).
+			Once()
+
+		resp, err := d.handler.SearchVenues(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.SearchVenuesRequest{Text: "Zepp Haneda"}))
+
+		require.NoError(t, err)
+		require.Len(t, resp.Msg.GetCandidates(), 2)
+		first := resp.Msg.GetCandidates()[0]
+		assert.Equal(t, "ChIJeVmAOuphGGARoWY4-GPmhhA", first.GetPlaceId().GetValue())
+		assert.Equal(t, "Zepp Haneda (TOKYO)", first.GetName().GetValue())
+		assert.Equal(t, "〒144-0041 東京都大田区羽田空港１丁目１−４", first.GetAddress())
+		assert.Equal(t, "ChIJother", resp.Msg.GetCandidates()[1].GetPlaceId().GetValue())
+	})
+
+	// @spec components/adapter/organizer/api/rpc/series "Venue search without an Organizer"
+	t.Run("return PERMISSION_DENIED without calling the map catalog when no organizer is linked to the tenant", func(t *testing.T) {
+		t.Parallel()
+		d := newOrganizerSeriesHandlerDeps(t)
+
+		// The authoring usecase (the only path to the map catalog) has no
+		// expectation: reaching it fails the test.
+		resolveErr := apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")
+		d.organizerUC.EXPECT().
+			ResolveCaller(mock.Anything, testZitadelOrgID).
+			Return(nil, resolveErr).
+			Once()
+
+		_, err := d.handler.SearchVenues(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.SearchVenuesRequest{Text: "Zepp Haneda"}))
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, resolveErr)
+		assert.Equal(t, connect.CodePermissionDenied, connectCodeOf(err))
+	})
+}
+
 func TestOrganizerSeriesHandler_Create(t *testing.T) {
 	t.Parallel()
 
@@ -163,8 +260,8 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 				Visibility: entityv1.Visibility_VISIBILITY_PUBLIC,
 				ArtistIds:  []*entityv1.ArtistId{{Value: "artist-1"}},
 				Events: []*organizerseriesv1.EventDraft{
-					{VenueName: &entityv1.VenueName{Value: "WWW"}, LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 12, Day: 1}}},
-					{VenueName: &entityv1.VenueName{Value: "WWW"}, LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 12, Day: 2}}},
+					{VenueName: &entityv1.VenueName{Value: "WWW"}, PlaceId: &entityv1.PlaceId{Value: "ChIJwww"}, LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 12, Day: 1}}},
+					{VenueName: &entityv1.VenueName{Value: "WWW"}, PlaceId: &entityv1.PlaceId{Value: "ChIJwww"}, LocalDate: &entityv1.LocalDate{Value: &date.Date{Year: 2026, Month: 12, Day: 2}}},
 				},
 			},
 		}))
@@ -275,6 +372,10 @@ func TestOrganizerSeriesHandler_ResolveCallerFailure(t *testing.T) {
 		}},
 		{"AttachMedia", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
 			_, err := h.AttachMedia(ctx, connect.NewRequest(&organizerseriesv1.AttachMediaRequest{}))
+			return err
+		}},
+		{"SearchVenues", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
+			_, err := h.SearchVenues(ctx, connect.NewRequest(&organizerseriesv1.SearchVenuesRequest{Text: "Zepp Haneda"}))
 			return err
 		}},
 	}

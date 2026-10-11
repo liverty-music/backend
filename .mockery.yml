@@ -52,6 +52,7 @@ packages:
       UserRepository:
       SearchLogRepository:
       VenueRepository:
+      VenueMapCatalog:
       TicketMinter:
       TicketRepository:
       PushSubscriptionRepository:

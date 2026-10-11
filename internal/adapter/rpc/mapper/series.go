@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	organizerseriesv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 )
@@ -149,4 +150,18 @@ func VisibilityFromProto(v entityv1.Visibility) entity.SeriesVisibility {
 	default:
 		return entity.SeriesVisibilityPublic
 	}
+}
+
+// VenueCandidatesToProto maps the map catalog's candidate places for a venue
+// search to the organizer SearchVenues response candidates, keeping their order.
+func VenueCandidatesToProto(candidates []*entity.MapPlaceCandidate) []*organizerseriesv1.VenueCandidate {
+	out := make([]*organizerseriesv1.VenueCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		out = append(out, &organizerseriesv1.VenueCandidate{
+			PlaceId: &entityv1.PlaceId{Value: c.PlaceID},
+			Name:    &entityv1.VenueName{Value: c.Name},
+			Address: c.Address,
+		})
+	}
+	return out
 }
