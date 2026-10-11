@@ -3,6 +3,8 @@ package rpc
 import (
 	"context"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+
 	checkoutv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/checkout/v1/checkoutv1connect"
 	checkoutv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/checkout/v1"
 	"connectrpc.com/connect"
@@ -72,12 +74,12 @@ func (h *CheckoutHandler) Get(
 	return connect.NewResponse(&checkoutv1.GetResponse{Checkout: mapper.CheckoutToProto(checkout)}), nil
 }
 
-// Authorize stores the caller's full name and phone number and opens the card
+// AuthorizeCard stores the caller's full name and phone number and opens the card
 // hold, returning the hold's confirmation secret.
-func (h *CheckoutHandler) Authorize(
+func (h *CheckoutHandler) AuthorizeCard(
 	ctx context.Context,
-	req *connect.Request[checkoutv1.AuthorizeRequest],
-) (*connect.Response[checkoutv1.AuthorizeResponse], error) {
+	req *connect.Request[checkoutv1.AuthorizeCardRequest],
+) (*connect.Response[checkoutv1.AuthorizeCardResponse], error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
@@ -88,7 +90,7 @@ func (h *CheckoutHandler) Authorize(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&checkoutv1.AuthorizeResponse{ClientSecret: secret}), nil
+	return connect.NewResponse(&checkoutv1.AuthorizeCardResponse{CardAuthorizationSecret: &entityv1.CardAuthorizationSecret{Value: secret}}), nil
 }
 
 // Confirm places the Order for the caller's Checkout.

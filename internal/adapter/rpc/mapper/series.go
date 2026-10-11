@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	organizerseriesv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/series/v1"
+	organizervenuev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/venue/v1"
 	"github.com/liverty-music/backend/internal/entity"
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 )
@@ -40,7 +40,7 @@ func (b *MediaURLBuilder) VariantURL(organizerID, mediaID, variant string) strin
 // seriesMediaProto builds the entityv1.Media message for a series' cover media.
 // Returns nil when the series has no cover media or when the CDN base is
 // unset, so callers never emit a proto with empty URL fields.
-func (b *MediaURLBuilder) seriesMediaProto(s *entity.Series) *entityv1.Media {
+func (b *MediaURLBuilder) seriesMediaProto(s *entity.Series) *entityv1.SeriesImage {
 	if s.CoverMedia == nil {
 		return nil
 	}
@@ -50,13 +50,10 @@ func (b *MediaURLBuilder) seriesMediaProto(s *entity.Series) *entityv1.Media {
 		// CDN base not configured — omit rather than emit broken URLs.
 		return nil
 	}
-	return &entityv1.Media{
-		Id:   &entityv1.MediaId{Value: s.CoverMedia.ID},
-		Kind: entityv1.MediaKind_MEDIA_KIND_IMAGE,
-		Attributes: &entityv1.MediaAttributes{
-			Thumb: &entityv1.Url{Value: thumbURL},
-			Large: &entityv1.Url{Value: largeURL},
-		},
+	return &entityv1.SeriesImage{
+		Id:    &entityv1.SeriesImageId{Value: s.CoverMedia.ID},
+		Thumb: &entityv1.Url{Value: thumbURL},
+		Large: &entityv1.Url{Value: largeURL},
 	}
 }
 
@@ -68,7 +65,7 @@ func (b *MediaURLBuilder) SeriesToProto(s *entity.Series) *entityv1.Series {
 		return nil
 	}
 	if m := b.seriesMediaProto(s); m != nil {
-		proto.Media = m
+		proto.CoverImage = m
 	}
 	return proto
 }
@@ -153,11 +150,11 @@ func VisibilityFromProto(v entityv1.Visibility) entity.SeriesVisibility {
 }
 
 // VenueCandidatesToProto maps the map catalog's candidate places for a venue
-// search to the organizer SearchVenues response candidates, keeping their order.
-func VenueCandidatesToProto(candidates []*entity.MapPlaceCandidate) []*organizerseriesv1.VenueCandidate {
-	out := make([]*organizerseriesv1.VenueCandidate, 0, len(candidates))
+// search to the organizer VenueService.Search response candidates, keeping their order.
+func VenueCandidatesToProto(candidates []*entity.MapPlaceCandidate) []*organizervenuev1.VenueCandidate {
+	out := make([]*organizervenuev1.VenueCandidate, 0, len(candidates))
 	for _, c := range candidates {
-		out = append(out, &organizerseriesv1.VenueCandidate{
+		out = append(out, &organizervenuev1.VenueCandidate{
 			PlaceId: &entityv1.PlaceId{Value: c.PlaceID},
 			Name:    &entityv1.VenueName{Value: c.Name},
 			Address: c.Address,

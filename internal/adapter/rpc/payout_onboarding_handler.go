@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	payoutonboardingv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_onboarding/v1/payout_onboardingv1connect"
-	payoutonboardingv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_onboarding/v1"
+	payoutaccountv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
+	payoutaccountv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_account/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -17,10 +17,10 @@ import (
 
 // Compile-time assertion that PayoutOnboardingHandler satisfies the generated
 // interface.
-var _ payoutonboardingv1connect.PayoutOnboardingServiceHandler = (*PayoutOnboardingHandler)(nil)
+var _ payoutaccountv1connect.PayoutAccountServiceHandler = (*PayoutOnboardingHandler)(nil)
 
 // PayoutOnboardingHandler implements the organizer-facing
-// PayoutOnboardingService Connect interface. Org-scoped authorization (token
+// PayoutAccountService Connect interface. Org-scoped authorization (token
 // audience check, login-scope org derivation, role cross-check) is enforced
 // structurally by the OrgScopedInterceptor before this handler runs.
 // The handler resolves the caller's Organizer from the context-stored Zitadel
@@ -54,8 +54,8 @@ func NewPayoutOnboardingHandler(
 //     resolution failed. Response never reveals whether such an Organizer exists.
 func (h *PayoutOnboardingHandler) Get(
 	ctx context.Context,
-	_ *connect.Request[payoutonboardingv1.GetRequest],
-) (*connect.Response[payoutonboardingv1.GetResponse], error) {
+	_ *connect.Request[payoutaccountv1.GetRequest],
+) (*connect.Response[payoutaccountv1.GetResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -71,8 +71,8 @@ func (h *PayoutOnboardingHandler) Get(
 		return nil, err
 	}
 
-	return connect.NewResponse(&payoutonboardingv1.GetResponse{
-		Account:       mapper.OrganizerConnectedAccountToProto(acct),
+	return connect.NewResponse(&payoutaccountv1.GetResponse{
+		PayoutAccount: mapper.OrganizerConnectedAccountToProto(acct),
 		OnboardingUrl: onboardingURL,
 	}), nil
 }

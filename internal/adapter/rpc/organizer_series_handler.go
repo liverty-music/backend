@@ -199,36 +199,12 @@ func (h *OrganizerSeriesHandler) Cancel(
 	return connect.NewResponse(&organizerseriesv1.CancelResponse{}), nil
 }
 
-// CreateMediaUploadUrl mints a signed GCS PUT URL for a direct-to-storage upload.
-func (h *OrganizerSeriesHandler) CreateMediaUploadUrl(
-	ctx context.Context,
-	req *connect.Request[organizerseriesv1.CreateMediaUploadUrlRequest],
-) (*connect.Response[organizerseriesv1.CreateMediaUploadUrlResponse], error) {
-	organizer, err := h.resolveCallerOrganizer(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	out, err := h.mediaUC.CreateMediaUploadURL(ctx, organizer.ID, usecase.CreateMediaUploadURLInput{
-		ContentType: req.Msg.GetContentType(),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&organizerseriesv1.CreateMediaUploadUrlResponse{
-		UploadUrl: &entityv1.Url{Value: out.UploadURL},
-		MediaId:   &entityv1.MediaId{Value: out.MediaID},
-		MaxBytes:  out.MaxBytes,
-	}), nil
-}
-
-// AttachMedia records an uploaded media object as belonging to a series and
+// SetCoverImage records an uploaded Series image as the series' cover and
 // publishes MEDIA.uploaded so the processor generates variants.
-func (h *OrganizerSeriesHandler) AttachMedia(
+func (h *OrganizerSeriesHandler) SetCoverImage(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.AttachMediaRequest],
-) (*connect.Response[organizerseriesv1.AttachMediaResponse], error) {
+	req *connect.Request[organizerseriesv1.SetCoverImageRequest],
+) (*connect.Response[organizerseriesv1.SetCoverImageResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -237,12 +213,12 @@ func (h *OrganizerSeriesHandler) AttachMedia(
 	if err := h.mediaUC.AttachMedia(
 		ctx, organizer.ID,
 		req.Msg.GetSeriesId().GetValue(),
-		req.Msg.GetMediaId().GetValue(),
+		req.Msg.GetSeriesImageId().GetValue(),
 	); err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerseriesv1.AttachMediaResponse{}), nil
+	return connect.NewResponse(&organizerseriesv1.SetCoverImageResponse{}), nil
 }
 
 // RegenerateShareUrl issues a fresh share token for an UNLISTED series; the
@@ -304,26 +280,5 @@ func (h *OrganizerSeriesHandler) List(
 		Series:   series,
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
-	}), nil
-}
-
-// SearchVenues looks up a venue name in the map catalog for the caller's own
-// active Organizer and returns the candidate places.
-func (h *OrganizerSeriesHandler) SearchVenues(
-	ctx context.Context,
-	req *connect.Request[organizerseriesv1.SearchVenuesRequest],
-) (*connect.Response[organizerseriesv1.SearchVenuesResponse], error) {
-	organizer, err := h.resolveCallerOrganizer(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	candidates, err := h.authoringUC.SearchPlaces(ctx, organizer.ID, req.Msg.GetText())
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&organizerseriesv1.SearchVenuesResponse{
-		Candidates: mapper.VenueCandidatesToProto(candidates),
 	}), nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -130,7 +129,7 @@ func TestUserToProto(t *testing.T) {
 			require.NotNil(t, pb)
 			assert.Equal(t, tt.user.ID, pb.GetId().GetValue())
 			assert.Equal(t, tt.user.Email, pb.GetEmail().GetValue())
-			assert.Equal(t, tt.user.ExternalID, pb.GetExternalId().GetValue())
+			assert.Equal(t, tt.user.ExternalID, pb.GetProviderUserId().GetValue())
 			assert.Equal(t, tt.user.Name, pb.GetName())
 			assert.Equal(t, tt.wantPreferredLanguage, pb.GetPreferredLanguage())
 		})
@@ -162,7 +161,6 @@ func TestUserToProto_ProfileFields(t *testing.T) {
 		assert.Nil(t, pb.GetHome())
 		assert.Nil(t, pb.GetFullName())
 		assert.Nil(t, pb.GetPhoneNumber())
-		assert.Equal(t, entityv1.VerificationLevel_VERIFICATION_LEVEL_UNSPECIFIED, pb.GetVerificationLevel(), "no verification level is returned")
 	})
 
 	t.Run("returning buyer", func(t *testing.T) {

@@ -29,7 +29,7 @@ func TicketSaleToProto(v *usecase.TicketSaleView, withCounts bool) *entityv1.Tic
 		TicketTypes:             make([]*entityv1.TicketType, 0, len(v.TicketTypes)),
 	}
 	if s.DrawnTime != nil {
-		pb.DrawnTime = timestamppb.New(*s.DrawnTime)
+		pb.DrawTime = timestamppb.New(*s.DrawnTime)
 	}
 	for _, tv := range v.TicketTypes {
 		if tt := TicketTypeToProto(tv, withCounts); tt != nil {

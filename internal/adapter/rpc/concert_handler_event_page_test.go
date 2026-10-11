@@ -93,8 +93,8 @@ func TestConcertHandler_Get(t *testing.T) {
 		assert.Equal(t, "Two nights at Shibuya WWW.", s.GetDescription().GetValue())
 		assert.Equal(t, entityv1.Visibility_VISIBILITY_PUBLIC, s.GetVisibility())
 		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_PUBLISHED, s.GetPublishState())
-		assert.Equal(t, eventPageMediaID, s.GetMedia().GetId().GetValue())
-		assert.Contains(t, s.GetMedia().GetAttributes().GetLarge().GetValue(), "https://cdn.example.com/")
+		assert.Equal(t, eventPageMediaID, s.GetCoverImage().GetId().GetValue())
+		assert.Contains(t, s.GetCoverImage().GetLarge().GetValue(), "https://cdn.example.com/")
 		assert.NotContains(t, s.String(), "secret-share-token", "the share token is never returned")
 	})
 
@@ -275,8 +275,8 @@ func TestConcertHandler_ListByArtists_CoverImage(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.Series, 1)
-	media := resp.Msg.Series[0].GetMedia()
+	media := resp.Msg.Series[0].GetCoverImage()
 	assert.Equal(t, eventPageMediaID, media.GetId().GetValue())
-	assert.Contains(t, media.GetAttributes().GetLarge().GetValue(), "https://cdn.example.com/")
+	assert.Contains(t, media.GetLarge().GetValue(), "https://cdn.example.com/")
 	assert.NotContains(t, resp.Msg.Series[0].String(), "secret-share-token", "the share token is never returned")
 }

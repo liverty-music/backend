@@ -6,7 +6,7 @@ import (
 	"time"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	stagedconcertv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/staged_concert/v1"
+	concertcandidatev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/concert_candidate/v1"
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -79,7 +79,7 @@ func TestAdminStagedConcertHandler_List(t *testing.T) {
 		dep      dep
 		wantErr  bool
 		wantCode connect.Code
-		check    func(t *testing.T, resp *connect.Response[stagedconcertv1.ListResponse])
+		check    func(t *testing.T, resp *connect.Response[concertcandidatev1.ListResponse])
 	}{
 		{
 			// @spec components/adapter/admin/api/rpc/staged-concert "Admin lists pending concerts"
@@ -92,11 +92,11 @@ func TestAdminStagedConcertHandler_List(t *testing.T) {
 					}, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[stagedconcertv1.ListResponse]) {
+			check: func(t *testing.T, resp *connect.Response[concertcandidatev1.ListResponse]) {
 				t.Helper()
-				require.Len(t, resp.Msg.PendingConcerts, 1)
-				pc := resp.Msg.PendingConcerts[0]
-				assert.Equal(t, "staged-1", pc.GetStagedId().GetValue())
+				require.Len(t, resp.Msg.ConcertCandidates, 1)
+				pc := resp.Msg.ConcertCandidates[0]
+				assert.Equal(t, "staged-1", pc.GetId().GetValue())
 				assert.Equal(t, "Artist Alpha", pc.GetPerformer().GetName().GetValue())
 				assert.Equal(t, "Tour 2026", pc.GetTitle().GetValue())
 				assert.Equal(t, "Budokan", pc.GetListedVenueName().GetValue())
@@ -120,11 +120,11 @@ func TestAdminStagedConcertHandler_List(t *testing.T) {
 					}, nil).Once()
 				},
 			},
-			check: func(t *testing.T, resp *connect.Response[stagedconcertv1.ListResponse]) {
+			check: func(t *testing.T, resp *connect.Response[concertcandidatev1.ListResponse]) {
 				t.Helper()
-				require.Len(t, resp.Msg.PendingConcerts, 1)
-				pc := resp.Msg.PendingConcerts[0]
-				assert.Equal(t, "staged-2", pc.GetStagedId().GetValue())
+				require.Len(t, resp.Msg.ConcertCandidates, 1)
+				pc := resp.Msg.ConcertCandidates[0]
+				assert.Equal(t, "staged-2", pc.GetId().GetValue())
 				assert.Nil(t, pc.GetResolvedVenue())
 				assert.Nil(t, pc.GetSourceUrl())
 			},
@@ -139,7 +139,7 @@ func TestAdminStagedConcertHandler_List(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminStagedConcertHandler(t, adminUC)
-			resp, err := h.List(tt.args.ctx, connect.NewRequest(&stagedconcertv1.ListRequest{}))
+			resp, err := h.List(tt.args.ctx, connect.NewRequest(&concertcandidatev1.ListRequest{}))
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -195,8 +195,8 @@ func TestAdminStagedConcertHandler_Approve(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminStagedConcertHandler(t, adminUC)
-			resp, err := h.Approve(tt.args.ctx, connect.NewRequest(&stagedconcertv1.ApproveRequest{
-				StagedId: &entityv1.StagedConcertId{Value: tt.args.stagedID},
+			resp, err := h.Approve(tt.args.ctx, connect.NewRequest(&concertcandidatev1.ApproveRequest{
+				ConcertCandidateId: &entityv1.ConcertCandidateId{Value: tt.args.stagedID},
 			}))
 
 			if tt.wantErr {
@@ -255,9 +255,9 @@ func TestAdminStagedConcertHandler_Reject(t *testing.T) {
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminStagedConcertHandler(t, adminUC)
-			resp, err := h.Reject(tt.args.ctx, connect.NewRequest(&stagedconcertv1.RejectRequest{
-				StagedId: &entityv1.StagedConcertId{Value: tt.args.stagedID},
-				Reason:   tt.args.reason,
+			resp, err := h.Reject(tt.args.ctx, connect.NewRequest(&concertcandidatev1.RejectRequest{
+				ConcertCandidateId: &entityv1.ConcertCandidateId{Value: tt.args.stagedID},
+				Reason:             tt.args.reason,
 			}))
 
 			if tt.wantErr {
@@ -285,8 +285,8 @@ func TestAdminStagedConcertHandler_Boundary(t *testing.T) {
 		// The mock fails the test if the usecase runs.
 		h := newAdminStagedConcertHandler(t, usecasemocks.NewMockAdminConcertUseCase(t))
 
-		_, err := callThroughAdminPipeline(t, nonAdminCtx(), &stagedconcertv1.ApproveRequest{
-			StagedId: &entityv1.StagedConcertId{Value: stagedID},
+		_, err := callThroughAdminPipeline(t, nonAdminCtx(), &concertcandidatev1.ApproveRequest{
+			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: stagedID},
 		}, h.Approve)
 
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
@@ -308,14 +308,14 @@ func TestAdminStagedConcertHandler_Boundary(t *testing.T) {
 			}}, nil).Once()
 		h := newAdminStagedConcertHandler(t, adminUC)
 
-		resp, err := callThroughAdminPipeline(t, adminCtx(), &stagedconcertv1.ApproveRequest{
-			StagedId: &entityv1.StagedConcertId{Value: stagedID},
+		resp, err := callThroughAdminPipeline(t, adminCtx(), &concertcandidatev1.ApproveRequest{
+			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: stagedID},
 		}, h.Approve)
 
 		require.NoError(t, err)
 		require.NotNil(t, resp.Msg.GetConflict())
 		assert.Equal(t, "event-1", resp.Msg.GetConflict().GetExisting().GetEventId().GetValue())
-		assert.Equal(t, stagedID, resp.Msg.GetConflict().GetStaged().GetStagedId().GetValue())
+		assert.Equal(t, stagedID, resp.Msg.GetConflict().GetConcertCandidate().GetId().GetValue())
 	})
 
 	t.Run("reject without a reason", func(t *testing.T) {
@@ -323,8 +323,8 @@ func TestAdminStagedConcertHandler_Boundary(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/staged-concert "Reject without a reason"
 		h := newAdminStagedConcertHandler(t, usecasemocks.NewMockAdminConcertUseCase(t))
 
-		_, err := callThroughAdminPipeline(t, adminCtx(), &stagedconcertv1.RejectRequest{
-			StagedId: &entityv1.StagedConcertId{Value: stagedID},
+		_, err := callThroughAdminPipeline(t, adminCtx(), &concertcandidatev1.RejectRequest{
+			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: stagedID},
 		}, h.Reject)
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))

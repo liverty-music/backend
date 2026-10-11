@@ -10,28 +10,30 @@ import (
 
 	adminartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert/v1/concertv1connect"
+	adminconcertcandidateconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert_candidate/v1/concert_candidatev1connect"
 	adminnotificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/notification/v1/notificationv1connect"
 	adminorderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/order/v1/orderv1connect"
 	adminorganizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
-	adminstagedconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/staged_concert/v1/staged_concertv1connect"
 	adminuserconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/user/v1/userv1connect"
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	checkoutconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/checkout/v1/checkoutv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
-	kycconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/kyc/v1/kycv1connect"
+	identityverificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity_verification/v1/identity_verificationv1connect"
 	lotteryentryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
 	officialsiteconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/official_site/v1/official_sitev1connect"
 	orderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/order/v1/orderv1connect"
 	organizerartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/artist/v1/artistv1connect"
-	payoutonboardingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_onboarding/v1/payout_onboardingv1connect"
+	payoutaccountconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_account/v1/payout_accountv1connect"
 	receptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
 	receptionlinkconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception_link/v1/reception_linkv1connect"
 	organizerseriesconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series/v1/seriesv1connect"
+	organizerseriesimageconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series_image/v1/series_imagev1connect"
 	organizerticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
 	organizertickettypeconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_type/v1/ticket_typev1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
+	organizervenueconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/venue/v1/venuev1connect"
 	pushsubscriptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
@@ -580,9 +582,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-		// Admin StagedConcertService: review of staged concerts.
+		// Admin ConcertCandidateService: review of staged concerts.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminstagedconcertconnect.NewStagedConcertServiceHandler(
+			return adminconcertcandidateconnect.NewConcertCandidateServiceHandler(
 				rpc.NewAdminStagedConcertHandler(concertUC, logger),
 				opts...,
 			)
@@ -667,7 +669,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return kycconnect.NewKycServiceHandler(
+			return identityverificationconnect.NewIdentityVerificationServiceHandler(
 				rpc.NewKycHandler(kycUC, userUC, logger),
 				opts...,
 			)
@@ -761,6 +763,20 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
+		// Organizer-facing VenueService: Search (map catalog venue lookup).
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return organizervenueconnect.NewVenueServiceHandler(
+				rpc.NewOrganizerVenueHandler(concertAuthoringUC, organizerUC),
+				opts...,
+			)
+		},
+		// Organizer-facing SeriesImageService: CreateUploadUrl.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return organizerseriesimageconnect.NewSeriesImageServiceHandler(
+				rpc.NewOrganizerSeriesImageHandler(mediaUC, organizerUC),
+				opts...,
+			)
+		},
 		// Organizer-facing ArtistService: List (the Organizer's own Artists).
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerartistconnect.NewArtistServiceHandler(
@@ -768,9 +784,9 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-		// Organizer-facing PayoutOnboardingService: Get.
+		// Organizer-facing PayoutAccountService: Get.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return payoutonboardingconnect.NewPayoutOnboardingServiceHandler(
+			return payoutaccountconnect.NewPayoutAccountServiceHandler(
 				rpc.NewPayoutOnboardingHandler(onboardingUC, organizerUC, logger),
 				opts...,
 			)

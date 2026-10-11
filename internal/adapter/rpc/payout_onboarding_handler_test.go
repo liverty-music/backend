@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	payoutonboardingv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_onboarding/v1"
+	payoutaccountv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_account/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -79,7 +79,7 @@ func TestPayoutOnboardingHandler_Get(t *testing.T) {
 			require.NoError(t, err)
 			h := rpc.NewPayoutOnboardingHandler(&failingOnboardingUCStub{t: t}, organizerUC, logger)
 
-			resp, err := h.Get(tt.args.ctx, connect.NewRequest(&payoutonboardingv1.GetRequest{}))
+			resp, err := h.Get(tt.args.ctx, connect.NewRequest(&payoutaccountv1.GetRequest{}))
 
 			require.Error(t, err)
 			assert.ErrorIs(t, err, tt.dep.resolveCallerErr)

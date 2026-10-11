@@ -16,7 +16,7 @@ var _ adminconcertv1connect.ConcertServiceHandler = (*AdminConcertHandler)(nil)
 
 // AdminConcertHandler implements the admin ConcertService Connect interface:
 // List and Delete of published Concerts. The review of StagedConcerts is the
-// admin StagedConcertService ([AdminStagedConcertHandler]).
+// admin ConcertCandidateService ([AdminStagedConcertHandler]).
 //
 // Admin authorization is enforced at the admin server boundary by its server-wide
 // RequireRoleInterceptor (admin role), not by per-method checks here; the handler

@@ -47,8 +47,8 @@ func TestLotteryEntryHandler(t *testing.T) {
 	startReq := func() *lotteryentryv1.StartRequest {
 		return &lotteryentryv1.StartRequest{TicketTypeId: &entityv1.TicketTypeId{Value: tkTicketTypeID}, TicketCount: 2}
 	}
-	authorizeReq := func(phone string) *lotteryentryv1.AuthorizeRequest {
-		return &lotteryentryv1.AuthorizeRequest{
+	authorizeReq := func(phone string) *lotteryentryv1.AuthorizeCardRequest {
+		return &lotteryentryv1.AuthorizeCardRequest{
 			LotteryEntryId: &entityv1.LotteryEntryId{Value: tkEntryID},
 			FullName:       &entityv1.FullName{Value: "山田太郎"},
 			PhoneNumber:    &entityv1.PhoneNumber{Value: phone},
@@ -117,10 +117,10 @@ func TestLotteryEntryHandler(t *testing.T) {
 		f.lottery.EXPECT().Authorize(mock.Anything, entity.LotteryEntryID(tkEntryID), entity.UserID(tkFanUserID), "山田太郎", "+819012345678").
 			Return("pi_secret", nil)
 
-		resp, err := f.client.Authorize(ctx, connect.NewRequest(authorizeReq("+819012345678")))
+		resp, err := f.client.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("+819012345678")))
 
 		require.NoError(t, err)
-		assert.Equal(t, "pi_secret", resp.Msg.GetClientSecret())
+		assert.Equal(t, "pi_secret", resp.Msg.GetCardAuthorizationSecret().GetValue())
 	})
 
 	t.Run("confirm makes the entry entered", func(t *testing.T) {
@@ -138,7 +138,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, entityv1.LotteryEntryState_LOTTERY_ENTRY_STATE_ENTERED, resp.Msg.GetLotteryEntry().GetState())
-		assert.Equal(t, "pi_1", resp.Msg.GetLotteryEntry().GetAuthorization().GetPaymentIntentRef())
+		assert.Equal(t, "pi_1", resp.Msg.GetLotteryEntry().GetCardAuthorizationId().GetValue())
 	})
 
 	t.Run("list by ticket type returns the caller's entries", func(t *testing.T) {
@@ -189,7 +189,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 			// @spec components/adapter/fan/api/rpc/lottery-entry "Domestic-format phone number"
 			name: "domestic-format phone number",
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
-				_, err := c.Authorize(ctx, connect.NewRequest(authorizeReq("090-1234-5678")))
+				_, err := c.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("090-1234-5678")))
 				return err
 			},
 		},
@@ -198,7 +198,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 			call: func(c lotteryentryv1connect.LotteryEntryServiceClient) error {
 				req := authorizeReq("+819012345678")
 				req.FullName = nil
-				_, err := c.Authorize(ctx, connect.NewRequest(req))
+				_, err := c.AuthorizeCard(ctx, connect.NewRequest(req))
 				return err
 			},
 		},

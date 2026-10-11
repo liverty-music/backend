@@ -23,7 +23,7 @@ func TicketToProto(ticket *entity.Ticket) *entityv1.Ticket {
 	}
 	// The Kyc binding is present only when the sale required verification.
 	if ticket.KycID != "" {
-		t.KycId = &entityv1.KycId{Value: ticket.KycID}
+		t.IdentityVerificationId = &entityv1.IdentityVerificationId{Value: ticket.KycID}
 	}
 	// The admitted time is present only once the ticket was admitted.
 	if ticket.AdmittedTime != nil {

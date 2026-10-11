@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	payoutonboardingv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_onboarding/v1"
+	payoutaccountv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/payout_account/v1"
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -46,10 +46,10 @@ func TestPayoutOnboardingHandler_GetScenarios(t *testing.T) {
 			return &entity.OrganizerConnectedAccount{OrganizerID: organizerID, AccountRef: "acct_1", Status: entity.PayoutOnboardingStatusPending},
 				"https://connect.example/onboarding", nil
 		}})
-		resp, err := h.Get(orgCtx(testZitadelOrgID), connect.NewRequest(&payoutonboardingv1.GetRequest{}))
+		resp, err := h.Get(orgCtx(testZitadelOrgID), connect.NewRequest(&payoutaccountv1.GetRequest{}))
 		require.NoError(t, err)
-		assert.Equal(t, "org-1", resp.Msg.Account.OrganizerId.Value)
-		assert.Equal(t, "acct_1", resp.Msg.Account.AccountRef)
+		assert.Equal(t, "org-1", resp.Msg.PayoutAccount.OrganizerId.Value)
+		assert.Equal(t, "acct_1", resp.Msg.PayoutAccount.ProviderAccountId.GetValue())
 		assert.Equal(t, "https://connect.example/onboarding", resp.Msg.OnboardingUrl, "an onboarding link while the account is not active")
 	})
 
@@ -59,7 +59,7 @@ func TestPayoutOnboardingHandler_GetScenarios(t *testing.T) {
 		h := newHandler(t, &onboardingUCStub{fn: func(string) (*entity.OrganizerConnectedAccount, string, error) {
 			return nil, "", apperr.New(codes.NotFound, "organizer not found")
 		}})
-		_, err := h.Get(orgCtx(testZitadelOrgID), connect.NewRequest(&payoutonboardingv1.GetRequest{}))
+		_, err := h.Get(orgCtx(testZitadelOrgID), connect.NewRequest(&payoutaccountv1.GetRequest{}))
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
 }

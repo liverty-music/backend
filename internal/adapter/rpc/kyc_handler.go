@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	kycv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/kyc/v1/kycv1connect"
+	identityverificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity_verification/v1/identity_verificationv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	kycv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/kyc/v1"
+	identityverificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/identity_verification/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
@@ -16,9 +16,9 @@ import (
 )
 
 // Compile-time assertion that KycHandler satisfies the generated interface.
-var _ kycv1connect.KycServiceHandler = (*KycHandler)(nil)
+var _ identityverificationv1connect.IdentityVerificationServiceHandler = (*KycHandler)(nil)
 
-// KycHandler implements the fan-facing KycService Connect interface: a fan's
+// KycHandler implements the fan-facing IdentityVerificationService Connect interface: a fan's
 // 本人確認 (identity check) via Pocket Sign and its result, the fan's Kyc.
 //
 // Every call acts for the signed-in caller; no request names a user. Business
@@ -52,8 +52,8 @@ func NewKycHandler(
 //   - UNAVAILABLE: Pocket Sign Stamp API is not configured.
 func (h *KycHandler) Start(
 	ctx context.Context,
-	req *connect.Request[kycv1.StartRequest],
-) (*connect.Response[kycv1.StartResponse], error) {
+	req *connect.Request[identityverificationv1.StartRequest],
+) (*connect.Response[identityverificationv1.StartResponse], error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func (h *KycHandler) Start(
 		return nil, err
 	}
 
-	return connect.NewResponse(&kycv1.StartResponse{
+	return connect.NewResponse(&identityverificationv1.StartResponse{
 		SessionId:   sessionID,
 		RedirectUrl: &entityv1.Url{Value: redirectURL},
 	}), nil
@@ -88,8 +88,8 @@ func (h *KycHandler) Start(
 //   - UNAVAILABLE: Pocket Sign Stamp API is not configured.
 func (h *KycHandler) Create(
 	ctx context.Context,
-	req *connect.Request[kycv1.CreateRequest],
-) (*connect.Response[kycv1.CreateResponse], error) {
+	req *connect.Request[identityverificationv1.CreateRequest],
+) (*connect.Response[identityverificationv1.CreateResponse], error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -100,9 +100,8 @@ func (h *KycHandler) Create(
 		return nil, err
 	}
 
-	return connect.NewResponse(&kycv1.CreateResponse{
-		Kyc:               mapper.KycToProto(kyc),
-		VerificationLevel: mapper.VerificationLevelToProto(usecase.KycVerificationLevel(kyc)),
+	return connect.NewResponse(&identityverificationv1.CreateResponse{
+		IdentityVerification: mapper.KycToProto(kyc),
 	}), nil
 }
 
@@ -114,8 +113,8 @@ func (h *KycHandler) Create(
 //   - UNAVAILABLE: Pocket Sign Verify API is not configured.
 func (h *KycHandler) Recheck(
 	ctx context.Context,
-	_ *connect.Request[kycv1.RecheckRequest],
-) (*connect.Response[kycv1.RecheckResponse], error) {
+	_ *connect.Request[identityverificationv1.RecheckRequest],
+) (*connect.Response[identityverificationv1.RecheckResponse], error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -132,22 +131,20 @@ func (h *KycHandler) Recheck(
 			errors.New("recheck returned no kyc without an error"))
 	}
 
-	return connect.NewResponse(&kycv1.RecheckResponse{
-		Status:            mapper.VerificationStatusToProto(kyc.Status),
-		VerificationLevel: mapper.VerificationLevelToProto(usecase.KycVerificationLevel(kyc)),
+	return connect.NewResponse(&identityverificationv1.RecheckResponse{
+		Status: mapper.VerificationStatusToProto(kyc.Status),
 	}), nil
 }
 
-// Get returns the caller's Kyc, whatever its status. The account's
-// verification level is read from UserService.Get.
+// Get returns the caller's Kyc, whatever its status.
 //
 // Errors:
 //   - UNAUTHENTICATED: no valid JWT, or the caller has no account.
 //   - NOT_FOUND: the caller has never passed KYC.
 func (h *KycHandler) Get(
 	ctx context.Context,
-	_ *connect.Request[kycv1.GetRequest],
-) (*connect.Response[kycv1.GetResponse], error) {
+	_ *connect.Request[identityverificationv1.GetRequest],
+) (*connect.Response[identityverificationv1.GetResponse], error) {
 	callerUserID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -158,7 +155,7 @@ func (h *KycHandler) Get(
 		return nil, err
 	}
 
-	return connect.NewResponse(&kycv1.GetResponse{Kyc: mapper.KycToProto(kyc)}), nil
+	return connect.NewResponse(&identityverificationv1.GetResponse{IdentityVerification: mapper.KycToProto(kyc)}), nil
 }
 
 // resolveCallerUserID extracts the external user ID from the JWT context,

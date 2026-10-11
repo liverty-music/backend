@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
-	kycv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/kyc/v1"
+	identityverificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/identity_verification/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
@@ -60,7 +60,7 @@ func TestKycHandler_Start(t *testing.T) {
 		kycUC.EXPECT().Start(mock.Anything, testCallerUserID, entity.VerificationMethodJPKI).
 			Return("sess-abc", "https://stamp.p8n.app/redirect/sess-abc", nil).Once()
 
-		resp, err := newKycHandler(t, kycUC, userUC).Start(authedCtx(testCallerExtID), connect.NewRequest(&kycv1.StartRequest{
+		resp, err := newKycHandler(t, kycUC, userUC).Start(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.StartRequest{
 			Method: entityv1.VerificationMethod_VERIFICATION_METHOD_JPKI,
 		}))
 
@@ -73,7 +73,7 @@ func TestKycHandler_Start(t *testing.T) {
 		t.Parallel()
 		kycUC, userUC := ucmocks.NewMockKycUseCase(t), ucmocks.NewMockUserUseCase(t)
 
-		_, err := newKycHandler(t, kycUC, userUC).Start(context.Background(), connect.NewRequest(&kycv1.StartRequest{
+		_, err := newKycHandler(t, kycUC, userUC).Start(context.Background(), connect.NewRequest(&identityverificationv1.StartRequest{
 			Method: entityv1.VerificationMethod_VERIFICATION_METHOD_JPKI,
 		}))
 
@@ -85,7 +85,7 @@ func TestKycHandler_Start(t *testing.T) {
 		kycUC, userUC := ucmocks.NewMockKycUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, false)
 
-		_, err := newKycHandler(t, kycUC, userUC).Start(authedCtx(testCallerExtID), connect.NewRequest(&kycv1.StartRequest{
+		_, err := newKycHandler(t, kycUC, userUC).Start(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.StartRequest{
 			Method: entityv1.VerificationMethod_VERIFICATION_METHOD_JPKI,
 		}))
 
@@ -97,7 +97,7 @@ func TestKycHandler_Start(t *testing.T) {
 		kycUC, userUC := ucmocks.NewMockKycUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, true)
 
-		_, err := newKycHandler(t, kycUC, userUC).Start(authedCtx(testCallerExtID), connect.NewRequest(&kycv1.StartRequest{}))
+		_, err := newKycHandler(t, kycUC, userUC).Start(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.StartRequest{}))
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
@@ -106,21 +106,20 @@ func TestKycHandler_Start(t *testing.T) {
 func TestKycHandler_Create(t *testing.T) {
 	t.Parallel()
 
-	t.Run("return the Kyc with KYC_VERIFIED for an active Kyc", func(t *testing.T) {
+	t.Run("return the Kyc for an active Kyc", func(t *testing.T) {
 		t.Parallel()
 		kycUC, userUC := ucmocks.NewMockKycUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, true)
 		kycUC.EXPECT().Create(mock.Anything, testCallerUserID, "sess-abc").
 			Return(sampleKyc(entity.VerificationStatusActive), nil).Once()
 
-		resp, err := newKycHandler(t, kycUC, userUC).Create(authedCtx(testCallerExtID), connect.NewRequest(&kycv1.CreateRequest{
+		resp, err := newKycHandler(t, kycUC, userUC).Create(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.CreateRequest{
 			SessionId: "sess-abc",
 		}))
 
 		require.NoError(t, err)
-		assert.Equal(t, "kyc-1", resp.Msg.GetKyc().GetId().GetValue())
-		assert.Equal(t, testCallerUserID, resp.Msg.GetKyc().GetUserId().GetValue())
-		assert.Equal(t, entityv1.VerificationLevel_VERIFICATION_LEVEL_KYC_VERIFIED, resp.Msg.GetVerificationLevel())
+		assert.Equal(t, "kyc-1", resp.Msg.GetIdentityVerification().GetId().GetValue())
+		assert.Equal(t, testCallerUserID, resp.Msg.GetIdentityVerification().GetUserId().GetValue())
 	})
 
 	t.Run("return the usecase failure unchanged", func(t *testing.T) {
@@ -130,7 +129,7 @@ func TestKycHandler_Create(t *testing.T) {
 		kycUC.EXPECT().Create(mock.Anything, testCallerUserID, "sess-abc").
 			Return(nil, apperr.New(codes.AlreadyExists, "bound to another account")).Once()
 
-		_, err := newKycHandler(t, kycUC, userUC).Create(authedCtx(testCallerExtID), connect.NewRequest(&kycv1.CreateRequest{
+		_, err := newKycHandler(t, kycUC, userUC).Create(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.CreateRequest{
 			SessionId: "sess-abc",
 		}))
 
@@ -145,19 +144,16 @@ func TestKycHandler_Recheck(t *testing.T) {
 		name       string
 		status     entity.VerificationStatus
 		wantStatus entityv1.VerificationStatus
-		wantLevel  entityv1.VerificationLevel
 	}{
 		{
-			name:       "return ACTIVE and KYC_VERIFIED for a passing re-check",
+			name:       "return ACTIVE for a passing re-check",
 			status:     entity.VerificationStatusActive,
 			wantStatus: entityv1.VerificationStatus_VERIFICATION_STATUS_ACTIVE,
-			wantLevel:  entityv1.VerificationLevel_VERIFICATION_LEVEL_KYC_VERIFIED,
 		},
 		{
-			name:       "return NEEDS_REVERIFICATION and UNVERIFIED for a failed re-check",
+			name:       "return NEEDS_REVERIFICATION for a failed re-check",
 			status:     entity.VerificationStatusNeedsReverification,
 			wantStatus: entityv1.VerificationStatus_VERIFICATION_STATUS_NEEDS_REVERIFICATION,
-			wantLevel:  entityv1.VerificationLevel_VERIFICATION_LEVEL_UNVERIFIED,
 		},
 	}
 	for _, tt := range tests {
@@ -167,11 +163,10 @@ func TestKycHandler_Recheck(t *testing.T) {
 			expectCaller(userUC, true)
 			kycUC.EXPECT().Recheck(mock.Anything, testCallerUserID).Return(sampleKyc(tt.status), nil).Once()
 
-			resp, err := newKycHandler(t, kycUC, userUC).Recheck(authedCtx(testCallerExtID), connect.NewRequest(&kycv1.RecheckRequest{}))
+			resp, err := newKycHandler(t, kycUC, userUC).Recheck(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.RecheckRequest{}))
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, resp.Msg.GetStatus())
-			assert.Equal(t, tt.wantLevel, resp.Msg.GetVerificationLevel())
 		})
 	}
 
@@ -181,7 +176,7 @@ func TestKycHandler_Recheck(t *testing.T) {
 		expectCaller(userUC, true)
 		kycUC.EXPECT().Recheck(mock.Anything, testCallerUserID).Return(nil, nil).Once()
 
-		_, err := newKycHandler(t, kycUC, userUC).Recheck(authedCtx(testCallerExtID), connect.NewRequest(&kycv1.RecheckRequest{}))
+		_, err := newKycHandler(t, kycUC, userUC).Recheck(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.RecheckRequest{}))
 
 		assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
 	})
@@ -197,11 +192,11 @@ func TestKycHandler_Get(t *testing.T) {
 		kycUC.EXPECT().Get(mock.Anything, testCallerUserID).
 			Return(sampleKyc(entity.VerificationStatusNeedsReverification), nil).Once()
 
-		resp, err := newKycHandler(t, kycUC, userUC).Get(authedCtx(testCallerExtID), connect.NewRequest(&kycv1.GetRequest{}))
+		resp, err := newKycHandler(t, kycUC, userUC).Get(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.GetRequest{}))
 
 		require.NoError(t, err)
-		assert.Equal(t, "kyc-1", resp.Msg.GetKyc().GetId().GetValue())
-		assert.Equal(t, entityv1.VerificationStatus_VERIFICATION_STATUS_NEEDS_REVERIFICATION, resp.Msg.GetKyc().GetStatus())
+		assert.Equal(t, "kyc-1", resp.Msg.GetIdentityVerification().GetId().GetValue())
+		assert.Equal(t, entityv1.VerificationStatus_VERIFICATION_STATUS_NEEDS_REVERIFICATION, resp.Msg.GetIdentityVerification().GetStatus())
 	})
 
 	t.Run("return NOT_FOUND for a fan who never passed KYC", func(t *testing.T) {
@@ -211,7 +206,7 @@ func TestKycHandler_Get(t *testing.T) {
 		kycUC.EXPECT().Get(mock.Anything, testCallerUserID).
 			Return(nil, apperr.New(codes.NotFound, "no kyc")).Once()
 
-		_, err := newKycHandler(t, kycUC, userUC).Get(authedCtx(testCallerExtID), connect.NewRequest(&kycv1.GetRequest{}))
+		_, err := newKycHandler(t, kycUC, userUC).Get(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.GetRequest{}))
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})

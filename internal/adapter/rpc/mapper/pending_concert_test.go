@@ -78,7 +78,7 @@ func TestPendingConcertToProto(t *testing.T) {
 
 		got := mapper.PendingConcertToProto(sc, performer)
 		require.NotNil(t, got)
-		assert.Equal(t, "staged-1", got.StagedId.GetValue())
+		assert.Equal(t, "staged-1", got.GetId().GetValue())
 		assert.Equal(t, "Summer Tour 2026", got.Title.GetValue())
 		assert.Equal(t, "Nippon Budokan", got.ListedVenueName.GetValue())
 		assert.Equal(t, timestamppb.New(discoveredAt), got.DiscoveredTime)

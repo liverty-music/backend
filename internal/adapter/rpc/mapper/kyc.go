@@ -9,31 +9,18 @@ import (
 
 // KycToProto converts a domain Kyc to its Protobuf message. Only the result
 // fields are included — never raw certificate data.
-func KycToProto(vi *entity.Kyc) *entityv1.Kyc {
+func KycToProto(vi *entity.Kyc) *entityv1.IdentityVerification {
 	if vi == nil {
 		return nil
 	}
-	return &entityv1.Kyc{
-		Id:               &entityv1.KycId{Value: vi.ID},
-		UserId:           &entityv1.UserId{Value: vi.UserID},
-		Method:           verificationMethodToProto(vi.Method),
-		PocketSignUserId: &entityv1.PocketSignUserId{Value: vi.PocketSignUserID},
-		DedupeStrength:   dedupeStrengthToProto(vi.DedupeStrength),
-		VerifyTime:       timestamppb.New(vi.VerifiedTime),
-		Status:           verificationStatusToProto(vi.Status),
-	}
-}
-
-// VerificationLevelToProto converts the domain VerificationLevel to its proto
-// enum value.
-func VerificationLevelToProto(level entity.VerificationLevel) entityv1.VerificationLevel {
-	switch level {
-	case entity.VerificationLevelKycVerified:
-		return entityv1.VerificationLevel_VERIFICATION_LEVEL_KYC_VERIFIED
-	case entity.VerificationLevelUnverified:
-		return entityv1.VerificationLevel_VERIFICATION_LEVEL_UNVERIFIED
-	default:
-		return entityv1.VerificationLevel_VERIFICATION_LEVEL_UNVERIFIED
+	return &entityv1.IdentityVerification{
+		Id:             &entityv1.IdentityVerificationId{Value: vi.ID},
+		UserId:         &entityv1.UserId{Value: vi.UserID},
+		Method:         verificationMethodToProto(vi.Method),
+		ProviderUserId: &entityv1.IdentityVerification_ProviderUserId{Value: vi.PocketSignUserID},
+		DedupeStrength: dedupeStrengthToProto(vi.DedupeStrength),
+		VerifyTime:     timestamppb.New(vi.VerifiedTime),
+		Status:         verificationStatusToProto(vi.Status),
 	}
 }
 

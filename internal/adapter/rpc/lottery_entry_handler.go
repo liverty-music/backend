@@ -3,6 +3,8 @@ package rpc
 import (
 	"context"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+
 	lotteryentryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
 	lotteryentryv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/lottery_entry/v1"
 	"connectrpc.com/connect"
@@ -69,12 +71,12 @@ func (h *LotteryEntryHandler) Start(
 	return connect.NewResponse(&lotteryentryv1.StartResponse{LotteryEntry: mapper.LotteryEntryToProto(entry)}), nil
 }
 
-// Authorize stores the caller's full name and phone number and opens the card
+// AuthorizeCard stores the caller's full name and phone number and opens the card
 // hold for their Draft, returning the hold's confirmation secret.
-func (h *LotteryEntryHandler) Authorize(
+func (h *LotteryEntryHandler) AuthorizeCard(
 	ctx context.Context,
-	req *connect.Request[lotteryentryv1.AuthorizeRequest],
-) (*connect.Response[lotteryentryv1.AuthorizeResponse], error) {
+	req *connect.Request[lotteryentryv1.AuthorizeCardRequest],
+) (*connect.Response[lotteryentryv1.AuthorizeCardResponse], error) {
 	userID, err := callerUserID(ctx, h.userUC)
 	if err != nil {
 		return nil, err
@@ -85,7 +87,7 @@ func (h *LotteryEntryHandler) Authorize(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&lotteryentryv1.AuthorizeResponse{ClientSecret: secret}), nil
+	return connect.NewResponse(&lotteryentryv1.AuthorizeCardResponse{CardAuthorizationSecret: &entityv1.CardAuthorizationSecret{Value: secret}}), nil
 }
 
 // Confirm makes the caller's authorized Draft Entered.

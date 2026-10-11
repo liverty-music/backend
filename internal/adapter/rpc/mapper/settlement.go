@@ -11,14 +11,14 @@ import (
 // OrganizerConnectedAccountToProto maps a domain OrganizerConnectedAccount to
 // its Protobuf message. Raw Stripe status is never exposed; the platform's own
 // PayoutOnboardingStatus enum is used.
-func OrganizerConnectedAccountToProto(a *entity.OrganizerConnectedAccount) *entityv1.OrganizerConnectedAccount {
+func OrganizerConnectedAccountToProto(a *entity.OrganizerConnectedAccount) *entityv1.PayoutAccount {
 	if a == nil {
 		return nil
 	}
-	return &entityv1.OrganizerConnectedAccount{
-		OrganizerId: &entityv1.OrganizerId{Value: a.OrganizerID},
-		AccountRef:  a.AccountRef,
-		Status:      payoutOnboardingStatusToProto(a.Status),
+	return &entityv1.PayoutAccount{
+		OrganizerId:       &entityv1.OrganizerId{Value: a.OrganizerID},
+		ProviderAccountId: &entityv1.PayoutAccount_ProviderAccountId{Value: a.AccountRef},
+		Status:            payoutOnboardingStatusToProto(a.Status),
 	}
 }
 
@@ -43,11 +43,16 @@ func SettlementToProto(s *entity.Settlement) *entityv1.Settlement {
 		return nil
 	}
 	proto := &entityv1.Settlement{
-		Id:        &entityv1.SettlementId{Value: string(s.ID)},
-		OrderId:   &entityv1.OrderId{Value: string(s.OrderID)},
-		ChargeRef: s.ChargeRef,
-		Splits:    settlementSplitsToProto(s.Splits),
-		Status:    settlementStatusToProto(s.Status),
+		Id:          &entityv1.SettlementId{Value: string(s.ID)},
+		OrderId:     &entityv1.OrderId{Value: string(s.OrderID)},
+		OrganizerId: &entityv1.OrganizerId{Value: s.OrganizerID},
+		EventId:     &entityv1.EventId{Value: s.EventID},
+		Splits:      settlementSplitsToProto(s.Splits),
+		Status:      settlementStatusToProto(s.Status),
+		CreateTime:  timestamppb.New(s.CreatedTime),
+	}
+	if s.ChargeRef != "" {
+		proto.ProviderChargeId = &entityv1.Settlement_ProviderChargeId{Value: s.ChargeRef}
 	}
 	if !s.ReleasedTime.IsZero() {
 		proto.ReleaseTime = timestamppb.New(s.ReleasedTime)
@@ -61,12 +66,17 @@ func settlementSplitsToProto(splits []entity.SettlementSplit) []*entityv1.Settle
 	}
 	out := make([]*entityv1.SettlementSplit, 0, len(splits))
 	for _, sp := range splits {
-		out = append(out, &entityv1.SettlementSplit{
-			PayeeOrganizerId:    &entityv1.OrganizerId{Value: sp.PayeeOrganizerID},
-			Amount:              sp.Amount,
-			TransferRef:         sp.TransferRef,
-			TransferReversalRef: sp.TransferReversalRef,
-		})
+		split := &entityv1.SettlementSplit{
+			PayeeOrganizerId: &entityv1.OrganizerId{Value: sp.PayeeOrganizerID},
+			Amount:           sp.Amount,
+		}
+		if sp.TransferRef != "" {
+			split.ProviderPayoutId = &entityv1.SettlementSplit_ProviderPayoutId{Value: sp.TransferRef}
+		}
+		if sp.TransferReversalRef != "" {
+			split.ProviderPayoutReversalId = &entityv1.SettlementSplit_ProviderPayoutReversalId{Value: sp.TransferReversalRef}
+		}
+		out = append(out, split)
 	}
 	return out
 }
