@@ -95,7 +95,7 @@ func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) 
 	// SeriesImageUseCase orchestrates SeriesImageUseCase.Process; MediaConsumer only decodes the
 	// MEDIA.uploaded message and calls it.
 	eventPublisher := messaging.NewEventPublisher(publisher)
-	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, seriesRepo, imageStorer, processor, eventPublisher, logger)
+	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, processor, eventPublisher, logger)
 
 	// MediaConsumer
 	mediaConsumer := event.NewMediaConsumer(seriesImageUC, logger)

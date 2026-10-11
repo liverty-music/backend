@@ -560,7 +560,7 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 		return err
 	}
 
-	media, err := uc.seriesImageRepo.ListMediaByOrganizer(ctx, organizerID)
+	media, err := uc.seriesImageRepo.ListByOrganizer(ctx, organizerID)
 	if err != nil {
 		return err
 	}

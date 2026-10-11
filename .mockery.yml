@@ -29,7 +29,8 @@ packages:
       OrganizerUseCase:
       OrganizerMetrics:
       OrganizerProvisioner:
-      ConcertAuthoringUseCase:
+      SeriesUseCase:
+      VenueUseCase:
       ImageStorer:
       IdentityVerificationUseCase:
       IdentityVerifier:

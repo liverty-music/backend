@@ -22,55 +22,6 @@ func (_m *MockSeriesImageUseCase) EXPECT() *MockSeriesImageUseCase_Expecter {
 	return &MockSeriesImageUseCase_Expecter{mock: &_m.Mock}
 }
 
-// AttachMedia provides a mock function with given fields: ctx, callerOrgID, seriesID, mediaID
-func (_m *MockSeriesImageUseCase) AttachMedia(ctx context.Context, callerOrgID string, seriesID string, mediaID string) error {
-	ret := _m.Called(ctx, callerOrgID, seriesID, mediaID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for AttachMedia")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
-		r0 = rf(ctx, callerOrgID, seriesID, mediaID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockSeriesImageUseCase_AttachMedia_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AttachMedia'
-type MockSeriesImageUseCase_AttachMedia_Call struct {
-	*mock.Call
-}
-
-// AttachMedia is a helper method to define mock.On call
-//   - ctx context.Context
-//   - callerOrgID string
-//   - seriesID string
-//   - mediaID string
-func (_e *MockSeriesImageUseCase_Expecter) AttachMedia(ctx interface{}, callerOrgID interface{}, seriesID interface{}, mediaID interface{}) *MockSeriesImageUseCase_AttachMedia_Call {
-	return &MockSeriesImageUseCase_AttachMedia_Call{Call: _e.mock.On("AttachMedia", ctx, callerOrgID, seriesID, mediaID)}
-}
-
-func (_c *MockSeriesImageUseCase_AttachMedia_Call) Run(run func(ctx context.Context, callerOrgID string, seriesID string, mediaID string)) *MockSeriesImageUseCase_AttachMedia_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
-	})
-	return _c
-}
-
-func (_c *MockSeriesImageUseCase_AttachMedia_Call) Return(_a0 error) *MockSeriesImageUseCase_AttachMedia_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockSeriesImageUseCase_AttachMedia_Call) RunAndReturn(run func(context.Context, string, string, string) error) *MockSeriesImageUseCase_AttachMedia_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // CreateUploadURL provides a mock function with given fields: ctx, callerOrgID, in
 func (_m *MockSeriesImageUseCase) CreateUploadURL(ctx context.Context, callerOrgID string, in usecase.CreateMediaUploadURLInput) (*usecase.CreateMediaUploadURLOutput, error) {
 	ret := _m.Called(ctx, callerOrgID, in)

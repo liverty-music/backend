@@ -21,28 +21,25 @@ var _ organizerseriesv1connect.SeriesServiceHandler = (*OrganizerSeriesHandler)(
 // OrganizerSeriesHandler implements the organizer-facing SeriesService Connect
 // interface. Org-scoped authorization is enforced structurally by the
 // OrgScopedInterceptor before this handler runs; this handler only resolves the
-// caller's organizer, enforces ownership, and delegates to the authoring or
-// media use case. No business logic lives here.
+// caller's organizer, enforces ownership, and delegates to the Series use case.
+// No business logic lives here.
 type OrganizerSeriesHandler struct {
-	authoringUC           usecase.ConcertAuthoringUseCase
+	seriesUC              usecase.SeriesUseCase
 	organizerUC           usecase.OrganizerUseCase
-	seriesImageUC         usecase.SeriesImageUseCase
 	seriesImageURLBuilder *mapper.SeriesImageURLBuilder
 	logger                *logging.Logger
 }
 
 // NewOrganizerSeriesHandler creates a new OrganizerSeriesHandler.
 func NewOrganizerSeriesHandler(
-	authoringUC usecase.ConcertAuthoringUseCase,
+	seriesUC usecase.SeriesUseCase,
 	organizerUC usecase.OrganizerUseCase,
-	seriesImageUC usecase.SeriesImageUseCase,
 	seriesImageURLBuilder *mapper.SeriesImageURLBuilder,
 	logger *logging.Logger,
 ) *OrganizerSeriesHandler {
 	return &OrganizerSeriesHandler{
-		authoringUC:           authoringUC,
+		seriesUC:              seriesUC,
 		organizerUC:           organizerUC,
-		seriesImageUC:         seriesImageUC,
 		seriesImageURLBuilder: seriesImageURLBuilder,
 		logger:                logger,
 	}
@@ -120,7 +117,7 @@ func (h *OrganizerSeriesHandler) Create(
 	}
 
 	s, eventInputs, artistIDs := seriesDraftToInputs(req.Msg.GetDraft())
-	series, events, artists, err := h.authoringUC.CreateDraft(ctx, organizer.ID, s, eventInputs, artistIDs)
+	series, events, artists, err := h.seriesUC.Create(ctx, organizer.ID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +142,7 @@ func (h *OrganizerSeriesHandler) Update(
 
 	seriesID := req.Msg.GetSeriesId().GetValue()
 	s, eventInputs, artistIDs := seriesDraftToInputs(req.Msg.GetDraft())
-	series, events, artists, err := h.authoringUC.UpdateDraft(ctx, organizer.ID, seriesID, s, eventInputs, artistIDs)
+	series, events, artists, err := h.seriesUC.Update(ctx, organizer.ID, seriesID, s, eventInputs, artistIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +166,7 @@ func (h *OrganizerSeriesHandler) Publish(
 	}
 
 	seriesID := req.Msg.GetSeriesId().GetValue()
-	series, events, artists, err := h.authoringUC.Publish(ctx, organizer.ID, seriesID)
+	series, events, artists, err := h.seriesUC.Publish(ctx, organizer.ID, seriesID)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +189,7 @@ func (h *OrganizerSeriesHandler) Cancel(
 		return nil, err
 	}
 
-	if err := h.authoringUC.Cancel(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue()); err != nil {
+	if err := h.seriesUC.Cancel(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue()); err != nil {
 		return nil, err
 	}
 
@@ -210,7 +207,7 @@ func (h *OrganizerSeriesHandler) SetCoverImage(
 		return nil, err
 	}
 
-	if err := h.seriesImageUC.AttachMedia(
+	if err := h.seriesUC.SetCoverImage(
 		ctx, organizer.ID,
 		req.Msg.GetSeriesId().GetValue(),
 		req.Msg.GetSeriesImageId().GetValue(),
@@ -232,7 +229,7 @@ func (h *OrganizerSeriesHandler) RegenerateShareUrl(
 		return nil, err
 	}
 
-	token, err := h.authoringUC.RegenerateToken(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue())
+	token, err := h.seriesUC.RegenerateShareURL(ctx, organizer.ID, req.Msg.GetSeriesId().GetValue())
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +253,7 @@ func (h *OrganizerSeriesHandler) List(
 		return nil, err
 	}
 
-	allSeries, allEvents, allArtists, err := h.authoringUC.ListOwn(ctx, organizer.ID)
+	allSeries, allEvents, allArtists, err := h.seriesUC.List(ctx, organizer.ID)
 	if err != nil {
 		return nil, err
 	}

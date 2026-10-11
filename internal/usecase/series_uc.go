@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -34,18 +33,11 @@ type DraftEventInput struct {
 	OpenTime  *time.Time
 }
 
-const (
-	// searchPlacesMinChars and searchPlacesMaxChars bound a venue search text,
-	// counted in characters after trimming spaces.
-	searchPlacesMinChars = 2
-	searchPlacesMaxChars = 100
-)
-
-// ConcertAuthoringUseCase defines the organizer-facing authoring surface for
+// SeriesUseCase defines the organizer-facing authoring surface for
 // first-party concerts. All methods are scoped to a single calling organizer;
 // authorization (ownership) is enforced before delegating to the repository.
-type ConcertAuthoringUseCase interface {
-	// CreateDraft authors a new first-party series in the DRAFT state. Each
+type SeriesUseCase interface {
+	// Create authors a new first-party series in the DRAFT state. Each
 	// draft event's venue is the Venue holding the event's picked place id, or
 	// a new Venue created from the map catalog's place, before the draft is
 	// stored. Returns the full authored concert.
@@ -59,9 +51,9 @@ type ConcertAuthoringUseCase interface {
 	//  - PermissionDenied: A performer is not among the caller's represented
 	//    artists. Non-revealing.
 	//  - Unavailable: The map catalog cannot be reached for a new place.
-	CreateDraft(ctx context.Context, callerOrgID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
+	Create(ctx context.Context, callerOrgID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
 
-	// UpdateDraft replaces the draft content of an existing series. Only
+	// Update replaces the draft content of an existing series. Only
 	// allowed while the series is DRAFT, where any field may change; PUBLISHED
 	// and CANCELLED series are both rejected with FailedPrecondition.
 	//
@@ -73,7 +65,7 @@ type ConcertAuthoringUseCase interface {
 	//    PUBLISHED is rejected by the repository).
 	//  - InvalidArgument, Unavailable: As CreateDraft, including the venue
 	//    rules for each event's picked place.
-	UpdateDraft(ctx context.Context, callerOrgID, seriesID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
+	Update(ctx context.Context, callerOrgID, seriesID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
 
 	// Publish transitions a DRAFT series to PUBLISHED. For PUBLIC series this
 	// emits exactly ONE CONCERT.created carrying the newly-published event IDs.
@@ -97,7 +89,7 @@ type ConcertAuthoringUseCase interface {
 	//  - FailedPrecondition: The series is already CANCELLED.
 	Cancel(ctx context.Context, callerOrgID, seriesID string) error
 
-	// RegenerateToken issues a fresh share token for an UNLISTED series,
+	// RegenerateShareURL issues a fresh share token for an UNLISTED series,
 	// invalidating the previous URL. Returns the new share URL.
 	//
 	// # Possible errors
@@ -105,65 +97,68 @@ type ConcertAuthoringUseCase interface {
 	//  - NotFound: The series does not exist.
 	//  - PermissionDenied: The series is not owned by the caller. Non-revealing.
 	//  - FailedPrecondition: The series is not UNLISTED.
-	RegenerateToken(ctx context.Context, callerOrgID, seriesID string) (string, error)
+	RegenerateShareURL(ctx context.Context, callerOrgID, seriesID string) (string, error)
 
-	// ListOwn returns all first-party series owned by the caller's organizer,
+	// List returns all first-party series owned by the caller's organizer,
 	// ordered newest first. Each returned series carries its events and artists.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: The organizerID is empty.
-	ListOwn(ctx context.Context, callerOrgID string) ([]*entity.Series, []*[]*entity.Event, []*[]*entity.Artist, error)
+	List(ctx context.Context, callerOrgID string) ([]*entity.Series, []*[]*entity.Event, []*[]*entity.Artist, error)
 
-	// SearchPlaces looks up a venue name in the map catalog for the caller's
-	// Organizer while it authors a concert, and returns the catalog's
-	// candidates unchanged. It stores nothing: a Venue is matched or created
-	// only when a concert is saved with the picked place.
+	// SetCoverImage verifies that the caller owns the target series, inserts the
+	// media row idempotently, and publishes MEDIA.uploaded{media_id, series_id}.
+	// It does NOT re-point series_cover_images — the media-processor consumer does
+	// that after generating variants. Idempotent on re-delivery.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: The text is shorter than 2 or longer than 100
-	//    characters after trimming spaces; the catalog is not called.
-	//  - Unavailable: The map catalog cannot be reached.
-	SearchPlaces(ctx context.Context, callerOrgID, text string) ([]*entity.MapPlaceCandidate, error)
+	//  - InvalidArgument: if series_id or media_id is empty.
+	//  - PermissionDenied: if the series is not owned by the caller (non-revealing).
+	//  - Internal: if the DB insert or event publish fails.
+	SetCoverImage(ctx context.Context, callerOrgID, seriesID, seriesImageID string) error
 }
 
-// concertAuthoringUseCase implements ConcertAuthoringUseCase.
-type concertAuthoringUseCase struct {
-	seriesRepo    entity.SeriesRepository
-	venueRepo     entity.VenueRepository
-	mapCatalog    entity.VenueMapCatalog
-	organizerRepo entity.OrganizerRepository
-	publisher     EventPublisher
-	logger        *logging.Logger
+// seriesUseCase implements SeriesUseCase.
+type seriesUseCase struct {
+	seriesRepo      entity.SeriesRepository
+	seriesImageRepo entity.SeriesImageRepository
+	venueRepo       entity.VenueRepository
+	mapCatalog      entity.VenueMapCatalog
+	organizerRepo   entity.OrganizerRepository
+	publisher       EventPublisher
+	logger          *logging.Logger
 }
 
 // Compile-time interface check.
-var _ ConcertAuthoringUseCase = (*concertAuthoringUseCase)(nil)
+var _ SeriesUseCase = (*seriesUseCase)(nil)
 
-// NewConcertAuthoringUseCase creates a new ConcertAuthoringUseCase. All fields
-// are required. Media upload/attach lives in SeriesImageUseCase, not here.
-func NewConcertAuthoringUseCase(
+// NewSeriesUseCase creates a new SeriesUseCase. All fields
+// are required. The Series image upload lives in SeriesImageUseCase.
+func NewSeriesUseCase(
 	seriesRepo entity.SeriesRepository,
+	seriesImageRepo entity.SeriesImageRepository,
 	venueRepo entity.VenueRepository,
 	mapCatalog entity.VenueMapCatalog,
 	organizerRepo entity.OrganizerRepository,
 	publisher EventPublisher,
 	logger *logging.Logger,
-) ConcertAuthoringUseCase {
-	return &concertAuthoringUseCase{
-		seriesRepo:    seriesRepo,
-		venueRepo:     venueRepo,
-		mapCatalog:    mapCatalog,
-		organizerRepo: organizerRepo,
-		publisher:     publisher,
-		logger:        logger,
+) SeriesUseCase {
+	return &seriesUseCase{
+		seriesRepo:      seriesRepo,
+		seriesImageRepo: seriesImageRepo,
+		venueRepo:       venueRepo,
+		mapCatalog:      mapCatalog,
+		organizerRepo:   organizerRepo,
+		publisher:       publisher,
+		logger:          logger,
 	}
 }
 
 // assertOwnsSeries verifies that the given series is owned by callerOrgID.
 // It returns a non-revealing PermissionDenied error when the check fails.
-func (uc *concertAuthoringUseCase) assertOwnsSeries(series *entity.Series, callerOrgID string) error {
+func (uc *seriesUseCase) assertOwnsSeries(series *entity.Series, callerOrgID string) error {
 	if series.OrganizerID == nil || *series.OrganizerID != callerOrgID {
 		return apperr.New(codes.PermissionDenied, "permission denied")
 	}
@@ -172,7 +167,7 @@ func (uc *concertAuthoringUseCase) assertOwnsSeries(series *entity.Series, calle
 
 // checkPerformerOwnership returns PermissionDenied (non-revealing) when any of
 // the supplied artist IDs is not represented by the caller's organizer.
-func (uc *concertAuthoringUseCase) checkPerformerOwnership(ctx context.Context, callerOrgID string, artistIDs []string) error {
+func (uc *seriesUseCase) checkPerformerOwnership(ctx context.Context, callerOrgID string, artistIDs []string) error {
 	ownedArtists, err := uc.organizerRepo.ListArtists(ctx, callerOrgID)
 	if err != nil {
 		return fmt.Errorf("list organizer artists: %w", err)
@@ -209,7 +204,7 @@ func generateUnlistedToken() (string, error) {
 // kept on the event (DraftEvent.ListedVenueName), and a listed name on the
 // Venue would let Create's (listed_venue_name, admin_area) dedupe merge this
 // place into another same-named Venue in the same admin area.
-func (uc *concertAuthoringUseCase) resolveVenueForInput(ctx context.Context, inp *DraftEventInput) (string, error) {
+func (uc *seriesUseCase) resolveVenueForInput(ctx context.Context, inp *DraftEventInput) (string, error) {
 	placeID := *inp.PlaceID
 
 	v, err := uc.venueRepo.GetByPlaceID(ctx, placeID)
@@ -243,7 +238,7 @@ func (uc *concertAuthoringUseCase) resolveVenueForInput(ctx context.Context, inp
 
 // resolveDraftEvents converts DraftEventInputs into persisted-ready DraftEvents
 // by resolving each venue and assigning new IDs.
-func (uc *concertAuthoringUseCase) resolveDraftEvents(ctx context.Context, seriesID string, inputs []*DraftEventInput) ([]*entity.DraftEvent, error) {
+func (uc *seriesUseCase) resolveDraftEvents(ctx context.Context, seriesID string, inputs []*DraftEventInput) ([]*entity.DraftEvent, error) {
 	out := make([]*entity.DraftEvent, 0, len(inputs))
 	for _, inp := range inputs {
 		venueID, err := uc.resolveVenueForInput(ctx, inp)
@@ -265,8 +260,8 @@ func (uc *concertAuthoringUseCase) resolveDraftEvents(ctx context.Context, serie
 	return out, nil
 }
 
-// CreateDraft authors a new first-party series in the DRAFT state.
-func (uc *concertAuthoringUseCase) CreateDraft(
+// Create authors a new first-party series in the DRAFT state.
+func (uc *seriesUseCase) Create(
 	ctx context.Context,
 	callerOrgID string,
 	draft *entity.Series,
@@ -314,8 +309,8 @@ func (uc *concertAuthoringUseCase) CreateDraft(
 	return series, events, artists, nil
 }
 
-// UpdateDraft replaces the draft content of an existing series.
-func (uc *concertAuthoringUseCase) UpdateDraft(
+// Update replaces the draft content of an existing series.
+func (uc *seriesUseCase) Update(
 	ctx context.Context,
 	callerOrgID, seriesID string,
 	draft *entity.Series,
@@ -374,7 +369,7 @@ func (uc *concertAuthoringUseCase) UpdateDraft(
 }
 
 // Publish transitions a DRAFT series to PUBLISHED.
-func (uc *concertAuthoringUseCase) Publish(
+func (uc *seriesUseCase) Publish(
 	ctx context.Context,
 	callerOrgID, seriesID string,
 ) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
@@ -461,7 +456,7 @@ func (uc *concertAuthoringUseCase) Publish(
 }
 
 // Cancel marks a series CANCELLED and emits CONCERT.cancelled.
-func (uc *concertAuthoringUseCase) Cancel(ctx context.Context, callerOrgID, seriesID string) error {
+func (uc *seriesUseCase) Cancel(ctx context.Context, callerOrgID, seriesID string) error {
 	series, err := uc.seriesRepo.Get(ctx, seriesID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -507,8 +502,8 @@ func (uc *concertAuthoringUseCase) Cancel(ctx context.Context, callerOrgID, seri
 	return nil
 }
 
-// RegenerateToken issues a fresh share token for an UNLISTED series.
-func (uc *concertAuthoringUseCase) RegenerateToken(ctx context.Context, callerOrgID, seriesID string) (string, error) {
+// RegenerateShareURL issues a fresh share token for an UNLISTED series.
+func (uc *seriesUseCase) RegenerateShareURL(ctx context.Context, callerOrgID, seriesID string) (string, error) {
 	series, err := uc.seriesRepo.Get(ctx, seriesID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -536,8 +531,8 @@ func (uc *concertAuthoringUseCase) RegenerateToken(ctx context.Context, callerOr
 	return token, nil
 }
 
-// ListOwn returns all series authored by the caller's organizer.
-func (uc *concertAuthoringUseCase) ListOwn(
+// List returns all series authored by the caller's organizer.
+func (uc *seriesUseCase) List(
 	ctx context.Context,
 	callerOrgID string,
 ) ([]*entity.Series, []*[]*entity.Event, []*[]*entity.Artist, error) {
@@ -589,21 +584,6 @@ func validateDraftEventInputs(inputs []*DraftEventInput) error {
 	return nil
 }
 
-// SearchPlaces looks up a venue name in the map catalog for an authoring
-// operator.
-func (uc *concertAuthoringUseCase) SearchPlaces(ctx context.Context, _ string, text string) ([]*entity.MapPlaceCandidate, error) {
-	trimmed := strings.TrimSpace(text)
-	if n := utf8.RuneCountInString(trimmed); n < searchPlacesMinChars || n > searchPlacesMaxChars {
-		return nil, apperr.New(codes.InvalidArgument,
-			fmt.Sprintf("venue search text must be %d to %d characters", searchPlacesMinChars, searchPlacesMaxChars))
-	}
-	candidates, err := uc.mapCatalog.SearchPlaces(ctx, trimmed)
-	if err != nil {
-		return nil, fmt.Errorf("search places in map catalog: %w", err)
-	}
-	return candidates, nil
-}
-
 // validatePublishReadiness is the final server-side gate before a concert goes
 // live. Creation validates a subset for early draft feedback, but an edited or
 // partial draft may still be missing later-required data, so publish
@@ -646,4 +626,69 @@ func eventVenueName(ev *entity.Event) string {
 		return strings.TrimSpace(*ev.ListedVenueName)
 	}
 	return ""
+}
+
+// SetCoverImage verifies ownership, inserts the media row idempotently, and
+// publishes MEDIA.uploaded so the processor can generate variants and cut over
+// series_cover_images. The series_cover_images re-point is intentionally deferred to the
+// consumer so the existing cover continues to serve until variants are ready
+// (no 404 window).
+func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesID, mediaID string) error {
+	if seriesID == "" {
+		return apperr.New(codes.InvalidArgument, "series_id must not be empty")
+	}
+	if mediaID == "" {
+		return apperr.New(codes.InvalidArgument, "media_id must not be empty")
+	}
+
+	// Verify caller owns the series. Non-revealing: NOT_FOUND → PermissionDenied.
+	series, err := uc.seriesRepo.Get(ctx, seriesID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			return apperr.New(codes.PermissionDenied, "permission denied")
+		}
+		return err
+	}
+	if series.OrganizerID == nil || *series.OrganizerID != callerOrgID {
+		return apperr.New(codes.PermissionDenied, "permission denied")
+	}
+
+	// Insert the media row idempotently. The organizer_id comes from the
+	// verified caller so we never store a media row for a different tenant.
+	media := &entity.SeriesImage{
+		ID:          mediaID,
+		OrganizerID: callerOrgID,
+		// content_type is not known here (the client declared it to the
+		// signed-URL endpoint, not to SetCoverImage). Store an empty attributes
+		// map; the processor will not need it and we avoid a round-trip.
+		Attributes: map[string]string{},
+	}
+	if err := uc.seriesImageRepo.Create(ctx, media); err != nil {
+		return fmt.Errorf("insert media row: %w", err)
+	}
+
+	// Publish MEDIA.uploaded so the processor can pick it up. Non-fatal on
+	// publish failure after a successful DB insert: the row persists and the
+	// event can be re-published via a retry or manual trigger.
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectMediaUploaded, entity.MediaUploadedData{
+		MediaID:  mediaID,
+		SeriesID: seriesID,
+	}); err != nil {
+		uc.logger.Warn(ctx, "failed to publish MEDIA.uploaded event",
+			slog.String("media_id", mediaID),
+			slog.String("series_id", seriesID),
+			slog.Any("error", err),
+		)
+		// Non-fatal: the media row is persisted; the processor picks it up on
+		// re-delivery. We do NOT return an error so the caller does not retry
+		// the entire RPC (which would insert a duplicate-idempotent row again
+		// and then try to publish again — a harmless but noisy loop).
+	}
+
+	uc.logger.Info(ctx, "media attached to series",
+		slog.String("media_id", mediaID),
+		slog.String("series_id", seriesID),
+		slog.String("organizer_id", callerOrgID),
+	)
+	return nil
 }

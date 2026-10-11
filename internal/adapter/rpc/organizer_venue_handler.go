@@ -19,16 +19,16 @@ var _ organizervenuev1connect.VenueServiceHandler = (*OrganizerVenueHandler)(nil
 // OrganizerVenueHandler implements the organizer-facing VenueService Connect
 // interface. It resolves the caller's organizer and delegates to the use case.
 type OrganizerVenueHandler struct {
-	authoringUC usecase.ConcertAuthoringUseCase
+	venueUC     usecase.VenueUseCase
 	organizerUC usecase.OrganizerUseCase
 }
 
 // NewOrganizerVenueHandler creates a new OrganizerVenueHandler.
 func NewOrganizerVenueHandler(
-	authoringUC usecase.ConcertAuthoringUseCase,
+	venueUC usecase.VenueUseCase,
 	organizerUC usecase.OrganizerUseCase,
 ) *OrganizerVenueHandler {
-	return &OrganizerVenueHandler{authoringUC: authoringUC, organizerUC: organizerUC}
+	return &OrganizerVenueHandler{venueUC: venueUC, organizerUC: organizerUC}
 }
 
 // resolveCallerOrganizer reads the identity provider's organization id from
@@ -52,7 +52,7 @@ func (h *OrganizerVenueHandler) Search(
 		return nil, err
 	}
 
-	candidates, err := h.authoringUC.SearchPlaces(ctx, organizer.ID, req.Msg.GetText())
+	candidates, err := h.venueUC.Search(ctx, organizer.ID, req.Msg.GetText())
 	if err != nil {
 		return nil, err
 	}

@@ -101,7 +101,7 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 		}).Return(nil).Once()
 		d.orgRepo.EXPECT().Get(mock.Anything, "org-1").Return(deactivated, nil).Once()
 		d.orgRepo.EXPECT().Delete(mock.Anything, "org-1", true).Return(nil).Once()
-		d.seriesImageRepo.EXPECT().ListMediaByOrganizer(mock.Anything, "org-1").Return(nil, nil).Once()
+		d.seriesImageRepo.EXPECT().ListByOrganizer(mock.Anything, "org-1").Return(nil, nil).Once()
 		d.provisioner.EXPECT().DeleteTenant(mock.Anything, "zitadel-org-1").Run(func(context.Context, string) {
 			*calls = append(*calls, "delete-tenant")
 		}).Return(nil).Once()
@@ -1085,7 +1085,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 		d.orgRepo.EXPECT().Delete(ctx, orgID, true).Run(func(context.Context, string, bool) {
 			*calls = append(*calls, "check")
 		}).Return(nil).Once()
-		d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(media, nil).Once()
+		d.seriesImageRepo.EXPECT().ListByOrganizer(ctx, orgID).Return(media, nil).Once()
 		for _, m := range media {
 			d.imageStorer.EXPECT().DeleteOriginal(ctx, testInternalBucket, orgID, m.ID).Run(func(context.Context, string, string, string) {
 				*calls = append(*calls, "original:"+m.ID)
@@ -1158,7 +1158,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 				unlinked.ProviderOrganizerID = ""
 				d.orgRepo.EXPECT().Get(ctx, orgID).Return(&unlinked, nil).Once()
 				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
-				d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
+				d.seriesImageRepo.EXPECT().ListByOrganizer(ctx, orgID).Return(nil, nil).Once()
 				d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return("394277002850336802", nil).Once()
 				d.provisioner.EXPECT().DeleteTenant(ctx, "394277002850336802").Run(func(context.Context, string) {
 					*calls = append(*calls, "tenant")
@@ -1176,7 +1176,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 				unlinked.ProviderOrganizerID = ""
 				d.orgRepo.EXPECT().Get(ctx, orgID).Return(&unlinked, nil).Once()
 				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
-				d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
+				d.seriesImageRepo.EXPECT().ListByOrganizer(ctx, orgID).Return(nil, nil).Once()
 				d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return("", apperr.ErrInternal).Once()
 			},
 			wantErr: apperr.ErrInternal,
@@ -1212,7 +1212,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			setup: func(d *organizerTestDeps, _ *[]string) {
 				d.orgRepo.EXPECT().Get(ctx, orgID).Return(deactivated, nil).Once()
 				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
-				d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(media, nil).Once()
+				d.seriesImageRepo.EXPECT().ListByOrganizer(ctx, orgID).Return(media, nil).Once()
 			},
 			wantErr: apperr.ErrInternal,
 		},
@@ -1289,7 +1289,7 @@ func TestOrganizerUseCase_CleanUpStuckProvisioningOrganizer(t *testing.T) {
 	d.orgRepo.EXPECT().Delete(ctx, orgID, true).Run(func(context.Context, string, bool) {
 		calls = append(calls, "check")
 	}).Return(nil).Once()
-	d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
+	d.seriesImageRepo.EXPECT().ListByOrganizer(ctx, orgID).Return(nil, nil).Once()
 	d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return(providerOrganizerID, nil).Once()
 	d.provisioner.EXPECT().DeleteTenant(ctx, providerOrganizerID).Run(func(context.Context, string) {
 		calls = append(calls, "tenant")

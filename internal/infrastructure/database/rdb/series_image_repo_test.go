@@ -15,14 +15,14 @@ func TestSeriesRepository_ListMediaByOrganizer(t *testing.T) {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	repo := rdb.NewSeriesRepository(testDB)
+	repo := rdb.NewSeriesImageRepository(testDB)
 
 	t.Run("returns the cover and a media no series uses", func(t *testing.T) {
 		// @spec components/entity/media/list-by-organizer "Cover and replaced upload"
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
 		other := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
 
-		got, err := repo.ListMediaByOrganizer(ctx, o.organizerID)
+		got, err := repo.ListByOrganizer(ctx, o.organizerID)
 
 		require.NoError(t, err)
 		ids := make([]string, 0, len(got))
@@ -36,7 +36,7 @@ func TestSeriesRepository_ListMediaByOrganizer(t *testing.T) {
 
 	t.Run("returns an empty list when the organizer owns no media", func(t *testing.T) {
 		// @spec components/entity/media/list-by-organizer "No media"
-		got, err := repo.ListMediaByOrganizer(ctx, entity.NewID())
+		got, err := repo.ListByOrganizer(ctx, entity.NewID())
 
 		require.NoError(t, err)
 		assert.Empty(t, got)

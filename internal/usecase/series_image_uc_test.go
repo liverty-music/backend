@@ -92,6 +92,7 @@ type mediaDeps struct {
 	processor       *entitymocks.MockMediaProcessor
 	publisher       *ucmocks.MockEventPublisher
 	uc              usecase.SeriesImageUseCase
+	series          usecase.SeriesUseCase
 }
 
 func newMediaDeps(t *testing.T) *mediaDeps {
@@ -107,10 +108,11 @@ func newMediaDeps(t *testing.T) *mediaDeps {
 	d.uc = usecase.NewSeriesImageUseCase(
 		d.seriesRepo, d.seriesImageRepo, d.storer, d.processor, d.publisher, logger,
 	)
+	d.series = usecase.NewSeriesUseCase(d.seriesRepo, d.seriesImageRepo, nil, nil, nil, d.publisher, logger)
 	return d
 }
 
-// --- CreateUploadURL / AttachMedia tests ---
+// --- CreateUploadURL / SetCoverImage tests ---
 
 // TestMediaUseCase_CreateMediaUploadURL_IssuesSignedURL verifies that a valid
 // content type triggers a signed PUT URL and returns the media id + max bytes.
@@ -153,9 +155,9 @@ func TestMediaUseCase_CreateMediaUploadURL_MissingBucket(t *testing.T) {
 	assert.True(t, errors.Is(err, apperr.ErrInternal), "expected Internal, got %v", err)
 }
 
-// TestMediaUseCase_AttachMedia_InsertsAndPublishes verifies the happy path:
+// TestSeriesUseCase_SetCoverImage_InsertsAndPublishes verifies the happy path:
 // ownership check passes, media row is inserted, event is published.
-func TestMediaUseCase_AttachMedia_InsertsAndPublishes(t *testing.T) {
+func TestSeriesUseCase_SetCoverImage_InsertsAndPublishes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newMediaDeps(t)
@@ -167,18 +169,18 @@ func TestMediaUseCase_AttachMedia_InsertsAndPublishes(t *testing.T) {
 	)
 	s := &entity.Series{ID: seriesID, OrganizerID: new(orgID)}
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
-	d.seriesImageRepo.EXPECT().InsertMedia(mock.Anything, mock.MatchedBy(func(m *entity.SeriesImage) bool {
+	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(m *entity.SeriesImage) bool {
 		return m.ID == mediaID && m.OrganizerID == orgID
 	})).Return(nil)
 	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectMediaUploaded, mock.Anything).Return(nil)
 
-	err := d.uc.AttachMedia(ctx, orgID, seriesID, mediaID)
+	err := d.series.SetCoverImage(ctx, orgID, seriesID, mediaID)
 	require.NoError(t, err)
 }
 
-// TestMediaUseCase_AttachMedia_NonOwnerDenied verifies that a caller who does
+// TestSeriesUseCase_SetCoverImage_NonOwnerDenied verifies that a caller who does
 // not own the series receives PermissionDenied (non-revealing).
-func TestMediaUseCase_AttachMedia_NonOwnerDenied(t *testing.T) {
+func TestSeriesUseCase_SetCoverImage_NonOwnerDenied(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newMediaDeps(t)
@@ -192,14 +194,14 @@ func TestMediaUseCase_AttachMedia_NonOwnerDenied(t *testing.T) {
 	s := &entity.Series{ID: seriesID, OrganizerID: new("org-owner")}
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
 
-	err := d.uc.AttachMedia(ctx, orgID, seriesID, mediaID)
+	err := d.series.SetCoverImage(ctx, orgID, seriesID, mediaID)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperr.ErrPermissionDenied), "expected PermissionDenied, got %v", err)
 }
 
-// TestMediaUseCase_AttachMedia_Idempotent verifies that a second AttachMedia
+// TestSeriesUseCase_SetCoverImage_Idempotent verifies that a second SetCoverImage
 // for the same media_id succeeds (InsertMedia is ON CONFLICT DO NOTHING).
-func TestMediaUseCase_AttachMedia_Idempotent(t *testing.T) {
+func TestSeriesUseCase_SetCoverImage_Idempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newMediaDeps(t)
@@ -212,11 +214,11 @@ func TestMediaUseCase_AttachMedia_Idempotent(t *testing.T) {
 	s := &entity.Series{ID: seriesID, OrganizerID: new(orgID)}
 	// Both calls use the same mock stubs — idempotent at the DB layer.
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil).Times(2)
-	d.seriesImageRepo.EXPECT().InsertMedia(mock.Anything, mock.Anything).Return(nil).Times(2)
+	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.Anything).Return(nil).Times(2)
 	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectMediaUploaded, mock.Anything).Return(nil).Times(2)
 
-	require.NoError(t, d.uc.AttachMedia(ctx, orgID, seriesID, mediaID))
-	require.NoError(t, d.uc.AttachMedia(ctx, orgID, seriesID, mediaID))
+	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, mediaID))
+	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, mediaID))
 }
 
 // --- SeriesImageUseCase.Process tests ---
@@ -239,10 +241,10 @@ func TestMediaUseCase_ProcessMedia_HappyPath(t *testing.T) {
 	d.storer.objects["originals/"+origKey] = []byte("raw-image-bytes")
 
 	media := &entity.SeriesImage{ID: mediaID, OrganizerID: orgID}
-	d.seriesImageRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
+	d.seriesImageRepo.EXPECT().Get(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, []byte("raw-image-bytes")).
 		Return([]byte("thumb-webp"), []byte("large-webp"), nil)
-	d.seriesImageRepo.EXPECT().CutOverSeriesMedia(mock.Anything, seriesID, mediaID).Return("", nil)
+	d.seriesImageRepo.EXPECT().ReplaceCover(mock.Anything, seriesID, mediaID).Return("", nil)
 
 	require.NoError(t, d.uc.Process(context.Background(), mediaID, seriesID))
 
@@ -272,10 +274,10 @@ func TestMediaUseCase_ProcessMedia_ReplacesOldMedia(t *testing.T) {
 	d.storer.objects["originals/"+origKey] = []byte("raw")
 
 	media := &entity.SeriesImage{ID: mediaID, OrganizerID: orgID}
-	d.seriesImageRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
+	d.seriesImageRepo.EXPECT().Get(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return([]byte("thumb"), []byte("large"), nil)
-	d.seriesImageRepo.EXPECT().CutOverSeriesMedia(mock.Anything, seriesID, mediaID).Return(oldMediaID, nil)
+	d.seriesImageRepo.EXPECT().ReplaceCover(mock.Anything, seriesID, mediaID).Return(oldMediaID, nil)
 
 	require.NoError(t, d.uc.Process(context.Background(), mediaID, seriesID))
 
@@ -302,7 +304,7 @@ func TestMediaUseCase_ProcessMedia_UnsupportedImage(t *testing.T) {
 	d.storer.objects["originals/"+origKey] = []byte("corrupt")
 
 	media := &entity.SeriesImage{ID: mediaID, OrganizerID: orgID}
-	d.seriesImageRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
+	d.seriesImageRepo.EXPECT().Get(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return(nil, nil, entity.ErrUnsupportedMedia)
 
@@ -329,7 +331,7 @@ func TestMediaUseCase_ProcessMedia_TransientError(t *testing.T) {
 	d.storer.objects["originals/"+origKey] = []byte("raw")
 
 	media := &entity.SeriesImage{ID: mediaID, OrganizerID: orgID}
-	d.seriesImageRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
+	d.seriesImageRepo.EXPECT().Get(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return(nil, nil, errors.New("vips OOM"))
 
@@ -356,11 +358,11 @@ func TestMediaUseCase_ProcessMedia_Idempotent(t *testing.T) {
 	d.storer.objects["originals/"+origKey] = []byte("raw")
 
 	media := &entity.SeriesImage{ID: mediaID, OrganizerID: orgID}
-	d.seriesImageRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil).Times(2)
+	d.seriesImageRepo.EXPECT().Get(mock.Anything, mediaID).Return(media, nil).Times(2)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return([]byte("thumb"), []byte("large"), nil).Times(2)
 	// CutOverSeriesMedia returns "" on both calls: already applied on first, idempotent on second.
-	d.seriesImageRepo.EXPECT().CutOverSeriesMedia(mock.Anything, seriesID, mediaID).Return("", nil).Times(2)
+	d.seriesImageRepo.EXPECT().ReplaceCover(mock.Anything, seriesID, mediaID).Return("", nil).Times(2)
 
 	require.NoError(t, d.uc.Process(context.Background(), mediaID, seriesID))
 	// Restore original for second delivery.
@@ -376,7 +378,7 @@ func TestMediaUseCase_ProcessMedia_MissingMediaRow(t *testing.T) {
 	t.Setenv("ORGANIZER_MEDIA_BUCKET", "served")
 
 	d := newMediaDeps(t)
-	d.seriesImageRepo.EXPECT().FindMediaByID(mock.Anything, "media-gone").
+	d.seriesImageRepo.EXPECT().Get(mock.Anything, "media-gone").
 		Return(nil, apperr.New(codes.NotFound, "not found"))
 
 	err := d.uc.Process(context.Background(), "media-gone", "series-1")
@@ -402,10 +404,10 @@ func TestMediaUseCase_ProcessMedia_MissingSeries(t *testing.T) {
 	d.storer.objects["originals/"+origKey] = []byte("raw")
 
 	media := &entity.SeriesImage{ID: mediaID, OrganizerID: orgID}
-	d.seriesImageRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
+	d.seriesImageRepo.EXPECT().Get(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return([]byte("thumb"), []byte("large"), nil)
-	d.seriesImageRepo.EXPECT().CutOverSeriesMedia(mock.Anything, seriesID, mediaID).
+	d.seriesImageRepo.EXPECT().ReplaceCover(mock.Anything, seriesID, mediaID).
 		Return("", apperr.New(codes.NotFound, "series not found"))
 
 	err := d.uc.Process(context.Background(), mediaID, seriesID)

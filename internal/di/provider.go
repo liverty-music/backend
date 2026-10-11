@@ -285,7 +285,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		imageStorer = storer
 		shutdown.AddExternalPhase(storer)
 	}
-	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, seriesRepo, imageStorer,
+	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, rdb.NewSeriesImageRepository(db), imageStorer,
 		usecase.OrganizerMediaBuckets{Internal: cfg.OrganizerMediaInternalBucket, Served: cfg.OrganizerMediaBucket},
 		eventPublisher, businessMetrics, logger)
 	// Run the provisioning reconciler only on the workload that provisions
@@ -300,7 +300,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	concertAuthoringUC := usecase.NewConcertAuthoringUseCase(seriesRepo, venueRepo, mapCatalog, organizerRepo, eventPublisher, logger)
+	seriesUC := usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), venueRepo, mapCatalog, organizerRepo, eventPublisher, logger)
 
 	// Identity eKYC — select the real Pocket Sign Stamp client when all four
 	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are
@@ -337,7 +337,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// SeriesImageUseCase.Process is never called from the RPC server (only the dedicated
 	// media-consumer job in media_job.go invokes it), so no MediaProcessor is
 	// wired here.
-	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, seriesRepo, imageStorer, nil, eventPublisher, logger)
+	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, nil, eventPublisher, logger)
 	// SeriesImageURLBuilder composes organizer series-media CDN URLs for the
 	// organizer-facing ConcertService mapper. The CDN base is sourced from
 	// config (ORGANIZER_MEDIA_CDN_BASE) rather than read directly by entity.
@@ -757,14 +757,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerseriesconnect.NewSeriesServiceHandler(
-				rpc.NewOrganizerSeriesHandler(concertAuthoringUC, organizerUC, seriesImageUC, seriesImageURLBuilder, logger),
+				rpc.NewOrganizerSeriesHandler(seriesUC, organizerUC, seriesImageURLBuilder, logger),
 				opts...,
 			)
 		},
 		// Organizer-facing VenueService: Search (map catalog venue lookup).
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizervenueconnect.NewVenueServiceHandler(
-				rpc.NewOrganizerVenueHandler(concertAuthoringUC, organizerUC),
+				rpc.NewOrganizerVenueHandler(usecase.NewVenueUseCase(mapCatalog), organizerUC),
 				opts...,
 			)
 		},

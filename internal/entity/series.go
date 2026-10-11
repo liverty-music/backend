@@ -184,22 +184,22 @@ func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 // series_cover_images cut-over that the media-processor consumer performs after writing
 // variants to GCS.
 type SeriesImageRepository interface {
-	// InsertMedia persists a media row idempotently (ON CONFLICT(id) DO NOTHING).
-	// Used by AttachMedia to record the upload before publishing MEDIA.uploaded.
+	// Create persists a media row idempotently (ON CONFLICT(id) DO NOTHING).
+	// Used by SetCoverImage to record the upload before publishing MEDIA.uploaded.
 	//
 	// # Possible errors
 	//
 	//  - Internal: if the insert fails.
-	InsertMedia(ctx context.Context, media *SeriesImage) error
+	Create(ctx context.Context, media *SeriesImage) error
 
-	// FindMediaByID retrieves a single media row by id.
+	// Get retrieves a single media row by id.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: if no media row exists with the given id.
-	FindMediaByID(ctx context.Context, mediaID string) (*SeriesImage, error)
+	Get(ctx context.Context, mediaID string) (*SeriesImage, error)
 
-	// CutOverSeriesMedia atomically re-points a series' cover to newMediaID and
+	// ReplaceCover atomically re-points a series' cover to newMediaID and
 	// returns the prior media id (empty string when the series had no cover).
 	// The cut-over is performed in a single transaction:
 	//  1. upsert series_cover_images(series_id) → newMediaID;
@@ -213,25 +213,25 @@ type SeriesImageRepository interface {
 	//
 	//  - NotFound: if the series does not exist.
 	//  - Internal: if the transaction fails.
-	CutOverSeriesMedia(ctx context.Context, seriesID, newMediaID string) (oldMediaID string, err error)
+	ReplaceCover(ctx context.Context, seriesID, newMediaID string) (oldMediaID string, err error)
 
-	// DeleteMedia removes a media row by id. Used after GCS originals are
+	// Delete removes a media row by id. Used after GCS originals are
 	// deleted to keep the DB consistent. Missing rows are silently skipped
 	// (idempotent).
 	//
 	// # Possible errors
 	//
 	//  - Internal: if the delete fails for a reason other than "not found".
-	DeleteMedia(ctx context.Context, mediaID string) error
+	Delete(ctx context.Context, mediaID string) error
 
-	// ListMediaByOrganizer returns every media row owned by the organizer, whether or
+	// ListByOrganizer returns every media row owned by the organizer, whether or
 	// not a series uses it as its cover. It returns an empty slice when the
 	// organizer owns none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: if the query fails.
-	ListMediaByOrganizer(ctx context.Context, organizerID string) ([]*SeriesImage, error)
+	ListByOrganizer(ctx context.Context, organizerID string) ([]*SeriesImage, error)
 }
 
 // SeriesRepository defines the data access interface for [Series].

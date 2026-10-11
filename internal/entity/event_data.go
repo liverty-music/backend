@@ -62,19 +62,19 @@ const (
 	// two tokens and the plain ORGANIZER.* filter on the JetStream stream
 	// captures it without a deeper wildcard.
 	SubjectOrganizerArtistAssociated = "ORGANIZER.artist_associated"
-	// SubjectConcertCancelled is published by ConcertAuthoringUseCase.Cancel after
+	// SubjectConcertCancelled is published by SeriesUseCase.Cancel after
 	// a PUBLISHED first-party series is transitioned to CANCELLED. It drives the
 	// concert.cancelled analytics event and the downstream consumer that notifies
 	// affected fans. Two tokens so the CONCERT.* stream filter captures it without
 	// a deeper wildcard — consistent with SubjectConcertCreated.
 	SubjectConcertCancelled = "CONCERT.cancelled"
-	// SubjectOrganizerConcertPublished is published by ConcertAuthoringUseCase.Publish
+	// SubjectOrganizerConcertPublished is published by SeriesUseCase.Publish
 	// after a first-party series is successfully published. It drives the
 	// organizer.concert.published analytics event (admin-actor / group event keyed
 	// on organizer_id; no fan distinct_id). Published as an ORGANIZER.* subject so
 	// the JetStream ORGANIZER stream captures it alongside the other organizer events.
 	SubjectOrganizerConcertPublished = "ORGANIZER.concert_published"
-	// SubjectMediaUploaded is published by the AttachMedia handler once the media
+	// SubjectMediaUploaded is published by the SetCoverImage handler once the media
 	// row is persisted. The media-processor consumer subscribes to this subject to
 	// read the original from the originals bucket, generate WebP variants, and
 	// cut over series_cover_images to the new media id. Two tokens (uploaded, not
@@ -169,7 +169,7 @@ type ConcertCreatedData struct {
 }
 
 // ConcertCancelledData is the payload for CONCERT.cancelled events.
-// Published by ConcertAuthoringUseCase.Cancel when a PUBLISHED first-party
+// Published by SeriesUseCase.Cancel when a PUBLISHED first-party
 // series is transitioned to CANCELLED. The consumer uses the SeriesID to
 // notify affected fans.
 type ConcertCancelledData struct {
@@ -183,7 +183,7 @@ type ConcertCancelledData struct {
 }
 
 // OrganizerConcertPublishedData is the payload for ORGANIZER.concert_published events.
-// Published by ConcertAuthoringUseCase.Publish after a first-party series is
+// Published by SeriesUseCase.Publish after a first-party series is
 // successfully published. Drives the organizer.concert.published analytics event.
 type OrganizerConcertPublishedData struct {
 	// OrganizerID is the platform-internal UUID of the organizer.
@@ -436,7 +436,7 @@ type TicketJourneyStatusChangedData struct {
 }
 
 // MediaUploadedData is the payload for MEDIA.uploaded events.
-// Published by the AttachMedia handler once the media row is persisted in the
+// Published by the SetCoverImage handler once the media row is persisted in the
 // database. The media-processor consumer uses MediaID and SeriesID to locate
 // the original file in the originals bucket, generate WebP variants (thumb and
 // large), and cut over series_cover_images to the new media id.
@@ -447,7 +447,7 @@ type MediaUploadedData struct {
 	// (cdn/{org}/{mediaID}/{variant}.webp).
 	MediaID string `json:"media_id"`
 	// SeriesID is the target series. The processor resolves the organizer id
-	// from the media row (stored on insert by AttachMedia) so it can compose
+	// from the media row (stored on insert by SetCoverImage) so it can compose
 	// all bucket paths without an extra DB lookup.
 	SeriesID string `json:"series_id"`
 }

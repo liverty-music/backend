@@ -18,7 +18,7 @@ import (
 // OrganizerVenueHandler. None has an expectation unless a test sets one, so
 // an unexpected call fails the test.
 type organizerVenueHandlerDeps struct {
-	authoringUC *ucmocks.MockConcertAuthoringUseCase
+	venueUC     *ucmocks.MockVenueUseCase
 	organizerUC *ucmocks.MockOrganizerUseCase
 	handler     *rpc.OrganizerVenueHandler
 }
@@ -26,10 +26,10 @@ type organizerVenueHandlerDeps struct {
 func newOrganizerVenueHandlerDeps(t *testing.T) *organizerVenueHandlerDeps {
 	t.Helper()
 	d := &organizerVenueHandlerDeps{
-		authoringUC: ucmocks.NewMockConcertAuthoringUseCase(t),
+		venueUC:     ucmocks.NewMockVenueUseCase(t),
 		organizerUC: ucmocks.NewMockOrganizerUseCase(t),
 	}
-	d.handler = rpc.NewOrganizerVenueHandler(d.authoringUC, d.organizerUC)
+	d.handler = rpc.NewOrganizerVenueHandler(d.venueUC, d.organizerUC)
 	return d
 }
 
@@ -45,8 +45,8 @@ func TestOrganizerVenueHandler_Search(t *testing.T) {
 			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
-		d.authoringUC.EXPECT().
-			SearchPlaces(mock.Anything, testOrganizerID, "Zepp Haneda").
+		d.venueUC.EXPECT().
+			Search(mock.Anything, testOrganizerID, "Zepp Haneda").
 			Return([]*entity.MapPlaceCandidate{
 				{PlaceID: "ChIJeVmAOuphGGARoWY4-GPmhhA", Name: "Zepp Haneda (TOKYO)", Address: "〒144-0041 東京都大田区羽田空港１丁目１−４"},
 				{PlaceID: "ChIJother", Name: "Zepp DiverCity (TOKYO)", Address: "〒135-0064 東京都江東区青海１丁目１−１０"},

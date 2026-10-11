@@ -31,14 +31,14 @@ func validPublishEvents() []*entity.Event {
 	}
 }
 
-// authoringDeps wires up a ConcertAuthoringUseCase with mocks for every dependency.
+// authoringDeps wires up a SeriesUseCase with mocks for every dependency.
 type authoringDeps struct {
 	seriesRepo    *entitymocks.MockSeriesRepository
 	venueRepo     *entitymocks.MockVenueRepository
 	mapCatalog    *entitymocks.MockVenueMapCatalog
 	organizerRepo *entitymocks.MockOrganizerRepository
 	publisher     *ucmocks.MockEventPublisher
-	uc            usecase.ConcertAuthoringUseCase
+	uc            usecase.SeriesUseCase
 }
 
 func newAuthoringDeps(t *testing.T) *authoringDeps {
@@ -51,8 +51,8 @@ func newAuthoringDeps(t *testing.T) *authoringDeps {
 		organizerRepo: entitymocks.NewMockOrganizerRepository(t),
 		publisher:     ucmocks.NewMockEventPublisher(t),
 	}
-	d.uc = usecase.NewConcertAuthoringUseCase(
-		d.seriesRepo, d.venueRepo, d.mapCatalog, d.organizerRepo, d.publisher, logger,
+	d.uc = usecase.NewSeriesUseCase(
+		d.seriesRepo, entitymocks.NewMockSeriesImageRepository(t), d.venueRepo, d.mapCatalog, d.organizerRepo, d.publisher, logger,
 	)
 	return d
 }
@@ -85,7 +85,7 @@ func TestConcertAuthoringUseCase_CreateDraft_OwnershipReject(t *testing.T) {
 		LocalDate: futureDate(),
 	}}
 
-	_, _, _, err := d.uc.CreateDraft(ctx, orgID, series, inp, []string{artistID})
+	_, _, _, err := d.uc.Create(ctx, orgID, series, inp, []string{artistID})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperr.ErrPermissionDenied), "expected PermissionDenied, got %v", err)
 }
@@ -343,7 +343,7 @@ func TestConcertAuthoringUseCase_RegenerateToken(t *testing.T) {
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
 	d.seriesRepo.EXPECT().SetUnlistedToken(mock.Anything, seriesID, mock.Anything).Return(nil)
 
-	token, err := d.uc.RegenerateToken(ctx, orgID, seriesID)
+	token, err := d.uc.RegenerateShareURL(ctx, orgID, seriesID)
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 }

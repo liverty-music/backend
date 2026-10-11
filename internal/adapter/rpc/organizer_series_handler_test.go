@@ -28,10 +28,9 @@ import (
 // OrganizerSeriesHandler. None has an expectation unless a test sets one, so
 // an unexpected call fails the test.
 type organizerSeriesHandlerDeps struct {
-	authoringUC   *ucmocks.MockConcertAuthoringUseCase
-	organizerUC   *ucmocks.MockOrganizerUseCase
-	seriesImageUC *ucmocks.MockSeriesImageUseCase
-	handler       *rpc.OrganizerSeriesHandler
+	seriesUC    *ucmocks.MockSeriesUseCase
+	organizerUC *ucmocks.MockOrganizerUseCase
+	handler     *rpc.OrganizerSeriesHandler
 }
 
 func newOrganizerSeriesHandlerDeps(t *testing.T) *organizerSeriesHandlerDeps {
@@ -40,14 +39,12 @@ func newOrganizerSeriesHandlerDeps(t *testing.T) *organizerSeriesHandlerDeps {
 	require.NoError(t, err)
 
 	d := &organizerSeriesHandlerDeps{
-		authoringUC:   ucmocks.NewMockConcertAuthoringUseCase(t),
-		organizerUC:   ucmocks.NewMockOrganizerUseCase(t),
-		seriesImageUC: ucmocks.NewMockSeriesImageUseCase(t),
+		seriesUC:    ucmocks.NewMockSeriesUseCase(t),
+		organizerUC: ucmocks.NewMockOrganizerUseCase(t),
 	}
 	d.handler = rpc.NewOrganizerSeriesHandler(
-		d.authoringUC,
+		d.seriesUC,
 		d.organizerUC,
-		d.seriesImageUC,
 		mapper.NewSeriesImageURLBuilder("https://cdn.example.com"),
 		logger,
 	)
@@ -74,8 +71,8 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			Once()
 		events := []*entity.Event{authoredEvent("event-1", "series-1", 1)}
 		artists := []*entity.Artist{{ID: "artist-1", Name: "Artist One"}}
-		d.authoringUC.EXPECT().
-			ListOwn(mock.Anything, testOrganizerID).
+		d.seriesUC.EXPECT().
+			List(mock.Anything, testOrganizerID).
 			Return(
 				[]*entity.Series{{ID: "series-1", Title: "Tour"}, {ID: "series-2", Title: "Festival"}},
 				[]*[]*entity.Event{&events, nil},
@@ -110,8 +107,8 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			authoredEvent("event-3", "series-1", 3),
 		}
 		artists := []*entity.Artist{{ID: "artist-1", Name: "Artist One"}}
-		d.authoringUC.EXPECT().
-			ListOwn(mock.Anything, testOrganizerID).
+		d.seriesUC.EXPECT().
+			List(mock.Anything, testOrganizerID).
 			Return(
 				[]*entity.Series{{ID: "series-1", Title: "ARENA TOUR 2026"}},
 				[]*[]*entity.Event{&events},
@@ -157,8 +154,8 @@ func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
 		GooglePlaceID: new("ChIJeVmAOuphGGARoWY4-GPmhhA"),
 	}
 	events := []*entity.Event{ev}
-	d.authoringUC.EXPECT().
-		ListOwn(mock.Anything, testOrganizerID).
+	d.seriesUC.EXPECT().
+		List(mock.Anything, testOrganizerID).
 		Return(
 			[]*entity.Series{{ID: "series-1", Title: "ONE MAN LIVE"}},
 			[]*[]*entity.Event{&events},
@@ -196,8 +193,8 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 		series := &entity.Series{ID: "series-1", Title: "ONE MAN LIVE", Type: entity.SeriesTypeSingle, PublishState: &draft}
 		events := []*entity.Event{authoredEvent("draft-event-1", "series-1", 1), authoredEvent("draft-event-2", "series-1", 2)}
 		artists := []*entity.Artist{{ID: "artist-1", Name: "Artist One"}}
-		d.authoringUC.EXPECT().
-			CreateDraft(mock.Anything, testOrganizerID, mock.Anything, mock.Anything, []string{"artist-1"}).
+		d.seriesUC.EXPECT().
+			Create(mock.Anything, testOrganizerID, mock.Anything, mock.Anything, []string{"artist-1"}).
 			Return(series, events, artists, nil).
 			Once()
 
@@ -265,8 +262,8 @@ func TestOrganizerSeriesHandler_RegenerateShareUrl(t *testing.T) {
 			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
-		d.authoringUC.EXPECT().
-			RegenerateToken(mock.Anything, testOrganizerID, "series-1").
+		d.seriesUC.EXPECT().
+			RegenerateShareURL(mock.Anything, testOrganizerID, "series-1").
 			Return("new-token", nil).
 			Once()
 

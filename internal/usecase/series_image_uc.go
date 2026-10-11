@@ -63,7 +63,7 @@ type CreateMediaUploadURLOutput struct {
 	// x-goog-content-length-range headers must match what was signed.
 	UploadURL string
 	// MediaID is the server-minted UUIDv7 identifier. The client passes it
-	// back to AttachMedia after the upload completes.
+	// back to SetCoverImage after the upload completes.
 	MediaID string
 	// MaxBytes is the maximum upload size enforced by the signed URL condition.
 	MaxBytes int64
@@ -71,7 +71,7 @@ type CreateMediaUploadURLOutput struct {
 
 // SeriesImageUseCase defines the organizer media management surface for the
 // two-step direct-to-storage upload flow (CreateUploadURL → upload to
-// GCS → AttachMedia).
+// GCS → SetCoverImage).
 type SeriesImageUseCase interface {
 	// CreateUploadURL validates the content type, mints a new media id
 	// (UUIDv7), and returns a V4-signed GCS PUT URL for the ORIGINALS bucket
@@ -84,18 +84,6 @@ type SeriesImageUseCase interface {
 	//  - InvalidArgument: if the content type is not accepted.
 	//  - Internal: if ORGANIZER_MEDIA_INTERNAL_BUCKET is unset or signing fails.
 	CreateUploadURL(ctx context.Context, callerOrgID string, in CreateMediaUploadURLInput) (*CreateMediaUploadURLOutput, error)
-
-	// AttachMedia verifies that the caller owns the target series, inserts the
-	// media row idempotently, and publishes MEDIA.uploaded{media_id, series_id}.
-	// It does NOT re-point series_cover_images — the media-processor consumer does
-	// that after generating variants. Idempotent on re-delivery.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: if series_id or media_id is empty.
-	//  - PermissionDenied: if the series is not owned by the caller (non-revealing).
-	//  - Internal: if the DB insert or event publish fails.
-	AttachMedia(ctx context.Context, callerOrgID, seriesID, mediaID string) error
 
 	// Process reads the original upload from the internal bucket,
 	// validates and transcodes it into WebP thumb/large variants, switches
@@ -172,7 +160,7 @@ func (uc *seriesImageUseCase) CreateUploadURL(ctx context.Context, callerOrgID s
 	}
 
 	// Mint the media id now so it is the unique key for both the signed URL
-	// and the later AttachMedia call. UUIDv7 provides monotone ordering and
+	// and the later SetCoverImage call. UUIDv7 provides monotone ordering and
 	// an embedded creation timestamp.
 	mediaID := entity.NewID()
 
@@ -194,71 +182,6 @@ func (uc *seriesImageUseCase) CreateUploadURL(ctx context.Context, callerOrgID s
 	}, nil
 }
 
-// AttachMedia verifies ownership, inserts the media row idempotently, and
-// publishes MEDIA.uploaded so the processor can generate variants and cut over
-// series_cover_images. The series_cover_images re-point is intentionally deferred to the
-// consumer so the existing cover continues to serve until variants are ready
-// (no 404 window).
-func (uc *seriesImageUseCase) AttachMedia(ctx context.Context, callerOrgID, seriesID, mediaID string) error {
-	if seriesID == "" {
-		return apperr.New(codes.InvalidArgument, "series_id must not be empty")
-	}
-	if mediaID == "" {
-		return apperr.New(codes.InvalidArgument, "media_id must not be empty")
-	}
-
-	// Verify caller owns the series. Non-revealing: NOT_FOUND → PermissionDenied.
-	series, err := uc.seriesRepo.Get(ctx, seriesID)
-	if err != nil {
-		if errors.Is(err, apperr.ErrNotFound) {
-			return apperr.New(codes.PermissionDenied, "permission denied")
-		}
-		return err
-	}
-	if series.OrganizerID == nil || *series.OrganizerID != callerOrgID {
-		return apperr.New(codes.PermissionDenied, "permission denied")
-	}
-
-	// Insert the media row idempotently. The organizer_id comes from the
-	// verified caller so we never store a media row for a different tenant.
-	media := &entity.SeriesImage{
-		ID:          mediaID,
-		OrganizerID: callerOrgID,
-		// content_type is not known here (the client declared it to the
-		// signed-URL endpoint, not to AttachMedia). Store an empty attributes
-		// map; the processor will not need it and we avoid a round-trip.
-		Attributes: map[string]string{},
-	}
-	if err := uc.seriesImageRepo.InsertMedia(ctx, media); err != nil {
-		return fmt.Errorf("insert media row: %w", err)
-	}
-
-	// Publish MEDIA.uploaded so the processor can pick it up. Non-fatal on
-	// publish failure after a successful DB insert: the row persists and the
-	// event can be re-published via a retry or manual trigger.
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectMediaUploaded, entity.MediaUploadedData{
-		MediaID:  mediaID,
-		SeriesID: seriesID,
-	}); err != nil {
-		uc.logger.Warn(ctx, "failed to publish MEDIA.uploaded event",
-			slog.String("media_id", mediaID),
-			slog.String("series_id", seriesID),
-			slog.Any("error", err),
-		)
-		// Non-fatal: the media row is persisted; the processor picks it up on
-		// re-delivery. We do NOT return an error so the caller does not retry
-		// the entire RPC (which would insert a duplicate-idempotent row again
-		// and then try to publish again — a harmless but noisy loop).
-	}
-
-	uc.logger.Info(ctx, "media attached to series",
-		slog.String("media_id", mediaID),
-		slog.String("series_id", seriesID),
-		slog.String("organizer_id", callerOrgID),
-	)
-	return nil
-}
-
 // Process reads the original from the internal bucket, processes it into
 // WebP variants, writes them to the served bucket, cuts over series_cover_images to
 // the new media id (no-404 guarantee), and deletes the original. Permanent
@@ -269,7 +192,7 @@ func (uc *seriesImageUseCase) Process(ctx context.Context, mediaID, seriesID str
 	servedBucket := os.Getenv(mediaServedBucketEnv)
 
 	// Load the media row to get the organizer id the storage keys are scoped to.
-	media, err := uc.seriesImageRepo.FindMediaByID(ctx, mediaID)
+	media, err := uc.seriesImageRepo.Get(ctx, mediaID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Media row was deleted (e.g., cancelled before processing) — ack.
@@ -316,7 +239,7 @@ func (uc *seriesImageUseCase) Process(ctx context.Context, mediaID, seriesID str
 	// This is the single tx that guarantees no-404: the old variants remain
 	// served until this succeeds, then series_cover_images atomically points to the
 	// new variants.
-	oldMediaID, err := uc.seriesImageRepo.CutOverSeriesMedia(ctx, seriesID, mediaID)
+	oldMediaID, err := uc.seriesImageRepo.ReplaceCover(ctx, seriesID, mediaID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Series was deleted; nothing to cut over. Clean up and stop.
