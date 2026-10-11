@@ -55,8 +55,9 @@ type organizerTableWrites struct {
 
 // organizerWrites is every write the organizer server performs (see
 // 20261008020000_restrict_organizer_console_api_and_zitadel_app_grants.sql,
-// 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql and
-// 20261010010000_grant_organizer_console_api_ticket_sales.sql).
+// 20261009120000_grant_reception_api_and_restrict_organizer_console_api.sql,
+// 20261010010000_grant_organizer_console_api_ticket_sales.sql and
+// 20261011000000_unify_ticket_sales.sql).
 // Any other app table is SELECT-only for the role.
 var organizerWrites = map[string]organizerTableWrites{
 	"series": {insert: true, updateColumns: []string{
@@ -71,10 +72,10 @@ var organizerWrites = map[string]organizerTableWrites{
 	"concerts":                     {insert: true},
 	"staged_concerts":              {delete: true},
 	"media":                        {insert: true},
-	"lottery_sales_phases":         {insert: true, updateColumns: []string{"verification_requirement"}},
 	"organizer_connected_accounts": {insert: true, updateColumns: []string{"account_ref", "status", "status_synced_at"}},
 	"reception_links":              {insert: true, updateColumns: []string{"status", "token", "revoked_at"}},
-	"ticket_sales":                 {insert: true, updateColumns: []string{"sale_start_at", "sale_end_at", "price", "quantity", "per_account_limit"}},
+	"ticket_sales":                 {insert: true, updateColumns: []string{"sale_start_at", "sale_end_at", "verification_requirement"}},
+	"ticket_types":                 {insert: true, updateColumns: []string{"price", "quantity", "per_account_limit"}},
 }
 
 // receptionTableAccess is the access of the reception-api role to one app
@@ -141,7 +142,7 @@ func TestMigrationGrants_IAMRoles(t *testing.T) {
 	})
 
 	t.Run("organizer-console-api cannot alter evidence or fan records", func(t *testing.T) {
-		for _, table := range []string{"admissions", "rejected_scans", "orders", "users", "verified_identities"} {
+		for _, table := range []string{"admissions", "rejected_scans", "orders", "users", "kyc"} {
 			assert.False(t, hasAnyColumnPrivilege(t, ctx, conn, grantsOrganizerRole, table, "UPDATE"), "UPDATE on %s", table)
 			assert.False(t, hasTablePrivilege(t, ctx, conn, grantsOrganizerRole, table, "DELETE"), "DELETE on %s", table)
 		}

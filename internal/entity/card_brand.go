@@ -4,14 +4,14 @@ package entity
 // lowercased (e.g. "visa", "mastercard", "jcb", "diners", "discover", "amex").
 type CardBrand string
 
-// CardBrandAmex is American Express — the one brand a lottery application rejects.
+// CardBrandAmex is American Express — the one brand a lottery entry rejects.
 const CardBrandAmex CardBrand = "amex"
 
 // IsAcceptedCardBrand reports whether a card of the given brand may be used to
-// authorize a lottery application.
+// authorize a lottery entry.
 //
 // American Express is rejected: a JP-based Stripe account cannot reliably hold
-// an Amex authorization for the up-to-14-day application window, so an Amex hold
+// an Amex authorization for the up-to-14-day lottery window, so an Amex hold
 // could lapse before the draw captures it. Every other brand — including an
 // empty/unknown brand the provider could not classify — is accepted; the
 // separate amount and JPY-currency checks still apply.

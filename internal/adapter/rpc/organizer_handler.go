@@ -22,8 +22,7 @@ var _ organizerv1connect.OrganizerServiceHandler = (*OrganizerHandler)(nil)
 // derivation, role cross-check) is enforced structurally by the
 // OrgScopedInterceptor before this handler runs. The handler resolves the
 // caller's Organizer from the context-stored Zitadel org id, checks its
-// lifecycle status, and applies any request-body authorization (e.g., verifying
-// that the supplied organizer_id matches the resolved one).
+// lifecycle status. No request names an Organizer.
 //
 // Business logic is delegated to the usecase layer following the same
 // handler→usecase convention used by AdminOrganizerHandler and UserHandler.
@@ -57,31 +56,6 @@ func (h *OrganizerHandler) Get(
 	}
 	return connect.NewResponse(&organizerv1.GetResponse{
 		Organizer: mapper.OrganizerToProto(organizer),
-	}), nil
-}
-
-// ListArtists returns the artists the caller's own Organizer represents,
-// ascending by artist id. The supplied organizer_id must match the resolved
-// Organizer; the usecase rejects any other value with PermissionDenied.
-func (h *OrganizerHandler) ListArtists(
-	ctx context.Context,
-	req *connect.Request[organizerv1.ListArtistsRequest],
-) (*connect.Response[organizerv1.ListArtistsResponse], error) {
-	organizer, err := h.resolveCallerOrganizer(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// The protovalidate interceptor has already confirmed organizer_id is
-	// non-empty and well-formed; the usecase enforces the ownership
-	// invariant against the resolved caller Organizer.
-	artists, err := h.organizerUC.ListOwnArtists(ctx, organizer.ID, req.Msg.GetOrganizerId().GetValue())
-	if err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&organizerv1.ListArtistsResponse{
-		Artists: mapper.ArtistsToProto(artists),
 	}), nil
 }
 

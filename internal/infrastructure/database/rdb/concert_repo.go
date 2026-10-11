@@ -248,10 +248,32 @@ const (
 	// id no longer exists the DELETE returns no row and the INSERT selects nothing,
 	// so a missing event records no suppression. ON CONFLICT absorbs a repeated
 	// suppression of the same natural key.
+	//
+	// The same statement deletes every TicketSale whose only TicketTypes are
+	// the event's, so no sale is left without a TicketType; the event's
+	// TicketTypes (and their lottery entries) go by the cascades of either
+	// delete.
+	//
+	// The event's checkouts that moved no money (status 1=Held, 4=Expired,
+	// 5=Released) go with its ticket types. A Committed (2) or Completed (3)
+	// checkout stays, so the RESTRICT foreign key from checkouts to
+	// ticket_types refuses the whole statement, like an issued ticket does.
 	deleteEventAndSuppressQuery = `
 		WITH deleted AS (
 			DELETE FROM events WHERE id = $1
 			RETURNING venue_id, local_event_date, start_at
+		), abandoned_checkouts AS (
+			DELETE FROM checkouts c
+			USING ticket_types tt
+			WHERE c.ticket_type_id = tt.id
+			  AND tt.event_id = $1
+			  AND c.status IN (1, 4, 5)
+		), emptied_sales AS (
+			DELETE FROM ticket_sales ts
+			WHERE ts.id IN (SELECT ticket_sale_id FROM ticket_types WHERE event_id = $1)
+			  AND NOT EXISTS (
+				SELECT 1 FROM ticket_types tt WHERE tt.ticket_sale_id = ts.id AND tt.event_id <> $1
+			  )
 		)
 		INSERT INTO suppressed_concerts (id, venue_id, local_event_date, start_at)
 		SELECT $2, venue_id, local_event_date, start_at FROM deleted
@@ -311,7 +333,7 @@ const (
 	// Series, with the columns scanOrganizer reads.
 	listOrganizersByIDsQuery = `
 		SELECT id, name, operator_email, zitadel_org_id, status,
-			seller_legal_name, seller_representative_name, seller_address, seller_phone_number, seller_contact_email,
+			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE id = ANY($1)
 	`
 
@@ -734,8 +756,15 @@ func (r *ConcertRepository) Delete(ctx context.Context, eventID string) error {
 	return nil
 }
 
-// DeleteAndSuppress deletes a published event and records a suppression entry
-// derived from the deleted row, atomically in one statement.
+// DeleteAndSuppress deletes a published event, its checkouts that moved no
+// money (Held, Expired, Released), the TicketSales it leaves without a
+// TicketType, and records a suppression entry derived from the deleted row,
+// atomically in one statement.
+//
+// # Possible errors
+//
+//   - FailedPrecondition: the event has issued tickets, an Order, or a
+//     Committed or Completed checkout.
 func (r *ConcertRepository) DeleteAndSuppress(ctx context.Context, eventID string) error {
 	suppressionID := entity.NewID()
 	if _, err := r.db.Pool.Exec(ctx, deleteEventAndSuppressQuery, eventID, suppressionID); err != nil {

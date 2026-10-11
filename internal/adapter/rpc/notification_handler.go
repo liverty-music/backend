@@ -32,11 +32,11 @@ func NewNotificationHandler(
 	}
 }
 
-// MarkRead marks the caller's notification as read. The request-supplied user_id
-// is verified against the JWT-derived userID (rpc-auth-scoping convention);
-// mismatches are rejected with PERMISSION_DENIED before any state changes.
+// MarkRead marks the signed-in caller's notification as read. The request
+// names no fan; NotificationUseCase.MarkRead refuses another fan's
+// Notification.
 func (h *NotificationHandler) MarkRead(ctx context.Context, req *connect.Request[notificationpb.MarkReadRequest]) (*connect.Response[notificationpb.MarkReadResponse], error) {
-	userID, err := h.authorize(ctx, req.Msg.GetUserId().GetValue())
+	userID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -47,10 +47,10 @@ func (h *NotificationHandler) MarkRead(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&notificationpb.MarkReadResponse{}), nil
 }
 
-// MarkDismissed marks the caller's notification as dismissed, with the same
-// user-scoping guarantees as MarkRead.
-func (h *NotificationHandler) MarkDismissed(ctx context.Context, req *connect.Request[notificationpb.MarkDismissedRequest]) (*connect.Response[notificationpb.MarkDismissedResponse], error) {
-	userID, err := h.authorize(ctx, req.Msg.GetUserId().GetValue())
+// Dismiss marks the signed-in caller's notification as dismissed, with the
+// same caller scoping as MarkRead.
+func (h *NotificationHandler) Dismiss(ctx context.Context, req *connect.Request[notificationpb.DismissRequest]) (*connect.Response[notificationpb.DismissResponse], error) {
+	userID, err := h.resolveCallerUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -58,13 +58,12 @@ func (h *NotificationHandler) MarkDismissed(ctx context.Context, req *connect.Re
 	if err := h.notificationUC.MarkDismissed(ctx, userID, req.Msg.GetNotificationId().GetValue()); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&notificationpb.MarkDismissedResponse{}), nil
+	return connect.NewResponse(&notificationpb.DismissResponse{}), nil
 }
 
-// authorize resolves the caller's internal user ID from the JWT context and
-// verifies the request-supplied user_id matches it, returning the internal user
-// ID to scope the use-case call.
-func (h *NotificationHandler) authorize(ctx context.Context, reqUserID string) (string, error) {
+// resolveCallerUserID resolves the signed-in caller's internal user ID from
+// the JWT context, to scope the use-case call.
+func (h *NotificationHandler) resolveCallerUserID(ctx context.Context) (string, error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return "", err
@@ -73,9 +72,6 @@ func (h *NotificationHandler) authorize(ctx context.Context, reqUserID string) (
 	// identity-provider external_id, so resolve the internal record first.
 	user, err := h.userRepo.GetByExternalID(ctx, externalID)
 	if err != nil {
-		return "", err
-	}
-	if err := mapper.RequireUserIDMatch(user.ID, reqUserID); err != nil {
 		return "", err
 	}
 	return user.ID, nil

@@ -10,16 +10,16 @@ import (
 )
 
 // issuanceSweepInterval is how often the issuance sweeper checks for
-// Won-captured applications that do not yet have an Order.
+// Won lottery entries that do not yet have an Order.
 const issuanceSweepInterval = 1 * time.Minute
 
 // startIssuanceSweeper launches a background goroutine that periodically finds
-// Won-captured applications without an Order and issues each (Order + N
+// Won lottery entries without an Order and issues each (Order + N
 // account-bound tickets), mirroring the lottery draw sweeper. This is the MVP
 // ④→⑤ handoff: ⑤ polls Won rows rather than consuming an event.
 //
 // The sweep stops when ctx is canceled. No drain is needed because issuance is
-// idempotent (one Order per application, enforced by a unique index): an
+// idempotent (one Order per lottery entry, enforced by a unique index): an
 // interrupted sweep is safely retried on the next tick.
 func startIssuanceSweeper(ctx context.Context, uc usecase.IssuanceUseCase, logger *logging.Logger) {
 	go func() {

@@ -13,7 +13,6 @@ import (
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
-	"github.com/liverty-music/backend/internal/usecase"
 	usecasemocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
@@ -85,6 +84,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 		check    func(t *testing.T, resp *connect.Response[adminconcertv1.ListResponse])
 	}{
 		{
+			// @spec components/adapter/admin/api/rpc/concert "Admin lists concerts"
 			name: "map use-case concerts to ListResponse.Concerts",
 			args: args{ctx: adminCtx()},
 			dep: dep{
@@ -174,250 +174,6 @@ func TestAdminConcertHandler_List(t *testing.T) {
 	}
 }
 
-// ---------- ListPending ----------
-
-func TestAdminConcertHandler_ListPending(t *testing.T) {
-	t.Parallel()
-
-	lat, lon := 35.6762, 139.6503
-	placeID := "ChIJM..."
-	venueName := "武道館"
-	adminArea := "JP-13"
-	sourceURL := "https://example.com/concert"
-
-	stagedWithVenue := &entity.StagedConcert{
-		ID:                "staged-1",
-		ArtistID:          "artist-1",
-		Title:             "Tour 2026",
-		LocalDate:         time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		ListedVenueName:   "Budokan",
-		ResolvedPlaceID:   &placeID,
-		ResolvedVenueName: &venueName,
-		ResolvedAdminArea: &adminArea,
-		ResolvedLatitude:  &lat,
-		ResolvedLongitude: &lon,
-		SourceURL:         &sourceURL,
-		DiscoveredTime:    time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
-	}
-
-	stagedNoVenue := &entity.StagedConcert{
-		ID:              "staged-2",
-		ArtistID:        "artist-2",
-		Title:           "Single Show",
-		LocalDate:       time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC),
-		ListedVenueName: "Mystery Venue",
-		DiscoveredTime:  time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC),
-	}
-
-	artistA := &entity.Artist{ID: "artist-1", Name: "Artist Alpha", MBID: "mbid-a"}
-	artistB := &entity.Artist{ID: "artist-2", Name: "Artist Beta", MBID: "mbid-b"}
-
-	type args struct {
-		ctx context.Context
-	}
-	type dep struct {
-		adminUC func(*usecasemocks.MockAdminConcertUseCase)
-	}
-
-	tests := []struct {
-		name     string
-		args     args
-		dep      dep
-		wantErr  bool
-		wantCode connect.Code
-		check    func(t *testing.T, resp *connect.Response[adminconcertv1.ListPendingResponse])
-	}{
-		{
-			name: "return pending concerts with resolved venue",
-			args: args{ctx: adminCtx()},
-			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
-					m.EXPECT().ListPending(mock.Anything).Return([]*usecase.PendingConcertReview{
-						{Staged: stagedWithVenue, Performer: artistA},
-					}, nil).Once()
-				},
-			},
-			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListPendingResponse]) {
-				t.Helper()
-				require.Len(t, resp.Msg.PendingConcerts, 1)
-				pc := resp.Msg.PendingConcerts[0]
-				assert.Equal(t, "staged-1", pc.GetStagedId().GetValue())
-				assert.Equal(t, "Artist Alpha", pc.GetPerformer().GetName().GetValue())
-				assert.Equal(t, "Tour 2026", pc.GetTitle().GetValue())
-				assert.Equal(t, "Budokan", pc.GetListedVenueName().GetValue())
-				assert.NotNil(t, pc.GetResolvedVenue())
-				assert.Equal(t, "武道館", pc.GetResolvedVenue().GetName().GetValue())
-				assert.Equal(t, "ChIJM...", pc.GetResolvedVenue().GetPlaceId().GetValue())
-				assert.Equal(t, "JP-13", pc.GetResolvedVenue().GetAdminArea().GetValue())
-				assert.InDelta(t, 35.6762, pc.GetResolvedVenue().GetCoordinates().GetLatitude(), 1e-6)
-				assert.InDelta(t, 139.6503, pc.GetResolvedVenue().GetCoordinates().GetLongitude(), 1e-6)
-				assert.Equal(t, "https://example.com/concert", pc.GetSourceUrl().GetValue())
-				assert.NotNil(t, pc.GetDiscoveredTime())
-			},
-		},
-		{
-			name: "return pending concerts without resolved venue",
-			args: args{ctx: adminCtx()},
-			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
-					m.EXPECT().ListPending(mock.Anything).Return([]*usecase.PendingConcertReview{
-						{Staged: stagedNoVenue, Performer: artistB},
-					}, nil).Once()
-				},
-			},
-			check: func(t *testing.T, resp *connect.Response[adminconcertv1.ListPendingResponse]) {
-				t.Helper()
-				require.Len(t, resp.Msg.PendingConcerts, 1)
-				pc := resp.Msg.PendingConcerts[0]
-				assert.Equal(t, "staged-2", pc.GetStagedId().GetValue())
-				assert.Nil(t, pc.GetResolvedVenue())
-				assert.Nil(t, pc.GetSourceUrl())
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			adminUC := usecasemocks.NewMockAdminConcertUseCase(t)
-			tt.dep.adminUC(adminUC)
-
-			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.ListPending(tt.args.ctx, connect.NewRequest(&adminconcertv1.ListPendingRequest{}))
-
-			if tt.wantErr {
-				require.Error(t, err)
-				var connErr *connect.Error
-				require.ErrorAs(t, err, &connErr)
-				assert.Equal(t, tt.wantCode, connErr.Code())
-				assert.Nil(t, resp)
-				return
-			}
-			require.NoError(t, err)
-			tt.check(t, resp)
-		})
-	}
-}
-
-// ---------- Approve ----------
-
-func TestAdminConcertHandler_Approve(t *testing.T) {
-	t.Parallel()
-
-	type args struct {
-		ctx      context.Context
-		stagedID string
-	}
-	type dep struct {
-		adminUC func(*usecasemocks.MockAdminConcertUseCase)
-	}
-
-	tests := []struct {
-		name     string
-		args     args
-		dep      dep
-		wantErr  bool
-		wantCode connect.Code
-	}{
-		{
-			name: "approve calls use case with staged id",
-			args: args{ctx: adminCtx(), stagedID: "staged-abc"},
-			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
-					m.EXPECT().Approve(mock.Anything, "staged-abc", usecase.ApproveResolutionUnspecified, mock.Anything).
-						Return(&usecase.ApproveResult{}, nil).Once()
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			adminUC := usecasemocks.NewMockAdminConcertUseCase(t)
-			tt.dep.adminUC(adminUC)
-
-			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.Approve(tt.args.ctx, connect.NewRequest(&adminconcertv1.ApproveRequest{
-				StagedId: &entityv1.StagedConcertId{Value: tt.args.stagedID},
-			}))
-
-			if tt.wantErr {
-				require.Error(t, err)
-				var connErr *connect.Error
-				require.ErrorAs(t, err, &connErr)
-				assert.Equal(t, tt.wantCode, connErr.Code())
-				assert.Nil(t, resp)
-				return
-			}
-			require.NoError(t, err)
-			assert.NotNil(t, resp)
-		})
-	}
-}
-
-// ---------- Reject ----------
-
-func TestAdminConcertHandler_Reject(t *testing.T) {
-	t.Parallel()
-
-	type args struct {
-		ctx      context.Context
-		stagedID string
-		reason   string
-	}
-	type dep struct {
-		adminUC func(*usecasemocks.MockAdminConcertUseCase)
-	}
-
-	tests := []struct {
-		name     string
-		args     args
-		dep      dep
-		wantErr  bool
-		wantCode connect.Code
-	}{
-		{
-			name: "reject passes reason and reviewer sub to use case",
-			args: args{ctx: adminCtx(), stagedID: "staged-xyz", reason: "wrong date"},
-			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
-					// reviewer sub must match the sub in adminCtx.
-					m.EXPECT().Reject(mock.Anything, "staged-xyz", "wrong date", "admin-sub-123").Return(nil).Once()
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			adminUC := usecasemocks.NewMockAdminConcertUseCase(t)
-			tt.dep.adminUC(adminUC)
-
-			h := newAdminConcertHandler(t, adminUC)
-			resp, err := h.Reject(tt.args.ctx, connect.NewRequest(&adminconcertv1.RejectRequest{
-				StagedId: &entityv1.StagedConcertId{Value: tt.args.stagedID},
-				Reason:   tt.args.reason,
-			}))
-
-			if tt.wantErr {
-				require.Error(t, err)
-				var connErr *connect.Error
-				require.ErrorAs(t, err, &connErr)
-				assert.Equal(t, tt.wantCode, connErr.Code())
-				assert.Nil(t, resp)
-				return
-			}
-			require.NoError(t, err)
-			assert.NotNil(t, resp)
-		})
-	}
-}
-
 // ---------- Delete ----------
 
 func TestAdminConcertHandler_Delete(t *testing.T) {
@@ -485,4 +241,31 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 			tt.check(t, resp)
 		})
 	}
+}
+
+func TestAdminConcertHandler_Delete_Boundary(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-admin deletes", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/concert "Non-admin deletes"
+		// The mock fails the test if the usecase runs.
+		h := newAdminConcertHandler(t, usecasemocks.NewMockAdminConcertUseCase(t))
+
+		_, err := callThroughAdminPipeline(t, nonAdminCtx(), &adminconcertv1.DeleteRequest{
+			EventId: &entityv1.EventId{Value: "019a0000-0000-7000-8000-0000000000e1"},
+		}, h.Delete)
+
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	})
+
+	t.Run("delete without an event", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/concert "Delete without an event"
+		h := newAdminConcertHandler(t, usecasemocks.NewMockAdminConcertUseCase(t))
+
+		_, err := callThroughAdminPipeline(t, adminCtx(), &adminconcertv1.DeleteRequest{}, h.Delete)
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
 }

@@ -113,8 +113,8 @@ func (s *stubOrganizerRepoForOnboarding) Delete(_ context.Context, _ string, _ b
 	return nil
 }
 
-func (s *stubOrganizerRepoForOnboarding) SetSellerDetails(_ context.Context, _ string, _ entity.SellerDetails) error {
-	return nil
+func (s *stubOrganizerRepoForOnboarding) SetBusinessDetails(_ context.Context, _ string, _ entity.BusinessDetails) (*entity.Organizer, error) {
+	return nil, nil
 }
 
 func (s *stubOrganizerRepoForOnboarding) SetPlatformFeeRate(_ context.Context, _ string, _ int) error {

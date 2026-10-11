@@ -30,7 +30,7 @@ type AdmitInput struct {
 }
 
 // RejectedTicket is why one presented ticket was rejected. It does not
-// identify the ticket or its holder.
+// identify the ticket or its user.
 type RejectedTicket struct {
 	// Reason is Voided or AlreadyAdmitted.
 	Reason entity.RejectedScanReason
@@ -56,24 +56,26 @@ type AdmitResult struct {
 	RejectedTickets []RejectedTicket
 }
 
-// TicketUseCase is the buyer-facing read surface over a caller's own Orders and
+// TicketUseCase is the fan-facing read surface over a caller's own Orders and
 // issued Tickets, and the reception-side admission of Tickets at the venue.
 type TicketUseCase interface {
-	// GetOrder returns one of the caller's own Orders. An Order belonging to a
-	// different account is reported as NotFound (non-revealing), never disclosed.
+	// GetOrder returns one of the calling fan's own Orders. An Order whose user
+	// is another account is reported as NotFound (non-revealing), never
+	// disclosed.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: no such Order for this caller.
 	//  - Internal: database query failure.
-	GetOrder(ctx context.Context, buyerID entity.UserID, orderID entity.OrderID) (*entity.Order, error)
+	GetOrder(ctx context.Context, userID entity.UserID, orderID entity.OrderID) (*entity.Order, error)
 
-	// GetMyTickets returns all tickets currently bound to the caller's account.
+	// GetMyTickets returns every Ticket whose user is the calling fan, Voided
+	// ones included; empty when the fan has none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database query failure.
-	GetMyTickets(ctx context.Context, holderID entity.UserID) ([]*entity.Ticket, error)
+	GetMyTickets(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error)
 
 	// Admit decides one scan: through a usable link, from its bound device,
 	// inside its event's reception window, it admits each ticket a genuine and
@@ -135,22 +137,22 @@ func NewTicketUseCase(
 }
 
 // GetOrder implements [TicketUseCase].
-func (uc *ticketUseCase) GetOrder(ctx context.Context, buyerID entity.UserID, orderID entity.OrderID) (*entity.Order, error) {
+func (uc *ticketUseCase) GetOrder(ctx context.Context, userID entity.UserID, orderID entity.OrderID) (*entity.Order, error) {
 	order, err := uc.orderRepo.Get(ctx, orderID)
 	if err != nil {
 		return nil, err // propagates NotFound
 	}
 	// Ownership check: an Order belonging to another account is reported exactly
 	// like a missing one (non-revealing), never disclosed.
-	if order.BuyerID != buyerID {
+	if order.UserID != userID {
 		return nil, apperr.New(codes.NotFound, "order not found")
 	}
 	return order, nil
 }
 
 // GetMyTickets implements [TicketUseCase].
-func (uc *ticketUseCase) GetMyTickets(ctx context.Context, holderID entity.UserID) ([]*entity.Ticket, error) {
-	return uc.ticketRepo.ListByHolder(ctx, holderID)
+func (uc *ticketUseCase) GetMyTickets(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
+	return uc.ticketRepo.ListByUser(ctx, userID)
 }
 
 // Admit implements [TicketUseCase].
@@ -230,7 +232,7 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 // A code presenting any ticket the user does not hold for eventID (another
 // account's, or the user's own for another event) is Forged as a whole: the
 // tickets screen only ever presents the user's own tickets of one event, and
-// a ticket's holder never changes, so such a code was built outside the app.
+// a ticket's user never changes, so such a code was built outside the app.
 func (uc *ticketUseCase) checkCode(ctx context.Context, text, eventID string, now time.Time) (*entity.AdmissionCode, entity.RejectedScanReason, error) {
 	code, ok := entity.DecodeAdmissionCode(text)
 	if !ok {
@@ -252,7 +254,7 @@ func (uc *ticketUseCase) checkCode(ctx context.Context, text, eventID string, no
 	if code.EventID != eventID {
 		return code, entity.RejectedScanReasonOtherEvent, nil
 	}
-	held, err := uc.ticketRepo.ListByHolderAndEvent(ctx, code.UserID, eventID)
+	held, err := uc.ticketRepo.ListByUserAndEvent(ctx, code.UserID, eventID)
 	if err != nil {
 		return nil, entity.RejectedScanReasonUnspecified, err
 	}

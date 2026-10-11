@@ -61,13 +61,9 @@ func SeriesToProto(s *entity.Series) *entityv1.Series {
 		proto.OrganizerId = &entityv1.OrganizerId{Value: *s.OrganizerID}
 	}
 	if s.Organizer != nil {
-		// The seller details are the public 特商法 disclosure; the platform fee
-		// rate is the Organizer's business with the platform and is never set.
-		proto.Organizer = &entityv1.Organizer{
-			Id:            &entityv1.OrganizerId{Value: s.Organizer.ID},
-			Name:          &entityv1.OrganizerName{Value: s.Organizer.Name},
-			SellerDetails: SellerDetailsToProto(s.Organizer.SellerDetails),
-		}
+		// The business details are the public 特商法 disclosure; the platform
+		// fee rate is the Organizer's business with the platform and is never set.
+		proto.Organizer = PublicOrganizerToProto(s.Organizer)
 	}
 	return proto
 }

@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"context"
-	"errors"
 
 	pb "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	rpc "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
@@ -75,21 +74,6 @@ func (h *ArtistHandler) Search(ctx context.Context, req *connect.Request[rpc.Sea
 	return connect.NewResponse(&rpc.SearchResponse{
 		Artists: mapper.ArtistsToProto(artists),
 	}), nil
-}
-
-// CreateOfficialSite associates a new official website or social media channel with an artist.
-func (h *ArtistHandler) CreateOfficialSite(ctx context.Context, req *connect.Request[rpc.CreateOfficialSiteRequest]) (*connect.Response[rpc.CreateOfficialSiteResponse], error) {
-	if err := h.artistUseCase.CreateOfficialSite(ctx, req.Msg.ArtistId.Value, req.Msg.Url.Value); err != nil {
-		return nil, err
-	}
-
-	return connect.NewResponse(&rpc.CreateOfficialSiteResponse{}), nil
-}
-
-// DeleteOfficialSite removes an existing official site association.
-func (h *ArtistHandler) DeleteOfficialSite(ctx context.Context, req *connect.Request[rpc.DeleteOfficialSiteRequest]) (*connect.Response[rpc.DeleteOfficialSiteResponse], error) {
-	// TODO: Implement DeleteOfficialSite in UseCase
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("DeleteOfficialSite is not implemented"))
 }
 
 // ListSimilar retrieves a collection of artists with musical affinity to a target artist.

@@ -21,13 +21,13 @@ var _ entity.TicketRepository = (*TicketRepository)(nil)
 
 const (
 	ticketSelectColumns = `
-		id, order_id, holder_id, event_id, holder_full_name, holder_phone_number,
-		verified_identity_id, resale_without_consent_prohibited, status, issued_at, admitted_at
+		id, order_id, user_id, event_id,
+		kyc_id, resale_without_consent_prohibited, status, issued_at, admitted_at
 	`
-	ticketListByOrderQuery          = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE order_id = $1 ORDER BY issued_at`
-	ticketListByHolderQuery         = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE holder_id = $1 ORDER BY issued_at DESC`
-	ticketListByHolderAndEventQuery = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE holder_id = $1 AND event_id = $2 ORDER BY issued_at, id`
-	ticketVoidByOrderQuery          = `UPDATE tickets SET status = $2 WHERE order_id = $1`
+	ticketListByOrderQuery        = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE order_id = $1 ORDER BY issued_at`
+	ticketListByUserQuery         = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 ORDER BY issued_at DESC, id`
+	ticketListByUserAndEventQuery = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 AND event_id = $2 ORDER BY issued_at, id`
+	ticketVoidByOrderQuery        = `UPDATE tickets SET status = $2 WHERE order_id = $1`
 
 	// ticketAdmitQuery admits one ticket in a single statement: the
 	// conditional UPDATE on the ticket row is the per-ticket check-and-set (a
@@ -75,33 +75,27 @@ func (r *TicketRepository) ListByOrder(ctx context.Context, orderID entity.Order
 	return scanTickets(rows)
 }
 
-// ListByHolder returns all tickets currently bound to the given account.
-func (r *TicketRepository) ListByHolder(ctx context.Context, holderID entity.UserID) ([]*entity.Ticket, error) {
-	rows, err := r.db.Pool.Query(ctx, ticketListByHolderQuery, string(holderID))
+// ListByUser returns every ticket bound to the given user, Issued and Voided
+// alike, most recently issued first.
+func (r *TicketRepository) ListByUser(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
+	rows, err := r.db.Pool.Query(ctx, ticketListByUserQuery, string(userID))
 	if err != nil {
-		return nil, toAppErr(err, "failed to list tickets by holder", slog.String("holder_id", string(holderID)))
+		return nil, toAppErr(err, "failed to list tickets by user", slog.String("user_id", string(userID)))
 	}
 	defer rows.Close()
 	return scanTickets(rows)
 }
 
-// ListByHolderAndEvent returns the tickets the account holds for the event,
-// Issued and Voided alike, in issue order.
-func (r *TicketRepository) ListByHolderAndEvent(ctx context.Context, holderID entity.UserID, eventID string) ([]*entity.Ticket, error) {
-	rows, err := r.db.Pool.Query(ctx, ticketListByHolderAndEventQuery, string(holderID), eventID)
+// ListByUserAndEvent returns the user's tickets for the event, Issued and
+// Voided alike, in issue order.
+func (r *TicketRepository) ListByUserAndEvent(ctx context.Context, userID entity.UserID, eventID string) ([]*entity.Ticket, error) {
+	rows, err := r.db.Pool.Query(ctx, ticketListByUserAndEventQuery, string(userID), eventID)
 	if err != nil {
-		return nil, toAppErr(err, "failed to list tickets by holder and event",
-			slog.String("holder_id", string(holderID)), slog.String("event_id", eventID))
+		return nil, toAppErr(err, "failed to list tickets by user and event",
+			slog.String("user_id", string(userID)), slog.String("event_id", eventID))
 	}
 	defer rows.Close()
-	tickets, err := scanTickets(rows)
-	if err != nil {
-		return nil, err
-	}
-	if tickets == nil {
-		tickets = []*entity.Ticket{}
-	}
-	return tickets, nil
+	return scanTickets(rows)
 }
 
 // Admit admits the ticket through the link at admittedTime, at most once,
@@ -148,37 +142,37 @@ func (r *TicketRepository) VoidByOrder(ctx context.Context, orderID entity.Order
 	return nil
 }
 
-// scanTickets maps a multi-row result into a slice of entity.Ticket.
+// scanTickets maps a multi-row result into a slice of entity.Ticket; the slice
+// is empty, never nil, when there are no rows.
 func scanTickets(rows interface {
 	Next() bool
 	Scan(dest ...any) error
 	Err() error
 }) ([]*entity.Ticket, error) {
-	var tickets []*entity.Ticket
+	tickets := []*entity.Ticket{}
 	for rows.Next() {
 		var (
 			t          entity.Ticket
 			id         string
 			orderID    string
-			holderID   string
+			userID     string
 			eventID    string
-			viID       sql.NullString
+			kycID      sql.NullString
 			status     int16
 			admittedAt sql.NullTime
 		)
 		if err := rows.Scan(
-			&id, &orderID, &holderID, &eventID,
-			&t.HolderIdentity.FullName, &t.HolderIdentity.PhoneNumber,
-			&viID, &t.ResaleWithoutConsentProhibited, &status, &t.IssuedTime, &admittedAt,
+			&id, &orderID, &userID, &eventID,
+			&kycID, &t.ResaleWithoutConsentProhibited, &status, &t.IssuedTime, &admittedAt,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan ticket")
 		}
 		t.ID = entity.TicketID(id)
 		t.OrderID = entity.OrderID(orderID)
-		t.HolderID = entity.UserID(holderID)
+		t.UserID = entity.UserID(userID)
 		t.EventID = eventID
-		if viID.Valid {
-			t.VerifiedIdentityID = viID.String
+		if kycID.Valid {
+			t.KycID = kycID.String
 		}
 		t.Status = entity.TicketStatus(status)
 		if admittedAt.Valid {

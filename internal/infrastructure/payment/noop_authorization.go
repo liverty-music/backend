@@ -57,6 +57,13 @@ func (p *NoopAuthorizationPort) CaptureAuthorization(ctx context.Context, paymen
 	return apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
+// GetClientSecret returns Unavailable because no Stripe key is configured.
+func (p *NoopAuthorizationPort) GetClientSecret(ctx context.Context, paymentIntentRef string) (string, error) {
+	p.logger.Warn(ctx, "client secret read skipped: STRIPE_SECRET_KEY is not configured",
+		slog.String("payment_intent_ref", paymentIntentRef))
+	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
+}
+
 // GetCapturedPayment returns Unavailable because no Stripe key is configured.
 func (p *NoopAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error) {
 	p.logger.Warn(ctx, "captured-payment read skipped: STRIPE_SECRET_KEY is not configured",
@@ -65,38 +72,38 @@ func (p *NoopAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentI
 }
 
 // Compile-time interface compliance check.
-var _ entity.ReservationAuthorizationPort = (*NoopReservationAuthorizationPort)(nil)
+var _ entity.CheckoutAuthorizationPort = (*NoopCheckoutAuthorizationPort)(nil)
 
-// NoopReservationAuthorizationPort is the checkout card-hold port used when no
+// NoopCheckoutAuthorizationPort is the checkout card-hold port used when no
 // Stripe secret key is configured (local development). Every method returns
 // Unavailable.
-type NoopReservationAuthorizationPort struct {
+type NoopCheckoutAuthorizationPort struct {
 	logger *logging.Logger
 }
 
-// NewNoopReservationAuthorizationPort creates a NoopReservationAuthorizationPort.
-func NewNoopReservationAuthorizationPort(logger *logging.Logger) *NoopReservationAuthorizationPort {
-	return &NoopReservationAuthorizationPort{logger: logger}
+// NewNoopCheckoutAuthorizationPort creates a NoopCheckoutAuthorizationPort.
+func NewNoopCheckoutAuthorizationPort(logger *logging.Logger) *NoopCheckoutAuthorizationPort {
+	return &NoopCheckoutAuthorizationPort{logger: logger}
 }
 
 // CreateAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopReservationAuthorizationPort) CreateAuthorization(ctx context.Context, amountJPY int64, meta entity.AuthorizationMetadata) (string, string, error) {
+func (p *NoopCheckoutAuthorizationPort) CreateAuthorization(ctx context.Context, amountJPY int64, meta entity.AuthorizationMetadata) (string, string, error) {
 	p.logger.Warn(ctx, "checkout payment skipped: STRIPE_SECRET_KEY is not configured",
-		slog.String("reservation_id", string(meta.ReservationID)))
+		slog.String("checkout_id", string(meta.CheckoutID)))
 	return "", "", apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // VerifyAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopReservationAuthorizationPort) VerifyAuthorization(ctx context.Context, authorizationRef string, expectedAmountJPY int64) error {
+func (p *NoopCheckoutAuthorizationPort) VerifyAuthorization(ctx context.Context, authorizationRef string, expectedAmountJPY int64) error {
 	return apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // CaptureAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopReservationAuthorizationPort) CaptureAuthorization(ctx context.Context, authorizationRef string) (*entity.CapturedPayment, error) {
+func (p *NoopCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Context, authorizationRef string) (*entity.CapturedPayment, error) {
 	return nil, apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // CancelAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopReservationAuthorizationPort) CancelAuthorization(ctx context.Context, authorizationRef string) error {
+func (p *NoopCheckoutAuthorizationPort) CancelAuthorization(ctx context.Context, authorizationRef string) error {
 	return apperr.New(codes.Unavailable, "payment provider is not configured")
 }

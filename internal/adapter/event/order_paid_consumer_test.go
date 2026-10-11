@@ -20,8 +20,8 @@ import (
 )
 
 var orderPaid = entity.OrderPaidData{
-	OrderID: "order-1", BuyerID: "fan-1", EventID: "event-1", TicketCount: 2,
-	Amount: 6000, Currency: "JPY", ReservationID: "res-1",
+	OrderID: "order-1", UserID: "fan-1", EventID: "event-1", TicketCount: 2,
+	Amount: 6000, Currency: "JPY", CheckoutID: "checkout-1",
 }
 
 func makeOrderPaidMsg(t *testing.T, data entity.OrderPaidData) *message.Message {
@@ -94,7 +94,7 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	logger := newTestLogger(t)
 
 	var mu sync.Mutex
-	order := &entity.Order{ID: "order-1", BuyerID: "fan-1", Amount: 6000, Currency: "JPY", PaidTime: time.Now()}
+	order := &entity.Order{ID: "order-1", UserID: "fan-1", Amount: 6000, Currency: "JPY", PaidTime: time.Now()}
 	orders := entitymocks.NewMockOrderRepository(t)
 	orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).RunAndReturn(func(context.Context, entity.OrderID) (*entity.Order, error) {
 		mu.Lock()

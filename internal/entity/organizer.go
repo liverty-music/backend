@@ -25,7 +25,7 @@ const (
 	OrganizerStatusDeactivated OrganizerStatus = 3
 )
 
-// Organizer is a vetted seller — a record label, management/agency, promoter, or
+// Organizer is a vetted business — a record label, management/agency, promoter, or
 // a self-publishing artist — that an admin creates to represent artists. It runs
 // against its own isolated Zitadel tenant its operators sign into. Existence is
 // the vetting; there is no separate verified flag.
@@ -38,9 +38,9 @@ type Organizer struct {
 	OperatorEmail string
 	ZitadelOrgID  string // empty until tenant provisioning persists the tenant link
 	Status        OrganizerStatus
-	// SellerDetails is the 特商法 seller disclosure entered by an admin at
+	// BusinessDetails is the 特商法 販売業者 disclosure entered by an admin at
 	// vetting; nil until entered.
-	SellerDetails *SellerDetails
+	BusinessDetails *BusinessDetails
 	// PlatformFeeRateBps is the platform fee applied to the Organizer's future
 	// Orders, in basis points (0 to 3000).
 	PlatformFeeRateBps int
@@ -64,10 +64,10 @@ func NewOrganizer(name string) *Organizer {
 	}
 }
 
-// HasCompleteSellerDetails reports whether the Organizer has seller details
-// with all five values present and valid.
-func (o *Organizer) HasCompleteSellerDetails() bool {
-	return o.SellerDetails != nil && o.SellerDetails.Validate() == nil
+// HasCompleteBusinessDetails reports whether the Organizer has business
+// details with all five values present and valid.
+func (o *Organizer) HasCompleteBusinessDetails() bool {
+	return o.BusinessDetails != nil && o.BusinessDetails.Validate() == nil
 }
 
 // ValidatePlatformFeeRate reports whether rateBps is within 0 to 30%.
@@ -78,38 +78,42 @@ func ValidatePlatformFeeRate(rateBps int) error {
 	return nil
 }
 
-// SellerDetails is an Organizer's 特商法 (Specified Commercial Transactions
+// BusinessDetails is an Organizer's 特商法 (Specified Commercial Transactions
 // Act) 販売業者 disclosure, shown to fans at checkout and in the confirmation
 // email. It is replaced as a whole.
 //
-// Mirrors liverty_music.entity.v1.SellerDetails.
-type SellerDetails struct {
-	// LegalName is the seller's legal name, 1 to 200 characters.
+// Mirrors the legal_name, representative_name, business_address,
+// business_phone_number and contact_email fields of
+// liverty_music.entity.v1.Organizer.
+type BusinessDetails struct {
+	// LegalName is the Organizer's legal name, 1 to 200 characters.
 	LegalName string
 	// RepresentativeName is the representative or responsible person, 1 to 100
 	// characters.
 	RepresentativeName string
-	// Address is the seller's address, 1 to 300 characters.
-	Address string
-	// PhoneNumber is the seller's phone number in E.164 form.
-	PhoneNumber string
-	// ContactEmail is the seller's contact email address.
+	// BusinessAddress is the Organizer's business address, 1 to 300
+	// characters.
+	BusinessAddress string
+	// BusinessPhoneNumber is the Organizer's business phone number in E.164
+	// form.
+	BusinessPhoneNumber string
+	// ContactEmail is the Organizer's contact email address.
 	ContactEmail string
 }
 
-// Validate reports whether all five seller details are present and valid.
-func (d *SellerDetails) Validate() error {
+// Validate reports whether all five business details are present and valid.
+func (d *BusinessDetails) Validate() error {
 	if !lenBetween(d.LegalName, 1, 200) {
 		return errors.New("legal name must be 1 to 200 characters")
 	}
 	if !lenBetween(d.RepresentativeName, 1, 100) {
 		return errors.New("representative must be 1 to 100 characters")
 	}
-	if !lenBetween(d.Address, 1, 300) {
-		return errors.New("address must be 1 to 300 characters")
+	if !lenBetween(d.BusinessAddress, 1, 300) {
+		return errors.New("business address must be 1 to 300 characters")
 	}
-	if !IsE164(d.PhoneNumber) {
-		return errors.New("phone number must be in E.164 form")
+	if !IsE164(d.BusinessPhoneNumber) {
+		return errors.New("business phone number must be in E.164 form")
 	}
 	if addr, err := mail.ParseAddress(d.ContactEmail); err != nil || addr.Address != d.ContactEmail {
 		return errors.New("contact email must be an email address")
@@ -197,12 +201,14 @@ type OrganizerRepository interface {
 	//  - Internal: database query failure.
 	IsArtistRepresentedByActiveOrganizer(ctx context.Context, artistID string) (bool, error)
 
-	// SetSellerDetails replaces the Organizer's seller details as a whole.
+	// SetBusinessDetails replaces the Organizer's business details as a whole,
+	// leaves its other attributes unchanged and returns the updated Organizer.
 	//
 	// # Possible errors
-	//   - InvalidArgument: any detail is missing or breaks the seller details rules.
+	//   - InvalidArgument: any detail is missing or breaks the business details
+	//     rule; nothing changed.
 	//   - NotFound: no organizer with the id exists.
-	SetSellerDetails(ctx context.Context, id string, details SellerDetails) error
+	SetBusinessDetails(ctx context.Context, id string, details BusinessDetails) (*Organizer, error)
 
 	// SetPlatformFeeRate stores the platform fee rate applied to the
 	// Organizer's future Orders.
@@ -213,11 +219,12 @@ type OrganizerRepository interface {
 	SetPlatformFeeRate(ctx context.Context, id string, rateBps int) error
 
 	// Delete permanently removes, in one transaction, a deactivated Organizer
-	// together with its first-party Series and their Events (with their lottery
-	// sales phases, ticket applications, ticket journeys, performers, reception
-	// links, admissions and rejected scans), the refunded Orders, their Tickets
-	// and their Reversed Settlements for those Events, its Media records, its
-	// artist associations and its payout-account record. It removes nothing when
+	// together with its first-party Series with their TicketSales, and their
+	// Events (with each Event's TicketTypes, lottery entries, ticket journeys,
+	// performers, reception links, admissions and rejected scans), the
+	// refunded Orders, their Tickets and their Reversed Settlements for those
+	// Events, its Media records, its artist associations and its
+	// payout-account record. It removes nothing when
 	// the Organizer is not deactivated, when any of its Events has an Order that
 	// is not Refunded or a Settlement that is not Reversed, or when the
 	// Organizer has a payout-account record.

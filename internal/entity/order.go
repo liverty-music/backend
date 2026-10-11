@@ -7,7 +7,7 @@ import (
 )
 
 // OrderID is the opaque identifier for a single Order — the purchase record of
-// one winning lottery application or one completed checkout.
+// one won lottery entry or one completed checkout.
 //
 // Mirrors liverty_music.entity.v1.OrderId.value (a UUID string); mapped to the
 // proto wrapper at the handler boundary.
@@ -116,7 +116,7 @@ type Payment struct {
 // Order is a provider- and method-agnostic purchase record: the opaque
 // reference to the captured payment, its own status, total amount and
 // currency, the capture time, and display facets. It has exactly one source —
-// a won lottery application or a Committed, charged Reservation — and ONE
+// a Won LotteryEntry or a Committed, charged Checkout — and ONE
 // Order covers all N tickets of that source.
 //
 // It NEVER stores a PAN, CVC, or expiry — only opaque provider tokens and safe
@@ -124,17 +124,17 @@ type Payment struct {
 type Order struct {
 	// ID is the surrogate primary key (UUIDv7).
 	ID OrderID
-	// BuyerID is the winning applicant's account. The issued tickets are bound
-	// to this account.
-	BuyerID UserID
-	// ApplicationID is the winning application this Order derives from (④'s
-	// Won-captured record). Empty when the source is a Reservation. The
-	// one-Order-per-application invariant is keyed on this reference.
-	ApplicationID TicketApplicationID
-	// ReservationID is the checkout this Order completes. Empty when the source
-	// is an application. The one-Order-per-Reservation invariant is keyed on
-	// this reference.
-	ReservationID ReservationID
+	// UserID is the fan account that bought the Order. The issued tickets are
+	// bound to this account.
+	UserID UserID
+	// LotteryEntryID is the Won entry this Order derives from. Empty when the
+	// source is a Checkout. The one-Order-per-entry invariant is keyed on this
+	// reference.
+	LotteryEntryID LotteryEntryID
+	// CheckoutID is the checkout this Order completes. Empty when the source
+	// is a lottery entry. The one-Order-per-Checkout invariant is keyed on this
+	// reference.
+	CheckoutID CheckoutID
 	// Payment is the opaque reference to ④'s captured winning payment plus safe
 	// display facets. Never raw card data.
 	Payment Payment
@@ -161,11 +161,11 @@ type Order struct {
 }
 
 // ValidateSource reports whether the Order names exactly one source: a
-// TicketApplication or a Reservation.
+// LotteryEntry or a Checkout.
 func (o *Order) ValidateSource() error {
-	hasApp, hasRes := o.ApplicationID != "", o.ReservationID != ""
-	if hasApp == hasRes {
-		return errors.New("an order must come from exactly one of an application and a reservation")
+	hasEntry, hasCheckout := o.LotteryEntryID != "", o.CheckoutID != ""
+	if hasEntry == hasCheckout {
+		return errors.New("an order must come from exactly one of a lottery entry and a checkout")
 	}
 	return nil
 }
@@ -224,7 +224,7 @@ type RefundRepository interface {
 
 // IssuanceRepository is the atomic write path for ⑤ issuance: it persists an
 // Order, its N tickets and the Order's Held Settlement in a single
-// transaction, and completes a source Reservation,
+// transaction, and completes a source Checkout,
 // so a capture never yields an Order without its tickets or its payout record
 // (backend#468). Implementations live in internal/infrastructure/database/rdb/.
 //
@@ -232,9 +232,9 @@ type RefundRepository interface {
 type IssuanceRepository interface {
 	// Issue atomically inserts the Order, its N account-bound tickets and the
 	// Held settlement (with its splits) that pays out the Order's event
-	// Organizer, and makes a source Reservation Completed, all in one
+	// Organizer, and makes a source Checkout Completed, all in one
 	// transaction. One Order per source is enforced by
-	// unique indexes on orders.application_id and orders.reservation_id; a
+	// unique indexes on orders.lottery_entry_id and orders.checkout_id; a
 	// duplicate surfaces as AlreadyExists so a replay re-reads the existing
 	// Order rather than double-issuing.
 	//
@@ -242,21 +242,20 @@ type IssuanceRepository interface {
 	//
 	//  - AlreadyExists: an Order already exists for the same source (the caller
 	//    re-reads it).
-	//  - FailedPrecondition: the source Reservation is not Committed with a
+	//  - FailedPrecondition: the source Checkout is not Committed with a
 	//    capture time; nothing is stored.
 	//  - InvalidArgument: the Order does not name exactly one source.
 	//  - Internal: database transaction or query failure.
 	Issue(ctx context.Context, order *Order, tickets []*Ticket, settlement *Settlement) error
 
-	// ListApplicationIDsAwaitingIssuance returns the IDs of Won-captured
-	// applications that do not yet have an Order — the work-list the issuance
-	// sweeper processes (mirrors the draw sweeper's due-phase scan). An empty
-	// result returns (nil, nil).
+	// ListLotteryEntryIDsAwaitingIssuance returns the id of every Won lottery
+	// entry that has no Order yet, and no other id — the work-list the
+	// issuance sweeper processes. An empty result returns (nil, nil).
 	//
 	// # Possible errors
 	//
 	//  - Internal: database query failure.
-	ListApplicationIDsAwaitingIssuance(ctx context.Context) ([]TicketApplicationID, error)
+	ListLotteryEntryIDsAwaitingIssuance(ctx context.Context) ([]LotteryEntryID, error)
 }
 
 // OrderRepository defines the read/status-update contract for [Order] records.
@@ -273,24 +272,23 @@ type OrderRepository interface {
 	//  - Internal: database query failure.
 	Get(ctx context.Context, id OrderID) (*Order, error)
 
-	// GetByApplicationID returns the Order created for the given winning
-	// application, if any. It is the idempotency lookup the issuance path uses to
-	// detect an already-issued application.
+	// GetByLotteryEntryID returns the Order created from the given entry. It
+	// is the idempotency lookup the issuance path uses to detect an
+	// already-issued entry.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no Order exists for the application (issuance has not run).
+	//  - NotFound: the entry has no Order (issuance has not run).
 	//  - Internal: database query failure.
-	GetByApplicationID(ctx context.Context, applicationID TicketApplicationID) (*Order, error)
+	GetByLotteryEntryID(ctx context.Context, lotteryEntryID LotteryEntryID) (*Order, error)
 
-	// GetByReservationID returns the Order whose source is the given
-	// Reservation.
+	// GetByCheckoutID returns the Order whose source is the given Checkout.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: the Reservation has no Order.
+	//  - NotFound: the Checkout has no Order.
 	//  - Internal: database query failure.
-	GetByReservationID(ctx context.Context, reservationID ReservationID) (*Order, error)
+	GetByCheckoutID(ctx context.Context, checkoutID CheckoutID) (*Order, error)
 
 	// GetByPaymentIntentRef returns the Order whose Payment.PaymentIntentRef
 	// matches the given pi_ value. Used by the Stripe webhook service to resolve
@@ -312,13 +310,13 @@ type OrderRepository interface {
 	//  - Internal: database execution failure.
 	UpdateStatus(ctx context.Context, id OrderID, status OrderStatus) error
 
-	// ListByBuyer returns every Order whose buyer is the given User, in any
+	// ListByUser returns every Order whose user is the given User, in any
 	// status. It returns an empty slice when the User bought nothing.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database query failure.
-	ListByBuyer(ctx context.Context, buyerID UserID) ([]*Order, error)
+	ListByUser(ctx context.Context, userID UserID) ([]*Order, error)
 
 	// MarkConfirmationSent sets the Order's confirmation-sent time when it is
 	// unset; an already set time is kept.
@@ -371,7 +369,7 @@ type PaymentCapturePort interface {
 }
 
 // OrderConfirmationEmail is the finished purchase confirmation message for one
-// Order, already rendered in the buyer's language.
+// Order, already rendered in the language of the Order's user.
 type OrderConfirmationEmail struct {
 	// Subject is the email subject line.
 	Subject string
@@ -384,9 +382,9 @@ type OrderConfirmationEmail struct {
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type OrderConfirmationSender interface {
-	// SendConfirmationEmail sends msg to the buyer's address when the Order
-	// has no confirmation-sent time, then sets that time. When the time is
-	// already set it sends nothing and succeeds. A failure between sending and
+	// SendConfirmationEmail sends msg to the address of the Order's user when
+	// the Order has no confirmation-sent time, then sets that time. When the
+	// time is already set it sends nothing and succeeds. A failure between sending and
 	// recording can lead to a second email on retry; no other case sends
 	// twice.
 	//

@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 
+	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
 	organizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/organizer/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -10,7 +11,13 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
+// Compile-time assertion that AdminOrganizerHandler satisfies the generated
+// interface.
+var _ adminorganizerv1connect.OrganizerServiceHandler = (*AdminOrganizerHandler)(nil)
+
 // AdminOrganizerHandler implements the admin OrganizerService Connect interface.
+// It does not list an Organizer's Artists; the admin ArtistService does
+// ([AdminArtistHandler.ListByOrganizer]).
 // Admin authorization is enforced at the admin server boundary by its server-wide
 // RequireRoleInterceptor (admin role), not by per-method checks here.
 type AdminOrganizerHandler struct {
@@ -86,19 +93,6 @@ func (h *AdminOrganizerHandler) Get(
 	return connect.NewResponse(&organizerv1.GetResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
 }
 
-// ListArtists returns the artists represented by an Organizer. Returns
-// NotFound when no organizer with the given id exists.
-func (h *AdminOrganizerHandler) ListArtists(
-	ctx context.Context,
-	req *connect.Request[organizerv1.ListArtistsRequest],
-) (*connect.Response[organizerv1.ListArtistsResponse], error) {
-	artists, err := h.organizerUseCase.ListArtists(ctx, req.Msg.GetOrganizerId().GetValue())
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&organizerv1.ListArtistsResponse{Artists: mapper.ArtistsToProto(artists)}), nil
-}
-
 // Deactivate turns an Organizer off: deactivates its Zitadel operators,
 // releases artist associations, and marks the Organizer deactivated
 // (idempotent). Returns NotFound when no organizer with the given id exists.
@@ -125,19 +119,20 @@ func (h *AdminOrganizerHandler) Delete(
 	return connect.NewResponse(&organizerv1.DeleteResponse{}), nil
 }
 
-// UpdateSellerDetails records an Organizer's 特商法 seller details and returns
-// the Organizer with them. The request is validated by the server's
-// protovalidate interceptor before this runs.
-func (h *AdminOrganizerHandler) UpdateSellerDetails(
+// SetBusinessDetails records an Organizer's five business details (the 特商法
+// disclosure) and returns the Organizer with them. The request is validated by
+// the server's protovalidate interceptor before this runs.
+func (h *AdminOrganizerHandler) SetBusinessDetails(
 	ctx context.Context,
-	req *connect.Request[organizerv1.UpdateSellerDetailsRequest],
-) (*connect.Response[organizerv1.UpdateSellerDetailsResponse], error) {
-	organizer, err := h.organizerUseCase.UpdateSellerDetails(ctx,
-		req.Msg.GetOrganizerId().GetValue(), mapper.SellerDetailsFromProto(req.Msg.GetSellerDetails()))
+	req *connect.Request[organizerv1.SetBusinessDetailsRequest],
+) (*connect.Response[organizerv1.SetBusinessDetailsResponse], error) {
+	m := req.Msg
+	organizer, err := h.organizerUseCase.SetBusinessDetails(ctx, m.GetOrganizerId().GetValue(),
+		mapper.BusinessDetailsFromSetRequest(m.GetLegalName(), m.GetRepresentativeName(), m.GetBusinessAddress(), m.GetBusinessPhoneNumber(), m.GetContactEmail()))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&organizerv1.UpdateSellerDetailsResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
+	return connect.NewResponse(&organizerv1.SetBusinessDetailsResponse{Organizer: mapper.OrganizerToProto(organizer)}), nil
 }
 
 // SetPlatformFeeRate sets the platform fee rate of an Organizer's future

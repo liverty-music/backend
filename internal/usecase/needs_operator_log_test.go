@@ -17,23 +17,31 @@ import (
 )
 
 // TestNeedsOperatorReports checks that the two operator reports are logged
-// under LogKeyNeedsOperator, with the reservation id and payment reference,
+// under LogKeyNeedsOperator, with the checkout id and payment reference,
 // which the log-based alert pages on.
 func TestNeedsOperatorReports(t *testing.T) {
 	t.Parallel()
 
 	t.Run("money taken on an ended checkout", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/reservation/release-expired "Money taken on an ended checkout"
+		// @spec components/usecase/checkout/release-expired "Money taken on an ended checkout"
 		logger, buf := newCaptureLogger(t)
 		now := coStart.Add(16 * time.Minute)
-		reservations := entitymocks.NewMockReservationRepository(t)
-		auth := entitymocks.NewMockReservationAuthorizationPort(t)
-		uc := usecase.NewReservationUseCase(reservations, entitymocks.NewMockTicketSaleRepository(t),
-			entitymocks.NewMockUserRepository(t), ucmocks.NewMockEventPublishStatePort(t), auth, fixedClock(now), logger)
-		released := fanReservation(coStart)
-		released.Status, released.AuthorizationRef = entity.ReservationStatusReleased, "pi_charged"
-		reservations.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Reservation{released}, nil).Twice()
+		checkouts := entitymocks.NewMockCheckoutRepository(t)
+		auth := entitymocks.NewMockCheckoutAuthorizationPort(t)
+		uc := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
+			CheckoutRepo: checkouts,
+			SaleRepo:     entitymocks.NewMockTicketSaleRepository(t),
+			UserRepo:     entitymocks.NewMockUserRepository(t),
+			KycRepo:      entitymocks.NewMockKycRepository(t),
+			EventState:   ucmocks.NewMockEventPublishStatePort(t),
+			Auth:         auth,
+			Clock:        fixedClock(now),
+			Logger:       logger,
+		})
+		released := fanCheckout(coStart)
+		released.Status, released.AuthorizationRef = entity.CheckoutStatusReleased, "pi_charged"
+		checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{released}, nil).Twice()
 		auth.EXPECT().CancelAuthorization(mock.Anything, "pi_charged").
 			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "already charged")).Twice()
 
@@ -43,22 +51,22 @@ func TestNeedsOperatorReports(t *testing.T) {
 
 		out := buf.String()
 		assert.Equal(t, 2, strings.Count(out, usecase.LogKeyNeedsOperator))
-		assert.Contains(t, out, `"reservation_id":"res-1"`)
+		assert.Contains(t, out, `"checkout_id":"checkout-1"`)
 		assert.Contains(t, out, `"payment_ref":"pi_charged"`)
 	})
 
 	t.Run("charged checkout left unissued", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/order/issue-due-reservations "Organizer record broken"
+		// @spec components/usecase/order/issue-due-checkouts "Organizer record broken"
 		logger, buf := newCaptureLogger(t)
 		now := coStart.Add(31 * time.Minute) // charged at 18:11, reported from 18:21
-		reservations := entitymocks.NewMockReservationRepository(t)
-		charged := committedCopy(authorizedReservation(), true)
-		reservations.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Reservation{charged}, nil)
-		reservations.EXPECT().Serialize(mock.Anything, mock.Anything, mock.Anything).Return(apperr.ErrInternal)
-		uc := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{ReservationRepo: reservations, Clock: fixedClock(now), Logger: logger})
+		checkouts := entitymocks.NewMockCheckoutRepository(t)
+		charged := committedCopy(authorizedCheckout(), true)
+		checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{charged}, nil)
+		checkouts.EXPECT().Serialize(mock.Anything, mock.Anything, mock.Anything).Return(apperr.ErrInternal)
+		uc := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{CheckoutRepo: checkouts, Clock: fixedClock(now), Logger: logger})
 
-		require.NoError(t, uc.IssueDueReservations(context.Background()))
+		require.NoError(t, uc.IssueDueCheckouts(context.Background()))
 
 		out := buf.String()
 		assert.Contains(t, out, usecase.LogKeyNeedsOperator)
@@ -69,12 +77,12 @@ func TestNeedsOperatorReports(t *testing.T) {
 		t.Parallel()
 		logger, buf := newCaptureLogger(t)
 		now := coStart.Add(15 * time.Minute) // charged 4 minutes ago
-		reservations := entitymocks.NewMockReservationRepository(t)
-		reservations.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Reservation{committedCopy(authorizedReservation(), true)}, nil)
-		reservations.EXPECT().Serialize(mock.Anything, mock.Anything, mock.Anything).Return(apperr.ErrInternal)
-		uc := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{ReservationRepo: reservations, Clock: fixedClock(now), Logger: logger})
+		checkouts := entitymocks.NewMockCheckoutRepository(t)
+		checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{committedCopy(authorizedCheckout(), true)}, nil)
+		checkouts.EXPECT().Serialize(mock.Anything, mock.Anything, mock.Anything).Return(apperr.ErrInternal)
+		uc := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{CheckoutRepo: checkouts, Clock: fixedClock(now), Logger: logger})
 
-		require.NoError(t, uc.IssueDueReservations(context.Background()))
+		require.NoError(t, uc.IssueDueCheckouts(context.Background()))
 
 		assert.NotContains(t, buf.String(), usecase.LogKeyNeedsOperator)
 	})

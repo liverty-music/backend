@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	adminartistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/artist/v1"
 	adminorganizerv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/admin/organizer/v1"
 	"connectrpc.com/connect"
 
@@ -25,6 +27,14 @@ func newAdminOrganizerClient(t *testing.T, organizerUC *usecasemocks.MockOrganiz
 	t.Helper()
 	ts := newTestAdminDeleteServer(t, organizerUC, usecasemocks.NewMockUserUseCase(t))
 	return adminorganizerv1connect.NewOrganizerServiceClient(ts.Client(), ts.URL)
+}
+
+// newAdminArtistClient builds an admin ArtistService client against the same
+// admin server, its ListByOrganizer served by the given OrganizerUseCase mock.
+func newAdminArtistClient(t *testing.T, organizerUC *usecasemocks.MockOrganizerUseCase) adminartistv1connect.ArtistServiceClient {
+	t.Helper()
+	ts := newTestAdminDeleteServer(t, organizerUC, usecasemocks.NewMockUserUseCase(t))
+	return adminartistv1connect.NewArtistServiceClient(ts.Client(), ts.URL)
 }
 
 // asAdmin wraps msg in a request carrying the admin bearer token.
@@ -100,7 +110,8 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 		}
 		assert.Equal(t, []string{organizerID, otherID}, ids)
 
-		roster, err := client.ListArtists(context.Background(), asAdmin(&adminorganizerv1.ListArtistsRequest{
+		// The roster comes from the admin ArtistService, not the Organizer service.
+		roster, err := newAdminArtistClient(t, organizerUC).ListByOrganizer(context.Background(), asAdmin(&adminartistv1.ListByOrganizerRequest{
 			OrganizerId: &entityv1.OrganizerId{Value: organizerID},
 		}))
 		require.NoError(t, err)

@@ -2,8 +2,10 @@ package rpc_test
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
+	notificationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	notificationv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/notification/v1"
 	"connectrpc.com/connect"
@@ -12,6 +14,7 @@ import (
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -31,7 +34,7 @@ func newTestNotificationHandler(t *testing.T) (*handler.NotificationHandler, *uc
 	return handler.NewNotificationHandler(uc, ur, logger), uc, ur
 }
 
-func TestNotificationHandler_MarkRead(t *testing.T) {
+func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -39,113 +42,80 @@ func TestNotificationHandler_MarkRead(t *testing.T) {
 		userID  = "user-uuid-1"
 		notifID = "01890000-0000-7000-8000-000000000abc"
 	)
-
-	tests := []struct {
-		name     string
-		ctx      context.Context
-		req      *notificationv1.MarkReadRequest
-		setup    func(uc *ucmocks.MockNotificationUseCase, ur *entitymocks.MockUserRepository)
-		wantCode connect.Code
-		wantErr  bool
-	}{
-		{
-			name: "success delegates to usecase",
-			ctx:  notificationAuthedCtx(extID),
-			req: &notificationv1.MarkReadRequest{
-				UserId:         &entityv1.UserId{Value: userID},
-				NotificationId: &entityv1.NotificationId{Value: notifID},
-			},
-			setup: func(uc *ucmocks.MockNotificationUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, extID).Return(&entity.User{ID: userID, ExternalID: extID}, nil)
-				uc.EXPECT().MarkRead(mock.Anything, userID, notifID).Return(nil).Once()
-			},
-		},
-		{
-			name:     "unauthenticated when no claims",
-			ctx:      context.Background(),
-			req:      &notificationv1.MarkReadRequest{UserId: &entityv1.UserId{Value: userID}, NotificationId: &entityv1.NotificationId{Value: notifID}},
-			setup:    func(_ *ucmocks.MockNotificationUseCase, _ *entitymocks.MockUserRepository) {},
-			wantCode: connect.CodeUnauthenticated,
-			wantErr:  true,
-		},
-		{
-			name: "permission denied when user_id does not match caller",
-			ctx:  notificationAuthedCtx(extID),
-			req: &notificationv1.MarkReadRequest{
-				UserId:         &entityv1.UserId{Value: "someone-else"},
-				NotificationId: &entityv1.NotificationId{Value: notifID},
-			},
-			setup: func(_ *ucmocks.MockNotificationUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, extID).Return(&entity.User{ID: userID, ExternalID: extID}, nil)
-			},
-			wantCode: connect.CodePermissionDenied,
-			wantErr:  true,
-		},
-		{
-			name: "invalid argument when user_id is empty",
-			ctx:  notificationAuthedCtx(extID),
-			req: &notificationv1.MarkReadRequest{
-				UserId:         &entityv1.UserId{Value: ""},
-				NotificationId: &entityv1.NotificationId{Value: notifID},
-			},
-			setup: func(_ *ucmocks.MockNotificationUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, extID).Return(&entity.User{ID: userID, ExternalID: extID}, nil)
-			},
-			wantCode: connect.CodeInvalidArgument,
-			wantErr:  true,
-		},
+	expectCaller := func(ur *entitymocks.MockUserRepository) {
+		ur.EXPECT().GetByExternalID(mock.Anything, extID).Return(&entity.User{ID: userID, ExternalID: extID}, nil).Once()
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h, uc, ur := newTestNotificationHandler(t)
-			tt.setup(uc, ur)
-
-			_, err := h.MarkRead(tt.ctx, connect.NewRequest(tt.req))
-
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Equal(t, tt.wantCode, connect.CodeOf(err))
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
-func TestNotificationHandler_MarkDismissed_SuccessAndCrossUser(t *testing.T) {
-	t.Parallel()
-
-	const (
-		extID   = "ext-user-2"
-		userID  = "user-uuid-2"
-		notifID = "01890000-0000-7000-8000-000000000def"
-	)
-
-	t.Run("success delegates to usecase", func(t *testing.T) {
+	t.Run("fan marks their notification read", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/notification "Fan marks their notification read"
 		h, uc, ur := newTestNotificationHandler(t)
-		ur.EXPECT().GetByExternalID(mock.Anything, extID).Return(&entity.User{ID: userID, ExternalID: extID}, nil)
-		uc.EXPECT().MarkDismissed(mock.Anything, userID, notifID).Return(nil).Once()
+		expectCaller(ur)
+		uc.EXPECT().MarkRead(mock.Anything, userID, notifID).Return(nil).Once()
 
-		_, err := h.MarkDismissed(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.MarkDismissedRequest{
-			UserId:         &entityv1.UserId{Value: userID},
+		_, err := h.MarkRead(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.MarkReadRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},
 		}))
+
 		require.NoError(t, err)
 	})
 
-	t.Run("cross-user rejected before usecase", func(t *testing.T) {
+	t.Run("fan dismisses their notification", func(t *testing.T) {
 		t.Parallel()
-		h, _, ur := newTestNotificationHandler(t)
-		ur.EXPECT().GetByExternalID(mock.Anything, extID).Return(&entity.User{ID: userID, ExternalID: extID}, nil)
+		// @spec components/adapter/fan/api/rpc/notification "Fan dismisses their notification"
+		h, uc, ur := newTestNotificationHandler(t)
+		expectCaller(ur)
+		uc.EXPECT().MarkDismissed(mock.Anything, userID, notifID).Return(nil).Once()
 
-		_, err := h.MarkDismissed(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.MarkDismissedRequest{
-			UserId:         &entityv1.UserId{Value: "attacker"},
+		_, err := h.Dismiss(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.DismissRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},
 		}))
-		require.Error(t, err)
-		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+		require.NoError(t, err)
+	})
+
+	t.Run("not signed in", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/notification "Not signed in"
+		h, _, _ := newTestNotificationHandler(t)
+
+		_, readErr := h.MarkRead(context.Background(), connect.NewRequest(&notificationv1.MarkReadRequest{
+			NotificationId: &entityv1.NotificationId{Value: notifID},
+		}))
+		_, dismissErr := h.Dismiss(context.Background(), connect.NewRequest(&notificationv1.DismissRequest{
+			NotificationId: &entityv1.NotificationId{Value: notifID},
+		}))
+
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(readErr))
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(dismissErr))
+	})
+
+	t.Run("missing notification", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/notification "Missing notification"
+		// The mocks fail the test if a Notification changes.
+		h, _, _ := newTestNotificationHandler(t)
+		srv := newFanBoundaryServer(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return notificationv1connect.NewNotificationServiceHandler(h, opts...)
+		})
+		client := notificationv1connect.NewNotificationServiceClient(srv.Client(), srv.URL)
+
+		_, readErr := client.MarkRead(context.Background(), withFanToken(connect.NewRequest(&notificationv1.MarkReadRequest{})))
+		_, dismissErr := client.Dismiss(context.Background(), withFanToken(connect.NewRequest(&notificationv1.DismissRequest{})))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(readErr))
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(dismissErr))
+	})
+
+	t.Run("return NOT_FOUND when the caller has no account", func(t *testing.T) {
+		t.Parallel()
+		h, _, ur := newTestNotificationHandler(t)
+		ur.EXPECT().GetByExternalID(mock.Anything, extID).Return(nil, apperr.ErrNotFound).Once()
+
+		_, err := h.Dismiss(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.DismissRequest{
+			NotificationId: &entityv1.NotificationId{Value: notifID},
+		}))
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }

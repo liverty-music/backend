@@ -121,7 +121,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		_, err := testDB.Pool.Exec(ctx, `UPDATE events SET open_at = $2, start_at = $3 WHERE id = $1`, s.eventID, nov20(18, 0), nov20(19, 0))
 		require.NoError(t, err)
 		s.fanID = entity.UserID(seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String()))
-		s.tickets = seedHeldTickets(t, s.eventID, string(s.fanID), n)
+		s.tickets = seedIssuedTickets(t, s.eventID, string(s.fanID), n)
 		_, _, err = keyRepo.Register(ctx, s.fanID, s.fan.PublicKey(t), nov20(9, 0))
 		require.NoError(t, err)
 		for i := range 2 {

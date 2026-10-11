@@ -18,16 +18,17 @@ func TestOrder_ValidateSource(t *testing.T) {
 		{
 			// @spec components/entity/order "Order from a checkout"
 			name:  "order from a checkout",
-			order: &entity.Order{ReservationID: "res-1"},
+			order: &entity.Order{CheckoutID: "checkout-1"},
 		},
 		{
-			name:  "order from a won application",
-			order: &entity.Order{ApplicationID: "app-1"},
+			// @spec components/entity/order "Order from a won lottery entry"
+			name:  "order from a won lottery entry",
+			order: &entity.Order{LotteryEntryID: "entry-1"},
 		},
 		{
 			// @spec components/entity/order "Two sources"
 			name:    "two sources",
-			order:   &entity.Order{ApplicationID: "app-1", ReservationID: "res-1"},
+			order:   &entity.Order{LotteryEntryID: "entry-1", CheckoutID: "checkout-1"},
 			wantErr: true,
 		},
 		{

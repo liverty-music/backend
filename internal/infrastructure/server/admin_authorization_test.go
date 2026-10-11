@@ -87,7 +87,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 // TestAdminServer_Authorization is a table test over the admin server's
 // registered procedures, covering both ArtistService methods that are
 // public on the fan server (ListTop, Search) and an ordinary admin-only
-// method (ConcertService.ListPending), verifying every one of them enforces
+// method (ConcertService.List), verifying every one of them enforces
 // the same contract: unauthenticated -> Unauthenticated, signed-in non-admin
 // -> PermissionDenied, admin -> the usecase runs. Before backend#481 was
 // fixed, ListTop/Search fell through to PermissionDenied for an
@@ -112,7 +112,7 @@ func TestAdminServer_Authorization(t *testing.T) {
 	artistUC.EXPECT().Search(mock.Anything, "query").Return([]*entity.Artist{}, nil).Maybe()
 
 	concertUC := usecasemocks.NewMockAdminConcertUseCase(t)
-	concertUC.EXPECT().ListPending(mock.Anything).Return(nil, nil).Maybe()
+	concertUC.EXPECT().List(mock.Anything).Return(nil, nil).Maybe()
 
 	ts := newTestAdminServer(t, validator, artistUC, concertUC)
 	httpClient := ts.Client()
@@ -137,20 +137,20 @@ func TestAdminServer_Authorization(t *testing.T) {
 		_, err := client.Search(ctx, req)
 		return err
 	}
-	callConcertListPending := func(ctx context.Context, token string) error {
+	callConcertList := func(ctx context.Context, token string) error {
 		client := adminconcertv1connect.NewConcertServiceClient(httpClient, ts.URL)
-		req := connect.NewRequest(&adminconcertv1.ListPendingRequest{})
+		req := connect.NewRequest(&adminconcertv1.ListRequest{})
 		if token != "" {
 			req.Header().Set("Authorization", "Bearer "+token)
 		}
-		_, err := client.ListPending(ctx, req)
+		_, err := client.List(ctx, req)
 		return err
 	}
 
 	procedures := map[string]call{
-		"ArtistService.ListTop":      callArtistListTop,
-		"ArtistService.Search":       callArtistSearch,
-		"ConcertService.ListPending": callConcertListPending,
+		"ArtistService.ListTop": callArtistListTop,
+		"ArtistService.Search":  callArtistSearch,
+		"ConcertService.List":   callConcertList,
 	}
 
 	for name, do := range procedures {
@@ -217,6 +217,19 @@ func TestArtistService_AdminAuthorizationScenarios(t *testing.T) {
 		resp, err := client.Search(context.Background(), req)
 		require.NoError(t, err)
 		assert.Len(t, resp.Msg.GetArtists(), 1, "ArtistUseCase.Search should have run and returned the matching artist")
+	})
+
+	t.Run("Empty query", func(t *testing.T) {
+		// @spec components/adapter/admin/api/rpc/artist "Empty query"
+		t.Parallel()
+
+		// The strict mock fails the test if ArtistUseCase.Search runs with
+		// an empty query.
+		req := connect.NewRequest(&artistv1.SearchRequest{})
+		req.Header().Set("Authorization", "Bearer "+adminToken)
+
+		_, err := client.Search(context.Background(), req)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 
 	t.Run("Signed-in caller without the admin role", func(t *testing.T) {

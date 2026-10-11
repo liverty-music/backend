@@ -83,125 +83,6 @@ func (_c *MockTicketRepository_Admit_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// ListByHolder provides a mock function with given fields: ctx, holderID
-func (_m *MockTicketRepository) ListByHolder(ctx context.Context, holderID entity.UserID) ([]*entity.Ticket, error) {
-	ret := _m.Called(ctx, holderID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListByHolder")
-	}
-
-	var r0 []*entity.Ticket
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) ([]*entity.Ticket, error)); ok {
-		return rf(ctx, holderID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) []*entity.Ticket); ok {
-		r0 = rf(ctx, holderID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Ticket)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, entity.UserID) error); ok {
-		r1 = rf(ctx, holderID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockTicketRepository_ListByHolder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByHolder'
-type MockTicketRepository_ListByHolder_Call struct {
-	*mock.Call
-}
-
-// ListByHolder is a helper method to define mock.On call
-//   - ctx context.Context
-//   - holderID entity.UserID
-func (_e *MockTicketRepository_Expecter) ListByHolder(ctx interface{}, holderID interface{}) *MockTicketRepository_ListByHolder_Call {
-	return &MockTicketRepository_ListByHolder_Call{Call: _e.mock.On("ListByHolder", ctx, holderID)}
-}
-
-func (_c *MockTicketRepository_ListByHolder_Call) Run(run func(ctx context.Context, holderID entity.UserID)) *MockTicketRepository_ListByHolder_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.UserID))
-	})
-	return _c
-}
-
-func (_c *MockTicketRepository_ListByHolder_Call) Return(_a0 []*entity.Ticket, _a1 error) *MockTicketRepository_ListByHolder_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockTicketRepository_ListByHolder_Call) RunAndReturn(run func(context.Context, entity.UserID) ([]*entity.Ticket, error)) *MockTicketRepository_ListByHolder_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListByHolderAndEvent provides a mock function with given fields: ctx, holderID, eventID
-func (_m *MockTicketRepository) ListByHolderAndEvent(ctx context.Context, holderID entity.UserID, eventID string) ([]*entity.Ticket, error) {
-	ret := _m.Called(ctx, holderID, eventID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListByHolderAndEvent")
-	}
-
-	var r0 []*entity.Ticket
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID, string) ([]*entity.Ticket, error)); ok {
-		return rf(ctx, holderID, eventID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID, string) []*entity.Ticket); ok {
-		r0 = rf(ctx, holderID, eventID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Ticket)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, entity.UserID, string) error); ok {
-		r1 = rf(ctx, holderID, eventID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockTicketRepository_ListByHolderAndEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByHolderAndEvent'
-type MockTicketRepository_ListByHolderAndEvent_Call struct {
-	*mock.Call
-}
-
-// ListByHolderAndEvent is a helper method to define mock.On call
-//   - ctx context.Context
-//   - holderID entity.UserID
-//   - eventID string
-func (_e *MockTicketRepository_Expecter) ListByHolderAndEvent(ctx interface{}, holderID interface{}, eventID interface{}) *MockTicketRepository_ListByHolderAndEvent_Call {
-	return &MockTicketRepository_ListByHolderAndEvent_Call{Call: _e.mock.On("ListByHolderAndEvent", ctx, holderID, eventID)}
-}
-
-func (_c *MockTicketRepository_ListByHolderAndEvent_Call) Run(run func(ctx context.Context, holderID entity.UserID, eventID string)) *MockTicketRepository_ListByHolderAndEvent_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.UserID), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockTicketRepository_ListByHolderAndEvent_Call) Return(_a0 []*entity.Ticket, _a1 error) *MockTicketRepository_ListByHolderAndEvent_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockTicketRepository_ListByHolderAndEvent_Call) RunAndReturn(run func(context.Context, entity.UserID, string) ([]*entity.Ticket, error)) *MockTicketRepository_ListByHolderAndEvent_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ListByOrder provides a mock function with given fields: ctx, orderID
 func (_m *MockTicketRepository) ListByOrder(ctx context.Context, orderID entity.OrderID) ([]*entity.Ticket, error) {
 	ret := _m.Called(ctx, orderID)
@@ -257,6 +138,125 @@ func (_c *MockTicketRepository_ListByOrder_Call) Return(_a0 []*entity.Ticket, _a
 }
 
 func (_c *MockTicketRepository_ListByOrder_Call) RunAndReturn(run func(context.Context, entity.OrderID) ([]*entity.Ticket, error)) *MockTicketRepository_ListByOrder_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByUser provides a mock function with given fields: ctx, userID
+func (_m *MockTicketRepository) ListByUser(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
+	ret := _m.Called(ctx, userID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByUser")
+	}
+
+	var r0 []*entity.Ticket
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) ([]*entity.Ticket, error)); ok {
+		return rf(ctx, userID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) []*entity.Ticket); ok {
+		r0 = rf(ctx, userID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Ticket)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.UserID) error); ok {
+		r1 = rf(ctx, userID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockTicketRepository_ListByUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByUser'
+type MockTicketRepository_ListByUser_Call struct {
+	*mock.Call
+}
+
+// ListByUser is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID entity.UserID
+func (_e *MockTicketRepository_Expecter) ListByUser(ctx interface{}, userID interface{}) *MockTicketRepository_ListByUser_Call {
+	return &MockTicketRepository_ListByUser_Call{Call: _e.mock.On("ListByUser", ctx, userID)}
+}
+
+func (_c *MockTicketRepository_ListByUser_Call) Run(run func(ctx context.Context, userID entity.UserID)) *MockTicketRepository_ListByUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.UserID))
+	})
+	return _c
+}
+
+func (_c *MockTicketRepository_ListByUser_Call) Return(_a0 []*entity.Ticket, _a1 error) *MockTicketRepository_ListByUser_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockTicketRepository_ListByUser_Call) RunAndReturn(run func(context.Context, entity.UserID) ([]*entity.Ticket, error)) *MockTicketRepository_ListByUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByUserAndEvent provides a mock function with given fields: ctx, userID, eventID
+func (_m *MockTicketRepository) ListByUserAndEvent(ctx context.Context, userID entity.UserID, eventID string) ([]*entity.Ticket, error) {
+	ret := _m.Called(ctx, userID, eventID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByUserAndEvent")
+	}
+
+	var r0 []*entity.Ticket
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID, string) ([]*entity.Ticket, error)); ok {
+		return rf(ctx, userID, eventID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID, string) []*entity.Ticket); ok {
+		r0 = rf(ctx, userID, eventID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.Ticket)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.UserID, string) error); ok {
+		r1 = rf(ctx, userID, eventID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockTicketRepository_ListByUserAndEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByUserAndEvent'
+type MockTicketRepository_ListByUserAndEvent_Call struct {
+	*mock.Call
+}
+
+// ListByUserAndEvent is a helper method to define mock.On call
+//   - ctx context.Context
+//   - userID entity.UserID
+//   - eventID string
+func (_e *MockTicketRepository_Expecter) ListByUserAndEvent(ctx interface{}, userID interface{}, eventID interface{}) *MockTicketRepository_ListByUserAndEvent_Call {
+	return &MockTicketRepository_ListByUserAndEvent_Call{Call: _e.mock.On("ListByUserAndEvent", ctx, userID, eventID)}
+}
+
+func (_c *MockTicketRepository_ListByUserAndEvent_Call) Run(run func(ctx context.Context, userID entity.UserID, eventID string)) *MockTicketRepository_ListByUserAndEvent_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.UserID), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockTicketRepository_ListByUserAndEvent_Call) Return(_a0 []*entity.Ticket, _a1 error) *MockTicketRepository_ListByUserAndEvent_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockTicketRepository_ListByUserAndEvent_Call) RunAndReturn(run func(context.Context, entity.UserID, string) ([]*entity.Ticket, error)) *MockTicketRepository_ListByUserAndEvent_Call {
 	_c.Call.Return(run)
 	return _c
 }

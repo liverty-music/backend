@@ -7,53 +7,53 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func completeSellerDetails() *entity.SellerDetails {
-	return &entity.SellerDetails{
-		LegalName:          "株式会社リバティ",
-		RepresentativeName: "代表 太郎",
-		Address:            "東京都渋谷区1-2-3",
-		PhoneNumber:        "+81312345678",
-		ContactEmail:       "contact@example.com",
+func completeBusinessDetails() *entity.BusinessDetails {
+	return &entity.BusinessDetails{
+		LegalName:           "株式会社リバティ",
+		RepresentativeName:  "代表 太郎",
+		BusinessAddress:     "東京都渋谷区1-2-3",
+		BusinessPhoneNumber: "+81312345678",
+		ContactEmail:        "contact@example.com",
 	}
 }
 
-func TestOrganizer_HasCompleteSellerDetails(t *testing.T) {
+func TestOrganizer_HasCompleteBusinessDetails(t *testing.T) {
 	t.Parallel()
 
 	t.Run("corporation with all details", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/organizer "Corporation with all details"
-		o := &entity.Organizer{SellerDetails: completeSellerDetails()}
+		o := &entity.Organizer{BusinessDetails: completeBusinessDetails()}
 
-		assert.True(t, o.HasCompleteSellerDetails())
+		assert.True(t, o.HasCompleteBusinessDetails())
 	})
 
 	t.Run("address missing", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/entity/organizer "Address missing"
-		d := completeSellerDetails()
-		d.Address = ""
-		o := &entity.Organizer{SellerDetails: d}
+		d := completeBusinessDetails()
+		d.BusinessAddress = ""
+		o := &entity.Organizer{BusinessDetails: d}
 
-		assert.False(t, o.HasCompleteSellerDetails())
+		assert.False(t, o.HasCompleteBusinessDetails())
 	})
 
-	t.Run("no seller details", func(t *testing.T) {
+	t.Run("no business details", func(t *testing.T) {
 		t.Parallel()
-		assert.False(t, (&entity.Organizer{}).HasCompleteSellerDetails())
+		assert.False(t, (&entity.Organizer{}).HasCompleteBusinessDetails())
 	})
 
 	t.Run("domestic-format phone number", func(t *testing.T) {
 		t.Parallel()
-		d := completeSellerDetails()
-		d.PhoneNumber = "03-1234-5678"
+		d := completeBusinessDetails()
+		d.BusinessPhoneNumber = "03-1234-5678"
 
 		assert.Error(t, d.Validate())
 	})
 
 	t.Run("malformed contact email", func(t *testing.T) {
 		t.Parallel()
-		d := completeSellerDetails()
+		d := completeBusinessDetails()
 		d.ContactEmail = "not-an-email"
 
 		assert.Error(t, d.Validate())

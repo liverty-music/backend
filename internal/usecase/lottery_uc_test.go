@@ -2,1688 +2,1006 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
+	mrand "math/rand/v2"
 	"testing"
 	"time"
 
-	"github.com/liverty-music/backend/internal/entity"
-	"github.com/liverty-music/backend/internal/usecase"
 	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/liverty-music/backend/internal/entity"
+	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
+	"github.com/liverty-music/backend/internal/usecase"
 )
-
-// --- helpers ---
-
-// --- self-contained test doubles ---
-//
-// mockery cannot currently generate these mocks (v2.53.6 dies with
-// `package "image" without types` while loading internal/entity). These
-// function-field stubs verify the business logic without that dependency.
-// TODO: replace with mockery expecter mocks once mockery is fixed / after BSR gen.
-
-type stubPhaseRepo struct {
-	createFn                        func(context.Context, *entity.LotterySalesPhase) (*entity.LotterySalesPhase, error)
-	getFn                           func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error)
-	listPhasesDueForDrawFn          func(context.Context, time.Time) ([]*entity.LotterySalesPhase, error)
-	updateVerificationRequirementFn func(context.Context, entity.LotteryPhaseID, entity.VerificationRequirement) (*entity.LotterySalesPhase, error)
-}
-
-func (s *stubPhaseRepo) Create(ctx context.Context, p *entity.LotterySalesPhase) (*entity.LotterySalesPhase, error) {
-	if s.createFn != nil {
-		return s.createFn(ctx, p)
-	}
-	return p, nil
-}
-
-func (s *stubPhaseRepo) Get(ctx context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-	if s.getFn != nil {
-		return s.getFn(ctx, id)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubPhaseRepo) ListPhasesDueForDraw(ctx context.Context, now time.Time) ([]*entity.LotterySalesPhase, error) {
-	if s.listPhasesDueForDrawFn != nil {
-		return s.listPhasesDueForDrawFn(ctx, now)
-	}
-	return nil, nil
-}
-
-func (s *stubPhaseRepo) UpdateVerificationRequirement(ctx context.Context, id entity.LotteryPhaseID, req entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
-	if s.updateVerificationRequirementFn != nil {
-		return s.updateVerificationRequirementFn(ctx, id, req)
-	}
-	return &entity.LotterySalesPhase{ID: id, VerificationRequirement: req}, nil
-}
-
-type stubAppRepo struct {
-	createFn              func(context.Context, *entity.TicketApplication) (*entity.TicketApplication, error)
-	getByPairFn           func(context.Context, entity.LotteryPhaseID, entity.UserID) (*entity.TicketApplication, error)
-	getFn                 func(context.Context, entity.TicketApplicationID) (*entity.TicketApplication, error)
-	updateStateFn         func(context.Context, entity.TicketApplicationID, entity.TicketApplicationState) error
-	getPhaseStatsFn       func(context.Context, entity.LotteryPhaseID) (entity.LotteryPhaseStatus, error)
-	listAppliedForPhaseFn func(context.Context, entity.LotteryPhaseID) ([]*entity.TicketApplication, error)
-	persistDrawOutcomeFn  func(context.Context, entity.LotteryPhaseID, []entity.DrawWinnerRow, []entity.DrawLoserRow) error
-}
-
-func (s *stubAppRepo) Create(ctx context.Context, a *entity.TicketApplication) (*entity.TicketApplication, error) {
-	if s.createFn != nil {
-		return s.createFn(ctx, a)
-	}
-	return a, nil
-}
-
-func (s *stubAppRepo) GetByPhaseAndApplicant(ctx context.Context, phaseID entity.LotteryPhaseID, applicantID entity.UserID) (*entity.TicketApplication, error) {
-	if s.getByPairFn != nil {
-		return s.getByPairFn(ctx, phaseID, applicantID)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubAppRepo) GetByPaymentIntentRef(context.Context, string) (*entity.TicketApplication, error) {
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubAppRepo) Get(ctx context.Context, id entity.TicketApplicationID) (*entity.TicketApplication, error) {
-	if s.getFn != nil {
-		return s.getFn(ctx, id)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubAppRepo) UpdateState(ctx context.Context, id entity.TicketApplicationID, state entity.TicketApplicationState) error {
-	if s.updateStateFn != nil {
-		return s.updateStateFn(ctx, id, state)
-	}
-	return nil
-}
-
-func (s *stubAppRepo) GetPhaseStats(ctx context.Context, phaseID entity.LotteryPhaseID) (entity.LotteryPhaseStatus, error) {
-	if s.getPhaseStatsFn != nil {
-		return s.getPhaseStatsFn(ctx, phaseID)
-	}
-	return entity.LotteryPhaseStatus{}, nil
-}
-
-func (s *stubAppRepo) ListAppliedForPhase(ctx context.Context, phaseID entity.LotteryPhaseID) ([]*entity.TicketApplication, error) {
-	if s.listAppliedForPhaseFn != nil {
-		return s.listAppliedForPhaseFn(ctx, phaseID)
-	}
-	return nil, nil
-}
-
-func (s *stubAppRepo) PersistDrawOutcome(ctx context.Context, phaseID entity.LotteryPhaseID, winners []entity.DrawWinnerRow, losers []entity.DrawLoserRow) error {
-	if s.persistDrawOutcomeFn != nil {
-		return s.persistDrawOutcomeFn(ctx, phaseID, winners, losers)
-	}
-	return nil
-}
-
-type stubEventState struct {
-	fn            func(context.Context, string) (bool, error)
-	organizerIDFn func(context.Context, string) (string, error)
-}
-
-func (s *stubEventState) IsEventPublished(ctx context.Context, eventID string) (bool, error) {
-	if s.fn != nil {
-		return s.fn(ctx, eventID)
-	}
-	return true, nil
-}
-
-// GetEventOrganizerID defaults to "" so tests that do not care about
-// ownership (and leave ConfigureLotteryPhaseInput.CallerOrgID at its zero
-// value "") pass the ownership check without configuring this field.
-func (s *stubEventState) GetEventOrganizerID(ctx context.Context, eventID string) (string, error) {
-	if s.organizerIDFn != nil {
-		return s.organizerIDFn(ctx, eventID)
-	}
-	return "", nil
-}
-
-// stubEventRepo stubs [entity.EventRepository]. By default the event exists
-// and starts at 19:00 JST without a doors-open time.
-type stubEventRepo struct {
-	getFn func(ctx context.Context, id string) (*entity.Event, error)
-}
-
-func (s *stubEventRepo) Get(ctx context.Context, id string) (*entity.Event, error) {
-	if s.getFn != nil {
-		return s.getFn(ctx, id)
-	}
-	start := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
-	return &entity.Event{ID: id, LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC), StartTime: &start}, nil
-}
-
-// stubVerifiedIdentityRepo stubs [entity.VerifiedIdentityRepository] with
-// function fields so each test case can inject targeted behavior.
-type stubVerifiedIdentityRepo struct {
-	getByUserIDFn           func(ctx context.Context, userID string) (*entity.VerifiedIdentity, error)
-	getByPocketSignUserIDFn func(ctx context.Context, pocketSignUserID string) (*entity.VerifiedIdentity, error)
-	createFn                func(ctx context.Context, vi *entity.VerifiedIdentity) (*entity.VerifiedIdentity, error)
-	updateStatusFn          func(ctx context.Context, id string, status entity.VerificationStatus) error
-	deleteFn                func(ctx context.Context, id string) error
-}
-
-func (s *stubVerifiedIdentityRepo) GetByUserID(ctx context.Context, userID string) (*entity.VerifiedIdentity, error) {
-	if s.getByUserIDFn != nil {
-		return s.getByUserIDFn(ctx, userID)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubVerifiedIdentityRepo) GetByPocketSignUserID(ctx context.Context, pocketSignUserID string) (*entity.VerifiedIdentity, error) {
-	if s.getByPocketSignUserIDFn != nil {
-		return s.getByPocketSignUserIDFn(ctx, pocketSignUserID)
-	}
-	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
-}
-
-func (s *stubVerifiedIdentityRepo) Create(ctx context.Context, vi *entity.VerifiedIdentity) (*entity.VerifiedIdentity, error) {
-	if s.createFn != nil {
-		return s.createFn(ctx, vi)
-	}
-	return vi, nil
-}
-
-func (s *stubVerifiedIdentityRepo) UpdateStatus(ctx context.Context, id string, status entity.VerificationStatus) error {
-	if s.updateStatusFn != nil {
-		return s.updateStatusFn(ctx, id, status)
-	}
-	return nil
-}
-
-func (s *stubVerifiedIdentityRepo) Delete(ctx context.Context, id string) error {
-	if s.deleteFn != nil {
-		return s.deleteFn(ctx, id)
-	}
-	return nil
-}
-
-// stubPaymentPort stubs [entity.PaymentAuthorizationPort] with function fields
-// so each test case can inject targeted behavior without running mockery.
-type stubPaymentPort struct {
-	createAuthFn  func(ctx context.Context, amountJPY int64) (string, string, error)
-	verifyAuthFn  func(ctx context.Context, piRef string, expectedAmountJPY int64) error
-	cancelAuthFn  func(ctx context.Context, piRef string) error
-	captureAuthFn func(ctx context.Context, piRef string) error
-}
-
-func (s *stubPaymentPort) CreateAuthorization(ctx context.Context, amountJPY int64) (string, string, error) {
-	if s.createAuthFn != nil {
-		return s.createAuthFn(ctx, amountJPY)
-	}
-	return "pi_test_ref", "cs_test_secret", nil
-}
-
-func (s *stubPaymentPort) VerifyAuthorization(ctx context.Context, piRef string, expectedAmountJPY int64) error {
-	if s.verifyAuthFn != nil {
-		return s.verifyAuthFn(ctx, piRef, expectedAmountJPY)
-	}
-	return nil
-}
-
-func (s *stubPaymentPort) CancelAuthorization(ctx context.Context, piRef string) error {
-	if s.cancelAuthFn != nil {
-		return s.cancelAuthFn(ctx, piRef)
-	}
-	return nil
-}
-
-func (s *stubPaymentPort) CaptureAuthorization(ctx context.Context, piRef string) error {
-	if s.captureAuthFn != nil {
-		return s.captureAuthFn(ctx, piRef)
-	}
-	return nil
-}
 
 func fixedClock(t time.Time) usecase.Clock {
 	return func() time.Time { return t }
 }
 
-// basePhase returns a valid LotterySalesPhase for use in test cases. The
-// window is 7 days, capacity 100, max 4, price 5000 JPY.
-func basePhase(open, close time.Time) *entity.LotterySalesPhase {
-	return &entity.LotterySalesPhase{
-		ID:                       "phase-1",
-		EventID:                  "event-1",
-		OpenTime:                 open,
-		CloseTime:                close,
-		TicketCapacity:           100,
-		MaxTicketsPerApplication: 4,
-		TicketPrice:              5000,
-	}
+// holdPort is the lottery's card hold in tests: the generated
+// PaymentAuthorizationPort mock plus GetClientSecret, which the entity port
+// does not declare yet.
+//
+// TODO: drop once entity.PaymentAuthorizationPort declares GetClientSecret
+// and its mock is regenerated.
+type holdPort struct {
+	*entitymocks.MockPaymentAuthorizationPort
+	// secrets maps a hold reference to its confirmation secret.
+	secrets map[string]string
 }
 
-// newLotteryUC builds a lotteryUseCase with the given repos, and a fixed
-// clock set to withinTime. paymentPort, eventState, and verifiedIdentityRepo
-// default to passing stubs.
-func newLotteryUC(
-	t *testing.T,
-	phaseRepo entity.LotteryPhaseRepository,
-	appRepo entity.TicketApplicationRepository,
-	eventState usecase.EventPublishStatePort,
-	paymentPort entity.PaymentAuthorizationPort,
-	clockTime time.Time,
-	viRepo ...entity.VerifiedIdentityRepository,
-) usecase.LotteryUseCase {
+// GetClientSecret implements [usecase.LotteryHoldPort].
+func (h *holdPort) GetClientSecret(_ context.Context, ref string) (string, error) {
+	secret, ok := h.secrets[ref]
+	if !ok {
+		return "", apperr.ErrNotFound
+	}
+	return secret, nil
+}
+
+// lotteryFixture holds the mocks of a LotteryUseCase under test.
+type lotteryFixture struct {
+	sales   *entitymocks.MockTicketSaleRepository
+	entries *entitymocks.MockLotteryEntryRepository
+	tickets *entitymocks.MockTicketRepository
+	kyc     *entitymocks.MockKycRepository
+	users   *entitymocks.MockUserRepository
+	holds   *holdPort
+	uc      usecase.LotteryUseCase
+}
+
+// newLotteryFixture builds the use case at now, drawing in the order of a
+// PCG source seeded with seed.
+func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture {
 	t.Helper()
-	var repo entity.VerifiedIdentityRepository
-	if len(viRepo) > 0 && viRepo[0] != nil {
-		repo = viRepo[0]
-	} else {
-		repo = &stubVerifiedIdentityRepo{}
+	f := &lotteryFixture{
+		sales:   entitymocks.NewMockTicketSaleRepository(t),
+		entries: entitymocks.NewMockLotteryEntryRepository(t),
+		tickets: entitymocks.NewMockTicketRepository(t),
+		kyc:     entitymocks.NewMockKycRepository(t),
+		users:   entitymocks.NewMockUserRepository(t),
+		holds:   &holdPort{MockPaymentAuthorizationPort: entitymocks.NewMockPaymentAuthorizationPort(t), secrets: map[string]string{}},
 	}
-	return usecase.NewLotteryUseCase(
-		phaseRepo, appRepo, eventState, &stubEventRepo{}, paymentPort, repo,
-		fixedClock(clockTime), newTestLogger(t),
-	)
+	f.uc = usecase.NewLotteryUseCaseWithRand(f.sales, f.entries, f.tickets, f.kyc, f.users, f.holds,
+		fixedClock(now), func() *mrand.Rand { return mrand.New(mrand.NewPCG(seed, seed+1)) }, newTestLogger(t))
+	return f
 }
 
-// --- ConfigureLotteryPhase ---
+// lotterySale returns a Lottery sale open from 1 to 10 November with one
+// TicketType for event-1 of 100 tickets at 8000 yen, limit 4.
+func lotterySale(req entity.VerificationRequirement) *entity.TicketSale {
+	sale := entity.NewTicketSale("series-1", "ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0))
+	sale.VerificationRequirement = req
+	entity.NewTicketType(sale, "event-1", 8000, 100, 4)
+	return sale
+}
 
-func TestLotteryUseCase_ConfigureLotteryPhase(t *testing.T) {
-	t.Parallel()
+// readsTicketType makes TicketType.Get return the sale's first TicketType.
+func (f *lotteryFixture) readsTicketType(sale *entity.TicketSale) {
+	f.sales.EXPECT().GetTicketType(mock.Anything, sale.TicketTypes[0].ID, mock.Anything).Return(sale, sale.TicketTypes[0], nil).Maybe()
+}
 
-	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-
-	// base returns a valid input for ConfigureLotteryPhase; mutate overrides fields.
-	base := func() usecase.ConfigureLotteryPhaseInput {
-		return usecase.ConfigureLotteryPhaseInput{
-			EventID:                  "event-1",
-			OpenTime:                 open,
-			CloseTime:                open.Add(7 * 24 * time.Hour),
-			TicketCapacity:           100,
-			MaxTicketsPerApplication: 4,
-			TicketPrice:              5000,
-		}
+// holdsTickets makes the fan hold the given tickets for event-1.
+func (f *lotteryFixture) holdsTickets(statuses ...entity.TicketStatus) {
+	tickets := make([]*entity.Ticket, 0, len(statuses))
+	for _, s := range statuses {
+		tickets = append(tickets, &entity.Ticket{EventID: "event-1", Status: s})
 	}
+	f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, entity.UserID("fan-1"), "event-1").Return(tickets, nil).Maybe()
+}
 
-	tests := []struct {
-		name          string
-		mutate        func(*usecase.ConfigureLotteryPhaseInput)
-		published     func(context.Context, string) (bool, error)
-		organizerIDFn func(context.Context, string) (string, error)
-		getEventFn    func(context.Context, string) (*entity.Event, error)
-		wantErr       error
-		wantCalled    bool // expect phaseRepo.Create to be invoked
-	}{
-		{
-			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Organizer configures a phase"
-			name:       "success: valid 7-day window creates phase",
-			mutate:     func(in *usecase.ConfigureLotteryPhaseInput) {},
-			wantCalled: true,
-		},
-		{
-			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Start time not yet announced"
-			name:   "reject: published event without a start time returns FailedPrecondition",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {},
-			getEventFn: func(_ context.Context, id string) (*entity.Event, error) {
-				return &entity.Event{ID: id, LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)}, nil
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Doors-open time not announced"
-			name:   "success: event with a start time and no doors-open time creates phase",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {},
-			getEventFn: func(_ context.Context, id string) (*entity.Event, error) {
-				start := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
-				return &entity.Event{ID: id, LocalDate: time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC), StartTime: &start}, nil
-			},
-			wantCalled: true,
-		},
-		{
-			// @spec components/entity/lottery-sales-phase "Valid sizing"
-			name: "success: capacity 100, max 4 and price 8000 creates phase",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {
-				in.TicketCapacity, in.MaxTicketsPerApplication, in.TicketPrice = 100, 4, 8000
-			},
-			wantCalled: true,
-		},
-		{
-			name:       "success: max of exactly 10 is valid upper bound",
-			mutate:     func(in *usecase.ConfigureLotteryPhaseInput) { in.MaxTicketsPerApplication = 10 },
-			wantCalled: true,
-		},
-		{
-			name:       "success: window of exactly 1 day is valid lower bound",
-			mutate:     func(in *usecase.ConfigureLotteryPhaseInput) { in.CloseTime = in.OpenTime.Add(24 * time.Hour) },
-			wantCalled: true,
-		},
-		{
-			name:       "success: window of exactly 14 days is valid upper bound",
-			mutate:     func(in *usecase.ConfigureLotteryPhaseInput) { in.CloseTime = in.OpenTime.Add(14 * 24 * time.Hour) },
-			wantCalled: true,
-		},
-		{
-			name:    "reject: missing event id",
-			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.EventID = "" },
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "reject: close not after open",
-			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.CloseTime = in.OpenTime },
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name: "reject: window shorter than 1 day",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {
-				in.CloseTime = in.OpenTime.Add(23*time.Hour + 59*time.Minute)
-			},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name: "reject: window longer than 14 days",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {
-				in.CloseTime = in.OpenTime.Add(14*24*time.Hour + time.Second)
-			},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			// @spec components/entity/lottery-sales-phase "Non-positive value"
-			name:    "reject: non-positive capacity",
-			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.TicketCapacity = 0 },
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			// @spec components/entity/lottery-sales-phase "Non-positive value"
-			name:    "reject: non-positive max per application",
-			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.MaxTicketsPerApplication = 0 },
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			// @spec components/entity/lottery-sales-phase "Group larger than capacity"
-			name: "reject: max exceeds capacity",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {
-				in.TicketCapacity, in.MaxTicketsPerApplication = 3, 4
-			},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			// @spec components/entity/lottery-sales-phase "Group larger than one entry code"
-			name: "reject: max above 10 exceeds one entry code",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) {
-				in.TicketCapacity, in.MaxTicketsPerApplication = 100, 11
-			},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Invalid configuration"
-			// @spec components/entity/lottery-sales-phase "Non-positive value"
-			name:    "reject: zero ticket price",
-			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.TicketPrice = 0 },
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "reject: negative ticket price",
-			mutate:  func(in *usecase.ConfigureLotteryPhaseInput) { in.TicketPrice = -1 },
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Event not published"
-			name:      "reject: event not published returns FailedPrecondition",
-			mutate:    func(in *usecase.ConfigureLotteryPhaseInput) {},
-			published: func(context.Context, string) (bool, error) { return false, nil },
-			wantErr:   apperr.ErrFailedPrecondition,
-		},
-		{
-			// @spec components/usecase/lottery-sales-phase/configure-lottery-phase "Unknown event"
-			name:   "reject: event not found propagates NotFound",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) { in.CallerOrgID = "org-1" },
-			organizerIDFn: func(context.Context, string) (string, error) {
-				return "", apperr.New(apperr.ErrNotFound.Code, "no event")
-			},
-			wantErr: apperr.ErrNotFound,
-		},
-		{
-			name:   "reject: event owned by another organizer returns PermissionDenied",
-			mutate: func(in *usecase.ConfigureLotteryPhaseInput) { in.CallerOrgID = "org-other" },
-			organizerIDFn: func(context.Context, string) (string, error) {
-				return "org-owner", nil
-			},
-			wantErr: apperr.ErrPermissionDenied,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var created bool
-			phaseRepo := &stubPhaseRepo{
-				createFn: func(_ context.Context, p *entity.LotterySalesPhase) (*entity.LotterySalesPhase, error) {
-					created = true
-					return p, nil
-				},
-			}
-			eventState := &stubEventState{fn: tt.published, organizerIDFn: tt.organizerIDFn}
-			uc := usecase.NewLotteryUseCase(
-				phaseRepo, &stubAppRepo{}, eventState, &stubEventRepo{getFn: tt.getEventFn}, &stubPaymentPort{},
-				&stubVerifiedIdentityRepo{}, fixedClock(open), newTestLogger(t),
-			)
-
-			in := base()
-			tt.mutate(&in)
-
-			got, err := uc.ConfigureLotteryPhase(ctx, in)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, got)
-				assert.False(t, created, "Create must not be called on validation/precondition failure")
-				return
-			}
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.Equal(t, in.EventID, got.EventID)
-			assert.Equal(t, in.TicketCapacity, got.TicketCapacity)
-			assert.Equal(t, in.TicketPrice, got.TicketPrice)
-			assert.NotEmpty(t, got.ID)
-			assert.True(t, tt.wantCalled == created)
-		})
+// lotteryEntry returns an entry of fan-1 (or user) for tt.
+func lotteryEntry(id entity.LotteryEntryID, tt entity.TicketTypeID, user entity.UserID, state entity.LotteryEntryState, count int, ref string) *entity.LotteryEntry {
+	return &entity.LotteryEntry{
+		ID: id, TicketTypeID: tt, UserID: user, RequestedTicketCount: count, State: state,
+		Authorization: entity.PaymentAuthorization{PaymentIntentRef: ref},
 	}
 }
 
-// --- CreateAuthorization ---
+var (
+	duringWindow = saleTime(11, 5, 12, 0)
+	afterWindow  = saleTime(11, 10, 10, 0)
+)
 
-func TestLotteryUseCase_CreateAuthorization(t *testing.T) {
+func TestLotteryUseCase_Start(t *testing.T) {
 	t.Parallel()
-
 	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	close := open.Add(7 * 24 * time.Hour)
-	within := open.Add(24 * time.Hour)
 
-	phase := basePhase(open, close)
+	t.Run("fan starts an entry within the window", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Fan starts an entry within the window"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		f.holdsTickets()
+		draft := entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 2)
+		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(draft, nil)
 
-	base := func() usecase.CreateAuthorizationInput {
-		return usecase.CreateAuthorizationInput{
-			PhaseID:              "phase-1",
-			RequestedTicketCount: 2,
-		}
-	}
+		got, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
 
-	tests := []struct {
-		name         string
-		mutate       func(*usecase.CreateAuthorizationInput)
-		now          time.Time
-		phaseGet     func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error)
-		createAuthFn func(ctx context.Context, amountJPY int64) (string, string, error)
-		wantErr      error
-		wantAmount   int64 // expected amountJPY passed to CreateAuthorization
-	}{
-		{
-			name:       "success: returns piRef and clientSecret, amount = price x count",
-			mutate:     func(in *usecase.CreateAuthorizationInput) {},
-			now:        within,
-			wantAmount: 5000 * 2, // price=5000, count=2
-		},
-		{
-			name:       "success: single ticket, amount = price",
-			mutate:     func(in *usecase.CreateAuthorizationInput) { in.RequestedTicketCount = 1 },
-			now:        within,
-			wantAmount: 5000 * 1,
-		},
-		{
-			name:   "reject: phase not found propagates NotFound",
-			mutate: func(in *usecase.CreateAuthorizationInput) {},
-			now:    within,
-			phaseGet: func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-				return nil, apperr.New(apperr.ErrNotFound.Code, "no phase")
-			},
-			wantErr: apperr.ErrNotFound,
-		},
-		{
-			name:    "reject: zero count returns InvalidArgument",
-			mutate:  func(in *usecase.CreateAuthorizationInput) { in.RequestedTicketCount = 0 },
-			now:     within,
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name: "reject: count exceeds max returns InvalidArgument",
-			mutate: func(in *usecase.CreateAuthorizationInput) {
-				in.RequestedTicketCount = phase.MaxTicketsPerApplication + 1
-			},
-			now:     within,
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "reject: before window open returns FailedPrecondition",
-			mutate:  func(in *usecase.CreateAuthorizationInput) {},
-			now:     open.Add(-time.Hour),
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name:    "reject: at window close returns FailedPrecondition",
-			mutate:  func(in *usecase.CreateAuthorizationInput) {},
-			now:     close,
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name:   "reject: payment provider failure propagates Unavailable",
-			mutate: func(in *usecase.CreateAuthorizationInput) {},
-			now:    within,
-			createAuthFn: func(_ context.Context, _ int64) (string, string, error) {
-				return "", "", apperr.New(apperr.ErrUnavailable.Code, "stripe down")
-			},
-			wantErr: apperr.ErrUnavailable,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			phaseGet := tt.phaseGet
-			if phaseGet == nil {
-				phaseGet = func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) { return phase, nil }
-			}
-
-			var capturedAmount int64
-			createAuthFn := tt.createAuthFn
-			if createAuthFn == nil {
-				createAuthFn = func(_ context.Context, amountJPY int64) (string, string, error) {
-					capturedAmount = amountJPY
-					return "pi_test_ref", "cs_test_secret", nil
-				}
-			} else {
-				// Wrap to still capture the amount even on failure path (for debugging).
-				origFn := tt.createAuthFn
-				createAuthFn = func(ctx context.Context, amountJPY int64) (string, string, error) {
-					capturedAmount = amountJPY
-					return origFn(ctx, amountJPY)
-				}
-			}
-
-			paymentPort := &stubPaymentPort{createAuthFn: createAuthFn}
-			uc := newLotteryUC(t, &stubPhaseRepo{getFn: phaseGet}, &stubAppRepo{}, &stubEventState{}, paymentPort, tt.now)
-
-			in := base()
-			tt.mutate(&in)
-
-			got, err := uc.CreateAuthorization(ctx, in)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Empty(t, got.PaymentIntentRef)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, "pi_test_ref", got.PaymentIntentRef)
-			assert.Equal(t, "cs_test_secret", got.ClientSecret)
-			if tt.wantAmount > 0 {
-				assert.Equal(t, tt.wantAmount, capturedAmount, "amount passed to CreateAuthorization must be price × count")
-			}
-		})
-	}
-}
-
-// --- Apply ---
-
-func TestLotteryUseCase_Apply(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	close := open.Add(7 * 24 * time.Hour)
-	within := open.Add(24 * time.Hour)
-
-	phase := basePhase(open, close)
-
-	base := func() usecase.ApplyInput {
-		return usecase.ApplyInput{
-			PhaseID:              "phase-1",
-			ApplicantID:          "user-1",
-			RequestedTicketCount: 2,
-			Identity:             entity.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
-			PaymentIntentRef:     "pi_test_ref",
-		}
-	}
-
-	tests := []struct {
-		name         string
-		mutate       func(*usecase.ApplyInput)
-		now          time.Time
-		phaseGet     func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error)
-		dupGet       func(context.Context, entity.LotteryPhaseID, entity.UserID) (*entity.TicketApplication, error)
-		verifyAuthFn func(ctx context.Context, piRef string, expectedAmountJPY int64) error
-		wantErr      error
-		wantCalled   bool // expect appRepo.Create
-	}{
-		{
-			name:       "success: valid application is persisted in Applied state with authorization",
-			mutate:     func(in *usecase.ApplyInput) {},
-			now:        within,
-			wantCalled: true,
-		},
-		{
-			name:   "reject: phase not found propagates NotFound",
-			mutate: func(in *usecase.ApplyInput) {},
-			now:    within,
-			phaseGet: func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-				return nil, apperr.New(apperr.ErrNotFound.Code, "no phase")
-			},
-			wantErr: apperr.ErrNotFound,
-		},
-		{
-			name:    "reject: zero count returns InvalidArgument",
-			mutate:  func(in *usecase.ApplyInput) { in.RequestedTicketCount = 0 },
-			now:     within,
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "reject: count exceeds max returns InvalidArgument",
-			mutate:  func(in *usecase.ApplyInput) { in.RequestedTicketCount = 5 },
-			now:     within,
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "reject: missing full name returns InvalidArgument",
-			mutate:  func(in *usecase.ApplyInput) { in.Identity.FullName = "" },
-			now:     within,
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "reject: missing phone returns InvalidArgument",
-			mutate:  func(in *usecase.ApplyInput) { in.Identity.PhoneNumber = "" },
-			now:     within,
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:    "reject: before window open returns FailedPrecondition",
-			mutate:  func(in *usecase.ApplyInput) {},
-			now:     open.Add(-time.Hour),
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name:    "reject: at window close returns FailedPrecondition",
-			mutate:  func(in *usecase.ApplyInput) {},
-			now:     close,
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name:   "reject: duplicate active application returns FailedPrecondition",
-			mutate: func(in *usecase.ApplyInput) {},
-			now:    within,
-			dupGet: func(context.Context, entity.LotteryPhaseID, entity.UserID) (*entity.TicketApplication, error) {
-				return &entity.TicketApplication{ID: "existing", State: entity.TicketApplicationStateApplied}, nil
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name:   "reject: VerifyAuthorization returns InvalidArgument (amount mismatch)",
-			mutate: func(in *usecase.ApplyInput) {},
-			now:    within,
-			verifyAuthFn: func(_ context.Context, _ string, _ int64) error {
-				return apperr.New(apperr.ErrInvalidArgument.Code, "amount mismatch")
-			},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name:   "reject: VerifyAuthorization returns FailedPrecondition (American Express)",
-			mutate: func(in *usecase.ApplyInput) {},
-			now:    within,
-			verifyAuthFn: func(_ context.Context, _ string, _ int64) error {
-				return apperr.New(apperr.ErrFailedPrecondition.Code, "american express cards are not accepted")
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name:   "reject: VerifyAuthorization returns FailedPrecondition (non-JPY card)",
-			mutate: func(in *usecase.ApplyInput) {},
-			now:    within,
-			verifyAuthFn: func(_ context.Context, _ string, _ int64) error {
-				return apperr.New(apperr.ErrFailedPrecondition.Code, "non-JPY cards are not accepted")
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			phaseGet := tt.phaseGet
-			if phaseGet == nil {
-				phaseGet = func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) { return phase, nil }
-			}
-
-			var created bool
-			appRepo := &stubAppRepo{
-				getByPairFn: tt.dupGet,
-				createFn: func(_ context.Context, a *entity.TicketApplication) (*entity.TicketApplication, error) {
-					created = true
-					return a, nil
-				},
-			}
-			paymentPort := &stubPaymentPort{verifyAuthFn: tt.verifyAuthFn}
-			uc := newLotteryUC(t, &stubPhaseRepo{getFn: phaseGet}, appRepo, &stubEventState{}, paymentPort, tt.now)
-
-			in := base()
-			tt.mutate(&in)
-
-			got, err := uc.Apply(ctx, in)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, got)
-				assert.False(t, created, "Create must not be called on failure")
-				return
-			}
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.True(t, created)
-			assert.Equal(t, entity.TicketApplicationStateApplied, got.State)
-			assert.Equal(t, in.PaymentIntentRef, got.Authorization.PaymentIntentRef)
-			assert.Equal(t, in.RequestedTicketCount, got.RequestedTicketCount)
-			assert.Equal(t, in.Identity, got.Identity)
-			assert.NotEmpty(t, got.ID)
-		})
-	}
-}
-
-// TestLotteryUseCase_Apply_VerifiesCorrectAmount checks that Apply passes
-// price × count (not just price) to VerifyAuthorization.
-func TestLotteryUseCase_Apply_VerifiesCorrectAmount(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	close := open.Add(7 * 24 * time.Hour)
-	within := open.Add(24 * time.Hour)
-
-	phase := basePhase(open, close) // price = 5000, max = 4
-
-	var verifiedAmount int64
-	paymentPort := &stubPaymentPort{
-		verifyAuthFn: func(_ context.Context, _ string, expectedAmountJPY int64) error {
-			verifiedAmount = expectedAmountJPY
-			return nil
-		},
-	}
-
-	appRepo := &stubAppRepo{}
-	uc := newLotteryUC(t,
-		&stubPhaseRepo{getFn: func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) { return phase, nil }},
-		appRepo, &stubEventState{}, paymentPort, within,
-	)
-
-	_, err := uc.Apply(ctx, usecase.ApplyInput{
-		PhaseID:              "phase-1",
-		ApplicantID:          "user-1",
-		RequestedTicketCount: 3,
-		Identity:             entity.HolderIdentity{FullName: "田中花子", PhoneNumber: "+819011112222"},
-		PaymentIntentRef:     "pi_xyz",
+		require.NoError(t, err)
+		assert.Equal(t, entity.LotteryEntryStateDraft, got.State)
+		assert.Equal(t, 2, got.RequestedTicketCount)
+		assert.False(t, got.HasAuthorization(), "nothing is held on the card")
 	})
-	require.NoError(t, err)
-	assert.Equal(t, int64(5000*3), verifiedAmount, "VerifyAuthorization must receive price × count")
+
+	t.Run("fan reloads mid-entry", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Fan reloads mid-entry"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		f.holdsTickets()
+		draft := entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 2)
+		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(draft, nil).Twice()
+
+		first, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+		require.NoError(t, err)
+		second, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+
+		require.NoError(t, err)
+		assert.Equal(t, first.ID, second.ID)
+	})
+
+	t.Run("window closed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Window closed"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("count over the limit", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Count over the limit"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 5)
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
+
+	t.Run("presale winner reaches the limit", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Presale winner reaches the limit"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		f.holdsTickets(entity.TicketStatusIssued, entity.TicketStatusIssued, entity.TicketStatusIssued, entity.TicketStatusIssued)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 1)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("voided tickets do not count toward the limit", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		f.holdsTickets(entity.TicketStatusIssued, entity.TicketStatusIssued, entity.TicketStatusIssued, entity.TicketStatusVoided)
+		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 1).
+			Return(entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 1), nil)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 1)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("second entry", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Second entry"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		f.holdsTickets()
+		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(nil, apperr.ErrAlreadyExists)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("re-entry after withdrawal", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Re-entry after withdrawal"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		f.holdsTickets()
+		fresh := entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 2)
+		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).Return(fresh, nil)
+
+		got, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+
+		require.NoError(t, err)
+		assert.Equal(t, fresh.ID, got.ID)
+		assert.Equal(t, entity.LotteryEntryStateDraft, got.State)
+	})
+
+	t.Run("no kyc", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "No Kyc"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementJPKIOnly)
+		f.readsTicketType(sale)
+		f.kyc.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("verification not active", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Verification not active"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementVerifiedAny)
+		f.readsTicketType(sale)
+		f.kyc.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(&entity.Kyc{UserID: "fan-1", Status: entity.VerificationStatusNeedsReverification}, nil)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("active verification", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/start "Active verification"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementJPKIOnly)
+		f.readsTicketType(sale)
+		f.kyc.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(&entity.Kyc{UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
+		f.holdsTickets()
+		f.entries.EXPECT().GetOrCreateDraft(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1"), 2).
+			Return(entity.NewLotteryEntry(sale.TicketTypes[0].ID, "fan-1", 2), nil)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("first-come ticket type", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		sale.Method = entity.TicketSaleMethodFirstCome
+		f.readsTicketType(sale)
+
+		_, err := f.uc.Start(ctx, sale.TicketTypes[0].ID, "fan-1", 2)
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("unknown ticket type", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, duringWindow, 1)
+		f.sales.EXPECT().GetTicketType(mock.Anything, entity.TicketTypeID("missing"), duringWindow).Return(nil, nil, apperr.ErrNotFound)
+
+		_, err := f.uc.Start(ctx, "missing", "fan-1", 2)
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
 }
 
-// --- WithdrawApplication ---
-
-func TestLotteryUseCase_WithdrawApplication(t *testing.T) {
+func TestLotteryUseCase_Authorize(t *testing.T) {
 	t.Parallel()
-
 	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 
-	tests := []struct {
-		name          string
-		appGet        func(context.Context, entity.TicketApplicationID) (*entity.TicketApplication, error)
-		caller        entity.UserID
-		cancelAuthFn  func(ctx context.Context, piRef string) error
-		wantErr       error
-		wantUpdated   bool
-		wantCancelled bool
+	t.Run("fan authorizes", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/authorize "Fan authorizes"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", "山田 花子", "+819012345678").Return(&entity.User{ID: "fan-1"}, nil)
+		f.holds.EXPECT().CreateAuthorization(mock.Anything, int64(16000)).Return("pi_1", "pi_1_secret", nil)
+		f.entries.EXPECT().SetAuthorization(mock.Anything, draft.ID, "pi_1").Return(nil)
+
+		secret, err := f.uc.Authorize(ctx, draft.ID, "fan-1", "山田 花子", "+819012345678")
+
+		require.NoError(t, err)
+		assert.Equal(t, "pi_1_secret", secret)
+	})
+
+	t.Run("card declined, fan retries", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/authorize "Card declined, fan retries"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_1")
+		f.holds.secrets["pi_1"] = "pi_1_secret"
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", "山田 花子", "+819012345678").Return(&entity.User{ID: "fan-1"}, nil)
+
+		secret, err := f.uc.Authorize(ctx, draft.ID, "fan-1", "山田 花子", "+819012345678")
+
+		require.NoError(t, err)
+		assert.Equal(t, "pi_1_secret", secret, "the same hold is returned, no new hold is opened")
+	})
+
+	t.Run("someone else's entry", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/authorize "Someone else's entry"
+		f := newLotteryFixture(t, duringWindow, 1)
+		other := lotteryEntry("entry-1", "tt-1", "fan-2", entity.LotteryEntryStateDraft, 2, "")
+		f.entries.EXPECT().Get(mock.Anything, other.ID).Return(other, nil)
+
+		_, err := f.uc.Authorize(ctx, other.ID, "fan-1", "山田 花子", "+819012345678")
+
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
+	})
+
+	t.Run("unknown entry is not revealed", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, duringWindow, 1)
+		f.entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("missing")).Return(nil, apperr.ErrNotFound)
+
+		_, err := f.uc.Authorize(ctx, "missing", "fan-1", "山田 花子", "+819012345678")
+
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
+	})
+
+	t.Run("missing identity details", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/authorize "Missing identity details"
+		for name, details := range map[string][2]string{
+			"empty name":     {"", "+819012345678"},
+			"empty phone":    {"山田 花子", ""},
+			"domestic phone": {"山田 花子", "090-1234-5678"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				f := newLotteryFixture(t, duringWindow, 1)
+				sale := lotterySale(entity.VerificationRequirementNone)
+				f.readsTicketType(sale)
+				draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "")
+				f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+
+				_, err := f.uc.Authorize(ctx, draft.ID, "fan-1", details[0], details[1])
+
+				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+			})
+		}
+	})
+
+	t.Run("window closed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/authorize "Window closed"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+
+		_, err := f.uc.Authorize(ctx, draft.ID, "fan-1", "山田 花子", "+819012345678")
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("card payments unavailable", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/authorize "Card payments unavailable"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", "山田 花子", "+819012345678").Return(&entity.User{ID: "fan-1"}, nil)
+		f.holds.EXPECT().CreateAuthorization(mock.Anything, int64(16000)).Return("", "", apperr.New(codes.Unavailable, "stripe down"))
+
+		_, err := f.uc.Authorize(ctx, draft.ID, "fan-1", "山田 花子", "+819012345678")
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		f.entries.AssertNotCalled(t, "SetAuthorization", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("entered entry", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, duringWindow, 1)
+		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
+
+		_, err := f.uc.Authorize(ctx, entered.ID, "fan-1", "山田 花子", "+819012345678")
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+}
+
+func TestLotteryUseCase_Confirm(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("fan confirms", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/confirm "Fan confirms"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+		f.holds.EXPECT().VerifyAuthorization(mock.Anything, "pi_1", int64(16000)).Return(nil)
+		f.entries.EXPECT().UpdateState(mock.Anything, draft.ID, entity.LotteryEntryStateEntered).Return(nil)
+
+		got, err := f.uc.Confirm(ctx, draft.ID, "fan-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, entity.LotteryEntryStateEntered, got.State)
+		assert.Equal(t, "pi_1", got.Authorization.PaymentIntentRef)
+	})
+
+	t.Run("confirmed twice", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/confirm "Confirmed twice"
+		f := newLotteryFixture(t, duringWindow, 1)
+		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
+
+		got, err := f.uc.Confirm(ctx, entered.ID, "fan-1")
+
+		require.NoError(t, err)
+		assert.Equal(t, entered, got)
+	})
+
+	t.Run("hold does not verify", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/confirm "Hold does not verify"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+		amex := apperr.New(codes.FailedPrecondition, "American Express is not accepted")
+		f.holds.EXPECT().VerifyAuthorization(mock.Anything, "pi_1", int64(16000)).Return(amex)
+
+		_, err := f.uc.Confirm(ctx, draft.ID, "fan-1")
+
+		assert.Equal(t, amex, err, "the verification error is returned unchanged")
+		f.entries.AssertNotCalled(t, "UpdateState", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("draft without a hold", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/confirm "Draft without a hold"
+		f := newLotteryFixture(t, duringWindow, 1)
+		draft := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateDraft, 2, "")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+
+		_, err := f.uc.Confirm(ctx, draft.ID, "fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("window closed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/confirm "Window closed"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+
+		_, err := f.uc.Confirm(ctx, draft.ID, "fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+	})
+
+	t.Run("someone else's entry", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/confirm "Someone else's entry"
+		f := newLotteryFixture(t, duringWindow, 1)
+		other := lotteryEntry("entry-1", "tt-1", "fan-2", entity.LotteryEntryStateDraft, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, other.ID).Return(other, nil)
+
+		_, err := f.uc.Confirm(ctx, other.ID, "fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
+	})
+}
+
+func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("withdraw before the draw", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/withdraw-entry "Withdraw before the draw"
+		f := newLotteryFixture(t, duringWindow, 1)
+		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
+		released := f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_1").Return(nil).Call
+		f.entries.EXPECT().UpdateState(mock.Anything, entered.ID, entity.LotteryEntryStateWithdrawn).Return(nil).NotBefore(released)
+
+		err := f.uc.WithdrawEntry(ctx, entered.ID, "fan-1")
+
+		require.NoError(t, err)
+	})
+
+	t.Run("withdraw a draft", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/withdraw-entry "Withdraw a draft"
+		f := newLotteryFixture(t, duringWindow, 1)
+		draft := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateDraft, 2, "")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+		f.entries.EXPECT().UpdateState(mock.Anything, draft.ID, entity.LotteryEntryStateWithdrawn).Return(nil)
+
+		err := f.uc.WithdrawEntry(ctx, draft.ID, "fan-1")
+
+		require.NoError(t, err)
+		f.holds.AssertNotCalled(t, "CancelAuthorization", mock.Anything, mock.Anything)
+	})
+
+	t.Run("window closed but not drawn", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/withdraw-entry "Window closed but not drawn"
+		f := newLotteryFixture(t, afterWindow, 1)
+		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
+		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_1").Return(nil)
+		f.entries.EXPECT().UpdateState(mock.Anything, entered.ID, entity.LotteryEntryStateWithdrawn).Return(nil)
+
+		err := f.uc.WithdrawEntry(ctx, entered.ID, "fan-1")
+
+		require.NoError(t, err)
+	})
+
+	t.Run("already drawn", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/withdraw-entry "Already drawn"
+		for _, state := range []entity.LotteryEntryState{entity.LotteryEntryStateWon, entity.LotteryEntryStateLost} {
+			t.Run(state.String(), func(t *testing.T) {
+				t.Parallel()
+				f := newLotteryFixture(t, afterWindow, 1)
+				drawn := lotteryEntry("entry-1", "tt-1", "fan-1", state, 2, "pi_1")
+				f.entries.EXPECT().Get(mock.Anything, drawn.ID).Return(drawn, nil)
+
+				err := f.uc.WithdrawEntry(ctx, drawn.ID, "fan-1")
+
+				assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+			})
+		}
+	})
+
+	t.Run("another fan's entry", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/withdraw-entry "Another fan's entry"
+		f := newLotteryFixture(t, duringWindow, 1)
+		other := lotteryEntry("entry-1", "tt-1", "fan-2", entity.LotteryEntryStateEntered, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, other.ID).Return(other, nil)
+
+		err := f.uc.WithdrawEntry(ctx, other.ID, "fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
+	})
+
+	t.Run("unknown entry", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, duringWindow, 1)
+		f.entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("missing")).Return(nil, apperr.ErrNotFound)
+
+		err := f.uc.WithdrawEntry(ctx, "missing", "fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("release fails", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/withdraw-entry "Release fails"
+		f := newLotteryFixture(t, duringWindow, 1)
+		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
+		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_1").Return(apperr.New(codes.Unavailable, "stripe down"))
+
+		err := f.uc.WithdrawEntry(ctx, entered.ID, "fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrUnavailable)
+		f.entries.AssertNotCalled(t, "UpdateState", mock.Anything, mock.Anything, mock.Anything)
+	})
+}
+
+func TestLotteryUseCase_ListOwnByTicketType(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name  string
+		state entity.LotteryEntryState
 	}{
-		{
-			name: "success: releases hold and sets state to Withdrawn",
-			appGet: func(context.Context, entity.TicketApplicationID) (*entity.TicketApplication, error) {
-				return &entity.TicketApplication{
-					ID:            "app-1",
-					ApplicantID:   "user-1",
-					State:         entity.TicketApplicationStateApplied,
-					Authorization: entity.PaymentAuthorization{PaymentIntentRef: "pi_test"},
-				}, nil
-			},
-			caller:        "user-1",
-			wantUpdated:   true,
-			wantCancelled: true,
-		},
-		{
-			name: "reject: not found propagates NotFound",
-			appGet: func(context.Context, entity.TicketApplicationID) (*entity.TicketApplication, error) {
-				return nil, apperr.New(apperr.ErrNotFound.Code, "no app")
-			},
-			caller:  "user-1",
-			wantErr: apperr.ErrNotFound,
-		},
-		{
-			name: "reject: wrong owner returns PermissionDenied",
-			appGet: func(context.Context, entity.TicketApplicationID) (*entity.TicketApplication, error) {
-				return &entity.TicketApplication{ID: "app-1", ApplicantID: "user-2", State: entity.TicketApplicationStateApplied}, nil
-			},
-			caller:  "user-1",
-			wantErr: apperr.ErrPermissionDenied,
-		},
-		{
-			name: "reject: Won state is not withdrawable (FailedPrecondition)",
-			appGet: func(context.Context, entity.TicketApplicationID) (*entity.TicketApplication, error) {
-				return &entity.TicketApplication{ID: "app-1", ApplicantID: "user-1", State: entity.TicketApplicationStateWon}, nil
-			},
-			caller:  "user-1",
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name: "reject: Lost state is not withdrawable (FailedPrecondition)",
-			appGet: func(context.Context, entity.TicketApplicationID) (*entity.TicketApplication, error) {
-				return &entity.TicketApplication{ID: "app-1", ApplicantID: "user-1", State: entity.TicketApplicationStateLost}, nil
-			},
-			caller:  "user-1",
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name: "reject: already Withdrawn is not withdrawable (FailedPrecondition)",
-			appGet: func(context.Context, entity.TicketApplicationID) (*entity.TicketApplication, error) {
-				return &entity.TicketApplication{ID: "app-1", ApplicantID: "user-1", State: entity.TicketApplicationStateWithdrawn}, nil
-			},
-			caller:  "user-1",
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name: "reject: CancelAuthorization failure propagates",
-			appGet: func(context.Context, entity.TicketApplicationID) (*entity.TicketApplication, error) {
-				return &entity.TicketApplication{
-					ID:            "app-1",
-					ApplicantID:   "user-1",
-					State:         entity.TicketApplicationStateApplied,
-					Authorization: entity.PaymentAuthorization{PaymentIntentRef: "pi_err"},
-				}, nil
-			},
-			caller: "user-1",
-			cancelAuthFn: func(_ context.Context, _ string) error {
-				return apperr.New(apperr.ErrUnavailable.Code, "stripe down")
-			},
-			wantErr: apperr.ErrUnavailable,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		// @spec components/usecase/lottery-entry/list-own-by-ticket-type "Entered entry"
+		{name: "entered entry", state: entity.LotteryEntryStateEntered},
+		// @spec components/usecase/lottery-entry/list-own-by-ticket-type "Fan won"
+		{name: "fan won", state: entity.LotteryEntryStateWon},
+		// @spec components/usecase/lottery-entry/list-own-by-ticket-type "Fan lost"
+		{name: "fan lost", state: entity.LotteryEntryStateLost},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			f := newLotteryFixture(t, afterWindow, 1)
+			sale := lotterySale(entity.VerificationRequirementNone)
+			f.readsTicketType(sale)
+			own := lotteryEntry("entry-2", sale.TicketTypes[0].ID, "fan-1", tc.state, 2, "pi_2")
+			withdrawn := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateWithdrawn, 2, "pi_1")
+			f.entries.EXPECT().ListByTicketTypeAndUser(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1")).
+				Return([]*entity.LotteryEntry{own, withdrawn}, nil)
 
-			var updated bool
-			var cancelledPI string
-			appRepo := &stubAppRepo{
-				getFn: tt.appGet,
-				updateStateFn: func(_ context.Context, _ entity.TicketApplicationID, state entity.TicketApplicationState) error {
-					updated = true
-					assert.Equal(t, entity.TicketApplicationStateWithdrawn, state)
-					return nil
-				},
-			}
-			paymentPort := &stubPaymentPort{
-				cancelAuthFn: func(ctx context.Context, piRef string) error {
-					cancelledPI = piRef
-					if tt.cancelAuthFn != nil {
-						return tt.cancelAuthFn(ctx, piRef)
-					}
-					return nil
-				},
-			}
-			uc := newLotteryUC(t, &stubPhaseRepo{}, appRepo, &stubEventState{}, paymentPort, open)
+			got, err := f.uc.ListOwnByTicketType(ctx, sale.TicketTypes[0].ID, "fan-1")
 
-			err := uc.WithdrawApplication(ctx, "app-1", tt.caller)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.False(t, updated, "UpdateState must not be called on failure")
-				return
-			}
 			require.NoError(t, err)
-			assert.True(t, updated)
-			if tt.wantCancelled {
-				assert.NotEmpty(t, cancelledPI, "CancelAuthorization must be called with the PI ref")
-			}
+			require.Len(t, got, 2)
+			assert.Equal(t, tc.state, got[0].State, "the newest entry comes first")
 		})
 	}
+
+	t.Run("never entered", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/list-own-by-ticket-type "Never entered"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		f.entries.EXPECT().ListByTicketTypeAndUser(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1")).Return([]*entity.LotteryEntry{}, nil)
+
+		got, err := f.uc.ListOwnByTicketType(ctx, sale.TicketTypes[0].ID, "fan-1")
+
+		require.NoError(t, err)
+		assert.Empty(t, got)
+	})
+
+	t.Run("unknown ticket type", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, duringWindow, 1)
+		f.sales.EXPECT().GetTicketType(mock.Anything, entity.TicketTypeID("missing"), duringWindow).Return(nil, nil, apperr.ErrNotFound)
+
+		_, err := f.uc.ListOwnByTicketType(ctx, "missing", "fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
 }
 
-// --- RunDraw ---
+// drawOutcome captures what RunDraw recorded with PersistDrawOutcome.
+type drawOutcome struct {
+	called  bool
+	winners []entity.DrawWinnerRow
+	losers  []entity.DrawLoserRow
+	drafts  []entity.LotteryEntryID
+}
 
-// makeApp returns a minimal Applied TicketApplication for use in draw tests.
-func makeApp(id entity.TicketApplicationID, pi string, count int) *entity.TicketApplication {
-	return &entity.TicketApplication{
-		ID:                   id,
-		PhaseID:              "phase-1",
-		ApplicantID:          entity.UserID("user-" + string(id)),
-		RequestedTicketCount: count,
-		State:                entity.TicketApplicationStateApplied,
-		Authorization:        entity.PaymentAuthorization{PaymentIntentRef: pi},
+// recordsOutcome captures the outcome RunDraw records for the sale.
+func (f *lotteryFixture) recordsOutcome(saleID entity.TicketSaleID, out *drawOutcome) {
+	f.entries.EXPECT().PersistDrawOutcome(mock.Anything, saleID, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ context.Context, _ entity.TicketSaleID, w []entity.DrawWinnerRow, l []entity.DrawLoserRow, d []entity.LotteryEntryID) error {
+			out.called, out.winners, out.losers, out.drafts = true, w, l, d
+			return nil
+		})
+}
+
+// winnerIDs returns the ids of the recorded winners.
+func (o *drawOutcome) winnerIDs() []entity.LotteryEntryID {
+	ids := make([]entity.LotteryEntryID, 0, len(o.winners))
+	for _, w := range o.winners {
+		ids = append(ids, w.LotteryEntryID)
 	}
+	return ids
+}
+
+// closedSale returns a closed Lottery sale with one TicketType per quantity.
+func closedSale(quantities ...int) *entity.TicketSale {
+	sale := entity.NewTicketSale("series-1", "ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0))
+	for i, q := range quantities {
+		entity.NewTicketType(sale, "event-"+string(rune('1'+i)), 8000, q, min(q, 4))
+	}
+	return sale
 }
 
 func TestLotteryUseCase_RunDraw(t *testing.T) {
 	t.Parallel()
-
 	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 
-	// phase with capacity 10, so 3 apps of 2 tickets each: all fit.
-	largeCap := basePhase(open, open.Add(7*24*time.Hour))
-	largeCap.TicketCapacity = 10
-
-	// phase with tiny capacity: only the first fit wins.
-	tightCap := basePhase(open, open.Add(7*24*time.Hour))
-	tightCap.TicketCapacity = 2 // only 1 app of 2 tickets fits
-
-	tests := []struct {
-		name string
-		args struct {
-			phase *entity.LotterySalesPhase
-			apps  []*entity.TicketApplication
-		}
-		dep struct {
-			captureErr error // non-nil → capture fails for ALL winners
-		}
-		// assertions
-		wantWinnerCount   int
-		wantLoserCount    int
-		wantPersistCalled bool
-	}{
-		{
-			name: "normal draw: winners captured and marked Won, losers cancelled and marked Lost",
-			args: struct {
-				phase *entity.LotterySalesPhase
-				apps  []*entity.TicketApplication
-			}{
-				phase: largeCap,
-				apps: []*entity.TicketApplication{
-					makeApp("app-1", "pi_1", 2),
-					makeApp("app-2", "pi_2", 2),
-					makeApp("app-3", "pi_3", 2),
-				},
-			},
-			// capacity=10, 3×2=6 ≤ 10 → all three win
-			wantWinnerCount:   3,
-			wantLoserCount:    0,
-			wantPersistCalled: true,
-		},
-		{
-			name: "zero-applications phase: PersistDrawOutcome called with empty slices",
-			args: struct {
-				phase *entity.LotterySalesPhase
-				apps  []*entity.TicketApplication
-			}{
-				phase: largeCap,
-				apps:  nil,
-			},
-			wantWinnerCount:   0,
-			wantLoserCount:    0,
-			wantPersistCalled: true,
-		},
-		{
-			name: "capture failure demotes winner to loser, no oversell",
-			args: struct {
-				phase *entity.LotterySalesPhase
-				apps  []*entity.TicketApplication
-			}{
-				phase: largeCap,
-				apps: []*entity.TicketApplication{
-					makeApp("app-1", "pi_1", 2),
-					makeApp("app-2", "pi_2", 2),
-				},
-			},
-			dep: struct{ captureErr error }{
-				captureErr: apperr.New(apperr.ErrFailedPrecondition.Code, "card closed"),
-			},
-			// both would win (4 ≤ 10) but capture fails → both demoted to losers
-			wantWinnerCount:   0,
-			wantLoserCount:    2,
-			wantPersistCalled: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var persistedWinners []entity.DrawWinnerRow
-			var persistedLosers []entity.DrawLoserRow
-			var persistCalled bool
-
-			phaseRepo := &stubPhaseRepo{
-				getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-					return tt.args.phase, nil
-				},
-			}
-			appRepo := &stubAppRepo{
-				listAppliedForPhaseFn: func(_ context.Context, _ entity.LotteryPhaseID) ([]*entity.TicketApplication, error) {
-					return tt.args.apps, nil
-				},
-				persistDrawOutcomeFn: func(_ context.Context, _ entity.LotteryPhaseID, w []entity.DrawWinnerRow, l []entity.DrawLoserRow) error {
-					persistCalled = true
-					persistedWinners = w
-					persistedLosers = l
-					return nil
-				},
-			}
-
-			var cancelledPIs []string
-			paymentPort := &stubPaymentPort{
-				captureAuthFn: func(_ context.Context, pi string) error {
-					return tt.dep.captureErr
-				},
-				cancelAuthFn: func(_ context.Context, pi string) error {
-					cancelledPIs = append(cancelledPIs, pi)
-					return nil
-				},
-			}
-
-			uc := newLotteryUC(t, phaseRepo, appRepo, &stubEventState{}, paymentPort, open)
-			err := uc.RunDraw(ctx, "phase-1")
-
-			require.NoError(t, err)
-			assert.True(t, persistCalled, "PersistDrawOutcome must always be called")
-			assert.Len(t, persistedWinners, tt.wantWinnerCount)
-			assert.Len(t, persistedLosers, tt.wantLoserCount)
-
-			// Winners must have state Won, losers must have draw_sequence set.
-			for _, w := range persistedWinners {
-				assert.NotEmpty(t, w.ApplicationID)
-			}
-			for _, l := range persistedLosers {
-				assert.NotEmpty(t, l.ApplicationID)
-			}
-		})
-	}
-}
-
-// TestLotteryUseCase_RunDraw_CaptureFail_CancelCalled verifies that when
-// capture fails for a winner, CancelAuthorization is called to release the hold
-// before the application is demoted to a loser.
-func TestLotteryUseCase_RunDraw_CaptureFail_CancelCalled(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	phase := basePhase(open, open.Add(7*24*time.Hour))
-	phase.TicketCapacity = 100
-
-	apps := []*entity.TicketApplication{
-		makeApp("app-winner", "pi_winner", 1),
-	}
-
-	captureErr := apperr.New(apperr.ErrFailedPrecondition.Code, "card closed")
-
-	var cancelledPI string
-	paymentPort := &stubPaymentPort{
-		captureAuthFn: func(_ context.Context, _ string) error { return captureErr },
-		cancelAuthFn:  func(_ context.Context, pi string) error { cancelledPI = pi; return nil },
-	}
-
-	var persistedWinners []entity.DrawWinnerRow
-	var persistedLosers []entity.DrawLoserRow
-	appRepo := &stubAppRepo{
-		listAppliedForPhaseFn: func(_ context.Context, _ entity.LotteryPhaseID) ([]*entity.TicketApplication, error) {
-			return apps, nil
-		},
-		persistDrawOutcomeFn: func(_ context.Context, _ entity.LotteryPhaseID, w []entity.DrawWinnerRow, l []entity.DrawLoserRow) error {
-			persistedWinners = w
-			persistedLosers = l
-			return nil
-		},
-	}
-	phaseRepo := &stubPhaseRepo{
-		getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-			return phase, nil
-		},
-	}
-
-	uc := newLotteryUC(t, phaseRepo, appRepo, &stubEventState{}, paymentPort, open)
-	err := uc.RunDraw(ctx, "phase-1")
-
-	require.NoError(t, err)
-	assert.Equal(t, "pi_winner", cancelledPI, "CancelAuthorization must be called with the winner PI ref after capture failure")
-	assert.Empty(t, persistedWinners, "demoted winner must not appear in winners")
-	assert.Len(t, persistedLosers, 1, "demoted winner must appear as a loser")
-	assert.Equal(t, entity.TicketApplicationID("app-winner"), persistedLosers[0].ApplicationID)
-}
-
-// --- DrawDuePhases ---
-
-func TestLotteryUseCase_DrawDuePhases(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-	open := now.Add(-8 * 24 * time.Hour)
-	close := now.Add(-1 * time.Hour) // window already closed
-
-	duePhase := &entity.LotterySalesPhase{
-		ID:                       "phase-due",
-		EventID:                  "event-1",
-		OpenTime:                 open,
-		CloseTime:                close,
-		TicketCapacity:           100,
-		MaxTicketsPerApplication: 4,
-		TicketPrice:              5000,
-	}
-
-	t.Run("continues past a failing phase", func(t *testing.T) {
+	t.Run("unconfirmed draft at the draw", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/lottery-entry/run-draw "Unconfirmed draft at the draw"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(4)
+		tt := sale.TicketTypes[0].ID
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		draft := lotteryEntry("draft-1", tt, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_d")
+		bare := lotteryEntry("draft-2", tt, "fan-2", entity.LotteryEntryStateDraft, 1, "")
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{draft, bare}, nil)
+		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_d").Return(nil).Once()
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
 
-		failPhase := &entity.LotterySalesPhase{
-			ID:             "phase-fail",
-			EventID:        "event-fail",
-			OpenTime:       open,
-			CloseTime:      close,
-			TicketCapacity: 10,
-			TicketPrice:    5000,
-		}
-		goodPhase := &entity.LotterySalesPhase{
-			ID:             "phase-good",
-			EventID:        "event-good",
-			OpenTime:       open,
-			CloseTime:      close,
-			TicketCapacity: 10,
-			TicketPrice:    5000,
-		}
+		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
 
-		var persistedPhaseIDs []entity.LotteryPhaseID
-		phaseRepo := &stubPhaseRepo{
-			listPhasesDueForDrawFn: func(_ context.Context, _ time.Time) ([]*entity.LotterySalesPhase, error) {
-				return []*entity.LotterySalesPhase{failPhase, goodPhase}, nil
-			},
-			getFn: func(_ context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-				if id == "phase-fail" {
-					return failPhase, nil
-				}
-				return goodPhase, nil
-			},
-		}
-		appRepo := &stubAppRepo{
-			listAppliedForPhaseFn: func(_ context.Context, id entity.LotteryPhaseID) ([]*entity.TicketApplication, error) {
-				if id == "phase-fail" {
-					return nil, apperr.New(apperr.ErrInternal.Code, "db error")
-				}
-				return nil, nil
-			},
-			persistDrawOutcomeFn: func(_ context.Context, id entity.LotteryPhaseID, _ []entity.DrawWinnerRow, _ []entity.DrawLoserRow) error {
-				persistedPhaseIDs = append(persistedPhaseIDs, id)
-				return nil
-			},
-		}
-
-		uc := newLotteryUC(t, phaseRepo, appRepo, &stubEventState{}, &stubPaymentPort{}, now)
-		err := uc.DrawDuePhases(ctx, now)
-
-		// DrawDuePhases must not return an error even when a phase fails.
-		require.NoError(t, err)
-		// The good phase must still have been processed.
-		assert.Equal(t, []entity.LotteryPhaseID{"phase-good"}, persistedPhaseIDs,
-			"good phase must be persisted even though the preceding phase failed")
+		assert.ElementsMatch(t, []entity.LotteryEntryID{"draft-1", "draft-2"}, out.drafts)
+		assert.Empty(t, out.winners)
+		assert.Empty(t, out.losers)
 	})
 
-	t.Run("no-op when no phases are due", func(t *testing.T) {
+	t.Run("winners charged, losers released", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/lottery-entry/run-draw "Winners charged, losers released"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(4)
+		tt := sale.TicketTypes[0].ID
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{
+			lotteryEntry("two-a", tt, "fan-1", entity.LotteryEntryStateEntered, 2, "pi_a"),
+			lotteryEntry("two-b", tt, "fan-2", entity.LotteryEntryStateEntered, 2, "pi_b"),
+			lotteryEntry("three", tt, "fan-3", entity.LotteryEntryStateEntered, 3, "pi_c"),
+		}, nil)
+		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_a").Return(nil).Once()
+		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_b").Return(nil).Once()
+		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_c").Return(nil).Once()
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
 
-		phaseRepo := &stubPhaseRepo{
-			listPhasesDueForDrawFn: func(_ context.Context, _ time.Time) ([]*entity.LotterySalesPhase, error) {
-				return nil, nil
-			},
-		}
+		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
 
-		uc := newLotteryUC(t, phaseRepo, &stubAppRepo{}, &stubEventState{}, &stubPaymentPort{}, now)
-		err := uc.DrawDuePhases(ctx, now)
-		require.NoError(t, err)
+		assert.ElementsMatch(t, []entity.LotteryEntryID{"two-a", "two-b"}, out.winnerIDs())
+		require.Len(t, out.losers, 1)
+		assert.Equal(t, entity.LotteryEntryID("three"), out.losers[0].LotteryEntryID)
+		assert.True(t, out.called, "the sale is marked drawn with the outcome")
 	})
 
-	t.Run("propagates error when ListPhasesDueForDraw fails", func(t *testing.T) {
+	t.Run("each ticket type is drawn against its own quantity", func(t *testing.T) {
 		t.Parallel()
-
-		dbErr := apperr.New(apperr.ErrInternal.Code, "db down")
-		phaseRepo := &stubPhaseRepo{
-			listPhasesDueForDrawFn: func(_ context.Context, _ time.Time) ([]*entity.LotterySalesPhase, error) {
-				return nil, dbErr
-			},
+		// @spec components/usecase/lottery-entry/run-draw "Each ticket type is drawn against its own quantity"
+		f := newLotteryFixture(t, afterWindow, 7)
+		sale := closedSale(100, 4)
+		big, small := sale.TicketTypes[0].ID, sale.TicketTypes[1].ID
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		var bigEntries, smallEntries []*entity.LotteryEntry
+		for i := range 20 {
+			bigEntries = append(bigEntries, lotteryEntry(entity.LotteryEntryID("big-"+string(rune('a'+i))), big, "fan", entity.LotteryEntryStateEntered, 4, "pi_big"))
 		}
+		for i := range 6 {
+			smallEntries = append(smallEntries, lotteryEntry(entity.LotteryEntryID("small-"+string(rune('a'+i))), small, "fan", entity.LotteryEntryStateEntered, 2, "pi_small"))
+		}
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, big).Return(bigEntries, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, small).Return(smallEntries, nil)
+		f.holds.EXPECT().CaptureAuthorization(mock.Anything, mock.Anything).Return(nil)
+		f.holds.EXPECT().CancelAuthorization(mock.Anything, mock.Anything).Return(nil)
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
 
-		uc := newLotteryUC(t, phaseRepo, &stubAppRepo{}, &stubEventState{}, &stubPaymentPort{}, now)
-		err := uc.DrawDuePhases(ctx, now)
-		assert.ErrorIs(t, err, apperr.ErrInternal)
+		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
+
+		bigWon, smallTickets := 0, 0
+		for _, w := range out.winners {
+			if len(w.LotteryEntryID) > 3 && w.LotteryEntryID[:3] == "big" {
+				bigWon++
+			} else {
+				smallTickets += 2
+			}
+		}
+		assert.Equal(t, 20, bigWon, "every entry of the 100-ticket type wins")
+		assert.LessOrEqual(t, smallTickets, 4, "the 4-ticket type's winners hold at most 4 tickets")
+		assert.Len(t, out.losers, 6-smallTickets/2)
 	})
 
-	t.Run("due phase with applications: persist called", func(t *testing.T) {
+	t.Run("losers ordered for the waitlist", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/usecase/lottery-entry/run-draw "Losers ordered for the waitlist"
+		f := newLotteryFixture(t, afterWindow, 3)
+		sale := closedSale(2)
+		tt := sale.TicketTypes[0].ID
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{
+			lotteryEntry("e-1", tt, "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1"),
+			lotteryEntry("e-2", tt, "fan-2", entity.LotteryEntryStateEntered, 2, "pi_2"),
+			lotteryEntry("e-3", tt, "fan-3", entity.LotteryEntryStateEntered, 2, "pi_3"),
+			lotteryEntry("e-4", tt, "fan-4", entity.LotteryEntryStateEntered, 2, "pi_4"),
+		}, nil)
+		f.holds.EXPECT().CaptureAuthorization(mock.Anything, mock.Anything).Return(nil).Once()
+		f.holds.EXPECT().CancelAuthorization(mock.Anything, mock.Anything).Return(nil).Times(3)
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
 
-		var persistCalled bool
-		phaseRepo := &stubPhaseRepo{
-			listPhasesDueForDrawFn: func(_ context.Context, _ time.Time) ([]*entity.LotterySalesPhase, error) {
-				return []*entity.LotterySalesPhase{duePhase}, nil
-			},
-			getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-				return duePhase, nil
-			},
+		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
+
+		require.Len(t, out.winners, 1)
+		require.Len(t, out.losers, 3)
+		positions := map[int]bool{out.winners[0].DrawPosition: true}
+		for i, l := range out.losers {
+			if i > 0 {
+				assert.Greater(t, l.DrawPosition, out.losers[i-1].DrawPosition, "losers are in draw order")
+			}
+			positions[l.DrawPosition] = true
 		}
-		appRepo := &stubAppRepo{
-			listAppliedForPhaseFn: func(_ context.Context, _ entity.LotteryPhaseID) ([]*entity.TicketApplication, error) {
-				return []*entity.TicketApplication{
-					makeApp("app-a", "pi_a", 2),
-				}, nil
-			},
-			persistDrawOutcomeFn: func(_ context.Context, _ entity.LotteryPhaseID, _ []entity.DrawWinnerRow, _ []entity.DrawLoserRow) error {
-				persistCalled = true
-				return nil
-			},
-		}
+		assert.Len(t, positions, 4, "each draw position is unique within the ticket type")
+	})
 
-		uc := newLotteryUC(t, phaseRepo, appRepo, &stubEventState{}, &stubPaymentPort{}, now)
-		err := uc.DrawDuePhases(ctx, now)
+	t.Run("no entries", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/run-draw "No entries"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(4)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, sale.TicketTypes[0].ID).Return([]*entity.LotteryEntry{}, nil)
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
 
-		require.NoError(t, err)
-		assert.True(t, persistCalled, "PersistDrawOutcome must be called for the due phase")
+		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
+
+		assert.True(t, out.called, "the sale is marked drawn")
+		assert.Empty(t, out.winners)
+		assert.Empty(t, out.losers)
+		assert.Empty(t, out.drafts)
+	})
+
+	t.Run("winner's card was closed", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/run-draw "Winner's card was closed"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(4)
+		tt := sale.TicketTypes[0].ID
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{
+			lotteryEntry("closed-card", tt, "fan-1", entity.LotteryEntryStateEntered, 2, "pi_closed"),
+			lotteryEntry("fine", tt, "fan-2", entity.LotteryEntryStateEntered, 2, "pi_fine"),
+		}, nil)
+		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_closed").Return(apperr.New(codes.FailedPrecondition, "card closed"))
+		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_fine").Return(nil)
+		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_closed").Return(nil).Once()
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
+
+		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
+
+		assert.Equal(t, []entity.LotteryEntryID{"fine"}, out.winnerIDs(), "no waitlisted entry is promoted")
+		require.Len(t, out.losers, 1)
+		assert.Equal(t, entity.LotteryEntryID("closed-card"), out.losers[0].LotteryEntryID)
+	})
+
+	t.Run("release fails for one loser", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/run-draw "Release fails for one loser"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(2)
+		tt := sale.TicketTypes[0].ID
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{
+			lotteryEntry("e-1", tt, "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1"),
+			lotteryEntry("e-2", tt, "fan-2", entity.LotteryEntryStateEntered, 2, "pi_2"),
+			lotteryEntry("e-3", tt, "fan-3", entity.LotteryEntryStateEntered, 2, "pi_3"),
+		}, nil)
+		f.holds.EXPECT().CaptureAuthorization(mock.Anything, mock.Anything).Return(nil).Once()
+		f.holds.EXPECT().CancelAuthorization(mock.Anything, mock.Anything).Return(apperr.New(codes.Unavailable, "stripe down")).Once()
+		f.holds.EXPECT().CancelAuthorization(mock.Anything, mock.Anything).Return(nil).Once()
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
+
+		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
+
+		assert.Len(t, out.winners, 1)
+		assert.Len(t, out.losers, 2, "the entry whose release failed is still recorded Lost")
+	})
+
+	t.Run("after the draw", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/run-draw "After the draw"
+		// The use case has no Order or Ticket writer, so the draw cannot issue
+		// anything; the Won entry is only recorded.
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(4)
+		tt := sale.TicketTypes[0].ID
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{
+			lotteryEntry("e-1", tt, "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1"),
+		}, nil)
+		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_1").Return(nil)
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
+
+		require.NoError(t, f.uc.RunDraw(ctx, sale.ID))
+
+		assert.Equal(t, []entity.LotteryEntryID{"e-1"}, out.winnerIDs())
+		f.tickets.AssertNotCalled(t, "ListByUserAndEvent", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("unknown sale", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, afterWindow, 1)
+		f.sales.EXPECT().Get(mock.Anything, entity.TicketSaleID("missing"), afterWindow).Return(nil, apperr.ErrNotFound)
+
+		assert.ErrorIs(t, f.uc.RunDraw(ctx, "missing"), apperr.ErrNotFound)
 	})
 }
 
-// --- Apply with identity-verification gate ---
-
-// activeVI returns a VerifiedIdentity with Status=Active for use in tests.
-func activeVI(userID string) *entity.VerifiedIdentity {
-	return &entity.VerifiedIdentity{
-		ID:               "vi-1",
-		UserID:           userID,
-		Method:           entity.VerificationMethodJPKI,
-		PocketSignUserID: "ps-user-abc",
-		DedupeStrength:   entity.DedupeStrengthStrong,
-		Status:           entity.VerificationStatusActive,
-	}
-}
-
-// phaseRequiring returns a basePhase with the given VerificationRequirement set.
-func phaseRequiring(open, close time.Time, req entity.VerificationRequirement) *entity.LotterySalesPhase {
-	p := basePhase(open, close)
-	p.VerificationRequirement = req
-	return p
-}
-
-func TestLotteryUseCase_Apply_VerificationGate(t *testing.T) {
+func TestLotteryUseCase_DrawDueSales(t *testing.T) {
 	t.Parallel()
-
 	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	close := open.Add(7 * 24 * time.Hour)
-	within := open.Add(24 * time.Hour)
 
-	baseIn := func() usecase.ApplyInput {
-		return usecase.ApplyInput{
-			PhaseID:              "phase-1",
-			ApplicantID:          "user-1",
-			RequestedTicketCount: 1,
-			Identity:             entity.HolderIdentity{FullName: "田中太郎", PhoneNumber: "+819000000001"},
-			PaymentIntentRef:     "pi_test",
-		}
-	}
+	t.Run("window closes", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/draw-due-sales "Window closes"
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(4)
+		f.sales.EXPECT().ListDueForDraw(mock.Anything, afterWindow).Return([]*entity.TicketSale{sale}, nil)
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil)
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, sale.TicketTypes[0].ID).Return(nil, nil)
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
 
-	tests := []struct {
-		name        string
-		phase       *entity.LotterySalesPhase
-		viGetFn     func(ctx context.Context, userID string) (*entity.VerifiedIdentity, error)
-		wantErr     error
-		wantApplied bool
-	}{
-		{
-			name:  "allow: phase has no requirement (None) — unverified user succeeds",
-			phase: basePhase(open, close), // VerificationRequirement == None (zero)
-			viGetFn: func(_ context.Context, _ string) (*entity.VerifiedIdentity, error) {
-				// repo should NOT be called for None requirement; returning error to surface
-				// any accidental call.
-				return nil, apperr.New(apperr.ErrInternal.Code, "unexpected GetByUserID call")
-			},
-			wantApplied: true,
-		},
-		{
-			name:        "allow: phase requires VerifiedAny — applicant has ACTIVE JPKI identity",
-			phase:       phaseRequiring(open, close, entity.VerificationRequirementVerifiedAny),
-			viGetFn:     func(_ context.Context, userID string) (*entity.VerifiedIdentity, error) { return activeVI(userID), nil },
-			wantApplied: true,
-		},
-		{
-			name:        "allow: phase requires JpkiOnly — applicant has ACTIVE JPKI identity",
-			phase:       phaseRequiring(open, close, entity.VerificationRequirementJPKIOnly),
-			viGetFn:     func(_ context.Context, userID string) (*entity.VerifiedIdentity, error) { return activeVI(userID), nil },
-			wantApplied: true,
-		},
-		{
-			name:  "reject: phase requires VerifiedAny — applicant has no verification record",
-			phase: phaseRequiring(open, close, entity.VerificationRequirementVerifiedAny),
-			viGetFn: func(_ context.Context, _ string) (*entity.VerifiedIdentity, error) {
-				return nil, apperr.New(apperr.ErrNotFound.Code, "no record")
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name:  "reject: phase requires JpkiOnly — applicant has no verification record",
-			phase: phaseRequiring(open, close, entity.VerificationRequirementJPKIOnly),
-			viGetFn: func(_ context.Context, _ string) (*entity.VerifiedIdentity, error) {
-				return nil, apperr.New(apperr.ErrNotFound.Code, "no record")
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name:  "reject: phase requires VerifiedAny — applicant status is NeedsReverification",
-			phase: phaseRequiring(open, close, entity.VerificationRequirementVerifiedAny),
-			viGetFn: func(_ context.Context, userID string) (*entity.VerifiedIdentity, error) {
-				vi := activeVI(userID)
-				vi.Status = entity.VerificationStatusNeedsReverification
-				return vi, nil
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			name:  "reject: phase requires JpkiOnly — applicant status is NeedsReverification",
-			phase: phaseRequiring(open, close, entity.VerificationRequirementJPKIOnly),
-			viGetFn: func(_ context.Context, userID string) (*entity.VerifiedIdentity, error) {
-				vi := activeVI(userID)
-				vi.Status = entity.VerificationStatusNeedsReverification
-				return vi, nil
-			},
-			wantErr: apperr.ErrFailedPrecondition,
-		},
-		{
-			// A DB outage (non-NotFound) must PROPAGATE as-is (retryable), NOT be
-			// collapsed to FAILED_PRECONDITION — otherwise an infra blip would be
-			// misreported to the fan as "you are not verified".
-			name:  "reject: phase requires verification — GetByUserID returns a NON-NotFound error propagates unchanged",
-			phase: phaseRequiring(open, close, entity.VerificationRequirementVerifiedAny),
-			viGetFn: func(_ context.Context, _ string) (*entity.VerifiedIdentity, error) {
-				return nil, apperr.New(apperr.ErrUnavailable.Code, "verified-identity store unavailable")
-			},
-			wantErr: apperr.ErrUnavailable,
-		},
-	}
+		require.NoError(t, f.uc.DrawDueSales(ctx))
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		assert.True(t, out.called, "the sale is drawn")
+	})
 
-			phase := tt.phase
-			phaseRepo := &stubPhaseRepo{
-				getFn: func(_ context.Context, _ entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-					return phase, nil
-				},
-			}
+	t.Run("window still open", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/draw-due-sales "Window still open"
+		// TicketSale.ListDueForDraw lists only sales whose end time has passed.
+		f := newLotteryFixture(t, duringWindow, 1)
+		f.sales.EXPECT().ListDueForDraw(mock.Anything, duringWindow).Return([]*entity.TicketSale{}, nil)
 
-			var applied bool
-			appRepo := &stubAppRepo{
-				createFn: func(_ context.Context, a *entity.TicketApplication) (*entity.TicketApplication, error) {
-					applied = true
-					return a, nil
-				},
-			}
+		require.NoError(t, f.uc.DrawDueSales(ctx))
+	})
 
-			// For the None case, viGetFn is set to fail; the gate must NOT call it.
-			viRepo := &stubVerifiedIdentityRepo{getByUserIDFn: tt.viGetFn}
+	t.Run("drawn once", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/draw-due-sales "Drawn once"
+		// A drawn sale is no longer listed due, so a later run draws nothing.
+		f := newLotteryFixture(t, afterWindow, 1)
+		sale := closedSale(4)
+		f.sales.EXPECT().ListDueForDraw(mock.Anything, afterWindow).Return([]*entity.TicketSale{sale}, nil).Once()
+		f.sales.EXPECT().ListDueForDraw(mock.Anything, afterWindow).Return([]*entity.TicketSale{}, nil).Once()
+		f.sales.EXPECT().Get(mock.Anything, sale.ID, afterWindow).Return(sale, nil).Once()
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, sale.TicketTypes[0].ID).Return(nil, nil).Once()
+		var out drawOutcome
+		f.recordsOutcome(sale.ID, &out)
 
-			uc := newLotteryUC(t, phaseRepo, appRepo, &stubEventState{}, &stubPaymentPort{}, within, viRepo)
+		require.NoError(t, f.uc.DrawDueSales(ctx))
+		require.NoError(t, f.uc.DrawDueSales(ctx))
 
-			in := baseIn()
-			got, err := uc.Apply(ctx, in)
+		f.entries.AssertNumberOfCalls(t, "PersistDrawOutcome", 1)
+	})
 
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, got)
-				assert.False(t, applied, "Create must not be called when gate rejects")
-				return
-			}
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.True(t, applied)
-		})
-	}
-}
+	t.Run("one sale fails", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/draw-due-sales "One sale fails"
+		f := newLotteryFixture(t, afterWindow, 1)
+		failing, other := closedSale(4), closedSale(4)
+		f.sales.EXPECT().ListDueForDraw(mock.Anything, afterWindow).Return([]*entity.TicketSale{failing, other}, nil).Once()
+		f.sales.EXPECT().Get(mock.Anything, failing.ID, afterWindow).Return(nil, errors.New("connection reset")).Once()
+		f.sales.EXPECT().Get(mock.Anything, other.ID, afterWindow).Return(other, nil).Once()
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, other.TicketTypes[0].ID).Return(nil, nil).Once()
+		var otherOut drawOutcome
+		f.recordsOutcome(other.ID, &otherOut)
 
-// --- GetLotteryPhaseStatus ---
+		require.NoError(t, f.uc.DrawDueSales(ctx))
+		assert.True(t, otherOut.called, "the other due sale is still drawn")
 
-func TestLotteryUseCase_GetLotteryPhaseStatus(t *testing.T) {
-	t.Parallel()
+		// The failed sale stays due and is drawn on the next run.
+		f.sales.EXPECT().ListDueForDraw(mock.Anything, afterWindow).Return([]*entity.TicketSale{failing}, nil).Once()
+		f.sales.EXPECT().Get(mock.Anything, failing.ID, afterWindow).Return(failing, nil).Once()
+		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, failing.TicketTypes[0].ID).Return(nil, nil).Once()
+		var failingOut drawOutcome
+		f.recordsOutcome(failing.ID, &failingOut)
 
-	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+		require.NoError(t, f.uc.DrawDueSales(ctx))
+		assert.True(t, failingOut.called)
+	})
 
-	basePhase := func(id entity.LotteryPhaseID) *entity.LotterySalesPhase {
-		return &entity.LotterySalesPhase{
-			ID:                       id,
-			EventID:                  "event-1",
-			OpenTime:                 open,
-			CloseTime:                open.Add(7 * 24 * time.Hour),
-			TicketCapacity:           100,
-			MaxTicketsPerApplication: 4,
-			TicketPrice:              5000,
-		}
-	}
+	t.Run("listing fails", func(t *testing.T) {
+		t.Parallel()
+		f := newLotteryFixture(t, afterWindow, 1)
+		listErr := apperr.New(codes.Internal, "db down")
+		f.sales.EXPECT().ListDueForDraw(mock.Anything, afterWindow).Return(nil, listErr)
 
-	tests := []struct {
-		name          string
-		phaseID       entity.LotteryPhaseID
-		callerOrgID   string
-		getFn         func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error)
-		organizerIDFn func(context.Context, string) (string, error)
-		wantErr       error
-	}{
-		{
-			name:          "success: owner reads phase status",
-			phaseID:       "phase-1",
-			callerOrgID:   "org-1",
-			organizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil },
-		},
-		{
-			name:        "reject: phase not found propagates NotFound",
-			phaseID:     "phase-missing",
-			callerOrgID: "org-1",
-			getFn: func(_ context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-				return nil, apperr.New(apperr.ErrNotFound.Code, "no phase")
-			},
-			wantErr: apperr.ErrNotFound,
-		},
-		{
-			name:          "reject: phase owned by another organizer returns PermissionDenied",
-			phaseID:       "phase-1",
-			callerOrgID:   "org-other",
-			organizerIDFn: func(context.Context, string) (string, error) { return "org-owner", nil },
-			wantErr:       apperr.ErrPermissionDenied,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			getFn := tt.getFn
-			if getFn == nil {
-				getFn = func(_ context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-					return basePhase(id), nil
-				}
-			}
-			phaseRepo := &stubPhaseRepo{getFn: getFn}
-
-			var statsCalled bool
-			appRepo := &stubAppRepo{
-				getPhaseStatsFn: func(context.Context, entity.LotteryPhaseID) (entity.LotteryPhaseStatus, error) {
-					statsCalled = true
-					return entity.LotteryPhaseStatus{}, nil
-				},
-			}
-
-			eventState := &stubEventState{organizerIDFn: tt.organizerIDFn}
-			uc := newLotteryUC(t, phaseRepo, appRepo, eventState, &stubPaymentPort{}, open)
-
-			got, err := uc.GetLotteryPhaseStatus(ctx, tt.phaseID, tt.callerOrgID)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, got)
-				assert.False(t, statsCalled, "GetPhaseStats must not be called on rejection")
-				return
-			}
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.True(t, statsCalled)
-			require.NotNil(t, got.Phase)
-			assert.Equal(t, tt.phaseID, got.Phase.ID)
-		})
-	}
-}
-
-// --- SetPhaseVerificationRequirement ---
-
-func TestLotteryUseCase_SetPhaseVerificationRequirement(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-
-	// basePhaseForGet returns the phase served by phaseRepo.Get for the default
-	// "phase-1" ID, owned by event-1.
-	basePhaseForGet := func(id entity.LotteryPhaseID) *entity.LotterySalesPhase {
-		return &entity.LotterySalesPhase{
-			ID:                       id,
-			EventID:                  "event-1",
-			OpenTime:                 open,
-			CloseTime:                open.Add(7 * 24 * time.Hour),
-			TicketCapacity:           100,
-			MaxTicketsPerApplication: 4,
-			TicketPrice:              5000,
-		}
-	}
-
-	tests := []struct {
-		name          string
-		args          usecase.SetVerificationRequirementInput
-		getFn         func(context.Context, entity.LotteryPhaseID) (*entity.LotterySalesPhase, error)
-		organizerIDFn func(context.Context, string) (string, error)
-		repoFn        func(context.Context, entity.LotteryPhaseID, entity.VerificationRequirement) (*entity.LotterySalesPhase, error)
-		wantReq       entity.VerificationRequirement
-		wantErr       error
-	}{
-		{
-			name: "success: sets VerifiedAny and returns updated phase",
-			args: usecase.SetVerificationRequirementInput{
-				CallerOrgID:             "org-1",
-				PhaseID:                 "phase-1",
-				VerificationRequirement: entity.VerificationRequirementVerifiedAny,
-			},
-			organizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil },
-			wantReq:       entity.VerificationRequirementVerifiedAny,
-		},
-		{
-			name: "success: sets JpkiOnly and returns updated phase",
-			args: usecase.SetVerificationRequirementInput{
-				CallerOrgID:             "org-1",
-				PhaseID:                 "phase-1",
-				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
-			},
-			organizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil },
-			wantReq:       entity.VerificationRequirementJPKIOnly,
-		},
-		{
-			name: "success: resets to None",
-			args: usecase.SetVerificationRequirementInput{
-				CallerOrgID:             "org-1",
-				PhaseID:                 "phase-1",
-				VerificationRequirement: entity.VerificationRequirementNone,
-			},
-			organizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil },
-			wantReq:       entity.VerificationRequirementNone,
-		},
-		{
-			name: "reject: empty phase_id returns InvalidArgument",
-			args: usecase.SetVerificationRequirementInput{
-				PhaseID:                 "",
-				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
-			},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name: "reject: phase not found propagates NotFound",
-			args: usecase.SetVerificationRequirementInput{
-				CallerOrgID:             "org-1",
-				PhaseID:                 "phase-missing",
-				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
-			},
-			getFn: func(_ context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-				return nil, apperr.New(apperr.ErrNotFound.Code, "no phase")
-			},
-			wantErr: apperr.ErrNotFound,
-		},
-		{
-			name: "reject: phase owned by another organizer returns PermissionDenied",
-			args: usecase.SetVerificationRequirementInput{
-				CallerOrgID:             "org-other",
-				PhaseID:                 "phase-1",
-				VerificationRequirement: entity.VerificationRequirementJPKIOnly,
-			},
-			organizerIDFn: func(context.Context, string) (string, error) { return "org-owner", nil },
-			wantErr:       apperr.ErrPermissionDenied,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var capturedReq entity.VerificationRequirement
-			var updateCalled bool
-			repoFn := tt.repoFn
-			if repoFn == nil {
-				repoFn = func(_ context.Context, id entity.LotteryPhaseID, req entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
-					capturedReq = req
-					return &entity.LotterySalesPhase{
-						ID:                       id,
-						EventID:                  "event-1",
-						OpenTime:                 open,
-						CloseTime:                open.Add(7 * 24 * time.Hour),
-						TicketCapacity:           100,
-						MaxTicketsPerApplication: 4,
-						TicketPrice:              5000,
-						VerificationRequirement:  req,
-					}, nil
-				}
-			}
-
-			getFn := tt.getFn
-			if getFn == nil {
-				getFn = func(_ context.Context, id entity.LotteryPhaseID) (*entity.LotterySalesPhase, error) {
-					return basePhaseForGet(id), nil
-				}
-			}
-
-			phaseRepo := &stubPhaseRepo{
-				getFn: getFn,
-				updateVerificationRequirementFn: func(ctx context.Context, id entity.LotteryPhaseID, req entity.VerificationRequirement) (*entity.LotterySalesPhase, error) {
-					updateCalled = true
-					return repoFn(ctx, id, req)
-				},
-			}
-
-			eventState := &stubEventState{organizerIDFn: tt.organizerIDFn}
-			uc := newLotteryUC(t, phaseRepo, &stubAppRepo{}, eventState, &stubPaymentPort{}, open)
-
-			got, err := uc.SetPhaseVerificationRequirement(ctx, tt.args)
-
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				assert.Nil(t, got)
-				assert.False(t, updateCalled, "UpdateVerificationRequirement must not be called on rejection")
-				return
-			}
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			assert.True(t, updateCalled)
-			assert.Equal(t, tt.wantReq, capturedReq, "repo must receive the requested VerificationRequirement")
-			assert.Equal(t, tt.wantReq, got.VerificationRequirement)
-		})
-	}
+		assert.Equal(t, listErr, f.uc.DrawDueSales(ctx))
+	})
 }

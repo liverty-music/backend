@@ -21,13 +21,13 @@ var _ entity.OrderRepository = (*OrderRepository)(nil)
 
 const (
 	orderSelectColumns = `
-		id, buyer_id, application_id, provider, payment_intent_ref, payment_method_ref,
+		id, user_id, lottery_entry_id, provider, payment_intent_ref, payment_method_ref,
 		card_brand, card_last4, status, amount, currency, paid_at, refund_ref,
-		reservation_id, confirmation_sent_at
+		checkout_id, confirmation_sent_at
 	`
 	orderGetQuery                   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
-	orderGetByApplicationIDQuery    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE application_id = $1`
-	orderGetByReservationIDQuery    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE reservation_id = $1`
+	orderGetByLotteryEntryIDQuery   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE lottery_entry_id = $1`
+	orderGetByCheckoutIDQuery       = `SELECT ` + orderSelectColumns + ` FROM orders WHERE checkout_id = $1`
 	orderGetByPaymentIntentRefQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE payment_intent_ref = $1`
 	// orderMarkConfirmationSentQuery sets the confirmation-sent time only when
 	// it is unset, so a second call keeps the first time.
@@ -37,7 +37,7 @@ const (
 	`
 	orderExistsQuery       = `SELECT EXISTS (SELECT 1 FROM orders WHERE id = $1)`
 	orderUpdateStatusQuery = `UPDATE orders SET status = $2 WHERE id = $1`
-	orderListByBuyerQuery  = `SELECT ` + orderSelectColumns + ` FROM orders WHERE buyer_id = $1 ORDER BY paid_at, id`
+	orderListByUserQuery   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE user_id = $1 ORDER BY paid_at, id`
 )
 
 // NewOrderRepository creates a new order repository instance.
@@ -55,24 +55,24 @@ func (r *OrderRepository) Get(ctx context.Context, id entity.OrderID) (*entity.O
 	return order, nil
 }
 
-// GetByApplicationID retrieves the order created for the given winning
-// application. Returns apperr.ErrNotFound when issuance has not run.
-func (r *OrderRepository) GetByApplicationID(ctx context.Context, applicationID entity.TicketApplicationID) (*entity.Order, error) {
-	row := r.db.Pool.QueryRow(ctx, orderGetByApplicationIDQuery, string(applicationID))
+// GetByLotteryEntryID retrieves the order created for the given won lottery
+// entry. Returns apperr.ErrNotFound when issuance has not run.
+func (r *OrderRepository) GetByLotteryEntryID(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error) {
+	row := r.db.Pool.QueryRow(ctx, orderGetByLotteryEntryIDQuery, string(lotteryEntryID))
 	order, err := scanOrder(row)
 	if err != nil {
-		return nil, toAppErr(err, "failed to get order by application", slog.String("application_id", string(applicationID)))
+		return nil, toAppErr(err, "failed to get order by lottery entry", slog.String("lottery_entry_id", string(lotteryEntryID)))
 	}
 	return order, nil
 }
 
-// GetByReservationID retrieves the order whose source is the given
-// reservation. Returns apperr.ErrNotFound when the reservation has no order.
-func (r *OrderRepository) GetByReservationID(ctx context.Context, reservationID entity.ReservationID) (*entity.Order, error) {
-	row := r.db.Pool.QueryRow(ctx, orderGetByReservationIDQuery, string(reservationID))
+// GetByCheckoutID retrieves the order whose source is the given checkout.
+// Returns apperr.ErrNotFound when the checkout has no order.
+func (r *OrderRepository) GetByCheckoutID(ctx context.Context, checkoutID entity.CheckoutID) (*entity.Order, error) {
+	row := r.db.Pool.QueryRow(ctx, orderGetByCheckoutIDQuery, string(checkoutID))
 	order, err := scanOrder(row)
 	if err != nil {
-		return nil, toAppErr(err, "failed to get order by reservation", slog.String("reservation_id", string(reservationID)))
+		return nil, toAppErr(err, "failed to get order by checkout", slog.String("checkout_id", string(checkoutID)))
 	}
 	return order, nil
 }
@@ -124,12 +124,12 @@ func (r *OrderRepository) UpdateStatus(ctx context.Context, id entity.OrderID, s
 	return nil
 }
 
-// ListByBuyer returns every order the given user bought, in any status, oldest
+// ListByUser returns every order the given user bought, in any status, oldest
 // first. Returns an empty slice when the user bought nothing.
-func (r *OrderRepository) ListByBuyer(ctx context.Context, buyerID entity.UserID) ([]*entity.Order, error) {
-	rows, err := r.db.Pool.Query(ctx, orderListByBuyerQuery, string(buyerID))
+func (r *OrderRepository) ListByUser(ctx context.Context, userID entity.UserID) ([]*entity.Order, error) {
+	rows, err := r.db.Pool.Query(ctx, orderListByUserQuery, string(userID))
 	if err != nil {
-		return nil, toAppErr(err, "failed to list orders by buyer", slog.String("buyer_id", string(buyerID)))
+		return nil, toAppErr(err, "failed to list orders by user", slog.String("user_id", string(userID)))
 	}
 	defer rows.Close()
 
@@ -137,12 +137,12 @@ func (r *OrderRepository) ListByBuyer(ctx context.Context, buyerID entity.UserID
 	for rows.Next() {
 		order, err := scanOrder(rows)
 		if err != nil {
-			return nil, toAppErr(err, "failed to scan order", slog.String("buyer_id", string(buyerID)))
+			return nil, toAppErr(err, "failed to scan order", slog.String("user_id", string(userID)))
 		}
 		orders = append(orders, order)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "failed to iterate orders", slog.String("buyer_id", string(buyerID)))
+		return nil, toAppErr(err, "failed to iterate orders", slog.String("user_id", string(userID)))
 	}
 	return orders, nil
 }
@@ -158,29 +158,29 @@ func scanOrder(s orderScanner) (*entity.Order, error) {
 	var (
 		o                  entity.Order
 		id                 string
-		buyerID            string
-		appID              sql.NullString
+		userID             string
+		lotteryEntryID     sql.NullString
 		provider           int16
 		status             int16
-		reservationID      sql.NullString
+		checkoutID         sql.NullString
 		confirmationSentAt sql.NullTime
 	)
 	if err := s.Scan(
-		&id, &buyerID, &appID, &provider,
+		&id, &userID, &lotteryEntryID, &provider,
 		&o.Payment.PaymentIntentRef, &o.Payment.PaymentMethodRef,
 		&o.Payment.CardBrand, &o.Payment.CardLast4,
 		&status, &o.Amount, &o.Currency, &o.PaidTime,
-		&o.RefundRef, &reservationID, &confirmationSentAt,
+		&o.RefundRef, &checkoutID, &confirmationSentAt,
 	); err != nil {
 		return nil, err
 	}
 	o.ID = entity.OrderID(id)
-	o.BuyerID = entity.UserID(buyerID)
-	if appID.Valid {
-		o.ApplicationID = entity.TicketApplicationID(appID.String)
+	o.UserID = entity.UserID(userID)
+	if lotteryEntryID.Valid {
+		o.LotteryEntryID = entity.LotteryEntryID(lotteryEntryID.String)
 	}
-	if reservationID.Valid {
-		o.ReservationID = entity.ReservationID(reservationID.String)
+	if checkoutID.Valid {
+		o.CheckoutID = entity.CheckoutID(checkoutID.String)
 	}
 	if confirmationSentAt.Valid {
 		sentAt := confirmationSentAt.Time

@@ -143,6 +143,7 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestStripeWebhook_DisputeCreated_ResolvesViaPaymentIntentRef(t *testing.T) {
+	// @spec components/adapter/fan/api/webhook/payment-events "Dispute on a platform order"
 	t.Parallel()
 
 	ctx := context.Background()
@@ -230,6 +231,7 @@ func TestStripeWebhook_DisputeCreated_NoPaymentIntentRef_NoError(t *testing.T) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
+	// @spec components/adapter/fan/api/webhook/payment-events "Dispute on an unknown payment"
 	t.Parallel()
 
 	ctx := context.Background()
@@ -259,6 +261,44 @@ func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, refundCalled, "RefundOrder must NOT be called when Order cannot be found")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dispute for an Order an admin already refunded — acknowledged, stays Refunded
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestStripeWebhook_DisputeCreated_AlreadyRefunded_Acknowledged(t *testing.T) {
+	// @spec components/adapter/fan/api/webhook/payment-events "Refund already applied"
+	t.Parallel()
+
+	const orderID = entity.OrderID("order-already-refunded")
+	orderRepo := &stubOrderRepo{
+		getByPaymentIntentRefFn: func(_ context.Context, _ string) (*entity.Order, error) {
+			return &entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil
+		},
+	}
+	var got *entity.Order
+	refundUC := &stubRefundUC{
+		// RefundOrder is idempotent: an already refunded Order comes back as is.
+		refundOrderFn: func(_ context.Context, id entity.OrderID, _ usecase.RefundReason, _ time.Time) (*entity.Order, error) {
+			got = &entity.Order{ID: id, Status: entity.OrderStatusRefunded}
+			return got, nil
+		},
+	}
+
+	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, orderRepo, refundUC, t)
+
+	err := svc.HandleEvent(context.Background(), usecase.StripeWebhookEvent{
+		ProviderEventID:  "evt_dispute_after_refund",
+		Type:             usecase.StripeEventChargeDisputeCreated,
+		ChargeRef:        "ch_after_refund",
+		PaymentIntentRef: "pi_after_refund",
+		ReceivedAt:       time.Now(),
+	})
+
+	require.NoError(t, err, "the notice is acknowledged")
+	require.NotNil(t, got)
+	assert.Equal(t, entity.OrderStatusRefunded, got.Status, "the Order stays Refunded")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

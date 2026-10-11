@@ -63,6 +63,16 @@ func TestStripeAuthorizationPort_Integration(t *testing.T) {
 		require.NoError(t, port.CancelAuthorization(ctx, ref))
 	})
 
+	t.Run("GetClientSecret returns the open hold's secret", func(t *testing.T) {
+		ref, secret, err := port.CreateAuthorization(ctx, amountJPY)
+		require.NoError(t, err)
+
+		got, err := port.GetClientSecret(ctx, ref)
+		require.NoError(t, err)
+		require.Equal(t, secret, got)
+		require.NoError(t, port.CancelAuthorization(ctx, ref))
+	})
+
 	t.Run("verify rejects a mismatched amount", func(t *testing.T) {
 		ref, _, err := port.CreateAuthorization(ctx, amountJPY)
 		require.NoError(t, err)

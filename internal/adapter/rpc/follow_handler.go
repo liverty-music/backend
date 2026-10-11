@@ -73,8 +73,8 @@ func (h *FollowHandler) Unfollow(ctx context.Context, req *connect.Request[rpc.U
 	return connect.NewResponse(&rpc.UnfollowResponse{}), nil
 }
 
-// ListFollowed retrieves the list of artists currently followed by the authenticated user.
-func (h *FollowHandler) ListFollowed(ctx context.Context, _ *connect.Request[rpc.ListFollowedRequest]) (*connect.Response[rpc.ListFollowedResponse], error) {
+// List returns the signed-in fan's Follows with their Artists.
+func (h *FollowHandler) List(ctx context.Context, _ *connect.Request[rpc.ListRequest]) (*connect.Response[rpc.ListResponse], error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -90,7 +90,7 @@ func (h *FollowHandler) ListFollowed(ctx context.Context, _ *connect.Request[rpc
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.ListFollowedResponse{
+	return connect.NewResponse(&rpc.ListResponse{
 		Artists: mapper.FollowedArtistsToProto(followed),
 	}), nil
 }

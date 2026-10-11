@@ -15,8 +15,7 @@ import (
 // TestIssuanceRepository_Integration exercises the ⑤ Order/Ticket/Settlement
 // persistence against a real local Postgres: the atomic Issue (Order + N
 // tickets + Held settlement with its split, backend#468), the idempotency
-// guard (one Order per application), the awaiting-issuance sweep work-list,
-// the buyer read queries, and the refund-side status/void updates.
+// guard (one Order per lottery entry), the user read queries, and the refund-side status/void updates.
 //
 // Runs only when a local database is available (make test provides one); skipped
 // otherwise, like the other rdb integration tests.
@@ -26,32 +25,26 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	phaseRepo := rdb.NewLotteryPhaseRepository(testDB)
-	appRepo := rdb.NewTicketApplicationRepository(testDB)
 	issuanceRepo := rdb.NewIssuanceRepository(testDB)
 	orderRepo := rdb.NewOrderRepository(testDB)
 	ticketRepo := rdb.NewTicketRepository(testDB)
 	settlementRepo := rdb.NewSettlementRepository(testDB)
 
-	// -- seed a Won application (orders.application_id FK) on a phase whose event
-	//    (tickets.event_id FK) we reuse for the issued tickets. --
-	phase, eventID := seedLotteryPhase(t, phaseRepo)
-	buyerID := seedUser(t, "buyer", entity.NewID()+"@example.test", entity.NewID())
-	app := seedApplication(t, appRepo, phase.ID, buyerID, entity.TicketApplicationStateWon)
+	// -- seed a Won lottery entry (orders.lottery_entry_id FK) on a ticket type
+	//    whose event (tickets.event_id FK) we reuse for the issued tickets. --
+	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
+	eventID := tt.EventID
+	userID := seedUser(t, "buyer", entity.NewID()+"@example.test", entity.NewID())
+	entry := insertLotteryEntry(t, tt.ID, entity.UserID(userID), 2, entity.LotteryEntryStateWon)
 	organizerID := seedOrganizer(t)
-
-	// Before issuance, the Won application appears in the sweep work-list.
-	awaiting, err := issuanceRepo.ListApplicationIDsAwaitingIssuance(ctx)
-	require.NoError(t, err)
-	assert.Contains(t, awaiting, app.ID, "a Won application without an Order must be awaiting issuance")
 
 	// -- Issue: one Order + 2 covered tickets + a Held settlement, atomically. --
 	// @spec components/entity/order/issue "Order issued"
 	paidTime := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	order := &entity.Order{
-		ID:            entity.OrderID(entity.NewID()),
-		BuyerID:       entity.UserID(buyerID),
-		ApplicationID: app.ID,
+		ID:             entity.OrderID(entity.NewID()),
+		UserID:         entity.UserID(userID),
+		LotteryEntryID: entry.ID,
 		Payment: entity.Payment{
 			Provider:         entity.PaymentProviderStripe,
 			PaymentIntentRef: "pi_itest_" + entity.NewID(),
@@ -68,9 +61,8 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 		tickets = append(tickets, &entity.Ticket{
 			ID:                             entity.TicketID(entity.NewID()),
 			OrderID:                        order.ID,
-			HolderID:                       entity.UserID(buyerID),
+			UserID:                         entity.UserID(userID),
 			EventID:                        eventID,
-			HolderIdentity:                 entity.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
 			IssuedTime:                     paidTime,
@@ -90,7 +82,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	require.NoError(t, issuanceRepo.Issue(ctx, order, tickets, settlement))
 
 	// -- Order reads. --
-	gotByApp, err := orderRepo.GetByApplicationID(ctx, app.ID)
+	gotByApp, err := orderRepo.GetByLotteryEntryID(ctx, entry.ID)
 	require.NoError(t, err)
 	assert.Equal(t, order.ID, gotByApp.ID)
 	assert.Equal(t, entity.OrderStatusPaid, gotByApp.Status)
@@ -104,7 +96,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, order.ID, gotByID.ID)
 
-	// -- Ticket reads: N covered tickets, bound to the buyer + event. --
+	// -- Ticket reads: N covered tickets, bound to the user + event. --
 	byOrder, err := ticketRepo.ListByOrder(ctx, order.ID)
 	require.NoError(t, err)
 	require.Len(t, byOrder, 2)
@@ -112,11 +104,11 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 		assert.Equal(t, eventID, tk.EventID)
 		assert.True(t, tk.ResaleWithoutConsentProhibited)
 		assert.Equal(t, entity.TicketStatusIssued, tk.Status)
-		assert.Empty(t, tk.VerifiedIdentityID)
+		assert.Empty(t, tk.KycID)
 	}
-	byHolder, err := ticketRepo.ListByHolder(ctx, entity.UserID(buyerID))
+	byUser, err := ticketRepo.ListByUser(ctx, entity.UserID(userID))
 	require.NoError(t, err)
-	assert.Len(t, byHolder, 2)
+	assert.Len(t, byUser, 2)
 
 	// -- Settlement read: a Held settlement for the Order's Organizer, with one
 	//    split for the Order's full amount (backend#468). --
@@ -132,12 +124,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	assert.Equal(t, order.Amount, gotSettlement.Splits[0].Amount)
 	assert.Empty(t, gotSettlement.Splits[0].TransferRef, "not released yet")
 
-	// After issuance the application is no longer awaiting.
-	awaiting2, err := issuanceRepo.ListApplicationIDsAwaitingIssuance(ctx)
-	require.NoError(t, err)
-	assert.NotContains(t, awaiting2, app.ID, "an issued application must not be awaiting issuance")
-
-	// -- Idempotency: a second Issue for the same application surfaces
+	// -- Idempotency: a second Issue for the same entry surfaces
 	//    AlreadyExists and rolls back the whole transaction, including the
 	//    settlement that would otherwise have been inserted. --
 	// @spec components/entity/order/issue "Second order for the application"
@@ -154,7 +141,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	}
 	err = issuanceRepo.Issue(ctx, &dup, nil, dupSettlement)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, apperr.ErrAlreadyExists, "one Order per application (unique index)")
+	assert.ErrorIs(t, err, apperr.ErrAlreadyExists, "one Order per lottery entry (unique index)")
 
 	_, err = settlementRepo.Get(ctx, dupSettlement.ID)
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "the rolled-back transaction must not leave an orphan settlement")
@@ -175,7 +162,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	// -- NotFound paths. --
 	_, err = orderRepo.Get(ctx, entity.OrderID(entity.NewID()))
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
-	_, err = orderRepo.GetByApplicationID(ctx, entity.TicketApplicationID(entity.NewID()))
+	_, err = orderRepo.GetByLotteryEntryID(ctx, entity.LotteryEntryID(entity.NewID()))
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
@@ -191,39 +178,22 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	phaseRepo := rdb.NewLotteryPhaseRepository(testDB)
-	appRepo := rdb.NewTicketApplicationRepository(testDB)
 	issuanceRepo := rdb.NewIssuanceRepository(testDB)
 	orderRepo := rdb.NewOrderRepository(testDB)
 	ticketRepo := rdb.NewTicketRepository(testDB)
 	settlementRepo := rdb.NewSettlementRepository(testDB)
 
-	// Seeded inline (not via seedLotteryPhase) so this test can run alongside
-	// TestIssuanceRepository_Integration in the same process without colliding
-	// on seedLotteryPhase's hardcoded artist mbid.
-	artistID := seedArtist(t, "failure-artist", entity.NewID())
-	venueID := seedVenue(t, "failure-venue")
-	eventID := seedEvent(t, venueID, artistID, "failure-concert", "2026-11-02")
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	phase, err := phaseRepo.Create(ctx, &entity.LotterySalesPhase{
-		ID:                       entity.LotteryPhaseID(entity.NewID()),
-		EventID:                  eventID,
-		OpenTime:                 open,
-		CloseTime:                open.Add(7 * 24 * time.Hour),
-		TicketCapacity:           100,
-		MaxTicketsPerApplication: 4,
-		TicketPrice:              5000,
-	})
-	require.NoError(t, err)
-	buyerID := seedUser(t, "failure-buyer", entity.NewID()+"@example.test", entity.NewID())
-	app := seedApplication(t, appRepo, phase.ID, buyerID, entity.TicketApplicationStateWon)
+	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
+	eventID := tt.EventID
+	userID := seedUser(t, "failure-buyer", entity.NewID()+"@example.test", entity.NewID())
+	entry := insertLotteryEntry(t, tt.ID, entity.UserID(userID), 2, entity.LotteryEntryStateWon)
 	organizerID := seedOrganizer(t)
 
 	paidTime := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	order := &entity.Order{
-		ID:            entity.OrderID(entity.NewID()),
-		BuyerID:       entity.UserID(buyerID),
-		ApplicationID: app.ID,
+		ID:             entity.OrderID(entity.NewID()),
+		UserID:         entity.UserID(userID),
+		LotteryEntryID: entry.ID,
 		Payment: entity.Payment{
 			Provider:         entity.PaymentProviderStripe,
 			PaymentIntentRef: "pi_fail_" + entity.NewID(),
@@ -237,9 +207,8 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 		{
 			ID:                             entity.TicketID(entity.NewID()),
 			OrderID:                        order.ID,
-			HolderID:                       entity.UserID(buyerID),
+			UserID:                         entity.UserID(userID),
 			EventID:                        eventID,
-			HolderIdentity:                 entity.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
 			IssuedTime:                     paidTime,
@@ -250,9 +219,8 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 			// transaction) to fail.
 			ID:                             entity.TicketID(entity.NewID()),
 			OrderID:                        order.ID,
-			HolderID:                       entity.UserID(buyerID),
+			UserID:                         entity.UserID(userID),
 			EventID:                        entity.NewID(),
-			HolderIdentity:                 entity.HolderIdentity{FullName: "山田太郎", PhoneNumber: "+819012345678"},
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
 			IssuedTime:                     paidTime,
@@ -268,7 +236,7 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 		CreatedTime: paidTime,
 	}
 
-	err = issuanceRepo.Issue(ctx, order, tickets, settlement)
+	err := issuanceRepo.Issue(ctx, order, tickets, settlement)
 	require.Error(t, err)
 
 	_, err = orderRepo.Get(ctx, order.ID)
@@ -283,65 +251,64 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 }
 
 // TestIssuanceRepository_IssueFromCheckout covers issuance whose source is a
-// Reservation: it is completed in the same transaction, only when Committed
-// and charged, and at most once.
+// Checkout: it is completed in the same transaction, only when Committed and
+// charged, and at most once.
 func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
-	reservations := rdb.NewReservationRepository(testDB)
+	checkouts := rdb.NewCheckoutRepository(testDB)
 	issuanceRepo := rdb.NewIssuanceRepository(testDB)
 	orderRepo := rdb.NewOrderRepository(testDB)
 	start := saleWindowStart.Add(time.Hour)
 
 	t.Run("order issued from a checkout", func(t *testing.T) {
 		// @spec components/entity/order/issue "Order issued from a checkout"
-		res := chargedReservation(t, reservations, start)
-		order, tickets, settlement := checkoutOrder(t, res, start.Add(3*time.Minute))
+		c := issuanceChargedCheckout(t, checkouts, start)
+		order, tickets, settlement := checkoutOrder(t, c, start.Add(3*time.Minute))
 
 		require.NoError(t, issuanceRepo.Issue(ctx, order, tickets, settlement))
 
-		got, err := reservations.Get(ctx, res.ID)
+		got, err := checkouts.Get(ctx, c.ID)
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReservationStatusCompleted, got.Status)
+		assert.Equal(t, entity.CheckoutStatusCompleted, got.Status)
 
-		// @spec components/entity/order/get-by-reservation-id "Paid checkout"
-		byRes, err := orderRepo.GetByReservationID(ctx, res.ID)
+		byCheckout, err := orderRepo.GetByCheckoutID(ctx, c.ID)
 		require.NoError(t, err)
-		assert.Equal(t, order.ID, byRes.ID)
-		assert.Equal(t, res.ID, byRes.ReservationID)
-		assert.Empty(t, byRes.ApplicationID)
+		assert.Equal(t, order.ID, byCheckout.ID)
+		assert.Equal(t, c.ID, byCheckout.CheckoutID)
+		assert.Empty(t, byCheckout.LotteryEntryID)
 
 		// @spec components/entity/order/issue "Second order for the reservation"
-		dup, dupTickets, dupSettlement := checkoutOrder(t, res, start.Add(4*time.Minute))
+		dup, dupTickets, dupSettlement := checkoutOrder(t, c, start.Add(4*time.Minute))
 		err = issuanceRepo.Issue(ctx, dup, dupTickets, dupSettlement)
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 		_, err = orderRepo.Get(ctx, dup.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
-	t.Run("reservation not charged", func(t *testing.T) {
+	t.Run("checkout not charged", func(t *testing.T) {
 		// @spec components/entity/order/issue "Reservation not charged"
-		res := heldReservation(t, reservations, 2, start)
-		require.NoError(t, reservations.SetAuthorization(ctx, res.ID, holderIdentity, "pi_nc"))
-		_, err := reservations.Commit(ctx, res.ID, start.Add(time.Minute))
+		c := heldCheckout(t, checkouts, 2, start)
+		require.NoError(t, checkouts.SetAuthorization(ctx, c.ID, "pi_nc_"+string(c.ID)))
+		_, err := checkouts.Commit(ctx, c.ID, start.Add(time.Minute))
 		require.NoError(t, err)
-		order, tickets, settlement := checkoutOrder(t, res, start.Add(2*time.Minute))
+		order, tickets, settlement := checkoutOrder(t, c, start.Add(2*time.Minute))
 
 		err = issuanceRepo.Issue(ctx, order, tickets, settlement)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		_, err = orderRepo.Get(ctx, order.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
-		got, err := reservations.Get(ctx, res.ID)
+		got, err := checkouts.Get(ctx, c.ID)
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReservationStatusCommitted, got.Status)
+		assert.Equal(t, entity.CheckoutStatusCommitted, got.Status)
 	})
 
-	t.Run("failure stores nothing and the reservation stays committed", func(t *testing.T) {
-		res := chargedReservation(t, reservations, start)
-		order, tickets, settlement := checkoutOrder(t, res, start.Add(3*time.Minute))
+	t.Run("failure stores nothing and the checkout stays committed", func(t *testing.T) {
+		c := issuanceChargedCheckout(t, checkouts, start)
+		order, tickets, settlement := checkoutOrder(t, c, start.Add(3*time.Minute))
 		tickets[1].EventID = entity.NewID() // violates the tickets.event_id foreign key
 
 		err := issuanceRepo.Issue(ctx, order, tickets, settlement)
@@ -349,24 +316,15 @@ func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
 		require.Error(t, err)
 		_, err = orderRepo.Get(ctx, order.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
-		got, err := reservations.Get(ctx, res.ID)
+		got, err := checkouts.Get(ctx, c.ID)
 		require.NoError(t, err)
-		assert.Equal(t, entity.ReservationStatusCommitted, got.Status)
-	})
-
-	t.Run("checkout not paid", func(t *testing.T) {
-		// @spec components/entity/order/get-by-reservation-id "Checkout not paid"
-		res := heldReservation(t, reservations, 1, start)
-
-		_, err := orderRepo.GetByReservationID(ctx, res.ID)
-
-		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.Equal(t, entity.CheckoutStatusCommitted, got.Status)
 	})
 
 	t.Run("two sources", func(t *testing.T) {
-		res := chargedReservation(t, reservations, start)
-		order, tickets, settlement := checkoutOrder(t, res, start.Add(3*time.Minute))
-		order.ApplicationID = entity.TicketApplicationID(entity.NewID())
+		c := issuanceChargedCheckout(t, checkouts, start)
+		order, tickets, settlement := checkoutOrder(t, c, start.Add(3*time.Minute))
+		order.LotteryEntryID = entity.LotteryEntryID(entity.NewID())
 
 		err := issuanceRepo.Issue(ctx, order, tickets, settlement)
 
@@ -374,14 +332,74 @@ func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
 	})
 }
 
-// chargedReservation returns a Committed reservation with a recorded charge.
-func chargedReservation(t *testing.T, repo *rdb.ReservationRepository, start time.Time) *entity.Reservation {
+// issuanceChargedCheckout returns a Committed checkout of 2 tickets with a
+// recorded charge.
+func issuanceChargedCheckout(t *testing.T, repo *rdb.CheckoutRepository, start time.Time) *entity.Checkout {
 	t.Helper()
 	ctx := context.Background()
-	res := heldReservation(t, repo, 2, start)
-	require.NoError(t, repo.SetAuthorization(ctx, res.ID, holderIdentity, "pi_"+string(res.ID)))
-	_, err := repo.Commit(ctx, res.ID, start.Add(time.Minute))
+	c := heldCheckout(t, repo, 2, start)
+	require.NoError(t, repo.SetAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
+	_, err := repo.Commit(ctx, c.ID, start.Add(time.Minute))
 	require.NoError(t, err)
-	require.NoError(t, repo.RecordCapture(ctx, res.ID, start.Add(2*time.Minute)))
-	return res
+	require.NoError(t, repo.RecordCapture(ctx, c.ID, start.Add(2*time.Minute)))
+	return c
+}
+
+func TestIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	ctx := context.Background()
+	issuanceRepo := rdb.NewIssuanceRepository(testDB)
+	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
+
+	// awaiting lists the work-list now.
+	awaiting := func(t *testing.T) []entity.LotteryEntryID {
+		t.Helper()
+		ids, err := issuanceRepo.ListLotteryEntryIDsAwaitingIssuance(ctx)
+		require.NoError(t, err)
+		return ids
+	}
+
+	t.Run("won without order", func(t *testing.T) {
+		// @spec components/entity/order/list-lottery-entry-ids-awaiting-issuance "Won without order"
+		won := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
+
+		assert.Contains(t, awaiting(t), won.ID)
+	})
+
+	t.Run("already issued", func(t *testing.T) {
+		// @spec components/entity/order/list-lottery-entry-ids-awaiting-issuance "Already issued"
+		won := insertLotteryEntry(t, tt.ID, newUserID(), 1, entity.LotteryEntryStateWon)
+		order := &entity.Order{
+			ID:             entity.OrderID(entity.NewID()),
+			UserID:         won.UserID,
+			LotteryEntryID: won.ID,
+			Payment:        entity.Payment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: won.Authorization.PaymentIntentRef},
+			Status:         entity.OrderStatusPaid,
+			Amount:         3000,
+			Currency:       "JPY",
+			PaidTime:       saleWindowStart,
+		}
+		settlement := entity.NewHeldSettlement(order, seedOrganizer(t), tt.EventID, 240, saleWindowStart)
+		require.NoError(t, issuanceRepo.Issue(ctx, order, nil, settlement))
+
+		assert.NotContains(t, awaiting(t), won.ID)
+	})
+
+	t.Run("not won", func(t *testing.T) {
+		// @spec components/entity/order/list-lottery-entry-ids-awaiting-issuance "Not won"
+		ids := []entity.LotteryEntryID{}
+		for _, state := range []entity.LotteryEntryState{
+			entity.LotteryEntryStateEntered, entity.LotteryEntryStateLost,
+			entity.LotteryEntryStateWithdrawn, entity.LotteryEntryStateDraft,
+		} {
+			ids = append(ids, insertLotteryEntry(t, tt.ID, newUserID(), 1, state).ID)
+		}
+
+		got := awaiting(t)
+		for _, id := range ids {
+			assert.NotContains(t, got, id)
+		}
+	})
 }

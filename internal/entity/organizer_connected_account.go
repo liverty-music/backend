@@ -59,7 +59,7 @@ func (s PayoutOnboardingStatus) IsPayoutEligible() bool {
 //
 // The account is provisioned as a RECIPIENT (transfers capability only, never
 // card_payments): the platform is the Stripe settlement merchant and holds
-// buyer funds, while this account only receives the post-event Transfer. It
+// fans' funds, while this account only receives the post-event Transfer. It
 // stores only a token meaningful to the provider (a Stripe "acct_..." id),
 // never bank or identity data. Mirrors
 // liverty_music.entity.v1.OrganizerConnectedAccount.

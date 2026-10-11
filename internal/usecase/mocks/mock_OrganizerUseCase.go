@@ -448,9 +448,9 @@ func (_c *MockOrganizerUseCase_ListArtists_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// ListOwnArtists provides a mock function with given fields: ctx, callerOrganizerID, reqOrganizerID
-func (_m *MockOrganizerUseCase) ListOwnArtists(ctx context.Context, callerOrganizerID string, reqOrganizerID string) ([]*entity.Artist, error) {
-	ret := _m.Called(ctx, callerOrganizerID, reqOrganizerID)
+// ListOwnArtists provides a mock function with given fields: ctx, callerOrganizerID
+func (_m *MockOrganizerUseCase) ListOwnArtists(ctx context.Context, callerOrganizerID string) ([]*entity.Artist, error) {
+	ret := _m.Called(ctx, callerOrganizerID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListOwnArtists")
@@ -458,19 +458,19 @@ func (_m *MockOrganizerUseCase) ListOwnArtists(ctx context.Context, callerOrgani
 
 	var r0 []*entity.Artist
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) ([]*entity.Artist, error)); ok {
-		return rf(ctx, callerOrganizerID, reqOrganizerID)
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]*entity.Artist, error)); ok {
+		return rf(ctx, callerOrganizerID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) []*entity.Artist); ok {
-		r0 = rf(ctx, callerOrganizerID, reqOrganizerID)
+	if rf, ok := ret.Get(0).(func(context.Context, string) []*entity.Artist); ok {
+		r0 = rf(ctx, callerOrganizerID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Artist)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = rf(ctx, callerOrganizerID, reqOrganizerID)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, callerOrganizerID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -486,14 +486,13 @@ type MockOrganizerUseCase_ListOwnArtists_Call struct {
 // ListOwnArtists is a helper method to define mock.On call
 //   - ctx context.Context
 //   - callerOrganizerID string
-//   - reqOrganizerID string
-func (_e *MockOrganizerUseCase_Expecter) ListOwnArtists(ctx interface{}, callerOrganizerID interface{}, reqOrganizerID interface{}) *MockOrganizerUseCase_ListOwnArtists_Call {
-	return &MockOrganizerUseCase_ListOwnArtists_Call{Call: _e.mock.On("ListOwnArtists", ctx, callerOrganizerID, reqOrganizerID)}
+func (_e *MockOrganizerUseCase_Expecter) ListOwnArtists(ctx interface{}, callerOrganizerID interface{}) *MockOrganizerUseCase_ListOwnArtists_Call {
+	return &MockOrganizerUseCase_ListOwnArtists_Call{Call: _e.mock.On("ListOwnArtists", ctx, callerOrganizerID)}
 }
 
-func (_c *MockOrganizerUseCase_ListOwnArtists_Call) Run(run func(ctx context.Context, callerOrganizerID string, reqOrganizerID string)) *MockOrganizerUseCase_ListOwnArtists_Call {
+func (_c *MockOrganizerUseCase_ListOwnArtists_Call) Run(run func(ctx context.Context, callerOrganizerID string)) *MockOrganizerUseCase_ListOwnArtists_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -503,7 +502,7 @@ func (_c *MockOrganizerUseCase_ListOwnArtists_Call) Return(_a0 []*entity.Artist,
 	return _c
 }
 
-func (_c *MockOrganizerUseCase_ListOwnArtists_Call) RunAndReturn(run func(context.Context, string, string) ([]*entity.Artist, error)) *MockOrganizerUseCase_ListOwnArtists_Call {
+func (_c *MockOrganizerUseCase_ListOwnArtists_Call) RunAndReturn(run func(context.Context, string) ([]*entity.Artist, error)) *MockOrganizerUseCase_ListOwnArtists_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -613,6 +612,66 @@ func (_c *MockOrganizerUseCase_ResolveCaller_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// SetBusinessDetails provides a mock function with given fields: ctx, organizerID, details
+func (_m *MockOrganizerUseCase) SetBusinessDetails(ctx context.Context, organizerID string, details entity.BusinessDetails) (*entity.Organizer, error) {
+	ret := _m.Called(ctx, organizerID, details)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetBusinessDetails")
+	}
+
+	var r0 *entity.Organizer
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.BusinessDetails) (*entity.Organizer, error)); ok {
+		return rf(ctx, organizerID, details)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, entity.BusinessDetails) *entity.Organizer); ok {
+		r0 = rf(ctx, organizerID, details)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Organizer)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, entity.BusinessDetails) error); ok {
+		r1 = rf(ctx, organizerID, details)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockOrganizerUseCase_SetBusinessDetails_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetBusinessDetails'
+type MockOrganizerUseCase_SetBusinessDetails_Call struct {
+	*mock.Call
+}
+
+// SetBusinessDetails is a helper method to define mock.On call
+//   - ctx context.Context
+//   - organizerID string
+//   - details entity.BusinessDetails
+func (_e *MockOrganizerUseCase_Expecter) SetBusinessDetails(ctx interface{}, organizerID interface{}, details interface{}) *MockOrganizerUseCase_SetBusinessDetails_Call {
+	return &MockOrganizerUseCase_SetBusinessDetails_Call{Call: _e.mock.On("SetBusinessDetails", ctx, organizerID, details)}
+}
+
+func (_c *MockOrganizerUseCase_SetBusinessDetails_Call) Run(run func(ctx context.Context, organizerID string, details entity.BusinessDetails)) *MockOrganizerUseCase_SetBusinessDetails_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(entity.BusinessDetails))
+	})
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_SetBusinessDetails_Call) Return(_a0 *entity.Organizer, _a1 error) *MockOrganizerUseCase_SetBusinessDetails_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockOrganizerUseCase_SetBusinessDetails_Call) RunAndReturn(run func(context.Context, string, entity.BusinessDetails) (*entity.Organizer, error)) *MockOrganizerUseCase_SetBusinessDetails_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetPlatformFeeRate provides a mock function with given fields: ctx, organizerID, rateBps
 func (_m *MockOrganizerUseCase) SetPlatformFeeRate(ctx context.Context, organizerID string, rateBps int) (*entity.Organizer, error) {
 	ret := _m.Called(ctx, organizerID, rateBps)
@@ -669,66 +728,6 @@ func (_c *MockOrganizerUseCase_SetPlatformFeeRate_Call) Return(_a0 *entity.Organ
 }
 
 func (_c *MockOrganizerUseCase_SetPlatformFeeRate_Call) RunAndReturn(run func(context.Context, string, int) (*entity.Organizer, error)) *MockOrganizerUseCase_SetPlatformFeeRate_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateSellerDetails provides a mock function with given fields: ctx, organizerID, details
-func (_m *MockOrganizerUseCase) UpdateSellerDetails(ctx context.Context, organizerID string, details entity.SellerDetails) (*entity.Organizer, error) {
-	ret := _m.Called(ctx, organizerID, details)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateSellerDetails")
-	}
-
-	var r0 *entity.Organizer
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, entity.SellerDetails) (*entity.Organizer, error)); ok {
-		return rf(ctx, organizerID, details)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, entity.SellerDetails) *entity.Organizer); ok {
-		r0 = rf(ctx, organizerID, details)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Organizer)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, entity.SellerDetails) error); ok {
-		r1 = rf(ctx, organizerID, details)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockOrganizerUseCase_UpdateSellerDetails_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateSellerDetails'
-type MockOrganizerUseCase_UpdateSellerDetails_Call struct {
-	*mock.Call
-}
-
-// UpdateSellerDetails is a helper method to define mock.On call
-//   - ctx context.Context
-//   - organizerID string
-//   - details entity.SellerDetails
-func (_e *MockOrganizerUseCase_Expecter) UpdateSellerDetails(ctx interface{}, organizerID interface{}, details interface{}) *MockOrganizerUseCase_UpdateSellerDetails_Call {
-	return &MockOrganizerUseCase_UpdateSellerDetails_Call{Call: _e.mock.On("UpdateSellerDetails", ctx, organizerID, details)}
-}
-
-func (_c *MockOrganizerUseCase_UpdateSellerDetails_Call) Run(run func(ctx context.Context, organizerID string, details entity.SellerDetails)) *MockOrganizerUseCase_UpdateSellerDetails_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(entity.SellerDetails))
-	})
-	return _c
-}
-
-func (_c *MockOrganizerUseCase_UpdateSellerDetails_Call) Return(_a0 *entity.Organizer, _a1 error) *MockOrganizerUseCase_UpdateSellerDetails_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockOrganizerUseCase_UpdateSellerDetails_Call) RunAndReturn(run func(context.Context, string, entity.SellerDetails) (*entity.Organizer, error)) *MockOrganizerUseCase_UpdateSellerDetails_Call {
 	_c.Call.Return(run)
 	return _c
 }

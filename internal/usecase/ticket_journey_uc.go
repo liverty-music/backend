@@ -131,7 +131,7 @@ func (uc *ticketJourneyUseCase) ListByUser(ctx context.Context, userID string) (
 // MarkPaid implements [TicketJourneyUseCase].
 func (uc *ticketJourneyUseCase) MarkPaid(ctx context.Context, paid entity.OrderPaidData) error {
 	return uc.repo.Upsert(ctx, &entity.TicketJourney{
-		UserID:  paid.BuyerID,
+		UserID:  paid.UserID,
 		EventID: paid.EventID,
 		Status:  entity.TicketJourneyStatusPaid,
 	})

@@ -103,7 +103,7 @@ func (f *admitFixture) expectAppend() {
 func (f *admitFixture) heldTickets(n int) []*entity.Ticket {
 	out := make([]*entity.Ticket, 0, n)
 	for range n {
-		out = append(out, &entity.Ticket{ID: entity.TicketID(entity.NewID()), HolderID: f.fanID, EventID: f.event.ID, Status: entity.TicketStatusIssued})
+		out = append(out, &entity.Ticket{ID: entity.TicketID(entity.NewID()), UserID: f.fanID, EventID: f.event.ID, Status: entity.TicketStatusIssued})
 	}
 	return out
 }
@@ -297,15 +297,15 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		require.Len(t, f.appended, 2, "one RejectedScan per presented ticket")
 		assert.Equal(t, other[0], f.appended[0].TicketID)
 		assert.Equal(t, f.event.ID, f.appended[0].EventID, "the event of the link that scanned")
-		f.tickets.AssertNotCalled(t, "ListByHolderAndEvent", mock.Anything, mock.Anything, mock.Anything)
+		f.tickets.AssertNotCalled(t, "ListByUserAndEvent", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	// A genuine, fresh code for this event that also presents a ticket the
-	// user does not hold for it is rejected as a whole: ListByHolderAndEvent
+	// user does not hold for it is rejected as a whole: ListByUserAndEvent
 	// does not return that ticket, whoever holds it.
 	foreignTicketTests := []struct {
 		name string
-		// why describes the ticket ListByHolderAndEvent does not return.
+		// why describes the ticket ListByUserAndEvent does not return.
 		why string
 	}{
 		// @spec components/usecase/ticket/admit "Someone else's ticket"
@@ -322,7 +322,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 			f.expectAppend()
 			own := f.heldTickets(2)
 			foreign := entity.TicketID(entity.NewID())
-			f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(own, nil)
+			f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(own, nil)
 
 			got, err := f.admit(f.staff, f.code(f.event.ID, now, own[0].ID, foreign, own[1].ID), now)
 			require.NoError(t, err)
@@ -344,7 +344,7 @@ func TestTicketUseCase_Admit_Code(t *testing.T) {
 		f.expectLinkAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(1)
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).
 			Return(nil, apperr.New(codes.Internal, "db down"))
 
 		_, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
@@ -367,7 +367,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.expectLinkAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(3)
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		for _, tk := range tickets {
 			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.link.ID, now).
 				Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: now}, nil).Once()
@@ -391,7 +391,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.expectAppend()
 		later := evening(18, 40, 0)
 		tickets := f.heldTickets(1)
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, later).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: now}, nil)
 		f.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).
@@ -423,7 +423,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.expectAppend()
 		tickets := f.heldTickets(1)
 		tickets[0].Status = entity.TicketStatusVoided
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil)
 
@@ -443,7 +443,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.expectAppend()
 		later := evening(18, 40, 0)
 		tickets := f.heldTickets(3)
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, later).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: later}, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.link.ID, later).
@@ -474,7 +474,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.expectLinkAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(1)
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil)
 		f.rejects.EXPECT().Append(mock.Anything, mock.Anything).Return(apperr.New(codes.Internal, "db down"))
@@ -494,7 +494,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.expectFanKey()
 		f.expectAppend()
 		tickets := f.heldTickets(1)
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: evening(18, 1, 0)}, nil)
 		f.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).Return(nil, apperr.New(codes.Internal, "db down"))
@@ -512,7 +512,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.expectLinkAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(2)
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: now}, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.link.ID, now).
@@ -529,7 +529,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.expectLinkAndEvent()
 		f.expectFanKey()
 		tickets := f.heldTickets(3)
-		f.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
+		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		// The first ticket is admitted, then the link is revoked: the store
 		// refuses the second (see the "link revoked before the admission"
 		// contract test of Ticket.Admit).
@@ -553,7 +553,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		next.expectLinkAndEvent()
 		next.expectFanKey()
 		next.expectAppend()
-		next.tickets.EXPECT().ListByHolderAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets[:1], nil)
+		next.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets[:1], nil)
 		next.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, next.link.ID, later).
 			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: now}, nil)
 		next.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).

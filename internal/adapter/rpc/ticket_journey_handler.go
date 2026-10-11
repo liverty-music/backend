@@ -77,8 +77,9 @@ func (h *TicketJourneyHandler) Delete(ctx context.Context, req *connect.Request[
 	return connect.NewResponse(&rpc.DeleteResponse{}), nil
 }
 
-// ListByUser retrieves all ticket journeys for the authenticated fan.
-func (h *TicketJourneyHandler) ListByUser(ctx context.Context, _ *connect.Request[rpc.ListByUserRequest]) (*connect.Response[rpc.ListByUserResponse], error) {
+// List returns every ticket journey of the signed-in fan, empty when there is
+// none.
+func (h *TicketJourneyHandler) List(ctx context.Context, _ *connect.Request[rpc.ListRequest]) (*connect.Response[rpc.ListResponse], error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -97,7 +98,7 @@ func (h *TicketJourneyHandler) ListByUser(ctx context.Context, _ *connect.Reques
 		return nil, err
 	}
 
-	return connect.NewResponse(&rpc.ListByUserResponse{
+	return connect.NewResponse(&rpc.ListResponse{
 		Journeys: mapper.TicketJourneysToProto(journeys),
 	}), nil
 }

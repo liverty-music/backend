@@ -86,7 +86,7 @@ type Settlement struct {
 	OrderID OrderID
 	// OrganizerID is the Organizer that receives the payout. Stored denormalized
 	// so the sweeper can look up the Organizer's connected account without
-	// joining through the application/phase/event chain.
+	// joining through the lottery entry/ticket type/event chain.
 	OrganizerID string
 	// EventID is the event this settlement is for. Stored denormalized so the
 	// release-gate check can read events.start_at without joining through

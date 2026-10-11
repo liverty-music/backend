@@ -5,43 +5,56 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 )
 
-// OrganizerToProto maps a domain Organizer to its Protobuf message. The internal
-// zitadel_org_id and operational status are backend-only and intentionally not
-// exposed on the consumer entity.
+// OrganizerToProto maps a domain Organizer to its Protobuf message for the
+// admin and organizer consoles: its id, name, business details and platform
+// fee rate. The internal zitadel_org_id and operational status are
+// backend-only and intentionally not exposed.
 func OrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
 	if o == nil {
 		return nil
 	}
-	return &entityv1.Organizer{
-		Id:                 &entityv1.OrganizerId{Value: o.ID},
-		Name:               &entityv1.OrganizerName{Value: o.Name},
-		SellerDetails:      SellerDetailsToProto(o.SellerDetails),
-		PlatformFeeRateBps: int32(o.PlatformFeeRateBps),
-	}
+	pb := PublicOrganizerToProto(o)
+	pb.PlatformFeeRateBps = int32(o.PlatformFeeRateBps)
+	return pb
 }
 
-// SellerDetailsToProto maps domain seller details to Protobuf, or nil.
-func SellerDetailsToProto(d *entity.SellerDetails) *entityv1.SellerDetails {
-	if d == nil {
+// PublicOrganizerToProto maps a domain Organizer to the Protobuf message a fan
+// sees: its id, name and, when present, business details, which the checkout
+// shows as the 特商法 disclosure. The platform fee rate is the Organizer's
+// business with the platform and is never set.
+func PublicOrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
+	if o == nil {
 		return nil
 	}
-	return &entityv1.SellerDetails{
-		LegalName:          d.LegalName,
-		RepresentativeName: d.RepresentativeName,
-		Address:            d.Address,
-		PhoneNumber:        d.PhoneNumber,
-		ContactEmail:       d.ContactEmail,
+	pb := &entityv1.Organizer{
+		Id:   &entityv1.OrganizerId{Value: o.ID},
+		Name: &entityv1.OrganizerName{Value: o.Name},
 	}
+	if d := o.BusinessDetails; d != nil {
+		pb.LegalName = &entityv1.LegalName{Value: d.LegalName}
+		pb.RepresentativeName = &entityv1.RepresentativeName{Value: d.RepresentativeName}
+		pb.BusinessAddress = &entityv1.BusinessAddress{Value: d.BusinessAddress}
+		pb.BusinessPhoneNumber = &entityv1.PhoneNumber{Value: d.BusinessPhoneNumber}
+		pb.ContactEmail = &entityv1.ContactEmail{Value: d.ContactEmail}
+	}
+	return pb
 }
 
-// SellerDetailsFromProto maps Protobuf seller details to the domain value.
-func SellerDetailsFromProto(pb *entityv1.SellerDetails) entity.SellerDetails {
-	return entity.SellerDetails{
-		LegalName:          pb.GetLegalName(),
-		RepresentativeName: pb.GetRepresentativeName(),
-		Address:            pb.GetAddress(),
-		PhoneNumber:        pb.GetPhoneNumber(),
-		ContactEmail:       pb.GetContactEmail(),
+// BusinessDetailsFromSetRequest maps the five business details of an admin
+// SetBusinessDetails request to the domain value.
+func BusinessDetailsFromSetRequest(
+	legalName *entityv1.LegalName,
+	representativeName *entityv1.RepresentativeName,
+	businessAddress *entityv1.BusinessAddress,
+	businessPhoneNumber *entityv1.PhoneNumber,
+	contactEmail *entityv1.ContactEmail,
+) entity.BusinessDetails {
+	return entity.BusinessDetails{
+		LegalName:           legalName.GetValue(),
+		RepresentativeName:  representativeName.GetValue(),
+		BusinessAddress:     businessAddress.GetValue(),
+		BusinessPhoneNumber: businessPhoneNumber.GetValue(),
+		ContactEmail:        contactEmail.GetValue(),
 	}
 }
 

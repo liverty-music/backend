@@ -453,16 +453,14 @@ func TestOrganizerUseCase_ListOwnArtists(t *testing.T) {
 	tests := []struct {
 		name              string
 		callerOrganizerID string
-		reqOrganizerID    string
 		setup             func(t *testing.T, d *organizerTestDeps)
 		want              []*entity.Artist
 		wantErr           error
 	}{
 		{
-			// @spec components/usecase/organizer/list-own-artists "Own roster"
-			name:              "return own roster when reqOrganizerID matches the caller",
+			// @spec components/usecase/organizer/list-own-artists "Caller's roster"
+			name:              "return the caller's own roster",
 			callerOrganizerID: "org-1",
-			reqOrganizerID:    "org-1",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()
 				d.orgRepo.EXPECT().
@@ -478,19 +476,9 @@ func TestOrganizerUseCase_ListOwnArtists(t *testing.T) {
 			want: []*entity.Artist{{ID: "artist-1"}, {ID: "artist-2"}},
 		},
 		{
-			// @spec components/usecase/organizer/list-own-artists "Another Organizer's roster"
-			name:              "PermissionDenied when reqOrganizerID does not match the caller",
-			callerOrganizerID: "org-1",
-			reqOrganizerID:    "org-999",
-			// Neither Get nor ListArtists must be called — the ownership
-			// check runs before touching the repository.
-			wantErr: apperr.ErrPermissionDenied,
-		},
-		{
-			// @spec components/usecase/organizer/list-own-artists "Own Organizer gone"
+			// @spec components/usecase/organizer/list-own-artists "Caller's Organizer gone"
 			name:              "NotFound when the caller's own organizer no longer exists",
 			callerOrganizerID: "org-1",
-			reqOrganizerID:    "org-1",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()
 				d.orgRepo.EXPECT().
@@ -510,7 +498,7 @@ func TestOrganizerUseCase_ListOwnArtists(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			got, err := d.uc.ListOwnArtists(ctx, tt.callerOrganizerID, tt.reqOrganizerID)
+			got, err := d.uc.ListOwnArtists(ctx, tt.callerOrganizerID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)

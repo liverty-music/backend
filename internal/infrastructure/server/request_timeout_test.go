@@ -91,7 +91,7 @@ func TestConnectServer_RequestTimeout(t *testing.T) {
 		client := concertv1connect.NewConcertServiceClient(ts.Client(), ts.URL)
 
 		start := time.Now()
-		resp, err := client.List(context.Background(), connect.NewRequest(&concertv1.ListRequest{
+		resp, err := client.ListByArtist(context.Background(), connect.NewRequest(&concertv1.ListByArtistRequest{
 			ArtistId: &entityv1.ArtistId{Value: "019a0000-0000-7000-8000-0000000000b1"},
 		}))
 
@@ -105,10 +105,10 @@ func TestConnectServer_RequestTimeout(t *testing.T) {
 		t.Parallel()
 		ts := newTimeoutTestServer(t)
 		client := followv1connect.NewFollowServiceClient(ts.Client(), ts.URL)
-		req := connect.NewRequest(&followv1.ListFollowedRequest{})
+		req := connect.NewRequest(&followv1.ListRequest{})
 		req.Header().Set("Authorization", "Bearer fan-token")
 
-		resp, err := client.ListFollowed(context.Background(), req)
+		resp, err := client.List(context.Background(), req)
 
 		assert.Nil(t, resp)
 		assert.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))

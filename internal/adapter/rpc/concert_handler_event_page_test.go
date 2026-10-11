@@ -105,9 +105,9 @@ func TestConcertHandler_Get(t *testing.T) {
 		c := firstPartyConcert(eventID, date)
 		c.Series.Organizer = &entity.Organizer{
 			ID: eventPageOrganizerID, Name: "Liverty Records",
-			SellerDetails: &entity.SellerDetails{
-				LegalName: "株式会社リバティ", RepresentativeName: "山田 太郎", Address: "東京都渋谷区1-2-3",
-				PhoneNumber: "+81312345678", ContactEmail: "info@example.com",
+			BusinessDetails: &entity.BusinessDetails{
+				LegalName: "株式会社リバティ", RepresentativeName: "山田 太郎", BusinessAddress: "東京都渋谷区1-2-3",
+				BusinessPhoneNumber: "+81312345678", ContactEmail: "info@example.com",
 			},
 			PlatformFeeRateBps: 500,
 		}
@@ -123,7 +123,11 @@ func TestConcertHandler_Get(t *testing.T) {
 		require.NotNil(t, o)
 		assert.Equal(t, eventPageOrganizerID, o.GetId().GetValue())
 		assert.Equal(t, "Liverty Records", o.GetName().GetValue())
-		assert.Equal(t, "株式会社リバティ", o.GetSellerDetails().GetLegalName())
+		assert.Equal(t, "株式会社リバティ", o.GetLegalName().GetValue())
+		assert.Equal(t, "山田 太郎", o.GetRepresentativeName().GetValue())
+		assert.Equal(t, "東京都渋谷区1-2-3", o.GetBusinessAddress().GetValue())
+		assert.Equal(t, "+81312345678", o.GetBusinessPhoneNumber().GetValue())
+		assert.Equal(t, "info@example.com", o.GetContactEmail().GetValue())
 		assert.Zero(t, o.GetPlatformFeeRateBps(), "the platform fee rate is never returned")
 	})
 
@@ -170,7 +174,7 @@ func TestConcertHandler_ListBySeries(t *testing.T) {
 	})
 }
 
-func TestConcertHandler_ListByFollower_SeriesOrganizer(t *testing.T) {
+func TestConcertHandler_ListFollowed_SeriesOrganizer(t *testing.T) {
 	t.Parallel()
 
 	const internalUserID = "internal-user-uuid-1"
@@ -212,7 +216,7 @@ func TestConcertHandler_ListByFollower_SeriesOrganizer(t *testing.T) {
 			concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID, user.Home, mock.Anything).
 				Return([]*entity.ProximityGroup{{Date: date, Away: []*entity.Concert{tt.concert}}}, nil).Once()
 
-			resp, err := h.ListByFollower(ctx, connect.NewRequest(&concertv1.ListByFollowerRequest{}))
+			resp, err := h.ListFollowed(ctx, connect.NewRequest(&concertv1.ListFollowedRequest{}))
 
 			require.NoError(t, err)
 			require.Len(t, resp.Msg.Groups, 1)
@@ -226,7 +230,7 @@ func TestConcertHandler_ListByFollower_SeriesOrganizer(t *testing.T) {
 	}
 }
 
-func TestConcertHandler_ListByFollower_TourInOneList(t *testing.T) {
+func TestConcertHandler_ListFollowed_TourInOneList(t *testing.T) {
 	// @spec components/adapter/fan/api/rpc/concert "Tour in one list"
 	t.Parallel()
 	h, concertUC, userRepo := newEventPageHandler(t)
@@ -244,7 +248,7 @@ func TestConcertHandler_ListByFollower_TourInOneList(t *testing.T) {
 			{Date: day(22), Away: []*entity.Concert{c3}},
 		}, nil).Once()
 
-	resp, err := h.ListByFollower(ctx, connect.NewRequest(&concertv1.ListByFollowerRequest{}))
+	resp, err := h.ListFollowed(ctx, connect.NewRequest(&concertv1.ListFollowedRequest{}))
 
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.Groups, 3)

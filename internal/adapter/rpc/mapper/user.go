@@ -11,7 +11,9 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 )
 
-// UserToProto converts domain User entity to protobuf User.
+// UserToProto converts domain User entity to protobuf User: its profile
+// fields, and its full name and phone number when set. It never carries the
+// home's centroid or a verification level.
 func UserToProto(user *entity.User) *proto.User {
 	if user == nil {
 		return nil
@@ -36,7 +38,12 @@ func UserToProto(user *entity.User) *proto.User {
 		lang := user.PreferredLanguage
 		pb.PreferredLanguage = &lang
 	}
-	pb.HolderIdentity = HolderIdentityToProto(user.HolderIdentity)
+	if user.FullName != "" {
+		pb.FullName = &proto.FullName{Value: user.FullName}
+	}
+	if user.PhoneNumber != "" {
+		pb.PhoneNumber = &proto.PhoneNumber{Value: user.PhoneNumber}
+	}
 	return pb
 }
 
@@ -94,25 +101,6 @@ func GetExternalUserID(ctx context.Context) (string, error) {
 	return claims.Sub, nil
 }
 
-// RequireUserIDMatch verifies that the userID supplied by the client in the
-// request body matches the caller's authenticated userID. It returns
-// InvalidArgument when reqUserID is empty and PermissionDenied when the two
-// values differ.
-//
-// Handlers for per-user RPCs that expose an explicit user_id field in their
-// request message MUST invoke this helper before performing any business
-// logic so that cross-user requests are rejected before they reach the
-// persistence layer.
-func RequireUserIDMatch(callerUserID, reqUserID string) error {
-	if reqUserID == "" {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("user_id is required"))
-	}
-	if reqUserID != callerUserID {
-		return connect.NewError(connect.CodePermissionDenied, errors.New("user_id does not match authenticated user"))
-	}
-	return nil
-}
-
 // NewUserFromCreateRequest converts JWT claims and a CreateRequest to a domain NewUser.
 //
 // Security note: All identity fields (external_id, email, name) are extracted from
@@ -134,4 +122,40 @@ func NewUserFromCreateRequest(claims *auth.Claims, req *userv1.CreateRequest) *e
 		Home:              ProtoHomeToEntity(req.GetHome()),
 		PreferredLanguage: req.GetPreferredLanguage(),
 	}
+}
+
+// PersonalDetailsFromUpdateRequest returns the full name and phone number a
+// UserService.Update request gives, nil for a value not given. It fails when
+// neither is given, a given value is empty, or a given value breaks the User's
+// personal details rule ([entity.ValidatePersonalDetails]); the caller wraps
+// the error as InvalidArgument.
+func PersonalDetailsFromUpdateRequest(req *userv1.UpdateRequest) (fullName, phoneNumber *string, err error) {
+	if req.FullName == nil && req.PhoneNumber == nil {
+		return nil, nil, errors.New("at least one of full_name and phone_number must be given")
+	}
+	if req.FullName != nil {
+		v := req.GetFullName().GetValue()
+		if v == "" {
+			return nil, nil, errors.New("full_name must not be empty")
+		}
+		fullName = &v
+	}
+	if req.PhoneNumber != nil {
+		v := req.GetPhoneNumber().GetValue()
+		if v == "" {
+			return nil, nil, errors.New("phone_number must not be empty")
+		}
+		phoneNumber = &v
+	}
+	var name, phone string
+	if fullName != nil {
+		name = *fullName
+	}
+	if phoneNumber != nil {
+		phone = *phoneNumber
+	}
+	if err := entity.ValidatePersonalDetails(name, phone); err != nil {
+		return nil, nil, err
+	}
+	return fullName, phoneNumber, nil
 }

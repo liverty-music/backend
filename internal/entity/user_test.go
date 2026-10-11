@@ -1,6 +1,7 @@
 package entity_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -191,4 +192,81 @@ func TestHome_Validate(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestValidatePersonalDetails(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		fullName    string
+		phoneNumber string
+	}
+	tests := []struct {
+		name  string
+		args  args
+		valid bool
+	}{
+		{
+			// @spec components/entity/user "Details complete"
+			name:  "details complete",
+			args:  args{fullName: "山田 花子", phoneNumber: "+819012345678"},
+			valid: true,
+		},
+		{
+			// @spec components/entity/user "Domestic-format phone number"
+			name: "domestic format with hyphens",
+			args: args{fullName: "山田 花子", phoneNumber: "090-1234-5678"},
+		},
+		{
+			name: "domestic format without hyphens",
+			args: args{fullName: "山田 花子", phoneNumber: "09012345678"},
+		},
+		{
+			// @spec components/entity/user "Phone number too long"
+			name: "phone number too long",
+			args: args{fullName: "山田 花子", phoneNumber: "+" + strings.Repeat("1", 16)},
+		},
+		{
+			name:  "phone number of 15 digits",
+			args:  args{fullName: "山田 花子", phoneNumber: "+" + strings.Repeat("1", 15)},
+			valid: true,
+		},
+		{
+			// @spec components/entity/user "Not given yet"
+			name:  "not given yet",
+			args:  args{},
+			valid: true,
+		},
+		{
+			name:  "name of 200 characters",
+			args:  args{fullName: strings.Repeat("名", 200), phoneNumber: "+819012345678"},
+			valid: true,
+		},
+		{
+			name: "name of 201 characters",
+			args: args{fullName: strings.Repeat("名", 201), phoneNumber: "+819012345678"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			user := &entity.User{FullName: tt.args.fullName, PhoneNumber: tt.args.phoneNumber}
+			err := user.ValidatePersonalDetails()
+
+			if tt.valid {
+				assert.NoError(t, err)
+				return
+			}
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestUser_HasPersonalDetails(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, (&entity.User{FullName: "山田 花子", PhoneNumber: "+819012345678"}).HasPersonalDetails())
+	assert.False(t, (&entity.User{FullName: "山田 花子"}).HasPersonalDetails())
+	assert.False(t, (&entity.User{}).HasPersonalDetails())
 }
