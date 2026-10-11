@@ -1,7 +1,7 @@
 package usecase_test
 
 // notificationRequestMsgID is unexported, so its determinism is exercised
-// indirectly through the producers that call it (PushNotificationUseCase.
+// indirectly through the producers that call it (PushSubscriptionUseCase.
 // NotifyNewConcerts, SalesPhaseAnnouncementUseCase.AnnounceDiscoveredPhase):
 // this test asserts the id EventPublisher.PublishEventWithID actually
 // receives is stable across repeated calls with the same business keys, and
@@ -90,7 +90,7 @@ func TestNotifyNewConcerts_RequestIDIsDeterministic(t *testing.T) {
 		followRepo := entitymocks.NewMockFollowRepository(t)
 		pushSubRepo := entitymocks.NewMockPushSubscriptionRepository(t)
 		publisher := ucmocks.NewMockEventPublisher(t)
-		uc := usecase.NewPushNotificationUseCase(artistRepo, concertRepo, followRepo, pushSubRepo, publisher, newTestLogger(t))
+		uc := usecase.NewPushSubscriptionUseCase(artistRepo, concertRepo, followRepo, pushSubRepo, publisher, newTestLogger(t))
 
 		area := "JP-13"
 		artistRepo.EXPECT().Get(ctx, "artist-1").Return(&entity.Artist{ID: "artist-1", Name: "Test Artist"}, nil).Once()

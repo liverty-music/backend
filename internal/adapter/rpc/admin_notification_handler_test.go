@@ -34,7 +34,7 @@ func prodConfig() config.BaseConfig {
 
 const notifyTestArtistID = "019a0000-0000-7000-8000-0000000000a1"
 
-func newAdminNotificationHandler(t *testing.T, uc *ucmocks.MockPushNotificationUseCase, cfg config.BaseConfig) *handler.AdminNotificationHandler {
+func newAdminNotificationHandler(t *testing.T, uc *ucmocks.MockPushSubscriptionUseCase, cfg config.BaseConfig) *handler.AdminNotificationHandler {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 	t.Run("non-production call", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/notification "Non-production call"
-		uc := ucmocks.NewMockPushNotificationUseCase(t)
+		uc := ucmocks.NewMockPushSubscriptionUseCase(t)
 		req := notifyRequest(2)
 		uc.EXPECT().NotifyNewConcerts(mock.Anything, usecase.ConcertCreatedData{
 			ArtistID:   notifyTestArtistID,
@@ -75,7 +75,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 	t.Run("production", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/notification "Production"
-		h := newAdminNotificationHandler(t, ucmocks.NewMockPushNotificationUseCase(t), prodConfig())
+		h := newAdminNotificationHandler(t, ucmocks.NewMockPushSubscriptionUseCase(t), prodConfig())
 
 		_, err := callThroughAdminPipeline(t, adminCtx(), notifyRequest(2), h.NotifyNewConcerts)
 
@@ -86,7 +86,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/notification "Not signed in"
 		for _, cfg := range []config.BaseConfig{devConfig(), prodConfig()} {
-			h := newAdminNotificationHandler(t, ucmocks.NewMockPushNotificationUseCase(t), cfg)
+			h := newAdminNotificationHandler(t, ucmocks.NewMockPushSubscriptionUseCase(t), cfg)
 
 			_, viaPipeline := callThroughAdminPipeline(t, context.Background(), notifyRequest(2), h.NotifyNewConcerts)
 			_, direct := h.NotifyNewConcerts(context.Background(), connect.NewRequest(notifyRequest(2)))
@@ -99,7 +99,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 	t.Run("caller without the admin role", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/notification "Caller without the admin role"
-		h := newAdminNotificationHandler(t, ucmocks.NewMockPushNotificationUseCase(t), devConfig())
+		h := newAdminNotificationHandler(t, ucmocks.NewMockPushSubscriptionUseCase(t), devConfig())
 
 		_, err := callThroughAdminPipeline(t, nonAdminCtx(), notifyRequest(2), h.NotifyNewConcerts)
 
@@ -109,7 +109,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 	t.Run("no concerts", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/notification "No concerts"
-		h := newAdminNotificationHandler(t, ucmocks.NewMockPushNotificationUseCase(t), devConfig())
+		h := newAdminNotificationHandler(t, ucmocks.NewMockPushSubscriptionUseCase(t), devConfig())
 
 		_, viaPipeline := callThroughAdminPipeline(t, adminCtx(), notifyRequest(0), h.NotifyNewConcerts)
 		_, direct := h.NotifyNewConcerts(adminCtx(), connect.NewRequest(notifyRequest(0)))
@@ -121,7 +121,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 	t.Run("too many concerts", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/notification "Too many concerts"
-		h := newAdminNotificationHandler(t, ucmocks.NewMockPushNotificationUseCase(t), devConfig())
+		h := newAdminNotificationHandler(t, ucmocks.NewMockPushSubscriptionUseCase(t), devConfig())
 
 		_, err := callThroughAdminPipeline(t, adminCtx(), notifyRequest(1001), h.NotifyNewConcerts)
 
@@ -147,7 +147,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := newAdminNotificationHandler(t, ucmocks.NewMockPushNotificationUseCase(t), devConfig())
+			h := newAdminNotificationHandler(t, ucmocks.NewMockPushSubscriptionUseCase(t), devConfig())
 
 			_, err := h.NotifyNewConcerts(adminCtx(), connect.NewRequest(tt.req))
 
@@ -157,7 +157,7 @@ func TestAdminNotificationHandler_NotifyNewConcerts(t *testing.T) {
 
 	t.Run("return the usecase failure unchanged", func(t *testing.T) {
 		t.Parallel()
-		uc := ucmocks.NewMockPushNotificationUseCase(t)
+		uc := ucmocks.NewMockPushSubscriptionUseCase(t)
 		uc.EXPECT().NotifyNewConcerts(mock.Anything, mock.Anything).
 			Return(apperr.New(apperrcodes.InvalidArgument, "ownership violation")).Once()
 		h := newAdminNotificationHandler(t, uc, devConfig())

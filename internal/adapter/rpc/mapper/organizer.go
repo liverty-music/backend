@@ -7,7 +7,7 @@ import (
 
 // OrganizerToProto maps a domain Organizer to its Protobuf message for the
 // admin and organizer consoles: its id, name, business details and platform
-// fee rate. The internal zitadel_org_id and operational status are
+// fee rate. The internal provider_organizer_id and operational status are
 // backend-only and intentionally not exposed.
 func OrganizerToProto(o *entity.Organizer) *entityv1.Organizer {
 	if o == nil {

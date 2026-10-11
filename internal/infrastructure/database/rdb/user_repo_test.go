@@ -14,7 +14,7 @@ import (
 
 func newTestUser(externalID, email, name string) *entity.NewUser {
 	return &entity.NewUser{
-		ExternalID:        externalID,
+		ProviderUserID:    externalID,
 		Email:             email,
 		Name:              name,
 		PreferredLanguage: "ja",
@@ -98,7 +98,7 @@ func TestUserRepository_Create(t *testing.T) {
 			assert.NotEmpty(t, got.ID)
 			assert.Equal(t, tt.args.params.Email, got.Email)
 			assert.Equal(t, tt.args.params.Name, got.Name)
-			assert.Equal(t, tt.args.params.ExternalID, got.ExternalID)
+			assert.Equal(t, tt.args.params.ProviderUserID, got.ProviderUserID)
 			// Create returns the in-memory entity built from params, so
 			// PreferredLanguage MUST round-trip through entity.CreateUser.
 			// Catches regressions where a refactor would drop the field
@@ -188,7 +188,7 @@ func TestUserRepository_Get(t *testing.T) {
 	}
 }
 
-func TestUserRepository_GetByExternalID(t *testing.T) {
+func TestUserRepository_GetByProviderUserID(t *testing.T) {
 	repo := rdb.NewUserRepository(testDB)
 	ctx := context.Background()
 
@@ -229,7 +229,7 @@ func TestUserRepository_GetByExternalID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			extID := tt.setup()
 
-			got, err := repo.GetByExternalID(ctx, extID)
+			got, err := repo.GetByProviderUserID(ctx, extID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -237,7 +237,7 @@ func TestUserRepository_GetByExternalID(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, extID, got.ExternalID)
+			assert.Equal(t, extID, got.ProviderUserID)
 		})
 	}
 }
@@ -495,7 +495,7 @@ func TestUserRepository_Delete(t *testing.T) {
 		artistID := seedArtist(t, "del-artist", entity.NewID())
 		_, err = testDB.Pool.Exec(ctx, `INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)`, user.ID, artistID)
 		require.NoError(t, err)
-		_, err = rdb.NewKycRepository(testDB).Create(ctx, entity.NewKyc(user.ID, "ps-"+user.ID, entity.VerificationMethodJPKI))
+		_, err = rdb.NewIdentityVerificationRepository(testDB).Create(ctx, entity.NewIdentityVerification(user.ID, "ps-"+user.ID, entity.VerificationMethodJPKI))
 		require.NoError(t, err)
 
 		require.NoError(t, repo.Delete(ctx, user.ID))
@@ -707,7 +707,7 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "ja", created.PreferredLanguage)
 
-		// Second Create: duplicate external_id returns AlreadyExists at repo layer.
+		// Second Create: duplicate provider_user_id returns AlreadyExists at repo layer.
 		// The use case handles idempotency; at the repo level we just confirm the
 		// existing row's preferred_language is still "ja" after the conflict.
 		second := newTestUser("ext-lang-3", "lang3@example.com", "Lang3")
@@ -717,7 +717,7 @@ func TestUserRepository_PreferredLanguage(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 
 		// Verify the stored preferred_language was NOT changed to "en".
-		got, err := repo.GetByExternalID(ctx, "ext-lang-3")
+		got, err := repo.GetByProviderUserID(ctx, "ext-lang-3")
 		require.NoError(t, err)
 		assert.Equal(t, "ja", got.PreferredLanguage, "idempotent Create must not overwrite existing preferred_language")
 	})
@@ -805,7 +805,7 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 		name       = "NullScan"
 	)
 	created, err := repo.Create(ctx, &entity.NewUser{
-		ExternalID:        externalID,
+		ProviderUserID:    externalID,
 		Email:             email,
 		Name:              name,
 		PreferredLanguage: "",
@@ -834,7 +834,7 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 	})
 
 	t.Run("GetByExternalID scans NULL columns without error", func(t *testing.T) {
-		got, err := repo.GetByExternalID(ctx, externalID)
+		got, err := repo.GetByProviderUserID(ctx, externalID)
 		require.NoError(t, err)
 		assertEmptyNullableFields(t, got)
 	})
@@ -853,12 +853,12 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 	})
 
 	t.Run("Update returns row with NULL columns scanned cleanly", func(t *testing.T) {
-		// Update touches name + email + country + time_zone + external_id.
+		// Update touches name + email + country + time_zone + provider_user_id.
 		// We pass empty country / time_zone again so the post-update row
 		// still has NULL there; the CTE-RETURNING re-scans the row, which
 		// is the exact path that crashed on prod.
 		updated, err := repo.Update(ctx, created.ID, &entity.NewUser{
-			ExternalID:        externalID,
+			ProviderUserID:    externalID,
 			Email:             email,
 			Name:              name + "-updated",
 			PreferredLanguage: "", // ignored by Update; see updateUserQuery

@@ -28,7 +28,7 @@ func TestTicket_IsAdmissible(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ticket := &entity.Ticket{Status: tt.status, AdmittedTime: tt.admitted}
+			ticket := &entity.Ticket{Status: tt.status, AdmitTime: tt.admitted}
 			assert.Equal(t, tt.want, ticket.IsAdmissible())
 		})
 	}

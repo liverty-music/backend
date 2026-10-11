@@ -100,9 +100,9 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 		orderID = entity.OrderID("order-dup")
 	)
 	orderRepo := &stubOrderRepo{
-		getByPaymentIntentRefFn: func(_ context.Context, _ string) (*entity.Order, error) {
+		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
 			return &entity.Order{ID: orderID, Status: entity.OrderStatusPaid,
-				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: piRef}}, nil
+				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: piRef}}, nil
 		},
 	}
 
@@ -116,11 +116,11 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 	svc := newWebhookSvc(processedRepo, orderRepo, refundUC, t)
 
 	event := usecase.StripeWebhookEvent{
-		ProviderEventID:  "evt_dup_001",
-		Type:             usecase.StripeEventChargeDisputeCreated,
-		ChargeRef:        "ch_dup",
-		PaymentIntentRef: piRef, // real production path: pi_ used to resolve Order
-		ReceivedAt:       time.Now(),
+		ProviderEventID:   "evt_dup_001",
+		Type:              usecase.StripeEventChargeDisputeCreated,
+		ProviderChargeID:  "ch_dup",
+		ProviderPaymentID: piRef, // real production path: pi_ used to resolve Order
+		ReceivedAt:        time.Now(),
 	}
 
 	// First delivery — should process and mark.
@@ -135,14 +135,14 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dispute event — resolved via PaymentIntentRef → Order → RefundOrder(DISPUTE)
+// Dispute event — resolved via ProviderPaymentID → Order → RefundOrder(DISPUTE)
 //
 // Fix #1: the real production path. Previously OrderID was pre-set in the event
-// (which the HTTP handler could never do). Now the handler extracts ChargeRef +
-// PaymentIntentRef; the service calls GetByPaymentIntentRef to resolve the Order.
+// (which the HTTP handler could never do). Now the handler extracts ProviderChargeID +
+// ProviderPaymentID; the service calls GetByProviderPaymentID to resolve the Order.
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestStripeWebhook_DisputeCreated_ResolvesViaPaymentIntentRef(t *testing.T) {
+func TestStripeWebhook_DisputeCreated_ResolvesViaProviderPaymentID(t *testing.T) {
 	// @spec components/adapter/fan/api/webhook/payment-events "Dispute on a platform order"
 	t.Parallel()
 
@@ -156,14 +156,14 @@ func TestStripeWebhook_DisputeCreated_ResolvesViaPaymentIntentRef(t *testing.T) 
 
 	// The order repo is the real resolution path: pi_ → Order.
 	orderRepo := &stubOrderRepo{
-		getByPaymentIntentRefFn: func(_ context.Context, ref string) (*entity.Order, error) {
+		getByProviderPaymentIDFn: func(_ context.Context, ref string) (*entity.Order, error) {
 			assert.Equal(t, piRef, ref)
 			return &entity.Order{
 				ID:     orderID,
 				Status: entity.OrderStatusPaid,
 				Payment: entity.Payment{
-					Provider:         entity.PaymentProviderStripe,
-					PaymentIntentRef: piRef,
+					Provider:          entity.PaymentProviderStripe,
+					ProviderPaymentID: piRef,
 				},
 			}, nil
 		},
@@ -184,11 +184,11 @@ func TestStripeWebhook_DisputeCreated_ResolvesViaPaymentIntentRef(t *testing.T) 
 	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, orderRepo, refundUC, t)
 
 	require.NoError(t, svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
-		ProviderEventID:  "evt_dispute_001",
-		Type:             usecase.StripeEventChargeDisputeCreated,
-		ChargeRef:        chRef,
-		PaymentIntentRef: piRef,
-		ReceivedAt:       time.Now(),
+		ProviderEventID:   "evt_dispute_001",
+		Type:              usecase.StripeEventChargeDisputeCreated,
+		ProviderChargeID:  chRef,
+		ProviderPaymentID: piRef,
+		ReceivedAt:        time.Now(),
 	}))
 
 	assert.Equal(t, orderID, gotOrderID, "RefundOrder must be called with the resolved OrderID")
@@ -196,10 +196,10 @@ func TestStripeWebhook_DisputeCreated_ResolvesViaPaymentIntentRef(t *testing.T) 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dispute with no PaymentIntentRef — logs warning, returns nil (no retry)
+// Dispute with no ProviderPaymentID — logs warning, returns nil (no retry)
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestStripeWebhook_DisputeCreated_NoPaymentIntentRef_NoError(t *testing.T) {
+func TestStripeWebhook_DisputeCreated_NoProviderPaymentID_NoError(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -214,13 +214,13 @@ func TestStripeWebhook_DisputeCreated_NoPaymentIntentRef_NoError(t *testing.T) {
 
 	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, &stubOrderRepo{}, refundUC, t)
 
-	// No PaymentIntentRef — cannot resolve Order; handler warns and accepts.
+	// No ProviderPaymentID — cannot resolve Order; handler warns and accepts.
 	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
-		ProviderEventID:  "evt_dispute_no_pi",
-		Type:             usecase.StripeEventChargeDisputeCreated,
-		ChargeRef:        "ch_no_pi",
-		PaymentIntentRef: "", // missing
-		ReceivedAt:       time.Now(),
+		ProviderEventID:   "evt_dispute_no_pi",
+		Type:              usecase.StripeEventChargeDisputeCreated,
+		ProviderChargeID:  "ch_no_pi",
+		ProviderPaymentID: "", // missing
+		ReceivedAt:        time.Now(),
 	})
 	require.NoError(t, err)
 	assert.False(t, refundCalled, "RefundOrder must NOT be called when PaymentIntentRef is missing")
@@ -237,7 +237,7 @@ func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
 	ctx := context.Background()
 
 	orderRepo := &stubOrderRepo{
-		getByPaymentIntentRefFn: func(_ context.Context, _ string) (*entity.Order, error) {
+		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
 			return nil, apperr.ErrNotFound
 		},
 	}
@@ -253,11 +253,11 @@ func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
 	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, orderRepo, refundUC, t)
 
 	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
-		ProviderEventID:  "evt_dispute_notfound",
-		Type:             usecase.StripeEventChargeDisputeCreated,
-		ChargeRef:        "ch_notfound",
-		PaymentIntentRef: "pi_notfound",
-		ReceivedAt:       time.Now(),
+		ProviderEventID:   "evt_dispute_notfound",
+		Type:              usecase.StripeEventChargeDisputeCreated,
+		ProviderChargeID:  "ch_notfound",
+		ProviderPaymentID: "pi_notfound",
+		ReceivedAt:        time.Now(),
 	})
 	require.NoError(t, err)
 	assert.False(t, refundCalled, "RefundOrder must NOT be called when Order cannot be found")
@@ -273,7 +273,7 @@ func TestStripeWebhook_DisputeCreated_AlreadyRefunded_Acknowledged(t *testing.T)
 
 	const orderID = entity.OrderID("order-already-refunded")
 	orderRepo := &stubOrderRepo{
-		getByPaymentIntentRefFn: func(_ context.Context, _ string) (*entity.Order, error) {
+		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
 			return &entity.Order{ID: orderID, Status: entity.OrderStatusRefunded}, nil
 		},
 	}
@@ -289,11 +289,11 @@ func TestStripeWebhook_DisputeCreated_AlreadyRefunded_Acknowledged(t *testing.T)
 	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, orderRepo, refundUC, t)
 
 	err := svc.HandleEvent(context.Background(), usecase.StripeWebhookEvent{
-		ProviderEventID:  "evt_dispute_after_refund",
-		Type:             usecase.StripeEventChargeDisputeCreated,
-		ChargeRef:        "ch_after_refund",
-		PaymentIntentRef: "pi_after_refund",
-		ReceivedAt:       time.Now(),
+		ProviderEventID:   "evt_dispute_after_refund",
+		Type:              usecase.StripeEventChargeDisputeCreated,
+		ProviderChargeID:  "ch_after_refund",
+		ProviderPaymentID: "pi_after_refund",
+		ReceivedAt:        time.Now(),
 	})
 
 	require.NoError(t, err, "the notice is acknowledged")
@@ -305,7 +305,7 @@ func TestStripeWebhook_DisputeCreated_AlreadyRefunded_Acknowledged(t *testing.T)
 // charge.refunded — informational; no RefundOrder call
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestStripeWebhook_ChargeRefunded_Informational(t *testing.T) {
+func TestStripeWebhook_ProviderChargeIDunded_Informational(t *testing.T) {
 	t.Parallel()
 	// @spec components/adapter/fan/api/webhook/payment-events "Refund confirmation"
 
@@ -322,10 +322,10 @@ func TestStripeWebhook_ChargeRefunded_Informational(t *testing.T) {
 	svc := newWebhookSvc(&stubProcessedWebhookEventRepo{}, &stubOrderRepo{}, refundUC, t)
 
 	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
-		ProviderEventID: "evt_charge_refunded_001",
-		Type:            usecase.StripeEventChargeRefunded,
-		ChargeRef:       "ch_refunded",
-		ReceivedAt:      time.Now(),
+		ProviderEventID:  "evt_charge_refunded_001",
+		Type:             usecase.StripeEventProviderChargeIDunded,
+		ProviderChargeID: "ch_refunded",
+		ReceivedAt:       time.Now(),
 	})
 	require.NoError(t, err)
 	assert.False(t, refundCalled, "RefundOrder must NOT be called for informational charge.refunded")
@@ -368,10 +368,10 @@ func TestStripeWebhook_IsProcessedDBError_Propagated(t *testing.T) {
 	svc := newWebhookSvc(processedRepo, &stubOrderRepo{}, &stubRefundUC{}, t)
 
 	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
-		ProviderEventID:  "evt_db_err",
-		Type:             usecase.StripeEventChargeDisputeCreated,
-		PaymentIntentRef: "pi_db_err",
-		ReceivedAt:       time.Now(),
+		ProviderEventID:   "evt_db_err",
+		Type:              usecase.StripeEventChargeDisputeCreated,
+		ProviderPaymentID: "pi_db_err",
+		ReceivedAt:        time.Now(),
 	})
 	require.Error(t, err, "DB error from IsProcessed must be propagated so Stripe retries")
 }
@@ -391,9 +391,9 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 	)
 
 	orderRepo := &stubOrderRepo{
-		getByPaymentIntentRefFn: func(_ context.Context, _ string) (*entity.Order, error) {
+		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
 			return &entity.Order{ID: orderID, Status: entity.OrderStatusPaid,
-				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: piRef}}, nil
+				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: piRef}}, nil
 		},
 	}
 
@@ -408,11 +408,11 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 	svc := newWebhookSvc(processedRepo, orderRepo, &stubRefundUC{}, t)
 
 	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
-		ProviderEventID:  "evt_mark_fail",
-		Type:             usecase.StripeEventChargeDisputeCreated,
-		ChargeRef:        "ch_mark_fail",
-		PaymentIntentRef: piRef,
-		ReceivedAt:       time.Now(),
+		ProviderEventID:   "evt_mark_fail",
+		Type:              usecase.StripeEventChargeDisputeCreated,
+		ProviderChargeID:  "ch_mark_fail",
+		ProviderPaymentID: piRef,
+		ReceivedAt:        time.Now(),
 	})
 	// Fix #4: error must propagate so handler returns 500 → Stripe retries.
 	require.Error(t, err, "MarkProcessed failure must propagate so Stripe retries")
@@ -421,10 +421,10 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 func TestStripeWebhook_PaymentIntentSucceeded(t *testing.T) {
 	t.Parallel()
 	event := usecase.StripeWebhookEvent{
-		ProviderEventID:  "evt_pi_1",
-		Type:             usecase.StripeEventPaymentIntentSucceeded,
-		PaymentIntentRef: "pi_1",
-		ReceivedAt:       time.Now(),
+		ProviderEventID:   "evt_pi_1",
+		Type:              usecase.StripeEventPaymentIntentSucceeded,
+		ProviderPaymentID: "pi_1",
+		ReceivedAt:        time.Now(),
 	}
 
 	t.Run("checkout charge completes", func(t *testing.T) {

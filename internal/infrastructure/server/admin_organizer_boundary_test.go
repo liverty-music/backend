@@ -124,11 +124,11 @@ func TestAdminServer_OrganizerReads(t *testing.T) {
 		t.Parallel()
 		organizerUC := usecasemocks.NewMockOrganizerUseCase(t)
 		organizerUC.EXPECT().Get(mock.Anything, otherID).Return(&entity.Organizer{
-			ID:            otherID,
-			Name:          "Old Label",
-			OperatorEmail: "operator@example.com",
-			ZitadelOrgID:  "zitadel-org-1",
-			Status:        entity.OrganizerStatusDeactivated,
+			ID:                  otherID,
+			Name:                "Old Label",
+			OperatorEmail:       "operator@example.com",
+			ProviderOrganizerID: "zitadel-org-1",
+			Status:              entity.OrganizerStatusDeactivated,
 		}, nil).Once()
 		client := newAdminOrganizerClient(t, organizerUC)
 

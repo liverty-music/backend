@@ -65,7 +65,7 @@ func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *u
 			return artistv1connect.NewArtistServiceHandler(rpc.NewArtistHandler(artistUC, logger), opts...)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return adminconcertv1connect.NewConcertServiceHandler(rpc.NewAdminConcertHandler(concertUC, mapper.NewMediaURLBuilder(""), logger), opts...)
+			return adminconcertv1connect.NewConcertServiceHandler(rpc.NewAdminConcertHandler(concertUC, mapper.NewSeriesImageURLBuilder(""), logger), opts...)
 		},
 	}
 

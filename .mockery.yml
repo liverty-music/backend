@@ -14,7 +14,7 @@ packages:
       TicketUseCase:
       EntryUseCase:
       FollowUseCase:
-      PushNotificationUseCase:
+      PushSubscriptionUseCase:
       ArtistImageSyncUseCase:
       TicketJourneyUseCase:
       CentroidResolver:
@@ -31,14 +31,14 @@ packages:
       OrganizerProvisioner:
       ConcertAuthoringUseCase:
       ImageStorer:
-      KycUseCase:
-      PocketSignVerifier:
-      LotteryUseCase:
+      IdentityVerificationUseCase:
+      IdentityVerifier:
+      LotteryEntryUseCase:
       EventPublishStatePort:
       IssuanceUseCase:
       WalletPublicKeyUseCase:
       ReceptionLinkUseCase:
-      MediaUseCase:
+      SeriesImageUseCase:
       TicketSaleUseCase:
       TicketTypeUseCase:
       CheckoutUseCase:
@@ -49,10 +49,10 @@ packages:
       FollowRepository:
       ConcertRepository:
       SeriesRepository:
-      MediaRepository:
+      SeriesImageRepository:
       ConcertSearcher:
       UserRepository:
-      SearchLogRepository:
+      ConcertSearchRepository:
       VenueRepository:
       VenueMapCatalog:
       TicketMinter:
@@ -68,12 +68,12 @@ packages:
       SalesPhaseReminderRepository:
       SalesPhaseSearcher:
       SalesPhaseSearchLogRepository:
-      StagedConcertRepository:
-      RejectedConcertLogRepository:
+      ConcertCandidateRepository:
+      RejectedConcertRepository:
       SuppressedConcertRepository:
       NotificationRepository:
       OrganizerRepository:
-      KycRepository:
+      IdentityVerificationRepository:
       LotteryEntryRepository:
       IssuanceRepository:
       OrderRepository:
@@ -82,7 +82,7 @@ packages:
       IdentityRemover:
       PaymentAuthorizationPort:
       PaymentCapturePort:
-      PaymentSettlementPort:
+      SettlementPayoutRepository:
       TicketSaleRepository:
       CheckoutRepository:
       CheckoutAuthorizationPort:

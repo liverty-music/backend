@@ -32,14 +32,14 @@ func (c *countingCardHold) VerifyAuthorization(context.Context, string, int64) e
 func (c *countingCardHold) CaptureAuthorization(_ context.Context, ref string) (*entity.CapturedPayment, error) {
 	c.captures.Add(1)
 	time.Sleep(100 * time.Millisecond)
-	return &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: ref, AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}, nil
+	return &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: ref, AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}, nil
 }
 
 func (c *countingCardHold) CancelAuthorization(context.Context, string) error { return nil }
 
 // GetCapturedPayment reads back the charged payment's facets.
 func (c *countingCardHold) GetCapturedPayment(_ context.Context, ref string) (*entity.CapturedPayment, error) {
-	return &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: ref, AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}, nil
+	return &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: ref, AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}, nil
 }
 
 // newCheckoutIssuance wires IssuanceUseCase on the real repositories and the
@@ -78,7 +78,7 @@ func TestIssueFromCheckout_Concurrency(t *testing.T) {
 	authorized := func(t *testing.T) *entity.Checkout {
 		t.Helper()
 		c := heldCheckout(t, checkouts, 2, start)
-		require.NoError(t, checkouts.SetAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
+		require.NoError(t, checkouts.SetCardAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
 		return c
 	}
 

@@ -73,7 +73,7 @@ func TestPlaceSearcher_SearchPlace_Coordinates(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, vp)
 
-			assert.Equal(t, tt.result.ID, vp.ExternalID)
+			assert.Equal(t, tt.result.ID, vp.ProviderUserID)
 			assert.Equal(t, tt.result.DisplayName.Text, vp.Name)
 
 			if tt.wantCoords {

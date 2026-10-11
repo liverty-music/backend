@@ -32,7 +32,7 @@ type OrganizerProvisioner interface {
 	// # Possible errors
 	//
 	//  - Internal: the org could not be created or found.
-	EnsureTenantOrg(ctx context.Context, organizerID string) (zitadelOrgID string, err error)
+	EnsureTenantOrg(ctx context.Context, organizerID string) (providerOrganizerID string, err error)
 
 	// FindTenantOrg returns the id of the Organizer's tenant org, looked up by
 	// its deterministic name. Used for Organizers whose tenant link was never
@@ -42,7 +42,7 @@ type OrganizerProvisioner interface {
 	//
 	//  - NotFound: no tenant org exists for the Organizer.
 	//  - Internal: the orgs could not be searched.
-	FindTenantOrg(ctx context.Context, organizerID string) (zitadelOrgID string, err error)
+	FindTenantOrg(ctx context.Context, organizerID string) (providerOrganizerID string, err error)
 
 	// ProvisionTenant completes the tenant org zitadelOrgID: it sets a
 	// passkey-primary login policy, project-grants organizer-console, and seeds
@@ -58,10 +58,10 @@ type OrganizerProvisioner interface {
 	//  - InvalidArgument: Zitadel rejected the operator email. Retrying cannot
 	//    succeed.
 	//  - Internal: any other step failed; a retry may succeed.
-	ProvisionTenant(ctx context.Context, organizerID, zitadelOrgID, operatorEmail string) error
+	ProvisionTenant(ctx context.Context, organizerID, providerOrganizerID, operatorEmail string) error
 
 	// DeactivateOperators deactivates every operator in the Organizer's tenant org.
-	DeactivateOperators(ctx context.Context, zitadelOrgID string) error
+	DeactivateOperators(ctx context.Context, providerOrganizerID string) error
 
 	// DeleteTenant removes the Organizer's tenant org together with every
 	// operator in it. A tenant org that no longer exists counts as removed, so a
@@ -70,5 +70,5 @@ type OrganizerProvisioner interface {
 	// # Possible errors
 	//
 	//  - Internal: the tenant org could not be removed.
-	DeleteTenant(ctx context.Context, zitadelOrgID string) error
+	DeleteTenant(ctx context.Context, providerOrganizerID string) error
 }

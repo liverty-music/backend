@@ -83,12 +83,12 @@ func (_c *MockNotificationUseCase_Deliver_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
-// MarkDismissed provides a mock function with given fields: ctx, userID, notificationID
-func (_m *MockNotificationUseCase) MarkDismissed(ctx context.Context, userID string, notificationID string) error {
+// Dismiss provides a mock function with given fields: ctx, userID, notificationID
+func (_m *MockNotificationUseCase) Dismiss(ctx context.Context, userID string, notificationID string) error {
 	ret := _m.Called(ctx, userID, notificationID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for MarkDismissed")
+		panic("no return value specified for Dismiss")
 	}
 
 	var r0 error
@@ -101,32 +101,32 @@ func (_m *MockNotificationUseCase) MarkDismissed(ctx context.Context, userID str
 	return r0
 }
 
-// MockNotificationUseCase_MarkDismissed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkDismissed'
-type MockNotificationUseCase_MarkDismissed_Call struct {
+// MockNotificationUseCase_Dismiss_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Dismiss'
+type MockNotificationUseCase_Dismiss_Call struct {
 	*mock.Call
 }
 
-// MarkDismissed is a helper method to define mock.On call
+// Dismiss is a helper method to define mock.On call
 //   - ctx context.Context
 //   - userID string
 //   - notificationID string
-func (_e *MockNotificationUseCase_Expecter) MarkDismissed(ctx interface{}, userID interface{}, notificationID interface{}) *MockNotificationUseCase_MarkDismissed_Call {
-	return &MockNotificationUseCase_MarkDismissed_Call{Call: _e.mock.On("MarkDismissed", ctx, userID, notificationID)}
+func (_e *MockNotificationUseCase_Expecter) Dismiss(ctx interface{}, userID interface{}, notificationID interface{}) *MockNotificationUseCase_Dismiss_Call {
+	return &MockNotificationUseCase_Dismiss_Call{Call: _e.mock.On("Dismiss", ctx, userID, notificationID)}
 }
 
-func (_c *MockNotificationUseCase_MarkDismissed_Call) Run(run func(ctx context.Context, userID string, notificationID string)) *MockNotificationUseCase_MarkDismissed_Call {
+func (_c *MockNotificationUseCase_Dismiss_Call) Run(run func(ctx context.Context, userID string, notificationID string)) *MockNotificationUseCase_Dismiss_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockNotificationUseCase_MarkDismissed_Call) Return(_a0 error) *MockNotificationUseCase_MarkDismissed_Call {
+func (_c *MockNotificationUseCase_Dismiss_Call) Return(_a0 error) *MockNotificationUseCase_Dismiss_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockNotificationUseCase_MarkDismissed_Call) RunAndReturn(run func(context.Context, string, string) error) *MockNotificationUseCase_MarkDismissed_Call {
+func (_c *MockNotificationUseCase_Dismiss_Call) RunAndReturn(run func(context.Context, string, string) error) *MockNotificationUseCase_Dismiss_Call {
 	_c.Call.Return(run)
 	return _c
 }

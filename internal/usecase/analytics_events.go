@@ -65,7 +65,7 @@ const (
 	EventNotificationSubscribed AnalyticsEventName = "notification.subscribed"
 
 	// EventNotificationUnsubscribed is recorded after a user-initiated
-	// Web Push subscription has been removed via PushNotificationUseCase.Delete.
+	// Web Push subscription has been removed via PushSubscriptionUseCase.Delete.
 	// Auto-cleanup on 410 Gone (send-loop expiry) intentionally does NOT
 	// emit this event — that is subscription expiry, not user churn.
 	EventNotificationUnsubscribed AnalyticsEventName = "notification.unsubscribed"

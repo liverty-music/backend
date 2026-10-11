@@ -30,19 +30,19 @@ const (
 )
 
 // newPushSubscriptionHandler wires a PushSubscriptionHandler with fresh mocks.
-func newPushSubscriptionHandler(t *testing.T) (*handler.PushSubscriptionHandler, *ucmocks.MockPushNotificationUseCase, *entitymocks.MockUserRepository) {
+func newPushSubscriptionHandler(t *testing.T) (*handler.PushSubscriptionHandler, *ucmocks.MockPushSubscriptionUseCase, *entitymocks.MockUserRepository) {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	uc := ucmocks.NewMockPushNotificationUseCase(t)
+	uc := ucmocks.NewMockPushSubscriptionUseCase(t)
 	ur := entitymocks.NewMockUserRepository(t)
 	return handler.NewPushSubscriptionHandler(uc, ur, logger), uc, ur
 }
 
 // expectPushCaller makes the user repository resolve the signed-in caller.
 func expectPushCaller(ur *entitymocks.MockUserRepository) {
-	ur.EXPECT().GetByExternalID(mock.Anything, pushTestExtID).
-		Return(&entity.User{ID: pushTestUserID, ExternalID: pushTestExtID}, nil).Once()
+	ur.EXPECT().GetByProviderUserID(mock.Anything, pushTestExtID).
+		Return(&entity.User{ID: pushTestUserID, ProviderUserID: pushTestExtID}, nil).Once()
 }
 
 func TestPushSubscriptionHandler_Create(t *testing.T) {
@@ -97,7 +97,7 @@ func TestPushSubscriptionHandler_Create(t *testing.T) {
 	t.Run("return NOT_FOUND when the caller has no account", func(t *testing.T) {
 		t.Parallel()
 		h, _, ur := newPushSubscriptionHandler(t)
-		ur.EXPECT().GetByExternalID(mock.Anything, pushTestExtID).Return(nil, apperr.ErrNotFound).Once()
+		ur.EXPECT().GetByProviderUserID(mock.Anything, pushTestExtID).Return(nil, apperr.ErrNotFound).Once()
 
 		_, err := h.Create(authedCtx(pushTestExtID), connect.NewRequest(&rpcv1.CreateRequest{
 			Endpoint: &entitypb.PushEndpoint{Value: pushTestEndpoint},
@@ -132,8 +132,8 @@ func TestPushSubscriptionHandler_GetAndDelete(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/push-subscription "Push address of another fan"
 		const othersEndpoint = "https://push.example.com/someone-else"
 		h, uc, ur := newPushSubscriptionHandler(t)
-		ur.EXPECT().GetByExternalID(mock.Anything, pushTestExtID).
-			Return(&entity.User{ID: pushTestUserID, ExternalID: pushTestExtID}, nil).Twice()
+		ur.EXPECT().GetByProviderUserID(mock.Anything, pushTestExtID).
+			Return(&entity.User{ID: pushTestUserID, ProviderUserID: pushTestExtID}, nil).Twice()
 		// Both calls are scoped to the caller's own User, so another fan's
 		// subscription is neither found nor removed.
 		uc.EXPECT().Get(mock.Anything, pushTestUserID, othersEndpoint).Return(nil, apperr.ErrNotFound).Once()

@@ -37,37 +37,37 @@ func (p *NoopAuthorizationPort) CreateAuthorization(ctx context.Context, amountJ
 }
 
 // VerifyAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopAuthorizationPort) VerifyAuthorization(ctx context.Context, paymentIntentRef string, expectedAmountJPY int64) error {
+func (p *NoopAuthorizationPort) VerifyAuthorization(ctx context.Context, providerPaymentID string, expectedAmountJPY int64) error {
 	p.logger.Warn(ctx, "payment verification skipped: STRIPE_SECRET_KEY is not configured",
-		slog.String("payment_intent_ref", paymentIntentRef))
+		slog.String("provider_payment_id", providerPaymentID))
 	return apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // CancelAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopAuthorizationPort) CancelAuthorization(ctx context.Context, paymentIntentRef string) error {
+func (p *NoopAuthorizationPort) CancelAuthorization(ctx context.Context, providerPaymentID string) error {
 	p.logger.Warn(ctx, "payment cancellation skipped: STRIPE_SECRET_KEY is not configured",
-		slog.String("payment_intent_ref", paymentIntentRef))
+		slog.String("provider_payment_id", providerPaymentID))
 	return apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // CaptureAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopAuthorizationPort) CaptureAuthorization(ctx context.Context, paymentIntentRef string) error {
+func (p *NoopAuthorizationPort) CaptureAuthorization(ctx context.Context, providerPaymentID string) error {
 	p.logger.Warn(ctx, "payment capture skipped: STRIPE_SECRET_KEY is not configured",
-		slog.String("payment_intent_ref", paymentIntentRef))
+		slog.String("provider_payment_id", providerPaymentID))
 	return apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // GetClientSecret returns Unavailable because no Stripe key is configured.
-func (p *NoopAuthorizationPort) GetClientSecret(ctx context.Context, paymentIntentRef string) (string, error) {
+func (p *NoopAuthorizationPort) GetClientSecret(ctx context.Context, providerPaymentID string) (string, error) {
 	p.logger.Warn(ctx, "client secret read skipped: STRIPE_SECRET_KEY is not configured",
-		slog.String("payment_intent_ref", paymentIntentRef))
+		slog.String("provider_payment_id", providerPaymentID))
 	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // GetCapturedPayment returns Unavailable because no Stripe key is configured.
-func (p *NoopAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error) {
+func (p *NoopAuthorizationPort) GetCapturedPayment(ctx context.Context, providerPaymentID string) (*entity.CapturedPayment, error) {
 	p.logger.Warn(ctx, "captured-payment read skipped: STRIPE_SECRET_KEY is not configured",
-		slog.String("payment_intent_ref", paymentIntentRef))
+		slog.String("provider_payment_id", providerPaymentID))
 	return nil, apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
@@ -94,16 +94,16 @@ func (p *NoopCheckoutAuthorizationPort) CreateAuthorization(ctx context.Context,
 }
 
 // VerifyAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopCheckoutAuthorizationPort) VerifyAuthorization(ctx context.Context, authorizationRef string, expectedAmountJPY int64) error {
+func (p *NoopCheckoutAuthorizationPort) VerifyAuthorization(ctx context.Context, cardAuthorizationID string, expectedAmountJPY int64) error {
 	return apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // CaptureAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Context, authorizationRef string) (*entity.CapturedPayment, error) {
+func (p *NoopCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Context, cardAuthorizationID string) (*entity.CapturedPayment, error) {
 	return nil, apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // CancelAuthorization returns Unavailable because no Stripe key is configured.
-func (p *NoopCheckoutAuthorizationPort) CancelAuthorization(ctx context.Context, authorizationRef string) error {
+func (p *NoopCheckoutAuthorizationPort) CancelAuthorization(ctx context.Context, cardAuthorizationID string) error {
 	return apperr.New(codes.Unavailable, "payment provider is not configured")
 }

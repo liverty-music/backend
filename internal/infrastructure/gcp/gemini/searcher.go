@@ -30,13 +30,13 @@ var (
 	// no candidate. It is not retried: the empty response is billed (tens to
 	// hundreds of thousands of tool-use tokens) and a repeat of the same
 	// request is likely to fail the same way. Failing the Search marks the
-	// Artist's SearchLog failed so the next daily run searches again.
+	// Artist's ConcertSearch failed so the next daily run searches again.
 	errNoCandidates = errors.New("gemini returned no candidates")
 
 	// errTooManyToolCalls is returned when the model stops with
 	// TOO_MANY_TOOL_CALLS. It is not retried: the call has already run its
 	// search queries (40-70 in prod) and a repeat usually falls into the same
-	// search-only mode. Failing the Search marks the Artist's SearchLog failed
+	// search-only mode. Failing the Search marks the Artist's ConcertSearch failed
 	// so the next daily run searches again.
 	errTooManyToolCalls = errors.New("gemini stopped after too many tool calls")
 )

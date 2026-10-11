@@ -138,7 +138,7 @@ func TestReferencedSeriesAndArtists(t *testing.T) {
 			concert("event-3", "series-2", "Tour Two", b),
 		}
 
-		series := mapper.NewMediaURLBuilder("").ReferencedSeries(concerts)
+		series := mapper.NewSeriesImageURLBuilder("").ReferencedSeries(concerts)
 		artists := mapper.ReferencedArtists(concerts)
 
 		require.Len(t, series, 2)
@@ -155,7 +155,7 @@ func TestReferencedSeriesAndArtists(t *testing.T) {
 		c := concert("event-1", "series-1", "ARENA TOUR 2026", a)
 
 		proto := mapper.ConcertToProto(c)
-		series := mapper.NewMediaURLBuilder("").ReferencedSeries([]*entity.Concert{c})
+		series := mapper.NewSeriesImageURLBuilder("").ReferencedSeries([]*entity.Concert{c})
 
 		require.Len(t, series, 1)
 		assert.Equal(t, proto.GetEvent().GetSeriesId().GetValue(), series[0].GetId().GetValue())
@@ -164,7 +164,7 @@ func TestReferencedSeriesAndArtists(t *testing.T) {
 
 	t.Run("return empty lists for no concerts", func(t *testing.T) {
 		t.Parallel()
-		assert.Empty(t, mapper.NewMediaURLBuilder("").ReferencedSeries(nil))
+		assert.Empty(t, mapper.NewSeriesImageURLBuilder("").ReferencedSeries(nil))
 		assert.Empty(t, mapper.ReferencedArtists(nil))
 	})
 }

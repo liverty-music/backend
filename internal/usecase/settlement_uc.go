@@ -12,11 +12,11 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// PayoutSweeperUseCase executes the periodic post-event payout sweep.
+// SettlementUseCase executes the periodic post-event payout sweep.
 // For each held Settlement whose Order has passed the release gate and whose
 // Organizer's connected account is payout-active, it resolves pi_ → ch_,
 // creates the Stripe Transfer(s), and marks the settlement released.
-type PayoutSweeperUseCase interface {
+type SettlementUseCase interface {
 	// ReleaseDueSettlements scans held settlements whose release gate has
 	// passed and whose Organizer is payout-active, then releases each by
 	// creating the Transfer(s) and recording the result. Per-settlement
@@ -30,49 +30,49 @@ type PayoutSweeperUseCase interface {
 	ReleaseDueSettlements(ctx context.Context) error
 }
 
-// payoutSweeperUseCase implements [PayoutSweeperUseCase].
-type payoutSweeperUseCase struct {
+// payoutSweeperUseCase implements [SettlementUseCase].
+type settlementUseCase struct {
 	settlementRepo       entity.SettlementRepository
 	orderRepo            entity.OrderRepository
-	connectedAccountRepo entity.OrganizerConnectedAccountRepository
+	connectedAccountRepo entity.PayoutAccountRepository
 	eventStartTimeRepo   EventStartTimeRepository
-	settlementPort       entity.PaymentSettlementPort
+	settlementPayouts    entity.SettlementPayoutRepository
 	disputeBuffer        time.Duration
 	clock                Clock
 	logger               *logging.Logger
 }
 
 // Compile-time interface compliance check.
-var _ PayoutSweeperUseCase = (*payoutSweeperUseCase)(nil)
+var _ SettlementUseCase = (*settlementUseCase)(nil)
 
-// NewPayoutSweeperUseCase constructs a PayoutSweeperUseCase with the given
+// NewSettlementUseCase constructs a SettlementUseCase with the given
 // dependencies. All parameters are required and must not be nil.
 // disputeBuffer is the minimum wait after the event's start_time before funds
 // are released (e.g. 7 × 24h = 168h for a 7-day dispute-safety window).
-func NewPayoutSweeperUseCase(
+func NewSettlementUseCase(
 	settlementRepo entity.SettlementRepository,
 	orderRepo entity.OrderRepository,
-	connectedAccountRepo entity.OrganizerConnectedAccountRepository,
+	connectedAccountRepo entity.PayoutAccountRepository,
 	eventStartTimeRepo EventStartTimeRepository,
-	settlementPort entity.PaymentSettlementPort,
+	settlementPayouts entity.SettlementPayoutRepository,
 	disputeBuffer time.Duration,
 	clock Clock,
 	logger *logging.Logger,
-) PayoutSweeperUseCase {
-	return &payoutSweeperUseCase{
+) SettlementUseCase {
+	return &settlementUseCase{
 		settlementRepo:       settlementRepo,
 		orderRepo:            orderRepo,
 		connectedAccountRepo: connectedAccountRepo,
 		eventStartTimeRepo:   eventStartTimeRepo,
-		settlementPort:       settlementPort,
+		settlementPayouts:    settlementPayouts,
 		disputeBuffer:        disputeBuffer,
 		clock:                clock,
 		logger:               logger,
 	}
 }
 
-// ReleaseDueSettlements implements [PayoutSweeperUseCase].
-func (uc *payoutSweeperUseCase) ReleaseDueSettlements(ctx context.Context) error {
+// ReleaseDueSettlements implements [SettlementUseCase].
+func (uc *settlementUseCase) ReleaseDueSettlements(ctx context.Context) error {
 	held, err := uc.settlementRepo.ListHeld(ctx)
 	if err != nil {
 		return err
@@ -95,7 +95,7 @@ func (uc *payoutSweeperUseCase) ReleaseDueSettlements(ctx context.Context) error
 // runs the splits engine, creates Transfer(s), and marks the settlement
 // released. All steps are idempotent via the settlement status guard in
 // MarkReleased.
-func (uc *payoutSweeperUseCase) releaseOne(ctx context.Context, s *entity.Settlement) error {
+func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlement) error {
 	// -- load the Order to obtain the amount and currency. --
 	order, err := uc.orderRepo.Get(ctx, s.OrderID)
 	if err != nil {
@@ -144,11 +144,11 @@ func (uc *payoutSweeperUseCase) releaseOne(ctx context.Context, s *entity.Settle
 	}
 
 	// Refresh capability status from the provider before deciding.
-	freshStatus, err := uc.settlementPort.GetAccountStatus(ctx, acct.AccountRef)
+	freshStatus, err := uc.settlementPayouts.GetPayoutAccountStatus(ctx, acct.ProviderAccountID)
 	if err != nil {
 		uc.logger.Warn(ctx, "payout sweep: failed to refresh account status; using cached status",
 			slog.String("settlement_id", string(s.ID)),
-			slog.String("account_ref", acct.AccountRef),
+			slog.String("account_ref", acct.ProviderAccountID),
 			slog.Any("error", err),
 		)
 		freshStatus = acct.Status
@@ -171,7 +171,7 @@ func (uc *payoutSweeperUseCase) releaseOne(ctx context.Context, s *entity.Settle
 	}
 
 	// -- resolve pi_ → ch_ (retrieve PaymentIntent with latest_charge). --
-	chargeRef, err := uc.settlementPort.ResolveChargeRef(ctx, order.Payment.PaymentIntentRef)
+	providerChargeID, err := uc.settlementPayouts.GetProviderChargeID(ctx, order.Payment.ProviderPaymentID)
 	if err != nil {
 		return err
 	}
@@ -186,12 +186,12 @@ func (uc *payoutSweeperUseCase) releaseOne(ctx context.Context, s *entity.Settle
 	// design requirement that onboarding never blocks sale.
 	releasedSplits := make([]entity.SettlementSplit, len(splits))
 	for i, split := range splits {
-		transferRef, err := uc.settlementPort.CreateTransfer(ctx, entity.TransferParams{
-			SettlementID:         s.ID,
-			PayeeAccountRef:      acct.AccountRef,
-			SourceTransactionRef: chargeRef,
-			Amount:               split.Amount,
-			Currency:             order.Currency,
+		providerPayoutID, err := uc.settlementPayouts.CreatePayout(ctx, entity.TransferParams{
+			SettlementID:           s.ID,
+			PayeeProviderAccountID: acct.ProviderAccountID,
+			SourceTransactionRef:   providerChargeID,
+			Amount:                 split.Amount,
+			Currency:               order.Currency,
 		})
 		if err != nil {
 			return err
@@ -199,12 +199,12 @@ func (uc *payoutSweeperUseCase) releaseOne(ctx context.Context, s *entity.Settle
 		releasedSplits[i] = entity.SettlementSplit{
 			PayeeOrganizerID: split.PayeeOrganizerID,
 			Amount:           split.Amount,
-			TransferRef:      transferRef,
+			ProviderPayoutID: providerPayoutID,
 		}
 	}
 
 	// -- persist the released state atomically. --
-	if err := uc.settlementRepo.MarkReleased(ctx, s.ID, chargeRef, now, releasedSplits); err != nil {
+	if err := uc.settlementRepo.MarkReleased(ctx, s.ID, providerChargeID, now, releasedSplits); err != nil {
 		// FailedPrecondition from MarkReleased means the status is no longer
 		// Held — already released by a concurrent sweep. Idempotent no-op.
 		var appErr *apperr.AppErr
@@ -220,7 +220,7 @@ func (uc *payoutSweeperUseCase) releaseOne(ctx context.Context, s *entity.Settle
 	uc.logger.Info(ctx, "payout sweep: settlement released",
 		slog.String("settlement_id", string(s.ID)),
 		slog.String("order_id", string(s.OrderID)),
-		slog.String("charge_ref", chargeRef),
+		slog.String("charge_ref", providerChargeID),
 		slog.Int("split_count", len(releasedSplits)),
 	)
 	return nil

@@ -189,20 +189,20 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			ExternalID: "ext-existing",
-			Email:      "existing@example.com",
-			Name:       "Existing User",
+			ProviderUserID: "ext-existing",
+			Email:          "existing@example.com",
+			Name:           "Existing User",
 		}
 		existingUser := &entity.User{
-			ID:         "user-existing-1",
-			ExternalID: "ext-existing",
-			Email:      "existing@example.com",
-			Name:       "Existing User",
+			ID:             "user-existing-1",
+			ProviderUserID: "ext-existing",
+			Email:          "existing@example.com",
+			Name:           "Existing User",
 		}
 
 		d.repo.EXPECT().Create(ctx, params).
 			Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
-		d.repo.EXPECT().GetByExternalID(ctx, "ext-existing").
+		d.repo.EXPECT().GetByProviderUserID(ctx, "ext-existing").
 			Return(existingUser, nil).Once()
 
 		result, err := d.uc.Create(ctx, params)
@@ -216,16 +216,16 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		params := &entity.NewUser{
-			ExternalID: "ext-new-caller",
-			Email:      "taken@example.com",
-			Name:       "New Caller",
+			ProviderUserID: "ext-new-caller",
+			Email:          "taken@example.com",
+			Name:           "New Caller",
 		}
 
 		d.repo.EXPECT().Create(ctx, params).
 			Return(nil, apperr.New(codes.AlreadyExists, "duplicate email")).Once()
-		// GetByExternalID returns NotFound because the caller's external_id is not
+		// GetByProviderUserID returns NotFound because the caller's provider_user_id is not
 		// the conflicting column — the email was claimed by a different identity.
-		d.repo.EXPECT().GetByExternalID(ctx, "ext-new-caller").
+		d.repo.EXPECT().GetByProviderUserID(ctx, "ext-new-caller").
 			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 
 		result, err := d.uc.Create(ctx, params)
@@ -235,7 +235,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
 	})
 
-	// Regression for the 2026-05-23 incident: when GetByExternalID fails
+	// Regression for the 2026-05-23 incident: when GetByProviderUserID fails
 	// for a non-NotFound reason (Internal scan failure, Unavailable, etc.),
 	// the use-case MUST surface that error class instead of collapsing it
 	// into the original AlreadyExists. Previously the retry path discarded
@@ -276,14 +276,14 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 				d := newUserTestDeps(t)
 
 				params := &entity.NewUser{
-					ExternalID: tc.externalID,
-					Email:      tc.email,
-					Name:       "retry probe",
+					ProviderUserID: tc.externalID,
+					Email:          tc.email,
+					Name:           "retry probe",
 				}
 
 				d.repo.EXPECT().Create(ctx, params).
 					Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
-				d.repo.EXPECT().GetByExternalID(ctx, tc.externalID).
+				d.repo.EXPECT().GetByProviderUserID(ctx, tc.externalID).
 					Return(nil, tc.retryErr).Once()
 
 				result, err := d.uc.Create(ctx, params)
@@ -319,7 +319,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 				// repo MUST NOT be called.
 
 				result, err := d.uc.Create(ctx, &entity.NewUser{
-					ExternalID:        "ext-bad-lang",
+					ProviderUserID:    "ext-bad-lang",
 					Email:             "bad-lang@example.com",
 					Name:              "Bad Lang",
 					PreferredLanguage: bad,
@@ -398,7 +398,7 @@ func TestUserUseCase_GetUser(t *testing.T) {
 	}
 }
 
-func TestUserUseCase_GetByExternalID(t *testing.T) {
+func TestUserUseCase_GetByProviderUserID(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -408,21 +408,21 @@ func TestUserUseCase_GetByExternalID(t *testing.T) {
 		d := newUserTestDeps(t)
 
 		expectedUser := &entity.User{
-			ID:         "user-123",
-			ExternalID: "ext-123",
-			Name:       "John Doe",
-			Email:      "john@example.com",
+			ID:             "user-123",
+			ProviderUserID: "ext-123",
+			Name:           "John Doe",
+			Email:          "john@example.com",
 		}
 
-		d.repo.EXPECT().GetByExternalID(ctx, "ext-123").Return(expectedUser, nil).Once()
+		d.repo.EXPECT().GetByProviderUserID(ctx, "ext-123").Return(expectedUser, nil).Once()
 
-		result, err := d.uc.GetByExternalID(ctx, "ext-123")
+		result, err := d.uc.GetByProviderUserID(ctx, "ext-123")
 
 		assert.NoError(t, err)
 		assert.Equal(t, expectedUser, result)
 	})
 
-	// GetByExternalID must surface the repository's error code unchanged, for
+	// GetByProviderUserID must surface the repository's error code unchanged, for
 	// the same reason as Get above.
 	errCases := []struct {
 		name    string
@@ -451,9 +451,9 @@ func TestUserUseCase_GetByExternalID(t *testing.T) {
 			t.Parallel()
 			d := newUserTestDeps(t)
 
-			d.repo.EXPECT().GetByExternalID(ctx, "ext-123").Return(nil, tc.repoErr).Once()
+			d.repo.EXPECT().GetByProviderUserID(ctx, "ext-123").Return(nil, tc.repoErr).Once()
 
-			result, err := d.uc.GetByExternalID(ctx, "ext-123")
+			result, err := d.uc.GetByProviderUserID(ctx, "ext-123")
 
 			assert.Error(t, err)
 			assert.Nil(t, result)
@@ -488,7 +488,7 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 
 		d.repo.EXPECT().UpdateHome(ctx, "user-123", home).Return(expectedUser, nil).Once()
 
-		result, err := d.uc.UpdateHome(ctx, "user-123", home)
+		result, err := d.uc.SetHome(ctx, "user-123", home)
 
 		assert.NoError(t, err)
 		assert.Equal(t, expectedUser, result)
@@ -513,7 +513,7 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 				t.Parallel()
 				d := newUserTestDeps(t)
 
-				result, err := d.uc.UpdateHome(ctx, "user-123", tt.home)
+				result, err := d.uc.SetHome(ctx, "user-123", tt.home)
 
 				assert.Error(t, err)
 				assert.Nil(t, result)
@@ -540,7 +540,7 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 				t.Parallel()
 				d := newUserTestDeps(t)
 
-				result, err := d.uc.UpdateHome(ctx, "user-123", tt.home)
+				result, err := d.uc.SetHome(ctx, "user-123", tt.home)
 
 				assert.Error(t, err)
 				assert.Nil(t, result)
@@ -558,7 +558,7 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 			Level1:      "US-CA",
 		}
 
-		result, err := d.uc.UpdateHome(ctx, "user-123", home)
+		result, err := d.uc.SetHome(ctx, "user-123", home)
 
 		assert.Error(t, err)
 		assert.Nil(t, result)
@@ -584,7 +584,7 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 				t.Parallel()
 				d := newUserTestDeps(t)
 
-				result, err := d.uc.UpdateHome(ctx, "user-123", tt.home)
+				result, err := d.uc.SetHome(ctx, "user-123", tt.home)
 
 				assert.Error(t, err)
 				assert.Nil(t, result)
@@ -626,7 +626,7 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 				}
 				d.repo.EXPECT().UpdateHome(ctx, "user-123", home).Return(expectedUser, nil).Once()
 
-				result, err := d.uc.UpdateHome(ctx, "user-123", home)
+				result, err := d.uc.SetHome(ctx, "user-123", home)
 
 				assert.NoError(t, err)
 				assert.Equal(t, tt.level1, result.Home.Level1)
@@ -645,7 +645,7 @@ func TestUserUseCase_UpdateHome(t *testing.T) {
 
 		d.repo.EXPECT().UpdateHome(ctx, "user-123", home).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 
-		result, err := d.uc.UpdateHome(ctx, "user-123", home)
+		result, err := d.uc.SetHome(ctx, "user-123", home)
 
 		assert.Error(t, err)
 		assert.Nil(t, result)
@@ -671,7 +671,7 @@ func TestUserUseCase_UpdatePreferredLanguage(t *testing.T) {
 		d.repo.EXPECT().UpdatePreferredLanguage(ctx, "user-lang-1", "en").
 			Return(updatedUser, nil).Once()
 
-		result, err := d.uc.UpdatePreferredLanguage(ctx, "user-lang-1", "en")
+		result, err := d.uc.SetPreferredLanguage(ctx, "user-lang-1", "en")
 
 		assert.NoError(t, err)
 		assert.Equal(t, updatedUser, result)
@@ -685,7 +685,7 @@ func TestUserUseCase_UpdatePreferredLanguage(t *testing.T) {
 		d.repo.EXPECT().UpdatePreferredLanguage(ctx, "ghost-id", "ja").
 			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 
-		result, err := d.uc.UpdatePreferredLanguage(ctx, "ghost-id", "ja")
+		result, err := d.uc.SetPreferredLanguage(ctx, "ghost-id", "ja")
 
 		assert.Error(t, err)
 		assert.Nil(t, result)
@@ -715,7 +715,7 @@ func TestUserUseCase_UpdatePreferredLanguage(t *testing.T) {
 				d := newUserTestDeps(t)
 				// repo MUST NOT be called — no EXPECT() registered.
 
-				result, err := d.uc.UpdatePreferredLanguage(ctx, "user-1", bad)
+				result, err := d.uc.SetPreferredLanguage(ctx, "user-1", bad)
 
 				assert.Nil(t, result)
 				assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
@@ -728,7 +728,7 @@ func TestUserUseCase_UpdatePreferredLanguage(t *testing.T) {
 		d := newUserTestDeps(t)
 		// repo MUST NOT be called.
 
-		result, err := d.uc.UpdatePreferredLanguage(ctx, "", "ja")
+		result, err := d.uc.SetPreferredLanguage(ctx, "", "ja")
 
 		assert.Nil(t, result)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
@@ -745,8 +745,8 @@ func TestUserUseCase_ResolveCaller(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
-		expectedUser := &entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}
-		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).Return(expectedUser, nil).Once()
+		expectedUser := &entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}
+		d.repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).Return(expectedUser, nil).Once()
 
 		result, err := d.uc.ResolveCaller(ctx, testResolveExtID)
 
@@ -759,7 +759,7 @@ func TestUserUseCase_ResolveCaller(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
-		d.repo.EXPECT().GetByExternalID(ctx, "ext-ghost").
+		d.repo.EXPECT().GetByProviderUserID(ctx, "ext-ghost").
 			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 
 		result, err := d.uc.ResolveCaller(ctx, "ext-ghost")
@@ -784,8 +784,8 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
-		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
-			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
+		d.repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Once()
 		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).Return(nil).Once()
 
 		err := d.uc.ResendEmailVerification(ctx, testResolveExtID)
@@ -797,7 +797,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 	t.Run("Unavailable — email verifier is not configured (nil)", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDepsNoVerifier(t)
-		// GetByExternalID MUST NOT be called — the nil-verifier check runs first.
+		// GetByProviderUserID MUST NOT be called — the nil-verifier check runs first.
 
 		err := d.uc.ResendEmailVerification(ctx, testResolveExtID)
 
@@ -809,8 +809,8 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
-		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
-			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
+		d.repo.EXPECT().GetByProviderUserID(ctx, testResolveExtID).
+			Return(&entity.User{ID: testResolveUserID, ProviderUserID: testResolveExtID}, nil).Once()
 		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).
 			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Once()
 
@@ -830,9 +830,9 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 
 		const rateExtID = "ext-rate"
 		const rateUserID = "user-rate"
-		rateUser := &entity.User{ID: rateUserID, ExternalID: rateExtID}
+		rateUser := &entity.User{ID: rateUserID, ProviderUserID: rateExtID}
 
-		d.repo.EXPECT().GetByExternalID(ctx, rateExtID).Return(rateUser, nil).Times(4)
+		d.repo.EXPECT().GetByProviderUserID(ctx, rateExtID).Return(rateUser, nil).Times(4)
 		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).Return(nil).Times(3)
 
 		for range 3 {
@@ -854,9 +854,9 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 
 		const rateExtID = "ext-rate-failed"
 		const rateUserID = "user-rate-failed"
-		rateUser := &entity.User{ID: rateUserID, ExternalID: rateExtID}
+		rateUser := &entity.User{ID: rateUserID, ProviderUserID: rateExtID}
 
-		d.repo.EXPECT().GetByExternalID(ctx, rateExtID).Return(rateUser, nil).Times(4)
+		d.repo.EXPECT().GetByProviderUserID(ctx, rateExtID).Return(rateUser, nil).Times(4)
 		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).
 			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Times(3)
 
@@ -881,10 +881,10 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		const rateUserID = "user-rate-a"
 		const otherUserID = "user-rate-b"
 
-		d.repo.EXPECT().GetByExternalID(ctx, rateExtID).
-			Return(&entity.User{ID: rateUserID, ExternalID: rateExtID}, nil).Times(3)
-		d.repo.EXPECT().GetByExternalID(ctx, otherExtID).
-			Return(&entity.User{ID: otherUserID, ExternalID: otherExtID}, nil).Once()
+		d.repo.EXPECT().GetByProviderUserID(ctx, rateExtID).
+			Return(&entity.User{ID: rateUserID, ProviderUserID: rateExtID}, nil).Times(3)
+		d.repo.EXPECT().GetByProviderUserID(ctx, otherExtID).
+			Return(&entity.User{ID: otherUserID, ProviderUserID: otherExtID}, nil).Once()
 		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).Return(nil).Times(3)
 		d.emailVerifier.EXPECT().ResendVerification(ctx, otherExtID).Return(nil).Once()
 
@@ -901,7 +901,7 @@ func TestUserUseCase_Delete(t *testing.T) {
 
 	ctx := context.Background()
 	const userID = "019a0000-0000-7000-8000-0000000000u1"
-	user := &entity.User{ID: userID, ExternalID: "zitadel-user-1"}
+	user := &entity.User{ID: userID, ProviderUserID: "zitadel-user-1"}
 	uid := entity.UserID(userID)
 	refunded := []*entity.Order{{ID: "order-1", UserID: uid, Status: entity.OrderStatusRefunded}}
 	voided := []*entity.Ticket{{ID: "ticket-1", UserID: uid, Status: entity.TicketStatusVoided}}
@@ -1014,7 +1014,7 @@ func TestUserUseCase_Update(t *testing.T) {
 	const extID = "ext-update-1"
 	strPtr := func(s string) *string { return &s }
 	current := func() *entity.User {
-		return &entity.User{ID: "user-update-1", ExternalID: extID, FullName: "山田 花子", PhoneNumber: "+819012345678"}
+		return &entity.User{ID: "user-update-1", ProviderUserID: extID, FullName: "山田 花子", PhoneNumber: "+819012345678"}
 	}
 
 	type args struct {
@@ -1033,7 +1033,7 @@ func TestUserUseCase_Update(t *testing.T) {
 			name: "fan corrects their name",
 			args: args{fullName: strPtr("佐藤 花子")},
 			setup: func(d *userTestDeps) {
-				d.repo.EXPECT().GetByExternalID(ctx, extID).Return(current(), nil).Once()
+				d.repo.EXPECT().GetByProviderUserID(ctx, extID).Return(current(), nil).Once()
 				d.repo.EXPECT().UpdatePersonalDetails(ctx, "user-update-1", "佐藤 花子", "+819012345678").
 					Return(&entity.User{ID: "user-update-1", FullName: "佐藤 花子", PhoneNumber: "+819012345678"}, nil).Once()
 			},
@@ -1044,7 +1044,7 @@ func TestUserUseCase_Update(t *testing.T) {
 			name: "only the phone number given",
 			args: args{phoneNumber: strPtr("+818011112222")},
 			setup: func(d *userTestDeps) {
-				d.repo.EXPECT().GetByExternalID(ctx, extID).Return(current(), nil).Once()
+				d.repo.EXPECT().GetByProviderUserID(ctx, extID).Return(current(), nil).Once()
 				d.repo.EXPECT().UpdatePersonalDetails(ctx, "user-update-1", "山田 花子", "+818011112222").
 					Return(&entity.User{ID: "user-update-1", FullName: "山田 花子", PhoneNumber: "+818011112222"}, nil).Once()
 			},
@@ -1055,7 +1055,7 @@ func TestUserUseCase_Update(t *testing.T) {
 			name: "invalid phone number",
 			args: args{phoneNumber: strPtr("090-1234-5678")},
 			setup: func(d *userTestDeps) {
-				d.repo.EXPECT().GetByExternalID(ctx, extID).Return(current(), nil).Once()
+				d.repo.EXPECT().GetByProviderUserID(ctx, extID).Return(current(), nil).Once()
 			},
 			wantErr: apperr.ErrInvalidArgument,
 		},
@@ -1075,7 +1075,7 @@ func TestUserUseCase_Update(t *testing.T) {
 			name: "caller without an account",
 			args: args{fullName: strPtr("佐藤 花子")},
 			setup: func(d *userTestDeps) {
-				d.repo.EXPECT().GetByExternalID(ctx, extID).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+				d.repo.EXPECT().GetByProviderUserID(ctx, extID).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 			},
 			wantErr: apperr.ErrNotFound,
 		},

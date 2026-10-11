@@ -29,7 +29,7 @@ func eventPageSeries(visibility entity.SeriesVisibility, state entity.SeriesPubl
 		Title:        "ONE MAN LIVE",
 		Type:         entity.SeriesTypeSingle,
 		Description:  &description,
-		CoverMedia:   &entity.Media{ID: "019a0000-0000-7000-8000-0000000000c1"},
+		CoverImage:   &entity.SeriesImage{ID: "019a0000-0000-7000-8000-0000000000c1"},
 		OrganizerID:  &organizerID,
 		Visibility:   &visibility,
 		PublishState: &state,
@@ -148,7 +148,7 @@ func TestConcertUseCase_Get(t *testing.T) {
 			assert.Equal(t, eventPageEventID, got.ID)
 			assert.Equal(t, tt.wantState, *got.Series.PublishState)
 			assert.Equal(t, "Two nights at Shibuya WWW.", *got.Series.Description)
-			assert.NotNil(t, got.Series.CoverMedia)
+			assert.NotNil(t, got.Series.CoverImage)
 		})
 	}
 }
@@ -314,7 +314,7 @@ func TestConcertUseCase_ListBySeries(t *testing.T) {
 			for _, c := range got {
 				gotIDs = append(gotIDs, c.ID)
 				require.NotNil(t, c.Series)
-				assert.NotNil(t, c.Series.CoverMedia, "each concert carries its series with the cover")
+				assert.NotNil(t, c.Series.CoverImage, "each concert carries its series with the cover")
 			}
 			assert.Equal(t, tt.wantIDs, gotIDs)
 		})

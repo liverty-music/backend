@@ -155,7 +155,7 @@ func (r *fakeSeriesRepo) SetUnlistedToken(_ context.Context, _ string, _ string)
 	return nil
 }
 
-func (r *fakeSeriesRepo) ReplaceCoverMedia(_ context.Context, _ string, _ *entity.Media) (string, error) {
+func (r *fakeSeriesRepo) ReplaceCoverImage(_ context.Context, _ string, _ *entity.SeriesImage) (string, error) {
 	return "", nil
 }
 
@@ -317,21 +317,21 @@ func (r *fakeConcertRepo) DeleteAndSuppress(_ context.Context, eventID string) e
 	return nil
 }
 
-// fakeStagedConcertRepo is an in-memory implementation for unit tests.
-type fakeStagedConcertRepo struct {
-	upserted []*entity.StagedConcert
+// fakeConcertCandidateRepo is an in-memory implementation for unit tests.
+type fakeConcertCandidateRepo struct {
+	upserted []*entity.ConcertCandidate
 }
 
-func (r *fakeStagedConcertRepo) Upsert(_ context.Context, sc *entity.StagedConcert) error {
+func (r *fakeConcertCandidateRepo) Upsert(_ context.Context, sc *entity.ConcertCandidate) error {
 	r.upserted = append(r.upserted, sc)
 	return nil
 }
 
-func (r *fakeStagedConcertRepo) ListPending(_ context.Context) ([]*entity.StagedConcert, error) {
+func (r *fakeConcertCandidateRepo) ListPending(_ context.Context) ([]*entity.ConcertCandidate, error) {
 	return r.upserted, nil
 }
 
-func (r *fakeStagedConcertRepo) GetByID(_ context.Context, id string) (*entity.StagedConcert, error) {
+func (r *fakeConcertCandidateRepo) GetByID(_ context.Context, id string) (*entity.ConcertCandidate, error) {
 	for _, sc := range r.upserted {
 		if sc.ID == id {
 			return sc, nil
@@ -340,7 +340,7 @@ func (r *fakeStagedConcertRepo) GetByID(_ context.Context, id string) (*entity.S
 	return nil, apperr.New(codes.NotFound, "staged concert not found")
 }
 
-func (r *fakeStagedConcertRepo) Delete(_ context.Context, id string) error {
+func (r *fakeConcertCandidateRepo) Delete(_ context.Context, id string) error {
 	for i, sc := range r.upserted {
 		if sc.ID == id {
 			r.upserted = append(r.upserted[:i], r.upserted[i+1:]...)
@@ -350,7 +350,7 @@ func (r *fakeStagedConcertRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (r *fakeStagedConcertRepo) ListPendingDedupKeysByArtist(_ context.Context, _ string) ([]entity.StagedConcertDedupKey, error) {
+func (r *fakeConcertCandidateRepo) ListPendingDedupKeysByArtist(_ context.Context, _ string) ([]entity.ConcertCandidateDedupKey, error) {
 	return nil, nil
 }
 
@@ -448,7 +448,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	// test can assert on auto-publish, staging, suppression, and CONCERT.created.
 	type creationHarness struct {
 		uc         usecase.ConcertCreationUseCase
-		staged     *fakeStagedConcertRepo
+		staged     *fakeConcertCandidateRepo
 		venue      *fakeVenueRepo
 		concert    *fakeConcertRepo
 		series     *fakeSeriesRepo
@@ -459,7 +459,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	build := func(t *testing.T) *creationHarness {
 		t.Helper()
 		h := &creationHarness{
-			staged:     &fakeStagedConcertRepo{},
+			staged:     &fakeConcertCandidateRepo{},
 			venue:      newFakeVenueRepo(),
 			concert:    &fakeConcertRepo{},
 			series:     &fakeSeriesRepo{},
@@ -502,7 +502,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	t.Run("auto-publishes a genuinely new concert at a resolved venue and emits CONCERT.created", func(t *testing.T) {
 		t.Parallel()
 		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X Canonical"}
+		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X Canonical"}
 		ch, err := h.pub.Subscribe(context.Background(), "CONCERT.created")
 		require.NoError(t, err)
 
@@ -538,7 +538,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	t.Run("stages a same-slot conflict without publishing or inserting", func(t *testing.T) {
 		t.Parallel()
 		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
 		seedVenue(h, "venue-1", "Venue X", "place-x")
 		// An existing published event at the resolved (venue, date, start) → conflict.
 		h.concert.existing = map[string][]*entity.Event{
@@ -596,7 +596,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	t.Run("skips a suppressed concert entirely (no publish, no stage)", func(t *testing.T) {
 		t.Parallel()
 		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
 		seedVenue(h, "venue-1", "Venue X", "place-x")
 		h.suppressed.suppress("venue-1", localDate, &startTime)
 
@@ -623,7 +623,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	t.Run("known-start fill is routed to the publish path, not staged", func(t *testing.T) {
 		t.Parallel()
 		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
 		seedVenue(h, "venue-1", "Venue X", "place-x")
 		// An existing unknown-start row that the known-start discovery fills (not a conflict).
 		listedName := "Venue X"
@@ -660,7 +660,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	t.Run("un-suppressing a key re-enables auto-publish on re-discovery", func(t *testing.T) {
 		t.Parallel()
 		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
 		seedVenue(h, "venue-1", "Venue X", "place-x")
 		h.suppressed.suppress("venue-1", localDate, &startTime)
 		// Operator removes the suppression entry (the deliberate un-suppress path).
@@ -689,7 +689,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	t.Run("skips a concert with empty venue name without poisoning the batch", func(t *testing.T) {
 		t.Parallel()
 		h := build(t)
-		h.place.places["Venue X"] = &entity.VenuePlace{ExternalID: "place-x", Name: "Venue X"}
+		h.place.places["Venue X"] = &entity.VenuePlace{ProviderUserID: "place-x", Name: "Venue X"}
 
 		data := entity.ConcertDiscoveredData{
 			ArtistID: "artist-5",
@@ -719,7 +719,7 @@ func TestNewConcertCreationUseCase_PanicsOnNilPlaceSearcher(t *testing.T) {
 
 	assert.Panics(t, func() {
 		usecase.NewConcertCreationUseCase(
-			&fakeStagedConcertRepo{}, newFakeVenueRepo(), &fakeConcertRepo{}, &fakeSeriesRepo{},
+			&fakeConcertCandidateRepo{}, newFakeVenueRepo(), &fakeConcertRepo{}, &fakeSeriesRepo{},
 			newFakeSuppressedConcertRepo(), nil, nil, newTestLogger(t),
 		)
 	})
@@ -739,9 +739,9 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 	date2 := time.Date(2026, 5, 17, 0, 0, 0, 0, time.UTC)
 	date3 := time.Date(2026, 5, 24, 0, 0, 0, 0, time.UTC)
 
-	build := func(t *testing.T) (usecase.ConcertCreationUseCase, *fakeConcertRepo, *fakeSeriesRepo, *fakeStagedConcertRepo, *gochannel.GoChannel) {
+	build := func(t *testing.T) (usecase.ConcertCreationUseCase, *fakeConcertRepo, *fakeSeriesRepo, *fakeConcertCandidateRepo, *gochannel.GoChannel) {
 		t.Helper()
-		staged := &fakeStagedConcertRepo{}
+		staged := &fakeConcertCandidateRepo{}
 		venue := newFakeVenueRepo()
 		concert := &fakeConcertRepo{}
 		series := &fakeSeriesRepo{}
@@ -749,9 +749,9 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 		place := newStubPlaceSearcher()
 		pub := newGoChannelPub(t)
 
-		place.places["Venue A"] = &entity.VenuePlace{ExternalID: "place-a", Name: "Venue A Canonical"}
-		place.places["Venue B"] = &entity.VenuePlace{ExternalID: "place-b", Name: "Venue B Canonical"}
-		place.places["Venue C"] = &entity.VenuePlace{ExternalID: "place-c", Name: "Venue C Canonical"}
+		place.places["Venue A"] = &entity.VenuePlace{ProviderUserID: "place-a", Name: "Venue A Canonical"}
+		place.places["Venue B"] = &entity.VenuePlace{ProviderUserID: "place-b", Name: "Venue B Canonical"}
+		place.places["Venue C"] = &entity.VenuePlace{ProviderUserID: "place-c", Name: "Venue C Canonical"}
 
 		uc := usecase.NewConcertCreationUseCase(
 			staged, venue, concert, series, suppressed,
@@ -853,7 +853,7 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 		placeID := "place-hall"
 		venueName := "Concert Hall Canonical"
 		sourceURL := "https://example.com/tour"
-		sc := &entity.StagedConcert{
+		sc := &entity.ConcertCandidate{
 			ID:                "staged-tour-event",
 			ArtistID:          artist.ID,
 			SeriesID:          tourSeriesID,

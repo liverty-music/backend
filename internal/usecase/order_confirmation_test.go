@@ -79,8 +79,8 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 func confirmedOrder(source string) (*entity.Order, entity.OrderPaidData) {
 	order := &entity.Order{
 		ID: "order-1", UserID: "fan-1", Amount: 6000, Currency: "JPY", Status: entity.OrderStatusPaid,
-		PaidTime: time.Date(2026, 11, 5, 9, 20, 0, 0, time.UTC),
-		Payment:  entity.Payment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: "pi_1", CardBrand: "visa", CardLast4: "4242"},
+		PayTime: time.Date(2026, 11, 5, 9, 20, 0, 0, time.UTC),
+		Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_1", CardBrand: "visa", CardLast4: "4242"},
 	}
 	data := entity.OrderPaidData{OrderID: "order-1", UserID: "fan-1", EventID: "event-1", TicketCount: 2, Amount: 6000, Currency: "JPY"}
 	if source == "lottery" {

@@ -40,7 +40,7 @@ const (
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	// issuanceInsertSettlementSplitQuery inserts one payout split for the
-	// settlement just created. transfer_ref/transfer_reversal_ref default to
+	// settlement just created. provider_payout_id/provider_payout_reversal_id default to
 	// NULL until the payout sweeper releases the settlement.
 	issuanceInsertSettlementSplitQuery = `
 		INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount)
@@ -110,9 +110,9 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 
 	if _, err := tx.Exec(ctx, issuanceInsertOrderQuery,
 		string(order.ID), string(order.UserID), nullableUUID(string(order.LotteryEntryID)),
-		nullableUUID(string(order.CheckoutID)), int16(order.Payment.Provider), order.Payment.PaymentIntentRef, order.Payment.PaymentMethodRef,
+		nullableUUID(string(order.CheckoutID)), int16(order.Payment.Provider), order.Payment.ProviderPaymentID, order.Payment.ProviderPaymentMethodID,
 		order.Payment.CardBrand, order.Payment.CardLast4,
-		int16(order.Status), order.Amount, order.Currency, order.PaidTime,
+		int16(order.Status), order.Amount, order.Currency, order.PayTime,
 	); err != nil {
 		return toAppErr(err, "failed to insert order",
 			slog.String("lottery_entry_id", string(order.LotteryEntryID)),
@@ -122,8 +122,8 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	for _, t := range tickets {
 		if _, err := tx.Exec(ctx, issuanceInsertTicketQuery,
 			string(t.ID), string(t.OrderID), string(t.UserID), t.EventID,
-			nullableUUID(t.KycID), t.ResaleWithoutConsentProhibited,
-			int16(t.Status), t.IssuedTime,
+			nullableUUID(t.IdentityVerificationID), t.ResaleWithoutConsentProhibited,
+			int16(t.Status), t.IssueTime,
 		); err != nil {
 			return toAppErr(err, "failed to insert ticket", slog.String("ticket_id", string(t.ID)))
 		}

@@ -39,7 +39,7 @@ func newAdminConcertHandler(
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return handler.NewAdminConcertHandler(adminUC, mapper.NewMediaURLBuilder(""), logger)
+	return handler.NewAdminConcertHandler(adminUC, mapper.NewSeriesImageURLBuilder(""), logger)
 }
 
 // ---------- List ----------

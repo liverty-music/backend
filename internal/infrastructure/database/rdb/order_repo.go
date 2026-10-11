@@ -25,10 +25,10 @@ const (
 		card_brand, card_last4, status, amount, currency, pay_at, provider_refund_id,
 		checkout_id, confirmation_send_at
 	`
-	orderGetQuery                   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
-	orderGetByLotteryEntryIDQuery   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE lottery_entry_id = $1`
-	orderGetByCheckoutIDQuery       = `SELECT ` + orderSelectColumns + ` FROM orders WHERE checkout_id = $1`
-	orderGetByPaymentIntentRefQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE provider_payment_id = $1`
+	orderGetQuery                    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
+	orderGetByLotteryEntryIDQuery    = `SELECT ` + orderSelectColumns + ` FROM orders WHERE lottery_entry_id = $1`
+	orderGetByCheckoutIDQuery        = `SELECT ` + orderSelectColumns + ` FROM orders WHERE checkout_id = $1`
+	orderGetByProviderPaymentIDQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE provider_payment_id = $1`
 	// orderMarkConfirmationSentQuery sets the confirmation-sent time only when
 	// it is unset, so a second call keeps the first time.
 	orderMarkConfirmationSentQuery = `
@@ -98,16 +98,16 @@ func (r *OrderRepository) MarkConfirmationSent(ctx context.Context, id entity.Or
 	return nil
 }
 
-// GetByPaymentIntentRef retrieves the order whose Payment.PaymentIntentRef
+// GetByProviderPaymentID retrieves the order whose Payment.ProviderPaymentID
 // matches the given pi_ value. Used by the webhook service to resolve a
 // dispute's payment_intent → Order without exposing repo access to the HTTP
 // handler layer.
-func (r *OrderRepository) GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*entity.Order, error) {
-	row := r.db.Pool.QueryRow(ctx, orderGetByPaymentIntentRefQuery, paymentIntentRef)
+func (r *OrderRepository) GetByProviderPaymentID(ctx context.Context, providerPaymentID string) (*entity.Order, error) {
+	row := r.db.Pool.QueryRow(ctx, orderGetByProviderPaymentIDQuery, providerPaymentID)
 	order, err := scanOrder(row)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get order by payment intent ref",
-			slog.String("payment_intent_ref", paymentIntentRef))
+			slog.String("provider_payment_id", providerPaymentID))
 	}
 	return order, nil
 }
@@ -167,10 +167,10 @@ func scanOrder(s orderScanner) (*entity.Order, error) {
 	)
 	if err := s.Scan(
 		&id, &userID, &lotteryEntryID, &provider,
-		&o.Payment.PaymentIntentRef, &o.Payment.PaymentMethodRef,
+		&o.Payment.ProviderPaymentID, &o.Payment.ProviderPaymentMethodID,
 		&o.Payment.CardBrand, &o.Payment.CardLast4,
-		&status, &o.Amount, &o.Currency, &o.PaidTime,
-		&o.RefundRef, &checkoutID, &confirmationSentAt,
+		&status, &o.Amount, &o.Currency, &o.PayTime,
+		&o.ProviderRefundID, &checkoutID, &confirmationSentAt,
 	); err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func scanOrder(s orderScanner) (*entity.Order, error) {
 	}
 	if confirmationSentAt.Valid {
 		sentAt := confirmationSentAt.Time
-		o.ConfirmationSentTime = &sentAt
+		o.ConfirmationSendTime = &sentAt
 	}
 	o.Payment.Provider = entity.PaymentProvider(provider)
 	o.Status = entity.OrderStatus(status)

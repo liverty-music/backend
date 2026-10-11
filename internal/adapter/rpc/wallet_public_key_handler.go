@@ -38,7 +38,7 @@ func NewWalletPublicKeyHandler(
 
 // storedUserID resolves the caller's Zitadel subject to their stored users.id.
 func (h *WalletPublicKeyHandler) storedUserID(ctx context.Context, externalID string) (entity.UserID, error) {
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return "", err
 	}

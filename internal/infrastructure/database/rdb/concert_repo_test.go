@@ -1386,9 +1386,9 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Equal(t, entity.SeriesVisibilityPublic, *got[0].Series.Visibility)
 		require.NotNil(t, got[0].Series.PublishState)
 		assert.Equal(t, entity.SeriesPublishStatePublished, *got[0].Series.PublishState)
-		require.NotNil(t, got[0].Series.CoverMedia, "a list read carries the series' cover, as the event page does")
-		assert.Equal(t, coverID, got[0].Series.CoverMedia.ID)
-		assert.Equal(t, organizerID, got[0].Series.CoverMedia.OrganizerID)
+		require.NotNil(t, got[0].Series.CoverImage, "a list read carries the series' cover, as the event page does")
+		assert.Equal(t, coverID, got[0].Series.CoverImage.ID)
+		assert.Equal(t, organizerID, got[0].Series.CoverImage.OrganizerID)
 
 		require.NotNil(t, got[0].Series.Organizer, "a first-party series carries its Organizer")
 		assert.Equal(t, "Test Organizer", got[0].Series.Organizer.Name)
@@ -1409,8 +1409,8 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		assert.Equal(t, organizerID, *byID[0].Series.OrganizerID)
 		require.NotNil(t, byID[0].Series.Organizer)
 		assert.Equal(t, &details, byID[0].Series.Organizer.BusinessDetails)
-		require.NotNil(t, byID[0].Series.CoverMedia)
-		assert.Equal(t, coverID, byID[0].Series.CoverMedia.ID)
+		require.NotNil(t, byID[0].Series.CoverImage)
+		assert.Equal(t, coverID, byID[0].Series.CoverImage.ID)
 	})
 }
 

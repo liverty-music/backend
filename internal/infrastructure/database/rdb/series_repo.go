@@ -22,7 +22,7 @@ type SeriesRepository struct {
 
 // Compile-time interface compliance checks.
 var _ entity.SeriesRepository = (*SeriesRepository)(nil)
-var _ entity.MediaRepository = (*SeriesRepository)(nil)
+var _ entity.SeriesImageRepository = (*SeriesRepository)(nil)
 
 // NewSeriesRepository creates a new series repository instance.
 func NewSeriesRepository(db *Database) *SeriesRepository {
@@ -38,7 +38,7 @@ const (
 	`
 
 	// getSeriesQuery reads all series columns plus the cover media fields joined
-	// from the media + series_media tables. The cover media columns are nullable
+	// from the media + series_cover_images tables. The cover media columns are nullable
 	// (LEFT JOIN) so scanSeries uses sql.Null* for them.
 	getSeriesQuery = `
 		SELECT s.id, s.title, s.type, s.source_url,
@@ -192,21 +192,21 @@ const (
 		WHERE id = $1
 	`
 
-	dropStagedConcertsBySeriesQuery = `
+	dropConcertCandidatesBySeriesQuery = `
 		DELETE FROM concert_candidates WHERE series_id = $1
 	`
 
 	// selectCoverMediaIDQuery reads the current cover media id for a series via
-	// the series_media join. Returns pgx.ErrNoRows when no cover exists.
-	selectCoverMediaIDQuery = `
+	// the series_cover_images join. Returns pgx.ErrNoRows when no cover exists.
+	selectCoverImageIDQuery = `
 		SELECT sm.series_image_id FROM series_cover_images sm WHERE sm.series_id = $1
 	`
 
-	// deleteCoverMediaBySeriesQuery removes the series_media join row(s) and
+	// deleteCoverMediaBySeriesQuery removes the series_cover_images join row(s) and
 	// then the orphaned media row. Two statements are used in the transaction
-	// so the FK constraint on series_media.media_id is satisfied before the
+	// so the FK constraint on series_cover_images.media_id is satisfied before the
 	// media row is deleted.
-	deleteCoverMediaRowQuery = `
+	deleteCoverImageRowQuery = `
 		DELETE FROM series_images WHERE id = $1
 	`
 
@@ -259,7 +259,7 @@ const (
 // The column order MUST match getSeriesQuery, listSeriesByIDsQuery,
 // listSeriesByOrganizerQuery, and getSeriesByUnlistedTokenQuery.
 // scanSeries scans one series row plus its (optional) single cover-media row
-// from the LEFT JOIN series_media/media used by the queries above. It assumes
+// from the LEFT JOIN series_cover_images/media used by the queries above. It assumes
 // AT MOST ONE media row per series, which the uq_series_media_series unique
 // index guarantees today. WARNING: if that unique index is ever relaxed for
 // galleries, these joins fan out to N rows per series and callers that scan
@@ -325,9 +325,9 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 		v := cancelledAt.Time
 		s.CancelledAt = &v
 	}
-	// Populate CoverMedia when the LEFT JOIN produced a row.
+	// Populate CoverImage when the LEFT JOIN produced a row.
 	if mediaID.Valid {
-		m := &entity.Media{
+		m := &entity.SeriesImage{
 			ID:          mediaID.String,
 			OrganizerID: mediaOrganizerID.String,
 		}
@@ -336,7 +336,7 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 				return nil, apperr.New(codes.Internal, fmt.Sprintf("unmarshal media attributes for series %s: %v", s.ID, err))
 			}
 		}
-		s.CoverMedia = m
+		s.CoverImage = m
 	}
 	return &s, nil
 }
@@ -427,7 +427,7 @@ func (r *SeriesRepository) Create(ctx context.Context, series ...*entity.Series)
 }
 
 // DeleteOrphaned removes, from among the given candidate series IDs, every row
-// with no member events and no pending staged concerts referencing it. An empty
+// with no member events and no pending concert candidates referencing it. An empty
 // slice is a no-op. Returns the number of rows deleted.
 func (r *SeriesRepository) DeleteOrphaned(ctx context.Context, seriesIDs []string) (int64, error) {
 	if len(seriesIDs) == 0 {
@@ -815,12 +815,12 @@ func (r *SeriesRepository) MarkPublished(ctx context.Context, seriesID string, p
 	return nil
 }
 
-// ReplaceCoverMedia atomically swaps a series' cover in a single transaction:
-// it reads any prior cover media id, deletes the prior series_media join row
+// ReplaceCoverImage atomically swaps a series' cover in a single transaction:
+// it reads any prior cover media id, deletes the prior series_cover_images join row
 // and its media row, inserts the new media row, and inserts the new
-// series_media join row. Returns the prior media id ("" when none) so the
+// series_cover_images join row. Returns the prior media id ("" when none) so the
 // caller can reclaim the replaced object from storage.
-func (r *SeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID string, newMedia *entity.Media) (string, error) {
+func (r *SeriesRepository) ReplaceCoverImage(ctx context.Context, seriesID string, newMedia *entity.SeriesImage) (string, error) {
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return "", toAppErr(err, "failed to begin cover media transaction")
@@ -829,19 +829,19 @@ func (r *SeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID strin
 
 	// Read and hold the prior cover media id (may be absent).
 	var oldMediaID string
-	err = tx.QueryRow(ctx, selectCoverMediaIDQuery, seriesID).Scan(&oldMediaID)
+	err = tx.QueryRow(ctx, selectCoverImageIDQuery, seriesID).Scan(&oldMediaID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", toAppErr(err, "failed to read existing cover media", slog.String("series_id", seriesID))
 	}
 
-	// Delete the prior series_media join row first (FK constraint satisfied
+	// Delete the prior series_cover_images join row first (FK constraint satisfied
 	// before we delete the media row).
 	if _, err := tx.Exec(ctx, deleteSeriesMediaBySeriesQuery, seriesID); err != nil {
 		return "", toAppErr(err, "failed to delete prior series_media row", slog.String("series_id", seriesID))
 	}
 	// Delete the prior media row if one existed.
 	if oldMediaID != "" {
-		if _, err := tx.Exec(ctx, deleteCoverMediaRowQuery, oldMediaID); err != nil {
+		if _, err := tx.Exec(ctx, deleteCoverImageRowQuery, oldMediaID); err != nil {
 			return "", toAppErr(err, "failed to delete prior media row",
 				slog.String("series_id", seriesID),
 				slog.String("old_media_id", oldMediaID),
@@ -863,7 +863,7 @@ func (r *SeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID strin
 	}
 	if _, err := tx.Exec(ctx, insertSeriesMediaQuery, seriesID, newMedia.ID); err != nil {
 		// A foreign-key violation on series_id means the series does not exist;
-		// the series_media FK is the sole existence check (no extra round-trip).
+		// the series_cover_images FK is the sole existence check (no extra round-trip).
 		if IsForeignKeyViolation(err) {
 			return "", apperr.New(codes.NotFound, "series not found")
 		}
@@ -1047,8 +1047,8 @@ func (r *SeriesRepository) PublishDraft(ctx context.Context, seriesID string, no
 		return nil, toAppErr(err, "failed to delete draft performers after publish")
 	}
 
-	// Drop staged concerts that referenced this series (superseded by organizer version).
-	if _, err := tx.Exec(ctx, dropStagedConcertsBySeriesQuery, seriesID); err != nil {
+	// Drop concert candidates that referenced this series (superseded by organizer version).
+	if _, err := tx.Exec(ctx, dropConcertCandidatesBySeriesQuery, seriesID); err != nil {
 		return nil, toAppErr(err, "failed to drop staged concerts for series")
 	}
 
@@ -1065,7 +1065,7 @@ func (r *SeriesRepository) PublishDraft(ctx context.Context, seriesID string, no
 
 // InsertMedia persists a media row idempotently. ON CONFLICT(id) DO NOTHING
 // means a second AttachMedia call for the same media_id is a safe no-op.
-func (r *SeriesRepository) InsertMedia(ctx context.Context, media *entity.Media) error {
+func (r *SeriesRepository) InsertMedia(ctx context.Context, media *entity.SeriesImage) error {
 	attrsJSON, err := json.Marshal(media.Attributes)
 	if err != nil {
 		return apperr.New(codes.Internal, fmt.Sprintf("marshal media attributes: %v", err))
@@ -1080,9 +1080,9 @@ func (r *SeriesRepository) InsertMedia(ctx context.Context, media *entity.Media)
 
 // FindMediaByID retrieves a single media row by id. Returns NotFound when no
 // row exists.
-func (r *SeriesRepository) FindMediaByID(ctx context.Context, mediaID string) (*entity.Media, error) {
+func (r *SeriesRepository) FindMediaByID(ctx context.Context, mediaID string) (*entity.SeriesImage, error) {
 	var (
-		m        entity.Media
+		m        entity.SeriesImage
 		attrsRaw []byte
 	)
 	err := r.db.Pool.QueryRow(ctx, findMediaByIDQuery, mediaID).Scan(
@@ -1101,7 +1101,7 @@ func (r *SeriesRepository) FindMediaByID(ctx context.Context, mediaID string) (*
 
 // CutOverSeriesMedia atomically re-points a series' cover to newMediaID and
 // returns the prior media id (empty string when the series had no cover or
-// when series_media already points to newMediaID — idempotent on re-delivery).
+// when series_cover_images already points to newMediaID — idempotent on re-delivery).
 // The old media row is deleted inside the same transaction so the DB stays
 // consistent even when the caller crashes before reclaiming GCS objects.
 func (r *SeriesRepository) CutOverSeriesMedia(ctx context.Context, seriesID, newMediaID string) (string, error) {
@@ -1111,9 +1111,9 @@ func (r *SeriesRepository) CutOverSeriesMedia(ctx context.Context, seriesID, new
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Read the current series_media row while holding the transaction lock.
+	// Read the current series_cover_images row while holding the transaction lock.
 	var oldMediaID sql.NullString
-	if err := tx.QueryRow(ctx, selectCoverMediaIDQuery, seriesID).Scan(&oldMediaID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, selectCoverImageIDQuery, seriesID).Scan(&oldMediaID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", toAppErr(err, "failed to read current cover media", slog.String("series_id", seriesID))
 	}
 
@@ -1125,7 +1125,7 @@ func (r *SeriesRepository) CutOverSeriesMedia(ctx context.Context, seriesID, new
 		return "", nil
 	}
 
-	// Upsert series_media to point to the new media id.
+	// Upsert series_cover_images to point to the new media id.
 	if _, err := tx.Exec(ctx, deleteSeriesMediaBySeriesQuery, seriesID); err != nil {
 		return "", toAppErr(err, "failed to delete old series_media row", slog.String("series_id", seriesID))
 	}
@@ -1141,7 +1141,7 @@ func (r *SeriesRepository) CutOverSeriesMedia(ctx context.Context, seriesID, new
 
 	// Delete the old media row so the DB does not accumulate orphaned rows.
 	if oldMediaID.Valid && oldMediaID.String != "" {
-		if _, err := tx.Exec(ctx, deleteCoverMediaRowQuery, oldMediaID.String); err != nil {
+		if _, err := tx.Exec(ctx, deleteCoverImageRowQuery, oldMediaID.String); err != nil {
 			return "", toAppErr(err, "failed to delete old media row",
 				slog.String("series_id", seriesID),
 				slog.String("old_media_id", oldMediaID.String),
@@ -1171,17 +1171,17 @@ func (r *SeriesRepository) DeleteMedia(ctx context.Context, mediaID string) erro
 
 // ListMediaByOrganizer returns every media row owned by the organizer, ordered by id
 // (creation order, as ids are UUIDv7). Returns an empty slice when it owns none.
-func (r *SeriesRepository) ListMediaByOrganizer(ctx context.Context, organizerID string) ([]*entity.Media, error) {
+func (r *SeriesRepository) ListMediaByOrganizer(ctx context.Context, organizerID string) ([]*entity.SeriesImage, error) {
 	rows, err := r.db.Pool.Query(ctx, listMediaByOrganizerQuery, organizerID)
 	if err != nil {
 		return nil, toAppErr(err, "failed to list media by organizer", slog.String("organizer_id", organizerID))
 	}
 	defer rows.Close()
 
-	media := []*entity.Media{}
+	media := []*entity.SeriesImage{}
 	for rows.Next() {
 		var (
-			m        entity.Media
+			m        entity.SeriesImage
 			attrsRaw []byte
 		)
 		if err := rows.Scan(&m.ID, &m.OrganizerID, &attrsRaw); err != nil {

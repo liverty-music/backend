@@ -31,7 +31,7 @@ const (
 		WHERE u.id = $1
 	`
 
-	getUserByExternalIDQuery = `
+	getUserByProviderUserIDQuery = `
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
 		LEFT JOIN homes h ON u.home_id = h.id
@@ -156,7 +156,7 @@ func nullStringFromEmpty(s string) sql.NullString {
 // columns above are nullable per schema and at least one
 // (preferred_language) is regularly NULL on legacy rows after the
 // persist-user-language migration, so the intermediate-local pattern
-// protects every read path that shares this scanner (Get, GetByExternalID,
+// protects every read path that shares this scanner (Get, GetByProviderUserID,
 // GetByEmail, Update, UpdatePreferredLanguage, UpdateHome's re-fetch, List).
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
@@ -166,7 +166,7 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	var centroidLat, centroidLng sql.NullFloat64
 
 	err := scanner.Scan(
-		&user.ID, &user.ExternalID, &user.Email, &user.Name,
+		&user.ID, &user.ProviderUserID, &user.Email, &user.Name,
 		&preferredLanguage, &timeZone,
 		&fullName, &phoneNumber,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
@@ -242,7 +242,7 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	// downstream observability (a NULL row is a "never asserted" signal
 	// while an empty string would be a contract violation).
 	_, err = tx.Exec(ctx, insertUserQuery,
-		user.ID, params.ExternalID, params.Email, params.Name,
+		user.ID, params.ProviderUserID, params.Email, params.Name,
 		nullStringFromEmpty(params.PreferredLanguage),
 		nullStringFromEmpty(params.TimeZone),
 	)
@@ -312,13 +312,13 @@ func (r *UserRepository) Get(ctx context.Context, id string) (*entity.User, erro
 	return user, nil
 }
 
-// GetByExternalID retrieves a user by identity provider ID from the database.
-func (r *UserRepository) GetByExternalID(ctx context.Context, externalID string) (*entity.User, error) {
+// GetByProviderUserID retrieves a user by identity provider ID from the database.
+func (r *UserRepository) GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error) {
 	if externalID == "" {
 		return nil, apperr.New(codes.InvalidArgument, "external ID cannot be empty")
 	}
 
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByExternalIDQuery, externalID))
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByProviderUserIDQuery, externalID))
 	if err != nil {
 		return nil, toAppErr(err, "failed to get user by external ID", slog.String("external_id", externalID))
 	}
@@ -356,7 +356,7 @@ func (r *UserRepository) Update(ctx context.Context, id string, params *entity.N
 	// "absent vs explicitly empty" distinction on both write and read
 	// (see scanUser).
 	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateUserQuery,
-		id, params.ExternalID, params.Email, params.Name,
+		id, params.ProviderUserID, params.Email, params.Name,
 		nullStringFromEmpty(params.TimeZone),
 	))
 	if err != nil {

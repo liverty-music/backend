@@ -62,7 +62,7 @@ func (h *UserHandler) Get(ctx context.Context, _ *connect.Request[userv1.GetRequ
 func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.CreateRequest]) (*connect.Response[userv1.CreateResponse], error) {
 	// Extract JWT claims from authenticated context (set by auth interceptor).
 	// This is critical for security — we extract all identity fields from validated JWT claims
-	// (external_id, email, name) and never trust client-provided identity data.
+	// (provider_user_id, email, name) and never trust client-provided identity data.
 	claims, err := mapper.GetClaimsFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -159,7 +159,7 @@ func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *connect.Req
 		return nil, err
 	}
 
-	user, err := h.userUseCase.UpdatePreferredLanguage(ctx, caller.ID, lang)
+	user, err := h.userUseCase.SetPreferredLanguage(ctx, caller.ID, lang)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +182,7 @@ func (h *UserHandler) SetHome(ctx context.Context, req *connect.Request[userv1.S
 	}
 
 	home := mapper.ProtoHomeToEntity(req.Msg.GetHome())
-	updatedUser, err := h.userUseCase.UpdateHome(ctx, user.ID, home)
+	updatedUser, err := h.userUseCase.SetHome(ctx, user.ID, home)
 	if err != nil {
 		return nil, err
 	}

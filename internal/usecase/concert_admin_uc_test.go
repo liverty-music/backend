@@ -17,12 +17,12 @@ import (
 
 // --- test doubles for admin UC ---
 
-// fakeRejectedConcertLogRepo is an in-memory append-only log repo.
-type fakeRejectedConcertLogRepo struct {
-	entries []*entity.RejectedConcertLog
+// fakeRejectedConcertRepo is an in-memory append-only log repo.
+type fakeRejectedConcertRepo struct {
+	entries []*entity.RejectedConcert
 }
 
-func (r *fakeRejectedConcertLogRepo) Append(_ context.Context, log *entity.RejectedConcertLog) error {
+func (r *fakeRejectedConcertRepo) Append(_ context.Context, log *entity.RejectedConcert) error {
 	r.entries = append(r.entries, log)
 	return nil
 }
@@ -86,13 +86,13 @@ func (r *fakeArtistRepo) MarkOfficialSiteChecked(_ context.Context, _ string, _ 
 
 // approvalTestDeps bundles dependencies for AdminConcertUseCase tests.
 type approvalTestDeps struct {
-	stagedRepo  *fakeStagedConcertRepo
-	rejectedLog *fakeRejectedConcertLogRepo
-	venueRepo   *fakeVenueRepo
-	seriesRepo  *fakeSeriesRepo
-	concertRepo *fakeConcertRepo
-	artistRepo  *fakeArtistRepo
-	publisher   interface {
+	stagedRepo      *fakeConcertCandidateRepo
+	rejectedConcert *fakeRejectedConcertRepo
+	venueRepo       *fakeVenueRepo
+	seriesRepo      *fakeSeriesRepo
+	concertRepo     *fakeConcertRepo
+	artistRepo      *fakeArtistRepo
+	publisher       interface {
 		Subscribe(ctx context.Context, topic string) (<-chan *message.Message, error)
 	}
 	uc usecase.AdminConcertUseCase
@@ -102,13 +102,13 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 	t.Helper()
 	pub := newGoChannelPub(t)
 	d := &approvalTestDeps{
-		stagedRepo:  &fakeStagedConcertRepo{},
-		rejectedLog: &fakeRejectedConcertLogRepo{},
-		venueRepo:   newFakeVenueRepo(),
-		seriesRepo:  &fakeSeriesRepo{},
-		concertRepo: &fakeConcertRepo{},
-		artistRepo:  newFakeArtistRepo(artist),
-		publisher:   pub,
+		stagedRepo:      &fakeConcertCandidateRepo{},
+		rejectedConcert: &fakeRejectedConcertRepo{},
+		venueRepo:       newFakeVenueRepo(),
+		seriesRepo:      &fakeSeriesRepo{},
+		concertRepo:     &fakeConcertRepo{},
+		artistRepo:      newFakeArtistRepo(artist),
+		publisher:       pub,
 	}
 	// Pass nil for repos/deps that Approve/Reject/ListPending/List/Delete never touch:
 	// searchLogRepo, concertSearcher, centroidResolver, and metrics.
@@ -120,7 +120,7 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		nil, // organizerRepo — not used by admin methods
 		nil, // searchLogRepo — not used by admin methods
 		d.stagedRepo,
-		d.rejectedLog,
+		d.rejectedConcert,
 		nil, // concertSearcher — not used by admin methods
 		nil, // centroidResolver — not used by admin methods
 		messaging.NewEventPublisher(pub),
@@ -133,12 +133,12 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 	return d
 }
 
-// seedStaged inserts a staged concert into the fake repo and returns it.
+// seedStaged inserts a concert candidate into the fake repo and returns it.
 // The staged row always carries a SeriesID referencing a pre-existing series
 // (created at discovery time), matching the new model where Approve never mints
 // a series. The parent series is also seeded into seriesRepo.byID so that
 // conflict-detection helpers that call seriesRepo.Get can resolve the title.
-func seedStaged(d *approvalTestDeps, artistID string) *entity.StagedConcert {
+func seedStaged(d *approvalTestDeps, artistID string) *entity.ConcertCandidate {
 	placeID := "place-abc"
 	venueName := "Venue ABC Canonical"
 	sourceURL := "https://example.com/show"
@@ -152,7 +152,7 @@ func seedStaged(d *approvalTestDeps, artistID string) *entity.StagedConcert {
 		Title: "Approval Test Concert",
 		Type:  entity.SeriesTypeSingle,
 	}
-	sc := &entity.StagedConcert{
+	sc := &entity.ConcertCandidate{
 		ID:                "staged-001",
 		ArtistID:          artistID,
 		SeriesID:          stagedSeriesID,
@@ -189,7 +189,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		assert.Equal(t, artist.ID, d.concertRepo.created[0].ArtistIDs()[0])
 
 		// Approve NEVER mints a series — the series row already exists (created at
-		// discovery time, referenced via StagedConcert.SeriesID).
+		// discovery time, referenced via ConcertCandidate.SeriesID).
 		assert.Empty(t, d.seriesRepo.created,
 			"Approve must not create a new series; the series was minted at discovery time")
 		assert.Equal(t, sc.SeriesID, d.concertRepo.created[0].SeriesID,
@@ -268,7 +268,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 
 		differentPlaceID := "place-P2"
 		venueName := "Venue ABC Canonical"
-		sc := &entity.StagedConcert{
+		sc := &entity.ConcertCandidate{
 			ID:                "staged-diff-placeid",
 			ArtistID:          artist.ID,
 			Title:             "Approval Test Concert",
@@ -307,7 +307,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 
 		resolvedPlaceID := "place-P2"
 		venueName := "Venue ABC Canonical"
-		sc := &entity.StagedConcert{
+		sc := &entity.ConcertCandidate{
 			ID:                "staged-backfill",
 			ArtistID:          artist.ID,
 			Title:             "Approval Test Concert",
@@ -345,7 +345,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		// (JP-27); the lookup MUST use the resolved value to find the venue. No
 		// place_id is set so resolution goes straight to the listed-name lookup.
 		venueName := "Venue ABC Canonical"
-		sc := &entity.StagedConcert{
+		sc := &entity.ConcertCandidate{
 			ID:                "staged-admin-symmetry",
 			ArtistID:          artist.ID,
 			Title:             "Approval Test Concert",
@@ -377,7 +377,7 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 		createdCh, err := d.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
 		require.NoError(t, err)
 
-		sc := &entity.StagedConcert{
+		sc := &entity.ConcertCandidate{
 			ID:              "staged-approve-publish",
 			ArtistID:        artist.ID,
 			Title:           "Show",
@@ -398,10 +398,10 @@ func TestAdminConcertUseCase_Approve(t *testing.T) {
 	})
 }
 
-// seedConflict wires a staged concert that duplicates an already-published event
+// seedConflict wires a concert candidate that duplicates an already-published event
 // at the same (venue, date, start time): the venue is pre-seeded so it resolves
 // to a known id, and an existing known-start event plus its series are seeded.
-func seedConflict(d *approvalTestDeps, artistID string) *entity.StagedConcert {
+func seedConflict(d *approvalTestDeps, artistID string) *entity.ConcertCandidate {
 	d.venueRepo.venues["Venue One"] = &entity.Venue{
 		ID:              "venue-1",
 		Name:            "Venue One",
@@ -421,7 +421,7 @@ func seedConflict(d *approvalTestDeps, artistID string) *entity.StagedConcert {
 	d.seriesRepo.byID = map[string]*entity.Series{
 		"series-1": {ID: "series-1", Title: "Existing Title"},
 	}
-	sc := &entity.StagedConcert{
+	sc := &entity.ConcertCandidate{
 		ID:              "staged-dup",
 		ArtistID:        artistID,
 		Title:           "Staged Title",
@@ -457,7 +457,7 @@ func TestAdminConcertUseCase_Approve_Reconciliation(t *testing.T) {
 		// No mutation: staged row preserved, nothing created/logged/updated.
 		assert.Len(t, d.stagedRepo.upserted, 1)
 		assert.Empty(t, d.concertRepo.created)
-		assert.Empty(t, d.rejectedLog.entries)
+		assert.Empty(t, d.rejectedConcert.entries)
 		assert.Empty(t, d.concertRepo.updatedListedNames)
 	})
 
@@ -471,10 +471,10 @@ func TestAdminConcertUseCase_Approve_Reconciliation(t *testing.T) {
 		assert.Nil(t, result.Conflict)
 
 		// Staged row logged (with the reviewer) and cleared; event untouched.
-		require.Len(t, d.rejectedLog.entries, 1)
-		assert.Contains(t, d.rejectedLog.entries[0].Reason, "duplicate")
-		require.NotNil(t, d.rejectedLog.entries[0].ReviewedBy)
-		assert.Equal(t, "reviewer-1", *d.rejectedLog.entries[0].ReviewedBy)
+		require.Len(t, d.rejectedConcert.entries, 1)
+		assert.Contains(t, d.rejectedConcert.entries[0].Reason, "duplicate")
+		require.NotNil(t, d.rejectedConcert.entries[0].ReviewedBy)
+		assert.Equal(t, "reviewer-1", *d.rejectedConcert.entries[0].ReviewedBy)
 		assert.Empty(t, d.stagedRepo.upserted)
 		assert.Empty(t, d.concertRepo.created)
 		assert.Empty(t, d.concertRepo.updatedListedNames)
@@ -495,7 +495,7 @@ func TestAdminConcertUseCase_Approve_Reconciliation(t *testing.T) {
 		assert.Contains(t, d.concertRepo.filledIDs, "event-1")
 		assert.Empty(t, d.stagedRepo.upserted)
 		assert.Empty(t, d.concertRepo.created)
-		assert.Empty(t, d.rejectedLog.entries)
+		assert.Empty(t, d.rejectedConcert.entries)
 	})
 
 	t.Run("second reconcile call is idempotent once the staged row is gone", func(t *testing.T) {
@@ -511,7 +511,7 @@ func TestAdminConcertUseCase_Approve_Reconciliation(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, result.Conflict)
 		// No second log entry, no event mutation.
-		assert.Len(t, d.rejectedLog.entries, 1)
+		assert.Len(t, d.rejectedConcert.entries, 1)
 		assert.Empty(t, d.concertRepo.updatedListedNames)
 	})
 }
@@ -530,8 +530,8 @@ func TestAdminConcertUseCase_Reject(t *testing.T) {
 		require.NoError(t, err)
 
 		// Rejection log has one entry.
-		require.Len(t, d.rejectedLog.entries, 1)
-		logEntry := d.rejectedLog.entries[0]
+		require.Len(t, d.rejectedConcert.entries, 1)
+		logEntry := d.rejectedConcert.entries[0]
 		assert.Equal(t, artist.ID, logEntry.ArtistID)
 		assert.Equal(t, artist.Name, logEntry.ArtistName)
 		assert.Equal(t, sc.Title, logEntry.Title)
@@ -552,7 +552,7 @@ func TestAdminConcertUseCase_Reject(t *testing.T) {
 		require.NoError(t, err)
 
 		// No log entry created for a row that was not found.
-		assert.Empty(t, d.rejectedLog.entries)
+		assert.Empty(t, d.rejectedConcert.entries)
 	})
 
 	t.Run("reject with empty reviewed_by sets ReviewedBy to nil in the log", func(t *testing.T) {
@@ -563,8 +563,8 @@ func TestAdminConcertUseCase_Reject(t *testing.T) {
 		err := d.uc.Reject(context.Background(), sc.ID, "bad data", "")
 		require.NoError(t, err)
 
-		require.Len(t, d.rejectedLog.entries, 1)
-		assert.Nil(t, d.rejectedLog.entries[0].ReviewedBy)
+		require.Len(t, d.rejectedConcert.entries, 1)
+		assert.Nil(t, d.rejectedConcert.entries[0].ReviewedBy)
 	})
 }
 

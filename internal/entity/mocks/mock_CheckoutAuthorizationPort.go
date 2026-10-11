@@ -22,9 +22,9 @@ func (_m *MockCheckoutAuthorizationPort) EXPECT() *MockCheckoutAuthorizationPort
 	return &MockCheckoutAuthorizationPort_Expecter{mock: &_m.Mock}
 }
 
-// CancelAuthorization provides a mock function with given fields: ctx, authorizationRef
-func (_m *MockCheckoutAuthorizationPort) CancelAuthorization(ctx context.Context, authorizationRef string) error {
-	ret := _m.Called(ctx, authorizationRef)
+// CancelAuthorization provides a mock function with given fields: ctx, cardAuthorizationID
+func (_m *MockCheckoutAuthorizationPort) CancelAuthorization(ctx context.Context, cardAuthorizationID string) error {
+	ret := _m.Called(ctx, cardAuthorizationID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CancelAuthorization")
@@ -32,7 +32,7 @@ func (_m *MockCheckoutAuthorizationPort) CancelAuthorization(ctx context.Context
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, authorizationRef)
+		r0 = rf(ctx, cardAuthorizationID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -47,12 +47,12 @@ type MockCheckoutAuthorizationPort_CancelAuthorization_Call struct {
 
 // CancelAuthorization is a helper method to define mock.On call
 //   - ctx context.Context
-//   - authorizationRef string
-func (_e *MockCheckoutAuthorizationPort_Expecter) CancelAuthorization(ctx interface{}, authorizationRef interface{}) *MockCheckoutAuthorizationPort_CancelAuthorization_Call {
-	return &MockCheckoutAuthorizationPort_CancelAuthorization_Call{Call: _e.mock.On("CancelAuthorization", ctx, authorizationRef)}
+//   - cardAuthorizationID string
+func (_e *MockCheckoutAuthorizationPort_Expecter) CancelAuthorization(ctx interface{}, cardAuthorizationID interface{}) *MockCheckoutAuthorizationPort_CancelAuthorization_Call {
+	return &MockCheckoutAuthorizationPort_CancelAuthorization_Call{Call: _e.mock.On("CancelAuthorization", ctx, cardAuthorizationID)}
 }
 
-func (_c *MockCheckoutAuthorizationPort_CancelAuthorization_Call) Run(run func(ctx context.Context, authorizationRef string)) *MockCheckoutAuthorizationPort_CancelAuthorization_Call {
+func (_c *MockCheckoutAuthorizationPort_CancelAuthorization_Call) Run(run func(ctx context.Context, cardAuthorizationID string)) *MockCheckoutAuthorizationPort_CancelAuthorization_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
@@ -69,9 +69,9 @@ func (_c *MockCheckoutAuthorizationPort_CancelAuthorization_Call) RunAndReturn(r
 	return _c
 }
 
-// CaptureAuthorization provides a mock function with given fields: ctx, authorizationRef
-func (_m *MockCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Context, authorizationRef string) (*entity.CapturedPayment, error) {
-	ret := _m.Called(ctx, authorizationRef)
+// CaptureAuthorization provides a mock function with given fields: ctx, cardAuthorizationID
+func (_m *MockCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Context, cardAuthorizationID string) (*entity.CapturedPayment, error) {
+	ret := _m.Called(ctx, cardAuthorizationID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CaptureAuthorization")
@@ -80,10 +80,10 @@ func (_m *MockCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Contex
 	var r0 *entity.CapturedPayment
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.CapturedPayment, error)); ok {
-		return rf(ctx, authorizationRef)
+		return rf(ctx, cardAuthorizationID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.CapturedPayment); ok {
-		r0 = rf(ctx, authorizationRef)
+		r0 = rf(ctx, cardAuthorizationID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.CapturedPayment)
@@ -91,7 +91,7 @@ func (_m *MockCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Contex
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, authorizationRef)
+		r1 = rf(ctx, cardAuthorizationID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -106,12 +106,12 @@ type MockCheckoutAuthorizationPort_CaptureAuthorization_Call struct {
 
 // CaptureAuthorization is a helper method to define mock.On call
 //   - ctx context.Context
-//   - authorizationRef string
-func (_e *MockCheckoutAuthorizationPort_Expecter) CaptureAuthorization(ctx interface{}, authorizationRef interface{}) *MockCheckoutAuthorizationPort_CaptureAuthorization_Call {
-	return &MockCheckoutAuthorizationPort_CaptureAuthorization_Call{Call: _e.mock.On("CaptureAuthorization", ctx, authorizationRef)}
+//   - cardAuthorizationID string
+func (_e *MockCheckoutAuthorizationPort_Expecter) CaptureAuthorization(ctx interface{}, cardAuthorizationID interface{}) *MockCheckoutAuthorizationPort_CaptureAuthorization_Call {
+	return &MockCheckoutAuthorizationPort_CaptureAuthorization_Call{Call: _e.mock.On("CaptureAuthorization", ctx, cardAuthorizationID)}
 }
 
-func (_c *MockCheckoutAuthorizationPort_CaptureAuthorization_Call) Run(run func(ctx context.Context, authorizationRef string)) *MockCheckoutAuthorizationPort_CaptureAuthorization_Call {
+func (_c *MockCheckoutAuthorizationPort_CaptureAuthorization_Call) Run(run func(ctx context.Context, cardAuthorizationID string)) *MockCheckoutAuthorizationPort_CaptureAuthorization_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
@@ -183,8 +183,8 @@ func (_c *MockCheckoutAuthorizationPort_CreateAuthorization_Call) Run(run func(c
 	return _c
 }
 
-func (_c *MockCheckoutAuthorizationPort_CreateAuthorization_Call) Return(authorizationRef string, clientSecret string, err error) *MockCheckoutAuthorizationPort_CreateAuthorization_Call {
-	_c.Call.Return(authorizationRef, clientSecret, err)
+func (_c *MockCheckoutAuthorizationPort_CreateAuthorization_Call) Return(cardAuthorizationID string, clientSecret string, err error) *MockCheckoutAuthorizationPort_CreateAuthorization_Call {
+	_c.Call.Return(cardAuthorizationID, clientSecret, err)
 	return _c
 }
 
@@ -193,9 +193,9 @@ func (_c *MockCheckoutAuthorizationPort_CreateAuthorization_Call) RunAndReturn(r
 	return _c
 }
 
-// VerifyAuthorization provides a mock function with given fields: ctx, authorizationRef, expectedAmountJPY
-func (_m *MockCheckoutAuthorizationPort) VerifyAuthorization(ctx context.Context, authorizationRef string, expectedAmountJPY int64) error {
-	ret := _m.Called(ctx, authorizationRef, expectedAmountJPY)
+// VerifyAuthorization provides a mock function with given fields: ctx, cardAuthorizationID, expectedAmountJPY
+func (_m *MockCheckoutAuthorizationPort) VerifyAuthorization(ctx context.Context, cardAuthorizationID string, expectedAmountJPY int64) error {
+	ret := _m.Called(ctx, cardAuthorizationID, expectedAmountJPY)
 
 	if len(ret) == 0 {
 		panic("no return value specified for VerifyAuthorization")
@@ -203,7 +203,7 @@ func (_m *MockCheckoutAuthorizationPort) VerifyAuthorization(ctx context.Context
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, int64) error); ok {
-		r0 = rf(ctx, authorizationRef, expectedAmountJPY)
+		r0 = rf(ctx, cardAuthorizationID, expectedAmountJPY)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -218,13 +218,13 @@ type MockCheckoutAuthorizationPort_VerifyAuthorization_Call struct {
 
 // VerifyAuthorization is a helper method to define mock.On call
 //   - ctx context.Context
-//   - authorizationRef string
+//   - cardAuthorizationID string
 //   - expectedAmountJPY int64
-func (_e *MockCheckoutAuthorizationPort_Expecter) VerifyAuthorization(ctx interface{}, authorizationRef interface{}, expectedAmountJPY interface{}) *MockCheckoutAuthorizationPort_VerifyAuthorization_Call {
-	return &MockCheckoutAuthorizationPort_VerifyAuthorization_Call{Call: _e.mock.On("VerifyAuthorization", ctx, authorizationRef, expectedAmountJPY)}
+func (_e *MockCheckoutAuthorizationPort_Expecter) VerifyAuthorization(ctx interface{}, cardAuthorizationID interface{}, expectedAmountJPY interface{}) *MockCheckoutAuthorizationPort_VerifyAuthorization_Call {
+	return &MockCheckoutAuthorizationPort_VerifyAuthorization_Call{Call: _e.mock.On("VerifyAuthorization", ctx, cardAuthorizationID, expectedAmountJPY)}
 }
 
-func (_c *MockCheckoutAuthorizationPort_VerifyAuthorization_Call) Run(run func(ctx context.Context, authorizationRef string, expectedAmountJPY int64)) *MockCheckoutAuthorizationPort_VerifyAuthorization_Call {
+func (_c *MockCheckoutAuthorizationPort_VerifyAuthorization_Call) Run(run func(ctx context.Context, cardAuthorizationID string, expectedAmountJPY int64)) *MockCheckoutAuthorizationPort_VerifyAuthorization_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(int64))
 	})

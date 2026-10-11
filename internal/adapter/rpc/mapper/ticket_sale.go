@@ -28,8 +28,8 @@ func TicketSaleToProto(v *usecase.TicketSaleView, withCounts bool) *entityv1.Tic
 		VerificationRequirement: verificationRequirementToProto(s.VerificationRequirement),
 		TicketTypes:             make([]*entityv1.TicketType, 0, len(v.TicketTypes)),
 	}
-	if s.DrawnTime != nil {
-		pb.DrawTime = timestamppb.New(*s.DrawnTime)
+	if s.DrawTime != nil {
+		pb.DrawTime = timestamppb.New(*s.DrawTime)
 	}
 	for _, tv := range v.TicketTypes {
 		if tt := TicketTypeToProto(tv, withCounts); tt != nil {

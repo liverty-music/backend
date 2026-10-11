@@ -42,18 +42,18 @@ func (h *UserConsumer) Handle(msg *message.Message) error {
 
 	if h.emailVerifier == nil {
 		h.logger.Warn(ctx, "email verifier not configured, skipping verification",
-			slog.String("external_id", data.ExternalID),
+			slog.String("external_id", data.ProviderUserID),
 		)
 		return nil
 	}
 
 	h.logger.Info(ctx, "sending email verification",
-		slog.String("external_id", data.ExternalID),
+		slog.String("external_id", data.ProviderUserID),
 	)
 
-	if err := h.emailVerifier.SendVerification(ctx, data.ExternalID); err != nil {
+	if err := h.emailVerifier.SendVerification(ctx, data.ProviderUserID); err != nil {
 		h.logger.Error(ctx, "failed to send email verification", err,
-			slog.String("external_id", data.ExternalID),
+			slog.String("external_id", data.ProviderUserID),
 		)
 		return fmt.Errorf("send email verification: %w", err)
 	}

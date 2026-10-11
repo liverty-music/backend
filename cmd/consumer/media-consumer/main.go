@@ -3,7 +3,7 @@
 // The media-consumer subscribes to MEDIA.uploaded events via a pull-based
 // JetStream durable (created externally by NACK), generates WebP variants
 // (thumb + large) from the original uploaded by the organizer, writes them to
-// the served CDN bucket, and cuts over series_media to the new media id in a
+// the served CDN bucket, and cuts over series_cover_images to the new media id in a
 // single transaction so the old cover keeps serving until the new variants
 // exist (no-404 window).
 //

@@ -258,7 +258,7 @@ func TestTicketSale_IsDrawn(t *testing.T) {
 		// @spec components/entity/ticket-sale "Drawn time set"
 		drawn := nov(10, 10, 1)
 		sale := saleWindow(entity.TicketSaleMethodLottery, nov(1, 10, 0), nov(10, 10, 0))
-		sale.DrawnTime = &drawn
+		sale.DrawTime = &drawn
 
 		assert.True(t, sale.IsDrawn())
 	})

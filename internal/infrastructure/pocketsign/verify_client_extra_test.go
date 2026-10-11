@@ -205,7 +205,7 @@ func buildFinalizeResponseNilVerifyResponse(nonce string) *stampv1.FinalizeSessi
 }
 
 // buildFinalizeResponseEmptyUserID builds a FinalizeSessionResponse with a
-// VerifyResponse that carries an empty User.id — the PocketSignUserID would
+// VerifyResponse that carries an empty User.id — the ProviderUserID would
 // be empty.
 func buildFinalizeResponseEmptyUserID(t *testing.T, nonce string) *stampv1.FinalizeSessionResponse {
 	t.Helper()

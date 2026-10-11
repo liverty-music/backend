@@ -34,9 +34,9 @@ type AdmitInput struct {
 type RejectedTicket struct {
 	// Reason is Voided or AlreadyAdmitted.
 	Reason entity.RejectedScanReason
-	// EarlierAdmittedTime is, for AlreadyAdmitted, when the ticket was
+	// EarlierAdmitTime is, for AlreadyAdmitted, when the ticket was
 	// admitted earlier.
-	EarlierAdmittedTime *time.Time
+	EarlierAdmitTime *time.Time
 	// EarlierReceptionLinkNumber is, for AlreadyAdmitted, the number of the
 	// link it was admitted through; 0 when unknown.
 	EarlierReceptionLinkNumber int
@@ -69,13 +69,13 @@ type TicketUseCase interface {
 	//  - Internal: database query failure.
 	GetOrder(ctx context.Context, userID entity.UserID, orderID entity.OrderID) (*entity.Order, error)
 
-	// GetMyTickets returns every Ticket whose user is the calling fan, Voided
+	// List returns every Ticket whose user is the calling fan, Voided
 	// ones included; empty when the fan has none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database query failure.
-	GetMyTickets(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error)
+	List(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error)
 
 	// Admit decides one scan: through a usable link, from its bound device,
 	// inside its event's reception window, it admits each ticket a genuine and
@@ -150,8 +150,8 @@ func (uc *ticketUseCase) GetOrder(ctx context.Context, userID entity.UserID, ord
 	return order, nil
 }
 
-// GetMyTickets implements [TicketUseCase].
-func (uc *ticketUseCase) GetMyTickets(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
+// List implements [TicketUseCase].
+func (uc *ticketUseCase) List(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
 	return uc.ticketRepo.ListByUser(ctx, userID)
 }
 
@@ -215,7 +215,7 @@ func (uc *ticketUseCase) Admit(ctx context.Context, in AdmitInput) (*AdmitResult
 		case entity.AdmitOutcomeAdmitted:
 			result.AdmittedTicketCount++
 		case entity.AdmitOutcomeAlreadyAdmitted:
-			reject(ticketID, uc.alreadyAdmitted(ctx, ticketID, admitted.AdmittedTime))
+			reject(ticketID, uc.alreadyAdmitted(ctx, ticketID, admitted.AdmitTime))
 		case entity.AdmitOutcomeVoided:
 			reject(ticketID, RejectedTicket{Reason: entity.RejectedScanReasonVoided})
 		}
@@ -294,11 +294,11 @@ func (uc *ticketUseCase) alreadyAdmitted(ctx context.Context, ticketID entity.Ti
 		uc.logger.Warn(ctx, "failed to read the earlier admission of an already admitted ticket",
 			slog.String("ticket_id", string(ticketID)), slog.Any("error", err))
 		t := admittedTime
-		rt.EarlierAdmittedTime = &t
+		rt.EarlierAdmitTime = &t
 		return rt
 	}
-	t := admission.AdmittedTime
-	rt.EarlierAdmittedTime = &t
+	t := admission.AdmitTime
+	rt.EarlierAdmitTime = &t
 	rt.EarlierReceptionLinkNumber = admission.ReceptionLinkNumber
 	return rt
 }

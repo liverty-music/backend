@@ -18,18 +18,18 @@ import (
 
 // checkoutIssuanceFixture holds the mocks of IssueFromCheckout under test.
 type checkoutIssuanceFixture struct {
-	issuance   *entitymocks.MockIssuanceRepository
-	orders     *entitymocks.MockOrderRepository
-	organizers *entitymocks.MockOrganizerRepository
-	checkouts  *entitymocks.MockCheckoutRepository
-	sales      *entitymocks.MockTicketSaleRepository
-	kycs       *entitymocks.MockKycRepository
-	events     *ucmocks.MockEventPublishStatePort
-	auth       *entitymocks.MockCheckoutAuthorizationPort
-	captured   *entitymocks.MockPaymentCapturePort
-	entries    *entitymocks.MockLotteryEntryRepository
-	publisher  *ucmocks.MockEventPublisher
-	uc         usecase.IssuanceUseCase
+	issuance              *entitymocks.MockIssuanceRepository
+	orders                *entitymocks.MockOrderRepository
+	organizers            *entitymocks.MockOrganizerRepository
+	checkouts             *entitymocks.MockCheckoutRepository
+	sales                 *entitymocks.MockTicketSaleRepository
+	identityVerifications *entitymocks.MockIdentityVerificationRepository
+	events                *ucmocks.MockEventPublishStatePort
+	auth                  *entitymocks.MockCheckoutAuthorizationPort
+	captured              *entitymocks.MockPaymentCapturePort
+	entries               *entitymocks.MockLotteryEntryRepository
+	publisher             *ucmocks.MockEventPublisher
+	uc                    usecase.IssuanceUseCase
 }
 
 // newCheckoutIssuanceFixture builds the fixture whose ticket type "tt-1"
@@ -37,17 +37,17 @@ type checkoutIssuanceFixture struct {
 func newCheckoutIssuanceFixture(t *testing.T, now time.Time, req ...entity.VerificationRequirement) *checkoutIssuanceFixture {
 	t.Helper()
 	f := &checkoutIssuanceFixture{
-		issuance:   entitymocks.NewMockIssuanceRepository(t),
-		orders:     entitymocks.NewMockOrderRepository(t),
-		organizers: entitymocks.NewMockOrganizerRepository(t),
-		checkouts:  entitymocks.NewMockCheckoutRepository(t),
-		sales:      entitymocks.NewMockTicketSaleRepository(t),
-		kycs:       entitymocks.NewMockKycRepository(t),
-		events:     ucmocks.NewMockEventPublishStatePort(t),
-		auth:       entitymocks.NewMockCheckoutAuthorizationPort(t),
-		captured:   entitymocks.NewMockPaymentCapturePort(t),
-		entries:    entitymocks.NewMockLotteryEntryRepository(t),
-		publisher:  ucmocks.NewMockEventPublisher(t),
+		issuance:              entitymocks.NewMockIssuanceRepository(t),
+		orders:                entitymocks.NewMockOrderRepository(t),
+		organizers:            entitymocks.NewMockOrganizerRepository(t),
+		checkouts:             entitymocks.NewMockCheckoutRepository(t),
+		sales:                 entitymocks.NewMockTicketSaleRepository(t),
+		identityVerifications: entitymocks.NewMockIdentityVerificationRepository(t),
+		events:                ucmocks.NewMockEventPublishStatePort(t),
+		auth:                  entitymocks.NewMockCheckoutAuthorizationPort(t),
+		captured:              entitymocks.NewMockPaymentCapturePort(t),
+		entries:               entitymocks.NewMockLotteryEntryRepository(t),
+		publisher:             ucmocks.NewMockEventPublisher(t),
 	}
 	// The charge's facets are read back from the provider at issuance.
 	f.captured.EXPECT().GetCapturedPayment(mock.Anything, "pi_1").Return(coPayment, nil).Maybe()
@@ -63,34 +63,34 @@ func newCheckoutIssuanceFixture(t *testing.T, now time.Time, req ...entity.Verif
 	}
 	f.sales.EXPECT().GetTicketType(mock.Anything, entity.TicketTypeID("tt-1"), mock.Anything).Return(sale, tt, nil).Maybe()
 	f.uc = usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
-		IssuanceRepo:       f.issuance,
-		OrderRepo:          f.orders,
-		EventOrganizerRepo: &stubEventOrganizerRepo{getOrganizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil }},
-		OrganizerRepo:      f.organizers,
-		KycRepo:            f.kycs,
-		CheckoutRepo:       f.checkouts,
-		TicketSaleRepo:     f.sales,
-		EventState:         f.events,
-		CheckoutAuth:       f.auth,
-		CapturePort:        f.captured,
-		EntryRepo:          f.entries,
-		Publisher:          f.publisher,
-		Clock:              fixedClock(now),
-		Logger:             newTestLogger(t),
+		IssuanceRepo:             f.issuance,
+		OrderRepo:                f.orders,
+		EventOrganizerRepo:       &stubEventOrganizerRepo{getOrganizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil }},
+		OrganizerRepo:            f.organizers,
+		IdentityVerificationRepo: f.identityVerifications,
+		CheckoutRepo:             f.checkouts,
+		TicketSaleRepo:           f.sales,
+		EventState:               f.events,
+		CheckoutAuth:             f.auth,
+		CapturePort:              f.captured,
+		EntryRepo:                f.entries,
+		Publisher:                f.publisher,
+		Clock:                    fixedClock(now),
+		Logger:                   newTestLogger(t),
 	})
 	return f
 }
 
 var (
 	coStart   = time.Date(2026, 11, 5, 18, 0, 0, 0, tsJST)
-	coPayment = &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: "pi_1", AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}
+	coPayment = &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_1", AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}
 	fan1      = entity.UserID("fan-1")
 )
 
 // authorizedCheckout is fan-1's holding, authorized checkout of 2 x 3000.
 func authorizedCheckout() *entity.Checkout {
 	c := fanCheckout(coStart)
-	c.AuthorizationRef = "pi_1"
+	c.CardAuthorizationID = "pi_1"
 	return c
 }
 
@@ -143,13 +143,13 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		assert.Equal(t, entity.CheckoutID("checkout-1"), order.CheckoutID)
 		assert.Empty(t, order.LotteryEntryID)
 		assert.Equal(t, int64(6000), order.Amount)
-		assert.Equal(t, "pi_1", order.Payment.PaymentIntentRef)
+		assert.Equal(t, "pi_1", order.Payment.ProviderPaymentID)
 		assert.Equal(t, "4242", order.Payment.CardLast4)
 		require.Len(t, gotTickets, 2)
 		for _, tk := range gotTickets {
 			assert.Equal(t, fan1, tk.UserID)
 			assert.Equal(t, "event-1", tk.EventID)
-			assert.Empty(t, tk.KycID, "the sale requires no verification")
+			assert.Empty(t, tk.IdentityVerificationID, "the sale requires no verification")
 			assert.Equal(t, entity.TicketStatusIssued, tk.Status)
 		}
 		require.Len(t, gotSettlement.Splits, 1)
@@ -274,7 +274,7 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 		order, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", nil)
 		require.NoError(t, err)
-		assert.Equal(t, "pi_1", order.Payment.PaymentIntentRef)
+		assert.Equal(t, "pi_1", order.Payment.ProviderPaymentID)
 	})
 
 	t.Run("concurrent issuance returns the first order", func(t *testing.T) {
@@ -314,7 +314,7 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(held, nil).Once()
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.kycs.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(&entity.Kyc{ID: "kyc-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
+		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(&entity.IdentityVerification{ID: "kyc-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
 		f.auth.EXPECT().VerifyAuthorization(mock.Anything, "pi_1", int64(6000)).Return(nil)
 		f.checkouts.EXPECT().Commit(mock.Anything, entity.CheckoutID("checkout-1"), placeAt).Return(entity.CommitOutcomeCommitted, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committedCopy(held, false), nil).Once()
@@ -332,18 +332,18 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, gotTickets, 2)
 		for _, tk := range gotTickets {
-			assert.Equal(t, "kyc-1", tk.KycID)
+			assert.Equal(t, "kyc-1", tk.IdentityVerificationID)
 		}
 	})
 
 	t.Run("kyc gone before confirm", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/order/issue-from-checkout "Kyc gone before confirm"
+		// @spec components/usecase/order/issue-from-checkout "IdentityVerification gone before confirm"
 		f := newCheckoutIssuanceFixture(t, placeAt, entity.VerificationRequirementVerifiedAny)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(authorizedCheckout(), nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.kycs.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
+		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", &fan1)
 
@@ -357,7 +357,7 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, placeAt, entity.VerificationRequirementVerifiedAny)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committedCopy(authorizedCheckout(), false), nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
-		f.kycs.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
+		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(nil, apperr.ErrNotFound)
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", nil)
 
@@ -454,7 +454,7 @@ func TestIssuanceUseCase_FulfillPayment(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, now)
 		completed := committedCopy(authorizedCheckout(), true)
 		completed.Status = entity.CheckoutStatusCompleted
-		f.checkouts.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_1").Return(completed, nil)
+		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_1").Return(completed, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(completed, nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkoutOrder, nil)
 		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-1", &entity.OrderPaidData{
@@ -468,12 +468,12 @@ func TestIssuanceUseCase_FulfillPayment(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/order/fulfill-payment "Lottery win charged"
 		f := newCheckoutIssuanceFixture(t, now)
-		f.checkouts.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_won").Return(nil, apperr.ErrNotFound)
+		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_won").Return(nil, apperr.ErrNotFound)
 		entry := &entity.LotteryEntry{
-			ID: "entry-1", TicketTypeID: "tt-1", UserID: "user-1", RequestedTicketCount: 2,
-			Authorization: entity.PaymentAuthorization{PaymentIntentRef: "pi_won"}, State: entity.LotteryEntryStateWon,
+			ID: "entry-1", TicketTypeID: "tt-1", UserID: "user-1", TicketCount: 2,
+			CardAuthorizationID: "pi_won", State: entity.LotteryEntryStateWon,
 		}
-		f.entries.EXPECT().GetByPaymentIntentRef(mock.Anything, "pi_won").Return(entry, nil)
+		f.entries.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_won").Return(entry, nil)
 		winOrder := &entity.Order{ID: "order-2", UserID: entry.UserID, LotteryEntryID: entry.ID, Amount: 10000, Currency: "JPY"}
 		f.orders.EXPECT().GetByLotteryEntryID(mock.Anything, entry.ID).Return(winOrder, nil)
 		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-2", &entity.OrderPaidData{
@@ -491,7 +491,7 @@ func TestIssuanceUseCase_FulfillPayment(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, now)
 		completed := committedCopy(authorizedCheckout(), true)
 		completed.Status = entity.CheckoutStatusCompleted
-		f.checkouts.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_1").Return(completed, nil).Twice()
+		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_1").Return(completed, nil).Twice()
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(completed, nil).Twice()
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkoutOrder, nil).Twice()
 		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-1", mock.Anything).Return(nil).Twice()
@@ -506,7 +506,7 @@ func TestIssuanceUseCase_FulfillPayment(t *testing.T) {
 		f := newCheckoutIssuanceFixture(t, now)
 		completed := committedCopy(authorizedCheckout(), true)
 		completed.Status = entity.CheckoutStatusCompleted
-		f.checkouts.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_1").Return(completed, nil)
+		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_1").Return(completed, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(completed, nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(checkoutOrder, nil)
 		f.publisher.EXPECT().PublishEventWithID(mock.Anything, entity.SubjectOrderPaid, "order-1", mock.Anything).Return(errors.New("nats down"))
@@ -518,8 +518,8 @@ func TestIssuanceUseCase_FulfillPayment(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/order/fulfill-payment "Charge of another system"
 		f := newCheckoutIssuanceFixture(t, now)
-		f.checkouts.EXPECT().GetByAuthorizationRef(mock.Anything, "pi_other").Return(nil, apperr.ErrNotFound)
-		f.entries.EXPECT().GetByPaymentIntentRef(mock.Anything, "pi_other").Return(nil, apperr.ErrNotFound)
+		f.checkouts.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_other").Return(nil, apperr.ErrNotFound)
+		f.entries.EXPECT().GetByCardAuthorizationID(mock.Anything, "pi_other").Return(nil, apperr.ErrNotFound)
 
 		require.NoError(t, f.uc.FulfillPayment(context.Background(), "pi_other"))
 	})

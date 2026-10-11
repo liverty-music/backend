@@ -34,7 +34,7 @@ type RefundOrderUseCase interface {
 	//
 	// # Atomicity
 	//
-	// Stripe money movements (CreateRefund, ReverseTransfer) are performed
+	// Stripe money movements (CreateRefund, ReversePayout) are performed
 	// before the DB commit. Both are idempotent, so a crash between Stripe and
 	// the DB commit is recovered safely: on retry the Stripe calls replay via
 	// idempotency keys and the DB commit is reattempted.
@@ -79,11 +79,11 @@ func (r RefundReason) String() string {
 
 // refundOrderUseCase implements [RefundOrderUseCase].
 type refundOrderUseCase struct {
-	orderRepo      entity.OrderRepository
-	refundRepo     entity.RefundRepository
-	settlementRepo entity.SettlementRepository
-	settlementPort entity.PaymentSettlementPort
-	logger         *logging.Logger
+	orderRepo         entity.OrderRepository
+	refundRepo        entity.RefundRepository
+	settlementRepo    entity.SettlementRepository
+	settlementPayouts entity.SettlementPayoutRepository
+	logger            *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -95,15 +95,15 @@ func NewRefundOrderUseCase(
 	orderRepo entity.OrderRepository,
 	refundRepo entity.RefundRepository,
 	settlementRepo entity.SettlementRepository,
-	settlementPort entity.PaymentSettlementPort,
+	settlementPayouts entity.SettlementPayoutRepository,
 	logger *logging.Logger,
 ) RefundOrderUseCase {
 	return &refundOrderUseCase{
-		orderRepo:      orderRepo,
-		refundRepo:     refundRepo,
-		settlementRepo: settlementRepo,
-		settlementPort: settlementPort,
-		logger:         logger,
+		orderRepo:         orderRepo,
+		refundRepo:        refundRepo,
+		settlementRepo:    settlementRepo,
+		settlementPayouts: settlementPayouts,
+		logger:            logger,
 	}
 }
 
@@ -142,7 +142,7 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 	// ── STRIPE MONEY MOVEMENT ──────────────────────────────────────────────
 	// Both calls carry stable idempotency keys so retries are safe:
 	//   CreateRefund:    key = "order-refund:<orderID>"
-	//   ReverseTransfer: key = "settlement-reversal:<settlementID>:<transferRef>"
+	//   ReversePayout: key = "settlement-reversal:<settlementID>:<transferRef>"
 	// A crash after Stripe but before the DB commit means the next invocation
 	// replays Stripe calls (no-ops at provider) and re-attempts the DB tx.
 
@@ -165,29 +165,29 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 	//   return the processor fee on refunds; the platform absorbs it, which is the
 	//   JP norm. Precise per-fee subtraction is intentionally deferred: it requires
 	//   expanding the BalanceTransaction to obtain the exact fee.
-	var refundRef string
+	var providerRefundID string
 	if reason != RefundReasonDispute {
 		// Guard: non-Stripe orders or missing pi_ cannot be refunded via Stripe.
 		if order.Payment.Provider != entity.PaymentProviderStripe {
 			return nil, apperr.New(codes.FailedPrecondition,
 				"refund via Stripe is only supported for Stripe-backed orders")
 		}
-		if order.Payment.PaymentIntentRef == "" {
+		if order.Payment.ProviderPaymentID == "" {
 			return nil, apperr.New(codes.FailedPrecondition,
 				"order has no payment intent reference; cannot resolve charge for refund")
 		}
 
 		// Resolve the charge ref: prefer the value cached on the settlement row
 		// (set by the payout sweep), fall back to a live PaymentIntent retrieval.
-		chargeRef, err := uc.resolveChargeRef(ctx, order, settlement)
+		providerChargeID, err := uc.resolveProviderChargeID(ctx, order, settlement)
 		if err != nil {
 			return nil, err
 		}
 
-		refundRef, err = uc.settlementPort.CreateRefund(ctx, entity.RefundParams{
-			OrderID:   orderID,
-			ChargeRef: chargeRef,
-			Amount:    order.Amount,
+		providerRefundID, err = uc.settlementPayouts.CreateRefund(ctx, entity.RefundParams{
+			OrderID:          orderID,
+			ProviderChargeID: providerChargeID,
+			Amount:           order.Amount,
 		})
 		if err != nil {
 			return nil, err
@@ -215,17 +215,17 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 	// Commits all DB mutations in one transaction:
 	//   1. Settlement → Reversed (if settlement exists)
 	//   2. Tickets → Voided
-	//   3. Order → Refunded + refund_ref recorded
+	//   3. Order → Refunded + provider_refund_id recorded
 	var settleID entity.SettlementID
 	if settlement != nil {
 		settleID = settlement.ID
 	}
 
 	commit := entity.RefundCommit{
-		OrderID:        orderID,
-		RefundRef:      refundRef,
-		SettlementID:   settleID,
-		ReversedSplits: reversedSplits,
+		OrderID:          orderID,
+		ProviderRefundID: providerRefundID,
+		SettlementID:     settleID,
+		ReversedSplits:   reversedSplits,
 	}
 	if err := uc.refundRepo.CommitRefund(ctx, commit); err != nil {
 		// FailedPrecondition from CommitRefund means the settlement was already
@@ -244,24 +244,24 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 	uc.logger.Info(ctx, "refund order: completed",
 		slog.String("order_id", string(orderID)),
 		slog.String("reason", reason.String()),
-		slog.String("refund_ref", refundRef), // empty for DISPUTE (no CreateRefund call)
+		slog.String("refund_ref", providerRefundID), // empty for DISPUTE (no CreateRefund call)
 	)
 	return order, nil
 }
 
-// resolveChargeRef returns the charge ref. Prefers the value already stored on
+// resolveProviderChargeID returns the charge ref. Prefers the value already stored on
 // the settlement row (populated by the payout sweep), then falls back to a
 // live PaymentIntent retrieval.
-func (uc *refundOrderUseCase) resolveChargeRef(ctx context.Context, order *entity.Order, settlement *entity.Settlement) (string, error) {
-	if settlement != nil && settlement.ChargeRef != "" {
-		return settlement.ChargeRef, nil
+func (uc *refundOrderUseCase) resolveProviderChargeID(ctx context.Context, order *entity.Order, settlement *entity.Settlement) (string, error) {
+	if settlement != nil && settlement.ProviderChargeID != "" {
+		return settlement.ProviderChargeID, nil
 	}
-	return uc.settlementPort.ResolveChargeRef(ctx, order.Payment.PaymentIntentRef)
+	return uc.settlementPayouts.GetProviderChargeID(ctx, order.Payment.ProviderPaymentID)
 }
 
-// reverseSplits calls ReverseTransfer for every already-released split and
-// returns the updated splits with TransferReversalRef populated. Splits that
-// have no TransferRef (never transferred) or already have a TransferReversalRef
+// reverseSplits calls ReversePayout for every already-released split and
+// returns the updated splits with ProviderPayoutReversalID populated. Splits that
+// have no ProviderPayoutID (never transferred) or already have a ProviderPayoutReversalID
 // (already reversed) are skipped idempotently.
 func (uc *refundOrderUseCase) reverseSplits(ctx context.Context, settlement *entity.Settlement) ([]entity.SettlementSplit, error) {
 	// Work on a copy so the original settlement slice is not mutated until we
@@ -271,23 +271,23 @@ func (uc *refundOrderUseCase) reverseSplits(ctx context.Context, settlement *ent
 
 	for i := range result {
 		split := &result[i]
-		if split.TransferRef == "" {
+		if split.ProviderPayoutID == "" {
 			// Split was never transferred; skip.
 			continue
 		}
-		if split.TransferReversalRef != "" {
+		if split.ProviderPayoutReversalID != "" {
 			// Already reversed; idempotent skip.
 			continue
 		}
-		reversalRef, err := uc.settlementPort.ReverseTransfer(ctx, entity.ReverseTransferParams{
-			SettlementID: settlement.ID,
-			TransferRef:  split.TransferRef,
-			Amount:       split.Amount,
+		reversalRef, err := uc.settlementPayouts.ReversePayout(ctx, entity.ReverseTransferParams{
+			SettlementID:     settlement.ID,
+			ProviderPayoutID: split.ProviderPayoutID,
+			Amount:           split.Amount,
 		})
 		if err != nil {
 			return nil, err
 		}
-		split.TransferReversalRef = reversalRef
+		split.ProviderPayoutReversalID = reversalRef
 	}
 	return result, nil
 }

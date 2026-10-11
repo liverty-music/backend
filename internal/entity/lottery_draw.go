@@ -11,9 +11,9 @@ type DrawEntry struct {
 	// result so callers can correlate outcomes back to persisted rows.
 	ID LotteryEntryID
 
-	// RequestedTicketCount is the companion-group size for this entry: how
+	// TicketCount is the companion-group size for this entry: how
 	// many tickets must be allocated together (all-or-nothing). Must be positive.
-	RequestedTicketCount int
+	TicketCount int
 }
 
 // DrawWinner is the outcome for an entry that was allocated tickets in
@@ -73,9 +73,9 @@ type DrawResult struct {
 //     cryptographically random value.
 //
 //  2. The shuffled list is walked once. An entry is admitted as a winner
-//     if its RequestedTicketCount fits within the remaining capacity
+//     if its TicketCount fits within the remaining capacity
 //     (remaining >= count). Admission is whole-entry and all-or-nothing:
-//     the full RequestedTicketCount is deducted, never a fraction. The walk
+//     the full TicketCount is deducted, never a fraction. The walk
 //     continues past any entry that does not fit so that a later,
 //     smaller entry can still fill remaining capacity (greedy fit,
 //     better utilisation).
@@ -88,8 +88,8 @@ type DrawResult struct {
 //
 // RunLotteryDraw returns an empty DrawResult (no winners, no losers) when
 // entries is empty. It returns no error; validation (positive capacity,
-// positive RequestedTicketCount) is the caller's responsibility. As a defensive
-// measure, an entry with a non-positive RequestedTicketCount is never
+// positive TicketCount) is the caller's responsibility. As a defensive
+// measure, an entry with a non-positive TicketCount is never
 // admitted (it becomes a waitlisted loser), so malformed input can never inflate
 // a winner slot or break the no-oversell invariant. A non-positive capacity
 // simply admits no one.
@@ -117,14 +117,14 @@ func RunLotteryDraw(entries []DrawEntry, ticketCapacity int, rng *rand.Rand) Dra
 	for pos, origIdx := range indices {
 		entry := entries[origIdx]
 		// Admit only a positive request that fits the remaining capacity. The
-		// RequestedTicketCount > 0 guard is defensive: although the caller is
+		// TicketCount > 0 guard is defensive: although the caller is
 		// responsible for validating positive counts, a stray zero would waste a
 		// winner slot on a 0-ticket allocation, and a negative count would ADD to
 		// remaining and break the no-oversell invariant. Non-positive requests are
 		// therefore never admitted — they fall through to the waitlist (safe side),
 		// never affecting remaining.
-		if entry.RequestedTicketCount > 0 && entry.RequestedTicketCount <= remaining {
-			remaining -= entry.RequestedTicketCount
+		if entry.TicketCount > 0 && entry.TicketCount <= remaining {
+			remaining -= entry.TicketCount
 			winners = append(winners, DrawWinner{
 				Entry:        entry,
 				DrawPosition: pos,

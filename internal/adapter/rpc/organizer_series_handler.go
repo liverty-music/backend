@@ -24,27 +24,27 @@ var _ organizerseriesv1connect.SeriesServiceHandler = (*OrganizerSeriesHandler)(
 // caller's organizer, enforces ownership, and delegates to the authoring or
 // media use case. No business logic lives here.
 type OrganizerSeriesHandler struct {
-	authoringUC     usecase.ConcertAuthoringUseCase
-	organizerUC     usecase.OrganizerUseCase
-	mediaUC         usecase.MediaUseCase
-	mediaURLBuilder *mapper.MediaURLBuilder
-	logger          *logging.Logger
+	authoringUC           usecase.ConcertAuthoringUseCase
+	organizerUC           usecase.OrganizerUseCase
+	seriesImageUC         usecase.SeriesImageUseCase
+	seriesImageURLBuilder *mapper.SeriesImageURLBuilder
+	logger                *logging.Logger
 }
 
 // NewOrganizerSeriesHandler creates a new OrganizerSeriesHandler.
 func NewOrganizerSeriesHandler(
 	authoringUC usecase.ConcertAuthoringUseCase,
 	organizerUC usecase.OrganizerUseCase,
-	mediaUC usecase.MediaUseCase,
-	mediaURLBuilder *mapper.MediaURLBuilder,
+	seriesImageUC usecase.SeriesImageUseCase,
+	seriesImageURLBuilder *mapper.SeriesImageURLBuilder,
 	logger *logging.Logger,
 ) *OrganizerSeriesHandler {
 	return &OrganizerSeriesHandler{
-		authoringUC:     authoringUC,
-		organizerUC:     organizerUC,
-		mediaUC:         mediaUC,
-		mediaURLBuilder: mediaURLBuilder,
-		logger:          logger,
+		authoringUC:           authoringUC,
+		organizerUC:           organizerUC,
+		seriesImageUC:         seriesImageUC,
+		seriesImageURLBuilder: seriesImageURLBuilder,
+		logger:                logger,
 	}
 }
 
@@ -127,7 +127,7 @@ func (h *OrganizerSeriesHandler) Create(
 
 	concerts := mapper.AuthoredConcerts(series, events, artists)
 	return connect.NewResponse(&organizerseriesv1.CreateResponse{
-		Series:   h.mediaURLBuilder.SeriesToProto(series),
+		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
@@ -152,7 +152,7 @@ func (h *OrganizerSeriesHandler) Update(
 
 	concerts := mapper.AuthoredConcerts(series, events, artists)
 	return connect.NewResponse(&organizerseriesv1.UpdateResponse{
-		Series:   h.mediaURLBuilder.SeriesToProto(series),
+		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
@@ -176,7 +176,7 @@ func (h *OrganizerSeriesHandler) Publish(
 
 	concerts := mapper.AuthoredConcerts(series, events, artists)
 	return connect.NewResponse(&organizerseriesv1.PublishResponse{
-		Series:   h.mediaURLBuilder.SeriesToProto(series),
+		Series:   h.seriesImageURLBuilder.SeriesToProto(series),
 		Concerts: mapper.ConcertsToProto(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
@@ -210,7 +210,7 @@ func (h *OrganizerSeriesHandler) SetCoverImage(
 		return nil, err
 	}
 
-	if err := h.mediaUC.AttachMedia(
+	if err := h.seriesImageUC.AttachMedia(
 		ctx, organizer.ID,
 		req.Msg.GetSeriesId().GetValue(),
 		req.Msg.GetSeriesImageId().GetValue(),
@@ -272,7 +272,7 @@ func (h *OrganizerSeriesHandler) List(
 		if allArtists[i] != nil {
 			arts = *allArtists[i]
 		}
-		series = append(series, h.mediaURLBuilder.SeriesToProto(s))
+		series = append(series, h.seriesImageURLBuilder.SeriesToProto(s))
 		concerts = append(concerts, mapper.AuthoredConcerts(s, evs, arts)...)
 	}
 

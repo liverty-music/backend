@@ -8,16 +8,16 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// OrganizerConnectedAccountToProto maps a domain OrganizerConnectedAccount to
+// PayoutAccountToProto maps a domain PayoutAccount to
 // its Protobuf message. Raw Stripe status is never exposed; the platform's own
 // PayoutOnboardingStatus enum is used.
-func OrganizerConnectedAccountToProto(a *entity.OrganizerConnectedAccount) *entityv1.PayoutAccount {
+func PayoutAccountToProto(a *entity.PayoutAccount) *entityv1.PayoutAccount {
 	if a == nil {
 		return nil
 	}
 	return &entityv1.PayoutAccount{
 		OrganizerId:       &entityv1.OrganizerId{Value: a.OrganizerID},
-		ProviderAccountId: &entityv1.PayoutAccount_ProviderAccountId{Value: a.AccountRef},
+		ProviderAccountId: &entityv1.PayoutAccount_ProviderAccountId{Value: a.ProviderAccountID},
 		Status:            payoutOnboardingStatusToProto(a.Status),
 	}
 }
@@ -51,8 +51,8 @@ func SettlementToProto(s *entity.Settlement) *entityv1.Settlement {
 		Status:      settlementStatusToProto(s.Status),
 		CreateTime:  timestamppb.New(s.CreatedTime),
 	}
-	if s.ChargeRef != "" {
-		proto.ProviderChargeId = &entityv1.Settlement_ProviderChargeId{Value: s.ChargeRef}
+	if s.ProviderChargeID != "" {
+		proto.ProviderChargeId = &entityv1.Settlement_ProviderChargeId{Value: s.ProviderChargeID}
 	}
 	if !s.ReleasedTime.IsZero() {
 		proto.ReleaseTime = timestamppb.New(s.ReleasedTime)
@@ -70,11 +70,11 @@ func settlementSplitsToProto(splits []entity.SettlementSplit) []*entityv1.Settle
 			PayeeOrganizerId: &entityv1.OrganizerId{Value: sp.PayeeOrganizerID},
 			Amount:           sp.Amount,
 		}
-		if sp.TransferRef != "" {
-			split.ProviderPayoutId = &entityv1.SettlementSplit_ProviderPayoutId{Value: sp.TransferRef}
+		if sp.ProviderPayoutID != "" {
+			split.ProviderPayoutId = &entityv1.SettlementSplit_ProviderPayoutId{Value: sp.ProviderPayoutID}
 		}
-		if sp.TransferReversalRef != "" {
-			split.ProviderPayoutReversalId = &entityv1.SettlementSplit_ProviderPayoutReversalId{Value: sp.TransferReversalRef}
+		if sp.ProviderPayoutReversalID != "" {
+			split.ProviderPayoutReversalId = &entityv1.SettlementSplit_ProviderPayoutReversalId{Value: sp.ProviderPayoutReversalID}
 		}
 		out = append(out, split)
 	}

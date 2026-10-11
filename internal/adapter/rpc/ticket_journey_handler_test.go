@@ -48,9 +48,9 @@ func TestTicketJourneyHandler_SetStatus(t *testing.T) {
 				Status:  entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_TRACKING,
 			},
 			setup: func(uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
-					ID:         "user-uuid-1",
-					ExternalID: "ext-user-1",
+				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{
+					ID:             "user-uuid-1",
+					ProviderUserID: "ext-user-1",
 				}, nil)
 				uc.EXPECT().SetStatus(mock.Anything, "user-uuid-1", eventID, entity.TicketJourneyStatusTracking).Return(nil).Once()
 			},
@@ -77,7 +77,7 @@ func TestTicketJourneyHandler_SetStatus(t *testing.T) {
 				Status:  entityv1.TicketJourneyStatus_TICKET_JOURNEY_STATUS_TRACKING,
 			},
 			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
+				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  true,
@@ -129,9 +129,9 @@ func TestTicketJourneyHandler_Delete(t *testing.T) {
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
 			req:  &ticketjourneyv1.DeleteRequest{EventId: &entityv1.EventId{Value: eventID}},
 			setup: func(uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
-					ID:         "user-uuid-1",
-					ExternalID: "ext-user-1",
+				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{
+					ID:             "user-uuid-1",
+					ProviderUserID: "ext-user-1",
 				}, nil)
 				uc.EXPECT().Delete(mock.Anything, "user-uuid-1", eventID).Return(nil).Once()
 			},
@@ -150,7 +150,7 @@ func TestTicketJourneyHandler_Delete(t *testing.T) {
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
 			req:  &ticketjourneyv1.DeleteRequest{EventId: &entityv1.EventId{Value: eventID}},
 			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
+				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  true,
@@ -199,11 +199,11 @@ func TestTicketJourneyHandler_List(t *testing.T) {
 			name: "success - returns empty list when no journeys exist",
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
 			setup: func(uc *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(&entity.User{
-					ID:         "user-uuid-1",
-					ExternalID: "ext-user-1",
+				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(&entity.User{
+					ID:             "user-uuid-1",
+					ProviderUserID: "ext-user-1",
 				}, nil)
-				uc.EXPECT().ListByUser(mock.Anything, "user-uuid-1").Return([]*entity.TicketJourney{}, nil).Once()
+				uc.EXPECT().List(mock.Anything, "user-uuid-1").Return([]*entity.TicketJourney{}, nil).Once()
 			},
 			wantErr: false,
 		},
@@ -218,7 +218,7 @@ func TestTicketJourneyHandler_List(t *testing.T) {
 			name: "error - user not found",
 			ctx:  ticketJourneyAuthedCtx("ext-user-1"),
 			setup: func(_ *ucmocks.MockTicketJourneyUseCase, ur *entitymocks.MockUserRepository) {
-				ur.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
+				ur.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(nil, connect.NewError(connect.CodeNotFound, nil))
 			},
 			wantCode: connect.CodeNotFound,
 			wantErr:  true,
@@ -300,7 +300,7 @@ func TestTicketJourneyHandler_Boundary(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/ticket-journey "Event does not exist"
 		uc := ucmocks.NewMockTicketJourneyUseCase(t)
 		ur := entitymocks.NewMockUserRepository(t)
-		ur.EXPECT().GetByExternalID(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
+		ur.EXPECT().GetByProviderUserID(mock.Anything, testCallerExtID).Return(&entity.User{ID: testCallerUserID}, nil).Once()
 		uc.EXPECT().SetStatus(mock.Anything, testCallerUserID, eventID, entity.TicketJourneyStatusTracking).
 			Return(apperr.New(codes.FailedPrecondition, "event does not exist")).Once()
 		logger, err := logging.New()

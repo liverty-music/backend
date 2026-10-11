@@ -54,7 +54,7 @@ func TestConnectServer_LinkPreviewRouteIsNotRateLimited(t *testing.T) {
 
 	concertUC := usecasemocks.NewMockConcertUseCase(t)
 	concertUC.EXPECT().Get(mock.Anything, mock.Anything).Return(nil, apperr.New(codes.NotFound, "event page not found")).Maybe()
-	preview := linkpreview.NewHandler(concertUC, linkpreview.NewTagBuilder("https://liverty-music.app", mapper.NewMediaURLBuilder("")), logger)
+	preview := linkpreview.NewHandler(concertUC, linkpreview.NewTagBuilder("https://liverty-music.app", mapper.NewSeriesImageURLBuilder("")), logger)
 
 	healthHandler := func(_ ...connect.HandlerOption) (string, http.Handler) {
 		return "/unused-health-check/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

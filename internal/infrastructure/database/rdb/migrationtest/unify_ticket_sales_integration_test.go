@@ -68,26 +68,26 @@ func TestMigration_UnifyTicketSales(t *testing.T) {
 	apply(unifyTicketSalesPrevious)
 
 	var (
-		venueID   = id(1)
-		seriesID  = id(2)
-		eventA    = id(3)
-		eventB    = id(4)
-		userWith  = id(10) // has holder values
-		userNone  = id(11) // has none
-		organizer = id(12)
-		kycID     = id(13)
-		phaseA    = id(20) // drawn, on eventA
-		phaseB    = id(21) // not drawn, JPKI-only, on eventB
-		appWon    = id(30) // userWith on phaseA, Won
-		appLost   = id(31) // userNone on phaseA, Lost
-		appWdrawn = id(32) // userNone on phaseB, Withdrawn (5); userNone's newest
-		saleFC    = id(40) // first-come on eventA
-		resvDone  = id(41) // Completed, 2 tickets
-		resvHeld  = id(42) // Held, 1 ticket
-		orderApp  = id(50)
-		orderResv = id(51)
-		ticketA   = id(60)
-		ticketB   = id(61)
+		venueID                = id(1)
+		seriesID               = id(2)
+		eventA                 = id(3)
+		eventB                 = id(4)
+		userWith               = id(10) // has holder values
+		userNone               = id(11) // has none
+		organizer              = id(12)
+		identityVerificationID = id(13)
+		phaseA                 = id(20) // drawn, on eventA
+		phaseB                 = id(21) // not drawn, JPKI-only, on eventB
+		appWon                 = id(30) // userWith on phaseA, Won
+		appLost                = id(31) // userNone on phaseA, Lost
+		appWdrawn              = id(32) // userNone on phaseB, Withdrawn (5); userNone's newest
+		saleFC                 = id(40) // first-come on eventA
+		resvDone               = id(41) // Completed, 2 tickets
+		resvHeld               = id(42) // Held, 1 ticket
+		orderApp               = id(50)
+		orderResv              = id(51)
+		ticketA                = id(60)
+		ticketB                = id(61)
 	)
 	openA := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 	closeA := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
@@ -112,7 +112,7 @@ func TestMigration_UnifyTicketSales(t *testing.T) {
 	                              seller_address, seller_phone_number, seller_contact_email)
 	      VALUES ($1, 'Label', 'op@example.com', 2, '株式会社レーベル', '代表 太郎', '東京都千代田区1-1', '+81312345678', 'contact@example.com')`, organizer)
 	mustExec(`INSERT INTO verified_identities (id, user_id, method, pocket_sign_user_id, dedupe_strength, verified_at, status)
-	      VALUES ($1, $2, 1, 'ps-user', 1, $3, 1)`, kycID, userWith, now)
+	      VALUES ($1, $2, 1, 'ps-user', 1, $3, 1)`, identityVerificationID, userWith, now)
 
 	mustExec(`INSERT INTO lottery_sales_phases (id, event_id, open_at, close_at, ticket_capacity, max_tickets_per_application,
 	                                        ticket_price, drawn_at, verification_requirement)
@@ -143,7 +143,7 @@ func TestMigration_UnifyTicketSales(t *testing.T) {
 	mustExec(`INSERT INTO orders (id, buyer_id, reservation_id, provider, payment_intent_ref, status, amount, currency, paid_at)
 	      VALUES ($1, $2, $3, 1, 'pi_resv', 1, 6000, 'JPY', $4)`, orderResv, userWith, resvDone, now)
 	mustExec(`INSERT INTO tickets (id, order_id, holder_id, event_id, holder_full_name, holder_phone_number, verified_identity_id, status, issued_at)
-	      VALUES ($1, $2, $3, $4, '山田 花子(旧)', '+819099999999', $5, 1, $6)`, ticketA, orderApp, userWith, eventA, kycID, now)
+	      VALUES ($1, $2, $3, $4, '山田 花子(旧)', '+819099999999', $5, 1, $6)`, ticketA, orderApp, userWith, eventA, identityVerificationID, now)
 	mustExec(`INSERT INTO tickets (id, order_id, holder_id, event_id, holder_full_name, holder_phone_number, status, issued_at)
 	      VALUES ($1, $2, $3, $4, '山田 花子', '+819011111111', 1, $5)`, ticketB, orderResv, userWith, eventA, now)
 
@@ -301,13 +301,13 @@ func TestMigration_UnifyTicketSales(t *testing.T) {
 		assert.Nil(t, entry)
 		assert.Equal(t, &resvDone, checkout)
 
-		var kyc *string
-		require.NoError(t, conn.QueryRow(ctx, `SELECT user_id, kyc_id FROM tickets WHERE id = $1`, ticketA).Scan(&user, &kyc))
+		var identityVerification *string
+		require.NoError(t, conn.QueryRow(ctx, `SELECT user_id, kyc_id FROM tickets WHERE id = $1`, ticketA).Scan(&user, &identityVerification))
 		assert.Equal(t, userWith, user)
-		assert.Equal(t, &kycID, kyc)
-		var kycUser string
-		require.NoError(t, conn.QueryRow(ctx, `SELECT user_id FROM kyc WHERE id = $1`, kycID).Scan(&kycUser))
-		assert.Equal(t, userWith, kycUser)
+		assert.Equal(t, &identityVerificationID, identityVerification)
+		var identityVerificationUser string
+		require.NoError(t, conn.QueryRow(ctx, `SELECT user_id FROM kyc WHERE id = $1`, identityVerificationID).Scan(&identityVerificationUser))
+		assert.Equal(t, userWith, identityVerificationUser)
 	})
 
 	t.Run("organizer seller details become business details", func(t *testing.T) {

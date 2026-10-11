@@ -58,7 +58,7 @@ func LotteryEntryStatsToProto(views []*usecase.TicketSaleView) []*organizerticke
 			out = append(out, &organizerticketsalev1.LotteryEntryStats{
 				TicketTypeId:   &entityv1.TicketTypeId{Value: string(tv.TicketType.ID)},
 				EntryCount:     int32(s.EntryCount),
-				TicketCount:    int32(s.RequestedTicketCount),
+				TicketCount:    int32(s.TicketCount),
 				WonEntryCount:  int32(s.WonEntryCount),
 				WonTicketCount: int32(s.WonTicketCount),
 				LostEntryCount: int32(s.LostEntryCount),

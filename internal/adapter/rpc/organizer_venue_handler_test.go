@@ -42,7 +42,7 @@ func TestOrganizerVenueHandler_Search(t *testing.T) {
 		d := newOrganizerVenueHandlerDeps(t)
 
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
 		d.authoringUC.EXPECT().
@@ -53,7 +53,7 @@ func TestOrganizerVenueHandler_Search(t *testing.T) {
 			}, nil).
 			Once()
 
-		resp, err := d.handler.Search(orgCtx(testZitadelOrgID), connect.NewRequest(&organizervenuev1.SearchRequest{Text: "Zepp Haneda"}))
+		resp, err := d.handler.Search(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizervenuev1.SearchRequest{Text: "Zepp Haneda"}))
 
 		require.NoError(t, err)
 		require.Len(t, resp.Msg.GetCandidates(), 2)
@@ -73,11 +73,11 @@ func TestOrganizerVenueHandler_Search(t *testing.T) {
 		// expectation: reaching it fails the test.
 		resolveErr := apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(nil, resolveErr).
 			Once()
 
-		_, err := d.handler.Search(orgCtx(testZitadelOrgID), connect.NewRequest(&organizervenuev1.SearchRequest{Text: "Zepp Haneda"}))
+		_, err := d.handler.Search(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizervenuev1.SearchRequest{Text: "Zepp Haneda"}))
 
 		require.Error(t, err)
 		assert.ErrorIs(t, err, resolveErr)

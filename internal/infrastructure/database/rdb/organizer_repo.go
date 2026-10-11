@@ -33,7 +33,7 @@ const (
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE id = $1
 	`
-	getOrganizerByZitadelOrgIDQuery = `
+	getOrganizerByProviderOrganizerIDQuery = `
 		SELECT id, name, operator_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE provider_organizer_id = $1
@@ -48,7 +48,7 @@ const (
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE status = $1 ORDER BY name
 	`
-	setOrganizerZitadelOrgIDQuery = `
+	setOrganizerProviderOrganizerIDQuery = `
 		UPDATE organizers SET provider_organizer_id = $2 WHERE id = $1
 	`
 	setOrganizerStatusQuery = `
@@ -91,18 +91,18 @@ const (
 func scanOrganizer(scan func(dest ...any) error) (*entity.Organizer, error) {
 	var (
 		o                                                  entity.Organizer
-		zitadelOrgID                                       *string
+		providerOrganizerID                                *string
 		status                                             int16
 		legalName, representative, address, phone, contact sql.NullString
 		feeRate                                            int32
 	)
 
-	if err := scan(&o.ID, &o.Name, &o.OperatorEmail, &zitadelOrgID, &status,
+	if err := scan(&o.ID, &o.Name, &o.OperatorEmail, &providerOrganizerID, &status,
 		&legalName, &representative, &address, &phone, &contact, &feeRate); err != nil {
 		return nil, err
 	}
-	if zitadelOrgID != nil {
-		o.ZitadelOrgID = *zitadelOrgID
+	if providerOrganizerID != nil {
+		o.ProviderOrganizerID = *providerOrganizerID
 	}
 	o.Status = entity.OrganizerStatus(status)
 	// The business details are stored all-or-none (CHECK constraint).
@@ -120,7 +120,7 @@ func scanOrganizer(scan func(dest ...any) error) (*entity.Organizer, error) {
 }
 
 // Create inserts a new Organizer row and returns the persisted record. The ID
-// is generated from the entity if absent. zitadel_org_id is stored as NULL
+// is generated from the entity if absent. provider_organizer_id is stored as NULL
 // until provisioning completes, satisfying the partial unique index that only
 // covers non-NULL values.
 func (r *OrganizerRepository) Create(ctx context.Context, o *entity.Organizer) (*entity.Organizer, error) {
@@ -128,14 +128,14 @@ func (r *OrganizerRepository) Create(ctx context.Context, o *entity.Organizer) (
 		o.ID = entity.NewOrganizer(o.Name).ID
 	}
 
-	// Keep zitadel_org_id NULL until provisioning persists it (the partial unique
+	// Keep provider_organizer_id NULL until provisioning persists it (the partial unique
 	// index only indexes non-NULL values).
-	var zitadelOrgID *string
-	if o.ZitadelOrgID != "" {
-		zitadelOrgID = &o.ZitadelOrgID
+	var providerOrganizerID *string
+	if o.ProviderOrganizerID != "" {
+		providerOrganizerID = &o.ProviderOrganizerID
 	}
 
-	row := r.db.Pool.QueryRow(ctx, insertOrganizerQuery, o.ID, o.Name, o.OperatorEmail, zitadelOrgID, int16(o.Status))
+	row := r.db.Pool.QueryRow(ctx, insertOrganizerQuery, o.ID, o.Name, o.OperatorEmail, providerOrganizerID, int16(o.Status))
 	created, err := scanOrganizer(row.Scan)
 	if err != nil {
 		return nil, toAppErr(err, "failed to insert organizer", slog.String("id", o.ID))
@@ -156,15 +156,15 @@ func (r *OrganizerRepository) Get(ctx context.Context, id string) (*entity.Organ
 	return o, nil
 }
 
-// GetByZitadelOrgID retrieves the Organizer whose zitadel_org_id matches the
+// GetByProviderOrganizerID retrieves the Organizer whose provider_organizer_id matches the
 // given Zitadel organization id. Returns NotFound when no row matches.
-// The zitadel_org_id column carries a partial unique index (non-NULL values),
+// The provider_organizer_id column carries a partial unique index (non-NULL values),
 // so at most one row is returned.
-func (r *OrganizerRepository) GetByZitadelOrgID(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error) {
-	row := r.db.Pool.QueryRow(ctx, getOrganizerByZitadelOrgIDQuery, zitadelOrgID)
+func (r *OrganizerRepository) GetByProviderOrganizerID(ctx context.Context, providerOrganizerID string) (*entity.Organizer, error) {
+	row := r.db.Pool.QueryRow(ctx, getOrganizerByProviderOrganizerIDQuery, providerOrganizerID)
 	o, err := scanOrganizer(row.Scan)
 	if err != nil {
-		return nil, toAppErr(err, "failed to get organizer by zitadel_org_id", slog.String("zitadel_org_id", zitadelOrgID))
+		return nil, toAppErr(err, "failed to get organizer by zitadel_org_id", slog.String("zitadel_org_id", providerOrganizerID))
 	}
 	return o, nil
 }
@@ -215,11 +215,11 @@ func (r *OrganizerRepository) ListByStatus(ctx context.Context, status entity.Or
 	return organizers, nil
 }
 
-// SetZitadelOrgID persists the Zitadel org id on the Organizer row after
+// SetProviderOrganizerID persists the Zitadel org id on the Organizer row after
 // successful tenant provisioning. Returns NotFound when the organizer no
 // longer exists.
-func (r *OrganizerRepository) SetZitadelOrgID(ctx context.Context, id, zitadelOrgID string) error {
-	tag, err := r.db.Pool.Exec(ctx, setOrganizerZitadelOrgIDQuery, id, zitadelOrgID)
+func (r *OrganizerRepository) SetProviderOrganizerID(ctx context.Context, id, providerOrganizerID string) error {
+	tag, err := r.db.Pool.Exec(ctx, setOrganizerProviderOrganizerIDQuery, id, providerOrganizerID)
 	if err != nil {
 		return toAppErr(err, "failed to set organizer zitadel_org_id", slog.String("id", id))
 	}
@@ -431,7 +431,7 @@ const (
 // The statements run in RESTRICT-safe order: reception records, then the
 // refunded purchases, then the checkouts, then the Series (which cascades its
 // TicketSales and Events, and through them the TicketTypes, lottery entries,
-// journeys, performers and series_media), then the Media rows
+// journeys, performers and series_cover_images), then the Media rows
 // and finally the organizer row (which cascades organizer_artists).
 func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool) error {
 	tx, err := r.db.Pool.Begin(ctx)

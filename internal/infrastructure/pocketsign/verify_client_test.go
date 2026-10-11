@@ -129,7 +129,7 @@ func buildCreateSessionResponse(id, redirectURL string) *stampv1.CreateSessionRe
 //	  .GetUserAuthentication()        → *Result_UserAuthentication
 //	  .GetResult()                    → *verifyv2.VerifyResponse
 //	  .GetUser()                      → *verifyv2.User
-//	  .GetId()                        → string  ← PocketSignUserID
+//	  .GetId()                        → string  ← ProviderUserID
 func buildFinalizeResponseOK(t *testing.T, pocketSignUserID, nonce string, certType verifyv2.Certificate_Type) *stampv1.FinalizeSessionResponse {
 	t.Helper()
 
@@ -287,35 +287,35 @@ func TestStampClient_StartVerify_VendorUnauthenticated_MapsToUnauthenticated(t *
 // CompleteVerify tests
 // ────────────────────────────────────────────────────────────────────
 
-func TestStampClient_CompleteVerify_ExtractsPocketSignUserID(t *testing.T) {
+func TestStampClient_CompleteVerify_ExtractsProviderUserID(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const userID = "user-1"
 
 	tests := []struct {
-		name              string
-		certType          verifyv2.Certificate_Type
-		wantPocketSignUID string
+		name               string
+		certType           verifyv2.Certificate_Type
+		wantProviderUserID string
 	}{
 		{
-			name:              "extract 利用者ID from JPKI_CARD_USER_AUTHENTICATION",
-			certType:          verifyv2.Certificate_TYPE_JPKI_CARD_USER_AUTHENTICATION,
-			wantPocketSignUID: "pocketsign-user-001",
+			name:               "extract 利用者ID from JPKI_CARD_USER_AUTHENTICATION",
+			certType:           verifyv2.Certificate_TYPE_JPKI_CARD_USER_AUTHENTICATION,
+			wantProviderUserID: "pocketsign-user-001",
 		},
 		{
-			name:              "extract 利用者ID from JPKI_MOBILE_USER_AUTHENTICATION",
-			certType:          verifyv2.Certificate_TYPE_JPKI_MOBILE_USER_AUTHENTICATION,
-			wantPocketSignUID: "pocketsign-user-002",
+			name:               "extract 利用者ID from JPKI_MOBILE_USER_AUTHENTICATION",
+			certType:           verifyv2.Certificate_TYPE_JPKI_MOBILE_USER_AUTHENTICATION,
+			wantProviderUserID: "pocketsign-user-002",
 		},
 		{
-			name:              "extract 利用者ID from JPKI_CARD_DIGITAL_SIGNATURE",
-			certType:          verifyv2.Certificate_TYPE_JPKI_CARD_DIGITAL_SIGNATURE,
-			wantPocketSignUID: "pocketsign-user-003",
+			name:               "extract 利用者ID from JPKI_CARD_DIGITAL_SIGNATURE",
+			certType:           verifyv2.Certificate_TYPE_JPKI_CARD_DIGITAL_SIGNATURE,
+			wantProviderUserID: "pocketsign-user-003",
 		},
 		{
-			name:              "extract 利用者ID from JPKI_MOBILE_DIGITAL_SIGNATURE",
-			certType:          verifyv2.Certificate_TYPE_JPKI_MOBILE_DIGITAL_SIGNATURE,
-			wantPocketSignUID: "pocketsign-user-004",
+			name:               "extract 利用者ID from JPKI_MOBILE_DIGITAL_SIGNATURE",
+			certType:           verifyv2.Certificate_TYPE_JPKI_MOBILE_DIGITAL_SIGNATURE,
+			wantProviderUserID: "pocketsign-user-004",
 		},
 	}
 
@@ -330,7 +330,7 @@ func TestStampClient_CompleteVerify_ExtractsPocketSignUserID(t *testing.T) {
 			client := newTestClient(t, baseURL)
 
 			sessionID, nonce := startVerifyAndGetNonce(t, client, sessionSvc, userID)
-			sessionSvc.finalizeResp = buildFinalizeResponseOK(t, tt.wantPocketSignUID, nonce, tt.certType)
+			sessionSvc.finalizeResp = buildFinalizeResponseOK(t, tt.wantProviderUserID, nonce, tt.certType)
 
 			got, err := client.CompleteVerify(ctx, userID, sessionID)
 
@@ -338,7 +338,7 @@ func TestStampClient_CompleteVerify_ExtractsPocketSignUserID(t *testing.T) {
 			require.NotNil(t, got)
 			// The 利用者ID is extracted via:
 			//   result.GetUserAuthentication().GetResult().GetUser().GetId()
-			assert.Equal(t, tt.wantPocketSignUID, got.PocketSignUserID)
+			assert.Equal(t, tt.wantProviderUserID, got.ProviderUserID)
 		})
 	}
 }
@@ -412,7 +412,7 @@ func TestStampClient_CompleteVerify_SessionNotCompleted_ReturnsFailedPreconditio
 
 	got, retryErr := client.CompleteVerify(ctx, userID, sessionID)
 	require.NoError(t, retryErr, "retry after SESSION_NOT_COMPLETED must succeed")
-	assert.Equal(t, "ps-user-retry", got.PocketSignUserID)
+	assert.Equal(t, "ps-user-retry", got.ProviderUserID)
 }
 
 func TestStampClient_CompleteVerify_UnknownSession_ReturnsFailedPrecondition(t *testing.T) {

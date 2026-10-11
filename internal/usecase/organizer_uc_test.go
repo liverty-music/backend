@@ -18,32 +18,32 @@ import (
 
 // organizerTestDeps holds all dependencies for OrganizerUseCase tests.
 type organizerTestDeps struct {
-	orgRepo     *mocks.MockOrganizerRepository
-	artistRepo  *mocks.MockArtistRepository
-	provisioner *ucmocks.MockOrganizerProvisioner
-	mediaRepo   *mocks.MockMediaRepository
-	imageStorer *ucmocks.MockImageStorer
-	publisher   *ucmocks.MockEventPublisher
-	metrics     *ucmocks.MockOrganizerMetrics
-	uc          usecase.OrganizerUseCase
+	orgRepo         *mocks.MockOrganizerRepository
+	artistRepo      *mocks.MockArtistRepository
+	provisioner     *ucmocks.MockOrganizerProvisioner
+	seriesImageRepo *mocks.MockSeriesImageRepository
+	imageStorer     *ucmocks.MockImageStorer
+	publisher       *ucmocks.MockEventPublisher
+	metrics         *ucmocks.MockOrganizerMetrics
+	uc              usecase.OrganizerUseCase
 }
 
 func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 	t.Helper()
 	d := &organizerTestDeps{
-		orgRepo:     mocks.NewMockOrganizerRepository(t),
-		artistRepo:  mocks.NewMockArtistRepository(t),
-		provisioner: ucmocks.NewMockOrganizerProvisioner(t),
-		mediaRepo:   mocks.NewMockMediaRepository(t),
-		imageStorer: ucmocks.NewMockImageStorer(t),
-		publisher:   ucmocks.NewMockEventPublisher(t),
-		metrics:     ucmocks.NewMockOrganizerMetrics(t),
+		orgRepo:         mocks.NewMockOrganizerRepository(t),
+		artistRepo:      mocks.NewMockArtistRepository(t),
+		provisioner:     ucmocks.NewMockOrganizerProvisioner(t),
+		seriesImageRepo: mocks.NewMockSeriesImageRepository(t),
+		imageStorer:     ucmocks.NewMockImageStorer(t),
+		publisher:       ucmocks.NewMockEventPublisher(t),
+		metrics:         ucmocks.NewMockOrganizerMetrics(t),
 	}
 	d.uc = usecase.NewOrganizerUseCase(
 		d.orgRepo,
 		d.artistRepo,
 		d.provisioner,
-		d.mediaRepo,
+		d.seriesImageRepo,
 		d.imageStorer,
 		usecase.OrganizerMediaBuckets{Internal: testInternalBucket, Served: testServedBucket},
 		d.publisher,
@@ -83,7 +83,7 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, "org-1").Run(func(context.Context, string) {
 			*calls = append(*calls, "ensure-org")
 		}).Return("zitadel-org-1", nil).Once()
-		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, "org-1", "zitadel-org-1").Run(func(context.Context, string, string) {
+		d.orgRepo.EXPECT().SetProviderOrganizerID(mock.Anything, "org-1", "zitadel-org-1").Run(func(context.Context, string, string) {
 			*calls = append(*calls, "store-org-id")
 		}).Return(nil).Once()
 	}
@@ -91,8 +91,8 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 	// then Delete of the row and its tenant org. deleteErr fails the final
 	// record deletion.
 	expectDiscard := func(d *organizerTestDeps, calls *[]string, deleteErr error) {
-		withOrg := &entity.Organizer{ID: "org-1", ZitadelOrgID: "zitadel-org-1", Status: entity.OrganizerStatusProvisioning}
-		deactivated := &entity.Organizer{ID: "org-1", ZitadelOrgID: "zitadel-org-1", Status: entity.OrganizerStatusDeactivated}
+		withOrg := &entity.Organizer{ID: "org-1", ProviderOrganizerID: "zitadel-org-1", Status: entity.OrganizerStatusProvisioning}
+		deactivated := &entity.Organizer{ID: "org-1", ProviderOrganizerID: "zitadel-org-1", Status: entity.OrganizerStatusDeactivated}
 		d.orgRepo.EXPECT().Get(mock.Anything, "org-1").Return(withOrg, nil).Once()
 		d.provisioner.EXPECT().DeactivateOperators(mock.Anything, "zitadel-org-1").Return(nil).Once()
 		d.orgRepo.EXPECT().FreeArtists(mock.Anything, "org-1").Return(nil).Once()
@@ -101,7 +101,7 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 		}).Return(nil).Once()
 		d.orgRepo.EXPECT().Get(mock.Anything, "org-1").Return(deactivated, nil).Once()
 		d.orgRepo.EXPECT().Delete(mock.Anything, "org-1", true).Return(nil).Once()
-		d.mediaRepo.EXPECT().ListMediaByOrganizer(mock.Anything, "org-1").Return(nil, nil).Once()
+		d.seriesImageRepo.EXPECT().ListMediaByOrganizer(mock.Anything, "org-1").Return(nil, nil).Once()
 		d.provisioner.EXPECT().DeleteTenant(mock.Anything, "zitadel-org-1").Run(func(context.Context, string) {
 			*calls = append(*calls, "delete-tenant")
 		}).Return(nil).Once()
@@ -139,7 +139,7 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 			want: func(t *testing.T, got *entity.Organizer) {
 				t.Helper()
 				assert.Equal(t, entity.OrganizerStatusActive, got.Status)
-				assert.Equal(t, "zitadel-org-1", got.ZitadelOrgID)
+				assert.Equal(t, "zitadel-org-1", got.ProviderOrganizerID)
 				assert.Equal(t, "org-1", got.ID)
 			},
 			wantCalls: []string{"ensure-org", "store-org-id", "provision"},
@@ -279,7 +279,7 @@ func TestOrganizerUseCase_Create_sameNameTwice(t *testing.T) {
 			Return(&entity.Organizer{ID: c.id, Name: orgName, OperatorEmail: c.email, Status: entity.OrganizerStatusProvisioning}, nil).
 			Once()
 		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, c.id).Return("zitadel-"+c.id, nil).Once()
-		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, c.id, "zitadel-"+c.id).Return(nil).Once()
+		d.orgRepo.EXPECT().SetProviderOrganizerID(mock.Anything, c.id, "zitadel-"+c.id).Return(nil).Once()
 		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, c.id, "zitadel-"+c.id, c.email).Return(nil).Once()
 		d.orgRepo.EXPECT().
 			CompareAndSetStatus(mock.Anything, c.id, entity.OrganizerStatusProvisioning, entity.OrganizerStatusActive).
@@ -298,7 +298,7 @@ func TestOrganizerUseCase_Create_sameNameTwice(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotEqual(t, first.ID, second.ID, "two Organizers exist")
-	assert.NotEqual(t, first.ZitadelOrgID, second.ZitadelOrgID, "each Organizer has its own tenant")
+	assert.NotEqual(t, first.ProviderOrganizerID, second.ProviderOrganizerID, "each Organizer has its own tenant")
 	assert.Equal(t, entity.OrganizerStatusActive, first.Status)
 	assert.Equal(t, entity.OrganizerStatusActive, second.Status)
 }
@@ -516,33 +516,33 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name         string
-		zitadelOrgID string
-		setup        func(t *testing.T, d *organizerTestDeps)
-		want         *entity.Organizer
-		wantErr      error
+		name                string
+		providerOrganizerID string
+		setup               func(t *testing.T, d *organizerTestDeps)
+		want                *entity.Organizer
+		wantErr             error
 	}{
 		{
 			// @spec components/usecase/organizer/resolve-caller "Active Organizer"
-			name:         "return the organizer when active",
-			zitadelOrgID: "zitadel-org-1",
+			name:                "return the organizer when active",
+			providerOrganizerID: "zitadel-org-1",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()
 				d.orgRepo.EXPECT().
-					GetByZitadelOrgID(ctx, "zitadel-org-1").
-					Return(&entity.Organizer{ID: "org-1", ZitadelOrgID: "zitadel-org-1", Status: entity.OrganizerStatusActive}, nil).
+					GetByProviderOrganizerID(ctx, "zitadel-org-1").
+					Return(&entity.Organizer{ID: "org-1", ProviderOrganizerID: "zitadel-org-1", Status: entity.OrganizerStatusActive}, nil).
 					Once()
 			},
-			want: &entity.Organizer{ID: "org-1", ZitadelOrgID: "zitadel-org-1", Status: entity.OrganizerStatusActive},
+			want: &entity.Organizer{ID: "org-1", ProviderOrganizerID: "zitadel-org-1", Status: entity.OrganizerStatusActive},
 		},
 		{
 			// @spec components/usecase/organizer/resolve-caller "Deactivated Organizer"
-			name:         "FailedPrecondition when the organizer is deactivated",
-			zitadelOrgID: "zitadel-org-deactivated",
+			name:                "FailedPrecondition when the organizer is deactivated",
+			providerOrganizerID: "zitadel-org-deactivated",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()
 				d.orgRepo.EXPECT().
-					GetByZitadelOrgID(ctx, "zitadel-org-deactivated").
+					GetByProviderOrganizerID(ctx, "zitadel-org-deactivated").
 					Return(&entity.Organizer{ID: "org-1", Status: entity.OrganizerStatusDeactivated}, nil).
 					Once()
 			},
@@ -553,12 +553,12 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 			// status (e.g. still provisioning) collapses into the same
 			// PermissionDenied as "no such organizer."
 			// @spec components/usecase/organizer/resolve-caller "Provisioning Organizer"
-			name:         "PermissionDenied when the organizer is still provisioning",
-			zitadelOrgID: "zitadel-org-provisioning",
+			name:                "PermissionDenied when the organizer is still provisioning",
+			providerOrganizerID: "zitadel-org-provisioning",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()
 				d.orgRepo.EXPECT().
-					GetByZitadelOrgID(ctx, "zitadel-org-provisioning").
+					GetByProviderOrganizerID(ctx, "zitadel-org-provisioning").
 					Return(&entity.Organizer{ID: "org-1", Status: entity.OrganizerStatusProvisioning}, nil).
 					Once()
 			},
@@ -566,12 +566,12 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/organizer/resolve-caller "Tenant with no Organizer"
-			name:         "PermissionDenied (non-revealing) when no organizer is linked",
-			zitadelOrgID: "zitadel-org-unknown",
+			name:                "PermissionDenied (non-revealing) when no organizer is linked",
+			providerOrganizerID: "zitadel-org-unknown",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()
 				d.orgRepo.EXPECT().
-					GetByZitadelOrgID(ctx, "zitadel-org-unknown").
+					GetByProviderOrganizerID(ctx, "zitadel-org-unknown").
 					Return(nil, apperr.New(codes.NotFound, "not found")).
 					Once()
 			},
@@ -579,12 +579,12 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/organizer/resolve-caller "Organizer unreadable"
-			name:         "propagates a non-NotFound repository failure unchanged",
-			zitadelOrgID: "zitadel-org-broken",
+			name:                "propagates a non-NotFound repository failure unchanged",
+			providerOrganizerID: "zitadel-org-broken",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()
 				d.orgRepo.EXPECT().
-					GetByZitadelOrgID(ctx, "zitadel-org-broken").
+					GetByProviderOrganizerID(ctx, "zitadel-org-broken").
 					Return(nil, apperr.New(codes.Internal, "db down")).
 					Once()
 			},
@@ -600,7 +600,7 @@ func TestOrganizerUseCase_ResolveCaller(t *testing.T) {
 				tt.setup(t, d)
 			}
 
-			got, err := d.uc.ResolveCaller(ctx, tt.zitadelOrgID)
+			got, err := d.uc.ResolveCaller(ctx, tt.providerOrganizerID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -843,9 +843,9 @@ func TestOrganizerUseCase_Deactivate(t *testing.T) {
 				d.orgRepo.EXPECT().
 					Get(ctx, "org-1").
 					Return(&entity.Organizer{
-						ID:           "org-1",
-						Status:       entity.OrganizerStatusDeactivated,
-						ZitadelOrgID: "zitadel-org-1",
+						ID:                  "org-1",
+						Status:              entity.OrganizerStatusDeactivated,
+						ProviderOrganizerID: "zitadel-org-1",
 					}, nil).
 					Once()
 				// provisioner.DeactivateOperators, orgRepo.FreeArtists, and
@@ -861,9 +861,9 @@ func TestOrganizerUseCase_Deactivate(t *testing.T) {
 				d.orgRepo.EXPECT().
 					Get(ctx, "org-1").
 					Return(&entity.Organizer{
-						ID:           "org-1",
-						Status:       entity.OrganizerStatusActive,
-						ZitadelOrgID: "zitadel-org-1",
+						ID:                  "org-1",
+						Status:              entity.OrganizerStatusActive,
+						ProviderOrganizerID: "zitadel-org-1",
 					}, nil).
 					Once()
 				d.provisioner.EXPECT().
@@ -918,9 +918,9 @@ func TestOrganizerUseCase_Deactivate(t *testing.T) {
 				d.orgRepo.EXPECT().
 					Get(ctx, "org-2").
 					Return(&entity.Organizer{
-						ID:           "org-2",
-						Status:       entity.OrganizerStatusProvisioning,
-						ZitadelOrgID: "", // not yet provisioned
+						ID:                  "org-2",
+						Status:              entity.OrganizerStatusProvisioning,
+						ProviderOrganizerID: "", // not yet provisioned
 					}, nil).
 					Once()
 				d.provisioner.EXPECT().FindTenantOrg(ctx, "org-2").Return("", apperr.New(codes.NotFound, "tenant org not found")).Once()
@@ -998,7 +998,7 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 		stuck := []*entity.Organizer{
 			// Failed after the org id was recorded: the retry reuses the id and
 			// never creates or searches for the org.
-			{ID: "org-1", Name: "Acme", OperatorEmail: "a@acme.com", ZitadelOrgID: "z-org-1", Status: entity.OrganizerStatusProvisioning},
+			{ID: "org-1", Name: "Acme", OperatorEmail: "a@acme.com", ProviderOrganizerID: "z-org-1", Status: entity.OrganizerStatusProvisioning},
 			// Left by an older release that never recorded the id: the org is
 			// resolved (EnsureTenantOrg finds it by name) and recorded.
 			{ID: "org-2", Name: "Beta", OperatorEmail: "b@beta.com", Status: entity.OrganizerStatusProvisioning},
@@ -1009,7 +1009,7 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 		expectActivation(d, "org-1")
 
 		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, "org-2").Return("z-org-2", nil).Once()
-		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, "org-2", "z-org-2").Return(nil).Once()
+		d.orgRepo.EXPECT().SetProviderOrganizerID(mock.Anything, "org-2", "z-org-2").Return(nil).Once()
 		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-2", "z-org-2", "b@beta.com").Return(nil).Once()
 		expectActivation(d, "org-2")
 
@@ -1022,8 +1022,8 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 		t.Parallel()
 		d := newOrganizerTestDeps(t)
 		stuck := []*entity.Organizer{
-			{ID: "org-bad", Name: "Bad", OperatorEmail: "x@bad.com", ZitadelOrgID: "z-bad", Status: entity.OrganizerStatusProvisioning},
-			{ID: "org-ok", Name: "Ok", OperatorEmail: "y@ok.com", ZitadelOrgID: "z-ok", Status: entity.OrganizerStatusProvisioning},
+			{ID: "org-bad", Name: "Bad", OperatorEmail: "x@bad.com", ProviderOrganizerID: "z-bad", Status: entity.OrganizerStatusProvisioning},
+			{ID: "org-ok", Name: "Ok", OperatorEmail: "y@ok.com", ProviderOrganizerID: "z-ok", Status: entity.OrganizerStatusProvisioning},
 		}
 		d.orgRepo.EXPECT().ListByStatus(ctx, entity.OrganizerStatusProvisioning).Return(stuck, nil).Once()
 
@@ -1046,13 +1046,13 @@ func TestOrganizerUseCase_ReconcileProvisioning(t *testing.T) {
 		d.orgRepo.EXPECT().ListByStatus(ctx, entity.OrganizerStatusProvisioning).Return([]*entity.Organizer{stuck}, nil).Once()
 
 		d.provisioner.EXPECT().EnsureTenantOrg(mock.Anything, "org-taken").Return("394277002850336802", nil).Once()
-		d.orgRepo.EXPECT().SetZitadelOrgID(mock.Anything, "org-taken", "394277002850336802").Return(nil).Once()
+		d.orgRepo.EXPECT().SetProviderOrganizerID(mock.Anything, "org-taken", "394277002850336802").Return(nil).Once()
 		d.provisioner.EXPECT().ProvisionTenant(mock.Anything, "org-taken", "394277002850336802", "admin@example.com").
 			Return(apperr.New(codes.AlreadyExists, "operator email is already used by another account")).Once()
 		d.metrics.EXPECT().RecordOrganizerProvisioning(mock.Anything, "failed").Return().Once()
 
 		// Terminal: Deactivate moves it out of provisioning; nothing is deleted.
-		d.orgRepo.EXPECT().Get(ctx, "org-taken").Return(&entity.Organizer{ID: "org-taken", ZitadelOrgID: "394277002850336802", Status: entity.OrganizerStatusProvisioning}, nil).Once()
+		d.orgRepo.EXPECT().Get(ctx, "org-taken").Return(&entity.Organizer{ID: "org-taken", ProviderOrganizerID: "394277002850336802", Status: entity.OrganizerStatusProvisioning}, nil).Once()
 		d.provisioner.EXPECT().DeactivateOperators(ctx, "394277002850336802").Return(nil).Once()
 		d.orgRepo.EXPECT().FreeArtists(ctx, "org-taken").Return(nil).Once()
 		d.orgRepo.EXPECT().SetStatus(ctx, "org-taken", entity.OrganizerStatusDeactivated).Return(nil).Once()
@@ -1074,8 +1074,8 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 
 	ctx := context.Background()
 	const orgID = "org-delete"
-	deactivated := &entity.Organizer{ID: orgID, ZitadelOrgID: "zitadel-tenant", Status: entity.OrganizerStatusDeactivated}
-	media := []*entity.Media{{ID: "media-cover", OrganizerID: orgID}, {ID: "media-unused", OrganizerID: orgID}}
+	deactivated := &entity.Organizer{ID: orgID, ProviderOrganizerID: "zitadel-tenant", Status: entity.OrganizerStatusDeactivated}
+	media := []*entity.SeriesImage{{ID: "media-cover", OrganizerID: orgID}, {ID: "media-unused", OrganizerID: orgID}}
 	errTenant := apperr.New(codes.Internal, "remove tenant org")
 
 	// expectRemoval expects every removal step of a deactivated organizer and
@@ -1085,7 +1085,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 		d.orgRepo.EXPECT().Delete(ctx, orgID, true).Run(func(context.Context, string, bool) {
 			*calls = append(*calls, "check")
 		}).Return(nil).Once()
-		d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(media, nil).Once()
+		d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(media, nil).Once()
 		for _, m := range media {
 			d.imageStorer.EXPECT().DeleteOriginal(ctx, testInternalBucket, orgID, m.ID).Run(func(context.Context, string, string, string) {
 				*calls = append(*calls, "original:"+m.ID)
@@ -1094,8 +1094,8 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 				*calls = append(*calls, "variants:"+m.ID)
 			}).Return(nil).Once()
 		}
-		if org.ZitadelOrgID != "" {
-			d.provisioner.EXPECT().DeleteTenant(ctx, org.ZitadelOrgID).Run(func(context.Context, string) {
+		if org.ProviderOrganizerID != "" {
+			d.provisioner.EXPECT().DeleteTenant(ctx, org.ProviderOrganizerID).Run(func(context.Context, string) {
 				*calls = append(*calls, "tenant")
 			}).Return(tenantErr).Once()
 		} else {
@@ -1144,7 +1144,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			name: "skips the tenant when the organizer has no tenant link",
 			setup: func(d *organizerTestDeps, calls *[]string) {
 				noTenant := *deactivated
-				noTenant.ZitadelOrgID = ""
+				noTenant.ProviderOrganizerID = ""
 				expectRemoval(d, &noTenant, calls, nil)
 			},
 			wantCalls: filesThen("records"),
@@ -1155,10 +1155,10 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 				// A provisioning Organizer from before the org id was recorded
 				// early, deactivated by the admin: its org must not be orphaned.
 				unlinked := *deactivated
-				unlinked.ZitadelOrgID = ""
+				unlinked.ProviderOrganizerID = ""
 				d.orgRepo.EXPECT().Get(ctx, orgID).Return(&unlinked, nil).Once()
 				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
-				d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
+				d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
 				d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return("394277002850336802", nil).Once()
 				d.provisioner.EXPECT().DeleteTenant(ctx, "394277002850336802").Run(func(context.Context, string) {
 					*calls = append(*calls, "tenant")
@@ -1173,10 +1173,10 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			name: "keeps the records when the unrecorded tenant org cannot be searched",
 			setup: func(d *organizerTestDeps, _ *[]string) {
 				unlinked := *deactivated
-				unlinked.ZitadelOrgID = ""
+				unlinked.ProviderOrganizerID = ""
 				d.orgRepo.EXPECT().Get(ctx, orgID).Return(&unlinked, nil).Once()
 				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
-				d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
+				d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
 				d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return("", apperr.ErrInternal).Once()
 			},
 			wantErr: apperr.ErrInternal,
@@ -1185,7 +1185,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			// @spec components/usecase/organizer/delete "Active Organizer"
 			name: "refuses an active organizer and removes nothing",
 			setup: func(d *organizerTestDeps, _ *[]string) {
-				d.orgRepo.EXPECT().Get(ctx, orgID).Return(&entity.Organizer{ID: orgID, ZitadelOrgID: "zitadel-tenant", Status: entity.OrganizerStatusActive}, nil).Once()
+				d.orgRepo.EXPECT().Get(ctx, orgID).Return(&entity.Organizer{ID: orgID, ProviderOrganizerID: "zitadel-tenant", Status: entity.OrganizerStatusActive}, nil).Once()
 			},
 			wantErr: apperr.ErrFailedPrecondition,
 		},
@@ -1212,7 +1212,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			setup: func(d *organizerTestDeps, _ *[]string) {
 				d.orgRepo.EXPECT().Get(ctx, orgID).Return(deactivated, nil).Once()
 				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
-				d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(media, nil).Once()
+				d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(media, nil).Once()
 			},
 			wantErr: apperr.ErrInternal,
 		},
@@ -1222,7 +1222,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			t.Parallel()
 			d := newOrganizerTestDeps(t)
 			if tt.noStorage {
-				d.uc = usecase.NewOrganizerUseCase(d.orgRepo, d.artistRepo, d.provisioner, d.mediaRepo, nil,
+				d.uc = usecase.NewOrganizerUseCase(d.orgRepo, d.artistRepo, d.provisioner, d.seriesImageRepo, nil,
 					usecase.OrganizerMediaBuckets{}, d.publisher, d.metrics, newTestLogger(t))
 			}
 			var calls []string
@@ -1268,15 +1268,15 @@ func TestOrganizerUseCase_CleanUpStuckProvisioningOrganizer(t *testing.T) {
 
 	ctx := context.Background()
 	const (
-		orgID        = "01a11dec-968d-762a-a64d-17f4ce185b92"
-		zitadelOrgID = "394277002850336802"
+		orgID               = "01a11dec-968d-762a-a64d-17f4ce185b92"
+		providerOrganizerID = "394277002850336802"
 	)
 	d := newOrganizerTestDeps(t)
 
 	// Deactivate: the provisioning row is accepted and its tenant is resolved.
 	d.orgRepo.EXPECT().Get(ctx, orgID).Return(&entity.Organizer{ID: orgID, Status: entity.OrganizerStatusProvisioning}, nil).Once()
-	d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return(zitadelOrgID, nil).Once()
-	d.provisioner.EXPECT().DeactivateOperators(ctx, zitadelOrgID).Return(nil).Once()
+	d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return(providerOrganizerID, nil).Once()
+	d.provisioner.EXPECT().DeactivateOperators(ctx, providerOrganizerID).Return(nil).Once()
 	d.orgRepo.EXPECT().FreeArtists(ctx, orgID).Return(nil).Once()
 	d.orgRepo.EXPECT().SetStatus(ctx, orgID, entity.OrganizerStatusDeactivated).Return(nil).Once()
 
@@ -1289,9 +1289,9 @@ func TestOrganizerUseCase_CleanUpStuckProvisioningOrganizer(t *testing.T) {
 	d.orgRepo.EXPECT().Delete(ctx, orgID, true).Run(func(context.Context, string, bool) {
 		calls = append(calls, "check")
 	}).Return(nil).Once()
-	d.mediaRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
-	d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return(zitadelOrgID, nil).Once()
-	d.provisioner.EXPECT().DeleteTenant(ctx, zitadelOrgID).Run(func(context.Context, string) {
+	d.seriesImageRepo.EXPECT().ListMediaByOrganizer(ctx, orgID).Return(nil, nil).Once()
+	d.provisioner.EXPECT().FindTenantOrg(ctx, orgID).Return(providerOrganizerID, nil).Once()
+	d.provisioner.EXPECT().DeleteTenant(ctx, providerOrganizerID).Run(func(context.Context, string) {
 		calls = append(calls, "tenant")
 	}).Return(nil).Once()
 	d.orgRepo.EXPECT().Delete(ctx, orgID, false).Run(func(context.Context, string, bool) {

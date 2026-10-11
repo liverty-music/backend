@@ -434,7 +434,7 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		series.PublishState = &v
 	}
 	if mediaID.Valid {
-		series.CoverMedia = &entity.Media{
+		series.CoverImage = &entity.SeriesImage{
 			ID:          mediaID.String,
 			OrganizerID: mediaOrgID.String,
 		}

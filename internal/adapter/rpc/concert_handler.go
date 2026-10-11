@@ -14,10 +14,10 @@ import (
 
 // ConcertHandler implements the ConcertService Connect interface.
 type ConcertHandler struct {
-	concertUseCase  usecase.ConcertUseCase
-	userRepo        entity.UserRepository
-	mediaURLBuilder *mapper.MediaURLBuilder
-	logger          *logging.Logger
+	concertUseCase        usecase.ConcertUseCase
+	userRepo              entity.UserRepository
+	seriesImageURLBuilder *mapper.SeriesImageURLBuilder
+	logger                *logging.Logger
 }
 
 // NewConcertHandler creates a new concert handler. mediaURLBuilder composes
@@ -25,14 +25,14 @@ type ConcertHandler struct {
 func NewConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
 	userRepo entity.UserRepository,
-	mediaURLBuilder *mapper.MediaURLBuilder,
+	seriesImageURLBuilder *mapper.SeriesImageURLBuilder,
 	logger *logging.Logger,
 ) *ConcertHandler {
 	return &ConcertHandler{
-		concertUseCase:  concertUseCase,
-		userRepo:        userRepo,
-		mediaURLBuilder: mediaURLBuilder,
-		logger:          logger,
+		concertUseCase:        concertUseCase,
+		userRepo:              userRepo,
+		seriesImageURLBuilder: seriesImageURLBuilder,
+		logger:                logger,
 	}
 }
 
@@ -46,7 +46,7 @@ func (h *ConcertHandler) Get(ctx context.Context, req *connect.Request[concertv1
 
 	return connect.NewResponse(&concertv1.GetResponse{
 		Concert: mapper.ConcertToProto(concert),
-		Series:  h.mediaURLBuilder.ReferencedSeries([]*entity.Concert{concert}),
+		Series:  h.seriesImageURLBuilder.ReferencedSeries([]*entity.Concert{concert}),
 		Artists: mapper.ReferencedArtists([]*entity.Concert{concert}),
 	}), nil
 }
@@ -61,7 +61,7 @@ func (h *ConcertHandler) ListBySeries(ctx context.Context, req *connect.Request[
 
 	return connect.NewResponse(&concertv1.ListBySeriesResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
-		Series:   h.mediaURLBuilder.ReferencedSeries(concerts),
+		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
 }
@@ -76,7 +76,7 @@ func (h *ConcertHandler) ListByArtist(ctx context.Context, req *connect.Request[
 
 	return connect.NewResponse(&concertv1.ListByArtistResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
-		Series:   h.mediaURLBuilder.ReferencedSeries(concerts),
+		Series:   h.seriesImageURLBuilder.ReferencedSeries(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
 }
@@ -90,7 +90,7 @@ func (h *ConcertHandler) ListFollowed(ctx context.Context, req *connect.Request[
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (h *ConcertHandler) ListFollowed(ctx context.Context, req *connect.Request[
 	concerts := mapper.ConcertsOfGroups(groups)
 	return connect.NewResponse(&concertv1.ListFollowedResponse{
 		Groups:  mapper.ProximityGroupsToProto(groups),
-		Series:  h.mediaURLBuilder.ReferencedSeries(concerts),
+		Series:  h.seriesImageURLBuilder.ReferencedSeries(concerts),
 		Artists: mapper.ReferencedArtists(concerts),
 	}), nil
 }
@@ -133,7 +133,7 @@ func (h *ConcertHandler) ListByArtists(ctx context.Context, req *connect.Request
 	concerts := mapper.ConcertsOfGroups(groups)
 	return connect.NewResponse(&concertv1.ListByArtistsResponse{
 		Groups:  mapper.ProximityGroupsToProto(groups),
-		Series:  h.mediaURLBuilder.ReferencedSeries(concerts),
+		Series:  h.seriesImageURLBuilder.ReferencedSeries(concerts),
 		Artists: mapper.ReferencedArtists(concerts),
 	}), nil
 }
@@ -154,7 +154,7 @@ func (h *ConcertHandler) ListByLocation(ctx context.Context, req *connect.Reques
 	concerts := mapper.ConcertsOfGroups(groups)
 	return connect.NewResponse(&concertv1.ListByLocationResponse{
 		Groups:  mapper.ProximityGroupsToProto(groups),
-		Series:  h.mediaURLBuilder.ReferencedSeries(concerts),
+		Series:  h.seriesImageURLBuilder.ReferencedSeries(concerts),
 		Artists: mapper.ReferencedArtists(concerts),
 	}), nil
 }

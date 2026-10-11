@@ -20,14 +20,14 @@ func TestOrganizerSeriesImageHandler_CreateUploadUrl(t *testing.T) {
 	// @spec components/adapter/organizer/api/rpc/series-image "Operator of an active Organizer asks to upload"
 	t.Run("return an upload URL and a new series image id for an operator of an active organizer", func(t *testing.T) {
 		t.Parallel()
-		mediaUC, organizerUC := ucmocks.NewMockMediaUseCase(t), ucmocks.NewMockOrganizerUseCase(t)
-		organizerUC.EXPECT().ResolveCaller(mock.Anything, testZitadelOrgID).Return(activeOrganizer(), nil).Once()
-		mediaUC.EXPECT().
-			CreateMediaUploadURL(mock.Anything, testOrganizerID, usecase.CreateMediaUploadURLInput{ContentType: "image/png"}).
+		seriesImageUC, organizerUC := ucmocks.NewMockSeriesImageUseCase(t), ucmocks.NewMockOrganizerUseCase(t)
+		organizerUC.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(activeOrganizer(), nil).Once()
+		seriesImageUC.EXPECT().
+			CreateUploadURL(mock.Anything, testOrganizerID, usecase.CreateMediaUploadURLInput{ContentType: "image/png"}).
 			Return(&usecase.CreateMediaUploadURLOutput{UploadURL: "https://storage.example.com/upload", MediaID: "img-1", MaxBytes: 1024}, nil).
 			Once()
 
-		resp, err := rpc.NewOrganizerSeriesImageHandler(mediaUC, organizerUC).CreateUploadUrl(orgCtx(testZitadelOrgID),
+		resp, err := rpc.NewOrganizerSeriesImageHandler(seriesImageUC, organizerUC).CreateUploadUrl(orgCtx(testProviderOrganizerID),
 			connect.NewRequest(&seriesimagev1.CreateUploadUrlRequest{ContentType: "image/png"}))
 
 		require.NoError(t, err)
@@ -39,11 +39,11 @@ func TestOrganizerSeriesImageHandler_CreateUploadUrl(t *testing.T) {
 	// @spec components/adapter/organizer/api/rpc/series-image "Deactivated Organizer"
 	t.Run("return FAILED_PRECONDITION unchanged without authorizing an upload when the organizer is deactivated", func(t *testing.T) {
 		t.Parallel()
-		mediaUC, organizerUC := ucmocks.NewMockMediaUseCase(t), ucmocks.NewMockOrganizerUseCase(t)
+		seriesImageUC, organizerUC := ucmocks.NewMockSeriesImageUseCase(t), ucmocks.NewMockOrganizerUseCase(t)
 		resolveErr := apperr.New(apperr.ErrFailedPrecondition.Code, "organizer is deactivated")
-		organizerUC.EXPECT().ResolveCaller(mock.Anything, testZitadelOrgID).Return(nil, resolveErr).Once()
+		organizerUC.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(nil, resolveErr).Once()
 
-		_, err := rpc.NewOrganizerSeriesImageHandler(mediaUC, organizerUC).CreateUploadUrl(orgCtx(testZitadelOrgID),
+		_, err := rpc.NewOrganizerSeriesImageHandler(seriesImageUC, organizerUC).CreateUploadUrl(orgCtx(testProviderOrganizerID),
 			connect.NewRequest(&seriesimagev1.CreateUploadUrlRequest{ContentType: "image/png"}))
 
 		require.Error(t, err)

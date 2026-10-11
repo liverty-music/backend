@@ -79,7 +79,7 @@ func TestStripeCheckoutAuthorizationPort_CaptureAuthorization(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, &entity.CapturedPayment{
-			Provider: entity.PaymentProviderStripe, PaymentIntentRef: "pi_stub",
+			Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_stub",
 			AmountJPY: 6000, Currency: "JPY", CardBrand: "amex", CardLast4: "0005",
 		}, got)
 		assert.Equal(t, 1, stub.captures, "no second charge attempt")

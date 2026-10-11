@@ -30,7 +30,7 @@ func TestNotificationConsumer_Handle(t *testing.T) {
 	t.Run("sends notifications on concert.created event", func(t *testing.T) {
 		t.Parallel()
 
-		pushUC := ucmocks.NewMockPushNotificationUseCase(t)
+		pushUC := ucmocks.NewMockPushSubscriptionUseCase(t)
 		handler := event.NewNotificationConsumer(pushUC, newTestLogger(t))
 
 		data := usecase.ConcertCreatedData{
@@ -47,7 +47,7 @@ func TestNotificationConsumer_Handle(t *testing.T) {
 	t.Run("returns error when notification fails", func(t *testing.T) {
 		t.Parallel()
 
-		pushUC := ucmocks.NewMockPushNotificationUseCase(t)
+		pushUC := ucmocks.NewMockPushSubscriptionUseCase(t)
 		handler := event.NewNotificationConsumer(pushUC, newTestLogger(t))
 
 		data := usecase.ConcertCreatedData{
@@ -64,7 +64,7 @@ func TestNotificationConsumer_Handle(t *testing.T) {
 	t.Run("returns error on invalid payload", func(t *testing.T) {
 		t.Parallel()
 
-		pushUC := ucmocks.NewMockPushNotificationUseCase(t)
+		pushUC := ucmocks.NewMockPushSubscriptionUseCase(t)
 		handler := event.NewNotificationConsumer(pushUC, newTestLogger(t))
 
 		msg := message.NewMessage("bad-id", []byte("not json"))

@@ -20,25 +20,25 @@ import (
 
 // discoveryMocks bundles the mocks for the per-artist discovery pipeline.
 type discoveryMocks struct {
-	concertRepo   *entitymocks.MockConcertRepository
-	artistRepo    *entitymocks.MockArtistRepository
-	salesRepo     *entitymocks.MockSalesPhaseRepository
-	searchLogRepo *entitymocks.MockSalesPhaseSearchLogRepository
-	journeyRepo   *entitymocks.MockTicketJourneyRepository
-	searcher      *entitymocks.MockSalesPhaseSearcher
-	pub           *ucmocks.MockEventPublisher
+	concertRepo       *entitymocks.MockConcertRepository
+	artistRepo        *entitymocks.MockArtistRepository
+	salesRepo         *entitymocks.MockSalesPhaseRepository
+	concertSearchRepo *entitymocks.MockSalesPhaseSearchLogRepository
+	journeyRepo       *entitymocks.MockTicketJourneyRepository
+	searcher          *entitymocks.MockSalesPhaseSearcher
+	pub               *ucmocks.MockEventPublisher
 }
 
 func newDiscoveryMocks(t *testing.T) *discoveryMocks {
 	t.Helper()
 	return &discoveryMocks{
-		concertRepo:   entitymocks.NewMockConcertRepository(t),
-		artistRepo:    entitymocks.NewMockArtistRepository(t),
-		salesRepo:     entitymocks.NewMockSalesPhaseRepository(t),
-		searchLogRepo: entitymocks.NewMockSalesPhaseSearchLogRepository(t),
-		journeyRepo:   entitymocks.NewMockTicketJourneyRepository(t),
-		searcher:      entitymocks.NewMockSalesPhaseSearcher(t),
-		pub:           ucmocks.NewMockEventPublisher(t),
+		concertRepo:       entitymocks.NewMockConcertRepository(t),
+		artistRepo:        entitymocks.NewMockArtistRepository(t),
+		salesRepo:         entitymocks.NewMockSalesPhaseRepository(t),
+		concertSearchRepo: entitymocks.NewMockSalesPhaseSearchLogRepository(t),
+		journeyRepo:       entitymocks.NewMockTicketJourneyRepository(t),
+		searcher:          entitymocks.NewMockSalesPhaseSearcher(t),
+		pub:               ucmocks.NewMockEventPublisher(t),
 	}
 }
 
@@ -74,8 +74,8 @@ func (m *discoveryMocks) phases(seriesID string, phases ...*entity.SalesPhase) {
 	m.salesRepo.EXPECT().GetBySeries(mock.Anything, seriesID).Return(phases, nil).Once()
 }
 
-func (m *discoveryMocks) searchLogs(seriesIDs []string, logs ...*entity.SalesPhaseSearchLog) {
-	m.searchLogRepo.EXPECT().ListBySeries(mock.Anything, seriesIDs).Return(logs, nil).Once()
+func (m *discoveryMocks) concertSearchs(seriesIDs []string, logs ...*entity.SalesPhaseSearchLog) {
+	m.concertSearchRepo.EXPECT().ListBySeries(mock.Anything, seriesIDs).Return(logs, nil).Once()
 }
 
 func (m *discoveryMocks) officialSite() {
@@ -99,7 +99,7 @@ func (m *discoveryMocks) search(seriesIDs []string, result []*entity.SalesPhaseC
 }
 
 func (m *discoveryMocks) record(seriesIDs []string, err error) {
-	m.searchLogRepo.EXPECT().Record(mock.Anything, seriesIDs, mock.AnythingOfType("time.Time")).Return(err).Once()
+	m.concertSearchRepo.EXPECT().Record(mock.Anything, seriesIDs, mock.AnythingOfType("time.Time")).Return(err).Once()
 }
 
 func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
@@ -150,7 +150,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"}, searchedAgo(12*day))
+				m.concertSearchs([]string{"series-a"}, searchedAgo(12*day))
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate}, nil)
 				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeInserted, nil).Once()
@@ -188,7 +188,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.phases("series-a", &entity.SalesPhase{
 					SeriesID: "series-a", Method: entity.SalesMethodFirstCome, ApplyStartTime: now.AddDate(0, 0, -1),
 				})
-				m.searchLogs([]string{"series-a"}, searchedAgo(11*day))
+				m.concertSearchs([]string{"series-a"}, searchedAgo(11*day))
 				m.officialSite()
 				m.search([]string{"series-a"}, nil, nil)
 				m.record([]string{"series-a"}, nil)
@@ -201,7 +201,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"}, searchedAgo(5*day))
+				m.concertSearchs([]string{"series-a"}, searchedAgo(5*day))
 			},
 		},
 		{
@@ -211,7 +211,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", now.AddDate(0, 10, 0)))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"})
+				m.concertSearchs([]string{"series-a"})
 				m.officialSite()
 				m.search([]string{"series-a"}, nil, nil)
 				m.record([]string{"series-a"}, nil)
@@ -230,7 +230,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.phases("series-a")
 				m.tracked("series-b", true)
 				m.phases("series-b")
-				m.searchLogs([]string{"series-a", "series-b"})
+				m.concertSearchs([]string{"series-a", "series-b"})
 				m.officialSite()
 				m.search([]string{"series-a", "series-b"}, nil, nil)
 				m.record([]string{"series-a", "series-b"}, nil)
@@ -243,7 +243,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"})
+				m.concertSearchs([]string{"series-a"})
 				m.artistRepo.EXPECT().GetOfficialSite(mock.Anything, discoveryArtistID).
 					Return(nil, apperr.New(codes.NotFound, "no official site")).Once()
 			},
@@ -254,7 +254,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"})
+				m.concertSearchs([]string{"series-a"})
 				m.artistRepo.EXPECT().GetOfficialSite(mock.Anything, discoveryArtistID).
 					Return(&entity.OfficialSite{ArtistID: discoveryArtistID}, nil).Once()
 			},
@@ -272,7 +272,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"})
+				m.concertSearchs([]string{"series-a"})
 				m.officialSite()
 				m.search([]string{"series-a"}, nil, nil)
 				m.record([]string{"series-a"}, nil)
@@ -285,7 +285,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"})
+				m.concertSearchs([]string{"series-a"})
 				m.officialSite()
 				m.search([]string{"series-a"}, nil, searchErr)
 				// No Record: the next daily run searches the series again.
@@ -298,7 +298,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"})
+				m.concertSearchs([]string{"series-a"})
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate}, nil)
 				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeInserted, nil).Once()
@@ -323,7 +323,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"})
+				m.concertSearchs([]string{"series-a"})
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate}, nil)
 				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeUpdated, nil).Once()
@@ -337,7 +337,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"})
+				m.concertSearchs([]string{"series-a"})
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate, candidate2, candidate3}, nil)
 				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeInserted, nil).Once()
@@ -356,7 +356,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 				m.concerts(upcomingConcert("series-a", "Tour A", nextMonth))
 				m.tracked("series-a", true)
 				m.phases("series-a")
-				m.searchLogs([]string{"series-a"})
+				m.concertSearchs([]string{"series-a"})
 				m.officialSite()
 				m.search([]string{"series-a"}, []*entity.SalesPhaseCandidate{candidate}, nil)
 				m.salesRepo.EXPECT().Upsert(mock.Anything, candidate).Return("phase-1", entity.UpsertOutcomeInserted, nil).Once()
@@ -378,7 +378,7 @@ func TestSalesPhaseDiscoveryUseCase_DiscoverForArtist(t *testing.T) {
 			tt.setup(m)
 
 			uc := usecase.NewSalesPhaseDiscoveryUseCase(
-				m.concertRepo, m.artistRepo, m.salesRepo, m.searchLogRepo, m.journeyRepo,
+				m.concertRepo, m.artistRepo, m.salesRepo, m.concertSearchRepo, m.journeyRepo,
 				m.searcher, m.pub, logger,
 			)
 			got, err := uc.DiscoverForArtist(context.Background(), discoveryArtist)

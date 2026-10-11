@@ -34,21 +34,21 @@ func (s *stubRefundRepo) CommitRefund(ctx context.Context, commit entity.RefundC
 }
 
 // stubRefundSettlementPort extends stubPaymentSettlementPort to support the
-// new CreateRefund and ReverseTransfer methods.
-type stubRefundSettlementPort struct {
-	stubPaymentSettlementPort
+// new CreateRefund and ReversePayout methods.
+type stubRefundSettlementPayouts struct {
+	stubSettlementPayoutRepository
 	createRefundFn    func(ctx context.Context, params entity.RefundParams) (string, error)
 	reverseTransferFn func(ctx context.Context, params entity.ReverseTransferParams) (string, error)
 }
 
-func (s *stubRefundSettlementPort) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
+func (s *stubRefundSettlementPayouts) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	if s.createRefundFn != nil {
 		return s.createRefundFn(ctx, params)
 	}
 	return "re_test", nil
 }
 
-func (s *stubRefundSettlementPort) ReverseTransfer(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
+func (s *stubRefundSettlementPayouts) ReversePayout(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
 	if s.reverseTransferFn != nil {
 		return s.reverseTransferFn(ctx, params)
 	}
@@ -65,10 +65,10 @@ func paidOrder(id entity.OrderID, amount int64, piRef string, paidAt time.Time) 
 		Status:   entity.OrderStatusPaid,
 		Amount:   amount,
 		Currency: "JPY",
-		PaidTime: paidAt,
+		PayTime:  paidAt,
 		Payment: entity.Payment{
-			Provider:         entity.PaymentProviderStripe,
-			PaymentIntentRef: piRef,
+			Provider:          entity.PaymentProviderStripe,
+			ProviderPaymentID: piRef,
 		},
 	}
 }
@@ -77,7 +77,7 @@ func newRefundUCWithLogger(
 	orderRepo entity.OrderRepository,
 	refundRepo entity.RefundRepository,
 	settlementRepo entity.SettlementRepository,
-	port entity.PaymentSettlementPort,
+	port entity.SettlementPayoutRepository,
 	t *testing.T,
 ) usecase.RefundOrderUseCase {
 	return usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, port, newTestLogger(t))
@@ -96,23 +96,23 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 	paidAt := now.Add(-30 * 24 * time.Hour)
 
 	const (
-		orderID     = entity.OrderID("order-cancel")
-		settleID    = entity.SettlementID("settle-cancel")
-		transferRef = "tr_cancel"
-		chRef       = "ch_cancel"
-		piRef       = "pi_cancel"
+		orderID          = entity.OrderID("order-cancel")
+		settleID         = entity.SettlementID("settle-cancel")
+		providerPayoutID = "tr_cancel"
+		chRef            = "ch_cancel"
+		piRef            = "pi_cancel"
 	)
 
 	order := paidOrder(orderID, 10000, piRef, paidAt)
 
 	// Settlement is Released (Transfer already paid out) — reversal must occur.
 	settlement := &entity.Settlement{
-		ID:        settleID,
-		OrderID:   orderID,
-		Status:    entity.SettlementStatusReleased,
-		ChargeRef: chRef,
+		ID:               settleID,
+		OrderID:          orderID,
+		Status:           entity.SettlementStatusReleased,
+		ProviderChargeID: chRef,
 		Splits: []entity.SettlementSplit{
-			{PayeeOrganizerID: "org-1", Amount: 9000, TransferRef: transferRef},
+			{PayeeOrganizerID: "org-1", Amount: 9000, ProviderPayoutID: providerPayoutID},
 		},
 	}
 
@@ -131,26 +131,26 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 			assert.Equal(t, orderID, commit.OrderID)
 			assert.Equal(t, settleID, commit.SettlementID)
 			require.Len(t, commit.ReversedSplits, 1)
-			assert.Equal(t, "trr_cancel_reversal", commit.ReversedSplits[0].TransferReversalRef)
+			assert.Equal(t, "trr_cancel_reversal", commit.ReversedSplits[0].ProviderPayoutReversalID)
 			commitCalled = true
 			return nil
 		},
 	}
 
-	port := &stubRefundSettlementPort{
-		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) {
+	port := &stubRefundSettlementPayouts{
+		resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) {
 			return chRef, nil
 		},
 		createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
 			// Fix #2: idempotency key must be keyed on OrderID, not SettlementID.
 			assert.Equal(t, orderID, params.OrderID)
-			assert.Equal(t, chRef, params.ChargeRef)
+			assert.Equal(t, chRef, params.ProviderChargeID)
 			assert.Equal(t, int64(10000), params.Amount)
 			refundCalled = true
 			return "re_cancel", nil
 		},
 		reverseTransferFn: func(_ context.Context, params entity.ReverseTransferParams) (string, error) {
-			assert.Equal(t, transferRef, params.TransferRef)
+			assert.Equal(t, providerPayoutID, params.ProviderPayoutID)
 			assert.Equal(t, int64(9000), params.Amount)
 			reversalCalled = true
 			return "trr_cancel_reversal", nil
@@ -219,8 +219,8 @@ func TestRefundOrder_Cancellation_NoSettlement(t *testing.T) {
 		},
 	}
 
-	port := &stubRefundSettlementPort{
-		resolveChargeRefFn: func(_ context.Context, piRef string) (string, error) {
+	port := &stubRefundSettlementPayouts{
+		resolveProviderChargeIDFn: func(_ context.Context, piRef string) (string, error) {
 			assert.Equal(t, "pi_no_settle", piRef)
 			return "ch_no_settle", nil
 		},
@@ -263,13 +263,13 @@ func TestRefundOrder_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 		Status: entity.OrderStatusRefunded,
 		Amount: 8000,
 		Payment: entity.Payment{
-			Provider:         entity.PaymentProviderStripe,
-			PaymentIntentRef: "pi_already",
+			Provider:          entity.PaymentProviderStripe,
+			ProviderPaymentID: "pi_already",
 		},
 	}
 
 	refundCalled := false
-	port := &stubRefundSettlementPort{
+	port := &stubRefundSettlementPayouts{
 		createRefundFn: func(_ context.Context, _ entity.RefundParams) (string, error) {
 			refundCalled = true
 			return "should-not-be-called", nil
@@ -307,8 +307,8 @@ func TestRefundOrder_NotRefundable_FailedOrder(t *testing.T) {
 		Status: entity.OrderStatusFailed,
 		Amount: 6000,
 		Payment: entity.Payment{
-			Provider:         entity.PaymentProviderStripe,
-			PaymentIntentRef: "pi_failed",
+			Provider:          entity.PaymentProviderStripe,
+			ProviderPaymentID: "pi_failed",
 		},
 	}
 
@@ -316,7 +316,7 @@ func TestRefundOrder_NotRefundable_FailedOrder(t *testing.T) {
 		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return failedOrder, nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPort{}, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.Error(t, err)
@@ -336,21 +336,21 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 	paidAt := now.Add(-60 * 24 * time.Hour)
 
 	const (
-		orderID     = entity.OrderID("order-dispute")
-		settleID    = entity.SettlementID("settle-dispute")
-		transferRef = "tr_dispute"
-		chRef       = "ch_dispute"
+		orderID          = entity.OrderID("order-dispute")
+		settleID         = entity.SettlementID("settle-dispute")
+		providerPayoutID = "tr_dispute"
+		chRef            = "ch_dispute"
 	)
 
 	order := paidOrder(orderID, 12000, "pi_dispute", paidAt)
 
 	settlement := &entity.Settlement{
-		ID:        settleID,
-		OrderID:   orderID,
-		Status:    entity.SettlementStatusReleased,
-		ChargeRef: chRef,
+		ID:               settleID,
+		OrderID:          orderID,
+		Status:           entity.SettlementStatusReleased,
+		ProviderChargeID: chRef,
 		Splits: []entity.SettlementSplit{
-			{PayeeOrganizerID: "org-dispute", Amount: 11000, TransferRef: transferRef},
+			{PayeeOrganizerID: "org-dispute", Amount: 11000, ProviderPayoutID: providerPayoutID},
 		},
 	}
 
@@ -364,7 +364,7 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 			assert.Equal(t, orderID, commit.OrderID)
 			assert.Equal(t, settleID, commit.SettlementID)
 			require.Len(t, commit.ReversedSplits, 1)
-			assert.Equal(t, "trr_dispute", commit.ReversedSplits[0].TransferReversalRef)
+			assert.Equal(t, "trr_dispute", commit.ReversedSplits[0].ProviderPayoutReversalID)
 			commitCalled = true
 			return nil
 		},
@@ -377,15 +377,15 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 		},
 	}
 
-	port := &stubRefundSettlementPort{
+	port := &stubRefundSettlementPayouts{
 		createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
-			assert.Equal(t, chRef, params.ChargeRef)
+			assert.Equal(t, chRef, params.ProviderChargeID)
 			// Fix #2: key is OrderID-based.
 			assert.Equal(t, orderID, params.OrderID)
 			return "re_dispute", nil
 		},
 		reverseTransferFn: func(_ context.Context, params entity.ReverseTransferParams) (string, error) {
-			assert.Equal(t, transferRef, params.TransferRef)
+			assert.Equal(t, providerPayoutID, params.ProviderPayoutID)
 			reversalCalled = true
 			return "trr_dispute", nil
 		},
@@ -415,7 +415,7 @@ func TestRefundOrder_UnspecifiedReason_InvalidArgument(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	uc := newRefundUCWithLogger(&stubOrderRepo{}, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPort{}, t)
+	uc := newRefundUCWithLogger(&stubOrderRepo{}, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.RefundOrder(ctx, "order-unspec", usecase.RefundReasonUnspecified, now)
 	require.Error(t, err)
@@ -438,7 +438,7 @@ func TestRefundOrder_OrderNotFound(t *testing.T) {
 		},
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPort{}, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.RefundOrder(ctx, "order-missing", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -465,12 +465,12 @@ func TestRefundOrder_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
 	order := paidOrder(orderID, 8000, "pi_held", paidAt)
 
 	settlement := &entity.Settlement{
-		ID:        settleID,
-		OrderID:   orderID,
-		Status:    entity.SettlementStatusHeld, // not yet released
-		ChargeRef: "ch_held",
+		ID:               settleID,
+		OrderID:          orderID,
+		Status:           entity.SettlementStatusHeld, // not yet released
+		ProviderChargeID: "ch_held",
 		Splits: []entity.SettlementSplit{
-			// No TransferRef — not yet paid out.
+			// No ProviderPayoutID — not yet paid out.
 			{PayeeOrganizerID: "org-held", Amount: 7000},
 		},
 	}
@@ -499,7 +499,7 @@ func TestRefundOrder_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
 		},
 	}
 
-	port := &stubRefundSettlementPort{
+	port := &stubRefundSettlementPayouts{
 		createRefundFn: func(_ context.Context, _ entity.RefundParams) (string, error) {
 			return "re_held", nil
 		},
@@ -539,8 +539,8 @@ func TestRefundOrder_NonStripeProvider_FailedPrecondition(t *testing.T) {
 		Status: entity.OrderStatusPaid,
 		Amount: 5000,
 		Payment: entity.Payment{
-			Provider:         entity.PaymentProviderKOMOJU,
-			PaymentIntentRef: "pi_komoju",
+			Provider:          entity.PaymentProviderKOMOJU,
+			ProviderPaymentID: "pi_komoju",
 		},
 	}
 
@@ -548,7 +548,7 @@ func TestRefundOrder_NonStripeProvider_FailedPrecondition(t *testing.T) {
 		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return komojuOrder, nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPort{}, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.RefundOrder(ctx, "order-komoju", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -557,10 +557,10 @@ func TestRefundOrder_NonStripeProvider_FailedPrecondition(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Fix #8: empty PaymentIntentRef returns FailedPrecondition
+// Fix #8: empty ProviderPaymentID returns FailedPrecondition
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_EmptyPaymentIntentRef_FailedPrecondition(t *testing.T) {
+func TestRefundOrder_EmptyProviderPaymentID_FailedPrecondition(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -570,8 +570,8 @@ func TestRefundOrder_EmptyPaymentIntentRef_FailedPrecondition(t *testing.T) {
 		Status: entity.OrderStatusPaid,
 		Amount: 5000,
 		Payment: entity.Payment{
-			Provider:         entity.PaymentProviderStripe,
-			PaymentIntentRef: "", // empty — missing ref
+			Provider:          entity.PaymentProviderStripe,
+			ProviderPaymentID: "", // empty — missing ref
 		},
 	}
 
@@ -579,7 +579,7 @@ func TestRefundOrder_EmptyPaymentIntentRef_FailedPrecondition(t *testing.T) {
 		getFn: func(_ context.Context, _ entity.OrderID) (*entity.Order, error) { return badOrder, nil },
 	}
 
-	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPort{}, t)
+	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
 	_, err := uc.RefundOrder(ctx, "order-no-pi", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
@@ -620,7 +620,7 @@ func TestRefundOrder_ConcurrentRefund_IdempotentViaCommitFailedPrecondition(t *t
 	// The use case must re-read the order on FailedPrecondition to return the
 	// post-refund state. After the concurrent refund the order is Refunded.
 	refundedOrder := &entity.Order{ID: orderID, Status: entity.OrderStatusRefunded, Amount: 9000,
-		Payment: entity.Payment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: "pi_concurrent"}}
+		Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_concurrent"}}
 
 	orderRepo := &stubOrderRepo{
 		getFn: func(_ context.Context, id entity.OrderID) (*entity.Order, error) {
@@ -641,9 +641,9 @@ func TestRefundOrder_ConcurrentRefund_IdempotentViaCommitFailedPrecondition(t *t
 		return refundedOrder, nil
 	}
 
-	port := &stubRefundSettlementPort{
-		resolveChargeRefFn: func(_ context.Context, _ string) (string, error) { return "ch_concurrent", nil },
-		createRefundFn:     func(_ context.Context, _ entity.RefundParams) (string, error) { return "re_concurrent", nil },
+	port := &stubRefundSettlementPayouts{
+		resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return "ch_concurrent", nil },
+		createRefundFn:            func(_ context.Context, _ entity.RefundParams) (string, error) { return "re_concurrent", nil },
 	}
 
 	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)

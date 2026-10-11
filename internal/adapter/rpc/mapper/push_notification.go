@@ -14,7 +14,7 @@ import "strings"
 // without exposing arbitrary endpoint text downstream.
 //
 // Called by PushNotificationHandler at subscription registration/removal
-// time; the resulting device type is passed into PushNotificationUseCase so
+// time; the resulting device type is passed into PushSubscriptionUseCase so
 // the use case layer never needs to know about push-vendor host names (see
 // liverty-music/backend#485).
 func DeviceTypeFromEndpoint(endpoint string) string {

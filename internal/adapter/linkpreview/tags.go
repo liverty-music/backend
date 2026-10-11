@@ -59,12 +59,12 @@ type Tags struct {
 // TagBuilder turns a Concert and its Series' Concerts into preview Tags.
 type TagBuilder struct {
 	siteBaseURL string
-	mediaURLs   *mapper.MediaURLBuilder
+	mediaURLs   *mapper.SeriesImageURLBuilder
 }
 
 // NewTagBuilder creates a TagBuilder. siteBaseURL is the fan web origin
 // (e.g. "https://liverty-music.app"); mediaURLs composes the cover image URL.
-func NewTagBuilder(siteBaseURL string, mediaURLs *mapper.MediaURLBuilder) *TagBuilder {
+func NewTagBuilder(siteBaseURL string, mediaURLs *mapper.SeriesImageURLBuilder) *TagBuilder {
 	return &TagBuilder{
 		siteBaseURL: strings.TrimRight(siteBaseURL, "/"),
 		mediaURLs:   mediaURLs,
@@ -181,8 +181,8 @@ func truncate(s string, limit int) string {
 
 // image is the cover's large variant URL, or the brand default image.
 func (b *TagBuilder) image(s *entity.Series) string {
-	if s.CoverMedia != nil {
-		if u := b.mediaURLs.VariantURL(s.CoverMedia.OrganizerID, s.CoverMedia.ID, "large"); u != "" {
+	if s.CoverImage != nil {
+		if u := b.mediaURLs.VariantURL(s.CoverImage.OrganizerID, s.CoverImage.ID, "large"); u != "" {
 			return u
 		}
 	}

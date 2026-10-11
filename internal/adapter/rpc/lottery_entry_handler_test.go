@@ -23,14 +23,14 @@ import (
 // lotteryEntryFixture serves a LotteryEntryHandler behind the validation
 // interceptor. The usecase mocks fail the test on any call not expected.
 type lotteryEntryFixture struct {
-	lottery *ucmocks.MockLotteryUseCase
+	lottery *ucmocks.MockLotteryEntryUseCase
 	users   *ucmocks.MockUserUseCase
 	client  lotteryentryv1connect.LotteryEntryServiceClient
 }
 
 func newLotteryEntryFixture(t *testing.T, decorate func(context.Context) context.Context) *lotteryEntryFixture {
 	t.Helper()
-	f := &lotteryEntryFixture{lottery: ucmocks.NewMockLotteryUseCase(t), users: ucmocks.NewMockUserUseCase(t)}
+	f := &lotteryEntryFixture{lottery: ucmocks.NewMockLotteryEntryUseCase(t), users: ucmocks.NewMockUserUseCase(t)}
 	logger, err := logging.New()
 	require.NoError(t, err)
 	h := handler.NewLotteryEntryHandler(f.lottery, f.users, logger)
@@ -55,7 +55,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		}
 	}
 	draft := &entity.LotteryEntry{
-		ID: tkEntryID, TicketTypeID: tkTicketTypeID, UserID: tkFanUserID, RequestedTicketCount: 2, State: entity.LotteryEntryStateDraft,
+		ID: tkEntryID, TicketTypeID: tkTicketTypeID, UserID: tkFanUserID, TicketCount: 2, State: entity.LotteryEntryStateDraft,
 	}
 
 	t.Run("fan starts an entry", func(t *testing.T) {
@@ -114,7 +114,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/lottery-entry "E.164 phone number"
 		f := newLotteryEntryFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.lottery.EXPECT().Authorize(mock.Anything, entity.LotteryEntryID(tkEntryID), entity.UserID(tkFanUserID), "山田太郎", "+819012345678").
+		f.lottery.EXPECT().AuthorizeCard(mock.Anything, entity.LotteryEntryID(tkEntryID), entity.UserID(tkFanUserID), "山田太郎", "+819012345678").
 			Return("pi_secret", nil)
 
 		resp, err := f.client.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("+819012345678")))
@@ -129,7 +129,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		expectFan(f.users)
 		entered := *draft
 		entered.State = entity.LotteryEntryStateEntered
-		entered.Authorization = entity.PaymentAuthorization{PaymentIntentRef: "pi_1"}
+		entered.CardAuthorizationID = "pi_1"
 		f.lottery.EXPECT().Confirm(mock.Anything, entity.LotteryEntryID(tkEntryID), entity.UserID(tkFanUserID)).Return(&entered, nil)
 
 		resp, err := f.client.Confirm(ctx, connect.NewRequest(&lotteryentryv1.ConfirmRequest{

@@ -42,14 +42,14 @@ type SalesPhaseDiscoveryUseCase interface {
 }
 
 type salesPhaseDiscoveryUseCase struct {
-	concertRepo    entity.ConcertRepository
-	artistRepo     entity.ArtistRepository
-	salesPhaseRepo entity.SalesPhaseRepository
-	searchLogRepo  entity.SalesPhaseSearchLogRepository
-	journeyRepo    entity.TicketJourneyRepository
-	searcher       entity.SalesPhaseSearcher
-	publisher      EventPublisher
-	logger         *logging.Logger
+	concertRepo       entity.ConcertRepository
+	artistRepo        entity.ArtistRepository
+	salesPhaseRepo    entity.SalesPhaseRepository
+	concertSearchRepo entity.SalesPhaseSearchLogRepository
+	journeyRepo       entity.TicketJourneyRepository
+	searcher          entity.SalesPhaseSearcher
+	publisher         EventPublisher
+	logger            *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -60,21 +60,21 @@ func NewSalesPhaseDiscoveryUseCase(
 	concertRepo entity.ConcertRepository,
 	artistRepo entity.ArtistRepository,
 	salesPhaseRepo entity.SalesPhaseRepository,
-	searchLogRepo entity.SalesPhaseSearchLogRepository,
+	concertSearchRepo entity.SalesPhaseSearchLogRepository,
 	journeyRepo entity.TicketJourneyRepository,
 	searcher entity.SalesPhaseSearcher,
 	publisher EventPublisher,
 	logger *logging.Logger,
 ) SalesPhaseDiscoveryUseCase {
 	return &salesPhaseDiscoveryUseCase{
-		concertRepo:    concertRepo,
-		artistRepo:     artistRepo,
-		salesPhaseRepo: salesPhaseRepo,
-		searchLogRepo:  searchLogRepo,
-		journeyRepo:    journeyRepo,
-		searcher:       searcher,
-		publisher:      publisher,
-		logger:         logger,
+		concertRepo:       concertRepo,
+		artistRepo:        artistRepo,
+		salesPhaseRepo:    salesPhaseRepo,
+		concertSearchRepo: concertSearchRepo,
+		journeyRepo:       journeyRepo,
+		searcher:          searcher,
+		publisher:         publisher,
+		logger:            logger,
 	}
 }
 
@@ -171,7 +171,7 @@ func (uc *salesPhaseDiscoveryUseCase) DiscoverForArtist(ctx context.Context, art
 	for i, ref := range seriesRefs {
 		searchedIDs[i] = ref.SeriesID
 	}
-	if err := uc.searchLogRepo.Record(ctx, searchedIDs, searchedTime); err != nil {
+	if err := uc.concertSearchRepo.Record(ctx, searchedIDs, searchedTime); err != nil {
 		return totalNew, err
 	}
 
@@ -234,7 +234,7 @@ func (uc *salesPhaseDiscoveryUseCase) selectSeriesToSearch(
 	for i, ref := range kept {
 		ids[i] = ref.SeriesID
 	}
-	logs, err := uc.searchLogRepo.ListBySeries(ctx, ids)
+	logs, err := uc.concertSearchRepo.ListBySeries(ctx, ids)
 	if err != nil {
 		return nil, err
 	}

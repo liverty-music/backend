@@ -163,7 +163,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 			TimeZone:       japanTime,
 		})
 	ticketJourneyUC := usecase.NewTicketJourneyUseCase(ticketJourneyRepo, eventPublisher, logger)
-	pushNotificationUC := usecase.NewPushNotificationUseCase(
+	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(
 		artistRepo,
 		concertRepo,
 		followRepo,
@@ -171,12 +171,12 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		eventPublisher,
 		logger,
 	)
-	stagedConcertRepo := rdb.NewStagedConcertRepository(db)
+	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db)
 	suppressedConcertRepo := rdb.NewSuppressedConcertRepository(db)
 	concertCreationUC := usecase.NewConcertCreationUseCase(
-		stagedConcertRepo,
+		concertCandidateRepo,
 		venueRepo,
 		concertRepo,
 		seriesRepo,
@@ -192,8 +192,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	// search-first-followed-artist consumer can call
 	// SearchNewConcertsOnFirstFollow when ARTIST.followed fires.
 	organizerRepo := rdb.NewOrganizerRepository(db)
-	searchLogRepo := rdb.NewSearchLogRepository(db)
-	rejectedConcertRepo := rdb.NewRejectedConcertLogRepository(db)
+	concertSearchRepo := rdb.NewConcertSearchRepository(db)
+	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
 	centroidResolver := geo.NewCentroidResolver()
 	var geminiSearcher entity.ConcertSearcher
 	if cfg.GCP.GeminiSearchAPIKey != "" {
@@ -216,8 +216,8 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 		venueRepo,
 		seriesRepo,
 		organizerRepo,
-		searchLogRepo,
-		stagedConcertRepo,
+		concertSearchRepo,
+		concertCandidateRepo,
 		rejectedConcertRepo,
 		geminiSearcher,
 		centroidResolver,
@@ -273,7 +273,7 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 
 	// Event Consumers
 	concertConsumer := event.NewConcertConsumer(concertCreationUC, logger)
-	notificationConsumer := event.NewNotificationConsumer(pushNotificationUC, logger)
+	notificationConsumer := event.NewNotificationConsumer(pushSubscriptionUC, logger)
 	artistNameConsumer := event.NewArtistNameConsumer(artistNameResolutionUC, logger)
 	artistImageConsumer := event.NewArtistImageConsumer(artistImageSyncUC, logger)
 	userConsumer := event.NewUserConsumer(emailVerifier, logger)

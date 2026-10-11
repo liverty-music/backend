@@ -246,12 +246,12 @@ func (_c *MockUserRepository_GetByEmail_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// GetByExternalID provides a mock function with given fields: ctx, externalID
-func (_m *MockUserRepository) GetByExternalID(ctx context.Context, externalID string) (*entity.User, error) {
+// GetByProviderUserID provides a mock function with given fields: ctx, externalID
+func (_m *MockUserRepository) GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error) {
 	ret := _m.Called(ctx, externalID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByExternalID")
+		panic("no return value specified for GetByProviderUserID")
 	}
 
 	var r0 *entity.User
@@ -276,31 +276,31 @@ func (_m *MockUserRepository) GetByExternalID(ctx context.Context, externalID st
 	return r0, r1
 }
 
-// MockUserRepository_GetByExternalID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByExternalID'
-type MockUserRepository_GetByExternalID_Call struct {
+// MockUserRepository_GetByProviderUserID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByProviderUserID'
+type MockUserRepository_GetByProviderUserID_Call struct {
 	*mock.Call
 }
 
-// GetByExternalID is a helper method to define mock.On call
+// GetByProviderUserID is a helper method to define mock.On call
 //   - ctx context.Context
 //   - externalID string
-func (_e *MockUserRepository_Expecter) GetByExternalID(ctx interface{}, externalID interface{}) *MockUserRepository_GetByExternalID_Call {
-	return &MockUserRepository_GetByExternalID_Call{Call: _e.mock.On("GetByExternalID", ctx, externalID)}
+func (_e *MockUserRepository_Expecter) GetByProviderUserID(ctx interface{}, externalID interface{}) *MockUserRepository_GetByProviderUserID_Call {
+	return &MockUserRepository_GetByProviderUserID_Call{Call: _e.mock.On("GetByProviderUserID", ctx, externalID)}
 }
 
-func (_c *MockUserRepository_GetByExternalID_Call) Run(run func(ctx context.Context, externalID string)) *MockUserRepository_GetByExternalID_Call {
+func (_c *MockUserRepository_GetByProviderUserID_Call) Run(run func(ctx context.Context, externalID string)) *MockUserRepository_GetByProviderUserID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockUserRepository_GetByExternalID_Call) Return(_a0 *entity.User, _a1 error) *MockUserRepository_GetByExternalID_Call {
+func (_c *MockUserRepository_GetByProviderUserID_Call) Return(_a0 *entity.User, _a1 error) *MockUserRepository_GetByProviderUserID_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockUserRepository_GetByExternalID_Call) RunAndReturn(run func(context.Context, string) (*entity.User, error)) *MockUserRepository_GetByExternalID_Call {
+func (_c *MockUserRepository_GetByProviderUserID_Call) RunAndReturn(run func(context.Context, string) (*entity.User, error)) *MockUserRepository_GetByProviderUserID_Call {
 	_c.Call.Return(run)
 	return _c
 }

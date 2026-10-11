@@ -49,7 +49,7 @@ const LogKeyNeedsOperator = "reservation needs an operator"
 type IssuanceUseCase interface {
 	// IssueFromCapturedWin creates the Order from ④'s captured winning payment,
 	// issues the N account-bound covered tickets for the won lottery entry
-	// (bound to the user's Kyc when the sale requires verification) and
+	// (bound to the user's IdentityVerification when the sale requires verification) and
 	// records a Held Settlement (one split paying the event's Organizer at its
 	// platform fee rate).
 	//
@@ -63,7 +63,7 @@ type IssuanceUseCase interface {
 	//    captured — no Order is created.
 	//  - NotFound: no entry with the given ID exists, the event's Organizer
 	//    cannot be resolved, or the sale requires verification and the user
-	//    has no Kyc — no Order is created.
+	//    has no IdentityVerification — no Order is created.
 	//  - Internal: persistence failure after capture.
 	IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
 
@@ -78,7 +78,7 @@ type IssuanceUseCase interface {
 
 	// IssueFromCheckout finishes a checkout: while its hold lasts it commits
 	// the held tickets, charges the card once and issues the Order and its
-	// tickets, bound to the user's Kyc when the sale requires verification.
+	// tickets, bound to the user's IdentityVerification when the sale requires verification.
 	// caller is the fan placing the order, or nil for the stalled-checkout job
 	// and the payment webhook. Calls for the same Checkout run one after the
 	// other, and a Checkout that already has an Order returns it.
@@ -91,7 +91,7 @@ type IssuanceUseCase interface {
 	//    card was not authenticated, the commit found the Checkout not
 	//    holding, or the card could no longer be charged (the commit is given
 	//    back). Nothing is charged.
-	//  - NotFound: the sale requires verification and the user has no Kyc.
+	//  - NotFound: the sale requires verification and the user has no IdentityVerification.
 	//    Nothing is charged.
 	//  - Unavailable: the charge's outcome is not known yet, or issuance failed
 	//    after the charge; the stalled-checkout job finishes it.
@@ -122,20 +122,20 @@ type IssuanceUseCase interface {
 
 // issuanceUseCase implements [IssuanceUseCase].
 type issuanceUseCase struct {
-	issuanceRepo       entity.IssuanceRepository
-	orderRepo          entity.OrderRepository
-	entryRepo          entity.LotteryEntryRepository
-	eventOrganizerRepo EventOrganizerRepository
-	organizerRepo      entity.OrganizerRepository
-	kycRepo            entity.KycRepository
-	capturePort        entity.PaymentCapturePort
-	checkoutRepo       entity.CheckoutRepository
-	ticketSaleRepo     entity.TicketSaleRepository
-	eventState         EventPublishStatePort
-	checkoutAuth       entity.CheckoutAuthorizationPort
-	publisher          EventPublisher
-	clock              Clock
-	logger             *logging.Logger
+	issuanceRepo             entity.IssuanceRepository
+	orderRepo                entity.OrderRepository
+	entryRepo                entity.LotteryEntryRepository
+	eventOrganizerRepo       EventOrganizerRepository
+	organizerRepo            entity.OrganizerRepository
+	identityVerificationRepo entity.IdentityVerificationRepository
+	capturePort              entity.PaymentCapturePort
+	checkoutRepo             entity.CheckoutRepository
+	ticketSaleRepo           entity.TicketSaleRepository
+	eventState               EventPublishStatePort
+	checkoutAuth             entity.CheckoutAuthorizationPort
+	publisher                EventPublisher
+	clock                    Clock
+	logger                   *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -143,54 +143,54 @@ var _ IssuanceUseCase = (*issuanceUseCase)(nil)
 
 // IssuanceDeps are the dependencies of [NewIssuanceUseCase]. All are required.
 type IssuanceDeps struct {
-	IssuanceRepo       entity.IssuanceRepository
-	OrderRepo          entity.OrderRepository
-	EntryRepo          entity.LotteryEntryRepository
-	EventOrganizerRepo EventOrganizerRepository
-	OrganizerRepo      entity.OrganizerRepository
-	KycRepo            entity.KycRepository
-	CapturePort        entity.PaymentCapturePort
-	CheckoutRepo       entity.CheckoutRepository
-	TicketSaleRepo     entity.TicketSaleRepository
-	EventState         EventPublishStatePort
-	CheckoutAuth       entity.CheckoutAuthorizationPort
-	Publisher          EventPublisher
-	Clock              Clock
-	Logger             *logging.Logger
+	IssuanceRepo             entity.IssuanceRepository
+	OrderRepo                entity.OrderRepository
+	EntryRepo                entity.LotteryEntryRepository
+	EventOrganizerRepo       EventOrganizerRepository
+	OrganizerRepo            entity.OrganizerRepository
+	IdentityVerificationRepo entity.IdentityVerificationRepository
+	CapturePort              entity.PaymentCapturePort
+	CheckoutRepo             entity.CheckoutRepository
+	TicketSaleRepo           entity.TicketSaleRepository
+	EventState               EventPublishStatePort
+	CheckoutAuth             entity.CheckoutAuthorizationPort
+	Publisher                EventPublisher
+	Clock                    Clock
+	Logger                   *logging.Logger
 }
 
 // NewIssuanceUseCase constructs an IssuanceUseCase with the given dependencies.
 func NewIssuanceUseCase(d IssuanceDeps) IssuanceUseCase {
 	return &issuanceUseCase{
-		issuanceRepo:       d.IssuanceRepo,
-		orderRepo:          d.OrderRepo,
-		entryRepo:          d.EntryRepo,
-		eventOrganizerRepo: d.EventOrganizerRepo,
-		organizerRepo:      d.OrganizerRepo,
-		kycRepo:            d.KycRepo,
-		capturePort:        d.CapturePort,
-		checkoutRepo:       d.CheckoutRepo,
-		ticketSaleRepo:     d.TicketSaleRepo,
-		eventState:         d.EventState,
-		checkoutAuth:       d.CheckoutAuth,
-		publisher:          d.Publisher,
-		clock:              d.Clock,
-		logger:             d.Logger,
+		issuanceRepo:             d.IssuanceRepo,
+		orderRepo:                d.OrderRepo,
+		entryRepo:                d.EntryRepo,
+		eventOrganizerRepo:       d.EventOrganizerRepo,
+		organizerRepo:            d.OrganizerRepo,
+		identityVerificationRepo: d.IdentityVerificationRepo,
+		capturePort:              d.CapturePort,
+		checkoutRepo:             d.CheckoutRepo,
+		ticketSaleRepo:           d.TicketSaleRepo,
+		eventState:               d.EventState,
+		checkoutAuth:             d.CheckoutAuth,
+		publisher:                d.Publisher,
+		clock:                    d.Clock,
+		logger:                   d.Logger,
 	}
 }
 
 // issuanceSource is everything the shared issuance core needs from a source:
 // who bought what for which event, and the captured payment.
 type issuanceSource struct {
-	lotteryEntryID entity.LotteryEntryID
-	checkoutID     entity.CheckoutID
-	userID         entity.UserID
-	eventID        string
-	ticketCount    int
-	kycID          string
-	amount         int64
-	currency       string
-	payment        entity.Payment
+	lotteryEntryID         entity.LotteryEntryID
+	checkoutID             entity.CheckoutID
+	userID                 entity.UserID
+	eventID                string
+	ticketCount            int
+	identityVerificationID string
+	amount                 int64
+	currency               string
+	payment                entity.Payment
 }
 
 // issue is the shared issuance core: it resolves the event's Organizer and its
@@ -217,7 +217,7 @@ func (uc *issuanceUseCase) issue(ctx context.Context, src issuanceSource) (*enti
 		Status:         entity.OrderStatusPaid,
 		Amount:         src.amount,
 		Currency:       src.currency,
-		PaidTime:       now,
+		PayTime:        now,
 	}
 	tickets := make([]*entity.Ticket, 0, src.ticketCount)
 	for range src.ticketCount {
@@ -226,10 +226,10 @@ func (uc *issuanceUseCase) issue(ctx context.Context, src issuanceSource) (*enti
 			OrderID:                        order.ID,
 			UserID:                         src.userID,
 			EventID:                        src.eventID,
-			KycID:                          src.kycID,
+			IdentityVerificationID:         src.identityVerificationID,
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
-			IssuedTime:                     now,
+			IssueTime:                      now,
 		})
 	}
 	settlement := entity.NewHeldSettlement(order, organizerID, src.eventID, organizer.PlatformFeeRateBps, now)
@@ -254,18 +254,18 @@ func (uc *issuanceUseCase) issue(ctx context.Context, src issuanceSource) (*enti
 	return order, nil
 }
 
-// kycBinding returns the id of the Kyc the Tickets of a sale are bound to:
-// the user's Kyc, whatever its status, when the sale requires verification;
-// empty otherwise. The user's missing Kyc is returned as its error.
-func (uc *issuanceUseCase) kycBinding(ctx context.Context, sale *entity.TicketSale, userID entity.UserID) (string, error) {
+// kycBinding returns the id of the IdentityVerification the Tickets of a sale are bound to:
+// the user's IdentityVerification, whatever its status, when the sale requires verification;
+// empty otherwise. The user's missing IdentityVerification is returned as its error.
+func (uc *issuanceUseCase) identityVerificationBinding(ctx context.Context, sale *entity.TicketSale, userID entity.UserID) (string, error) {
 	if !sale.VerificationRequirement.RequiresVerification() {
 		return "", nil
 	}
-	kyc, err := uc.kycRepo.GetByUserID(ctx, string(userID))
+	identityVerification, err := uc.identityVerificationRepo.GetByUserID(ctx, string(userID))
 	if err != nil {
 		return "", err
 	}
-	return kyc.ID, nil
+	return identityVerification.ID, nil
 }
 
 // IssueFromCapturedWin implements [IssuanceUseCase].
@@ -297,31 +297,31 @@ func (uc *issuanceUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntr
 	}
 
 	// -- read ④'s captured payment for the authoritative amount/currency + facets. --
-	captured, err := uc.capturePort.GetCapturedPayment(ctx, entry.Authorization.PaymentIntentRef)
+	captured, err := uc.capturePort.GetCapturedPayment(ctx, entry.CardAuthorizationID)
 	if err != nil {
 		return nil, err
 	}
 
 	// -- where the sale requires verification, bind every ticket to the
-	//    user's Kyc. --
-	kycID, err := uc.kycBinding(ctx, sale, entry.UserID)
+	//    user's IdentityVerification. --
+	identityVerificationID, err := uc.identityVerificationBinding(ctx, sale, entry.UserID)
 	if err != nil {
 		return nil, err
 	}
 
 	return uc.issue(ctx, issuanceSource{
-		lotteryEntryID: entry.ID,
-		userID:         entry.UserID,
-		eventID:        ticketType.EventID,
-		ticketCount:    entry.RequestedTicketCount,
-		kycID:          kycID,
-		amount:         captured.AmountJPY,
-		currency:       captured.Currency,
+		lotteryEntryID:         entry.ID,
+		userID:                 entry.UserID,
+		eventID:                ticketType.EventID,
+		ticketCount:            entry.TicketCount,
+		identityVerificationID: identityVerificationID,
+		amount:                 captured.AmountJPY,
+		currency:               captured.Currency,
 		payment: entity.Payment{
-			Provider:         captured.Provider,
-			PaymentIntentRef: entry.Authorization.PaymentIntentRef,
-			CardBrand:        captured.CardBrand,
-			CardLast4:        captured.CardLast4,
+			Provider:          captured.Provider,
+			ProviderPaymentID: entry.CardAuthorizationID,
+			CardBrand:         captured.CardBrand,
+			CardLast4:         captured.CardLast4,
 		},
 	})
 }
@@ -401,21 +401,21 @@ func (uc *issuanceUseCase) issueFromCheckout(ctx context.Context, checkoutID ent
 		if !published {
 			return nil, apperr.New(codes.FailedPrecondition, "the concert is not published", attrs)
 		}
-		if checkout.AuthorizationRef == "" {
+		if checkout.CardAuthorizationID == "" {
 			return nil, apperr.New(codes.FailedPrecondition, "the card was not authorized", attrs)
 		}
 	}
 
-	// The Kyc binding is read before the commit and the charge, so a user
-	// without a Kyc is never charged.
-	kycID, err := uc.kycBinding(ctx, sale, checkout.UserID)
+	// The IdentityVerification binding is read before the commit and the charge, so a user
+	// without a IdentityVerification is never charged.
+	identityVerificationID, err := uc.identityVerificationBinding(ctx, sale, checkout.UserID)
 	if err != nil {
 		return nil, err
 	}
 
 	if checkout.Status == entity.CheckoutStatusHeld {
 		// 4. The hold must be authenticated and for the Checkout's amount.
-		if err := uc.checkoutAuth.VerifyAuthorization(ctx, checkout.AuthorizationRef, checkout.Amount); err != nil {
+		if err := uc.checkoutAuth.VerifyAuthorization(ctx, checkout.CardAuthorizationID, checkout.Amount); err != nil {
 			return nil, err
 		}
 		// 5. Commit while holding.
@@ -440,7 +440,7 @@ func (uc *issuanceUseCase) issueFromCheckout(ctx context.Context, checkoutID ent
 
 	// Charge once: a Checkout with a capture time is never charged again.
 	if !checkout.IsCharged() {
-		if _, err := uc.checkoutAuth.CaptureAuthorization(ctx, checkout.AuthorizationRef); err != nil {
+		if _, err := uc.checkoutAuth.CaptureAuthorization(ctx, checkout.CardAuthorizationID); err != nil {
 			if errors.Is(err, apperr.ErrFailedPrecondition) {
 				if revertErr := uc.checkoutRepo.RevertCommit(ctx, checkoutID); revertErr != nil {
 					return nil, revertErr
@@ -455,23 +455,23 @@ func (uc *issuanceUseCase) issueFromCheckout(ctx context.Context, checkoutID ent
 
 	// The charge is the card hold; its facets are read back from the provider,
 	// as for a lottery win.
-	captured, err := uc.capturePort.GetCapturedPayment(ctx, checkout.AuthorizationRef)
+	captured, err := uc.capturePort.GetCapturedPayment(ctx, checkout.CardAuthorizationID)
 	if err != nil {
 		return nil, err
 	}
 	return uc.issue(ctx, issuanceSource{
-		checkoutID:  checkout.ID,
-		userID:      checkout.UserID,
-		eventID:     ticketType.EventID,
-		ticketCount: checkout.TicketCount,
-		kycID:       kycID,
-		amount:      checkout.Amount,
-		currency:    "JPY",
+		checkoutID:             checkout.ID,
+		userID:                 checkout.UserID,
+		eventID:                ticketType.EventID,
+		ticketCount:            checkout.TicketCount,
+		identityVerificationID: identityVerificationID,
+		amount:                 checkout.Amount,
+		currency:               "JPY",
 		payment: entity.Payment{
-			Provider:         captured.Provider,
-			PaymentIntentRef: checkout.AuthorizationRef,
-			CardBrand:        captured.CardBrand,
-			CardLast4:        captured.CardLast4,
+			Provider:          captured.Provider,
+			ProviderPaymentID: checkout.CardAuthorizationID,
+			CardBrand:         captured.CardBrand,
+			CardLast4:         captured.CardLast4,
 		},
 	})
 }
@@ -491,7 +491,7 @@ func (uc *issuanceUseCase) IssueDueCheckouts(ctx context.Context) error {
 			uc.logger.Error(ctx, LogKeyNeedsOperator,
 				errors.New("a charged checkout is still not issued"),
 				slog.String("checkout_id", string(checkout.ID)),
-				slog.String("payment_ref", checkout.AuthorizationRef),
+				slog.String("payment_ref", checkout.CardAuthorizationID),
 				slog.Time("capture_time", *checkout.CaptureTime),
 			)
 		}
@@ -525,7 +525,7 @@ func (uc *issuanceUseCase) FulfillPayment(ctx context.Context, paymentRef string
 // fulfill issues, or finds, the Order of the charge's source and returns its
 // announcement; nil when the charge has no source here.
 func (uc *issuanceUseCase) fulfill(ctx context.Context, paymentRef string) (*entity.OrderPaidData, error) {
-	checkout, err := uc.checkoutRepo.GetByAuthorizationRef(ctx, paymentRef)
+	checkout, err := uc.checkoutRepo.GetByCardAuthorizationID(ctx, paymentRef)
 	switch {
 	case err == nil:
 		order, err := uc.IssueFromCheckout(ctx, checkout.ID, nil)
@@ -541,7 +541,7 @@ func (uc *issuanceUseCase) fulfill(ctx context.Context, paymentRef string) (*ent
 		return nil, err
 	}
 
-	entry, err := uc.entryRepo.GetByPaymentIntentRef(ctx, paymentRef)
+	entry, err := uc.entryRepo.GetByCardAuthorizationID(ctx, paymentRef)
 	if errors.Is(err, apperr.ErrNotFound) {
 		uc.logger.Info(ctx, "completed charge of no checkout or lottery entry; nothing to fulfill",
 			slog.String("payment_ref", paymentRef))
@@ -558,7 +558,7 @@ func (uc *issuanceUseCase) fulfill(ctx context.Context, paymentRef string) (*ent
 	if err != nil {
 		return nil, err
 	}
-	return orderPaid(order, ticketType.EventID, entry.RequestedTicketCount), nil
+	return orderPaid(order, ticketType.EventID, entry.TicketCount), nil
 }
 
 // orderPaid builds the ORDER.paid payload of an issued Order.

@@ -30,7 +30,7 @@ func newOrganizerTicketTypeClient(t *testing.T) (tickettypev1connect.TicketTypeS
 	h := handler.NewOrganizerTicketTypeHandler(types, orgs, logger)
 	srv := serveValidated(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
 		return tickettypev1connect.NewTicketTypeServiceHandler(h, opts...)
-	}, asOperator(testZitadelOrgID))
+	}, asOperator(testProviderOrganizerID))
 	return tickettypev1connect.NewTicketTypeServiceClient(srv.Client(), srv.URL), types, orgs
 }
 
@@ -50,7 +50,7 @@ func TestOrganizerTicketTypeHandler_Update(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/organizer/api/rpc/ticket-type "Operator raises the quantity"
 		client, types, orgs := newOrganizerTicketTypeClient(t)
-		orgs.EXPECT().ResolveCaller(mock.Anything, testZitadelOrgID).Return(&entity.Organizer{ID: "org-1"}, nil)
+		orgs.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(&entity.Organizer{ID: "org-1"}, nil)
 		types.EXPECT().Update(mock.Anything, "org-1", usecase.UpdateTicketTypeInput{
 			TicketTypeID: tkTicketTypeID, Price: 3000, Quantity: 180, PerAccountLimit: 4,
 		}).Return(&usecase.TicketTypeView{
@@ -70,7 +70,7 @@ func TestOrganizerTicketTypeHandler_Update(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/organizer/api/rpc/ticket-type "Deactivated Organizer"
 		client, _, orgs := newOrganizerTicketTypeClient(t)
-		orgs.EXPECT().ResolveCaller(mock.Anything, testZitadelOrgID).Return(nil, apperr.New(codes.FailedPrecondition, "organizer is deactivated"))
+		orgs.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(nil, apperr.New(codes.FailedPrecondition, "organizer is deactivated"))
 
 		_, err := client.Update(context.Background(), connect.NewRequest(updateReq()))
 

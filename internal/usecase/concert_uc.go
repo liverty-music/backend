@@ -79,8 +79,8 @@ type ConcertUseCase interface {
 	// the event consumer decodes the message and calls this method so the
 	// Follow use case never depends on concert discovery.
 	//
-	// "First follow" is determined by the absence of a SearchLog row
-	// (SearchLog.GetByArtistID NotFound); once SearchNewConcerts marks the
+	// "First follow" is determined by the absence of a ConcertSearch row
+	// (ConcertSearch.GetByArtistID NotFound); once SearchNewConcerts marks the
 	// artist as searched, subsequent calls for the same artist are a no-op
 	// here. When several fans follow the same artist concurrently, each
 	// publishes its own ARTIST.followed event and this method may run more
@@ -130,18 +130,18 @@ func errNoEventPage() error {
 // logic in one place; the two interfaces segregate capabilities so the consumer
 // handler never sees the admin operations (approve/reject/delete).
 type concertUseCase struct {
-	artistRepo          entity.ArtistRepository
-	concertRepo         entity.ConcertRepository
-	venueRepo           entity.VenueRepository
-	seriesRepo          entity.SeriesRepository
-	organizerRepo       entity.OrganizerRepository
-	searchLogRepo       entity.SearchLogRepository
-	stagedConcertRepo   entity.StagedConcertRepository
-	rejectedConcertRepo entity.RejectedConcertLogRepository
-	concertSearcher     entity.ConcertSearcher
-	centroidResolver    CentroidResolver
-	publisher           EventPublisher
-	metrics             ConcertMetrics
+	artistRepo           entity.ArtistRepository
+	concertRepo          entity.ConcertRepository
+	venueRepo            entity.VenueRepository
+	seriesRepo           entity.SeriesRepository
+	organizerRepo        entity.OrganizerRepository
+	concertSearchRepo    entity.ConcertSearchRepository
+	concertCandidateRepo entity.ConcertCandidateRepository
+	rejectedConcertRepo  entity.RejectedConcertRepository
+	concertSearcher      entity.ConcertSearcher
+	centroidResolver     CentroidResolver
+	publisher            EventPublisher
+	metrics              ConcertMetrics
 	// searchCacheTTL is how long a completed search is reused before a repeat
 	// external call is allowed. Configured per environment (prod runs longer).
 	searchCacheTTL time.Duration
@@ -175,9 +175,9 @@ func NewConcertUseCase(
 	venueRepo entity.VenueRepository,
 	seriesRepo entity.SeriesRepository,
 	organizerRepo entity.OrganizerRepository,
-	searchLogRepo entity.SearchLogRepository,
-	stagedConcertRepo entity.StagedConcertRepository,
-	rejectedConcertRepo entity.RejectedConcertLogRepository,
+	concertSearchRepo entity.ConcertSearchRepository,
+	concertCandidateRepo entity.ConcertCandidateRepository,
+	rejectedConcertRepo entity.RejectedConcertRepository,
 	concertSearcher entity.ConcertSearcher,
 	centroidResolver CentroidResolver,
 	publisher EventPublisher,
@@ -187,21 +187,21 @@ func NewConcertUseCase(
 	logger *logging.Logger,
 ) *concertUseCase {
 	return &concertUseCase{
-		artistRepo:          artistRepo,
-		concertRepo:         concertRepo,
-		venueRepo:           venueRepo,
-		seriesRepo:          seriesRepo,
-		organizerRepo:       organizerRepo,
-		searchLogRepo:       searchLogRepo,
-		stagedConcertRepo:   stagedConcertRepo,
-		rejectedConcertRepo: rejectedConcertRepo,
-		concertSearcher:     concertSearcher,
-		centroidResolver:    centroidResolver,
-		publisher:           publisher,
-		metrics:             metrics,
-		searchCacheTTL:      searchCacheTTL,
-		discoveryWindow:     discoveryWindow,
-		logger:              logger,
+		artistRepo:           artistRepo,
+		concertRepo:          concertRepo,
+		venueRepo:            venueRepo,
+		seriesRepo:           seriesRepo,
+		organizerRepo:        organizerRepo,
+		concertSearchRepo:    concertSearchRepo,
+		concertCandidateRepo: concertCandidateRepo,
+		rejectedConcertRepo:  rejectedConcertRepo,
+		concertSearcher:      concertSearcher,
+		centroidResolver:     centroidResolver,
+		publisher:            publisher,
+		metrics:              metrics,
+		searchCacheTTL:       searchCacheTTL,
+		discoveryWindow:      discoveryWindow,
+		logger:               logger,
 	}
 }
 
@@ -395,30 +395,30 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 	}
 
 	// Check search log — skip if recently completed or currently pending.
-	searchLog, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
+	concertSearch, err := uc.concertSearchRepo.GetByArtistID(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 		return nil, fmt.Errorf("failed to get search log: %w", err)
 	}
-	if searchLog != nil {
+	if concertSearch != nil {
 		now := time.Now()
-		if searchLog.IsFresh(now, uc.searchCacheTTL) {
+		if concertSearch.IsFresh(now, uc.searchCacheTTL) {
 			uc.logger.Debug(ctx, "skipping external search, recently searched",
 				slog.String("artist_id", artistID),
-				slog.Time("search_time", searchLog.SearchTime),
+				slog.Time("search_time", concertSearch.SearchTime),
 			)
 			return nil, nil
 		}
 		// Skip even when the last search is stale if a new concert was found
 		// recently: announcements arrive in batches then go quiet, so a repeat
 		// search would just re-find the same events and dedup to nothing.
-		if searchLog.WasRecentlyDiscovered(now, uc.discoveryWindow) {
+		if concertSearch.WasRecentlyDiscovered(now, uc.discoveryWindow) {
 			uc.logger.Debug(ctx, "skipping external search, recently discovered new concert",
 				slog.String("artist_id", artistID),
-				slog.Time("last_found_at", searchLog.LastFoundTime),
+				slog.Time("last_found_at", concertSearch.LastFoundTime),
 			)
 			return nil, nil
 		}
-		if searchLog.IsPending(now, pendingTimeout) {
+		if concertSearch.IsPending(now, pendingTimeout) {
 			uc.logger.Debug(ctx, "skipping external search, already pending",
 				slog.String("artist_id", artistID),
 			)
@@ -428,7 +428,7 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 
 	// Mark as pending. If this fails, abort — without a pending row,
 	// downstream UpdateStatus calls silently no-op (0 rows affected).
-	if err := uc.searchLogRepo.Upsert(ctx, artistID, entity.SearchLogStatusPending); err != nil {
+	if err := uc.concertSearchRepo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending); err != nil {
 		return nil, fmt.Errorf("failed to mark search as pending: %w", err)
 	}
 
@@ -436,10 +436,10 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 }
 
 // SearchNewConcertsOnFirstFollow triggers concert discovery for an artist the
-// first time it is followed by anyone (no SearchLog row exists yet), and is a
+// first time it is followed by anyone (no ConcertSearch row exists yet), and is a
 // no-op otherwise.
 func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error {
-	_, err := uc.searchLogRepo.GetByArtistID(ctx, artistID)
+	_, err := uc.concertSearchRepo.GetByArtistID(ctx, artistID)
 	if err == nil {
 		// Search log exists — artist has been searched before, skip.
 		return nil
@@ -531,10 +531,10 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 		return nil, fmt.Errorf("failed to list existing concerts: %w", err)
 	}
 
-	// Fetch pending staged rows for this artist so that already-staged concerts
+	// Fetch pending staged rows for this artist so that already-concert candidates
 	// are not re-staged. The rejection log is intentionally NOT consulted here:
 	// a rejected concert can always re-enter the queue on a subsequent run.
-	pendingKeys, err := uc.stagedConcertRepo.ListPendingDedupKeysByArtist(ctx, artistID)
+	pendingKeys, err := uc.concertCandidateRepo.ListPendingDedupKeysByArtist(ctx, artistID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pending staged concert keys: %w", err)
 	}
@@ -663,7 +663,7 @@ func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID stri
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
 	defer cancel()
 
-	if err := uc.searchLogRepo.UpdateStatus(updateCtx, artistID, entity.SearchLogStatusCompleted); err != nil {
+	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, entity.ConcertSearchStatusCompleted); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as completed", err, slog.String("artist_id", artistID))
 	}
 }
@@ -676,7 +676,7 @@ func (uc *concertUseCase) markSearchFound(ctx context.Context, artistID string) 
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
 	defer cancel()
 
-	if err := uc.searchLogRepo.MarkFound(updateCtx, artistID); err != nil {
+	if err := uc.concertSearchRepo.MarkFound(updateCtx, artistID); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as found", err, slog.String("artist_id", artistID))
 	}
 }
@@ -688,7 +688,7 @@ func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string)
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), statusUpdateTimeout)
 	defer cancel()
 
-	if err := uc.searchLogRepo.UpdateStatus(updateCtx, artistID, entity.SearchLogStatusFailed); err != nil {
+	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, entity.ConcertSearchStatusFailed); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as failed", err, slog.String("artist_id", artistID))
 	}
 }

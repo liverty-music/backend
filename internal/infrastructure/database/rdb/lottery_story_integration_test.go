@@ -22,7 +22,7 @@ import (
 // The story tests of stories/win-tickets-in-a-lottery run the fan's whole
 // lottery journey against a real local Postgres and the real Stripe test API:
 // the Organizer creates the sale with TicketSaleUseCase.Create, fans enter
-// with LotteryUseCase Start/Authorize/Confirm (card authentication stands in
+// with LotteryEntryUseCase Start/Authorize/Confirm (card authentication stands in
 // as a server-side confirmation with a non-3DS test card), the draw job
 // (DrawDueSales) runs once the injected clock passes the window's end, and
 // the issuance job (IssueDueWins) and the payment_intent.succeeded webhook
@@ -79,7 +79,7 @@ type lotteryStory struct {
 	eventID     string
 
 	sales     usecase.TicketSaleUseCase
-	lottery   usecase.LotteryUseCase
+	lottery   usecase.LotteryEntryUseCase
 	issuance  usecase.IssuanceUseCase
 	tickets   usecase.TicketUseCase
 	journeys  usecase.TicketJourneyUseCase
@@ -128,29 +128,29 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	clock := usecase.Clock(func() time.Time { return s.now })
 	saleRepo := rdb.NewTicketSaleRepository(testDB)
 	ticketRepo := rdb.NewTicketRepository(testDB)
-	kycRepo := rdb.NewKycRepository(testDB)
+	identityVerificationRepo := rdb.NewIdentityVerificationRepository(testDB)
 	organizerRepo := rdb.NewOrganizerRepository(testDB)
 	eventState := rdb.NewEventPublishStateRepository(testDB)
 	holds := payment.NewStripeAuthorizationPort(key, logger)
 
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, s.entryRepo, rdb.NewSeriesRepository(testDB), organizerRepo,
 		eventState, rdb.NewEventStartTimeRepository(testDB), clock)
-	s.lottery = usecase.NewLotteryUseCase(saleRepo, s.entryRepo, ticketRepo, kycRepo, s.userRepo, holds, clock, logger)
+	s.lottery = usecase.NewLotteryEntryUseCase(saleRepo, s.entryRepo, ticketRepo, identityVerificationRepo, s.userRepo, holds, clock, logger)
 	s.issuance = usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
-		IssuanceRepo:       rdb.NewIssuanceRepository(testDB),
-		OrderRepo:          s.orderRepo,
-		EntryRepo:          s.entryRepo,
-		EventOrganizerRepo: rdb.NewEventOrganizerRepository(testDB),
-		OrganizerRepo:      organizerRepo,
-		KycRepo:            kycRepo,
-		CapturePort:        holds,
-		CheckoutRepo:       rdb.NewCheckoutRepository(testDB),
-		TicketSaleRepo:     saleRepo,
-		EventState:         eventState,
-		CheckoutAuth:       payment.NewStripeCheckoutAuthorizationPort(key, logger),
-		Publisher:          s.published,
-		Clock:              clock,
-		Logger:             logger,
+		IssuanceRepo:             rdb.NewIssuanceRepository(testDB),
+		OrderRepo:                s.orderRepo,
+		EntryRepo:                s.entryRepo,
+		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(testDB),
+		OrganizerRepo:            organizerRepo,
+		IdentityVerificationRepo: identityVerificationRepo,
+		CapturePort:              holds,
+		CheckoutRepo:             rdb.NewCheckoutRepository(testDB),
+		TicketSaleRepo:           saleRepo,
+		EventState:               eventState,
+		CheckoutAuth:             payment.NewStripeCheckoutAuthorizationPort(key, logger),
+		Publisher:                s.published,
+		Clock:                    clock,
+		Logger:                   logger,
 	})
 	s.tickets = usecase.NewTicketUseCase(s.orderRepo, ticketRepo, rdb.NewReceptionLinkRepository(testDB),
 		rdb.NewEventRepository(testDB), rdb.NewWalletPublicKeyRepository(testDB), rdb.NewAdmissionRepository(testDB),
@@ -221,11 +221,11 @@ func (s *lotteryStory) authorize(ttID entity.TicketTypeID, fan entity.UserID, co
 	s.t.Helper()
 	draft, err := s.lottery.Start(s.ctx, ttID, fan, count)
 	require.NoError(s.t, err)
-	_, err = s.lottery.Authorize(s.ctx, draft.ID, fan, storyFanName, storyFanPhone)
+	_, err = s.lottery.AuthorizeCard(s.ctx, draft.ID, fan, storyFanName, storyFanPhone)
 	require.NoError(s.t, err)
 	authorized, err := s.entryRepo.Get(s.ctx, draft.ID)
 	require.NoError(s.t, err)
-	confirmHold(s.t, s.key, authorized.Authorization.PaymentIntentRef)
+	confirmHold(s.t, s.key, authorized.CardAuthorizationID)
 	return authorized
 }
 
@@ -256,10 +256,10 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 	require.NoError(s.t, s.issuance.IssueDueWins(s.ctx))
 	for _, e := range won {
 		require.NoError(s.t, s.webhooks.HandleEvent(s.ctx, usecase.StripeWebhookEvent{
-			ProviderEventID:  "evt_" + uuid.NewV7().String(),
-			Type:             usecase.StripeEventPaymentIntentSucceeded,
-			PaymentIntentRef: e.Authorization.PaymentIntentRef,
-			ReceivedAt:       s.now,
+			ProviderEventID:   "evt_" + uuid.NewV7().String(),
+			Type:              usecase.StripeEventPaymentIntentSucceeded,
+			ProviderPaymentID: e.CardAuthorizationID,
+			ReceivedAt:        s.now,
 		}))
 	}
 	for _, paid := range s.published.paid {
@@ -286,7 +286,7 @@ func (s *lotteryStory) ownEntry(ttID entity.TicketTypeID, fan entity.UserID, id 
 // shows them.
 func (s *lotteryStory) eventTickets(fan entity.UserID) []*entity.Ticket {
 	s.t.Helper()
-	all, err := s.tickets.GetMyTickets(s.ctx, fan)
+	all, err := s.tickets.List(s.ctx, fan)
 	require.NoError(s.t, err)
 	var out []*entity.Ticket
 	for _, tk := range all {
@@ -340,7 +340,7 @@ func TestLotteryStory_DemandWithinCapacity(t *testing.T) {
 	// -- within 1 minute of the close: Won and 16000 yen charged --
 	s.closeAndDraw(end)
 	assert.Equal(t, entity.LotteryEntryStateWon, s.ownEntry(tt.ID, fan, entry.ID).State)
-	pi := s.paymentIntent(entry.Authorization.PaymentIntentRef)
+	pi := s.paymentIntent(entry.CardAuthorizationID)
 	assert.Equal(t, stripe.PaymentIntentStatusSucceeded, pi.Status)
 	assert.Equal(t, int64(16000), pi.AmountReceived, "16000 yen is charged")
 
@@ -404,7 +404,7 @@ func TestLotteryStory_OversubscribedPhase(t *testing.T) {
 
 	// -- each fan not admitted: Lost, hold released, no Ticket --
 	for _, fe := range lost {
-		pi := s.paymentIntent(fe.entry.Authorization.PaymentIntentRef)
+		pi := s.paymentIntent(fe.entry.CardAuthorizationID)
 		assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the hold is released")
 		assert.Zero(t, pi.AmountReceived, "the fan is not charged")
 		assert.Empty(t, s.eventTickets(fe.fan), "the fan holds no Ticket for the event")
@@ -422,13 +422,13 @@ func TestLotteryStory_WithdrawAndReapply(t *testing.T) {
 	fan := s.newFan()
 	first := s.enter(tt.ID, fan, 2)
 	require.NoError(t, s.lottery.WithdrawEntry(s.ctx, first.ID, fan))
-	assert.Equal(t, stripe.PaymentIntentStatusCanceled, s.paymentIntent(first.Authorization.PaymentIntentRef).Status,
+	assert.Equal(t, stripe.PaymentIntentStatusCanceled, s.paymentIntent(first.CardAuthorizationID).Status,
 		"the first hold is released")
 
 	s.now = s.now.Add(time.Hour)
 	second := s.enter(tt.ID, fan, 2)
 	require.NotEqual(t, first.ID, second.ID)
-	require.NotEqual(t, first.Authorization.PaymentIntentRef, second.Authorization.PaymentIntentRef,
+	require.NotEqual(t, first.CardAuthorizationID, second.CardAuthorizationID,
 		"the new entry has a new hold")
 
 	// -- only the new entry takes part in the draw --
@@ -436,8 +436,8 @@ func TestLotteryStory_WithdrawAndReapply(t *testing.T) {
 	assert.Equal(t, entity.LotteryEntryStateWithdrawn, s.ownEntry(tt.ID, fan, first.ID).State)
 	assert.Nil(t, s.ownEntry(tt.ID, fan, first.ID).DrawPosition, "the withdrawn entry is not drawn")
 	assert.Equal(t, entity.LotteryEntryStateWon, s.ownEntry(tt.ID, fan, second.ID).State)
-	assert.Equal(t, stripe.PaymentIntentStatusCanceled, s.paymentIntent(first.Authorization.PaymentIntentRef).Status)
-	assert.Equal(t, stripe.PaymentIntentStatusSucceeded, s.paymentIntent(second.Authorization.PaymentIntentRef).Status)
+	assert.Equal(t, stripe.PaymentIntentStatusCanceled, s.paymentIntent(first.CardAuthorizationID).Status)
+	assert.Equal(t, stripe.PaymentIntentStatusSucceeded, s.paymentIntent(second.CardAuthorizationID).Status)
 
 	s.issueWins(second)
 	assert.Len(t, s.eventTickets(fan), 2, "only the new entry's tickets are issued")
@@ -458,7 +458,7 @@ func TestLotteryStory_EntryLeftUnconfirmed(t *testing.T) {
 	s.closeAndDraw(end)
 	s.issueWins()
 	assert.Equal(t, entity.LotteryEntryStateWithdrawn, s.ownEntry(tt.ID, fan, draft.ID).State)
-	pi := s.paymentIntent(draft.Authorization.PaymentIntentRef)
+	pi := s.paymentIntent(draft.CardAuthorizationID)
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, pi.Status, "the hold is released at the draw")
 	assert.Zero(t, pi.AmountReceived, "the fan is never charged")
 	assert.Empty(t, s.eventTickets(fan))

@@ -28,10 +28,10 @@ import (
 // OrganizerSeriesHandler. None has an expectation unless a test sets one, so
 // an unexpected call fails the test.
 type organizerSeriesHandlerDeps struct {
-	authoringUC *ucmocks.MockConcertAuthoringUseCase
-	organizerUC *ucmocks.MockOrganizerUseCase
-	mediaUC     *ucmocks.MockMediaUseCase
-	handler     *rpc.OrganizerSeriesHandler
+	authoringUC   *ucmocks.MockConcertAuthoringUseCase
+	organizerUC   *ucmocks.MockOrganizerUseCase
+	seriesImageUC *ucmocks.MockSeriesImageUseCase
+	handler       *rpc.OrganizerSeriesHandler
 }
 
 func newOrganizerSeriesHandlerDeps(t *testing.T) *organizerSeriesHandlerDeps {
@@ -40,15 +40,15 @@ func newOrganizerSeriesHandlerDeps(t *testing.T) *organizerSeriesHandlerDeps {
 	require.NoError(t, err)
 
 	d := &organizerSeriesHandlerDeps{
-		authoringUC: ucmocks.NewMockConcertAuthoringUseCase(t),
-		organizerUC: ucmocks.NewMockOrganizerUseCase(t),
-		mediaUC:     ucmocks.NewMockMediaUseCase(t),
+		authoringUC:   ucmocks.NewMockConcertAuthoringUseCase(t),
+		organizerUC:   ucmocks.NewMockOrganizerUseCase(t),
+		seriesImageUC: ucmocks.NewMockSeriesImageUseCase(t),
 	}
 	d.handler = rpc.NewOrganizerSeriesHandler(
 		d.authoringUC,
 		d.organizerUC,
-		d.mediaUC,
-		mapper.NewMediaURLBuilder("https://cdn.example.com"),
+		d.seriesImageUC,
+		mapper.NewSeriesImageURLBuilder("https://cdn.example.com"),
 		logger,
 	)
 	return d
@@ -69,7 +69,7 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 		d := newOrganizerSeriesHandlerDeps(t)
 
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
 		events := []*entity.Event{authoredEvent("event-1", "series-1", 1)}
@@ -84,7 +84,7 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			).
 			Once()
 
-		resp, err := d.handler.List(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+		resp, err := d.handler.List(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
 
 		require.NoError(t, err)
 		require.Len(t, resp.Msg.Series, 2)
@@ -101,7 +101,7 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 		d := newOrganizerSeriesHandlerDeps(t)
 
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
 		events := []*entity.Event{
@@ -120,7 +120,7 @@ func TestOrganizerSeriesHandler_List(t *testing.T) {
 			).
 			Once()
 
-		resp, err := d.handler.List(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+		resp, err := d.handler.List(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
 
 		require.NoError(t, err)
 		require.Len(t, resp.Msg.Series, 1)
@@ -144,7 +144,7 @@ func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
 	d := newOrganizerSeriesHandlerDeps(t)
 
 	d.organizerUC.EXPECT().
-		ResolveCaller(mock.Anything, testZitadelOrgID).
+		ResolveCaller(mock.Anything, testProviderOrganizerID).
 		Return(activeOrganizer(), nil).
 		Once()
 	ev := authoredEvent("event-1", "series-1", 1)
@@ -167,7 +167,7 @@ func TestOrganizerSeriesHandler_List_EventVenue(t *testing.T) {
 		).
 		Once()
 
-	resp, err := d.handler.List(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
+	resp, err := d.handler.List(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.ListRequest{}))
 
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.Concerts, 1)
@@ -189,7 +189,7 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 		d := newOrganizerSeriesHandlerDeps(t)
 
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
 		draft := entity.SeriesPublishStateDraft
@@ -201,7 +201,7 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 			Return(series, events, artists, nil).
 			Once()
 
-		resp, err := d.handler.Create(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.CreateRequest{
+		resp, err := d.handler.Create(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.CreateRequest{
 			Draft: &organizerseriesv1.SeriesDraft{
 				Title:      &entityv1.Title{Value: "ONE MAN LIVE"},
 				Type:       entityv1.SeriesType_SERIES_TYPE_SINGLE,
@@ -262,7 +262,7 @@ func TestOrganizerSeriesHandler_RegenerateShareUrl(t *testing.T) {
 		d := newOrganizerSeriesHandlerDeps(t)
 
 		d.organizerUC.EXPECT().
-			ResolveCaller(mock.Anything, testZitadelOrgID).
+			ResolveCaller(mock.Anything, testProviderOrganizerID).
 			Return(activeOrganizer(), nil).
 			Once()
 		d.authoringUC.EXPECT().
@@ -270,7 +270,7 @@ func TestOrganizerSeriesHandler_RegenerateShareUrl(t *testing.T) {
 			Return("new-token", nil).
 			Once()
 
-		resp, err := d.handler.RegenerateShareUrl(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.RegenerateShareUrlRequest{
+		resp, err := d.handler.RegenerateShareUrl(orgCtx(testProviderOrganizerID), connect.NewRequest(&organizerseriesv1.RegenerateShareUrlRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
 		}))
 
@@ -351,11 +351,11 @@ func TestOrganizerSeriesHandler_ResolveCallerFailure(t *testing.T) {
 				// The authoring and media usecases have no expectations: any
 				// call to them fails the test.
 				d.organizerUC.EXPECT().
-					ResolveCaller(mock.Anything, testZitadelOrgID).
+					ResolveCaller(mock.Anything, testProviderOrganizerID).
 					Return(nil, tt.dep.resolveCallerErr).
 					Once()
 
-				err := c.call(orgCtx(testZitadelOrgID), d.handler)
+				err := c.call(orgCtx(testProviderOrganizerID), d.handler)
 
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.dep.resolveCallerErr)

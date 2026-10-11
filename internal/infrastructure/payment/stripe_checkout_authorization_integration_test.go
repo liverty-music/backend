@@ -93,7 +93,7 @@ func TestStripeCheckoutAuthorizationPort_Integration(t *testing.T) {
 		// @spec components/entity/checkout/capture-authorization "Hold captured"
 		first, err := port.CaptureAuthorization(ctx, ref)
 		require.NoError(t, err)
-		assert.Equal(t, ref, first.PaymentIntentRef)
+		assert.Equal(t, ref, first.ProviderPaymentID)
 		assert.Equal(t, amountJPY, first.AmountJPY)
 		assert.Equal(t, "visa", first.CardBrand)
 		assert.Equal(t, "4242", first.CardLast4)

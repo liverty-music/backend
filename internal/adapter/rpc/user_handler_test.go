@@ -49,7 +49,7 @@ func newUserBoundaryClient(t *testing.T, h *rpc.UserHandler) userv1connect.UserS
 }
 
 func callerUser() *entity.User {
-	return &entity.User{ID: testCallerUserID, ExternalID: testCallerExtID, Email: "test@example.com", Name: "Test User"}
+	return &entity.User{ID: testCallerUserID, ProviderUserID: testCallerExtID, Email: "test@example.com", Name: "Test User"}
 }
 
 func TestUserHandler_NotSignedIn(t *testing.T) {
@@ -167,8 +167,8 @@ func TestUserHandler_Create(t *testing.T) {
 		t.Parallel()
 		h, userUC := newUserHandler(t)
 		userUC.EXPECT().Create(mock.Anything, mock.MatchedBy(func(nu *entity.NewUser) bool {
-			return nu.ExternalID == testCallerExtID && nu.Email == "id@example.com" && nu.Name == "Identity Name" && nu.PreferredLanguage == "ja"
-		})).Return(&entity.User{ID: testCallerUserID, ExternalID: testCallerExtID, Email: "id@example.com", Name: "Identity Name", PreferredLanguage: "ja"}, nil).Once()
+			return nu.ProviderUserID == testCallerExtID && nu.Email == "id@example.com" && nu.Name == "Identity Name" && nu.PreferredLanguage == "ja"
+		})).Return(&entity.User{ID: testCallerUserID, ProviderUserID: testCallerExtID, Email: "id@example.com", Name: "Identity Name", PreferredLanguage: "ja"}, nil).Once()
 
 		lang := "ja"
 		resp, err := h.Create(identityCtx(), connect.NewRequest(&userv1.CreateRequest{
@@ -311,7 +311,7 @@ func TestUserHandler_SetHome(t *testing.T) {
 		updated := callerUser()
 		updated.Home = &entity.Home{CountryCode: "JP", Level1: "JP-13"}
 		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
-		userUC.EXPECT().UpdateHome(mock.Anything, testCallerUserID,
+		userUC.EXPECT().SetHome(mock.Anything, testCallerUserID,
 			mock.MatchedBy(func(home *entity.Home) bool { return home.CountryCode == "JP" && home.Level1 == "JP-13" })).
 			Return(updated, nil).Once()
 
@@ -339,7 +339,7 @@ func TestUserHandler_SetHome(t *testing.T) {
 		h, userUC := newUserHandler(t)
 		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
 		// UpdateHome runs for the resolved caller's id and no other.
-		userUC.EXPECT().UpdateHome(mock.Anything, testCallerUserID, mock.Anything).Return(callerUser(), nil).Once()
+		userUC.EXPECT().SetHome(mock.Anything, testCallerUserID, mock.Anything).Return(callerUser(), nil).Once()
 
 		_, err := h.SetHome(authedCtx(testCallerExtID), connect.NewRequest(&userv1.SetHomeRequest{Home: homeProto}))
 
@@ -368,7 +368,7 @@ func TestUserHandler_SetPreferredLanguage(t *testing.T) {
 		updated := callerUser()
 		updated.PreferredLanguage = "en"
 		userUC.EXPECT().ResolveCaller(mock.Anything, testCallerExtID).Return(callerUser(), nil).Once()
-		userUC.EXPECT().UpdatePreferredLanguage(mock.Anything, testCallerUserID, "en").Return(updated, nil).Once()
+		userUC.EXPECT().SetPreferredLanguage(mock.Anything, testCallerUserID, "en").Return(updated, nil).Once()
 
 		resp, err := h.SetPreferredLanguage(authedCtx(testCallerExtID), connect.NewRequest(&userv1.SetPreferredLanguageRequest{
 			PreferredLanguage: "en",

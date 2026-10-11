@@ -15,7 +15,7 @@ func TestCreateUser(t *testing.T) {
 		t.Parallel()
 
 		params := &entity.NewUser{
-			ExternalID:        "ext-123",
+			ProviderUserID:    "ext-123",
 			Email:             "test@example.com",
 			Name:              "Test User",
 			PreferredLanguage: "en",
@@ -25,7 +25,7 @@ func TestCreateUser(t *testing.T) {
 		got := entity.CreateUser(params)
 
 		assert.NotEmpty(t, got.ID)
-		assert.Equal(t, params.ExternalID, got.ExternalID)
+		assert.Equal(t, params.ProviderUserID, got.ProviderUserID)
 		assert.Equal(t, params.Email, got.Email)
 		assert.Equal(t, params.Name, got.Name)
 		assert.Equal(t, params.PreferredLanguage, got.PreferredLanguage)
@@ -36,9 +36,9 @@ func TestCreateUser(t *testing.T) {
 		t.Parallel()
 
 		params := &entity.NewUser{
-			ExternalID: "ext-456",
-			Email:      "a@example.com",
-			Name:       "User A",
+			ProviderUserID: "ext-456",
+			Email:          "a@example.com",
+			Name:           "User A",
 		}
 
 		first := entity.CreateUser(params)

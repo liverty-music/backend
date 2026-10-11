@@ -108,7 +108,7 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 		return entity.AdmitResult{}, toAppErr(err, "failed to admit ticket", attrs...)
 	}
 	if admittedCount == 1 {
-		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: admittedTime}, nil
+		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: admittedTime}, nil
 	}
 
 	var (
@@ -123,7 +123,7 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 	case !linkUsable:
 		return entity.AdmitResult{}, apperr.Wrap(entity.ErrReceptionLinkNotUsable, codes.PermissionDenied, "reception link not usable", attrs...)
 	case admittedAt.Valid:
-		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: admittedAt.Time}, nil
+		return entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: admittedAt.Time}, nil
 	case entity.TicketStatus(status) == entity.TicketStatusVoided:
 		return entity.AdmitResult{Outcome: entity.AdmitOutcomeVoided}, nil
 	default:
@@ -152,18 +152,18 @@ func scanTickets(rows interface {
 	tickets := []*entity.Ticket{}
 	for rows.Next() {
 		var (
-			t          entity.Ticket
-			id         string
-			orderID    string
-			userID     string
-			eventID    string
-			kycID      sql.NullString
-			status     int16
-			admittedAt sql.NullTime
+			t                      entity.Ticket
+			id                     string
+			orderID                string
+			userID                 string
+			eventID                string
+			identityVerificationID sql.NullString
+			status                 int16
+			admittedAt             sql.NullTime
 		)
 		if err := rows.Scan(
 			&id, &orderID, &userID, &eventID,
-			&kycID, &t.ResaleWithoutConsentProhibited, &status, &t.IssuedTime, &admittedAt,
+			&identityVerificationID, &t.ResaleWithoutConsentProhibited, &status, &t.IssueTime, &admittedAt,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan ticket")
 		}
@@ -171,13 +171,13 @@ func scanTickets(rows interface {
 		t.OrderID = entity.OrderID(orderID)
 		t.UserID = entity.UserID(userID)
 		t.EventID = eventID
-		if kycID.Valid {
-			t.KycID = kycID.String
+		if identityVerificationID.Valid {
+			t.IdentityVerificationID = identityVerificationID.String
 		}
 		t.Status = entity.TicketStatus(status)
 		if admittedAt.Valid {
 			admitted := admittedAt.Time
-			t.AdmittedTime = &admitted
+			t.AdmitTime = &admitted
 		}
 		tickets = append(tickets, &t)
 	}

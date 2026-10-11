@@ -140,7 +140,7 @@ type ServerConfig struct {
 
 	// OrganizerMediaCDNBase is the public CDN base URL used to compose served
 	// series-media variant URLs (thumb/large). Injected into
-	// mapper.MediaURLBuilder at DI wiring time. Required outside local; empty in
+	// mapper.SeriesImageURLBuilder at DI wiring time. Required outside local; empty in
 	// local development disables cover-media URLs on organizer-facing
 	// ConcertService responses rather than emitting a malformed relative URL.
 	OrganizerMediaCDNBase string `envconfig:"ORGANIZER_MEDIA_CDN_BASE"`

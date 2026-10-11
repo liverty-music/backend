@@ -62,13 +62,13 @@ type SettlementSplit struct {
 	// Amount is the payee's net share in the Order's currency smallest unit
 	// (whole yen for JPY). Must be positive.
 	Amount int64
-	// TransferRef is the provider's Transfer reference (e.g. a Stripe "tr_..."
+	// ProviderPayoutID is the provider's Transfer reference (e.g. a Stripe "tr_..."
 	// id) that paid this split. Empty until the split is released.
-	TransferRef string
-	// TransferReversalRef is the provider's transfer-reversal reference (e.g.
+	ProviderPayoutID string
+	// ProviderPayoutReversalID is the provider's transfer-reversal reference (e.g.
 	// a Stripe "trr_..." id) when the split was clawed back. Empty unless
 	// reversed.
-	TransferReversalRef string
+	ProviderPayoutReversalID string
 }
 
 // Settlement is the payout record for one Order's captured funds.
@@ -92,11 +92,11 @@ type Settlement struct {
 	// release-gate check can read events.start_at without joining through
 	// order → ticket_application → lottery_sales_phase.
 	EventID string
-	// ChargeRef is the provider's Charge reference (e.g. a Stripe "ch_..." id)
+	// ProviderChargeID is the provider's Charge reference (e.g. a Stripe "ch_..." id)
 	// for ④'s captured payment, used as each Transfer's source_transaction.
 	// Resolved from the Order's PaymentIntent at payout time. Empty until
 	// resolved.
-	ChargeRef string
+	ProviderChargeID string
 	// Splits are the payout splits for this settlement. MVP = exactly one
 	// (the Organizer); the platform fee is the retained remainder, not a split.
 	Splits []SettlementSplit
@@ -158,7 +158,7 @@ type SettlementRepository interface {
 	ListHeld(ctx context.Context) ([]*Settlement, error)
 
 	// MarkReleased atomically sets the settlement to Released, records the
-	// resolved ChargeRef, and stores the Transfer reference(s) on each split.
+	// resolved ProviderChargeID, and stores the Transfer reference(s) on each split.
 	// The update is conditional on the current status being Held to prevent a
 	// double-release (idempotency guard).
 	//
@@ -168,7 +168,7 @@ type SettlementRepository interface {
 	//  - FailedPrecondition: settlement is not in Held status (already released
 	//    or reversed).
 	//  - Internal: database execution failure.
-	MarkReleased(ctx context.Context, id SettlementID, chargeRef string, releasedAt time.Time, splits []SettlementSplit) error
+	MarkReleased(ctx context.Context, id SettlementID, providerChargeID string, releasedAt time.Time, splits []SettlementSplit) error
 }
 
 // TransferParams carries the parameters for a single Stripe Transfer in the
@@ -180,7 +180,7 @@ type TransferParams struct {
 	SettlementID SettlementID
 	// PayeeAccountRef is the connected account that receives the transfer
 	// (the Organizer's "acct_..." id).
-	PayeeAccountRef string
+	PayeeProviderAccountID string
 	// SourceTransactionRef is the captured charge ("ch_..." id) that backs
 	// this transfer. Stripe requires source_transaction to come from the
 	// platform balance and pins the transfer amount to the charge's settled
@@ -203,8 +203,8 @@ type RefundParams struct {
 	// SettlementID) avoids the "no-settlement" placeholder collision where
 	// multiple orders without a settlement row would share the same key.
 	OrderID OrderID
-	// ChargeRef is the captured charge reference (ch_...) to refund.
-	ChargeRef string
+	// ProviderChargeID is the captured charge reference (ch_...) to refund.
+	ProviderChargeID string
 	// Amount is the refund amount in the Order currency's smallest unit.
 	// For a cancellation this is the full Order amount (face + system fee;
 	// processor fee retained). Must be positive.
@@ -216,23 +216,23 @@ type RefundParams struct {
 // reversed when a refund or dispute clawback occurs.
 type ReverseTransferParams struct {
 	// SettlementID is used to derive a stable idempotency key together with
-	// the TransferRef.
+	// the ProviderPayoutID.
 	SettlementID SettlementID
-	// TransferRef is the provider Transfer reference (tr_...) to reverse.
-	TransferRef string
+	// ProviderPayoutID is the provider Transfer reference (tr_...) to reverse.
+	ProviderPayoutID string
 	// Amount is the reversal amount. For a full refund this equals the split's
 	// original transfer amount. Must be positive.
 	Amount int64
 }
 
-// PaymentSettlementPort abstracts the money-movement operations needed by the
+// SettlementPayoutRepository abstracts the money-movement operations needed by the
 // settlement use cases. The Stripe implementation lives in
 // internal/infrastructure/payment/stripe_settlement.go; the no-op fallback
 // for local dev lives alongside it. Defined here (entity package) so every
 // usecase that needs it (and every implementation) depends on the same
 // declaration.
-type PaymentSettlementPort interface {
-	// ResolveChargeRef retrieves the PaymentIntent identified by
+type SettlementPayoutRepository interface {
+	// GetProviderChargeID retrieves the PaymentIntent identified by
 	// paymentIntentRef and returns the charge id ("ch_...") of its captured
 	// charge. The charge id is used as source_transaction on the Transfer.
 	//
@@ -241,9 +241,9 @@ type PaymentSettlementPort interface {
 	//  - FailedPrecondition: the PaymentIntent is not in a succeeded state.
 	//  - NotFound: the PaymentIntent does not exist.
 	//  - Unavailable: the payment provider is unreachable.
-	ResolveChargeRef(ctx context.Context, paymentIntentRef string) (chargeRef string, err error)
+	GetProviderChargeID(ctx context.Context, providerPaymentID string) (providerChargeID string, err error)
 
-	// CreateTransfer creates a Stripe Transfer from the platform balance to
+	// CreatePayout creates a Stripe Transfer from the platform balance to
 	// the Organizer's connected account (source_transaction = the charge).
 	// The transfer carries NO on_behalf_of and NO statement descriptor:
 	// the platform is the Stripe settlement merchant; the statement descriptor
@@ -253,9 +253,9 @@ type PaymentSettlementPort interface {
 	//
 	//  - InvalidArgument: amount is zero or negative.
 	//  - Unavailable: the payment provider is unreachable.
-	CreateTransfer(ctx context.Context, params TransferParams) (transferRef string, err error)
+	CreatePayout(ctx context.Context, params TransferParams) (providerPayoutID string, err error)
 
-	// CreateConnectedAccount provisions a new Accounts v2 payout-recipient
+	// CreatePayoutAccount provisions a new Accounts v2 payout-recipient
 	// connected account for the Organizer. The account requests ONLY the
 	// transfers capability on stripe_balance (never card_payments) and is
 	// configured with losses_collector = application so the platform absorbs
@@ -274,9 +274,9 @@ type PaymentSettlementPort interface {
 	//
 	//  - Unavailable: the payment provider is unreachable or platform Connect
 	//    is not yet enabled.
-	CreateConnectedAccount(ctx context.Context, organizerID string, contactEmail string) (accountRef string, err error)
+	CreatePayoutAccount(ctx context.Context, organizerID string, contactEmail string) (providerAccountID string, err error)
 
-	// GetAccountStatus retrieves the payout-onboarding status of the
+	// GetPayoutAccountStatus retrieves the payout-onboarding status of the
 	// connected account identified by accountRef. It maps the provider's
 	// transfers capability state to the platform's own
 	// PayoutOnboardingStatus enum without exposing raw provider status.
@@ -285,7 +285,7 @@ type PaymentSettlementPort interface {
 	//
 	//  - NotFound: the account does not exist.
 	//  - Unavailable: the payment provider is unreachable.
-	GetAccountStatus(ctx context.Context, accountRef string) (PayoutOnboardingStatus, error)
+	GetPayoutAccountStatus(ctx context.Context, providerAccountID string) (PayoutOnboardingStatus, error)
 
 	// CreateOnboardingLink returns a provider-hosted URL where the Organizer
 	// can start or continue KYC/KYB verification. The link is single-use and
@@ -295,7 +295,7 @@ type PaymentSettlementPort interface {
 	//
 	//  - NotFound: the account does not exist.
 	//  - Unavailable: the payment provider is unreachable.
-	CreateOnboardingLink(ctx context.Context, accountRef string, returnURL string) (onboardingURL string, err error)
+	CreateOnboardingLink(ctx context.Context, providerAccountID string, returnURL string) (onboardingURL string, err error)
 
 	// CreateRefund issues a platform-balance Refund against the captured
 	// Charge. The refund amount is the full Order amount minus the processor
@@ -308,18 +308,18 @@ type PaymentSettlementPort interface {
 	//  - InvalidArgument: amount is zero or negative.
 	//  - FailedPrecondition: the charge has already been fully refunded.
 	//  - Unavailable: the payment provider is unreachable.
-	CreateRefund(ctx context.Context, params RefundParams) (refundRef string, err error)
+	CreateRefund(ctx context.Context, params RefundParams) (providerRefundID string, err error)
 
-	// ReverseTransfer creates a transfer_reversal for one split's Transfer,
+	// ReversePayout creates a transfer_reversal for one split's Transfer,
 	// clawing back the Organizer's share to the platform balance. Returns the
 	// opaque reversal reference ("trr_..."). Idempotency is keyed on
-	// SettlementID+TransferRef so a replay never double-reverses.
+	// SettlementID+ProviderPayoutID so a replay never double-reverses.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: amount is zero or negative.
 	//  - Unavailable: the payment provider is unreachable.
-	ReverseTransfer(ctx context.Context, params ReverseTransferParams) (reversalRef string, err error)
+	ReversePayout(ctx context.Context, params ReverseTransferParams) (reversalRef string, err error)
 }
 
 // basisPointsPerUnit is the denominator of a rate in basis points (hundredths

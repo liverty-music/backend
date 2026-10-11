@@ -33,7 +33,7 @@ import (
 //
 //	STRIPE_INTEGRATION_TEST=1 STRIPE_SECRET_KEY=sk_test_… \
 //	  go test ./internal/infrastructure/payment/ -run CreateConnectedAccount_Integration -v
-func TestStripeSettlementPort_CreateConnectedAccount_Integration(t *testing.T) {
+func TestStripeSettlementPayoutRepository_CreateConnectedAccount_Integration(t *testing.T) {
 	if os.Getenv("STRIPE_INTEGRATION_TEST") != "1" {
 		t.Skip("opt-in: set STRIPE_INTEGRATION_TEST=1 and STRIPE_SECRET_KEY=sk_test_… to run")
 	}
@@ -43,7 +43,7 @@ func TestStripeSettlementPort_CreateConnectedAccount_Integration(t *testing.T) {
 	}
 
 	logger := mustLogger(t)
-	port := payment.NewStripeSettlementPort(key, logger)
+	port := payment.NewStripeSettlementPayoutRepository(key, logger)
 	ctx := context.Background()
 
 	// A distinct organizer id per run: the idempotency key is derived from it,
@@ -52,14 +52,14 @@ func TestStripeSettlementPort_CreateConnectedAccount_Integration(t *testing.T) {
 
 	contactEmail := "it-organizer@pannpers.dev"
 
-	accountRef, err := port.CreateConnectedAccount(ctx, organizerID, contactEmail)
+	providerAccountID, err := port.CreatePayoutAccount(ctx, organizerID, contactEmail)
 	require.NoError(t, err, "create Accounts v2 recipient via the production adapter")
-	require.True(t, strings.HasPrefix(accountRef, "acct_"), "expected an acct_ reference, got %q", accountRef)
-	t.Logf("provisioned recipient account: %s (organizer %s)", accountRef, organizerID)
+	require.True(t, strings.HasPrefix(providerAccountID, "acct_"), "expected an acct_ reference, got %q", providerAccountID)
+	t.Logf("provisioned recipient account: %s (organizer %s)", providerAccountID, organizerID)
 
 	// Read the account back and assert the shape the design requires.
 	sc := stripe.NewClient(key)
-	acct, err := sc.V1Accounts.GetByID(ctx, accountRef, nil)
+	acct, err := sc.V1Accounts.GetByID(ctx, providerAccountID, nil)
 	require.NoError(t, err, "retrieve the account we just created")
 
 	require.NotNil(t, acct.Capabilities)
@@ -85,13 +85,13 @@ func TestStripeSettlementPort_CreateConnectedAccount_Integration(t *testing.T) {
 
 	// The port's own status mapping must agree that the account is not yet
 	// eligible — this is what gates the payout sweeper.
-	status, err := port.GetAccountStatus(ctx, accountRef)
+	status, err := port.GetPayoutAccountStatus(ctx, providerAccountID)
 	require.NoError(t, err)
 	assert.NotEqual(t, entity.PayoutOnboardingStatusActive, status,
 		"status must not report Active before verification completes")
 
 	// The onboarding link is how the Organizer supplies identity to Stripe.
-	url, err := port.CreateOnboardingLink(ctx, accountRef, "https://liverty-music.app/organizer/payouts")
+	url, err := port.CreateOnboardingLink(ctx, providerAccountID, "https://liverty-music.app/organizer/payouts")
 	require.NoError(t, err, "create the hosted onboarding link")
 	assert.True(t, strings.HasPrefix(url, "https://"), "expected an https onboarding URL, got %q", url)
 }
@@ -106,13 +106,13 @@ func TestStripeSettlementPort_CreateConnectedAccount_Integration(t *testing.T) {
 // called the port. The Connect PoC exercises Stripe for real but drives the SDK
 // directly, bypassing the port entirely. Neither proves that the parameters our
 // adapter actually sends are accepted, which is the gap that let
-// CreateConnectedAccount ship a request Stripe rejected with a 400.
+// CreatePayoutAccount ship a request Stripe rejected with a 400.
 //
 // Opt-in so `make check` and CI stay network-free. Run it with:
 //
 //	STRIPE_INTEGRATION_TEST=1 STRIPE_SECRET_KEY=sk_test_… \
 //	  go test ./internal/infrastructure/payment/ -run MoneyOut_Integration -v
-func TestStripeSettlementPort_MoneyOut_Integration(t *testing.T) {
+func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 	if os.Getenv("STRIPE_INTEGRATION_TEST") != "1" {
 		t.Skip("opt-in: set STRIPE_INTEGRATION_TEST=1 and STRIPE_SECRET_KEY=sk_test_… to run")
 	}
@@ -122,7 +122,7 @@ func TestStripeSettlementPort_MoneyOut_Integration(t *testing.T) {
 	}
 
 	logger := mustLogger(t)
-	settlement := payment.NewStripeSettlementPort(key, logger)
+	settlement := payment.NewStripeSettlementPayoutRepository(key, logger)
 	authorization := payment.NewStripeAuthorizationPort(key, logger)
 	ctx := context.Background()
 
@@ -130,7 +130,7 @@ func TestStripeSettlementPort_MoneyOut_Integration(t *testing.T) {
 	// recipient would leave it unverified, so reuse one the Connect PoC has
 	// already driven to active; skip rather than fail if the sandbox has none,
 	// since that is a fixture gap and not a defect in the code under test.
-	payeeAccountRef := findActiveRecipient(ctx, t, key)
+	payeeProviderAccountID := findActiveRecipient(ctx, t, key)
 
 	const (
 		grossJPY    int64 = 5000 // what the buyer pays
@@ -141,84 +141,84 @@ func TestStripeSettlementPort_MoneyOut_Integration(t *testing.T) {
 	// ── Capture: buyer funds land on the PLATFORM balance ──────────────────
 	// A plain platform charge, not a destination charge: settlement to the
 	// Organizer happens later, via Transfer.
-	paymentIntentRef, _, err := authorization.CreateAuthorization(ctx, grossJPY)
+	providerPaymentID, _, err := authorization.CreateAuthorization(ctx, grossJPY)
 	require.NoError(t, err, "authorize the buyer's hold")
-	confirmWithTestCard(t, key, paymentIntentRef)
-	require.NoError(t, authorization.CaptureAuthorization(ctx, paymentIntentRef), "capture the hold")
+	confirmWithTestCard(t, key, providerPaymentID)
+	require.NoError(t, authorization.CaptureAuthorization(ctx, providerPaymentID), "capture the hold")
 
 	// ── Resolve pi_ → ch_ ──────────────────────────────────────────────────
 	// Transfer.source_transaction needs the charge, not the PaymentIntent.
 	// Passing pi_ here is the mistake a stubbed test can never catch.
-	chargeRef, err := settlement.ResolveChargeRef(ctx, paymentIntentRef)
+	providerChargeID, err := settlement.GetProviderChargeID(ctx, providerPaymentID)
 	require.NoError(t, err, "resolve the captured charge from the PaymentIntent")
-	require.True(t, strings.HasPrefix(chargeRef, "ch_"),
-		"source_transaction must be a charge reference, got %q", chargeRef)
+	require.True(t, strings.HasPrefix(providerChargeID, "ch_"),
+		"source_transaction must be a charge reference, got %q", providerChargeID)
 
 	settlementID := entity.SettlementID("it-settlement-" + time.Now().UTC().Format("20060102T150405.000"))
 
 	// ── Transfer the Organizer's net share ─────────────────────────────────
-	transferRef, err := settlement.CreateTransfer(ctx, entity.TransferParams{
-		SettlementID:         settlementID,
-		PayeeAccountRef:      payeeAccountRef,
-		SourceTransactionRef: chargeRef,
-		Amount:               netJPY,
-		Currency:             string(stripe.CurrencyJPY),
+	providerPayoutID, err := settlement.CreatePayout(ctx, entity.TransferParams{
+		SettlementID:           settlementID,
+		PayeeProviderAccountID: payeeProviderAccountID,
+		SourceTransactionRef:   providerChargeID,
+		Amount:                 netJPY,
+		Currency:               string(stripe.CurrencyJPY),
 	})
 	require.NoError(t, err, "transfer the Organizer's net share")
-	require.True(t, strings.HasPrefix(transferRef, "tr_"), "expected a tr_ reference, got %q", transferRef)
-	t.Logf("charge=%s transfer=%s net=%d fee=%d", chargeRef, transferRef, netJPY, platformFee)
+	require.True(t, strings.HasPrefix(providerPayoutID, "tr_"), "expected a tr_ reference, got %q", providerPayoutID)
+	t.Logf("charge=%s transfer=%s net=%d fee=%d", providerChargeID, providerPayoutID, netJPY, platformFee)
 
 	// The platform fee is the remainder that was never transferred — there is
 	// no application_fee and no self-transfer.
 	sc := stripe.NewClient(key)
-	tr, err := sc.V1Transfers.Retrieve(ctx, transferRef, nil)
+	tr, err := sc.V1Transfers.Retrieve(ctx, providerPayoutID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, netJPY, tr.Amount, "transfer must carry the net share only")
 	require.NotNil(t, tr.SourceTransaction, "transfer must be pinned to the originating charge")
-	assert.Equal(t, chargeRef, tr.SourceTransaction.ID)
+	assert.Equal(t, providerChargeID, tr.SourceTransaction.ID)
 
 	// A retried sweep must not double-transfer: the idempotency key is derived
 	// from the settlement id, so Stripe replays the original transfer.
-	replayRef, err := settlement.CreateTransfer(ctx, entity.TransferParams{
-		SettlementID:         settlementID,
-		PayeeAccountRef:      payeeAccountRef,
-		SourceTransactionRef: chargeRef,
-		Amount:               netJPY,
-		Currency:             string(stripe.CurrencyJPY),
+	replayRef, err := settlement.CreatePayout(ctx, entity.TransferParams{
+		SettlementID:           settlementID,
+		PayeeProviderAccountID: payeeProviderAccountID,
+		SourceTransactionRef:   providerChargeID,
+		Amount:                 netJPY,
+		Currency:               string(stripe.CurrencyJPY),
 	})
 	require.NoError(t, err, "a retried transfer must be a safe no-op")
-	assert.Equal(t, transferRef, replayRef, "retry must replay the original transfer, not create a second")
+	assert.Equal(t, providerPayoutID, replayRef, "retry must replay the original transfer, not create a second")
 
 	// ── Cancellation: refund the buyer and claw the transfer back ──────────
 	orderID := entity.OrderID("it-order-" + time.Now().UTC().Format("20060102T150405.000"))
 
-	refundRef, err := settlement.CreateRefund(ctx, entity.RefundParams{
-		OrderID:   orderID,
-		ChargeRef: chargeRef,
-		Amount:    grossJPY,
+	providerRefundID, err := settlement.CreateRefund(ctx, entity.RefundParams{
+		OrderID:          orderID,
+		ProviderChargeID: providerChargeID,
+		Amount:           grossJPY,
 	})
 	require.NoError(t, err, "refund the buyer from the platform balance")
-	require.True(t, strings.HasPrefix(refundRef, "re_"), "expected an re_ reference, got %q", refundRef)
+	require.True(t, strings.HasPrefix(providerRefundID, "re_"), "expected an re_ reference, got %q", providerRefundID)
 
-	reversalRef, err := settlement.ReverseTransfer(ctx, entity.ReverseTransferParams{
-		SettlementID: settlementID,
-		TransferRef:  transferRef,
-		Amount:       netJPY,
+	reversalRef, err := settlement.ReversePayout(ctx, entity.ReverseTransferParams{
+		SettlementID:     settlementID,
+		ProviderPayoutID: providerPayoutID,
+		Amount:           netJPY,
 	})
 	require.NoError(t, err, "reverse the Organizer's transfer")
 	require.True(t, strings.HasPrefix(reversalRef, "trr_"), "expected a trr_ reference, got %q", reversalRef)
 
 	// The reversal must actually return the funds, not merely be recorded.
-	tr, err = sc.V1Transfers.Retrieve(ctx, transferRef, nil)
+	tr, err = sc.V1Transfers.Retrieve(ctx, providerPayoutID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, netJPY, tr.AmountReversed, "the full net share must be clawed back")
 	assert.True(t, tr.Reversed, "transfer must be marked reversed")
 
 	// Replaying the clawback must not reverse twice.
-	replayReversal, err := settlement.ReverseTransfer(ctx, entity.ReverseTransferParams{
-		SettlementID: settlementID,
-		TransferRef:  transferRef,
-		Amount:       netJPY,
+	replayReversal, err := settlement.ReversePayout(ctx, entity.ReverseTransferParams{
+		SettlementID:     settlementID,
+		ProviderPayoutID: providerPayoutID,
+		Amount:           netJPY,
 	})
 	require.NoError(t, err, "a retried reversal must be a safe no-op")
 	assert.Equal(t, reversalRef, replayReversal, "retry must replay the original reversal")

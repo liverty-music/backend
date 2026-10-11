@@ -40,8 +40,8 @@ func TestTicketHandler_List(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/ticket "Fan lists their tickets"
 		h, uc, users := newTicketHandler(t)
 		expectFan(users)
-		uc.EXPECT().GetMyTickets(mock.Anything, entity.UserID(tkFanUserID)).Return([]*entity.Ticket{
-			{ID: "t-1", OrderID: tkOrderID, UserID: tkFanUserID, EventID: testEventID, KycID: "kyc-1", ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
+		uc.EXPECT().List(mock.Anything, entity.UserID(tkFanUserID)).Return([]*entity.Ticket{
+			{ID: "t-1", OrderID: tkOrderID, UserID: tkFanUserID, EventID: testEventID, IdentityVerificationID: "kyc-1", ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
 			{ID: "t-2", OrderID: tkOrderID, UserID: tkFanUserID, EventID: testEventID, ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
 		}, nil)
 

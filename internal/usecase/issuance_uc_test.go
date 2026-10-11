@@ -52,10 +52,10 @@ func (s *stubEventOrganizerRepo) GetOrganizerID(ctx context.Context, eventID str
 }
 
 type stubOrderRepo struct {
-	getFn                   func(ctx context.Context, id entity.OrderID) (*entity.Order, error)
-	getByLotteryEntryIDFn   func(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
-	getByPaymentIntentRefFn func(ctx context.Context, piRef string) (*entity.Order, error)
-	updateStatusFn          func(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error
+	getFn                    func(ctx context.Context, id entity.OrderID) (*entity.Order, error)
+	getByLotteryEntryIDFn    func(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
+	getByProviderPaymentIDFn func(ctx context.Context, piRef string) (*entity.Order, error)
+	updateStatusFn           func(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error
 }
 
 func (s *stubOrderRepo) Get(ctx context.Context, id entity.OrderID) (*entity.Order, error) {
@@ -72,9 +72,9 @@ func (s *stubOrderRepo) GetByLotteryEntryID(ctx context.Context, lotteryEntryID 
 	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
 }
 
-func (s *stubOrderRepo) GetByPaymentIntentRef(ctx context.Context, piRef string) (*entity.Order, error) {
-	if s.getByPaymentIntentRefFn != nil {
-		return s.getByPaymentIntentRefFn(ctx, piRef)
+func (s *stubOrderRepo) GetByProviderPaymentID(ctx context.Context, piRef string) (*entity.Order, error) {
+	if s.getByProviderPaymentIDFn != nil {
+		return s.getByProviderPaymentIDFn(ctx, piRef)
 	}
 	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
 }
@@ -99,12 +99,12 @@ func (s *stubOrderRepo) MarkConfirmationSent(_ context.Context, _ entity.OrderID
 }
 
 type stubCapturePort struct {
-	getCapturedPaymentFn func(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error)
+	getCapturedPaymentFn func(ctx context.Context, providerPaymentID string) (*entity.CapturedPayment, error)
 }
 
-func (s *stubCapturePort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error) {
+func (s *stubCapturePort) GetCapturedPayment(ctx context.Context, providerPaymentID string) (*entity.CapturedPayment, error) {
 	if s.getCapturedPaymentFn != nil {
-		return s.getCapturedPaymentFn(ctx, paymentIntentRef)
+		return s.getCapturedPaymentFn(ctx, providerPaymentID)
 	}
 	return &entity.CapturedPayment{
 		Provider:  entity.PaymentProviderStripe,
@@ -121,14 +121,14 @@ func (s *stubCapturePort) GetCapturedPayment(ctx context.Context, paymentIntentR
 // order repository nothing issued yet, the capture port a 10000 yen Visa
 // payment and the Organizer resolves to "org-1".
 type lotteryIssuanceDeps struct {
-	issuanceRepo       entity.IssuanceRepository
-	orderRepo          entity.OrderRepository
-	entryRepo          entity.LotteryEntryRepository
-	saleRepo           entity.TicketSaleRepository
-	kycRepo            entity.KycRepository
-	eventOrganizerRepo usecase.EventOrganizerRepository
-	capturePort        entity.PaymentCapturePort
-	clock              usecase.Clock
+	issuanceRepo             entity.IssuanceRepository
+	orderRepo                entity.OrderRepository
+	entryRepo                entity.LotteryEntryRepository
+	saleRepo                 entity.TicketSaleRepository
+	identityVerificationRepo entity.IdentityVerificationRepository
+	eventOrganizerRepo       usecase.EventOrganizerRepository
+	capturePort              entity.PaymentCapturePort
+	clock                    usecase.Clock
 }
 
 // newLotteryIssuanceUC builds an IssuanceUseCase for the lottery path, whose
@@ -152,8 +152,8 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.IssuanceU
 	if d.saleRepo == nil {
 		d.saleRepo = lotterySaleRepo(t, entity.VerificationRequirementNone)
 	}
-	if d.kycRepo == nil {
-		d.kycRepo = entitymocks.NewMockKycRepository(t)
+	if d.identityVerificationRepo == nil {
+		d.identityVerificationRepo = entitymocks.NewMockIdentityVerificationRepository(t)
 	}
 	if d.eventOrganizerRepo == nil {
 		d.eventOrganizerRepo = &stubEventOrganizerRepo{}
@@ -162,16 +162,16 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.IssuanceU
 		d.capturePort = &stubCapturePort{}
 	}
 	return usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
-		IssuanceRepo:       d.issuanceRepo,
-		OrderRepo:          d.orderRepo,
-		EntryRepo:          d.entryRepo,
-		EventOrganizerRepo: d.eventOrganizerRepo,
-		OrganizerRepo:      organizers,
-		KycRepo:            d.kycRepo,
-		CapturePort:        d.capturePort,
-		TicketSaleRepo:     d.saleRepo,
-		Clock:              d.clock,
-		Logger:             newTestLogger(t),
+		IssuanceRepo:             d.issuanceRepo,
+		OrderRepo:                d.orderRepo,
+		EntryRepo:                d.entryRepo,
+		EventOrganizerRepo:       d.eventOrganizerRepo,
+		OrganizerRepo:            organizers,
+		IdentityVerificationRepo: d.identityVerificationRepo,
+		CapturePort:              d.capturePort,
+		TicketSaleRepo:           d.saleRepo,
+		Clock:                    d.clock,
+		Logger:                   newTestLogger(t),
 	})
 }
 
@@ -186,7 +186,7 @@ func lotterySaleRepo(t *testing.T, req entity.VerificationRequirement) *entitymo
 		SaleStartTime:           time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC),
 		SaleEndTime:             time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC),
 		VerificationRequirement: req,
-		DrawnTime:               &drawn,
+		DrawTime:                &drawn,
 	}
 	tt := &entity.TicketType{ID: "tt-lottery", TicketSaleID: sale.ID, EventID: "event-1", Price: 5000, Quantity: 100, PerAccountLimit: 4}
 	sale.TicketTypes = []*entity.TicketType{tt}
@@ -198,12 +198,12 @@ func lotterySaleRepo(t *testing.T, req entity.VerificationRequirement) *entitymo
 // wonEntry returns user-1's Won entry "entry-1" for 2 tickets of tt-lottery.
 func wonEntry() *entity.LotteryEntry {
 	return &entity.LotteryEntry{
-		ID:                   "entry-1",
-		TicketTypeID:         "tt-lottery",
-		UserID:               "user-1",
-		RequestedTicketCount: 2,
-		Authorization:        entity.PaymentAuthorization{PaymentIntentRef: "pi_won_1"},
-		State:                entity.LotteryEntryStateWon,
+		ID:                  "entry-1",
+		TicketTypeID:        "tt-lottery",
+		UserID:              "user-1",
+		TicketCount:         2,
+		CardAuthorizationID: "pi_won_1",
+		State:               entity.LotteryEntryStateWon,
 	}
 }
 
@@ -259,16 +259,16 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.Equal(t, entity.UserID("user-1"), order.UserID)
 		assert.Equal(t, entity.LotteryEntryID("entry-1"), order.LotteryEntryID)
 		assert.Empty(t, order.CheckoutID)
-		assert.Equal(t, "pi_won_1", order.Payment.PaymentIntentRef)
+		assert.Equal(t, "pi_won_1", order.Payment.ProviderPaymentID)
 		assert.Equal(t, entity.PaymentProviderStripe, order.Payment.Provider)
 		assert.Equal(t, "visa", order.Payment.CardBrand)
 		assert.Equal(t, "4242", order.Payment.CardLast4)
 		assert.Equal(t, int64(16000), order.Amount)
 		assert.Equal(t, "JPY", order.Currency)
-		assert.Equal(t, now, order.PaidTime)
+		assert.Equal(t, now, order.PayTime)
 
 		// Exactly N covered tickets, all bound to the entry's user for the
-		// ticket type's event; no Kyc, since the sale required none.
+		// ticket type's event; no IdentityVerification, since the sale required none.
 		require.Len(t, issuedTickets, 2)
 		for _, tk := range issuedTickets {
 			assert.Equal(t, order.ID, tk.OrderID)
@@ -276,8 +276,8 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			assert.Equal(t, "event-1", tk.EventID)
 			assert.True(t, tk.ResaleWithoutConsentProhibited)
 			assert.Equal(t, entity.TicketStatusIssued, tk.Status)
-			assert.Equal(t, now, tk.IssuedTime)
-			assert.Empty(t, tk.KycID)
+			assert.Equal(t, now, tk.IssueTime)
+			assert.Empty(t, tk.IdentityVerificationID)
 		}
 
 		// A Held settlement for the event's Organizer, with one split for the
@@ -412,13 +412,13 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 
 		var issuedTickets []*entity.Ticket
 		issuanceRepo, _ := recordingIssuanceRepo(nil, &issuedTickets, nil)
-		kycs := entitymocks.NewMockKycRepository(t)
-		// Whatever its status: the Kyc read at issuance only binds.
-		kycs.EXPECT().GetByUserID(mock.Anything, "user-1").
-			Return(&entity.Kyc{ID: "kyc-1", UserID: "user-1", Status: entity.VerificationStatusNeedsReverification}, nil)
+		identityVerifications := entitymocks.NewMockIdentityVerificationRepository(t)
+		// Whatever its status: the IdentityVerification read at issuance only binds.
+		identityVerifications.EXPECT().GetByUserID(mock.Anything, "user-1").
+			Return(&entity.IdentityVerification{ID: "kyc-1", UserID: "user-1", Status: entity.VerificationStatusNeedsReverification}, nil)
 
 		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{
-			issuanceRepo: issuanceRepo, kycRepo: kycs,
+			issuanceRepo: issuanceRepo, identityVerificationRepo: identityVerifications,
 			saleRepo: lotterySaleRepo(t, entity.VerificationRequirementJPKIOnly), clock: fixedClock(now),
 		})
 
@@ -426,7 +426,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, issuedTickets, 2)
 		for _, tk := range issuedTickets {
-			assert.Equal(t, "kyc-1", tk.KycID)
+			assert.Equal(t, "kyc-1", tk.IdentityVerificationID)
 			// The face shows the user's own full name: nothing is copied onto
 			// the Ticket.
 			face := tk.Face(&entity.User{ID: "user-1", FullName: "山田 太郎", PhoneNumber: "+819012345678"})
@@ -439,11 +439,11 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		t.Parallel()
 
 		issuanceRepo, issueCalled := recordingIssuanceRepo(nil, nil, nil)
-		kycs := entitymocks.NewMockKycRepository(t)
-		kycs.EXPECT().GetByUserID(mock.Anything, "user-1").Return(nil, apperr.ErrNotFound)
+		identityVerifications := entitymocks.NewMockIdentityVerificationRepository(t)
+		identityVerifications.EXPECT().GetByUserID(mock.Anything, "user-1").Return(nil, apperr.ErrNotFound)
 
 		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{
-			issuanceRepo: issuanceRepo, kycRepo: kycs,
+			issuanceRepo: issuanceRepo, identityVerificationRepo: identityVerifications,
 			saleRepo: lotterySaleRepo(t, entity.VerificationRequirementVerifiedAny), clock: fixedClock(now),
 		})
 
@@ -458,15 +458,15 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 
 		var issuedTickets []*entity.Ticket
 		issuanceRepo, _ := recordingIssuanceRepo(nil, &issuedTickets, nil)
-		kycs := entitymocks.NewMockKycRepository(t) // no expectation: GetByUserID is never called
+		identityVerifications := entitymocks.NewMockIdentityVerificationRepository(t) // no expectation: GetByUserID is never called
 
-		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, kycRepo: kycs, clock: fixedClock(now)})
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, identityVerificationRepo: identityVerifications, clock: fixedClock(now)})
 
 		_, err := uc.IssueFromCapturedWin(context.Background(), "entry-1")
 		require.NoError(t, err)
 		require.Len(t, issuedTickets, 2)
 		for _, tk := range issuedTickets {
-			assert.Empty(t, tk.KycID)
+			assert.Empty(t, tk.IdentityVerificationID)
 		}
 	})
 }
@@ -476,7 +476,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 // — reusing the settlement_uc_test.go stubs, since both live in package
 // usecase_test — later releases it once the event has started and the
 // dispute buffer has passed. This is the regression test for the bug: before
-// this change, PayoutSweeperUseCase.ListHeld was always empty because nothing
+// this change, SettlementUseCase.ListHeld was always empty because nothing
 // ever created a Settlement.
 func TestIssuanceUseCase_ThroughSettlementRelease(t *testing.T) {
 	t.Parallel()
@@ -530,12 +530,12 @@ func TestIssuanceUseCase_ThroughSettlementRelease(t *testing.T) {
 	eventStartTimeRepo := &stubEventStartTimeRepo{getFn: func(_ context.Context, _ string) (*time.Time, error) {
 		return &eventStarted, nil
 	}}
-	connectedAccountRepo := &stubConnectedAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.OrganizerConnectedAccount, error) {
-		return &entity.OrganizerConnectedAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusActive}, nil
+	connectedAccountRepo := &stubConnectedAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
+		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusActive}, nil
 	}}
 
-	sweeperUC := usecase.NewPayoutSweeperUseCase(settlementRepo, orderRepo, connectedAccountRepo, eventStartTimeRepo,
-		&stubPaymentSettlementPort{}, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
+	sweeperUC := usecase.NewSettlementUseCase(settlementRepo, orderRepo, connectedAccountRepo, eventStartTimeRepo,
+		&stubSettlementPayoutRepository{}, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
 
 	require.NoError(t, sweeperUC.ReleaseDueSettlements(context.Background()))
 	require.NotNil(t, released, "the settlement issuance created must be released once due")
@@ -655,10 +655,10 @@ func TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 	eventStartTimeRepo := &stubEventStartTimeRepo{getFn: func(_ context.Context, _ string) (*time.Time, error) {
 		return &eventStarted, nil
 	}}
-	connectedAccountRepo := &stubConnectedAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.OrganizerConnectedAccount, error) {
-		return &entity.OrganizerConnectedAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusPending}, nil
+	connectedAccountRepo := &stubConnectedAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
+		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusPending}, nil
 	}}
-	settlementPort := &stubPaymentSettlementPort{
+	settlementPayouts := &stubSettlementPayoutRepository{
 		getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 			return entity.PayoutOnboardingStatusPending, nil
 		},
@@ -668,8 +668,8 @@ func TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 		},
 	}
 
-	sweeperUC := usecase.NewPayoutSweeperUseCase(settlementRepo, orderRepo, connectedAccountRepo, eventStartTimeRepo,
-		settlementPort, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
+	sweeperUC := usecase.NewSettlementUseCase(settlementRepo, orderRepo, connectedAccountRepo, eventStartTimeRepo,
+		settlementPayouts, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
 
 	require.NoError(t, sweeperUC.ReleaseDueSettlements(context.Background()))
 	assert.False(t, transferCalled, "the Organizer's payout must stay Held while the account is Pending")

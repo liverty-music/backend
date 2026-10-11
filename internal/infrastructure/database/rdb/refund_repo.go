@@ -46,7 +46,7 @@ const voidTicketsByOrderTxQuery = `
 `
 
 // updateOrderRefundTxQuery flips the order to Refunded and records the opaque
-// provider Refund reference (re_...). For DISPUTE refunds the refund_ref is
+// provider Refund reference (re_...). For DISPUTE refunds the provider_refund_id is
 // empty string — the column's DEFAULT ” preserves that cleanly.
 const updateOrderRefundTxQuery = `
 	UPDATE orders SET status = $2, provider_refund_id = $3 WHERE id = $1
@@ -56,7 +56,7 @@ const updateOrderRefundTxQuery = `
 //
 // All four mutations run inside one pgx transaction:
 //  1. UPDATE settlements → Reversed (if SettlementID is set)
-//  2. UPDATE settlement_splits with transfer_reversal_ref (per split)
+//  2. UPDATE settlement_splits with provider_payout_reversal_id (per split)
 //  3. UPDATE tickets → Voided
 //  4. UPDATE orders → Refunded
 //
@@ -87,13 +87,13 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 				"settlement is already reversed; refund was applied concurrently")
 		}
 
-		// 2. Persist transfer_reversal_ref on each split that was reversed.
+		// 2. Persist provider_payout_reversal_id on each split that was reversed.
 		for _, split := range commit.ReversedSplits {
-			if split.TransferReversalRef == "" {
+			if split.ProviderPayoutReversalID == "" {
 				continue
 			}
 			if _, err := tx.Exec(ctx, upsertSplitReversalRefTxQuery,
-				string(commit.SettlementID), split.PayeeOrganizerID, split.TransferReversalRef,
+				string(commit.SettlementID), split.PayeeOrganizerID, split.ProviderPayoutReversalID,
 			); err != nil {
 				return toAppErr(err, "failed to update split reversal ref in refund tx",
 					slog.String("settlement_id", string(commit.SettlementID)),
@@ -111,10 +111,10 @@ func (r *RefundRepository) CommitRefund(ctx context.Context, commit entity.Refun
 	}
 
 	// 4. Flip the order → Refunded and record the provider Refund ref.
-	// For DISPUTE reason RefundRef is empty (no CreateRefund call was made);
+	// For DISPUTE reason ProviderRefundID is empty (no CreateRefund call was made);
 	// the column DEFAULT '' handles that correctly.
 	if _, err := tx.Exec(ctx, updateOrderRefundTxQuery,
-		string(commit.OrderID), int16(entity.OrderStatusRefunded), commit.RefundRef,
+		string(commit.OrderID), int16(entity.OrderStatusRefunded), commit.ProviderRefundID,
 	); err != nil {
 		return toAppErr(err, "failed to update order status in refund tx",
 			slog.String("order_id", string(commit.OrderID)))

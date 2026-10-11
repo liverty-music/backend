@@ -43,7 +43,7 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		notifID = "01890000-0000-7000-8000-000000000abc"
 	)
 	expectCaller := func(ur *entitymocks.MockUserRepository) {
-		ur.EXPECT().GetByExternalID(mock.Anything, extID).Return(&entity.User{ID: userID, ExternalID: extID}, nil).Once()
+		ur.EXPECT().GetByProviderUserID(mock.Anything, extID).Return(&entity.User{ID: userID, ProviderUserID: extID}, nil).Once()
 	}
 
 	t.Run("fan marks their notification read", func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/notification "Fan dismisses their notification"
 		h, uc, ur := newTestNotificationHandler(t)
 		expectCaller(ur)
-		uc.EXPECT().MarkDismissed(mock.Anything, userID, notifID).Return(nil).Once()
+		uc.EXPECT().Dismiss(mock.Anything, userID, notifID).Return(nil).Once()
 
 		_, err := h.Dismiss(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.DismissRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},
@@ -110,7 +110,7 @@ func TestNotificationHandler_MarkReadAndDismiss(t *testing.T) {
 	t.Run("return NOT_FOUND when the caller has no account", func(t *testing.T) {
 		t.Parallel()
 		h, _, ur := newTestNotificationHandler(t)
-		ur.EXPECT().GetByExternalID(mock.Anything, extID).Return(nil, apperr.ErrNotFound).Once()
+		ur.EXPECT().GetByProviderUserID(mock.Anything, extID).Return(nil, apperr.ErrNotFound).Once()
 
 		_, err := h.Dismiss(notificationAuthedCtx(extID), connect.NewRequest(&notificationv1.DismissRequest{
 			NotificationId: &entityv1.NotificationId{Value: notifID},

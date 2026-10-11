@@ -116,7 +116,7 @@ func newStripeAuthorizationPort(secretKey, apiURL string, logger *logging.Logger
 // intent ID and client secret. The frontend passes the client secret to
 // Stripe.js to complete 3DS; the intent ID is recorded on the Draft entry as
 // its paymentIntentRef.
-func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amountJPY int64) (paymentIntentRef string, clientSecret string, err error) {
+func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amountJPY int64) (providerPaymentID string, clientSecret string, err error) {
 	if amountJPY <= 0 {
 		return "", "", apperr.New(codes.InvalidArgument, "amountJPY must be positive")
 	}
@@ -153,11 +153,11 @@ func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amoun
 //
 // Returns FailedPrecondition when status != requires_capture; InvalidArgument
 // for amount/currency mismatch or unaccepted card brand.
-func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, paymentIntentRef string, expectedAmountJPY int64) error {
+func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, providerPaymentID string, expectedAmountJPY int64) error {
 	params := &stripe.PaymentIntentRetrieveParams{}
 	params.AddExpand("latest_charge")
 
-	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, params)
+	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, providerPaymentID, params)
 	if err != nil {
 		return toPaymentAppErr(ctx, err, "failed to retrieve PaymentIntent", p.logger)
 	}
@@ -199,14 +199,14 @@ func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, payme
 // The idempotency key is deterministic in the PaymentIntent ref, so a retried
 // cancel (e.g. after a network blip mid-draw) is a safe no-op that returns the
 // original result rather than erroring on an already-cancelled intent.
-func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, paymentIntentRef string) error {
+func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, providerPaymentID string) error {
 	params := &stripe.PaymentIntentCancelParams{}
-	params.SetIdempotencyKey(p.policy.idempotencyKey("cancel", paymentIntentRef))
+	params.SetIdempotencyKey(p.policy.idempotencyKey("cancel", providerPaymentID))
 
-	_, cancelErr := p.client.V1PaymentIntents.Cancel(ctx, paymentIntentRef, params)
+	_, cancelErr := p.client.V1PaymentIntents.Cancel(ctx, providerPaymentID, params)
 	if cancelErr == nil {
 		p.logger.Info(ctx, "Stripe PaymentIntent cancelled",
-			slog.String("payment_intent_id", paymentIntentRef),
+			slog.String("payment_intent_id", providerPaymentID),
 		)
 		return nil
 	}
@@ -215,7 +215,7 @@ func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, payme
 	}
 
 	// Classify by the PaymentIntent's status, not by the error.
-	current, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, &stripe.PaymentIntentRetrieveParams{})
+	current, err := p.client.V1PaymentIntents.Retrieve(ctx, providerPaymentID, &stripe.PaymentIntentRetrieveParams{})
 	if err != nil {
 		return toPaymentAppErr(ctx, cancelErr, "failed to cancel PaymentIntent", p.logger)
 	}
@@ -239,14 +239,14 @@ func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, payme
 // captures winners in a batch; if it retries after a transient failure, a
 // re-capture of an already-captured intent returns the original success instead
 // of a duplicate-charge attempt or a spurious error.
-func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paymentIntentRef string) error {
+func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, providerPaymentID string) error {
 	params := &stripe.PaymentIntentCaptureParams{}
-	params.SetIdempotencyKey(p.policy.idempotencyKey("capture", paymentIntentRef))
+	params.SetIdempotencyKey(p.policy.idempotencyKey("capture", providerPaymentID))
 
-	_, captureErr := p.client.V1PaymentIntents.Capture(ctx, paymentIntentRef, params)
+	_, captureErr := p.client.V1PaymentIntents.Capture(ctx, providerPaymentID, params)
 	if captureErr == nil {
 		p.logger.Info(ctx, "Stripe PaymentIntent captured",
-			slog.String("payment_intent_id", paymentIntentRef),
+			slog.String("payment_intent_id", providerPaymentID),
 		)
 		return nil
 	}
@@ -255,7 +255,7 @@ func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paym
 	}
 
 	// Classify by the PaymentIntent's status, not by the error.
-	current, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, &stripe.PaymentIntentRetrieveParams{})
+	current, err := p.client.V1PaymentIntents.Retrieve(ctx, providerPaymentID, &stripe.PaymentIntentRetrieveParams{})
 	if err != nil {
 		return apperr.Wrap(captureErr, codes.Unavailable, "capture outcome is not known yet")
 	}
@@ -281,8 +281,8 @@ func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paym
 // It reads the PaymentIntent and returns its client secret, so a fan who
 // reloads the entry screen completes 3DS on the hold already opened instead
 // of opening a second one.
-func (p *StripeAuthorizationPort) GetClientSecret(ctx context.Context, paymentIntentRef string) (string, error) {
-	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, &stripe.PaymentIntentRetrieveParams{})
+func (p *StripeAuthorizationPort) GetClientSecret(ctx context.Context, providerPaymentID string) (string, error) {
+	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, providerPaymentID, &stripe.PaymentIntentRetrieveParams{})
 	if err != nil {
 		return "", toPaymentAppErr(ctx, err, "failed to retrieve PaymentIntent", p.logger)
 	}
@@ -296,11 +296,11 @@ func (p *StripeAuthorizationPort) GetClientSecret(ctx context.Context, paymentIn
 // not capture — ④ already captured at the draw — so this only reads. A
 // PaymentIntent that has not succeeded (not yet captured) is reported as
 // FailedPrecondition.
-func (p *StripeAuthorizationPort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error) {
+func (p *StripeAuthorizationPort) GetCapturedPayment(ctx context.Context, providerPaymentID string) (*entity.CapturedPayment, error) {
 	params := &stripe.PaymentIntentRetrieveParams{}
 	params.AddExpand("latest_charge")
 
-	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, params)
+	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, providerPaymentID, params)
 	if err != nil {
 		return nil, toPaymentAppErr(ctx, err, "failed to retrieve captured PaymentIntent", p.logger)
 	}

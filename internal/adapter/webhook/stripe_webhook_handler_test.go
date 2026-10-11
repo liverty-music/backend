@@ -115,8 +115,8 @@ func TestStripeWebhookHandler_WrongMethod_Returns405(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Valid signature, charge.dispute.created → 200; handler receives ChargeRef
-// and PaymentIntentRef extracted from the Dispute object.
+// Valid signature, charge.dispute.created → 200; handler receives ProviderChargeID
+// and ProviderPaymentID extracted from the Dispute object.
 //
 // Fix #1 verification: the handler must extract *both* fields from the event
 // data and pass them through. The dispute object shape is:
@@ -171,15 +171,15 @@ func TestStripeWebhookHandler_ValidSignature_DisputeExtracts_ChargeAndPI(t *test
 	assert.Equal(t, eventID, gotEvent.ProviderEventID)
 	assert.Equal(t, usecase.StripeEventChargeDisputeCreated, gotEvent.Type)
 	// Fix #1: both fields must be extracted and passed through.
-	assert.Equal(t, chRef, gotEvent.ChargeRef, "ChargeRef must be extracted from dispute.charge")
-	assert.Equal(t, piRef, gotEvent.PaymentIntentRef, "PaymentIntentRef must be extracted from dispute.payment_intent")
+	assert.Equal(t, chRef, gotEvent.ProviderChargeID, "ChargeRef must be extracted from dispute.charge")
+	assert.Equal(t, piRef, gotEvent.ProviderPaymentID, "PaymentIntentRef must be extracted from dispute.payment_intent")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Valid signature, charge.refunded → ChargeRef extracted (charge.id = object.id)
+// Valid signature, charge.refunded → ProviderChargeID extracted (charge.id = object.id)
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestStripeWebhookHandler_ValidSignature_ChargeRefunded_ExtractsChargeRef(t *testing.T) {
+func TestStripeWebhookHandler_ValidSignature_ProviderChargeIDunded_ExtractsProviderChargeID(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -219,8 +219,8 @@ func TestStripeWebhookHandler_ValidSignature_ChargeRefunded_ExtractsChargeRef(t 
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, chRef, gotEvent.ChargeRef, "ChargeRef must be object.id for charge.refunded")
-	assert.Equal(t, piRef, gotEvent.PaymentIntentRef, "PaymentIntentRef must be extracted for charge.refunded")
+	assert.Equal(t, chRef, gotEvent.ProviderChargeID, "ChargeRef must be object.id for charge.refunded")
+	assert.Equal(t, piRef, gotEvent.ProviderPaymentID, "PaymentIntentRef must be extracted for charge.refunded")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,7 +290,7 @@ func TestStripeWebhookHandler_PaymentIntentSucceeded(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, usecase.StripeEventPaymentIntentSucceeded, got.Type)
-		assert.Equal(t, "pi_charged", got.PaymentIntentRef)
+		assert.Equal(t, "pi_charged", got.ProviderPaymentID)
 	})
 
 	t.Run("a failed fulfillment is redelivered", func(t *testing.T) {

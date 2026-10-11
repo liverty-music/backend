@@ -35,9 +35,9 @@ type Organizer struct {
 	// OperatorEmail is the initial operator's email, captured at creation and
 	// persisted so the reconciler can complete provisioning after a partial
 	// failure. It is backend-only (not exposed on the consumer proto).
-	OperatorEmail string
-	ZitadelOrgID  string // empty until tenant provisioning persists the tenant link
-	Status        OrganizerStatus
+	OperatorEmail       string
+	ProviderOrganizerID string // empty until tenant provisioning persists the tenant link
+	Status              OrganizerStatus
 	// BusinessDetails is the 特商法 販売業者 disclosure entered by an admin at
 	// vetting; nil until entered.
 	BusinessDetails *BusinessDetails
@@ -138,13 +138,13 @@ type OrganizerRepository interface {
 	//   - NotFound: no organizer with the id exists.
 	Get(ctx context.Context, id string) (*Organizer, error)
 
-	// GetByZitadelOrgID returns the Organizer whose zitadel_org_id matches the
+	// GetByProviderOrganizerID returns the Organizer whose provider_organizer_id matches the
 	// given Zitadel organization id. The link is established during tenant
 	// provisioning and is unique (the partial unique index covers non-NULL values).
 	//
 	// # Possible errors
-	//   - NotFound: no organizer with the given zitadel_org_id exists.
-	GetByZitadelOrgID(ctx context.Context, zitadelOrgID string) (*Organizer, error)
+	//   - NotFound: no organizer with the given provider_organizer_id exists.
+	GetByProviderOrganizerID(ctx context.Context, providerOrganizerID string) (*Organizer, error)
 
 	// List returns every Organizer.
 	List(ctx context.Context) ([]*Organizer, error)
@@ -153,11 +153,11 @@ type OrganizerRepository interface {
 	// by the reconciler to find rows stuck in the provisioning state.
 	ListByStatus(ctx context.Context, status OrganizerStatus) ([]*Organizer, error)
 
-	// SetZitadelOrgID persists the tenant-org link produced during provisioning.
+	// SetProviderOrganizerID persists the tenant-org link produced during provisioning.
 	//
 	// # Possible errors
 	//   - NotFound: no organizer with the id exists.
-	SetZitadelOrgID(ctx context.Context, id, zitadelOrgID string) error
+	SetProviderOrganizerID(ctx context.Context, id, providerOrganizerID string) error
 
 	// SetStatus updates the operational lifecycle status.
 	//

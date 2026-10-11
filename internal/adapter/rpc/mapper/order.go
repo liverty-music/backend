@@ -17,23 +17,23 @@ func OrderToProto(order *entity.Order) *entityv1.Order {
 		UserId: &entityv1.UserId{Value: string(order.UserID)},
 		Payment: &entityv1.Payment{
 			Provider:          paymentProviderToProto(order.Payment.Provider),
-			ProviderPaymentId: &entityv1.Payment_ProviderPaymentId{Value: order.Payment.PaymentIntentRef},
+			ProviderPaymentId: &entityv1.Payment_ProviderPaymentId{Value: order.Payment.ProviderPaymentID},
 			CardBrand:         order.Payment.CardBrand,
 			CardLast4:         order.Payment.CardLast4,
 		},
 		Status:   orderStatusToProto(order.Status),
 		Amount:   order.Amount,
 		Currency: order.Currency,
-		PayTime:  timestamppb.New(order.PaidTime),
+		PayTime:  timestamppb.New(order.PayTime),
 	}
-	if order.Payment.PaymentMethodRef != "" {
-		pb.Payment.ProviderPaymentMethodId = &entityv1.Payment_ProviderPaymentMethodId{Value: order.Payment.PaymentMethodRef}
+	if order.Payment.ProviderPaymentMethodID != "" {
+		pb.Payment.ProviderPaymentMethodId = &entityv1.Payment_ProviderPaymentMethodId{Value: order.Payment.ProviderPaymentMethodID}
 	}
-	if order.RefundRef != "" {
-		pb.ProviderRefundId = &entityv1.Order_ProviderRefundId{Value: order.RefundRef}
+	if order.ProviderRefundID != "" {
+		pb.ProviderRefundId = &entityv1.Order_ProviderRefundId{Value: order.ProviderRefundID}
 	}
-	if order.ConfirmationSentTime != nil {
-		pb.ConfirmationSendTime = timestamppb.New(*order.ConfirmationSentTime)
+	if order.ConfirmationSendTime != nil {
+		pb.ConfirmationSendTime = timestamppb.New(*order.ConfirmationSendTime)
 	}
 	// The source is exactly one of the lottery entry and the checkout.
 	if order.CheckoutID != "" {

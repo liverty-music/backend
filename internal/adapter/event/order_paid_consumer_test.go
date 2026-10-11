@@ -94,7 +94,7 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 	logger := newTestLogger(t)
 
 	var mu sync.Mutex
-	order := &entity.Order{ID: "order-1", UserID: "fan-1", Amount: 6000, Currency: "JPY", PaidTime: time.Now()}
+	order := &entity.Order{ID: "order-1", UserID: "fan-1", Amount: 6000, Currency: "JPY", PayTime: time.Now()}
 	orders := entitymocks.NewMockOrderRepository(t)
 	orders.EXPECT().Get(mock.Anything, entity.OrderID("order-1")).RunAndReturn(func(context.Context, entity.OrderID) (*entity.Order, error) {
 		mu.Lock()
@@ -108,10 +108,10 @@ func TestOrderPaidConsumer_Redelivery(t *testing.T) {
 		func(context.Context, entity.OrderID, string, entity.OrderConfirmationEmail) error {
 			mu.Lock()
 			defer mu.Unlock()
-			if order.ConfirmationSentTime == nil {
+			if order.ConfirmationSendTime == nil {
 				emails++
 				sent := time.Now()
-				order.ConfirmationSentTime = &sent
+				order.ConfirmationSendTime = &sent
 			}
 			return nil
 		})

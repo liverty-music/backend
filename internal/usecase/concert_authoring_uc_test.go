@@ -414,7 +414,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOn(t *testing.T) {
 	uc := usecase.NewConcertUseCase(
 		d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo,
 		orgRepo,
-		d.searchLogRepo, d.stagedConcertRepo, d.rejectedConcertRepo,
+		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
 		d.searcher, d.centroidResolver,
 		messaging.NewEventPublisher(d.publisher),
 		noopMetrics{},
@@ -441,7 +441,7 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 	uc := usecase.NewConcertUseCase(
 		d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo,
 		orgRepo,
-		d.searchLogRepo, d.stagedConcertRepo, d.rejectedConcertRepo,
+		d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo,
 		d.searcher, d.centroidResolver,
 		messaging.NewEventPublisher(d.publisher),
 		noopMetrics{},
@@ -449,9 +449,9 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 	)
 
 	// Artist not represented → discovery pipeline proceeds.
-	d.searchLogRepo.EXPECT().GetByArtistID(mock.Anything, "artist-2").
+	d.concertSearchRepo.EXPECT().GetByArtistID(mock.Anything, "artist-2").
 		Return(nil, apperr.New(codes.NotFound, "not found"))
-	d.searchLogRepo.EXPECT().Upsert(mock.Anything, "artist-2", entity.SearchLogStatusPending).
+	d.concertSearchRepo.EXPECT().Upsert(mock.Anything, "artist-2", entity.ConcertSearchStatusPending).
 		Return(nil)
 	d.artistRepo.EXPECT().Get(mock.Anything, "artist-2").
 		Return(&entity.Artist{ID: "artist-2", Name: "Test Artist", MBID: "mbid-1"}, nil)
@@ -459,11 +459,11 @@ func TestConcertUseCase_SearchNewConcerts_DiscoveryExclusionOff(t *testing.T) {
 		Return(nil, apperr.New(codes.NotFound, "not found"))
 	d.concertRepo.EXPECT().ListByArtist(mock.Anything, "artist-2", true).
 		Return(nil, nil)
-	d.stagedConcertRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, "artist-2").
+	d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, "artist-2").
 		Return(nil, nil)
 	d.searcher.EXPECT().Search(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, nil)
-	d.searchLogRepo.EXPECT().UpdateStatus(mock.Anything, "artist-2", entity.SearchLogStatusCompleted).
+	d.concertSearchRepo.EXPECT().UpdateStatus(mock.Anything, "artist-2", entity.ConcertSearchStatusCompleted).
 		Return(nil).Maybe()
 
 	concerts, err := uc.SearchNewConcerts(ctx, "artist-2")

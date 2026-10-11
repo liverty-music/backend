@@ -51,7 +51,7 @@ func newTimeoutTestServer(t *testing.T) *httptest.Server {
 	validator := authmocks.NewMockTokenValidator(t)
 	validator.EXPECT().ValidateToken(mock.Anything, "fan-token").Return(&auth.Claims{Sub: "ext-user-1"}, nil).Maybe()
 	userRepo := entitymocks.NewMockUserRepository(t)
-	userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").
+	userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").
 		RunAndReturn(func(ctx context.Context, _ string) (*entity.User, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -60,7 +60,7 @@ func newTimeoutTestServer(t *testing.T) *httptest.Server {
 	handlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return concertv1connect.NewConcertServiceHandler(
-				rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger), opts...)
+				rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder(""), logger), opts...)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return followv1connect.NewFollowServiceHandler(

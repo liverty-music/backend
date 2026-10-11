@@ -85,7 +85,7 @@ func (h *CheckoutHandler) AuthorizeCard(
 		return nil, err
 	}
 
-	secret, err := h.checkoutUC.Authorize(ctx, userID, entity.CheckoutID(req.Msg.GetCheckoutId().GetValue()),
+	secret, err := h.checkoutUC.AuthorizeCard(ctx, userID, entity.CheckoutID(req.Msg.GetCheckoutId().GetValue()),
 		req.Msg.GetFullName().GetValue(), req.Msg.GetPhoneNumber().GetValue())
 	if err != nil {
 		return nil, err

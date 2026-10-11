@@ -20,16 +20,16 @@ var _ seriesimagev1connect.SeriesImageServiceHandler = (*OrganizerSeriesImageHan
 // SeriesImageService Connect interface. It resolves the caller's organizer and
 // delegates to the use case.
 type OrganizerSeriesImageHandler struct {
-	mediaUC     usecase.MediaUseCase
-	organizerUC usecase.OrganizerUseCase
+	seriesImageUC usecase.SeriesImageUseCase
+	organizerUC   usecase.OrganizerUseCase
 }
 
 // NewOrganizerSeriesImageHandler creates a new OrganizerSeriesImageHandler.
 func NewOrganizerSeriesImageHandler(
-	mediaUC usecase.MediaUseCase,
+	seriesImageUC usecase.SeriesImageUseCase,
 	organizerUC usecase.OrganizerUseCase,
 ) *OrganizerSeriesImageHandler {
-	return &OrganizerSeriesImageHandler{mediaUC: mediaUC, organizerUC: organizerUC}
+	return &OrganizerSeriesImageHandler{seriesImageUC: seriesImageUC, organizerUC: organizerUC}
 }
 
 // resolveCallerOrganizer reads the identity provider's organization id from
@@ -53,7 +53,7 @@ func (h *OrganizerSeriesImageHandler) CreateUploadUrl(
 		return nil, err
 	}
 
-	out, err := h.mediaUC.CreateMediaUploadURL(ctx, organizer.ID, usecase.CreateMediaUploadURLInput{
+	out, err := h.seriesImageUC.CreateUploadURL(ctx, organizer.ID, usecase.CreateMediaUploadURLInput{
 		ContentType: req.Msg.GetContentType(),
 	})
 	if err != nil {

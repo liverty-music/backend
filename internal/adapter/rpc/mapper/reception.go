@@ -80,8 +80,8 @@ func AdmitResultToProto(r *usecase.AdmitResult) *receptionv1.AdmitResponse {
 	for _, rt := range r.RejectedTickets {
 		t := &receptionv1.RejectedTicket{Reason: RejectedScanReasonToProto(rt.Reason)}
 		if rt.Reason == entity.RejectedScanReasonAlreadyAdmitted {
-			if rt.EarlierAdmittedTime != nil {
-				t.EarlierAdmitTime = timestamppb.New(*rt.EarlierAdmittedTime)
+			if rt.EarlierAdmitTime != nil {
+				t.EarlierAdmitTime = timestamppb.New(*rt.EarlierAdmitTime)
 			}
 			if rt.EarlierReceptionLinkNumber > 0 {
 				t.EarlierReceptionLinkNumber = &entityv1.ReceptionLinkNumber{Value: int32(rt.EarlierReceptionLinkNumber)}

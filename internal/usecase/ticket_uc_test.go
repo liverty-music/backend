@@ -117,7 +117,7 @@ func TestTicketUseCase_GetMyTickets(t *testing.T) {
 			tickets.EXPECT().ListByUser(ctx, entity.UserID("fan-1")).Return(tt.list, nil)
 			uc := newOrderReadUC(t, entitymocks.NewMockOrderRepository(t), tickets)
 
-			got, err := uc.GetMyTickets(ctx, "fan-1")
+			got, err := uc.List(ctx, "fan-1")
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
@@ -130,7 +130,7 @@ func TestTicketUseCase_GetMyTickets(t *testing.T) {
 		tickets.EXPECT().ListByUser(ctx, entity.UserID("fan-1")).Return(nil, apperr.ErrInternal)
 		uc := newOrderReadUC(t, entitymocks.NewMockOrderRepository(t), tickets)
 
-		_, err := uc.GetMyTickets(ctx, "fan-1")
+		_, err := uc.List(ctx, "fan-1")
 
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})

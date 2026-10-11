@@ -97,7 +97,7 @@ func TestUserToProto(t *testing.T) {
 			user: &entity.User{
 				ID:                "u-1",
 				Email:             "test@example.com",
-				ExternalID:        "ext-1",
+				ProviderUserID:    "ext-1",
 				Name:              "Taro",
 				PreferredLanguage: "ja",
 			},
@@ -108,7 +108,7 @@ func TestUserToProto(t *testing.T) {
 			user: &entity.User{
 				ID:                "u-2",
 				Email:             "legacy@example.com",
-				ExternalID:        "ext-2",
+				ProviderUserID:    "ext-2",
 				Name:              "Legacy User",
 				PreferredLanguage: "",
 			},
@@ -129,7 +129,7 @@ func TestUserToProto(t *testing.T) {
 			require.NotNil(t, pb)
 			assert.Equal(t, tt.user.ID, pb.GetId().GetValue())
 			assert.Equal(t, tt.user.Email, pb.GetEmail().GetValue())
-			assert.Equal(t, tt.user.ExternalID, pb.GetProviderUserId().GetValue())
+			assert.Equal(t, tt.user.ProviderUserID, pb.GetProviderUserId().GetValue())
 			assert.Equal(t, tt.user.Name, pb.GetName())
 			assert.Equal(t, tt.wantPreferredLanguage, pb.GetPreferredLanguage())
 		})
@@ -230,7 +230,7 @@ func TestNewUserFromCreateRequest(t *testing.T) {
 				return
 			}
 			require.NotNil(t, got)
-			assert.Equal(t, tt.claims.Sub, got.ExternalID)
+			assert.Equal(t, tt.claims.Sub, got.ProviderUserID)
 			assert.Equal(t, tt.claims.Email, got.Email)
 			assert.Equal(t, tt.claims.Name, got.Name)
 			assert.Equal(t, tt.wantLang, got.PreferredLanguage)

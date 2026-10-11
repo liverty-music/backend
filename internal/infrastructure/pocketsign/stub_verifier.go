@@ -15,10 +15,10 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
-// Compile-time assertion that StubVerifier satisfies usecase.PocketSignVerifier.
-var _ usecase.PocketSignVerifier = (*StubVerifier)(nil)
+// Compile-time assertion that StubVerifier satisfies usecase.IdentityVerifier.
+var _ usecase.IdentityVerifier = (*StubVerifier)(nil)
 
-// StubVerifier is a placeholder implementation of PocketSignVerifier used
+// StubVerifier is a placeholder implementation of IdentityVerifier used
 // when the real Pocket Sign Stamp API is not yet configured (pre-onboarding).
 // It returns a clear "not configured" error on every call so callers get an
 // explicit UNAVAILABLE rather than a panic or silent no-op.

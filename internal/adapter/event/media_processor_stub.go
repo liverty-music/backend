@@ -31,7 +31,7 @@ func NewMediaProcessor(logger *logging.Logger) entity.MediaProcessor {
 }
 
 // ProcessImage always returns entity.ErrUnsupportedMedia when libvips is not
-// compiled in. MediaUseCase.ProcessMedia treats this as a permanent failure
+// compiled in. SeriesImageUseCase.Process treats this as a permanent failure
 // and terminates processing without an error.
 func (s *StubMediaProcessor) ProcessImage(_ context.Context, _ []byte) ([]byte, []byte, error) {
 	return nil, nil, fmt.Errorf("%w: libvips not compiled in; rebuild with -tags vips", entity.ErrUnsupportedMedia)

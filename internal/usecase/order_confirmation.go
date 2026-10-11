@@ -149,7 +149,7 @@ func yen(amount int64) string {
 // email renders the confirmation email in lang ("ja" or "en").
 func (c orderConfirmationContent) email(lang string) entity.OrderConfirmationEmail {
 	date := c.concert.LocalDate
-	paid := c.order.PaidTime.In(c.tz)
+	paid := c.order.PayTime.In(c.tz)
 	card := strings.ToUpper(c.order.Payment.CardBrand)
 	business := c.organizer.BusinessDetails
 	if business == nil {

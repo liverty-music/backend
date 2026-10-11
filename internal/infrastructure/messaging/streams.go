@@ -118,7 +118,7 @@ var streams = []nats.StreamConfig{
 	{
 		// Carries MEDIA.uploaded (organizer media upload events), consumed by
 		// the media-consumer to generate WebP variants and cut over
-		// series_media. A plain MEDIA.* filter matches all two-token subjects
+		// series_cover_images. A plain MEDIA.* filter matches all two-token subjects
 		// — same convention as the ORGANIZER and SALES_PHASE streams.
 		Name:       "MEDIA",
 		Subjects:   []string{"MEDIA.*"},

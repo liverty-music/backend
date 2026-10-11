@@ -1,5 +1,5 @@
 // Package main provides a one-time migration job that normalizes listed_venue_name
-// values in venues, staged_concerts, and events tables by applying entity.NormalizeVenueName.
+// values in venues, concert_candidates, and events tables by applying entity.NormalizeVenueName.
 package main
 
 import (
@@ -60,14 +60,14 @@ func run(bootLogger *logging.Logger) error {
 
 	// venues must be normalized first: resolveOrCreateVenue looks up venues by
 	// their listed_venue_name, so an un-normalized venues row would cause a miss
-	// after staged_concerts is normalized (new concerts stage with a normalized
+	// after concert_candidates is normalized (new concerts stage with a normalized
 	// name that no longer matches the old raw-value venues row).
 	venuesUpdated, err := normalizeVenues(ctx, tx, logger)
 	if err != nil {
 		return fmt.Errorf("normalize venues: %w", err)
 	}
 
-	stagedUpdated, stagedDeleted, err := normalizeStagedConcerts(ctx, tx, logger)
+	stagedUpdated, stagedDeleted, err := normalizeConcertCandidates(ctx, tx, logger)
 	if err != nil {
 		return fmt.Errorf("normalize staged_concerts: %w", err)
 	}
@@ -92,8 +92,8 @@ func run(bootLogger *logging.Logger) error {
 }
 
 // normalizeVenues normalizes listed_venue_name in venues. This must run before
-// staged_concerts so that the GetByListedName SQL equality lookup keeps working
-// after the write-path normalization is deployed: a staged concert with a
+// concert_candidates so that the GetByListedName SQL equality lookup keeps working
+// after the write-path normalization is deployed: a concert candidate with a
 // normalized name must find its existing venue row by the same normalized key.
 func normalizeVenues(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (int, error) {
 	rows, err := tx.Query(ctx, `SELECT id, listed_venue_name FROM venues WHERE listed_venue_name IS NOT NULL`)
@@ -132,7 +132,7 @@ func normalizeVenues(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (in
 	return len(toUpdate), nil
 }
 
-// normalizeStagedConcerts normalizes listed_venue_name in staged_concerts.
+// normalizeConcertCandidates normalizes listed_venue_name in concert_candidates.
 //
 // Unresolved rows (resolved_place_id IS NULL) are covered by the partial unique
 // index uq_staged_concerts_by_listed_name(artist_id, local_date, listed_venue_name).
@@ -140,7 +140,7 @@ func normalizeVenues(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (in
 // row with the same (artist_id, local_date). To avoid a constraint violation we
 // first detect such duplicate pairs and delete the un-normalized duplicate (keeping
 // the row that already holds, or will hold after the update, the canonical form).
-func normalizeStagedConcerts(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (updated, deleted int, err error) {
+func normalizeConcertCandidates(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (updated, deleted int, err error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id, artist_id, local_date::text, listed_venue_name, resolved_place_id
 		FROM concert_candidates

@@ -41,7 +41,7 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 		h, wallet, users := newWalletPublicKeyHandler(t)
 		key := testutil.NewDeviceKey(t).PublicKey(t)
 		registered := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
-		users.EXPECT().GetByExternalID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ExternalID: "ext-1"}, nil)
+		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Register(ctx, entity.UserID("user-1"), key, mock.AnythingOfType("time.Time")).
 			Return(&usecase.RegisterWalletPublicKeyResult{
 				Key:              &entity.WalletPublicKey{UserID: "user-1", PublicKey: key, RegisteredTime: registered},
@@ -79,7 +79,7 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 		t.Parallel()
 		ctx := ticketAuthedCtx("ext-1")
 		h, _, users := newWalletPublicKeyHandler(t)
-		users.EXPECT().GetByExternalID(ctx, "ext-1").Return(nil, apperr.New(codes.NotFound, "no user"))
+		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(nil, apperr.New(codes.NotFound, "no user"))
 		_, err := h.Register(ctx, connect.NewRequest(&walletpublickeyv1.RegisterRequest{
 			PublicKey: &entityv1.PublicKey{Value: testutil.NewDeviceKey(t).PublicKey(t)},
 		}))
@@ -90,7 +90,7 @@ func TestWalletPublicKeyHandler_Register(t *testing.T) {
 		t.Parallel()
 		ctx := ticketAuthedCtx("ext-1")
 		h, wallet, users := newWalletPublicKeyHandler(t)
-		users.EXPECT().GetByExternalID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ExternalID: "ext-1"}, nil)
+		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Register(ctx, entity.UserID("user-1"), mock.Anything, mock.Anything).
 			Return(nil, apperr.New(codes.InvalidArgument, "not a P-256 point"))
 		_, err := h.Register(ctx, connect.NewRequest(&walletpublickeyv1.RegisterRequest{
@@ -110,7 +110,7 @@ func TestWalletPublicKeyHandler_Get(t *testing.T) {
 		h, wallet, users := newWalletPublicKeyHandler(t)
 		key := testutil.NewDeviceKey(t).PublicKey(t)
 		registered := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
-		users.EXPECT().GetByExternalID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ExternalID: "ext-1"}, nil)
+		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Get(ctx, entity.UserID("user-1")).
 			Return(&entity.WalletPublicKey{UserID: "user-1", PublicKey: key, RegisteredTime: registered}, nil)
 
@@ -132,7 +132,7 @@ func TestWalletPublicKeyHandler_Get(t *testing.T) {
 		t.Parallel()
 		ctx := ticketAuthedCtx("ext-1")
 		h, wallet, users := newWalletPublicKeyHandler(t)
-		users.EXPECT().GetByExternalID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ExternalID: "ext-1"}, nil)
+		users.EXPECT().GetByProviderUserID(ctx, "ext-1").Return(&entity.User{ID: "user-1", ProviderUserID: "ext-1"}, nil)
 		wallet.EXPECT().Get(ctx, entity.UserID("user-1")).Return(nil, apperr.New(codes.NotFound, "no key"))
 
 		_, err := h.Get(ctx, connect.NewRequest(&walletpublickeyv1.GetRequest{}))

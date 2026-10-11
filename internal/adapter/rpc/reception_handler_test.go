@@ -143,7 +143,7 @@ func TestReceptionHandler_Admit(t *testing.T) {
 		})).Return(&usecase.AdmitResult{
 			AdmittedTicketCount: 2,
 			RejectedTickets: []usecase.RejectedTicket{
-				{Reason: entity.RejectedScanReasonAlreadyAdmitted, EarlierAdmittedTime: &earlier, EarlierReceptionLinkNumber: 1},
+				{Reason: entity.RejectedScanReasonAlreadyAdmitted, EarlierAdmitTime: &earlier, EarlierReceptionLinkNumber: 1},
 			},
 		}, nil)
 

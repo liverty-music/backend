@@ -23,9 +23,9 @@ type Admission struct {
 	// ReceptionLinkNumber is the number of that ReceptionLink within its
 	// event, read together with the Admission for staff (受付1 ...).
 	ReceptionLinkNumber int
-	// AdmittedTime is when the Ticket was let in; equal to the Ticket's
+	// AdmitTime is when the Ticket was let in; equal to the Ticket's
 	// admitted time.
-	AdmittedTime time.Time
+	AdmitTime time.Time
 }
 
 // ErrReceptionLinkNotUsable is the cause of the PermissionDenied that

@@ -553,9 +553,9 @@ func (_c *MockOrganizerUseCase_ReconcileProvisioning_Call) RunAndReturn(run func
 	return _c
 }
 
-// ResolveCaller provides a mock function with given fields: ctx, zitadelOrgID
-func (_m *MockOrganizerUseCase) ResolveCaller(ctx context.Context, zitadelOrgID string) (*entity.Organizer, error) {
-	ret := _m.Called(ctx, zitadelOrgID)
+// ResolveCaller provides a mock function with given fields: ctx, providerOrganizerID
+func (_m *MockOrganizerUseCase) ResolveCaller(ctx context.Context, providerOrganizerID string) (*entity.Organizer, error) {
+	ret := _m.Called(ctx, providerOrganizerID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResolveCaller")
@@ -564,10 +564,10 @@ func (_m *MockOrganizerUseCase) ResolveCaller(ctx context.Context, zitadelOrgID 
 	var r0 *entity.Organizer
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Organizer, error)); ok {
-		return rf(ctx, zitadelOrgID)
+		return rf(ctx, providerOrganizerID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Organizer); ok {
-		r0 = rf(ctx, zitadelOrgID)
+		r0 = rf(ctx, providerOrganizerID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Organizer)
@@ -575,7 +575,7 @@ func (_m *MockOrganizerUseCase) ResolveCaller(ctx context.Context, zitadelOrgID 
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, zitadelOrgID)
+		r1 = rf(ctx, providerOrganizerID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -590,12 +590,12 @@ type MockOrganizerUseCase_ResolveCaller_Call struct {
 
 // ResolveCaller is a helper method to define mock.On call
 //   - ctx context.Context
-//   - zitadelOrgID string
-func (_e *MockOrganizerUseCase_Expecter) ResolveCaller(ctx interface{}, zitadelOrgID interface{}) *MockOrganizerUseCase_ResolveCaller_Call {
-	return &MockOrganizerUseCase_ResolveCaller_Call{Call: _e.mock.On("ResolveCaller", ctx, zitadelOrgID)}
+//   - providerOrganizerID string
+func (_e *MockOrganizerUseCase_Expecter) ResolveCaller(ctx interface{}, providerOrganizerID interface{}) *MockOrganizerUseCase_ResolveCaller_Call {
+	return &MockOrganizerUseCase_ResolveCaller_Call{Call: _e.mock.On("ResolveCaller", ctx, providerOrganizerID)}
 }
 
-func (_c *MockOrganizerUseCase_ResolveCaller_Call) Run(run func(ctx context.Context, zitadelOrgID string)) *MockOrganizerUseCase_ResolveCaller_Call {
+func (_c *MockOrganizerUseCase_ResolveCaller_Call) Run(run func(ctx context.Context, providerOrganizerID string)) *MockOrganizerUseCase_ResolveCaller_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})

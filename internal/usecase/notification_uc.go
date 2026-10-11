@@ -52,14 +52,14 @@ type NotificationUseCase interface {
 	//   - PermissionDenied: the notification belongs to a different user.
 	MarkRead(ctx context.Context, userID, notificationID string) error
 
-	// MarkDismissed marks the (userID, notificationID) notification as dismissed.
+	// Dismiss marks the (userID, notificationID) notification as dismissed.
 	// It is idempotent and user-scoped.
 	//
 	// # Possible errors
 	//
 	//   - NotFound: no notification with that id exists.
 	//   - PermissionDenied: the notification belongs to a different user.
-	MarkDismissed(ctx context.Context, userID, notificationID string) error
+	Dismiss(ctx context.Context, userID, notificationID string) error
 
 	// SendOrderConfirmation tells the buyer of a paid Order that the purchase
 	// went through: the confirmation email (at most once per Order) in the
@@ -142,8 +142,8 @@ func (uc *notificationUseCase) MarkRead(ctx context.Context, userID, notificatio
 	return nil
 }
 
-// MarkDismissed implements [NotificationUseCase].
-func (uc *notificationUseCase) MarkDismissed(ctx context.Context, userID, notificationID string) error {
+// Dismiss implements [NotificationUseCase].
+func (uc *notificationUseCase) Dismiss(ctx context.Context, userID, notificationID string) error {
 	if err := uc.assertOwnership(ctx, userID, notificationID); err != nil {
 		return err
 	}

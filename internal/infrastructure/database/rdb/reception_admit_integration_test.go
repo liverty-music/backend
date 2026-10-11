@@ -203,7 +203,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 		require.Len(t, got.RejectedTickets, 1)
 		rt := got.RejectedTickets[0]
 		assert.Equal(t, entity.RejectedScanReasonAlreadyAdmitted, rt.Reason)
-		assert.True(t, rt.EarlierAdmittedTime.Equal(first))
+		assert.True(t, rt.EarlierAdmitTime.Equal(first))
 		assert.Equal(t, 1, rt.EarlierReceptionLinkNumber)
 
 		var reason int16

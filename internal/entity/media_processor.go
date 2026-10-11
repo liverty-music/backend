@@ -7,12 +7,12 @@ import (
 
 // ErrUnsupportedMedia is returned by [MediaProcessor.ProcessImage] when the
 // original fails a safety check (invalid magic bytes, exceeds the pixel/edge
-// limits, is an SVG, etc.). MediaUseCase.ProcessMedia treats this as a
+// limits, is an SVG, etc.). SeriesImageUseCase.Process treats this as a
 // permanent failure: the original is deleted and the event is not retried.
 var ErrUnsupportedMedia = errors.New("unsupported or unsafe media")
 
 // MediaProcessor abstracts the image-processing step (decode, resize, encode
-// WebP variants) that MediaUseCase.ProcessMedia orchestrates. The concrete
+// WebP variants) that SeriesImageUseCase.Process orchestrates. The concrete
 // implementation is infrastructure (libvips); declaring the port here keeps
 // the usecase free of any infrastructure import.
 type MediaProcessor interface {

@@ -18,35 +18,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// onboardingUCStub is a function-field OnboardingUseCase.
+// onboardingUCStub is a function-field PayoutAccountUseCase.
 type onboardingUCStub struct {
-	fn func(organizerID string) (*entity.OrganizerConnectedAccount, string, error)
+	fn func(organizerID string) (*entity.PayoutAccount, string, error)
 }
 
-func (s *onboardingUCStub) GetOrCreateOnboarding(_ context.Context, organizerID string) (*entity.OrganizerConnectedAccount, string, error) {
+func (s *onboardingUCStub) Get(_ context.Context, organizerID string) (*entity.PayoutAccount, string, error) {
 	return s.fn(organizerID)
 }
 
-func TestPayoutOnboardingHandler_GetScenarios(t *testing.T) {
+func TestPayoutAccountHandler_GetScenarios(t *testing.T) {
 	t.Parallel()
 
-	newHandler := func(t *testing.T, uc usecase.OnboardingUseCase) *handler.PayoutOnboardingHandler {
+	newHandler := func(t *testing.T, uc usecase.PayoutAccountUseCase) *handler.PayoutAccountHandler {
 		t.Helper()
 		organizerUC := ucmocks.NewMockOrganizerUseCase(t)
-		organizerUC.EXPECT().ResolveCaller(mock.Anything, testZitadelOrgID).Return(&entity.Organizer{ID: "org-1"}, nil).Once()
+		organizerUC.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(&entity.Organizer{ID: "org-1"}, nil).Once()
 		logger, err := logging.New()
 		require.NoError(t, err)
-		return handler.NewPayoutOnboardingHandler(uc, organizerUC, logger)
+		return handler.NewPayoutAccountHandler(uc, organizerUC, logger)
 	}
 
 	t.Run("operator opens payout settings", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/organizer/api/rpc/payout-onboarding "Operator opens payout settings"
-		h := newHandler(t, &onboardingUCStub{fn: func(organizerID string) (*entity.OrganizerConnectedAccount, string, error) {
-			return &entity.OrganizerConnectedAccount{OrganizerID: organizerID, AccountRef: "acct_1", Status: entity.PayoutOnboardingStatusPending},
+		h := newHandler(t, &onboardingUCStub{fn: func(organizerID string) (*entity.PayoutAccount, string, error) {
+			return &entity.PayoutAccount{OrganizerID: organizerID, ProviderAccountID: "acct_1", Status: entity.PayoutOnboardingStatusPending},
 				"https://connect.example/onboarding", nil
 		}})
-		resp, err := h.Get(orgCtx(testZitadelOrgID), connect.NewRequest(&payoutaccountv1.GetRequest{}))
+		resp, err := h.Get(orgCtx(testProviderOrganizerID), connect.NewRequest(&payoutaccountv1.GetRequest{}))
 		require.NoError(t, err)
 		assert.Equal(t, "org-1", resp.Msg.PayoutAccount.OrganizerId.Value)
 		assert.Equal(t, "acct_1", resp.Msg.PayoutAccount.ProviderAccountId.GetValue())
@@ -56,10 +56,10 @@ func TestPayoutOnboardingHandler_GetScenarios(t *testing.T) {
 	t.Run("organizer gone meanwhile", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/organizer/api/rpc/payout-onboarding "Organizer gone meanwhile"
-		h := newHandler(t, &onboardingUCStub{fn: func(string) (*entity.OrganizerConnectedAccount, string, error) {
+		h := newHandler(t, &onboardingUCStub{fn: func(string) (*entity.PayoutAccount, string, error) {
 			return nil, "", apperr.New(codes.NotFound, "organizer not found")
 		}})
-		_, err := h.Get(orgCtx(testZitadelOrgID), connect.NewRequest(&payoutaccountv1.GetRequest{}))
+		_, err := h.Get(orgCtx(testProviderOrganizerID), connect.NewRequest(&payoutaccountv1.GetRequest{}))
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	})
 }

@@ -157,13 +157,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	concertRepo := rdb.NewConcertRepository(db)
 	venueRepo := rdb.NewVenueRepository(db)
 	seriesRepo := rdb.NewSeriesRepository(db)
-	searchLogRepo := rdb.NewSearchLogRepository(db)
-	stagedConcertRepo := rdb.NewStagedConcertRepository(db)
-	rejectedConcertRepo := rdb.NewRejectedConcertLogRepository(db)
+	concertSearchRepo := rdb.NewConcertSearchRepository(db)
+	concertCandidateRepo := rdb.NewConcertCandidateRepository(db)
+	rejectedConcertRepo := rdb.NewRejectedConcertRepository(db)
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	organizerRepo := rdb.NewOrganizerRepository(db)
-	kycRepo := rdb.NewKycRepository(db)
+	identityVerificationRepo := rdb.NewIdentityVerificationRepository(db)
 	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db)
 	eventPublishState := rdb.NewEventPublishStateRepository(db)
 	orderRepo := rdb.NewOrderRepository(db)
@@ -171,7 +171,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	issuanceRepo := rdb.NewIssuanceRepository(db)
 	settlementRepo := rdb.NewSettlementRepository(db)
 	refundRepo := rdb.NewRefundRepository(db)
-	connectedAccountRepo := rdb.NewOrganizerConnectedAccountRepository(db)
+	connectedAccountRepo := rdb.NewPayoutAccountRepository(db)
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
 	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
@@ -253,7 +253,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	userUC := usecase.NewUserUseCase(userRepo, ticketRepo, orderRepo, eventPublisher, emailVerifier, identityRemover, logger)
 	centroidResolver := geo.NewCentroidResolver()
-	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, searchLogRepo, stagedConcertRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
+	concertUC := usecase.NewConcertUseCase(artistRepo, concertRepo, venueRepo, seriesRepo, organizerRepo, concertSearchRepo, concertCandidateRepo, rejectedConcertRepo, geminiSearcher, centroidResolver, eventPublisher, businessMetrics, cfg.GCP.SearchCacheTTL(), cfg.GCP.SearchDiscoveryWindow(), logger)
 	artistUC := usecase.NewArtistUseCase(artistRepo, lastfmClient, musicbrainzClient, eventPublisher, artistCache, logger)
 	// Organizer tenant provisioner: the real Zitadel Management-API client on the
 	// workload that provisions organizers (the isolated admin workload, which
@@ -306,7 +306,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are
 	// configured; fall back to StubVerifier (returns UNAVAILABLE) when
 	// unconfigured so local dev and pre-onboarding environments stay safe and inert.
-	var pocketSignVerifier usecase.PocketSignVerifier
+	var pocketSignVerifier usecase.IdentityVerifier
 	psConfig := infrapocketsign.StampClientConfig{
 		BaseURL:     cfg.PocketSign.BaseURL,
 		Token:       cfg.PocketSign.Token,
@@ -333,15 +333,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		pocketSignVerifier = infrapocketsign.NewStubVerifier()
 		logger.Info(ctx, "pocket sign verify client not configured; using stub (identity verification unavailable)")
 	}
-	kycUC := usecase.NewKycUseCase(kycRepo, userRepo, pocketSignVerifier, logger)
-	// ProcessMedia is never called from the RPC server (only the dedicated
+	identityVerificationUC := usecase.NewIdentityVerificationUseCase(identityVerificationRepo, userRepo, pocketSignVerifier, logger)
+	// SeriesImageUseCase.Process is never called from the RPC server (only the dedicated
 	// media-consumer job in media_job.go invokes it), so no MediaProcessor is
 	// wired here.
-	mediaUC := usecase.NewMediaUseCase(seriesRepo, seriesRepo, imageStorer, nil, eventPublisher, logger)
-	// MediaURLBuilder composes organizer series-media CDN URLs for the
+	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, seriesRepo, imageStorer, nil, eventPublisher, logger)
+	// SeriesImageURLBuilder composes organizer series-media CDN URLs for the
 	// organizer-facing ConcertService mapper. The CDN base is sourced from
 	// config (ORGANIZER_MEDIA_CDN_BASE) rather than read directly by entity.
-	mediaURLBuilder := mapper.NewMediaURLBuilder(cfg.OrganizerMediaCDNBase)
+	seriesImageURLBuilder := mapper.NewSeriesImageURLBuilder(cfg.OrganizerMediaCDNBase)
 
 	// Payment authorization port: use the real Stripe adapter when a secret key
 	// is configured, otherwise a no-op that returns Unavailable so local
@@ -351,55 +351,55 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
 	paymentConfigured := cfg.Stripe.SecretKey != ""
 	var (
-		lotteryHolds   usecase.LotteryHoldPort
-		capturePort    entity.PaymentCapturePort
-		settlementPort entity.PaymentSettlementPort
-		checkoutAuth   entity.CheckoutAuthorizationPort
+		lotteryHolds      usecase.LotteryHoldPort
+		capturePort       entity.PaymentCapturePort
+		settlementPayouts entity.SettlementPayoutRepository
+		checkoutAuth      entity.CheckoutAuthorizationPort
 	)
 	if paymentConfigured {
 		stripePort := infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)
 		lotteryHolds, capturePort = stripePort, stripePort
-		settlementPort = infrapayment.NewStripeSettlementPort(cfg.Stripe.SecretKey, logger)
+		settlementPayouts = infrapayment.NewStripeSettlementPayoutRepository(cfg.Stripe.SecretKey, logger)
 		checkoutAuth = infrapayment.NewStripeCheckoutAuthorizationPort(cfg.Stripe.SecretKey, logger)
 	} else {
 		noopPort := infrapayment.NewNoopAuthorizationPort(logger)
 		lotteryHolds, capturePort = noopPort, noopPort
-		settlementPort = infrapayment.NewNoopSettlementPort(logger)
+		settlementPayouts = infrapayment.NewNoopSettlementPayoutRepository(logger)
 		checkoutAuth = infrapayment.NewNoopCheckoutAuthorizationPort(logger)
 	}
-	lotteryUC := usecase.NewLotteryUseCase(ticketSaleRepo, lotteryEntryRepo, ticketRepo, kycRepo, userRepo, lotteryHolds, time.Now, logger)
+	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryHolds, time.Now, logger)
 
 	// Issuance pipeline: turn Won-captured lottery entries and committed
 	// first-come checkouts into Orders + tickets.
 	issuanceUC := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
-		IssuanceRepo:       issuanceRepo,
-		OrderRepo:          orderRepo,
-		EntryRepo:          lotteryEntryRepo,
-		EventOrganizerRepo: eventOrganizerRepo,
-		OrganizerRepo:      organizerRepo,
-		KycRepo:            kycRepo,
-		CapturePort:        capturePort,
-		CheckoutRepo:       checkoutRepo,
-		TicketSaleRepo:     ticketSaleRepo,
-		EventState:         eventPublishState,
-		CheckoutAuth:       checkoutAuth,
-		Publisher:          eventPublisher,
-		Clock:              time.Now,
-		Logger:             logger,
+		IssuanceRepo:             issuanceRepo,
+		OrderRepo:                orderRepo,
+		EntryRepo:                lotteryEntryRepo,
+		EventOrganizerRepo:       eventOrganizerRepo,
+		OrganizerRepo:            organizerRepo,
+		IdentityVerificationRepo: identityVerificationRepo,
+		CapturePort:              capturePort,
+		CheckoutRepo:             checkoutRepo,
+		TicketSaleRepo:           ticketSaleRepo,
+		EventState:               eventPublishState,
+		CheckoutAuth:             checkoutAuth,
+		Publisher:                eventPublisher,
+		Clock:                    time.Now,
+		Logger:                   logger,
 	})
 	// Ticket sales (Lottery and FirstCome), their TicketTypes, and the fan's
 	// 15-minute first-come checkout.
 	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, lotteryEntryRepo, seriesRepo, organizerRepo, eventPublishState, eventStartTimeRepo, time.Now)
 	ticketTypeUC := usecase.NewTicketTypeUseCase(ticketSaleRepo, seriesRepo, time.Now)
 	checkoutUC := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
-		CheckoutRepo: checkoutRepo,
-		SaleRepo:     ticketSaleRepo,
-		UserRepo:     userRepo,
-		KycRepo:      kycRepo,
-		EventState:   eventPublishState,
-		Auth:         checkoutAuth,
-		Clock:        time.Now,
-		Logger:       logger,
+		CheckoutRepo:             checkoutRepo,
+		SaleRepo:                 ticketSaleRepo,
+		UserRepo:                 userRepo,
+		IdentityVerificationRepo: identityVerificationRepo,
+		EventState:               eventPublishState,
+		Auth:                     checkoutAuth,
+		Clock:                    time.Now,
+		Logger:                   logger,
 	})
 	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, receptionLinkRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
 
@@ -411,14 +411,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// refundRepo provides the single atomic DB commit (settlement→reversed +
 	// tickets→voided + order→refunded in one pgx tx). refundUC performs the
 	// idempotent Stripe calls first, then commits via refundRepo.
-	refundUC := usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, settlementPort, logger)
+	refundUC := usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, settlementPayouts, logger)
 	// Admin OrderService.Get: the Order with its Settlement.
 	orderUC := usecase.NewOrderUseCase(orderRepo, settlementRepo)
 
 	// Settlement task 4.3: Stripe webhook ingest — idempotent dispatch.
 	// settlementRepo removed from constructor: it was previously injected but
 	// never used (the dead orderID field made the dispute path unreachable).
-	// Resolution is now via orderRepo.GetByPaymentIntentRef.
+	// Resolution is now via orderRepo.GetByProviderPaymentID.
 	stripeWebhookSvc := usecase.NewStripeWebhookService(
 		processedWebhookEventRepo,
 		orderRepo,
@@ -429,20 +429,20 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	// Settlement / payout pipeline (ticket-settlement-and-payout).
 	disputeBuffer := time.Duration(cfg.Stripe.SettlementDisputeBufferDays) * 24 * time.Hour
-	payoutSweeperUC := usecase.NewPayoutSweeperUseCase(
+	payoutSweeperUC := usecase.NewSettlementUseCase(
 		settlementRepo,
 		orderRepo,
 		connectedAccountRepo,
 		eventStartTimeRepo,
-		settlementPort,
+		settlementPayouts,
 		disputeBuffer,
 		time.Now,
 		logger,
 	)
-	onboardingUC := usecase.NewOnboardingUseCase(
+	payoutAccountUC := usecase.NewPayoutAccountUseCase(
 		connectedAccountRepo,
 		organizerRepo,
-		settlementPort,
+		settlementPayouts,
 		cfg.Stripe.OnboardingReturnURL,
 		logger,
 	)
@@ -457,7 +457,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// so the consoles can carry the key for refunds and payout onboarding. The
 	// draw remains idempotent across fan-api's own pods.
 	if cfg.RunsPaymentSweepers() {
-		startLotteryDrawSweeper(ctx, lotteryUC, logger)
+		startLotteryDrawSweeper(ctx, lotteryEntryUC, logger)
 		// The issuance sweeper reads ④'s captured payments, so it too requires a
 		// real payment provider and runs on the same (fan-api) workload. Both are
 		// idempotent across pods.
@@ -481,7 +481,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// The API never sends order confirmations (the consumer does), so the
 	// order-confirmation dependencies stay empty here.
 	notificationUC := usecase.NewNotificationUseCase(notificationRepo, pushSubRepo, webpushSender, eventPublisher, businessMetrics, logger, usecase.OrderConfirmationDeps{})
-	pushNotificationUC := usecase.NewPushNotificationUseCase(
+	pushSubscriptionUC := usecase.NewPushSubscriptionUseCase(
 		artistRepo,
 		concertRepo,
 		followRepo,
@@ -544,7 +544,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	adminHandlers := []server.RPCHandlerFunc{
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminconcertconnect.NewConcertServiceHandler(
-				rpc.NewAdminConcertHandler(concertUC, mediaURLBuilder, logger),
+				rpc.NewAdminConcertHandler(concertUC, seriesImageURLBuilder, logger),
 				opts...,
 			)
 		},
@@ -582,10 +582,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-		// Admin ConcertCandidateService: review of staged concerts.
+		// Admin ConcertCandidateService: review of concert candidates.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminconcertcandidateconnect.NewConcertCandidateServiceHandler(
-				rpc.NewAdminStagedConcertHandler(concertUC, logger),
+				rpc.NewAdminConcertCandidateHandler(concertUC, logger),
 				opts...,
 			)
 		},
@@ -599,7 +599,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Admin NotificationService: NotifyNewConcerts.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminnotificationconnect.NewNotificationServiceHandler(
-				rpc.NewAdminNotificationHandler(pushNotificationUC, cfg.BaseConfig, logger),
+				rpc.NewAdminNotificationHandler(pushSubscriptionUC, cfg.BaseConfig, logger),
 				opts...,
 			)
 		},
@@ -627,7 +627,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return pushsubscriptionconnect.NewPushSubscriptionServiceHandler(
-				rpc.NewPushSubscriptionHandler(pushNotificationUC, userRepo, logger),
+				rpc.NewPushSubscriptionHandler(pushSubscriptionUC, userRepo, logger),
 				opts...,
 			)
 		},
@@ -670,7 +670,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return identityverificationconnect.NewIdentityVerificationServiceHandler(
-				rpc.NewKycHandler(kycUC, userUC, logger),
+				rpc.NewIdentityVerificationHandler(identityVerificationUC, userUC, logger),
 				opts...,
 			)
 		},
@@ -693,7 +693,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return lotteryentryconnect.NewLotteryEntryServiceHandler(
-				rpc.NewLotteryEntryHandler(lotteryUC, userUC, logger),
+				rpc.NewLotteryEntryHandler(lotteryEntryUC, userUC, logger),
 				opts...,
 			)
 		},
@@ -701,7 +701,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 
 	handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 		return concertconnect.NewConcertServiceHandler(
-			rpc.NewConcertHandler(concertUC, userRepo, mediaURLBuilder, logger),
+			rpc.NewConcertHandler(concertUC, userRepo, seriesImageURLBuilder, logger),
 			opts...,
 		)
 	})
@@ -718,7 +718,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// Link preview tags for the fan web's /events/{id} HTML (fetched by Caddy
 	// templates). Public and outside the RPC rate limit, since every crawler
 	// request reaches fan-api from Caddy's Pod IP.
-	linkPreviewHandler := linkpreview.NewHandler(concertUC, linkpreview.NewTagBuilder(cfg.FanWebBaseURL, mediaURLBuilder), logger)
+	linkPreviewHandler := linkpreview.NewHandler(concertUC, linkpreview.NewTagBuilder(cfg.FanWebBaseURL, seriesImageURLBuilder), logger)
 	publicRoutes := []server.PublicHTTPRoute{
 		{Pattern: linkpreview.Pattern, Handler: linkPreviewHandler},
 	}
@@ -759,7 +759,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerseriesconnect.NewSeriesServiceHandler(
-				rpc.NewOrganizerSeriesHandler(concertAuthoringUC, organizerUC, mediaUC, mediaURLBuilder, logger),
+				rpc.NewOrganizerSeriesHandler(concertAuthoringUC, organizerUC, seriesImageUC, seriesImageURLBuilder, logger),
 				opts...,
 			)
 		},
@@ -773,7 +773,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Organizer-facing SeriesImageService: CreateUploadUrl.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerseriesimageconnect.NewSeriesImageServiceHandler(
-				rpc.NewOrganizerSeriesImageHandler(mediaUC, organizerUC),
+				rpc.NewOrganizerSeriesImageHandler(seriesImageUC, organizerUC),
 				opts...,
 			)
 		},
@@ -787,7 +787,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Organizer-facing PayoutAccountService: Get.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return payoutaccountconnect.NewPayoutAccountServiceHandler(
-				rpc.NewPayoutOnboardingHandler(onboardingUC, organizerUC, logger),
+				rpc.NewPayoutAccountHandler(payoutAccountUC, organizerUC, logger),
 				opts...,
 			)
 		},

@@ -40,7 +40,7 @@ func (h *FollowHandler) Follow(ctx context.Context, req *connect.Request[rpc.Fol
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (h *FollowHandler) Unfollow(ctx context.Context, req *connect.Request[rpc.U
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -80,12 +80,12 @@ func (h *FollowHandler) List(ctx context.Context, _ *connect.Request[rpc.ListReq
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
 
-	followed, err := h.followUseCase.ListFollowed(ctx, user.ID)
+	followed, err := h.followUseCase.List(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (h *FollowHandler) SetHype(ctx context.Context, req *connect.Request[rpc.Se
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}

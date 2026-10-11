@@ -60,11 +60,11 @@ const (
 	SeriesPublishStateCancelled SeriesPublishState = "CANCELLED"
 )
 
-// Media represents a single media object uploaded by an organizer. The ID is
+// SeriesImage represents a single media object uploaded by an organizer. The ID is
 // a UUIDv7 that serves as both the creation timestamp source and the
 // cache-busting object-key token. No URL is stored; the served URL is derived
 // at read time from the exposure and the media id.
-type Media struct {
+type SeriesImage struct {
 	// ID is the unique media identifier (UUIDv7, application-generated). It is
 	// the object-key basename and the cache-busting version token.
 	ID string
@@ -77,7 +77,7 @@ type Media struct {
 
 // ContentType returns the content_type attribute for IMAGE media, or empty
 // string when the attribute is absent.
-func (m *Media) ContentType() string {
+func (m *SeriesImage) ContentType() string {
 	if m.Attributes == nil {
 		return ""
 	}
@@ -109,11 +109,11 @@ type Series struct {
 
 	// Description is the optional free-form body text authored by the organizer.
 	Description *string
-	// CoverMedia is the current cover media object for the series (the image
+	// CoverImage is the current cover media object for the series (the image
 	// shown as the series' cover). Nil when no media has been uploaded. The
 	// served URL is derived at read time from the exposure and the media id —
 	// it is NOT stored on the series row.
-	CoverMedia *Media
+	CoverImage *SeriesImage
 	// OrganizerID is the owning organizer for a first-party series. Nil marks
 	// a discovery-pipeline series.
 	OrganizerID *string
@@ -180,34 +180,34 @@ func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 	}
 }
 
-// MediaRepository defines the data access interface for [Media] objects and the
-// series_media cut-over that the media-processor consumer performs after writing
+// SeriesImageRepository defines the data access interface for [Media] objects and the
+// series_cover_images cut-over that the media-processor consumer performs after writing
 // variants to GCS.
-type MediaRepository interface {
+type SeriesImageRepository interface {
 	// InsertMedia persists a media row idempotently (ON CONFLICT(id) DO NOTHING).
 	// Used by AttachMedia to record the upload before publishing MEDIA.uploaded.
 	//
 	// # Possible errors
 	//
 	//  - Internal: if the insert fails.
-	InsertMedia(ctx context.Context, media *Media) error
+	InsertMedia(ctx context.Context, media *SeriesImage) error
 
 	// FindMediaByID retrieves a single media row by id.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: if no media row exists with the given id.
-	FindMediaByID(ctx context.Context, mediaID string) (*Media, error)
+	FindMediaByID(ctx context.Context, mediaID string) (*SeriesImage, error)
 
 	// CutOverSeriesMedia atomically re-points a series' cover to newMediaID and
 	// returns the prior media id (empty string when the series had no cover).
 	// The cut-over is performed in a single transaction:
-	//  1. upsert series_media(series_id) → newMediaID;
+	//  1. upsert series_cover_images(series_id) → newMediaID;
 	//  2. capture the old media_id (if any);
 	//  3. delete the old media row.
 	// After a successful return the old GCS objects can be reclaimed via
 	// ImageStorer.DeletePrefix. On redelivery the operation is idempotent:
-	// if series_media already points to newMediaID the function returns ("", nil).
+	// if series_cover_images already points to newMediaID the function returns ("", nil).
 	//
 	// # Possible errors
 	//
@@ -231,7 +231,7 @@ type MediaRepository interface {
 	// # Possible errors
 	//
 	//  - Internal: if the query fails.
-	ListMediaByOrganizer(ctx context.Context, organizerID string) ([]*Media, error)
+	ListMediaByOrganizer(ctx context.Context, organizerID string) ([]*SeriesImage, error)
 }
 
 // SeriesRepository defines the data access interface for [Series].
@@ -258,7 +258,7 @@ type SeriesRepository interface {
 	//  - InvalidArgument: If the ids slice is empty.
 	ListByIDs(ctx context.Context, ids []string) ([]*Series, error)
 	// DeleteOrphaned removes, from among the given candidate series IDs, every row
-	// that has no member events AND no pending staged concerts referencing it.
+	// that has no member events AND no pending concert candidates referencing it.
 	// Eager series-row creation at discovery time allows a series to transiently
 	// exist with zero events (a provisional group mint that adopted a
 	// co-headliner's series, or a group later fully rejected); this sweep reclaims
@@ -349,14 +349,14 @@ type SeriesRepository interface {
 
 	// ReplaceCoverMedia atomically replaces a series' cover in a single
 	// transaction: it inserts a new media row (with the given organizer, kind, and
-	// attributes), inserts the series_media join row, and deletes any prior
-	// series_media + media rows. It returns the prior media id ("" when the series
+	// attributes), inserts the series_cover_images join row, and deletes any prior
+	// series_cover_images + media rows. It returns the prior media id ("" when the series
 	// had no cover) so the caller can reclaim the replaced object from storage.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If no series with the given ID exists.
-	ReplaceCoverMedia(ctx context.Context, seriesID string, newMedia *Media) (oldMediaID string, err error)
+	ReplaceCoverImage(ctx context.Context, seriesID string, newMedia *SeriesImage) (oldMediaID string, err error)
 
 	// PublishDraft materializes the draft content of a first-party DRAFT series
 	// into the live events table and returns the IDs of newly inserted events (the
@@ -369,7 +369,7 @@ type SeriesRepository interface {
 	//     cross-organizer decision tree used by the discovery pipeline.
 	//  3. Delete draft_events and draft_series_performers for the series.
 	//  4. Mark the series PUBLISHED (published_at = now).
-	//  5. Drop any staged_concerts that reference the same series_id (they are
+	//  5. Drop any concert_candidates that reference the same series_id (they are
 	//     superseded by the organizer's authoritative version).
 	//
 	// # Possible errors

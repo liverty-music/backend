@@ -560,7 +560,7 @@ func TestMarkDismissed_CrossUserRejected(t *testing.T) {
 		Return(&entity.Notification{ID: "n-1", UserID: "owner"}, nil)
 
 	uc := buildNotificationUC(t, notifRepo, pushSubRepo, sender, ucmocks.NewMockEventPublisher(t))
-	err := uc.MarkDismissed(context.Background(), "attacker", "n-1")
+	err := uc.Dismiss(context.Background(), "attacker", "n-1")
 
 	require.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	notifRepo.AssertNotCalled(t, "MarkDismissed")

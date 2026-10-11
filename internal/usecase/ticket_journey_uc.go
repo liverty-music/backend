@@ -28,12 +28,12 @@ type TicketJourneyUseCase interface {
 	//   - Internal: unexpected failure.
 	Delete(ctx context.Context, userID, eventID string) error
 
-	// ListByUser retrieves all ticket journeys for the authenticated user.
+	// List retrieves all ticket journeys for the authenticated user.
 	//
 	// # Possible errors:
 	//
 	//   - Internal: query failure.
-	ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error)
+	List(ctx context.Context, userID string) ([]*entity.TicketJourney, error)
 
 	// MarkPaid sets the buyer's ticket journey for the event to Paid for a paid
 	// Order, from a checkout or a won lottery, replacing whatever status the fan
@@ -123,8 +123,8 @@ func (uc *ticketJourneyUseCase) Delete(ctx context.Context, userID, eventID stri
 	return uc.repo.Delete(ctx, userID, eventID)
 }
 
-// ListByUser retrieves all ticket journeys for a user.
-func (uc *ticketJourneyUseCase) ListByUser(ctx context.Context, userID string) ([]*entity.TicketJourney, error) {
+// List retrieves all ticket journeys for a user.
+func (uc *ticketJourneyUseCase) List(ctx context.Context, userID string) ([]*entity.TicketJourney, error) {
 	return uc.repo.ListByUser(ctx, userID)
 }
 

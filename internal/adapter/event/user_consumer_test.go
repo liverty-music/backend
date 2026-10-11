@@ -32,8 +32,8 @@ func TestUserConsumer_Handle(t *testing.T) {
 		emailVerifier.EXPECT().SendVerification(anyCtx, "zitadel-user-001").Return(nil).Once()
 
 		msg := makeUserCreatedMsg(t, entity.UserCreatedData{
-			ExternalID: "zitadel-user-001",
-			Email:      "user@example.com",
+			ProviderUserID: "zitadel-user-001",
+			Email:          "user@example.com",
 		})
 
 		err := handler.Handle(msg)
@@ -52,8 +52,8 @@ func TestUserConsumer_Handle(t *testing.T) {
 			Once()
 
 		msg := makeUserCreatedMsg(t, entity.UserCreatedData{
-			ExternalID: "zitadel-user-002",
-			Email:      "other@example.com",
+			ProviderUserID: "zitadel-user-002",
+			Email:          "other@example.com",
 		})
 
 		err := handler.Handle(msg)
@@ -68,8 +68,8 @@ func TestUserConsumer_Handle(t *testing.T) {
 		handler := event.NewUserConsumer(nil, newTestLogger(t))
 
 		msg := makeUserCreatedMsg(t, entity.UserCreatedData{
-			ExternalID: "zitadel-user-003",
-			Email:      "dev@example.com",
+			ProviderUserID: "zitadel-user-003",
+			Email:          "dev@example.com",
 		})
 
 		err := handler.Handle(msg)

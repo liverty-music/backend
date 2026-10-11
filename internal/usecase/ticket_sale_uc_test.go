@@ -426,11 +426,11 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
 		presale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1")
 		drawn := saleTime(11, 10, 10, 1)
-		presale.DrawnTime = &drawn
+		presale.DrawTime = &drawn
 		general := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 18, 10, 0), saleTime(11, 20, 19, 0), "event-1")
 		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{presale, general}, nil)
-		stats := entity.TicketTypeStats{EntryCount: 120, RequestedTicketCount: 200, WonEntryCount: 80, WonTicketCount: 150, LostEntryCount: 40}
-		f.entries.EXPECT().GetTicketTypeStats(mock.Anything, presale.TicketTypes[0].ID).Return(stats, nil)
+		stats := entity.LotteryEntryStats{EntryCount: 120, TicketCount: 200, WonEntryCount: 80, WonTicketCount: 150, LostEntryCount: 40}
+		f.entries.EXPECT().GetStatsByTicketType(mock.Anything, presale.TicketTypes[0].ID).Return(stats, nil)
 
 		views, err := f.uc.ListOwnByEvent(ctx, "org-1", "event-1")
 
@@ -751,7 +751,7 @@ func TestTicketSaleUseCase_SetVerificationRequirement(t *testing.T) {
 
 	// updatesRequirement makes the update return sale with the requirement.
 	updatesRequirement := func(f *ticketSaleFixture, sale *entity.TicketSale, req entity.VerificationRequirement) {
-		f.sales.EXPECT().UpdateVerificationRequirement(mock.Anything, sale.ID, req, now).RunAndReturn(
+		f.sales.EXPECT().SetVerificationRequirement(mock.Anything, sale.ID, req, now).RunAndReturn(
 			func(context.Context, entity.TicketSaleID, entity.VerificationRequirement, time.Time) (*entity.TicketSale, error) {
 				updated := *sale
 				updated.VerificationRequirement = req
@@ -780,7 +780,7 @@ func TestTicketSaleUseCase_SetVerificationRequirement(t *testing.T) {
 		f := newTicketSaleFixture(t, now)
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(10, 20, 0, 0), saleTime(10, 30, 0, 0), "event-1")
 		drawn := saleTime(10, 30, 0, 1)
-		sale.DrawnTime = &drawn
+		sale.DrawTime = &drawn
 		f.sales.EXPECT().Get(mock.Anything, sale.ID, now).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 		updatesRequirement(f, sale, entity.VerificationRequirementVerifiedAny)

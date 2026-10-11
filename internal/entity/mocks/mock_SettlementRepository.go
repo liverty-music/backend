@@ -200,9 +200,9 @@ func (_c *MockSettlementRepository_ListHeld_Call) RunAndReturn(run func(context.
 	return _c
 }
 
-// MarkReleased provides a mock function with given fields: ctx, id, chargeRef, releasedAt, splits
-func (_m *MockSettlementRepository) MarkReleased(ctx context.Context, id entity.SettlementID, chargeRef string, releasedAt time.Time, splits []entity.SettlementSplit) error {
-	ret := _m.Called(ctx, id, chargeRef, releasedAt, splits)
+// MarkReleased provides a mock function with given fields: ctx, id, providerChargeID, releasedAt, splits
+func (_m *MockSettlementRepository) MarkReleased(ctx context.Context, id entity.SettlementID, providerChargeID string, releasedAt time.Time, splits []entity.SettlementSplit) error {
+	ret := _m.Called(ctx, id, providerChargeID, releasedAt, splits)
 
 	if len(ret) == 0 {
 		panic("no return value specified for MarkReleased")
@@ -210,7 +210,7 @@ func (_m *MockSettlementRepository) MarkReleased(ctx context.Context, id entity.
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, entity.SettlementID, string, time.Time, []entity.SettlementSplit) error); ok {
-		r0 = rf(ctx, id, chargeRef, releasedAt, splits)
+		r0 = rf(ctx, id, providerChargeID, releasedAt, splits)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -226,14 +226,14 @@ type MockSettlementRepository_MarkReleased_Call struct {
 // MarkReleased is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id entity.SettlementID
-//   - chargeRef string
+//   - providerChargeID string
 //   - releasedAt time.Time
 //   - splits []entity.SettlementSplit
-func (_e *MockSettlementRepository_Expecter) MarkReleased(ctx interface{}, id interface{}, chargeRef interface{}, releasedAt interface{}, splits interface{}) *MockSettlementRepository_MarkReleased_Call {
-	return &MockSettlementRepository_MarkReleased_Call{Call: _e.mock.On("MarkReleased", ctx, id, chargeRef, releasedAt, splits)}
+func (_e *MockSettlementRepository_Expecter) MarkReleased(ctx interface{}, id interface{}, providerChargeID interface{}, releasedAt interface{}, splits interface{}) *MockSettlementRepository_MarkReleased_Call {
+	return &MockSettlementRepository_MarkReleased_Call{Call: _e.mock.On("MarkReleased", ctx, id, providerChargeID, releasedAt, splits)}
 }
 
-func (_c *MockSettlementRepository_MarkReleased_Call) Run(run func(ctx context.Context, id entity.SettlementID, chargeRef string, releasedAt time.Time, splits []entity.SettlementSplit)) *MockSettlementRepository_MarkReleased_Call {
+func (_c *MockSettlementRepository_MarkReleased_Call) Run(run func(ctx context.Context, id entity.SettlementID, providerChargeID string, releasedAt time.Time, splits []entity.SettlementSplit)) *MockSettlementRepository_MarkReleased_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(entity.SettlementID), args[2].(string), args[3].(time.Time), args[4].([]entity.SettlementSplit))
 	})

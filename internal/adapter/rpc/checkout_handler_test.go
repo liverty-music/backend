@@ -115,7 +115,7 @@ func TestCheckoutHandler(t *testing.T) {
 		t.Parallel()
 		f := newCheckoutFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.checkouts.EXPECT().Authorize(mock.Anything, entity.UserID(tkFanUserID), entity.CheckoutID(tkCheckoutID), "山田太郎", "+819012345678").
+		f.checkouts.EXPECT().AuthorizeCard(mock.Anything, entity.UserID(tkFanUserID), entity.CheckoutID(tkCheckoutID), "山田太郎", "+819012345678").
 			Return("pi_secret", nil)
 
 		resp, err := f.client.AuthorizeCard(ctx, connect.NewRequest(authorizeReq("+819012345678")))

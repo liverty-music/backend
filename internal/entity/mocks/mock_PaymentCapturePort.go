@@ -22,9 +22,9 @@ func (_m *MockPaymentCapturePort) EXPECT() *MockPaymentCapturePort_Expecter {
 	return &MockPaymentCapturePort_Expecter{mock: &_m.Mock}
 }
 
-// GetCapturedPayment provides a mock function with given fields: ctx, paymentIntentRef
-func (_m *MockPaymentCapturePort) GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*entity.CapturedPayment, error) {
-	ret := _m.Called(ctx, paymentIntentRef)
+// GetCapturedPayment provides a mock function with given fields: ctx, providerPaymentID
+func (_m *MockPaymentCapturePort) GetCapturedPayment(ctx context.Context, providerPaymentID string) (*entity.CapturedPayment, error) {
+	ret := _m.Called(ctx, providerPaymentID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetCapturedPayment")
@@ -33,10 +33,10 @@ func (_m *MockPaymentCapturePort) GetCapturedPayment(ctx context.Context, paymen
 	var r0 *entity.CapturedPayment
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.CapturedPayment, error)); ok {
-		return rf(ctx, paymentIntentRef)
+		return rf(ctx, providerPaymentID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.CapturedPayment); ok {
-		r0 = rf(ctx, paymentIntentRef)
+		r0 = rf(ctx, providerPaymentID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.CapturedPayment)
@@ -44,7 +44,7 @@ func (_m *MockPaymentCapturePort) GetCapturedPayment(ctx context.Context, paymen
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, paymentIntentRef)
+		r1 = rf(ctx, providerPaymentID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -59,12 +59,12 @@ type MockPaymentCapturePort_GetCapturedPayment_Call struct {
 
 // GetCapturedPayment is a helper method to define mock.On call
 //   - ctx context.Context
-//   - paymentIntentRef string
-func (_e *MockPaymentCapturePort_Expecter) GetCapturedPayment(ctx interface{}, paymentIntentRef interface{}) *MockPaymentCapturePort_GetCapturedPayment_Call {
-	return &MockPaymentCapturePort_GetCapturedPayment_Call{Call: _e.mock.On("GetCapturedPayment", ctx, paymentIntentRef)}
+//   - providerPaymentID string
+func (_e *MockPaymentCapturePort_Expecter) GetCapturedPayment(ctx interface{}, providerPaymentID interface{}) *MockPaymentCapturePort_GetCapturedPayment_Call {
+	return &MockPaymentCapturePort_GetCapturedPayment_Call{Call: _e.mock.On("GetCapturedPayment", ctx, providerPaymentID)}
 }
 
-func (_c *MockPaymentCapturePort_GetCapturedPayment_Call) Run(run func(ctx context.Context, paymentIntentRef string)) *MockPaymentCapturePort_GetCapturedPayment_Call {
+func (_c *MockPaymentCapturePort_GetCapturedPayment_Call) Run(run func(ctx context.Context, providerPaymentID string)) *MockPaymentCapturePort_GetCapturedPayment_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})

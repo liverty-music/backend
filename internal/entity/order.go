@@ -99,13 +99,13 @@ type Payment struct {
 	// Provider backs the captured payment; drives which adapter interprets the
 	// opaque references below.
 	Provider PaymentProvider
-	// PaymentIntentRef is the provider's PaymentIntent reference (e.g. a Stripe
+	// ProviderPaymentID is the provider's PaymentIntent reference (e.g. a Stripe
 	// "pi_..." id) for ④'s captured manual-capture authorization. Opaque; ⑤
 	// references but never re-charges it.
-	PaymentIntentRef string
-	// PaymentMethodRef is the provider's PaymentMethod reference (e.g. a Stripe
+	ProviderPaymentID string
+	// ProviderPaymentMethodID is the provider's PaymentMethod reference (e.g. a Stripe
 	// "pm_..." id) when distinct from the PaymentIntent. Optional, opaque.
-	PaymentMethodRef string
+	ProviderPaymentMethodID string
 	// CardBrand is a display-only card brand facet (e.g. "visa"). Optional.
 	CardBrand string
 	// CardLast4 is the display-only last four digits of the card. Optional; this
@@ -145,19 +145,19 @@ type Order struct {
 	Amount int64
 	// Currency is the ISO 4217 currency code of Amount (JPY for the MVP).
 	Currency string
-	// PaidTime is when the payment was captured (= ④'s capture time at the draw).
+	// PayTime is when the payment was captured (= ④'s capture time at the draw).
 	// Because the Order is created already paid, this is effectively its creation
 	// time.
-	PaidTime time.Time
-	// RefundRef is the opaque provider Refund reference ("re_...") set when the
+	PayTime time.Time
+	// ProviderRefundID is the opaque provider Refund reference ("re_...") set when the
 	// Order is refunded via CANCELLATION. Empty for orders
 	// refunded via DISPUTE (the chargeback reversed the charge at the card
 	// network; no Stripe Refund object is created) and for orders not yet
 	// refunded.
-	RefundRef string
-	// ConfirmationSentTime is when the purchase confirmation email was sent;
+	ProviderRefundID string
+	// ConfirmationSendTime is when the purchase confirmation email was sent;
 	// nil until sent. It keeps the email to one per Order.
-	ConfirmationSentTime *time.Time
+	ConfirmationSendTime *time.Time
 }
 
 // ValidateSource reports whether the Order names exactly one source: a
@@ -172,7 +172,7 @@ func (o *Order) ValidateSource() error {
 
 // RefundCommit bundles all of the DB state that must be persisted atomically
 // when an Order is refunded. The refund use case performs the Stripe money
-// movement (CreateRefund + ReverseTransfer) first — those are idempotent — and
+// movement (CreateRefund + ReversePayout) first — those are idempotent — and
 // then calls [RefundRepository.CommitRefund] to atomically commit the DB side.
 // This ensures the observable invariant: an Order is either fully-Paid (nothing
 // applied) or fully-Refunded (all three mutations committed together), never in
@@ -180,17 +180,17 @@ func (o *Order) ValidateSource() error {
 type RefundCommit struct {
 	// OrderID is the order to flip to Refunded.
 	OrderID OrderID
-	// RefundRef is the opaque provider Refund reference ("re_...") returned by
+	// ProviderRefundID is the opaque provider Refund reference ("re_...") returned by
 	// CreateRefund. Empty for DISPUTE reason — the chargeback already moved
 	// funds back to the cardholder and we do not issue a separate Refund call.
-	RefundRef string
+	ProviderRefundID string
 	// SettlementID is the settlement to flip to Reversed. Empty means no
 	// settlement row exists yet (payout sweep hasn't run); in that case no
 	// settlement mutation is performed but the order and tickets still flip.
 	SettlementID SettlementID
-	// ReversedSplits are the settlement splits with their TransferReversalRef
-	// values populated after ReverseTransfer calls. Ignored when SettlementID
-	// is empty. Only splits with a non-empty TransferReversalRef are updated.
+	// ReversedSplits are the settlement splits with their ProviderPayoutReversalID
+	// values populated after ReversePayout calls. Ignored when SettlementID
+	// is empty. Only splits with a non-empty ProviderPayoutReversalID are updated.
 	ReversedSplits []SettlementSplit
 }
 
@@ -202,12 +202,12 @@ type RefundRepository interface {
 	// completed refund:
 	//
 	//  1. UPDATE settlements SET status = Reversed (if SettlementID is set).
-	//  2. UPDATE settlement_splits SET transfer_reversal_ref (for each split).
+	//  2. UPDATE settlement_splits SET provider_payout_reversal_id (for each split).
 	//  3. UPDATE tickets SET status = Voided for all tickets of the Order.
-	//  4. UPDATE orders SET status = Refunded, refund_ref = RefundRef.
+	//  4. UPDATE orders SET status = Refunded, provider_refund_id = ProviderRefundID.
 	//
 	// All mutations are committed in a single pgx transaction so a crash between
-	// Stripe and DB is recoverable: on retry, CreateRefund and ReverseTransfer
+	// Stripe and DB is recoverable: on retry, CreateRefund and ReversePayout
 	// replay idempotently, and CommitRefund re-attempts the DB commit.
 	//
 	// The settlement guard (status IN (1, 2)) means a Reversed settlement
@@ -290,7 +290,7 @@ type OrderRepository interface {
 	//  - Internal: database query failure.
 	GetByCheckoutID(ctx context.Context, checkoutID CheckoutID) (*Order, error)
 
-	// GetByPaymentIntentRef returns the Order whose Payment.PaymentIntentRef
+	// GetByProviderPaymentID returns the Order whose Payment.ProviderPaymentID
 	// matches the given pi_ value. Used by the Stripe webhook service to resolve
 	// a dispute's charge → payment_intent → Order without exposing repo access
 	// to the HTTP handler layer.
@@ -299,7 +299,7 @@ type OrderRepository interface {
 	//
 	//  - NotFound: no Order exists for the given payment intent.
 	//  - Internal: database query failure.
-	GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*Order, error)
+	GetByProviderPaymentID(ctx context.Context, providerPaymentID string) (*Order, error)
 
 	// UpdateStatus changes the status of the Order identified by id (e.g. to
 	// Refunded on a cancellation refund, or Failed on the issuance-refund edge).
@@ -335,9 +335,9 @@ type OrderRepository interface {
 type CapturedPayment struct {
 	// Provider backs the captured payment (Stripe for the MVP).
 	Provider PaymentProvider
-	// PaymentIntentRef is the provider's reference of the charged payment
+	// ProviderPaymentID is the provider's reference of the charged payment
 	// (a Stripe "pi_..." id).
-	PaymentIntentRef string
+	ProviderPaymentID string
 	// AmountJPY is the captured amount in whole yen.
 	AmountJPY int64
 	// Currency is the ISO 4217 code of the captured amount (JPY for the MVP).
@@ -365,7 +365,7 @@ type PaymentCapturePort interface {
 	//    state (④'s capture has not settled).
 	//  - NotFound: the payment intent does not exist.
 	//  - Unavailable: the payment provider is unreachable.
-	GetCapturedPayment(ctx context.Context, paymentIntentRef string) (*CapturedPayment, error)
+	GetCapturedPayment(ctx context.Context, providerPaymentID string) (*CapturedPayment, error)
 }
 
 // OrderConfirmationEmail is the finished purchase confirmation message for one

@@ -55,7 +55,7 @@ func (h *NotificationHandler) Dismiss(ctx context.Context, req *connect.Request[
 		return nil, err
 	}
 
-	if err := h.notificationUC.MarkDismissed(ctx, userID, req.Msg.GetNotificationId().GetValue()); err != nil {
+	if err := h.notificationUC.Dismiss(ctx, userID, req.Msg.GetNotificationId().GetValue()); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&notificationpb.DismissResponse{}), nil
@@ -69,8 +69,8 @@ func (h *NotificationHandler) resolveCallerUserID(ctx context.Context) (string, 
 		return "", err
 	}
 	// notifications.user_id references users.id (internal UUID), not the
-	// identity-provider external_id, so resolve the internal record first.
-	user, err := h.userRepo.GetByExternalID(ctx, externalID)
+	// identity-provider provider_user_id, so resolve the internal record first.
+	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
 	if err != nil {
 		return "", err
 	}

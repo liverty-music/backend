@@ -35,7 +35,7 @@ func seriesTypeToProto(t entity.SeriesType) entityv1.SeriesType {
 // The first-party attributes (organizer id, description, visibility and publish
 // state) are set when the Series has them, so the fan app can tell first-party
 // concerts from discovered ones. The cover media needs the CDN base and is set
-// by [MediaURLBuilder.SeriesToProto]. The share token is never mapped.
+// by [SeriesImageURLBuilder.SeriesToProto]. The share token is never mapped.
 func SeriesToProto(s *entity.Series) *entityv1.Series {
 	if s == nil {
 		return nil
@@ -71,7 +71,7 @@ func SeriesToProto(s *entity.Series) *entityv1.Series {
 // ConcertToProto converts a domain Concert to protobuf: its Event and the ids
 // of its performing Artists. The Concert's Series and Artists are not
 // embedded; a response returns them once each beside the Concerts (see
-// [MediaURLBuilder.ReferencedSeries] and [ReferencedArtists]).
+// [SeriesImageURLBuilder.ReferencedSeries] and [ReferencedArtists]).
 func ConcertToProto(c *entity.Concert) *entityv1.Concert {
 	if c == nil {
 		return nil

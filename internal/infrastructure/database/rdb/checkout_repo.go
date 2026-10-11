@@ -31,8 +31,8 @@ const checkoutColumns = `
 `
 
 const (
-	checkoutGetQuery                   = `SELECT ` + checkoutColumns + ` FROM checkouts WHERE id = $1`
-	checkoutGetByAuthorizationRefQuery = `SELECT ` + checkoutColumns + ` FROM checkouts WHERE card_authorization_id = $1`
+	checkoutGetQuery                      = `SELECT ` + checkoutColumns + ` FROM checkouts WHERE id = $1`
+	checkoutGetByCardAuthorizationIDQuery = `SELECT ` + checkoutColumns + ` FROM checkouts WHERE card_authorization_id = $1`
 	// checkoutHeldOfUserQuery locks the user's Held checkout of the ticket type
 	// (at most one, by the partial unique index), lapsed or not.
 	checkoutHeldOfUserQuery = `
@@ -61,7 +61,7 @@ const (
 			id, ticket_type_id, user_id, ticket_count, amount, status, hold_expire_at
 		) VALUES ($1, $2, $3, $4, $5, 1, $6)
 	`
-	checkoutSetAuthorizationQuery = `
+	checkoutSetCardAuthorizationQuery = `
 		UPDATE checkouts SET card_authorization_id = $2
 		WHERE id = $1 AND status = 1 AND (card_authorization_id IS NULL OR card_authorization_id = $2)
 	`
@@ -85,7 +85,7 @@ const (
 		UPDATE checkouts SET capture_at = $2
 		WHERE id = $1 AND status = 2 AND capture_at IS NULL
 	`
-	checkoutRecordAuthorizationReleaseQuery = `
+	checkoutRecordCardAuthorizationReleaseQuery = `
 		UPDATE checkouts SET card_authorization_release_at = $2
 		WHERE id = $1 AND status IN (4, 5) AND card_authorization_id IS NOT NULL AND card_authorization_release_at IS NULL
 	`
@@ -180,20 +180,20 @@ func (r *CheckoutRepository) Get(ctx context.Context, id entity.CheckoutID) (*en
 	return c, nil
 }
 
-// GetByAuthorizationRef returns the checkout whose card hold has the given
+// GetByCardAuthorizationID returns the checkout whose card hold has the given
 // reference.
-func (r *CheckoutRepository) GetByAuthorizationRef(ctx context.Context, authorizationRef string) (*entity.Checkout, error) {
-	c, err := scanCheckout(r.db.Pool.QueryRow(ctx, checkoutGetByAuthorizationRefQuery, authorizationRef))
+func (r *CheckoutRepository) GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*entity.Checkout, error) {
+	c, err := scanCheckout(r.db.Pool.QueryRow(ctx, checkoutGetByCardAuthorizationIDQuery, cardAuthorizationID))
 	if err != nil {
-		return nil, toAppErr(err, "failed to get checkout by authorization", slog.String("authorization_ref", authorizationRef))
+		return nil, toAppErr(err, "failed to get checkout by authorization", slog.String("authorization_ref", cardAuthorizationID))
 	}
 	return c, nil
 }
 
-// SetAuthorization stoc the card hold reference of a Held checkout; it
+// SetCardAuthorization stoc the card hold reference of a Held checkout; it
 // changes no other attribute.
-func (r *CheckoutRepository) SetAuthorization(ctx context.Context, id entity.CheckoutID, authorizationRef string) error {
-	tag, err := r.db.Pool.Exec(ctx, checkoutSetAuthorizationQuery, string(id), authorizationRef)
+func (r *CheckoutRepository) SetCardAuthorization(ctx context.Context, id entity.CheckoutID, cardAuthorizationID string) error {
+	tag, err := r.db.Pool.Exec(ctx, checkoutSetCardAuthorizationQuery, string(id), cardAuthorizationID)
 	if err != nil {
 		return toAppErr(err, "failed to set checkout authorization", slog.String("checkout_id", string(id)))
 	}
@@ -343,10 +343,10 @@ func (r *CheckoutRepository) RecordCapture(ctx context.Context, id entity.Checko
 	return apperr.New(codes.FailedPrecondition, "checkout is not Committed", slog.String("checkout_id", string(id)))
 }
 
-// RecordAuthorizationRelease sets the authorization release time of an
+// RecordCardAuthorizationRelease sets the authorization release time of an
 // Expired or Released checkout with a card hold, once.
-func (r *CheckoutRepository) RecordAuthorizationRelease(ctx context.Context, id entity.CheckoutID, at time.Time) error {
-	tag, err := r.db.Pool.Exec(ctx, checkoutRecordAuthorizationReleaseQuery, string(id), at)
+func (r *CheckoutRepository) RecordCardAuthorizationRelease(ctx context.Context, id entity.CheckoutID, at time.Time) error {
+	tag, err := r.db.Pool.Exec(ctx, checkoutRecordCardAuthorizationReleaseQuery, string(id), at)
 	if err != nil {
 		return toAppErr(err, "failed to record authorization release", slog.String("checkout_id", string(id)))
 	}
@@ -358,7 +358,7 @@ func (r *CheckoutRepository) RecordAuthorizationRelease(ctx context.Context, id 
 		return err
 	}
 	ended := current.Status == entity.CheckoutStatusExpired || current.Status == entity.CheckoutStatusReleased
-	if ended && current.AuthorizationReleaseTime != nil {
+	if ended && current.CardAuthorizationReleaseTime != nil {
 		return nil
 	}
 	return apperr.New(codes.FailedPrecondition, "checkout is not an ended checkout with a card hold",
@@ -427,9 +427,9 @@ func scanCheckout(row pgx.Row) (*entity.Checkout, error) {
 	c.UserID = entity.UserID(userID)
 	c.Status = entity.CheckoutStatus(status)
 	if authRef.Valid {
-		c.AuthorizationRef = authRef.String
+		c.CardAuthorizationID = authRef.String
 	}
-	c.AuthorizationReleaseTime = optionalTime(authReleasedAt)
+	c.CardAuthorizationReleaseTime = optionalTime(authReleasedAt)
 	c.CommitTime = optionalTime(committedAt)
 	c.CaptureTime = optionalTime(captureAt)
 	return &c, nil

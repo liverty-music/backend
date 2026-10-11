@@ -201,21 +201,21 @@ func (_c *MockOrderRepository_GetByLotteryEntryID_Call) RunAndReturn(run func(co
 	return _c
 }
 
-// GetByPaymentIntentRef provides a mock function with given fields: ctx, paymentIntentRef
-func (_m *MockOrderRepository) GetByPaymentIntentRef(ctx context.Context, paymentIntentRef string) (*entity.Order, error) {
-	ret := _m.Called(ctx, paymentIntentRef)
+// GetByProviderPaymentID provides a mock function with given fields: ctx, providerPaymentID
+func (_m *MockOrderRepository) GetByProviderPaymentID(ctx context.Context, providerPaymentID string) (*entity.Order, error) {
+	ret := _m.Called(ctx, providerPaymentID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByPaymentIntentRef")
+		panic("no return value specified for GetByProviderPaymentID")
 	}
 
 	var r0 *entity.Order
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.Order, error)); ok {
-		return rf(ctx, paymentIntentRef)
+		return rf(ctx, providerPaymentID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.Order); ok {
-		r0 = rf(ctx, paymentIntentRef)
+		r0 = rf(ctx, providerPaymentID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Order)
@@ -223,7 +223,7 @@ func (_m *MockOrderRepository) GetByPaymentIntentRef(ctx context.Context, paymen
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, paymentIntentRef)
+		r1 = rf(ctx, providerPaymentID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -231,31 +231,31 @@ func (_m *MockOrderRepository) GetByPaymentIntentRef(ctx context.Context, paymen
 	return r0, r1
 }
 
-// MockOrderRepository_GetByPaymentIntentRef_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByPaymentIntentRef'
-type MockOrderRepository_GetByPaymentIntentRef_Call struct {
+// MockOrderRepository_GetByProviderPaymentID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByProviderPaymentID'
+type MockOrderRepository_GetByProviderPaymentID_Call struct {
 	*mock.Call
 }
 
-// GetByPaymentIntentRef is a helper method to define mock.On call
+// GetByProviderPaymentID is a helper method to define mock.On call
 //   - ctx context.Context
-//   - paymentIntentRef string
-func (_e *MockOrderRepository_Expecter) GetByPaymentIntentRef(ctx interface{}, paymentIntentRef interface{}) *MockOrderRepository_GetByPaymentIntentRef_Call {
-	return &MockOrderRepository_GetByPaymentIntentRef_Call{Call: _e.mock.On("GetByPaymentIntentRef", ctx, paymentIntentRef)}
+//   - providerPaymentID string
+func (_e *MockOrderRepository_Expecter) GetByProviderPaymentID(ctx interface{}, providerPaymentID interface{}) *MockOrderRepository_GetByProviderPaymentID_Call {
+	return &MockOrderRepository_GetByProviderPaymentID_Call{Call: _e.mock.On("GetByProviderPaymentID", ctx, providerPaymentID)}
 }
 
-func (_c *MockOrderRepository_GetByPaymentIntentRef_Call) Run(run func(ctx context.Context, paymentIntentRef string)) *MockOrderRepository_GetByPaymentIntentRef_Call {
+func (_c *MockOrderRepository_GetByProviderPaymentID_Call) Run(run func(ctx context.Context, providerPaymentID string)) *MockOrderRepository_GetByProviderPaymentID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockOrderRepository_GetByPaymentIntentRef_Call) Return(_a0 *entity.Order, _a1 error) *MockOrderRepository_GetByPaymentIntentRef_Call {
+func (_c *MockOrderRepository_GetByProviderPaymentID_Call) Return(_a0 *entity.Order, _a1 error) *MockOrderRepository_GetByProviderPaymentID_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockOrderRepository_GetByPaymentIntentRef_Call) RunAndReturn(run func(context.Context, string) (*entity.Order, error)) *MockOrderRepository_GetByPaymentIntentRef_Call {
+func (_c *MockOrderRepository_GetByProviderPaymentID_Call) RunAndReturn(run func(context.Context, string) (*entity.Order, error)) *MockOrderRepository_GetByProviderPaymentID_Call {
 	_c.Call.Return(run)
 	return _c
 }

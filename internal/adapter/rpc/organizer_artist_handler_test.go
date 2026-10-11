@@ -37,9 +37,9 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 		{
 			// @spec components/adapter/organizer/api/rpc/artist "Operator lists their own roster"
 			name: "return the caller's own roster",
-			ctx:  orgCtx(testZitadelOrgID),
+			ctx:  orgCtx(testProviderOrganizerID),
 			setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.EXPECT().ResolveCaller(mock.Anything, testZitadelOrgID).Return(activeOrganizer(), nil).Once()
+				m.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(activeOrganizer(), nil).Once()
 				m.EXPECT().ListOwnArtists(mock.Anything, testOrganizerID).Return([]*entity.Artist{
 					{ID: "artist-1", Name: "Artist One"},
 					{ID: "artist-2", Name: "Artist Two"},
@@ -50,9 +50,9 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 		{
 			// @spec components/adapter/organizer/api/rpc/artist "Operator lists their own roster"
 			name: "return an empty roster when the Organizer represents no artists",
-			ctx:  orgCtx(testZitadelOrgID),
+			ctx:  orgCtx(testProviderOrganizerID),
 			setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.EXPECT().ResolveCaller(mock.Anything, testZitadelOrgID).Return(activeOrganizer(), nil).Once()
+				m.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(activeOrganizer(), nil).Once()
 				m.EXPECT().ListOwnArtists(mock.Anything, testOrganizerID).Return([]*entity.Artist{}, nil).Once()
 			},
 			wantArtists: 0,
@@ -60,18 +60,18 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 		{
 			// @spec components/adapter/organizer/api/rpc/artist "Deactivated Organizer"
 			name: "return FAILED_PRECONDITION when the caller's Organizer is deactivated",
-			ctx:  orgCtx(testZitadelOrgID),
+			ctx:  orgCtx(testProviderOrganizerID),
 			setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.EXPECT().ResolveCaller(mock.Anything, testZitadelOrgID).
+				m.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).
 					Return(nil, apperr.New(apperr.ErrFailedPrecondition.Code, "organizer is deactivated")).Once()
 			},
 			wantCode: connect.CodeFailedPrecondition,
 		},
 		{
 			name: "return PERMISSION_DENIED when no Organizer is linked to the tenant",
-			ctx:  orgCtx(testZitadelOrgID),
+			ctx:  orgCtx(testProviderOrganizerID),
 			setupUC: func(m *ucmocks.MockOrganizerUseCase) {
-				m.EXPECT().ResolveCaller(mock.Anything, testZitadelOrgID).
+				m.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).
 					Return(nil, apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")).Once()
 			},
 			wantCode: connect.CodePermissionDenied,
@@ -115,8 +115,8 @@ func TestOrganizerArtistHandler_List(t *testing.T) {
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{
 			Sub:             "op-sub",
 			Audiences:       []string{"fan-app-project"},
-			LoginScopeOrgID: testZitadelOrgID,
-			RoleOrgIDs:      map[string]struct{}{testZitadelOrgID: {}},
+			LoginScopeOrgID: testProviderOrganizerID,
+			RoleOrgIDs:      map[string]struct{}{testProviderOrganizerID: {}},
 		})
 
 		_, err := auth.NewOrgScopedInterceptor("organizer-console-project").WrapUnary(next)(ctx, connect.NewRequest(&organizerartistv1.ListRequest{}))

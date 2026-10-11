@@ -85,8 +85,8 @@ func (p *StripeCheckoutAuthorizationPort) CreateAuthorization(ctx context.Contex
 
 // VerifyAuthorization implements [entity.CheckoutAuthorizationPort]. Every
 // card brand is accepted.
-func (p *StripeCheckoutAuthorizationPort) VerifyAuthorization(ctx context.Context, authorizationRef string, expectedAmountJPY int64) error {
-	pi, err := p.retrieve(ctx, authorizationRef)
+func (p *StripeCheckoutAuthorizationPort) VerifyAuthorization(ctx context.Context, cardAuthorizationID string, expectedAmountJPY int64) error {
+	pi, err := p.retrieve(ctx, cardAuthorizationID)
 	if err != nil {
 		return err
 	}
@@ -104,15 +104,15 @@ func (p *StripeCheckoutAuthorizationPort) VerifyAuthorization(ctx context.Contex
 }
 
 // CaptureAuthorization implements [entity.CheckoutAuthorizationPort].
-func (p *StripeCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Context, authorizationRef string) (*entity.CapturedPayment, error) {
+func (p *StripeCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Context, cardAuthorizationID string) (*entity.CapturedPayment, error) {
 	params := &stripe.PaymentIntentCaptureParams{}
 	params.AddExpand("latest_charge")
-	params.SetIdempotencyKey(p.policy.idempotencyKey("capture", authorizationRef))
+	params.SetIdempotencyKey(p.policy.idempotencyKey("capture", cardAuthorizationID))
 
-	pi, captureErr := p.client.V1PaymentIntents.Capture(ctx, authorizationRef, params)
+	pi, captureErr := p.client.V1PaymentIntents.Capture(ctx, cardAuthorizationID, params)
 	if captureErr == nil {
 		p.logger.Info(ctx, "Stripe PaymentIntent captured for a checkout",
-			slog.String("payment_intent_id", authorizationRef))
+			slog.String("payment_intent_id", cardAuthorizationID))
 		return capturedPayment(pi), nil
 	}
 	if isStripeNotFound(captureErr) {
@@ -120,7 +120,7 @@ func (p *StripeCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Conte
 	}
 
 	// Classify by the PaymentIntent's status, not by the error.
-	current, err := p.retrieve(ctx, authorizationRef)
+	current, err := p.retrieve(ctx, cardAuthorizationID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return nil, err
@@ -144,21 +144,21 @@ func (p *StripeCheckoutAuthorizationPort) CaptureAuthorization(ctx context.Conte
 }
 
 // CancelAuthorization implements [entity.CheckoutAuthorizationPort].
-func (p *StripeCheckoutAuthorizationPort) CancelAuthorization(ctx context.Context, authorizationRef string) error {
+func (p *StripeCheckoutAuthorizationPort) CancelAuthorization(ctx context.Context, cardAuthorizationID string) error {
 	params := &stripe.PaymentIntentCancelParams{}
-	params.SetIdempotencyKey(p.policy.idempotencyKey("cancel", authorizationRef))
+	params.SetIdempotencyKey(p.policy.idempotencyKey("cancel", cardAuthorizationID))
 
-	_, cancelErr := p.client.V1PaymentIntents.Cancel(ctx, authorizationRef, params)
+	_, cancelErr := p.client.V1PaymentIntents.Cancel(ctx, cardAuthorizationID, params)
 	if cancelErr == nil {
 		p.logger.Info(ctx, "Stripe PaymentIntent cancelled for a checkout",
-			slog.String("payment_intent_id", authorizationRef))
+			slog.String("payment_intent_id", cardAuthorizationID))
 		return nil
 	}
 	if isStripeNotFound(cancelErr) {
 		return toPaymentAppErr(ctx, cancelErr, "PaymentIntent not found", p.logger)
 	}
 
-	current, err := p.retrieve(ctx, authorizationRef)
+	current, err := p.retrieve(ctx, cardAuthorizationID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return err
@@ -191,12 +191,12 @@ func (p *StripeCheckoutAuthorizationPort) retrieve(ctx context.Context, ref stri
 func capturedPayment(pi *stripe.PaymentIntent) *entity.CapturedPayment {
 	brand, last4 := extractCardFacets(pi)
 	return &entity.CapturedPayment{
-		Provider:         entity.PaymentProviderStripe,
-		PaymentIntentRef: pi.ID,
-		AmountJPY:        pi.AmountReceived,
-		Currency:         strings.ToUpper(string(pi.Currency)),
-		CardBrand:        brand,
-		CardLast4:        last4,
+		Provider:          entity.PaymentProviderStripe,
+		ProviderPaymentID: pi.ID,
+		AmountJPY:         pi.AmountReceived,
+		Currency:          strings.ToUpper(string(pi.Currency)),
+		CardBrand:         brand,
+		CardLast4:         last4,
 	}
 }
 

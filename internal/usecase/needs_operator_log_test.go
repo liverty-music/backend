@@ -30,17 +30,17 @@ func TestNeedsOperatorReports(t *testing.T) {
 		checkouts := entitymocks.NewMockCheckoutRepository(t)
 		auth := entitymocks.NewMockCheckoutAuthorizationPort(t)
 		uc := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
-			CheckoutRepo: checkouts,
-			SaleRepo:     entitymocks.NewMockTicketSaleRepository(t),
-			UserRepo:     entitymocks.NewMockUserRepository(t),
-			KycRepo:      entitymocks.NewMockKycRepository(t),
-			EventState:   ucmocks.NewMockEventPublishStatePort(t),
-			Auth:         auth,
-			Clock:        fixedClock(now),
-			Logger:       logger,
+			CheckoutRepo:             checkouts,
+			SaleRepo:                 entitymocks.NewMockTicketSaleRepository(t),
+			UserRepo:                 entitymocks.NewMockUserRepository(t),
+			IdentityVerificationRepo: entitymocks.NewMockIdentityVerificationRepository(t),
+			EventState:               ucmocks.NewMockEventPublishStatePort(t),
+			Auth:                     auth,
+			Clock:                    fixedClock(now),
+			Logger:                   logger,
 		})
 		released := fanCheckout(coStart)
-		released.Status, released.AuthorizationRef = entity.CheckoutStatusReleased, "pi_charged"
+		released.Status, released.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_charged"
 		checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{released}, nil).Twice()
 		auth.EXPECT().CancelAuthorization(mock.Anything, "pi_charged").
 			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "already charged")).Twice()

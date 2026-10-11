@@ -44,7 +44,7 @@ func firstPartyConcert(id string, date time.Time) *entity.Concert {
 			Title:         "ONE MAN LIVE",
 			Type:          entity.SeriesTypeSingle,
 			Description:   &description,
-			CoverMedia:    &entity.Media{ID: eventPageMediaID, OrganizerID: eventPageOrganizerID},
+			CoverImage:    &entity.SeriesImage{ID: eventPageMediaID, OrganizerID: eventPageOrganizerID},
 			OrganizerID:   &organizerID,
 			Visibility:    &visibility,
 			PublishState:  &state,
@@ -60,7 +60,7 @@ func newEventPageHandler(t *testing.T) (*rpc.ConcertHandler, *mocks.MockConcertU
 	require.NoError(t, err)
 	concertUC := mocks.NewMockConcertUseCase(t)
 	userRepo := entitymocks.NewMockUserRepository(t)
-	h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder("https://cdn.example.com"), logger)
+	h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewSeriesImageURLBuilder("https://cdn.example.com"), logger)
 	return h, concertUC, userRepo
 }
 
@@ -212,7 +212,7 @@ func TestConcertHandler_ListFollowed_SeriesOrganizer(t *testing.T) {
 			h, concertUC, userRepo := newEventPageHandler(t)
 			ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 			user := &entity.User{ID: internalUserID}
-			userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+			userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
 			concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID, user.Home, mock.Anything).
 				Return([]*entity.ProximityGroup{{Date: date, Away: []*entity.Concert{tt.concert}}}, nil).Once()
 
@@ -236,7 +236,7 @@ func TestConcertHandler_ListFollowed_TourInOneList(t *testing.T) {
 	h, concertUC, userRepo := newEventPageHandler(t)
 	ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 	user := &entity.User{ID: "internal-user-uuid-1"}
-	userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
+	userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
 	day := func(d int) time.Time { return time.Date(2026, 11, d, 0, 0, 0, 0, time.UTC) }
 	c1 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e1", day(20))
 	c2 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e2", day(21))

@@ -111,7 +111,7 @@ func TestAdminServer_OrderGet(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/order "Paid order of a first-party concert"
 		orders := usecasemocks.NewMockOrderUseCase(t)
 		orders.EXPECT().GetWithSettlement(mock.Anything, entity.OrderID(adminOrderOrderID)).Return(paid, &entity.Settlement{
-			ID: "019a0000-0000-7000-8000-0000000000f2", OrderID: adminOrderOrderID, ChargeRef: "ch_1", Status: entity.SettlementStatusHeld,
+			ID: "019a0000-0000-7000-8000-0000000000f2", OrderID: adminOrderOrderID, ProviderChargeID: "ch_1", Status: entity.SettlementStatusHeld,
 			Splits: []entity.SettlementSplit{{PayeeOrganizerID: "org-1", Amount: 5520}},
 		}, nil)
 		ts := newTestAdminOrderServer(t, orders, unreachableRefundUC{t: t})

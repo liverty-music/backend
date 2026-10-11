@@ -80,7 +80,7 @@ func (s *PostmarkConfirmationSender) SendConfirmationEmail(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	if order.ConfirmationSentTime != nil {
+	if order.ConfirmationSendTime != nil {
 		return nil
 	}
 	if err := s.send(ctx, orderID, to, msg); err != nil {

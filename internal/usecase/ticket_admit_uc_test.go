@@ -370,7 +370,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		for _, tk := range tickets {
 			f.tickets.EXPECT().Admit(mock.Anything, tk.ID, f.link.ID, now).
-				Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: now}, nil).Once()
+				Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: now}, nil).Once()
 		}
 
 		got, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
@@ -393,9 +393,9 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		tickets := f.heldTickets(1)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, later).
-			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: now}, nil)
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: now}, nil)
 		f.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).
-			Return(&entity.Admission{TicketID: tickets[0].ID, ReceptionLinkID: f.link.ID, ReceptionLinkNumber: 1, AdmittedTime: now}, nil)
+			Return(&entity.Admission{TicketID: tickets[0].ID, ReceptionLinkID: f.link.ID, ReceptionLinkNumber: 1, AdmitTime: now}, nil)
 
 		got, err := f.admit(f.staff, f.code(f.event.ID, later, ids(tickets)...), later)
 		require.NoError(t, err)
@@ -403,8 +403,8 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		require.Len(t, got.RejectedTickets, 1)
 		rt := got.RejectedTickets[0]
 		assert.Equal(t, entity.RejectedScanReasonAlreadyAdmitted, rt.Reason)
-		require.NotNil(t, rt.EarlierAdmittedTime)
-		assert.True(t, rt.EarlierAdmittedTime.Equal(now))
+		require.NotNil(t, rt.EarlierAdmitTime)
+		assert.True(t, rt.EarlierAdmitTime.Equal(now))
 		assert.Equal(t, 1, rt.EarlierReceptionLinkNumber)
 
 		require.Len(t, f.appended, 1)
@@ -431,7 +431,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got.RejectedTickets, 1)
 		assert.Equal(t, entity.RejectedScanReasonVoided, got.RejectedTickets[0].Reason)
-		assert.Nil(t, got.RejectedTickets[0].EarlierAdmittedTime)
+		assert.Nil(t, got.RejectedTickets[0].EarlierAdmitTime)
 	})
 
 	t.Run("result of a group scan", func(t *testing.T) {
@@ -445,13 +445,13 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		tickets := f.heldTickets(3)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, later).
-			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: later}, nil)
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: later}, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.link.ID, later).
-			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: now}, nil)
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: now}, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[2].ID, f.link.ID, later).
-			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: later}, nil)
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: later}, nil)
 		f.admits.EXPECT().GetByTicket(mock.Anything, tickets[1].ID).
-			Return(&entity.Admission{TicketID: tickets[1].ID, ReceptionLinkNumber: 1, AdmittedTime: now}, nil)
+			Return(&entity.Admission{TicketID: tickets[1].ID, ReceptionLinkNumber: 1, AdmitTime: now}, nil)
 
 		got, err := f.admit(f.staff, f.code(f.event.ID, later, ids(tickets)...), later)
 		require.NoError(t, err)
@@ -462,7 +462,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 			AdmittedTicketCount: 2,
 			RejectedTickets: []usecase.RejectedTicket{{
 				Reason:                     entity.RejectedScanReasonAlreadyAdmitted,
-				EarlierAdmittedTime:        &now,
+				EarlierAdmitTime:           &now,
 				EarlierReceptionLinkNumber: 1,
 			}},
 		}, got)
@@ -496,13 +496,13 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		tickets := f.heldTickets(1)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
-			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: evening(18, 1, 0)}, nil)
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: evening(18, 1, 0)}, nil)
 		f.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).Return(nil, apperr.New(codes.Internal, "db down"))
 
 		got, err := f.admit(f.staff, f.code(f.event.ID, now, ids(tickets)...), now)
 		require.NoError(t, err)
 		require.Len(t, got.RejectedTickets, 1)
-		assert.True(t, got.RejectedTickets[0].EarlierAdmittedTime.Equal(evening(18, 1, 0)))
+		assert.True(t, got.RejectedTickets[0].EarlierAdmitTime.Equal(evening(18, 1, 0)))
 		assert.Zero(t, got.RejectedTickets[0].EarlierReceptionLinkNumber)
 	})
 
@@ -514,7 +514,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		tickets := f.heldTickets(2)
 		f.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
-			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: now}, nil)
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: now}, nil)
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.link.ID, now).
 			Return(entity.AdmitResult{}, errors.New("connection reset"))
 
@@ -534,7 +534,7 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		// refuses the second (see the "link revoked before the admission"
 		// contract test of Ticket.Admit).
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, f.link.ID, now).
-			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmittedTime: now}, nil).Once()
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAdmitted, AdmitTime: now}, nil).Once()
 		f.tickets.EXPECT().Admit(mock.Anything, tickets[1].ID, f.link.ID, now).
 			Return(entity.AdmitResult{}, apperr.Wrap(entity.ErrReceptionLinkNotUsable, codes.PermissionDenied, "revoked")).Once()
 
@@ -555,9 +555,9 @@ func TestTicketUseCase_Admit_Tickets(t *testing.T) {
 		next.expectAppend()
 		next.tickets.EXPECT().ListByUserAndEvent(mock.Anything, f.fanID, f.event.ID).Return(tickets[:1], nil)
 		next.tickets.EXPECT().Admit(mock.Anything, tickets[0].ID, next.link.ID, later).
-			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmittedTime: now}, nil)
+			Return(entity.AdmitResult{Outcome: entity.AdmitOutcomeAlreadyAdmitted, AdmitTime: now}, nil)
 		next.admits.EXPECT().GetByTicket(mock.Anything, tickets[0].ID).
-			Return(&entity.Admission{TicketID: tickets[0].ID, ReceptionLinkNumber: 1, AdmittedTime: now}, nil)
+			Return(&entity.Admission{TicketID: tickets[0].ID, ReceptionLinkNumber: 1, AdmitTime: now}, nil)
 
 		got, err := next.admit(next.staff, next.code(f.event.ID, later, tickets[0].ID), later)
 		require.NoError(t, err)

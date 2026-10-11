@@ -46,15 +46,15 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 		UserID:         entity.UserID(userID),
 		LotteryEntryID: entry.ID,
 		Payment: entity.Payment{
-			Provider:         entity.PaymentProviderStripe,
-			PaymentIntentRef: "pi_itest_" + entity.NewID(),
-			CardBrand:        "visa",
-			CardLast4:        "4242",
+			Provider:          entity.PaymentProviderStripe,
+			ProviderPaymentID: "pi_itest_" + entity.NewID(),
+			CardBrand:         "visa",
+			CardLast4:         "4242",
 		},
 		Status:   entity.OrderStatusPaid,
 		Amount:   10000,
 		Currency: "JPY",
-		PaidTime: paidTime,
+		PayTime:  paidTime,
 	}
 	tickets := make([]*entity.Ticket, 0, 2)
 	for range 2 {
@@ -65,7 +65,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 			EventID:                        eventID,
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
-			IssuedTime:                     paidTime,
+			IssueTime:                      paidTime,
 		})
 	}
 	settlement := &entity.Settlement{
@@ -104,7 +104,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 		assert.Equal(t, eventID, tk.EventID)
 		assert.True(t, tk.ResaleWithoutConsentProhibited)
 		assert.Equal(t, entity.TicketStatusIssued, tk.Status)
-		assert.Empty(t, tk.KycID)
+		assert.Empty(t, tk.IdentityVerificationID)
 	}
 	byUser, err := ticketRepo.ListByUser(ctx, entity.UserID(userID))
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	require.Len(t, gotSettlement.Splits, 1)
 	assert.Equal(t, organizerID, gotSettlement.Splits[0].PayeeOrganizerID)
 	assert.Equal(t, order.Amount, gotSettlement.Splits[0].Amount)
-	assert.Empty(t, gotSettlement.Splits[0].TransferRef, "not released yet")
+	assert.Empty(t, gotSettlement.Splits[0].ProviderPayoutID, "not released yet")
 
 	// -- Idempotency: a second Issue for the same entry surfaces
 	//    AlreadyExists and rolls back the whole transaction, including the
@@ -195,13 +195,13 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 		UserID:         entity.UserID(userID),
 		LotteryEntryID: entry.ID,
 		Payment: entity.Payment{
-			Provider:         entity.PaymentProviderStripe,
-			PaymentIntentRef: "pi_fail_" + entity.NewID(),
+			Provider:          entity.PaymentProviderStripe,
+			ProviderPaymentID: "pi_fail_" + entity.NewID(),
 		},
 		Status:   entity.OrderStatusPaid,
 		Amount:   8000,
 		Currency: "JPY",
-		PaidTime: paidTime,
+		PayTime:  paidTime,
 	}
 	tickets := []*entity.Ticket{
 		{
@@ -211,7 +211,7 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 			EventID:                        eventID,
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
-			IssuedTime:                     paidTime,
+			IssueTime:                      paidTime,
 		},
 		{
 			// A non-existent event id violates tickets.event_id's foreign key,
@@ -223,7 +223,7 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 			EventID:                        entity.NewID(),
 			ResaleWithoutConsentProhibited: true,
 			Status:                         entity.TicketStatusIssued,
-			IssuedTime:                     paidTime,
+			IssueTime:                      paidTime,
 		},
 	}
 	settlement := &entity.Settlement{
@@ -291,7 +291,7 @@ func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
 	t.Run("checkout not charged", func(t *testing.T) {
 		// @spec components/entity/order/issue "Reservation not charged"
 		c := heldCheckout(t, checkouts, 2, start)
-		require.NoError(t, checkouts.SetAuthorization(ctx, c.ID, "pi_nc_"+string(c.ID)))
+		require.NoError(t, checkouts.SetCardAuthorization(ctx, c.ID, "pi_nc_"+string(c.ID)))
 		_, err := checkouts.Commit(ctx, c.ID, start.Add(time.Minute))
 		require.NoError(t, err)
 		order, tickets, settlement := checkoutOrder(t, c, start.Add(2*time.Minute))
@@ -338,7 +338,7 @@ func issuanceChargedCheckout(t *testing.T, repo *rdb.CheckoutRepository, start t
 	t.Helper()
 	ctx := context.Background()
 	c := heldCheckout(t, repo, 2, start)
-	require.NoError(t, repo.SetAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
+	require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_"+string(c.ID)))
 	_, err := repo.Commit(ctx, c.ID, start.Add(time.Minute))
 	require.NoError(t, err)
 	require.NoError(t, repo.RecordCapture(ctx, c.ID, start.Add(2*time.Minute)))
@@ -375,11 +375,11 @@ func TestIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance(t *testing.T) {
 			ID:             entity.OrderID(entity.NewID()),
 			UserID:         won.UserID,
 			LotteryEntryID: won.ID,
-			Payment:        entity.Payment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: won.Authorization.PaymentIntentRef},
+			Payment:        entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: won.CardAuthorizationID},
 			Status:         entity.OrderStatusPaid,
 			Amount:         3000,
 			Currency:       "JPY",
-			PaidTime:       saleWindowStart,
+			PayTime:        saleWindowStart,
 		}
 		settlement := entity.NewHeldSettlement(order, seedOrganizer(t), tt.EventID, 240, saleWindowStart)
 		require.NoError(t, issuanceRepo.Issue(ctx, order, nil, settlement))

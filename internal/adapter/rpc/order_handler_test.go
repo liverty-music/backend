@@ -48,7 +48,7 @@ func TestOrderHandler_Get(t *testing.T) {
 		expectFan(users)
 		uc.EXPECT().GetOrder(mock.Anything, entity.UserID(tkFanUserID), entity.OrderID(tkOrderID)).Return(&entity.Order{
 			ID: tkOrderID, UserID: tkFanUserID, LotteryEntryID: tkEntryID, Status: entity.OrderStatusPaid,
-			Amount: 10000, Currency: "JPY", PaidTime: time.Unix(1_700_000_000, 0),
+			Amount: 10000, Currency: "JPY", PayTime: time.Unix(1_700_000_000, 0),
 		}, nil)
 
 		resp, err := client.Get(ctx, connect.NewRequest(getReq()))

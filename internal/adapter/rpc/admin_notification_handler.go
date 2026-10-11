@@ -22,14 +22,14 @@ var _ adminnotificationv1connect.NotificationServiceHandler = (*AdminNotificatio
 // production only. The admin role is enforced at the admin server boundary by
 // its server-wide RequireRoleInterceptor.
 type AdminNotificationHandler struct {
-	pushUseCase  usecase.PushNotificationUseCase
+	pushUseCase  usecase.PushSubscriptionUseCase
 	isProduction bool
 	logger       *logging.Logger
 }
 
 // NewAdminNotificationHandler creates a new AdminNotificationHandler.
 func NewAdminNotificationHandler(
-	pushUseCase usecase.PushNotificationUseCase,
+	pushUseCase usecase.PushSubscriptionUseCase,
 	cfg config.BaseConfig,
 	logger *logging.Logger,
 ) *AdminNotificationHandler {

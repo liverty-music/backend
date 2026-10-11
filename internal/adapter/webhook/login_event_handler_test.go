@@ -21,7 +21,7 @@ import (
 
 const testLoginEventSigningKey = "test-login-event-signing-key"
 
-// stubUserResolver records GetByExternalID calls and returns a canned result.
+// stubUserResolver records GetByProviderUserID calls and returns a canned result.
 type stubUserResolver struct {
 	user      *entity.User
 	err       error
@@ -29,7 +29,7 @@ type stubUserResolver struct {
 	lastExtID string
 }
 
-func (s *stubUserResolver) GetByExternalID(_ context.Context, externalID string) (*entity.User, error) {
+func (s *stubUserResolver) GetByProviderUserID(_ context.Context, externalID string) (*entity.User, error) {
 	s.calls++
 	s.lastExtID = externalID
 	return s.user, s.err

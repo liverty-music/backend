@@ -19,13 +19,13 @@ func TestNewLotteryEntry(t *testing.T) {
 	assert.Nil(t, e.DrawPosition)
 	assert.Equal(t, entity.TicketTypeID("type-1"), e.TicketTypeID)
 	assert.Equal(t, entity.UserID("user-1"), e.UserID)
-	assert.Equal(t, 2, e.RequestedTicketCount)
+	assert.Equal(t, 2, e.TicketCount)
 }
 
 func TestLotteryEntry_IsConfirmable(t *testing.T) {
 	t.Parallel()
 
-	hold := entity.PaymentAuthorization{PaymentIntentRef: "pi_1"}
+	hold := "pi_1"
 	tests := []struct {
 		name  string
 		entry *entity.LotteryEntry
@@ -34,7 +34,7 @@ func TestLotteryEntry_IsConfirmable(t *testing.T) {
 		{
 			// @spec components/entity/lottery-entry "Authorized draft"
 			name:  "authorized draft",
-			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft, Authorization: hold},
+			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft, CardAuthorizationID: hold},
 			want:  true,
 		},
 		{
@@ -43,10 +43,10 @@ func TestLotteryEntry_IsConfirmable(t *testing.T) {
 			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft},
 		},
 		// @spec components/entity/lottery-entry "Already entered"
-		{name: "entered", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateEntered, Authorization: hold}},
-		{name: "won", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWon, Authorization: hold}},
-		{name: "lost", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateLost, Authorization: hold}},
-		{name: "withdrawn", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWithdrawn, Authorization: hold}},
+		{name: "entered", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateEntered, CardAuthorizationID: hold}},
+		{name: "won", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWon, CardAuthorizationID: hold}},
+		{name: "lost", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateLost, CardAuthorizationID: hold}},
+		{name: "withdrawn", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWithdrawn, CardAuthorizationID: hold}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -56,7 +56,7 @@ func TestLotteryEntry_IsConfirmable(t *testing.T) {
 	}
 }
 
-func TestLotteryEntry_RequestedTicketCount(t *testing.T) {
+func TestLotteryEntry_TicketCount(t *testing.T) {
 	t.Parallel()
 
 	ticketType := &entity.TicketType{PerAccountLimit: 4}

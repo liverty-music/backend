@@ -142,7 +142,7 @@ type concertAuthoringUseCase struct {
 var _ ConcertAuthoringUseCase = (*concertAuthoringUseCase)(nil)
 
 // NewConcertAuthoringUseCase creates a new ConcertAuthoringUseCase. All fields
-// are required. Media upload/attach lives in MediaUseCase, not here.
+// are required. Media upload/attach lives in SeriesImageUseCase, not here.
 func NewConcertAuthoringUseCase(
 	seriesRepo entity.SeriesRepository,
 	venueRepo entity.VenueRepository,
@@ -501,9 +501,9 @@ func (uc *concertAuthoringUseCase) Cancel(ctx context.Context, callerOrgID, seri
 		// Non-fatal: the series is already cancelled in the DB.
 	}
 
-	// Cancel keeps the series row (guard-hidden) and its series_media, so the DB
+	// Cancel keeps the series row (guard-hidden) and its series_cover_images, so the DB
 	// and object storage stay consistent. Media is reclaimed only when the series
-	// is hard-deleted (series_media cascades; a future sweep GCs the objects).
+	// is hard-deleted (series_cover_images cascades; a future sweep GCs the objects).
 	return nil
 }
 

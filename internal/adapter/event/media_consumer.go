@@ -13,26 +13,26 @@ import (
 )
 
 // MediaConsumer handles MEDIA.uploaded events by delegating orchestration
-// (read original, transcode, cut over series_media, reclaim storage) to
-// MediaUseCase.ProcessMedia. It only decodes the message.
+// (read original, transcode, cut over series_cover_images, reclaim storage) to
+// SeriesImageUseCase.Process. It only decodes the message.
 type MediaConsumer struct {
-	mediaUC usecase.MediaUseCase
-	logger  *logging.Logger
+	seriesImageUC usecase.SeriesImageUseCase
+	logger        *logging.Logger
 }
 
 // NewMediaConsumer creates a new MediaConsumer.
 func NewMediaConsumer(
-	mediaUC usecase.MediaUseCase,
+	seriesImageUC usecase.SeriesImageUseCase,
 	logger *logging.Logger,
 ) *MediaConsumer {
 	return &MediaConsumer{
-		mediaUC: mediaUC,
-		logger:  logger,
+		seriesImageUC: seriesImageUC,
+		logger:        logger,
 	}
 }
 
 // Handle processes a MEDIA.uploaded event by parsing the payload and
-// delegating to MediaUseCase.ProcessMedia. It returns nil to ack (including
+// delegating to SeriesImageUseCase.Process. It returns nil to ack (including
 // after a permanent-failure cleanup the use case already performed) or a
 // wrapped error to nak (retry).
 func (h *MediaConsumer) Handle(msg *message.Message) error {
@@ -49,7 +49,7 @@ func (h *MediaConsumer) Handle(msg *message.Message) error {
 		slog.String("series_id", data.SeriesID),
 	)
 
-	if err := h.mediaUC.ProcessMedia(ctx, data.MediaID, data.SeriesID); err != nil {
+	if err := h.seriesImageUC.Process(ctx, data.MediaID, data.SeriesID); err != nil {
 		return fmt.Errorf("process media %s: %w", data.MediaID, err)
 	}
 

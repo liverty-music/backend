@@ -34,7 +34,7 @@ type ConcertCreationUseCase interface {
 // package-level venue/duplicate helpers shared with AdminConcertUseCase.Approve
 // so discovery and approval agree on venue resolution and conflict detection.
 type concertCreationUseCase struct {
-	stagedConcertRepo     entity.StagedConcertRepository
+	concertCandidateRepo  entity.ConcertCandidateRepository
 	venueRepo             entity.VenueRepository
 	concertRepo           entity.ConcertRepository
 	seriesRepo            entity.SeriesRepository
@@ -50,7 +50,7 @@ var _ ConcertCreationUseCase = (*concertCreationUseCase)(nil)
 // NewConcertCreationUseCase creates a new ConcertCreationUseCase.
 // placeSearcher must not be nil; panics if not provided.
 func NewConcertCreationUseCase(
-	stagedConcertRepo entity.StagedConcertRepository,
+	concertCandidateRepo entity.ConcertCandidateRepository,
 	venueRepo entity.VenueRepository,
 	concertRepo entity.ConcertRepository,
 	seriesRepo entity.SeriesRepository,
@@ -63,7 +63,7 @@ func NewConcertCreationUseCase(
 		panic("placeSearcher is required")
 	}
 	return &concertCreationUseCase{
-		stagedConcertRepo:     stagedConcertRepo,
+		concertCandidateRepo:  concertCandidateRepo,
 		venueRepo:             venueRepo,
 		concertRepo:           concertRepo,
 		seriesRepo:            seriesRepo,
@@ -276,7 +276,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		// unknown-start entry colliding with a known-start row stages for review
 		// instead of inserting a phantom NULL-start duplicate.
 		venueID := sameVenue[0].VenueID
-		staged := buildStagedConcert(entity.NewID(), artistID, seriesID, series, ev, nil)
+		staged := buildConcertCandidate(entity.NewID(), artistID, seriesID, series, ev, nil)
 		return uc.stageOrInsert(ctx, artistID, seriesID, series, ev, venueID, staged)
 	}
 
@@ -288,12 +288,12 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 	// the same normalized venue name skip the Places API entirely.
 	newPlaces[venueKey(ev.ListedVenueName, ev.AdminArea)] = place
 
-	staged := buildStagedConcert(entity.NewID(), artistID, seriesID, series, ev, place)
+	staged := buildConcertCandidate(entity.NewID(), artistID, seriesID, series, ev, place)
 
 	// Unresolved venue → stage for review. Auto-publishing here would mint a
 	// coordinate-less venue from the raw name and publish it unreviewed.
 	if place == nil {
-		if err := uc.stagedConcertRepo.Upsert(ctx, staged); err != nil {
+		if err := uc.concertCandidateRepo.Upsert(ctx, staged); err != nil {
 			return nil, fmt.Errorf("upsert staged concert (unresolved venue) %q: %w", series.Title, err)
 		}
 		uc.logger.Info(ctx, "staged concert with unresolved venue for review",
@@ -329,7 +329,7 @@ func (uc *concertCreationUseCase) stageOrInsert(
 	series *entity.DiscoveredSeries,
 	ev *entity.DiscoveredEvent,
 	venueID string,
-	staged *entity.StagedConcert,
+	staged *entity.ConcertCandidate,
 ) ([]string, error) {
 	// Suppression gate: a deleted-then-rediscovered slot is skipped entirely.
 	suppressed, err := uc.suppressedConcertRepo.Exists(ctx, venueID, ev.LocalDate, entity.NullableTime(ev.StartTime))
@@ -352,7 +352,7 @@ func (uc *concertCreationUseCase) stageOrInsert(
 		return nil, fmt.Errorf("detect duplicate event for %q: %w", series.Title, err)
 	}
 	if conflict != nil {
-		if err := uc.stagedConcertRepo.Upsert(ctx, staged); err != nil {
+		if err := uc.concertCandidateRepo.Upsert(ctx, staged); err != nil {
 			return nil, fmt.Errorf("upsert staged concert (conflict) %q: %w", series.Title, err)
 		}
 		uc.logger.Info(ctx, "staged conflicting concert for reconciliation",
@@ -372,15 +372,15 @@ func (uc *concertCreationUseCase) stageOrInsert(
 	return insertedIDs, nil
 }
 
-// buildStagedConcert constructs a StagedConcert for one member event of a
+// buildConcertCandidate constructs a ConcertCandidate for one member event of a
 // discovered series and the resolved VenuePlace. The series row already exists
 // (created when the group's series_id was resolved), so seriesID is carried as a
 // real foreign key. Title and source URL are copied from the series for the
 // review queue display and rejection log; the canonical values live on the
 // series row. When place is nil the resolved_* fields stay nil (the venue could
 // not be resolved).
-func buildStagedConcert(id, artistID, seriesID string, series *entity.DiscoveredSeries, ev *entity.DiscoveredEvent, place *entity.VenuePlace) *entity.StagedConcert {
-	staged := &entity.StagedConcert{
+func buildConcertCandidate(id, artistID, seriesID string, series *entity.DiscoveredSeries, ev *entity.DiscoveredEvent, place *entity.VenuePlace) *entity.ConcertCandidate {
+	staged := &entity.ConcertCandidate{
 		ID:              id,
 		ArtistID:        artistID,
 		SeriesID:        seriesID,
@@ -399,7 +399,7 @@ func buildStagedConcert(id, artistID, seriesID string, series *entity.Discovered
 		staged.SourceURL = &u
 	}
 	if place != nil {
-		staged.ResolvedPlaceID = &place.ExternalID
+		staged.ResolvedPlaceID = &place.ProviderUserID
 		staged.ResolvedVenueName = &place.Name
 		if place.Coordinates != nil {
 			lat := place.Coordinates.Latitude
