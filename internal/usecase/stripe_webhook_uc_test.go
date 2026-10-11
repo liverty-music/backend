@@ -267,6 +267,7 @@ func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
 
 func TestStripeWebhook_ChargeRefunded_Informational(t *testing.T) {
 	t.Parallel()
+	// @spec components/adapter/fan/api/webhook/payment-events "Refund confirmation"
 
 	ctx := context.Background()
 
