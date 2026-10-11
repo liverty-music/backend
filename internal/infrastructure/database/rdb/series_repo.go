@@ -113,9 +113,23 @@ const (
 		SELECT artist_id FROM draft_series_performers WHERE series_id = $1
 	`
 
+	// getAuthoredSeriesDraftEventsQuery and getAuthoredSeriesLiveEventsQuery
+	// read an authored Series' events with each event's Venue (id, name, admin
+	// area, place id), so the editor can show and resend the picked place.
+	getAuthoredSeriesDraftEventsQuery = `
+		SELECT de.id, de.series_id, de.venue_id, de.listed_venue_name, de.local_event_date, de.start_at, de.open_at,
+		       v.name, v.admin_area, v.google_place_id
+		FROM draft_events de
+		JOIN venues v ON v.id = de.venue_id
+		WHERE de.series_id = $1
+		ORDER BY de.local_event_date, de.start_at NULLS LAST
+	`
+
 	getAuthoredSeriesLiveEventsQuery = `
-		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at
+		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
+		       v.name, v.admin_area, v.google_place_id
 		FROM events e
+		JOIN venues v ON v.id = e.venue_id
 		WHERE e.series_id = $1
 		ORDER BY e.local_event_date, e.start_at NULLS LAST
 	`
@@ -668,46 +682,14 @@ func (r *SeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*e
 
 	isDraft := s.PublishState != nil && *s.PublishState == entity.SeriesPublishStateDraft
 
-	var events []*entity.Event
+	// Draft events are returned as Event structs for a uniform response shape.
+	eventsQuery := getAuthoredSeriesLiveEventsQuery
 	if isDraft {
-		// Return draft events as Event structs for a uniform response shape.
-		draftEvs, _, err := r.LoadDraft(ctx, seriesID)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		for _, de := range draftEvs {
-			ev := &entity.Event{
-				ID:              de.ID,
-				SeriesID:        de.SeriesID,
-				VenueID:         de.VenueID,
-				ListedVenueName: de.ListedVenueName,
-				LocalDate:       de.LocalDate,
-				StartTime:       de.StartTime,
-				OpenTime:        de.OpenTime,
-			}
-			events = append(events, ev)
-		}
-	} else {
-		evRows, err := r.db.Pool.Query(ctx, getAuthoredSeriesLiveEventsQuery, seriesID)
-		if err != nil {
-			return nil, nil, nil, toAppErr(err, "failed to load live events", slog.String("series_id", seriesID))
-		}
-		defer evRows.Close()
-		for evRows.Next() {
-			var ev entity.Event
-			var lvn sql.NullString
-			if err := evRows.Scan(&ev.ID, &ev.SeriesID, &ev.VenueID, &lvn, &ev.LocalDate, &ev.StartTime, &ev.OpenTime); err != nil {
-				return nil, nil, nil, toAppErr(err, "failed to scan authored live event")
-			}
-			if lvn.Valid {
-				v := lvn.String
-				ev.ListedVenueName = &v
-			}
-			events = append(events, &ev)
-		}
-		if err := evRows.Err(); err != nil {
-			return nil, nil, nil, toAppErr(err, "live events iteration ended with error")
-		}
+		eventsQuery = getAuthoredSeriesDraftEventsQuery
+	}
+	events, err := r.queryAuthoredEvents(ctx, eventsQuery, seriesID)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	performersQuery := getAuthoredSeriesPerformersQuery
@@ -733,6 +715,48 @@ func (r *SeriesRepository) GetAuthored(ctx context.Context, seriesID string) (*e
 	}
 
 	return s, events, artists, nil
+}
+
+// queryAuthoredEvents runs one of the authored-events queries and scans each
+// row into an Event carrying its Venue.
+func (r *SeriesRepository) queryAuthoredEvents(ctx context.Context, query, seriesID string) ([]*entity.Event, error) {
+	rows, err := r.db.Pool.Query(ctx, query, seriesID)
+	if err != nil {
+		return nil, toAppErr(err, "failed to load authored events", slog.String("series_id", seriesID))
+	}
+	defer rows.Close()
+
+	var events []*entity.Event
+	for rows.Next() {
+		var ev entity.Event
+		var venue entity.Venue
+		var lvn, adminArea, placeID sql.NullString
+		if err := rows.Scan(
+			&ev.ID, &ev.SeriesID, &ev.VenueID, &lvn, &ev.LocalDate, &ev.StartTime, &ev.OpenTime,
+			&venue.Name, &adminArea, &placeID,
+		); err != nil {
+			return nil, toAppErr(err, "failed to scan authored event")
+		}
+		if lvn.Valid {
+			v := lvn.String
+			ev.ListedVenueName = &v
+		}
+		venue.ID = ev.VenueID
+		if adminArea.Valid {
+			v := adminArea.String
+			venue.AdminArea = &v
+		}
+		if placeID.Valid {
+			v := placeID.String
+			venue.GooglePlaceID = &v
+		}
+		ev.Venue = &venue
+		events = append(events, &ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, toAppErr(err, "authored events iteration ended with error")
+	}
+	return events, nil
 }
 
 // ListByOrganizer retrieves all first-party series owned by the given organizer.

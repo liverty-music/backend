@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
@@ -17,35 +18,47 @@ import (
 )
 
 // DraftEventInput is the intermediate representation of an event being authored,
-// carrying the unresolved venue name and optional place ID alongside the timing
-// fields. The usecase resolves or creates the venue row and produces a
-// DraftEvent before persisting.
+// carrying the venue name the operator saw and the place id of the map place
+// the operator picked alongside the timing fields. The usecase finds or creates
+// the Venue holding that place id and produces a DraftEvent before persisting.
 type DraftEventInput struct {
-	// VenueName is the raw venue name as entered by the organizer.
+	// VenueName is the venue name as the operator saw it for the picked place,
+	// kept as the event's listed venue name.
 	VenueName string
-	// PlaceID is an optional Google Places place ID for precise venue resolution.
+	// PlaceID is the map catalog place id of the place the operator picked.
+	// Required: an event without one is rejected.
 	PlaceID *string
 	// LocalDate is the calendar date of the performance (midnight UTC).
 	LocalDate time.Time
 	StartTime *time.Time
 	OpenTime  *time.Time
-	AdminArea *string
 }
+
+const (
+	// searchPlacesMinChars and searchPlacesMaxChars bound a venue search text,
+	// counted in characters after trimming spaces.
+	searchPlacesMinChars = 2
+	searchPlacesMaxChars = 100
+)
 
 // ConcertAuthoringUseCase defines the organizer-facing authoring surface for
 // first-party concerts. All methods are scoped to a single calling organizer;
 // authorization (ownership) is enforced before delegating to the repository.
 type ConcertAuthoringUseCase interface {
-	// CreateDraft authors a new first-party series in the DRAFT state. The
-	// venues for each draft event are resolved via get-or-create before the
-	// draft is stored. Returns the full authored concert.
+	// CreateDraft authors a new first-party series in the DRAFT state. Each
+	// draft event's venue is the Venue holding the event's picked place id, or
+	// a new Venue created from the map catalog's place, before the draft is
+	// stored. Returns the full authored concert.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: A required field is missing, the event list is empty,
-	//    or a time is inconsistent (open > start, date in the past).
+	//  - InvalidArgument: A required field is missing (including an event's
+	//    place id), the event list is empty, a time is inconsistent (open >
+	//    start, date in the past), or the map catalog has no place with an
+	//    event's place id.
 	//  - PermissionDenied: A performer is not among the caller's represented
 	//    artists. Non-revealing.
+	//  - Unavailable: The map catalog cannot be reached for a new place.
 	CreateDraft(ctx context.Context, callerOrgID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
 
 	// UpdateDraft replaces the draft content of an existing series. Only
@@ -58,6 +71,8 @@ type ConcertAuthoringUseCase interface {
 	//  - PermissionDenied: The series is not owned by the caller. Non-revealing.
 	//  - FailedPrecondition: The series is not DRAFT (CANCELLED is rejected here;
 	//    PUBLISHED is rejected by the repository).
+	//  - InvalidArgument, Unavailable: As CreateDraft, including the venue
+	//    rules for each event's picked place.
 	UpdateDraft(ctx context.Context, callerOrgID, seriesID string, draft *entity.Series, eventInputs []*DraftEventInput, performerArtistIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)
 
 	// Publish transitions a DRAFT series to PUBLISHED. For PUBLIC series this
@@ -99,12 +114,25 @@ type ConcertAuthoringUseCase interface {
 	//
 	//  - InvalidArgument: The organizerID is empty.
 	ListOwn(ctx context.Context, callerOrgID string) ([]*entity.Series, []*[]*entity.Event, []*[]*entity.Artist, error)
+
+	// SearchPlaces looks up a venue name in the map catalog for the caller's
+	// Organizer while it authors a concert, and returns the catalog's
+	// candidates unchanged. It stores nothing: a Venue is matched or created
+	// only when a concert is saved with the picked place.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: The text is shorter than 2 or longer than 100
+	//    characters after trimming spaces; the catalog is not called.
+	//  - Unavailable: The map catalog cannot be reached.
+	SearchPlaces(ctx context.Context, callerOrgID, text string) ([]*entity.MapPlaceCandidate, error)
 }
 
 // concertAuthoringUseCase implements ConcertAuthoringUseCase.
 type concertAuthoringUseCase struct {
 	seriesRepo    entity.SeriesRepository
 	venueRepo     entity.VenueRepository
+	mapCatalog    entity.VenueMapCatalog
 	organizerRepo entity.OrganizerRepository
 	publisher     EventPublisher
 	logger        *logging.Logger
@@ -118,6 +146,7 @@ var _ ConcertAuthoringUseCase = (*concertAuthoringUseCase)(nil)
 func NewConcertAuthoringUseCase(
 	seriesRepo entity.SeriesRepository,
 	venueRepo entity.VenueRepository,
+	mapCatalog entity.VenueMapCatalog,
 	organizerRepo entity.OrganizerRepository,
 	publisher EventPublisher,
 	logger *logging.Logger,
@@ -125,6 +154,7 @@ func NewConcertAuthoringUseCase(
 	return &concertAuthoringUseCase{
 		seriesRepo:    seriesRepo,
 		venueRepo:     venueRepo,
+		mapCatalog:    mapCatalog,
 		organizerRepo: organizerRepo,
 		publisher:     publisher,
 		logger:        logger,
@@ -169,40 +199,42 @@ func generateUnlistedToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// resolveVenueForInput resolves or creates a venue row for one DraftEventInput.
-// It prefers place_id lookup, falls back to listed-name lookup, then creates.
+// resolveVenueForInput returns the id of the Venue for one event's picked
+// place: the Venue holding the place id when one is held, otherwise a new Venue
+// created from the map catalog's place (its name, coordinates and admin area).
+// A catalog NotFound becomes InvalidArgument (the operator sent a place id the
+// catalog does not know); Unavailable passes through.
+//
+// The new Venue carries no listed venue name: the operator's typed name is
+// kept on the event (DraftEvent.ListedVenueName), and a listed name on the
+// Venue would let Create's (listed_venue_name, admin_area) dedupe merge this
+// place into another same-named Venue in the same admin area.
 func (uc *concertAuthoringUseCase) resolveVenueForInput(ctx context.Context, inp *DraftEventInput) (string, error) {
-	if inp.PlaceID != nil && *inp.PlaceID != "" {
-		v, err := uc.venueRepo.GetByPlaceID(ctx, *inp.PlaceID)
-		if err == nil {
-			return v.ID, nil
-		}
-		if !errors.Is(err, apperr.ErrNotFound) {
-			return "", fmt.Errorf("get venue by place id: %w", err)
-		}
-	}
+	placeID := *inp.PlaceID
 
-	listed := inp.VenueName
-	v, err := uc.venueRepo.GetByListedName(ctx, listed, inp.AdminArea)
+	v, err := uc.venueRepo.GetByPlaceID(ctx, placeID)
 	if err == nil {
 		return v.ID, nil
 	}
 	if !errors.Is(err, apperr.ErrNotFound) {
-		return "", fmt.Errorf("get venue by listed name: %w", err)
+		return "", fmt.Errorf("get venue by place id: %w", err)
 	}
 
-	// Create a minimal venue row from the raw name. Coordinates and canonical
-	// name are left blank here; a subsequent organizer-triggered resolution or
-	// admin review can enrich the row. The listed_venue_name index guarantees
-	// idempotency for concurrent creates at the same listed name.
-	newVenue := &entity.Venue{
-		ID:              entity.NewID(),
-		Name:            listed,
-		AdminArea:       inp.AdminArea,
-		GooglePlaceID:   inp.PlaceID,
-		ListedVenueName: &listed,
+	place, err := uc.mapCatalog.GetPlace(ctx, placeID)
+	if err != nil {
+		if errors.Is(err, apperr.ErrNotFound) {
+			return "", apperr.Wrap(err, codes.InvalidArgument, "the picked venue is not a place in the map catalog")
+		}
+		return "", fmt.Errorf("get place from map catalog: %w", err)
 	}
-	venueID, err := uc.venueRepo.Create(ctx, newVenue)
+
+	venueID, err := uc.venueRepo.Create(ctx, &entity.Venue{
+		ID:            entity.NewID(),
+		Name:          place.Name,
+		AdminArea:     place.AdminArea,
+		GooglePlaceID: &placeID,
+		Coordinates:   place.Coordinates,
+	})
 	if err != nil {
 		return "", fmt.Errorf("create venue: %w", err)
 	}
@@ -529,12 +561,16 @@ func (uc *concertAuthoringUseCase) ListOwn(
 	return allSeries, allEvents, allArtists, nil
 }
 
-// validateDraftEventInputs checks that each event input carries a date, that
-// open_time <= start_time when both are set, and that the date is not in the
-// past relative to the current UTC day.
+// validateDraftEventInputs checks that each event input carries a picked
+// place id and a date, that open_time <= start_time when both are set, and
+// that the date is not in the past relative to the current UTC day. It runs
+// before any venue is read or created, so a rejected draft stores nothing.
 func validateDraftEventInputs(inputs []*DraftEventInput) error {
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	for _, inp := range inputs {
+		if inp.PlaceID == nil || strings.TrimSpace(*inp.PlaceID) == "" {
+			return apperr.New(codes.InvalidArgument, "each event must give the place id of a venue picked from the map catalog")
+		}
 		if inp.LocalDate.IsZero() {
 			return apperr.New(codes.InvalidArgument, "each event must have a local date")
 		}
@@ -551,6 +587,21 @@ func validateDraftEventInputs(inputs []*DraftEventInput) error {
 		}
 	}
 	return nil
+}
+
+// SearchPlaces looks up a venue name in the map catalog for an authoring
+// operator.
+func (uc *concertAuthoringUseCase) SearchPlaces(ctx context.Context, _ string, text string) ([]*entity.MapPlaceCandidate, error) {
+	trimmed := strings.TrimSpace(text)
+	if n := utf8.RuneCountInString(trimmed); n < searchPlacesMinChars || n > searchPlacesMaxChars {
+		return nil, apperr.New(codes.InvalidArgument,
+			fmt.Sprintf("venue search text must be %d to %d characters", searchPlacesMinChars, searchPlacesMaxChars))
+	}
+	candidates, err := uc.mapCatalog.SearchPlaces(ctx, trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("search places in map catalog: %w", err)
+	}
+	return candidates, nil
 }
 
 // validatePublishReadiness is the final server-side gate before a concert goes

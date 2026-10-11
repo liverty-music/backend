@@ -35,6 +35,7 @@ func validPublishEvents() []*entity.Event {
 type authoringDeps struct {
 	seriesRepo    *entitymocks.MockSeriesRepository
 	venueRepo     *entitymocks.MockVenueRepository
+	mapCatalog    *entitymocks.MockVenueMapCatalog
 	organizerRepo *entitymocks.MockOrganizerRepository
 	publisher     *ucmocks.MockEventPublisher
 	uc            usecase.ConcertAuthoringUseCase
@@ -46,11 +47,12 @@ func newAuthoringDeps(t *testing.T) *authoringDeps {
 	d := &authoringDeps{
 		seriesRepo:    entitymocks.NewMockSeriesRepository(t),
 		venueRepo:     entitymocks.NewMockVenueRepository(t),
+		mapCatalog:    entitymocks.NewMockVenueMapCatalog(t),
 		organizerRepo: entitymocks.NewMockOrganizerRepository(t),
 		publisher:     ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewConcertAuthoringUseCase(
-		d.seriesRepo, d.venueRepo, d.organizerRepo, d.publisher, logger,
+		d.seriesRepo, d.venueRepo, d.mapCatalog, d.organizerRepo, d.publisher, logger,
 	)
 	return d
 }

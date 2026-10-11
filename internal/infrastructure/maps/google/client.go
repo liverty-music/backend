@@ -1,6 +1,7 @@
 // Package google provides a client for the Google Maps Places API (New).
 //
-// This client uses the Places Text Search API (New) to search for venues by name.
+// This client uses the Places Text Search API (New) to search for venues by name
+// and Place Details (New) to read one place by its id.
 // It authenticates via OAuth 2.0 using Application Default Credentials (ADC),
 // which integrates with GKE Workload Identity for automatic token management.
 //
@@ -64,7 +65,9 @@ type Client struct {
 	tokenSource oauth2.TokenSource
 	projectID   string
 	baseURL     string
-	logger      *logging.Logger
+	// detailsBaseURL is the Places resource collection used by GetPlace.
+	detailsBaseURL string
+	logger         *logging.Logger
 }
 
 // NewClient creates a new Google Maps Places client using the provided OAuth2
@@ -77,11 +80,12 @@ func NewClient(ts oauth2.TokenSource, projectID string, httpClient *http.Client,
 		}
 	}
 	return &Client{
-		httpClient:  httpClient,
-		tokenSource: ts,
-		projectID:   projectID,
-		baseURL:     defaultBaseURL,
-		logger:      logger.With(slog.String("component", "googlemaps")),
+		httpClient:     httpClient,
+		tokenSource:    ts,
+		projectID:      projectID,
+		baseURL:        defaultBaseURL,
+		detailsBaseURL: defaultDetailsBaseURL,
+		logger:         logger.With(slog.String("component", "googlemaps")),
 	}
 }
 
@@ -153,4 +157,10 @@ func (c *Client) SearchPlace(ctx context.Context, name, adminArea string) (*Plac
 // SetBaseURL overrides the API base URL. Intended for tests.
 func (c *Client) SetBaseURL(u string) {
 	c.baseURL = u
+}
+
+// SetDetailsBaseURL overrides the Places resource collection URL that
+// GetPlace reads {url}/{place id} from. Intended for tests.
+func (c *Client) SetDetailsBaseURL(u string) {
+	c.detailsBaseURL = u
 }

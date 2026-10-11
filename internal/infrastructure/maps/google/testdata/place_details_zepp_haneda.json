@@ -1,0 +1,86 @@
+{
+  "id": "ChIJeVmAOuphGGARoWY4-GPmhhA",
+  "addressComponents": [
+    {
+      "longText": "４",
+      "shortText": "４",
+      "types": [
+        "premise"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "１",
+      "shortText": "１",
+      "types": [
+        "sublocality_level_4",
+        "sublocality",
+        "political"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "１丁目",
+      "shortText": "１丁目",
+      "types": [
+        "sublocality_level_3",
+        "sublocality",
+        "political"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "羽田空港",
+      "shortText": "羽田空港",
+      "types": [
+        "sublocality_level_2",
+        "sublocality",
+        "political"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "大田区",
+      "shortText": "大田区",
+      "types": [
+        "locality",
+        "political"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "東京都",
+      "shortText": "東京都",
+      "types": [
+        "administrative_area_level_1",
+        "political"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "日本",
+      "shortText": "JP",
+      "types": [
+        "country",
+        "political"
+      ],
+      "languageCode": "ja"
+    },
+    {
+      "longText": "144-0041",
+      "shortText": "144-0041",
+      "types": [
+        "postal_code"
+      ],
+      "languageCode": "ja"
+    }
+  ],
+  "location": {
+    "latitude": 35.5473958,
+    "longitude": 139.7565213
+  },
+  "displayName": {
+    "text": "Zepp Haneda (TOKYO)",
+    "languageCode": "ja"
+  }
+}
