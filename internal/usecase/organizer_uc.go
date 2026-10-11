@@ -102,7 +102,7 @@ type OrganizerUseCase interface {
 	ReconcileProvisioning(ctx context.Context) error
 
 	// Delete permanently removes a deactivated Organizer: the original and
-	// served files of every Media it owns, then its tenant (when it has one,
+	// served files of every SeriesImage it owns, then its tenant (when it has one,
 	// found by its deterministic name when the link was never recorded), then
 	// its records. Before anything is removed it runs the record deletion
 	// as a dry run, so a purchase or payout account that blocks deletion stops
@@ -314,7 +314,7 @@ func (uc *organizerUseCase) completeProvisioning(ctx context.Context, org *entit
 	uc.metrics.RecordOrganizerProvisioning(ctx, "success")
 	uc.logger.Info(ctx, "organizer tenant provisioned",
 		slog.String("organizer_id", org.ID),
-		slog.String("zitadel_org_id", org.ProviderOrganizerID),
+		slog.String("provider_organizer_id", org.ProviderOrganizerID),
 	)
 
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectOrganizerCreated, entity.OrganizerCreatedData{
@@ -561,7 +561,7 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 	}
 	uc.logger.Info(ctx, "organizer deleted",
 		slog.String("organizer_id", organizerID),
-		slog.String("zitadel_org_id", providerOrganizerID),
+		slog.String("provider_organizer_id", providerOrganizerID),
 		slog.Int("media_count", len(media)),
 	)
 	return nil

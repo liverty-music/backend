@@ -52,7 +52,7 @@ const (
 )
 
 // IdentityVerification is the result of a fan's 本人確認 (identity check): it binds one account
-// to a verified real person, established via Pocket Sign (PocketSign Verify).
+// to a verified real person, established by the verification provider (Pocket Sign Verify).
 // It retains ONLY the result of a verification — never the raw certificate/response, never the 個人番号, never
 // the certificate 発行番号/serial, and no 基本4情報 by default.
 //
@@ -81,7 +81,7 @@ type IdentityVerification struct {
 //
 // Raw certificate data MUST NOT be passed here — callers are responsible for
 // discarding it immediately after the Pocket Sign Verify API call.
-func NewIdentityVerification(userID, pocketSignUserID string, method VerificationMethod) *IdentityVerification {
+func NewIdentityVerification(userID, providerUserID string, method VerificationMethod) *IdentityVerification {
 	strength := DedupeStrengthWeak
 	if method == VerificationMethodJPKI {
 		strength = DedupeStrengthStrong
@@ -90,7 +90,7 @@ func NewIdentityVerification(userID, pocketSignUserID string, method Verificatio
 		ID:             NewID(),
 		UserID:         userID,
 		Method:         method,
-		ProviderUserID: pocketSignUserID,
+		ProviderUserID: providerUserID,
 		DedupeStrength: strength,
 		VerifyTime:     time.Now().UTC(),
 		Status:         VerificationStatusActive,
@@ -120,14 +120,14 @@ type IdentityVerificationRepository interface {
 	//  - NotFound: no record exists for the user.
 	GetByUserID(ctx context.Context, userID string) (*IdentityVerification, error)
 
-	// GetByPocketSignUserID returns the IdentityVerification keyed on the Pocket Sign
+	// GetByProviderUserID returns the IdentityVerification keyed on the Pocket Sign
 	// person key. Used to detect a duplicate-person attempt (another account with
 	// the same provider_user_id in ACTIVE status).
 	//
 	// # Possible errors
 	//
 	//  - NotFound: no active record for the given provider_user_id.
-	GetByProviderUserID(ctx context.Context, pocketSignUserID string) (*IdentityVerification, error)
+	GetByProviderUserID(ctx context.Context, providerUserID string) (*IdentityVerification, error)
 
 	// UpdateStatus changes the status of the record identified by id. Used by
 	// the 現況確認 re-check to flag NEEDS_REVERIFICATION and by the renewal path

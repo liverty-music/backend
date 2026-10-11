@@ -590,7 +590,7 @@ func TestRefundOrder_EmptyProviderPaymentID_FailedPrecondition(t *testing.T) {
 	_, err := uc.Refund(ctx, "order-no-pi", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition,
-		"empty PaymentIntentRef must return FailedPrecondition")
+		"empty ProviderPaymentID must return FailedPrecondition")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

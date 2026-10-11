@@ -34,7 +34,7 @@ const (
 	`
 	// issuanceInsertSettlementQuery inserts the Held settlement row for the
 	// issued Order. Settlement.organizer_id/event_id are NOT NULL, so the
-	// caller (IssuanceUseCase) must resolve the Organizer before calling Issue.
+	// caller (OrderUseCase) must resolve the Organizer before calling Issue.
 	issuanceInsertSettlementQuery = `
 		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)

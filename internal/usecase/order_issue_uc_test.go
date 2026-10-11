@@ -141,7 +141,7 @@ type lotteryIssuanceDeps struct {
 	clock                    usecase.Clock
 }
 
-// newLotteryIssuanceUC builds an IssuanceUseCase for the lottery path, whose
+// newLotteryIssuanceUC builds an OrderUseCase for the lottery path, whose
 // Organizer is at the 5% pilot rate.
 func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseCase {
 	t.Helper()
@@ -236,7 +236,7 @@ func recordingIssuanceRepo(order **entity.Order, tickets *[]*entity.Ticket, sett
 	}}, &called
 }
 
-func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
+func TestOrderUseCase_IssueFromCapturedWin(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
@@ -417,7 +417,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 	})
 
 	// @spec components/usecase/order/issue-from-captured-win "Phase required verification"
-	t.Run("binds every ticket to the user's Kyc when the sale requires verification", func(t *testing.T) {
+	t.Run("binds every ticket to the user's identity verification when the sale requires verification", func(t *testing.T) {
 		t.Parallel()
 
 		var issuedTickets []*entity.Ticket
@@ -425,7 +425,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		identityVerifications := entitymocks.NewMockIdentityVerificationRepository(t)
 		// Whatever its status: the IdentityVerification read at issuance only binds.
 		identityVerifications.EXPECT().GetByUserID(mock.Anything, "user-1").
-			Return(&entity.IdentityVerification{ID: "kyc-1", UserID: "user-1", Status: entity.VerificationStatusNeedsReverification}, nil)
+			Return(&entity.IdentityVerification{ID: "identity verification-1", UserID: "user-1", Status: entity.VerificationStatusNeedsReverification}, nil)
 
 		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{
 			issuanceRepo: issuanceRepo, identityVerificationRepo: identityVerifications,
@@ -436,7 +436,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, issuedTickets, 2)
 		for _, tk := range issuedTickets {
-			assert.Equal(t, "kyc-1", tk.IdentityVerificationID)
+			assert.Equal(t, "identity verification-1", tk.IdentityVerificationID)
 			// The face shows the user's own full name: nothing is copied onto
 			// the Ticket.
 			face := tk.Face(&entity.User{ID: "user-1", FullName: "山田 太郎", PhoneNumber: "+819012345678"})
@@ -445,7 +445,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 	})
 
 	// @spec components/usecase/order/issue-from-captured-win "Verified identity missing"
-	t.Run("fails with NotFound and creates nothing when the user has no Kyc", func(t *testing.T) {
+	t.Run("fails with NotFound and creates nothing when the user has no identity verification", func(t *testing.T) {
 		t.Parallel()
 
 		issuanceRepo, issueCalled := recordingIssuanceRepo(nil, nil, nil)
@@ -463,7 +463,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 	})
 
 	// @spec components/usecase/order/issue-from-captured-win "No requirement"
-	t.Run("reads no Kyc and binds none when the sale has no requirement", func(t *testing.T) {
+	t.Run("reads no identity verification and binds none when the sale has no requirement", func(t *testing.T) {
 		t.Parallel()
 
 		var issuedTickets []*entity.Ticket
@@ -481,14 +481,14 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 	})
 }
 
-// TestIssuanceUseCase_ThroughSettlementRelease follows an Order end to end:
+// TestOrderUseCase_ThroughSettlementRelease follows an Order end to end:
 // issuance creates the Held Settlement (backend#468), and the payout sweeper
 // — reusing the settlement_uc_test.go stubs, since both live in package
 // usecase_test — later releases it once the event has started and the
 // dispute buffer has passed. This is the regression test for the bug: before
 // this change, SettlementUseCase.ListHeld was always empty because nothing
 // ever created a Settlement.
-func TestIssuanceUseCase_ThroughSettlementRelease(t *testing.T) {
+func TestOrderUseCase_ThroughSettlementRelease(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
@@ -540,7 +540,7 @@ func TestIssuanceUseCase_ThroughSettlementRelease(t *testing.T) {
 	eventStartTimeRepo := &stubEventStartTimeRepo{getFn: func(_ context.Context, _ string) (*time.Time, error) {
 		return &eventStarted, nil
 	}}
-	connectedAccountRepo := &stubConnectedAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
+	connectedAccountRepo := &stubPayoutAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
 		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusActive}, nil
 	}}
 
@@ -554,7 +554,7 @@ func TestIssuanceUseCase_ThroughSettlementRelease(t *testing.T) {
 	assert.Equal(t, order.Amount-entity.PlatformFee(order.Amount, 500), releasedSplits[0].Amount)
 }
 
-func TestIssuanceUseCase_IssueDueWins(t *testing.T) {
+func TestOrderUseCase_IssueDueWins(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
@@ -604,14 +604,14 @@ func TestIssuanceUseCase_IssueDueWins(t *testing.T) {
 	})
 }
 
-// TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale follows the
+// TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale follows the
 // win-tickets-in-a-lottery story's payout-readiness requirement: an Organizer
 // still completing identity checks never blocks the sale — the fan is still
 // charged and issued Tickets — only the Organizer's own payout stays Held
 // until the account is Active.
 //
 // @spec stories/win-tickets-in-a-lottery "Organizer still in identity check"
-func TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
+func TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
@@ -665,7 +665,7 @@ func TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 	eventStartTimeRepo := &stubEventStartTimeRepo{getFn: func(_ context.Context, _ string) (*time.Time, error) {
 		return &eventStarted, nil
 	}}
-	connectedAccountRepo := &stubConnectedAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
+	connectedAccountRepo := &stubPayoutAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
 		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusPending}, nil
 	}}
 	settlementPayouts := &stubSettlementPayoutRepository{

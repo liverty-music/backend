@@ -25,23 +25,23 @@ func (_m *MockIdentityVerifier) EXPECT() *MockIdentityVerifier_Expecter {
 }
 
 // CompleteVerify provides a mock function with given fields: ctx, userID, sessionID
-func (_m *MockIdentityVerifier) CompleteVerify(ctx context.Context, userID string, sessionID string) (*usecase.PocketSignResult, error) {
+func (_m *MockIdentityVerifier) CompleteVerify(ctx context.Context, userID string, sessionID string) (*usecase.IdentityVerifierResult, error) {
 	ret := _m.Called(ctx, userID, sessionID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CompleteVerify")
 	}
 
-	var r0 *usecase.PocketSignResult
+	var r0 *usecase.IdentityVerifierResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*usecase.PocketSignResult, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*usecase.IdentityVerifierResult, error)); ok {
 		return rf(ctx, userID, sessionID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) *usecase.PocketSignResult); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *usecase.IdentityVerifierResult); ok {
 		r0 = rf(ctx, userID, sessionID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*usecase.PocketSignResult)
+			r0 = ret.Get(0).(*usecase.IdentityVerifierResult)
 		}
 	}
 
@@ -74,39 +74,39 @@ func (_c *MockIdentityVerifier_CompleteVerify_Call) Run(run func(ctx context.Con
 	return _c
 }
 
-func (_c *MockIdentityVerifier_CompleteVerify_Call) Return(_a0 *usecase.PocketSignResult, _a1 error) *MockIdentityVerifier_CompleteVerify_Call {
+func (_c *MockIdentityVerifier_CompleteVerify_Call) Return(_a0 *usecase.IdentityVerifierResult, _a1 error) *MockIdentityVerifier_CompleteVerify_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockIdentityVerifier_CompleteVerify_Call) RunAndReturn(run func(context.Context, string, string) (*usecase.PocketSignResult, error)) *MockIdentityVerifier_CompleteVerify_Call {
+func (_c *MockIdentityVerifier_CompleteVerify_Call) RunAndReturn(run func(context.Context, string, string) (*usecase.IdentityVerifierResult, error)) *MockIdentityVerifier_CompleteVerify_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Recheck provides a mock function with given fields: ctx, pocketSignUserID
-func (_m *MockIdentityVerifier) Recheck(ctx context.Context, pocketSignUserID string) (*usecase.PocketSignRecheckResult, error) {
-	ret := _m.Called(ctx, pocketSignUserID)
+// Recheck provides a mock function with given fields: ctx, providerUserID
+func (_m *MockIdentityVerifier) Recheck(ctx context.Context, providerUserID string) (*usecase.IdentityVerifierRecheckResult, error) {
+	ret := _m.Called(ctx, providerUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Recheck")
 	}
 
-	var r0 *usecase.PocketSignRecheckResult
+	var r0 *usecase.IdentityVerifierRecheckResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (*usecase.PocketSignRecheckResult, error)); ok {
-		return rf(ctx, pocketSignUserID)
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*usecase.IdentityVerifierRecheckResult, error)); ok {
+		return rf(ctx, providerUserID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) *usecase.PocketSignRecheckResult); ok {
-		r0 = rf(ctx, pocketSignUserID)
+	if rf, ok := ret.Get(0).(func(context.Context, string) *usecase.IdentityVerifierRecheckResult); ok {
+		r0 = rf(ctx, providerUserID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*usecase.PocketSignRecheckResult)
+			r0 = ret.Get(0).(*usecase.IdentityVerifierRecheckResult)
 		}
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, pocketSignUserID)
+		r1 = rf(ctx, providerUserID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -121,24 +121,24 @@ type MockIdentityVerifier_Recheck_Call struct {
 
 // Recheck is a helper method to define mock.On call
 //   - ctx context.Context
-//   - pocketSignUserID string
-func (_e *MockIdentityVerifier_Expecter) Recheck(ctx interface{}, pocketSignUserID interface{}) *MockIdentityVerifier_Recheck_Call {
-	return &MockIdentityVerifier_Recheck_Call{Call: _e.mock.On("Recheck", ctx, pocketSignUserID)}
+//   - providerUserID string
+func (_e *MockIdentityVerifier_Expecter) Recheck(ctx interface{}, providerUserID interface{}) *MockIdentityVerifier_Recheck_Call {
+	return &MockIdentityVerifier_Recheck_Call{Call: _e.mock.On("Recheck", ctx, providerUserID)}
 }
 
-func (_c *MockIdentityVerifier_Recheck_Call) Run(run func(ctx context.Context, pocketSignUserID string)) *MockIdentityVerifier_Recheck_Call {
+func (_c *MockIdentityVerifier_Recheck_Call) Run(run func(ctx context.Context, providerUserID string)) *MockIdentityVerifier_Recheck_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockIdentityVerifier_Recheck_Call) Return(_a0 *usecase.PocketSignRecheckResult, _a1 error) *MockIdentityVerifier_Recheck_Call {
+func (_c *MockIdentityVerifier_Recheck_Call) Return(_a0 *usecase.IdentityVerifierRecheckResult, _a1 error) *MockIdentityVerifier_Recheck_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockIdentityVerifier_Recheck_Call) RunAndReturn(run func(context.Context, string) (*usecase.PocketSignRecheckResult, error)) *MockIdentityVerifier_Recheck_Call {
+func (_c *MockIdentityVerifier_Recheck_Call) RunAndReturn(run func(context.Context, string) (*usecase.IdentityVerifierRecheckResult, error)) *MockIdentityVerifier_Recheck_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -87,7 +87,7 @@ func (c *AnalyticsConsumer) HandleUserCreated(msg *message.Message) error {
 
 	if data.UserID == "" {
 		c.logger.Warn(ctx, "USER.created event missing user_id, skipping forward",
-			slog.String("external_id", data.ProviderUserID),
+			slog.String("provider_user_id", data.ProviderUserID),
 		)
 		c.metrics.RecordMessage(ctx, statusSkippedEmptyUserID)
 		return nil

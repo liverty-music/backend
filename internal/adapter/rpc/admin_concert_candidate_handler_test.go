@@ -161,8 +161,8 @@ func TestAdminConcertCandidateHandler_Approve(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		ctx      context.Context
-		stagedID string
+		ctx                context.Context
+		concertCandidateID string
 	}
 	type dep struct {
 		adminUC func(*usecasemocks.MockConcertCandidateUseCase)
@@ -177,7 +177,7 @@ func TestAdminConcertCandidateHandler_Approve(t *testing.T) {
 	}{
 		{
 			name: "approve calls use case with staged id",
-			args: args{ctx: adminCtx(), stagedID: "staged-abc"},
+			args: args{ctx: adminCtx(), concertCandidateID: "staged-abc"},
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
 					m.EXPECT().Approve(mock.Anything, "staged-abc", usecase.ApproveResolutionUnspecified, mock.Anything).
@@ -196,7 +196,7 @@ func TestAdminConcertCandidateHandler_Approve(t *testing.T) {
 
 			h := newAdminConcertCandidateHandler(t, adminUC)
 			resp, err := h.Approve(tt.args.ctx, connect.NewRequest(&concertcandidatev1.ApproveRequest{
-				ConcertCandidateId: &entityv1.ConcertCandidateId{Value: tt.args.stagedID},
+				ConcertCandidateId: &entityv1.ConcertCandidateId{Value: tt.args.concertCandidateID},
 			}))
 
 			if tt.wantErr {
@@ -219,9 +219,9 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		ctx      context.Context
-		stagedID string
-		reason   string
+		ctx                context.Context
+		concertCandidateID string
+		reason             string
 	}
 	type dep struct {
 		adminUC func(*usecasemocks.MockConcertCandidateUseCase)
@@ -237,7 +237,7 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 		{
 			// @spec components/adapter/admin/api/rpc/staged-concert "Reject records the reviewer"
 			name: "reject passes reason and reviewer sub to use case",
-			args: args{ctx: adminCtx(), stagedID: "staged-xyz", reason: "wrong date"},
+			args: args{ctx: adminCtx(), concertCandidateID: "staged-xyz", reason: "wrong date"},
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
 					// reviewer sub must match the sub in adminCtx.
@@ -256,7 +256,7 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 
 			h := newAdminConcertCandidateHandler(t, adminUC)
 			resp, err := h.Reject(tt.args.ctx, connect.NewRequest(&concertcandidatev1.RejectRequest{
-				ConcertCandidateId: &entityv1.ConcertCandidateId{Value: tt.args.stagedID},
+				ConcertCandidateId: &entityv1.ConcertCandidateId{Value: tt.args.concertCandidateID},
 				Reason:             tt.args.reason,
 			}))
 
@@ -277,7 +277,7 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 	t.Parallel()
 
-	const stagedID = "019a0000-0000-7000-8000-0000000000a1"
+	const concertCandidateID = "019a0000-0000-7000-8000-0000000000a1"
 
 	t.Run("non-admin approves", func(t *testing.T) {
 		t.Parallel()
@@ -286,7 +286,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 		h := newAdminConcertCandidateHandler(t, usecasemocks.NewMockConcertCandidateUseCase(t))
 
 		_, err := callThroughAdminPipeline(t, nonAdminCtx(), &concertcandidatev1.ApproveRequest{
-			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: stagedID},
+			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: concertCandidateID},
 		}, h.Approve)
 
 		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
@@ -297,25 +297,25 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 		// @spec components/adapter/admin/api/rpc/staged-concert "Approve without a resolution"
 		adminUC := usecasemocks.NewMockConcertCandidateUseCase(t)
 		startTime := time.Date(2026, 9, 1, 18, 0, 0, 0, time.UTC)
-		adminUC.EXPECT().Approve(mock.Anything, stagedID, usecase.ApproveResolutionUnspecified, "admin-sub-123").
+		adminUC.EXPECT().Approve(mock.Anything, concertCandidateID, usecase.ApproveResolutionUnspecified, "admin-sub-123").
 			Return(&usecase.ApproveResult{Conflict: &usecase.DuplicateConflict{
 				Existing: &usecase.ExistingEventDisplay{
 					EventID: "event-1", Title: "Tour 2026", ListedVenueName: "Budokan",
 					LocalDate: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), StartTime: &startTime,
 				},
-				ConcertCandidate:          &entity.ConcertCandidate{ID: stagedID, Title: "Tour 2026", ListedVenueName: "Budokan"},
+				ConcertCandidate:          &entity.ConcertCandidate{ID: concertCandidateID, Title: "Tour 2026", ListedVenueName: "Budokan"},
 				ConcertCandidatePerformer: &entity.Artist{ID: "artist-1", Name: "Artist Alpha"},
 			}}, nil).Once()
 		h := newAdminConcertCandidateHandler(t, adminUC)
 
 		resp, err := callThroughAdminPipeline(t, adminCtx(), &concertcandidatev1.ApproveRequest{
-			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: stagedID},
+			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: concertCandidateID},
 		}, h.Approve)
 
 		require.NoError(t, err)
 		require.NotNil(t, resp.Msg.GetConflict())
 		assert.Equal(t, "event-1", resp.Msg.GetConflict().GetExisting().GetEventId().GetValue())
-		assert.Equal(t, stagedID, resp.Msg.GetConflict().GetConcertCandidate().GetId().GetValue())
+		assert.Equal(t, concertCandidateID, resp.Msg.GetConflict().GetConcertCandidate().GetId().GetValue())
 	})
 
 	t.Run("reject without a reason", func(t *testing.T) {
@@ -324,7 +324,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 		h := newAdminConcertCandidateHandler(t, usecasemocks.NewMockConcertCandidateUseCase(t))
 
 		_, err := callThroughAdminPipeline(t, adminCtx(), &concertcandidatev1.RejectRequest{
-			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: stagedID},
+			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: concertCandidateID},
 		}, h.Reject)
 
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))

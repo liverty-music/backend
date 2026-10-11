@@ -94,7 +94,7 @@ const (
 	// by the existing NOTIFICATION.* stream — see streams.go.
 	SubjectNotificationRequested = "NOTIFICATION.requested"
 	// SubjectOrderPaid announces that an Order is paid, for a won lottery
-	// entry or a completed checkout. IssuanceUseCase.FulfillPayment
+	// entry or a completed checkout. OrderUseCase.FulfillPayment
 	// publishes it on the payment provider's completed-charge webhook, with the
 	// Order id as the message id. Two consumers run from
 	// it: the purchase confirmation (NotificationUseCase.SendOrderConfirmation)

@@ -276,7 +276,7 @@ func (c *StampClient) StartVerify(ctx context.Context, userID string, _ entity.V
 //     validation (revoked/expired/signature mismatch).
 //   - PermissionDenied: nonce mismatch (replay or tamper attempt).
 //   - Unavailable: Pocket Sign Stamp API unreachable or authentication failed.
-func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID string) (*usecase.PocketSignResult, error) {
+func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID string) (*usecase.IdentityVerifierResult, error) {
 	// Atomically look up AND consume the stored nonce. Unknown/expired
 	// (or already-consumed) sessions are rejected with FailedPrecondition to
 	// match the "session not completed" category — the most likely cause is a
@@ -384,7 +384,7 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 		slog.String("cert_type", cert.GetType().String()),
 	)
 
-	return &usecase.PocketSignResult{
+	return &usecase.IdentityVerifierResult{
 		ProviderUserID: user.GetId(),
 		Method:         method,
 	}, nil
@@ -397,7 +397,7 @@ func (c *StampClient) CompleteVerify(ctx context.Context, userID, sessionID stri
 // Possible errors:
 //   - Unavailable: Pocket Sign API unreachable, authentication failed, or
 //     any other vendor-side error.
-func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*usecase.PocketSignRecheckResult, error) {
+func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*usecase.IdentityVerifierRecheckResult, error) {
 	checkMethod := verifyv2.CertificateStatus_CHECK_METHOD_CRL
 
 	req := connect.NewRequest(verifyv2.CheckUserStatusRequest_builder{
@@ -439,7 +439,7 @@ func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*us
 		slog.Bool("needs_reverification", needsReverification),
 	)
 
-	return &usecase.PocketSignRecheckResult{
+	return &usecase.IdentityVerifierRecheckResult{
 		NeedsReverification: needsReverification,
 	}, nil
 }

@@ -47,7 +47,7 @@ func (s *StubVerifier) StartVerify(_ context.Context, _ string, _ entity.Verific
 //
 // TODO: integrate real Pocket Sign Stamp API after onboarding
 // (identity-ekyc-jpki Section 0).
-func (s *StubVerifier) CompleteVerify(_ context.Context, _, _ string) (*usecase.PocketSignResult, error) {
+func (s *StubVerifier) CompleteVerify(_ context.Context, _, _ string) (*usecase.IdentityVerifierResult, error) {
 	return nil, apperr.New(codes.Unavailable,
 		"Pocket Sign Stamp API is not configured; "+
 			"onboarding required before identity verification is available "+
@@ -58,7 +58,7 @@ func (s *StubVerifier) CompleteVerify(_ context.Context, _, _ string) (*usecase.
 //
 // TODO: integrate real Pocket Sign Stamp API after onboarding
 // (identity-ekyc-jpki Section 0).
-func (s *StubVerifier) Recheck(_ context.Context, _ string) (*usecase.PocketSignRecheckResult, error) {
+func (s *StubVerifier) Recheck(_ context.Context, _ string) (*usecase.IdentityVerifierRecheckResult, error) {
 	return nil, apperr.New(codes.Unavailable,
 		"Pocket Sign Stamp API is not configured; "+
 			"onboarding required before identity verification is available "+

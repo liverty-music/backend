@@ -37,7 +37,7 @@ func (b *SeriesImageURLBuilder) VariantURL(organizerID, mediaID, variant string)
 	return b.cdnBase + "/" + gcsstorage.VariantObjectKey(organizerID, mediaID, variant)
 }
 
-// seriesMediaProto builds the entityv1.Media message for a series' cover media.
+// seriesMediaProto builds the entityv1.SeriesImage message for a series' cover media.
 // Returns nil when the series has no cover media or when the CDN base is
 // unset, so callers never emit a proto with empty URL fields.
 func (b *SeriesImageURLBuilder) seriesMediaProto(s *entity.Series) *entityv1.SeriesImage {

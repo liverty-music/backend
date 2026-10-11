@@ -11,10 +11,10 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// PocketSignResult is the result of a successful Pocket Sign Stamp verification.
+// IdentityVerifierResult is the result of a successful Pocket Sign Stamp verification.
 // The raw certificate and card response are validated vendor-side and never
 // cross the boundary into our application; only these fields are retained.
-type PocketSignResult struct {
+type IdentityVerifierResult struct {
 	// ProviderUserID is the Pocket Sign tenant-scoped person key (User.id).
 	// Stable across card renewal, re-issue, cert-type change. Never the serial
 	// or 個人番号.
@@ -23,8 +23,8 @@ type PocketSignResult struct {
 	Method entity.VerificationMethod
 }
 
-// PocketSignRecheckResult is the outcome of a 現況確認 (liveness) re-check.
-type PocketSignRecheckResult struct {
+// IdentityVerifierRecheckResult is the outcome of a 現況確認 (liveness) re-check.
+type IdentityVerifierRecheckResult struct {
 	// NeedsReverification is true when the Pocket Sign 現況確認 reports the
 	// certificate is revoked, 基本4情報 changed, or expired.
 	NeedsReverification bool
@@ -38,16 +38,16 @@ type PocketSignRecheckResult struct {
 //
 // Stamp flow:
 //  1. StartVerify — backend calls CreateSession → returns (sessionID, redirectURL).
-//     The frontend opens redirectURL in the PocketSign app; the fan reads their
+//     The frontend opens redirectURL in the verification provider's app; the fan reads their
 //     card there. The app redirects back to the callback URL with ?session_id=<id>.
 //  2. CompleteVerify — backend calls FinalizeSession(sessionID) → verifies the
 //     nonce stored at step 1 matches metadata in the response, extracts
 //     ProviderUserID.
 //  3. Recheck — calls verify.v2.UserService.CheckUserStatus for 現況確認.
 type IdentityVerifier interface {
-	// StartVerify creates a Pocket Sign Stamp session. It returns the opaque
-	// session id and the redirect URL the client must open in the PocketSign
-	// app. A random nonce is generated and stored server-side keyed by
+	// StartVerify creates a verification session at the verification provider
+	// (Pocket Sign Stamp). It returns the opaque session id and the redirect URL
+	// the client must open in the provider's app. A random nonce is generated and stored server-side keyed by
 	// (userID, sessionID) for later comparison in CompleteVerify.
 	//
 	// # Possible errors
@@ -63,11 +63,11 @@ type IdentityVerifier interface {
 	// # Possible errors
 	//
 	//   - FailedPrecondition: the session is not yet completed (fan has not
-	//     finished in the PocketSign app) or the cert failed validation
+	//     finished in the verification provider's app) or the cert failed validation
 	//     (revoked/expired/signature mismatch).
 	//   - PermissionDenied: nonce mismatch (replay or tamper attempt).
 	//   - Unavailable: the Pocket Sign Stamp API is unreachable or not configured.
-	CompleteVerify(ctx context.Context, userID, sessionID string) (*PocketSignResult, error)
+	CompleteVerify(ctx context.Context, userID, sessionID string) (*IdentityVerifierResult, error)
 
 	// Recheck performs a 現況確認 (liveness) check for the given provider_user_id.
 	// It reports whether the IdentityVerification is still current (not revoked,
@@ -76,14 +76,14 @@ type IdentityVerifier interface {
 	// # Possible errors
 	//
 	//   - Unavailable: the Pocket Sign Verify API is unreachable or not configured.
-	Recheck(ctx context.Context, pocketSignUserID string) (*PocketSignRecheckResult, error)
+	Recheck(ctx context.Context, providerUserID string) (*IdentityVerifierRecheckResult, error)
 }
 
 // IdentityVerificationUseCase runs a fan's 本人確認 (identity check) via Pocket Sign and reads
 // its result, the fan's [entity.IdentityVerification].
 type IdentityVerificationUseCase interface {
 	// Start creates a Pocket Sign Stamp session for the calling fan and returns
-	// its session id and the redirect URL for the PocketSign app.
+	// its session id and the redirect URL for the verification provider's app.
 	//
 	// # Possible errors
 	//
@@ -135,7 +135,7 @@ type IdentityVerificationUseCase interface {
 	Delete(ctx context.Context, userID string) error
 }
 
-// kycUseCase is the concrete implementation.
+// identityVerificationUseCase is the concrete implementation.
 type identityVerificationUseCase struct {
 	identityVerificationRepo entity.IdentityVerificationRepository
 	userRepo                 entity.UserRepository
@@ -237,9 +237,9 @@ func (uc *identityVerificationUseCase) Create(
 		return nil, err
 	}
 
-	uc.logger.Info(ctx, "kyc created",
+	uc.logger.Info(ctx, "identity verification created",
 		slog.String("user_id", userID),
-		slog.String("kyc_id", created.ID),
+		slog.String("identity_verification_id", created.ID),
 		slog.Int("method", int(created.Method)),
 	)
 	return created, nil
@@ -251,7 +251,7 @@ func (uc *identityVerificationUseCase) Recheck(ctx context.Context, userID strin
 	identityVerification, err := uc.identityVerificationRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return nil, apperr.Wrap(err, codes.FailedPrecondition, "the account has no kyc to re-check")
+			return nil, apperr.Wrap(err, codes.FailedPrecondition, "the account has no identity verification to re-check")
 		}
 		return nil, err
 	}
@@ -266,9 +266,9 @@ func (uc *identityVerificationUseCase) Recheck(ctx context.Context, userID strin
 			return nil, err
 		}
 		identityVerification.Status = entity.VerificationStatusNeedsReverification
-		uc.logger.Info(ctx, "kyc flagged for re-verification",
+		uc.logger.Info(ctx, "identity verification flagged for re-verification",
 			slog.String("user_id", userID),
-			slog.String("kyc_id", identityVerification.ID),
+			slog.String("identity_verification_id", identityVerification.ID),
 		)
 	}
 
@@ -292,9 +292,9 @@ func (uc *identityVerificationUseCase) Delete(ctx context.Context, userID string
 		return err
 	}
 
-	uc.logger.Info(ctx, "kyc deleted",
+	uc.logger.Info(ctx, "identity verification deleted",
 		slog.String("user_id", userID),
-		slog.String("kyc_id", identityVerification.ID),
+		slog.String("identity_verification_id", identityVerification.ID),
 	)
 	return nil
 }

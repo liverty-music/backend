@@ -223,7 +223,7 @@ type OrganizerRepository interface {
 	// Events (with each Event's TicketTypes, lottery entries, ticket journeys,
 	// performers, reception links, admissions and rejected scans), the
 	// refunded Orders, their Tickets and their Reversed Settlements for those
-	// Events, its Media records, its artist associations and its
+	// Events, its SeriesImage records, its artist associations and its
 	// payout-account record. It removes nothing when
 	// the Organizer is not deactivated, when any of its Events has an Order that
 	// is not Refunded or a Settlement that is not Reversed, or when the

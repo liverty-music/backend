@@ -229,7 +229,7 @@ func (h *StripeWebhookHandler) extractChargeContext(ctx context.Context, event s
 		h.logger.Warn(ctx, "stripe webhook: could not extract charge or payment_intent ref from event",
 			slog.String("event_id", event.ID),
 			slog.String("event_type", string(event.Type)),
-			slog.String("charge_ref", providerChargeID),
+			slog.String("provider_charge_id", providerChargeID),
 			slog.String("provider_payment_id", fmt.Sprintf("%v", obj.PaymentIntent)),
 		)
 	}

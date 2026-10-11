@@ -497,7 +497,7 @@ func (uc *seriesUseCase) Cancel(ctx context.Context, callerOrgID, seriesID strin
 	}
 
 	// Cancel keeps the series row (guard-hidden) and its series_cover_images, so the DB
-	// and object storage stay consistent. Media is reclaimed only when the series
+	// and object storage stay consistent. SeriesImage is reclaimed only when the series
 	// is hard-deleted (series_cover_images cascades; a future sweep GCs the objects).
 	return nil
 }

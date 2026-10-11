@@ -184,7 +184,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrInternal)
 	})
 
-	t.Run("idempotent — duplicate external_id returns existing user", func(t *testing.T) {
+	t.Run("idempotent — duplicate provider_user_id returns existing user", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
@@ -211,7 +211,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		assert.Equal(t, existingUser, result)
 	})
 
-	t.Run("duplicate email with different external_id surfaces AlreadyExists", func(t *testing.T) {
+	t.Run("duplicate email with different provider_user_id surfaces AlreadyExists", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
@@ -241,7 +241,7 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 	// into the original AlreadyExists. Previously the retry path discarded
 	// getErr entirely, masking a scanUser NULL→string crash as
 	// AlreadyExists at the wire with no log trail.
-	t.Run("retry GetByExternalID non-NotFound error surfaces truthfully", func(t *testing.T) {
+	t.Run("retry GetByProviderUserID non-NotFound error surfaces truthfully", func(t *testing.T) {
 		t.Parallel()
 		// Table covers the representative non-NotFound classes the retry
 		// path can encounter. Internal is the original incident's class

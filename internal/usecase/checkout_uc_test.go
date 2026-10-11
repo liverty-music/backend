@@ -232,7 +232,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
 
-	t.Run("kyc needs re-verification", func(t *testing.T) {
+	t.Run("identity verification needs re-verification", func(t *testing.T) {
 		t.Parallel()
 		f := newCheckoutFixture(t, now)
 		sale, _ := firstComeTicketType(150, 0, 0)
@@ -240,7 +240,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").
-			Return(&entity.IdentityVerification{ID: "kyc-1", UserID: "fan-1", Status: entity.VerificationStatusNeedsReverification}, nil)
+			Return(&entity.IdentityVerification{ID: "identity verification-1", UserID: "fan-1", Status: entity.VerificationStatusNeedsReverification}, nil)
 
 		_, err := f.uc.Start(context.Background(), "fan-1", "tt-1", 2)
 
@@ -256,7 +256,7 @@ func TestCheckoutUseCase_Start(t *testing.T) {
 		expectTicketType(f.sales, sale)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").
-			Return(&entity.IdentityVerification{ID: "kyc-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
+			Return(&entity.IdentityVerification{ID: "identity verification-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
 		checkout := fanCheckout(now)
 		f.checkouts.EXPECT().GetOrCreateHeld(mock.Anything, entity.TicketTypeID("tt-1"), entity.UserID("fan-1"), 2, now).Return(checkout, nil)
 

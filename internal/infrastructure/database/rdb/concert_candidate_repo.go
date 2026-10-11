@@ -18,7 +18,7 @@ const (
 	// upsertConcertCandidateByPlaceQuery handles the resolved-venue path: when
 	// ResolvedPlaceID is set the natural key is
 	// (artist_id, local_date, resolved_place_id). The ON CONFLICT target
-	// mirrors the partial index uq_staged_concerts_by_place. On conflict the
+	// mirrors the partial index uq_concert_candidates_by_place. On conflict the
 	// mutable payload is refreshed but discovered_at is kept so queue order is
 	// stable.
 	upsertConcertCandidateByPlaceQuery = `
@@ -47,7 +47,7 @@ const (
 	// upsertConcertCandidateByListedNameQuery handles the unresolved-venue path:
 	// when ResolvedPlaceID is nil the natural key is
 	// (artist_id, local_date, listed_venue_name). The ON CONFLICT target
-	// mirrors the partial index uq_staged_concerts_by_listed_name. On conflict
+	// mirrors the partial index uq_concert_candidates_by_listed_name. On conflict
 	// the mutable payload is refreshed but discovered_at is kept.
 	upsertConcertCandidateByListedNameQuery = `
 		INSERT INTO concert_candidates (
@@ -138,7 +138,7 @@ func (r *ConcertCandidateRepository) Upsert(ctx context.Context, sc *entity.Conc
 	)
 	if err != nil {
 		return toAppErr(err, "failed to upsert staged concert",
-			slog.String("staged_concert_id", sc.ID),
+			slog.String("concert_candidate_id", sc.ID),
 			slog.String("artist_id", sc.ArtistID),
 		)
 	}
@@ -173,7 +173,7 @@ func (r *ConcertCandidateRepository) GetByID(ctx context.Context, id string) (*e
 	sc, err := scanConcertCandidateRow(row.Scan)
 	if err != nil {
 		return nil, toAppErr(err, "failed to get staged concert by ID",
-			slog.String("staged_concert_id", id),
+			slog.String("concert_candidate_id", id),
 		)
 	}
 	return sc, nil
@@ -184,7 +184,7 @@ func (r *ConcertCandidateRepository) Delete(ctx context.Context, id string) erro
 	_, err := r.db.Pool.Exec(ctx, deleteConcertCandidateQuery, id)
 	if err != nil {
 		return toAppErr(err, "failed to delete staged concert",
-			slog.String("staged_concert_id", id),
+			slog.String("concert_candidate_id", id),
 		)
 	}
 	return nil

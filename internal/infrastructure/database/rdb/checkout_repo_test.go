@@ -550,7 +550,7 @@ func completedCheckoutOf(t *testing.T, repo *rdb.CheckoutRepository, issuance *r
 }
 
 // checkoutOrder builds the Order, Tickets and Settlement of a charged
-// checkout, as IssuanceUseCase does.
+// checkout, as OrderUseCase does.
 func checkoutOrder(t *testing.T, c *entity.Checkout, now time.Time) (*entity.Order, []*entity.Ticket, *entity.Settlement) {
 	t.Helper()
 	var eventID string

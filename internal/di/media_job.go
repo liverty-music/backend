@@ -89,7 +89,7 @@ func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) 
 
 	consumerHealth := messaging.NewConsumerHealth()
 
-	// Media processor (stub when libvips absent; production binary uses -tags vips).
+	// Image processor (stub when libvips absent; production binary uses -tags vips).
 	processor := event.NewMediaProcessor(logger)
 
 	// SeriesImageUseCase orchestrates SeriesImageUseCase.Process; MediaConsumer only decodes the

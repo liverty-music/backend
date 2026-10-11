@@ -16,7 +16,7 @@ import (
 // EventOrganizerRepository resolves the Organizer that owns an event, via its
 // Series, so the issuance path can stamp the denormalized OrganizerID on the
 // Held Settlement it creates alongside the Order (backend#468). A minimal
-// read-only interface so IssuanceUseCase does not depend on the full
+// read-only interface so OrderUseCase does not depend on the full
 // SeriesRepository. Interfaces are defined where consumed (AGENTS.md rule).
 type EventOrganizerRepository interface {
 	// GetOrganizerID resolves the Organizer that owns the event identified by
@@ -115,7 +115,7 @@ func (uc *orderUseCase) issue(ctx context.Context, src issuanceSource) (*entity.
 	return order, nil
 }
 
-// kycBinding returns the id of the IdentityVerification the Tickets of a sale are bound to:
+// identityVerificationBinding returns the id of the IdentityVerification the Tickets of a sale are bound to:
 // the user's IdentityVerification, whatever its status, when the sale requires verification;
 // empty otherwise. The user's missing IdentityVerification is returned as its error.
 func (uc *orderUseCase) identityVerificationBinding(ctx context.Context, sale *entity.TicketSale, userID entity.UserID) (string, error) {
@@ -129,7 +129,7 @@ func (uc *orderUseCase) identityVerificationBinding(ctx context.Context, sale *e
 	return identityVerification.ID, nil
 }
 
-// IssueFromCapturedWin implements [IssuanceUseCase].
+// IssueFromCapturedWin implements [OrderUseCase].
 func (uc *orderUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error) {
 	// -- idempotency: an Order already created for this entry means issuance
 	//    already ran; return it without re-issuing. --
@@ -187,7 +187,7 @@ func (uc *orderUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntryID
 	})
 }
 
-// IssueDueWins implements [IssuanceUseCase].
+// IssueDueWins implements [OrderUseCase].
 func (uc *orderUseCase) IssueDueWins(ctx context.Context) error {
 	ids, err := uc.issuanceRepo.ListLotteryEntryIDsAwaitingIssuance(ctx)
 	if err != nil {
@@ -206,7 +206,7 @@ func (uc *orderUseCase) IssueDueWins(ctx context.Context) error {
 	return nil
 }
 
-// IssueFromCheckout implements [IssuanceUseCase]. The whole call runs under
+// IssueFromCheckout implements [OrderUseCase]. The whole call runs under
 // the Checkout's lock, so a double tap or the stalled-checkout job waits for
 // the first call and then takes the idempotent path.
 func (uc *orderUseCase) IssueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error) {
@@ -341,7 +341,7 @@ func (uc *orderUseCase) issueFromCheckout(ctx context.Context, checkoutID entity
 	})
 }
 
-// IssueDueCheckouts implements [IssuanceUseCase].
+// IssueDueCheckouts implements [OrderUseCase].
 func (uc *orderUseCase) IssueDueCheckouts(ctx context.Context) error {
 	now := uc.clock()
 	due, err := uc.checkoutRepo.ListDue(ctx, now)
@@ -371,7 +371,7 @@ func (uc *orderUseCase) IssueDueCheckouts(ctx context.Context) error {
 	return nil
 }
 
-// FulfillPayment implements [IssuanceUseCase].
+// FulfillPayment implements [OrderUseCase].
 func (uc *orderUseCase) FulfillPayment(ctx context.Context, paymentRef string) error {
 	paid, err := uc.fulfill(ctx, paymentRef)
 	if err != nil || paid == nil {

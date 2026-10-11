@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKycRepository_CreateAndGet covers the happy-path round-trip
+// TestIdentityVerificationRepository_CreateAndGet covers the happy-path round-trip
 // plus the ACTIVE-only reads: GetByUserID returns any-status rows while
-// GetByPocketSignUserID only surfaces the ACTIVE person key.
+// GetByProviderUserID only surfaces the ACTIVE person key.
 func TestIdentityVerificationRepository_CreateAndGet(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
@@ -44,7 +44,7 @@ func TestIdentityVerificationRepository_CreateAndGet(t *testing.T) {
 	assert.Equal(t, created.ID, byKey.ID)
 }
 
-// TestKycRepository_DedupePartialUniqueIndex is the core anti-scalp
+// TestIdentityVerificationRepository_DedupePartialUniqueIndex is the core anti-scalp
 // invariant: at most ONE ACTIVE IdentityVerification may exist per Pocket Sign
 // person key (partial unique index `WHERE status=ACTIVE`). A second ACTIVE row
 // for the same key — even on a different account — must be rejected; but once the
@@ -68,7 +68,7 @@ func TestIdentityVerificationRepository_DedupePartialUniqueIndex(t *testing.T) {
 	_, err = repo.Create(ctx, entity.NewIdentityVerification(user2, sharedKey, entity.VerificationMethodJPKI))
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrAlreadyExists,
-		"a second ACTIVE Kyc for the same pocket_sign_user_id must be rejected (1 person = 1 account)")
+		"a second ACTIVE identity verification for the same provider_user_id must be rejected (1 person = 1 account)")
 
 	// Downgrade the first to NEEDS_REVERIFICATION → the partial index no longer
 	// guards the key, so a fresh ACTIVE row for the second account now succeeds.
@@ -77,13 +77,13 @@ func TestIdentityVerificationRepository_DedupePartialUniqueIndex(t *testing.T) {
 	require.NoError(t, err,
 		"the partial unique index guards only ACTIVE rows; a non-active row must not block re-verification")
 
-	// GetByPocketSignUserID (ACTIVE-only) now resolves to the second account.
+	// GetByProviderUserID (ACTIVE-only) now resolves to the second account.
 	active, err := repo.GetByProviderUserID(ctx, sharedKey)
 	require.NoError(t, err)
 	assert.Equal(t, user2, active.UserID)
 }
 
-// TestKycRepository_CreateMissingUser proves the FK precondition:
+// TestIdentityVerificationRepository_CreateMissingUser proves the FK precondition:
 // inserting a IdentityVerification for a non-existent account fails closed with
 // FailedPrecondition (not a bare DB error).
 func TestIdentityVerificationRepository_CreateMissingUser(t *testing.T) {
@@ -100,11 +100,11 @@ func TestIdentityVerificationRepository_CreateMissingUser(t *testing.T) {
 	_, err := repo.Create(ctx, orphan)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition,
-		"a Kyc for a non-existent user must fail with FailedPrecondition (FK violation)")
+		"a identity verification for a non-existent user must fail with FailedPrecondition (FK violation)")
 }
 
-// TestKycRepository_NotFoundPaths pins every NotFound path:
-// GetByUserID / GetByPocketSignUserID on an unknown key, and UpdateStatus /
+// TestIdentityVerificationRepository_NotFoundPaths pins every NotFound path:
+// GetByUserID / GetByProviderUserID on an unknown key, and UpdateStatus /
 // Delete on an unknown id (RowsAffected == 0).
 func TestIdentityVerificationRepository_NotFoundPaths(t *testing.T) {
 	if testDB == nil {
@@ -118,7 +118,7 @@ func TestIdentityVerificationRepository_NotFoundPaths(t *testing.T) {
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "GetByUserID on an unknown user must return NotFound")
 
 	_, err = repo.GetByProviderUserID(ctx, "no-such-key")
-	assert.ErrorIs(t, err, apperr.ErrNotFound, "GetByPocketSignUserID on an unknown key must return NotFound")
+	assert.ErrorIs(t, err, apperr.ErrNotFound, "GetByProviderUserID on an unknown key must return NotFound")
 
 	err = repo.UpdateStatus(ctx, entity.NewID(), entity.VerificationStatusNeedsReverification)
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "UpdateStatus on an unknown id must return NotFound (RowsAffected==0)")
@@ -127,7 +127,7 @@ func TestIdentityVerificationRepository_NotFoundPaths(t *testing.T) {
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "Delete on an unknown id must return NotFound (RowsAffected==0)")
 }
 
-// TestKycRepository_UpdateStatusAndDelete covers the mutating happy
+// TestIdentityVerificationRepository_UpdateStatusAndDelete covers the mutating happy
 // paths: a status change is observable, and Delete removes the row.
 func TestIdentityVerificationRepository_UpdateStatusAndDelete(t *testing.T) {
 	if testDB == nil {
@@ -149,5 +149,5 @@ func TestIdentityVerificationRepository_UpdateStatusAndDelete(t *testing.T) {
 
 	require.NoError(t, repo.Delete(ctx, created.ID))
 	_, err = repo.GetByUserID(ctx, userID)
-	assert.ErrorIs(t, err, apperr.ErrNotFound, "after Delete the user has no Kyc")
+	assert.ErrorIs(t, err, apperr.ErrNotFound, "after Delete the user has no identity verification")
 }

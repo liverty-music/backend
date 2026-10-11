@@ -119,7 +119,7 @@ func committedCopy(r *entity.Checkout, captured bool) *entity.Checkout {
 	return &c
 }
 
-func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
+func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 	t.Parallel()
 	placeAt := coStart.Add(10 * time.Minute)
 
@@ -326,7 +326,7 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(held, nil).Once()
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(&entity.IdentityVerification{ID: "kyc-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
+		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(&entity.IdentityVerification{ID: "identity verification-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
 		f.authorizesAs(authorizedPI())
 		f.checkouts.EXPECT().Commit(mock.Anything, entity.CheckoutID("checkout-1"), placeAt).Return(entity.CommitOutcomeCommitted, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committedCopy(held, false), nil).Once()
@@ -344,11 +344,11 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, gotTickets, 2)
 		for _, tk := range gotTickets {
-			assert.Equal(t, "kyc-1", tk.IdentityVerificationID)
+			assert.Equal(t, "identity verification-1", tk.IdentityVerificationID)
 		}
 	})
 
-	t.Run("kyc gone before confirm", func(t *testing.T) {
+	t.Run("identity verification gone before confirm", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/order/issue-from-checkout "IdentityVerification gone before confirm"
 		f := newCheckoutIssuanceFixture(t, placeAt, entity.VerificationRequirementVerifiedAny)
@@ -364,7 +364,7 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
-	t.Run("kyc gone before a stalled capture", func(t *testing.T) {
+	t.Run("identity verification gone before a stalled capture", func(t *testing.T) {
 		t.Parallel()
 		f := newCheckoutIssuanceFixture(t, placeAt, entity.VerificationRequirementVerifiedAny)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committedCopy(authorizedCheckout(), false), nil)
@@ -378,7 +378,7 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 
 }
 
-func TestIssuanceUseCase_IssueDueCheckouts(t *testing.T) {
+func TestOrderUseCase_IssueDueCheckouts(t *testing.T) {
 	t.Parallel()
 
 	t.Run("capture interrupted", func(t *testing.T) {
@@ -455,7 +455,7 @@ func TestIssuanceUseCase_IssueDueCheckouts(t *testing.T) {
 	})
 }
 
-func TestIssuanceUseCase_FulfillPayment(t *testing.T) {
+func TestOrderUseCase_FulfillPayment(t *testing.T) {
 	t.Parallel()
 	now := coStart.Add(12 * time.Minute)
 	checkoutOrder := &entity.Order{ID: "order-1", UserID: fan1, CheckoutID: "checkout-1", Amount: 6000, Currency: "JPY"}

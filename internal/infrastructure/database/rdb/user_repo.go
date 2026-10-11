@@ -288,7 +288,7 @@ func (r *UserRepository) GetByProviderUserID(ctx context.Context, externalID str
 
 	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByProviderUserIDQuery, externalID))
 	if err != nil {
-		return nil, toAppErr(err, "failed to get user by external ID", slog.String("external_id", externalID))
+		return nil, toAppErr(err, "failed to get user by provider user ID", slog.String("provider_user_id", externalID))
 	}
 
 	return user, nil

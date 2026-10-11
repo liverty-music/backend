@@ -73,7 +73,7 @@ type Ticket struct {
 	// EventID is the event this ticket admits to. Supplies the covered-ticket
 	// face's date/venue (condition ii).
 	EventID string
-	// KycID is the IdentityVerification this ticket is bound to, set only when the sale
+	// IdentityVerificationID is the IdentityVerification this ticket is bound to, set only when the sale
 	// required verification; empty otherwise.
 	IdentityVerificationID string
 	// ResaleWithoutConsentProhibited is covered-ticket condition (i): the face

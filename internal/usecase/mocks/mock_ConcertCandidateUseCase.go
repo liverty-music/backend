@@ -22,9 +22,9 @@ func (_m *MockConcertCandidateUseCase) EXPECT() *MockConcertCandidateUseCase_Exp
 	return &MockConcertCandidateUseCase_Expecter{mock: &_m.Mock}
 }
 
-// Approve provides a mock function with given fields: ctx, stagedID, resolution, reviewerID
-func (_m *MockConcertCandidateUseCase) Approve(ctx context.Context, stagedID string, resolution usecase.ApproveResolution, reviewerID string) (*usecase.ApproveResult, error) {
-	ret := _m.Called(ctx, stagedID, resolution, reviewerID)
+// Approve provides a mock function with given fields: ctx, concertCandidateID, resolution, reviewerID
+func (_m *MockConcertCandidateUseCase) Approve(ctx context.Context, concertCandidateID string, resolution usecase.ApproveResolution, reviewerID string) (*usecase.ApproveResult, error) {
+	ret := _m.Called(ctx, concertCandidateID, resolution, reviewerID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Approve")
@@ -33,10 +33,10 @@ func (_m *MockConcertCandidateUseCase) Approve(ctx context.Context, stagedID str
 	var r0 *usecase.ApproveResult
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, usecase.ApproveResolution, string) (*usecase.ApproveResult, error)); ok {
-		return rf(ctx, stagedID, resolution, reviewerID)
+		return rf(ctx, concertCandidateID, resolution, reviewerID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, usecase.ApproveResolution, string) *usecase.ApproveResult); ok {
-		r0 = rf(ctx, stagedID, resolution, reviewerID)
+		r0 = rf(ctx, concertCandidateID, resolution, reviewerID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*usecase.ApproveResult)
@@ -44,7 +44,7 @@ func (_m *MockConcertCandidateUseCase) Approve(ctx context.Context, stagedID str
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string, usecase.ApproveResolution, string) error); ok {
-		r1 = rf(ctx, stagedID, resolution, reviewerID)
+		r1 = rf(ctx, concertCandidateID, resolution, reviewerID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -59,14 +59,14 @@ type MockConcertCandidateUseCase_Approve_Call struct {
 
 // Approve is a helper method to define mock.On call
 //   - ctx context.Context
-//   - stagedID string
+//   - concertCandidateID string
 //   - resolution usecase.ApproveResolution
 //   - reviewerID string
-func (_e *MockConcertCandidateUseCase_Expecter) Approve(ctx interface{}, stagedID interface{}, resolution interface{}, reviewerID interface{}) *MockConcertCandidateUseCase_Approve_Call {
-	return &MockConcertCandidateUseCase_Approve_Call{Call: _e.mock.On("Approve", ctx, stagedID, resolution, reviewerID)}
+func (_e *MockConcertCandidateUseCase_Expecter) Approve(ctx interface{}, concertCandidateID interface{}, resolution interface{}, reviewerID interface{}) *MockConcertCandidateUseCase_Approve_Call {
+	return &MockConcertCandidateUseCase_Approve_Call{Call: _e.mock.On("Approve", ctx, concertCandidateID, resolution, reviewerID)}
 }
 
-func (_c *MockConcertCandidateUseCase_Approve_Call) Run(run func(ctx context.Context, stagedID string, resolution usecase.ApproveResolution, reviewerID string)) *MockConcertCandidateUseCase_Approve_Call {
+func (_c *MockConcertCandidateUseCase_Approve_Call) Run(run func(ctx context.Context, concertCandidateID string, resolution usecase.ApproveResolution, reviewerID string)) *MockConcertCandidateUseCase_Approve_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(usecase.ApproveResolution), args[3].(string))
 	})
@@ -141,9 +141,9 @@ func (_c *MockConcertCandidateUseCase_List_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// Reject provides a mock function with given fields: ctx, stagedID, reason, reviewedBy
-func (_m *MockConcertCandidateUseCase) Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error {
-	ret := _m.Called(ctx, stagedID, reason, reviewedBy)
+// Reject provides a mock function with given fields: ctx, concertCandidateID, reason, reviewedBy
+func (_m *MockConcertCandidateUseCase) Reject(ctx context.Context, concertCandidateID string, reason string, reviewedBy string) error {
+	ret := _m.Called(ctx, concertCandidateID, reason, reviewedBy)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Reject")
@@ -151,7 +151,7 @@ func (_m *MockConcertCandidateUseCase) Reject(ctx context.Context, stagedID stri
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
-		r0 = rf(ctx, stagedID, reason, reviewedBy)
+		r0 = rf(ctx, concertCandidateID, reason, reviewedBy)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -166,14 +166,14 @@ type MockConcertCandidateUseCase_Reject_Call struct {
 
 // Reject is a helper method to define mock.On call
 //   - ctx context.Context
-//   - stagedID string
+//   - concertCandidateID string
 //   - reason string
 //   - reviewedBy string
-func (_e *MockConcertCandidateUseCase_Expecter) Reject(ctx interface{}, stagedID interface{}, reason interface{}, reviewedBy interface{}) *MockConcertCandidateUseCase_Reject_Call {
-	return &MockConcertCandidateUseCase_Reject_Call{Call: _e.mock.On("Reject", ctx, stagedID, reason, reviewedBy)}
+func (_e *MockConcertCandidateUseCase_Expecter) Reject(ctx interface{}, concertCandidateID interface{}, reason interface{}, reviewedBy interface{}) *MockConcertCandidateUseCase_Reject_Call {
+	return &MockConcertCandidateUseCase_Reject_Call{Call: _e.mock.On("Reject", ctx, concertCandidateID, reason, reviewedBy)}
 }
 
-func (_c *MockConcertCandidateUseCase_Reject_Call) Run(run func(ctx context.Context, stagedID string, reason string, reviewedBy string)) *MockConcertCandidateUseCase_Reject_Call {
+func (_c *MockConcertCandidateUseCase_Reject_Call) Run(run func(ctx context.Context, concertCandidateID string, reason string, reviewedBy string)) *MockConcertCandidateUseCase_Reject_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})

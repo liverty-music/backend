@@ -76,10 +76,10 @@ func (h *AdminConcertCandidateHandler) Approve(
 		reviewerSub = claims.Sub
 	}
 
-	stagedID := req.Msg.GetConcertCandidateId().GetValue()
+	concertCandidateID := req.Msg.GetConcertCandidateId().GetValue()
 	resolution := approveResolutionFromProto(req.Msg.GetResolution())
 
-	result, err := h.concertCandidateUC.Approve(ctx, stagedID, resolution, reviewerSub)
+	result, err := h.concertCandidateUC.Approve(ctx, concertCandidateID, resolution, reviewerSub)
 	if err != nil {
 		return nil, err
 	}
@@ -143,9 +143,9 @@ func (h *AdminConcertCandidateHandler) Reject(
 		reviewerSub = claims.Sub
 	}
 
-	stagedID := req.Msg.GetConcertCandidateId().GetValue()
+	concertCandidateID := req.Msg.GetConcertCandidateId().GetValue()
 	reason := req.Msg.GetReason()
-	if err := h.concertCandidateUC.Reject(ctx, stagedID, reason, reviewerSub); err != nil {
+	if err := h.concertCandidateUC.Reject(ctx, concertCandidateID, reason, reviewerSub); err != nil {
 		return nil, err
 	}
 

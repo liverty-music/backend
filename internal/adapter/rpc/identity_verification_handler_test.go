@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newKycHandler creates a IdentityVerificationHandler wired with the provided mocks.
+// newIdentityVerificationHandler creates a IdentityVerificationHandler wired with the provided mocks.
 func newIdentityVerificationHandler(t *testing.T, identityVerificationUC *ucmocks.MockIdentityVerificationUseCase, userUC *ucmocks.MockUserUseCase) *rpc.IdentityVerificationHandler {
 	t.Helper()
 	logger, err := logging.New()
@@ -38,10 +38,10 @@ func expectCaller(userUC *ucmocks.MockUserUseCase, found bool) {
 		Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 }
 
-// sampleKyc returns a minimal IdentityVerification of the caller with the given status.
+// sampleIdentityVerification returns a minimal IdentityVerification of the caller with the given status.
 func sampleIdentityVerification(status entity.VerificationStatus) *entity.IdentityVerification {
 	return &entity.IdentityVerification{
-		ID:             "kyc-1",
+		ID:             "identity verification-1",
 		UserID:         testCallerUserID,
 		Method:         entity.VerificationMethodJPKI,
 		ProviderUserID: "ps-1",
@@ -106,7 +106,7 @@ func TestIdentityVerificationHandler_Start(t *testing.T) {
 func TestIdentityVerificationHandler_Create(t *testing.T) {
 	t.Parallel()
 
-	t.Run("return the Kyc for an active Kyc", func(t *testing.T) {
+	t.Run("return the identity verification for an active identity verification", func(t *testing.T) {
 		t.Parallel()
 		identityVerificationUC, userUC := ucmocks.NewMockIdentityVerificationUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, true)
@@ -118,7 +118,7 @@ func TestIdentityVerificationHandler_Create(t *testing.T) {
 		}))
 
 		require.NoError(t, err)
-		assert.Equal(t, "kyc-1", resp.Msg.GetIdentityVerification().GetId().GetValue())
+		assert.Equal(t, "identity verification-1", resp.Msg.GetIdentityVerification().GetId().GetValue())
 		assert.Equal(t, testCallerUserID, resp.Msg.GetIdentityVerification().GetUserId().GetValue())
 	})
 
@@ -170,7 +170,7 @@ func TestIdentityVerificationHandler_Recheck(t *testing.T) {
 		})
 	}
 
-	t.Run("return INTERNAL when the usecase returns no Kyc without an error", func(t *testing.T) {
+	t.Run("return INTERNAL when the usecase returns no identity verification without an error", func(t *testing.T) {
 		t.Parallel()
 		identityVerificationUC, userUC := ucmocks.NewMockIdentityVerificationUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, true)
@@ -185,7 +185,7 @@ func TestIdentityVerificationHandler_Recheck(t *testing.T) {
 func TestIdentityVerificationHandler_Get(t *testing.T) {
 	t.Parallel()
 
-	t.Run("return the caller's Kyc whatever its status", func(t *testing.T) {
+	t.Run("return the caller's identity verification whatever its status", func(t *testing.T) {
 		t.Parallel()
 		identityVerificationUC, userUC := ucmocks.NewMockIdentityVerificationUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, true)
@@ -195,7 +195,7 @@ func TestIdentityVerificationHandler_Get(t *testing.T) {
 		resp, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Get(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.GetRequest{}))
 
 		require.NoError(t, err)
-		assert.Equal(t, "kyc-1", resp.Msg.GetIdentityVerification().GetId().GetValue())
+		assert.Equal(t, "identity verification-1", resp.Msg.GetIdentityVerification().GetId().GetValue())
 		assert.Equal(t, entityv1.VerificationStatus_VERIFICATION_STATUS_NEEDS_REVERIFICATION, resp.Msg.GetIdentityVerification().GetStatus())
 	})
 
@@ -204,7 +204,7 @@ func TestIdentityVerificationHandler_Get(t *testing.T) {
 		identityVerificationUC, userUC := ucmocks.NewMockIdentityVerificationUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, true)
 		identityVerificationUC.EXPECT().Get(mock.Anything, testCallerUserID).
-			Return(nil, apperr.New(codes.NotFound, "no kyc")).Once()
+			Return(nil, apperr.New(codes.NotFound, "no identity verification")).Once()
 
 		_, err := newIdentityVerificationHandler(t, identityVerificationUC, userUC).Get(authedCtx(testCallerExtID), connect.NewRequest(&identityverificationv1.GetRequest{}))
 

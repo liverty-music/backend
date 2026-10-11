@@ -1067,7 +1067,7 @@ func (c *BaseConfig) IsLocal() bool {
 //   - POCKET_SIGN_BASE_URL      — e.g. https://verify.mock.p8n.app (mock), https://verify.test.p8n.app (sandbox), or https://verify.p8n.app (prod)
 //   - POCKET_SIGN_TOKEN         — Bearer token from the Pocket Sign Platform Stamp tenant screen
 //   - POCKET_SIGN_TENANT_ID     — Tenant ID for the X-Tenant-ID header required by Stamp
-//   - POCKET_SIGN_CALLBACK_URL  — Frontend callback URL the PocketSign app redirects to after card reading (must be https)
+//   - POCKET_SIGN_CALLBACK_URL  — Frontend callback URL the verification provider's app redirects to after card reading (must be https)
 type PocketSignConfig struct {
 	// BaseURL is the Pocket Sign Stamp API base URL.
 	// Mock:            https://verify.mock.p8n.app
@@ -1083,7 +1083,7 @@ type PocketSignConfig struct {
 	// request header on every Stamp API call. Required alongside Token.
 	TenantID string `envconfig:"POCKET_SIGN_TENANT_ID"`
 
-	// CallbackURL is the frontend URL that the PocketSign app redirects back to
+	// CallbackURL is the frontend URL that the verification provider's app redirects back to
 	// after the fan completes card reading. It is sent to CreateSession as the
 	// callback_url field. Must be an https URL.
 	CallbackURL string `envconfig:"POCKET_SIGN_CALLBACK_URL"`

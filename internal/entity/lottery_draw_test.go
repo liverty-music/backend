@@ -32,7 +32,7 @@ func assertDrawIntegrity(t *testing.T, input []entity.DrawEntry, result entity.D
 		seen[w.Entry.ID]++
 		seqs = append(seqs, w.DrawPosition)
 		assert.Equalf(t, countByID[w.Entry.ID], w.Entry.TicketCount,
-			"winner %q: RequestedTicketCount must be preserved (all-or-nothing)", w.Entry.ID)
+			"winner %q: TicketCount must be preserved (all-or-nothing)", w.Entry.ID)
 		assert.Positivef(t, w.Entry.TicketCount,
 			"winner %q: a non-positive request must never be admitted", w.Entry.ID)
 	}
@@ -331,7 +331,7 @@ func TestRunLotteryDraw_AllOrNothing(t *testing.T) {
 	for _, w := range result.Winners {
 		expected := countByID[w.Entry.ID]
 		assert.Equalf(t, expected, w.Entry.TicketCount,
-			"winner %q: RequestedTicketCount mutated (want %d got %d)",
+			"winner %q: TicketCount mutated (want %d got %d)",
 			w.Entry.ID, expected, w.Entry.TicketCount)
 	}
 }

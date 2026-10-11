@@ -171,8 +171,8 @@ func TestStripeWebhookHandler_ValidSignature_DisputeExtracts_ChargeAndPI(t *test
 	assert.Equal(t, eventID, gotEvent.ProviderEventID)
 	assert.Equal(t, usecase.StripeEventChargeDisputeCreated, gotEvent.Type)
 	// Fix #1: both fields must be extracted and passed through.
-	assert.Equal(t, chRef, gotEvent.ProviderChargeID, "ChargeRef must be extracted from dispute.charge")
-	assert.Equal(t, piRef, gotEvent.ProviderPaymentID, "PaymentIntentRef must be extracted from dispute.payment_intent")
+	assert.Equal(t, chRef, gotEvent.ProviderChargeID, "ProviderChargeID must be extracted from dispute.charge")
+	assert.Equal(t, piRef, gotEvent.ProviderPaymentID, "ProviderPaymentID must be extracted from dispute.payment_intent")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -219,8 +219,8 @@ func TestStripeWebhookHandler_ValidSignature_ProviderChargeIDunded_ExtractsProvi
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, chRef, gotEvent.ProviderChargeID, "ChargeRef must be object.id for charge.refunded")
-	assert.Equal(t, piRef, gotEvent.ProviderPaymentID, "PaymentIntentRef must be extracted for charge.refunded")
+	assert.Equal(t, chRef, gotEvent.ProviderChargeID, "ProviderChargeID must be object.id for charge.refunded")
+	assert.Equal(t, piRef, gotEvent.ProviderPaymentID, "ProviderPaymentID must be extracted for charge.refunded")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

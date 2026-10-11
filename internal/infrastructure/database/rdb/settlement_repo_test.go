@@ -116,7 +116,7 @@ func TestSettlementRepository_Integration(t *testing.T) {
 
 	// @spec components/entity/settlement/mark-released "Held settlement released"
 	// @spec components/entity/settlement/mark-released "Already released or reversed"
-	t.Run("MarkReleased happy path flips status and persists every split's transfer_ref together", func(t *testing.T) {
+	t.Run("MarkReleased happy path flips status and persists every split's provider_payout_id together", func(t *testing.T) {
 		payeeID := entity.NewID()
 		insertSettlementSplit(t, created.ID, payeeID, 8000)
 
@@ -162,7 +162,7 @@ func TestSettlementRepository_Integration(t *testing.T) {
 
 		releasedAt := settledAt.Add(48 * time.Hour)
 		// The first split's provider_payout_id update would succeed; the second's
-		// empty ProviderPayoutID violates chk_settlement_splits_transfer_ref_not_empty,
+		// empty ProviderPayoutID violates chk_settlement_splits_provider_payout_id_not_empty,
 		// forcing the whole transaction to roll back.
 		err := settlementRepo.MarkReleased(ctx, created.ID, "ch_should_not_persist", releasedAt, []entity.SettlementSplit{
 			{PayeeOrganizerID: payeeOK, Amount: 3000, ProviderPayoutID: "tr_would_succeed"},
@@ -174,11 +174,11 @@ func TestSettlementRepository_Integration(t *testing.T) {
 		got, err := settlementRepo.GetByOrderID(ctx, created.OrderID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.SettlementStatusHeld, got.Status, "settlement must stay Held when the split update fails")
-		assert.Empty(t, got.ProviderChargeID, "charge_ref must not be persisted on rollback")
+		assert.Empty(t, got.ProviderChargeID, "provider_charge_id must not be persisted on rollback")
 		assert.True(t, got.ReleaseTime.IsZero(), "released_at must not be persisted on rollback")
 		require.Len(t, got.Splits, 2)
 		for _, split := range got.Splits {
-			assert.Empty(t, split.ProviderPayoutID, "no split's transfer_ref may be persisted when the transaction rolls back")
+			assert.Empty(t, split.ProviderPayoutID, "no split's provider_payout_id may be persisted when the transaction rolls back")
 		}
 
 		// The settlement being still Held means a retry can succeed once the

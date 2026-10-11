@@ -153,12 +153,12 @@ func (uc *checkoutUseCase) verificationGate(ctx context.Context, sale *entity.Ti
 	identityVerification, err := uc.identityVerificationRepo.GetByUserID(ctx, string(userID))
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			return apperr.Wrap(err, codes.FailedPrecondition, "the sale requires verification and the fan has no kyc")
+			return apperr.Wrap(err, codes.FailedPrecondition, "the sale requires verification and the fan has no identity verification")
 		}
 		return err
 	}
 	if identityVerification.Status != entity.VerificationStatusActive {
-		return apperr.New(codes.FailedPrecondition, "the sale requires verification and the fan's kyc is not active")
+		return apperr.New(codes.FailedPrecondition, "the sale requires verification and the fan's identity verification is not active")
 	}
 	return nil
 }

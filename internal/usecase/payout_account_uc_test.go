@@ -222,7 +222,7 @@ func TestOnboardingUseCase_GetOrCreateOnboarding(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 
-			acctRepo := &stubConnectedAccountRepo{
+			acctRepo := &stubPayoutAccountRepo{
 				getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.PayoutAccount, error) {
 					if !tc.dep.accountExists {
 						return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
@@ -239,7 +239,7 @@ func TestOnboardingUseCase_GetOrCreateOnboarding(t *testing.T) {
 				getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 					return tc.dep.providerStatus, nil
 				},
-				createConnectedAccountFn: func(_ context.Context, _ string) (string, error) {
+				createPayoutAccountFn: func(_ context.Context, _ string) (string, error) {
 					return acctRef, nil
 				},
 				createOnboardingLinkFn: func(_ context.Context, _, _ string) (string, error) {
@@ -272,7 +272,7 @@ func TestOnboardingUseCase_GetOrCreateOnboarding_OrganizerNotFound(t *testing.T)
 	ctx := context.Background()
 
 	uc := usecase.NewPayoutAccountUseCase(
-		&stubConnectedAccountRepo{},
+		&stubPayoutAccountRepo{},
 		&stubOrganizerRepoForOnboarding{
 			getFn: func(_ context.Context, _ string) (*entity.Organizer, error) {
 				return nil, apperr.New(apperr.ErrNotFound.Code, "organizer not found")

@@ -199,7 +199,7 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 		wantErr    error
 	}{
 		{
-			name: "retrieves user by external ID",
+			name: "retrieves user by provider user ID",
 			setup: func() string {
 				cleanDatabase(t)
 				_, err := repo.Create(ctx, newTestUser("ext-by-ext-1", "byext@example.com", "ByExt"))
@@ -265,7 +265,7 @@ func TestUserRepository_Delete(t *testing.T) {
 		_, err = repo.Get(ctx, user.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 		assert.False(t, rowExists(t, `SELECT 1 FROM followed_artists WHERE user_id = $1`, user.ID), "follow")
-		assert.False(t, rowExists(t, `SELECT 1 FROM identity_verifications WHERE user_id = $1`, user.ID), "kyc")
+		assert.False(t, rowExists(t, `SELECT 1 FROM identity_verifications WHERE user_id = $1`, user.ID), "identity_verification")
 	})
 
 	t.Run("purchases outlive the user", func(t *testing.T) {
@@ -595,7 +595,7 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 		assertEmptyNullableFields(t, got)
 	})
 
-	t.Run("GetByExternalID scans NULL columns without error", func(t *testing.T) {
+	t.Run("GetByProviderUserID scans NULL columns without error", func(t *testing.T) {
 		got, err := repo.GetByProviderUserID(ctx, externalID)
 		require.NoError(t, err)
 		assertEmptyNullableFields(t, got)

@@ -128,9 +128,9 @@ func (_c *MockIdentityVerificationRepository_Delete_Call) RunAndReturn(run func(
 	return _c
 }
 
-// GetByProviderUserID provides a mock function with given fields: ctx, pocketSignUserID
-func (_m *MockIdentityVerificationRepository) GetByProviderUserID(ctx context.Context, pocketSignUserID string) (*entity.IdentityVerification, error) {
-	ret := _m.Called(ctx, pocketSignUserID)
+// GetByProviderUserID provides a mock function with given fields: ctx, providerUserID
+func (_m *MockIdentityVerificationRepository) GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.IdentityVerification, error) {
+	ret := _m.Called(ctx, providerUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetByProviderUserID")
@@ -139,10 +139,10 @@ func (_m *MockIdentityVerificationRepository) GetByProviderUserID(ctx context.Co
 	var r0 *entity.IdentityVerification
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.IdentityVerification, error)); ok {
-		return rf(ctx, pocketSignUserID)
+		return rf(ctx, providerUserID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.IdentityVerification); ok {
-		r0 = rf(ctx, pocketSignUserID)
+		r0 = rf(ctx, providerUserID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.IdentityVerification)
@@ -150,7 +150,7 @@ func (_m *MockIdentityVerificationRepository) GetByProviderUserID(ctx context.Co
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, pocketSignUserID)
+		r1 = rf(ctx, providerUserID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -165,12 +165,12 @@ type MockIdentityVerificationRepository_GetByProviderUserID_Call struct {
 
 // GetByProviderUserID is a helper method to define mock.On call
 //   - ctx context.Context
-//   - pocketSignUserID string
-func (_e *MockIdentityVerificationRepository_Expecter) GetByProviderUserID(ctx interface{}, pocketSignUserID interface{}) *MockIdentityVerificationRepository_GetByProviderUserID_Call {
-	return &MockIdentityVerificationRepository_GetByProviderUserID_Call{Call: _e.mock.On("GetByProviderUserID", ctx, pocketSignUserID)}
+//   - providerUserID string
+func (_e *MockIdentityVerificationRepository_Expecter) GetByProviderUserID(ctx interface{}, providerUserID interface{}) *MockIdentityVerificationRepository_GetByProviderUserID_Call {
+	return &MockIdentityVerificationRepository_GetByProviderUserID_Call{Call: _e.mock.On("GetByProviderUserID", ctx, providerUserID)}
 }
 
-func (_c *MockIdentityVerificationRepository_GetByProviderUserID_Call) Run(run func(ctx context.Context, pocketSignUserID string)) *MockIdentityVerificationRepository_GetByProviderUserID_Call {
+func (_c *MockIdentityVerificationRepository_GetByProviderUserID_Call) Run(run func(ctx context.Context, providerUserID string)) *MockIdentityVerificationRepository_GetByProviderUserID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})

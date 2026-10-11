@@ -215,9 +215,9 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 		if errors.Is(err, apperr.ErrAlreadyExists) {
 			existing, getErr := uc.userRepo.GetByProviderUserID(ctx, params.ProviderUserID)
 			if getErr == nil {
-				uc.logger.Info(ctx, "Create returned existing user (idempotent on duplicate external_id)",
+				uc.logger.Info(ctx, "Create returned existing user (idempotent on duplicate provider_user_id)",
 					slog.String("user_id", existing.ID),
-					slog.String("external_id", existing.ProviderUserID),
+					slog.String("provider_user_id", existing.ProviderUserID),
 				)
 				return existing, nil
 			}
@@ -227,8 +227,8 @@ func (uc *userUseCase) Create(ctx context.Context, params *entity.NewUser) (*ent
 			}
 			// Case (c): retry failure other than NotFound — return the
 			// truthful error class.
-			uc.logger.Warn(ctx, "Create retry GetByExternalID failed with non-NotFound error; returning retry error to surface real failure",
-				slog.String("external_id", params.ProviderUserID),
+			uc.logger.Warn(ctx, "Create retry GetByProviderUserID failed with non-NotFound error; returning retry error to surface real failure",
+				slog.String("provider_user_id", params.ProviderUserID),
 				slog.String("original_error", err.Error()),
 				slog.String("retry_error", getErr.Error()),
 			)
@@ -375,7 +375,7 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 
 	uc.logger.Info(ctx, "User deleted successfully",
 		slog.String("user_id", id),
-		slog.String("external_id", user.ProviderUserID),
+		slog.String("provider_user_id", user.ProviderUserID),
 	)
 
 	return nil

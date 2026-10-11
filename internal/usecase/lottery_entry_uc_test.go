@@ -208,7 +208,7 @@ func TestLotteryUseCase_Start(t *testing.T) {
 		assert.Equal(t, entity.LotteryEntryStateDraft, got.State)
 	})
 
-	t.Run("no kyc", func(t *testing.T) {
+	t.Run("no identity verification", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/usecase/lottery-entry/start "No IdentityVerification"
 		f := newLotteryFixture(t, duringWindow, 1)

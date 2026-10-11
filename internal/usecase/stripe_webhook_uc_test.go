@@ -223,7 +223,7 @@ func TestStripeWebhook_DisputeCreated_NoProviderPaymentID_NoError(t *testing.T) 
 		ReceivedAt:        time.Now(),
 	})
 	require.NoError(t, err)
-	assert.False(t, refundCalled, "RefundOrder must NOT be called when PaymentIntentRef is missing")
+	assert.False(t, refundCalled, "Refund must NOT be called when ProviderPaymentID is missing")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -260,7 +260,7 @@ func TestStripeWebhook_DisputeCreated_OrderNotFound_NoError(t *testing.T) {
 		ReceivedAt:        time.Now(),
 	})
 	require.NoError(t, err)
-	assert.False(t, refundCalled, "RefundOrder must NOT be called when Order cannot be found")
+	assert.False(t, refundCalled, "Refund must NOT be called when Order cannot be found")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -328,7 +328,7 @@ func TestStripeWebhook_ProviderChargeIDunded_Informational(t *testing.T) {
 		ReceivedAt:       time.Now(),
 	})
 	require.NoError(t, err)
-	assert.False(t, refundCalled, "RefundOrder must NOT be called for informational charge.refunded")
+	assert.False(t, refundCalled, "Refund must NOT be called for informational charge.refunded")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

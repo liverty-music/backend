@@ -180,7 +180,7 @@ func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 	}
 }
 
-// SeriesImageRepository defines the data access interface for [Media] objects and the
+// SeriesImageRepository defines the data access interface for [SeriesImage] objects and the
 // series_cover_images cut-over that the media-processor consumer performs after writing
 // variants to GCS.
 type SeriesImageRepository interface {

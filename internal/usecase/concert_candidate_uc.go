@@ -116,7 +116,7 @@ type ConcertCandidateUseCase interface {
 	// # Possible errors
 	//
 	//  - Internal: If the venue, series, or event mutation fails.
-	Approve(ctx context.Context, stagedID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error)
+	Approve(ctx context.Context, concertCandidateID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error)
 
 	// Reject records the concert candidate in the rejection log and deletes the
 	// staged row. It is idempotent: if the staged row is already gone, the
@@ -127,7 +127,7 @@ type ConcertCandidateUseCase interface {
 	//  - NotFound: If the concert candidate does not exist (idempotent — treated as
 	//    success internally).
 	//  - Internal: If the log append or delete fails.
-	Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error
+	Reject(ctx context.Context, concertCandidateID string, reason string, reviewedBy string) error
 }
 
 // concertCandidateUseCase implements [ConcertCandidateUseCase] over the
@@ -169,15 +169,15 @@ func (uc *concertCandidateUseCase) List(ctx context.Context) ([]*ConcertCandidat
 
 // Approve promotes a pending concert candidate to a published event, reconciling a
 // duplicate existing event per the resolution when one is detected.
-func (uc *concertCandidateUseCase) Approve(ctx context.Context, stagedID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
-	sc, err := uc.concertCandidateRepo.GetByID(ctx, stagedID)
+func (uc *concertCandidateUseCase) Approve(ctx context.Context, concertCandidateID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
+	sc, err := uc.concertCandidateRepo.GetByID(ctx, concertCandidateID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Idempotent: staged row already gone (already approved or rejected).
 			// This also covers the second phase of a two-call reconcile where the
 			// first call already cleared the row.
 			uc.logger.Info(ctx, "approve: staged concert already gone — treating as success",
-				slog.String("staged_concert_id", stagedID),
+				slog.String("concert_candidate_id", concertCandidateID),
 			)
 			return &ApproveResult{}, nil
 		}
@@ -187,14 +187,14 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, stagedID string,
 	// Resolve or create the venues row from the staged resolved fields.
 	venueID, err := resolveOrCreateVenue(ctx, sc, uc.venueRepo, uc.logger)
 	if err != nil {
-		return nil, fmt.Errorf("resolve or create venue for staged concert %q: %w", stagedID, err)
+		return nil, fmt.Errorf("resolve or create venue for staged concert %q: %w", concertCandidateID, err)
 	}
 
 	// Fetch the events at the resolved (venue, date) ONCE and reuse the slice for
 	// both duplicate detection and the fill-vs-insert decision.
 	existing, err := uc.concertRepo.FindEventsByVenueAndDate(ctx, []string{venueID}, []time.Time{sc.LocalDate})
 	if err != nil {
-		return nil, fmt.Errorf("find existing events for staged concert %q: %w", stagedID, err)
+		return nil, fmt.Errorf("find existing events for staged concert %q: %w", concertCandidateID, err)
 	}
 
 	// Detect a duplicate existing event at the resolved (venue, date, start time)
@@ -218,12 +218,12 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, stagedID string,
 			[]*time.Time{sc.StartTime},
 			[]*time.Time{sc.OpenTime},
 		); err != nil {
-			return nil, fmt.Errorf("fill event start times for staged concert %q: %w", stagedID, err)
+			return nil, fmt.Errorf("fill event start times for staged concert %q: %w", concertCandidateID, err)
 		}
 	} else {
 		insertedIDs, err = insertEventUnderSeries(ctx, sc.ArtistID, sc.SeriesID, ev, venueID, uc.concertRepo)
 		if err != nil {
-			return nil, fmt.Errorf("insert event under series for staged concert %q: %w", stagedID, err)
+			return nil, fmt.Errorf("insert event under series for staged concert %q: %w", concertCandidateID, err)
 		}
 	}
 
@@ -236,14 +236,14 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, stagedID string,
 		}
 		if err := uc.publisher.PublishEvent(ctx, entity.SubjectConcertCreated, created); err != nil {
 			uc.logger.Error(ctx, "failed to publish CONCERT.created after approval", err,
-				slog.String("staged_concert_id", stagedID),
+				slog.String("concert_candidate_id", concertCandidateID),
 			)
 			// Non-fatal: event is persisted; notification will retry or be missed.
 		}
 	}
 
 	// Delete the staged row only after a successful publish/fill.
-	if err := uc.concertCandidateRepo.Delete(ctx, stagedID); err != nil {
+	if err := uc.concertCandidateRepo.Delete(ctx, concertCandidateID); err != nil {
 		return nil, fmt.Errorf("delete staged concert after approval: %w", err)
 	}
 
@@ -255,7 +255,7 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, stagedID string,
 	if len(insertedIDs) == 0 {
 		if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{sc.SeriesID}); err != nil {
 			uc.logger.Error(ctx, "failed to clean up orphaned series after fill approval", err,
-				slog.String("staged_concert_id", stagedID),
+				slog.String("concert_candidate_id", concertCandidateID),
 			)
 			// Non-fatal: an orphaned series row is harmless and swept on the next run.
 		}
@@ -264,7 +264,7 @@ func (uc *concertCandidateUseCase) Approve(ctx context.Context, stagedID string,
 	uc.logger.Info(ctx, "staged concert approved and published",
 		slog.String("artist_id", sc.ArtistID),
 		slog.String("series_id", sc.SeriesID),
-		slog.String("staged_concert_id", stagedID),
+		slog.String("concert_candidate_id", concertCandidateID),
 		slog.Int("inserted", len(insertedIDs)),
 	)
 
@@ -321,7 +321,7 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 			return nil, fmt.Errorf("keep-existing: delete staged concert: %w", err)
 		}
 		uc.logger.Info(ctx, "duplicate reconciled: kept existing event, staged row logged and cleared",
-			slog.String("staged_concert_id", sc.ID),
+			slog.String("concert_candidate_id", sc.ID),
 			slog.String("existing_event_id", existing.ID),
 		)
 		return &ApproveResult{}, nil
@@ -343,7 +343,7 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 			return nil, fmt.Errorf("adopt-staged: delete staged concert: %w", err)
 		}
 		uc.logger.Info(ctx, "duplicate reconciled: adopted staged display fields onto existing event",
-			slog.String("staged_concert_id", sc.ID),
+			slog.String("concert_candidate_id", sc.ID),
 			slog.String("existing_event_id", existing.ID),
 		)
 		return &ApproveResult{}, nil
@@ -355,7 +355,7 @@ func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *e
 			return nil, err
 		}
 		uc.logger.Info(ctx, "approve: duplicate event detected — returning conflict for reviewer choice",
-			slog.String("staged_concert_id", sc.ID),
+			slog.String("concert_candidate_id", sc.ID),
 			slog.String("existing_event_id", existing.ID),
 		)
 		return &ApproveResult{Conflict: conflict}, nil
@@ -396,13 +396,13 @@ func (uc *concertCandidateUseCase) buildDuplicateConflict(ctx context.Context, s
 
 // Reject records the concert candidate in the rejection log and deletes the
 // staged row.
-func (uc *concertCandidateUseCase) Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error {
-	sc, err := uc.concertCandidateRepo.GetByID(ctx, stagedID)
+func (uc *concertCandidateUseCase) Reject(ctx context.Context, concertCandidateID string, reason string, reviewedBy string) error {
+	sc, err := uc.concertCandidateRepo.GetByID(ctx, concertCandidateID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Idempotent: staged row already gone.
 			uc.logger.Info(ctx, "reject: staged concert already gone — treating as success",
-				slog.String("staged_concert_id", stagedID),
+				slog.String("concert_candidate_id", concertCandidateID),
 			)
 			return nil
 		}
@@ -413,7 +413,7 @@ func (uc *concertCandidateUseCase) Reject(ctx context.Context, stagedID string, 
 		return err
 	}
 
-	if err := uc.concertCandidateRepo.Delete(ctx, stagedID); err != nil {
+	if err := uc.concertCandidateRepo.Delete(ctx, concertCandidateID); err != nil {
 		return fmt.Errorf("delete staged concert after rejection: %w", err)
 	}
 
@@ -422,14 +422,14 @@ func (uc *concertCandidateUseCase) Reject(ctx context.Context, stagedID string, 
 	// and then rejected). Scoped to just this staged row's series.
 	if _, err := uc.seriesRepo.DeleteOrphaned(ctx, []string{sc.SeriesID}); err != nil {
 		uc.logger.Error(ctx, "failed to clean up orphaned series after rejection", err,
-			slog.String("staged_concert_id", stagedID),
+			slog.String("concert_candidate_id", concertCandidateID),
 		)
 		// Non-fatal: an orphaned series row is harmless and swept on the next run.
 	}
 
 	uc.logger.Info(ctx, "staged concert rejected and logged",
 		slog.String("artist_id", sc.ArtistID),
-		slog.String("staged_concert_id", stagedID),
+		slog.String("concert_candidate_id", concertCandidateID),
 		slog.String("reason", reason),
 	)
 

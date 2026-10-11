@@ -298,7 +298,7 @@ func (uc *concertCreationUseCase) persistDiscoveredEvent(
 		}
 		uc.logger.Info(ctx, "staged concert with unresolved venue for review",
 			slog.String("artist_id", artistID),
-			slog.String("staged_concert_id", staged.ID),
+			slog.String("concert_candidate_id", staged.ID),
 			slog.String("series_id", seriesID),
 			slog.String("listed_venue_name", ev.ListedVenueName),
 			slog.String("local_date", ev.LocalDate.Format("2006-01-02")),
@@ -357,7 +357,7 @@ func (uc *concertCreationUseCase) stageOrInsert(
 		}
 		uc.logger.Info(ctx, "staged conflicting concert for reconciliation",
 			slog.String("artist_id", artistID),
-			slog.String("staged_concert_id", staged.ID),
+			slog.String("concert_candidate_id", staged.ID),
 			slog.String("series_id", seriesID),
 			slog.String("existing_event_id", conflict.ID),
 			slog.String("local_date", ev.LocalDate.Format("2006-01-02")),

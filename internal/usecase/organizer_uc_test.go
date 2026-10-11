@@ -119,7 +119,7 @@ func TestOrganizerUseCase_Create(t *testing.T) {
 	}{
 		{
 			// @spec components/usecase/organizer/create "Organizer is created"
-			name: "return active organizer with ZitadelOrgID set when all steps succeed, recording the org id before the remaining steps",
+			name: "return active organizer with ProviderOrganizerID set when all steps succeed, recording the org id before the remaining steps",
 			setup: func(d *organizerTestDeps, calls *[]string) {
 				expectInsert(d)
 				expectTenantOrg(d, calls)
@@ -808,7 +808,7 @@ func TestOrganizerUseCase_Deactivate(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/organizer/deactivate "Active Organizer is deactivated"
-			name:        "deactivate provisioner operators, free artists, and set status when organizer is active with ZitadelOrgID",
+			name:        "deactivate provisioner operators, free artists, and set status when organizer is active with ProviderOrganizerID",
 			organizerID: "org-1",
 			setup: func(t *testing.T, d *organizerTestDeps) {
 				t.Helper()

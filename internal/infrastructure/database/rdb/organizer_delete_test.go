@@ -16,7 +16,7 @@ import (
 // deletableOrganizer holds the ids of an Organizer seeded with one published
 // Series, one Event (with a performer, a lottery TicketType of a TicketSale
 // and a reception link),
-// a cover Media, a second Media no Series uses, and one associated Artist that
+// a cover SeriesImage, a second SeriesImage no Series uses, and one associated Artist that
 // a fan follows.
 type deletableOrganizer struct {
 	organizerID string

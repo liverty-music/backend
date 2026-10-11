@@ -41,7 +41,7 @@ func TestTicketHandler_List(t *testing.T) {
 		h, uc, users := newTicketHandler(t)
 		expectFan(users)
 		uc.EXPECT().List(mock.Anything, entity.UserID(tkFanUserID)).Return([]*entity.Ticket{
-			{ID: "t-1", OrderID: tkOrderID, UserID: tkFanUserID, EventID: testEventID, IdentityVerificationID: "kyc-1", ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
+			{ID: "t-1", OrderID: tkOrderID, UserID: tkFanUserID, EventID: testEventID, IdentityVerificationID: "identity verification-1", ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
 			{ID: "t-2", OrderID: tkOrderID, UserID: tkFanUserID, EventID: testEventID, ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
 		}, nil)
 
@@ -50,8 +50,8 @@ func TestTicketHandler_List(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, resp.Msg.GetTickets(), 2)
 		assert.Equal(t, tkFanUserID, resp.Msg.GetTickets()[0].GetUserId().GetValue())
-		assert.Equal(t, "kyc-1", resp.Msg.GetTickets()[0].GetIdentityVerificationId().GetValue())
-		assert.Nil(t, resp.Msg.GetTickets()[1].GetIdentityVerificationId(), "no Kyc binding without a verification requirement")
+		assert.Equal(t, "identity verification-1", resp.Msg.GetTickets()[0].GetIdentityVerificationId().GetValue())
+		assert.Nil(t, resp.Msg.GetTickets()[1].GetIdentityVerificationId(), "no identity verification binding without a verification requirement")
 		assert.Equal(t, entityv1.TicketStatus_TICKET_STATUS_ISSUED, resp.Msg.GetTickets()[1].GetStatus())
 	})
 

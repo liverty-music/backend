@@ -43,7 +43,7 @@ func NewIdentityVerificationHandler(
 }
 
 // Start creates a Pocket Sign Stamp session for the caller and returns the
-// session id and the redirect URL the client opens in the PocketSign app so
+// session id and the redirect URL the client opens in the verification provider's app so
 // the fan can read their card.
 //
 // Errors:
@@ -76,7 +76,7 @@ func (h *IdentityVerificationHandler) Start(
 }
 
 // Create finalizes the Stamp session and records the caller's IdentityVerification. The card
-// signature is performed in the PocketSign app; no signed payload is sent on
+// signature is performed in the verification provider's app; no signed payload is sent on
 // this request.
 //
 // Errors:
@@ -125,10 +125,10 @@ func (h *IdentityVerificationHandler) Recheck(
 		return nil, err
 	}
 	// Defensive: the usecase must return a non-nil IdentityVerification when err == nil.
-	// Guard against a contract violation so Recheck never nil-derefs kyc.Status.
+	// Guard against a contract violation so Recheck never nil-derefs identityVerification.Status.
 	if identityVerification == nil {
 		return nil, connect.NewError(connect.CodeInternal,
-			errors.New("recheck returned no kyc without an error"))
+			errors.New("recheck returned no identity verification without an error"))
 	}
 
 	return connect.NewResponse(&identityverificationv1.RecheckResponse{

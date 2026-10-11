@@ -195,7 +195,7 @@ func (uc *seriesImageUseCase) Process(ctx context.Context, mediaID, seriesID str
 	media, err := uc.seriesImageRepo.Get(ctx, mediaID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			// Media row was deleted (e.g., cancelled before processing) — ack.
+			// SeriesImage row was deleted (e.g., cancelled before processing) — ack.
 			uc.logger.Warn(ctx, "media row not found; skipping",
 				slog.String("media_id", mediaID),
 			)

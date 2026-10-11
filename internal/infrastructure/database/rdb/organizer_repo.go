@@ -164,7 +164,7 @@ func (r *OrganizerRepository) GetByProviderOrganizerID(ctx context.Context, prov
 	row := r.db.Pool.QueryRow(ctx, getOrganizerByProviderOrganizerIDQuery, providerOrganizerID)
 	o, err := scanOrganizer(row.Scan)
 	if err != nil {
-		return nil, toAppErr(err, "failed to get organizer by zitadel_org_id", slog.String("zitadel_org_id", providerOrganizerID))
+		return nil, toAppErr(err, "failed to get organizer by provider_organizer_id", slog.String("provider_organizer_id", providerOrganizerID))
 	}
 	return o, nil
 }
@@ -221,7 +221,7 @@ func (r *OrganizerRepository) ListByStatus(ctx context.Context, status entity.Or
 func (r *OrganizerRepository) SetProviderOrganizerID(ctx context.Context, id, providerOrganizerID string) error {
 	tag, err := r.db.Pool.Exec(ctx, setOrganizerProviderOrganizerIDQuery, id, providerOrganizerID)
 	if err != nil {
-		return toAppErr(err, "failed to set organizer zitadel_org_id", slog.String("id", id))
+		return toAppErr(err, "failed to set organizer provider_organizer_id", slog.String("id", id))
 	}
 	if tag.RowsAffected() == 0 {
 		return apperr.New(codes.NotFound, "organizer not found")
@@ -431,7 +431,7 @@ const (
 // The statements run in RESTRICT-safe order: reception records, then the
 // refunded purchases, then the checkouts, then the Series (which cascades its
 // TicketSales and Events, and through them the TicketTypes, lottery entries,
-// journeys, performers and series_cover_images), then the Media rows
+// journeys, performers and series_cover_images), then the SeriesImage rows
 // and finally the organizer row (which cascades organizer_artists).
 func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool) error {
 	tx, err := r.db.Pool.Begin(ctx)

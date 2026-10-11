@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// kycTestDeps wires all dependencies for IdentityVerificationUseCase tests.
+// identityVerificationTestDeps wires all dependencies for IdentityVerificationUseCase tests.
 type identityVerificationTestDeps struct {
 	identityVerificationRepo *entitymocks.MockIdentityVerificationRepository
 	userRepo                 *entitymocks.MockUserRepository
@@ -41,13 +41,13 @@ func sampleUser(id string) *entity.User {
 	return &entity.User{ID: id, ProviderUserID: "ext-" + id, Email: id + "@example.com", Name: "Test User"}
 }
 
-// sampleKyc returns a new IdentityVerification in ACTIVE status.
-func sampleIdentityVerification(id, userID, pocketSignUserID string) *entity.IdentityVerification {
+// sampleIdentityVerification returns a new IdentityVerification in ACTIVE status.
+func sampleIdentityVerification(id, userID, providerUserID string) *entity.IdentityVerification {
 	return &entity.IdentityVerification{
 		ID:             id,
 		UserID:         userID,
 		Method:         entity.VerificationMethodJPKI,
-		ProviderUserID: pocketSignUserID,
+		ProviderUserID: providerUserID,
 		DedupeStrength: entity.DedupeStrengthStrong,
 		VerifyTime:     time.Now().UTC(),
 		Status:         entity.VerificationStatusActive,
@@ -163,7 +163,7 @@ func TestIdentityVerificationUseCase_Create(t *testing.T) {
 		userB                  = "user-b"
 		psidA                  = "ps-id-a"
 		sessionID              = "sess-1"
-		identityVerificationID = "kyc-1"
+		identityVerificationID = "identity verification-1"
 	)
 
 	tests := []struct {
@@ -173,12 +173,12 @@ func TestIdentityVerificationUseCase_Create(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:   "successful verify records an Active Kyc",
+			name:   "successful verify records an Active identity verification",
 			userID: userA,
 			setup: func(d *identityVerificationTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
 				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
-					&usecase.PocketSignResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
+					&usecase.IdentityVerifierResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
 				// No existing active IdentityVerification for psidA.
 				d.identityVerificationRepo.EXPECT().GetByProviderUserID(ctx, psidA).Return(nil, apperr.New(codes.NotFound, "not found"))
@@ -186,12 +186,12 @@ func TestIdentityVerificationUseCase_Create(t *testing.T) {
 			},
 		},
 		{
-			name:   "reject when pocket_sign_user_id belongs to a different account",
+			name:   "reject when provider_user_id belongs to a different account",
 			userID: userA,
 			setup: func(d *identityVerificationTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
 				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
-					&usecase.PocketSignResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
+					&usecase.IdentityVerifierResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
 				// psidA already belongs to userB — duplicate-person attempt.
 				d.identityVerificationRepo.EXPECT().GetByProviderUserID(ctx, psidA).Return(sampleIdentityVerification(identityVerificationID, userB, psidA), nil)
@@ -199,17 +199,17 @@ func TestIdentityVerificationUseCase_Create(t *testing.T) {
 			wantErr: apperr.ErrAlreadyExists,
 		},
 		{
-			name:   "renewal path re-links same pocket_sign_user_id to the same user",
+			name:   "renewal path re-links same provider_user_id to the same user",
 			userID: userA,
 			setup: func(d *identityVerificationTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
 				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
-					&usecase.PocketSignResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
+					&usecase.IdentityVerifierResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
 				// psidA belongs to userA — renewal path: deactivate old, create new.
-				oldVI := sampleIdentityVerification("old-kyc", userA, psidA)
+				oldVI := sampleIdentityVerification("old-identity verification", userA, psidA)
 				d.identityVerificationRepo.EXPECT().GetByProviderUserID(ctx, psidA).Return(oldVI, nil)
-				d.identityVerificationRepo.EXPECT().UpdateStatus(ctx, "old-kyc", entity.VerificationStatusNeedsReverification).Return(nil)
+				d.identityVerificationRepo.EXPECT().UpdateStatus(ctx, "old-identity verification", entity.VerificationStatusNeedsReverification).Return(nil)
 				d.identityVerificationRepo.EXPECT().Create(ctx, matchIdentityVerification(userA, psidA)).Return(sampleIdentityVerification(identityVerificationID, userA, psidA), nil)
 			},
 		},
@@ -222,12 +222,12 @@ func TestIdentityVerificationUseCase_Create(t *testing.T) {
 			wantErr: apperr.ErrNotFound,
 		},
 		{
-			name:   "only pocket_sign_user_id is stored — no PII survives the call",
+			name:   "only provider_user_id is stored — no PII survives the call",
 			userID: userA,
 			setup: func(d *identityVerificationTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
 				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
-					&usecase.PocketSignResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
+					&usecase.IdentityVerifierResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
 				d.identityVerificationRepo.EXPECT().GetByProviderUserID(ctx, psidA).Return(nil, apperr.New(codes.NotFound, "not found"))
 				// The entity passed to Create must contain only the provider_user_id
@@ -258,17 +258,17 @@ func TestIdentityVerificationUseCase_Create(t *testing.T) {
 			wantErr: apperr.ErrPermissionDenied,
 		},
 		{
-			// GetByPocketSignUserID returns a non-NotFound error (e.g. Unavailable due
+			// GetByProviderUserID returns a non-NotFound error (e.g. Unavailable due
 			// to a DB outage). The usecase must propagate the error — it must NOT
 			// swallow it or fall through to Create.
-			name:   "propagate non-NotFound error from GetByPocketSignUserID without calling Create",
+			name:   "propagate non-NotFound error from GetByProviderUserID without calling Create",
 			userID: userA,
 			setup: func(d *identityVerificationTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
 				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
-					&usecase.PocketSignResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
+					&usecase.IdentityVerifierResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
-				// GetByPocketSignUserID returns Unavailable — NOT NotFound.
+				// GetByProviderUserID returns Unavailable — NOT NotFound.
 				// Create must NOT be called in this case.
 				d.identityVerificationRepo.EXPECT().GetByProviderUserID(ctx, psidA).
 					Return(nil, apperr.New(codes.Unavailable, "DB temporarily unavailable"))
@@ -285,12 +285,12 @@ func TestIdentityVerificationUseCase_Create(t *testing.T) {
 			setup: func(d *identityVerificationTestDeps) {
 				d.userRepo.EXPECT().Get(ctx, userA).Return(sampleUser(userA), nil)
 				d.verifier.EXPECT().CompleteVerify(ctx, userA, sessionID).Return(
-					&usecase.PocketSignResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
+					&usecase.IdentityVerifierResult{ProviderUserID: psidA, Method: entity.VerificationMethodJPKI}, nil,
 				)
-				oldVI := sampleIdentityVerification("old-kyc-renewal", userA, psidA)
+				oldVI := sampleIdentityVerification("old-identity verification-renewal", userA, psidA)
 				d.identityVerificationRepo.EXPECT().GetByProviderUserID(ctx, psidA).Return(oldVI, nil)
 				// UpdateStatus fails (e.g. DB connection lost).
-				d.identityVerificationRepo.EXPECT().UpdateStatus(ctx, "old-kyc-renewal", entity.VerificationStatusNeedsReverification).
+				d.identityVerificationRepo.EXPECT().UpdateStatus(ctx, "old-identity verification-renewal", entity.VerificationStatusNeedsReverification).
 					Return(apperr.New(codes.Internal, "DB write failed"))
 				// Create must NOT be called after UpdateStatus fails.
 			},
@@ -331,7 +331,7 @@ func TestIdentityVerificationUseCase_Recheck(t *testing.T) {
 	const (
 		userA                  = "user-a"
 		psidA                  = "ps-id-a"
-		identityVerificationID = "kyc-1"
+		identityVerificationID = "identity verification-1"
 	)
 
 	tests := []struct {
@@ -345,7 +345,7 @@ func TestIdentityVerificationUseCase_Recheck(t *testing.T) {
 			setup: func(d *identityVerificationTestDeps) {
 				identityVerification := sampleIdentityVerification(identityVerificationID, userA, psidA)
 				d.identityVerificationRepo.EXPECT().GetByUserID(ctx, userA).Return(identityVerification, nil)
-				d.verifier.EXPECT().Recheck(ctx, psidA).Return(&usecase.PocketSignRecheckResult{NeedsReverification: false}, nil)
+				d.verifier.EXPECT().Recheck(ctx, psidA).Return(&usecase.IdentityVerifierRecheckResult{NeedsReverification: false}, nil)
 			},
 			wantStatus: entity.VerificationStatusActive,
 		},
@@ -354,13 +354,13 @@ func TestIdentityVerificationUseCase_Recheck(t *testing.T) {
 			setup: func(d *identityVerificationTestDeps) {
 				identityVerification := sampleIdentityVerification(identityVerificationID, userA, psidA)
 				d.identityVerificationRepo.EXPECT().GetByUserID(ctx, userA).Return(identityVerification, nil)
-				d.verifier.EXPECT().Recheck(ctx, psidA).Return(&usecase.PocketSignRecheckResult{NeedsReverification: true}, nil)
+				d.verifier.EXPECT().Recheck(ctx, psidA).Return(&usecase.IdentityVerifierRecheckResult{NeedsReverification: true}, nil)
 				d.identityVerificationRepo.EXPECT().UpdateStatus(ctx, identityVerificationID, entity.VerificationStatusNeedsReverification).Return(nil)
 			},
 			wantStatus: entity.VerificationStatusNeedsReverification,
 		},
 		{
-			name: "fail with FailedPrecondition when the user has no Kyc to re-check",
+			name: "fail with FailedPrecondition when the user has no identity verification to re-check",
 			setup: func(d *identityVerificationTestDeps) {
 				d.identityVerificationRepo.EXPECT().GetByUserID(ctx, userA).Return(nil, apperr.New(codes.NotFound, "not found"))
 			},
@@ -398,7 +398,7 @@ func TestIdentityVerificationUseCase_Get(t *testing.T) {
 	const (
 		userA                  = "user-a"
 		psidA                  = "ps-id-a"
-		identityVerificationID = "kyc-1"
+		identityVerificationID = "identity verification-1"
 	)
 
 	tests := []struct {
@@ -408,14 +408,14 @@ func TestIdentityVerificationUseCase_Get(t *testing.T) {
 		wantErr    error
 	}{
 		{
-			name: "return the Active Kyc",
+			name: "return the Active identity verification",
 			setup: func(d *identityVerificationTestDeps) {
 				d.identityVerificationRepo.EXPECT().GetByUserID(ctx, userA).Return(sampleIdentityVerification(identityVerificationID, userA, psidA), nil)
 			},
 			wantStatus: entity.VerificationStatusActive,
 		},
 		{
-			name: "return a Kyc that needs re-verification",
+			name: "return a identity verification that needs re-verification",
 			setup: func(d *identityVerificationTestDeps) {
 				identityVerification := sampleIdentityVerification(identityVerificationID, userA, psidA)
 				identityVerification.Status = entity.VerificationStatusNeedsReverification
@@ -462,7 +462,7 @@ func TestIdentityVerificationUseCase_Delete(t *testing.T) {
 	const (
 		userA                  = "user-a"
 		psidA                  = "ps-id-a"
-		identityVerificationID = "kyc-1"
+		identityVerificationID = "identity verification-1"
 	)
 
 	tests := []struct {
@@ -471,14 +471,14 @@ func TestIdentityVerificationUseCase_Delete(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "delete Kyc when it exists",
+			name: "delete identity verification when it exists",
 			setup: func(d *identityVerificationTestDeps) {
 				d.identityVerificationRepo.EXPECT().GetByUserID(ctx, userA).Return(sampleIdentityVerification(identityVerificationID, userA, psidA), nil)
 				d.identityVerificationRepo.EXPECT().Delete(ctx, identityVerificationID).Return(nil)
 			},
 		},
 		{
-			name: "return error when user has no Kyc",
+			name: "return error when user has no identity verification",
 			setup: func(d *identityVerificationTestDeps) {
 				d.identityVerificationRepo.EXPECT().GetByUserID(ctx, userA).Return(nil, apperr.New(codes.NotFound, "not found"))
 			},
@@ -510,23 +510,23 @@ func TestIdentityVerificationUseCase_Delete(t *testing.T) {
 
 // matchVI returns a mock.MatchedBy predicate that accepts any *entity.IdentityVerification
 // with the given userID and pocketSignUserID.
-func matchIdentityVerification(userID, pocketSignUserID string) any {
+func matchIdentityVerification(userID, providerUserID string) any {
 	return mock.MatchedBy(func(identityVerification *entity.IdentityVerification) bool {
-		return identityVerification != nil && identityVerification.UserID == userID && identityVerification.ProviderUserID == pocketSignUserID
+		return identityVerification != nil && identityVerification.UserID == userID && identityVerification.ProviderUserID == providerUserID
 	})
 }
 
-// matchKycPrivacy returns a mock.MatchedBy predicate that verifies the
+// matchIdentityVerificationPrivacy returns a mock.MatchedBy predicate that verifies the
 // *entity.IdentityVerification passed to Create stores only the provider_user_id
 // and contains no suspicious extra raw data. The Stamp flow stores no raw cert
 // or signed-response bytes on the entity — this predicate enforces that invariant
 // by confirming the fields contain only the expected typed values.
-func matchIdentityVerificationPrivacy(userID, pocketSignUserID string) any {
+func matchIdentityVerificationPrivacy(userID, providerUserID string) any {
 	return mock.MatchedBy(func(identityVerification *entity.IdentityVerification) bool {
 		if identityVerification == nil {
 			return false
 		}
-		if identityVerification.UserID != userID || identityVerification.ProviderUserID != pocketSignUserID {
+		if identityVerification.UserID != userID || identityVerification.ProviderUserID != providerUserID {
 			return false
 		}
 		// Confirm none of the string fields carry unexpected large blobs.

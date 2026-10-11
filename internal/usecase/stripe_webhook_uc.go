@@ -189,7 +189,7 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 		// use case. This event confirms it at the Stripe level; informational.
 		s.logger.Info(ctx, "stripe webhook: charge.refunded event received (informational; refund already applied)",
 			slog.String("event_id", event.ProviderEventID),
-			slog.String("charge_ref", event.ProviderChargeID),
+			slog.String("provider_charge_id", event.ProviderChargeID),
 		)
 		return nil
 	case StripeEventTransferReversed, StripeEventPayoutPaid, StripeEventPayoutFailed:
@@ -253,9 +253,9 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 	if event.ProviderPaymentID == "" {
 		// No pi_ in the event data — cannot resolve the Order. Log a warning
 		// and accept the event (no retry). Admin must handle manually.
-		s.logger.Warn(ctx, "stripe webhook: dispute.created with no PaymentIntentRef; manual review required",
+		s.logger.Warn(ctx, "stripe webhook: dispute.created with no provider payment ID; manual review required",
 			slog.String("event_id", event.ProviderEventID),
-			slog.String("charge_ref", event.ProviderChargeID),
+			slog.String("provider_charge_id", event.ProviderChargeID),
 		)
 		return nil
 	}
@@ -271,7 +271,7 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 			s.logger.Warn(ctx, "stripe webhook: dispute.created for unknown payment intent; manual review required",
 				slog.String("event_id", event.ProviderEventID),
 				slog.String("provider_payment_id", event.ProviderPaymentID),
-				slog.String("charge_ref", event.ProviderChargeID),
+				slog.String("provider_charge_id", event.ProviderChargeID),
 			)
 			return nil
 		}
@@ -297,7 +297,7 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 	s.logger.Info(ctx, "stripe webhook: dispute refund executed",
 		slog.String("event_id", event.ProviderEventID),
 		slog.String("order_id", string(order.ID)),
-		slog.String("charge_ref", event.ProviderChargeID),
+		slog.String("provider_charge_id", event.ProviderChargeID),
 		slog.String("provider_payment_id", event.ProviderPaymentID),
 	)
 	return nil

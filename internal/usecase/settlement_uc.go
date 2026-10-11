@@ -220,7 +220,7 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	uc.logger.Info(ctx, "payout sweep: settlement released",
 		slog.String("settlement_id", string(s.ID)),
 		slog.String("order_id", string(s.OrderID)),
-		slog.String("charge_ref", providerChargeID),
+		slog.String("provider_charge_id", providerChargeID),
 		slog.Int("split_count", len(releasedSplits)),
 	)
 	return nil

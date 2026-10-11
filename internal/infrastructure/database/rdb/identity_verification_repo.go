@@ -30,7 +30,7 @@ const (
 		RETURNING id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
 	`
 
-	// getKycByUserIDQuery returns the most recent row for the user,
+	// getIdentityVerificationByUserIDQuery returns the most recent row for the user,
 	// preferring ACTIVE rows (status=1) over NEEDS_REVERIFICATION (status=2).
 	getIdentityVerificationByUserIDQuery = `
 		SELECT id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
@@ -40,7 +40,7 @@ const (
 		LIMIT 1
 	`
 
-	// getKycByPocketSignUserIDQuery returns the single ACTIVE row
+	// getIdentityVerificationByProviderUserIDQuery returns the single ACTIVE row
 	// for the given provider_user_id, enforced by the partial unique index.
 	getIdentityVerificationByProviderUserIDQuery = `
 		SELECT id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
@@ -59,7 +59,7 @@ const (
 	`
 )
 
-// scanKyc extracts a IdentityVerification from a pgx row.
+// scanIdentityVerification extracts a IdentityVerification from a pgx row.
 func scanIdentityVerification(scan func(dest ...any) error) (*entity.IdentityVerification, error) {
 	var vi entity.IdentityVerification
 	var method, dedupeStrength, status int16
@@ -103,12 +103,12 @@ func (r *IdentityVerificationRepository) Create(ctx context.Context, vi *entity.
 	)
 	created, err := scanIdentityVerification(row.Scan)
 	if err != nil {
-		return nil, toAppErr(err, "failed to insert Kyc",
+		return nil, toAppErr(err, "failed to insert identity verification",
 			slog.String("user_id", vi.UserID))
 	}
 
-	r.db.logger.Info(ctx, "Kyc created",
-		slog.String("entityType", "kyc"),
+	r.db.logger.Info(ctx, "identity verification created",
+		slog.String("entityType", "identity_verification"),
 		slog.String("id", created.ID),
 		slog.String("user_id", created.UserID),
 	)
@@ -121,7 +121,7 @@ func (r *IdentityVerificationRepository) GetByUserID(ctx context.Context, userID
 	row := r.db.Pool.QueryRow(ctx, getIdentityVerificationByUserIDQuery, userID)
 	vi, err := scanIdentityVerification(row.Scan)
 	if err != nil {
-		return nil, toAppErr(err, "failed to get Kyc by user_id",
+		return nil, toAppErr(err, "failed to get identity verification by user_id",
 			slog.String("user_id", userID))
 	}
 	return vi, nil
@@ -130,14 +130,14 @@ func (r *IdentityVerificationRepository) GetByUserID(ctx context.Context, userID
 // GetByProviderUserID returns the ACTIVE IdentityVerification keyed on the Pocket
 // Sign person key. Returns NotFound when no active record exists for the given
 // provider_user_id.
-func (r *IdentityVerificationRepository) GetByProviderUserID(ctx context.Context, pocketSignUserID string) (*entity.IdentityVerification, error) {
-	row := r.db.Pool.QueryRow(ctx, getIdentityVerificationByProviderUserIDQuery, pocketSignUserID)
+func (r *IdentityVerificationRepository) GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.IdentityVerification, error) {
+	row := r.db.Pool.QueryRow(ctx, getIdentityVerificationByProviderUserIDQuery, providerUserID)
 	vi, err := scanIdentityVerification(row.Scan)
 	if err != nil {
 		if pgxIsNoRows(err) {
-			return nil, apperr.New(codes.NotFound, "no active Kyc for pocket_sign_user_id")
+			return nil, apperr.New(codes.NotFound, "no active identity verification for provider_user_id")
 		}
-		return nil, toAppErr(err, "failed to get Kyc by pocket_sign_user_id")
+		return nil, toAppErr(err, "failed to get identity verification by provider_user_id")
 	}
 	return vi, nil
 }
@@ -147,10 +147,10 @@ func (r *IdentityVerificationRepository) GetByProviderUserID(ctx context.Context
 func (r *IdentityVerificationRepository) UpdateStatus(ctx context.Context, id string, status entity.VerificationStatus) error {
 	tag, err := r.db.Pool.Exec(ctx, updateIdentityVerificationStatusQuery, id, int16(status))
 	if err != nil {
-		return toAppErr(err, "failed to update Kyc status", slog.String("id", id))
+		return toAppErr(err, "failed to update identity verification status", slog.String("id", id))
 	}
 	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "Kyc not found")
+		return apperr.New(codes.NotFound, "identity verification not found")
 	}
 	return nil
 }
@@ -160,10 +160,10 @@ func (r *IdentityVerificationRepository) UpdateStatus(ctx context.Context, id st
 func (r *IdentityVerificationRepository) Delete(ctx context.Context, id string) error {
 	tag, err := r.db.Pool.Exec(ctx, deleteIdentityVerificationQuery, id)
 	if err != nil {
-		return toAppErr(err, "failed to delete Kyc", slog.String("id", id))
+		return toAppErr(err, "failed to delete identity verification", slog.String("id", id))
 	}
 	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "Kyc not found")
+		return apperr.New(codes.NotFound, "identity verification not found")
 	}
 	return nil
 }

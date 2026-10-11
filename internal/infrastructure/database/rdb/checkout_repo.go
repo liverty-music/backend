@@ -185,7 +185,7 @@ func (r *CheckoutRepository) Get(ctx context.Context, id entity.CheckoutID) (*en
 func (r *CheckoutRepository) GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*entity.Checkout, error) {
 	c, err := scanCheckout(r.db.Pool.QueryRow(ctx, checkoutGetByCardAuthorizationIDQuery, cardAuthorizationID))
 	if err != nil {
-		return nil, toAppErr(err, "failed to get checkout by authorization", slog.String("authorization_ref", cardAuthorizationID))
+		return nil, toAppErr(err, "failed to get checkout by authorization", slog.String("card_authorization_id", cardAuthorizationID))
 	}
 	return c, nil
 }
