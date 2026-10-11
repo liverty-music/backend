@@ -2,6 +2,7 @@ package entity
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -45,44 +46,36 @@ func (s TicketStatus) IsValid() bool {
 	return s == TicketStatusIssued || s == TicketStatusVoided
 }
 
-// Ticket is a Web2, account-bound admission right issued from a captured
-// lottery win. ⑤ DEFINES this entity; ⑥ ticket-wallet-and-checkin adds
-// admission at the venue on top of it (AdmittedTime, [TicketRepository.Admit]).
+// Ticket is a Web2, account-bound admission right issued from a won lottery
+// entry or a completed checkout. ⑥ ticket-wallet-and-checkin adds admission at
+// the venue on top of it (AdmittedTime, [TicketRepository.Admit]).
 //
-// Every issued Ticket is a covered ticket (特定興行入場券) carrying ALL THREE legal
+// Every issued Ticket is a covered ticket (特定興行入場券) carrying all three
 // conditions:
-//   - (i)   the face states resale without the organizer's consent is prohibited
-//     (ResaleWithoutConsentProhibited, always true);
-//   - (ii)  the face specifies date/venue (via EventID) + the eligible person
-//     (the bound HolderIdentity; the lottery is a common pool with no seat map,
-//     so admission is general and the eligible person is the holder);
-//   - (iii) the holder's 本人確認 is captured and bound to the account
-//     (HolderIdentity, with VerifiedIdentityID set where the phase required
-//     identity verification — then the verified identity is authoritative).
+//   - (i)   its face states resale without the organizer's consent is
+//     prohibited (ResaleWithoutConsentProhibited, always true);
+//   - (ii)  it names the event (date and venue, via EventID) and the eligible
+//     person, who is the Ticket's user, with no seat assigned;
+//   - (iii) it shows the user's full name and phone number as the User
+//     currently records them (本人確認), read when the face is shown
+//     ([Ticket.Face]); nothing is copied onto the Ticket.
 //
 // Mirrors liverty_music.entity.v1.Ticket.
 type Ticket struct {
 	// ID is the surrogate primary key (UUIDv7).
 	ID TicketID
 	// OrderID is the Order that issued this ticket. One Order issues the N
-	// tickets of the winning companion group.
+	// tickets of the companion group.
 	OrderID OrderID
-	// HolderID is the account the ticket is bound to — the current holder. At
-	// issuance this is the winning buyer; ⑦ official resale reassigns it.
-	HolderID UserID
+	// UserID is the account the ticket is bound to: the Order's user. It never
+	// changes; resale voids the ticket and issues a new one.
+	UserID UserID
 	// EventID is the event this ticket admits to. Supplies the covered-ticket
 	// face's date/venue (condition ii).
 	EventID string
-	// HolderIdentity is the holder's 本人確認 (name + contact) noted on the face
-	// and bound to the account — condition (iii) and the eligible person of
-	// condition (ii). Where the phase required identity verification this matches
-	// the verified 本人確認 (see VerifiedIdentityID).
-	HolderIdentity HolderIdentity
-	// VerifiedIdentityID is the authoritative verified identity this ticket is
-	// bound to, set only when the phase required identity verification. Empty
-	// when the phase required no verification (then HolderIdentity is ④'s
-	// self-declared name + contact).
-	VerifiedIdentityID string
+	// KycID is the Kyc this ticket is bound to, set only when the sale
+	// required verification; empty otherwise.
+	KycID string
 	// ResaleWithoutConsentProhibited is covered-ticket condition (i): the face
 	// states resale without the organizer's consent is prohibited. Always true —
 	// every issued ticket asserts this so it qualifies as a 特定興行入場券.
@@ -97,6 +90,45 @@ type Ticket struct {
 	// admitted. Set once, together with its [Admission], and kept when the
 	// ticket is later Voided.
 	AdmittedTime *time.Time
+}
+
+// Validate reports whether the ticket is a covered ticket: its face states
+// that resale without consent is prohibited.
+func (t *Ticket) Validate() error {
+	if !t.ResaleWithoutConsentProhibited {
+		return errors.New("a ticket must state that resale without consent is prohibited")
+	}
+	return nil
+}
+
+// TicketFace is what a Ticket's face shows: the resale notice, the event, and
+// the eligible person — the Ticket's user — with the full name and phone
+// number the User records when the face is read. No seat is assigned.
+type TicketFace struct {
+	// ResaleWithoutConsentProhibited is the resale notice; always true for a
+	// valid Ticket.
+	ResaleWithoutConsentProhibited bool
+	// EventID is the event the ticket admits to.
+	EventID string
+	// UserID is the eligible person's account.
+	UserID UserID
+	// FullName is the user's full name; empty when not given yet.
+	FullName string
+	// PhoneNumber is the user's phone number in E.164 form; empty when not
+	// given yet.
+	PhoneNumber string
+}
+
+// Face returns the ticket's face for user, the Ticket's user, with the full
+// name and phone number user currently records.
+func (t *Ticket) Face(user *User) TicketFace {
+	return TicketFace{
+		ResaleWithoutConsentProhibited: t.ResaleWithoutConsentProhibited,
+		EventID:                        t.EventID,
+		UserID:                         t.UserID,
+		FullName:                       user.FullName,
+		PhoneNumber:                    user.PhoneNumber,
+	}
 }
 
 // IsAdmissible reports whether the ticket can be admitted: it is Issued and
@@ -141,21 +173,21 @@ type TicketRepository interface {
 	//  - Internal: database query failure.
 	ListByOrder(ctx context.Context, orderID OrderID) ([]*Ticket, error)
 
-	// ListByHolder returns all tickets currently bound to the given account — the
-	// buyer's "my tickets" view.
+	// ListByUser returns every ticket whose user is the given User, Issued and
+	// Voided alike, most recently issued first; empty when none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database query failure.
-	ListByHolder(ctx context.Context, holderID UserID) ([]*Ticket, error)
+	ListByUser(ctx context.Context, userID UserID) ([]*Ticket, error)
 
-	// ListByHolderAndEvent returns every ticket held by the account for the
-	// event, Issued and Voided alike, in issue order; empty when none.
+	// ListByUserAndEvent returns every ticket of the User for the event,
+	// Issued and Voided alike, in the order they were issued; empty when none.
 	//
 	// # Possible errors
 	//
 	//  - Internal: database query failure.
-	ListByHolderAndEvent(ctx context.Context, holderID UserID, eventID string) ([]*Ticket, error)
+	ListByUserAndEvent(ctx context.Context, userID UserID, eventID string) ([]*Ticket, error)
 
 	// Admit admits the ticket through the reception link at admittedTime, at
 	// most once. When the ticket is admissible it sets the admitted time and

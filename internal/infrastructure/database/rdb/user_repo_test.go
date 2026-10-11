@@ -482,59 +482,58 @@ func TestUserRepository_List(t *testing.T) {
 }
 
 func TestUserRepository_Delete(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
 	repo := rdb.NewUserRepository(testDB)
 	ctx := context.Background()
 
-	tests := []struct {
-		name    string
-		setup   func() string // returns user ID
-		wantErr error
-	}{
-		{
-			name: "deletes existing user",
-			setup: func() string {
-				cleanDatabase(t)
-				user, err := repo.Create(ctx, newTestUser("ext-del-1", "del@example.com", "Delete"))
-				require.NoError(t, err)
-				return user.ID
-			},
-			wantErr: nil,
-		},
-		{
-			name: "empty ID returns error",
-			setup: func() string {
-				return ""
-			},
-			wantErr: apperr.ErrInvalidArgument,
-		},
-		{
-			name: "non-existent user returns not found",
-			setup: func() string {
-				cleanDatabase(t)
-				return "00000000-0000-0000-0000-000000000000"
-			},
-			wantErr: apperr.ErrNotFound,
-		},
-	}
+	t.Run("existing user", func(t *testing.T) {
+		// @spec components/entity/user/delete "Existing user"
+		cleanDatabase(t)
+		user, err := repo.Create(ctx, newTestUser("ext-del-1", "del@example.com", "Delete"))
+		require.NoError(t, err)
+		artistID := seedArtist(t, "del-artist", entity.NewID())
+		_, err = testDB.Pool.Exec(ctx, `INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)`, user.ID, artistID)
+		require.NoError(t, err)
+		_, err = rdb.NewKycRepository(testDB).Create(ctx, entity.NewKyc(user.ID, "ps-"+user.ID, entity.VerificationMethodJPKI))
+		require.NoError(t, err)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			id := tt.setup()
+		require.NoError(t, repo.Delete(ctx, user.ID))
 
-			err := repo.Delete(ctx, id)
+		_, err = repo.Get(ctx, user.ID)
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+		assert.False(t, rowExists(t, `SELECT 1 FROM followed_artists WHERE user_id = $1`, user.ID), "follow")
+		assert.False(t, rowExists(t, `SELECT 1 FROM kyc WHERE user_id = $1`, user.ID), "kyc")
+	})
 
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
+	t.Run("purchases outlive the user", func(t *testing.T) {
+		// @spec components/entity/user/delete "Purchases outlive the user"
+		cleanDatabase(t)
+		user, err := repo.Create(ctx, newTestUser("ext-del-2", "del2@example.com", "Delete"))
+		require.NoError(t, err)
+		ticketID := seedIssuedTickets(t, seedReceptionEvent(t), user.ID, 1)[0]
 
-			require.NoError(t, err)
+		require.NoError(t, repo.Delete(ctx, user.ID))
 
-			// Verify user is actually deleted
-			_, err = repo.Get(ctx, id)
-			assert.ErrorIs(t, err, apperr.ErrNotFound)
-		})
-	}
+		assert.True(t, rowExists(t, `SELECT 1 FROM tickets WHERE id = $1`, string(ticketID)), "ticket")
+		assert.True(t, rowExists(t, `SELECT 1 FROM orders o JOIN tickets t ON t.order_id = o.id WHERE t.id = $1`, string(ticketID)), "order")
+		assert.True(t, rowExists(t, `SELECT 1 FROM lottery_entries WHERE user_id = $1`, user.ID), "lottery entry")
+	})
+
+	t.Run("unknown id", func(t *testing.T) {
+		// @spec components/entity/user/delete "Unknown id"
+		err := repo.Delete(ctx, "00000000-0000-0000-0000-000000000000")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("empty id", func(t *testing.T) {
+		// @spec components/entity/user/delete "Empty id"
+		err := repo.Delete(ctx, "")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	})
 }
 
 func TestUserRepository_UpdateHome(t *testing.T) {
@@ -899,5 +898,96 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 		// UpdateHome). The re-fetch scan must not crash.
 		assert.Empty(t, updated.Country)
 		assert.Empty(t, updated.TimeZone)
+	})
+}
+
+func TestUserRepository_UpdatePersonalDetails(t *testing.T) {
+	if testDB == nil {
+		t.Skip("no local database available")
+	}
+	repo := rdb.NewUserRepository(testDB)
+	ctx := context.Background()
+
+	t.Run("first details", func(t *testing.T) {
+		// @spec components/entity/user/update-personal-details "First details"
+		id := seedUser(t, "details", entity.NewID()+"@example.com", entity.NewID())
+		before, err := repo.Get(ctx, id)
+		require.NoError(t, err)
+		require.Empty(t, before.FullName)
+
+		updated, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+
+		require.NoError(t, err)
+		assert.Equal(t, "山田 花子", updated.FullName)
+		assert.Equal(t, "+819012345678", updated.PhoneNumber)
+		assert.Equal(t, before.Email, updated.Email, "other attributes are unchanged")
+		assert.Equal(t, before.Name, updated.Name)
+		got, err := repo.Get(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, updated, got)
+
+		again, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+		require.NoError(t, err, "repeating the same values succeeds")
+		assert.Equal(t, updated, again)
+	})
+
+	t.Run("correction", func(t *testing.T) {
+		// @spec components/entity/user/update-personal-details "Correction"
+		id := seedUser(t, "details-fix", entity.NewID()+"@example.com", entity.NewID())
+		_, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+		require.NoError(t, err)
+		eventID := seedReceptionEvent(t)
+		seedIssuedTickets(t, eventID, id, 2)
+
+		_, err = repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+818098765432")
+
+		require.NoError(t, err)
+		got, err := repo.Get(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, "+818098765432", got.PhoneNumber)
+		// The ticket face reads the User's current values: the tickets are the
+		// User's, and no copy of the old phone number is kept on them.
+		tickets, err := rdb.NewTicketRepository(testDB).ListByUserAndEvent(ctx, entity.UserID(id), eventID)
+		require.NoError(t, err)
+		require.Len(t, tickets, 2)
+		for _, tk := range tickets {
+			assert.Equal(t, entity.UserID(id), tk.UserID)
+			assert.Equal(t, entity.TicketStatusIssued, tk.Status)
+		}
+	})
+
+	t.Run("invalid phone number", func(t *testing.T) {
+		// @spec components/entity/user/update-personal-details "Invalid phone number"
+		id := seedUser(t, "details-bad", entity.NewID()+"@example.com", entity.NewID())
+		_, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+		require.NoError(t, err)
+
+		_, err = repo.UpdatePersonalDetails(ctx, id, "山田 花子", "090-1234-5678")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		got, err := repo.Get(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, "+819012345678", got.PhoneNumber, "nothing changes")
+	})
+
+	t.Run("unknown user", func(t *testing.T) {
+		// @spec components/entity/user/update-personal-details "Unknown user"
+		_, err := repo.UpdatePersonalDetails(ctx, entity.NewID(), "山田 花子", "+819012345678")
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
+	})
+
+	t.Run("an empty value is stored as absent", func(t *testing.T) {
+		id := seedUser(t, "details-clear", entity.NewID()+"@example.com", entity.NewID())
+		_, err := repo.UpdatePersonalDetails(ctx, id, "山田 花子", "+819012345678")
+		require.NoError(t, err)
+
+		updated, err := repo.UpdatePersonalDetails(ctx, id, "", "+819012345678")
+
+		require.NoError(t, err)
+		assert.Empty(t, updated.FullName)
+		var fullNameIsNull bool
+		require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT full_name IS NULL FROM users WHERE id = $1`, id).Scan(&fullNameIsNull))
+		assert.True(t, fullNameIsNull)
 	})
 }

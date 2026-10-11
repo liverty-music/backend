@@ -2,8 +2,10 @@ package rpc_test
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
+	followv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	followv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/follow/v1"
 	"connectrpc.com/connect"
@@ -12,6 +14,7 @@ import (
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -37,6 +40,7 @@ func TestFollowHandler_Follow(t *testing.T) {
 		wantErr  bool
 	}{
 		{
+			// @spec components/adapter/fan/api/rpc/follow "Signed-in fan follows"
 			name: "success",
 			ctx:  followAuthedCtx("ext-user-1"),
 			req:  &followv1.FollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
@@ -47,12 +51,23 @@ func TestFollowHandler_Follow(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			// @spec components/adapter/fan/api/rpc/follow "Not signed in"
 			name:     "error - unauthenticated",
 			ctx:      context.Background(),
 			req:      &followv1.FollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
 			setup:    func(_ *ucmocks.MockFollowUseCase, _ *entitymocks.MockUserRepository) {},
 			wantCode: connect.CodeUnauthenticated,
 			wantErr:  true,
+		},
+		{
+			// @spec components/adapter/fan/api/rpc/follow "Caller has no account"
+			name: "error - caller has no account",
+			ctx:  followAuthedCtx("ext-user-1"),
+			req:  &followv1.FollowRequest{ArtistId: &entityv1.ArtistId{Value: artistID}},
+			setup: func(_ *ucmocks.MockFollowUseCase, repo *entitymocks.MockUserRepository) {
+				repo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()
+			},
+			wantErr: true,
 		},
 	}
 
@@ -72,6 +87,9 @@ func TestFollowHandler_Follow(t *testing.T) {
 
 			if tt.wantErr {
 				assert.Error(t, err)
+				if tt.wantCode == 0 {
+					assert.ErrorIs(t, err, apperr.ErrNotFound)
+				}
 				if tt.wantCode != 0 {
 					assert.Equal(t, tt.wantCode, connect.CodeOf(err))
 				}
@@ -144,7 +162,7 @@ func TestFollowHandler_Unfollow(t *testing.T) {
 	}
 }
 
-func TestFollowHandler_ListFollowed(t *testing.T) {
+func TestFollowHandler_List(t *testing.T) {
 	t.Parallel()
 
 	internalUserID := "internal-user-uuid-1"
@@ -186,7 +204,7 @@ func TestFollowHandler_ListFollowed(t *testing.T) {
 			tt.setup(uc, repo)
 			h := handler.NewFollowHandler(uc, repo, logger)
 
-			resp, err := h.ListFollowed(tt.ctx, connect.NewRequest(&followv1.ListFollowedRequest{}))
+			resp, err := h.List(tt.ctx, connect.NewRequest(&followv1.ListRequest{}))
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -237,6 +255,7 @@ func TestFollowHandler_SetHype(t *testing.T) {
 			wantErr:  true,
 		},
 		{
+			// @spec components/adapter/fan/api/rpc/follow "Missing hype level"
 			name: "error - HYPE_TYPE_UNSPECIFIED rejected with InvalidArgument",
 			ctx:  followAuthedCtx("ext-user-1"),
 			req: &followv1.SetHypeRequest{
@@ -276,4 +295,25 @@ func TestFollowHandler_SetHype(t *testing.T) {
 			assert.NotNil(t, resp)
 		})
 	}
+}
+
+func TestFollowHandler_Boundary(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing artist", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/follow "Missing artist"
+		logger, err := logging.New()
+		require.NoError(t, err)
+		// The mocks fail the test if the usecase runs.
+		h := handler.NewFollowHandler(ucmocks.NewMockFollowUseCase(t), entitymocks.NewMockUserRepository(t), logger)
+		srv := newFanBoundaryServer(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return followv1connect.NewFollowServiceHandler(h, opts...)
+		})
+		client := followv1connect.NewFollowServiceClient(srv.Client(), srv.URL)
+
+		_, err = client.Follow(context.Background(), withFanToken(connect.NewRequest(&followv1.FollowRequest{})))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
 }

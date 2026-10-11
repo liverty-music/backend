@@ -2,105 +2,128 @@ package mapper
 
 import (
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
+	organizerticketsalev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/ticket_sale/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// TicketSaleToProto maps a TicketSale, with where it stood when read, to
-// Protobuf. withCounts sets the quantity, the sold count and the held count,
-// which only the owning Organizer may see.
+// TicketSaleToProto maps a TicketSale, with its TicketTypes as the reader saw
+// them, to Protobuf. withCounts sets each TicketType's quantity and, for a
+// FirstCome sale, its sold and held counts, which only the owning Organizer
+// may see.
 func TicketSaleToProto(v *usecase.TicketSaleView, withCounts bool) *entityv1.TicketSale {
 	if v == nil || v.Sale == nil {
 		return nil
 	}
 	s := v.Sale
 	pb := &entityv1.TicketSale{
-		Id:              &entityv1.TicketSaleId{Value: string(s.ID)},
-		EventId:         &entityv1.EventId{Value: s.EventID},
-		Method:          ticketSaleMethodToProto(s.Method),
-		SaleStartTime:   timestamppb.New(s.SaleStartTime),
-		SaleEndTime:     timestamppb.New(s.SaleEndTime),
-		Price:           s.Price,
-		PerAccountLimit: int32(s.PerAccountLimit),
-		State:           ticketSaleStateToProto(v.State),
-		LowStock:        v.LowStock,
+		Id:                      &entityv1.TicketSaleId{Value: string(s.ID)},
+		SeriesId:                &entityv1.SeriesId{Value: s.SeriesID},
+		Name:                    &entityv1.TicketSaleName{Value: s.Name},
+		Method:                  ticketSaleMethodToProto(s.Method),
+		SaleStartTime:           timestamppb.New(s.SaleStartTime),
+		SaleEndTime:             timestamppb.New(s.SaleEndTime),
+		VerificationRequirement: verificationRequirementToProto(s.VerificationRequirement),
+		TicketTypes:             make([]*entityv1.TicketType, 0, len(v.TicketTypes)),
 	}
-	if withCounts {
-		quantity, sold, held := int32(s.Quantity), int32(s.SoldCount), int32(s.HeldCount)
-		pb.Quantity, pb.SoldCount, pb.HeldCount = &quantity, &sold, &held
+	if s.DrawnTime != nil {
+		pb.DrawnTime = timestamppb.New(*s.DrawnTime)
+	}
+	for _, tv := range v.TicketTypes {
+		if tt := TicketTypeToProto(tv, withCounts); tt != nil {
+			pb.TicketTypes = append(pb.TicketTypes, tt)
+		}
 	}
 	return pb
+}
+
+// TicketSalesToProto maps the sales of a list to Protobuf; see
+// [TicketSaleToProto].
+func TicketSalesToProto(views []*usecase.TicketSaleView, withCounts bool) []*entityv1.TicketSale {
+	out := make([]*entityv1.TicketSale, 0, len(views))
+	for _, v := range views {
+		if pb := TicketSaleToProto(v, withCounts); pb != nil {
+			out = append(out, pb)
+		}
+	}
+	return out
+}
+
+// TicketSaleMethodFromProto maps a Protobuf sale method to the domain type;
+// UNSPECIFIED and unknown values map to Unspecified.
+func TicketSaleMethodFromProto(m entityv1.TicketSaleMethod) entity.TicketSaleMethod {
+	switch m {
+	case entityv1.TicketSaleMethod_TICKET_SALE_METHOD_FIRST_COME:
+		return entity.TicketSaleMethodFirstCome
+	case entityv1.TicketSaleMethod_TICKET_SALE_METHOD_LOTTERY:
+		return entity.TicketSaleMethodLottery
+	default:
+		return entity.TicketSaleMethodUnspecified
+	}
 }
 
 func ticketSaleMethodToProto(m entity.TicketSaleMethod) entityv1.TicketSaleMethod {
-	if m == entity.TicketSaleMethodFirstCome {
+	switch m {
+	case entity.TicketSaleMethodFirstCome:
 		return entityv1.TicketSaleMethod_TICKET_SALE_METHOD_FIRST_COME
-	}
-	return entityv1.TicketSaleMethod_TICKET_SALE_METHOD_UNSPECIFIED
-}
-
-// ticketSaleStateToProto maps a domain sale state to Protobuf.
-func ticketSaleStateToProto(s entity.TicketSaleState) entityv1.TicketSaleState {
-	switch s {
-	case entity.TicketSaleStateNotYetOnSale:
-		return entityv1.TicketSaleState_TICKET_SALE_STATE_NOT_YET_ON_SALE
-	case entity.TicketSaleStateOnSale:
-		return entityv1.TicketSaleState_TICKET_SALE_STATE_ON_SALE
-	case entity.TicketSaleStateAllHeld:
-		return entityv1.TicketSaleState_TICKET_SALE_STATE_ALL_HELD
-	case entity.TicketSaleStateSoldOut:
-		return entityv1.TicketSaleState_TICKET_SALE_STATE_SOLD_OUT
-	case entity.TicketSaleStateEnded:
-		return entityv1.TicketSaleState_TICKET_SALE_STATE_ENDED
+	case entity.TicketSaleMethodLottery:
+		return entityv1.TicketSaleMethod_TICKET_SALE_METHOD_LOTTERY
 	default:
-		return entityv1.TicketSaleState_TICKET_SALE_STATE_UNSPECIFIED
+		return entityv1.TicketSaleMethod_TICKET_SALE_METHOD_UNSPECIFIED
 	}
 }
 
-// ReservationToProto maps a domain Reservation to Protobuf.
-func ReservationToProto(r *entity.Reservation) *entityv1.Reservation {
-	if r == nil {
-		return nil
-	}
-	pb := &entityv1.Reservation{
-		Id:             &entityv1.ReservationId{Value: string(r.ID)},
-		TicketSaleId:   &entityv1.TicketSaleId{Value: string(r.TicketSaleID)},
-		TicketCount:    int32(r.TicketCount),
-		Amount:         r.Amount,
-		Status:         reservationStatusToProto(r.Status),
-		HoldExpireTime: timestamppb.New(r.HoldExpireTime),
-	}
-	if r.CommitTime != nil {
-		pb.CommitTime = timestamppb.New(*r.CommitTime)
-	}
-	if r.CaptureTime != nil {
-		pb.CaptureTime = timestamppb.New(*r.CaptureTime)
-	}
-	return pb
-}
-
-func reservationStatusToProto(s entity.ReservationStatus) entityv1.ReservationStatus {
-	switch s {
-	case entity.ReservationStatusHeld:
-		return entityv1.ReservationStatus_RESERVATION_STATUS_HELD
-	case entity.ReservationStatusCommitted:
-		return entityv1.ReservationStatus_RESERVATION_STATUS_COMMITTED
-	case entity.ReservationStatusCompleted:
-		return entityv1.ReservationStatus_RESERVATION_STATUS_COMPLETED
-	case entity.ReservationStatusExpired:
-		return entityv1.ReservationStatus_RESERVATION_STATUS_EXPIRED
-	case entity.ReservationStatusReleased:
-		return entityv1.ReservationStatus_RESERVATION_STATUS_RELEASED
+// verificationRequirementToProto maps a domain VerificationRequirement to
+// Protobuf; None is UNSPECIFIED.
+func verificationRequirementToProto(r entity.VerificationRequirement) entityv1.VerificationRequirement {
+	switch r {
+	case entity.VerificationRequirementVerifiedAny:
+		return entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_VERIFIED_ANY
+	case entity.VerificationRequirementJPKIOnly:
+		return entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY
 	default:
-		return entityv1.ReservationStatus_RESERVATION_STATUS_UNSPECIFIED
+		return entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_UNSPECIFIED
 	}
 }
 
-// HolderIdentityToProto maps a domain holder identity to Protobuf, or nil.
-func HolderIdentityToProto(h *entity.HolderIdentity) *entityv1.HolderIdentity {
-	if h == nil {
-		return nil
+// VerificationRequirementFromProto maps a Protobuf VerificationRequirement to
+// the domain type; UNSPECIFIED is None.
+func VerificationRequirementFromProto(r entityv1.VerificationRequirement) entity.VerificationRequirement {
+	switch r {
+	case entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_VERIFIED_ANY:
+		return entity.VerificationRequirementVerifiedAny
+	case entityv1.VerificationRequirement_VERIFICATION_REQUIREMENT_JPKI_ONLY:
+		return entity.VerificationRequirementJPKIOnly
+	default:
+		return entity.VerificationRequirementNone
 	}
-	return holderIdentityToProto(*h)
+}
+
+// CreateTicketSaleInputFromProto maps an organizer Create request to the use
+// case input. A missing end time stays nil, and a missing per-account limit
+// is 0, which the use case reads as the default.
+func CreateTicketSaleInputFromProto(req *organizerticketsalev1.CreateRequest) usecase.CreateTicketSaleInput {
+	in := usecase.CreateTicketSaleInput{
+		SeriesID:                req.GetSeriesId().GetValue(),
+		Name:                    req.GetName().GetValue(),
+		Method:                  TicketSaleMethodFromProto(req.GetMethod()),
+		SaleStart:               req.GetSaleStartTime().AsTime(),
+		VerificationRequirement: VerificationRequirementFromProto(req.GetVerificationRequirement()),
+		TicketTypes:             make([]usecase.TicketTypeInput, 0, len(req.GetTicketTypes())),
+	}
+	if req.GetSaleEndTime() != nil {
+		end := req.GetSaleEndTime().AsTime()
+		in.SaleEnd = &end
+	}
+	for _, d := range req.GetTicketTypes() {
+		in.TicketTypes = append(in.TicketTypes, usecase.TicketTypeInput{
+			EventID:         d.GetEventId().GetValue(),
+			Price:           d.GetPrice().GetValue(),
+			Quantity:        int(d.GetQuantity()),
+			PerAccountLimit: int(d.GetPerAccountLimit()),
+		})
+	}
+	return in
 }

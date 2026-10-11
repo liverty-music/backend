@@ -94,7 +94,7 @@ const (
 	// by the existing NOTIFICATION.* stream — see streams.go.
 	SubjectNotificationRequested = "NOTIFICATION.requested"
 	// SubjectOrderPaid announces that an Order is paid, for a won lottery
-	// application or a completed checkout. IssuanceUseCase.FulfillPayment
+	// entry or a completed checkout. IssuanceUseCase.FulfillPayment
 	// publishes it on the payment provider's completed-charge webhook, with the
 	// Order id as the message id. Two consumers run from
 	// it: the purchase confirmation (NotificationUseCase.SendOrderConfirmation)
@@ -134,14 +134,18 @@ var AllSubjects = []string{
 
 // OrderPaidData is the payload for ORDER.paid events. It carries ids and
 // amounts only, never personal data; consumers read the rest by id. Exactly
-// one of ApplicationID and ReservationID is set: the Order's source.
+// one of LotteryEntryID and CheckoutID is set: the Order's source.
+//
+// The JSON names buyer_id, application_id and reservation_id predate the
+// LotteryEntry and Checkout names and are kept so messages published before a
+// deploy still parse after it.
 type OrderPaidData struct {
 	// OrderID is the paid Order; also the event's message id, so a
 	// republished announcement is deduplicated and consumers are idempotent by
 	// it.
 	OrderID string `json:"order_id"`
-	// BuyerID is the platform-internal user id of the buyer.
-	BuyerID string `json:"buyer_id"`
+	// UserID is the platform-internal id of the Order's user.
+	UserID string `json:"buyer_id"`
 	// EventID is the event the Order's tickets admit to.
 	EventID string `json:"event_id"`
 	// TicketCount is the number of Tickets the Order issued.
@@ -150,10 +154,10 @@ type OrderPaidData struct {
 	Amount int64 `json:"amount"`
 	// Currency is the ISO 4217 code of Amount.
 	Currency string `json:"currency"`
-	// ApplicationID is the won lottery application, when that is the source.
-	ApplicationID string `json:"application_id,omitempty"`
-	// ReservationID is the completed checkout, when that is the source.
-	ReservationID string `json:"reservation_id,omitempty"`
+	// LotteryEntryID is the won lottery entry, when that is the source.
+	LotteryEntryID string `json:"application_id,omitempty"`
+	// CheckoutID is the completed checkout, when that is the source.
+	CheckoutID string `json:"reservation_id,omitempty"`
 }
 
 // ConcertCreatedData is the payload for CONCERT.created events.

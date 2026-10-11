@@ -66,28 +66,25 @@ func (h *ConcertHandler) ListBySeries(ctx context.Context, req *connect.Request[
 	}), nil
 }
 
-// List returns a list of concerts, optionally filtered by artist.
-func (h *ConcertHandler) List(ctx context.Context, req *connect.Request[concertv1.ListRequest]) (*connect.Response[concertv1.ListResponse], error) {
-	artistID := ""
-	if req.Msg.ArtistId != nil {
-		artistID = req.Msg.ArtistId.Value
-	}
-
-	concerts, err := h.concertUseCase.ListByArtist(ctx, artistID)
+// ListByArtist returns the Concerts of one Artist as a flat list, empty when
+// the Artist has none. Authentication is not required.
+func (h *ConcertHandler) ListByArtist(ctx context.Context, req *connect.Request[concertv1.ListByArtistRequest]) (*connect.Response[concertv1.ListByArtistResponse], error) {
+	concerts, err := h.concertUseCase.ListByArtist(ctx, req.Msg.GetArtistId().GetValue())
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&concertv1.ListResponse{
+	return connect.NewResponse(&concertv1.ListByArtistResponse{
 		Concerts: mapper.ConcertsToProto(concerts),
 		Series:   h.mediaURLBuilder.ReferencedSeries(concerts),
 		Artists:  mapper.ReferencedArtists(concerts),
 	}), nil
 }
 
-// ListByFollower returns all concerts for artists followed by the authenticated user,
-// grouped by date and classified into geographic proximity lanes.
-func (h *ConcertHandler) ListByFollower(ctx context.Context, req *connect.Request[concertv1.ListByFollowerRequest]) (*connect.Response[concertv1.ListByFollowerResponse], error) {
+// ListFollowed returns the concerts of the artists the signed-in fan follows,
+// grouped by date and classified into proximity lanes around the fan's stored
+// home. The request names no fan and no home.
+func (h *ConcertHandler) ListFollowed(ctx context.Context, req *connect.Request[concertv1.ListFollowedRequest]) (*connect.Response[concertv1.ListFollowedResponse], error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -109,7 +106,7 @@ func (h *ConcertHandler) ListByFollower(ctx context.Context, req *connect.Reques
 	}
 
 	concerts := mapper.ConcertsOfGroups(groups)
-	return connect.NewResponse(&concertv1.ListByFollowerResponse{
+	return connect.NewResponse(&concertv1.ListFollowedResponse{
 		Groups:  mapper.ProximityGroupsToProto(groups),
 		Series:  h.mediaURLBuilder.ReferencedSeries(concerts),
 		Artists: mapper.ReferencedArtists(concerts),

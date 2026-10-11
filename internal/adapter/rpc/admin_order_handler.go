@@ -24,19 +24,41 @@ var _ adminorderv1connect.OrderServiceHandler = (*AdminOrderHandler)(nil)
 // before this handler runs; the handler only maps Proto↔Entity and delegates
 // business logic to the use case.
 type AdminOrderHandler struct {
+	orderUC  usecase.OrderUseCase
 	refundUC usecase.RefundOrderUseCase
 	logger   *logging.Logger
 }
 
 // NewAdminOrderHandler creates a new AdminOrderHandler.
 func NewAdminOrderHandler(
+	orderUC usecase.OrderUseCase,
 	refundUC usecase.RefundOrderUseCase,
 	logger *logging.Logger,
 ) *AdminOrderHandler {
 	return &AdminOrderHandler{
+		orderUC:  orderUC,
 		refundUC: refundUC,
 		logger:   logger,
 	}
+}
+
+// Get implements [adminorderv1connect.OrderServiceHandler]. It returns the
+// Order with its Settlement and the Settlement's splits, or the Order alone
+// when it has no Settlement. The request is validated by the protovalidate
+// interceptor before this runs; errors from the use case are returned
+// unchanged (NotFound for an unknown Order).
+func (h *AdminOrderHandler) Get(
+	ctx context.Context,
+	req *connect.Request[adminorderv1.GetRequest],
+) (*connect.Response[adminorderv1.GetResponse], error) {
+	order, settlement, err := h.orderUC.GetWithSettlement(ctx, entity.OrderID(req.Msg.GetOrderId().GetValue()))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&adminorderv1.GetResponse{
+		Order:      mapper.OrderToProto(order),
+		Settlement: mapper.SettlementToProto(settlement),
+	}), nil
 }
 
 // Refund implements [adminorderv1connect.OrderServiceHandler].

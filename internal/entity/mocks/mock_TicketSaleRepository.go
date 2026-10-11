@@ -143,24 +143,93 @@ func (_c *MockTicketSaleRepository_Get_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// GetByEvent provides a mock function with given fields: ctx, eventID, at
-func (_m *MockTicketSaleRepository) GetByEvent(ctx context.Context, eventID string, at time.Time) (*entity.TicketSale, error) {
-	ret := _m.Called(ctx, eventID, at)
+// GetTicketType provides a mock function with given fields: ctx, id, at
+func (_m *MockTicketSaleRepository) GetTicketType(ctx context.Context, id entity.TicketTypeID, at time.Time) (*entity.TicketSale, *entity.TicketType, error) {
+	ret := _m.Called(ctx, id, at)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByEvent")
+		panic("no return value specified for GetTicketType")
 	}
 
 	var r0 *entity.TicketSale
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) (*entity.TicketSale, error)); ok {
-		return rf(ctx, eventID, at)
+	var r1 *entity.TicketType
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, time.Time) (*entity.TicketSale, *entity.TicketType, error)); ok {
+		return rf(ctx, id, at)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) *entity.TicketSale); ok {
-		r0 = rf(ctx, eventID, at)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketTypeID, time.Time) *entity.TicketSale); ok {
+		r0 = rf(ctx, id, at)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.TicketSale)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketTypeID, time.Time) *entity.TicketType); ok {
+		r1 = rf(ctx, id, at)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*entity.TicketType)
+		}
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, entity.TicketTypeID, time.Time) error); ok {
+		r2 = rf(ctx, id, at)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockTicketSaleRepository_GetTicketType_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetTicketType'
+type MockTicketSaleRepository_GetTicketType_Call struct {
+	*mock.Call
+}
+
+// GetTicketType is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id entity.TicketTypeID
+//   - at time.Time
+func (_e *MockTicketSaleRepository_Expecter) GetTicketType(ctx interface{}, id interface{}, at interface{}) *MockTicketSaleRepository_GetTicketType_Call {
+	return &MockTicketSaleRepository_GetTicketType_Call{Call: _e.mock.On("GetTicketType", ctx, id, at)}
+}
+
+func (_c *MockTicketSaleRepository_GetTicketType_Call) Run(run func(ctx context.Context, id entity.TicketTypeID, at time.Time)) *MockTicketSaleRepository_GetTicketType_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.TicketTypeID), args[2].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_GetTicketType_Call) Return(_a0 *entity.TicketSale, _a1 *entity.TicketType, _a2 error) *MockTicketSaleRepository_GetTicketType_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_GetTicketType_Call) RunAndReturn(run func(context.Context, entity.TicketTypeID, time.Time) (*entity.TicketSale, *entity.TicketType, error)) *MockTicketSaleRepository_GetTicketType_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListByEvent provides a mock function with given fields: ctx, eventID, at
+func (_m *MockTicketSaleRepository) ListByEvent(ctx context.Context, eventID string, at time.Time) ([]*entity.TicketSale, error) {
+	ret := _m.Called(ctx, eventID, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListByEvent")
+	}
+
+	var r0 []*entity.TicketSale
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) ([]*entity.TicketSale, error)); ok {
+		return rf(ctx, eventID, at)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, time.Time) []*entity.TicketSale); ok {
+		r0 = rf(ctx, eventID, at)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]*entity.TicketSale)
 		}
 	}
 
@@ -173,59 +242,59 @@ func (_m *MockTicketSaleRepository) GetByEvent(ctx context.Context, eventID stri
 	return r0, r1
 }
 
-// MockTicketSaleRepository_GetByEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByEvent'
-type MockTicketSaleRepository_GetByEvent_Call struct {
+// MockTicketSaleRepository_ListByEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByEvent'
+type MockTicketSaleRepository_ListByEvent_Call struct {
 	*mock.Call
 }
 
-// GetByEvent is a helper method to define mock.On call
+// ListByEvent is a helper method to define mock.On call
 //   - ctx context.Context
 //   - eventID string
 //   - at time.Time
-func (_e *MockTicketSaleRepository_Expecter) GetByEvent(ctx interface{}, eventID interface{}, at interface{}) *MockTicketSaleRepository_GetByEvent_Call {
-	return &MockTicketSaleRepository_GetByEvent_Call{Call: _e.mock.On("GetByEvent", ctx, eventID, at)}
+func (_e *MockTicketSaleRepository_Expecter) ListByEvent(ctx interface{}, eventID interface{}, at interface{}) *MockTicketSaleRepository_ListByEvent_Call {
+	return &MockTicketSaleRepository_ListByEvent_Call{Call: _e.mock.On("ListByEvent", ctx, eventID, at)}
 }
 
-func (_c *MockTicketSaleRepository_GetByEvent_Call) Run(run func(ctx context.Context, eventID string, at time.Time)) *MockTicketSaleRepository_GetByEvent_Call {
+func (_c *MockTicketSaleRepository_ListByEvent_Call) Run(run func(ctx context.Context, eventID string, at time.Time)) *MockTicketSaleRepository_ListByEvent_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(time.Time))
 	})
 	return _c
 }
 
-func (_c *MockTicketSaleRepository_GetByEvent_Call) Return(_a0 *entity.TicketSale, _a1 error) *MockTicketSaleRepository_GetByEvent_Call {
+func (_c *MockTicketSaleRepository_ListByEvent_Call) Return(_a0 []*entity.TicketSale, _a1 error) *MockTicketSaleRepository_ListByEvent_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockTicketSaleRepository_GetByEvent_Call) RunAndReturn(run func(context.Context, string, time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_GetByEvent_Call {
+func (_c *MockTicketSaleRepository_ListByEvent_Call) RunAndReturn(run func(context.Context, string, time.Time) ([]*entity.TicketSale, error)) *MockTicketSaleRepository_ListByEvent_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Update provides a mock function with given fields: ctx, sale, at
-func (_m *MockTicketSaleRepository) Update(ctx context.Context, sale *entity.TicketSale, at time.Time) (*entity.TicketSale, error) {
-	ret := _m.Called(ctx, sale, at)
+// ListDueForDraw provides a mock function with given fields: ctx, now
+func (_m *MockTicketSaleRepository) ListDueForDraw(ctx context.Context, now time.Time) ([]*entity.TicketSale, error) {
+	ret := _m.Called(ctx, now)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Update")
+		panic("no return value specified for ListDueForDraw")
 	}
 
-	var r0 *entity.TicketSale
+	var r0 []*entity.TicketSale
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *entity.TicketSale, time.Time) (*entity.TicketSale, error)); ok {
-		return rf(ctx, sale, at)
+	if rf, ok := ret.Get(0).(func(context.Context, time.Time) ([]*entity.TicketSale, error)); ok {
+		return rf(ctx, now)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *entity.TicketSale, time.Time) *entity.TicketSale); ok {
-		r0 = rf(ctx, sale, at)
+	if rf, ok := ret.Get(0).(func(context.Context, time.Time) []*entity.TicketSale); ok {
+		r0 = rf(ctx, now)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.TicketSale)
+			r0 = ret.Get(0).([]*entity.TicketSale)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *entity.TicketSale, time.Time) error); ok {
-		r1 = rf(ctx, sale, at)
+	if rf, ok := ret.Get(1).(func(context.Context, time.Time) error); ok {
+		r1 = rf(ctx, now)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -233,32 +302,223 @@ func (_m *MockTicketSaleRepository) Update(ctx context.Context, sale *entity.Tic
 	return r0, r1
 }
 
-// MockTicketSaleRepository_Update_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Update'
-type MockTicketSaleRepository_Update_Call struct {
+// MockTicketSaleRepository_ListDueForDraw_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListDueForDraw'
+type MockTicketSaleRepository_ListDueForDraw_Call struct {
 	*mock.Call
 }
 
-// Update is a helper method to define mock.On call
+// ListDueForDraw is a helper method to define mock.On call
 //   - ctx context.Context
-//   - sale *entity.TicketSale
-//   - at time.Time
-func (_e *MockTicketSaleRepository_Expecter) Update(ctx interface{}, sale interface{}, at interface{}) *MockTicketSaleRepository_Update_Call {
-	return &MockTicketSaleRepository_Update_Call{Call: _e.mock.On("Update", ctx, sale, at)}
+//   - now time.Time
+func (_e *MockTicketSaleRepository_Expecter) ListDueForDraw(ctx interface{}, now interface{}) *MockTicketSaleRepository_ListDueForDraw_Call {
+	return &MockTicketSaleRepository_ListDueForDraw_Call{Call: _e.mock.On("ListDueForDraw", ctx, now)}
 }
 
-func (_c *MockTicketSaleRepository_Update_Call) Run(run func(ctx context.Context, sale *entity.TicketSale, at time.Time)) *MockTicketSaleRepository_Update_Call {
+func (_c *MockTicketSaleRepository_ListDueForDraw_Call) Run(run func(ctx context.Context, now time.Time)) *MockTicketSaleRepository_ListDueForDraw_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*entity.TicketSale), args[2].(time.Time))
+		run(args[0].(context.Context), args[1].(time.Time))
 	})
 	return _c
 }
 
-func (_c *MockTicketSaleRepository_Update_Call) Return(_a0 *entity.TicketSale, _a1 error) *MockTicketSaleRepository_Update_Call {
+func (_c *MockTicketSaleRepository_ListDueForDraw_Call) Return(_a0 []*entity.TicketSale, _a1 error) *MockTicketSaleRepository_ListDueForDraw_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockTicketSaleRepository_Update_Call) RunAndReturn(run func(context.Context, *entity.TicketSale, time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_Update_Call {
+func (_c *MockTicketSaleRepository_ListDueForDraw_Call) RunAndReturn(run func(context.Context, time.Time) ([]*entity.TicketSale, error)) *MockTicketSaleRepository_ListDueForDraw_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetWindow provides a mock function with given fields: ctx, id, saleStart, saleEnd, at
+func (_m *MockTicketSaleRepository) SetWindow(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time, at time.Time) (*entity.TicketSale, error) {
+	ret := _m.Called(ctx, id, saleStart, saleEnd, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetWindow")
+	}
+
+	var r0 *entity.TicketSale
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time, time.Time, time.Time) (*entity.TicketSale, error)); ok {
+		return rf(ctx, id, saleStart, saleEnd, at)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, time.Time, time.Time, time.Time) *entity.TicketSale); ok {
+		r0 = rf(ctx, id, saleStart, saleEnd, at)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.TicketSale)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, time.Time, time.Time, time.Time) error); ok {
+		r1 = rf(ctx, id, saleStart, saleEnd, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockTicketSaleRepository_SetWindow_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetWindow'
+type MockTicketSaleRepository_SetWindow_Call struct {
+	*mock.Call
+}
+
+// SetWindow is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id entity.TicketSaleID
+//   - saleStart time.Time
+//   - saleEnd time.Time
+//   - at time.Time
+func (_e *MockTicketSaleRepository_Expecter) SetWindow(ctx interface{}, id interface{}, saleStart interface{}, saleEnd interface{}, at interface{}) *MockTicketSaleRepository_SetWindow_Call {
+	return &MockTicketSaleRepository_SetWindow_Call{Call: _e.mock.On("SetWindow", ctx, id, saleStart, saleEnd, at)}
+}
+
+func (_c *MockTicketSaleRepository_SetWindow_Call) Run(run func(ctx context.Context, id entity.TicketSaleID, saleStart time.Time, saleEnd time.Time, at time.Time)) *MockTicketSaleRepository_SetWindow_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.TicketSaleID), args[2].(time.Time), args[3].(time.Time), args[4].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_SetWindow_Call) Return(_a0 *entity.TicketSale, _a1 error) *MockTicketSaleRepository_SetWindow_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_SetWindow_Call) RunAndReturn(run func(context.Context, entity.TicketSaleID, time.Time, time.Time, time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_SetWindow_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateTicketType provides a mock function with given fields: ctx, ticketType, at
+func (_m *MockTicketSaleRepository) UpdateTicketType(ctx context.Context, ticketType *entity.TicketType, at time.Time) (*entity.TicketSale, *entity.TicketType, error) {
+	ret := _m.Called(ctx, ticketType, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateTicketType")
+	}
+
+	var r0 *entity.TicketSale
+	var r1 *entity.TicketType
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.TicketType, time.Time) (*entity.TicketSale, *entity.TicketType, error)); ok {
+		return rf(ctx, ticketType, at)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *entity.TicketType, time.Time) *entity.TicketSale); ok {
+		r0 = rf(ctx, ticketType, at)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.TicketSale)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *entity.TicketType, time.Time) *entity.TicketType); ok {
+		r1 = rf(ctx, ticketType, at)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(*entity.TicketType)
+		}
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, *entity.TicketType, time.Time) error); ok {
+		r2 = rf(ctx, ticketType, at)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockTicketSaleRepository_UpdateTicketType_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateTicketType'
+type MockTicketSaleRepository_UpdateTicketType_Call struct {
+	*mock.Call
+}
+
+// UpdateTicketType is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ticketType *entity.TicketType
+//   - at time.Time
+func (_e *MockTicketSaleRepository_Expecter) UpdateTicketType(ctx interface{}, ticketType interface{}, at interface{}) *MockTicketSaleRepository_UpdateTicketType_Call {
+	return &MockTicketSaleRepository_UpdateTicketType_Call{Call: _e.mock.On("UpdateTicketType", ctx, ticketType, at)}
+}
+
+func (_c *MockTicketSaleRepository_UpdateTicketType_Call) Run(run func(ctx context.Context, ticketType *entity.TicketType, at time.Time)) *MockTicketSaleRepository_UpdateTicketType_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*entity.TicketType), args[2].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_UpdateTicketType_Call) Return(_a0 *entity.TicketSale, _a1 *entity.TicketType, _a2 error) *MockTicketSaleRepository_UpdateTicketType_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_UpdateTicketType_Call) RunAndReturn(run func(context.Context, *entity.TicketType, time.Time) (*entity.TicketSale, *entity.TicketType, error)) *MockTicketSaleRepository_UpdateTicketType_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateVerificationRequirement provides a mock function with given fields: ctx, id, req, at
+func (_m *MockTicketSaleRepository) UpdateVerificationRequirement(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement, at time.Time) (*entity.TicketSale, error) {
+	ret := _m.Called(ctx, id, req, at)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateVerificationRequirement")
+	}
+
+	var r0 *entity.TicketSale
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.VerificationRequirement, time.Time) (*entity.TicketSale, error)); ok {
+		return rf(ctx, id, req, at)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketSaleID, entity.VerificationRequirement, time.Time) *entity.TicketSale); ok {
+		r0 = rf(ctx, id, req, at)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.TicketSale)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketSaleID, entity.VerificationRequirement, time.Time) error); ok {
+		r1 = rf(ctx, id, req, at)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockTicketSaleRepository_UpdateVerificationRequirement_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateVerificationRequirement'
+type MockTicketSaleRepository_UpdateVerificationRequirement_Call struct {
+	*mock.Call
+}
+
+// UpdateVerificationRequirement is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id entity.TicketSaleID
+//   - req entity.VerificationRequirement
+//   - at time.Time
+func (_e *MockTicketSaleRepository_Expecter) UpdateVerificationRequirement(ctx interface{}, id interface{}, req interface{}, at interface{}) *MockTicketSaleRepository_UpdateVerificationRequirement_Call {
+	return &MockTicketSaleRepository_UpdateVerificationRequirement_Call{Call: _e.mock.On("UpdateVerificationRequirement", ctx, id, req, at)}
+}
+
+func (_c *MockTicketSaleRepository_UpdateVerificationRequirement_Call) Run(run func(ctx context.Context, id entity.TicketSaleID, req entity.VerificationRequirement, at time.Time)) *MockTicketSaleRepository_UpdateVerificationRequirement_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.TicketSaleID), args[2].(entity.VerificationRequirement), args[3].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_UpdateVerificationRequirement_Call) Return(_a0 *entity.TicketSale, _a1 error) *MockTicketSaleRepository_UpdateVerificationRequirement_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockTicketSaleRepository_UpdateVerificationRequirement_Call) RunAndReturn(run func(context.Context, entity.TicketSaleID, entity.VerificationRequirement, time.Time) (*entity.TicketSale, error)) *MockTicketSaleRepository_UpdateVerificationRequirement_Call {
 	_c.Call.Return(run)
 	return _c
 }

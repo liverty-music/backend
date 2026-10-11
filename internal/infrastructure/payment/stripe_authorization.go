@@ -1,7 +1,8 @@
 // Package payment provides infrastructure adapters for payment processing.
 // The Stripe adapter implements the manual-capture authorization-hold model
-// used by the lottery: Create (hold) → Verify (post-3DS) → Capture (on win)
-// or Cancel (on loss/withdrawal).
+// used by a lottery sale's entries: Create (hold, at Authorize) → Verify (at
+// Confirm) → Capture (on a win) or Cancel (on a loss, a withdrawal or a Draft
+// left unconfirmed at the draw).
 //
 // Secret provisioning: the Stripe secret key value is sourced from GCP Secret
 // Manager via ESO (ExternalSecretOperator) and injected into the pod as an
@@ -50,8 +51,10 @@ type CardHoldPolicy struct {
 }
 
 var (
-	// LotteryCardHoldPolicy rejects American Express, whose hold cannot last
-	// the application window, and keys requests "lottery-*".
+	// LotteryCardHoldPolicy is the policy of a Lottery sale's entries: it
+	// rejects American Express, whose hold cannot last the up-to-14-day
+	// window, and keys requests "lottery-*". The prefix names the sale's
+	// method, so it stays the same for every lottery sale.
 	LotteryCardHoldPolicy = CardHoldPolicy{AcceptAllBrands: false, KeyPrefix: "lottery"}
 	// TicketSaleCardHoldPolicy accepts every brand, because a checkout's hold
 	// lasts seconds, and keys requests "ticket-sale-*".
@@ -77,6 +80,11 @@ func newStripeClient(secretKey, apiURL string) *stripe.Client {
 // StripeAuthorizationPort implements [entity.PaymentAuthorizationPort] via the
 // Stripe PaymentIntents API using the manual-capture authorization-hold model,
 // with the lottery's [CardHoldPolicy].
+//
+// Capture and cancel outcomes follow the PaymentIntent's status: after an
+// error the PaymentIntent is read back and classified, so a repeated capture
+// or cancel of the same hold succeeds and a cancel of a captured hold is
+// FailedPrecondition.
 type StripeAuthorizationPort struct {
 	client *stripe.Client
 	logger *logging.Logger
@@ -89,8 +97,14 @@ type StripeAuthorizationPort struct {
 // Callers should use [NewNoopAuthorizationPort] when the key is empty (local
 // development without a Stripe account) so that the binary starts cleanly.
 func NewStripeAuthorizationPort(secretKey string, logger *logging.Logger) *StripeAuthorizationPort {
+	return newStripeAuthorizationPort(secretKey, "", logger)
+}
+
+// newStripeAuthorizationPort creates the port against apiURL; an empty apiURL
+// is Stripe's API (tests pass a stub server).
+func newStripeAuthorizationPort(secretKey, apiURL string, logger *logging.Logger) *StripeAuthorizationPort {
 	return &StripeAuthorizationPort{
-		client: newStripeClient(secretKey, ""),
+		client: newStripeClient(secretKey, apiURL),
 		logger: logger,
 		policy: LotteryCardHoldPolicy,
 	}
@@ -100,8 +114,8 @@ func NewStripeAuthorizationPort(secretKey string, logger *logging.Logger) *Strip
 //
 // It creates a Stripe PaymentIntent with capture_method=manual and returns the
 // intent ID and client secret. The frontend passes the client secret to
-// Stripe.js to complete 3DS; the intent ID is passed back to [Apply] as the
-// paymentIntentRef.
+// Stripe.js to complete 3DS; the intent ID is recorded on the Draft entry as
+// its paymentIntentRef.
 func (p *StripeAuthorizationPort) CreateAuthorization(ctx context.Context, amountJPY int64) (paymentIntentRef string, clientSecret string, err error) {
 	if amountJPY <= 0 {
 		return "", "", apperr.New(codes.InvalidArgument, "amountJPY must be positive")
@@ -149,13 +163,13 @@ func (p *StripeAuthorizationPort) VerifyAuthorization(ctx context.Context, payme
 	}
 
 	// Status check: the frontend must have confirmed the intent (3DS complete)
-	// before Apply is called; that transitions the intent to requires_capture.
+	// before Confirm is called; that transitions the intent to requires_capture.
 	if pi.Status != stripe.PaymentIntentStatusRequiresCapture {
 		return apperr.New(codes.FailedPrecondition,
 			"payment intent is not in requires_capture state; frontend must confirm the intent first")
 	}
 
-	// Amount check: must exactly match the phase price × ticket count.
+	// Amount check: must exactly match the ticket type price × ticket count.
 	if pi.Amount != expectedAmountJPY {
 		return apperr.New(codes.InvalidArgument,
 			"payment intent amount does not match the expected authorization amount")
@@ -189,21 +203,37 @@ func (p *StripeAuthorizationPort) CancelAuthorization(ctx context.Context, payme
 	params := &stripe.PaymentIntentCancelParams{}
 	params.SetIdempotencyKey(p.policy.idempotencyKey("cancel", paymentIntentRef))
 
-	_, err := p.client.V1PaymentIntents.Cancel(ctx, paymentIntentRef, params)
-	if err != nil {
-		return toPaymentAppErr(ctx, err, "failed to cancel PaymentIntent", p.logger)
+	_, cancelErr := p.client.V1PaymentIntents.Cancel(ctx, paymentIntentRef, params)
+	if cancelErr == nil {
+		p.logger.Info(ctx, "Stripe PaymentIntent cancelled",
+			slog.String("payment_intent_id", paymentIntentRef),
+		)
+		return nil
+	}
+	if isStripeNotFound(cancelErr) {
+		return toPaymentAppErr(ctx, cancelErr, "PaymentIntent not found", p.logger)
 	}
 
-	p.logger.Info(ctx, "Stripe PaymentIntent cancelled",
-		slog.String("payment_intent_id", paymentIntentRef),
-	)
-	return nil
+	// Classify by the PaymentIntent's status, not by the error.
+	current, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, &stripe.PaymentIntentRetrieveParams{})
+	if err != nil {
+		return toPaymentAppErr(ctx, cancelErr, "failed to cancel PaymentIntent", p.logger)
+	}
+	switch current.Status {
+	case stripe.PaymentIntentStatusCanceled:
+		// Released earlier, or the hold expired: nothing more to do.
+		return nil
+	case stripe.PaymentIntentStatusSucceeded:
+		return apperr.Wrap(cancelErr, codes.FailedPrecondition, "the card hold has already been captured")
+	default:
+		return toPaymentAppErr(ctx, cancelErr, "failed to cancel PaymentIntent", p.logger)
+	}
 }
 
 // CaptureAuthorization implements [entity.PaymentAuthorizationPort].
 //
 // It captures the held authorization, charging the fan's card. Used by the
-// draw job when an application wins.
+// draw job when an entry wins.
 //
 // The idempotency key is deterministic in the PaymentIntent ref. The draw job
 // captures winners in a batch; if it retries after a transient failure, a
@@ -213,15 +243,50 @@ func (p *StripeAuthorizationPort) CaptureAuthorization(ctx context.Context, paym
 	params := &stripe.PaymentIntentCaptureParams{}
 	params.SetIdempotencyKey(p.policy.idempotencyKey("capture", paymentIntentRef))
 
-	_, err := p.client.V1PaymentIntents.Capture(ctx, paymentIntentRef, params)
-	if err != nil {
-		return toPaymentAppErr(ctx, err, "failed to capture PaymentIntent", p.logger)
+	_, captureErr := p.client.V1PaymentIntents.Capture(ctx, paymentIntentRef, params)
+	if captureErr == nil {
+		p.logger.Info(ctx, "Stripe PaymentIntent captured",
+			slog.String("payment_intent_id", paymentIntentRef),
+		)
+		return nil
+	}
+	if isStripeNotFound(captureErr) {
+		return toPaymentAppErr(ctx, captureErr, "PaymentIntent not found", p.logger)
 	}
 
-	p.logger.Info(ctx, "Stripe PaymentIntent captured",
-		slog.String("payment_intent_id", paymentIntentRef),
-	)
-	return nil
+	// Classify by the PaymentIntent's status, not by the error.
+	current, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, &stripe.PaymentIntentRetrieveParams{})
+	if err != nil {
+		return apperr.Wrap(captureErr, codes.Unavailable, "capture outcome is not known yet")
+	}
+	switch current.Status {
+	case stripe.PaymentIntentStatusSucceeded:
+		// Captured earlier: the card is charged once.
+		return nil
+	case stripe.PaymentIntentStatusCanceled:
+		return apperr.Wrap(captureErr, codes.FailedPrecondition, "the card hold was released or expired")
+	case stripe.PaymentIntentStatusRequiresCapture:
+		if isCardRefusal(captureErr) {
+			return apperr.Wrap(captureErr, codes.FailedPrecondition, "the card can no longer be charged")
+		}
+		return apperr.Wrap(captureErr, codes.Unavailable, "capture outcome is not known yet")
+	default:
+		// processing, or a capture of the same hold still in flight.
+		return apperr.Wrap(captureErr, codes.Unavailable, "capture outcome is not known yet")
+	}
+}
+
+// GetClientSecret implements [entity.PaymentAuthorizationPort].
+//
+// It reads the PaymentIntent and returns its client secret, so a fan who
+// reloads the entry screen completes 3DS on the hold already opened instead
+// of opening a second one.
+func (p *StripeAuthorizationPort) GetClientSecret(ctx context.Context, paymentIntentRef string) (string, error) {
+	pi, err := p.client.V1PaymentIntents.Retrieve(ctx, paymentIntentRef, &stripe.PaymentIntentRetrieveParams{})
+	if err != nil {
+		return "", toPaymentAppErr(ctx, err, "failed to retrieve PaymentIntent", p.logger)
+	}
+	return pi.ClientSecret, nil
 }
 
 // GetCapturedPayment implements [entity.PaymentCapturePort].
@@ -279,7 +344,7 @@ func (p *StripeAuthorizationPort) verifyCardBrand(pi *stripe.PaymentIntent) erro
 		return nil
 	}
 	return apperr.New(codes.FailedPrecondition,
-		"American Express cards are not accepted for lottery applications")
+		"American Express cards are not accepted for lottery entries")
 }
 
 // extractCardBrand returns the brand of the PaymentIntent's latest charge, or an

@@ -22,9 +22,10 @@ var _ userv1connect.UserServiceHandler = (*UserHandler)(nil)
 
 // UserHandler implements the UserService Connect interface.
 //
-// The handler only resolves the caller's identity from the authenticated
-// context and maps proto to/from domain entities; the user_id ownership
-// precondition and the resend rate limit live in UserUseCase.
+// Every call acts on the signed-in caller's own User: no request names a
+// User. The handler only resolves the caller's identity from the
+// authenticated context and maps proto to/from domain entities; resolving the
+// caller's User and the resend rate limit live in UserUseCase.
 type UserHandler struct {
 	userUseCase usecase.UserUseCase
 	logger      *logging.Logger
@@ -38,18 +39,14 @@ func NewUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger) *Us
 	}
 }
 
-// Get retrieves the authenticated user's profile.
-//
-// The request-supplied user_id is verified against the JWT-derived userID by
-// the use case; mismatches are rejected with PERMISSION_DENIED per the
-// rpc-auth-scoping convention.
-func (h *UserHandler) Get(ctx context.Context, req *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
+// Get returns the signed-in caller's own User.
+func (h *UserHandler) Get(ctx context.Context, _ *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userUseCase.ResolveCaller(ctx, externalID, req.Msg.GetUserId().GetValue())
+	user, err := h.userUseCase.ResolveCaller(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +71,7 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 	// Defense-in-depth format check for preferred_language. The wire-layer
 	// protovalidate constraint and the use case both validate this; the
 	// handler also rejects malformed values at the seam so all three
-	// layers stay symmetric with UpdatePreferredLanguage. preferred_language
+	// layers stay symmetric with SetPreferredLanguage. preferred_language
 	// is optional at Create (old clients omit it → stored as NULL), so
 	// only the non-empty case is checked here.
 	lang := req.Msg.GetPreferredLanguage()
@@ -99,12 +96,37 @@ func (h *UserHandler) Create(ctx context.Context, req *connect.Request[userv1.Cr
 	}), nil
 }
 
-// UpdatePreferredLanguage sets or changes the authenticated user's preferred display language.
-//
-// The request-supplied user_id is verified against the JWT-derived userID by
-// the use case; mismatches are rejected with PERMISSION_DENIED per the
-// rpc-auth-scoping convention.
-func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.Request[userv1.UpdatePreferredLanguageRequest]) (*connect.Response[userv1.UpdatePreferredLanguageResponse], error) {
+// Update changes the signed-in caller's full name, phone number or both and
+// returns the User; a value not given keeps the current one. The request is
+// checked before the usecase runs: at least one value must be given, and each
+// given value must follow the User's personal details rule (a full name of 1
+// to 200 characters, a phone number in E.164 form).
+func (h *UserHandler) Update(ctx context.Context, req *connect.Request[userv1.UpdateRequest]) (*connect.Response[userv1.UpdateResponse], error) {
+	fullName, phoneNumber, err := mapper.PersonalDetailsFromUpdateRequest(req.Msg)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	externalID, err := mapper.GetExternalUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// UserUseCase.Update resolves the caller's User from externalID and fails
+	// with NotFound when the caller has none.
+	user, err := h.userUseCase.Update(ctx, externalID, fullName, phoneNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(&userv1.UpdateResponse{
+		User: mapper.UserToProto(user),
+	}), nil
+}
+
+// SetPreferredLanguage sets or changes the signed-in caller's preferred
+// display language.
+func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *connect.Request[userv1.SetPreferredLanguageRequest]) (*connect.Response[userv1.SetPreferredLanguageResponse], error) {
 	// Defense in depth: protovalidate enforces the same regex at the wire
 	// layer and the use case has the authoritative guard. Re-checking
 	// here at the RPC seam keeps the contract explicit and consistent so
@@ -115,8 +137,8 @@ func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.
 	// malformed payload doesn't trigger a DB round-trip and doesn't leak
 	// user-existence information on the sad path (a deleted user with a
 	// malformed lang would otherwise see NotFound instead of
-	// InvalidArgument). This intentionally diverges from UpdateHome's
-	// auth-first posture — UpdateHome has no handler-layer payload check;
+	// InvalidArgument). This intentionally diverges from SetHome's
+	// auth-first posture — SetHome has no handler-layer payload check;
 	// here we do, so payload first is the right ordering.
 	//
 	// `entity.IsValidLanguageCode` is the single source of truth (also
@@ -132,7 +154,7 @@ func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.
 		return nil, err
 	}
 
-	caller, err := h.userUseCase.ResolveCaller(ctx, externalID, req.Msg.GetUserId().GetValue())
+	caller, err := h.userUseCase.ResolveCaller(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -142,23 +164,19 @@ func (h *UserHandler) UpdatePreferredLanguage(ctx context.Context, req *connect.
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.UpdatePreferredLanguageResponse{
+	return connect.NewResponse(&userv1.SetPreferredLanguageResponse{
 		User: mapper.UserToProto(user),
 	}), nil
 }
 
-// UpdateHome sets or changes the authenticated user's home area.
-//
-// The request-supplied user_id is verified against the JWT-derived userID by
-// the use case; mismatches are rejected with PERMISSION_DENIED per the
-// rpc-auth-scoping convention.
-func (h *UserHandler) UpdateHome(ctx context.Context, req *connect.Request[userv1.UpdateHomeRequest]) (*connect.Response[userv1.UpdateHomeResponse], error) {
+// SetHome sets or changes the signed-in caller's home area.
+func (h *UserHandler) SetHome(ctx context.Context, req *connect.Request[userv1.SetHomeRequest]) (*connect.Response[userv1.SetHomeResponse], error) {
 	externalID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userUseCase.ResolveCaller(ctx, externalID, req.Msg.GetUserId().GetValue())
+	user, err := h.userUseCase.ResolveCaller(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +187,7 @@ func (h *UserHandler) UpdateHome(ctx context.Context, req *connect.Request[userv
 		return nil, err
 	}
 
-	return connect.NewResponse(&userv1.UpdateHomeResponse{
+	return connect.NewResponse(&userv1.SetHomeResponse{
 		User: mapper.UserToProto(updatedUser),
 	}), nil
 }
@@ -178,15 +196,15 @@ func (h *UserHandler) UpdateHome(ctx context.Context, req *connect.Request[userv
 // authenticated user via the Zitadel API.
 //
 // The handler only resolves the caller's external id from the JWT and
-// delegates to the use case, which enforces the user_id ownership check and
-// the resend rate limit before calling the identity provider.
-func (h *UserHandler) ResendEmailVerification(ctx context.Context, req *connect.Request[userv1.ResendEmailVerificationRequest]) (*connect.Response[userv1.ResendEmailVerificationResponse], error) {
+// delegates to the use case, which resolves the caller and enforces the resend
+// rate limit before calling the identity provider.
+func (h *UserHandler) ResendEmailVerification(ctx context.Context, _ *connect.Request[userv1.ResendEmailVerificationRequest]) (*connect.Response[userv1.ResendEmailVerificationResponse], error) {
 	claims, err := mapper.GetClaimsFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := h.userUseCase.ResendEmailVerification(ctx, claims.Sub, req.Msg.GetUserId().GetValue()); err != nil {
+	if err := h.userUseCase.ResendEmailVerification(ctx, claims.Sub); err != nil {
 		return nil, err
 	}
 

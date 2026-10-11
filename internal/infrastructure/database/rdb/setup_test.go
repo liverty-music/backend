@@ -6,7 +6,9 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
+	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/database/rdb"
 	"github.com/liverty-music/backend/pkg/config"
 	"github.com/pannpers/go-logging/logging"
@@ -167,12 +169,101 @@ func seedEvent(t *testing.T, venueID, artistID, title, date string) string {
 	return eventID
 }
 
+// saleWindowStart is the sale start of every seeded sale; tests read the sale
+// inside its window.
+var saleWindowStart = time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)
+
+// seedTicketType creates, for a new published event, a TicketSale of the
+// given method over the event's Series, open from saleWindowStart for 20
+// days, offering one TicketType of quantity tickets at 3000 yen.
+func seedTicketType(t *testing.T, method entity.TicketSaleMethod, quantity, limit int) *entity.TicketType {
+	t.Helper()
+	return seedTicketTypeForEvent(t, seedPublishedEvent(t), method, quantity, limit)
+}
+
+// seedTicketTypeForEvent creates a TicketSale of the given method over the
+// event's Series, open from saleWindowStart for 20 days, offering one
+// TicketType of quantity tickets at 3000 yen for the event.
+func seedTicketTypeForEvent(t *testing.T, eventID string, method entity.TicketSaleMethod, quantity, limit int) *entity.TicketType {
+	t.Helper()
+	ctx := context.Background()
+	var seriesID string
+	require.NoError(t, testDB.Pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID))
+
+	name := "一般発売"
+	if method == entity.TicketSaleMethodLottery {
+		name = "抽選"
+	}
+	sale := entity.NewTicketSale(seriesID, name, method, saleWindowStart, saleWindowStart.Add(20*24*time.Hour))
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO ticket_sales (id, series_id, name, method, sale_start_at, sale_end_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, string(sale.ID), seriesID, sale.Name, int16(sale.Method), sale.SaleStartTime, sale.SaleEndTime)
+	require.NoError(t, err)
+
+	tt := entity.NewTicketType(sale, eventID, 3000, quantity, limit)
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO ticket_types (id, ticket_sale_id, event_id, price, quantity, per_account_limit)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, string(tt.ID), string(tt.TicketSaleID), tt.EventID, tt.Price, tt.Quantity, tt.PerAccountLimit)
+	require.NoError(t, err)
+	return tt
+}
+
+// issuedTicketsTime is the issue time of the first ticket seedIssuedTickets
+// issues; each next ticket is one second later.
+var issuedTicketsTime = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+
+// seedIssuedTickets issues n Issued tickets of eventID to userID, through a
+// lottery TicketType of the event, a Won lottery entry and a Paid order, and
+// returns their ids in issue order.
+func seedIssuedTickets(t *testing.T, eventID, userID string, n int) []entity.TicketID {
+	t.Helper()
+	ctx := context.Background()
+	tt := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodLottery, 100, 10)
+
+	entryID := entity.NewID()
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state)
+		VALUES ($1, $2, $3, $4, $5, 2)`,
+		entryID, string(tt.ID), userID, n, "pi_entry_"+entryID)
+	require.NoError(t, err)
+
+	orderID := entity.NewID()
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO orders (id, user_id, lottery_entry_id, provider, payment_intent_ref, status, amount, currency, paid_at)
+		VALUES ($1, $2, $3, 1, $4, 1, $5, 'JPY', $6)`,
+		orderID, userID, entryID, "pi_"+orderID, 3000*n, issuedTicketsTime)
+	require.NoError(t, err)
+
+	ids := make([]entity.TicketID, 0, n)
+	for i := range n {
+		id := entity.NewID()
+		_, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO tickets (id, order_id, user_id, event_id, status, issued_at)
+			VALUES ($1, $2, $3, $4, 1, $5)`,
+			id, orderID, userID, eventID, issuedTicketsTime.Add(time.Duration(i)*time.Second))
+		require.NoError(t, err)
+		ids = append(ids, entity.TicketID(id))
+	}
+	return ids
+}
+
+// setTicketTypeSold sets a ticket type's sold count directly, standing in for
+// committed checkouts.
+func setTicketTypeSold(t *testing.T, id entity.TicketTypeID, sold int) {
+	t.Helper()
+	_, err := testDB.Pool.Exec(context.Background(), `UPDATE ticket_types SET sold_count = $2 WHERE id = $1`, string(id), sold)
+	require.NoError(t, err)
+}
+
 func cleanTables(db *rdb.Database) {
 	ctx := context.Background()
 	tables := []string{
-		"verified_identities",
-		"ticket_applications",
-		"lottery_sales_phases",
+		"kyc",
+		"lottery_entries",
+		"ticket_types",
+		"ticket_sales",
 		"ticket_journeys",
 		"push_subscriptions",
 		"latest_search_logs",

@@ -14,6 +14,7 @@ import (
 	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
+	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -21,7 +22,7 @@ import (
 	"google.golang.org/genproto/googleapis/type/date"
 )
 
-func TestConcertHandler_List(t *testing.T) {
+func TestConcertHandler_ListByArtist(t *testing.T) {
 	t.Parallel()
 
 	t.Run("returns concerts for a specific artist", func(t *testing.T) {
@@ -46,11 +47,11 @@ func TestConcertHandler_List(t *testing.T) {
 			},
 		}, nil).Once()
 
-		req := connect.NewRequest(&concertv1.ListRequest{
+		req := connect.NewRequest(&concertv1.ListByArtistRequest{
 			ArtistId: &entityv1.ArtistId{Value: artistID},
 		})
 
-		resp, err := h.List(context.Background(), req)
+		resp, err := h.ListByArtist(context.Background(), req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
@@ -72,35 +73,6 @@ func TestConcertHandler_List(t *testing.T) {
 		require.Len(t, resp.Msg.Artists, 2)
 	})
 
-	t.Run("returns all concerts when artist_id is not specified", func(t *testing.T) {
-		t.Parallel()
-		logger, err := logging.New()
-		require.NoError(t, err)
-		concertUC := mocks.NewMockConcertUseCase(t)
-		userRepo := entitymocks.NewMockUserRepository(t)
-		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
-
-		localDate := time.Date(2025, 7, 20, 0, 0, 0, 0, time.UTC)
-		concertUC.EXPECT().ListByArtist(mock.Anything, "").Return([]*entity.Concert{
-			{
-				ID:        "concert-2",
-				VenueID:   "venue-2",
-				LocalDate: localDate,
-				Series:    &entity.Series{Title: "World Tour"},
-				Artists:   []*entity.Artist{{ID: "artist-456"}},
-			},
-		}, nil).Once()
-
-		req := connect.NewRequest(&concertv1.ListRequest{})
-
-		resp, err := h.List(context.Background(), req)
-
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
-		assert.Len(t, resp.Msg.Concerts, 1)
-		assert.Equal(t, "concert-2", resp.Msg.Concerts[0].GetEvent().GetId().GetValue())
-	})
-
 	t.Run("returns empty slice when no concerts exist", func(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/concert "Artist without concerts"
 		t.Parallel()
@@ -112,11 +84,11 @@ func TestConcertHandler_List(t *testing.T) {
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-999").Return([]*entity.Concert{}, nil).Once()
 
-		req := connect.NewRequest(&concertv1.ListRequest{
+		req := connect.NewRequest(&concertv1.ListByArtistRequest{
 			ArtistId: &entityv1.ArtistId{Value: "artist-999"},
 		})
 
-		resp, err := h.List(context.Background(), req)
+		resp, err := h.ListByArtist(context.Background(), req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
@@ -133,11 +105,11 @@ func TestConcertHandler_List(t *testing.T) {
 
 		concertUC.EXPECT().ListByArtist(mock.Anything, "artist-123").Return(nil, assert.AnError).Once()
 
-		req := connect.NewRequest(&concertv1.ListRequest{
+		req := connect.NewRequest(&concertv1.ListByArtistRequest{
 			ArtistId: &entityv1.ArtistId{Value: "artist-123"},
 		})
 
-		resp, err := h.List(context.Background(), req)
+		resp, err := h.ListByArtist(context.Background(), req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
@@ -145,7 +117,7 @@ func TestConcertHandler_List(t *testing.T) {
 	})
 }
 
-func TestConcertHandler_ListByFollower(t *testing.T) {
+func TestConcertHandler_ListFollowed(t *testing.T) {
 	t.Parallel()
 
 	internalUserID := "internal-user-uuid-1"
@@ -161,16 +133,17 @@ func TestConcertHandler_ListByFollower(t *testing.T) {
 		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
 
 		// No auth context → GetExternalUserID returns CodeUnauthenticated.
-		req := connect.NewRequest(&concertv1.ListByFollowerRequest{})
+		req := connect.NewRequest(&concertv1.ListFollowedRequest{})
 
-		resp, err := h.ListByFollower(context.Background(), req)
+		resp, err := h.ListFollowed(context.Background(), req)
 
 		assert.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
 
-	t.Run("success", func(t *testing.T) {
+	t.Run("group around the fan's stored home", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Fan with a home"
 		t.Parallel()
 
 		logger, err := logging.New()
@@ -181,13 +154,15 @@ func TestConcertHandler_ListByFollower(t *testing.T) {
 		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
 
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
-		user := &entity.User{ID: internalUserID}
+		user := &entity.User{ID: internalUserID, Home: &entity.Home{CountryCode: "JP", Level1: "JP-13"}}
 		userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(user, nil).Once()
-		concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID, user.Home, mock.Anything).Return([]*entity.ProximityGroup{}, nil).Once()
+		concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID,
+			mock.MatchedBy(func(h *entity.Home) bool { return h != nil && h.Level1 == "JP-13" }), mock.Anything).
+			Return([]*entity.ProximityGroup{}, nil).Once()
 
-		req := connect.NewRequest(&concertv1.ListByFollowerRequest{})
+		req := connect.NewRequest(&concertv1.ListFollowedRequest{})
 
-		resp, err := h.ListByFollower(ctx, req)
+		resp, err := h.ListFollowed(ctx, req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
@@ -217,13 +192,32 @@ func TestConcertHandler_ListByFollower(t *testing.T) {
 				})).
 			Return([]*entity.ProximityGroup{}, nil).Once()
 
-		req := connect.NewRequest(&concertv1.ListByFollowerRequest{
+		req := connect.NewRequest(&concertv1.ListFollowedRequest{
 			From: &entityv1.LocalDate{Value: &date.Date{Year: 2020, Month: 1, Day: 1}},
 		})
 
-		resp, err := h.ListByFollower(ctx, req)
+		resp, err := h.ListFollowed(ctx, req)
 
 		assert.NoError(t, err)
 		assert.NotNil(t, resp)
+	})
+
+	t.Run("caller without an account", func(t *testing.T) {
+		// @spec components/adapter/fan/api/rpc/concert "Caller without an account"
+		t.Parallel()
+
+		logger, err := logging.New()
+		require.NoError(t, err)
+
+		concertUC := mocks.NewMockConcertUseCase(t)
+		userRepo := entitymocks.NewMockUserRepository(t)
+		h := rpc.NewConcertHandler(concertUC, userRepo, mapper.NewMediaURLBuilder(""), logger)
+
+		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
+		userRepo.EXPECT().GetByExternalID(mock.Anything, "ext-user-1").Return(nil, apperr.ErrNotFound).Once()
+
+		_, err = h.ListFollowed(ctx, connect.NewRequest(&concertv1.ListFollowedRequest{}))
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }

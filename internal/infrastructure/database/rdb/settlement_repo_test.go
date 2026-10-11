@@ -20,15 +20,15 @@ import (
 func seedOrderForSettlement(
 	t *testing.T,
 	issuanceRepo *rdb.IssuanceRepository,
-	appID entity.TicketApplicationID,
-	buyerID, organizerID, eventID string,
+	lotteryEntryID entity.LotteryEntryID,
+	userID, organizerID, eventID string,
 	settledAt time.Time,
 ) (*entity.Order, *entity.Settlement) {
 	t.Helper()
 	order := &entity.Order{
-		ID:            entity.OrderID(entity.NewID()),
-		BuyerID:       entity.UserID(buyerID),
-		ApplicationID: appID,
+		ID:             entity.OrderID(entity.NewID()),
+		UserID:         entity.UserID(userID),
+		LotteryEntryID: lotteryEntryID,
 		Payment: entity.Payment{
 			Provider:         entity.PaymentProviderStripe,
 			PaymentIntentRef: "pi_settlement_itest_" + entity.NewID(),
@@ -50,6 +50,18 @@ func seedOrderForSettlement(
 	}
 	require.NoError(t, issuanceRepo.Issue(context.Background(), order, nil, settlement))
 	return order, settlement
+}
+
+// seedWonEntryForSettlement inserts a Won lottery entry of userID for the
+// ticket type and returns its id.
+func seedWonEntryForSettlement(t *testing.T, ticketTypeID entity.TicketTypeID, userID string) entity.LotteryEntryID {
+	t.Helper()
+	id := entity.NewID()
+	_, err := testDB.Pool.Exec(context.Background(), `
+		INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state)
+		VALUES ($1, $2, $3, 2, $4, 2)`, id, string(ticketTypeID), userID, "pi_entry_"+id)
+	require.NoError(t, err)
+	return entity.LotteryEntryID(id)
 }
 
 // insertSettlementSplit inserts a settlement_splits row directly, since no
@@ -75,21 +87,20 @@ func TestSettlementRepository_Integration(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	phaseRepo := rdb.NewLotteryPhaseRepository(testDB)
-	appRepo := rdb.NewTicketApplicationRepository(testDB)
 	issuanceRepo := rdb.NewIssuanceRepository(testDB)
 	settlementRepo := rdb.NewSettlementRepository(testDB)
 
-	phase, eventID := seedLotteryPhase(t, phaseRepo)
-	buyerID := seedUser(t, "settlement-buyer", entity.NewID()+"@example.test", entity.NewID())
-	app := seedApplication(t, appRepo, phase.ID, buyerID, entity.TicketApplicationStateWon)
+	eventID := seedPublishedEvent(t)
+	ticketType := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodLottery, 100, 4)
+	userID := seedUser(t, "settlement-fan", entity.NewID()+"@example.test", entity.NewID())
+	entryID := seedWonEntryForSettlement(t, ticketType.ID, userID)
 
 	organizerID := entity.NewID()
 	settledAt := time.Date(2026, 9, 13, 12, 30, 0, 0, time.UTC)
 
 	// -- Order.Issue creates the Held settlement atomically with the Order
 	//    (backend#468). --
-	_, created := seedOrderForSettlement(t, issuanceRepo, app.ID, buyerID, organizerID, eventID, settledAt)
+	_, created := seedOrderForSettlement(t, issuanceRepo, entryID, userID, organizerID, eventID, settledAt)
 	assert.Equal(t, entity.SettlementStatusHeld, created.Status)
 
 	// -- ListHeld includes the freshly created settlement. --
@@ -138,11 +149,11 @@ func TestSettlementRepository_Integration(t *testing.T) {
 	// leaving the settlement Held with no split touched (atomicity).
 	// @spec components/entity/settlement/mark-released "Failure changes nothing"
 	t.Run("MarkReleased rolls back the status flip when a split update fails", func(t *testing.T) {
-		// A fresh buyer + application avoids the uq_ticket_applications_active
-		// conflict with the outer test's Won application on the same phase.
-		otherBuyerID := seedUser(t, "settlement-buyer-2", entity.NewID()+"@example.test", entity.NewID())
-		otherApp := seedApplication(t, appRepo, phase.ID, otherBuyerID, entity.TicketApplicationStateWon)
-		_, created := seedOrderForSettlement(t, issuanceRepo, otherApp.ID, otherBuyerID, organizerID, eventID, settledAt)
+		// A fresh user and entry avoid the uq_lottery_entries_active conflict
+		// with the outer test's Won entry on the same ticket type.
+		otherUserID := seedUser(t, "settlement-fan-2", entity.NewID()+"@example.test", entity.NewID())
+		otherEntryID := seedWonEntryForSettlement(t, ticketType.ID, otherUserID)
+		_, created := seedOrderForSettlement(t, issuanceRepo, otherEntryID, otherUserID, organizerID, eventID, settledAt)
 
 		payeeOK := entity.NewID()
 		payeeBad := entity.NewID()

@@ -521,7 +521,7 @@ type ConcertRepository interface {
 	// Delete removes a published event by id. The delete cascades through the
 	// database's ON DELETE CASCADE foreign keys to every row scoped to the
 	// event alone (the 1:1 concerts row, concert_artists, ticket_journeys, and
-	// lottery_sales_phases). Rows that outlive the event but still reference it
+	// ticket_types). Rows that outlive the event but still reference it
 	// — tickets and settlements — are protected by ON DELETE RESTRICT, so the
 	// delete fails instead of orphaning them when any exist. The event's series
 	// and the series' own sales_phases are untouched either way: sales_phases
@@ -530,7 +530,9 @@ type ConcertRepository interface {
 	// success.
 	Delete(ctx context.Context, eventID string) error
 	// DeleteAndSuppress removes a published event by id (cascading exactly like
-	// Delete) and, in the same statement, records a suppression entry derived from
+	// Delete, including the event's ticket types with their lottery entries)
+	// and every ticket sale left without a ticket type, and, in the same
+	// statement, records a suppression entry derived from
 	// the deleted event's own natural key (venue_id, local_event_date, start_at) so
 	// a later discovery run does not auto-publish or re-stage it. The two effects
 	// are atomic: the suppression row is written only for an event that actually

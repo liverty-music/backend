@@ -2,15 +2,16 @@ package rpc_test
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
+	artistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	artistv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/artist/v1"
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/usecase/mocks"
-	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -77,56 +78,70 @@ func TestArtistHandler_Create(t *testing.T) {
 
 }
 
-func TestArtistHandler_CreateOfficialSite(t *testing.T) {
+func TestArtistHandler_Boundary(t *testing.T) {
 	t.Parallel()
 
-	t.Run("maps the request straight through to the use case", func(t *testing.T) {
-		t.Parallel()
-
+	newClient := func(t *testing.T, artistUC *mocks.MockArtistUseCase) artistv1connect.ArtistServiceClient {
+		t.Helper()
 		logger, err := logging.New()
 		require.NoError(t, err)
-
-		artistUC := mocks.NewMockArtistUseCase(t)
 		h := handler.NewArtistHandler(artistUC, logger)
-
-		artistUC.EXPECT().
-			CreateOfficialSite(mock.Anything, "artist-1", "https://example.com").
-			Return(nil).
-			Once()
-
-		req := connect.NewRequest(&artistv1.CreateOfficialSiteRequest{
-			ArtistId: &entityv1.ArtistId{Value: "artist-1"},
-			Url:      &entityv1.Url{Value: "https://example.com"},
+		srv := newFanBoundaryServer(t, func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return artistv1connect.NewArtistServiceHandler(h, opts...)
 		})
+		return artistv1connect.NewArtistServiceClient(srv.Client(), srv.URL)
+	}
 
-		resp, err := h.CreateOfficialSite(context.Background(), req)
+	t.Run("guest searches", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/artist "Guest searches"
+		artistUC := mocks.NewMockArtistUseCase(t)
+		artistUC.EXPECT().Search(mock.Anything, "beat").
+			Return([]*entity.Artist{{ID: "artist-1", Name: "The Beatles"}}, nil).Once()
 
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
+		resp, err := newClient(t, artistUC).Search(context.Background(), connect.NewRequest(&artistv1.SearchRequest{Query: "beat"}))
+
+		require.NoError(t, err)
+		require.Len(t, resp.Msg.GetArtists(), 1)
+		assert.Equal(t, "artist-1", resp.Msg.GetArtists()[0].GetId().GetValue())
 	})
 
-	t.Run("propagates the use case error unchanged", func(t *testing.T) {
+	t.Run("guest creates an artist", func(t *testing.T) {
 		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/artist "Guest creates an artist"
+		// The mock fails the test if any usecase method runs.
+		_, err := newClient(t, mocks.NewMockArtistUseCase(t)).Create(context.Background(), connect.NewRequest(&artistv1.CreateRequest{
+			Name: &entityv1.ArtistName{Value: "The Beatles"},
+			Mbid: &entityv1.Mbid{Value: "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"},
+		}))
 
-		logger, err := logging.New()
-		require.NoError(t, err)
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
 
-		artistUC := mocks.NewMockArtistUseCase(t)
-		h := handler.NewArtistHandler(artistUC, logger)
+	t.Run("empty search query", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/artist "Empty search query"
+		_, err := newClient(t, mocks.NewMockArtistUseCase(t)).Search(context.Background(), connect.NewRequest(&artistv1.SearchRequest{}))
 
-		artistUC.EXPECT().
-			CreateOfficialSite(mock.Anything, "artist-1", "https://example.com").
-			Return(apperr.ErrAlreadyExists).
-			Once()
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
 
-		req := connect.NewRequest(&artistv1.CreateOfficialSiteRequest{
-			ArtistId: &entityv1.ArtistId{Value: "artist-1"},
-			Url:      &entityv1.Url{Value: "https://example.com"},
-		})
+	t.Run("limit too large", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/artist "Limit too large"
+		_, err := newClient(t, mocks.NewMockArtistUseCase(t)).ListTop(context.Background(), connect.NewRequest(&artistv1.ListTopRequest{Limit: 101}))
 
-		resp, err := h.CreateOfficialSite(context.Background(), req)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
 
-		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
-		assert.Nil(t, resp)
+	t.Run("malformed MBID", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/artist "Malformed MBID"
+		_, err := newClient(t, mocks.NewMockArtistUseCase(t)).Create(context.Background(), withFanToken(connect.NewRequest(&artistv1.CreateRequest{
+			Name: &entityv1.ArtistName{Value: "The Beatles"},
+			Mbid: &entityv1.Mbid{Value: "not-a-uuid"},
+		})))
+
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 }

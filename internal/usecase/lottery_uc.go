@@ -35,9 +35,9 @@ type EventPublishStatePort interface {
 
 	// GetEventOrganizerID returns the ID of the organizer that owns the event's
 	// series, via the series' OrganizerID. Used to enforce that an organizer can
-	// only configure or inspect lottery phases on events it owns. Returns ""
-	// (not an error) when the event exists but its series is a discovered
-	// (non-first-party) series with no owning organizer.
+	// only inspect the sales of events it owns. Returns "" (not an error) when
+	// the event exists but its series is a discovered (non-first-party) series
+	// with no owning organizer.
 	//
 	// # Possible errors
 	//
@@ -46,259 +46,126 @@ type EventPublishStatePort interface {
 	GetEventOrganizerID(ctx context.Context, eventID string) (string, error)
 }
 
-// ConfigureLotteryPhaseInput carries the organizer-supplied parameters for a
-// new lottery phase.
+// LotteryHoldPort is the card hold of a lottery entry as the lottery uses it:
+// [entity.PaymentAuthorizationPort] plus reading an existing hold's
+// confirmation secret.
 //
-// TODO: swap to generated proto request type after BSR gen.
-type ConfigureLotteryPhaseInput struct {
-	// CallerOrgID is the platform-internal ID of the calling organizer, as
-	// resolved by the RPC handler from the authenticated caller. The event's
-	// series must be owned by this organizer.
-	CallerOrgID string
+// TODO: replace with entity.PaymentAuthorizationPort once it declares
+// GetClientSecret (approved; the entity edit is pending).
+type LotteryHoldPort interface {
+	entity.PaymentAuthorizationPort
 
-	// EventID is the concert event this phase is attached to. The event must be
-	// PUBLISHED before a lottery phase can be configured.
-	EventID string
-
-	// OpenTime is when the application window opens. Must be before CloseTime.
-	OpenTime time.Time
-
-	// CloseTime is when the application window closes. Must be after OpenTime.
-	// The window duration must be between 1 and 14 days inclusive.
-	CloseTime time.Time
-
-	// TicketCapacity is the total number of tickets available. Must be positive.
-	TicketCapacity int
-
-	// MaxTicketsPerApplication is the maximum group size per application.
-	// Must be in [1, min(TicketCapacity, 10)].
-	MaxTicketsPerApplication int
-
-	// TicketPrice is the per-ticket price in JPY (whole yen). Must be positive.
-	// The authorization amount per application is TicketPrice × requested ticket count.
-	TicketPrice int64
-
-	// VerificationRequirement declares whether applicants must hold a verified
-	// identity. Defaults to [entity.VerificationRequirementNone] when omitted.
-	VerificationRequirement entity.VerificationRequirement
+	// GetClientSecret returns the confirmation secret of an existing hold, so
+	// a fan whose card was declined can try the same hold again. The secret
+	// is short-lived and must not be stored.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: no hold has the reference.
+	//  - Unavailable: card payments cannot be reached.
+	GetClientSecret(ctx context.Context, paymentIntentRef string) (string, error)
 }
 
-// SetVerificationRequirementInput carries the parameters for changing the
-// identity-verification requirement on an existing lottery phase.
-//
-// TODO: swap to generated proto request type after BSR gen.
-type SetVerificationRequirementInput struct {
-	// CallerOrgID is the platform-internal ID of the calling organizer, as
-	// resolved by the RPC handler from the authenticated caller. The phase's
-	// event series must be owned by this organizer.
-	CallerOrgID string
-
-	// PhaseID is the lottery phase to update.
-	PhaseID entity.LotteryPhaseID
-
-	// VerificationRequirement is the new requirement level.
-	VerificationRequirement entity.VerificationRequirement
-}
-
-// CreateAuthorizationInput carries the parameters needed to create an
-// authorization hold before a fan submits their application.
-//
-// TODO: swap to generated proto request type after BSR gen.
-type CreateAuthorizationInput struct {
-	// PhaseID identifies the lottery phase the fan intends to apply to.
-	PhaseID entity.LotteryPhaseID
-
-	// RequestedTicketCount is the number of tickets the fan will request.
-	// Must be in [1, phase.MaxTicketsPerApplication].
-	RequestedTicketCount int
-}
-
-// CreateAuthorizationResult carries the authorization credentials returned to
-// the frontend to complete the 3DS card confirmation.
-//
-// TODO: swap to generated proto response type after BSR gen.
-type CreateAuthorizationResult struct {
-	// PaymentIntentRef is the Stripe PaymentIntent ID to pass back to [Apply].
-	PaymentIntentRef string
-
-	// ClientSecret is passed to the frontend to drive Stripe.js 3DS confirmation.
-	// It is short-lived and MUST NOT be stored.
-	ClientSecret string
-}
-
-// ApplyInput carries a fan's application parameters.
-//
-// TODO: swap to generated proto request type after BSR gen.
-type ApplyInput struct {
-	// PhaseID is the lottery phase the fan is applying to.
-	PhaseID entity.LotteryPhaseID
-
-	// ApplicantID is the fan's account identifier, derived from the auth token.
-	ApplicantID entity.UserID
-
-	// RequestedTicketCount is the companion-group size (1 to MaxTicketsPerApplication).
-	RequestedTicketCount int
-
-	// Identity carries the applicant's legal name and phone number (本人確認).
-	Identity entity.HolderIdentity
-
-	// PaymentIntentRef is the Stripe PaymentIntent ID returned by
-	// [CreateAuthorization] after the frontend has completed 3DS confirmation.
-	// [Apply] calls [entity.PaymentAuthorizationPort.VerifyAuthorization] to confirm
-	// the intent is valid before persisting the application.
-	PaymentIntentRef string
-}
-
-// LotteryUseCase defines the business-logic surface for configuring lottery
-// phases, accepting fan applications, and withdrawing applications.
-//
-// Connect-RPC handlers will delegate to this interface; they are NOT wired
-// here because handler construction depends on generated request/response proto
-// types.
-//
-// TODO: handler wiring after BSR gen — add a LotteryHandler in
-// internal/adapter/rpc/ that maps proto ↔ entity and calls these methods.
+// LotteryUseCase lets a fan enter the lottery of a TicketType — start a Draft,
+// open the card hold, confirm — and withdraw, shows the fan their entries, and
+// draws every Lottery sale once its window has closed.
 type LotteryUseCase interface {
-	// ConfigureLotteryPhase creates a new lottery sales phase for an event owned
-	// by CallerOrgID.
+	// Start begins the fan's Draft entry for a TicketType of an open Lottery
+	// sale, or resumes it when the count is the same, after checking the
+	// count, the sale's verification requirement and the per-account limit
+	// against the fan's Issued tickets for the event. Nothing is held on the
+	// card.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: validation failure (window ordering, duration out of
-	//    [1,14] days, capacity, max-per-application, or ticket price).
-	//  - NotFound: the event does not exist.
-	//  - PermissionDenied: the event exists but its series is not owned by
-	//    CallerOrgID.
-	//  - FailedPrecondition: the event is not PUBLISHED, or has no start time.
-	ConfigureLotteryPhase(ctx context.Context, in ConfigureLotteryPhaseInput) (*entity.LotterySalesPhase, error)
+	//  - NotFound: the TicketType does not exist.
+	//  - InvalidArgument: the count is not 1 to the per-account limit.
+	//  - FailedPrecondition: the sale is not a Lottery, its window is not
+	//    open, the fan has no Active Kyc when the sale requires one, the count
+	//    does not fit the per-account limit with the tickets the fan holds, or
+	//    the fan already has an Entered, Won or Lost entry.
+	Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int) (*entity.LotteryEntry, error)
 
-	// SetPhaseVerificationRequirement changes the identity-verification
-	// requirement on an existing lottery phase owned by CallerOrgID. The
-	// organizer may call this at any time (before or after the draw). Returns
-	// the updated phase.
+	// Authorize stores the fan's full name and phone number on their User and
+	// opens the card hold for their own Draft, or reuses its hold, and returns
+	// the hold's confirmation secret, which must not be stored. Nothing is
+	// captured.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: phaseID is empty.
-	//  - NotFound: no phase with the given ID exists.
-	//  - PermissionDenied: the phase exists but its event's series is not owned
-	//    by CallerOrgID.
-	SetPhaseVerificationRequirement(ctx context.Context, in SetVerificationRequirementInput) (*entity.LotterySalesPhase, error)
+	//  - PermissionDenied: the entry does not exist or is another fan's.
+	//  - FailedPrecondition: the entry is not a Draft, or the sale's window is
+	//    not open.
+	//  - InvalidArgument: the name or phone number is missing or breaks the
+	//    personal details rule.
+	//  - Unavailable: card payments cannot be reached.
+	Authorize(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID, fullName, phoneNumber string) (string, error)
 
-	// CreateAuthorization creates a Stripe manual-capture PaymentIntent for the
-	// given phase and ticket count, placing an authorization hold on the fan's
-	// card. The frontend uses the returned client secret to complete 3DS. The
-	// returned paymentIntentRef is passed to [Apply] to finalize the application.
-	//
-	// No TicketApplication is persisted by this call.
+	// Confirm makes the fan's own authorized Draft Entered after verifying its
+	// hold for the amount, and returns it. An Entered entry is returned
+	// unchanged.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: requestedTicketCount out of range [1, max].
-	//  - FailedPrecondition: the application window is not open.
-	//  - NotFound: the phase does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	CreateAuthorization(ctx context.Context, in CreateAuthorizationInput) (CreateAuthorizationResult, error)
+	//  - PermissionDenied: the entry does not exist or is another fan's.
+	//  - FailedPrecondition: the entry is not an authorized Draft, or the
+	//    sale's window is not open.
+	//  - Errors of the hold's verification, unchanged.
+	Confirm(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error)
 
-	// Apply submits a fan's application to a lottery phase. It verifies that the
-	// given PaymentIntent is a valid authorization hold for the expected amount
-	// (TicketPrice × count) on an accepted JPY card (Visa/Mastercard/JCB/
-	// Diners/Discover; American Express and non-JPY are rejected).
+	// WithdrawEntry releases the hold of the fan's own Draft or Entered entry,
+	// when it has one, and then makes it Withdrawn. It works until the draw
+	// runs, also after the window has closed.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: requestedTicketCount out of range, identity missing, or
-	//    the PaymentIntent does not pass verification (wrong amount, wrong
-	//    currency, or unaccepted brand).
-	//  - FailedPrecondition: the application window is not open, or the fan
-	//    already has an active application for this phase.
-	//  - NotFound: the phase does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	Apply(ctx context.Context, in ApplyInput) (*entity.TicketApplication, error)
+	//  - NotFound: the entry does not exist.
+	//  - PermissionDenied: the entry is another fan's.
+	//  - FailedPrecondition: the entry is Won, Lost or Withdrawn.
+	//  - Errors of releasing the hold, unchanged; the entry keeps its state.
+	WithdrawEntry(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error
 
-	// WithdrawApplication cancels the fan's own active application before the
-	// draw. The authorization hold on the fan's card is released (cancelled).
-	//
-	// The fan may re-apply while the window is still open by calling [Apply]
-	// again; that creates a fresh application row.
+	// ListOwnByTicketType returns the fan's entries for the TicketType, in
+	// every state, newest first; an empty slice when there is none.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no application with the given ID exists.
-	//  - FailedPrecondition: the application is not in a withdrawable state (e.g.
-	//    the draw has already run or the application was already withdrawn).
-	//  - PermissionDenied: the application does not belong to the calling fan.
-	WithdrawApplication(ctx context.Context, applicationID entity.TicketApplicationID, applicantID entity.UserID) error
+	//  - NotFound: the TicketType does not exist.
+	ListOwnByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID) ([]*entity.LotteryEntry, error)
 
-	// GetMyApplication returns the caller's most-recent active application for
-	// the given phase. "Active" means the application has not been withdrawn.
+	// DrawDueSales runs [LotteryUseCase.RunDraw] for every Lottery sale due
+	// now. A failed draw is logged and stays due for the next run.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no active application exists for the (phase, applicant) pair.
-	GetMyApplication(ctx context.Context, phaseID entity.LotteryPhaseID, applicantID entity.UserID) (*entity.TicketApplication, error)
+	//  - Errors of listing the due sales, unchanged; nothing is drawn.
+	DrawDueSales(ctx context.Context) error
 
-	// GetResult returns the caller's application result for the given phase.
-	// The application's State field carries the result (Won, Lost, or Withdrawn).
+	// RunDraw draws one closed Lottery sale: for each TicketType it releases
+	// the holds of its Drafts, draws the Entered entries against the
+	// TicketType's quantity in an unpredictable order, captures each winner's
+	// hold and releases every other, and records the whole sale's outcome
+	// with the sale drawn. A winner whose capture fails is released and
+	// recorded Lost. It creates no Order or Ticket.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: the draw has not yet run for this phase.
-	//  - NotFound: no active application exists for the (phase, applicant) pair.
-	GetResult(ctx context.Context, phaseID entity.LotteryPhaseID, applicantID entity.UserID) (*entity.TicketApplication, error)
-
-	// GetLotteryPhaseStatus loads the phase together with aggregate tallies over
-	// all its ticket applications, for a phase owned by callerOrgID. The
-	// tallies reflect the post-draw outcome when DrawCompleted is true, and are
-	// zeros otherwise.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no phase with the given ID exists.
-	//  - PermissionDenied: the phase exists but its event's series is not owned
-	//    by callerOrgID.
-	GetLotteryPhaseStatus(ctx context.Context, phaseID entity.LotteryPhaseID, callerOrgID string) (*entity.LotteryPhaseStatus, error)
-
-	// DrawDuePhases finds all phases whose window has closed and whose draw has
-	// not yet run, then executes the draw for each. Individual phase failures are
-	// logged and skipped so one bad phase never blocks the rest of the sweep.
-	// now is the reference clock value (time.Now() in production; injected for
-	// deterministic tests).
-	//
-	// # Possible errors
-	//
-	//  - Internal: if listing due phases fails (returns immediately).
-	DrawDuePhases(ctx context.Context, now time.Time) error
-
-	// RunDraw executes the full lottery draw for a single phase:
-	//  1. Loads all Applied applications.
-	//  2. Runs entity.RunLotteryDraw with a crypto-seeded RNG.
-	//  3. For each winner: calls CaptureAuthorization; on capture failure logs
-	//     the error, calls CancelAuthorization, and treats the application as a
-	//     loser (no automatic 繰上げ — the seat is left unfilled for the MVP).
-	//  4. For each loser: calls CancelAuthorization.
-	//  5. Calls PersistDrawOutcome to commit states and stamp drawn_at atomically.
-	//
-	// A Won application is the handoff signal to ⑤ Order/Ticket creation; no
-	// event is emitted in the MVP — ⑤ will poll or be triggered separately.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no phase with the given phaseID exists.
-	//  - Internal: database or payment provider failure.
-	RunDraw(ctx context.Context, phaseID entity.LotteryPhaseID) error
+	//  - NotFound: the sale does not exist.
+	//  - Errors of reading the entries or recording the outcome, unchanged.
+	RunDraw(ctx context.Context, saleID entity.TicketSaleID) error
 }
 
 // lotteryUseCase implements [LotteryUseCase].
 type lotteryUseCase struct {
-	phaseRepo            entity.LotteryPhaseRepository
-	appRepo              entity.TicketApplicationRepository
-	eventState           EventPublishStatePort
-	eventRepo            entity.EventRepository
-	paymentPort          entity.PaymentAuthorizationPort
-	verifiedIdentityRepo entity.VerifiedIdentityRepository
-	clock                Clock
-	logger               *logging.Logger
+	saleRepo   entity.TicketSaleRepository
+	entryRepo  entity.LotteryEntryRepository
+	ticketRepo entity.TicketRepository
+	kycRepo    entity.KycRepository
+	userRepo   entity.UserRepository
+	holds      LotteryHoldPort
+	clock      Clock
+	newRand    func() *mrand.Rand
+	logger     *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -307,398 +174,234 @@ var _ LotteryUseCase = (*lotteryUseCase)(nil)
 // NewLotteryUseCase constructs a LotteryUseCase with the given dependencies.
 // All parameters are required and must not be nil.
 func NewLotteryUseCase(
-	phaseRepo entity.LotteryPhaseRepository,
-	appRepo entity.TicketApplicationRepository,
-	eventState EventPublishStatePort,
-	eventRepo entity.EventRepository,
-	paymentPort entity.PaymentAuthorizationPort,
-	verifiedIdentityRepo entity.VerifiedIdentityRepository,
+	saleRepo entity.TicketSaleRepository,
+	entryRepo entity.LotteryEntryRepository,
+	ticketRepo entity.TicketRepository,
+	kycRepo entity.KycRepository,
+	userRepo entity.UserRepository,
+	holds LotteryHoldPort,
 	clock Clock,
 	logger *logging.Logger,
 ) LotteryUseCase {
+	return newLotteryUseCase(saleRepo, entryRepo, ticketRepo, kycRepo, userRepo, holds, clock, cryptoSeededRand, logger)
+}
+
+// newLotteryUseCase constructs the use case with the draw's random source.
+func newLotteryUseCase(
+	saleRepo entity.TicketSaleRepository,
+	entryRepo entity.LotteryEntryRepository,
+	ticketRepo entity.TicketRepository,
+	kycRepo entity.KycRepository,
+	userRepo entity.UserRepository,
+	holds LotteryHoldPort,
+	clock Clock,
+	newRand func() *mrand.Rand,
+	logger *logging.Logger,
+) *lotteryUseCase {
 	return &lotteryUseCase{
-		phaseRepo:            phaseRepo,
-		appRepo:              appRepo,
-		eventState:           eventState,
-		eventRepo:            eventRepo,
-		paymentPort:          paymentPort,
-		verifiedIdentityRepo: verifiedIdentityRepo,
-		clock:                clock,
-		logger:               logger,
+		saleRepo:   saleRepo,
+		entryRepo:  entryRepo,
+		ticketRepo: ticketRepo,
+		kycRepo:    kycRepo,
+		userRepo:   userRepo,
+		holds:      holds,
+		clock:      clock,
+		newRand:    newRand,
+		logger:     logger,
 	}
 }
 
-const (
-	// minWindowDuration is the minimum allowed application window duration (1 day).
-	minWindowDuration = 24 * time.Hour
-
-	// maxWindowDuration is the maximum allowed application window duration (14 days).
-	maxWindowDuration = 14 * 24 * time.Hour
-
-	// maxTicketsPerApplicationLimit caps the companion-group size: one entry
-	// QR code presents at most 10 tickets, and a group enters with one code.
-	maxTicketsPerApplicationLimit = 10
-)
-
-// assertOwnsEvent verifies that the event identified by eventID belongs to
-// callerOrgID, via the event's series OrganizerID. A nonexistent event
-// propagates NotFound unchanged (the event ID space is not treated as
-// secret); an event that exists but belongs to a different organizer fails
-// with PermissionDenied. See the "Only the event's Organizer configures its
-// phases" requirement in the ConfigureLotteryPhase spec.
-func (uc *lotteryUseCase) assertOwnsEvent(ctx context.Context, eventID, callerOrgID string) error {
-	organizerID, err := uc.eventState.GetEventOrganizerID(ctx, eventID)
+// Start implements [LotteryUseCase].
+func (uc *lotteryUseCase) Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int) (*entity.LotteryEntry, error) {
+	now := uc.clock()
+	sale, tt, err := uc.saleRepo.GetTicketType(ctx, ticketTypeID, now)
 	if err != nil {
-		return err // propagates NotFound or Internal
+		return nil, err
 	}
-	if organizerID != callerOrgID {
-		return apperr.New(codes.PermissionDenied, "permission denied")
+	if sale.Method != entity.TicketSaleMethodLottery {
+		return nil, apperr.New(codes.FailedPrecondition, "the ticket type is not sold by lottery")
+	}
+	if err := tt.ValidateTicketCount(count); err != nil {
+		return nil, apperr.New(codes.InvalidArgument, err.Error())
+	}
+	if !sale.IsOpenAt(now) {
+		return nil, apperr.New(codes.FailedPrecondition, "the sale's window is not open")
+	}
+	if err := uc.checkVerification(ctx, sale, userID); err != nil {
+		return nil, err
+	}
+	tickets, err := uc.ticketRepo.ListByUserAndEvent(ctx, userID, tt.EventID)
+	if err != nil {
+		return nil, err
+	}
+	held := 0
+	for _, t := range tickets {
+		if t.Status == entity.TicketStatusIssued {
+			held++
+		}
+	}
+	if !tt.FitsPerAccountLimit(held, count) {
+		return nil, apperr.New(codes.FailedPrecondition, "the tickets would exceed the per-account limit for the event")
+	}
+	entry, err := uc.entryRepo.GetOrCreateDraft(ctx, ticketTypeID, userID, count)
+	if err != nil {
+		if errors.Is(err, apperr.ErrAlreadyExists) {
+			return nil, apperr.New(codes.FailedPrecondition, "the fan has already entered this ticket type")
+		}
+		return nil, err
+	}
+	return entry, nil
+}
+
+// checkVerification fails with FailedPrecondition when the sale requires
+// verification and the fan holds no Active Kyc.
+func (uc *lotteryUseCase) checkVerification(ctx context.Context, sale *entity.TicketSale, userID entity.UserID) error {
+	if !sale.VerificationRequirement.RequiresVerification() {
+		return nil
+	}
+	kyc, err := uc.kycRepo.GetByUserID(ctx, string(userID))
+	if err != nil {
+		if isNotFound(err) {
+			return apperr.New(codes.FailedPrecondition, "the sale requires 本人確認; verify your identity first")
+		}
+		return err
+	}
+	if kyc.Status != entity.VerificationStatusActive {
+		return apperr.New(codes.FailedPrecondition, "the sale requires an active 本人確認; please re-verify")
 	}
 	return nil
 }
 
-// assertOwnsPhase verifies that the caller's organizer owns the lottery phase
-// identified by phaseID, and returns the phase on success. A nonexistent
-// phase propagates NotFound unchanged; a phase whose event belongs to a
-// different organizer fails with PermissionDenied.
-func (uc *lotteryUseCase) assertOwnsPhase(ctx context.Context, phaseID entity.LotteryPhaseID, callerOrgID string) (*entity.LotterySalesPhase, error) {
-	phase, err := uc.phaseRepo.Get(ctx, phaseID)
+// ownEntry reads the entry and fails with PermissionDenied, without revealing
+// whether it exists, unless it is the fan's.
+func (uc *lotteryUseCase) ownEntry(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error) {
+	entry, err := uc.entryRepo.Get(ctx, entryID)
 	if err != nil {
-		return nil, err // propagates NotFound or Internal
-	}
-	if err := uc.assertOwnsEvent(ctx, phase.EventID, callerOrgID); err != nil {
-		return nil, err
-	}
-	return phase, nil
-}
-
-// ConfigureLotteryPhase implements [LotteryUseCase].
-func (uc *lotteryUseCase) ConfigureLotteryPhase(ctx context.Context, in ConfigureLotteryPhaseInput) (*entity.LotterySalesPhase, error) {
-	// -- validation --
-
-	if in.EventID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "event_id is required")
-	}
-	if in.OpenTime.IsZero() {
-		return nil, apperr.New(codes.InvalidArgument, "open_time is required")
-	}
-	if in.CloseTime.IsZero() {
-		return nil, apperr.New(codes.InvalidArgument, "close_time is required")
-	}
-	if !in.CloseTime.After(in.OpenTime) {
-		return nil, apperr.New(codes.InvalidArgument, "close_time must be after open_time")
-	}
-	duration := in.CloseTime.Sub(in.OpenTime)
-	if duration < minWindowDuration {
-		return nil, apperr.New(codes.InvalidArgument, "application window must be at least 1 day")
-	}
-	if duration > maxWindowDuration {
-		return nil, apperr.New(codes.InvalidArgument, "application window must not exceed 14 days")
-	}
-	if in.TicketCapacity <= 0 {
-		return nil, apperr.New(codes.InvalidArgument, "ticket_capacity must be positive")
-	}
-	if in.MaxTicketsPerApplication <= 0 {
-		return nil, apperr.New(codes.InvalidArgument, "max_tickets_per_application must be positive")
-	}
-	if in.MaxTicketsPerApplication > in.TicketCapacity {
-		return nil, apperr.New(codes.InvalidArgument, "max_tickets_per_application must not exceed ticket_capacity")
-	}
-	if in.MaxTicketsPerApplication > maxTicketsPerApplicationLimit {
-		return nil, apperr.New(codes.InvalidArgument, "max_tickets_per_application must be at most 10")
-	}
-	if in.TicketPrice <= 0 {
-		return nil, apperr.New(codes.InvalidArgument, "ticket_price must be positive")
-	}
-
-	// -- ownership: the event's series must belong to the calling organizer --
-	//
-	// Checked before the PUBLISHED precondition below so a caller who does not
-	// own the event never learns its publish state. A nonexistent event still
-	// surfaces as NotFound (see assertOwnsEvent).
-	if err := uc.assertOwnsEvent(ctx, in.EventID, in.CallerOrgID); err != nil {
-		return nil, err
-	}
-
-	// -- precondition: event must be PUBLISHED --
-
-	published, err := uc.eventState.IsEventPublished(ctx, in.EventID)
-	if err != nil {
-		return nil, err // propagates NotFound or Internal from the port
-	}
-	if !published {
-		return nil, apperr.New(codes.FailedPrecondition, "event is not published; configure a lottery phase only for published events")
-	}
-
-	// -- precondition: event must have a start time --
-	//
-	// A ticket names the start time on its face, and venue reception opens
-	// from it when the doors-open time is not announced. The doors-open time
-	// stays optional.
-	event, err := uc.eventRepo.Get(ctx, in.EventID)
-	if err != nil {
-		return nil, err
-	}
-	if event.StartTime == nil {
-		return nil, apperr.New(codes.FailedPrecondition, "event has no start time; configure a lottery phase only for an event with a start time")
-	}
-
-	// -- persist --
-
-	phase := &entity.LotterySalesPhase{
-		ID:                       entity.LotteryPhaseID(entity.NewID()),
-		EventID:                  in.EventID,
-		OpenTime:                 in.OpenTime,
-		CloseTime:                in.CloseTime,
-		TicketCapacity:           in.TicketCapacity,
-		MaxTicketsPerApplication: in.MaxTicketsPerApplication,
-		TicketPrice:              in.TicketPrice,
-		VerificationRequirement:  in.VerificationRequirement,
-	}
-	created, err := uc.phaseRepo.Create(ctx, phase)
-	if err != nil {
-		return nil, err
-	}
-	return created, nil
-}
-
-// CreateAuthorization implements [LotteryUseCase].
-func (uc *lotteryUseCase) CreateAuthorization(ctx context.Context, in CreateAuthorizationInput) (CreateAuthorizationResult, error) {
-	// -- load phase --
-
-	phase, err := uc.phaseRepo.Get(ctx, in.PhaseID)
-	if err != nil {
-		return CreateAuthorizationResult{}, err // propagates NotFound
-	}
-
-	// -- validate count --
-
-	if in.RequestedTicketCount <= 0 {
-		return CreateAuthorizationResult{}, apperr.New(codes.InvalidArgument, "requested_ticket_count must be positive")
-	}
-	if in.RequestedTicketCount > phase.MaxTicketsPerApplication {
-		return CreateAuthorizationResult{}, apperr.New(codes.InvalidArgument, "requested_ticket_count exceeds the phase limit")
-	}
-
-	// -- window check --
-
-	now := uc.clock()
-	if now.Before(phase.OpenTime) {
-		return CreateAuthorizationResult{}, apperr.New(codes.FailedPrecondition, "application window is not yet open")
-	}
-	if !now.Before(phase.CloseTime) {
-		return CreateAuthorizationResult{}, apperr.New(codes.FailedPrecondition, "application window has closed")
-	}
-
-	// -- create authorization hold --
-
-	amountJPY := phase.TicketPrice * int64(in.RequestedTicketCount)
-	piRef, clientSecret, err := uc.paymentPort.CreateAuthorization(ctx, amountJPY)
-	if err != nil {
-		return CreateAuthorizationResult{}, err // propagates Unavailable / InvalidArgument / Internal
-	}
-
-	return CreateAuthorizationResult{
-		PaymentIntentRef: piRef,
-		ClientSecret:     clientSecret,
-	}, nil
-}
-
-// Apply implements [LotteryUseCase].
-func (uc *lotteryUseCase) Apply(ctx context.Context, in ApplyInput) (*entity.TicketApplication, error) {
-	// -- load phase --
-
-	phase, err := uc.phaseRepo.Get(ctx, in.PhaseID)
-	if err != nil {
-		return nil, err // propagates NotFound
-	}
-
-	// -- validate requested count --
-
-	if in.RequestedTicketCount <= 0 {
-		return nil, apperr.New(codes.InvalidArgument, "requested_ticket_count must be positive")
-	}
-	if in.RequestedTicketCount > phase.MaxTicketsPerApplication {
-		return nil, apperr.New(codes.InvalidArgument, "requested_ticket_count exceeds the phase limit")
-	}
-
-	// -- validate identity --
-
-	if in.Identity.FullName == "" {
-		return nil, apperr.New(codes.InvalidArgument, "applicant full name is required")
-	}
-	if in.Identity.PhoneNumber == "" {
-		return nil, apperr.New(codes.InvalidArgument, "applicant phone number is required")
-	}
-
-	// -- window check --
-
-	now := uc.clock()
-	if now.Before(phase.OpenTime) {
-		return nil, apperr.New(codes.FailedPrecondition, "application window is not yet open")
-	}
-	if !now.Before(phase.CloseTime) {
-		return nil, apperr.New(codes.FailedPrecondition, "application window has closed")
-	}
-
-	// -- identity-verification gate (task 6.3) --
-	//
-	// When the phase requires verification, the applicant must hold an ACTIVE
-	// VerifiedIdentity. In the MVP, both VERIFIED_ANY and JPKI_ONLY map to the
-	// same check: an ACTIVE JPKI-backed VerifiedIdentity must exist. The
-	// driver's-licence fallback is POST-MVP and not evaluated here.
-	//
-	// Per-person limit note: when verification is required, the eKYC dedupe
-	// (≤1 active verified account per pocket_sign_user_id, enforced by
-	// uq_active_pocket_sign_user_id) means the existing "1 application per
-	// account per phase" rule IS effectively a per-person limit — no separate
-	// cross-account scan is needed (task 6.1).
-	if phase.VerificationRequirement.RequiresVerification() {
-		vi, err := uc.verifiedIdentityRepo.GetByUserID(ctx, string(in.ApplicantID))
-		if err != nil {
-			if isNotFound(err) {
-				return nil, apperr.New(codes.FailedPrecondition,
-					"identity verification is required to apply to this event; please verify your identity first")
-			}
-			return nil, err
+		if isNotFound(err) {
+			return nil, apperr.New(codes.PermissionDenied, "the entry is not the caller's")
 		}
-		if vi.Status != entity.VerificationStatusActive {
-			return nil, apperr.New(codes.FailedPrecondition,
-				"identity verification is required to apply to this event; your verification is not active — please re-verify")
+		return nil, err
+	}
+	if entry.UserID != userID {
+		return nil, apperr.New(codes.PermissionDenied, "the entry is not the caller's")
+	}
+	return entry, nil
+}
+
+// openTicketType reads the entry's TicketType and its sale and fails with
+// FailedPrecondition when the sale's window is not open at now.
+func (uc *lotteryUseCase) openTicketType(ctx context.Context, entry *entity.LotteryEntry, now time.Time) (*entity.TicketType, error) {
+	sale, tt, err := uc.saleRepo.GetTicketType(ctx, entry.TicketTypeID, now)
+	if err != nil {
+		return nil, err
+	}
+	if !sale.IsOpenAt(now) {
+		return nil, apperr.New(codes.FailedPrecondition, "the sale's window is not open")
+	}
+	return tt, nil
+}
+
+// Authorize implements [LotteryUseCase].
+func (uc *lotteryUseCase) Authorize(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID, fullName, phoneNumber string) (string, error) {
+	entry, err := uc.ownEntry(ctx, entryID, userID)
+	if err != nil {
+		return "", err
+	}
+	if entry.State != entity.LotteryEntryStateDraft {
+		return "", apperr.New(codes.FailedPrecondition, "only a draft entry can be authorized")
+	}
+	now := uc.clock()
+	tt, err := uc.openTicketType(ctx, entry, now)
+	if err != nil {
+		return "", err
+	}
+	if fullName == "" || phoneNumber == "" {
+		return "", apperr.New(codes.InvalidArgument, "full name and phone number are required")
+	}
+	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
+		return "", apperr.New(codes.InvalidArgument, err.Error())
+	}
+	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), fullName, phoneNumber); err != nil {
+		return "", err
+	}
+	if entry.HasAuthorization() {
+		return uc.holds.GetClientSecret(ctx, entry.Authorization.PaymentIntentRef)
+	}
+	ref, secret, err := uc.holds.CreateAuthorization(ctx, tt.AmountFor(entry.RequestedTicketCount))
+	if err != nil {
+		return "", err
+	}
+	if err := uc.entryRepo.SetAuthorization(ctx, entry.ID, ref); err != nil {
+		return "", err
+	}
+	return secret, nil
+}
+
+// Confirm implements [LotteryUseCase].
+func (uc *lotteryUseCase) Confirm(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error) {
+	entry, err := uc.ownEntry(ctx, entryID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if entry.State == entity.LotteryEntryStateEntered {
+		return entry, nil
+	}
+	if !entry.IsConfirmable() {
+		return nil, apperr.New(codes.FailedPrecondition, "only an authorized draft entry can be confirmed")
+	}
+	tt, err := uc.openTicketType(ctx, entry, uc.clock())
+	if err != nil {
+		return nil, err
+	}
+	if err := uc.holds.VerifyAuthorization(ctx, entry.Authorization.PaymentIntentRef, tt.AmountFor(entry.RequestedTicketCount)); err != nil {
+		return nil, err
+	}
+	if err := uc.entryRepo.UpdateState(ctx, entry.ID, entity.LotteryEntryStateEntered); err != nil {
+		return nil, err
+	}
+	entry.State = entity.LotteryEntryStateEntered
+	return entry, nil
+}
+
+// WithdrawEntry implements [LotteryUseCase].
+func (uc *lotteryUseCase) WithdrawEntry(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error {
+	entry, err := uc.entryRepo.Get(ctx, entryID)
+	if err != nil {
+		return err
+	}
+	if entry.UserID != userID {
+		return apperr.New(codes.PermissionDenied, "the entry is not the caller's")
+	}
+	if !entry.IsWithdrawable() {
+		return apperr.New(codes.FailedPrecondition, "the entry can no longer be withdrawn")
+	}
+	if entry.HasAuthorization() {
+		if err := uc.holds.CancelAuthorization(ctx, entry.Authorization.PaymentIntentRef); err != nil {
+			return err
 		}
 	}
+	return uc.entryRepo.UpdateState(ctx, entryID, entity.LotteryEntryStateWithdrawn)
+}
 
-	// -- 1-per-account duplicate check --
-
-	existing, err := uc.appRepo.GetByPhaseAndApplicant(ctx, in.PhaseID, in.ApplicantID)
-	if err != nil && !isNotFound(err) {
+// ListOwnByTicketType implements [LotteryUseCase].
+func (uc *lotteryUseCase) ListOwnByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
+	if _, _, err := uc.saleRepo.GetTicketType(ctx, ticketTypeID, uc.clock()); err != nil {
 		return nil, err
 	}
-	if existing != nil {
-		return nil, apperr.New(codes.FailedPrecondition, "an active application already exists for this phase; withdraw it before re-applying")
-	}
-
-	// -- verify the authorization hold --
-	//
-	// Confirms the PaymentIntent is in requires_capture state (3DS completed),
-	// for the exact amount (price × count), on a JPY Visa/Mastercard/JCB/
-	// Diners/Discover card. Rejects American Express and non-JPY.
-
-	amountJPY := phase.TicketPrice * int64(in.RequestedTicketCount)
-	if err := uc.paymentPort.VerifyAuthorization(ctx, in.PaymentIntentRef, amountJPY); err != nil {
-		return nil, err // propagates InvalidArgument / FailedPrecondition / NotFound / Unavailable
-	}
-
-	// -- persist application --
-
-	app := &entity.TicketApplication{
-		ID:                   entity.TicketApplicationID(entity.NewID()),
-		PhaseID:              in.PhaseID,
-		ApplicantID:          in.ApplicantID,
-		RequestedTicketCount: in.RequestedTicketCount,
-		Identity:             in.Identity,
-		Authorization: entity.PaymentAuthorization{
-			PaymentIntentRef: in.PaymentIntentRef,
-		},
-		State: entity.TicketApplicationStateApplied,
-	}
-	created, err := uc.appRepo.Create(ctx, app)
-	if err != nil {
-		return nil, err
-	}
-	return created, nil
+	return uc.entryRepo.ListByTicketTypeAndUser(ctx, ticketTypeID, userID)
 }
 
-// WithdrawApplication implements [LotteryUseCase].
-func (uc *lotteryUseCase) WithdrawApplication(ctx context.Context, applicationID entity.TicketApplicationID, applicantID entity.UserID) error {
-	app, err := uc.appRepo.Get(ctx, applicationID)
+// DrawDueSales implements [LotteryUseCase].
+func (uc *lotteryUseCase) DrawDueSales(ctx context.Context) error {
+	sales, err := uc.saleRepo.ListDueForDraw(ctx, uc.clock())
 	if err != nil {
-		return err // propagates NotFound
+		return err
 	}
-
-	// Non-revealing ownership check: the application must belong to the caller.
-	// Return PermissionDenied rather than NotFound so the caller cannot enumerate
-	// other fans' application IDs via a timing oracle.
-	if app.ApplicantID != applicantID {
-		return apperr.New(codes.PermissionDenied, "permission denied")
-	}
-
-	if !app.IsWithdrawable() {
-		return apperr.New(codes.FailedPrecondition, "application is not in a withdrawable state")
-	}
-
-	// Release the authorization hold before marking as withdrawn.
-	if err := uc.paymentPort.CancelAuthorization(ctx, string(app.Authorization.PaymentIntentRef)); err != nil {
-		return err // propagates FailedPrecondition / NotFound / Unavailable
-	}
-
-	return uc.appRepo.UpdateState(ctx, applicationID, entity.TicketApplicationStateWithdrawn)
-}
-
-// GetMyApplication implements [LotteryUseCase].
-func (uc *lotteryUseCase) GetMyApplication(ctx context.Context, phaseID entity.LotteryPhaseID, applicantID entity.UserID) (*entity.TicketApplication, error) {
-	return uc.appRepo.GetByPhaseAndApplicant(ctx, phaseID, applicantID)
-}
-
-// GetResult implements [LotteryUseCase].
-//
-// Draw-not-run detection: an application remains in Applied state until the
-// draw sets it to Won or Lost and stamps draw_sequence. GetResult returns
-// FailedPrecondition when the only active application is still in Applied
-// state, because that means the draw has not run yet and there is no result
-// to report. Won and Lost states indicate the draw completed.
-func (uc *lotteryUseCase) GetResult(ctx context.Context, phaseID entity.LotteryPhaseID, applicantID entity.UserID) (*entity.TicketApplication, error) {
-	app, err := uc.appRepo.GetByPhaseAndApplicant(ctx, phaseID, applicantID)
-	if err != nil {
-		return nil, err // propagates NotFound
-	}
-
-	if app.State == entity.TicketApplicationStateApplied {
-		return nil, apperr.New(codes.FailedPrecondition, "draw has not run yet; result is not available")
-	}
-
-	return app, nil
-}
-
-// GetLotteryPhaseStatus implements [LotteryUseCase].
-func (uc *lotteryUseCase) GetLotteryPhaseStatus(ctx context.Context, phaseID entity.LotteryPhaseID, callerOrgID string) (*entity.LotteryPhaseStatus, error) {
-	phase, err := uc.assertOwnsPhase(ctx, phaseID, callerOrgID)
-	if err != nil {
-		return nil, err
-	}
-
-	stats, err := uc.appRepo.GetPhaseStats(ctx, phaseID)
-	if err != nil {
-		return nil, err
-	}
-
-	stats.Phase = phase
-	return &stats, nil
-}
-
-// SetPhaseVerificationRequirement implements [LotteryUseCase].
-func (uc *lotteryUseCase) SetPhaseVerificationRequirement(ctx context.Context, in SetVerificationRequirementInput) (*entity.LotterySalesPhase, error) {
-	if in.PhaseID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "phase_id is required")
-	}
-	if _, err := uc.assertOwnsPhase(ctx, in.PhaseID, in.CallerOrgID); err != nil {
-		return nil, err
-	}
-	return uc.phaseRepo.UpdateVerificationRequirement(ctx, in.PhaseID, in.VerificationRequirement)
-}
-
-// DrawDuePhases implements [LotteryUseCase].
-func (uc *lotteryUseCase) DrawDuePhases(ctx context.Context, now time.Time) error {
-	phases, err := uc.phaseRepo.ListPhasesDueForDraw(ctx, now)
-	if err != nil {
-		return err // propagates Internal from the repo
-	}
-
-	for _, phase := range phases {
-		if err := uc.RunDraw(ctx, phase.ID); err != nil {
-			// Log and continue: one bad phase must not stop the sweep.
-			uc.logger.Warn(ctx, "draw failed for phase; skipping",
-				slog.String("phase_id", string(phase.ID)),
+	for _, sale := range sales {
+		if err := uc.RunDraw(ctx, sale.ID); err != nil {
+			// One failed sale must not stop the others; it stays due.
+			uc.logger.Warn(ctx, "draw failed for sale; retrying next run",
+				slog.String("ticket_sale_id", string(sale.ID)),
 				slog.Any("error", err),
 			)
 		}
@@ -707,109 +410,83 @@ func (uc *lotteryUseCase) DrawDuePhases(ctx context.Context, now time.Time) erro
 }
 
 // RunDraw implements [LotteryUseCase].
-func (uc *lotteryUseCase) RunDraw(ctx context.Context, phaseID entity.LotteryPhaseID) error {
-	phase, err := uc.phaseRepo.Get(ctx, phaseID)
-	if err != nil {
-		return err // propagates NotFound
-	}
-
-	apps, err := uc.appRepo.ListAppliedForPhase(ctx, phaseID)
+func (uc *lotteryUseCase) RunDraw(ctx context.Context, saleID entity.TicketSaleID) error {
+	sale, err := uc.saleRepo.Get(ctx, saleID, uc.clock())
 	if err != nil {
 		return err
 	}
 
-	// Zero applications: nothing to draw; still stamp drawn_at so the phase is
-	// not retried on the next sweep tick.
-	if len(apps) == 0 {
-		uc.logger.Info(ctx, "draw: no applied applications; marking phase as drawn",
-			slog.String("phase_id", string(phaseID)),
-		)
-		return uc.appRepo.PersistDrawOutcome(ctx, phaseID, nil, nil)
-	}
-
-	// Build the input slice for the draw algorithm.
-	drawApps := make([]entity.DrawApplication, len(apps))
-	for i, a := range apps {
-		drawApps[i] = entity.DrawApplication{
-			ID:                   a.ID,
-			RequestedTicketCount: a.RequestedTicketCount,
+	var (
+		winners []entity.DrawWinnerRow
+		losers  []entity.DrawLoserRow
+		drafts  []entity.LotteryEntryID
+	)
+	for _, tt := range sale.TicketTypes {
+		entries, err := uc.entryRepo.ListUndrawnForTicketType(ctx, tt.ID)
+		if err != nil {
+			return err
 		}
-	}
-
-	result := entity.RunLotteryDraw(drawApps, phase.TicketCapacity, cryptoSeededRand())
-
-	// Build a lookup from ApplicationID to PaymentIntentRef for winners and
-	// losers, so capture/cancel can be called without a per-application DB hit.
-	piByID := make(map[entity.TicketApplicationID]string, len(apps))
-	for _, a := range apps {
-		piByID[a.ID] = a.Authorization.PaymentIntentRef
-	}
-
-	// Process winners: capture the authorization. On capture failure, demote the
-	// winner to a loser (cancel the hold, leave the seat unfilled — no 繰上げ).
-	winners := make([]entity.DrawWinnerRow, 0, len(result.Winners))
-	losers := make([]entity.DrawLoserRow, 0, len(result.Waitlist))
-
-	for _, w := range result.Winners {
-		pi := piByID[w.Application.ID]
-		if err := uc.paymentPort.CaptureAuthorization(ctx, pi); err != nil {
-			uc.logger.Warn(ctx, "capture failed for winner; demoting to loser",
-				slog.String("phase_id", string(phaseID)),
-				slog.String("application_id", string(w.Application.ID)),
-				slog.Any("error", err),
-			)
-			// Release the hold and treat this application as a loser.
-			if cancelErr := uc.paymentPort.CancelAuthorization(ctx, pi); cancelErr != nil {
-				uc.logger.Warn(ctx, "cancel after failed capture also failed",
-					slog.String("phase_id", string(phaseID)),
-					slog.String("application_id", string(w.Application.ID)),
-					slog.Any("error", cancelErr),
-				)
+		refs := make(map[entity.LotteryEntryID]string, len(entries))
+		var entered []entity.DrawEntry
+		for _, e := range entries {
+			switch e.State {
+			case entity.LotteryEntryStateDraft:
+				drafts = append(drafts, e.ID)
+				if e.HasAuthorization() {
+					uc.release(ctx, saleID, e.ID, e.Authorization.PaymentIntentRef)
+				}
+			case entity.LotteryEntryStateEntered:
+				refs[e.ID] = e.Authorization.PaymentIntentRef
+				entered = append(entered, entity.DrawEntry{ID: e.ID, RequestedTicketCount: e.RequestedTicketCount})
 			}
-			losers = append(losers, entity.DrawLoserRow{
-				ApplicationID:    w.Application.ID,
-				PaymentIntentRef: pi,
-				DrawSequence:     w.DrawSequence,
-			})
-			continue
 		}
-		winners = append(winners, entity.DrawWinnerRow{
-			ApplicationID:    w.Application.ID,
-			PaymentIntentRef: pi,
-			DrawSequence:     w.DrawSequence,
-		})
+
+		result := entity.RunLotteryDraw(entered, tt.Quantity, uc.newRand())
+		for _, w := range result.Winners {
+			ref := refs[w.Entry.ID]
+			if err := uc.holds.CaptureAuthorization(ctx, ref); err != nil {
+				// No promotion from the waitlist (繰上げ): the tickets stay
+				// unallocated.
+				uc.logger.Warn(ctx, "capture failed for winner; recording it lost",
+					slog.String("ticket_sale_id", string(saleID)),
+					slog.String("lottery_entry_id", string(w.Entry.ID)),
+					slog.Any("error", err),
+				)
+				uc.release(ctx, saleID, w.Entry.ID, ref)
+				losers = append(losers, entity.DrawLoserRow{LotteryEntryID: w.Entry.ID, PaymentIntentRef: ref, DrawPosition: w.DrawPosition})
+				continue
+			}
+			winners = append(winners, entity.DrawWinnerRow{LotteryEntryID: w.Entry.ID, PaymentIntentRef: ref, DrawPosition: w.DrawPosition})
+		}
+		for _, l := range result.Waitlist {
+			ref := refs[l.Entry.ID]
+			uc.release(ctx, saleID, l.Entry.ID, ref)
+			losers = append(losers, entity.DrawLoserRow{LotteryEntryID: l.Entry.ID, PaymentIntentRef: ref, DrawPosition: l.DrawPosition})
+		}
 	}
 
-	// Release holds for all waitlisted losers.
-	for _, l := range result.Waitlist {
-		pi := piByID[l.Application.ID]
-		if err := uc.paymentPort.CancelAuthorization(ctx, pi); err != nil {
-			uc.logger.Warn(ctx, "cancel failed for loser; continuing",
-				slog.String("phase_id", string(phaseID)),
-				slog.String("application_id", string(l.Application.ID)),
-				slog.Any("error", err),
-			)
-		}
-		losers = append(losers, entity.DrawLoserRow{
-			ApplicationID:    l.Application.ID,
-			PaymentIntentRef: pi,
-			DrawSequence:     l.DrawSequence,
-		})
-	}
-
-	// Atomically persist winner/loser states + drawn_at stamp.
-	// Won state is the handoff signal to ⑤ (Order + Ticket creation); no event
-	// is emitted in the MVP — ⑤ will poll Won rows or be triggered separately.
-	if err := uc.appRepo.PersistDrawOutcome(ctx, phaseID, winners, losers); err != nil {
+	if err := uc.entryRepo.PersistDrawOutcome(ctx, saleID, winners, losers, drafts); err != nil {
 		return err
 	}
-
 	uc.logger.Info(ctx, "draw completed",
-		slog.String("phase_id", string(phaseID)),
+		slog.String("ticket_sale_id", string(saleID)),
 		slog.Int("winner_count", len(winners)),
 		slog.Int("loser_count", len(losers)),
+		slog.Int("withdrawn_draft_count", len(drafts)),
 	)
 	return nil
+}
+
+// release releases a hold during the draw; a failure is logged and does not
+// stop the draw.
+func (uc *lotteryUseCase) release(ctx context.Context, saleID entity.TicketSaleID, entryID entity.LotteryEntryID, ref string) {
+	if err := uc.holds.CancelAuthorization(ctx, ref); err != nil {
+		uc.logger.Warn(ctx, "draw: releasing a hold failed; continuing",
+			slog.String("ticket_sale_id", string(saleID)),
+			slog.String("lottery_entry_id", string(entryID)),
+			slog.Any("error", err),
+		)
+	}
 }
 
 // cryptoSeededRand returns a new *mrand.Rand seeded from crypto/rand so the

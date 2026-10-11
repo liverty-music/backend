@@ -8,25 +8,31 @@ import (
 	"net/http"
 	"time"
 
+	adminartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/concert/v1/concertv1connect"
+	adminnotificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/notification/v1/notificationv1connect"
 	adminorderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/order/v1/orderv1connect"
 	adminorganizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
+	adminstagedconcertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/staged_concert/v1/staged_concertv1connect"
 	adminuserconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/user/v1/userv1connect"
 	artistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/artist/v1/artistv1connect"
+	checkoutconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/checkout/v1/checkoutv1connect"
 	concertconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/concert/v1/concertv1connect"
 	followconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/follow/v1/followv1connect"
-	identityconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/identity/v1/identityv1connect"
-	lotteryv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery/v1/lotteryv1connect"
+	kycconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/kyc/v1/kycv1connect"
+	lotteryentryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/lottery_entry/v1/lottery_entryv1connect"
 	notificationconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/notification/v1/notificationv1connect"
-	organizerlotteryconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/lottery/v1/lotteryv1connect"
+	officialsiteconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/official_site/v1/official_sitev1connect"
+	orderconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/order/v1/orderv1connect"
+	organizerartistconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/artist/v1/artistv1connect"
 	payoutonboardingconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/payout_onboarding/v1/payout_onboardingv1connect"
 	receptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception/v1/receptionv1connect"
 	receptionlinkconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/reception_link/v1/reception_linkv1connect"
 	organizerseriesconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/series/v1/seriesv1connect"
 	organizerticketsaleconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
+	organizertickettypeconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_type/v1/ticket_typev1connect"
 	organizerconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/v1/organizerv1connect"
-	pushconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_notification/v1/push_notificationv1connect"
-	reservationv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/reservation/v1/reservationv1connect"
+	pushsubscriptionconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/push_subscription/v1/push_subscriptionv1connect"
 	ticketconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket/v1/ticketv1connect"
 	ticketjourneyconnect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_journey/v1/ticket_journeyv1connect"
 	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
@@ -155,9 +161,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	pushSubRepo := rdb.NewPushSubscriptionRepository(db)
 	ticketJourneyRepo := rdb.NewTicketJourneyRepository(db)
 	organizerRepo := rdb.NewOrganizerRepository(db)
-	verifiedIdentityRepo := rdb.NewVerifiedIdentityRepository(db)
-	lotteryPhaseRepo := rdb.NewLotteryPhaseRepository(db)
-	ticketApplicationRepo := rdb.NewTicketApplicationRepository(db)
+	kycRepo := rdb.NewKycRepository(db)
+	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db)
 	eventPublishState := rdb.NewEventPublishStateRepository(db)
 	orderRepo := rdb.NewOrderRepository(db)
 	ticketRepo := rdb.NewTicketRepository(db)
@@ -168,7 +173,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
 	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
-	reservationRepo := rdb.NewReservationRepository(db)
+	checkoutRepo := rdb.NewCheckoutRepository(db)
 	eventRepo := rdb.NewEventRepository(db)
 	walletPublicKeyRepo := rdb.NewWalletPublicKeyRepository(db)
 	receptionLinkRepo := rdb.NewReceptionLinkRepository(db)
@@ -326,7 +331,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		pocketSignVerifier = infrapocketsign.NewStubVerifier()
 		logger.Info(ctx, "pocket sign verify client not configured; using stub (identity verification unavailable)")
 	}
-	identityVerificationUC := usecase.NewIdentityVerificationUseCase(verifiedIdentityRepo, userRepo, pocketSignVerifier, logger)
+	kycUC := usecase.NewKycUseCase(kycRepo, userRepo, pocketSignVerifier, logger)
 	// ProcessMedia is never called from the RPC server (only the dedicated
 	// media-consumer job in media_job.go invokes it), so no MediaProcessor is
 	// wired here.
@@ -344,46 +349,56 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
 	paymentConfigured := cfg.Stripe.SecretKey != ""
 	var (
-		paymentPort     entity.PaymentAuthorizationPort
-		capturePort     entity.PaymentCapturePort
-		settlementPort  entity.PaymentSettlementPort
-		reservationAuth entity.ReservationAuthorizationPort
+		lotteryHolds   usecase.LotteryHoldPort
+		capturePort    entity.PaymentCapturePort
+		settlementPort entity.PaymentSettlementPort
+		checkoutAuth   entity.CheckoutAuthorizationPort
 	)
 	if paymentConfigured {
 		stripePort := infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)
-		paymentPort, capturePort = stripePort, stripePort
+		lotteryHolds, capturePort = stripePort, stripePort
 		settlementPort = infrapayment.NewStripeSettlementPort(cfg.Stripe.SecretKey, logger)
-		reservationAuth = infrapayment.NewStripeReservationAuthorizationPort(cfg.Stripe.SecretKey, logger)
+		checkoutAuth = infrapayment.NewStripeCheckoutAuthorizationPort(cfg.Stripe.SecretKey, logger)
 	} else {
 		noopPort := infrapayment.NewNoopAuthorizationPort(logger)
-		paymentPort, capturePort = noopPort, noopPort
+		lotteryHolds, capturePort = noopPort, noopPort
 		settlementPort = infrapayment.NewNoopSettlementPort(logger)
-		reservationAuth = infrapayment.NewNoopReservationAuthorizationPort(logger)
+		checkoutAuth = infrapayment.NewNoopCheckoutAuthorizationPort(logger)
 	}
-	lotteryUC := usecase.NewLotteryUseCase(lotteryPhaseRepo, ticketApplicationRepo, eventPublishState, eventRepo, paymentPort, verifiedIdentityRepo, time.Now, logger)
+	lotteryUC := usecase.NewLotteryUseCase(ticketSaleRepo, lotteryEntryRepo, ticketRepo, kycRepo, userRepo, lotteryHolds, time.Now, logger)
 
-	// ⑤ issuance pipeline: turn ④'s Won-captured applications and first-come
-	// checkouts into Orders + tickets.
+	// Issuance pipeline: turn Won-captured lottery entries and committed
+	// first-come checkouts into Orders + tickets.
 	issuanceUC := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
-		IssuanceRepo:         issuanceRepo,
-		OrderRepo:            orderRepo,
-		AppRepo:              ticketApplicationRepo,
-		PhaseRepo:            lotteryPhaseRepo,
-		EventOrganizerRepo:   eventOrganizerRepo,
-		OrganizerRepo:        organizerRepo,
-		VerifiedIdentityRepo: verifiedIdentityRepo,
-		CapturePort:          capturePort,
-		ReservationRepo:      reservationRepo,
-		TicketSaleRepo:       ticketSaleRepo,
-		EventState:           eventPublishState,
-		ReservationAuth:      reservationAuth,
-		Publisher:            eventPublisher,
-		Clock:                time.Now,
-		Logger:               logger,
+		IssuanceRepo:       issuanceRepo,
+		OrderRepo:          orderRepo,
+		EntryRepo:          lotteryEntryRepo,
+		EventOrganizerRepo: eventOrganizerRepo,
+		OrganizerRepo:      organizerRepo,
+		KycRepo:            kycRepo,
+		CapturePort:        capturePort,
+		CheckoutRepo:       checkoutRepo,
+		TicketSaleRepo:     ticketSaleRepo,
+		EventState:         eventPublishState,
+		CheckoutAuth:       checkoutAuth,
+		Publisher:          eventPublisher,
+		Clock:              time.Now,
+		Logger:             logger,
 	})
-	// First-come ticket sales: the sale and the fan's 15-minute checkout.
-	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, organizerRepo, eventPublishState, eventStartTimeRepo, time.Now)
-	reservationUC := usecase.NewReservationUseCase(reservationRepo, ticketSaleRepo, userRepo, eventPublishState, reservationAuth, time.Now, logger)
+	// Ticket sales (Lottery and FirstCome), their TicketTypes, and the fan's
+	// 15-minute first-come checkout.
+	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, lotteryEntryRepo, seriesRepo, organizerRepo, eventPublishState, eventStartTimeRepo, time.Now)
+	ticketTypeUC := usecase.NewTicketTypeUseCase(ticketSaleRepo, seriesRepo, time.Now)
+	checkoutUC := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
+		CheckoutRepo: checkoutRepo,
+		SaleRepo:     ticketSaleRepo,
+		UserRepo:     userRepo,
+		KycRepo:      kycRepo,
+		EventState:   eventPublishState,
+		Auth:         checkoutAuth,
+		Clock:        time.Now,
+		Logger:       logger,
+	})
 	ticketUC := usecase.NewTicketUseCase(orderRepo, ticketRepo, receptionLinkRepo, eventRepo, walletPublicKeyRepo, admissionRepo, rejectedScanRepo, logger)
 
 	// ⑥ ticket wallet and venue reception.
@@ -395,6 +410,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// tickets→voided + order→refunded in one pgx tx). refundUC performs the
 	// idempotent Stripe calls first, then commits via refundRepo.
 	refundUC := usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, settlementPort, logger)
+	// Admin OrderService.Get: the Order with its Settlement.
+	orderUC := usecase.NewOrderUseCase(orderRepo, settlementRepo)
 
 	// Settlement task 4.3: Stripe webhook ingest — idempotent dispatch.
 	// settlementRepo removed from constructor: it was previously injected but
@@ -449,7 +466,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		startSettlementSweeper(ctx, payoutSweeperUC, logger)
 		// The checkout sweepers release lapsed holds and card holds, and finish
 		// stalled commits; both reach Stripe, so they run beside the others.
-		startReservationSweepers(ctx, reservationUC, issuanceUC, logger)
+		startCheckoutSweepers(ctx, checkoutUC, issuanceUC, logger)
 	} else {
 		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled on this workload",
 			slog.String("workload", cfg.Workload))
@@ -559,7 +576,28 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Admin OrderService: Refund (⑤ task 4.1).
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminorderconnect.NewOrderServiceHandler(
-				rpc.NewAdminOrderHandler(refundUC, logger),
+				rpc.NewAdminOrderHandler(orderUC, refundUC, logger),
+				opts...,
+			)
+		},
+		// Admin StagedConcertService: review of staged concerts.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return adminstagedconcertconnect.NewStagedConcertServiceHandler(
+				rpc.NewAdminStagedConcertHandler(concertUC, logger),
+				opts...,
+			)
+		},
+		// Admin ArtistService: ListByOrganizer.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return adminartistconnect.NewArtistServiceHandler(
+				rpc.NewAdminArtistHandler(organizerUC, logger),
+				opts...,
+			)
+		},
+		// Admin NotificationService: NotifyNewConcerts.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return adminnotificationconnect.NewNotificationServiceHandler(
+				rpc.NewAdminNotificationHandler(pushNotificationUC, cfg.BaseConfig, logger),
 				opts...,
 			)
 		},
@@ -586,8 +624,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return pushconnect.NewPushNotificationServiceHandler(
-				rpc.NewPushNotificationHandler(pushNotificationUC, userRepo, cfg.BaseConfig, logger),
+			return pushsubscriptionconnect.NewPushSubscriptionServiceHandler(
+				rpc.NewPushSubscriptionHandler(pushNotificationUC, userRepo, logger),
 				opts...,
 			)
 		},
@@ -605,7 +643,19 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketconnect.NewTicketServiceHandler(
-				rpc.NewTicketHandler(ticketUC, userRepo, logger),
+				rpc.NewTicketHandler(ticketUC, userUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return orderconnect.NewOrderServiceHandler(
+				rpc.NewOrderHandler(ticketUC, userUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return officialsiteconnect.NewOfficialSiteServiceHandler(
+				rpc.NewOfficialSiteHandler(artistUC, logger),
 				opts...,
 			)
 		},
@@ -617,15 +667,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return identityconnect.NewIdentityVerificationServiceHandler(
-				rpc.NewIdentityVerificationHandler(identityVerificationUC, userUC, logger),
+			return kycconnect.NewKycServiceHandler(
+				rpc.NewKycHandler(kycUC, userUC, logger),
 				opts...,
 			)
 		},
 	}
 
-	// Fan-facing first-come sale: TicketSaleService.Get (public) and the
-	// signed-in fan's ReservationService.
+	// Fan-facing ticket sales: TicketSaleService (public reads), the signed-in
+	// fan's first-come CheckoutService and LotteryEntryService.
 	handlers = append(handlers,
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return ticketsalev1connect.NewTicketSaleServiceHandler(
@@ -634,21 +684,18 @@ func InitializeApp(ctx context.Context) (*App, error) {
 			)
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return reservationv1connect.NewReservationServiceHandler(
-				rpc.NewReservationHandler(reservationUC, issuanceUC, userRepo, logger),
+			return checkoutconnect.NewCheckoutServiceHandler(
+				rpc.NewCheckoutHandler(checkoutUC, issuanceUC, userUC, logger),
+				opts...,
+			)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return lotteryentryconnect.NewLotteryEntryServiceHandler(
+				rpc.NewLotteryEntryHandler(lotteryUC, userUC, logger),
 				opts...,
 			)
 		},
 	)
-
-	// Fan-facing LotteryService: CreateAuthorization, Apply, Withdraw,
-	// GetApplication, GetResult. Authenticated by the standard auth interceptor.
-	handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
-		return lotteryv1connect.NewLotteryServiceHandler(
-			rpc.NewLotteryHandler(lotteryUC, userRepo, logger),
-			opts...,
-		)
-	})
 
 	handlers = append(handlers, func(opts ...connect.HandlerOption) (string, http.Handler) {
 		return concertconnect.NewConcertServiceHandler(
@@ -714,10 +761,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-		// Organizer-facing LotteryService: Configure, GetStatus, SetVerificationRequirement.
+		// Organizer-facing ArtistService: List (the Organizer's own Artists).
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
-			return organizerlotteryconnect.NewLotteryServiceHandler(
-				rpc.NewOrganizerLotteryHandler(lotteryUC, organizerUC, logger),
+			return organizerartistconnect.NewArtistServiceHandler(
+				rpc.NewOrganizerArtistHandler(organizerUC, logger),
 				opts...,
 			)
 		},
@@ -735,10 +782,17 @@ func InitializeApp(ctx context.Context) (*App, error) {
 				opts...,
 			)
 		},
-		// Organizer-facing TicketSaleService: Configure, Get (first-come sale).
+		// Organizer-facing TicketSaleService: the Event's Lottery and FirstCome sales.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return organizerticketsaleconnect.NewTicketSaleServiceHandler(
 				rpc.NewOrganizerTicketSaleHandler(ticketSaleUC, organizerUC, logger),
+				opts...,
+			)
+		},
+		// Organizer-facing TicketTypeService: a sale's TicketTypes.
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return organizertickettypeconnect.NewTicketTypeServiceHandler(
+				rpc.NewOrganizerTicketTypeHandler(ticketTypeUC, organizerUC, logger),
 				opts...,
 			)
 		},

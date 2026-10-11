@@ -31,7 +31,7 @@ packages:
       OrganizerProvisioner:
       ConcertAuthoringUseCase:
       ImageStorer:
-      IdentityVerificationUseCase:
+      KycUseCase:
       PocketSignVerifier:
       LotteryUseCase:
       EventPublishStatePort:
@@ -40,7 +40,9 @@ packages:
       ReceptionLinkUseCase:
       MediaUseCase:
       TicketSaleUseCase:
-      ReservationUseCase:
+      TicketTypeUseCase:
+      CheckoutUseCase:
+      OrderUseCase:
   github.com/liverty-music/backend/internal/entity:
     interfaces:
       ArtistRepository:
@@ -71,19 +73,19 @@ packages:
       SuppressedConcertRepository:
       NotificationRepository:
       OrganizerRepository:
-      VerifiedIdentityRepository:
-      LotteryPhaseRepository:
-      TicketApplicationRepository:
+      KycRepository:
+      LotteryEntryRepository:
       IssuanceRepository:
       OrderRepository:
+      SettlementRepository:
       EmailVerifier:
       IdentityRemover:
       PaymentAuthorizationPort:
       PaymentCapturePort:
       PaymentSettlementPort:
       TicketSaleRepository:
-      ReservationRepository:
-      ReservationAuthorizationPort:
+      CheckoutRepository:
+      CheckoutAuthorizationPort:
       OrderConfirmationSender:
       MediaProcessor:
       EventRepository:

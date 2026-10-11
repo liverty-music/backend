@@ -58,14 +58,12 @@ type OrganizerUseCase interface {
 	ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error)
 
 	// ListOwnArtists returns the artists represented by the caller's own
-	// Organizer, after verifying that reqOrganizerID — the organizer_id
-	// supplied by the client — matches callerOrganizerID. Used by the
-	// organizer-facing handler.
+	// Organizer, as ResolveCaller returned it. The organizer-facing request
+	// names no Organizer, so an operator can only read their own roster.
 	//
 	// # Possible errors:
-	//   - PermissionDenied: reqOrganizerID does not match callerOrganizerID.
-	//   - NotFound: no organizer with the given id exists.
-	ListOwnArtists(ctx context.Context, callerOrganizerID, reqOrganizerID string) ([]*entity.Artist, error)
+	//   - NotFound: the caller's Organizer no longer exists.
+	ListOwnArtists(ctx context.Context, callerOrganizerID string) ([]*entity.Artist, error)
 
 	// ResolveCaller returns the caller's own Organizer, resolved from the
 	// Zitadel organization id extracted from the authenticated request
@@ -138,15 +136,18 @@ type OrganizerUseCase interface {
 	//     storage is not configured while the organizer owns media.
 	Delete(ctx context.Context, organizerID string) error
 
-	// UpdateSellerDetails records the Organizer's 特商法 seller details, checked
-	// by an admin at vetting, and returns the Organizer.
+	// SetBusinessDetails records the Organizer's 特商法 business details (legal
+	// name, representative name, business address, business phone number and
+	// contact email), checked by an admin at vetting, and returns the
+	// Organizer.
 	//
 	// # Possible errors
 	//
 	//   - NotFound: the organizer does not exist.
-	//   - FailedPrecondition: the organizer is deactivated.
-	//   - InvalidArgument: a detail is missing or breaks the seller details rules.
-	UpdateSellerDetails(ctx context.Context, organizerID string, details entity.SellerDetails) (*entity.Organizer, error)
+	//   - FailedPrecondition: the organizer is deactivated; nothing changed.
+	//   - InvalidArgument: a detail is missing or breaks the business details
+	//     rule.
+	SetBusinessDetails(ctx context.Context, organizerID string, details entity.BusinessDetails) (*entity.Organizer, error)
 
 	// SetPlatformFeeRate sets the platform fee rate applied to the Organizer's
 	// future Orders and returns the Organizer. Issued Orders keep the rate of
@@ -429,12 +430,8 @@ func (uc *organizerUseCase) ListArtists(ctx context.Context, organizerID string)
 }
 
 // ListOwnArtists returns the artists represented by the caller's own
-// Organizer. Returns PermissionDenied when reqOrganizerID does not match
-// callerOrganizerID, and NotFound when no organizer with that id exists.
-func (uc *organizerUseCase) ListOwnArtists(ctx context.Context, callerOrganizerID, reqOrganizerID string) ([]*entity.Artist, error) {
-	if reqOrganizerID != callerOrganizerID {
-		return nil, apperr.New(codes.PermissionDenied, "permission denied")
-	}
+// Organizer, and NotFound when that Organizer no longer exists.
+func (uc *organizerUseCase) ListOwnArtists(ctx context.Context, callerOrganizerID string) ([]*entity.Artist, error) {
 	return uc.ListArtists(ctx, callerOrganizerID)
 }
 
@@ -602,8 +599,8 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 	return nil
 }
 
-// UpdateSellerDetails implements [OrganizerUseCase].
-func (uc *organizerUseCase) UpdateSellerDetails(ctx context.Context, organizerID string, details entity.SellerDetails) (*entity.Organizer, error) {
+// SetBusinessDetails implements [OrganizerUseCase].
+func (uc *organizerUseCase) SetBusinessDetails(ctx context.Context, organizerID string, details entity.BusinessDetails) (*entity.Organizer, error) {
 	org, err := uc.organizerRepo.Get(ctx, organizerID)
 	if err != nil {
 		return nil, err
@@ -611,10 +608,7 @@ func (uc *organizerUseCase) UpdateSellerDetails(ctx context.Context, organizerID
 	if org.Status == entity.OrganizerStatusDeactivated {
 		return nil, apperr.New(codes.FailedPrecondition, "organizer is deactivated")
 	}
-	if err := uc.organizerRepo.SetSellerDetails(ctx, organizerID, details); err != nil {
-		return nil, err
-	}
-	return uc.organizerRepo.Get(ctx, organizerID)
+	return uc.organizerRepo.SetBusinessDetails(ctx, organizerID, details)
 }
 
 // SetPlatformFeeRate implements [OrganizerUseCase].

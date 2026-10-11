@@ -6,9 +6,10 @@ import (
 	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/ticket_sale/v1/ticket_salev1connect"
 	ticketsalev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket_sale/v1"
 	"connectrpc.com/connect"
+	"github.com/pannpers/go-logging/logging"
+
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/pannpers/go-logging/logging"
 )
 
 // Compile-time assertion that TicketSaleHandler satisfies the generated
@@ -17,7 +18,7 @@ var _ ticketsalev1connect.TicketSaleServiceHandler = (*TicketSaleHandler)(nil)
 
 // TicketSaleHandler implements the fan-facing TicketSaleService: anyone,
 // signed in or not, reads how an event's tickets are on sale. It never
-// returns the quantity or the sold count.
+// returns a TicketType's quantity, sold count or held count.
 type TicketSaleHandler struct {
 	ticketSaleUC usecase.TicketSaleUseCase
 	logger       *logging.Logger
@@ -28,18 +29,15 @@ func NewTicketSaleHandler(ticketSaleUC usecase.TicketSaleUseCase, logger *loggin
 	return &TicketSaleHandler{ticketSaleUC: ticketSaleUC, logger: logger}
 }
 
-// Get returns an event's sale with its state now and whether stock is low.
-func (h *TicketSaleHandler) Get(
+// ListByEvent returns an event's sales in start order, each with its
+// TicketType for the event and, for a first-come one, its state now.
+func (h *TicketSaleHandler) ListByEvent(
 	ctx context.Context,
-	req *connect.Request[ticketsalev1.GetRequest],
-) (*connect.Response[ticketsalev1.GetResponse], error) {
-	eventID := req.Msg.GetEventId().GetValue()
-	if err := requireUUID("event_id", eventID); err != nil {
-		return nil, err
-	}
-	view, err := h.ticketSaleUC.Get(ctx, eventID)
+	req *connect.Request[ticketsalev1.ListByEventRequest],
+) (*connect.Response[ticketsalev1.ListByEventResponse], error) {
+	views, err := h.ticketSaleUC.ListByEvent(ctx, req.Msg.GetEventId().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.GetResponse{TicketSale: mapper.TicketSaleToProto(view, false)}), nil
+	return connect.NewResponse(&ticketsalev1.ListByEventResponse{TicketSales: mapper.TicketSalesToProto(views, false)}), nil
 }

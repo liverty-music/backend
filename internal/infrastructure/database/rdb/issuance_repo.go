@@ -11,7 +11,7 @@ import (
 
 // IssuanceRepository implements entity.IssuanceRepository for PostgreSQL: it
 // persists an Order, its N tickets and its Held settlement atomically in one
-// transaction, and completes a source reservation (backend#468).
+// transaction, and completes a source checkout (backend#468).
 type IssuanceRepository struct {
 	db *Database
 }
@@ -22,15 +22,15 @@ var _ entity.IssuanceRepository = (*IssuanceRepository)(nil)
 const (
 	issuanceInsertOrderQuery = `
 		INSERT INTO orders (
-			id, buyer_id, application_id, reservation_id, provider, payment_intent_ref, payment_method_ref,
+			id, user_id, lottery_entry_id, checkout_id, provider, payment_intent_ref, payment_method_ref,
 			card_brand, card_last4, status, amount, currency, paid_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	issuanceInsertTicketQuery = `
 		INSERT INTO tickets (
-			id, order_id, holder_id, event_id, holder_full_name, holder_phone_number,
-			verified_identity_id, resale_without_consent_prohibited, status, issued_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			id, order_id, user_id, event_id, kyc_id,
+			resale_without_consent_prohibited, status, issued_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	// issuanceInsertSettlementQuery inserts the Held settlement row for the
 	// issued Order. Settlement.organizer_id/event_id are NOT NULL, so the
@@ -46,21 +46,21 @@ const (
 		INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount)
 		VALUES ($1, $2, $3)
 	`
-	// issuanceCompleteReservationQuery completes the source reservation, only
-	// when it is Committed and charged.
-	issuanceCompleteReservationQuery = `
-		UPDATE reservations SET status = 3
+	// issuanceCompleteCheckoutQuery completes the source checkout, only when
+	// it is Committed and charged.
+	issuanceCompleteCheckoutQuery = `
+		UPDATE checkouts SET status = 3
 		WHERE id = $1 AND status = 2 AND capture_at IS NOT NULL
 	`
-	issuanceReservationHasOrderQuery = `SELECT EXISTS (SELECT 1 FROM orders WHERE reservation_id = $1)`
-	// issuanceListAwaitingQuery returns Won (state 2) applications that have no
-	// order yet — the issuance sweeper work-list.
+	issuanceCheckoutHasOrderQuery = `SELECT EXISTS (SELECT 1 FROM orders WHERE checkout_id = $1)`
+	// issuanceListAwaitingQuery returns Won (state 2) lottery entries that have
+	// no order yet — the issuance sweeper work-list.
 	issuanceListAwaitingQuery = `
-		SELECT ta.id
-		FROM ticket_applications ta
-		LEFT JOIN orders o ON o.application_id = ta.id
-		WHERE ta.state = 2 AND o.id IS NULL
-		ORDER BY ta.id
+		SELECT le.id
+		FROM lottery_entries le
+		LEFT JOIN orders o ON o.lottery_entry_id = le.id
+		WHERE le.state = 2 AND o.id IS NULL
+		ORDER BY le.id
 	`
 )
 
@@ -70,8 +70,8 @@ func NewIssuanceRepository(db *Database) *IssuanceRepository {
 }
 
 // Issue atomically inserts the order, its N tickets, and its Held settlement
-// (with splits) in one transaction. A duplicate order for the same application
-// (unique index on orders.application_id) surfaces as apperr.ErrAlreadyExists
+// (with splits) in one transaction. A duplicate order for the same source
+// (unique indexes on orders.lottery_entry_id and orders.checkout_id) surfaces as apperr.ErrAlreadyExists
 // so the caller re-reads the existing order instead of double-issuing.
 //
 // settlement is required (non-nil); the caller resolves the event's Organizer
@@ -87,43 +87,42 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	// Rollback is a no-op after a successful Commit.
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// A reservation is completed first, so an uncharged one stores nothing.
-	if order.ReservationID != "" {
-		tag, err := tx.Exec(ctx, issuanceCompleteReservationQuery, string(order.ReservationID))
+	// A checkout is completed first, so an uncharged one stores nothing.
+	if order.CheckoutID != "" {
+		tag, err := tx.Exec(ctx, issuanceCompleteCheckoutQuery, string(order.CheckoutID))
 		if err != nil {
-			return toAppErr(err, "failed to complete reservation", slog.String("reservation_id", string(order.ReservationID)))
+			return toAppErr(err, "failed to complete checkout", slog.String("checkout_id", string(order.CheckoutID)))
 		}
 		if tag.RowsAffected() == 0 {
-			// A reservation already issued is Completed: report the duplicate.
+			// A checkout already issued is Completed: report the duplicate.
 			var issued bool
-			if err := tx.QueryRow(ctx, issuanceReservationHasOrderQuery, string(order.ReservationID)).Scan(&issued); err != nil {
-				return toAppErr(err, "failed to check the reservation's order", slog.String("reservation_id", string(order.ReservationID)))
+			if err := tx.QueryRow(ctx, issuanceCheckoutHasOrderQuery, string(order.CheckoutID)).Scan(&issued); err != nil {
+				return toAppErr(err, "failed to check the checkout's order", slog.String("checkout_id", string(order.CheckoutID)))
 			}
 			if issued {
-				return apperr.New(codes.AlreadyExists, "an order already exists for the reservation",
-					slog.String("reservation_id", string(order.ReservationID)))
+				return apperr.New(codes.AlreadyExists, "an order already exists for the checkout",
+					slog.String("checkout_id", string(order.CheckoutID)))
 			}
-			return apperr.New(codes.FailedPrecondition, "reservation is not Committed and charged",
-				slog.String("reservation_id", string(order.ReservationID)))
+			return apperr.New(codes.FailedPrecondition, "checkout is not Committed and charged",
+				slog.String("checkout_id", string(order.CheckoutID)))
 		}
 	}
 
 	if _, err := tx.Exec(ctx, issuanceInsertOrderQuery,
-		string(order.ID), string(order.BuyerID), nullableUUID(string(order.ApplicationID)),
-		nullableUUID(string(order.ReservationID)), int16(order.Payment.Provider), order.Payment.PaymentIntentRef, order.Payment.PaymentMethodRef,
+		string(order.ID), string(order.UserID), nullableUUID(string(order.LotteryEntryID)),
+		nullableUUID(string(order.CheckoutID)), int16(order.Payment.Provider), order.Payment.PaymentIntentRef, order.Payment.PaymentMethodRef,
 		order.Payment.CardBrand, order.Payment.CardLast4,
 		int16(order.Status), order.Amount, order.Currency, order.PaidTime,
 	); err != nil {
 		return toAppErr(err, "failed to insert order",
-			slog.String("application_id", string(order.ApplicationID)),
-			slog.String("reservation_id", string(order.ReservationID)))
+			slog.String("lottery_entry_id", string(order.LotteryEntryID)),
+			slog.String("checkout_id", string(order.CheckoutID)))
 	}
 
 	for _, t := range tickets {
 		if _, err := tx.Exec(ctx, issuanceInsertTicketQuery,
-			string(t.ID), string(t.OrderID), string(t.HolderID), t.EventID,
-			t.HolderIdentity.FullName, t.HolderIdentity.PhoneNumber,
-			nullableUUID(t.VerifiedIdentityID), t.ResaleWithoutConsentProhibited,
+			string(t.ID), string(t.OrderID), string(t.UserID), t.EventID,
+			nullableUUID(t.KycID), t.ResaleWithoutConsentProhibited,
 			int16(t.Status), t.IssuedTime,
 		); err != nil {
 			return toAppErr(err, "failed to insert ticket", slog.String("ticket_id", string(t.ID)))
@@ -153,31 +152,32 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 	r.db.logger.Info(ctx, "issued order and tickets",
 		slog.String("entityType", "orders"),
 		slog.String("orderID", string(order.ID)),
-		slog.String("applicationID", string(order.ApplicationID)),
-		slog.String("reservationID", string(order.ReservationID)),
+		slog.String("lotteryEntryID", string(order.LotteryEntryID)),
+		slog.String("checkoutID", string(order.CheckoutID)),
 		slog.Int("ticketCount", len(tickets)),
 	)
 	return nil
 }
 
-// ListApplicationIDsAwaitingIssuance returns Won applications without an order.
-func (r *IssuanceRepository) ListApplicationIDsAwaitingIssuance(ctx context.Context) ([]entity.TicketApplicationID, error) {
+// ListLotteryEntryIDsAwaitingIssuance returns Won lottery entries without an
+// order.
+func (r *IssuanceRepository) ListLotteryEntryIDsAwaitingIssuance(ctx context.Context) ([]entity.LotteryEntryID, error) {
 	rows, err := r.db.Pool.Query(ctx, issuanceListAwaitingQuery)
 	if err != nil {
-		return nil, toAppErr(err, "failed to list applications awaiting issuance")
+		return nil, toAppErr(err, "failed to list lottery entries awaiting issuance")
 	}
 	defer rows.Close()
 
-	var ids []entity.TicketApplicationID
+	var ids []entity.LotteryEntryID
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return nil, toAppErr(err, "failed to scan application id awaiting issuance")
+			return nil, toAppErr(err, "failed to scan lottery entry id awaiting issuance")
 		}
-		ids = append(ids, entity.TicketApplicationID(id))
+		ids = append(ids, entity.LotteryEntryID(id))
 	}
 	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "error iterating applications awaiting issuance")
+		return nil, toAppErr(err, "error iterating lottery entries awaiting issuance")
 	}
 	return ids, nil
 }

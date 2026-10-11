@@ -425,66 +425,6 @@ func (_c *MockUserRepository_Update_Call) RunAndReturn(run func(context.Context,
 	return _c
 }
 
-// UpdateHolderIdentity provides a mock function with given fields: ctx, id, identity
-func (_m *MockUserRepository) UpdateHolderIdentity(ctx context.Context, id string, identity entity.HolderIdentity) (*entity.User, error) {
-	ret := _m.Called(ctx, id, identity)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateHolderIdentity")
-	}
-
-	var r0 *entity.User
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, entity.HolderIdentity) (*entity.User, error)); ok {
-		return rf(ctx, id, identity)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, entity.HolderIdentity) *entity.User); ok {
-		r0 = rf(ctx, id, identity)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.User)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, entity.HolderIdentity) error); ok {
-		r1 = rf(ctx, id, identity)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockUserRepository_UpdateHolderIdentity_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateHolderIdentity'
-type MockUserRepository_UpdateHolderIdentity_Call struct {
-	*mock.Call
-}
-
-// UpdateHolderIdentity is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id string
-//   - identity entity.HolderIdentity
-func (_e *MockUserRepository_Expecter) UpdateHolderIdentity(ctx interface{}, id interface{}, identity interface{}) *MockUserRepository_UpdateHolderIdentity_Call {
-	return &MockUserRepository_UpdateHolderIdentity_Call{Call: _e.mock.On("UpdateHolderIdentity", ctx, id, identity)}
-}
-
-func (_c *MockUserRepository_UpdateHolderIdentity_Call) Run(run func(ctx context.Context, id string, identity entity.HolderIdentity)) *MockUserRepository_UpdateHolderIdentity_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(entity.HolderIdentity))
-	})
-	return _c
-}
-
-func (_c *MockUserRepository_UpdateHolderIdentity_Call) Return(_a0 *entity.User, _a1 error) *MockUserRepository_UpdateHolderIdentity_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockUserRepository_UpdateHolderIdentity_Call) RunAndReturn(run func(context.Context, string, entity.HolderIdentity) (*entity.User, error)) *MockUserRepository_UpdateHolderIdentity_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // UpdateHome provides a mock function with given fields: ctx, id, home
 func (_m *MockUserRepository) UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error) {
 	ret := _m.Called(ctx, id, home)
@@ -541,6 +481,67 @@ func (_c *MockUserRepository_UpdateHome_Call) Return(_a0 *entity.User, _a1 error
 }
 
 func (_c *MockUserRepository_UpdateHome_Call) RunAndReturn(run func(context.Context, string, *entity.Home) (*entity.User, error)) *MockUserRepository_UpdateHome_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdatePersonalDetails provides a mock function with given fields: ctx, id, fullName, phoneNumber
+func (_m *MockUserRepository) UpdatePersonalDetails(ctx context.Context, id string, fullName string, phoneNumber string) (*entity.User, error) {
+	ret := _m.Called(ctx, id, fullName, phoneNumber)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdatePersonalDetails")
+	}
+
+	var r0 *entity.User
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (*entity.User, error)); ok {
+		return rf(ctx, id, fullName, phoneNumber)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) *entity.User); ok {
+		r0 = rf(ctx, id, fullName, phoneNumber)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.User)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, id, fullName, phoneNumber)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockUserRepository_UpdatePersonalDetails_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdatePersonalDetails'
+type MockUserRepository_UpdatePersonalDetails_Call struct {
+	*mock.Call
+}
+
+// UpdatePersonalDetails is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - fullName string
+//   - phoneNumber string
+func (_e *MockUserRepository_Expecter) UpdatePersonalDetails(ctx interface{}, id interface{}, fullName interface{}, phoneNumber interface{}) *MockUserRepository_UpdatePersonalDetails_Call {
+	return &MockUserRepository_UpdatePersonalDetails_Call{Call: _e.mock.On("UpdatePersonalDetails", ctx, id, fullName, phoneNumber)}
+}
+
+func (_c *MockUserRepository_UpdatePersonalDetails_Call) Run(run func(ctx context.Context, id string, fullName string, phoneNumber string)) *MockUserRepository_UpdatePersonalDetails_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserRepository_UpdatePersonalDetails_Call) Return(_a0 *entity.User, _a1 error) *MockUserRepository_UpdatePersonalDetails_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockUserRepository_UpdatePersonalDetails_Call) RunAndReturn(run func(context.Context, string, string, string) (*entity.User, error)) *MockUserRepository_UpdatePersonalDetails_Call {
 	_c.Call.Return(run)
 	return _c
 }

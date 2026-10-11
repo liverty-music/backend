@@ -128,12 +128,12 @@ func TestConcertHandler_ListBySeries_Boundary(t *testing.T) {
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	})
 
-	t.Run("return UNAUTHENTICATED for a guest calling ListByFollower", func(t *testing.T) {
+	t.Run("return UNAUTHENTICATED for a guest calling ListFollowed", func(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/concert "Guest asks for followed artists' concerts"
 		t.Parallel()
 		client := newConcertBoundaryClient(t, mocks.NewMockConcertUseCase(t))
 
-		_, err := client.ListByFollower(context.Background(), connect.NewRequest(&concertv1.ListByFollowerRequest{}))
+		_, err := client.ListFollowed(context.Background(), connect.NewRequest(&concertv1.ListFollowedRequest{}))
 
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})

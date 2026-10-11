@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	userv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/user/v1"
 	"connectrpc.com/connect"
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
@@ -74,54 +75,6 @@ func TestGetExternalUserID(t *testing.T) {
 				assert.ErrorAs(t, err, &connectErr)
 				assert.Equal(t, connect.CodeUnauthenticated, connectErr.Code())
 			}
-		})
-	}
-}
-
-func TestRequireUserIDMatch(t *testing.T) {
-	t.Parallel()
-
-	const callerUserID = "11111111-1111-1111-1111-111111111111"
-
-	tests := []struct {
-		name      string
-		reqUserID string
-		wantErr   bool
-		wantCode  connect.Code
-	}{
-		{
-			name:      "matching user_id passes",
-			reqUserID: callerUserID,
-			wantErr:   false,
-		},
-		{
-			name:      "mismatched user_id returns PermissionDenied",
-			reqUserID: "22222222-2222-2222-2222-222222222222",
-			wantErr:   true,
-			wantCode:  connect.CodePermissionDenied,
-		},
-		{
-			name:      "empty user_id returns InvalidArgument",
-			reqUserID: "",
-			wantErr:   true,
-			wantCode:  connect.CodeInvalidArgument,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			err := mapper.RequireUserIDMatch(callerUserID, tt.reqUserID)
-
-			if !tt.wantErr {
-				assert.NoError(t, err)
-				return
-			}
-			assert.Error(t, err)
-			var connectErr *connect.Error
-			assert.ErrorAs(t, err, &connectErr)
-			assert.Equal(t, tt.wantCode, connectErr.Code())
 		})
 	}
 }
@@ -207,19 +160,22 @@ func TestUserToProto_ProfileFields(t *testing.T) {
 
 		assert.Nil(t, pb.PreferredLanguage)
 		assert.Nil(t, pb.GetHome())
-		assert.Nil(t, pb.GetHolderIdentity())
+		assert.Nil(t, pb.GetFullName())
+		assert.Nil(t, pb.GetPhoneNumber())
+		assert.Equal(t, entityv1.VerificationLevel_VERIFICATION_LEVEL_UNSPECIFIED, pb.GetVerificationLevel(), "no verification level is returned")
 	})
 
 	t.Run("returning buyer", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/user "Returning buyer"
 		pb := mapper.UserToProto(&entity.User{
-			ID:             "u-1",
-			HolderIdentity: &entity.HolderIdentity{FullName: "山田 花子", PhoneNumber: "+819012345678"},
+			ID:          "u-1",
+			FullName:    "山田 花子",
+			PhoneNumber: "+819012345678",
 		})
 
-		assert.Equal(t, "山田 花子", pb.GetHolderIdentity().GetFullName())
-		assert.Equal(t, "+819012345678", pb.GetHolderIdentity().GetPhoneNumber())
+		assert.Equal(t, "山田 花子", pb.GetFullName().GetValue())
+		assert.Equal(t, "+819012345678", pb.GetPhoneNumber().GetValue())
 	})
 }
 

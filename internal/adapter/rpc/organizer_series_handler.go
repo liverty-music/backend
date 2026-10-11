@@ -199,11 +199,11 @@ func (h *OrganizerSeriesHandler) Cancel(
 	return connect.NewResponse(&organizerseriesv1.CancelResponse{}), nil
 }
 
-// CreateMediaUploadURL mints a signed GCS PUT URL for a direct-to-storage upload.
-func (h *OrganizerSeriesHandler) CreateMediaUploadURL(
+// CreateMediaUploadUrl mints a signed GCS PUT URL for a direct-to-storage upload.
+func (h *OrganizerSeriesHandler) CreateMediaUploadUrl(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.CreateMediaUploadURLRequest],
-) (*connect.Response[organizerseriesv1.CreateMediaUploadURLResponse], error) {
+	req *connect.Request[organizerseriesv1.CreateMediaUploadUrlRequest],
+) (*connect.Response[organizerseriesv1.CreateMediaUploadUrlResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -216,7 +216,7 @@ func (h *OrganizerSeriesHandler) CreateMediaUploadURL(
 		return nil, err
 	}
 
-	return connect.NewResponse(&organizerseriesv1.CreateMediaUploadURLResponse{
+	return connect.NewResponse(&organizerseriesv1.CreateMediaUploadUrlResponse{
 		UploadUrl: &entityv1.Url{Value: out.UploadURL},
 		MediaId:   &entityv1.MediaId{Value: out.MediaID},
 		MaxBytes:  out.MaxBytes,
@@ -245,11 +245,12 @@ func (h *OrganizerSeriesHandler) AttachMedia(
 	return connect.NewResponse(&organizerseriesv1.AttachMediaResponse{}), nil
 }
 
-// RegenerateToken issues a fresh share token for an UNLISTED series.
-func (h *OrganizerSeriesHandler) RegenerateToken(
+// RegenerateShareUrl issues a fresh share token for an UNLISTED series; the
+// previous share link stops working.
+func (h *OrganizerSeriesHandler) RegenerateShareUrl(
 	ctx context.Context,
-	req *connect.Request[organizerseriesv1.RegenerateTokenRequest],
-) (*connect.Response[organizerseriesv1.RegenerateTokenResponse], error) {
+	req *connect.Request[organizerseriesv1.RegenerateShareUrlRequest],
+) (*connect.Response[organizerseriesv1.RegenerateShareUrlResponse], error) {
 	organizer, err := h.resolveCallerOrganizer(ctx)
 	if err != nil {
 		return nil, err
@@ -263,7 +264,7 @@ func (h *OrganizerSeriesHandler) RegenerateToken(
 	// Return the raw token as the share URL value; the frontend appends the
 	// base URL. This matches the unlisted-token design where only the token
 	// component is backend-authoritative.
-	return connect.NewResponse(&organizerseriesv1.RegenerateTokenResponse{
+	return connect.NewResponse(&organizerseriesv1.RegenerateShareUrlResponse{
 		ShareUrl: &entityv1.Url{Value: token},
 	}), nil
 }

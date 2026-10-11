@@ -69,12 +69,12 @@ func (_c *MockIssuanceUseCase_FulfillPayment_Call) RunAndReturn(run func(context
 	return _c
 }
 
-// IssueDueReservations provides a mock function with given fields: ctx
-func (_m *MockIssuanceUseCase) IssueDueReservations(ctx context.Context) error {
+// IssueDueCheckouts provides a mock function with given fields: ctx
+func (_m *MockIssuanceUseCase) IssueDueCheckouts(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
-		panic("no return value specified for IssueDueReservations")
+		panic("no return value specified for IssueDueCheckouts")
 	}
 
 	var r0 error
@@ -87,30 +87,30 @@ func (_m *MockIssuanceUseCase) IssueDueReservations(ctx context.Context) error {
 	return r0
 }
 
-// MockIssuanceUseCase_IssueDueReservations_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueDueReservations'
-type MockIssuanceUseCase_IssueDueReservations_Call struct {
+// MockIssuanceUseCase_IssueDueCheckouts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueDueCheckouts'
+type MockIssuanceUseCase_IssueDueCheckouts_Call struct {
 	*mock.Call
 }
 
-// IssueDueReservations is a helper method to define mock.On call
+// IssueDueCheckouts is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockIssuanceUseCase_Expecter) IssueDueReservations(ctx interface{}) *MockIssuanceUseCase_IssueDueReservations_Call {
-	return &MockIssuanceUseCase_IssueDueReservations_Call{Call: _e.mock.On("IssueDueReservations", ctx)}
+func (_e *MockIssuanceUseCase_Expecter) IssueDueCheckouts(ctx interface{}) *MockIssuanceUseCase_IssueDueCheckouts_Call {
+	return &MockIssuanceUseCase_IssueDueCheckouts_Call{Call: _e.mock.On("IssueDueCheckouts", ctx)}
 }
 
-func (_c *MockIssuanceUseCase_IssueDueReservations_Call) Run(run func(ctx context.Context)) *MockIssuanceUseCase_IssueDueReservations_Call {
+func (_c *MockIssuanceUseCase_IssueDueCheckouts_Call) Run(run func(ctx context.Context)) *MockIssuanceUseCase_IssueDueCheckouts_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockIssuanceUseCase_IssueDueReservations_Call) Return(_a0 error) *MockIssuanceUseCase_IssueDueReservations_Call {
+func (_c *MockIssuanceUseCase_IssueDueCheckouts_Call) Return(_a0 error) *MockIssuanceUseCase_IssueDueCheckouts_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockIssuanceUseCase_IssueDueReservations_Call) RunAndReturn(run func(context.Context) error) *MockIssuanceUseCase_IssueDueReservations_Call {
+func (_c *MockIssuanceUseCase_IssueDueCheckouts_Call) RunAndReturn(run func(context.Context) error) *MockIssuanceUseCase_IssueDueCheckouts_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -161,9 +161,9 @@ func (_c *MockIssuanceUseCase_IssueDueWins_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// IssueFromCapturedWin provides a mock function with given fields: ctx, applicationID
-func (_m *MockIssuanceUseCase) IssueFromCapturedWin(ctx context.Context, applicationID entity.TicketApplicationID) (*entity.Order, error) {
-	ret := _m.Called(ctx, applicationID)
+// IssueFromCapturedWin provides a mock function with given fields: ctx, lotteryEntryID
+func (_m *MockIssuanceUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error) {
+	ret := _m.Called(ctx, lotteryEntryID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for IssueFromCapturedWin")
@@ -171,19 +171,19 @@ func (_m *MockIssuanceUseCase) IssueFromCapturedWin(ctx context.Context, applica
 
 	var r0 *entity.Order
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketApplicationID) (*entity.Order, error)); ok {
-		return rf(ctx, applicationID)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID) (*entity.Order, error)); ok {
+		return rf(ctx, lotteryEntryID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketApplicationID) *entity.Order); ok {
-		r0 = rf(ctx, applicationID)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID) *entity.Order); ok {
+		r0 = rf(ctx, lotteryEntryID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Order)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketApplicationID) error); ok {
-		r1 = rf(ctx, applicationID)
+	if rf, ok := ret.Get(1).(func(context.Context, entity.LotteryEntryID) error); ok {
+		r1 = rf(ctx, lotteryEntryID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -198,14 +198,14 @@ type MockIssuanceUseCase_IssueFromCapturedWin_Call struct {
 
 // IssueFromCapturedWin is a helper method to define mock.On call
 //   - ctx context.Context
-//   - applicationID entity.TicketApplicationID
-func (_e *MockIssuanceUseCase_Expecter) IssueFromCapturedWin(ctx interface{}, applicationID interface{}) *MockIssuanceUseCase_IssueFromCapturedWin_Call {
-	return &MockIssuanceUseCase_IssueFromCapturedWin_Call{Call: _e.mock.On("IssueFromCapturedWin", ctx, applicationID)}
+//   - lotteryEntryID entity.LotteryEntryID
+func (_e *MockIssuanceUseCase_Expecter) IssueFromCapturedWin(ctx interface{}, lotteryEntryID interface{}) *MockIssuanceUseCase_IssueFromCapturedWin_Call {
+	return &MockIssuanceUseCase_IssueFromCapturedWin_Call{Call: _e.mock.On("IssueFromCapturedWin", ctx, lotteryEntryID)}
 }
 
-func (_c *MockIssuanceUseCase_IssueFromCapturedWin_Call) Run(run func(ctx context.Context, applicationID entity.TicketApplicationID)) *MockIssuanceUseCase_IssueFromCapturedWin_Call {
+func (_c *MockIssuanceUseCase_IssueFromCapturedWin_Call) Run(run func(ctx context.Context, lotteryEntryID entity.LotteryEntryID)) *MockIssuanceUseCase_IssueFromCapturedWin_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.TicketApplicationID))
+		run(args[0].(context.Context), args[1].(entity.LotteryEntryID))
 	})
 	return _c
 }
@@ -215,34 +215,34 @@ func (_c *MockIssuanceUseCase_IssueFromCapturedWin_Call) Return(_a0 *entity.Orde
 	return _c
 }
 
-func (_c *MockIssuanceUseCase_IssueFromCapturedWin_Call) RunAndReturn(run func(context.Context, entity.TicketApplicationID) (*entity.Order, error)) *MockIssuanceUseCase_IssueFromCapturedWin_Call {
+func (_c *MockIssuanceUseCase_IssueFromCapturedWin_Call) RunAndReturn(run func(context.Context, entity.LotteryEntryID) (*entity.Order, error)) *MockIssuanceUseCase_IssueFromCapturedWin_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// IssueFromReservation provides a mock function with given fields: ctx, reservationID, caller
-func (_m *MockIssuanceUseCase) IssueFromReservation(ctx context.Context, reservationID entity.ReservationID, caller *entity.UserID) (*entity.Order, error) {
-	ret := _m.Called(ctx, reservationID, caller)
+// IssueFromCheckout provides a mock function with given fields: ctx, checkoutID, caller
+func (_m *MockIssuanceUseCase) IssueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error) {
+	ret := _m.Called(ctx, checkoutID, caller)
 
 	if len(ret) == 0 {
-		panic("no return value specified for IssueFromReservation")
+		panic("no return value specified for IssueFromCheckout")
 	}
 
 	var r0 *entity.Order
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.ReservationID, *entity.UserID) (*entity.Order, error)); ok {
-		return rf(ctx, reservationID, caller)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, *entity.UserID) (*entity.Order, error)); ok {
+		return rf(ctx, checkoutID, caller)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.ReservationID, *entity.UserID) *entity.Order); ok {
-		r0 = rf(ctx, reservationID, caller)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.CheckoutID, *entity.UserID) *entity.Order); ok {
+		r0 = rf(ctx, checkoutID, caller)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Order)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, entity.ReservationID, *entity.UserID) error); ok {
-		r1 = rf(ctx, reservationID, caller)
+	if rf, ok := ret.Get(1).(func(context.Context, entity.CheckoutID, *entity.UserID) error); ok {
+		r1 = rf(ctx, checkoutID, caller)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -250,32 +250,32 @@ func (_m *MockIssuanceUseCase) IssueFromReservation(ctx context.Context, reserva
 	return r0, r1
 }
 
-// MockIssuanceUseCase_IssueFromReservation_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueFromReservation'
-type MockIssuanceUseCase_IssueFromReservation_Call struct {
+// MockIssuanceUseCase_IssueFromCheckout_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssueFromCheckout'
+type MockIssuanceUseCase_IssueFromCheckout_Call struct {
 	*mock.Call
 }
 
-// IssueFromReservation is a helper method to define mock.On call
+// IssueFromCheckout is a helper method to define mock.On call
 //   - ctx context.Context
-//   - reservationID entity.ReservationID
+//   - checkoutID entity.CheckoutID
 //   - caller *entity.UserID
-func (_e *MockIssuanceUseCase_Expecter) IssueFromReservation(ctx interface{}, reservationID interface{}, caller interface{}) *MockIssuanceUseCase_IssueFromReservation_Call {
-	return &MockIssuanceUseCase_IssueFromReservation_Call{Call: _e.mock.On("IssueFromReservation", ctx, reservationID, caller)}
+func (_e *MockIssuanceUseCase_Expecter) IssueFromCheckout(ctx interface{}, checkoutID interface{}, caller interface{}) *MockIssuanceUseCase_IssueFromCheckout_Call {
+	return &MockIssuanceUseCase_IssueFromCheckout_Call{Call: _e.mock.On("IssueFromCheckout", ctx, checkoutID, caller)}
 }
 
-func (_c *MockIssuanceUseCase_IssueFromReservation_Call) Run(run func(ctx context.Context, reservationID entity.ReservationID, caller *entity.UserID)) *MockIssuanceUseCase_IssueFromReservation_Call {
+func (_c *MockIssuanceUseCase_IssueFromCheckout_Call) Run(run func(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID)) *MockIssuanceUseCase_IssueFromCheckout_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.ReservationID), args[2].(*entity.UserID))
+		run(args[0].(context.Context), args[1].(entity.CheckoutID), args[2].(*entity.UserID))
 	})
 	return _c
 }
 
-func (_c *MockIssuanceUseCase_IssueFromReservation_Call) Return(_a0 *entity.Order, _a1 error) *MockIssuanceUseCase_IssueFromReservation_Call {
+func (_c *MockIssuanceUseCase_IssueFromCheckout_Call) Return(_a0 *entity.Order, _a1 error) *MockIssuanceUseCase_IssueFromCheckout_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockIssuanceUseCase_IssueFromReservation_Call) RunAndReturn(run func(context.Context, entity.ReservationID, *entity.UserID) (*entity.Order, error)) *MockIssuanceUseCase_IssueFromReservation_Call {
+func (_c *MockIssuanceUseCase_IssueFromCheckout_Call) RunAndReturn(run func(context.Context, entity.CheckoutID, *entity.UserID) (*entity.Order, error)) *MockIssuanceUseCase_IssueFromCheckout_Call {
 	_c.Call.Return(run)
 	return _c
 }

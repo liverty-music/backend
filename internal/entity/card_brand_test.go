@@ -10,6 +10,8 @@ import (
 func TestIsAcceptedCardBrand(t *testing.T) {
 	t.Parallel()
 
+	// @spec components/entity/lottery-entry "American Express"
+	// @spec components/entity/lottery-entry "Other or unknown brand"
 	cases := []struct {
 		brand entity.CardBrand
 		want  bool

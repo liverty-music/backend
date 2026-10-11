@@ -83,29 +83,29 @@ func (_c *MockOrderRepository_Get_Call) RunAndReturn(run func(context.Context, e
 	return _c
 }
 
-// GetByApplicationID provides a mock function with given fields: ctx, applicationID
-func (_m *MockOrderRepository) GetByApplicationID(ctx context.Context, applicationID entity.TicketApplicationID) (*entity.Order, error) {
-	ret := _m.Called(ctx, applicationID)
+// GetByCheckoutID provides a mock function with given fields: ctx, checkoutID
+func (_m *MockOrderRepository) GetByCheckoutID(ctx context.Context, checkoutID entity.CheckoutID) (*entity.Order, error) {
+	ret := _m.Called(ctx, checkoutID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByApplicationID")
+		panic("no return value specified for GetByCheckoutID")
 	}
 
 	var r0 *entity.Order
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketApplicationID) (*entity.Order, error)); ok {
-		return rf(ctx, applicationID)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.CheckoutID) (*entity.Order, error)); ok {
+		return rf(ctx, checkoutID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TicketApplicationID) *entity.Order); ok {
-		r0 = rf(ctx, applicationID)
+	if rf, ok := ret.Get(0).(func(context.Context, entity.CheckoutID) *entity.Order); ok {
+		r0 = rf(ctx, checkoutID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Order)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, entity.TicketApplicationID) error); ok {
-		r1 = rf(ctx, applicationID)
+	if rf, ok := ret.Get(1).(func(context.Context, entity.CheckoutID) error); ok {
+		r1 = rf(ctx, checkoutID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -113,31 +113,90 @@ func (_m *MockOrderRepository) GetByApplicationID(ctx context.Context, applicati
 	return r0, r1
 }
 
-// MockOrderRepository_GetByApplicationID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByApplicationID'
-type MockOrderRepository_GetByApplicationID_Call struct {
+// MockOrderRepository_GetByCheckoutID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByCheckoutID'
+type MockOrderRepository_GetByCheckoutID_Call struct {
 	*mock.Call
 }
 
-// GetByApplicationID is a helper method to define mock.On call
+// GetByCheckoutID is a helper method to define mock.On call
 //   - ctx context.Context
-//   - applicationID entity.TicketApplicationID
-func (_e *MockOrderRepository_Expecter) GetByApplicationID(ctx interface{}, applicationID interface{}) *MockOrderRepository_GetByApplicationID_Call {
-	return &MockOrderRepository_GetByApplicationID_Call{Call: _e.mock.On("GetByApplicationID", ctx, applicationID)}
+//   - checkoutID entity.CheckoutID
+func (_e *MockOrderRepository_Expecter) GetByCheckoutID(ctx interface{}, checkoutID interface{}) *MockOrderRepository_GetByCheckoutID_Call {
+	return &MockOrderRepository_GetByCheckoutID_Call{Call: _e.mock.On("GetByCheckoutID", ctx, checkoutID)}
 }
 
-func (_c *MockOrderRepository_GetByApplicationID_Call) Run(run func(ctx context.Context, applicationID entity.TicketApplicationID)) *MockOrderRepository_GetByApplicationID_Call {
+func (_c *MockOrderRepository_GetByCheckoutID_Call) Run(run func(ctx context.Context, checkoutID entity.CheckoutID)) *MockOrderRepository_GetByCheckoutID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.TicketApplicationID))
+		run(args[0].(context.Context), args[1].(entity.CheckoutID))
 	})
 	return _c
 }
 
-func (_c *MockOrderRepository_GetByApplicationID_Call) Return(_a0 *entity.Order, _a1 error) *MockOrderRepository_GetByApplicationID_Call {
+func (_c *MockOrderRepository_GetByCheckoutID_Call) Return(_a0 *entity.Order, _a1 error) *MockOrderRepository_GetByCheckoutID_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockOrderRepository_GetByApplicationID_Call) RunAndReturn(run func(context.Context, entity.TicketApplicationID) (*entity.Order, error)) *MockOrderRepository_GetByApplicationID_Call {
+func (_c *MockOrderRepository_GetByCheckoutID_Call) RunAndReturn(run func(context.Context, entity.CheckoutID) (*entity.Order, error)) *MockOrderRepository_GetByCheckoutID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetByLotteryEntryID provides a mock function with given fields: ctx, lotteryEntryID
+func (_m *MockOrderRepository) GetByLotteryEntryID(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error) {
+	ret := _m.Called(ctx, lotteryEntryID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetByLotteryEntryID")
+	}
+
+	var r0 *entity.Order
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID) (*entity.Order, error)); ok {
+		return rf(ctx, lotteryEntryID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.LotteryEntryID) *entity.Order); ok {
+		r0 = rf(ctx, lotteryEntryID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*entity.Order)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.LotteryEntryID) error); ok {
+		r1 = rf(ctx, lotteryEntryID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockOrderRepository_GetByLotteryEntryID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByLotteryEntryID'
+type MockOrderRepository_GetByLotteryEntryID_Call struct {
+	*mock.Call
+}
+
+// GetByLotteryEntryID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - lotteryEntryID entity.LotteryEntryID
+func (_e *MockOrderRepository_Expecter) GetByLotteryEntryID(ctx interface{}, lotteryEntryID interface{}) *MockOrderRepository_GetByLotteryEntryID_Call {
+	return &MockOrderRepository_GetByLotteryEntryID_Call{Call: _e.mock.On("GetByLotteryEntryID", ctx, lotteryEntryID)}
+}
+
+func (_c *MockOrderRepository_GetByLotteryEntryID_Call) Run(run func(ctx context.Context, lotteryEntryID entity.LotteryEntryID)) *MockOrderRepository_GetByLotteryEntryID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.LotteryEntryID))
+	})
+	return _c
+}
+
+func (_c *MockOrderRepository_GetByLotteryEntryID_Call) Return(_a0 *entity.Order, _a1 error) *MockOrderRepository_GetByLotteryEntryID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockOrderRepository_GetByLotteryEntryID_Call) RunAndReturn(run func(context.Context, entity.LotteryEntryID) (*entity.Order, error)) *MockOrderRepository_GetByLotteryEntryID_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -201,80 +260,21 @@ func (_c *MockOrderRepository_GetByPaymentIntentRef_Call) RunAndReturn(run func(
 	return _c
 }
 
-// GetByReservationID provides a mock function with given fields: ctx, reservationID
-func (_m *MockOrderRepository) GetByReservationID(ctx context.Context, reservationID entity.ReservationID) (*entity.Order, error) {
-	ret := _m.Called(ctx, reservationID)
+// ListByUser provides a mock function with given fields: ctx, userID
+func (_m *MockOrderRepository) ListByUser(ctx context.Context, userID entity.UserID) ([]*entity.Order, error) {
+	ret := _m.Called(ctx, userID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetByReservationID")
-	}
-
-	var r0 *entity.Order
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.ReservationID) (*entity.Order, error)); ok {
-		return rf(ctx, reservationID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.ReservationID) *entity.Order); ok {
-		r0 = rf(ctx, reservationID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Order)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, entity.ReservationID) error); ok {
-		r1 = rf(ctx, reservationID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockOrderRepository_GetByReservationID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetByReservationID'
-type MockOrderRepository_GetByReservationID_Call struct {
-	*mock.Call
-}
-
-// GetByReservationID is a helper method to define mock.On call
-//   - ctx context.Context
-//   - reservationID entity.ReservationID
-func (_e *MockOrderRepository_Expecter) GetByReservationID(ctx interface{}, reservationID interface{}) *MockOrderRepository_GetByReservationID_Call {
-	return &MockOrderRepository_GetByReservationID_Call{Call: _e.mock.On("GetByReservationID", ctx, reservationID)}
-}
-
-func (_c *MockOrderRepository_GetByReservationID_Call) Run(run func(ctx context.Context, reservationID entity.ReservationID)) *MockOrderRepository_GetByReservationID_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.ReservationID))
-	})
-	return _c
-}
-
-func (_c *MockOrderRepository_GetByReservationID_Call) Return(_a0 *entity.Order, _a1 error) *MockOrderRepository_GetByReservationID_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockOrderRepository_GetByReservationID_Call) RunAndReturn(run func(context.Context, entity.ReservationID) (*entity.Order, error)) *MockOrderRepository_GetByReservationID_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ListByBuyer provides a mock function with given fields: ctx, buyerID
-func (_m *MockOrderRepository) ListByBuyer(ctx context.Context, buyerID entity.UserID) ([]*entity.Order, error) {
-	ret := _m.Called(ctx, buyerID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListByBuyer")
+		panic("no return value specified for ListByUser")
 	}
 
 	var r0 []*entity.Order
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) ([]*entity.Order, error)); ok {
-		return rf(ctx, buyerID)
+		return rf(ctx, userID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID) []*entity.Order); ok {
-		r0 = rf(ctx, buyerID)
+		r0 = rf(ctx, userID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*entity.Order)
@@ -282,7 +282,7 @@ func (_m *MockOrderRepository) ListByBuyer(ctx context.Context, buyerID entity.U
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, entity.UserID) error); ok {
-		r1 = rf(ctx, buyerID)
+		r1 = rf(ctx, userID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -290,31 +290,31 @@ func (_m *MockOrderRepository) ListByBuyer(ctx context.Context, buyerID entity.U
 	return r0, r1
 }
 
-// MockOrderRepository_ListByBuyer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByBuyer'
-type MockOrderRepository_ListByBuyer_Call struct {
+// MockOrderRepository_ListByUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByUser'
+type MockOrderRepository_ListByUser_Call struct {
 	*mock.Call
 }
 
-// ListByBuyer is a helper method to define mock.On call
+// ListByUser is a helper method to define mock.On call
 //   - ctx context.Context
-//   - buyerID entity.UserID
-func (_e *MockOrderRepository_Expecter) ListByBuyer(ctx interface{}, buyerID interface{}) *MockOrderRepository_ListByBuyer_Call {
-	return &MockOrderRepository_ListByBuyer_Call{Call: _e.mock.On("ListByBuyer", ctx, buyerID)}
+//   - userID entity.UserID
+func (_e *MockOrderRepository_Expecter) ListByUser(ctx interface{}, userID interface{}) *MockOrderRepository_ListByUser_Call {
+	return &MockOrderRepository_ListByUser_Call{Call: _e.mock.On("ListByUser", ctx, userID)}
 }
 
-func (_c *MockOrderRepository_ListByBuyer_Call) Run(run func(ctx context.Context, buyerID entity.UserID)) *MockOrderRepository_ListByBuyer_Call {
+func (_c *MockOrderRepository_ListByUser_Call) Run(run func(ctx context.Context, userID entity.UserID)) *MockOrderRepository_ListByUser_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(entity.UserID))
 	})
 	return _c
 }
 
-func (_c *MockOrderRepository_ListByBuyer_Call) Return(_a0 []*entity.Order, _a1 error) *MockOrderRepository_ListByBuyer_Call {
+func (_c *MockOrderRepository_ListByUser_Call) Return(_a0 []*entity.Order, _a1 error) *MockOrderRepository_ListByUser_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockOrderRepository_ListByBuyer_Call) RunAndReturn(run func(context.Context, entity.UserID) ([]*entity.Order, error)) *MockOrderRepository_ListByBuyer_Call {
+func (_c *MockOrderRepository_ListByUser_Call) RunAndReturn(run func(context.Context, entity.UserID) ([]*entity.Order, error)) *MockOrderRepository_ListByUser_Call {
 	_c.Call.Return(run)
 	return _c
 }

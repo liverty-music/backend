@@ -31,6 +31,8 @@ func toAppErr(err error, msg string, attrs ...slog.Attr) error {
 			return apperr.Wrap(err, codes.AlreadyExists, msg, attrs...)
 		case "23503": // foreign_key_violation
 			return apperr.Wrap(err, codes.FailedPrecondition, msg, attrs...)
+		case "23001": // restrict_violation (ON DELETE RESTRICT on a referenced row)
+			return apperr.Wrap(err, codes.FailedPrecondition, msg, attrs...)
 		case "23502": // not_null_violation
 			return apperr.Wrap(err, codes.InvalidArgument, msg, attrs...)
 		case "23514": // check_violation

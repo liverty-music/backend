@@ -68,9 +68,9 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 			Mailer:         f.mailer,
 			TimeZone:       tsJST,
 		})
-	f.organizers.EXPECT().Get(mock.Anything, "org-1").Return(&entity.Organizer{ID: "org-1", SellerDetails: &entity.SellerDetails{
-		LegalName: "株式会社リバティ", RepresentativeName: "代表 太郎", Address: "東京都渋谷区1-2-3",
-		PhoneNumber: "+81312345678", ContactEmail: "contact@example.com",
+	f.organizers.EXPECT().Get(mock.Anything, "org-1").Return(&entity.Organizer{ID: "org-1", BusinessDetails: &entity.BusinessDetails{
+		LegalName: "株式会社リバティ", RepresentativeName: "代表 太郎", BusinessAddress: "東京都渋谷区1-2-3",
+		BusinessPhoneNumber: "+81312345678", ContactEmail: "contact@example.com",
 	}}, nil).Maybe()
 	return f
 }
@@ -78,15 +78,15 @@ func newConfirmationFixture(t *testing.T) *confirmationFixture {
 // paidOrder is order-1: 2 tickets for 6000 yen on a Visa ending 4242.
 func confirmedOrder(source string) (*entity.Order, entity.OrderPaidData) {
 	order := &entity.Order{
-		ID: "order-1", BuyerID: "fan-1", Amount: 6000, Currency: "JPY", Status: entity.OrderStatusPaid,
+		ID: "order-1", UserID: "fan-1", Amount: 6000, Currency: "JPY", Status: entity.OrderStatusPaid,
 		PaidTime: time.Date(2026, 11, 5, 9, 20, 0, 0, time.UTC),
 		Payment:  entity.Payment{Provider: entity.PaymentProviderStripe, PaymentIntentRef: "pi_1", CardBrand: "visa", CardLast4: "4242"},
 	}
-	data := entity.OrderPaidData{OrderID: "order-1", BuyerID: "fan-1", EventID: "event-1", TicketCount: 2, Amount: 6000, Currency: "JPY"}
+	data := entity.OrderPaidData{OrderID: "order-1", UserID: "fan-1", EventID: "event-1", TicketCount: 2, Amount: 6000, Currency: "JPY"}
 	if source == "lottery" {
-		order.ApplicationID, data.ApplicationID = "app-1", "app-1"
+		order.LotteryEntryID, data.LotteryEntryID = "entry-1", "entry-1"
 	} else {
-		order.ReservationID, data.ReservationID = "res-1", "res-1"
+		order.CheckoutID, data.CheckoutID = "checkout-1", "checkout-1"
 	}
 	return order, data
 }

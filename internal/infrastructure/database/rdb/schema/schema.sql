@@ -16,12 +16,11 @@ CREATE TABLE IF NOT EXISTS users (
     time_zone TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     home_id UUID,
-    holder_full_name TEXT,
-    holder_phone_number TEXT,
+    full_name TEXT,
+    phone_number TEXT,
     CONSTRAINT chk_users_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_users_holder_together CHECK ((holder_full_name IS NULL) = (holder_phone_number IS NULL)),
-    CONSTRAINT chk_users_holder_name_len CHECK (holder_full_name IS NULL OR char_length(holder_full_name) BETWEEN 1 AND 200),
-    CONSTRAINT chk_users_holder_phone_e164 CHECK (holder_phone_number IS NULL OR holder_phone_number ~ '^\+[1-9][0-9]{1,14}$')
+    CONSTRAINT chk_users_full_name_len CHECK (full_name IS NULL OR char_length(full_name) BETWEEN 1 AND 200),
+    CONSTRAINT chk_users_phone_number_e164 CHECK (phone_number IS NULL OR phone_number ~ '^\+[1-9][0-9]{1,14}$')
 );
 
 COMMENT ON TABLE users IS 'User profiles and authentication data';
@@ -34,8 +33,8 @@ COMMENT ON COLUMN users.country IS 'User country code (ISO 3166-1 alpha-2)';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
 COMMENT ON COLUMN users.is_active IS 'Whether the user account is active';
 COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes table. NULL when home is not set.';
-COMMENT ON COLUMN users.holder_full_name IS '本人確認 name the user last checked out with; NULL until the first checkout';
-COMMENT ON COLUMN users.holder_phone_number IS '本人確認 phone in E.164 form the user last checked out with; NULL until the first checkout';
+COMMENT ON COLUMN users.full_name IS '本人確認 full name (1-200 characters) shown on the face of the user''s tickets; NULL until the user first gives it';
+COMMENT ON COLUMN users.phone_number IS '本人確認 phone number in E.164 form shown on the face of the user''s tickets; NULL until the user first gives it';
 
 -- Homes table
 CREATE TABLE IF NOT EXISTS homes (
@@ -680,19 +679,19 @@ CREATE TABLE IF NOT EXISTS organizers (
     operator_email TEXT NOT NULL,
     zitadel_org_id TEXT,
     status SMALLINT NOT NULL,
-    seller_legal_name TEXT,
-    seller_representative_name TEXT,
-    seller_address TEXT,
-    seller_phone_number TEXT,
-    seller_contact_email TEXT,
+    legal_name TEXT,
+    representative_name TEXT,
+    business_address TEXT,
+    business_phone_number TEXT,
+    contact_email TEXT,
     platform_fee_rate_bps INTEGER NOT NULL DEFAULT 800,
     CONSTRAINT chk_organizers_name_non_empty CHECK (name <> ''),
     CONSTRAINT chk_organizers_operator_email_non_empty CHECK (operator_email <> ''),
     CONSTRAINT chk_organizers_status CHECK (status BETWEEN 1 AND 3),
     CONSTRAINT chk_organizers_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_organizers_platform_fee_rate_bps CHECK (platform_fee_rate_bps BETWEEN 0 AND 3000),
-    CONSTRAINT chk_organizers_seller_details_together CHECK ((seller_legal_name IS NULL AND seller_representative_name IS NULL AND seller_address IS NULL AND seller_phone_number IS NULL AND seller_contact_email IS NULL) OR (seller_legal_name IS NOT NULL AND seller_representative_name IS NOT NULL AND seller_address IS NOT NULL AND seller_phone_number IS NOT NULL AND seller_contact_email IS NOT NULL)),
-    CONSTRAINT chk_organizers_seller_phone_e164 CHECK (seller_phone_number IS NULL OR seller_phone_number ~ '^\+[1-9][0-9]{1,14}$')
+    CONSTRAINT chk_organizers_business_details_together CHECK ((legal_name IS NULL AND representative_name IS NULL AND business_address IS NULL AND business_phone_number IS NULL AND contact_email IS NULL) OR (legal_name IS NOT NULL AND representative_name IS NOT NULL AND business_address IS NOT NULL AND business_phone_number IS NOT NULL AND contact_email IS NOT NULL)),
+    CONSTRAINT chk_organizers_business_phone_e164 CHECK (business_phone_number IS NULL OR business_phone_number ~ '^\+[1-9][0-9]{1,14}$')
 );
 COMMENT ON TABLE organizers IS 'Vetted sellers (label / agency / promoter / self-publishing artist) that represent artists';
 COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, application-generated)';
@@ -700,11 +699,11 @@ COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / p
 COMMENT ON COLUMN organizers.operator_email IS 'Email of the operator who administers this organizer; seeded as the initial Zitadel owner user';
 COMMENT ON COLUMN organizers.zitadel_org_id IS 'Zitadel tenant organization ID; NULL until provisioning completes';
 COMMENT ON COLUMN organizers.status IS 'Lifecycle state: 1=provisioning, 2=active, 3=deactivated';
-COMMENT ON COLUMN organizers.seller_legal_name IS '特商法 seller legal name (1-200 characters); NULL until an admin enters the seller details';
-COMMENT ON COLUMN organizers.seller_representative_name IS '特商法 representative or responsible person (1-100 characters); NULL until entered';
-COMMENT ON COLUMN organizers.seller_address IS '特商法 seller address (1-300 characters); NULL until entered';
-COMMENT ON COLUMN organizers.seller_phone_number IS '特商法 seller phone in E.164 form; NULL until entered';
-COMMENT ON COLUMN organizers.seller_contact_email IS '特商法 seller contact email; NULL until entered';
+COMMENT ON COLUMN organizers.legal_name IS '特商法 販売業者 legal name (1-200 characters); NULL until an admin enters the business details';
+COMMENT ON COLUMN organizers.representative_name IS '特商法 representative or responsible person (1-100 characters); NULL until entered';
+COMMENT ON COLUMN organizers.business_address IS '特商法 business address (1-300 characters); NULL until entered';
+COMMENT ON COLUMN organizers.business_phone_number IS '特商法 business phone number in E.164 form; NULL until entered';
+COMMENT ON COLUMN organizers.contact_email IS '特商法 contact email; NULL until entered';
 COMMENT ON COLUMN organizers.platform_fee_rate_bps IS 'Platform fee applied to future orders, in basis points (0-3000). 800 for a new organizer; organizers that existed before per-organizer rates keep 500.';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_zitadel_org_id ON organizers(zitadel_org_id) WHERE zitadel_org_id IS NOT NULL;
@@ -728,14 +727,15 @@ COMMENT ON INDEX uq_organizer_artists_artist_id IS 'Each artist is represented b
 CREATE INDEX IF NOT EXISTS idx_organizer_artists_organizer_id ON organizer_artists(organizer_id);
 COMMENT ON INDEX idx_organizer_artists_organizer_id IS 'Optimizes listing the artists an organizer represents';
 
--- Verified identities table
--- Binds one account (users row) to a verified real person via JPKI or the
--- driver's-licence fallback (Pocket Sign Verify). The person key is the
--- Pocket Sign tenant-scoped User.id (pocket_sign_user_id). No 基本4情報,
--- no raw certificate, no 個人番号 is ever stored here — only the result.
+-- Kyc table
+-- The result of a fan's 本人確認 (identity check): binds one account (users
+-- row) to a verified real person via JPKI or the driver's-licence fallback
+-- (Pocket Sign Verify). The person key is the Pocket Sign tenant-scoped
+-- User.id (pocket_sign_user_id). No 基本4情報, no raw certificate, no 個人番号
+-- is ever stored here — only the result.
 -- The partial unique index (uq_active_pocket_sign_user_id) enforces the
 -- invariant: at most one row with status='ACTIVE' per pocket_sign_user_id.
-CREATE TABLE IF NOT EXISTS verified_identities (
+CREATE TABLE IF NOT EXISTS kyc (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     method SMALLINT NOT NULL,
@@ -743,212 +743,197 @@ CREATE TABLE IF NOT EXISTS verified_identities (
     dedupe_strength SMALLINT NOT NULL,
     verified_at TIMESTAMPTZ NOT NULL,
     status SMALLINT NOT NULL,
-    CONSTRAINT chk_verified_identities_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_verified_identities_method CHECK (method BETWEEN 1 AND 2),
-    CONSTRAINT chk_verified_identities_dedupe_strength CHECK (dedupe_strength BETWEEN 1 AND 2),
-    CONSTRAINT chk_verified_identities_status CHECK (status BETWEEN 1 AND 2),
-    CONSTRAINT chk_verified_identities_pocket_sign_user_id_non_empty CHECK (pocket_sign_user_id <> '')
+    CONSTRAINT chk_kyc_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_kyc_method CHECK (method BETWEEN 1 AND 2),
+    CONSTRAINT chk_kyc_dedupe_strength CHECK (dedupe_strength BETWEEN 1 AND 2),
+    CONSTRAINT chk_kyc_status CHECK (status BETWEEN 1 AND 2),
+    CONSTRAINT chk_kyc_pocket_sign_user_id_non_empty CHECK (pocket_sign_user_id <> '')
 );
 
-COMMENT ON TABLE verified_identities IS 'Account-level identity verification. One row per (user, verification attempt); the active invariant (at most one ACTIVE row per pocket_sign_user_id) is enforced by the partial unique index.';
-COMMENT ON COLUMN verified_identities.id IS 'Unique verification record identifier (UUIDv7, application-generated).';
-COMMENT ON COLUMN verified_identities.user_id IS 'Reference to the user account this verification is bound to.';
-COMMENT ON COLUMN verified_identities.method IS 'Verification method: 1=JPKI, 2=DRIVER_LICENCE.';
-COMMENT ON COLUMN verified_identities.pocket_sign_user_id IS 'Pocket Sign tenant-scoped person key (User.id). The only person-identifying datum stored; never the serial, never the 個人番号.';
-COMMENT ON COLUMN verified_identities.dedupe_strength IS 'Dedupe guarantee strength: 1=STRONG (JPKI, stable per-person key), 2=WEAK (driver licence, document-scoped key).';
-COMMENT ON COLUMN verified_identities.verified_at IS 'Timestamp when the verification was established.';
-COMMENT ON COLUMN verified_identities.status IS 'Freshness lifecycle: 1=ACTIVE (current), 2=NEEDS_REVERIFICATION (revoked/changed/expired per 現況確認).';
+COMMENT ON TABLE kyc IS 'Account-level 本人確認 (Kyc) results. One row per (user, verification attempt); the active invariant (at most one ACTIVE row per pocket_sign_user_id) is enforced by the partial unique index.';
+COMMENT ON COLUMN kyc.id IS 'Unique Kyc record identifier (UUIDv7, application-generated).';
+COMMENT ON COLUMN kyc.user_id IS 'Reference to the user account this Kyc is bound to.';
+COMMENT ON COLUMN kyc.method IS 'Verification method: 1=JPKI, 2=DRIVER_LICENCE.';
+COMMENT ON COLUMN kyc.pocket_sign_user_id IS 'Pocket Sign tenant-scoped person key (User.id). The only person-identifying datum stored; never the serial, never the 個人番号.';
+COMMENT ON COLUMN kyc.dedupe_strength IS 'Dedupe guarantee strength: 1=STRONG (JPKI, stable per-person key), 2=WEAK (driver licence, document-scoped key).';
+COMMENT ON COLUMN kyc.verified_at IS 'Timestamp when the verification was established.';
+COMMENT ON COLUMN kyc.status IS 'Freshness lifecycle: 1=ACTIVE (current), 2=NEEDS_REVERIFICATION (revoked/changed/expired per 現況確認).';
 
 -- Partial unique index enforces the 1-person-1-active-account invariant.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_active_pocket_sign_user_id
-    ON verified_identities(pocket_sign_user_id) WHERE status = 1;
-COMMENT ON INDEX uq_active_pocket_sign_user_id IS 'At most one ACTIVE verified identity row per Pocket Sign person key. A second IDENTITY_VERIFIED account for the same person is rejected here.';
+    ON kyc(pocket_sign_user_id) WHERE status = 1;
+COMMENT ON INDEX uq_active_pocket_sign_user_id IS 'At most one ACTIVE Kyc row per Pocket Sign person key. A second KYC_VERIFIED account for the same person is rejected here.';
 
-CREATE INDEX IF NOT EXISTS idx_verified_identities_user_id ON verified_identities(user_id);
-COMMENT ON INDEX idx_verified_identities_user_id IS 'Optimizes lookup of a user''s active verification record.';
+CREATE INDEX IF NOT EXISTS idx_kyc_user_id ON kyc(user_id);
+COMMENT ON INDEX idx_kyc_user_id IS 'Optimizes lookup of a user''s active Kyc record.';
 
 -- ============================================================
--- Lottery tables (organizer-authored lottery sales)
+-- Ticket sales (organizer-authored first-come and lottery sales)
 -- ============================================================
 
--- Lottery sales phases: organizer-configured lottery windows attached to a
--- published concert event. Separate from the Gemini-discovered sales_phases
--- table: this is fully first-party and carries all parameters needed to run
--- the draw algorithm.
-CREATE TABLE IF NOT EXISTS lottery_sales_phases (
-    id                          UUID     PRIMARY KEY,
-    event_id                    UUID     NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    open_at                     TIMESTAMPTZ NOT NULL,
-    close_at                    TIMESTAMPTZ NOT NULL,
-    ticket_capacity             INT      NOT NULL,
-    max_tickets_per_application INT      NOT NULL,
-    ticket_price                BIGINT   NOT NULL,
-    drawn_at                    TIMESTAMPTZ,
-    verification_requirement    SMALLINT NOT NULL DEFAULT 0,
-    CONSTRAINT chk_lottery_sales_phases_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_lottery_sales_phases_capacity_positive CHECK (ticket_capacity > 0),
-    CONSTRAINT chk_lottery_sales_phases_max_positive CHECK (max_tickets_per_application > 0),
-    CONSTRAINT chk_lottery_sales_phases_price_positive CHECK (ticket_price > 0),
-    CONSTRAINT chk_lottery_sales_phases_window CHECK (close_at > open_at),
-    CONSTRAINT chk_lottery_sales_phases_verification_requirement CHECK (verification_requirement BETWEEN 0 AND 2)
-);
-
-COMMENT ON TABLE lottery_sales_phases IS 'Organizer-configured lottery sales windows for published concert events. Each row carries the full lottery parameters (capacity, max-per-application, price) needed to run the draw.';
-COMMENT ON COLUMN lottery_sales_phases.id IS 'Unique phase identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN lottery_sales_phases.event_id IS 'Published concert event this lottery phase is attached to';
-COMMENT ON COLUMN lottery_sales_phases.open_at IS 'When the application window opens';
-COMMENT ON COLUMN lottery_sales_phases.close_at IS 'When the application window closes. Must be after open_at.';
-COMMENT ON COLUMN lottery_sales_phases.ticket_capacity IS 'Total tickets available in this phase. Must be positive.';
-COMMENT ON COLUMN lottery_sales_phases.max_tickets_per_application IS 'Maximum companion-group size a single fan can request. Must be positive.';
-COMMENT ON COLUMN lottery_sales_phases.ticket_price IS 'Per-ticket price in JPY (whole yen). Must be positive. Authorization amount = ticket_price × requested_ticket_count.';
-COMMENT ON COLUMN lottery_sales_phases.drawn_at IS 'Timestamp when the draw ran for this phase. NULL means the draw has not yet run. Set atomically by PersistDrawOutcome; acts as an idempotency guard: the draw sweeper skips phases where drawn_at IS NOT NULL.';
-COMMENT ON COLUMN lottery_sales_phases.verification_requirement IS 'Identity-verification requirement: 0=NONE (any fan may apply), 1=VERIFIED_ANY (active verified identity required; MVP behaves as JPKI_ONLY), 2=JPKI_ONLY (JPKI-backed identity required, no licence fallback).';
-
-CREATE INDEX IF NOT EXISTS idx_lottery_sales_phases_event_id ON lottery_sales_phases(event_id);
-COMMENT ON INDEX idx_lottery_sales_phases_event_id IS 'Optimizes listing lottery phases for a given event';
-
--- Ticket applications: a fan's entry into a lottery sales phase. One row per
--- application attempt; re-application after withdrawal creates a fresh row.
--- The partial unique index enforces at most one active (non-withdrawn)
--- application per (phase_id, applicant_id).
-CREATE TABLE IF NOT EXISTS ticket_applications (
-    id                    UUID    PRIMARY KEY,
-    phase_id              UUID    NOT NULL REFERENCES lottery_sales_phases(id) ON DELETE CASCADE,
-    applicant_id          UUID    NOT NULL,
-    requested_ticket_count INT    NOT NULL,
-    applicant_full_name   TEXT    NOT NULL,
-    applicant_phone_number TEXT   NOT NULL,
-    payment_intent_ref    TEXT    NOT NULL,
-    state                 SMALLINT NOT NULL,
-    draw_sequence         BIGINT,
-    CONSTRAINT chk_ticket_applications_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_ticket_applications_count_positive CHECK (requested_ticket_count > 0),
-    CONSTRAINT chk_ticket_applications_state CHECK (state IN (1, 2, 3, 5)),
-    CONSTRAINT chk_ticket_applications_applicant_phone_e164 CHECK (applicant_phone_number ~ '^\+[1-9][0-9]{1,14}$')
-);
-
-COMMENT ON TABLE ticket_applications IS 'Fan applications to a lottery sales phase. One row per attempt; re-application after withdrawal creates a fresh row. State: 1=Applied, 2=Won, 3=Lost, 5=Withdrawn.';
-COMMENT ON COLUMN ticket_applications.id IS 'Unique application identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN ticket_applications.phase_id IS 'The lottery phase this application belongs to';
-COMMENT ON COLUMN ticket_applications.applicant_id IS 'The fan user ID (references users.id at application layer; no FK to survive user lifecycle independently)';
-COMMENT ON COLUMN ticket_applications.requested_ticket_count IS 'Companion-group size (all-or-nothing allocation). Must be positive.';
-COMMENT ON COLUMN ticket_applications.applicant_full_name IS 'Applicant legal name for 本人確認 at the venue';
-COMMENT ON COLUMN ticket_applications.applicant_phone_number IS 'Contact phone number for 本人確認 at the venue, in E.164 form (enforced by CHECK)';
-COMMENT ON COLUMN ticket_applications.payment_intent_ref IS 'Stripe PaymentIntent ID for the authorization hold placed at apply time';
-COMMENT ON COLUMN ticket_applications.state IS 'Lifecycle state: 1=Applied (hold in place), 2=Won (captured), 3=Lost (hold released), 5=Withdrawn (fan-cancelled, hold released)';
-COMMENT ON COLUMN ticket_applications.draw_sequence IS 'Zero-based position in the draw shuffle. NULL until the draw runs; used to order the loser waitlist for official-resale.';
-
--- Partial unique index: at most one active application per (phase_id, applicant_id).
--- "Active" means state IN (1=Applied, 2=Won, 3=Lost) — i.e. NOT Withdrawn (5).
--- A Withdrawn row is excluded from the index so the fan can re-apply after withdrawal.
--- Won and Lost are included because they represent a concluded draw outcome that
--- still uniquely identifies this fan's participation in the phase.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ticket_applications_active
-    ON ticket_applications(phase_id, applicant_id)
-    WHERE state IN (1, 2, 3);
-
-COMMENT ON INDEX uq_ticket_applications_active IS 'At most one active (Applied/Won/Lost) application per (phase, applicant). Withdrawn (5) is excluded so the fan can re-apply. Won/Lost are included: a concluded draw outcome still uniquely identifies participation.';
-
-CREATE INDEX IF NOT EXISTS idx_ticket_applications_phase_id ON ticket_applications(phase_id);
-COMMENT ON INDEX idx_ticket_applications_phase_id IS 'Optimizes listing all applications for a given lottery phase (draw batch load)';
-
--- Ticket sales: one first-come sale per event. sold_count holds the tickets of
--- the sale's Committed and Completed reservations; held tickets are derived
--- from the Held reservations whose hold has not expired.
+-- Ticket sales: one sale opportunity (受付) over the events of one Series: a
+-- name, an allocation method, a window and a verification requirement. What it
+-- offers for each event is a ticket_types row.
 CREATE TABLE IF NOT EXISTS ticket_sales (
-    id                UUID        PRIMARY KEY,
-    event_id          UUID        NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
-    method            SMALLINT    NOT NULL,
-    sale_start_at     TIMESTAMPTZ NOT NULL,
-    sale_end_at       TIMESTAMPTZ NOT NULL,
-    price             BIGINT      NOT NULL,
-    quantity          INTEGER     NOT NULL,
-    per_account_limit INTEGER     NOT NULL,
-    sold_count        INTEGER     NOT NULL DEFAULT 0,
+    id                       UUID        PRIMARY KEY,
+    series_id                UUID        NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    name                     TEXT        NOT NULL,
+    method                   SMALLINT    NOT NULL,
+    sale_start_at            TIMESTAMPTZ NOT NULL,
+    sale_end_at              TIMESTAMPTZ NOT NULL,
+    verification_requirement SMALLINT    NOT NULL DEFAULT 0,
+    drawn_at                 TIMESTAMPTZ,
     CONSTRAINT chk_ticket_sales_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_ticket_sales_method CHECK (method IN (1)),
+    CONSTRAINT chk_ticket_sales_name_len CHECK (char_length(name) BETWEEN 1 AND 100),
+    CONSTRAINT chk_ticket_sales_method CHECK (method IN (1, 2)),
     CONSTRAINT chk_ticket_sales_window CHECK (sale_end_at > sale_start_at),
-    CONSTRAINT chk_ticket_sales_price CHECK (price BETWEEN 1 AND 1000000),
-    CONSTRAINT chk_ticket_sales_quantity CHECK (quantity >= 1),
-    CONSTRAINT chk_ticket_sales_per_account_limit CHECK (per_account_limit BETWEEN 1 AND 10),
-    CONSTRAINT chk_ticket_sales_sold_count CHECK (sold_count BETWEEN 0 AND quantity),
-    CONSTRAINT uq_ticket_sales_event_id UNIQUE (event_id)
+    CONSTRAINT chk_ticket_sales_verification_requirement CHECK (verification_requirement BETWEEN 0 AND 2),
+    CONSTRAINT chk_ticket_sales_drawn_lottery_only CHECK (drawn_at IS NULL OR method = 2)
 );
 
-COMMENT ON TABLE ticket_sales IS 'First-party first-come sale of one event''s tickets: a quantity at one tax-inclusive price during a sale window, with a per-account limit. One per event.';
+COMMENT ON TABLE ticket_sales IS 'One sale opportunity (受付) over the events of one Series: a name, an allocation method, a window and a verification requirement. Its per-event price, quantity and limit are ticket_types rows.';
 COMMENT ON COLUMN ticket_sales.id IS 'Unique ticket sale identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN ticket_sales.event_id IS 'The event whose tickets are sold; one sale per event';
-COMMENT ON COLUMN ticket_sales.method IS 'Allocation method: 1=FirstCome';
+COMMENT ON COLUMN ticket_sales.series_id IS 'The Series whose events the sale offers tickets for';
+COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and operators (1-100 characters), e.g. ファンクラブ先行 or 一般発売';
+COMMENT ON COLUMN ticket_sales.method IS 'Allocation method: 1=FirstCome, 2=Lottery';
 COMMENT ON COLUMN ticket_sales.sale_start_at IS 'When the sale opens';
-COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_start_at and no later than the event start (checked by the application)';
-COMMENT ON COLUMN ticket_sales.price IS 'Price of one ticket in yen, tax-inclusive (税込); fixed once any reservation exists';
-COMMENT ON COLUMN ticket_sales.quantity IS 'Tickets offered; can shrink only down to sold plus held';
-COMMENT ON COLUMN ticket_sales.per_account_limit IS 'Most tickets one user may hold or have bought from the sale';
-COMMENT ON COLUMN ticket_sales.sold_count IS 'Tickets on Committed and Completed reservations; changed together with the reservation status under the sale row lock';
+COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_start_at, 1 to 14 days after it for a lottery, and before the start of every event the sale covers (checked by the application)';
+COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active Kyc is required), 2=JPKI_ONLY (a JPKI-backed Kyc is required)';
+COMMENT ON COLUMN ticket_sales.drawn_at IS 'When the lottery draw ran for every ticket type of the sale; NULL until drawn and for a first-come sale. Set atomically with the draw outcome; the draw sweeper skips sales where it is set.';
 
--- Reservations: one fan's checkout on a ticket sale. A hold lasts exactly 15
--- minutes and is never extended. A charged reservation (capture_at set) is
--- never Expired or Released.
-CREATE TABLE IF NOT EXISTS reservations (
+CREATE INDEX IF NOT EXISTS idx_ticket_sales_series_id ON ticket_sales(series_id);
+COMMENT ON INDEX idx_ticket_sales_series_id IS 'Optimizes listing the sales of a Series';
+
+-- Ticket types: what one ticket sale offers for one event. For a first-come
+-- sale, sold_count holds the tickets of the type's Committed and Completed
+-- checkouts; held tickets are derived from the Held checkouts whose hold has
+-- not expired.
+CREATE TABLE IF NOT EXISTS ticket_types (
+    id                UUID    PRIMARY KEY,
+    ticket_sale_id    UUID    NOT NULL REFERENCES ticket_sales(id) ON DELETE CASCADE,
+    event_id          UUID    NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    price             BIGINT  NOT NULL,
+    quantity          INTEGER NOT NULL,
+    per_account_limit INTEGER NOT NULL,
+    sold_count        INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT chk_ticket_types_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_ticket_types_price CHECK (price BETWEEN 1 AND 1000000),
+    CONSTRAINT chk_ticket_types_quantity CHECK (quantity >= 1),
+    CONSTRAINT chk_ticket_types_per_account_limit CHECK (per_account_limit BETWEEN 1 AND 10 AND per_account_limit <= quantity),
+    CONSTRAINT chk_ticket_types_sold_count CHECK (sold_count BETWEEN 0 AND quantity),
+    CONSTRAINT uq_ticket_types_sale_event UNIQUE (ticket_sale_id, event_id)
+);
+
+COMMENT ON TABLE ticket_types IS 'What one ticket sale offers for one event: a quantity at one tax-inclusive price with a per-account limit, and for a first-come sale the tickets sold. One per (sale, event).';
+COMMENT ON COLUMN ticket_types.id IS 'Unique ticket type identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN ticket_types.ticket_sale_id IS 'The sale that offers the ticket type';
+COMMENT ON COLUMN ticket_types.event_id IS 'The event the tickets admit to; an event of the sale''s Series (checked by the application)';
+COMMENT ON COLUMN ticket_types.price IS 'Price of one ticket in yen, tax-inclusive (税込); for a first-come sale fixed while any ticket is sold or held';
+COMMENT ON COLUMN ticket_types.quantity IS 'Tickets offered; for a first-come sale it can shrink only down to sold plus held';
+COMMENT ON COLUMN ticket_types.per_account_limit IS 'Most tickets one account may hold for the event once this sale is done, counting tickets it already holds; 1 to 10 and at most the quantity';
+COMMENT ON COLUMN ticket_types.sold_count IS 'Tickets on Committed and Completed checkouts (first-come only; stays 0 for a lottery); changed together with the checkout status under the ticket type row lock';
+
+CREATE INDEX IF NOT EXISTS idx_ticket_types_event_id ON ticket_types(event_id);
+COMMENT ON INDEX idx_ticket_types_event_id IS 'Optimizes listing the sales of an event through its ticket types';
+
+-- Lottery entries: a fan's entry into the lottery for one ticket type. One row
+-- per attempt; a new entry after withdrawal creates a fresh row. The partial
+-- unique index enforces at most one active (non-withdrawn) entry per
+-- (ticket_type_id, user_id).
+CREATE TABLE IF NOT EXISTS lottery_entries (
+    id                     UUID     PRIMARY KEY,
+    ticket_type_id         UUID     NOT NULL REFERENCES ticket_types(id) ON DELETE CASCADE,
+    user_id                UUID     NOT NULL,
+    requested_ticket_count INT      NOT NULL,
+    payment_intent_ref     TEXT,
+    state                  SMALLINT NOT NULL,
+    draw_position          BIGINT,
+    CONSTRAINT chk_lottery_entries_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_lottery_entries_count_positive CHECK (requested_ticket_count > 0),
+    CONSTRAINT chk_lottery_entries_state CHECK (state BETWEEN 1 AND 5),
+    CONSTRAINT chk_lottery_entries_payment_intent_ref_not_empty CHECK (payment_intent_ref IS NULL OR payment_intent_ref <> ''),
+    CONSTRAINT chk_lottery_entries_authorized_from_entered CHECK (payment_intent_ref IS NOT NULL OR state IN (4, 5))
+);
+
+COMMENT ON TABLE lottery_entries IS 'Fan entries into the lottery of a ticket type. One row per attempt; a new entry after withdrawal creates a fresh row. State: 1=Entered, 2=Won, 3=Lost, 4=Withdrawn, 5=Draft.';
+COMMENT ON COLUMN lottery_entries.id IS 'Unique lottery entry identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN lottery_entries.ticket_type_id IS 'The ticket type entered; its sale''s method is Lottery';
+COMMENT ON COLUMN lottery_entries.user_id IS 'The fan user ID (references users.id at application layer; no FK to survive user lifecycle independently)';
+COMMENT ON COLUMN lottery_entries.requested_ticket_count IS 'Companion-group size (all-or-nothing allocation). Must be positive.';
+COMMENT ON COLUMN lottery_entries.payment_intent_ref IS 'Payment provider reference of the card hold (Stripe pi_...); NULL on a Draft until the hold is opened, and on an entry withdrawn as a Draft; required from Entered on';
+COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (hold in place), 2=Won (captured), 3=Lost (hold released), 4=Withdrawn (fan-cancelled or abandoned Draft, hold released), 5=Draft (before confirmation; takes no part in the draw)';
+COMMENT ON COLUMN lottery_entries.draw_position IS 'Zero-based position in the ticket type''s draw shuffle. NULL until the draw runs; used to order the loser waitlist for official-resale.';
+
+-- Partial unique index: at most one active entry per (ticket_type_id, user_id).
+-- "Active" means every state but Withdrawn (4): Draft, Entered, Won and Lost.
+-- A Withdrawn row is excluded so the fan can enter again after withdrawal.
+-- Won and Lost are included because they represent a concluded draw outcome
+-- that still uniquely identifies this fan's participation.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_lottery_entries_active
+    ON lottery_entries(ticket_type_id, user_id)
+    WHERE state <> 4;
+
+COMMENT ON INDEX uq_lottery_entries_active IS 'At most one active (Draft/Entered/Won/Lost) entry per (ticket type, user). Withdrawn (4) is excluded so the fan can enter again. Won/Lost are included: a concluded draw outcome still uniquely identifies participation.';
+
+CREATE INDEX IF NOT EXISTS idx_lottery_entries_ticket_type_id ON lottery_entries(ticket_type_id);
+COMMENT ON INDEX idx_lottery_entries_ticket_type_id IS 'Optimizes listing all entries for a given ticket type (draw batch load)';
+
+-- Checkouts: one fan's first-come purchase in progress on a ticket type. A
+-- hold lasts exactly 15 minutes and is never extended. A charged checkout
+-- (capture_at set) is never Expired or Released.
+CREATE TABLE IF NOT EXISTS checkouts (
     id                        UUID        PRIMARY KEY,
-    ticket_sale_id            UUID        NOT NULL REFERENCES ticket_sales(id) ON DELETE RESTRICT,
+    ticket_type_id            UUID        NOT NULL REFERENCES ticket_types(id) ON DELETE RESTRICT,
     user_id                   UUID        NOT NULL,
     ticket_count              INTEGER     NOT NULL,
     amount                    BIGINT      NOT NULL,
-    holder_full_name          TEXT,
-    holder_phone_number       TEXT,
     authorization_ref         TEXT,
     authorization_released_at TIMESTAMPTZ,
     status                    SMALLINT    NOT NULL,
     hold_expire_at            TIMESTAMPTZ NOT NULL,
     committed_at              TIMESTAMPTZ,
     capture_at                TIMESTAMPTZ,
-    CONSTRAINT chk_reservations_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_reservations_ticket_count CHECK (ticket_count BETWEEN 1 AND 10),
-    CONSTRAINT chk_reservations_amount_positive CHECK (amount > 0),
-    CONSTRAINT chk_reservations_status CHECK (status BETWEEN 1 AND 5),
-    CONSTRAINT chk_reservations_holder_together CHECK ((holder_full_name IS NULL) = (holder_phone_number IS NULL)),
-    CONSTRAINT chk_reservations_holder_name_len CHECK (holder_full_name IS NULL OR char_length(holder_full_name) BETWEEN 1 AND 200),
-    CONSTRAINT chk_reservations_holder_phone_e164 CHECK (holder_phone_number IS NULL OR holder_phone_number ~ '^\+[1-9][0-9]{1,14}$'),
-    CONSTRAINT chk_reservations_authorization_ref_not_empty CHECK (authorization_ref IS NULL OR authorization_ref <> ''),
-    CONSTRAINT chk_reservations_released_needs_ref CHECK (authorization_released_at IS NULL OR authorization_ref IS NOT NULL),
-    CONSTRAINT chk_reservations_committed_time CHECK (status NOT IN (2, 3) OR committed_at IS NOT NULL),
-    CONSTRAINT chk_reservations_charged_never_ended CHECK (capture_at IS NULL OR status IN (2, 3)),
-    CONSTRAINT chk_reservations_completed_charged CHECK (status <> 3 OR capture_at IS NOT NULL)
+    CONSTRAINT chk_checkouts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_checkouts_ticket_count CHECK (ticket_count BETWEEN 1 AND 10),
+    CONSTRAINT chk_checkouts_amount_positive CHECK (amount > 0),
+    CONSTRAINT chk_checkouts_status CHECK (status BETWEEN 1 AND 5),
+    CONSTRAINT chk_checkouts_authorization_ref_not_empty CHECK (authorization_ref IS NULL OR authorization_ref <> ''),
+    CONSTRAINT chk_checkouts_released_needs_ref CHECK (authorization_released_at IS NULL OR authorization_ref IS NOT NULL),
+    CONSTRAINT chk_checkouts_committed_time CHECK (status NOT IN (2, 3) OR committed_at IS NOT NULL),
+    CONSTRAINT chk_checkouts_charged_never_ended CHECK (capture_at IS NULL OR status IN (2, 3)),
+    CONSTRAINT chk_checkouts_completed_charged CHECK (status <> 3 OR capture_at IS NOT NULL)
 );
 
-COMMENT ON TABLE reservations IS 'One fan''s checkout on a ticket sale: holds a count of tickets for 15 minutes, then is committed, charged and completed, or expires or is released. Status 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released.';
-COMMENT ON COLUMN reservations.id IS 'Unique reservation identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN reservations.ticket_sale_id IS 'The sale the checkout buys from';
-COMMENT ON COLUMN reservations.user_id IS 'The fan checking out (no FK to survive user lifecycle independently)';
-COMMENT ON COLUMN reservations.ticket_count IS 'Tickets held, 1 to the sale''s per-account limit';
-COMMENT ON COLUMN reservations.amount IS 'Total to pay in yen: the sale price times ticket_count, fixed at creation';
-COMMENT ON COLUMN reservations.holder_full_name IS '本人確認 name for the tickets'' face; NULL until the fan authorizes';
-COMMENT ON COLUMN reservations.holder_phone_number IS '本人確認 phone in E.164 form; NULL until the fan authorizes';
-COMMENT ON COLUMN reservations.authorization_ref IS 'Payment provider reference of the card hold (Stripe pi_...); NULL until the fan authorizes, then set once';
-COMMENT ON COLUMN reservations.authorization_released_at IS 'When the card hold was given back without a charge; NULL unless released';
-COMMENT ON COLUMN reservations.status IS 'Lifecycle: 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released';
-COMMENT ON COLUMN reservations.hold_expire_at IS 'When the hold lapses: 15 minutes after the checkout started, never extended; a commit needs hold_expire_at > now';
-COMMENT ON COLUMN reservations.committed_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
-COMMENT ON COLUMN reservations.capture_at IS 'When the card hold (authorization_ref) was charged; set once, and a row with it is never Expired or Released';
+COMMENT ON TABLE checkouts IS 'One fan''s first-come purchase in progress on a ticket type: holds a count of tickets for 15 minutes, then is committed, charged and completed, or expires or is released. Status 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released.';
+COMMENT ON COLUMN checkouts.id IS 'Unique checkout identifier (UUIDv7, application-generated)';
+COMMENT ON COLUMN checkouts.ticket_type_id IS 'The ticket type the checkout buys from; its sale''s method is FirstCome';
+COMMENT ON COLUMN checkouts.user_id IS 'The fan checking out (no FK to survive user lifecycle independently)';
+COMMENT ON COLUMN checkouts.ticket_count IS 'Tickets held, 1 to the ticket type''s per-account limit';
+COMMENT ON COLUMN checkouts.amount IS 'Total to pay in yen: the ticket type price times ticket_count, fixed at creation';
+COMMENT ON COLUMN checkouts.authorization_ref IS 'Payment provider reference of the card hold (Stripe pi_...); NULL until the fan authorizes, then set once';
+COMMENT ON COLUMN checkouts.authorization_released_at IS 'When the card hold was given back without a charge; NULL unless released';
+COMMENT ON COLUMN checkouts.status IS 'Lifecycle: 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released';
+COMMENT ON COLUMN checkouts.hold_expire_at IS 'When the hold lapses: 15 minutes after the checkout started, never extended; a commit needs hold_expire_at > now';
+COMMENT ON COLUMN checkouts.committed_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
+COMMENT ON COLUMN checkouts.capture_at IS 'When the card hold (authorization_ref) was charged; set once, and a row with it is never Expired or Released';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_reservations_held ON reservations(ticket_sale_id, user_id) WHERE status = 1;
-COMMENT ON INDEX uq_reservations_held IS 'At most one Held reservation per (sale, user): a concurrent second insert loses and reads the winner';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_checkouts_held ON checkouts(ticket_type_id, user_id) WHERE status = 1;
+COMMENT ON INDEX uq_checkouts_held IS 'At most one Held checkout per (ticket type, user): a concurrent second insert loses and reads the winner';
 
-CREATE INDEX IF NOT EXISTS idx_reservations_sale_status ON reservations(ticket_sale_id, status);
-COMMENT ON INDEX idx_reservations_sale_status IS 'Optimizes the held and per-user committed counts of a sale';
+CREATE INDEX IF NOT EXISTS idx_checkouts_ticket_type_status ON checkouts(ticket_type_id, status);
+COMMENT ON INDEX idx_checkouts_ticket_type_status IS 'Optimizes the held and per-user committed counts of a ticket type';
 
-CREATE INDEX IF NOT EXISTS idx_reservations_due ON reservations(status, hold_expire_at) WHERE status IN (1, 2) OR (status IN (4, 5) AND authorization_ref IS NOT NULL AND authorization_released_at IS NULL);
-COMMENT ON INDEX idx_reservations_due IS 'Optimizes ListDue: lapsed holds, card holds to give back and stalled commits';
+CREATE INDEX IF NOT EXISTS idx_checkouts_due ON checkouts(status, hold_expire_at) WHERE status IN (1, 2) OR (status IN (4, 5) AND authorization_ref IS NOT NULL AND authorization_released_at IS NULL);
+COMMENT ON INDEX idx_checkouts_due IS 'Optimizes ListDue: lapsed holds, card holds to give back and stalled commits';
 
--- Orders: the ⑤ purchase record for one won lottery application or one
--- completed checkout (reservation). Created already paid from the captured
--- payment (no pending state). Stores only opaque provider references and
--- display facets — never PAN/CVC/expiry (PCI SAQ A).
+-- Orders: the ⑤ purchase record for one won lottery entry or one completed
+-- checkout. Created already paid from the captured payment (no pending state).
+-- Stores only opaque provider references and display facets — never
+-- PAN/CVC/expiry (PCI SAQ A).
 CREATE TABLE IF NOT EXISTS orders (
     id                 UUID    PRIMARY KEY,
-    buyer_id           UUID    NOT NULL,
-    application_id     UUID    REFERENCES ticket_applications(id) ON DELETE RESTRICT,
+    user_id            UUID    NOT NULL,
+    lottery_entry_id   UUID    REFERENCES lottery_entries(id) ON DELETE RESTRICT,
     provider           SMALLINT NOT NULL,
     payment_intent_ref TEXT    NOT NULL,
     payment_method_ref TEXT    NOT NULL DEFAULT '',
@@ -959,20 +944,20 @@ CREATE TABLE IF NOT EXISTS orders (
     currency           TEXT    NOT NULL,
     paid_at            TIMESTAMPTZ NOT NULL,
     refund_ref         TEXT    NOT NULL DEFAULT '',
-    reservation_id     UUID    REFERENCES reservations(id) ON DELETE RESTRICT,
+    checkout_id        UUID    REFERENCES checkouts(id) ON DELETE RESTRICT,
     confirmation_sent_at TIMESTAMPTZ,
     CONSTRAINT chk_orders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_orders_provider CHECK (provider IN (1, 2)),
     CONSTRAINT chk_orders_status CHECK (status IN (1, 2, 3)),
     CONSTRAINT chk_orders_amount_positive CHECK (amount > 0),
     CONSTRAINT chk_orders_currency_len CHECK (char_length(currency) = 3),
-    CONSTRAINT chk_orders_one_source CHECK ((application_id IS NULL) <> (reservation_id IS NULL))
+    CONSTRAINT chk_orders_one_source CHECK ((lottery_entry_id IS NULL) <> (checkout_id IS NULL))
 );
 
-COMMENT ON TABLE orders IS 'Purchase record for one won lottery application or one completed checkout (reservation). Created already paid from the captured payment (status 1=Paid, 2=Refunded, 3=Failed; no pending). One order covers all tickets of its source.';
+COMMENT ON TABLE orders IS 'Purchase record for one won lottery entry or one completed checkout. Created already paid from the captured payment (status 1=Paid, 2=Refunded, 3=Failed; no pending). One order covers all tickets of its source.';
 COMMENT ON COLUMN orders.id IS 'Unique order identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN orders.buyer_id IS 'The winning applicant user ID (no FK to survive user lifecycle independently)';
-COMMENT ON COLUMN orders.application_id IS 'The Won-captured application this order derives from; NULL when the source is a reservation; unique (one order per application)';
+COMMENT ON COLUMN orders.user_id IS 'The fan who bought the tickets (no FK to survive user lifecycle independently)';
+COMMENT ON COLUMN orders.lottery_entry_id IS 'The Won-captured lottery entry this order derives from; NULL when the source is a checkout; unique (one order per entry)';
 COMMENT ON COLUMN orders.provider IS 'Payment provider: 1=Stripe, 2=KOMOJU';
 COMMENT ON COLUMN orders.payment_intent_ref IS 'Opaque provider PaymentIntent reference (e.g. Stripe pi_...) of the captured payment';
 COMMENT ON COLUMN orders.payment_method_ref IS 'Opaque provider PaymentMethod reference (e.g. Stripe pm_...), optional';
@@ -982,47 +967,44 @@ COMMENT ON COLUMN orders.status IS 'Order status: 1=Paid, 2=Refunded, 3=Failed (
 COMMENT ON COLUMN orders.amount IS 'Total captured amount in the currency smallest unit (yen total for JPY)';
 COMMENT ON COLUMN orders.currency IS 'ISO 4217 currency code of amount (JPY for the MVP)';
 COMMENT ON COLUMN orders.paid_at IS 'When the order was recorded as paid (after the draw''s capture or the checkout''s charge)';
-COMMENT ON COLUMN orders.reservation_id IS 'The Committed, charged reservation this order completes; NULL when the source is an application; unique (one order per reservation)';
+COMMENT ON COLUMN orders.checkout_id IS 'The Committed, charged checkout this order completes; NULL when the source is a lottery entry; unique (one order per checkout)';
 COMMENT ON COLUMN orders.confirmation_sent_at IS 'When the purchase confirmation email was sent; NULL until sent. Set right after a successful send so a redelivered event sends nothing.';
 COMMENT ON COLUMN orders.refund_ref IS 'Opaque provider Refund reference (e.g. Stripe "re_...") set when the order is refunded via CANCELLATION. Empty for DISPUTE reason (the chargeback already reversed the charge at the card network) and for orders that are not yet refunded.';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_application_id ON orders(application_id);
-COMMENT ON INDEX uq_orders_application_id IS 'One order per winning application — the issuance idempotency guard (a duplicate insert raises unique_violation, surfaced as AlreadyExists).';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_lottery_entry_id ON orders(lottery_entry_id);
+COMMENT ON INDEX uq_orders_lottery_entry_id IS 'One order per winning lottery entry — the issuance idempotency guard (a duplicate insert raises unique_violation, surfaced as AlreadyExists).';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_reservation_id ON orders(reservation_id);
-COMMENT ON INDEX uq_orders_reservation_id IS 'One order per reservation — the issuance idempotency guard for checkouts (a duplicate insert raises unique_violation, surfaced as AlreadyExists).';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_checkout_id ON orders(checkout_id);
+COMMENT ON INDEX uq_orders_checkout_id IS 'One order per checkout — the issuance idempotency guard for checkouts (a duplicate insert raises unique_violation, surfaced as AlreadyExists).';
 
-CREATE INDEX IF NOT EXISTS idx_orders_buyer_id ON orders(buyer_id);
-COMMENT ON INDEX idx_orders_buyer_id IS 'Optimizes listing a buyer''s orders';
+CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+COMMENT ON INDEX idx_orders_user_id IS 'Optimizes listing a user''s orders';
 
--- Tickets: account-bound covered tickets (特定興行入場券) issued from a captured
--- win. One order issues the N tickets of the winning companion group.
+-- Tickets: account-bound covered tickets (特定興行入場券) issued from a won
+-- lottery entry or a completed checkout. One order issues the N tickets of its
+-- companion group. The face shows the user's current full name and phone
+-- number (users row), not a copy.
 CREATE TABLE IF NOT EXISTS tickets (
     id                                UUID    PRIMARY KEY,
     order_id                          UUID    NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
-    holder_id                         UUID    NOT NULL,
+    user_id                           UUID    NOT NULL,
     event_id                          UUID    NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
-    holder_full_name                  TEXT    NOT NULL,
-    holder_phone_number               TEXT    NOT NULL,
-    verified_identity_id              UUID,
+    kyc_id                            UUID,
     resale_without_consent_prohibited BOOLEAN NOT NULL DEFAULT TRUE,
     status                            SMALLINT NOT NULL,
     issued_at                         TIMESTAMPTZ NOT NULL,
     admitted_at                       TIMESTAMPTZ,
     CONSTRAINT chk_tickets_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_tickets_status CHECK (status IN (1, 2)),
-    CONSTRAINT chk_tickets_resale_prohibited CHECK (resale_without_consent_prohibited = TRUE),
-    CONSTRAINT chk_tickets_holder_phone_e164 CHECK (holder_phone_number ~ '^\+[1-9][0-9]{1,14}$')
+    CONSTRAINT chk_tickets_resale_prohibited CHECK (resale_without_consent_prohibited = TRUE)
 );
 
-COMMENT ON TABLE tickets IS 'Account-bound covered tickets (特定興行入場券) issued from a captured lottery win. Each carries the three covered-ticket conditions: resale-without-consent prohibited, date/venue+eligible-person (event_id + holder identity), and bound 本人確認.';
+COMMENT ON TABLE tickets IS 'Account-bound covered tickets (特定興行入場券) issued from a won lottery entry or a completed checkout. Each carries the three covered-ticket conditions: resale-without-consent prohibited, date/venue+eligible-person (event_id + user_id, whose current full name and phone number the face shows), and bound 本人確認.';
 COMMENT ON COLUMN tickets.id IS 'Unique ticket identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN tickets.order_id IS 'The order that issued this ticket';
-COMMENT ON COLUMN tickets.holder_id IS 'The account the ticket is bound to (current holder; reassigned by official resale)';
+COMMENT ON COLUMN tickets.user_id IS 'The account the ticket is bound to; never changes (official resale voids the ticket and issues a new one)';
 COMMENT ON COLUMN tickets.event_id IS 'The event this ticket admits to (supplies the covered-ticket face date/venue)';
-COMMENT ON COLUMN tickets.holder_full_name IS 'Holder legal name (本人確認) noted on the covered-ticket face';
-COMMENT ON COLUMN tickets.holder_phone_number IS 'Holder contact phone (本人確認), in E.164 form (enforced by CHECK)';
-COMMENT ON COLUMN tickets.verified_identity_id IS 'Authoritative verified identity when the phase required verification; NULL otherwise. No FK so privacy deletion of a verified identity is independent.';
+COMMENT ON COLUMN tickets.kyc_id IS 'The Kyc the ticket is bound to when its sale required verification; NULL otherwise. No FK so privacy deletion of a Kyc is independent.';
 COMMENT ON COLUMN tickets.resale_without_consent_prohibited IS 'Covered-ticket condition (i): always true (enforced by CHECK) so every issued ticket qualifies as a 特定興行入場券';
 COMMENT ON COLUMN tickets.status IS 'Ticket status: 1=Issued, 2=Voided (on refund)';
 COMMENT ON COLUMN tickets.issued_at IS 'When the ticket was issued (= the order capture/issuance time)';
@@ -1031,8 +1013,8 @@ COMMENT ON COLUMN tickets.admitted_at IS 'When the ticket was admitted at the ve
 CREATE INDEX IF NOT EXISTS idx_tickets_order_id ON tickets(order_id);
 COMMENT ON INDEX idx_tickets_order_id IS 'Optimizes loading the tickets of an order';
 
-CREATE INDEX IF NOT EXISTS idx_tickets_holder_id ON tickets(holder_id);
-COMMENT ON INDEX idx_tickets_holder_id IS 'Optimizes a buyer''s my-tickets view';
+CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
+COMMENT ON INDEX idx_tickets_user_id IS 'Optimizes a user''s my-tickets view';
 
 CREATE INDEX IF NOT EXISTS idx_tickets_event_id ON tickets(event_id);
 COMMENT ON INDEX idx_tickets_event_id IS 'Optimizes per-event ticket lookups (check-in, cancellation)';

@@ -71,24 +71,24 @@ func (_c *MockIssuanceRepository_Issue_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// ListApplicationIDsAwaitingIssuance provides a mock function with given fields: ctx
-func (_m *MockIssuanceRepository) ListApplicationIDsAwaitingIssuance(ctx context.Context) ([]entity.TicketApplicationID, error) {
+// ListLotteryEntryIDsAwaitingIssuance provides a mock function with given fields: ctx
+func (_m *MockIssuanceRepository) ListLotteryEntryIDsAwaitingIssuance(ctx context.Context) ([]entity.LotteryEntryID, error) {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ListApplicationIDsAwaitingIssuance")
+		panic("no return value specified for ListLotteryEntryIDsAwaitingIssuance")
 	}
 
-	var r0 []entity.TicketApplicationID
+	var r0 []entity.LotteryEntryID
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) ([]entity.TicketApplicationID, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) ([]entity.LotteryEntryID, error)); ok {
 		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) []entity.TicketApplicationID); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) []entity.LotteryEntryID); ok {
 		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]entity.TicketApplicationID)
+			r0 = ret.Get(0).([]entity.LotteryEntryID)
 		}
 	}
 
@@ -101,30 +101,30 @@ func (_m *MockIssuanceRepository) ListApplicationIDsAwaitingIssuance(ctx context
 	return r0, r1
 }
 
-// MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListApplicationIDsAwaitingIssuance'
-type MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call struct {
+// MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListLotteryEntryIDsAwaitingIssuance'
+type MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call struct {
 	*mock.Call
 }
 
-// ListApplicationIDsAwaitingIssuance is a helper method to define mock.On call
+// ListLotteryEntryIDsAwaitingIssuance is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockIssuanceRepository_Expecter) ListApplicationIDsAwaitingIssuance(ctx interface{}) *MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call {
-	return &MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call{Call: _e.mock.On("ListApplicationIDsAwaitingIssuance", ctx)}
+func (_e *MockIssuanceRepository_Expecter) ListLotteryEntryIDsAwaitingIssuance(ctx interface{}) *MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call {
+	return &MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call{Call: _e.mock.On("ListLotteryEntryIDsAwaitingIssuance", ctx)}
 }
 
-func (_c *MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call) Run(run func(ctx context.Context)) *MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call {
+func (_c *MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call) Run(run func(ctx context.Context)) *MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call) Return(_a0 []entity.TicketApplicationID, _a1 error) *MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call {
+func (_c *MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call) Return(_a0 []entity.LotteryEntryID, _a1 error) *MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call) RunAndReturn(run func(context.Context) ([]entity.TicketApplicationID, error)) *MockIssuanceRepository_ListApplicationIDsAwaitingIssuance_Call {
+func (_c *MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call) RunAndReturn(run func(context.Context) ([]entity.LotteryEntryID, error)) *MockIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -20,7 +20,7 @@ type UserRepository struct {
 }
 
 const (
-	userColumns = `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, u.is_active, u.holder_full_name, u.holder_phone_number`
+	userColumns = `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, u.is_active, u.full_name, u.phone_number`
 
 	homeColumns = `h.id, h.country_code, h.level_1, h.level_2, h.centroid_latitude, h.centroid_longitude`
 
@@ -85,11 +85,12 @@ const (
 		LEFT JOIN homes h ON u.home_id = h.id
 	`
 
-	// updateHolderIdentityQuery replaces both holder columns in one atomic
-	// UPDATE + SELECT, like updatePreferredLanguageQuery.
-	updateHolderIdentityQuery = `
+	// updatePersonalDetailsQuery sets both personal details columns in one
+	// atomic UPDATE + SELECT, like updatePreferredLanguageQuery. A NULL
+	// parameter stores the value as absent.
+	updatePersonalDetailsQuery = `
 		WITH updated AS (
-			UPDATE users SET holder_full_name = $2, holder_phone_number = $3
+			UPDATE users SET full_name = $2, phone_number = $3
 			WHERE id = $1
 			RETURNING *
 		)
@@ -160,7 +161,7 @@ func nullStringFromEmpty(s string) sql.NullString {
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
 	var preferredLanguage, country, timeZone sql.NullString
-	var holderFullName, holderPhoneNumber sql.NullString
+	var fullName, phoneNumber sql.NullString
 	var homeID, countryCode, level1, level2 sql.NullString
 	var centroidLat, centroidLng sql.NullFloat64
 
@@ -168,7 +169,7 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 		&user.ID, &user.ExternalID, &user.Email, &user.Name,
 		&preferredLanguage, &country, &timeZone,
 		&user.IsActive,
-		&holderFullName, &holderPhoneNumber,
+		&fullName, &phoneNumber,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
 	if err != nil {
@@ -183,12 +184,11 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	if timeZone.Valid {
 		user.TimeZone = timeZone.String
 	}
-	// The holder columns are set together (CHECK constraint).
-	if holderFullName.Valid {
-		user.HolderIdentity = &entity.HolderIdentity{
-			FullName:    holderFullName.String,
-			PhoneNumber: holderPhoneNumber.String,
-		}
+	if fullName.Valid {
+		user.FullName = fullName.String
+	}
+	if phoneNumber.Valid {
+		user.PhoneNumber = phoneNumber.String
 	}
 
 	if homeID.Valid {
@@ -409,15 +409,16 @@ func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*entity
 	return users, nil
 }
 
-// UpdateHolderIdentity replaces the user's holder full name and phone number
-// and returns the refreshed user.
-func (r *UserRepository) UpdateHolderIdentity(ctx context.Context, id string, identity entity.HolderIdentity) (*entity.User, error) {
-	if err := identity.Validate(); err != nil {
-		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid holder identity")
+// UpdatePersonalDetails sets the user's full name and phone number, storing
+// an empty value as absent, and returns the refreshed user.
+func (r *UserRepository) UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber string) (*entity.User, error) {
+	if err := entity.ValidatePersonalDetails(fullName, phoneNumber); err != nil {
+		return nil, apperr.Wrap(err, codes.InvalidArgument, "invalid personal details")
 	}
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateHolderIdentityQuery, id, identity.FullName, identity.PhoneNumber))
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, updatePersonalDetailsQuery, id,
+		nullStringFromEmpty(fullName), nullStringFromEmpty(phoneNumber)))
 	if err != nil {
-		return nil, toAppErr(err, "failed to update holder identity", slog.String("user_id", id))
+		return nil, toAppErr(err, "failed to update personal details", slog.String("user_id", id))
 	}
 	return user, nil
 }

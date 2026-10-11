@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	adminartistv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/artist/v1/artistv1connect"
 	adminorganizerv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/organizer/v1/organizerv1connect"
 	adminuserv1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/admin/user/v1/userv1connect"
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
@@ -39,7 +40,8 @@ const (
 // newTestAdminDeleteServer builds the admin Connect server as provider.go does
 // (no public procedures, server-wide admin-role interceptor, the server's own
 // validation interceptor) with the admin OrganizerService and UserService
-// mounted on the given usecase mocks.
+// mounted on the given usecase mocks, and the admin ArtistService on the
+// OrganizerUseCase mock.
 func newTestAdminDeleteServer(t *testing.T, organizerUC *usecasemocks.MockOrganizerUseCase, userUC *usecasemocks.MockUserUseCase) *httptest.Server {
 	t.Helper()
 	logger, err := logging.New()
@@ -62,6 +64,9 @@ func newTestAdminDeleteServer(t *testing.T, organizerUC *usecasemocks.MockOrgani
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminuserv1connect.NewUserServiceHandler(rpc.NewAdminUserHandler(userUC, logger), opts...)
+		},
+		func(opts ...connect.HandlerOption) (string, http.Handler) {
+			return adminartistv1connect.NewArtistServiceHandler(rpc.NewAdminArtistHandler(organizerUC, logger), opts...)
 		},
 	}
 	cfg := config.ServerSettings{

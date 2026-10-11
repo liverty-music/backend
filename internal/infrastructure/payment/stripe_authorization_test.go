@@ -85,6 +85,18 @@ func TestNoopAuthorizationPort_CaptureAuthorization(t *testing.T) {
 	assert.ErrorIs(t, err, apperr.ErrUnavailable)
 }
 
+func TestNoopAuthorizationPort_GetClientSecret(t *testing.T) {
+	t.Parallel()
+
+	logger := mustLogger(t)
+	port := payment.NewNoopAuthorizationPort(logger)
+
+	secret, err := port.GetClientSecret(context.Background(), "pi_test_123")
+
+	assert.Empty(t, secret)
+	assert.ErrorIs(t, err, apperr.ErrUnavailable)
+}
+
 // NOTE: the Stripe HTTP-status → apperr-code mapping is no longer duplicated
 // here. toPaymentAppErr now delegates to api.FromStatus, whose policy is
 // table-tested in pkg/api/errors_test.go (TestFromStatus). The card-brand

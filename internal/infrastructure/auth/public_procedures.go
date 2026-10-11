@@ -17,12 +17,12 @@ func FanPublicProcedures() map[string]bool {
 		"/" + artistconnect.ArtistServiceName + "/ListTop":          true,
 		"/" + artistconnect.ArtistServiceName + "/ListSimilar":      true,
 		"/" + artistconnect.ArtistServiceName + "/Search":           true,
-		"/" + concertconnect.ConcertServiceName + "/List":           true,
+		"/" + concertconnect.ConcertServiceName + "/ListByArtist":   true,
 		"/" + concertconnect.ConcertServiceName + "/ListByArtists":  true,
 		"/" + concertconnect.ConcertServiceName + "/ListByLocation": true,
 		"/" + concertconnect.ConcertServiceName + "/Get":            true,
 		"/" + concertconnect.ConcertServiceName + "/ListBySeries":   true,
-		ticketsaleconnect.TicketSaleServiceGetProcedure:             true,
+		ticketsaleconnect.TicketSaleServiceListByEventProcedure:     true,
 	}
 }
 

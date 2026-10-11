@@ -7,21 +7,23 @@ import (
 	ticketsalev1connect "buf.build/gen/go/liverty-music/schema/connectrpc/go/liverty_music/rpc/organizer/ticket_sale/v1/ticket_salev1connect"
 	ticketsalev1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/organizer/ticket_sale/v1"
 	"connectrpc.com/connect"
+	"github.com/pannpers/go-logging/logging"
+
 	"github.com/liverty-music/backend/internal/adapter/rpc/mapper"
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	"github.com/liverty-music/backend/internal/usecase"
-	"github.com/pannpers/go-logging/logging"
 )
 
 // Compile-time assertion that OrganizerTicketSaleHandler satisfies the
 // generated interface.
 var _ ticketsalev1connect.TicketSaleServiceHandler = (*OrganizerTicketSaleHandler)(nil)
 
-// OrganizerTicketSaleHandler implements the organizer-facing TicketSaleService.
-// Org-scoped authorization is enforced by the OrgScopedInterceptor before this
-// handler runs; the handler resolves the caller's own Organizer and delegates
-// to the ticket sale use case.
+// OrganizerTicketSaleHandler implements the organizer-facing TicketSaleService:
+// an operator opens and changes the sales of their own Organizer's Series.
+// Org-scoped authorization is enforced by the OrgScopedInterceptor and the
+// request by the protovalidate interceptor before this handler runs; the
+// handler resolves the caller's own Organizer and delegates to the use case.
 type OrganizerTicketSaleHandler struct {
 	ticketSaleUC usecase.TicketSaleUseCase
 	organizerUC  usecase.OrganizerUseCase
@@ -37,73 +39,91 @@ func NewOrganizerTicketSaleHandler(
 	return &OrganizerTicketSaleHandler{ticketSaleUC: ticketSaleUC, organizerUC: organizerUC, logger: logger}
 }
 
-// resolveCallerOrganizer reads the Zitadel org id from context and delegates
-// to OrganizerUseCase.ResolveCaller, whose failure is returned unchanged.
-func (h *OrganizerTicketSaleHandler) resolveCallerOrganizer(ctx context.Context) (*entity.Organizer, error) {
+// resolveCallerOrganizer returns the caller's own active Organizer. It fails
+// with PermissionDenied when the caller has no tenant; a failure of
+// OrganizerUseCase.ResolveCaller is returned unchanged.
+func resolveCallerOrganizer(ctx context.Context, organizerUC usecase.OrganizerUseCase) (*entity.Organizer, error) {
 	callerOrgID, ok := auth.GetCallerOrgID(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("permission denied"))
 	}
-	return h.organizerUC.ResolveCaller(ctx, callerOrgID)
+	return organizerUC.ResolveCaller(ctx, callerOrgID)
 }
 
-// Configure creates or changes the sale of one of the caller's events.
-func (h *OrganizerTicketSaleHandler) Configure(
+// Create opens a sale, with its ticket types, on events of one of the
+// caller's Series.
+func (h *OrganizerTicketSaleHandler) Create(
 	ctx context.Context,
-	req *connect.Request[ticketsalev1.ConfigureRequest],
-) (*connect.Response[ticketsalev1.ConfigureResponse], error) {
-	msg := req.Msg
-	eventID := msg.GetEventId().GetValue()
-	if err := requireUUID("event_id", eventID); err != nil {
-		return nil, err
-	}
-	if msg.GetSaleStartTime() == nil || msg.GetPrice() == 0 || msg.GetQuantity() == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("sale_start_time, price and quantity are required"))
-	}
-	organizer, err := h.resolveCallerOrganizer(ctx)
+	req *connect.Request[ticketsalev1.CreateRequest],
+) (*connect.Response[ticketsalev1.CreateResponse], error) {
+	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}
 
-	in := usecase.ConfigureTicketSaleInput{
-		EventID:   eventID,
-		SaleStart: msg.GetSaleStartTime().AsTime(),
-		Price:     msg.GetPrice(),
-		Quantity:  int(msg.GetQuantity()),
-	}
-	if msg.GetSaleEndTime() != nil {
-		end := msg.GetSaleEndTime().AsTime()
-		in.SaleEnd = &end
-	}
-	if msg.PerAccountLimit != nil {
-		limit := int(msg.GetPerAccountLimit())
-		in.PerAccountLimit = &limit
-	}
-
-	view, err := h.ticketSaleUC.Configure(ctx, organizer.ID, in)
+	view, err := h.ticketSaleUC.Create(ctx, organizer.ID, mapper.CreateTicketSaleInputFromProto(req.Msg))
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.ConfigureResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
+	return connect.NewResponse(&ticketsalev1.CreateResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
 }
 
-// Get returns the sale of one of the caller's events with its counts.
-func (h *OrganizerTicketSaleHandler) Get(
+// ListByEvent returns the sales of one of the caller's events with their
+// counts and, for a lottery, the entry tallies.
+func (h *OrganizerTicketSaleHandler) ListByEvent(
 	ctx context.Context,
-	req *connect.Request[ticketsalev1.GetRequest],
-) (*connect.Response[ticketsalev1.GetResponse], error) {
-	eventID := req.Msg.GetEventId().GetValue()
-	if err := requireUUID("event_id", eventID); err != nil {
-		return nil, err
-	}
-	organizer, err := h.resolveCallerOrganizer(ctx)
+	req *connect.Request[ticketsalev1.ListByEventRequest],
+) (*connect.Response[ticketsalev1.ListByEventResponse], error) {
+	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
 	if err != nil {
 		return nil, err
 	}
 
-	view, err := h.ticketSaleUC.GetOwn(ctx, organizer.ID, eventID)
+	views, err := h.ticketSaleUC.ListOwnByEvent(ctx, organizer.ID, req.Msg.GetEventId().GetValue())
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&ticketsalev1.GetResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
+	return connect.NewResponse(&ticketsalev1.ListByEventResponse{
+		TicketSales:       mapper.TicketSalesToProto(views, true),
+		LotteryEntryStats: mapper.LotteryEntryStatsToProto(views),
+	}), nil
+}
+
+// SetWindow moves the window of one of the caller's sales.
+func (h *OrganizerTicketSaleHandler) SetWindow(
+	ctx context.Context,
+	req *connect.Request[ticketsalev1.SetWindowRequest],
+) (*connect.Response[ticketsalev1.SetWindowResponse], error) {
+	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
+	if err != nil {
+		return nil, err
+	}
+
+	view, err := h.ticketSaleUC.SetWindow(ctx, organizer.ID,
+		entity.TicketSaleID(req.Msg.GetTicketSaleId().GetValue()),
+		req.Msg.GetSaleStartTime().AsTime(), req.Msg.GetSaleEndTime().AsTime())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&ticketsalev1.SetWindowResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
+}
+
+// SetVerificationRequirement changes whether fans taking part in one of the
+// caller's sales must hold an Active Kyc; a request without one sets None.
+func (h *OrganizerTicketSaleHandler) SetVerificationRequirement(
+	ctx context.Context,
+	req *connect.Request[ticketsalev1.SetVerificationRequirementRequest],
+) (*connect.Response[ticketsalev1.SetVerificationRequirementResponse], error) {
+	organizer, err := resolveCallerOrganizer(ctx, h.organizerUC)
+	if err != nil {
+		return nil, err
+	}
+
+	view, err := h.ticketSaleUC.SetVerificationRequirement(ctx, organizer.ID,
+		entity.TicketSaleID(req.Msg.GetTicketSaleId().GetValue()),
+		mapper.VerificationRequirementFromProto(req.Msg.GetVerificationRequirement()))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&ticketsalev1.SetVerificationRequirementResponse{TicketSale: mapper.TicketSaleToProto(view, true)}), nil
 }

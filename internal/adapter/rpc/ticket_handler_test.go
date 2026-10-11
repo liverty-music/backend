@@ -3,123 +3,75 @@ package rpc_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	entityv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/entity/v1"
 	ticketv1 "buf.build/gen/go/liverty-music/schema/protocolbuffers/go/liverty_music/rpc/ticket/v1"
 	"connectrpc.com/connect"
 	handler "github.com/liverty-music/backend/internal/adapter/rpc"
 	"github.com/liverty-music/backend/internal/entity"
-	entitymocks "github.com/liverty-music/backend/internal/entity/mocks"
 	"github.com/liverty-music/backend/internal/infrastructure/auth"
 	ucmocks "github.com/liverty-music/backend/internal/usecase/mocks"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
+// ticketAuthedCtx returns a context signed in as sub.
 func ticketAuthedCtx(sub string) context.Context {
 	return auth.WithClaims(context.Background(), &auth.Claims{Sub: sub})
 }
 
-func newTicketHandler(t *testing.T) (*handler.TicketHandler, *ucmocks.MockTicketUseCase, *entitymocks.MockUserRepository) {
+func newTicketHandler(t *testing.T) (*handler.TicketHandler, *ucmocks.MockTicketUseCase, *ucmocks.MockUserUseCase) {
 	t.Helper()
 	uc := ucmocks.NewMockTicketUseCase(t)
-	ur := entitymocks.NewMockUserRepository(t)
+	users := ucmocks.NewMockUserUseCase(t)
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return handler.NewTicketHandler(uc, ur, logger), uc, ur
-}
-
-func TestTicketHandler_GetOrder(t *testing.T) {
-	t.Parallel()
-
-	t.Run("returns the caller's own order", func(t *testing.T) {
-		t.Parallel()
-		ctx := ticketAuthedCtx("ext-1")
-		h, uc, ur := newTicketHandler(t)
-		ur.EXPECT().GetByExternalID(ctx, "ext-1").
-			Return(&entity.User{ID: "user-1", ExternalID: "ext-1"}, nil)
-		uc.EXPECT().GetOrder(ctx, entity.UserID("user-1"), entity.OrderID("order-1")).
-			Return(&entity.Order{
-				ID:       "order-1",
-				BuyerID:  "user-1",
-				Status:   entity.OrderStatusPaid,
-				Amount:   10000,
-				Currency: "JPY",
-				PaidTime: time.Unix(1_700_000_000, 0),
-			}, nil)
-
-		resp, err := h.GetOrder(ctx, connect.NewRequest(&ticketv1.GetOrderRequest{
-			OrderId: &entityv1.OrderId{Value: "order-1"},
-		}))
-		require.NoError(t, err)
-		assert.Equal(t, "order-1", resp.Msg.Order.Id.Value)
-		assert.Equal(t, entityv1.OrderStatus_ORDER_STATUS_PAID, resp.Msg.Order.Status)
-		assert.Equal(t, int64(10000), resp.Msg.Order.Amount)
-	})
-
-	t.Run("propagates NotFound (non-revealing) when the order is not the caller's", func(t *testing.T) {
-		t.Parallel()
-		ctx := ticketAuthedCtx("ext-1")
-		h, uc, ur := newTicketHandler(t)
-		ur.EXPECT().GetByExternalID(ctx, "ext-1").
-			Return(&entity.User{ID: "user-1", ExternalID: "ext-1"}, nil)
-		uc.EXPECT().GetOrder(ctx, entity.UserID("user-1"), entity.OrderID("order-x")).
-			Return(nil, apperr.New(codes.NotFound, "order not found"))
-
-		_, err := h.GetOrder(ctx, connect.NewRequest(&ticketv1.GetOrderRequest{
-			OrderId: &entityv1.OrderId{Value: "order-x"},
-		}))
-		require.Error(t, err)
-		// The handler propagates the usecase's apperr unchanged; the apperr→connect
-		// code mapping is the server interceptor's responsibility (tested there).
-		assert.ErrorIs(t, err, apperr.ErrNotFound)
-	})
+	return handler.NewTicketHandler(uc, users, logger), uc, users
 }
 
 func TestTicketHandler_List(t *testing.T) {
 	t.Parallel()
-	// @spec components/adapter/fan/api/rpc/ticket "Fan lists their tickets"
 
-	ctx := ticketAuthedCtx("ext-1")
-	h, uc, ur := newTicketHandler(t)
-	ur.EXPECT().GetByExternalID(ctx, "ext-1").
-		Return(&entity.User{ID: "user-1", ExternalID: "ext-1"}, nil)
-	uc.EXPECT().GetMyTickets(ctx, entity.UserID("user-1")).
-		Return([]*entity.Ticket{
-			{ID: "t-1", OrderID: "order-1", HolderID: "user-1", EventID: "event-1", ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
-			{ID: "t-2", OrderID: "order-1", HolderID: "user-1", EventID: "event-1", ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
+	t.Run("fan lists their tickets", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/fan/api/rpc/ticket "Fan lists their tickets"
+		h, uc, users := newTicketHandler(t)
+		expectFan(users)
+		uc.EXPECT().GetMyTickets(mock.Anything, entity.UserID(tkFanUserID)).Return([]*entity.Ticket{
+			{ID: "t-1", OrderID: tkOrderID, UserID: tkFanUserID, EventID: testEventID, KycID: "kyc-1", ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
+			{ID: "t-2", OrderID: tkOrderID, UserID: tkFanUserID, EventID: testEventID, ResaleWithoutConsentProhibited: true, Status: entity.TicketStatusIssued},
 		}, nil)
 
-	resp, err := h.List(ctx, connect.NewRequest(&ticketv1.ListRequest{}))
-	require.NoError(t, err)
-	require.Len(t, resp.Msg.Tickets, 2)
-	assert.Equal(t, "t-1", resp.Msg.Tickets[0].Id.Value)
-	assert.True(t, resp.Msg.Tickets[0].ResaleWithoutConsentProhibited)
-	assert.Equal(t, entityv1.TicketStatus_TICKET_STATUS_ISSUED, resp.Msg.Tickets[1].Status)
-}
+		resp, err := h.List(fanCtx(tkFanSub), connect.NewRequest(&ticketv1.ListRequest{}))
 
-func TestTicketHandler_GetOrder_Boundary(t *testing.T) {
-	t.Parallel()
+		require.NoError(t, err)
+		require.Len(t, resp.Msg.GetTickets(), 2)
+		assert.Equal(t, tkFanUserID, resp.Msg.GetTickets()[0].GetUserId().GetValue())
+		assert.Equal(t, "kyc-1", resp.Msg.GetTickets()[0].GetKycId().GetValue())
+		assert.Nil(t, resp.Msg.GetTickets()[1].GetKycId(), "no Kyc binding without a verification requirement")
+		assert.Equal(t, entityv1.TicketStatus_TICKET_STATUS_ISSUED, resp.Msg.GetTickets()[1].GetStatus())
+	})
 
-	t.Run("not signed in", func(t *testing.T) {
+	t.Run("not signed in lists tickets", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/fan/api/rpc/ticket "Not signed in"
+		// @spec components/adapter/fan/api/rpc/ticket "Not signed in lists tickets"
 		h, _, _ := newTicketHandler(t)
-		_, err := h.GetOrder(context.Background(), connect.NewRequest(&ticketv1.GetOrderRequest{
-			OrderId: &entityv1.OrderId{Value: "order-1"},
-		}))
+
+		_, err := h.List(context.Background(), connect.NewRequest(&ticketv1.ListRequest{}))
+
 		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	})
 
-	t.Run("missing order", func(t *testing.T) {
+	t.Run("caller without an account", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/fan/api/rpc/ticket "Missing order"
-		h, _, _ := newTicketHandler(t)
-		_, err := h.GetOrder(ticketAuthedCtx("ext-1"), connect.NewRequest(&ticketv1.GetOrderRequest{}))
-		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		h, _, users := newTicketHandler(t)
+		expectNoAccount(users, "ext-new")
+
+		_, err := h.List(fanCtx("ext-new"), connect.NewRequest(&ticketv1.ListRequest{}))
+
+		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 }

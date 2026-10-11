@@ -305,7 +305,7 @@ func TestOrganizerSeriesHandler_Create(t *testing.T) {
 	})
 }
 
-func TestOrganizerSeriesHandler_RegenerateToken(t *testing.T) {
+func TestOrganizerSeriesHandler_RegenerateShareUrl(t *testing.T) {
 	t.Parallel()
 
 	// @spec components/adapter/organizer/api/rpc/series "New token"
@@ -322,7 +322,7 @@ func TestOrganizerSeriesHandler_RegenerateToken(t *testing.T) {
 			Return("new-token", nil).
 			Once()
 
-		resp, err := d.handler.RegenerateToken(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.RegenerateTokenRequest{
+		resp, err := d.handler.RegenerateShareUrl(orgCtx(testZitadelOrgID), connect.NewRequest(&organizerseriesv1.RegenerateShareUrlRequest{
 			SeriesId: &entityv1.SeriesId{Value: "series-1"},
 		}))
 
@@ -362,12 +362,12 @@ func TestOrganizerSeriesHandler_ResolveCallerFailure(t *testing.T) {
 			_, err := h.List(ctx, connect.NewRequest(&organizerseriesv1.ListRequest{}))
 			return err
 		}},
-		{"RegenerateToken", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.RegenerateToken(ctx, connect.NewRequest(&organizerseriesv1.RegenerateTokenRequest{}))
+		{"RegenerateShareUrl", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
+			_, err := h.RegenerateShareUrl(ctx, connect.NewRequest(&organizerseriesv1.RegenerateShareUrlRequest{}))
 			return err
 		}},
-		{"CreateMediaUploadURL", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
-			_, err := h.CreateMediaUploadURL(ctx, connect.NewRequest(&organizerseriesv1.CreateMediaUploadURLRequest{}))
+		{"CreateMediaUploadUrl", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {
+			_, err := h.CreateMediaUploadUrl(ctx, connect.NewRequest(&organizerseriesv1.CreateMediaUploadUrlRequest{}))
 			return err
 		}},
 		{"AttachMedia", func(ctx context.Context, h *rpc.OrganizerSeriesHandler) error {

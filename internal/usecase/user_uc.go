@@ -72,9 +72,21 @@ type UserUseCase interface {
 	//  - NotFound: If the user does not exist.
 	UpdateHome(ctx context.Context, id string, home *entity.Home) (*entity.User, error)
 
+	// Update changes the calling fan's own full name, phone number or both, the
+	// 本人確認 (identity check) details shown on the face of their Tickets, and
+	// returns the User. A nil value is not given and keeps the stored one; at
+	// least one value must be given.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: no value is given, or a given value is empty or
+	//    breaks the User's personal details rule; nothing changed.
+	//  - NotFound: no user exists for externalID.
+	Update(ctx context.Context, externalID string, fullName, phoneNumber *string) (*entity.User, error)
+
 	// Delete permanently removes a fan user at an admin's request: first the
 	// user's sign-in identity, then the user record with everything it owns.
-	// The user's Orders, Tickets and ticket applications are kept. Nothing is
+	// The user's Orders, Tickets and lottery entries are kept. Nothing is
 	// removed while the user holds an Issued Ticket or has an Order that is not
 	// Refunded. An identity that is already gone counts as removed, so calling
 	// Delete again completes a deletion whose record removal failed.
@@ -88,25 +100,18 @@ type UserUseCase interface {
 	//    is not configured.
 	Delete(ctx context.Context, id string) error
 
-	// ResolveCaller returns the user identified by externalID (the Zitadel
-	// subject claim), after verifying that reqUserID — the user_id supplied
-	// by the client in the request body — matches the caller's own id.
-	//
-	// Handlers for per-user RPCs that expose an explicit user_id field in
-	// their request message MUST call this instead of GetByExternalID so
-	// that cross-user requests are rejected before any business logic runs.
+	// ResolveCaller returns the caller's own User, identified by externalID
+	// (the Zitadel subject claim). A request never names a User id, so a
+	// per-user call always acts on the caller's own User.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: reqUserID is empty.
-	//  - PermissionDenied: reqUserID does not match the caller's user id.
 	//  - NotFound: no user exists for externalID.
-	ResolveCaller(ctx context.Context, externalID, reqUserID string) (*entity.User, error)
+	ResolveCaller(ctx context.Context, externalID string) (*entity.User, error)
 
 	// ResendEmailVerification triggers a new email verification message via
-	// the identity provider for the user identified by externalID (the
-	// Zitadel subject claim), after verifying reqUserID matches the
-	// caller's own user id and the resend rate limit has not been
+	// the identity provider for the caller identified by externalID (the
+	// Zitadel subject claim), when the resend rate limit has not been
 	// exceeded.
 	//
 	// The rate limit (3 resends per rolling 10-minute window) is tracked in
@@ -117,13 +122,11 @@ type UserUseCase interface {
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: reqUserID is empty.
-	//  - PermissionDenied: reqUserID does not match the caller's user id.
 	//  - ResourceExhausted: the resend rate limit has been exceeded.
 	//  - FailedPrecondition: the user's email is already verified.
 	//  - Unavailable: the email verification service is not configured.
 	//  - NotFound: no user exists for externalID.
-	ResendEmailVerification(ctx context.Context, externalID, reqUserID string) error
+	ResendEmailVerification(ctx context.Context, externalID string) error
 }
 
 // userUseCase implements the UserUseCase interface.
@@ -341,7 +344,7 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	tickets, err := uc.ticketRepo.ListByHolder(ctx, entity.UserID(id))
+	tickets, err := uc.ticketRepo.ListByUser(ctx, entity.UserID(id))
 	if err != nil {
 		return err
 	}
@@ -350,7 +353,7 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 			return apperr.New(codes.FailedPrecondition, "user holds an issued ticket", slog.String("user_id", id))
 		}
 	}
-	orders, err := uc.orderRepo.ListByBuyer(ctx, entity.UserID(id))
+	orders, err := uc.orderRepo.ListByUser(ctx, entity.UserID(id))
 	if err != nil {
 		return err
 	}
@@ -378,31 +381,51 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// ResolveCaller returns the user identified by externalID, verifying that
-// reqUserID matches the caller's own id.
-func (uc *userUseCase) ResolveCaller(ctx context.Context, externalID, reqUserID string) (*entity.User, error) {
-	user, err := uc.GetByExternalID(ctx, externalID)
+// Update implements [UserUseCase]. It merges the given values with the
+// caller's current ones, so a value not given is kept.
+func (uc *userUseCase) Update(ctx context.Context, externalID string, fullName, phoneNumber *string) (*entity.User, error) {
+	if fullName == nil && phoneNumber == nil {
+		return nil, apperr.New(codes.InvalidArgument, "at least one of full name and phone number must be given")
+	}
+	if (fullName != nil && *fullName == "") || (phoneNumber != nil && *phoneNumber == "") {
+		return nil, apperr.New(codes.InvalidArgument, "a given full name or phone number must not be empty")
+	}
+	user, err := uc.ResolveCaller(ctx, externalID)
 	if err != nil {
 		return nil, err
 	}
-	if reqUserID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user_id is required")
+	name, phone := user.FullName, user.PhoneNumber
+	if fullName != nil {
+		name = *fullName
 	}
-	if reqUserID != user.ID {
-		return nil, apperr.New(codes.PermissionDenied, "user_id does not match authenticated user")
+	if phoneNumber != nil {
+		phone = *phoneNumber
 	}
-	return user, nil
+	if err := entity.ValidatePersonalDetails(name, phone); err != nil {
+		return nil, apperr.Wrap(err, codes.InvalidArgument, err.Error())
+	}
+	updated, err := uc.userRepo.UpdatePersonalDetails(ctx, user.ID, name, phone)
+	if err != nil {
+		return nil, err
+	}
+	uc.logger.Info(ctx, "User personal details updated", slog.String("user_id", user.ID))
+	return updated, nil
+}
+
+// ResolveCaller returns the caller's own user, identified by externalID.
+func (uc *userUseCase) ResolveCaller(ctx context.Context, externalID string) (*entity.User, error) {
+	return uc.GetByExternalID(ctx, externalID)
 }
 
 // ResendEmailVerification triggers a verification-email resend for the
-// caller, enforcing the user_id ownership check and the in-memory resend
-// rate limit before calling the identity provider.
-func (uc *userUseCase) ResendEmailVerification(ctx context.Context, externalID, reqUserID string) error {
+// caller, enforcing the in-memory resend rate limit before calling the
+// identity provider.
+func (uc *userUseCase) ResendEmailVerification(ctx context.Context, externalID string) error {
 	if uc.emailVerifier == nil {
 		return apperr.New(codes.Unavailable, "email verification service is not configured")
 	}
 
-	user, err := uc.ResolveCaller(ctx, externalID, reqUserID)
+	user, err := uc.ResolveCaller(ctx, externalID)
 	if err != nil {
 		return err
 	}

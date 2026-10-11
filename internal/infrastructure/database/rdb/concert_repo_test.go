@@ -1393,22 +1393,23 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 
 		require.NotNil(t, got[0].Series.Organizer, "a first-party series carries its Organizer")
 		assert.Equal(t, "Test Organizer", got[0].Series.Organizer.Name)
-		assert.Nil(t, got[0].Series.Organizer.SellerDetails)
+		assert.Nil(t, got[0].Series.Organizer.BusinessDetails)
 
 		// ListByIDs ignores visibility and carries the same first-party
-		// attributes, with the Organizer's seller details once entered.
-		details := entity.SellerDetails{
-			LegalName: "株式会社リバティ", RepresentativeName: "山田 太郎", Address: "東京都渋谷区1-2-3",
-			PhoneNumber: "+81312345678", ContactEmail: "info@example.com",
+		// attributes, with the Organizer's business details once entered.
+		details := entity.BusinessDetails{
+			LegalName: "株式会社リバティ", RepresentativeName: "山田 太郎", BusinessAddress: "東京都渋谷区1-2-3",
+			BusinessPhoneNumber: "+81312345678", ContactEmail: "info@example.com",
 		}
-		require.NoError(t, rdb.NewOrganizerRepository(testDB).SetSellerDetails(ctx, organizerID, details))
+		_, err = rdb.NewOrganizerRepository(testDB).SetBusinessDetails(ctx, organizerID, details)
+		require.NoError(t, err)
 		byID, err := concertRepo.ListByIDs(ctx, []string{got[0].ID})
 		require.NoError(t, err)
 		require.Len(t, byID, 1)
 		require.NotNil(t, byID[0].Series.OrganizerID)
 		assert.Equal(t, organizerID, *byID[0].Series.OrganizerID)
 		require.NotNil(t, byID[0].Series.Organizer)
-		assert.Equal(t, &details, byID[0].Series.Organizer.SellerDetails)
+		assert.Equal(t, &details, byID[0].Series.Organizer.BusinessDetails)
 		require.NotNil(t, byID[0].Series.CoverMedia)
 		assert.Equal(t, coverID, byID[0].Series.CoverMedia.ID)
 	})

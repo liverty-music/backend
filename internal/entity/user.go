@@ -2,9 +2,45 @@ package entity
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
+	"unicode/utf8"
 )
+
+// UserID is the opaque identifier for a fan account, as referenced by the
+// ticketing records (lottery entries, checkouts, orders and tickets).
+//
+// Mirrors liverty_music.entity.v1.UserId.value (a UUID string).
+type UserID string
+
+// e164Re matches a phone number in E.164 form: "+" then 2 to 15 digits, the
+// first not 0. Mirrors the protovalidate pattern on PhoneNumber and the CHECK
+// constraints in storage.
+var e164Re = regexp.MustCompile(`^\+[1-9][0-9]{1,14}$`)
+
+// IsE164 reports whether s is a phone number in E.164 form.
+func IsE164(s string) bool {
+	return e164Re.MatchString(s)
+}
+
+// FullNameMaxLen is the longest full name accepted, in characters.
+const FullNameMaxLen = 200
+
+// ValidatePersonalDetails reports whether a full name and a phone number
+// follow the User's personal details rule: a full name, when present, is 1 to
+// 200 characters, and a phone number, when present, is in E.164 form. An
+// empty value is absent, which is valid. The entity layer returns stdlib
+// errors; callers wrap them with an apperr code.
+func ValidatePersonalDetails(fullName, phoneNumber string) error {
+	if utf8.RuneCountInString(fullName) > FullNameMaxLen {
+		return errors.New("full name must be 1 to 200 characters")
+	}
+	if phoneNumber != "" && !IsE164(phoneNumber) {
+		return errors.New("phone number must be in E.164 form")
+	}
+	return nil
+}
 
 // countryCodeRe validates ISO 3166-1 alpha-2 country codes (e.g., "JP", "US").
 var countryCodeRe = regexp.MustCompile(`^[A-Z]{2}$`)
@@ -102,9 +138,26 @@ type User struct {
 	// Home is the user's home area. Nil when not set.
 	// Determines proximity classification (home/nearby/away).
 	Home *Home
-	// HolderIdentity is the 本人確認 name and phone the user last checked out
-	// with, kept to prefill the next checkout. Nil until the first checkout.
-	HolderIdentity *HolderIdentity
+	// FullName is the user's legal name as on their ID, the 本人確認 (identity
+	// check) name shown on the face of their tickets; 1 to 200 characters, or
+	// empty until first given.
+	FullName string
+	// PhoneNumber is the user's contact phone number in E.164 form (e.g.
+	// "+819012345678"), shown on the face of their tickets; empty until first
+	// given.
+	PhoneNumber string
+}
+
+// ValidatePersonalDetails reports whether the user's full name and phone
+// number follow the personal details rule ([ValidatePersonalDetails]).
+func (u *User) ValidatePersonalDetails() error {
+	return ValidatePersonalDetails(u.FullName, u.PhoneNumber)
+}
+
+// HasPersonalDetails reports whether the user has given both a full name and
+// a phone number.
+func (u *User) HasPersonalDetails() bool {
+	return u.FullName != "" && u.PhoneNumber != ""
 }
 
 // NewUser represents data for creating a new user.
@@ -214,14 +267,16 @@ type UserRepository interface {
 	//  - NotFound: If the user does not exist.
 	UpdateHome(ctx context.Context, id string, home *Home) (*User, error)
 
-	// UpdateHolderIdentity replaces the user's holder full name and phone
-	// number and returns the updated user.
+	// UpdatePersonalDetails sets the user's full name and phone number to the
+	// given values (an empty value stores it as absent), leaves the user's
+	// other attributes unchanged and returns the updated user. Repeating it
+	// with the same values succeeds without a further change.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: either value breaks the holder identity rules.
+	//  - InvalidArgument: the values break the personal details rule.
 	//  - NotFound: If the user does not exist.
-	UpdateHolderIdentity(ctx context.Context, id string, identity HolderIdentity) (*User, error)
+	UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber string) (*User, error)
 
 	// List retrieves users with pagination.
 	List(ctx context.Context, limit, offset int) ([]*User, error)

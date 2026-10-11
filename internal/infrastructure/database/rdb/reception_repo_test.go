@@ -30,48 +30,6 @@ func seedReceptionEvent(t *testing.T) string {
 	return seedEvent(t, venueID, artistID, "reception-concert", "2026-11-20")
 }
 
-// seedHeldTickets issues n Issued tickets of eventID to holderID (through a
-// lottery phase, a Won application and a Paid order) and returns their ids
-// in issue order.
-func seedHeldTickets(t *testing.T, eventID, holderID string, n int) []entity.TicketID {
-	t.Helper()
-	ctx := context.Background()
-	phaseRepo := rdb.NewLotteryPhaseRepository(testDB)
-	appRepo := rdb.NewTicketApplicationRepository(testDB)
-
-	open := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	phase, err := phaseRepo.Create(ctx, &entity.LotterySalesPhase{
-		ID:                       entity.LotteryPhaseID(entity.NewID()),
-		EventID:                  eventID,
-		OpenTime:                 open,
-		CloseTime:                open.Add(7 * 24 * time.Hour),
-		TicketCapacity:           100,
-		MaxTicketsPerApplication: 10,
-		TicketPrice:              5000,
-	})
-	require.NoError(t, err)
-	app := seedApplication(t, appRepo, phase.ID, holderID, entity.TicketApplicationStateWon)
-
-	orderID := entity.NewID()
-	_, err = testDB.Pool.Exec(ctx, `
-		INSERT INTO orders (id, buyer_id, application_id, provider, payment_intent_ref, status, amount, currency, paid_at)
-		VALUES ($1, $2, $3, 1, $4, 1, $5, 'JPY', $6)`,
-		orderID, holderID, string(app.ID), "pi_"+orderID, 5000*n, open)
-	require.NoError(t, err)
-
-	ids := make([]entity.TicketID, 0, n)
-	for i := range n {
-		id := entity.NewID()
-		_, err := testDB.Pool.Exec(ctx, `
-			INSERT INTO tickets (id, order_id, holder_id, event_id, holder_full_name, holder_phone_number, status, issued_at)
-			VALUES ($1, $2, $3, $4, '山田太郎', '+819012345678', 1, $5)`,
-			id, orderID, holderID, eventID, open.Add(time.Duration(i)*time.Second))
-		require.NoError(t, err)
-		ids = append(ids, entity.TicketID(id))
-	}
-	return ids
-}
-
 // seedLink creates a reception link for eventID.
 func seedLink(t *testing.T, eventID string) *entity.ReceptionLink {
 	t.Helper()
@@ -93,8 +51,8 @@ func TestTicketRepository_Admit(t *testing.T) {
 		// @spec components/entity/ticket/admit "First admission"
 		cleanDatabase(t)
 		eventID := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		ticket := seedHeldTickets(t, eventID, holder, 1)[0]
+		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
 		link := seedLink(t, eventID)
 
 		got, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
@@ -102,10 +60,10 @@ func TestTicketRepository_Admit(t *testing.T) {
 		assert.Equal(t, entity.AdmitOutcomeAdmitted, got.Outcome)
 		assert.True(t, got.AdmittedTime.Equal(nov20(18, 32)))
 
-		held, err := repo.ListByHolderAndEvent(ctx, entity.UserID(holder), eventID)
+		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
-		require.NotNil(t, held[0].AdmittedTime)
-		assert.True(t, held[0].AdmittedTime.Equal(nov20(18, 32)))
+		require.NotNil(t, tickets[0].AdmittedTime)
+		assert.True(t, tickets[0].AdmittedTime.Equal(nov20(18, 32)))
 
 		admission, err := admissions.GetByTicket(ctx, ticket)
 		require.NoError(t, err)
@@ -119,8 +77,8 @@ func TestTicketRepository_Admit(t *testing.T) {
 		// @spec components/entity/ticket/admit "Second admission"
 		cleanDatabase(t)
 		eventID := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		ticket := seedHeldTickets(t, eventID, holder, 1)[0]
+		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
 		link := seedLink(t, eventID)
 
 		_, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
@@ -139,8 +97,8 @@ func TestTicketRepository_Admit(t *testing.T) {
 		// @spec components/entity/ticket/admit "Concurrent admissions"
 		cleanDatabase(t)
 		eventID := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		ticket := seedHeldTickets(t, eventID, holder, 1)[0]
+		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
 		link1 := seedLink(t, eventID)
 		link2 := seedLink(t, eventID)
 
@@ -187,8 +145,8 @@ func TestTicketRepository_Admit(t *testing.T) {
 		// @spec components/entity/ticket/admit "Voided ticket"
 		cleanDatabase(t)
 		eventID := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		ticket := seedHeldTickets(t, eventID, holder, 1)[0]
+		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
 		link := seedLink(t, eventID)
 		_, err := testDB.Pool.Exec(ctx, `UPDATE tickets SET status = 2 WHERE id = $1`, string(ticket))
 		require.NoError(t, err)
@@ -214,8 +172,8 @@ func TestTicketRepository_Admit(t *testing.T) {
 	t.Run("link revoked before the admission", func(t *testing.T) {
 		cleanDatabase(t)
 		eventID := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		ticket := seedHeldTickets(t, eventID, holder, 1)[0]
+		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
 		link := seedLink(t, eventID)
 		_, err := links.Revoke(ctx, link.ID, nov20(18, 30))
 		require.NoError(t, err)
@@ -224,9 +182,9 @@ func TestTicketRepository_Admit(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 		assert.ErrorIs(t, err, entity.ErrReceptionLinkNotUsable)
 
-		held, err := repo.ListByHolderAndEvent(ctx, entity.UserID(holder), eventID)
+		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
-		assert.Nil(t, held[0].AdmittedTime, "nothing is admitted through a revoked link")
+		assert.Nil(t, tickets[0].AdmittedTime, "nothing is admitted through a revoked link")
 	})
 
 	t.Run("voided after entry keeps the admitted time and the admission", func(t *testing.T) {
@@ -234,67 +192,26 @@ func TestTicketRepository_Admit(t *testing.T) {
 		// @spec components/entity/admission "Ticket voided after entry"
 		cleanDatabase(t)
 		eventID := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		ticket := seedHeldTickets(t, eventID, holder, 1)[0]
+		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
 		link := seedLink(t, eventID)
 		_, err := repo.Admit(ctx, ticket, link.ID, nov20(18, 32))
 		require.NoError(t, err)
 
-		held, err := repo.ListByHolderAndEvent(ctx, entity.UserID(holder), eventID)
+		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
-		require.NoError(t, repo.VoidByOrder(ctx, held[0].OrderID))
+		require.NoError(t, repo.VoidByOrder(ctx, tickets[0].OrderID))
 
-		held, err = repo.ListByHolderAndEvent(ctx, entity.UserID(holder), eventID)
+		tickets, err = repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
-		assert.Equal(t, entity.TicketStatusVoided, held[0].Status)
-		require.NotNil(t, held[0].AdmittedTime)
-		assert.True(t, held[0].AdmittedTime.Equal(nov20(18, 32)))
+		assert.Equal(t, entity.TicketStatusVoided, tickets[0].Status)
+		require.NotNil(t, tickets[0].AdmittedTime)
+		assert.True(t, tickets[0].AdmittedTime.Equal(nov20(18, 32)))
 
 		admission, err := admissions.GetByTicket(ctx, ticket)
 		require.NoError(t, err)
 		assert.True(t, admission.AdmittedTime.Equal(nov20(18, 32)))
 		assert.Equal(t, link.ID, admission.ReceptionLinkID)
-	})
-}
-
-func TestTicketRepository_ListByHolderAndEvent(t *testing.T) {
-	if testDB == nil {
-		t.Skip("no local database available")
-	}
-	ctx := context.Background()
-	repo := rdb.NewTicketRepository(testDB)
-
-	t.Run("group of tickets", func(t *testing.T) {
-		// @spec components/entity/ticket/list-by-holder-and-event "Group of tickets"
-		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
-		otherEvent := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		group := seedHeldTickets(t, eventID, holder, 3)
-		seedHeldTickets(t, otherEvent, holder, 1)
-		_, err := testDB.Pool.Exec(ctx, `UPDATE tickets SET status = 2 WHERE id = $1`, string(group[2]))
-		require.NoError(t, err)
-
-		got, err := repo.ListByHolderAndEvent(ctx, entity.UserID(holder), eventID)
-		require.NoError(t, err)
-		require.Len(t, got, 3)
-		for i, tk := range got {
-			assert.Equal(t, group[i], tk.ID, "issue order")
-			assert.Equal(t, eventID, tk.EventID)
-		}
-		assert.Equal(t, entity.TicketStatusVoided, got[2].Status, "Voided tickets are listed too")
-	})
-
-	t.Run("no tickets for the event", func(t *testing.T) {
-		// @spec components/entity/ticket/list-by-holder-and-event "No tickets for the event"
-		cleanDatabase(t)
-		eventID := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-
-		got, err := repo.ListByHolderAndEvent(ctx, entity.UserID(holder), eventID)
-		require.NoError(t, err)
-		assert.NotNil(t, got)
-		assert.Empty(t, got)
 	})
 }
 
@@ -711,8 +628,8 @@ func TestAdmissionRepository_GetByTicket(t *testing.T) {
 		// @spec components/entity/admission/get-by-ticket "Admitted ticket"
 		cleanDatabase(t)
 		eventID := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		ticket := seedHeldTickets(t, eventID, holder, 1)[0]
+		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
 		link := seedLink(t, eventID)
 		_, err := tickets.Admit(ctx, ticket, link.ID, nov20(18, 32))
 		require.NoError(t, err)
@@ -727,8 +644,8 @@ func TestAdmissionRepository_GetByTicket(t *testing.T) {
 		// @spec components/entity/admission/get-by-ticket "Ticket not admitted"
 		cleanDatabase(t)
 		eventID := seedReceptionEvent(t)
-		holder := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
-		ticket := seedHeldTickets(t, eventID, holder, 1)[0]
+		fan := seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
+		ticket := seedIssuedTickets(t, eventID, fan, 1)[0]
 		link := seedLink(t, eventID)
 		require.NoError(t, rdb.NewRejectedScanRepository(testDB).Append(ctx, []*entity.RejectedScan{
 			entity.NewRejectedScan(eventID, link.ID, ticket, entity.RejectedScanReasonVoided, nov20(18, 32)),

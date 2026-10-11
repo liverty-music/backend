@@ -740,49 +740,21 @@ func TestUserUseCase_ResolveCaller(t *testing.T) {
 
 	ctx := context.Background()
 
-	// @spec components/usecase/user/resolve-caller "Own account"
-	t.Run("success — reqUserID matches the caller's own id", func(t *testing.T) {
+	// @spec components/usecase/user/resolve-caller "Signed-in caller with an account"
+	t.Run("returns the caller's own User", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
 		expectedUser := &entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}
 		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).Return(expectedUser, nil).Once()
 
-		result, err := d.uc.ResolveCaller(ctx, testResolveExtID, testResolveUserID)
+		result, err := d.uc.ResolveCaller(ctx, testResolveExtID)
 
 		assert.NoError(t, err)
 		assert.Equal(t, expectedUser, result)
 	})
 
-	// @spec components/usecase/user/resolve-caller "Missing user id"
-	t.Run("InvalidArgument — reqUserID is empty", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
-			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
-
-		result, err := d.uc.ResolveCaller(ctx, testResolveExtID, "")
-
-		assert.Nil(t, result)
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
-
-	// @spec components/usecase/user/resolve-caller "Another user's account"
-	t.Run("PermissionDenied — reqUserID does not match the caller's own id", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
-			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
-
-		result, err := d.uc.ResolveCaller(ctx, testResolveExtID, "some-other-user-id")
-
-		assert.Nil(t, result)
-		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-	})
-
-	// @spec components/usecase/user/resolve-caller "Caller has no account"
+	// @spec components/usecase/user/resolve-caller "Caller without an account"
 	t.Run("NotFound — no user exists for externalID", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -790,7 +762,7 @@ func TestUserUseCase_ResolveCaller(t *testing.T) {
 		d.repo.EXPECT().GetByExternalID(ctx, "ext-ghost").
 			Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
 
-		result, err := d.uc.ResolveCaller(ctx, "ext-ghost", testResolveUserID)
+		result, err := d.uc.ResolveCaller(ctx, "ext-ghost")
 
 		assert.Nil(t, result)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
@@ -816,50 +788,23 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
 		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).Return(nil).Once()
 
-		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, testResolveUserID)
+		err := d.uc.ResendEmailVerification(ctx, testResolveExtID)
 
 		assert.NoError(t, err)
 	})
 
-	// @spec components/usecase/user/resend-email-verification "Verification unavailable"
+	// @spec components/usecase/user/resend-email-verification "Email verification not configured"
 	t.Run("Unavailable — email verifier is not configured (nil)", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDepsNoVerifier(t)
 		// GetByExternalID MUST NOT be called — the nil-verifier check runs first.
 
-		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, testResolveUserID)
+		err := d.uc.ResendEmailVerification(ctx, testResolveExtID)
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 	})
 
-	t.Run("InvalidArgument — reqUserID is empty", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
-			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
-		// ResendVerification must NOT be called.
-
-		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, "")
-
-		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
-	})
-
-	// @spec components/usecase/user/resend-email-verification "Another user's account"
-	t.Run("PermissionDenied — reqUserID does not match the caller's own id", func(t *testing.T) {
-		t.Parallel()
-		d := newUserTestDeps(t)
-
-		d.repo.EXPECT().GetByExternalID(ctx, testResolveExtID).
-			Return(&entity.User{ID: testResolveUserID, ExternalID: testResolveExtID}, nil).Once()
-		// ResendVerification must NOT be called.
-
-		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, "some-other-user-id")
-
-		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
-	})
-
-	// @spec components/usecase/user/resend-email-verification "Already verified"
+	// @spec components/usecase/user/resend-email-verification "Caller already verified"
 	t.Run("FailedPrecondition — email already verified propagates from the verifier", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
@@ -869,7 +814,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		d.emailVerifier.EXPECT().ResendVerification(ctx, testResolveExtID).
 			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Once()
 
-		err := d.uc.ResendEmailVerification(ctx, testResolveExtID, testResolveUserID)
+		err := d.uc.ResendEmailVerification(ctx, testResolveExtID)
 
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 	})
@@ -891,11 +836,11 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		d.emailVerifier.EXPECT().ResendVerification(ctx, rateExtID).Return(nil).Times(3)
 
 		for range 3 {
-			err := d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID)
+			err := d.uc.ResendEmailVerification(ctx, rateExtID)
 			assert.NoError(t, err)
 		}
 
-		err := d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID)
+		err := d.uc.ResendEmailVerification(ctx, rateExtID)
 		assert.ErrorIs(t, err, apperr.ErrResourceExhausted)
 	})
 
@@ -916,11 +861,11 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 			Return(apperr.New(codes.FailedPrecondition, "email is already verified")).Times(3)
 
 		for range 3 {
-			err := d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID)
+			err := d.uc.ResendEmailVerification(ctx, rateExtID)
 			assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 		}
 
-		err := d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID)
+		err := d.uc.ResendEmailVerification(ctx, rateExtID)
 		assert.ErrorIs(t, err, apperr.ErrResourceExhausted)
 	})
 
@@ -944,10 +889,10 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		d.emailVerifier.EXPECT().ResendVerification(ctx, otherExtID).Return(nil).Once()
 
 		for range 3 {
-			require.NoError(t, d.uc.ResendEmailVerification(ctx, rateExtID, rateUserID))
+			require.NoError(t, d.uc.ResendEmailVerification(ctx, rateExtID))
 		}
 
-		assert.NoError(t, d.uc.ResendEmailVerification(ctx, otherExtID, otherUserID))
+		assert.NoError(t, d.uc.ResendEmailVerification(ctx, otherExtID))
 	})
 }
 
@@ -958,8 +903,8 @@ func TestUserUseCase_Delete(t *testing.T) {
 	const userID = "019a0000-0000-7000-8000-0000000000u1"
 	user := &entity.User{ID: userID, ExternalID: "zitadel-user-1"}
 	uid := entity.UserID(userID)
-	refunded := []*entity.Order{{ID: "order-1", BuyerID: uid, Status: entity.OrderStatusRefunded}}
-	voided := []*entity.Ticket{{ID: "ticket-1", HolderID: uid, Status: entity.TicketStatusVoided}}
+	refunded := []*entity.Order{{ID: "order-1", UserID: uid, Status: entity.OrderStatusRefunded}}
+	voided := []*entity.Ticket{{ID: "ticket-1", UserID: uid, Status: entity.TicketStatusVoided}}
 
 	tests := []struct {
 		name    string
@@ -971,8 +916,8 @@ func TestUserUseCase_Delete(t *testing.T) {
 			name: "removes the identity and then the user",
 			setup: func(d *userTestDeps) {
 				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
-				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(nil, nil).Once()
-				d.orderRepo.EXPECT().ListByBuyer(ctx, uid).Return([]*entity.Order{}, nil).Once()
+				d.ticketRepo.EXPECT().ListByUser(ctx, uid).Return(nil, nil).Once()
+				d.orderRepo.EXPECT().ListByUser(ctx, uid).Return([]*entity.Order{}, nil).Once()
 				identity := d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").Return(nil).Once()
 				d.repo.EXPECT().Delete(ctx, userID).Return(nil).Once().NotBefore(identity)
 			},
@@ -990,8 +935,8 @@ func TestUserUseCase_Delete(t *testing.T) {
 			name: "refuses a user holding an issued ticket and removes nothing",
 			setup: func(d *userTestDeps) {
 				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
-				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).
-					Return([]*entity.Ticket{{ID: "ticket-1", HolderID: uid, Status: entity.TicketStatusIssued}}, nil).Once()
+				d.ticketRepo.EXPECT().ListByUser(ctx, uid).
+					Return([]*entity.Ticket{{ID: "ticket-1", UserID: uid, Status: entity.TicketStatusIssued}}, nil).Once()
 			},
 			wantErr: apperr.ErrFailedPrecondition,
 		},
@@ -999,9 +944,9 @@ func TestUserUseCase_Delete(t *testing.T) {
 			name: "refuses a user with a paid order and removes nothing",
 			setup: func(d *userTestDeps) {
 				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
-				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(voided, nil).Once()
-				d.orderRepo.EXPECT().ListByBuyer(ctx, uid).
-					Return([]*entity.Order{{ID: "order-1", BuyerID: uid, Status: entity.OrderStatusPaid}}, nil).Once()
+				d.ticketRepo.EXPECT().ListByUser(ctx, uid).Return(voided, nil).Once()
+				d.orderRepo.EXPECT().ListByUser(ctx, uid).
+					Return([]*entity.Order{{ID: "order-1", UserID: uid, Status: entity.OrderStatusPaid}}, nil).Once()
 			},
 			wantErr: apperr.ErrFailedPrecondition,
 		},
@@ -1010,8 +955,8 @@ func TestUserUseCase_Delete(t *testing.T) {
 			name: "removes a user whose only order is refunded and whose ticket is voided",
 			setup: func(d *userTestDeps) {
 				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
-				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(voided, nil).Once()
-				d.orderRepo.EXPECT().ListByBuyer(ctx, uid).Return(refunded, nil).Once()
+				d.ticketRepo.EXPECT().ListByUser(ctx, uid).Return(voided, nil).Once()
+				d.orderRepo.EXPECT().ListByUser(ctx, uid).Return(refunded, nil).Once()
 				d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").Return(nil).Once()
 				d.repo.EXPECT().Delete(ctx, userID).Return(nil).Once()
 			},
@@ -1020,8 +965,8 @@ func TestUserUseCase_Delete(t *testing.T) {
 			name: "keeps the user record when the identity cannot be removed",
 			setup: func(d *userTestDeps) {
 				d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Once()
-				d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(nil, nil).Once()
-				d.orderRepo.EXPECT().ListByBuyer(ctx, uid).Return(nil, nil).Once()
+				d.ticketRepo.EXPECT().ListByUser(ctx, uid).Return(nil, nil).Once()
+				d.orderRepo.EXPECT().ListByUser(ctx, uid).Return(nil, nil).Once()
 				d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").
 					Return(apperr.New(codes.Internal, "delete zitadel user")).Once()
 			},
@@ -1049,8 +994,8 @@ func TestUserUseCase_Delete(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 		d.repo.EXPECT().Get(ctx, userID).Return(user, nil).Twice()
-		d.ticketRepo.EXPECT().ListByHolder(ctx, uid).Return(nil, nil).Twice()
-		d.orderRepo.EXPECT().ListByBuyer(ctx, uid).Return(nil, nil).Twice()
+		d.ticketRepo.EXPECT().ListByUser(ctx, uid).Return(nil, nil).Twice()
+		d.orderRepo.EXPECT().ListByUser(ctx, uid).Return(nil, nil).Twice()
 		// The identity is already gone on the retry, which DeleteIdentity
 		// reports as success.
 		d.identityRemover.EXPECT().DeleteIdentity(ctx, "zitadel-user-1").Return(nil).Twice()
@@ -1060,4 +1005,99 @@ func TestUserUseCase_Delete(t *testing.T) {
 		assert.ErrorIs(t, d.uc.Delete(ctx, userID), apperr.ErrUnavailable)
 		assert.NoError(t, d.uc.Delete(ctx, userID))
 	})
+}
+
+func TestUserUseCase_Update(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	const extID = "ext-update-1"
+	strPtr := func(s string) *string { return &s }
+	current := func() *entity.User {
+		return &entity.User{ID: "user-update-1", ExternalID: extID, FullName: "山田 花子", PhoneNumber: "+819012345678"}
+	}
+
+	type args struct {
+		fullName    *string
+		phoneNumber *string
+	}
+	tests := []struct {
+		name     string
+		args     args
+		setup    func(d *userTestDeps)
+		wantName string
+		wantErr  error
+	}{
+		{
+			// @spec components/usecase/user/update "Fan corrects their name"
+			name: "fan corrects their name",
+			args: args{fullName: strPtr("佐藤 花子")},
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().GetByExternalID(ctx, extID).Return(current(), nil).Once()
+				d.repo.EXPECT().UpdatePersonalDetails(ctx, "user-update-1", "佐藤 花子", "+819012345678").
+					Return(&entity.User{ID: "user-update-1", FullName: "佐藤 花子", PhoneNumber: "+819012345678"}, nil).Once()
+			},
+			wantName: "佐藤 花子",
+		},
+		{
+			// @spec components/usecase/user/update "Only the phone number given"
+			name: "only the phone number given",
+			args: args{phoneNumber: strPtr("+818011112222")},
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().GetByExternalID(ctx, extID).Return(current(), nil).Once()
+				d.repo.EXPECT().UpdatePersonalDetails(ctx, "user-update-1", "山田 花子", "+818011112222").
+					Return(&entity.User{ID: "user-update-1", FullName: "山田 花子", PhoneNumber: "+818011112222"}, nil).Once()
+			},
+			wantName: "山田 花子",
+		},
+		{
+			// @spec components/usecase/user/update "Invalid phone number"
+			name: "invalid phone number",
+			args: args{phoneNumber: strPtr("090-1234-5678")},
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().GetByExternalID(ctx, extID).Return(current(), nil).Once()
+			},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			name:    "nothing given",
+			args:    args{},
+			setup:   func(*userTestDeps) {},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			name:    "empty full name given",
+			args:    args{fullName: strPtr("")},
+			setup:   func(*userTestDeps) {},
+			wantErr: apperr.ErrInvalidArgument,
+		},
+		{
+			name: "caller without an account",
+			args: args{fullName: strPtr("佐藤 花子")},
+			setup: func(d *userTestDeps) {
+				d.repo.EXPECT().GetByExternalID(ctx, extID).Return(nil, apperr.New(codes.NotFound, "user not found")).Once()
+			},
+			wantErr: apperr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := newUserTestDeps(t)
+			tt.setup(d)
+
+			got, err := d.uc.Update(ctx, extID, tt.args.fullName, tt.args.phoneNumber)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantName, got.FullName)
+			// The faces of the fan's Tickets read the User's current values.
+			face := (&entity.Ticket{UserID: entity.UserID(got.ID), ResaleWithoutConsentProhibited: true}).Face(got)
+			assert.Equal(t, tt.wantName, face.FullName)
+		})
+	}
 }

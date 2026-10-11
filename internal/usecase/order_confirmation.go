@@ -53,7 +53,7 @@ func (uc *notificationUseCase) SendOrderConfirmation(ctx context.Context, paid e
 	if err != nil {
 		return err
 	}
-	buyer, err := d.Users.Get(ctx, paid.BuyerID)
+	user, err := d.Users.Get(ctx, paid.UserID)
 	if err != nil {
 		return err
 	}
@@ -80,18 +80,18 @@ func (uc *notificationUseCase) SendOrderConfirmation(ctx context.Context, paid e
 		count:     paid.TicketCount,
 		tz:        d.TimeZone,
 	}
-	lang := emailLanguage(buyer.PreferredLanguage)
-	if err := d.Mailer.SendConfirmationEmail(ctx, order.ID, buyer.Email, content.email(lang)); err != nil {
+	lang := emailLanguage(user.PreferredLanguage)
+	if err := d.Mailer.SendConfirmationEmail(ctx, order.ID, user.Email, content.email(lang)); err != nil {
 		return err
 	}
 
-	pushLang := copyLanguage(buyer.PreferredLanguage)
-	if buyer.PreferredLanguage == "" {
+	pushLang := copyLanguage(user.PreferredLanguage)
+	if user.PreferredLanguage == "" {
 		pushLang = "ja"
 	}
 	title, body := content.push(pushLang)
 	payload := entity.NewNotificationPayload(title, body, ticketsLinkURL, "order-confirmation-"+paid.OrderID)
-	if _, err := uc.Deliver(ctx, buyer.ID, entity.NotificationTypeOrderConfirmation, payload); err != nil {
+	if _, err := uc.Deliver(ctx, user.ID, entity.NotificationTypeOrderConfirmation, payload); err != nil {
 		return err
 	}
 	return nil
@@ -151,9 +151,9 @@ func (c orderConfirmationContent) email(lang string) entity.OrderConfirmationEma
 	date := c.concert.LocalDate
 	paid := c.order.PaidTime.In(c.tz)
 	card := strings.ToUpper(c.order.Payment.CardBrand)
-	seller := c.organizer.SellerDetails
-	if seller == nil {
-		seller = &entity.SellerDetails{}
+	business := c.organizer.BusinessDetails
+	if business == nil {
+		business = &entity.BusinessDetails{}
 	}
 
 	var b strings.Builder
@@ -167,7 +167,7 @@ func (c orderConfirmationContent) email(lang string) entity.OrderConfirmationEma
 		fmt.Fprintf(&b, "[Showing your tickets]\nOpen the Tickets screen of the app and show your tickets to the staff at the entrance.\n\n")
 		fmt.Fprintf(&b, "[Please note]\n- Resale of these tickets without the organizer's consent is prohibited.\n- Tickets cannot be cancelled or refunded, except when the concert is cancelled.\n\n")
 		fmt.Fprintf(&b, "[Seller (Specified Commercial Transactions Act)]\nSeller: %s\nRepresentative: %s\nAddress: %s\nPhone: %s\nEmail: %s\n",
-			seller.LegalName, seller.RepresentativeName, seller.Address, seller.PhoneNumber, seller.ContactEmail)
+			business.LegalName, business.RepresentativeName, business.BusinessAddress, business.BusinessPhoneNumber, business.ContactEmail)
 		return entity.OrderConfirmationEmail{
 			Subject:  "[Liverty Music] Your ticket purchase is complete",
 			TextBody: b.String(),
@@ -183,7 +183,7 @@ func (c orderConfirmationContent) email(lang string) entity.OrderConfirmationEma
 	fmt.Fprintf(&b, "■ チケットの表示方法\nアプリの「チケット」画面からチケットを表示し、入場時にスタッフへご提示ください。\n\n")
 	fmt.Fprintf(&b, "■ ご注意\n・本チケットは、主催者の同意のない有償譲渡（転売）が禁止されています。\n・公演中止の場合を除き、ご購入後のキャンセル・返金はできません。\n\n")
 	fmt.Fprintf(&b, "■ 販売業者（特定商取引法に基づく表示）\n販売業者: %s\n代表者: %s\n所在地: %s\n電話番号: %s\nメールアドレス: %s\n",
-		seller.LegalName, seller.RepresentativeName, seller.Address, seller.PhoneNumber, seller.ContactEmail)
+		business.LegalName, business.RepresentativeName, business.BusinessAddress, business.BusinessPhoneNumber, business.ContactEmail)
 	return entity.OrderConfirmationEmail{
 		Subject:  "【Liverty Music】チケットのご購入が完了しました",
 		TextBody: b.String(),
