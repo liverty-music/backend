@@ -216,3 +216,62 @@ func TestAdminServer_UserDelete(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminServer_OnlyAdminsManageOrganizers(t *testing.T) {
+	t.Parallel()
+
+	client := func(t *testing.T) (adminorganizerv1connect.OrganizerServiceClient, *usecasemocks.MockOrganizerUseCase) {
+		t.Helper()
+		// The strict mock fails the test if any OrganizerUseCase method runs.
+		uc := usecasemocks.NewMockOrganizerUseCase(t)
+		ts := newTestAdminDeleteServer(t, uc, usecasemocks.NewMockUserUseCase(t))
+		return adminorganizerv1connect.NewOrganizerServiceClient(ts.Client(), ts.URL), uc
+	}
+	withToken := func(req connect.AnyRequest, token string) {
+		if token != "" {
+			req.Header().Set("Authorization", "Bearer "+token)
+		}
+	}
+
+	t.Run("not signed in", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/organizer "Not signed in"
+		c, _ := client(t)
+		req := connect.NewRequest(&adminorganizerv1.ListRequest{})
+
+		_, err := c.List(context.Background(), req)
+
+		assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
+	})
+
+	t.Run("non-admin cannot create an organizer", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/organizer "Non-admin cannot create an Organizer"
+		c, _ := client(t)
+		req := connect.NewRequest(&adminorganizerv1.CreateRequest{
+			Name:          &entityv1.OrganizerName{Value: "Acme Music"},
+			OperatorEmail: &entityv1.UserEmail{Value: "operator@example.com"},
+		})
+		withToken(req, deleteNonAdminToken)
+
+		_, err := c.Create(context.Background(), req)
+
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	})
+
+	t.Run("non-admin cannot list or read organizers", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/adapter/admin/api/rpc/organizer "Non-admin cannot list Organizers"
+		c, _ := client(t)
+		list := connect.NewRequest(&adminorganizerv1.ListRequest{})
+		withToken(list, deleteNonAdminToken)
+		get := connect.NewRequest(&adminorganizerv1.GetRequest{OrganizerId: &entityv1.OrganizerId{Value: deleteOrganizerID}})
+		withToken(get, deleteNonAdminToken)
+
+		_, listErr := c.List(context.Background(), list)
+		_, getErr := c.Get(context.Background(), get)
+
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(listErr))
+		assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(getErr))
+	})
+}
