@@ -20,7 +20,7 @@ type UserRepository struct {
 }
 
 const (
-	userColumns = `u.id, u.external_id, u.email, u.name, u.preferred_language, u.country, u.time_zone, u.is_active, u.full_name, u.phone_number`
+	userColumns = `u.id, u.provider_user_id, u.email, u.name, u.preferred_language, u.time_zone, u.full_name, u.phone_number`
 
 	homeColumns = `h.id, h.country_code, h.level_1, h.level_2, h.centroid_latitude, h.centroid_longitude`
 
@@ -35,7 +35,7 @@ const (
 		SELECT ` + userColumns + `, ` + homeColumns + `
 		FROM users u
 		LEFT JOIN homes h ON u.home_id = h.id
-		WHERE u.external_id = $1
+		WHERE u.provider_user_id = $1
 	`
 
 	getUserByEmailQuery = `
@@ -53,7 +53,7 @@ const (
 	// value first).
 	updateUserQuery = `
 		WITH updated AS (
-			UPDATE users SET external_id = $2, email = $3, name = $4, country = $5, time_zone = $6
+			UPDATE users SET provider_user_id = $2, email = $3, name = $4, time_zone = $5
 			WHERE id = $1
 			RETURNING *
 		)
@@ -121,8 +121,8 @@ const (
 	`
 
 	insertUserQuery = `
-		INSERT INTO users (id, external_id, email, name, preferred_language, country, time_zone, is_active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO users (id, provider_user_id, email, name, preferred_language, time_zone)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 
 	deleteUserQuery = `
@@ -149,7 +149,7 @@ func nullStringFromEmpty(s string) sql.NullString {
 
 // scanUser scans a user row with optional home columns from a LEFT JOIN.
 //
-// Every nullable users column (preferred_language, country, time_zone)
+// Every nullable users column (preferred_language, time_zone)
 // is scanned into a sql.NullString intermediate, then assigned
 // to the entity field via .String when .Valid. pgx errors out when scanning
 // SQL NULL into a non-nullable Go destination (a bare string); the three
@@ -160,15 +160,14 @@ func nullStringFromEmpty(s string) sql.NullString {
 // GetByEmail, Update, UpdatePreferredLanguage, UpdateHome's re-fetch, List).
 func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error) {
 	user := &entity.User{}
-	var preferredLanguage, country, timeZone sql.NullString
+	var preferredLanguage, timeZone sql.NullString
 	var fullName, phoneNumber sql.NullString
 	var homeID, countryCode, level1, level2 sql.NullString
 	var centroidLat, centroidLng sql.NullFloat64
 
 	err := scanner.Scan(
 		&user.ID, &user.ExternalID, &user.Email, &user.Name,
-		&preferredLanguage, &country, &timeZone,
-		&user.IsActive,
+		&preferredLanguage, &timeZone,
 		&fullName, &phoneNumber,
 		&homeID, &countryCode, &level1, &level2, &centroidLat, &centroidLng,
 	)
@@ -177,9 +176,6 @@ func scanUser(scanner interface{ Scan(dest ...any) error }) (*entity.User, error
 	}
 	if preferredLanguage.Valid {
 		user.PreferredLanguage = preferredLanguage.String
-	}
-	if country.Valid {
-		user.Country = country.String
 	}
 	if timeZone.Valid {
 		user.TimeZone = timeZone.String
@@ -242,15 +238,13 @@ func (r *UserRepository) Create(ctx context.Context, params *entity.NewUser) (*e
 	// sql.NullString{Valid:false} keeps the distinction between "absent"
 	// and "explicitly empty" in the database, which the scanUser pattern
 	// preserves on read. preferred_language uses this distinction to feed
-	// the hydration backfill path; country and time_zone use it for
+	// the hydration backfill path; time_zone uses it for
 	// downstream observability (a NULL row is a "never asserted" signal
 	// while an empty string would be a contract violation).
 	_, err = tx.Exec(ctx, insertUserQuery,
 		user.ID, params.ExternalID, params.Email, params.Name,
 		nullStringFromEmpty(params.PreferredLanguage),
-		nullStringFromEmpty(params.Country),
 		nullStringFromEmpty(params.TimeZone),
-		true,
 	)
 	if err != nil {
 		if IsUniqueViolation(err) {
@@ -357,13 +351,12 @@ func (r *UserRepository) Update(ctx context.Context, id string, params *entity.N
 
 	// Note: preferred_language is intentionally omitted — see the
 	// updateUserQuery comment. Use UpdatePreferredLanguage instead.
-	// country / time_zone are wrapped via nullStringFromEmpty so an
+	// time_zone is wrapped via nullStringFromEmpty so an
 	// empty-string field round-trips to SQL NULL, preserving the
 	// "absent vs explicitly empty" distinction on both write and read
 	// (see scanUser).
 	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateUserQuery,
 		id, params.ExternalID, params.Email, params.Name,
-		nullStringFromEmpty(params.Country),
 		nullStringFromEmpty(params.TimeZone),
 	))
 	if err != nil {

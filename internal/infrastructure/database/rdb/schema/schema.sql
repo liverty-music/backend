@@ -8,13 +8,11 @@ SET search_path TO app, public;
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
-    external_id TEXT UNIQUE NOT NULL,
+    provider_user_id TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     preferred_language TEXT,
-    country TEXT,
     time_zone TEXT,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     home_id UUID,
     full_name TEXT,
     phone_number TEXT,
@@ -25,13 +23,11 @@ CREATE TABLE IF NOT EXISTS users (
 
 COMMENT ON TABLE users IS 'User profiles and authentication data';
 COMMENT ON COLUMN users.id IS 'Unique user identifier (UUIDv7, application-generated)';
-COMMENT ON COLUMN users.external_id IS 'Zitadel identity provider user ID (sub claim), used for account sync';
+COMMENT ON COLUMN users.provider_user_id IS 'The identity provider''s ID for the user (Zitadel sub claim), used for account sync';
 COMMENT ON COLUMN users.email IS 'Primary contact and login identifier';
 COMMENT ON COLUMN users.name IS 'User display name from identity provider';
 COMMENT ON COLUMN users.preferred_language IS 'User preferred language code (e.g., en, ja). NULL means "not yet set by client"; client backfills via UpdatePreferredLanguage on first observation.';
-COMMENT ON COLUMN users.country IS 'User country code (ISO 3166-1 alpha-2)';
 COMMENT ON COLUMN users.time_zone IS 'User time zone (IANA time zone database)';
-COMMENT ON COLUMN users.is_active IS 'Whether the user account is active';
 COMMENT ON COLUMN users.home_id IS 'Reference to the user home area in the homes table. NULL when home is not set.';
 COMMENT ON COLUMN users.full_name IS '本人確認 full name (1-200 characters) shown on the face of the user''s tickets; NULL until the user first gives it';
 COMMENT ON COLUMN users.phone_number IS '本人確認 phone number in E.164 form shown on the face of the user''s tickets; NULL until the user first gives it';
@@ -158,7 +154,7 @@ CREATE TABLE IF NOT EXISTS series (
     )
 );
 
-COMMENT ON TABLE series IS 'Parent aggregation above events. Owns metadata shared across every event in a tour, festival, or multi-day single-venue run. Cover image URL is derived from the series_media join at read time.';
+COMMENT ON TABLE series IS 'Parent aggregation above events. Owns metadata shared across every event in a tour, festival, or multi-day single-venue run. Cover image URL is derived from the series_cover_images join at read time.';
 COMMENT ON COLUMN series.id IS 'Unique series identifier (UUIDv7, application-generated). Series has no content-derived key: cross-run identity is established by adopting the series_id already carried by its member events (matched on the events physical natural key); a fresh UUIDv7 series is minted only when no member event yet exists.';
 COMMENT ON COLUMN series.title IS 'Series title shared across all member events (e.g. tour name, festival name)';
 COMMENT ON COLUMN series.type IS 'Classification of the series; drives presentation and notification grouping';
@@ -256,47 +252,37 @@ COMMENT ON TABLE draft_series_performers IS 'Series-level performers of a first-
 COMMENT ON COLUMN draft_series_performers.series_id IS 'Parent first-party series being authored';
 COMMENT ON COLUMN draft_series_performers.artist_id IS 'A performing artist the organizer represents';
 
--- Media kind enum. IMAGE is the only value at MVP; extend later via
--- ALTER TYPE media_kind ADD VALUE.
-CREATE TYPE media_kind AS ENUM ('IMAGE');
-
-COMMENT ON TYPE media_kind IS 'Kind of organizer media asset: IMAGE (cover photo etc.). Extend via ALTER TYPE ADD VALUE.';
-
--- Organizer media objects. The row id is a UUIDv7 that serves as both the
--- creation-time source and the cache-busting object-key token. The object key
--- is `{exposure}/{organizer_id}/{media_id}` where exposure is "internal" or
+-- Series images: images an organizer uploaded for one of its Series. The row
+-- id is a UUIDv7 that serves as both the creation-time source and the
+-- cache-busting object-key token. The object key is
+-- `{exposure}/{organizer_id}/{series_image_id}` where exposure is "internal" or
 -- "cdn". No URL is stored; it is derived at read time.
-CREATE TABLE IF NOT EXISTS media (
+CREATE TABLE IF NOT EXISTS series_images (
     id           UUID       PRIMARY KEY,
     organizer_id UUID       NOT NULL REFERENCES organizers(id),
-    kind         media_kind NOT NULL,
     attributes   JSONB      NOT NULL DEFAULT '{}',
-    CONSTRAINT chk_media_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+    CONSTRAINT chk_series_images_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE media IS 'Normalised media objects uploaded by an organizer. The row id is the UUIDv7 that forms the object-key basename (internal/{org}/{id} or cdn/{org}/{id}); content_type is stored in attributes.';
-COMMENT ON COLUMN media.id IS 'Unique media identifier (UUIDv7, application-generated). Doubles as the cache-busting version token in the object key; a new upload mints a new id.';
-COMMENT ON COLUMN media.organizer_id IS 'Owning organizer. Used as the stable tenant segment of the object key.';
-COMMENT ON COLUMN media.kind IS 'Media asset kind (IMAGE at MVP).';
-COMMENT ON COLUMN media.attributes IS 'Kind-specific metadata as JSONB. For IMAGE: {"content_type": "image/jpeg"}. May include width/height later.';
+COMMENT ON TABLE series_images IS 'Images uploaded by an organizer for its Series. The row id is the UUIDv7 that forms the object-key basename (internal/{org}/{id} or cdn/{org}/{id}); content_type is stored in attributes.';
+COMMENT ON COLUMN series_images.id IS 'Unique series image identifier (UUIDv7, application-generated). Doubles as the cache-busting version token in the object key; a new upload mints a new id.';
+COMMENT ON COLUMN series_images.organizer_id IS 'Owning organizer. Used as the stable tenant segment of the object key.';
+COMMENT ON COLUMN series_images.attributes IS 'Upload metadata as JSONB: {"content_type": "image/jpeg"}. May include width/height later.';
 
--- Series media join table (first-party authoring).
--- At MVP each series carries at most one cover image (uq_series_media_series).
--- The display_order column is reserved for future gallery support.
-CREATE TABLE IF NOT EXISTS series_media (
-    series_id     UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
-    media_id      UUID NOT NULL REFERENCES media(id)  ON DELETE CASCADE,
-    display_order INT  NOT NULL DEFAULT 0,
-    PRIMARY KEY (series_id, media_id)
+-- Series cover images: the one SeriesImage shown as each Series' cover
+-- (uq_series_cover_images_series).
+CREATE TABLE IF NOT EXISTS series_cover_images (
+    series_id       UUID NOT NULL REFERENCES series(id)        ON DELETE CASCADE,
+    series_image_id UUID NOT NULL REFERENCES series_images(id) ON DELETE CASCADE,
+    PRIMARY KEY (series_id, series_image_id)
 );
 
-COMMENT ON TABLE series_media IS 'Join table between a series and its media objects. One cover per series at MVP (uq_series_media_series).';
-COMMENT ON COLUMN series_media.series_id IS 'Parent series this media object is attached to.';
-COMMENT ON COLUMN series_media.media_id IS 'Referenced media object.';
-COMMENT ON COLUMN series_media.display_order IS 'Sort position within the series gallery (reserved for future gallery support; 0 = cover).';
+COMMENT ON TABLE series_cover_images IS 'The cover SeriesImage of a Series. One cover per series (uq_series_cover_images_series).';
+COMMENT ON COLUMN series_cover_images.series_id IS 'The Series whose cover this is.';
+COMMENT ON COLUMN series_cover_images.series_image_id IS 'The SeriesImage shown as the cover.';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_series_media_series ON series_media(series_id);
-COMMENT ON INDEX uq_series_media_series IS 'At most one media object (the cover) per series at MVP; drop or relax when galleries are introduced.';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_series_cover_images_series ON series_cover_images(series_id);
+COMMENT ON INDEX uq_series_cover_images_series IS 'At most one cover image per series.';
 
 -- User artist follows
 CREATE TABLE IF NOT EXISTS followed_artists (
@@ -312,8 +298,8 @@ COMMENT ON COLUMN followed_artists.user_id IS 'Reference to the user who is foll
 COMMENT ON COLUMN followed_artists.artist_id IS 'Reference to the artist being followed';
 COMMENT ON COLUMN followed_artists.hype IS 'User enthusiasm tier: watch (no notifications), home (home area only), nearby (within ~200km of home, default), or away (all concerts)';
 
--- Latest search logs table
-CREATE TABLE IF NOT EXISTS latest_search_logs (
+-- Concert searches table (the latest search per artist)
+CREATE TABLE IF NOT EXISTS concert_searches (
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     searched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     status TEXT NOT NULL DEFAULT 'completed',
@@ -321,11 +307,11 @@ CREATE TABLE IF NOT EXISTS latest_search_logs (
     PRIMARY KEY (artist_id)
 );
 
-COMMENT ON TABLE latest_search_logs IS 'Tracks when each artist was last searched for concerts via external APIs';
-COMMENT ON COLUMN latest_search_logs.artist_id IS 'Reference to the artist that was searched';
-COMMENT ON COLUMN latest_search_logs.searched_at IS 'Timestamp of the most recent external search';
-COMMENT ON COLUMN latest_search_logs.status IS 'Search job status: pending, completed, or failed';
-COMMENT ON COLUMN latest_search_logs.last_found_at IS 'Timestamp of the most recent search that discovered at least one new concert; NULL if none ever found';
+COMMENT ON TABLE concert_searches IS 'Tracks when each artist was last searched for concerts via external APIs';
+COMMENT ON COLUMN concert_searches.artist_id IS 'Reference to the artist that was searched';
+COMMENT ON COLUMN concert_searches.searched_at IS 'Timestamp of the most recent external search';
+COMMENT ON COLUMN concert_searches.status IS 'Search job status: pending, completed, or failed';
+COMMENT ON COLUMN concert_searches.last_found_at IS 'Timestamp of the most recent search that discovered at least one new concert; NULL if none ever found';
 
 -- Ticket journeys table (user-managed ticket acquisition tracking)
 CREATE TABLE IF NOT EXISTS ticket_journeys (
@@ -458,14 +444,14 @@ COMMENT ON COLUMN sales_phase_reminders.sales_phase_id IS 'Reference to the sale
 COMMENT ON COLUMN sales_phase_reminders.stage IS 'Reminder stage: 1=APPLY_OPEN (at apply_start_time for a lottery, 30 minutes before it for a first-come sale), 2=APPLY_CLOSE_24H (24h before apply_end_time, lottery only), 4=RESULT_DAY (09:00 on lottery_result_time day). 3 was APPLY_CLOSE_1H and is unused.';
 COMMENT ON COLUMN sales_phase_reminders.sent_at IS 'Timestamp when the reminder was dispatched';
 
--- Staged concerts (approval queue)
+-- Concert candidates (approval queue)
 -- Concerts discovered by the Gemini search pipeline are held here in a pending
 -- state until a developer approves them in the admin console. Venue resolution
 -- (Google Places) runs at staging time and is denormalised onto the row so the
 -- reviewer can judge venue accuracy; the canonical venues row is created only on
 -- approval. This table holds only pending rows — both approve and reject delete
 -- the row, so a re-discovered concert can re-enter the queue after a rejection.
-CREATE TABLE IF NOT EXISTS staged_concerts (
+CREATE TABLE IF NOT EXISTS concert_candidates (
     id UUID PRIMARY KEY,
     artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
@@ -482,32 +468,32 @@ CREATE TABLE IF NOT EXISTS staged_concerts (
     resolved_latitude DOUBLE PRECISION,
     resolved_longitude DOUBLE PRECISION,
     discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_staged_concerts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+    CONSTRAINT chk_concert_candidates_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE staged_concerts IS 'Approval queue for AI-discovered concerts. Holds only pending rows; approve publishes and deletes, reject logs and deletes. Re-discovery dedup consults this table plus published events, but never the rejection log.';
-COMMENT ON COLUMN staged_concerts.id IS 'Unique staged concert identifier (UUIDv7, application-generated). Exposed to the admin console as StagedConcertId.';
-COMMENT ON COLUMN staged_concerts.artist_id IS 'The performing artist this concert was discovered for.';
-COMMENT ON COLUMN staged_concerts.series_id IS 'Parent series this staged event belongs to. The series row is created at discovery time (when the group series_id is resolved), so this is a real foreign key by staging time; approval inserts the event under it without minting a new series. type/title/source_url live on the series row.';
-COMMENT ON COLUMN staged_concerts.title IS 'Descriptive title extracted for the concert (e.g. tour or show name).';
-COMMENT ON COLUMN staged_concerts.local_date IS 'Scheduled calendar date of the concert in the venue local timezone.';
-COMMENT ON COLUMN staged_concerts.start_at IS 'Scheduled start time. NULL when the source did not state one.';
-COMMENT ON COLUMN staged_concerts.open_at IS 'Doors-open time. NULL when not announced.';
-COMMENT ON COLUMN staged_concerts.listed_venue_name IS 'Raw venue name exactly as scraped from the source, preserved for review.';
-COMMENT ON COLUMN staged_concerts.admin_area IS 'Administrative area extracted by Gemini for the concert. NULL when not extracted.';
-COMMENT ON COLUMN staged_concerts.source_url IS 'Source URL where the concert was found. NULL when not provided.';
-COMMENT ON COLUMN staged_concerts.resolved_place_id IS 'Google Places place id of the resolved venue. NULL when the listed name could not be resolved.';
-COMMENT ON COLUMN staged_concerts.resolved_venue_name IS 'Canonical venue name resolved via Google Places. NULL when unresolved.';
-COMMENT ON COLUMN staged_concerts.resolved_admin_area IS 'ISO 3166-2 admin area of the resolved venue. NULL when unresolved or indeterminate.';
-COMMENT ON COLUMN staged_concerts.resolved_latitude IS 'WGS 84 latitude of the resolved venue. NULL when unresolved.';
-COMMENT ON COLUMN staged_concerts.resolved_longitude IS 'WGS 84 longitude of the resolved venue. NULL when unresolved.';
-COMMENT ON COLUMN staged_concerts.discovered_at IS 'Timestamp when the discovery pipeline staged this concert. Used to order the review queue.';
+COMMENT ON TABLE concert_candidates IS 'Approval queue for AI-discovered concerts. Holds only pending rows; approve publishes and deletes, reject logs and deletes. Re-discovery dedup consults this table plus published events, but never the rejection log.';
+COMMENT ON COLUMN concert_candidates.id IS 'Unique concert candidate identifier (UUIDv7, application-generated). Exposed to the admin console as ConcertCandidateId.';
+COMMENT ON COLUMN concert_candidates.artist_id IS 'The performing artist this concert was discovered for.';
+COMMENT ON COLUMN concert_candidates.series_id IS 'Parent series this staged event belongs to. The series row is created at discovery time (when the group series_id is resolved), so this is a real foreign key by staging time; approval inserts the event under it without minting a new series. type/title/source_url live on the series row.';
+COMMENT ON COLUMN concert_candidates.title IS 'Descriptive title extracted for the concert (e.g. tour or show name).';
+COMMENT ON COLUMN concert_candidates.local_date IS 'Scheduled calendar date of the concert in the venue local timezone.';
+COMMENT ON COLUMN concert_candidates.start_at IS 'Scheduled start time. NULL when the source did not state one.';
+COMMENT ON COLUMN concert_candidates.open_at IS 'Doors-open time. NULL when not announced.';
+COMMENT ON COLUMN concert_candidates.listed_venue_name IS 'Raw venue name exactly as scraped from the source, preserved for review.';
+COMMENT ON COLUMN concert_candidates.admin_area IS 'Administrative area extracted by Gemini for the concert. NULL when not extracted.';
+COMMENT ON COLUMN concert_candidates.source_url IS 'Source URL where the concert was found. NULL when not provided.';
+COMMENT ON COLUMN concert_candidates.resolved_place_id IS 'Google Places place id of the resolved venue. NULL when the listed name could not be resolved.';
+COMMENT ON COLUMN concert_candidates.resolved_venue_name IS 'Canonical venue name resolved via Google Places. NULL when unresolved.';
+COMMENT ON COLUMN concert_candidates.resolved_admin_area IS 'ISO 3166-2 admin area of the resolved venue. NULL when unresolved or indeterminate.';
+COMMENT ON COLUMN concert_candidates.resolved_latitude IS 'WGS 84 latitude of the resolved venue. NULL when unresolved.';
+COMMENT ON COLUMN concert_candidates.resolved_longitude IS 'WGS 84 longitude of the resolved venue. NULL when unresolved.';
+COMMENT ON COLUMN concert_candidates.discovered_at IS 'Timestamp when the discovery pipeline staged this concert. Used to order the review queue.';
 
--- Rejected concerts log (append-only)
+-- Rejected concerts (append-only)
 -- Every rejection is recorded here for search-quality analysis. It is NEVER read
 -- by the discovery dedup path and so does not suppress future staging. artist_id
 -- has no foreign key so history survives artist deletion.
-CREATE TABLE IF NOT EXISTS rejected_concerts_log (
+CREATE TABLE IF NOT EXISTS rejected_concerts (
     id UUID PRIMARY KEY,
     artist_id UUID NOT NULL,
     artist_name TEXT NOT NULL,
@@ -524,26 +510,26 @@ CREATE TABLE IF NOT EXISTS rejected_concerts_log (
     reason TEXT NOT NULL,
     reviewed_by TEXT,
     rejected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_rejected_concerts_log_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
+    CONSTRAINT chk_rejected_concerts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE rejected_concerts_log IS 'Append-only audit of rejected staged concerts, used for searcher-quality analysis only. Not consulted by discovery dedup; never suppresses re-discovery.';
-COMMENT ON COLUMN rejected_concerts_log.id IS 'Unique log entry identifier (UUIDv7, application-generated).';
-COMMENT ON COLUMN rejected_concerts_log.artist_id IS 'The performing artist the rejected concert was discovered for. Intentionally not a foreign key so the log survives artist deletion.';
-COMMENT ON COLUMN rejected_concerts_log.artist_name IS 'Artist display name captured at rejection time for readability.';
-COMMENT ON COLUMN rejected_concerts_log.title IS 'Descriptive title of the rejected concert.';
-COMMENT ON COLUMN rejected_concerts_log.local_date IS 'Scheduled calendar date of the rejected concert.';
-COMMENT ON COLUMN rejected_concerts_log.start_at IS 'Scheduled start time of the rejected concert. NULL when unknown.';
-COMMENT ON COLUMN rejected_concerts_log.open_at IS 'Doors-open time of the rejected concert. NULL when unknown.';
-COMMENT ON COLUMN rejected_concerts_log.listed_venue_name IS 'Raw scraped venue name of the rejected concert.';
-COMMENT ON COLUMN rejected_concerts_log.admin_area IS 'Administrative area extracted for the rejected concert. NULL when not extracted.';
-COMMENT ON COLUMN rejected_concerts_log.source_url IS 'Source URL of the rejected concert. NULL when not provided.';
-COMMENT ON COLUMN rejected_concerts_log.resolved_place_id IS 'Google Places place id of the resolved venue at rejection time. NULL when unresolved.';
-COMMENT ON COLUMN rejected_concerts_log.resolved_venue_name IS 'Resolved canonical venue name at rejection time. NULL when unresolved.';
-COMMENT ON COLUMN rejected_concerts_log.resolved_admin_area IS 'Resolved admin area at rejection time. NULL when unresolved.';
-COMMENT ON COLUMN rejected_concerts_log.reason IS 'Reviewer-provided reason for rejecting the concert.';
-COMMENT ON COLUMN rejected_concerts_log.reviewed_by IS 'Identity (Zitadel subject) of the developer who rejected the concert. NULL when unavailable.';
-COMMENT ON COLUMN rejected_concerts_log.rejected_at IS 'Timestamp when the concert was rejected.';
+COMMENT ON TABLE rejected_concerts IS 'Append-only record of rejected concert candidates, used for searcher-quality analysis only. Not consulted by discovery dedup; never suppresses re-discovery.';
+COMMENT ON COLUMN rejected_concerts.id IS 'Unique rejected concert identifier (UUIDv7, application-generated).';
+COMMENT ON COLUMN rejected_concerts.artist_id IS 'The performing artist the rejected concert was discovered for. Intentionally not a foreign key so the log survives artist deletion.';
+COMMENT ON COLUMN rejected_concerts.artist_name IS 'Artist display name captured at rejection time for readability.';
+COMMENT ON COLUMN rejected_concerts.title IS 'Descriptive title of the rejected concert.';
+COMMENT ON COLUMN rejected_concerts.local_date IS 'Scheduled calendar date of the rejected concert.';
+COMMENT ON COLUMN rejected_concerts.start_at IS 'Scheduled start time of the rejected concert. NULL when unknown.';
+COMMENT ON COLUMN rejected_concerts.open_at IS 'Doors-open time of the rejected concert. NULL when unknown.';
+COMMENT ON COLUMN rejected_concerts.listed_venue_name IS 'Raw scraped venue name of the rejected concert.';
+COMMENT ON COLUMN rejected_concerts.admin_area IS 'Administrative area extracted for the rejected concert. NULL when not extracted.';
+COMMENT ON COLUMN rejected_concerts.source_url IS 'Source URL of the rejected concert. NULL when not provided.';
+COMMENT ON COLUMN rejected_concerts.resolved_place_id IS 'Google Places place id of the resolved venue at rejection time. NULL when unresolved.';
+COMMENT ON COLUMN rejected_concerts.resolved_venue_name IS 'Resolved canonical venue name at rejection time. NULL when unresolved.';
+COMMENT ON COLUMN rejected_concerts.resolved_admin_area IS 'Resolved admin area at rejection time. NULL when unresolved.';
+COMMENT ON COLUMN rejected_concerts.reason IS 'Reviewer-provided reason for rejecting the concert.';
+COMMENT ON COLUMN rejected_concerts.reviewed_by IS 'Identity (Zitadel subject) of the developer who rejected the concert. NULL when unavailable.';
+COMMENT ON COLUMN rejected_concerts.rejected_at IS 'Timestamp when the concert was rejected.';
 
 -- Suppressed concerts (moderation)
 -- Records the natural key of a published concert an operator deleted so a later
@@ -551,7 +537,7 @@ COMMENT ON COLUMN rejected_concerts_log.rejected_at IS 'Timestamp when the conce
 -- identity (venue, local date, start time) with NULLS NOT DISTINCT so an
 -- unknown-start slot collapses the same way the events unique key does. venue_id
 -- carries no foreign key so a suppression survives independently of venue
--- lifecycle, mirroring the FK-less rejected_concerts_log. Distinct from that log,
+-- lifecycle, mirroring the FK-less rejected_concerts. Distinct from that log,
 -- which is analysis-only and never suppresses.
 CREATE TABLE IF NOT EXISTS suppressed_concerts (
     id UUID PRIMARY KEY,
@@ -563,7 +549,7 @@ CREATE TABLE IF NOT EXISTS suppressed_concerts (
     CONSTRAINT chk_suppressed_concerts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE suppressed_concerts IS 'Moderation suppression set: the natural key of each published concert an operator deleted, consulted by discovery so a deleted concert is not auto-published or re-staged again. Distinct from rejected_concerts_log, which is analysis-only and never suppresses.';
+COMMENT ON TABLE suppressed_concerts IS 'Moderation suppression set: the natural key of each published concert an operator deleted, consulted by discovery so a deleted concert is not auto-published or re-staged again. Distinct from rejected_concerts, which is analysis-only and never suppresses.';
 COMMENT ON COLUMN suppressed_concerts.id IS 'Unique suppression entry identifier (UUIDv7, application-generated).';
 COMMENT ON COLUMN suppressed_concerts.venue_id IS 'Resolved venue of the deleted event. Intentionally not a foreign key so the suppression survives independently of venue lifecycle.';
 COMMENT ON COLUMN suppressed_concerts.local_event_date IS 'Local calendar date of the deleted event.';
@@ -575,8 +561,8 @@ COMMENT ON COLUMN suppressed_concerts.suppressed_at IS 'Timestamp when the conce
 -- ============================================================
 
 -- Users indexes
-CREATE INDEX IF NOT EXISTS idx_users_external_id ON users(external_id);
-COMMENT ON INDEX idx_users_external_id IS 'Speeds up user lookup by Zitadel identity (sub claim)';
+CREATE INDEX IF NOT EXISTS idx_users_provider_user_id ON users(provider_user_id);
+COMMENT ON INDEX idx_users_provider_user_id IS 'Speeds up user lookup by the identity provider''s ID (Zitadel sub claim)';
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 COMMENT ON INDEX idx_users_email IS 'Speeds up user lookup by email during authentication';
@@ -648,36 +634,36 @@ COMMENT ON INDEX idx_sales_phase_reminders_user_id IS 'Optimizes lookup of all r
 CREATE INDEX IF NOT EXISTS idx_sales_phase_reminders_sales_phase_id ON sales_phase_reminders(sales_phase_id);
 COMMENT ON INDEX idx_sales_phase_reminders_sales_phase_id IS 'Optimizes lookup of all reminder records for a sales phase';
 
--- Staged concerts indexes
+-- Concert candidates indexes
 -- Two partial unique indexes form the NULL-safe natural key: when the venue
 -- resolved, dedup on the canonical place id; otherwise fall back to the raw
 -- listed venue name. They never overlap because the predicates are mutually
 -- exclusive on resolved_place_id IS [NOT] NULL.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_staged_concerts_by_place ON staged_concerts(artist_id, local_date, resolved_place_id) WHERE resolved_place_id IS NOT NULL;
-COMMENT ON INDEX uq_staged_concerts_by_place IS 'Natural-key dedup for resolved venues: one pending row per (artist, date, place id).';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_concert_candidates_by_place ON concert_candidates(artist_id, local_date, resolved_place_id) WHERE resolved_place_id IS NOT NULL;
+COMMENT ON INDEX uq_concert_candidates_by_place IS 'Natural-key dedup for resolved venues: one pending row per (artist, date, place id).';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_staged_concerts_by_listed_name ON staged_concerts(artist_id, local_date, listed_venue_name) WHERE resolved_place_id IS NULL;
-COMMENT ON INDEX uq_staged_concerts_by_listed_name IS 'Natural-key dedup fallback when the venue did not resolve: one pending row per (artist, date, raw listed name).';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_concert_candidates_by_listed_name ON concert_candidates(artist_id, local_date, listed_venue_name) WHERE resolved_place_id IS NULL;
+COMMENT ON INDEX uq_concert_candidates_by_listed_name IS 'Natural-key dedup fallback when the venue did not resolve: one pending row per (artist, date, raw listed name).';
 
-CREATE INDEX IF NOT EXISTS idx_staged_concerts_discovered_at ON staged_concerts(discovered_at);
-COMMENT ON INDEX idx_staged_concerts_discovered_at IS 'Orders the review queue by discovery time';
+CREATE INDEX IF NOT EXISTS idx_concert_candidates_discovered_at ON concert_candidates(discovered_at);
+COMMENT ON INDEX idx_concert_candidates_discovered_at IS 'Orders the review queue by discovery time';
 
--- Rejected concerts log indexes
-CREATE INDEX IF NOT EXISTS idx_rejected_concerts_log_artist_id ON rejected_concerts_log(artist_id);
-COMMENT ON INDEX idx_rejected_concerts_log_artist_id IS 'Supports per-artist analysis of repeated rejection patterns';
+-- Rejected concerts indexes
+CREATE INDEX IF NOT EXISTS idx_rejected_concerts_artist_id ON rejected_concerts(artist_id);
+COMMENT ON INDEX idx_rejected_concerts_artist_id IS 'Supports per-artist analysis of repeated rejection patterns';
 
-CREATE INDEX IF NOT EXISTS idx_rejected_concerts_log_rejected_at ON rejected_concerts_log(rejected_at);
-COMMENT ON INDEX idx_rejected_concerts_log_rejected_at IS 'Supports time-windowed analysis of rejections';
+CREATE INDEX IF NOT EXISTS idx_rejected_concerts_rejected_at ON rejected_concerts(rejected_at);
+COMMENT ON INDEX idx_rejected_concerts_rejected_at IS 'Supports time-windowed analysis of rejections';
 
 -- Organizers: the vetted seller an admin creates to represent artists. Existence
 -- is the vetting (no verified flag). status is the operational lifecycle
--- (1=provisioning, 2=active, 3=deactivated); zitadel_org_id links the token
+-- (1=provisioning, 2=active, 3=deactivated); provider_organizer_id links the token
 -- tenant to this row and is set once tenant provisioning completes.
 CREATE TABLE IF NOT EXISTS organizers (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
     operator_email TEXT NOT NULL,
-    zitadel_org_id TEXT,
+    provider_organizer_id TEXT,
     status SMALLINT NOT NULL,
     legal_name TEXT,
     representative_name TEXT,
@@ -697,7 +683,7 @@ COMMENT ON TABLE organizers IS 'Vetted sellers (label / agency / promoter / self
 COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / promoter / self-publishing artist)';
 COMMENT ON COLUMN organizers.operator_email IS 'Email of the operator who administers this organizer; seeded as the initial Zitadel owner user';
-COMMENT ON COLUMN organizers.zitadel_org_id IS 'Zitadel tenant organization ID; NULL until provisioning completes';
+COMMENT ON COLUMN organizers.provider_organizer_id IS 'The identity provider''s ID for the Organizer (Zitadel tenant organization ID); NULL until provisioning completes';
 COMMENT ON COLUMN organizers.status IS 'Lifecycle state: 1=provisioning, 2=active, 3=deactivated';
 COMMENT ON COLUMN organizers.legal_name IS '特商法 販売業者 legal name (1-200 characters); NULL until an admin enters the business details';
 COMMENT ON COLUMN organizers.representative_name IS '特商法 representative or responsible person (1-100 characters); NULL until entered';
@@ -706,8 +692,8 @@ COMMENT ON COLUMN organizers.business_phone_number IS '特商法 business phone 
 COMMENT ON COLUMN organizers.contact_email IS '特商法 contact email; NULL until entered';
 COMMENT ON COLUMN organizers.platform_fee_rate_bps IS 'Platform fee applied to future orders, in basis points (0-3000). 800 for a new organizer; organizers that existed before per-organizer rates keep 500.';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_zitadel_org_id ON organizers(zitadel_org_id) WHERE zitadel_org_id IS NOT NULL;
-COMMENT ON INDEX uq_organizers_zitadel_org_id IS 'One Zitadel tenant org maps to at most one Organizer; NULL while provisioning';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_organizers_provider_organizer_id ON organizers(provider_organizer_id) WHERE provider_organizer_id IS NOT NULL;
+COMMENT ON INDEX uq_organizers_provider_organizer_id IS 'One Zitadel tenant org maps to at most one Organizer; NULL while provisioning';
 
 -- Organizer-artist association: an organizer represents many artists, and each
 -- artist is represented by at most one organizer (uq_organizer_artists_artist_id).
@@ -727,45 +713,45 @@ COMMENT ON INDEX uq_organizer_artists_artist_id IS 'Each artist is represented b
 CREATE INDEX IF NOT EXISTS idx_organizer_artists_organizer_id ON organizer_artists(organizer_id);
 COMMENT ON INDEX idx_organizer_artists_organizer_id IS 'Optimizes listing the artists an organizer represents';
 
--- Kyc table
+-- Identity verifications table
 -- The result of a fan's 本人確認 (identity check): binds one account (users
 -- row) to a verified real person via JPKI or the driver's-licence fallback
 -- (Pocket Sign Verify). The person key is the Pocket Sign tenant-scoped
--- User.id (pocket_sign_user_id). No 基本4情報, no raw certificate, no 個人番号
+-- User.id (provider_user_id). No 基本4情報, no raw certificate, no 個人番号
 -- is ever stored here — only the result.
--- The partial unique index (uq_active_pocket_sign_user_id) enforces the
--- invariant: at most one row with status='ACTIVE' per pocket_sign_user_id.
-CREATE TABLE IF NOT EXISTS kyc (
+-- The partial unique index (uq_identity_verifications_active_provider_user_id)
+-- enforces the invariant: at most one row with status='ACTIVE' per provider_user_id.
+CREATE TABLE IF NOT EXISTS identity_verifications (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     method SMALLINT NOT NULL,
-    pocket_sign_user_id TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
     dedupe_strength SMALLINT NOT NULL,
-    verified_at TIMESTAMPTZ NOT NULL,
+    verify_at TIMESTAMPTZ NOT NULL,
     status SMALLINT NOT NULL,
-    CONSTRAINT chk_kyc_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_kyc_method CHECK (method BETWEEN 1 AND 2),
-    CONSTRAINT chk_kyc_dedupe_strength CHECK (dedupe_strength BETWEEN 1 AND 2),
-    CONSTRAINT chk_kyc_status CHECK (status BETWEEN 1 AND 2),
-    CONSTRAINT chk_kyc_pocket_sign_user_id_non_empty CHECK (pocket_sign_user_id <> '')
+    CONSTRAINT chk_identity_verifications_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
+    CONSTRAINT chk_identity_verifications_method CHECK (method BETWEEN 1 AND 2),
+    CONSTRAINT chk_identity_verifications_dedupe_strength CHECK (dedupe_strength BETWEEN 1 AND 2),
+    CONSTRAINT chk_identity_verifications_status CHECK (status BETWEEN 1 AND 2),
+    CONSTRAINT chk_identity_verifications_provider_user_id_non_empty CHECK (provider_user_id <> '')
 );
 
-COMMENT ON TABLE kyc IS 'Account-level 本人確認 (Kyc) results. One row per (user, verification attempt); the active invariant (at most one ACTIVE row per pocket_sign_user_id) is enforced by the partial unique index.';
-COMMENT ON COLUMN kyc.id IS 'Unique Kyc record identifier (UUIDv7, application-generated).';
-COMMENT ON COLUMN kyc.user_id IS 'Reference to the user account this Kyc is bound to.';
-COMMENT ON COLUMN kyc.method IS 'Verification method: 1=JPKI, 2=DRIVER_LICENCE.';
-COMMENT ON COLUMN kyc.pocket_sign_user_id IS 'Pocket Sign tenant-scoped person key (User.id). The only person-identifying datum stored; never the serial, never the 個人番号.';
-COMMENT ON COLUMN kyc.dedupe_strength IS 'Dedupe guarantee strength: 1=STRONG (JPKI, stable per-person key), 2=WEAK (driver licence, document-scoped key).';
-COMMENT ON COLUMN kyc.verified_at IS 'Timestamp when the verification was established.';
-COMMENT ON COLUMN kyc.status IS 'Freshness lifecycle: 1=ACTIVE (current), 2=NEEDS_REVERIFICATION (revoked/changed/expired per 現況確認).';
+COMMENT ON TABLE identity_verifications IS 'Account-level 本人確認 (IdentityVerification) results. One row per (user, verification attempt); the active invariant (at most one ACTIVE row per provider_user_id) is enforced by the partial unique index.';
+COMMENT ON COLUMN identity_verifications.id IS 'Unique IdentityVerification identifier (UUIDv7, application-generated).';
+COMMENT ON COLUMN identity_verifications.user_id IS 'Reference to the user account this IdentityVerification is bound to.';
+COMMENT ON COLUMN identity_verifications.method IS 'Verification method: 1=JPKI, 2=DRIVER_LICENCE.';
+COMMENT ON COLUMN identity_verifications.provider_user_id IS 'The verification provider''s ID for the user (Pocket Sign tenant-scoped person key, User.id). The only person-identifying datum stored; never the serial, never the 個人番号.';
+COMMENT ON COLUMN identity_verifications.dedupe_strength IS 'Dedupe guarantee strength: 1=STRONG (JPKI, stable per-person key), 2=WEAK (driver licence, document-scoped key).';
+COMMENT ON COLUMN identity_verifications.verify_at IS 'Timestamp when the verification was established.';
+COMMENT ON COLUMN identity_verifications.status IS 'Freshness lifecycle: 1=ACTIVE (current), 2=NEEDS_REVERIFICATION (revoked/changed/expired per 現況確認).';
 
 -- Partial unique index enforces the 1-person-1-active-account invariant.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_active_pocket_sign_user_id
-    ON kyc(pocket_sign_user_id) WHERE status = 1;
-COMMENT ON INDEX uq_active_pocket_sign_user_id IS 'At most one ACTIVE Kyc row per Pocket Sign person key. A second KYC_VERIFIED account for the same person is rejected here.';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_identity_verifications_active_provider_user_id
+    ON identity_verifications(provider_user_id) WHERE status = 1;
+COMMENT ON INDEX uq_identity_verifications_active_provider_user_id IS 'At most one ACTIVE IdentityVerification per verification provider person key. A second verified account for the same person is rejected here.';
 
-CREATE INDEX IF NOT EXISTS idx_kyc_user_id ON kyc(user_id);
-COMMENT ON INDEX idx_kyc_user_id IS 'Optimizes lookup of a user''s active Kyc record.';
+CREATE INDEX IF NOT EXISTS idx_identity_verifications_user_id ON identity_verifications(user_id);
+COMMENT ON INDEX idx_identity_verifications_user_id IS 'Optimizes lookup of a user''s active IdentityVerification.';
 
 -- ============================================================
 -- Ticket sales (organizer-authored first-come and lottery sales)
@@ -782,13 +768,13 @@ CREATE TABLE IF NOT EXISTS ticket_sales (
     sale_start_at            TIMESTAMPTZ NOT NULL,
     sale_end_at              TIMESTAMPTZ NOT NULL,
     verification_requirement SMALLINT    NOT NULL DEFAULT 0,
-    drawn_at                 TIMESTAMPTZ,
+    draw_at                  TIMESTAMPTZ,
     CONSTRAINT chk_ticket_sales_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_ticket_sales_name_len CHECK (char_length(name) BETWEEN 1 AND 100),
     CONSTRAINT chk_ticket_sales_method CHECK (method IN (1, 2)),
     CONSTRAINT chk_ticket_sales_window CHECK (sale_end_at > sale_start_at),
     CONSTRAINT chk_ticket_sales_verification_requirement CHECK (verification_requirement BETWEEN 0 AND 2),
-    CONSTRAINT chk_ticket_sales_drawn_lottery_only CHECK (drawn_at IS NULL OR method = 2)
+    CONSTRAINT chk_ticket_sales_draw_lottery_only CHECK (draw_at IS NULL OR method = 2)
 );
 
 COMMENT ON TABLE ticket_sales IS 'One sale opportunity (受付) over the events of one Series: a name, an allocation method, a window and a verification requirement. Its per-event price, quantity and limit are ticket_types rows.';
@@ -798,8 +784,8 @@ COMMENT ON COLUMN ticket_sales.name IS 'Sale name shown to fans and operators (1
 COMMENT ON COLUMN ticket_sales.method IS 'Allocation method: 1=FirstCome, 2=Lottery';
 COMMENT ON COLUMN ticket_sales.sale_start_at IS 'When the sale opens';
 COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_start_at, 1 to 14 days after it for a lottery, and before the start of every event the sale covers (checked by the application)';
-COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active Kyc is required), 2=JPKI_ONLY (a JPKI-backed Kyc is required)';
-COMMENT ON COLUMN ticket_sales.drawn_at IS 'When the lottery draw ran for every ticket type of the sale; NULL until drawn and for a first-come sale. Set atomically with the draw outcome; the draw sweeper skips sales where it is set.';
+COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active IdentityVerification is required), 2=JPKI_ONLY (a JPKI-backed IdentityVerification is required)';
+COMMENT ON COLUMN ticket_sales.draw_at IS 'When the lottery draw ran for every ticket type of the sale; NULL until drawn and for a first-come sale. Set atomically with the draw outcome; the draw sweeper skips sales where it is set.';
 
 CREATE INDEX IF NOT EXISTS idx_ticket_sales_series_id ON ticket_sales(series_id);
 COMMENT ON INDEX idx_ticket_sales_series_id IS 'Optimizes listing the sales of a Series';
@@ -844,23 +830,23 @@ CREATE TABLE IF NOT EXISTS lottery_entries (
     id                     UUID     PRIMARY KEY,
     ticket_type_id         UUID     NOT NULL REFERENCES ticket_types(id) ON DELETE CASCADE,
     user_id                UUID     NOT NULL,
-    requested_ticket_count INT      NOT NULL,
-    payment_intent_ref     TEXT,
+    ticket_count           INT      NOT NULL,
+    card_authorization_id  TEXT,
     state                  SMALLINT NOT NULL,
     draw_position          BIGINT,
     CONSTRAINT chk_lottery_entries_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_lottery_entries_count_positive CHECK (requested_ticket_count > 0),
+    CONSTRAINT chk_lottery_entries_ticket_count_positive CHECK (ticket_count > 0),
     CONSTRAINT chk_lottery_entries_state CHECK (state BETWEEN 1 AND 5),
-    CONSTRAINT chk_lottery_entries_payment_intent_ref_not_empty CHECK (payment_intent_ref IS NULL OR payment_intent_ref <> ''),
-    CONSTRAINT chk_lottery_entries_authorized_from_entered CHECK (payment_intent_ref IS NOT NULL OR state IN (4, 5))
+    CONSTRAINT chk_lottery_entries_card_authorization_id_not_empty CHECK (card_authorization_id IS NULL OR card_authorization_id <> ''),
+    CONSTRAINT chk_lottery_entries_authorized_from_entered CHECK (card_authorization_id IS NOT NULL OR state IN (4, 5))
 );
 
 COMMENT ON TABLE lottery_entries IS 'Fan entries into the lottery of a ticket type. One row per attempt; a new entry after withdrawal creates a fresh row. State: 1=Entered, 2=Won, 3=Lost, 4=Withdrawn, 5=Draft.';
 COMMENT ON COLUMN lottery_entries.id IS 'Unique lottery entry identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN lottery_entries.ticket_type_id IS 'The ticket type entered; its sale''s method is Lottery';
 COMMENT ON COLUMN lottery_entries.user_id IS 'The fan user ID (references users.id at application layer; no FK to survive user lifecycle independently)';
-COMMENT ON COLUMN lottery_entries.requested_ticket_count IS 'Companion-group size (all-or-nothing allocation). Must be positive.';
-COMMENT ON COLUMN lottery_entries.payment_intent_ref IS 'Payment provider reference of the card hold (Stripe pi_...); NULL on a Draft until the hold is opened, and on an entry withdrawn as a Draft; required from Entered on';
+COMMENT ON COLUMN lottery_entries.ticket_count IS 'Companion-group size (all-or-nothing allocation). Must be positive.';
+COMMENT ON COLUMN lottery_entries.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...); NULL on a Draft until the hold is opened, and on an entry withdrawn as a Draft; required from Entered on';
 COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (hold in place), 2=Won (captured), 3=Lost (hold released), 4=Withdrawn (fan-cancelled or abandoned Draft, hold released), 5=Draft (before confirmation; takes no part in the draw)';
 COMMENT ON COLUMN lottery_entries.draw_position IS 'Zero-based position in the ticket type''s draw shuffle. NULL until the draw runs; used to order the loser waitlist for official-resale.';
 
@@ -887,19 +873,19 @@ CREATE TABLE IF NOT EXISTS checkouts (
     user_id                   UUID        NOT NULL,
     ticket_count              INTEGER     NOT NULL,
     amount                    BIGINT      NOT NULL,
-    authorization_ref         TEXT,
-    authorization_released_at TIMESTAMPTZ,
+    card_authorization_id     TEXT,
+    card_authorization_release_at TIMESTAMPTZ,
     status                    SMALLINT    NOT NULL,
     hold_expire_at            TIMESTAMPTZ NOT NULL,
-    committed_at              TIMESTAMPTZ,
+    commit_at                 TIMESTAMPTZ,
     capture_at                TIMESTAMPTZ,
     CONSTRAINT chk_checkouts_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_checkouts_ticket_count CHECK (ticket_count BETWEEN 1 AND 10),
     CONSTRAINT chk_checkouts_amount_positive CHECK (amount > 0),
     CONSTRAINT chk_checkouts_status CHECK (status BETWEEN 1 AND 5),
-    CONSTRAINT chk_checkouts_authorization_ref_not_empty CHECK (authorization_ref IS NULL OR authorization_ref <> ''),
-    CONSTRAINT chk_checkouts_released_needs_ref CHECK (authorization_released_at IS NULL OR authorization_ref IS NOT NULL),
-    CONSTRAINT chk_checkouts_committed_time CHECK (status NOT IN (2, 3) OR committed_at IS NOT NULL),
+    CONSTRAINT chk_checkouts_card_authorization_id_not_empty CHECK (card_authorization_id IS NULL OR card_authorization_id <> ''),
+    CONSTRAINT chk_checkouts_release_needs_card_authorization CHECK (card_authorization_release_at IS NULL OR card_authorization_id IS NOT NULL),
+    CONSTRAINT chk_checkouts_commit_time CHECK (status NOT IN (2, 3) OR commit_at IS NOT NULL),
     CONSTRAINT chk_checkouts_charged_never_ended CHECK (capture_at IS NULL OR status IN (2, 3)),
     CONSTRAINT chk_checkouts_completed_charged CHECK (status <> 3 OR capture_at IS NOT NULL)
 );
@@ -910,12 +896,12 @@ COMMENT ON COLUMN checkouts.ticket_type_id IS 'The ticket type the checkout buys
 COMMENT ON COLUMN checkouts.user_id IS 'The fan checking out (no FK to survive user lifecycle independently)';
 COMMENT ON COLUMN checkouts.ticket_count IS 'Tickets held, 1 to the ticket type''s per-account limit';
 COMMENT ON COLUMN checkouts.amount IS 'Total to pay in yen: the ticket type price times ticket_count, fixed at creation';
-COMMENT ON COLUMN checkouts.authorization_ref IS 'Payment provider reference of the card hold (Stripe pi_...); NULL until the fan authorizes, then set once';
-COMMENT ON COLUMN checkouts.authorization_released_at IS 'When the card hold was given back without a charge; NULL unless released';
+COMMENT ON COLUMN checkouts.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...); NULL until the fan authorizes, then set once';
+COMMENT ON COLUMN checkouts.card_authorization_release_at IS 'When the card authorization was released without a charge; NULL unless released';
 COMMENT ON COLUMN checkouts.status IS 'Lifecycle: 1=Held, 2=Committed, 3=Completed, 4=Expired, 5=Released';
 COMMENT ON COLUMN checkouts.hold_expire_at IS 'When the hold lapses: 15 minutes after the checkout started, never extended; a commit needs hold_expire_at > now';
-COMMENT ON COLUMN checkouts.committed_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
-COMMENT ON COLUMN checkouts.capture_at IS 'When the card hold (authorization_ref) was charged; set once, and a row with it is never Expired or Released';
+COMMENT ON COLUMN checkouts.commit_at IS 'When the tickets were committed against the stock; kept when an uncharged commit is reverted';
+COMMENT ON COLUMN checkouts.capture_at IS 'When the card authorization (card_authorization_id) was captured; set once, and a row with it is never Expired or Released';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_checkouts_held ON checkouts(ticket_type_id, user_id) WHERE status = 1;
 COMMENT ON INDEX uq_checkouts_held IS 'At most one Held checkout per (ticket type, user): a concurrent second insert loses and reads the winner';
@@ -923,7 +909,7 @@ COMMENT ON INDEX uq_checkouts_held IS 'At most one Held checkout per (ticket typ
 CREATE INDEX IF NOT EXISTS idx_checkouts_ticket_type_status ON checkouts(ticket_type_id, status);
 COMMENT ON INDEX idx_checkouts_ticket_type_status IS 'Optimizes the held and per-user committed counts of a ticket type';
 
-CREATE INDEX IF NOT EXISTS idx_checkouts_due ON checkouts(status, hold_expire_at) WHERE status IN (1, 2) OR (status IN (4, 5) AND authorization_ref IS NOT NULL AND authorization_released_at IS NULL);
+CREATE INDEX IF NOT EXISTS idx_checkouts_due ON checkouts(status, hold_expire_at) WHERE status IN (1, 2) OR (status IN (4, 5) AND card_authorization_id IS NOT NULL AND card_authorization_release_at IS NULL);
 COMMENT ON INDEX idx_checkouts_due IS 'Optimizes ListDue: lapsed holds, card holds to give back and stalled commits';
 
 -- Orders: the ⑤ purchase record for one won lottery entry or one completed
@@ -935,17 +921,17 @@ CREATE TABLE IF NOT EXISTS orders (
     user_id            UUID    NOT NULL,
     lottery_entry_id   UUID    REFERENCES lottery_entries(id) ON DELETE RESTRICT,
     provider           SMALLINT NOT NULL,
-    payment_intent_ref TEXT    NOT NULL,
-    payment_method_ref TEXT    NOT NULL DEFAULT '',
+    provider_payment_id TEXT   NOT NULL,
+    provider_payment_method_id TEXT NOT NULL DEFAULT '',
     card_brand         TEXT    NOT NULL DEFAULT '',
     card_last4         TEXT    NOT NULL DEFAULT '',
     status             SMALLINT NOT NULL,
     amount             BIGINT  NOT NULL,
     currency           TEXT    NOT NULL,
-    paid_at            TIMESTAMPTZ NOT NULL,
-    refund_ref         TEXT    NOT NULL DEFAULT '',
+    pay_at             TIMESTAMPTZ NOT NULL,
+    provider_refund_id TEXT    NOT NULL DEFAULT '',
     checkout_id        UUID    REFERENCES checkouts(id) ON DELETE RESTRICT,
-    confirmation_sent_at TIMESTAMPTZ,
+    confirmation_send_at TIMESTAMPTZ,
     CONSTRAINT chk_orders_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_orders_provider CHECK (provider IN (1, 2)),
     CONSTRAINT chk_orders_status CHECK (status IN (1, 2, 3)),
@@ -959,17 +945,17 @@ COMMENT ON COLUMN orders.id IS 'Unique order identifier (UUIDv7, application-gen
 COMMENT ON COLUMN orders.user_id IS 'The fan who bought the tickets (no FK to survive user lifecycle independently)';
 COMMENT ON COLUMN orders.lottery_entry_id IS 'The Won-captured lottery entry this order derives from; NULL when the source is a checkout; unique (one order per entry)';
 COMMENT ON COLUMN orders.provider IS 'Payment provider: 1=Stripe, 2=KOMOJU';
-COMMENT ON COLUMN orders.payment_intent_ref IS 'Opaque provider PaymentIntent reference (e.g. Stripe pi_...) of the captured payment';
-COMMENT ON COLUMN orders.payment_method_ref IS 'Opaque provider PaymentMethod reference (e.g. Stripe pm_...), optional';
+COMMENT ON COLUMN orders.provider_payment_id IS 'The payment provider''s ID for the captured payment (e.g. Stripe pi_...)';
+COMMENT ON COLUMN orders.provider_payment_method_id IS 'The payment provider''s ID for the payment method (e.g. Stripe pm_...), optional';
 COMMENT ON COLUMN orders.card_brand IS 'Display-only card brand facet (e.g. visa); never the PAN';
 COMMENT ON COLUMN orders.card_last4 IS 'Display-only last four digits; never the full PAN';
 COMMENT ON COLUMN orders.status IS 'Order status: 1=Paid, 2=Refunded, 3=Failed (capture-succeeded-but-issuance-refunded edge)';
 COMMENT ON COLUMN orders.amount IS 'Total captured amount in the currency smallest unit (yen total for JPY)';
 COMMENT ON COLUMN orders.currency IS 'ISO 4217 currency code of amount (JPY for the MVP)';
-COMMENT ON COLUMN orders.paid_at IS 'When the order was recorded as paid (after the draw''s capture or the checkout''s charge)';
+COMMENT ON COLUMN orders.pay_at IS 'When the order was recorded as paid (after the draw''s capture or the checkout''s charge)';
 COMMENT ON COLUMN orders.checkout_id IS 'The Committed, charged checkout this order completes; NULL when the source is a lottery entry; unique (one order per checkout)';
-COMMENT ON COLUMN orders.confirmation_sent_at IS 'When the purchase confirmation email was sent; NULL until sent. Set right after a successful send so a redelivered event sends nothing.';
-COMMENT ON COLUMN orders.refund_ref IS 'Opaque provider Refund reference (e.g. Stripe "re_...") set when the order is refunded via CANCELLATION. Empty for DISPUTE reason (the chargeback already reversed the charge at the card network) and for orders that are not yet refunded.';
+COMMENT ON COLUMN orders.confirmation_send_at IS 'When the purchase confirmation email was sent; NULL until sent. Set right after a successful send so a redelivered event sends nothing.';
+COMMENT ON COLUMN orders.provider_refund_id IS 'The payment provider''s ID for the refund (e.g. Stripe "re_...") set when the order is refunded via CANCELLATION. Empty for DISPUTE reason (the chargeback already reversed the charge at the card network) and for orders that are not yet refunded.';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_lottery_entry_id ON orders(lottery_entry_id);
 COMMENT ON INDEX uq_orders_lottery_entry_id IS 'One order per winning lottery entry — the issuance idempotency guard (a duplicate insert raises unique_violation, surfaced as AlreadyExists).';
@@ -989,11 +975,11 @@ CREATE TABLE IF NOT EXISTS tickets (
     order_id                          UUID    NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
     user_id                           UUID    NOT NULL,
     event_id                          UUID    NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
-    kyc_id                            UUID,
+    identity_verification_id          UUID,
     resale_without_consent_prohibited BOOLEAN NOT NULL DEFAULT TRUE,
     status                            SMALLINT NOT NULL,
-    issued_at                         TIMESTAMPTZ NOT NULL,
-    admitted_at                       TIMESTAMPTZ,
+    issue_at                          TIMESTAMPTZ NOT NULL,
+    admit_at                          TIMESTAMPTZ,
     CONSTRAINT chk_tickets_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_tickets_status CHECK (status IN (1, 2)),
     CONSTRAINT chk_tickets_resale_prohibited CHECK (resale_without_consent_prohibited = TRUE)
@@ -1004,11 +990,11 @@ COMMENT ON COLUMN tickets.id IS 'Unique ticket identifier (UUIDv7, application-g
 COMMENT ON COLUMN tickets.order_id IS 'The order that issued this ticket';
 COMMENT ON COLUMN tickets.user_id IS 'The account the ticket is bound to; never changes (official resale voids the ticket and issues a new one)';
 COMMENT ON COLUMN tickets.event_id IS 'The event this ticket admits to (supplies the covered-ticket face date/venue)';
-COMMENT ON COLUMN tickets.kyc_id IS 'The Kyc the ticket is bound to when its sale required verification; NULL otherwise. No FK so privacy deletion of a Kyc is independent.';
+COMMENT ON COLUMN tickets.identity_verification_id IS 'The IdentityVerification the ticket is bound to when its sale required verification; NULL otherwise. No FK so privacy deletion of an IdentityVerification is independent.';
 COMMENT ON COLUMN tickets.resale_without_consent_prohibited IS 'Covered-ticket condition (i): always true (enforced by CHECK) so every issued ticket qualifies as a 特定興行入場券';
 COMMENT ON COLUMN tickets.status IS 'Ticket status: 1=Issued, 2=Voided (on refund)';
-COMMENT ON COLUMN tickets.issued_at IS 'When the ticket was issued (= the order capture/issuance time)';
-COMMENT ON COLUMN tickets.admitted_at IS 'When the ticket was admitted at the venue; NULL until admitted. Set once together with its admissions row (conditional update on this row) and kept when the ticket is later voided.';
+COMMENT ON COLUMN tickets.issue_at IS 'When the ticket was issued (= the order capture/issuance time)';
+COMMENT ON COLUMN tickets.admit_at IS 'When the ticket was admitted at the venue; NULL until admitted. Set once together with its admissions row (conditional update on this row) and kept when the ticket is later voided.';
 
 CREATE INDEX IF NOT EXISTS idx_tickets_order_id ON tickets(order_id);
 COMMENT ON INDEX idx_tickets_order_id IS 'Optimizes loading the tickets of an order';
@@ -1023,27 +1009,27 @@ COMMENT ON INDEX idx_tickets_event_id IS 'Optimizes per-event ticket lookups (ch
 -- Settlement / payout tables (ticket-settlement-and-payout)
 -- ============================================================
 
--- Organizer connected accounts: opaque provider references for each
--- Organizer's payout-recipient Stripe connected account. One row per
+-- Payout accounts: the payment provider's ID for each Organizer's
+-- payout-recipient Stripe connected account. One row per
 -- Organizer; the platform provisions the account as a recipient (transfers
 -- capability only, never card_payments) with losses_collector = application
 -- so the platform absorbs negative balances.
-CREATE TABLE IF NOT EXISTS organizer_connected_accounts (
+CREATE TABLE IF NOT EXISTS payout_accounts (
     organizer_id    UUID    PRIMARY KEY REFERENCES organizers(id) ON DELETE CASCADE,
-    account_ref     TEXT    NOT NULL,
+    provider_account_id TEXT NOT NULL,
     status          SMALLINT NOT NULL,
     provisioned_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     status_synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_oca_account_ref_not_empty CHECK (account_ref <> ''),
-    CONSTRAINT chk_oca_status CHECK (status IN (1, 2, 3))
+    CONSTRAINT chk_payout_accounts_provider_account_id_not_empty CHECK (provider_account_id <> ''),
+    CONSTRAINT chk_payout_accounts_status CHECK (status IN (1, 2, 3))
 );
 
-COMMENT ON TABLE organizer_connected_accounts IS 'Opaque provider reference to the Organizer payout-recipient connected account (Accounts v2, transfers capability only). One row per Organizer. status: 1=Pending (KYC/KYB in progress), 2=Active (eligible for payout), 3=Restricted (capability disabled).';
-COMMENT ON COLUMN organizer_connected_accounts.organizer_id IS 'The Organizer that owns this payout-recipient account (1:1 with organizers)';
-COMMENT ON COLUMN organizer_connected_accounts.account_ref IS 'Opaque provider connected-account reference (e.g. Stripe "acct_..."); meaningful only to the provider';
-COMMENT ON COLUMN organizer_connected_accounts.status IS 'Payout-onboarding readiness: 1=Pending, 2=Active, 3=Restricted. Eligibility = status 2 only.';
-COMMENT ON COLUMN organizer_connected_accounts.provisioned_at IS 'When the connected account was first provisioned via the payment provider';
-COMMENT ON COLUMN organizer_connected_accounts.status_synced_at IS 'When the capability status was last refreshed from the payment provider';
+COMMENT ON TABLE payout_accounts IS 'The Organizer''s payout account at the payment provider (a payout-recipient Stripe connected account, Accounts v2, transfers capability only). One row per Organizer. status: 1=Pending (KYC/KYB in progress), 2=Active (eligible for payout), 3=Restricted (capability disabled).';
+COMMENT ON COLUMN payout_accounts.organizer_id IS 'The Organizer that owns this payout-recipient account (1:1 with organizers)';
+COMMENT ON COLUMN payout_accounts.provider_account_id IS 'The payment provider''s ID for the payout account (e.g. Stripe "acct_..."); meaningful only to the provider';
+COMMENT ON COLUMN payout_accounts.status IS 'Payout-onboarding readiness: 1=Pending, 2=Active, 3=Restricted. Eligibility = status 2 only.';
+COMMENT ON COLUMN payout_accounts.provisioned_at IS 'When the connected account was first provisioned via the payment provider';
+COMMENT ON COLUMN payout_accounts.status_synced_at IS 'When the capability status was last refreshed from the payment provider';
 
 -- Settlements: one payout record per Order. Tracks the lifecycle of the
 -- Organizer's net share (held on the platform balance until the release gate
@@ -1054,13 +1040,13 @@ CREATE TABLE IF NOT EXISTS settlements (
     order_id      UUID    NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
     organizer_id  UUID    NOT NULL,
     event_id      UUID    NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
-    charge_ref    TEXT,
+    provider_charge_id TEXT,
     status        SMALLINT NOT NULL,
-    released_at   TIMESTAMPTZ,
-    settled_at    TIMESTAMPTZ NOT NULL,
+    release_at    TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL,
     CONSTRAINT chk_settlements_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
     CONSTRAINT chk_settlements_status CHECK (status IN (1, 2, 3)),
-    CONSTRAINT chk_settlements_charge_ref_not_empty CHECK (charge_ref IS NULL OR charge_ref <> '')
+    CONSTRAINT chk_settlements_provider_charge_id_not_empty CHECK (provider_charge_id IS NULL OR provider_charge_id <> '')
 );
 
 COMMENT ON TABLE settlements IS 'Payout record for one Order. Holds the captured platform charge until the release gate passes (event start_time + dispute buffer), then tracks the Transfer(s) that pay out the Organizer net share. Platform fee = un-transferred remainder (no fee split row). status: 1=Held, 2=Released, 3=Reversed.';
@@ -1068,10 +1054,10 @@ COMMENT ON COLUMN settlements.id IS 'Unique settlement identifier (UUIDv7, appli
 COMMENT ON COLUMN settlements.order_id IS 'The Order this settlement pays out; one settlement per order (unique index)';
 COMMENT ON COLUMN settlements.organizer_id IS 'The Organizer that receives the payout. Stored denormalized so the sweeper avoids joining through application → phase → event.';
 COMMENT ON COLUMN settlements.event_id IS 'The event this settlement gates on. Stored denormalized so the release-gate check reads events.start_at without extra joins.';
-COMMENT ON COLUMN settlements.charge_ref IS 'Opaque provider Charge reference (e.g. Stripe "ch_...") resolved from the Order PaymentIntent at payout time. NULL until resolved. Used as source_transaction on each Transfer.';
+COMMENT ON COLUMN settlements.provider_charge_id IS 'The payment provider''s ID for the charge (e.g. Stripe "ch_...") resolved from the Order''s provider payment ID at payout time. NULL until resolved. Used as source_transaction on each Transfer.';
 COMMENT ON COLUMN settlements.status IS 'Settlement lifecycle: 1=Held (gate not passed), 2=Released (Transfer(s) created), 3=Reversed (transfer_reversal clawback applied)';
-COMMENT ON COLUMN settlements.released_at IS 'When the settlement was released (Transfer(s) created). NULL while Held.';
-COMMENT ON COLUMN settlements.settled_at IS 'When this settlement row was created (= Order issuance time for the initial Held row)';
+COMMENT ON COLUMN settlements.release_at IS 'When the settlement was released (Transfer(s) created). NULL while Held.';
+COMMENT ON COLUMN settlements.created_at IS 'When this settlement row was created (= Order issuance time for the initial Held row)';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_settlements_order_id ON settlements(order_id);
 COMMENT ON INDEX uq_settlements_order_id IS 'One settlement per Order — the payout idempotency guard; a duplicate insert raises unique_violation.';
@@ -1089,20 +1075,20 @@ CREATE TABLE IF NOT EXISTS settlement_splits (
     settlement_id          UUID    NOT NULL REFERENCES settlements(id) ON DELETE CASCADE,
     payee_organizer_id     UUID    NOT NULL,
     amount                 BIGINT  NOT NULL,
-    transfer_ref           TEXT,
-    transfer_reversal_ref  TEXT,
+    provider_payout_id          TEXT,
+    provider_payout_reversal_id TEXT,
     PRIMARY KEY (settlement_id, payee_organizer_id),
     CONSTRAINT chk_settlement_splits_amount_positive CHECK (amount > 0),
-    CONSTRAINT chk_settlement_splits_transfer_ref_not_empty CHECK (transfer_ref IS NULL OR transfer_ref <> ''),
-    CONSTRAINT chk_settlement_splits_reversal_ref_not_empty CHECK (transfer_reversal_ref IS NULL OR transfer_reversal_ref <> '')
+    CONSTRAINT chk_settlement_splits_provider_payout_id_not_empty CHECK (provider_payout_id IS NULL OR provider_payout_id <> ''),
+    CONSTRAINT chk_settlement_splits_provider_payout_reversal_id_not_empty CHECK (provider_payout_reversal_id IS NULL OR provider_payout_reversal_id <> '')
 );
 
 COMMENT ON TABLE settlement_splits IS 'One payee share per settlement. MVP = one row per settlement (the Organizer). Extensible to N payees (venue, artist) by adding rows. The platform fee is the un-transferred remainder and has no row here.';
 COMMENT ON COLUMN settlement_splits.settlement_id IS 'Reference to the parent settlement';
 COMMENT ON COLUMN settlement_splits.payee_organizer_id IS 'Organizer that receives this split (no FK so payee lifecycle is independent of the settlement)';
 COMMENT ON COLUMN settlement_splits.amount IS 'Net share in the Order currency smallest unit (whole yen for JPY). Must be positive.';
-COMMENT ON COLUMN settlement_splits.transfer_ref IS 'Opaque provider Transfer reference (e.g. Stripe "tr_..."). NULL until the split is released.';
-COMMENT ON COLUMN settlement_splits.transfer_reversal_ref IS 'Opaque provider transfer-reversal reference (e.g. Stripe "trr_..."). NULL unless reversed on a refund/dispute.';
+COMMENT ON COLUMN settlement_splits.provider_payout_id IS 'The payment provider''s ID for the payout (a Stripe Transfer, e.g. "tr_..."). NULL until the split is released.';
+COMMENT ON COLUMN settlement_splits.provider_payout_reversal_id IS 'The payment provider''s ID for the payout reversal (a Stripe transfer reversal, e.g. "trr_..."). NULL unless reversed on a refund/dispute.';
 
 -- Processed webhook events: idempotency table for inbound Stripe webhook
 -- delivery. Each provider event id is recorded after successful processing so
@@ -1176,7 +1162,7 @@ COMMENT ON COLUMN reception_links.bound_at IS 'When a device first opened the li
 COMMENT ON COLUMN reception_links.revoked_at IS 'When the Organizer revoked the link';
 
 -- Admissions: the permanent note that a ticket was let in. Written only in the
--- same statement as tickets.admitted_at; at most one per ticket. Append-only.
+-- same statement as tickets.admit_at; at most one per ticket. Append-only.
 CREATE TABLE IF NOT EXISTS admissions (
     ticket_id         UUID        PRIMARY KEY REFERENCES tickets(id) ON DELETE RESTRICT,
     event_id          UUID        NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
@@ -1184,20 +1170,19 @@ CREATE TABLE IF NOT EXISTS admissions (
     admitted_at       TIMESTAMPTZ NOT NULL
 );
 
-COMMENT ON TABLE admissions IS 'Append-only attendance evidence: a ticket let in at the venue, through which reception link and when. Written together with tickets.admitted_at; never changed or removed, even when the ticket is later voided.';
+COMMENT ON TABLE admissions IS 'Append-only attendance evidence: a ticket let in at the venue, through which reception link and when. Written together with tickets.admit_at; never changed or removed, even when the ticket is later voided.';
 COMMENT ON COLUMN admissions.ticket_id IS 'The ticket let in (at most one admission per ticket)';
 COMMENT ON COLUMN admissions.event_id IS 'The event of the ticket';
 COMMENT ON COLUMN admissions.reception_link_id IS 'The reception link that scanned the ticket';
-COMMENT ON COLUMN admissions.admitted_at IS 'When the ticket was let in; equal to tickets.admitted_at';
+COMMENT ON COLUMN admissions.admitted_at IS 'When the ticket was let in; equal to tickets.admit_at';
 
 CREATE INDEX IF NOT EXISTS idx_admissions_reception_link_id ON admissions(reception_link_id);
 COMMENT ON INDEX idx_admissions_reception_link_id IS 'Supports the reception_links foreign key and per-link admission lookups';
 
 -- Rejected scans: the append-only note of a refused scan or of one refused
 -- ticket in it. ticket_id is absent exactly for reason Forged. It carries no
--- foreign key: a genuine code may present an id that is no ticket (rejected
--- as NotHolder), and losing a rejection is acceptable while a failed batch
--- would lose all of them.
+-- foreign key: losing a rejection is acceptable while a failed batch would
+-- lose all of them.
 CREATE TABLE IF NOT EXISTS rejected_scans (
     id                UUID        PRIMARY KEY,
     event_id          UUID        NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
@@ -1206,16 +1191,16 @@ CREATE TABLE IF NOT EXISTS rejected_scans (
     reason            SMALLINT    NOT NULL,
     scanned_at        TIMESTAMPTZ NOT NULL,
     CONSTRAINT chk_rejected_scans_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7'),
-    CONSTRAINT chk_rejected_scans_reason CHECK (reason BETWEEN 1 AND 6),
+    CONSTRAINT chk_rejected_scans_reason CHECK (reason IN (1, 2, 3, 5, 6)),
     CONSTRAINT chk_rejected_scans_ticket_unless_forged CHECK ((reason = 1) = (ticket_id IS NULL))
 );
 
-COMMENT ON TABLE rejected_scans IS 'Append-only note of a refused scan (Forged, Expired, OtherEvent) or of one refused ticket in it (NotHolder, Voided, AlreadyAdmitted). Reason 1=Forged, 2=Expired, 3=OtherEvent, 4=NotHolder, 5=Voided, 6=AlreadyAdmitted.';
+COMMENT ON TABLE rejected_scans IS 'Append-only note of a refused scan (Forged, Expired, OtherEvent) or of one refused ticket in it (Voided, AlreadyAdmitted). Reason 1=Forged, 2=Expired, 3=OtherEvent, 5=Voided, 6=AlreadyAdmitted (4, the former NotHolder, is retired).';
 COMMENT ON COLUMN rejected_scans.id IS 'Unique rejected scan identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN rejected_scans.event_id IS 'The event of the reception link that scanned';
 COMMENT ON COLUMN rejected_scans.reception_link_id IS 'The reception link that scanned';
 COMMENT ON COLUMN rejected_scans.ticket_id IS 'The presented ticket the refusal is about; NULL exactly when the reason is Forged. No FK: a genuine code may present an id that is no ticket';
-COMMENT ON COLUMN rejected_scans.reason IS 'Why it was refused: 1=Forged, 2=Expired, 3=OtherEvent, 4=NotHolder, 5=Voided, 6=AlreadyAdmitted';
+COMMENT ON COLUMN rejected_scans.reason IS 'Why it was refused: 1=Forged, 2=Expired, 3=OtherEvent, 5=Voided, 6=AlreadyAdmitted';
 COMMENT ON COLUMN rejected_scans.scanned_at IS 'When the scan was decided';
 
 CREATE INDEX IF NOT EXISTS idx_rejected_scans_event_id ON rejected_scans(event_id);

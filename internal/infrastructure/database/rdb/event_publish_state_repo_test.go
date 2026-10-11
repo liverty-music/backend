@@ -94,7 +94,7 @@ func seedOrganizer(t *testing.T) string {
 	ctx := context.Background()
 	id := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO organizers (id, name, operator_email, status, zitadel_org_id) VALUES ($1, 'Test Organizer', 'test@example.com', 2, $2)`,
+		`INSERT INTO organizers (id, name, operator_email, status, provider_organizer_id) VALUES ($1, 'Test Organizer', 'test@example.com', 2, $2)`,
 		id, "org-"+id,
 	)
 	require.NoError(t, err)

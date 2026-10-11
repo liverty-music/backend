@@ -37,7 +37,7 @@ const markReversedTxQuery = `
 
 const upsertSplitReversalRefTxQuery = `
 	UPDATE settlement_splits
-	SET transfer_reversal_ref = $3
+	SET provider_payout_reversal_id = $3
 	WHERE settlement_id = $1 AND payee_organizer_id = $2
 `
 
@@ -49,7 +49,7 @@ const voidTicketsByOrderTxQuery = `
 // provider Refund reference (re_...). For DISPUTE refunds the refund_ref is
 // empty string — the column's DEFAULT ” preserves that cleanly.
 const updateOrderRefundTxQuery = `
-	UPDATE orders SET status = $2, refund_ref = $3 WHERE id = $1
+	UPDATE orders SET status = $2, provider_refund_id = $3 WHERE id = $1
 `
 
 // CommitRefund implements [entity.RefundRepository].

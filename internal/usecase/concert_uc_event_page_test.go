@@ -29,7 +29,7 @@ func eventPageSeries(visibility entity.SeriesVisibility, state entity.SeriesPubl
 		Title:        "ONE MAN LIVE",
 		Type:         entity.SeriesTypeSingle,
 		Description:  &description,
-		CoverMedia:   &entity.Media{ID: "019a0000-0000-7000-8000-0000000000c1", Kind: entity.MediaKindImage},
+		CoverMedia:   &entity.Media{ID: "019a0000-0000-7000-8000-0000000000c1"},
 		OrganizerID:  &organizerID,
 		Visibility:   &visibility,
 		PublishState: &state,

@@ -22,21 +22,21 @@ var _ entity.IssuanceRepository = (*IssuanceRepository)(nil)
 const (
 	issuanceInsertOrderQuery = `
 		INSERT INTO orders (
-			id, user_id, lottery_entry_id, checkout_id, provider, payment_intent_ref, payment_method_ref,
-			card_brand, card_last4, status, amount, currency, paid_at
+			id, user_id, lottery_entry_id, checkout_id, provider, provider_payment_id, provider_payment_method_id,
+			card_brand, card_last4, status, amount, currency, pay_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	issuanceInsertTicketQuery = `
 		INSERT INTO tickets (
-			id, order_id, user_id, event_id, kyc_id,
-			resale_without_consent_prohibited, status, issued_at
+			id, order_id, user_id, event_id, identity_verification_id,
+			resale_without_consent_prohibited, status, issue_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	// issuanceInsertSettlementQuery inserts the Held settlement row for the
 	// issued Order. Settlement.organizer_id/event_id are NOT NULL, so the
 	// caller (IssuanceUseCase) must resolve the Organizer before calling Issue.
 	issuanceInsertSettlementQuery = `
-		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, settled_at)
+		INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	// issuanceInsertSettlementSplitQuery inserts one payout split for the

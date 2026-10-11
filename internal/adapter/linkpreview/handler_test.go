@@ -65,7 +65,7 @@ func newConcert(id string, date time.Time, o concertOpts) *entity.Concert {
 		s.Description = &d
 	}
 	if o.cover {
-		s.CoverMedia = &entity.Media{ID: mediaID, OrganizerID: organizerID, Kind: entity.MediaKindImage}
+		s.CoverMedia = &entity.Media{ID: mediaID, OrganizerID: organizerID}
 	}
 	return &entity.Concert{
 		ID: id, SeriesID: seriesID, LocalDate: date,

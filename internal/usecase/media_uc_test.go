@@ -168,7 +168,7 @@ func TestMediaUseCase_AttachMedia_InsertsAndPublishes(t *testing.T) {
 	s := &entity.Series{ID: seriesID, OrganizerID: new(orgID)}
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil)
 	d.mediaRepo.EXPECT().InsertMedia(mock.Anything, mock.MatchedBy(func(m *entity.Media) bool {
-		return m.ID == mediaID && m.OrganizerID == orgID && m.Kind == entity.MediaKindImage
+		return m.ID == mediaID && m.OrganizerID == orgID
 	})).Return(nil)
 	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectMediaUploaded, mock.Anything).Return(nil)
 
@@ -238,7 +238,7 @@ func TestMediaUseCase_ProcessMedia_HappyPath(t *testing.T) {
 	origKey := fakeOriginalKey(orgID, mediaID)
 	d.storer.objects["originals/"+origKey] = []byte("raw-image-bytes")
 
-	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
+	media := &entity.Media{ID: mediaID, OrganizerID: orgID}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, []byte("raw-image-bytes")).
 		Return([]byte("thumb-webp"), []byte("large-webp"), nil)
@@ -271,7 +271,7 @@ func TestMediaUseCase_ProcessMedia_ReplacesOldMedia(t *testing.T) {
 	origKey := fakeOriginalKey(orgID, mediaID)
 	d.storer.objects["originals/"+origKey] = []byte("raw")
 
-	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
+	media := &entity.Media{ID: mediaID, OrganizerID: orgID}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return([]byte("thumb"), []byte("large"), nil)
@@ -301,7 +301,7 @@ func TestMediaUseCase_ProcessMedia_UnsupportedImage(t *testing.T) {
 	origKey := fakeOriginalKey(orgID, mediaID)
 	d.storer.objects["originals/"+origKey] = []byte("corrupt")
 
-	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
+	media := &entity.Media{ID: mediaID, OrganizerID: orgID}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return(nil, nil, entity.ErrUnsupportedMedia)
@@ -328,7 +328,7 @@ func TestMediaUseCase_ProcessMedia_TransientError(t *testing.T) {
 	origKey := fakeOriginalKey(orgID, mediaID)
 	d.storer.objects["originals/"+origKey] = []byte("raw")
 
-	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
+	media := &entity.Media{ID: mediaID, OrganizerID: orgID}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return(nil, nil, errors.New("vips OOM"))
@@ -355,7 +355,7 @@ func TestMediaUseCase_ProcessMedia_Idempotent(t *testing.T) {
 	origKey := fakeOriginalKey(orgID, mediaID)
 	d.storer.objects["originals/"+origKey] = []byte("raw")
 
-	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
+	media := &entity.Media{ID: mediaID, OrganizerID: orgID}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil).Times(2)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return([]byte("thumb"), []byte("large"), nil).Times(2)
@@ -401,7 +401,7 @@ func TestMediaUseCase_ProcessMedia_MissingSeries(t *testing.T) {
 	origKey := fakeOriginalKey(orgID, mediaID)
 	d.storer.objects["originals/"+origKey] = []byte("raw")
 
-	media := &entity.Media{ID: mediaID, OrganizerID: orgID, Kind: entity.MediaKindImage}
+	media := &entity.Media{ID: mediaID, OrganizerID: orgID}
 	d.mediaRepo.EXPECT().FindMediaByID(mock.Anything, mediaID).Return(media, nil)
 	d.processor.EXPECT().ProcessImage(mock.Anything, mock.Anything).
 		Return([]byte("thumb"), []byte("large"), nil)

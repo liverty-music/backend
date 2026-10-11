@@ -140,13 +140,13 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
-		       m.id, m.organizer_id, m.kind,
+		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE EXISTS (
 			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)` + firstPartyVisibilityGuard + `
@@ -157,13 +157,13 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
-		       m.id, m.organizer_id, m.kind,
+		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE EXISTS (
 			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = $1
 		)
@@ -177,13 +177,13 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
-		       m.id, m.organizer_id, m.kind,
+		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE EXISTS (
 			SELECT 1 FROM concert_artists ep WHERE ep.event_id = e.id AND ep.artist_id = ANY($1)
 		)` + firstPartyVisibilityGuard + `
@@ -203,13 +203,13 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
-		       m.id, m.organizer_id, m.kind,
+		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE e.local_event_date BETWEEN $1 AND $2
 		  AND (
 		    (v.latitude BETWEEN $3 AND $4 AND v.longitude BETWEEN $5 AND $6)
@@ -227,13 +227,13 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
-		       m.id, m.organizer_id, m.kind,
+		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		ORDER BY e.local_event_date ASC
 	`
 
@@ -289,13 +289,13 @@ const (
 		SELECT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
-		       m.id, m.organizer_id, m.kind,
+		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE e.id = ANY($1)
 		ORDER BY e.local_event_date ASC
 	`
@@ -315,13 +315,13 @@ const (
 		SELECT DISTINCT e.id, e.series_id, e.venue_id, e.listed_venue_name, e.local_event_date, e.start_at, e.open_at,
 		       s.title, s.type, s.source_url,
 		       s.organizer_id, s.description, s.visibility, s.publish_state,
-		       m.id, m.organizer_id, m.kind,
+		       m.id, m.organizer_id,
 		       v.id, v.name, v.admin_area, v.latitude, v.longitude
 		FROM events e
 		JOIN series s ON e.series_id = s.id
 		JOIN venues v ON e.venue_id = v.id
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		JOIN concert_artists ep ON ep.event_id = e.id
 		JOIN followed_artists fa ON fa.artist_id = ep.artist_id
 		WHERE fa.user_id = $1
@@ -332,7 +332,7 @@ const (
 	// listOrganizersByIDsQuery hydrates the Organizer of each first-party
 	// Series, with the columns scanOrganizer reads.
 	listOrganizersByIDsQuery = `
-		SELECT id, name, operator_email, zitadel_org_id, status,
+		SELECT id, name, operator_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE id = ANY($1)
 	`
@@ -380,14 +380,13 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		publishState sql.NullString
 		mediaID      sql.NullString
 		mediaOrgID   sql.NullString
-		mediaKind    sql.NullString
 		lat, lng     *float64
 	)
 	dests := []any{
 		&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime,
 		&series.Title, &seriesT, &sourceURL,
 		&organizerID, &description, &visibility, &publishState,
-		&mediaID, &mediaOrgID, &mediaKind,
+		&mediaID, &mediaOrgID,
 		&venue.ID, &venue.Name, &venue.AdminArea,
 	}
 	if withCoords {
@@ -438,7 +437,6 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		series.CoverMedia = &entity.Media{
 			ID:          mediaID.String,
 			OrganizerID: mediaOrgID.String,
-			Kind:        entity.MediaKind(mediaKind.String),
 		}
 	}
 	if lat != nil && lng != nil {

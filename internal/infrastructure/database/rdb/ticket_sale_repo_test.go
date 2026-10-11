@@ -299,7 +299,7 @@ func TestTicketSaleRepository_ListDueForDraw(t *testing.T) {
 	closedAtNow := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, now, seedPublishedEvent(t)))
 	open := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, now.Add(time.Second), seedPublishedEvent(t)))
 	drawn := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, end, seedPublishedEvent(t)))
-	_, err := testDB.Pool.Exec(ctx, `UPDATE ticket_sales SET drawn_at = $2 WHERE id = $1`, string(drawn.ID), now)
+	_, err := testDB.Pool.Exec(ctx, `UPDATE ticket_sales SET draw_at = $2 WHERE id = $1`, string(drawn.ID), now)
 	require.NoError(t, err)
 	firstCome := createSale(t, newSaleFor(t, entity.TicketSaleMethodFirstCome, saleWindowStart, end, seedPublishedEvent(t)))
 

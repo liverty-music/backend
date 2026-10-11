@@ -45,10 +45,10 @@ const (
 		       s.description, s.organizer_id,
 		       s.visibility, s.publish_state, s.unlisted_token,
 		       s.published_at, s.cancelled_at,
-		       m.id, m.organizer_id, m.kind, m.attributes
+		       m.id, m.organizer_id, m.attributes
 		FROM series s
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE s.id = $1
 	`
 
@@ -57,10 +57,10 @@ const (
 		       s.description, s.organizer_id,
 		       s.visibility, s.publish_state, s.unlisted_token,
 		       s.published_at, s.cancelled_at,
-		       m.id, m.organizer_id, m.kind, m.attributes
+		       m.id, m.organizer_id, m.attributes
 		FROM series s
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE s.id = ANY($1)
 	`
 
@@ -68,7 +68,7 @@ const (
 		DELETE FROM series s
 		WHERE s.id = ANY($1)
 			AND NOT EXISTS (SELECT 1 FROM events e WHERE e.series_id = s.id)
-			AND NOT EXISTS (SELECT 1 FROM staged_concerts sc WHERE sc.series_id = s.id)
+			AND NOT EXISTS (SELECT 1 FROM concert_candidates sc WHERE sc.series_id = s.id)
 	`
 
 	insertFirstPartySeriesQuery = `
@@ -156,10 +156,10 @@ const (
 		       s.description, s.organizer_id,
 		       s.visibility, s.publish_state, s.unlisted_token,
 		       s.published_at, s.cancelled_at,
-		       m.id, m.organizer_id, m.kind, m.attributes
+		       m.id, m.organizer_id, m.attributes
 		FROM series s
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE s.organizer_id = $1
 		ORDER BY s.id DESC
 	`
@@ -169,10 +169,10 @@ const (
 		       s.description, s.organizer_id,
 		       s.visibility, s.publish_state, s.unlisted_token,
 		       s.published_at, s.cancelled_at,
-		       m.id, m.organizer_id, m.kind, m.attributes
+		       m.id, m.organizer_id, m.attributes
 		FROM series s
-		LEFT JOIN series_media sm ON sm.series_id = s.id
-		LEFT JOIN media m ON m.id = sm.media_id
+		LEFT JOIN series_cover_images sm ON sm.series_id = s.id
+		LEFT JOIN series_images m ON m.id = sm.series_image_id
 		WHERE s.unlisted_token = $1
 	`
 
@@ -193,13 +193,13 @@ const (
 	`
 
 	dropStagedConcertsBySeriesQuery = `
-		DELETE FROM staged_concerts WHERE series_id = $1
+		DELETE FROM concert_candidates WHERE series_id = $1
 	`
 
 	// selectCoverMediaIDQuery reads the current cover media id for a series via
 	// the series_media join. Returns pgx.ErrNoRows when no cover exists.
 	selectCoverMediaIDQuery = `
-		SELECT sm.media_id FROM series_media sm WHERE sm.series_id = $1
+		SELECT sm.series_image_id FROM series_cover_images sm WHERE sm.series_id = $1
 	`
 
 	// deleteCoverMediaBySeriesQuery removes the series_media join row(s) and
@@ -207,48 +207,48 @@ const (
 	// so the FK constraint on series_media.media_id is satisfied before the
 	// media row is deleted.
 	deleteCoverMediaRowQuery = `
-		DELETE FROM media WHERE id = $1
+		DELETE FROM series_images WHERE id = $1
 	`
 
 	deleteSeriesMediaBySeriesQuery = `
-		DELETE FROM series_media WHERE series_id = $1
+		DELETE FROM series_cover_images WHERE series_id = $1
 	`
 
 	insertMediaQuery = `
-		INSERT INTO media (id, organizer_id, kind, attributes)
-		VALUES ($1, $2, $3::media_kind, $4)
+		INSERT INTO series_images (id, organizer_id, attributes)
+		VALUES ($1, $2, $3)
 	`
 
 	insertSeriesMediaQuery = `
-		INSERT INTO series_media (series_id, media_id, display_order)
-		VALUES ($1, $2, 0)
+		INSERT INTO series_cover_images (series_id, series_image_id)
+		VALUES ($1, $2)
 	`
 
 	// insertMediaIdempotentQuery inserts a media row, silently skipping
 	// conflicts on the primary key. Used by InsertMedia so AttachMedia is
 	// safe to call multiple times for the same upload.
 	insertMediaIdempotentQuery = `
-		INSERT INTO media (id, organizer_id, kind, attributes)
-		VALUES ($1, $2, $3::media_kind, $4)
+		INSERT INTO series_images (id, organizer_id, attributes)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (id) DO NOTHING
 	`
 
 	// findMediaByIDQuery retrieves a single media row by its primary key.
 	findMediaByIDQuery = `
-		SELECT id, organizer_id, kind, attributes
-		FROM media
+		SELECT id, organizer_id, attributes
+		FROM series_images
 		WHERE id = $1
 	`
 
 	// deleteMediaByIDQuery removes a media row by id. Missing rows are silently
 	// skipped via the WHERE guard so DELETE is idempotent.
-	deleteMediaByIDQuery = `DELETE FROM media WHERE id = $1`
+	deleteMediaByIDQuery = `DELETE FROM series_images WHERE id = $1`
 
 	// listMediaByOrganizerQuery retrieves every media row an organizer owns,
 	// including rows no series uses as its cover.
 	listMediaByOrganizerQuery = `
-		SELECT id, organizer_id, kind, attributes
-		FROM media
+		SELECT id, organizer_id, attributes
+		FROM series_images
 		WHERE organizer_id = $1
 		ORDER BY id
 	`
@@ -280,7 +280,6 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 		// Cover media columns (NULL when no cover exists).
 		mediaID          sql.NullString
 		mediaOrganizerID sql.NullString
-		mediaKind        sql.NullString
 		mediaAttrs       []byte // JSONB scanned as raw bytes; nil when no cover.
 	)
 	if err := scan(
@@ -288,7 +287,7 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 		&description, &organizerID,
 		&visibility, &publishState, &unlistedTok,
 		&publishedAt, &cancelledAt,
-		&mediaID, &mediaOrganizerID, &mediaKind, &mediaAttrs,
+		&mediaID, &mediaOrganizerID, &mediaAttrs,
 	); err != nil {
 		return nil, err
 	}
@@ -331,7 +330,6 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 		m := &entity.Media{
 			ID:          mediaID.String,
 			OrganizerID: mediaOrganizerID.String,
-			Kind:        entity.MediaKind(mediaKind.String),
 		}
 		if len(mediaAttrs) > 0 {
 			if err := json.Unmarshal(mediaAttrs, &m.Attributes); err != nil {
@@ -859,7 +857,7 @@ func (r *SeriesRepository) ReplaceCoverMedia(ctx context.Context, seriesID strin
 
 	// Insert the new media row then the join row.
 	if _, err := tx.Exec(ctx, insertMediaQuery,
-		newMedia.ID, newMedia.OrganizerID, string(newMedia.Kind), attrsJSON,
+		newMedia.ID, newMedia.OrganizerID, attrsJSON,
 	); err != nil {
 		return "", toAppErr(err, "failed to insert media row", slog.String("media_id", newMedia.ID))
 	}
@@ -1073,7 +1071,7 @@ func (r *SeriesRepository) InsertMedia(ctx context.Context, media *entity.Media)
 		return apperr.New(codes.Internal, fmt.Sprintf("marshal media attributes: %v", err))
 	}
 	if _, err := r.db.Pool.Exec(ctx, insertMediaIdempotentQuery,
-		media.ID, media.OrganizerID, string(media.Kind), attrsJSON,
+		media.ID, media.OrganizerID, attrsJSON,
 	); err != nil {
 		return toAppErr(err, "failed to insert media row", slog.String("media_id", media.ID))
 	}
@@ -1085,16 +1083,14 @@ func (r *SeriesRepository) InsertMedia(ctx context.Context, media *entity.Media)
 func (r *SeriesRepository) FindMediaByID(ctx context.Context, mediaID string) (*entity.Media, error) {
 	var (
 		m        entity.Media
-		kindStr  string
 		attrsRaw []byte
 	)
 	err := r.db.Pool.QueryRow(ctx, findMediaByIDQuery, mediaID).Scan(
-		&m.ID, &m.OrganizerID, &kindStr, &attrsRaw,
+		&m.ID, &m.OrganizerID, &attrsRaw,
 	)
 	if err != nil {
 		return nil, toAppErr(err, "failed to find media by id", slog.String("media_id", mediaID))
 	}
-	m.Kind = entity.MediaKind(kindStr)
 	if len(attrsRaw) > 0 {
 		if err := json.Unmarshal(attrsRaw, &m.Attributes); err != nil {
 			return nil, apperr.New(codes.Internal, fmt.Sprintf("unmarshal media attributes: %v", err))
@@ -1186,13 +1182,11 @@ func (r *SeriesRepository) ListMediaByOrganizer(ctx context.Context, organizerID
 	for rows.Next() {
 		var (
 			m        entity.Media
-			kindStr  string
 			attrsRaw []byte
 		)
-		if err := rows.Scan(&m.ID, &m.OrganizerID, &kindStr, &attrsRaw); err != nil {
+		if err := rows.Scan(&m.ID, &m.OrganizerID, &attrsRaw); err != nil {
 			return nil, toAppErr(err, "failed to scan media", slog.String("organizer_id", organizerID))
 		}
-		m.Kind = entity.MediaKind(kindStr)
 		if len(attrsRaw) > 0 {
 			if err := json.Unmarshal(attrsRaw, &m.Attributes); err != nil {
 				return nil, apperr.New(codes.Internal, fmt.Sprintf("unmarshal media attributes: %v", err))

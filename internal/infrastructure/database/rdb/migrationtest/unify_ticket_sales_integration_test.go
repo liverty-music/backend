@@ -34,6 +34,10 @@ const (
 	// unifyTicketSalesPrevious is the last migration before
 	// 20261011000000_unify_ticket_sales.sql.
 	unifyTicketSalesPrevious = "20261010020000"
+
+	// unifyTicketSalesVersion is 20261011000000_unify_ticket_sales.sql
+	// itself; later migrations rename what it creates.
+	unifyTicketSalesVersion = "20261011000000"
 )
 
 // testDBPort is the port of the integration-test PostgreSQL: TEST_DB_PORT when
@@ -143,7 +147,7 @@ func TestMigration_UnifyTicketSales(t *testing.T) {
 	mustExec(`INSERT INTO tickets (id, order_id, holder_id, event_id, holder_full_name, holder_phone_number, status, issued_at)
 	      VALUES ($1, $2, $3, $4, '山田 花子', '+819011111111', 1, $5)`, ticketB, orderResv, userWith, eventA, now)
 
-	apply("") // the remaining migrations, 20261011000000 included
+	apply(unifyTicketSalesVersion)
 
 	t.Run("users keep their holder values or take their newest application's", func(t *testing.T) {
 		for _, tc := range []struct {

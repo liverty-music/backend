@@ -19,7 +19,6 @@ func TestCreateUser(t *testing.T) {
 			Email:             "test@example.com",
 			Name:              "Test User",
 			PreferredLanguage: "en",
-			Country:           "US",
 			TimeZone:          "America/New_York",
 		}
 
@@ -30,9 +29,7 @@ func TestCreateUser(t *testing.T) {
 		assert.Equal(t, params.Email, got.Email)
 		assert.Equal(t, params.Name, got.Name)
 		assert.Equal(t, params.PreferredLanguage, got.PreferredLanguage)
-		assert.Equal(t, params.Country, got.Country)
 		assert.Equal(t, params.TimeZone, got.TimeZone)
-		assert.True(t, got.IsActive)
 	})
 
 	t.Run("generate different IDs on successive calls", func(t *testing.T) {

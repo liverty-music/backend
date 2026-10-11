@@ -224,7 +224,6 @@ func (uc *mediaUseCase) AttachMedia(ctx context.Context, callerOrgID, seriesID, 
 	media := &entity.Media{
 		ID:          mediaID,
 		OrganizerID: callerOrgID,
-		Kind:        entity.MediaKindImage,
 		// content_type is not known here (the client declared it to the
 		// signed-URL endpoint, not to AttachMedia). Store an empty attributes
 		// map; the processor will not need it and we avoid a round-trip.

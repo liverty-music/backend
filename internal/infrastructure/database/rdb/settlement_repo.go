@@ -26,26 +26,26 @@ func NewSettlementRepository(db *Database) *SettlementRepository {
 
 const (
 	getSettlementQuery = `
-		SELECT id, order_id, organizer_id, event_id, charge_ref, status, released_at, settled_at
+		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_at, created_at
 		FROM settlements WHERE id = $1
 	`
 
 	getSettlementByOrderIDQuery = `
-		SELECT id, order_id, organizer_id, event_id, charge_ref, status, released_at, settled_at
+		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_at, created_at
 		FROM settlements WHERE order_id = $1
 	`
 
 	// listHeldSettlementsQuery returns all settlements in Held status.
 	// The splits are fetched separately via listSplitsBySettlementIDsQuery.
 	listHeldSettlementsQuery = `
-		SELECT id, order_id, organizer_id, event_id, charge_ref, status, released_at, settled_at
+		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_at, created_at
 		FROM settlements
 		WHERE status = 1
-		ORDER BY settled_at
+		ORDER BY created_at
 	`
 
 	listSplitsBySettlementIDsQuery = `
-		SELECT settlement_id, payee_organizer_id, amount, transfer_ref, transfer_reversal_ref
+		SELECT settlement_id, payee_organizer_id, amount, provider_payout_id, provider_payout_reversal_id
 		FROM settlement_splits
 		WHERE settlement_id = ANY($1::uuid[])
 		ORDER BY settlement_id
@@ -59,14 +59,14 @@ const (
 	markReleasedSettlementQuery = `
 		UPDATE settlements
 		SET status      = 2,
-		    charge_ref  = $2,
-		    released_at = $3
+		    provider_charge_id  = $2,
+		    release_at = $3
 		WHERE id = $1 AND status = 1
 	`
 
 	upsertSplitTransferRefQuery = `
 		UPDATE settlement_splits
-		SET transfer_ref = $3
+		SET provider_payout_id = $3
 		WHERE settlement_id = $1 AND payee_organizer_id = $2
 	`
 )

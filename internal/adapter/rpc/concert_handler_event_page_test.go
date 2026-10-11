@@ -44,7 +44,7 @@ func firstPartyConcert(id string, date time.Time) *entity.Concert {
 			Title:         "ONE MAN LIVE",
 			Type:          entity.SeriesTypeSingle,
 			Description:   &description,
-			CoverMedia:    &entity.Media{ID: eventPageMediaID, OrganizerID: eventPageOrganizerID, Kind: entity.MediaKindImage},
+			CoverMedia:    &entity.Media{ID: eventPageMediaID, OrganizerID: eventPageOrganizerID},
 			OrganizerID:   &organizerID,
 			Visibility:    &visibility,
 			PublishState:  &state,

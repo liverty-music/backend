@@ -129,12 +129,8 @@ type User struct {
 	// (e.g., "en", "ja"). Non-empty when supplied at Create; may be empty for legacy
 	// rows pending backfill via UpdatePreferredLanguage.
 	PreferredLanguage string
-	// Country is the user's country code.
-	Country string
 	// TimeZone is the user's preferred time zone.
 	TimeZone string
-	// IsActive indicates if the user account is active.
-	IsActive bool
 	// Home is the user's home area. Nil when not set.
 	// Determines proximity classification (home/nearby/away).
 	Home *Home
@@ -172,8 +168,6 @@ type NewUser struct {
 	// (e.g., "en", "ja"). Non-empty when supplied at Create; may be empty for legacy
 	// rows pending backfill via UpdatePreferredLanguage.
 	PreferredLanguage string
-	// Country is the user's country code.
-	Country string
 	// TimeZone is the user's preferred time zone.
 	TimeZone string
 	// Home is the user's home area. Nil when not provided during creation.
@@ -188,9 +182,7 @@ func CreateUser(params *NewUser) *User {
 		Email:             params.Email,
 		Name:              params.Name,
 		PreferredLanguage: params.PreferredLanguage,
-		Country:           params.Country,
 		TimeZone:          params.TimeZone,
-		IsActive:          true,
 	}
 }
 

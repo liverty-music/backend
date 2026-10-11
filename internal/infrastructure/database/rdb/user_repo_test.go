@@ -18,7 +18,6 @@ func newTestUser(externalID, email, name string) *entity.NewUser {
 		Email:             email,
 		Name:              name,
 		PreferredLanguage: "ja",
-		Country:           "JP",
 		TimeZone:          "Asia/Tokyo",
 	}
 }
@@ -504,7 +503,7 @@ func TestUserRepository_Delete(t *testing.T) {
 		_, err = repo.Get(ctx, user.ID)
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 		assert.False(t, rowExists(t, `SELECT 1 FROM followed_artists WHERE user_id = $1`, user.ID), "follow")
-		assert.False(t, rowExists(t, `SELECT 1 FROM kyc WHERE user_id = $1`, user.ID), "kyc")
+		assert.False(t, rowExists(t, `SELECT 1 FROM identity_verifications WHERE user_id = $1`, user.ID), "kyc")
 	})
 
 	t.Run("purchases outlive the user", func(t *testing.T) {
@@ -810,7 +809,6 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 		Email:             email,
 		Name:              name,
 		PreferredLanguage: "",
-		Country:           "",
 		TimeZone:          "",
 	})
 	require.NoError(t, err)
@@ -821,13 +819,11 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 	// regression — see asserts below.
 	require.NotEmpty(t, created.ID)
 	assert.Empty(t, created.PreferredLanguage)
-	assert.Empty(t, created.Country)
 	assert.Empty(t, created.TimeZone)
 
 	assertEmptyNullableFields := func(t *testing.T, u *entity.User) {
 		t.Helper()
 		assert.Empty(t, u.PreferredLanguage, "preferred_language NULL must scan to empty string")
-		assert.Empty(t, u.Country, "country NULL must scan to empty string")
 		assert.Empty(t, u.TimeZone, "time_zone NULL must scan to empty string")
 	}
 
@@ -866,7 +862,6 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 			Email:             email,
 			Name:              name + "-updated",
 			PreferredLanguage: "", // ignored by Update; see updateUserQuery
-			Country:           "",
 			TimeZone:          "",
 		})
 		require.NoError(t, err)
@@ -880,7 +875,6 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "ja", updated.PreferredLanguage)
 		// country / time_zone remain NULL — scan must still succeed.
-		assert.Empty(t, updated.Country)
 		assert.Empty(t, updated.TimeZone)
 	})
 
@@ -896,7 +890,6 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 		assert.Equal(t, "JP-13", updated.Home.Level1)
 		// users.country / users.time_zone are still NULL (not affected by
 		// UpdateHome). The re-fetch scan must not crash.
-		assert.Empty(t, updated.Country)
 		assert.Empty(t, updated.TimeZone)
 	})
 }

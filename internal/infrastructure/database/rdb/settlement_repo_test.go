@@ -58,7 +58,7 @@ func seedWonEntryForSettlement(t *testing.T, ticketTypeID entity.TicketTypeID, u
 	t.Helper()
 	id := entity.NewID()
 	_, err := testDB.Pool.Exec(context.Background(), `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state)
+		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
 		VALUES ($1, $2, $3, 2, $4, 2)`, id, string(ticketTypeID), userID, "pi_entry_"+id)
 	require.NoError(t, err)
 	return entity.LotteryEntryID(id)

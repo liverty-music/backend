@@ -21,23 +21,23 @@ var _ entity.OrderRepository = (*OrderRepository)(nil)
 
 const (
 	orderSelectColumns = `
-		id, user_id, lottery_entry_id, provider, payment_intent_ref, payment_method_ref,
-		card_brand, card_last4, status, amount, currency, paid_at, refund_ref,
-		checkout_id, confirmation_sent_at
+		id, user_id, lottery_entry_id, provider, provider_payment_id, provider_payment_method_id,
+		card_brand, card_last4, status, amount, currency, pay_at, provider_refund_id,
+		checkout_id, confirmation_send_at
 	`
 	orderGetQuery                   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE id = $1`
 	orderGetByLotteryEntryIDQuery   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE lottery_entry_id = $1`
 	orderGetByCheckoutIDQuery       = `SELECT ` + orderSelectColumns + ` FROM orders WHERE checkout_id = $1`
-	orderGetByPaymentIntentRefQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE payment_intent_ref = $1`
+	orderGetByPaymentIntentRefQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE provider_payment_id = $1`
 	// orderMarkConfirmationSentQuery sets the confirmation-sent time only when
 	// it is unset, so a second call keeps the first time.
 	orderMarkConfirmationSentQuery = `
-		UPDATE orders SET confirmation_sent_at = $2
-		WHERE id = $1 AND confirmation_sent_at IS NULL
+		UPDATE orders SET confirmation_send_at = $2
+		WHERE id = $1 AND confirmation_send_at IS NULL
 	`
 	orderExistsQuery       = `SELECT EXISTS (SELECT 1 FROM orders WHERE id = $1)`
 	orderUpdateStatusQuery = `UPDATE orders SET status = $2 WHERE id = $1`
-	orderListByUserQuery   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE user_id = $1 ORDER BY paid_at, id`
+	orderListByUserQuery   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE user_id = $1 ORDER BY pay_at, id`
 )
 
 // NewOrderRepository creates a new order repository instance.

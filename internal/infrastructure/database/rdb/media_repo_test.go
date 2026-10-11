@@ -28,7 +28,6 @@ func TestSeriesRepository_ListMediaByOrganizer(t *testing.T) {
 		ids := make([]string, 0, len(got))
 		for _, m := range got {
 			assert.Equal(t, o.organizerID, m.OrganizerID)
-			assert.Equal(t, entity.MediaKindImage, m.Kind)
 			ids = append(ids, m.ID)
 		}
 		assert.ElementsMatch(t, []string{o.coverID, o.unusedID}, ids)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -52,7 +53,12 @@ func connectAsReceptionRole(t *testing.T) *rdb.Database {
 	}
 	migration, err := os.ReadFile(receptionGrantMigration)
 	require.NoError(t, err)
-	_, err = testDB.Pool.Exec(ctx, string(migration))
+	// 20261012000000_one_name_per_concept.sql later renames
+	// tickets.admitted_at to admit_at. In a migrated database the column
+	// grant follows the rename; replayed here on the current schema, the
+	// grant names the column by its current name.
+	grants := strings.ReplaceAll(string(migration), "(admitted_at) ON tickets", "(admit_at) ON tickets")
+	_, err = testDB.Pool.Exec(ctx, grants)
 	require.NoError(t, err)
 
 	logger, err := logging.New()

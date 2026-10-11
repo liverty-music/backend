@@ -60,14 +60,6 @@ const (
 	SeriesPublishStateCancelled SeriesPublishState = "CANCELLED"
 )
 
-// MediaKind identifies the type of an organizer media asset.
-type MediaKind string
-
-const (
-	// MediaKindImage is an uploaded image asset (cover photo, etc.).
-	MediaKindImage MediaKind = "IMAGE"
-)
-
 // Media represents a single media object uploaded by an organizer. The ID is
 // a UUIDv7 that serves as both the creation timestamp source and the
 // cache-busting object-key token. No URL is stored; the served URL is derived
@@ -79,8 +71,6 @@ type Media struct {
 	// OrganizerID is the owning organizer. Used as the stable tenant segment
 	// of the object key.
 	OrganizerID string
-	// Kind is the media asset kind (IMAGE at MVP).
-	Kind MediaKind
 	// Attributes holds kind-specific metadata (e.g. content_type for IMAGE).
 	Attributes map[string]string
 }

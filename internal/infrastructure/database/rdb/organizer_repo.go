@@ -22,34 +22,34 @@ func NewOrganizerRepository(db *Database) *OrganizerRepository {
 
 const (
 	insertOrganizerQuery = `
-		INSERT INTO organizers (id, name, operator_email, zitadel_org_id, status)
+		INSERT INTO organizers (id, name, operator_email, provider_organizer_id, status)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, name, operator_email, zitadel_org_id, status,
+		RETURNING id, name, operator_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps
 	`
 	getOrganizerQuery = `
-		SELECT id, name, operator_email, zitadel_org_id, status,
+		SELECT id, name, operator_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE id = $1
 	`
 	getOrganizerByZitadelOrgIDQuery = `
-		SELECT id, name, operator_email, zitadel_org_id, status,
+		SELECT id, name, operator_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
-			platform_fee_rate_bps FROM organizers WHERE zitadel_org_id = $1
+			platform_fee_rate_bps FROM organizers WHERE provider_organizer_id = $1
 	`
 	listOrganizersQuery = `
-		SELECT id, name, operator_email, zitadel_org_id, status,
+		SELECT id, name, operator_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers ORDER BY name
 	`
 	listOrganizersByStatusQuery = `
-		SELECT id, name, operator_email, zitadel_org_id, status,
+		SELECT id, name, operator_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps FROM organizers WHERE status = $1 ORDER BY name
 	`
 	setOrganizerZitadelOrgIDQuery = `
-		UPDATE organizers SET zitadel_org_id = $2 WHERE id = $1
+		UPDATE organizers SET provider_organizer_id = $2 WHERE id = $1
 	`
 	setOrganizerStatusQuery = `
 		UPDATE organizers SET status = $2 WHERE id = $1
@@ -78,7 +78,7 @@ const (
 		SET legal_name = $2, representative_name = $3, business_address = $4,
 			business_phone_number = $5, contact_email = $6
 		WHERE id = $1
-		RETURNING id, name, operator_email, zitadel_org_id, status,
+		RETURNING id, name, operator_email, provider_organizer_id, status,
 			legal_name, representative_name, business_address, business_phone_number, contact_email,
 			platform_fee_rate_bps
 	`
@@ -381,7 +381,7 @@ const (
 				SELECT 1 FROM settlements st
 				WHERE st.event_id IN (` + organizerEventIDsSubquery + `) AND st.status <> $3
 			),
-			EXISTS (SELECT 1 FROM organizer_connected_accounts WHERE organizer_id = $1)
+			EXISTS (SELECT 1 FROM payout_accounts WHERE organizer_id = $1)
 	`
 	deleteOrganizerAdmissionsQuery = `
 		DELETE FROM admissions WHERE event_id IN (` + organizerEventIDsSubquery + `)
@@ -416,7 +416,7 @@ const (
 		DELETE FROM series WHERE organizer_id = $1
 	`
 	deleteOrganizerMediaQuery = `
-		DELETE FROM media WHERE organizer_id = $1
+		DELETE FROM series_images WHERE organizer_id = $1
 	`
 	deleteOrganizerQuery = `
 		DELETE FROM organizers WHERE id = $1

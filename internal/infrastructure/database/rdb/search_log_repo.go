@@ -16,26 +16,26 @@ type SearchLogRepository struct {
 const (
 	getSearchLogByArtistIDQuery = `
 		SELECT artist_id, searched_at, status, last_found_at
-		FROM latest_search_logs
+		FROM concert_searches
 		WHERE artist_id = $1
 	`
 	upsertSearchLogQuery = `
-		INSERT INTO latest_search_logs (artist_id, searched_at, status)
+		INSERT INTO concert_searches (artist_id, searched_at, status)
 		VALUES ($1, NOW(), $2)
 		ON CONFLICT (artist_id) DO UPDATE SET searched_at = NOW(), status = $2
 	`
 	updateSearchLogStatusQuery = `
-		UPDATE latest_search_logs
+		UPDATE concert_searches
 		SET status = $2
 		WHERE artist_id = $1
 	`
 	markSearchLogFoundQuery = `
-		UPDATE latest_search_logs
+		UPDATE concert_searches
 		SET last_found_at = NOW()
 		WHERE artist_id = $1
 	`
 	deleteSearchLogQuery = `
-		DELETE FROM latest_search_logs
+		DELETE FROM concert_searches
 		WHERE artist_id = $1
 	`
 )

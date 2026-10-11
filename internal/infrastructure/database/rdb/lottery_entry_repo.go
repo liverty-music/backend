@@ -29,7 +29,7 @@ func NewLotteryEntryRepository(db *Database) *LotteryEntryRepository {
 
 // lotteryEntryColumns selects a lottery_entries row.
 const lotteryEntryColumns = `
-	id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state, draw_position
+	id, ticket_type_id, user_id, ticket_count, card_authorization_id, state, draw_position
 `
 
 // getOrCreateDraftAttempts bounds the read-insert loop of GetOrCreateDraft. A
@@ -49,20 +49,20 @@ const (
 	// the user for the ticket type exists; a concurrent insert of one makes
 	// it wait for that transaction and then insert nothing.
 	lotteryEntryInsertDraftQuery = `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, state)
+		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, state)
 		VALUES ($1, $2, $3, $4, 5)
 		ON CONFLICT (ticket_type_id, user_id) WHERE state <> 4 DO NOTHING
 	`
 	lotteryEntryWithdrawDraftQuery    = `UPDATE lottery_entries SET state = 4 WHERE id = $1 AND state = 5`
 	lotteryEntrySetAuthorizationQuery = `
-		UPDATE lottery_entries SET payment_intent_ref = $2 WHERE id = $1 AND state = 5
+		UPDATE lottery_entries SET card_authorization_id = $2 WHERE id = $1 AND state = 5
 	`
 	lotteryEntryGetQuery = `SELECT ` + lotteryEntryColumns + ` FROM lottery_entries WHERE id = $1`
 	// lotteryEntryGetByPaymentIntentRefQuery takes the newest entry with the
 	// reference; one hold is recorded on one entry only.
 	lotteryEntryGetByPaymentIntentRefQuery = `
 		SELECT ` + lotteryEntryColumns + ` FROM lottery_entries
-		WHERE payment_intent_ref = $1
+		WHERE card_authorization_id = $1
 		ORDER BY id DESC
 		LIMIT 1
 	`
@@ -80,9 +80,9 @@ const (
 	lotteryEntryStatsQuery = `
 		SELECT
 			COUNT(*),
-			COALESCE(SUM(requested_ticket_count), 0),
+			COALESCE(SUM(ticket_count), 0),
 			COUNT(*) FILTER (WHERE state = 2),
-			COALESCE(SUM(requested_ticket_count) FILTER (WHERE state = 2), 0),
+			COALESCE(SUM(ticket_count) FILTER (WHERE state = 2), 0),
 			COUNT(*) FILTER (WHERE state = 3)
 		FROM lottery_entries
 		WHERE ticket_type_id = $1 AND state IN (1, 2, 3)
@@ -105,7 +105,7 @@ const (
 	// ticketSaleStampDrawnQuery marks the sale drawn, the last write of the
 	// draw's transaction; chk_ticket_sales_drawn_lottery_only rejects a
 	// FirstCome sale.
-	ticketSaleStampDrawnQuery = `UPDATE ticket_sales SET drawn_at = $2 WHERE id = $1`
+	ticketSaleStampDrawnQuery = `UPDATE ticket_sales SET draw_at = $2 WHERE id = $1`
 )
 
 // GetOrCreateDraft returns the user's Draft with the same count, replaces a

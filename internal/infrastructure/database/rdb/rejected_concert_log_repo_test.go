@@ -51,7 +51,7 @@ func TestRejectedConcertLogRepository_Append(t *testing.T) {
 		// Verify the row was inserted by counting rows in the table.
 		var count int
 		err = testDB.Pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM rejected_concerts_log WHERE id = $1`, entry.ID,
+			`SELECT COUNT(*) FROM rejected_concerts WHERE id = $1`, entry.ID,
 		).Scan(&count)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count)
@@ -78,7 +78,7 @@ func TestRejectedConcertLogRepository_Append(t *testing.T) {
 
 		var count int
 		err := testDB.Pool.QueryRow(ctx,
-			`SELECT COUNT(*) FROM rejected_concerts_log WHERE artist_id = $1`, artistID,
+			`SELECT COUNT(*) FROM rejected_concerts WHERE artist_id = $1`, artistID,
 		).Scan(&count)
 		require.NoError(t, err)
 		assert.Equal(t, 3, count)
@@ -105,7 +105,7 @@ func TestRejectedConcertLogRepository_Append(t *testing.T) {
 
 		var reviewedBy *string
 		err := testDB.Pool.QueryRow(ctx,
-			`SELECT reviewed_by FROM rejected_concerts_log WHERE id = $1`, entryID,
+			`SELECT reviewed_by FROM rejected_concerts WHERE id = $1`, entryID,
 		).Scan(&reviewedBy)
 		require.NoError(t, err)
 		assert.Nil(t, reviewedBy)

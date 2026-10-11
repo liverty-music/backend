@@ -22,7 +22,7 @@ const (
 	// mutable payload is refreshed but discovered_at is kept so queue order is
 	// stable.
 	upsertStagedConcertByPlaceQuery = `
-		INSERT INTO staged_concerts (
+		INSERT INTO concert_candidates (
 			id, artist_id, series_id, title, local_date, start_at, open_at,
 			listed_venue_name, admin_area, source_url,
 			resolved_place_id, resolved_venue_name, resolved_admin_area,
@@ -50,7 +50,7 @@ const (
 	// mirrors the partial index uq_staged_concerts_by_listed_name. On conflict
 	// the mutable payload is refreshed but discovered_at is kept.
 	upsertStagedConcertByListedNameQuery = `
-		INSERT INTO staged_concerts (
+		INSERT INTO concert_candidates (
 			id, artist_id, series_id, title, local_date, start_at, open_at,
 			listed_venue_name, admin_area, source_url,
 			resolved_place_id, resolved_venue_name, resolved_admin_area,
@@ -78,7 +78,7 @@ const (
 		       listed_venue_name, admin_area, source_url,
 		       resolved_place_id, resolved_venue_name, resolved_admin_area,
 		       resolved_latitude, resolved_longitude, discovered_at
-		FROM staged_concerts
+		FROM concert_candidates
 		ORDER BY discovered_at ASC
 	`
 
@@ -87,17 +87,17 @@ const (
 		       listed_venue_name, admin_area, source_url,
 		       resolved_place_id, resolved_venue_name, resolved_admin_area,
 		       resolved_latitude, resolved_longitude, discovered_at
-		FROM staged_concerts
+		FROM concert_candidates
 		WHERE id = $1
 	`
 
 	deleteStagedConcertQuery = `
-		DELETE FROM staged_concerts WHERE id = $1
+		DELETE FROM concert_candidates WHERE id = $1
 	`
 
 	listPendingDedupKeysByArtistQuery = `
 		SELECT local_date, listed_venue_name
-		FROM staged_concerts
+		FROM concert_candidates
 		WHERE artist_id = $1
 	`
 )

@@ -143,7 +143,7 @@ func normalizeVenues(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (in
 func normalizeStagedConcerts(ctx context.Context, tx pgx.Tx, logger *logging.Logger) (updated, deleted int, err error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id, artist_id, local_date::text, listed_venue_name, resolved_place_id
-		FROM staged_concerts
+		FROM concert_candidates
 		WHERE listed_venue_name IS NOT NULL
 		ORDER BY id
 	`)
@@ -231,12 +231,12 @@ func normalizeStagedConcerts(ctx context.Context, tx pgx.Tx, logger *logging.Log
 
 	// Delete duplicates first so subsequent UPDATEs don't collide.
 	for _, id := range toDelete {
-		if _, err := tx.Exec(ctx, `DELETE FROM staged_concerts WHERE id = $1`, id); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM concert_candidates WHERE id = $1`, id); err != nil {
 			return 0, 0, fmt.Errorf("delete duplicate staged_concerts row %s: %w", id, err)
 		}
 	}
 	for _, r := range toUpdate {
-		if _, err := tx.Exec(ctx, `UPDATE staged_concerts SET listed_venue_name = $1 WHERE id = $2`, r.name, r.id); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE concert_candidates SET listed_venue_name = $1 WHERE id = $2`, r.name, r.id); err != nil {
 			return 0, 0, fmt.Errorf("update staged_concerts row %s: %w", r.id, err)
 		}
 	}

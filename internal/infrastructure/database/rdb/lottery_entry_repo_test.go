@@ -26,7 +26,7 @@ func insertLotteryEntry(t *testing.T, ticketTypeID entity.TicketTypeID, userID e
 		ref = e.Authorization.PaymentIntentRef
 	}
 	_, err := testDB.Pool.Exec(context.Background(), `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state)
+		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
 		VALUES ($1, $2, $3, $4, $5, $6)
 	`, string(e.ID), string(e.TicketTypeID), string(e.UserID), e.RequestedTicketCount, ref, int16(e.State))
 	require.NoError(t, err)

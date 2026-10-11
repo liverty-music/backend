@@ -48,7 +48,7 @@ func seedDeletableOrganizer(t *testing.T, status entity.OrganizerStatus) deletab
 		coverID:     uuid.NewV7().String(),
 		unusedID:    uuid.NewV7().String(),
 	}
-	exec(`INSERT INTO organizers (id, name, operator_email, status, zitadel_org_id) VALUES ($1, 'Delete Organizer', 'op@example.com', $2, $3)`,
+	exec(`INSERT INTO organizers (id, name, operator_email, status, provider_organizer_id) VALUES ($1, 'Delete Organizer', 'op@example.com', $2, $3)`,
 		o.organizerID, int16(status), "org-"+o.organizerID)
 	o.artistID = seedArtist(t, "delete-artist", uuid.NewV7().String())
 	exec(`INSERT INTO organizer_artists (organizer_id, artist_id) VALUES ($1, $2)`, o.organizerID, o.artistID)
@@ -62,9 +62,9 @@ func seedDeletableOrganizer(t *testing.T, status entity.OrganizerStatus) deletab
 		o.eventID, o.seriesID, venueID)
 	exec(`INSERT INTO concerts (event_id) VALUES ($1)`, o.eventID)
 	exec(`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2)`, o.eventID, o.artistID)
-	exec(`INSERT INTO media (id, organizer_id, kind) VALUES ($1, $2, 'IMAGE'), ($3, $2, 'IMAGE')`,
+	exec(`INSERT INTO series_images (id, organizer_id) VALUES ($1, $2), ($3, $2)`,
 		o.coverID, o.organizerID, o.unusedID)
-	exec(`INSERT INTO series_media (series_id, media_id) VALUES ($1, $2)`, o.seriesID, o.coverID)
+	exec(`INSERT INTO series_cover_images (series_id, series_image_id) VALUES ($1, $2)`, o.seriesID, o.coverID)
 
 	tt := seedTicketTypeForEvent(t, o.eventID, entity.TicketSaleMethodLottery, 100, 4)
 	o.saleID, o.typeID = tt.TicketSaleID, tt.ID
@@ -97,26 +97,26 @@ func seedPurchase(t *testing.T, o deletableOrganizer, orderStatus entity.OrderSt
 
 	userID := seedUser(t, "delete-fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())
 	entryID := entity.NewID()
-	exec(`INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state)
+	exec(`INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
 		VALUES ($1, $2, $3, 1, $4, 2)`, entryID, string(o.typeID), userID, "pi_entry_"+entryID)
 	p := seededPurchase{orderID: entity.NewID(), ticketID: entity.NewID(), settlementID: entity.NewID()}
 	paidAt := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
-	exec(`INSERT INTO orders (id, user_id, lottery_entry_id, provider, payment_intent_ref, status, amount, currency, paid_at)
+	exec(`INSERT INTO orders (id, user_id, lottery_entry_id, provider, provider_payment_id, status, amount, currency, pay_at)
 		VALUES ($1, $2, $3, 1, $4, $5, 5000, 'JPY', $6)`,
 		p.orderID, userID, entryID, "pi_"+p.orderID, int16(orderStatus), paidAt)
 	ticketStatus := entity.TicketStatusIssued
 	if orderStatus == entity.OrderStatusRefunded {
 		ticketStatus = entity.TicketStatusVoided
 	}
-	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issued_at)
+	exec(`INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at)
 		VALUES ($1, $2, $3, $4, $5, $6)`,
 		p.ticketID, p.orderID, userID, o.eventID, int16(ticketStatus), paidAt)
-	exec(`INSERT INTO settlements (id, order_id, organizer_id, event_id, status, settled_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+	exec(`INSERT INTO settlements (id, order_id, organizer_id, event_id, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
 		p.settlementID, p.orderID, o.organizerID, o.eventID, int16(settlementStatus), paidAt)
 	exec(`INSERT INTO settlement_splits (settlement_id, payee_organizer_id, amount) VALUES ($1, $2, 4000)`,
 		p.settlementID, o.organizerID)
 	if admitted {
-		exec(`UPDATE tickets SET admitted_at = $2 WHERE id = $1`, p.ticketID, paidAt)
+		exec(`UPDATE tickets SET admit_at = $2 WHERE id = $1`, p.ticketID, paidAt)
 		exec(`INSERT INTO admissions (ticket_id, event_id, reception_link_id, admitted_at) VALUES ($1, $2, $3, $4)`,
 			p.ticketID, o.eventID, string(o.linkID), paidAt)
 	}
@@ -145,9 +145,9 @@ func assertOrganizerRecords(t *testing.T, o deletableOrganizer, wantExist bool) 
 		"performer":      {`SELECT 1 FROM concert_artists WHERE event_id = $1`, o.eventID},
 		"ticket sale":    {`SELECT 1 FROM ticket_sales WHERE id = $1`, string(o.saleID)},
 		"ticket type":    {`SELECT 1 FROM ticket_types WHERE id = $1`, string(o.typeID)},
-		"cover media":    {`SELECT 1 FROM media WHERE id = $1`, o.coverID},
-		"unused media":   {`SELECT 1 FROM media WHERE id = $1`, o.unusedID},
-		"cover link":     {`SELECT 1 FROM series_media WHERE series_id = $1`, o.seriesID},
+		"cover media":    {`SELECT 1 FROM series_images WHERE id = $1`, o.coverID},
+		"unused media":   {`SELECT 1 FROM series_images WHERE id = $1`, o.unusedID},
+		"cover link":     {`SELECT 1 FROM series_cover_images WHERE series_id = $1`, o.seriesID},
 		"association":    {`SELECT 1 FROM organizer_artists WHERE organizer_id = $1`, o.organizerID},
 		"reception link": {`SELECT 1 FROM reception_links WHERE id = $1`, string(o.linkID)},
 		"rejected scan":  {`SELECT 1 FROM rejected_scans WHERE event_id = $1`, o.eventID},
@@ -246,7 +246,7 @@ func TestOrganizerRepository_Delete(t *testing.T) {
 			setup: func(t *testing.T) (deletableOrganizer, *seededPurchase) {
 				o := seedDeletableOrganizer(t, entity.OrganizerStatusDeactivated)
 				_, err := testDB.Pool.Exec(context.Background(),
-					`INSERT INTO organizer_connected_accounts (organizer_id, account_ref, status) VALUES ($1, 'acct_delete_test', 1)`,
+					`INSERT INTO payout_accounts (organizer_id, provider_account_id, status) VALUES ($1, 'acct_delete_test', 1)`,
 					o.organizerID)
 				require.NoError(t, err)
 				return o, nil

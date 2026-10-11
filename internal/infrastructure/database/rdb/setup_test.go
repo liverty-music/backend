@@ -93,7 +93,7 @@ func seedUser(t *testing.T, name, email, externalID string) string {
 	ctx := context.Background()
 	id := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, external_id) VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)`,
 		id, name, email, externalID,
 	)
 	require.NoError(t, err)
@@ -224,14 +224,14 @@ func seedIssuedTickets(t *testing.T, eventID, userID string, n int) []entity.Tic
 
 	entryID := entity.NewID()
 	_, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, payment_intent_ref, state)
+		INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, card_authorization_id, state)
 		VALUES ($1, $2, $3, $4, $5, 2)`,
 		entryID, string(tt.ID), userID, n, "pi_entry_"+entryID)
 	require.NoError(t, err)
 
 	orderID := entity.NewID()
 	_, err = testDB.Pool.Exec(ctx, `
-		INSERT INTO orders (id, user_id, lottery_entry_id, provider, payment_intent_ref, status, amount, currency, paid_at)
+		INSERT INTO orders (id, user_id, lottery_entry_id, provider, provider_payment_id, status, amount, currency, pay_at)
 		VALUES ($1, $2, $3, 1, $4, 1, $5, 'JPY', $6)`,
 		orderID, userID, entryID, "pi_"+orderID, 3000*n, issuedTicketsTime)
 	require.NoError(t, err)
@@ -240,7 +240,7 @@ func seedIssuedTickets(t *testing.T, eventID, userID string, n int) []entity.Tic
 	for i := range n {
 		id := entity.NewID()
 		_, err := testDB.Pool.Exec(ctx, `
-			INSERT INTO tickets (id, order_id, user_id, event_id, status, issued_at)
+			INSERT INTO tickets (id, order_id, user_id, event_id, status, issue_at)
 			VALUES ($1, $2, $3, $4, 1, $5)`,
 			id, orderID, userID, eventID, issuedTicketsTime.Add(time.Duration(i)*time.Second))
 		require.NoError(t, err)
@@ -260,13 +260,13 @@ func setTicketTypeSold(t *testing.T, id entity.TicketTypeID, sold int) {
 func cleanTables(db *rdb.Database) {
 	ctx := context.Background()
 	tables := []string{
-		"kyc",
+		"identity_verifications",
 		"lottery_entries",
 		"ticket_types",
 		"ticket_sales",
 		"ticket_journeys",
 		"push_subscriptions",
-		"latest_search_logs",
+		"concert_searches",
 		"followed_artists",
 		"artist_official_site",
 		"sales_phase_reminders",
@@ -277,10 +277,11 @@ func cleanTables(db *rdb.Database) {
 		"events",
 		"draft_series_performers",
 		"draft_events",
-		"series_media",
+		"series_cover_images",
+		"series_images",
 		"series",
-		"staged_concerts",
-		"rejected_concerts_log",
+		"concert_candidates",
+		"rejected_concerts",
 		"suppressed_concerts",
 		"artists",
 		"venues",

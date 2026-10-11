@@ -31,7 +31,7 @@ type rowQuerier interface {
 // ticketSaleColumns selects a ticket_sales row (aliased ts).
 const ticketSaleColumns = `
 	ts.id, ts.series_id, ts.name, ts.method, ts.sale_start_at, ts.sale_end_at,
-	ts.verification_requirement, ts.drawn_at
+	ts.verification_requirement, ts.draw_at
 `
 
 const (
@@ -55,7 +55,7 @@ const (
 	`
 	ticketSaleListDueForDrawQuery = `
 		SELECT ` + ticketSaleColumns + ` FROM ticket_sales ts
-		WHERE ts.method = 2 AND ts.sale_end_at <= $1 AND ts.drawn_at IS NULL
+		WHERE ts.method = 2 AND ts.sale_end_at <= $1 AND ts.draw_at IS NULL
 		ORDER BY ts.sale_end_at, ts.id
 	`
 	ticketSaleOfTicketTypeQuery = `

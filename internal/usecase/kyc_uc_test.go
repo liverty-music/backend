@@ -38,7 +38,7 @@ func newKycTestDeps(t *testing.T) *kycTestDeps {
 
 // sampleUser returns a minimal User for test setup.
 func sampleUser(id string) *entity.User {
-	return &entity.User{ID: id, ExternalID: "ext-" + id, Email: id + "@example.com", Name: "Test User", IsActive: true}
+	return &entity.User{ID: id, ExternalID: "ext-" + id, Email: id + "@example.com", Name: "Test User"}
 }
 
 // sampleKyc returns a new Kyc in ACTIVE status.

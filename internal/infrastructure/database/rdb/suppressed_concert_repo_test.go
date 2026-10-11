@@ -129,7 +129,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		// that also offers the other event.
 		onlyType := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodLottery, 10, 4)
 		entryID := entity.NewID()
-		exec(t, `INSERT INTO lottery_entries (id, ticket_type_id, user_id, requested_ticket_count, state) VALUES ($1, $2, $3, 1, 5)`,
+		exec(t, `INSERT INTO lottery_entries (id, ticket_type_id, user_id, ticket_count, state) VALUES ($1, $2, $3, 1, 5)`,
 			entryID, string(onlyType.ID), seedFanUser(t))
 		sharedType := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodFirstCome, 10, 4)
 		otherTypeID := entity.NewID()
@@ -190,7 +190,7 @@ func TestConcertRepository_DeleteAndSuppress(t *testing.T) {
 		artistID := seedArtist(t, "Artist Six", uuid.NewV7().String())
 		eventID := seedEvent(t, venueID, artistID, "Paying", "2026-08-01")
 		tt := seedTicketTypeForEvent(t, eventID, entity.TicketSaleMethodFirstCome, 10, 4)
-		exec(t, `INSERT INTO checkouts (id, ticket_type_id, user_id, ticket_count, amount, status, hold_expire_at, authorization_ref, committed_at)
+		exec(t, `INSERT INTO checkouts (id, ticket_type_id, user_id, ticket_count, amount, status, hold_expire_at, card_authorization_id, commit_at)
 			VALUES ($1, $2, $3, 1, 3000, 2, now() + interval '10 minutes', 'pi_test', now())`, entity.NewID(), string(tt.ID), seedFanUser(t))
 
 		err := repo.DeleteAndSuppress(ctx, eventID)

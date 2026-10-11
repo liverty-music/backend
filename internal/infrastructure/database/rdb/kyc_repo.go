@@ -25,37 +25,37 @@ func NewKycRepository(db *Database) *KycRepository {
 
 const (
 	insertKycQuery = `
-		INSERT INTO kyc (id, user_id, method, pocket_sign_user_id, dedupe_strength, verified_at, status)
+		INSERT INTO identity_verifications (id, user_id, method, provider_user_id, dedupe_strength, verify_at, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, user_id, method, pocket_sign_user_id, dedupe_strength, verified_at, status
+		RETURNING id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
 	`
 
 	// getKycByUserIDQuery returns the most recent row for the user,
 	// preferring ACTIVE rows (status=1) over NEEDS_REVERIFICATION (status=2).
 	getKycByUserIDQuery = `
-		SELECT id, user_id, method, pocket_sign_user_id, dedupe_strength, verified_at, status
-		FROM kyc
+		SELECT id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
+		FROM identity_verifications
 		WHERE user_id = $1
-		ORDER BY status ASC, verified_at DESC
+		ORDER BY status ASC, verify_at DESC
 		LIMIT 1
 	`
 
 	// getKycByPocketSignUserIDQuery returns the single ACTIVE row
 	// for the given pocket_sign_user_id, enforced by the partial unique index.
 	getKycByPocketSignUserIDQuery = `
-		SELECT id, user_id, method, pocket_sign_user_id, dedupe_strength, verified_at, status
-		FROM kyc
-		WHERE pocket_sign_user_id = $1
+		SELECT id, user_id, method, provider_user_id, dedupe_strength, verify_at, status
+		FROM identity_verifications
+		WHERE provider_user_id = $1
 		  AND status = 1
 		LIMIT 1
 	`
 
 	updateKycStatusQuery = `
-		UPDATE kyc SET status = $2 WHERE id = $1
+		UPDATE identity_verifications SET status = $2 WHERE id = $1
 	`
 
 	deleteKycQuery = `
-		DELETE FROM kyc WHERE id = $1
+		DELETE FROM identity_verifications WHERE id = $1
 	`
 )
 

@@ -28,22 +28,22 @@ const (
 	// and status when the organizer_id already exists. This allows re-running
 	// provisioning after a partial failure without creating duplicate rows.
 	upsertOrganizerConnectedAccountQuery = `
-		INSERT INTO organizer_connected_accounts (organizer_id, account_ref, status)
+		INSERT INTO payout_accounts (organizer_id, provider_account_id, status)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (organizer_id) DO UPDATE
-		  SET account_ref      = EXCLUDED.account_ref,
+		  SET provider_account_id      = EXCLUDED.provider_account_id,
 		      status           = EXCLUDED.status,
 		      status_synced_at = NOW()
 	`
 
 	getOrganizerConnectedAccountQuery = `
-		SELECT organizer_id, account_ref, status
-		FROM organizer_connected_accounts
+		SELECT organizer_id, provider_account_id, status
+		FROM payout_accounts
 		WHERE organizer_id = $1
 	`
 
 	updateOrganizerConnectedAccountStatusQuery = `
-		UPDATE organizer_connected_accounts
+		UPDATE payout_accounts
 		SET status = $2
 		WHERE organizer_id = $1
 	`
