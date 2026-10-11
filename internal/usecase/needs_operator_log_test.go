@@ -28,21 +28,21 @@ func TestNeedsOperatorReports(t *testing.T) {
 		logger, buf := newCaptureLogger(t)
 		now := coStart.Add(16 * time.Minute)
 		checkouts := entitymocks.NewMockCheckoutRepository(t)
-		auth := entitymocks.NewMockCheckoutAuthorizationPort(t)
+		auth := entitymocks.NewMockCardAuthorizationRepository(t)
 		uc := usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 			CheckoutRepo:             checkouts,
 			SaleRepo:                 entitymocks.NewMockTicketSaleRepository(t),
 			UserRepo:                 entitymocks.NewMockUserRepository(t),
 			IdentityVerificationRepo: entitymocks.NewMockIdentityVerificationRepository(t),
 			EventState:               ucmocks.NewMockEventPublishStatePort(t),
-			Auth:                     auth,
+			CardAuthorizations:       auth,
 			Clock:                    fixedClock(now),
 			Logger:                   logger,
 		})
 		released := fanCheckout(coStart)
 		released.Status, released.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_charged"
 		checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{released}, nil).Twice()
-		auth.EXPECT().CancelAuthorization(mock.Anything, "pi_charged").
+		auth.EXPECT().Release(mock.Anything, "pi_charged").
 			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "already charged")).Twice()
 
 		// Reported on every run until it is resolved.

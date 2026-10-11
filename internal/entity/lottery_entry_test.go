@@ -15,7 +15,7 @@ func TestNewLotteryEntry(t *testing.T) {
 
 	assert.NotEmpty(t, e.ID)
 	assert.Equal(t, entity.LotteryEntryStateDraft, e.State)
-	assert.False(t, e.HasAuthorization())
+	assert.False(t, e.HasCardAuthorization())
 	assert.Nil(t, e.DrawPosition)
 	assert.Equal(t, entity.TicketTypeID("type-1"), e.TicketTypeID)
 	assert.Equal(t, entity.UserID("user-1"), e.UserID)

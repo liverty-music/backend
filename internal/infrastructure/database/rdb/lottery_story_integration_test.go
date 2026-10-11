@@ -131,7 +131,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(testDB)
 	organizerRepo := rdb.NewOrganizerRepository(testDB)
 	eventState := rdb.NewEventPublishStateRepository(testDB)
-	holds := payment.NewStripeAuthorizationPort(key, logger)
+	holds := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
 
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, s.entryRepo, rdb.NewSeriesRepository(testDB), organizerRepo,
 		eventState, rdb.NewEventStartTimeRepository(testDB), clock)
@@ -143,11 +143,10 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		EventOrganizerRepo:       rdb.NewEventOrganizerRepository(testDB),
 		OrganizerRepo:            organizerRepo,
 		IdentityVerificationRepo: identityVerificationRepo,
-		CapturePort:              holds,
 		CheckoutRepo:             rdb.NewCheckoutRepository(testDB),
 		TicketSaleRepo:           saleRepo,
 		EventState:               eventState,
-		CheckoutAuth:             payment.NewStripeCheckoutAuthorizationPort(key, logger),
+		CardAuthorizations:       payment.NewStripeCardAuthorizationRepository(key, payment.CheckoutCardAuthorizationPolicy, logger),
 		Publisher:                s.published,
 		Clock:                    clock,
 		Logger:                   logger,

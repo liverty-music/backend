@@ -343,31 +343,30 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// config (ORGANIZER_MEDIA_CDN_BASE) rather than read directly by entity.
 	seriesImageURLBuilder := mapper.NewSeriesImageURLBuilder(cfg.OrganizerMediaCDNBase)
 
-	// Payment authorization port: use the real Stripe adapter when a secret key
-	// is configured, otherwise a no-op that returns Unavailable so local
+	// Card authorizations and payouts: use the real Stripe adapters when a
+	// secret key is configured, otherwise no-ops that return Unavailable so local
 	// development starts cleanly without a Stripe account (outside local the key
 	// is required, see config.ServerConfig.Validate). The secret key value is
 	// provisioned externally via GCP Secret Manager / ESO and injected as
 	// STRIPE_SECRET_KEY; see the cloud-provisioning repo for the ESO resource.
+	// A lottery entry's and a checkout's card authorizations differ only in
+	// their idempotency key prefix (CardAuthorizationPolicy).
 	paymentConfigured := cfg.Stripe.SecretKey != ""
 	var (
-		lotteryHolds      usecase.LotteryHoldPort
-		capturePort       entity.PaymentCapturePort
-		settlementPayouts entity.SettlementPayoutRepository
-		checkoutAuth      entity.CheckoutAuthorizationPort
+		lotteryCardAuthorizations  entity.CardAuthorizationRepository
+		checkoutCardAuthorizations entity.CardAuthorizationRepository
+		settlementPayouts          entity.SettlementPayoutRepository
 	)
 	if paymentConfigured {
-		stripePort := infrapayment.NewStripeAuthorizationPort(cfg.Stripe.SecretKey, logger)
-		lotteryHolds, capturePort = stripePort, stripePort
+		lotteryCardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.Stripe.SecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger)
+		checkoutCardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.Stripe.SecretKey, infrapayment.CheckoutCardAuthorizationPolicy, logger)
 		settlementPayouts = infrapayment.NewStripeSettlementPayoutRepository(cfg.Stripe.SecretKey, logger)
-		checkoutAuth = infrapayment.NewStripeCheckoutAuthorizationPort(cfg.Stripe.SecretKey, logger)
 	} else {
-		noopPort := infrapayment.NewNoopAuthorizationPort(logger)
-		lotteryHolds, capturePort = noopPort, noopPort
+		noop := infrapayment.NewNoopCardAuthorizationRepository(logger)
+		lotteryCardAuthorizations, checkoutCardAuthorizations = noop, noop
 		settlementPayouts = infrapayment.NewNoopSettlementPayoutRepository(logger)
-		checkoutAuth = infrapayment.NewNoopCheckoutAuthorizationPort(logger)
 	}
-	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryHolds, time.Now, logger)
+	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryCardAuthorizations, time.Now, logger)
 
 	// Ticket sales (Lottery and FirstCome), their TicketTypes, and the fan's
 	// 15-minute first-come checkout.
@@ -379,7 +378,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		UserRepo:                 userRepo,
 		IdentityVerificationRepo: identityVerificationRepo,
 		EventState:               eventPublishState,
-		Auth:                     checkoutAuth,
+		CardAuthorizations:       checkoutCardAuthorizations,
 		Clock:                    time.Now,
 		Logger:                   logger,
 	})
@@ -400,11 +399,10 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		EventOrganizerRepo:       eventOrganizerRepo,
 		OrganizerRepo:            organizerRepo,
 		IdentityVerificationRepo: identityVerificationRepo,
-		CapturePort:              capturePort,
 		CheckoutRepo:             checkoutRepo,
 		TicketSaleRepo:           ticketSaleRepo,
 		EventState:               eventPublishState,
-		CheckoutAuth:             checkoutAuth,
+		CardAuthorizations:       checkoutCardAuthorizations,
 		Publisher:                eventPublisher,
 		Clock:                    time.Now,
 		RefundRepo:               refundRepo,

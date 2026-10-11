@@ -212,7 +212,7 @@ func (uc *orderUseCase) reverseSplits(ctx context.Context, settlement *entity.Se
 			// Already reversed; idempotent skip.
 			continue
 		}
-		reversalRef, err := uc.settlementPayouts.ReversePayout(ctx, entity.ReverseTransferParams{
+		reversalRef, err := uc.settlementPayouts.ReversePayout(ctx, entity.ReversePayoutParams{
 			SettlementID:     settlement.ID,
 			ProviderPayoutID: split.ProviderPayoutID,
 			Amount:           split.Amount,

@@ -46,26 +46,6 @@ type EventPublishStatePort interface {
 	GetEventOrganizerID(ctx context.Context, eventID string) (string, error)
 }
 
-// LotteryHoldPort is the card hold of a lottery entry as the lottery uses it:
-// [entity.PaymentAuthorizationPort] plus reading an existing hold's
-// confirmation secret.
-//
-// TODO: replace with entity.PaymentAuthorizationPort once it declares
-// GetClientSecret (approved; the entity edit is pending).
-type LotteryHoldPort interface {
-	entity.PaymentAuthorizationPort
-
-	// GetClientSecret returns the confirmation secret of an existing hold, so
-	// a fan whose card was declined can try the same hold again. The secret
-	// is short-lived and must not be stored.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no hold has the reference.
-	//  - Unavailable: card payments cannot be reached.
-	GetClientSecret(ctx context.Context, providerPaymentID string) (string, error)
-}
-
 // LotteryEntryUseCase lets a fan enter the lottery of a TicketType — start a Draft,
 // open the card hold, confirm — and withdraw, shows the fan their entries, and
 // draws every Lottery sale once its window has closed.
@@ -162,7 +142,7 @@ type lotteryEntryUseCase struct {
 	ticketRepo               entity.TicketRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
 	userRepo                 entity.UserRepository
-	holds                    LotteryHoldPort
+	cardAuthorizations       entity.CardAuthorizationRepository
 	clock                    Clock
 	newRand                  func() *mrand.Rand
 	logger                   *logging.Logger
@@ -179,11 +159,11 @@ func NewLotteryEntryUseCase(
 	ticketRepo entity.TicketRepository,
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
-	holds LotteryHoldPort,
+	cardAuthorizations entity.CardAuthorizationRepository,
 	clock Clock,
 	logger *logging.Logger,
 ) LotteryEntryUseCase {
-	return newLotteryUseCase(saleRepo, entryRepo, ticketRepo, identityVerificationRepo, userRepo, holds, clock, cryptoSeededRand, logger)
+	return newLotteryUseCase(saleRepo, entryRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, clock, cryptoSeededRand, logger)
 }
 
 // newLotteryUseCase constructs the use case with the draw's random source.
@@ -193,7 +173,7 @@ func newLotteryUseCase(
 	ticketRepo entity.TicketRepository,
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
-	holds LotteryHoldPort,
+	cardAuthorizations entity.CardAuthorizationRepository,
 	clock Clock,
 	newRand func() *mrand.Rand,
 	logger *logging.Logger,
@@ -204,7 +184,7 @@ func newLotteryUseCase(
 		ticketRepo:               ticketRepo,
 		identityVerificationRepo: identityVerificationRepo,
 		userRepo:                 userRepo,
-		holds:                    holds,
+		cardAuthorizations:       cardAuthorizations,
 		clock:                    clock,
 		newRand:                  newRand,
 		logger:                   logger,
@@ -324,17 +304,26 @@ func (uc *lotteryEntryUseCase) AuthorizeCard(ctx context.Context, entryID entity
 	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), fullName, phoneNumber); err != nil {
 		return "", err
 	}
-	if entry.HasAuthorization() {
-		return uc.holds.GetClientSecret(ctx, entry.CardAuthorizationID)
+	if entry.HasCardAuthorization() {
+		// A declined card retries the same card authorization.
+		authorization, err := uc.cardAuthorizations.Get(ctx, entry.CardAuthorizationID)
+		if err != nil {
+			return "", err
+		}
+		return authorization.Secret, nil
 	}
-	ref, secret, err := uc.holds.CreateAuthorization(ctx, tt.AmountFor(entry.TicketCount))
+	authorization, err := uc.cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{
+		LotteryEntryID: entry.ID,
+		TicketTypeID:   entry.TicketTypeID,
+		EventID:        tt.EventID,
+	}, tt.AmountFor(entry.TicketCount))
 	if err != nil {
 		return "", err
 	}
-	if err := uc.entryRepo.SetCardAuthorization(ctx, entry.ID, ref); err != nil {
+	if err := uc.entryRepo.SetCardAuthorization(ctx, entry.ID, authorization.ID); err != nil {
 		return "", err
 	}
-	return secret, nil
+	return authorization.Secret, nil
 }
 
 // Confirm implements [LotteryEntryUseCase].
@@ -353,7 +342,11 @@ func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, entryID entity.Lotte
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.holds.VerifyAuthorization(ctx, entry.CardAuthorizationID, tt.AmountFor(entry.TicketCount)); err != nil {
+	authorization, err := uc.cardAuthorizations.Get(ctx, entry.CardAuthorizationID)
+	if err != nil {
+		return nil, err
+	}
+	if err := authorization.Confirm(entity.CardAuthorizationPurchase{LotteryEntryID: entry.ID}, tt.AmountFor(entry.TicketCount)); err != nil {
 		return nil, err
 	}
 	if err := uc.entryRepo.UpdateState(ctx, entry.ID, entity.LotteryEntryStateEntered); err != nil {
@@ -375,8 +368,8 @@ func (uc *lotteryEntryUseCase) WithdrawEntry(ctx context.Context, entryID entity
 	if !entry.IsWithdrawable() {
 		return apperr.New(codes.FailedPrecondition, "the entry can no longer be withdrawn")
 	}
-	if entry.HasAuthorization() {
-		if err := uc.holds.CancelAuthorization(ctx, entry.CardAuthorizationID); err != nil {
+	if entry.HasCardAuthorization() {
+		if err := uc.cardAuthorizations.Release(ctx, entry.CardAuthorizationID); err != nil {
 			return err
 		}
 	}
@@ -432,7 +425,7 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 			switch e.State {
 			case entity.LotteryEntryStateDraft:
 				drafts = append(drafts, e.ID)
-				if e.HasAuthorization() {
+				if e.HasCardAuthorization() {
 					uc.release(ctx, saleID, e.ID, e.CardAuthorizationID)
 				}
 			case entity.LotteryEntryStateEntered:
@@ -444,7 +437,7 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 		result := entity.RunLotteryDraw(entered, tt.Quantity, uc.newRand())
 		for _, w := range result.Winners {
 			ref := refs[w.Entry.ID]
-			if err := uc.holds.CaptureAuthorization(ctx, ref); err != nil {
+			if err := uc.cardAuthorizations.Capture(ctx, ref); err != nil {
 				// No promotion from the waitlist (繰上げ): the tickets stay
 				// unallocated.
 				uc.logger.Warn(ctx, "capture failed for winner; recording it lost",
@@ -480,7 +473,7 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 // release releases a hold during the draw; a failure is logged and does not
 // stop the draw.
 func (uc *lotteryEntryUseCase) release(ctx context.Context, saleID entity.TicketSaleID, entryID entity.LotteryEntryID, ref string) {
-	if err := uc.holds.CancelAuthorization(ctx, ref); err != nil {
+	if err := uc.cardAuthorizations.Release(ctx, ref); err != nil {
 		uc.logger.Warn(ctx, "draw: releasing a hold failed; continuing",
 			slog.String("ticket_sale_id", string(saleID)),
 			slog.String("lottery_entry_id", string(entryID)),

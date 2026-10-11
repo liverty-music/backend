@@ -34,7 +34,7 @@ func (p *NoopSettlementPayoutRepository) GetProviderChargeID(ctx context.Context
 }
 
 // CreatePayout returns Unavailable because no Stripe key is configured.
-func (p *NoopSettlementPayoutRepository) CreatePayout(ctx context.Context, params entity.TransferParams) (string, error) {
+func (p *NoopSettlementPayoutRepository) CreatePayout(ctx context.Context, params entity.PayoutParams) (string, error) {
 	p.logger.Warn(ctx, "settlement transfer skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("settlement_id", string(params.SettlementID)))
 	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
@@ -70,7 +70,7 @@ func (p *NoopSettlementPayoutRepository) CreateRefund(ctx context.Context, param
 }
 
 // ReversePayout returns Unavailable because no Stripe key is configured.
-func (p *NoopSettlementPayoutRepository) ReversePayout(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
+func (p *NoopSettlementPayoutRepository) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
 	p.logger.Warn(ctx, "transfer reversal skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("settlement_id", string(params.SettlementID)),
 		slog.String("transfer_ref", params.ProviderPayoutID))

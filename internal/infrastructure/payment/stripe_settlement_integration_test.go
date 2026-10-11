@@ -33,7 +33,7 @@ import (
 //
 //	STRIPE_INTEGRATION_TEST=1 STRIPE_SECRET_KEY=sk_test_… \
 //	  go test ./internal/infrastructure/payment/ -run CreateConnectedAccount_Integration -v
-func TestStripeSettlementPayoutRepository_CreateConnectedAccount_Integration(t *testing.T) {
+func TestStripeSettlementPayoutRepository_CreatePayoutAccount_Integration(t *testing.T) {
 	if os.Getenv("STRIPE_INTEGRATION_TEST") != "1" {
 		t.Skip("opt-in: set STRIPE_INTEGRATION_TEST=1 and STRIPE_SECRET_KEY=sk_test_… to run")
 	}
@@ -123,7 +123,7 @@ func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 
 	logger := mustLogger(t)
 	settlement := payment.NewStripeSettlementPayoutRepository(key, logger)
-	authorization := payment.NewStripeAuthorizationPort(key, logger)
+	cardAuthorizations := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
 	ctx := context.Background()
 
 	// The payee must already be able to receive transfers. Provisioning a fresh
@@ -141,10 +141,11 @@ func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 	// ── Capture: buyer funds land on the PLATFORM balance ──────────────────
 	// A plain platform charge, not a destination charge: settlement to the
 	// Organizer happens later, via Transfer.
-	providerPaymentID, _, err := authorization.CreateAuthorization(ctx, grossJPY)
-	require.NoError(t, err, "authorize the buyer's hold")
-	confirmWithTestCard(t, key, providerPaymentID)
-	require.NoError(t, authorization.CaptureAuthorization(ctx, providerPaymentID), "capture the hold")
+	opened, err := cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{LotteryEntryID: entity.LotteryEntryID(entity.NewID())}, grossJPY)
+	require.NoError(t, err, "authorize the buyer's card")
+	providerPaymentID := opened.ID
+	confirmWith(t, key, providerPaymentID, "pm_card_visa")
+	require.NoError(t, cardAuthorizations.Capture(ctx, providerPaymentID), "capture the card authorization")
 
 	// ── Resolve pi_ → ch_ ──────────────────────────────────────────────────
 	// Transfer.source_transaction needs the charge, not the PaymentIntent.
@@ -157,7 +158,7 @@ func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 	settlementID := entity.SettlementID("it-settlement-" + time.Now().UTC().Format("20060102T150405.000"))
 
 	// ── Transfer the Organizer's net share ─────────────────────────────────
-	providerPayoutID, err := settlement.CreatePayout(ctx, entity.TransferParams{
+	providerPayoutID, err := settlement.CreatePayout(ctx, entity.PayoutParams{
 		SettlementID:           settlementID,
 		PayeeProviderAccountID: payeeProviderAccountID,
 		SourceTransactionRef:   providerChargeID,
@@ -179,7 +180,7 @@ func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 
 	// A retried sweep must not double-transfer: the idempotency key is derived
 	// from the settlement id, so Stripe replays the original transfer.
-	replayRef, err := settlement.CreatePayout(ctx, entity.TransferParams{
+	replayRef, err := settlement.CreatePayout(ctx, entity.PayoutParams{
 		SettlementID:           settlementID,
 		PayeeProviderAccountID: payeeProviderAccountID,
 		SourceTransactionRef:   providerChargeID,
@@ -200,7 +201,7 @@ func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 	require.NoError(t, err, "refund the buyer from the platform balance")
 	require.True(t, strings.HasPrefix(providerRefundID, "re_"), "expected an re_ reference, got %q", providerRefundID)
 
-	reversalRef, err := settlement.ReversePayout(ctx, entity.ReverseTransferParams{
+	reversalRef, err := settlement.ReversePayout(ctx, entity.ReversePayoutParams{
 		SettlementID:     settlementID,
 		ProviderPayoutID: providerPayoutID,
 		Amount:           netJPY,
@@ -215,7 +216,7 @@ func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 	assert.True(t, tr.Reversed, "transfer must be marked reversed")
 
 	// Replaying the clawback must not reverse twice.
-	replayReversal, err := settlement.ReversePayout(ctx, entity.ReverseTransferParams{
+	replayReversal, err := settlement.ReversePayout(ctx, entity.ReversePayoutParams{
 		SettlementID:     settlementID,
 		ProviderPayoutID: providerPayoutID,
 		Amount:           netJPY,

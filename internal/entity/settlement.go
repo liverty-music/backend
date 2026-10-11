@@ -164,10 +164,10 @@ type SettlementRepository interface {
 	MarkReleased(ctx context.Context, id SettlementID, providerChargeID string, releasedAt time.Time, splits []SettlementSplit) error
 }
 
-// TransferParams carries the parameters for a single Stripe Transfer in the
+// PayoutParams carries the parameters for a single Stripe Transfer in the
 // payout flow. All provider-specific concerns (idempotency key derivation,
 // API version) are handled by the adapter.
-type TransferParams struct {
+type PayoutParams struct {
 	// SettlementID is used to derive a stable idempotency key so a retried
 	// sweep never double-transfers the same split.
 	SettlementID SettlementID
@@ -204,10 +204,10 @@ type RefundParams struct {
 	Amount int64
 }
 
-// ReverseTransferParams carries the parameters for a per-split transfer
+// ReversePayoutParams carries the parameters for a per-split transfer
 // reversal. Each split that was paid out via Transfer must be individually
 // reversed when a refund or dispute clawback occurs.
-type ReverseTransferParams struct {
+type ReversePayoutParams struct {
 	// SettlementID is used to derive a stable idempotency key together with
 	// the ProviderPayoutID.
 	SettlementID SettlementID
@@ -246,7 +246,7 @@ type SettlementPayoutRepository interface {
 	//
 	//  - InvalidArgument: amount is zero or negative.
 	//  - Unavailable: the payment provider is unreachable.
-	CreatePayout(ctx context.Context, params TransferParams) (providerPayoutID string, err error)
+	CreatePayout(ctx context.Context, params PayoutParams) (providerPayoutID string, err error)
 
 	// CreatePayoutAccount provisions a new Accounts v2 payout-recipient
 	// connected account for the Organizer. The account requests ONLY the
@@ -312,7 +312,7 @@ type SettlementPayoutRepository interface {
 	//
 	//  - InvalidArgument: amount is zero or negative.
 	//  - Unavailable: the payment provider is unreachable.
-	ReversePayout(ctx context.Context, params ReverseTransferParams) (reversalRef string, err error)
+	ReversePayout(ctx context.Context, params ReversePayoutParams) (reversalRef string, err error)
 }
 
 // basisPointsPerUnit is the denominator of a rate in basis points (hundredths

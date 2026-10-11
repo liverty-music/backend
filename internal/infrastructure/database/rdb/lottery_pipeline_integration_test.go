@@ -48,7 +48,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 
 	saleRepo := rdb.NewTicketSaleRepository(testDB)
 	entryRepo := rdb.NewLotteryEntryRepository(testDB)
-	stripePort := payment.NewStripeAuthorizationPort(key, logger)
+	stripePort := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
 
 	// A fixed clock inside the sale's window so every step passes the window
 	// check deterministically.

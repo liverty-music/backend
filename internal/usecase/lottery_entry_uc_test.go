@@ -22,27 +22,6 @@ func fixedClock(t time.Time) usecase.Clock {
 	return func() time.Time { return t }
 }
 
-// holdPort is the lottery's card hold in tests: the generated
-// PaymentAuthorizationPort mock plus GetClientSecret, which the entity port
-// does not declare yet.
-//
-// TODO: drop once entity.PaymentAuthorizationPort declares GetClientSecret
-// and its mock is regenerated.
-type holdPort struct {
-	*entitymocks.MockPaymentAuthorizationPort
-	// secrets maps a hold reference to its confirmation secret.
-	secrets map[string]string
-}
-
-// GetClientSecret implements [usecase.LotteryHoldPort].
-func (h *holdPort) GetClientSecret(_ context.Context, ref string) (string, error) {
-	secret, ok := h.secrets[ref]
-	if !ok {
-		return "", apperr.ErrNotFound
-	}
-	return secret, nil
-}
-
 // lotteryFixture holds the mocks of a LotteryEntryUseCase under test.
 type lotteryFixture struct {
 	sales                *entitymocks.MockTicketSaleRepository
@@ -50,7 +29,7 @@ type lotteryFixture struct {
 	tickets              *entitymocks.MockTicketRepository
 	identityVerification *entitymocks.MockIdentityVerificationRepository
 	users                *entitymocks.MockUserRepository
-	holds                *holdPort
+	holds                *entitymocks.MockCardAuthorizationRepository
 	uc                   usecase.LotteryEntryUseCase
 }
 
@@ -64,7 +43,7 @@ func newLotteryFixture(t *testing.T, now time.Time, seed uint64) *lotteryFixture
 		tickets:              entitymocks.NewMockTicketRepository(t),
 		identityVerification: entitymocks.NewMockIdentityVerificationRepository(t),
 		users:                entitymocks.NewMockUserRepository(t),
-		holds:                &holdPort{MockPaymentAuthorizationPort: entitymocks.NewMockPaymentAuthorizationPort(t), secrets: map[string]string{}},
+		holds:                entitymocks.NewMockCardAuthorizationRepository(t),
 	}
 	f.uc = usecase.NewLotteryEntryUseCaseWithRand(f.sales, f.entries, f.tickets, f.identityVerification, f.users, f.holds,
 		fixedClock(now), func() *mrand.Rand { return mrand.New(mrand.NewPCG(seed, seed+1)) }, newTestLogger(t))
@@ -126,7 +105,7 @@ func TestLotteryUseCase_Start(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, entity.LotteryEntryStateDraft, got.State)
 		assert.Equal(t, 2, got.TicketCount)
-		assert.False(t, got.HasAuthorization(), "nothing is held on the card")
+		assert.False(t, got.HasCardAuthorization(), "nothing is held on the card")
 	})
 
 	t.Run("fan reloads mid-entry", func(t *testing.T) {
@@ -307,7 +286,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "")
 		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
 		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", "山田 花子", "+819012345678").Return(&entity.User{ID: "fan-1"}, nil)
-		f.holds.EXPECT().CreateAuthorization(mock.Anything, int64(16000)).Return("pi_1", "pi_1_secret", nil)
+		f.holds.EXPECT().Create(mock.Anything, mock.Anything, int64(16000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "pi_1_secret", Status: entity.CardAuthorizationStatusPending}, nil)
 		f.entries.EXPECT().SetCardAuthorization(mock.Anything, draft.ID, "pi_1").Return(nil)
 
 		secret, err := f.uc.AuthorizeCard(ctx, draft.ID, "fan-1", "山田 花子", "+819012345678")
@@ -323,7 +302,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 		sale := lotterySale(entity.VerificationRequirementNone)
 		f.readsTicketType(sale)
 		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_1")
-		f.holds.secrets["pi_1"] = "pi_1_secret"
+		f.holds.EXPECT().Get(mock.Anything, "pi_1").Return(&entity.CardAuthorization{ID: "pi_1", Secret: "pi_1_secret", Status: entity.CardAuthorizationStatusPending}, nil)
 		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
 		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", "山田 花子", "+819012345678").Return(&entity.User{ID: "fan-1"}, nil)
 
@@ -401,7 +380,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "")
 		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
 		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", "山田 花子", "+819012345678").Return(&entity.User{ID: "fan-1"}, nil)
-		f.holds.EXPECT().CreateAuthorization(mock.Anything, int64(16000)).Return("", "", apperr.New(codes.Unavailable, "stripe down"))
+		f.holds.EXPECT().Create(mock.Anything, mock.Anything, int64(16000)).Return(nil, apperr.New(codes.Unavailable, "stripe down"))
 
 		_, err := f.uc.AuthorizeCard(ctx, draft.ID, "fan-1", "山田 花子", "+819012345678")
 
@@ -433,7 +412,7 @@ func TestLotteryUseCase_Confirm(t *testing.T) {
 		f.readsTicketType(sale)
 		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_1")
 		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
-		f.holds.EXPECT().VerifyAuthorization(mock.Anything, "pi_1", int64(16000)).Return(nil)
+		f.holds.EXPECT().Get(mock.Anything, "pi_1").Return(&entity.CardAuthorization{ID: "pi_1", Amount: 16000, CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized}, nil)
 		f.entries.EXPECT().UpdateState(mock.Anything, draft.ID, entity.LotteryEntryStateEntered).Return(nil)
 
 		got, err := f.uc.Confirm(ctx, draft.ID, "fan-1")
@@ -464,12 +443,13 @@ func TestLotteryUseCase_Confirm(t *testing.T) {
 		f.readsTicketType(sale)
 		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_1")
 		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
-		amex := apperr.New(codes.FailedPrecondition, "American Express is not accepted")
-		f.holds.EXPECT().VerifyAuthorization(mock.Anything, "pi_1", int64(16000)).Return(amex)
+		f.holds.EXPECT().Get(mock.Anything, "pi_1").Return(&entity.CardAuthorization{
+			ID: "pi_1", Amount: 16000, CardBrand: entity.CardBrandAmex, Status: entity.CardAuthorizationStatusAuthorized,
+		}, nil)
 
 		_, err := f.uc.Confirm(ctx, draft.ID, "fan-1")
 
-		assert.Equal(t, amex, err, "the verification error is returned unchanged")
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "an American Express card does not confirm a lottery entry")
 		f.entries.AssertNotCalled(t, "UpdateState", mock.Anything, mock.Anything, mock.Anything)
 	})
 
@@ -522,7 +502,7 @@ func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
 		f := newLotteryFixture(t, duringWindow, 1)
 		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
 		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
-		released := f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_1").Return(nil).Call
+		released := f.holds.EXPECT().Release(mock.Anything, "pi_1").Return(nil).Call
 		f.entries.EXPECT().UpdateState(mock.Anything, entered.ID, entity.LotteryEntryStateWithdrawn).Return(nil).NotBefore(released)
 
 		err := f.uc.WithdrawEntry(ctx, entered.ID, "fan-1")
@@ -541,7 +521,7 @@ func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
 		err := f.uc.WithdrawEntry(ctx, draft.ID, "fan-1")
 
 		require.NoError(t, err)
-		f.holds.AssertNotCalled(t, "CancelAuthorization", mock.Anything, mock.Anything)
+		f.holds.AssertNotCalled(t, "Release", mock.Anything, mock.Anything)
 	})
 
 	t.Run("window closed but not drawn", func(t *testing.T) {
@@ -550,7 +530,7 @@ func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
 		f := newLotteryFixture(t, afterWindow, 1)
 		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
 		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
-		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_1").Return(nil)
+		f.holds.EXPECT().Release(mock.Anything, "pi_1").Return(nil)
 		f.entries.EXPECT().UpdateState(mock.Anything, entered.ID, entity.LotteryEntryStateWithdrawn).Return(nil)
 
 		err := f.uc.WithdrawEntry(ctx, entered.ID, "fan-1")
@@ -603,7 +583,7 @@ func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
 		f := newLotteryFixture(t, duringWindow, 1)
 		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
 		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
-		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_1").Return(apperr.New(codes.Unavailable, "stripe down"))
+		f.holds.EXPECT().Release(mock.Anything, "pi_1").Return(apperr.New(codes.Unavailable, "stripe down"))
 
 		err := f.uc.WithdrawEntry(ctx, entered.ID, "fan-1")
 
@@ -719,7 +699,7 @@ func TestLotteryUseCase_RunDraw(t *testing.T) {
 		draft := lotteryEntry("draft-1", tt, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_d")
 		bare := lotteryEntry("draft-2", tt, "fan-2", entity.LotteryEntryStateDraft, 1, "")
 		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{draft, bare}, nil)
-		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_d").Return(nil).Once()
+		f.holds.EXPECT().Release(mock.Anything, "pi_d").Return(nil).Once()
 		var out drawOutcome
 		f.recordsOutcome(sale.ID, &out)
 
@@ -742,9 +722,9 @@ func TestLotteryUseCase_RunDraw(t *testing.T) {
 			lotteryEntry("two-b", tt, "fan-2", entity.LotteryEntryStateEntered, 2, "pi_b"),
 			lotteryEntry("three", tt, "fan-3", entity.LotteryEntryStateEntered, 3, "pi_c"),
 		}, nil)
-		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_a").Return(nil).Once()
-		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_b").Return(nil).Once()
-		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_c").Return(nil).Once()
+		f.holds.EXPECT().Capture(mock.Anything, "pi_a").Return(nil).Once()
+		f.holds.EXPECT().Capture(mock.Anything, "pi_b").Return(nil).Once()
+		f.holds.EXPECT().Release(mock.Anything, "pi_c").Return(nil).Once()
 		var out drawOutcome
 		f.recordsOutcome(sale.ID, &out)
 
@@ -772,8 +752,8 @@ func TestLotteryUseCase_RunDraw(t *testing.T) {
 		}
 		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, big).Return(bigEntries, nil)
 		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, small).Return(smallEntries, nil)
-		f.holds.EXPECT().CaptureAuthorization(mock.Anything, mock.Anything).Return(nil)
-		f.holds.EXPECT().CancelAuthorization(mock.Anything, mock.Anything).Return(nil)
+		f.holds.EXPECT().Capture(mock.Anything, mock.Anything).Return(nil)
+		f.holds.EXPECT().Release(mock.Anything, mock.Anything).Return(nil)
 		var out drawOutcome
 		f.recordsOutcome(sale.ID, &out)
 
@@ -805,8 +785,8 @@ func TestLotteryUseCase_RunDraw(t *testing.T) {
 			lotteryEntry("e-3", tt, "fan-3", entity.LotteryEntryStateEntered, 2, "pi_3"),
 			lotteryEntry("e-4", tt, "fan-4", entity.LotteryEntryStateEntered, 2, "pi_4"),
 		}, nil)
-		f.holds.EXPECT().CaptureAuthorization(mock.Anything, mock.Anything).Return(nil).Once()
-		f.holds.EXPECT().CancelAuthorization(mock.Anything, mock.Anything).Return(nil).Times(3)
+		f.holds.EXPECT().Capture(mock.Anything, mock.Anything).Return(nil).Once()
+		f.holds.EXPECT().Release(mock.Anything, mock.Anything).Return(nil).Times(3)
 		var out drawOutcome
 		f.recordsOutcome(sale.ID, &out)
 
@@ -853,9 +833,9 @@ func TestLotteryUseCase_RunDraw(t *testing.T) {
 			lotteryEntry("closed-card", tt, "fan-1", entity.LotteryEntryStateEntered, 2, "pi_closed"),
 			lotteryEntry("fine", tt, "fan-2", entity.LotteryEntryStateEntered, 2, "pi_fine"),
 		}, nil)
-		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_closed").Return(apperr.New(codes.FailedPrecondition, "card closed"))
-		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_fine").Return(nil)
-		f.holds.EXPECT().CancelAuthorization(mock.Anything, "pi_closed").Return(nil).Once()
+		f.holds.EXPECT().Capture(mock.Anything, "pi_closed").Return(apperr.New(codes.FailedPrecondition, "card closed"))
+		f.holds.EXPECT().Capture(mock.Anything, "pi_fine").Return(nil)
+		f.holds.EXPECT().Release(mock.Anything, "pi_closed").Return(nil).Once()
 		var out drawOutcome
 		f.recordsOutcome(sale.ID, &out)
 
@@ -878,9 +858,9 @@ func TestLotteryUseCase_RunDraw(t *testing.T) {
 			lotteryEntry("e-2", tt, "fan-2", entity.LotteryEntryStateEntered, 2, "pi_2"),
 			lotteryEntry("e-3", tt, "fan-3", entity.LotteryEntryStateEntered, 2, "pi_3"),
 		}, nil)
-		f.holds.EXPECT().CaptureAuthorization(mock.Anything, mock.Anything).Return(nil).Once()
-		f.holds.EXPECT().CancelAuthorization(mock.Anything, mock.Anything).Return(apperr.New(codes.Unavailable, "stripe down")).Once()
-		f.holds.EXPECT().CancelAuthorization(mock.Anything, mock.Anything).Return(nil).Once()
+		f.holds.EXPECT().Capture(mock.Anything, mock.Anything).Return(nil).Once()
+		f.holds.EXPECT().Release(mock.Anything, mock.Anything).Return(apperr.New(codes.Unavailable, "stripe down")).Once()
+		f.holds.EXPECT().Release(mock.Anything, mock.Anything).Return(nil).Once()
 		var out drawOutcome
 		f.recordsOutcome(sale.ID, &out)
 
@@ -902,7 +882,7 @@ func TestLotteryUseCase_RunDraw(t *testing.T) {
 		f.entries.EXPECT().ListUndrawnForTicketType(mock.Anything, tt).Return([]*entity.LotteryEntry{
 			lotteryEntry("e-1", tt, "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1"),
 		}, nil)
-		f.holds.EXPECT().CaptureAuthorization(mock.Anything, "pi_1").Return(nil)
+		f.holds.EXPECT().Capture(mock.Anything, "pi_1").Return(nil)
 		var out drawOutcome
 		f.recordsOutcome(sale.ID, &out)
 

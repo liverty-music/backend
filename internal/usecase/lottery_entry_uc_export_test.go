@@ -7,7 +7,7 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// NewLotteryUseCaseWithRand exposes the LotteryEntryUseCase constructor with an
+// NewLotteryEntryUseCaseWithRand exposes the LotteryEntryUseCase constructor with an
 // injected draw order source, so black-box tests can draw deterministically.
 func NewLotteryEntryUseCaseWithRand(
 	saleRepo entity.TicketSaleRepository,
@@ -15,10 +15,10 @@ func NewLotteryEntryUseCaseWithRand(
 	ticketRepo entity.TicketRepository,
 	identityVerificationRepo entity.IdentityVerificationRepository,
 	userRepo entity.UserRepository,
-	holds LotteryHoldPort,
+	cardAuthorizations entity.CardAuthorizationRepository,
 	clock Clock,
 	newRand func() *mrand.Rand,
 	logger *logging.Logger,
 ) LotteryEntryUseCase {
-	return newLotteryUseCase(saleRepo, entryRepo, ticketRepo, identityVerificationRepo, userRepo, holds, clock, newRand, logger)
+	return newLotteryUseCase(saleRepo, entryRepo, ticketRepo, identityVerificationRepo, userRepo, cardAuthorizations, clock, newRand, logger)
 }

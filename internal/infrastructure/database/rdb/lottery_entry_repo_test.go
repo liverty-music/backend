@@ -81,7 +81,7 @@ func TestLotteryEntryRepository_GetOrCreateDraft(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, entity.LotteryEntryStateDraft, got.State)
 		assert.Equal(t, 2, got.TicketCount)
-		assert.False(t, got.HasAuthorization())
+		assert.False(t, got.HasCardAuthorization())
 		assert.Nil(t, got.DrawPosition)
 		stored, err := repo.Get(ctx, got.ID)
 		require.NoError(t, err)

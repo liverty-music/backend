@@ -98,28 +98,38 @@ func (s *stubOrderRepo) MarkConfirmationSent(_ context.Context, _ entity.OrderID
 	return nil
 }
 
-type stubCapturePort struct {
-	getCapturedPaymentFn func(ctx context.Context, providerPaymentID string) (*entity.CapturedPayment, error)
+// stubCardAuthorizations is a CardAuthorizationRepository whose Get reports
+// getFn's card authorization, by default a Captured 10000 yen Visa payment.
+// The lottery issuance path only reads.
+type stubCardAuthorizations struct {
+	entity.CardAuthorizationRepository
+	getFn func(ctx context.Context, id string) (*entity.CardAuthorization, error)
 }
 
-func (s *stubCapturePort) GetCapturedPayment(ctx context.Context, providerPaymentID string) (*entity.CapturedPayment, error) {
-	if s.getCapturedPaymentFn != nil {
-		return s.getCapturedPaymentFn(ctx, providerPaymentID)
+func (s *stubCardAuthorizations) Get(ctx context.Context, id string) (*entity.CardAuthorization, error) {
+	if s.getFn != nil {
+		return s.getFn(ctx, id)
 	}
-	return &entity.CapturedPayment{
+	return capturedCardAuthorization(id, &entity.CapturedPayment{
 		Provider:  entity.PaymentProviderStripe,
 		AmountJPY: 10000,
 		Currency:  "JPY",
 		CardBrand: "visa",
 		CardLast4: "4242",
-	}, nil
+	}), nil
+}
+
+// capturedCardAuthorization is the Captured card authorization id that took
+// the payment.
+func capturedCardAuthorization(id string, payment *entity.CapturedPayment) *entity.CardAuthorization {
+	return &entity.CardAuthorization{ID: id, Amount: payment.AmountJPY, Status: entity.CardAuthorizationStatusCaptured, CapturedPayment: payment}
 }
 
 // lotteryIssuanceDeps are the lottery-side dependencies of an issuance test.
 // A nil field gets a default: the entry repository returns [wonEntry], the
 // sale repository a Lottery sale without a verification requirement, the
-// order repository nothing issued yet, the capture port a 10000 yen Visa
-// payment and the Organizer resolves to "org-1".
+// order repository nothing issued yet, the card authorization a captured 10000 yen
+// Visa payment and the Organizer resolves to "org-1".
 type lotteryIssuanceDeps struct {
 	issuanceRepo             entity.IssuanceRepository
 	orderRepo                entity.OrderRepository
@@ -127,7 +137,7 @@ type lotteryIssuanceDeps struct {
 	saleRepo                 entity.TicketSaleRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
 	eventOrganizerRepo       usecase.EventOrganizerRepository
-	capturePort              entity.PaymentCapturePort
+	cardAuthorizations       entity.CardAuthorizationRepository
 	clock                    usecase.Clock
 }
 
@@ -158,8 +168,8 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseC
 	if d.eventOrganizerRepo == nil {
 		d.eventOrganizerRepo = &stubEventOrganizerRepo{}
 	}
-	if d.capturePort == nil {
-		d.capturePort = &stubCapturePort{}
+	if d.cardAuthorizations == nil {
+		d.cardAuthorizations = &stubCardAuthorizations{}
 	}
 	return usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             d.issuanceRepo,
@@ -168,7 +178,7 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseC
 		EventOrganizerRepo:       d.eventOrganizerRepo,
 		OrganizerRepo:            organizers,
 		IdentityVerificationRepo: d.identityVerificationRepo,
-		CapturePort:              d.capturePort,
+		CardAuthorizations:       d.cardAuthorizations,
 		TicketSaleRepo:           d.saleRepo,
 		Clock:                    d.clock,
 		Logger:                   newTestLogger(t),
@@ -242,12 +252,12 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 			assert.Equal(t, "event-1", eventID)
 			return "organizer-1", nil
 		}}
-		capturePort := &stubCapturePort{getCapturedPaymentFn: func(_ context.Context, ref string) (*entity.CapturedPayment, error) {
-			assert.Equal(t, "pi_won_1", ref)
-			return &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, AmountJPY: 16000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}, nil
+		cardAuthorizations := &stubCardAuthorizations{getFn: func(_ context.Context, id string) (*entity.CardAuthorization, error) {
+			assert.Equal(t, "pi_won_1", id)
+			return capturedCardAuthorization(id, &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, AmountJPY: 16000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}), nil
 		}}
 
-		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, eventOrganizerRepo: organizerRepo, capturePort: capturePort, clock: fixedClock(now)})
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, eventOrganizerRepo: organizerRepo, cardAuthorizations: cardAuthorizations, clock: fixedClock(now)})
 
 		order, err := uc.IssueFromCapturedWin(context.Background(), "entry-1")
 		require.NoError(t, err)
@@ -379,11 +389,11 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		t.Parallel()
 
 		issuanceRepo, issueCalled := recordingIssuanceRepo(nil, nil, nil)
-		capturePort := &stubCapturePort{getCapturedPaymentFn: func(_ context.Context, _ string) (*entity.CapturedPayment, error) {
-			return nil, apperr.New(apperr.ErrFailedPrecondition.Code, "payment intent is not captured")
+		cardAuthorizations := &stubCardAuthorizations{getFn: func(_ context.Context, id string) (*entity.CardAuthorization, error) {
+			return &entity.CardAuthorization{ID: id, Amount: 16000, CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized}, nil
 		}}
 
-		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, capturePort: capturePort, clock: fixedClock(now)})
+		uc := newLotteryIssuanceUC(t, lotteryIssuanceDeps{issuanceRepo: issuanceRepo, cardAuthorizations: cardAuthorizations, clock: fixedClock(now)})
 
 		_, err := uc.IssueFromCapturedWin(context.Background(), "entry-1")
 		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
@@ -662,7 +672,7 @@ func TestIssuanceUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 		getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 			return entity.PayoutOnboardingStatusPending, nil
 		},
-		createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
+		createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
 			transferCalled = true
 			return "tr_should_not_happen", nil
 		},

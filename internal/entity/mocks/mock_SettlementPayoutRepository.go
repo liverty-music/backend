@@ -81,7 +81,7 @@ func (_c *MockSettlementPayoutRepository_CreateOnboardingLink_Call) RunAndReturn
 }
 
 // CreatePayout provides a mock function with given fields: ctx, params
-func (_m *MockSettlementPayoutRepository) CreatePayout(ctx context.Context, params entity.TransferParams) (string, error) {
+func (_m *MockSettlementPayoutRepository) CreatePayout(ctx context.Context, params entity.PayoutParams) (string, error) {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
@@ -90,16 +90,16 @@ func (_m *MockSettlementPayoutRepository) CreatePayout(ctx context.Context, para
 
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TransferParams) (string, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, entity.PayoutParams) (string, error)); ok {
 		return rf(ctx, params)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.TransferParams) string); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, entity.PayoutParams) string); ok {
 		r0 = rf(ctx, params)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, entity.TransferParams) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, entity.PayoutParams) error); ok {
 		r1 = rf(ctx, params)
 	} else {
 		r1 = ret.Error(1)
@@ -115,14 +115,14 @@ type MockSettlementPayoutRepository_CreatePayout_Call struct {
 
 // CreatePayout is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params entity.TransferParams
+//   - params entity.PayoutParams
 func (_e *MockSettlementPayoutRepository_Expecter) CreatePayout(ctx interface{}, params interface{}) *MockSettlementPayoutRepository_CreatePayout_Call {
 	return &MockSettlementPayoutRepository_CreatePayout_Call{Call: _e.mock.On("CreatePayout", ctx, params)}
 }
 
-func (_c *MockSettlementPayoutRepository_CreatePayout_Call) Run(run func(ctx context.Context, params entity.TransferParams)) *MockSettlementPayoutRepository_CreatePayout_Call {
+func (_c *MockSettlementPayoutRepository_CreatePayout_Call) Run(run func(ctx context.Context, params entity.PayoutParams)) *MockSettlementPayoutRepository_CreatePayout_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.TransferParams))
+		run(args[0].(context.Context), args[1].(entity.PayoutParams))
 	})
 	return _c
 }
@@ -132,7 +132,7 @@ func (_c *MockSettlementPayoutRepository_CreatePayout_Call) Return(providerPayou
 	return _c
 }
 
-func (_c *MockSettlementPayoutRepository_CreatePayout_Call) RunAndReturn(run func(context.Context, entity.TransferParams) (string, error)) *MockSettlementPayoutRepository_CreatePayout_Call {
+func (_c *MockSettlementPayoutRepository_CreatePayout_Call) RunAndReturn(run func(context.Context, entity.PayoutParams) (string, error)) *MockSettlementPayoutRepository_CreatePayout_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -367,7 +367,7 @@ func (_c *MockSettlementPayoutRepository_GetProviderChargeID_Call) RunAndReturn(
 }
 
 // ReversePayout provides a mock function with given fields: ctx, params
-func (_m *MockSettlementPayoutRepository) ReversePayout(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
+func (_m *MockSettlementPayoutRepository) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
 	ret := _m.Called(ctx, params)
 
 	if len(ret) == 0 {
@@ -376,16 +376,16 @@ func (_m *MockSettlementPayoutRepository) ReversePayout(ctx context.Context, par
 
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.ReverseTransferParams) (string, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, entity.ReversePayoutParams) (string, error)); ok {
 		return rf(ctx, params)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.ReverseTransferParams) string); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, entity.ReversePayoutParams) string); ok {
 		r0 = rf(ctx, params)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, entity.ReverseTransferParams) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, entity.ReversePayoutParams) error); ok {
 		r1 = rf(ctx, params)
 	} else {
 		r1 = ret.Error(1)
@@ -401,14 +401,14 @@ type MockSettlementPayoutRepository_ReversePayout_Call struct {
 
 // ReversePayout is a helper method to define mock.On call
 //   - ctx context.Context
-//   - params entity.ReverseTransferParams
+//   - params entity.ReversePayoutParams
 func (_e *MockSettlementPayoutRepository_Expecter) ReversePayout(ctx interface{}, params interface{}) *MockSettlementPayoutRepository_ReversePayout_Call {
 	return &MockSettlementPayoutRepository_ReversePayout_Call{Call: _e.mock.On("ReversePayout", ctx, params)}
 }
 
-func (_c *MockSettlementPayoutRepository_ReversePayout_Call) Run(run func(ctx context.Context, params entity.ReverseTransferParams)) *MockSettlementPayoutRepository_ReversePayout_Call {
+func (_c *MockSettlementPayoutRepository_ReversePayout_Call) Run(run func(ctx context.Context, params entity.ReversePayoutParams)) *MockSettlementPayoutRepository_ReversePayout_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.ReverseTransferParams))
+		run(args[0].(context.Context), args[1].(entity.ReversePayoutParams))
 	})
 	return _c
 }
@@ -418,7 +418,7 @@ func (_c *MockSettlementPayoutRepository_ReversePayout_Call) Return(reversalRef 
 	return _c
 }
 
-func (_c *MockSettlementPayoutRepository_ReversePayout_Call) RunAndReturn(run func(context.Context, entity.ReverseTransferParams) (string, error)) *MockSettlementPayoutRepository_ReversePayout_Call {
+func (_c *MockSettlementPayoutRepository_ReversePayout_Call) RunAndReturn(run func(context.Context, entity.ReversePayoutParams) (string, error)) *MockSettlementPayoutRepository_ReversePayout_Call {
 	_c.Call.Return(run)
 	return _c
 }

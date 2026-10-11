@@ -22,7 +22,7 @@ type checkoutFixture struct {
 	users                 *entitymocks.MockUserRepository
 	identityVerifications *entitymocks.MockIdentityVerificationRepository
 	events                *ucmocks.MockEventPublishStatePort
-	auth                  *entitymocks.MockCheckoutAuthorizationPort
+	auth                  *entitymocks.MockCardAuthorizationRepository
 	uc                    usecase.CheckoutUseCase
 }
 
@@ -34,7 +34,7 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		users:                 entitymocks.NewMockUserRepository(t),
 		identityVerifications: entitymocks.NewMockIdentityVerificationRepository(t),
 		events:                ucmocks.NewMockEventPublishStatePort(t),
-		auth:                  entitymocks.NewMockCheckoutAuthorizationPort(t),
+		auth:                  entitymocks.NewMockCardAuthorizationRepository(t),
 	}
 	f.uc = usecase.NewCheckoutUseCase(usecase.CheckoutDeps{
 		CheckoutRepo:             f.checkouts,
@@ -42,7 +42,7 @@ func newCheckoutFixture(t *testing.T, now time.Time) *checkoutFixture {
 		UserRepo:                 f.users,
 		IdentityVerificationRepo: f.identityVerifications,
 		EventState:               f.events,
-		Auth:                     f.auth,
+		CardAuthorizations:       f.auth,
 		Clock:                    fixedClock(now),
 		Logger:                   newTestLogger(t),
 	})
@@ -379,9 +379,9 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		expectTicketType(f.sales, sale)
 		updateDetails := f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", name, phone).
 			Return(&entity.User{ID: "fan-1", FullName: name, PhoneNumber: phone}, nil).Call
-		createHold := f.auth.EXPECT().CreateAuthorization(mock.Anything, int64(6000), entity.AuthorizationMetadata{
+		createHold := f.auth.EXPECT().Create(mock.Anything, entity.CardAuthorizationPurchase{
 			CheckoutID: "checkout-1", TicketTypeID: "tt-1", EventID: "event-1",
-		}).Return("pi_1", "secret_1", nil).NotBefore(updateDetails)
+		}, int64(6000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "secret_1", Status: entity.CardAuthorizationStatusPending}, nil).NotBefore(updateDetails)
 		f.checkouts.EXPECT().SetCardAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil).NotBefore(createHold)
 
 		secret, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", name, phone)
@@ -400,7 +400,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		sale, _ := firstComeTicketType(150, 0, 2)
 		expectTicketType(f.sales, sale)
 		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", name, phone).Return(&entity.User{ID: "fan-1"}, nil)
-		f.auth.EXPECT().CreateAuthorization(mock.Anything, int64(6000), mock.Anything).Return("pi_1", "secret_1", nil)
+		f.auth.EXPECT().Create(mock.Anything, mock.Anything, int64(6000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "secret_1", Status: entity.CardAuthorizationStatusPending}, nil)
 		f.checkouts.EXPECT().SetCardAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil)
 
 		secret, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", name, phone)
@@ -421,7 +421,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		const corrected = "佐藤 花子"
 		f.users.EXPECT().UpdatePersonalDetails(mock.Anything, "fan-1", corrected, phone).
 			Return(&entity.User{ID: "fan-1", FullName: corrected, PhoneNumber: phone}, nil).Once()
-		f.auth.EXPECT().CreateAuthorization(mock.Anything, int64(6000), mock.Anything).Return("pi_1", "secret_1", nil)
+		f.auth.EXPECT().Create(mock.Anything, mock.Anything, int64(6000)).Return(&entity.CardAuthorization{ID: "pi_1", Secret: "secret_1", Status: entity.CardAuthorizationStatusPending}, nil)
 		f.checkouts.EXPECT().SetCardAuthorization(mock.Anything, entity.CheckoutID("checkout-1"), "pi_1").Return(nil)
 
 		secret, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", corrected, phone)
@@ -440,7 +440,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 		f.users.AssertNotCalled(t, "UpdatePersonalDetails", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-		f.auth.AssertNotCalled(t, "CreateAuthorization", mock.Anything, mock.Anything, mock.Anything)
+		f.auth.AssertNotCalled(t, "Create", mock.Anything, mock.Anything, mock.Anything)
 	})
 
 	t.Run("missing full name", func(t *testing.T) {
@@ -496,7 +496,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		expired := *lapsed
 		expired.Status = entity.CheckoutStatusExpired
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{&expired}, nil).Once()
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_1").Return(nil)
+		f.auth.EXPECT().Release(mock.Anything, "pi_1").Return(nil)
 		f.checkouts.EXPECT().RecordCardAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
 
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
@@ -509,7 +509,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		replaced := fanCheckout(start)
 		replaced.Status, replaced.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_2"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{replaced}, nil)
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_2").Return(nil)
+		f.auth.EXPECT().Release(mock.Anything, "pi_2").Return(nil)
 		f.checkouts.EXPECT().RecordCardAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
 
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
@@ -537,8 +537,8 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		second := fanCheckout(start)
 		second.ID, second.Status, second.CardAuthorizationID = "checkout-b", entity.CheckoutStatusExpired, "pi_b"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{first, second}, nil)
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_a").Return(apperr.New(apperr.ErrUnavailable.Code, "stripe down"))
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_b").Return(nil)
+		f.auth.EXPECT().Release(mock.Anything, "pi_a").Return(apperr.New(apperr.ErrUnavailable.Code, "stripe down"))
+		f.auth.EXPECT().Release(mock.Anything, "pi_b").Return(nil)
 		f.checkouts.EXPECT().RecordCardAuthorizationRelease(mock.Anything, entity.CheckoutID("checkout-b"), now).Return(nil)
 
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
@@ -551,7 +551,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		released := fanCheckout(start)
 		released.Status, released.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_charged"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{released}, nil)
-		f.auth.EXPECT().CancelAuthorization(mock.Anything, "pi_charged").
+		f.auth.EXPECT().Release(mock.Anything, "pi_charged").
 			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card hold has already been charged"))
 
 		// Reported (logged as needing an operator) and not recorded as released.

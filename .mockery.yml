@@ -81,12 +81,10 @@ packages:
       SettlementRepository:
       EmailVerifier:
       IdentityRemover:
-      PaymentAuthorizationPort:
-      PaymentCapturePort:
       SettlementPayoutRepository:
+      CardAuthorizationRepository:
       TicketSaleRepository:
       CheckoutRepository:
-      CheckoutAuthorizationPort:
       OrderConfirmationSender:
       MediaProcessor:
       EventRepository:

@@ -38,7 +38,7 @@ func (s *stubRefundRepo) CommitRefund(ctx context.Context, commit entity.RefundC
 type stubRefundSettlementPayouts struct {
 	stubSettlementPayoutRepository
 	createRefundFn    func(ctx context.Context, params entity.RefundParams) (string, error)
-	reverseTransferFn func(ctx context.Context, params entity.ReverseTransferParams) (string, error)
+	reverseTransferFn func(ctx context.Context, params entity.ReversePayoutParams) (string, error)
 }
 
 func (s *stubRefundSettlementPayouts) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
@@ -48,7 +48,7 @@ func (s *stubRefundSettlementPayouts) CreateRefund(ctx context.Context, params e
 	return "re_test", nil
 }
 
-func (s *stubRefundSettlementPayouts) ReversePayout(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
+func (s *stubRefundSettlementPayouts) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
 	if s.reverseTransferFn != nil {
 		return s.reverseTransferFn(ctx, params)
 	}
@@ -155,7 +155,7 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 			refundCalled = true
 			return "re_cancel", nil
 		},
-		reverseTransferFn: func(_ context.Context, params entity.ReverseTransferParams) (string, error) {
+		reverseTransferFn: func(_ context.Context, params entity.ReversePayoutParams) (string, error) {
 			assert.Equal(t, providerPayoutID, params.ProviderPayoutID)
 			assert.Equal(t, int64(9000), params.Amount)
 			reversalCalled = true
@@ -390,7 +390,7 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 			assert.Equal(t, orderID, params.OrderID)
 			return "re_dispute", nil
 		},
-		reverseTransferFn: func(_ context.Context, params entity.ReverseTransferParams) (string, error) {
+		reverseTransferFn: func(_ context.Context, params entity.ReversePayoutParams) (string, error) {
 			assert.Equal(t, providerPayoutID, params.ProviderPayoutID)
 			reversalCalled = true
 			return "trr_dispute", nil
@@ -509,7 +509,7 @@ func TestRefundOrder_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
 		createRefundFn: func(_ context.Context, _ entity.RefundParams) (string, error) {
 			return "re_held", nil
 		},
-		reverseTransferFn: func(_ context.Context, _ entity.ReverseTransferParams) (string, error) {
+		reverseTransferFn: func(_ context.Context, _ entity.ReversePayoutParams) (string, error) {
 			reversalCalled = true
 			return "should-not-be-called", nil
 		},

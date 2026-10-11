@@ -107,7 +107,7 @@ func (p *StripeSettlementPayoutRepository) GetProviderChargeID(ctx context.Conte
 //
 // The idempotency key is derived from the SettlementID and the split's payee
 // so a retried sweep never double-transfers the same split.
-func (p *StripeSettlementPayoutRepository) CreatePayout(ctx context.Context, params entity.TransferParams) (string, error) {
+func (p *StripeSettlementPayoutRepository) CreatePayout(ctx context.Context, params entity.PayoutParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "transfer amount must be positive")
 	}
@@ -339,7 +339,7 @@ func (p *StripeSettlementPayoutRepository) CreateRefund(ctx context.Context, par
 //
 // The idempotency key is derived from SettlementID + ProviderPayoutID so a retried
 // clawback never double-reverses a split.
-func (p *StripeSettlementPayoutRepository) ReversePayout(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
+func (p *StripeSettlementPayoutRepository) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "reversal amount must be positive")
 	}

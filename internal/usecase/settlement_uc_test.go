@@ -88,12 +88,12 @@ func (s *stubEventStartTimeRepo) GetEventStartTime(ctx context.Context, eventID 
 
 type stubSettlementPayoutRepository struct {
 	resolveProviderChargeIDFn func(ctx context.Context, piRef string) (string, error)
-	createTransferFn          func(ctx context.Context, params entity.TransferParams) (string, error)
+	createTransferFn          func(ctx context.Context, params entity.PayoutParams) (string, error)
 	createConnectedAccountFn  func(ctx context.Context, organizerID string) (string, error)
 	getAccountStatusFn        func(ctx context.Context, providerAccountID string) (entity.PayoutOnboardingStatus, error)
 	createOnboardingLinkFn    func(ctx context.Context, providerAccountID, returnURL string) (string, error)
 	createRefundFn            func(ctx context.Context, params entity.RefundParams) (string, error)
-	reverseTransferFn         func(ctx context.Context, params entity.ReverseTransferParams) (string, error)
+	reverseTransferFn         func(ctx context.Context, params entity.ReversePayoutParams) (string, error)
 }
 
 func (s *stubSettlementPayoutRepository) GetProviderChargeID(ctx context.Context, piRef string) (string, error) {
@@ -102,7 +102,7 @@ func (s *stubSettlementPayoutRepository) GetProviderChargeID(ctx context.Context
 	}
 	return "ch_test", nil
 }
-func (s *stubSettlementPayoutRepository) CreatePayout(ctx context.Context, params entity.TransferParams) (string, error) {
+func (s *stubSettlementPayoutRepository) CreatePayout(ctx context.Context, params entity.PayoutParams) (string, error) {
 	if s.createTransferFn != nil {
 		return s.createTransferFn(ctx, params)
 	}
@@ -132,7 +132,7 @@ func (s *stubSettlementPayoutRepository) CreateRefund(ctx context.Context, param
 	}
 	return "re_test", nil
 }
-func (s *stubSettlementPayoutRepository) ReversePayout(ctx context.Context, params entity.ReverseTransferParams) (string, error) {
+func (s *stubSettlementPayoutRepository) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
 	if s.reverseTransferFn != nil {
 		return s.reverseTransferFn(ctx, params)
 	}
@@ -396,7 +396,7 @@ func TestPayoutSweeper_HappyPath(t *testing.T) {
 		},
 		&stubSettlementPayoutRepository{
 			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return chRef, nil },
-			createTransferFn: func(_ context.Context, p entity.TransferParams) (string, error) {
+			createTransferFn: func(_ context.Context, p entity.PayoutParams) (string, error) {
 				assert.Equal(t, chRef, p.SourceTransactionRef)
 				assert.Equal(t, acctRef, p.PayeeProviderAccountID)
 				assert.Equal(t, int64(9000), p.Amount)
@@ -469,7 +469,7 @@ func TestPayoutSweeper_OrganizerNotActive_PayoutWithheld(t *testing.T) {
 			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 				return entity.PayoutOnboardingStatusPending, nil
 			},
-			createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
+			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
 				transferCalled = true
 				return "tr_should_not_happen", nil
 			},
@@ -533,7 +533,7 @@ func TestPayoutSweeper_GateNotPassed_NoTransfer(t *testing.T) {
 			getFn: func(_ context.Context, _ string) (*time.Time, error) { return futureStart, nil },
 		},
 		&stubSettlementPayoutRepository{
-			createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
+			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
 				transferCalled = true
 				return "tr_should_not_happen", nil
 			},
@@ -630,7 +630,7 @@ func TestPayoutSweeper_ReleaseGate(t *testing.T) {
 				},
 				&stubSettlementPayoutRepository{
 					resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return "ch_gate", nil },
-					createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
+					createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
 						return "tr_gate", nil
 					},
 					getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
@@ -700,7 +700,7 @@ func TestPayoutSweeper_IdempotentRerun_NoDoubleTransfer(t *testing.T) {
 			getFn: func(_ context.Context, _ string) (*time.Time, error) { return pastStart, nil },
 		},
 		&stubSettlementPayoutRepository{
-			createTransferFn: func(_ context.Context, _ entity.TransferParams) (string, error) {
+			createTransferFn: func(_ context.Context, _ entity.PayoutParams) (string, error) {
 				transferCallCount++
 				return "tr_idem", nil
 			},

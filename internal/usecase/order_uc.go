@@ -152,11 +152,10 @@ type orderUseCase struct {
 	eventOrganizerRepo       EventOrganizerRepository
 	organizerRepo            entity.OrganizerRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
-	capturePort              entity.PaymentCapturePort
 	checkoutRepo             entity.CheckoutRepository
 	ticketSaleRepo           entity.TicketSaleRepository
 	eventState               EventPublishStatePort
-	checkoutAuth             entity.CheckoutAuthorizationPort
+	cardAuthorizations       entity.CardAuthorizationRepository
 	publisher                EventPublisher
 	clock                    Clock
 	refundRepo               entity.RefundRepository
@@ -176,17 +175,18 @@ type OrderDeps struct {
 	EventOrganizerRepo       EventOrganizerRepository
 	OrganizerRepo            entity.OrganizerRepository
 	IdentityVerificationRepo entity.IdentityVerificationRepository
-	CapturePort              entity.PaymentCapturePort
 	CheckoutRepo             entity.CheckoutRepository
 	TicketSaleRepo           entity.TicketSaleRepository
 	EventState               EventPublishStatePort
-	CheckoutAuth             entity.CheckoutAuthorizationPort
-	Publisher                EventPublisher
-	Clock                    Clock
-	RefundRepo               entity.RefundRepository
-	SettlementRepo           entity.SettlementRepository
-	SettlementPayouts        entity.SettlementPayoutRepository
-	Logger                   *logging.Logger
+	// CardAuthorizations is the checkout's card authorization repository; it
+	// also reads a lottery entry's captured payment.
+	CardAuthorizations entity.CardAuthorizationRepository
+	Publisher          EventPublisher
+	Clock              Clock
+	RefundRepo         entity.RefundRepository
+	SettlementRepo     entity.SettlementRepository
+	SettlementPayouts  entity.SettlementPayoutRepository
+	Logger             *logging.Logger
 }
 
 // NewOrderUseCase constructs an OrderUseCase with the given dependencies.
@@ -198,11 +198,10 @@ func NewOrderUseCase(d OrderDeps) OrderUseCase {
 		eventOrganizerRepo:       d.EventOrganizerRepo,
 		organizerRepo:            d.OrganizerRepo,
 		identityVerificationRepo: d.IdentityVerificationRepo,
-		capturePort:              d.CapturePort,
 		checkoutRepo:             d.CheckoutRepo,
 		ticketSaleRepo:           d.TicketSaleRepo,
 		eventState:               d.EventState,
-		checkoutAuth:             d.CheckoutAuth,
+		cardAuthorizations:       d.CardAuthorizations,
 		publisher:                d.Publisher,
 		clock:                    d.Clock,
 		refundRepo:               d.RefundRepo,

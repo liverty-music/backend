@@ -25,8 +25,7 @@ type checkoutIssuanceFixture struct {
 	sales                 *entitymocks.MockTicketSaleRepository
 	identityVerifications *entitymocks.MockIdentityVerificationRepository
 	events                *ucmocks.MockEventPublishStatePort
-	auth                  *entitymocks.MockCheckoutAuthorizationPort
-	captured              *entitymocks.MockPaymentCapturePort
+	auth                  *entitymocks.MockCardAuthorizationRepository
 	entries               *entitymocks.MockLotteryEntryRepository
 	publisher             *ucmocks.MockEventPublisher
 	uc                    usecase.OrderUseCase
@@ -44,13 +43,14 @@ func newCheckoutIssuanceFixture(t *testing.T, now time.Time, req ...entity.Verif
 		sales:                 entitymocks.NewMockTicketSaleRepository(t),
 		identityVerifications: entitymocks.NewMockIdentityVerificationRepository(t),
 		events:                ucmocks.NewMockEventPublishStatePort(t),
-		auth:                  entitymocks.NewMockCheckoutAuthorizationPort(t),
-		captured:              entitymocks.NewMockPaymentCapturePort(t),
+		auth:                  entitymocks.NewMockCardAuthorizationRepository(t),
 		entries:               entitymocks.NewMockLotteryEntryRepository(t),
 		publisher:             ucmocks.NewMockEventPublisher(t),
 	}
 	// The charge's facets are read back from the provider at issuance.
-	f.captured.EXPECT().GetCapturedPayment(mock.Anything, "pi_1").Return(coPayment, nil).Maybe()
+	f.auth.EXPECT().Get(mock.Anything, "pi_1").Return(&entity.CardAuthorization{
+		ID: "pi_1", Amount: 6000, CardBrand: "visa", Status: entity.CardAuthorizationStatusCaptured, CapturedPayment: coPayment,
+	}, nil).Maybe()
 	// Serialize runs the call under the lock.
 	f.checkouts.EXPECT().Serialize(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, _ entity.CheckoutID, fn func(context.Context) error) error {
@@ -71,8 +71,7 @@ func newCheckoutIssuanceFixture(t *testing.T, now time.Time, req ...entity.Verif
 		CheckoutRepo:             f.checkouts,
 		TicketSaleRepo:           f.sales,
 		EventState:               f.events,
-		CheckoutAuth:             f.auth,
-		CapturePort:              f.captured,
+		CardAuthorizations:       f.auth,
 		EntryRepo:                f.entries,
 		Publisher:                f.publisher,
 		Clock:                    fixedClock(now),
@@ -86,6 +85,20 @@ var (
 	coPayment = &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: "pi_1", AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}
 	fan1      = entity.UserID("fan-1")
 )
+
+// authorizesAs makes the next Get of pi_1 report the card authorization as
+// ca, ahead of the fixture's captured default (testify matches expectations
+// in registration order).
+func (f *checkoutIssuanceFixture) authorizesAs(ca *entity.CardAuthorization) {
+	call := f.auth.EXPECT().Get(mock.Anything, "pi_1").Return(ca, nil).Once()
+	calls := f.auth.ExpectedCalls
+	f.auth.ExpectedCalls = append([]*mock.Call{call}, calls[:len(calls)-1]...)
+}
+
+// authorizedPI is pi_1 authorized for the checkout's 6000 yen.
+func authorizedPI() *entity.CardAuthorization {
+	return &entity.CardAuthorization{ID: "pi_1", Amount: 6000, CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized}
+}
 
 // authorizedCheckout is fan-1's holding, authorized checkout of 2 x 3000.
 func authorizedCheckout() *entity.Checkout {
@@ -120,10 +133,10 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(held, nil).Once()
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.auth.EXPECT().VerifyAuthorization(mock.Anything, "pi_1", int64(6000)).Return(nil)
+		f.authorizesAs(authorizedPI())
 		f.checkouts.EXPECT().Commit(mock.Anything, entity.CheckoutID("checkout-1"), placeAt).Return(entity.CommitOutcomeCommitted, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committedCopy(held, false), nil).Once()
-		f.auth.EXPECT().CaptureAuthorization(mock.Anything, "pi_1").Return(coPayment, nil).Once()
+		f.auth.EXPECT().Capture(mock.Anything, "pi_1").Return(nil).Once()
 		f.checkouts.EXPECT().RecordCapture(mock.Anything, entity.CheckoutID("checkout-1"), placeAt).Return(nil)
 
 		var gotOrder *entity.Order
@@ -188,8 +201,7 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(authorizedCheckout(), nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.auth.EXPECT().VerifyAuthorization(mock.Anything, "pi_1", int64(6000)).
-			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "not authenticated"))
+		f.authorizesAs(&entity.CardAuthorization{ID: "pi_1", Amount: 6000, Status: entity.CardAuthorizationStatusPending})
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", &fan1)
 
@@ -233,8 +245,8 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		committed := committedCopy(authorizedCheckout(), false)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committed, nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
-		f.auth.EXPECT().CaptureAuthorization(mock.Anything, "pi_1").
-			Return(nil, apperr.New(apperr.ErrFailedPrecondition.Code, "the card hold was released"))
+		f.auth.EXPECT().Capture(mock.Anything, "pi_1").
+			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card hold was released"))
 		f.checkouts.EXPECT().RevertCommit(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil)
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", nil)
@@ -249,8 +261,8 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		committed := committedCopy(authorizedCheckout(), false)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committed, nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
-		f.auth.EXPECT().CaptureAuthorization(mock.Anything, "pi_1").
-			Return(nil, apperr.New(apperr.ErrUnavailable.Code, "outcome not known yet"))
+		f.auth.EXPECT().Capture(mock.Anything, "pi_1").
+			Return(apperr.New(apperr.ErrUnavailable.Code, "outcome not known yet"))
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", nil)
 
@@ -299,7 +311,7 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(authorizedCheckout(), nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
-		f.auth.EXPECT().VerifyAuthorization(mock.Anything, "pi_1", int64(6000)).Return(nil)
+		f.authorizesAs(authorizedPI())
 		f.checkouts.EXPECT().Commit(mock.Anything, entity.CheckoutID("checkout-1"), placeAt).Return(entity.CommitOutcomeNotHeld, nil)
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", &fan1)
@@ -315,10 +327,10 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.events.EXPECT().IsEventPublished(mock.Anything, "event-1").Return(true, nil)
 		f.identityVerifications.EXPECT().GetByUserID(mock.Anything, "fan-1").Return(&entity.IdentityVerification{ID: "kyc-1", UserID: "fan-1", Status: entity.VerificationStatusActive}, nil)
-		f.auth.EXPECT().VerifyAuthorization(mock.Anything, "pi_1", int64(6000)).Return(nil)
+		f.authorizesAs(authorizedPI())
 		f.checkouts.EXPECT().Commit(mock.Anything, entity.CheckoutID("checkout-1"), placeAt).Return(entity.CommitOutcomeCommitted, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committedCopy(held, false), nil).Once()
-		f.auth.EXPECT().CaptureAuthorization(mock.Anything, "pi_1").Return(coPayment, nil).Once()
+		f.auth.EXPECT().Capture(mock.Anything, "pi_1").Return(nil).Once()
 		f.checkouts.EXPECT().RecordCapture(mock.Anything, entity.CheckoutID("checkout-1"), placeAt).Return(nil)
 		var gotTickets []*entity.Ticket
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
@@ -347,7 +359,7 @@ func TestIssuanceUseCase_IssueFromCheckout(t *testing.T) {
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", &fan1)
 
-		// No VerifyAuthorization, Commit, CaptureAuthorization or Issue
+		// No card authorization read, Commit, Capture or Issue
 		// expectation: nothing is charged and nothing is created.
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -378,7 +390,7 @@ func TestIssuanceUseCase_IssueDueCheckouts(t *testing.T) {
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{committed}, nil)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committed, nil).Once()
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
-		f.auth.EXPECT().CaptureAuthorization(mock.Anything, "pi_1").Return(coPayment, nil).Once()
+		f.auth.EXPECT().Capture(mock.Anything, "pi_1").Return(nil).Once()
 		f.checkouts.EXPECT().RecordCapture(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(nil)
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -396,7 +408,7 @@ func TestIssuanceUseCase_IssueDueCheckouts(t *testing.T) {
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.issuance.EXPECT().Issue(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-		// No CaptureAuthorization expectation: the card is not charged again.
+		// No Capture expectation: the card is not charged again.
 		require.NoError(t, f.uc.IssueDueCheckouts(context.Background()))
 	})
 

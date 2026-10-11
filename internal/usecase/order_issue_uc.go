@@ -158,7 +158,7 @@ func (uc *orderUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntryID
 	}
 
 	// -- read ④'s captured payment for the authoritative amount/currency + facets. --
-	captured, err := uc.capturePort.GetCapturedPayment(ctx, entry.CardAuthorizationID)
+	captured, err := uc.capturedPayment(ctx, entry.CardAuthorizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,11 @@ func (uc *orderUseCase) issueFromCheckout(ctx context.Context, checkoutID entity
 
 	if checkout.Status == entity.CheckoutStatusHeld {
 		// 4. The hold must be authenticated and for the Checkout's amount.
-		if err := uc.checkoutAuth.VerifyAuthorization(ctx, checkout.CardAuthorizationID, checkout.Amount); err != nil {
+		authorization, err := uc.cardAuthorizations.Get(ctx, checkout.CardAuthorizationID)
+		if err != nil {
+			return nil, err
+		}
+		if err := authorization.Confirm(entity.CardAuthorizationPurchase{CheckoutID: checkout.ID}, checkout.Amount); err != nil {
 			return nil, err
 		}
 		// 5. Commit while holding.
@@ -301,7 +305,7 @@ func (uc *orderUseCase) issueFromCheckout(ctx context.Context, checkoutID entity
 
 	// Charge once: a Checkout with a capture time is never charged again.
 	if !checkout.IsCharged() {
-		if _, err := uc.checkoutAuth.CaptureAuthorization(ctx, checkout.CardAuthorizationID); err != nil {
+		if err := uc.cardAuthorizations.Capture(ctx, checkout.CardAuthorizationID); err != nil {
 			if errors.Is(err, apperr.ErrFailedPrecondition) {
 				if revertErr := uc.checkoutRepo.RevertCommit(ctx, checkoutID); revertErr != nil {
 					return nil, revertErr
@@ -316,7 +320,7 @@ func (uc *orderUseCase) issueFromCheckout(ctx context.Context, checkoutID entity
 
 	// The charge is the card hold; its facets are read back from the provider,
 	// as for a lottery win.
-	captured, err := uc.capturePort.GetCapturedPayment(ctx, checkout.CardAuthorizationID)
+	captured, err := uc.capturedPayment(ctx, checkout.CardAuthorizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -434,4 +438,22 @@ func orderPaid(order *entity.Order, eventID string, ticketCount int) *entity.Ord
 		LotteryEntryID: string(order.LotteryEntryID),
 		CheckoutID:     string(order.CheckoutID),
 	}
+}
+
+// capturedPayment reads the payment a Captured CardAuthorization took, for the
+// Order to record.
+//
+// # Possible errors
+//
+//   - FailedPrecondition: the card authorization is not captured.
+//   - Errors of CardAuthorizationRepository.Get, unchanged.
+func (uc *orderUseCase) capturedPayment(ctx context.Context, cardAuthorizationID string) (*entity.CapturedPayment, error) {
+	authorization, err := uc.cardAuthorizations.Get(ctx, cardAuthorizationID)
+	if err != nil {
+		return nil, err
+	}
+	if authorization.Status != entity.CardAuthorizationStatusCaptured || authorization.CapturedPayment == nil {
+		return nil, apperr.New(codes.FailedPrecondition, "the card authorization is not captured")
+	}
+	return authorization.CapturedPayment, nil
 }

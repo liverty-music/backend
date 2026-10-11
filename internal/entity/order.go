@@ -339,26 +339,6 @@ type CapturedPayment struct {
 	CardLast4 string
 }
 
-// PaymentCapturePort reads a captured payment's authoritative details from the
-// provider. It is the ⑤-side read counterpart to ④'s
-// [PaymentAuthorizationPort] (which owns authorize/capture/cancel). Defined
-// here (entity package) so every usecase that needs it (and every
-// implementation) depends on the same declaration; the Stripe implementation
-// lives in internal/infrastructure/payment/.
-type PaymentCapturePort interface {
-	// GetCapturedPayment retrieves the captured PaymentIntent referenced by
-	// paymentIntentRef and returns its amount, currency, and display facets. ⑤
-	// does NOT capture or charge — ④ already captured; this only reads.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the payment intent is not in a captured/succeeded
-	//    state (④'s capture has not settled).
-	//  - NotFound: the payment intent does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	GetCapturedPayment(ctx context.Context, providerPaymentID string) (*CapturedPayment, error)
-}
-
 // OrderConfirmationEmail is the finished purchase confirmation message for one
 // Order, already rendered in the language of the Order's user.
 type OrderConfirmationEmail struct {

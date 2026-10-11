@@ -110,15 +110,16 @@ func NewLotteryEntry(ticketTypeID TicketTypeID, userID UserID, ticketCount int) 
 	}
 }
 
-// HasAuthorization reports whether a card hold is recorded on the entry.
-func (e *LotteryEntry) HasAuthorization() bool {
+// HasCardAuthorization reports whether a CardAuthorization is recorded on the
+// entry.
+func (e *LotteryEntry) HasCardAuthorization() bool {
 	return e.CardAuthorizationID != ""
 }
 
 // IsConfirmable reports whether the entry can become Entered: it is a Draft
 // with an authorization.
 func (e *LotteryEntry) IsConfirmable() bool {
-	return e.State == LotteryEntryStateDraft && e.HasAuthorization()
+	return e.State == LotteryEntryStateDraft && e.HasCardAuthorization()
 }
 
 // IsActive reports whether the entry counts as the account's entry for its
@@ -183,67 +184,6 @@ type DrawLoserRow struct {
 	// DrawPosition is the entry's zero-based position in the draw order; it
 	// keeps the loser waitlist order for official resale.
 	DrawPosition int
-}
-
-// PaymentAuthorizationPort is the card hold of a lottery entry: a
-// manual-capture authorization in yen that rejects American Express, whose
-// hold cannot last the up-to-14-day window. Implementations live in
-// internal/infrastructure/payment/.
-//
-// Hold flow:
-//  1. [PaymentAuthorizationPort.CreateAuthorization] at Authorize — opens the
-//     hold and returns the client secret the browser completes 3DS with.
-//  2. [PaymentAuthorizationPort.VerifyAuthorization] at Confirm — checks the
-//     hold is authenticated, for the expected amount, on an accepted brand.
-//  3. [PaymentAuthorizationPort.CancelAuthorization] — releases the hold (a
-//     loss, a withdrawal or a Draft left unconfirmed at the draw).
-//  4. [PaymentAuthorizationPort.CaptureAuthorization] — charges the hold (a
-//     win, by the draw).
-type PaymentAuthorizationPort interface {
-	// CreateAuthorization opens a hold in yen for amountJPY that captures
-	// nothing until CaptureAuthorization runs, and returns the hold's
-	// reference and the confirmation secret the browser authenticates with.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: amountJPY is zero or negative.
-	//  - Unavailable: card payments cannot be reached.
-	//  - Internal: unexpected provider error.
-	CreateAuthorization(ctx context.Context, amountJPY int64) (providerPaymentID string, clientSecret string, err error)
-
-	// VerifyAuthorization succeeds only when the hold completed card
-	// authentication and waits to be captured, for exactly expectedAmountJPY
-	// in yen, on an accepted card brand ([IsAcceptedCardBrand]).
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the hold is not authenticated or not waiting to be
-	//    captured, or the card is American Express.
-	//  - InvalidArgument: the amount differs or the currency is not yen.
-	//  - NotFound: no hold has the reference.
-	//  - Unavailable: card payments cannot be reached.
-	VerifyAuthorization(ctx context.Context, providerPaymentID string, expectedAmountJPY int64) error
-
-	// CancelAuthorization releases the hold; repeating it succeeds without a
-	// second effect.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no hold has the reference.
-	//  - FailedPrecondition: the hold has already been captured.
-	//  - Unavailable: card payments cannot be reached.
-	CancelAuthorization(ctx context.Context, providerPaymentID string) error
-
-	// CaptureAuthorization charges the held amount; repeating it succeeds
-	// without charging again.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no hold has the reference.
-	//  - FailedPrecondition: the hold can no longer be captured (released,
-	//    expired, or the card was closed).
-	//  - Unavailable: card payments cannot be reached.
-	CaptureAuthorization(ctx context.Context, providerPaymentID string) error
 }
 
 // LotteryEntryRepository persists [LotteryEntry] records. Implementations live

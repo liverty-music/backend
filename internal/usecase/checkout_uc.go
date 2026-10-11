@@ -75,7 +75,7 @@ type checkoutUseCase struct {
 	userRepo                 entity.UserRepository
 	identityVerificationRepo entity.IdentityVerificationRepository
 	eventState               EventPublishStatePort
-	auth                     entity.CheckoutAuthorizationPort
+	cardAuthorizations       entity.CardAuthorizationRepository
 	clock                    Clock
 	logger                   *logging.Logger
 }
@@ -90,7 +90,7 @@ type CheckoutDeps struct {
 	UserRepo                 entity.UserRepository
 	IdentityVerificationRepo entity.IdentityVerificationRepository
 	EventState               EventPublishStatePort
-	Auth                     entity.CheckoutAuthorizationPort
+	CardAuthorizations       entity.CardAuthorizationRepository
 	Clock                    Clock
 	Logger                   *logging.Logger
 }
@@ -103,7 +103,7 @@ func NewCheckoutUseCase(d CheckoutDeps) CheckoutUseCase {
 		userRepo:                 d.UserRepo,
 		identityVerificationRepo: d.IdentityVerificationRepo,
 		eventState:               d.EventState,
-		auth:                     d.Auth,
+		cardAuthorizations:       d.CardAuthorizations,
 		clock:                    d.Clock,
 		logger:                   d.Logger,
 	}
@@ -214,18 +214,18 @@ func (uc *checkoutUseCase) AuthorizeCard(ctx context.Context, userID entity.User
 	if _, err := uc.userRepo.UpdatePersonalDetails(ctx, string(userID), fullName, phoneNumber); err != nil {
 		return "", err
 	}
-	ref, secret, err := uc.auth.CreateAuthorization(ctx, checkout.Amount, entity.AuthorizationMetadata{
+	authorization, err := uc.cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{
 		CheckoutID:   checkout.ID,
 		TicketTypeID: checkout.TicketTypeID,
 		EventID:      ticketType.EventID,
-	})
+	}, checkout.Amount)
 	if err != nil {
 		return "", err
 	}
-	if err := uc.checkoutRepo.SetCardAuthorization(ctx, checkoutID, ref); err != nil {
+	if err := uc.checkoutRepo.SetCardAuthorization(ctx, checkoutID, authorization.ID); err != nil {
 		return "", err
 	}
-	return secret, nil
+	return authorization.Secret, nil
 }
 
 // ReleaseExpired implements [CheckoutUseCase].
@@ -252,7 +252,7 @@ func (uc *checkoutUseCase) ReleaseExpired(ctx context.Context) error {
 // giveBackCardHold releases an ended checkout's card hold and records it. A
 // charged hold is reported as needing an operator.
 func (uc *checkoutUseCase) giveBackCardHold(ctx context.Context, checkout *entity.Checkout, now time.Time) {
-	if err := uc.auth.CancelAuthorization(ctx, checkout.CardAuthorizationID); err != nil {
+	if err := uc.cardAuthorizations.Release(ctx, checkout.CardAuthorizationID); err != nil {
 		if errors.Is(err, apperr.ErrFailedPrecondition) {
 			uc.logger.Error(ctx, LogKeyNeedsOperator, errors.New("the card hold of an ended checkout was charged"),
 				slog.String("checkout_id", string(checkout.ID)),

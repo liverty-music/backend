@@ -186,7 +186,7 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	// design requirement that onboarding never blocks sale.
 	releasedSplits := make([]entity.SettlementSplit, len(splits))
 	for i, split := range splits {
-		providerPayoutID, err := uc.settlementPayouts.CreatePayout(ctx, entity.TransferParams{
+		providerPayoutID, err := uc.settlementPayouts.CreatePayout(ctx, entity.PayoutParams{
 			SettlementID:           s.ID,
 			PayeeProviderAccountID: acct.ProviderAccountID,
 			SourceTransactionRef:   providerChargeID,
