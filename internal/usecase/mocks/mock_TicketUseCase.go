@@ -83,66 +83,6 @@ func (_c *MockTicketUseCase_Admit_Call) RunAndReturn(run func(context.Context, u
 	return _c
 }
 
-// GetOrder provides a mock function with given fields: ctx, userID, orderID
-func (_m *MockTicketUseCase) GetOrder(ctx context.Context, userID entity.UserID, orderID entity.OrderID) (*entity.Order, error) {
-	ret := _m.Called(ctx, userID, orderID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetOrder")
-	}
-
-	var r0 *entity.Order
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.OrderID) (*entity.Order, error)); ok {
-		return rf(ctx, userID, orderID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.UserID, entity.OrderID) *entity.Order); ok {
-		r0 = rf(ctx, userID, orderID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Order)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, entity.UserID, entity.OrderID) error); ok {
-		r1 = rf(ctx, userID, orderID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockTicketUseCase_GetOrder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOrder'
-type MockTicketUseCase_GetOrder_Call struct {
-	*mock.Call
-}
-
-// GetOrder is a helper method to define mock.On call
-//   - ctx context.Context
-//   - userID entity.UserID
-//   - orderID entity.OrderID
-func (_e *MockTicketUseCase_Expecter) GetOrder(ctx interface{}, userID interface{}, orderID interface{}) *MockTicketUseCase_GetOrder_Call {
-	return &MockTicketUseCase_GetOrder_Call{Call: _e.mock.On("GetOrder", ctx, userID, orderID)}
-}
-
-func (_c *MockTicketUseCase_GetOrder_Call) Run(run func(ctx context.Context, userID entity.UserID, orderID entity.OrderID)) *MockTicketUseCase_GetOrder_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.UserID), args[2].(entity.OrderID))
-	})
-	return _c
-}
-
-func (_c *MockTicketUseCase_GetOrder_Call) Return(_a0 *entity.Order, _a1 error) *MockTicketUseCase_GetOrder_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockTicketUseCase_GetOrder_Call) RunAndReturn(run func(context.Context, entity.UserID, entity.OrderID) (*entity.Order, error)) *MockTicketUseCase_GetOrder_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // List provides a mock function with given fields: ctx, userID
 func (_m *MockTicketUseCase) List(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
 	ret := _m.Called(ctx, userID)

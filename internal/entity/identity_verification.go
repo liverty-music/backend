@@ -70,8 +70,8 @@ type IdentityVerification struct {
 	ProviderUserID string
 	// DedupeStrength is derived from Method (STRONG for JPKI, WEAK for licence).
 	DedupeStrength DedupeStrength
-	// VerifiedTime is when the verification was established.
-	VerifiedTime time.Time
+	// VerifyTime is when the verification was established.
+	VerifyTime time.Time
 	// Status is the freshness lifecycle, maintained by 現況確認 re-checks.
 	Status VerificationStatus
 }
@@ -92,7 +92,7 @@ func NewIdentityVerification(userID, pocketSignUserID string, method Verificatio
 		Method:         method,
 		ProviderUserID: pocketSignUserID,
 		DedupeStrength: strength,
-		VerifiedTime:   time.Now().UTC(),
+		VerifyTime:     time.Now().UTC(),
 		Status:         VerificationStatusActive,
 	}
 }

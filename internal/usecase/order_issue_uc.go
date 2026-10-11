@@ -9,7 +9,6 @@ import (
 
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
-	"github.com/pannpers/go-logging/logging"
 
 	"github.com/liverty-music/backend/internal/entity"
 )
@@ -36,148 +35,10 @@ type EventOrganizerRepository interface {
 const unissuedChargeReportAge = 10 * time.Minute
 
 // LogKeyNeedsOperator is the log message of a purchase that needs an operator:
-// money was taken without tickets. A log-based alert on it pages the operator.
-// The alert in cloud-provisioning (monitoring.ts) matches this exact text, so
-// it keeps its first-come-ticket-sales wording until the alert changes with it.
-const LogKeyNeedsOperator = "reservation needs an operator"
-
-// IssuanceUseCase is ⑤'s post-capture pipeline: it turns a captured payment —
-// a won lottery entry's, or a first-come checkout's after committing and
-// charging it — into an Order plus N account-bound covered tickets and a Held
-// Settlement for the event's Organizer, together with the Order's ORDER.paid
-// announcement. It owns issuance idempotency: one Order per source.
-type IssuanceUseCase interface {
-	// IssueFromCapturedWin creates the Order from ④'s captured winning payment,
-	// issues the N account-bound covered tickets for the won lottery entry
-	// (bound to the user's IdentityVerification when the sale requires verification) and
-	// records a Held Settlement (one split paying the event's Organizer at its
-	// platform fee rate).
-	//
-	// It is IDEMPOTENT: a replayed Won-captured signal (or a retry) creates the
-	// Order once and issues tickets exactly once for the same entry — on a
-	// replay it returns the already-created Order unchanged.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the entry is not Won, or its payment is not
-	//    captured — no Order is created.
-	//  - NotFound: no entry with the given ID exists, the event's Organizer
-	//    cannot be resolved, or the sale requires verification and the user
-	//    has no IdentityVerification — no Order is created.
-	//  - Internal: persistence failure after capture.
-	IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
-
-	// IssueDueWins issues Orders + tickets for every Won lottery entry that
-	// does not yet have an Order. A per-entry failure is logged and skipped so
-	// one bad entry never blocks the rest of the sweep.
-	//
-	// # Possible errors
-	//
-	//  - Internal: the work-list query failed.
-	IssueDueWins(ctx context.Context) error
-
-	// IssueFromCheckout finishes a checkout: while its hold lasts it commits
-	// the held tickets, charges the card once and issues the Order and its
-	// tickets, bound to the user's IdentityVerification when the sale requires verification.
-	// caller is the fan placing the order, or nil for the stalled-checkout job
-	// and the payment webhook. Calls for the same Checkout run one after the
-	// other, and a Checkout that already has an Order returns it.
-	//
-	// # Possible errors
-	//
-	//  - PermissionDenied: the Checkout does not exist or is another fan's
-	//    (non-revealing; only with a caller).
-	//  - FailedPrecondition: the hold lapsed, the concert is not published, the
-	//    card was not authenticated, the commit found the Checkout not
-	//    holding, or the card could no longer be charged (the commit is given
-	//    back). Nothing is charged.
-	//  - NotFound: the sale requires verification and the user has no IdentityVerification.
-	//    Nothing is charged.
-	//  - Unavailable: the charge's outcome is not known yet, or issuance failed
-	//    after the charge; the stalled-checkout job finishes it.
-	IssueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error)
-
-	// IssueDueCheckouts runs IssueFromCheckout for every Committed Checkout
-	// committed more than 1 minute ago, and reports each charged one still
-	// unissued 10 minutes after its charge as needing an operator.
-	//
-	// # Possible errors
-	//
-	//  - The listing's error; nothing is issued then.
-	IssueDueCheckouts(ctx context.Context) error
-
-	// FulfillPayment turns a charge the payment provider reports as completed
-	// into an issued Order and announces it as ORDER.paid, with the Order id
-	// as the message id. It finds the charge's source — a Checkout by its
-	// card hold, else a LotteryEntry by its authorization — and runs the
-	// idempotent issuance for it, so a repeated report finds the same Order. A
-	// charge of no source succeeds without effect.
-	//
-	// # Possible errors
-	//
-	//  - The issuance's or the announcement's error, unchanged; the provider
-	//    reports the charge again.
-	FulfillPayment(ctx context.Context, paymentRef string) error
-}
-
-// issuanceUseCase implements [IssuanceUseCase].
-type issuanceUseCase struct {
-	issuanceRepo             entity.IssuanceRepository
-	orderRepo                entity.OrderRepository
-	entryRepo                entity.LotteryEntryRepository
-	eventOrganizerRepo       EventOrganizerRepository
-	organizerRepo            entity.OrganizerRepository
-	identityVerificationRepo entity.IdentityVerificationRepository
-	capturePort              entity.PaymentCapturePort
-	checkoutRepo             entity.CheckoutRepository
-	ticketSaleRepo           entity.TicketSaleRepository
-	eventState               EventPublishStatePort
-	checkoutAuth             entity.CheckoutAuthorizationPort
-	publisher                EventPublisher
-	clock                    Clock
-	logger                   *logging.Logger
-}
-
-// Compile-time interface compliance check.
-var _ IssuanceUseCase = (*issuanceUseCase)(nil)
-
-// IssuanceDeps are the dependencies of [NewIssuanceUseCase]. All are required.
-type IssuanceDeps struct {
-	IssuanceRepo             entity.IssuanceRepository
-	OrderRepo                entity.OrderRepository
-	EntryRepo                entity.LotteryEntryRepository
-	EventOrganizerRepo       EventOrganizerRepository
-	OrganizerRepo            entity.OrganizerRepository
-	IdentityVerificationRepo entity.IdentityVerificationRepository
-	CapturePort              entity.PaymentCapturePort
-	CheckoutRepo             entity.CheckoutRepository
-	TicketSaleRepo           entity.TicketSaleRepository
-	EventState               EventPublishStatePort
-	CheckoutAuth             entity.CheckoutAuthorizationPort
-	Publisher                EventPublisher
-	Clock                    Clock
-	Logger                   *logging.Logger
-}
-
-// NewIssuanceUseCase constructs an IssuanceUseCase with the given dependencies.
-func NewIssuanceUseCase(d IssuanceDeps) IssuanceUseCase {
-	return &issuanceUseCase{
-		issuanceRepo:             d.IssuanceRepo,
-		orderRepo:                d.OrderRepo,
-		entryRepo:                d.EntryRepo,
-		eventOrganizerRepo:       d.EventOrganizerRepo,
-		organizerRepo:            d.OrganizerRepo,
-		identityVerificationRepo: d.IdentityVerificationRepo,
-		capturePort:              d.CapturePort,
-		checkoutRepo:             d.CheckoutRepo,
-		ticketSaleRepo:           d.TicketSaleRepo,
-		eventState:               d.EventState,
-		checkoutAuth:             d.CheckoutAuth,
-		publisher:                d.Publisher,
-		clock:                    d.Clock,
-		logger:                   d.Logger,
-	}
-}
+// money was taken without tickets. A log-based alert on it pages the operator;
+// the alert in cloud-provisioning (monitoring.ts) matches this text and reads
+// the checkout_id and card_authorization_id fields.
+const LogKeyNeedsOperator = "checkout needs an operator"
 
 // issuanceSource is everything the shared issuance core needs from a source:
 // who bought what for which event, and the captured payment.
@@ -197,7 +58,7 @@ type issuanceSource struct {
 // fee rate, builds the Paid Order, the N Issued tickets and the Held
 // Settlement, and stores them through IssuanceRepository.Issue. A duplicate
 // re-reads and returns the Order of the same source.
-func (uc *issuanceUseCase) issue(ctx context.Context, src issuanceSource) (*entity.Order, error) {
+func (uc *orderUseCase) issue(ctx context.Context, src issuanceSource) (*entity.Order, error) {
 	organizerID, err := uc.eventOrganizerRepo.GetOrganizerID(ctx, src.eventID)
 	if err != nil {
 		return nil, err
@@ -257,7 +118,7 @@ func (uc *issuanceUseCase) issue(ctx context.Context, src issuanceSource) (*enti
 // kycBinding returns the id of the IdentityVerification the Tickets of a sale are bound to:
 // the user's IdentityVerification, whatever its status, when the sale requires verification;
 // empty otherwise. The user's missing IdentityVerification is returned as its error.
-func (uc *issuanceUseCase) identityVerificationBinding(ctx context.Context, sale *entity.TicketSale, userID entity.UserID) (string, error) {
+func (uc *orderUseCase) identityVerificationBinding(ctx context.Context, sale *entity.TicketSale, userID entity.UserID) (string, error) {
 	if !sale.VerificationRequirement.RequiresVerification() {
 		return "", nil
 	}
@@ -269,7 +130,7 @@ func (uc *issuanceUseCase) identityVerificationBinding(ctx context.Context, sale
 }
 
 // IssueFromCapturedWin implements [IssuanceUseCase].
-func (uc *issuanceUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error) {
+func (uc *orderUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error) {
 	// -- idempotency: an Order already created for this entry means issuance
 	//    already ran; return it without re-issuing. --
 	if existing, err := uc.orderRepo.GetByLotteryEntryID(ctx, lotteryEntryID); err == nil {
@@ -327,7 +188,7 @@ func (uc *issuanceUseCase) IssueFromCapturedWin(ctx context.Context, lotteryEntr
 }
 
 // IssueDueWins implements [IssuanceUseCase].
-func (uc *issuanceUseCase) IssueDueWins(ctx context.Context) error {
+func (uc *orderUseCase) IssueDueWins(ctx context.Context) error {
 	ids, err := uc.issuanceRepo.ListLotteryEntryIDsAwaitingIssuance(ctx)
 	if err != nil {
 		return err
@@ -348,7 +209,7 @@ func (uc *issuanceUseCase) IssueDueWins(ctx context.Context) error {
 // IssueFromCheckout implements [IssuanceUseCase]. The whole call runs under
 // the Checkout's lock, so a double tap or the stalled-checkout job waits for
 // the first call and then takes the idempotent path.
-func (uc *issuanceUseCase) IssueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error) {
+func (uc *orderUseCase) IssueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error) {
 	var order *entity.Order
 	err := uc.checkoutRepo.Serialize(ctx, checkoutID, func(ctx context.Context) error {
 		var err error
@@ -361,7 +222,7 @@ func (uc *issuanceUseCase) IssueFromCheckout(ctx context.Context, checkoutID ent
 	return order, nil
 }
 
-func (uc *issuanceUseCase) issueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error) {
+func (uc *orderUseCase) issueFromCheckout(ctx context.Context, checkoutID entity.CheckoutID, caller *entity.UserID) (*entity.Order, error) {
 	attrs := slog.String("checkout_id", string(checkoutID))
 
 	// 1. Ownership first, without revealing whether the Checkout exists.
@@ -477,7 +338,7 @@ func (uc *issuanceUseCase) issueFromCheckout(ctx context.Context, checkoutID ent
 }
 
 // IssueDueCheckouts implements [IssuanceUseCase].
-func (uc *issuanceUseCase) IssueDueCheckouts(ctx context.Context) error {
+func (uc *orderUseCase) IssueDueCheckouts(ctx context.Context) error {
 	now := uc.clock()
 	due, err := uc.checkoutRepo.ListDue(ctx, now)
 	if err != nil {
@@ -491,7 +352,7 @@ func (uc *issuanceUseCase) IssueDueCheckouts(ctx context.Context) error {
 			uc.logger.Error(ctx, LogKeyNeedsOperator,
 				errors.New("a charged checkout is still not issued"),
 				slog.String("checkout_id", string(checkout.ID)),
-				slog.String("payment_ref", checkout.CardAuthorizationID),
+				slog.String("card_authorization_id", checkout.CardAuthorizationID),
 				slog.Time("capture_time", *checkout.CaptureTime),
 			)
 		}
@@ -507,7 +368,7 @@ func (uc *issuanceUseCase) IssueDueCheckouts(ctx context.Context) error {
 }
 
 // FulfillPayment implements [IssuanceUseCase].
-func (uc *issuanceUseCase) FulfillPayment(ctx context.Context, paymentRef string) error {
+func (uc *orderUseCase) FulfillPayment(ctx context.Context, paymentRef string) error {
 	paid, err := uc.fulfill(ctx, paymentRef)
 	if err != nil || paid == nil {
 		return err
@@ -517,14 +378,14 @@ func (uc *issuanceUseCase) FulfillPayment(ctx context.Context, paymentRef string
 	}
 	uc.logger.Info(ctx, "order announced as paid",
 		slog.String("order_id", paid.OrderID),
-		slog.String("payment_ref", paymentRef),
+		slog.String("card_authorization_id", paymentRef),
 	)
 	return nil
 }
 
 // fulfill issues, or finds, the Order of the charge's source and returns its
 // announcement; nil when the charge has no source here.
-func (uc *issuanceUseCase) fulfill(ctx context.Context, paymentRef string) (*entity.OrderPaidData, error) {
+func (uc *orderUseCase) fulfill(ctx context.Context, paymentRef string) (*entity.OrderPaidData, error) {
 	checkout, err := uc.checkoutRepo.GetByCardAuthorizationID(ctx, paymentRef)
 	switch {
 	case err == nil:
@@ -544,7 +405,7 @@ func (uc *issuanceUseCase) fulfill(ctx context.Context, paymentRef string) (*ent
 	entry, err := uc.entryRepo.GetByCardAuthorizationID(ctx, paymentRef)
 	if errors.Is(err, apperr.ErrNotFound) {
 		uc.logger.Info(ctx, "completed charge of no checkout or lottery entry; nothing to fulfill",
-			slog.String("payment_ref", paymentRef))
+			slog.String("card_authorization_id", paymentRef))
 		return nil, nil
 	}
 	if err != nil {

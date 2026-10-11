@@ -80,7 +80,7 @@ type lotteryStory struct {
 
 	sales     usecase.TicketSaleUseCase
 	lottery   usecase.LotteryEntryUseCase
-	issuance  usecase.IssuanceUseCase
+	issuance  usecase.OrderUseCase
 	tickets   usecase.TicketUseCase
 	journeys  usecase.TicketJourneyUseCase
 	webhooks  usecase.StripeWebhookService
@@ -136,7 +136,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 	s.sales = usecase.NewTicketSaleUseCase(saleRepo, s.entryRepo, rdb.NewSeriesRepository(testDB), organizerRepo,
 		eventState, rdb.NewEventStartTimeRepository(testDB), clock)
 	s.lottery = usecase.NewLotteryEntryUseCase(saleRepo, s.entryRepo, ticketRepo, identityVerificationRepo, s.userRepo, holds, clock, logger)
-	s.issuance = usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
+	s.issuance = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             rdb.NewIssuanceRepository(testDB),
 		OrderRepo:                s.orderRepo,
 		EntryRepo:                s.entryRepo,

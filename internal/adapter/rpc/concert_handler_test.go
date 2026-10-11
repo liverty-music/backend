@@ -156,7 +156,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 		ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 		user := &entity.User{ID: internalUserID, Home: &entity.Home{CountryCode: "JP", Level1: "JP-13"}}
 		userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
-		concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID,
+		concertUC.EXPECT().ListFollowed(mock.Anything, internalUserID,
 			mock.MatchedBy(func(h *entity.Home) bool { return h != nil && h.Level1 == "JP-13" }), mock.Anything).
 			Return([]*entity.ProximityGroup{}, nil).Once()
 
@@ -186,7 +186,7 @@ func TestConcertHandler_ListFollowed(t *testing.T) {
 		// *time.Time; the getter chain is nil-safe when the field is omitted.
 		wantFrom := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 		concertUC.EXPECT().
-			ListByFollowerGrouped(mock.Anything, internalUserID, user.Home,
+			ListFollowed(mock.Anything, internalUserID, user.Home,
 				mock.MatchedBy(func(from *time.Time) bool {
 					return from != nil && from.Equal(wantFrom)
 				})).

@@ -24,21 +24,18 @@ var _ adminorderv1connect.OrderServiceHandler = (*AdminOrderHandler)(nil)
 // before this handler runs; the handler only maps Proto↔Entity and delegates
 // business logic to the use case.
 type AdminOrderHandler struct {
-	orderUC  usecase.OrderUseCase
-	refundUC usecase.RefundOrderUseCase
-	logger   *logging.Logger
+	orderUC usecase.OrderUseCase
+	logger  *logging.Logger
 }
 
 // NewAdminOrderHandler creates a new AdminOrderHandler.
 func NewAdminOrderHandler(
 	orderUC usecase.OrderUseCase,
-	refundUC usecase.RefundOrderUseCase,
 	logger *logging.Logger,
 ) *AdminOrderHandler {
 	return &AdminOrderHandler{
-		orderUC:  orderUC,
-		refundUC: refundUC,
-		logger:   logger,
+		orderUC: orderUC,
+		logger:  logger,
 	}
 }
 
@@ -64,7 +61,7 @@ func (h *AdminOrderHandler) Get(
 // Refund implements [adminorderv1connect.OrderServiceHandler].
 //
 // It maps the proto RefundReason to the domain RefundReason and delegates to
-// RefundOrderUseCase. The handler applies no business logic; error mapping from
+// OrderUseCase.Refund. The handler applies no business logic; error mapping from
 // apperr to Connect codes is the sole responsibility here.
 func (h *AdminOrderHandler) Refund(
 	ctx context.Context,
@@ -82,7 +79,7 @@ func (h *AdminOrderHandler) Refund(
 	orderID := entity.OrderID(req.Msg.GetOrderId().GetValue())
 	reason := mapper.ProtoRefundReasonToDomain(protoReason)
 
-	order, err := h.refundUC.RefundOrder(ctx, orderID, reason, time.Now())
+	order, err := h.orderUC.Refund(ctx, orderID, reason, time.Now())
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, errors.New("order not found"))

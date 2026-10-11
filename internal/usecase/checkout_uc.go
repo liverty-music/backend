@@ -256,7 +256,7 @@ func (uc *checkoutUseCase) giveBackCardHold(ctx context.Context, checkout *entit
 		if errors.Is(err, apperr.ErrFailedPrecondition) {
 			uc.logger.Error(ctx, LogKeyNeedsOperator, errors.New("the card hold of an ended checkout was charged"),
 				slog.String("checkout_id", string(checkout.ID)),
-				slog.String("payment_ref", checkout.CardAuthorizationID),
+				slog.String("card_authorization_id", checkout.CardAuthorizationID),
 				slog.String("status", checkout.Status.String()),
 			)
 			return

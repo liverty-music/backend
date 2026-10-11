@@ -49,7 +49,7 @@ func sampleIdentityVerification(id, userID, pocketSignUserID string) *entity.Ide
 		Method:         entity.VerificationMethodJPKI,
 		ProviderUserID: pocketSignUserID,
 		DedupeStrength: entity.DedupeStrengthStrong,
-		VerifiedTime:   time.Now().UTC(),
+		VerifyTime:     time.Now().UTC(),
 		Status:         entity.VerificationStatusActive,
 	}
 }

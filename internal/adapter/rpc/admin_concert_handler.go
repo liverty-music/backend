@@ -22,7 +22,7 @@ var _ adminconcertv1connect.ConcertServiceHandler = (*AdminConcertHandler)(nil)
 // RequireRoleInterceptor (admin role), not by per-method checks here; the handler
 // is pure proto<->entity mapping. See internal/infrastructure/auth/authz.go.
 type AdminConcertHandler struct {
-	concertUseCase        usecase.AdminConcertUseCase
+	concertUseCase        usecase.ConcertUseCase
 	seriesImageURLBuilder *mapper.SeriesImageURLBuilder
 	logger                *logging.Logger
 }
@@ -31,7 +31,7 @@ type AdminConcertHandler struct {
 // composes the cover image URLs of the Series List returns, so they carry the
 // same fields as on the fan concert service.
 func NewAdminConcertHandler(
-	concertUseCase usecase.AdminConcertUseCase,
+	concertUseCase usecase.ConcertUseCase,
 	seriesImageURLBuilder *mapper.SeriesImageURLBuilder,
 	logger *logging.Logger,
 ) *AdminConcertHandler {

@@ -38,38 +38,6 @@ const (
 		WHERE u.provider_user_id = $1
 	`
 
-	getUserByEmailQuery = `
-		SELECT ` + userColumns + `, ` + homeColumns + `
-		FROM users u
-		LEFT JOIN homes h ON u.home_id = h.id
-		WHERE u.email = $1
-	`
-
-	// updateUserQuery intentionally does NOT include preferred_language.
-	// The column is owned by UpdatePreferredLanguage; a generic Update
-	// would otherwise risk silently NULLing the row whenever a caller
-	// passes a NewUser with an empty PreferredLanguage field (e.g. a
-	// partial update built by a caller that forgot to copy the existing
-	// value first).
-	updateUserQuery = `
-		WITH updated AS (
-			UPDATE users SET provider_user_id = $2, email = $3, name = $4, time_zone = $5
-			WHERE id = $1
-			RETURNING *
-		)
-		SELECT ` + userColumns + `, ` + homeColumns + `
-		FROM updated u
-		LEFT JOIN homes h ON u.home_id = h.id
-	`
-
-	listUsersQuery = `
-		SELECT ` + userColumns + `, ` + homeColumns + `
-		FROM users u
-		LEFT JOIN homes h ON u.home_id = h.id
-		ORDER BY u.id
-		LIMIT $1 OFFSET $2
-	`
-
 	// Atomic UPDATE + SELECT in a single statement so the read-after-write
 	// can't race with a concurrent DELETE on the same user. The CTE
 	// returns 0 rows if no row matches the WHERE, which scanUser surfaces
@@ -324,82 +292,6 @@ func (r *UserRepository) GetByProviderUserID(ctx context.Context, externalID str
 	}
 
 	return user, nil
-}
-
-// GetByEmail retrieves a user by email address from the database.
-func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
-	if email == "" {
-		return nil, apperr.New(codes.InvalidArgument, "email cannot be empty")
-	}
-
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByEmailQuery, email))
-	if err != nil {
-		return nil, toAppErr(err, "failed to get user by email", slog.String("email", email))
-	}
-
-	return user, nil
-}
-
-// Update updates user information in the database.
-func (r *UserRepository) Update(ctx context.Context, id string, params *entity.NewUser) (*entity.User, error) {
-	if id == "" {
-		return nil, apperr.New(codes.InvalidArgument, "user ID cannot be empty")
-	}
-	if params == nil {
-		return nil, apperr.New(codes.InvalidArgument, "params cannot be nil")
-	}
-
-	// Note: preferred_language is intentionally omitted — see the
-	// updateUserQuery comment. Use UpdatePreferredLanguage instead.
-	// time_zone is wrapped via nullStringFromEmpty so an
-	// empty-string field round-trips to SQL NULL, preserving the
-	// "absent vs explicitly empty" distinction on both write and read
-	// (see scanUser).
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, updateUserQuery,
-		id, params.ProviderUserID, params.Email, params.Name,
-		nullStringFromEmpty(params.TimeZone),
-	))
-	if err != nil {
-		// CTE RETURNING returns 0 rows when no row matches the WHERE.
-		// QueryRow surfaces that as pgx.ErrNoRows; map to NotFound with
-		// a clear message instead of the generic toAppErr "failed to
-		// update user" (which reads like a query execution failure).
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, apperr.Wrap(apperr.ErrNotFound, codes.NotFound, fmt.Sprintf("user with ID %s not found", id))
-		}
-		return nil, toAppErr(err, "failed to update user", slog.String("user_id", id))
-	}
-
-	r.db.logger.Info(ctx, "user updated",
-		slog.String("entityType", "user"),
-		slog.String("userID", user.ID),
-	)
-
-	return user, nil
-}
-
-// List retrieves users with pagination from the database.
-func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*entity.User, error) {
-	rows, err := r.db.Pool.Query(ctx, listUsersQuery, limit, offset)
-	if err != nil {
-		return nil, toAppErr(err, "failed to list users")
-	}
-	defer rows.Close()
-
-	var users []*entity.User
-	for rows.Next() {
-		user, err := scanUser(rows)
-		if err != nil {
-			return nil, toAppErr(err, "failed to scan user row")
-		}
-		users = append(users, user)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "failed to iterate user rows")
-	}
-
-	return users, nil
 }
 
 // UpdatePersonalDetails sets the user's full name and phone number, storing

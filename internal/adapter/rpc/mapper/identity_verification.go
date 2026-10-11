@@ -19,7 +19,7 @@ func IdentityVerificationToProto(vi *entity.IdentityVerification) *entityv1.Iden
 		Method:         verificationMethodToProto(vi.Method),
 		ProviderUserId: &entityv1.IdentityVerification_ProviderUserId{Value: vi.ProviderUserID},
 		DedupeStrength: dedupeStrengthToProto(vi.DedupeStrength),
-		VerifyTime:     timestamppb.New(vi.VerifiedTime),
+		VerifyTime:     timestamppb.New(vi.VerifyTime),
 		Status:         verificationStatusToProto(vi.Status),
 	}
 }

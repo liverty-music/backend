@@ -37,7 +37,7 @@ import (
 // AdminConcertHandler as a stand-in "ordinary" admin-only procedure. It
 // returns an httptest server so tests can issue real HTTP requests through
 // the full authn + interceptor pipeline.
-func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *usecasemocks.MockArtistUseCase, concertUC *usecasemocks.MockAdminConcertUseCase) *httptest.Server {
+func newTestAdminServer(t *testing.T, validator auth.TokenValidator, artistUC *usecasemocks.MockArtistUseCase, concertUC *usecasemocks.MockConcertUseCase) *httptest.Server {
 	t.Helper()
 
 	logger, err := logging.New()
@@ -111,7 +111,7 @@ func TestAdminServer_Authorization(t *testing.T) {
 	artistUC.EXPECT().ListTop(mock.Anything, "", "", int32(0)).Return([]*entity.Artist{}, nil).Maybe()
 	artistUC.EXPECT().Search(mock.Anything, "query").Return([]*entity.Artist{}, nil).Maybe()
 
-	concertUC := usecasemocks.NewMockAdminConcertUseCase(t)
+	concertUC := usecasemocks.NewMockConcertUseCase(t)
 	concertUC.EXPECT().List(mock.Anything).Return(nil, nil).Maybe()
 
 	ts := newTestAdminServer(t, validator, artistUC, concertUC)
@@ -202,7 +202,7 @@ func TestArtistService_AdminAuthorizationScenarios(t *testing.T) {
 	artistUC := usecasemocks.NewMockArtistUseCase(t)
 	artistUC.EXPECT().Search(mock.Anything, "queen").Return([]*entity.Artist{{Name: "Queen"}}, nil).Maybe()
 
-	concertUC := usecasemocks.NewMockAdminConcertUseCase(t)
+	concertUC := usecasemocks.NewMockConcertUseCase(t)
 
 	ts := newTestAdminServer(t, validator, artistUC, concertUC)
 	client := artistv1connect.NewArtistServiceClient(ts.Client(), ts.URL)

@@ -9,44 +9,7 @@ import (
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
 	"github.com/pannpers/go-apperr/apperr/codes"
-	"github.com/pannpers/go-logging/logging"
 )
-
-// RefundOrderUseCase handles ⑤'s refund policy and delegates the actual money
-// movement to the settlement layer. ⑤ owns the policy (why + who); settlement
-// owns the execution (Refund + transfer_reversal + status transitions).
-type RefundOrderUseCase interface {
-	// RefundOrder applies the refund policy for the given reason and executes
-	// the money-movement: issues a platform-balance Refund, voids the Order's
-	// tickets, sets Order status=refunded, and (if a Settlement exists) reverses
-	// any paid-out Transfer(s) and marks the Settlement reversed.
-	//
-	// It is IDEMPOTENT: a replayed call on an already-refunded Order is a
-	// no-op that returns the existing Order.
-	//
-	// # Policy by reason
-	//
-	//   - CANCELLATION: always allowed while the Order is Paid. Refunds current
-	//     holder (face + system/発券 fee; processor fee retained).
-	//   - DISPUTE: always allowed (platform absorbs via negative-balance
-	//     responsibility); funds already paid out are clawed back via
-	//     transfer_reversal.
-	//
-	// # Atomicity
-	//
-	// Stripe money movements (CreateRefund, ReversePayout) are performed
-	// before the DB commit. Both are idempotent, so a crash between Stripe and
-	// the DB commit is recovered safely: on retry the Stripe calls replay via
-	// idempotency keys and the DB commit is reattempted.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: the Order does not exist.
-	//  - FailedPrecondition: the Order is not refundable (not Paid).
-	//  - InvalidArgument: the reason is UNSPECIFIED.
-	//  - Internal: database or payment provider failure.
-	RefundOrder(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
-}
 
 // RefundReason mirrors the proto enum liverty_music.rpc.admin.order.v1.RefundReason;
 // defined here as an entity-layer type so the use case layer is independent of
@@ -77,38 +40,8 @@ func (r RefundReason) String() string {
 	}
 }
 
-// refundOrderUseCase implements [RefundOrderUseCase].
-type refundOrderUseCase struct {
-	orderRepo         entity.OrderRepository
-	refundRepo        entity.RefundRepository
-	settlementRepo    entity.SettlementRepository
-	settlementPayouts entity.SettlementPayoutRepository
-	logger            *logging.Logger
-}
-
-// Compile-time interface compliance check.
-var _ RefundOrderUseCase = (*refundOrderUseCase)(nil)
-
-// NewRefundOrderUseCase constructs a RefundOrderUseCase with the given
-// dependencies. All parameters are required and must not be nil.
-func NewRefundOrderUseCase(
-	orderRepo entity.OrderRepository,
-	refundRepo entity.RefundRepository,
-	settlementRepo entity.SettlementRepository,
-	settlementPayouts entity.SettlementPayoutRepository,
-	logger *logging.Logger,
-) RefundOrderUseCase {
-	return &refundOrderUseCase{
-		orderRepo:         orderRepo,
-		refundRepo:        refundRepo,
-		settlementRepo:    settlementRepo,
-		settlementPayouts: settlementPayouts,
-		logger:            logger,
-	}
-}
-
-// RefundOrder implements [RefundOrderUseCase].
-func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error) {
+// Refund implements [OrderUseCase].
+func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error) {
 	if reason == RefundReasonUnspecified {
 		return nil, apperr.New(codes.InvalidArgument, "refund reason must be specified")
 	}
@@ -252,7 +185,7 @@ func (uc *refundOrderUseCase) RefundOrder(ctx context.Context, orderID entity.Or
 // resolveProviderChargeID returns the charge ref. Prefers the value already stored on
 // the settlement row (populated by the payout sweep), then falls back to a
 // live PaymentIntent retrieval.
-func (uc *refundOrderUseCase) resolveProviderChargeID(ctx context.Context, order *entity.Order, settlement *entity.Settlement) (string, error) {
+func (uc *orderUseCase) resolveProviderChargeID(ctx context.Context, order *entity.Order, settlement *entity.Settlement) (string, error) {
 	if settlement != nil && settlement.ProviderChargeID != "" {
 		return settlement.ProviderChargeID, nil
 	}
@@ -263,7 +196,7 @@ func (uc *refundOrderUseCase) resolveProviderChargeID(ctx context.Context, order
 // returns the updated splits with ProviderPayoutReversalID populated. Splits that
 // have no ProviderPayoutID (never transferred) or already have a ProviderPayoutReversalID
 // (already reversed) are skipped idempotently.
-func (uc *refundOrderUseCase) reverseSplits(ctx context.Context, settlement *entity.Settlement) ([]entity.SettlementSplit, error) {
+func (uc *orderUseCase) reverseSplits(ctx context.Context, settlement *entity.Settlement) ([]entity.SettlementSplit, error) {
 	// Work on a copy so the original settlement slice is not mutated until we
 	// know all reversals succeeded.
 	result := make([]entity.SettlementSplit, len(settlement.Splits))

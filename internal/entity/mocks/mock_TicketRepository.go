@@ -83,65 +83,6 @@ func (_c *MockTicketRepository_Admit_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// ListByOrder provides a mock function with given fields: ctx, orderID
-func (_m *MockTicketRepository) ListByOrder(ctx context.Context, orderID entity.OrderID) ([]*entity.Ticket, error) {
-	ret := _m.Called(ctx, orderID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ListByOrder")
-	}
-
-	var r0 []*entity.Ticket
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.OrderID) ([]*entity.Ticket, error)); ok {
-		return rf(ctx, orderID)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.OrderID) []*entity.Ticket); ok {
-		r0 = rf(ctx, orderID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*entity.Ticket)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, entity.OrderID) error); ok {
-		r1 = rf(ctx, orderID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockTicketRepository_ListByOrder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListByOrder'
-type MockTicketRepository_ListByOrder_Call struct {
-	*mock.Call
-}
-
-// ListByOrder is a helper method to define mock.On call
-//   - ctx context.Context
-//   - orderID entity.OrderID
-func (_e *MockTicketRepository_Expecter) ListByOrder(ctx interface{}, orderID interface{}) *MockTicketRepository_ListByOrder_Call {
-	return &MockTicketRepository_ListByOrder_Call{Call: _e.mock.On("ListByOrder", ctx, orderID)}
-}
-
-func (_c *MockTicketRepository_ListByOrder_Call) Run(run func(ctx context.Context, orderID entity.OrderID)) *MockTicketRepository_ListByOrder_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.OrderID))
-	})
-	return _c
-}
-
-func (_c *MockTicketRepository_ListByOrder_Call) Return(_a0 []*entity.Ticket, _a1 error) *MockTicketRepository_ListByOrder_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockTicketRepository_ListByOrder_Call) RunAndReturn(run func(context.Context, entity.OrderID) ([]*entity.Ticket, error)) *MockTicketRepository_ListByOrder_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // ListByUser provides a mock function with given fields: ctx, userID
 func (_m *MockTicketRepository) ListByUser(ctx context.Context, userID entity.UserID) ([]*entity.Ticket, error) {
 	ret := _m.Called(ctx, userID)
@@ -257,53 +198,6 @@ func (_c *MockTicketRepository_ListByUserAndEvent_Call) Return(_a0 []*entity.Tic
 }
 
 func (_c *MockTicketRepository_ListByUserAndEvent_Call) RunAndReturn(run func(context.Context, entity.UserID, string) ([]*entity.Ticket, error)) *MockTicketRepository_ListByUserAndEvent_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// VoidByOrder provides a mock function with given fields: ctx, orderID
-func (_m *MockTicketRepository) VoidByOrder(ctx context.Context, orderID entity.OrderID) error {
-	ret := _m.Called(ctx, orderID)
-
-	if len(ret) == 0 {
-		panic("no return value specified for VoidByOrder")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.OrderID) error); ok {
-		r0 = rf(ctx, orderID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockTicketRepository_VoidByOrder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'VoidByOrder'
-type MockTicketRepository_VoidByOrder_Call struct {
-	*mock.Call
-}
-
-// VoidByOrder is a helper method to define mock.On call
-//   - ctx context.Context
-//   - orderID entity.OrderID
-func (_e *MockTicketRepository_Expecter) VoidByOrder(ctx interface{}, orderID interface{}) *MockTicketRepository_VoidByOrder_Call {
-	return &MockTicketRepository_VoidByOrder_Call{Call: _e.mock.On("VoidByOrder", ctx, orderID)}
-}
-
-func (_c *MockTicketRepository_VoidByOrder_Call) Run(run func(ctx context.Context, orderID entity.OrderID)) *MockTicketRepository_VoidByOrder_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.OrderID))
-	})
-	return _c
-}
-
-func (_c *MockTicketRepository_VoidByOrder_Call) Return(_a0 error) *MockTicketRepository_VoidByOrder_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockTicketRepository_VoidByOrder_Call) RunAndReturn(run func(context.Context, entity.OrderID) error) *MockTicketRepository_VoidByOrder_Call {
 	_c.Call.Return(run)
 	return _c
 }

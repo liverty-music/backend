@@ -24,10 +24,8 @@ const (
 		id, order_id, user_id, event_id,
 		identity_verification_id, resale_without_consent_prohibited, status, issue_at, admit_at
 	`
-	ticketListByOrderQuery        = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE order_id = $1 ORDER BY issue_at`
 	ticketListByUserQuery         = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 ORDER BY issue_at DESC, id`
 	ticketListByUserAndEventQuery = `SELECT ` + ticketSelectColumns + ` FROM tickets WHERE user_id = $1 AND event_id = $2 ORDER BY issue_at, id`
-	ticketVoidByOrderQuery        = `UPDATE tickets SET status = $2 WHERE order_id = $1`
 
 	// ticketAdmitQuery admits one ticket in a single statement: the
 	// conditional UPDATE on the ticket row is the per-ticket check-and-set (a
@@ -63,16 +61,6 @@ const (
 // NewTicketRepository creates a new ticket repository instance.
 func NewTicketRepository(db *Database) *TicketRepository {
 	return &TicketRepository{db: db}
-}
-
-// ListByOrder returns the tickets issued under the given order.
-func (r *TicketRepository) ListByOrder(ctx context.Context, orderID entity.OrderID) ([]*entity.Ticket, error) {
-	rows, err := r.db.Pool.Query(ctx, ticketListByOrderQuery, string(orderID))
-	if err != nil {
-		return nil, toAppErr(err, "failed to list tickets by order", slog.String("order_id", string(orderID)))
-	}
-	defer rows.Close()
-	return scanTickets(rows)
 }
 
 // ListByUser returns every ticket bound to the given user, Issued and Voided
@@ -131,15 +119,6 @@ func (r *TicketRepository) Admit(ctx context.Context, ticketID entity.TicketID, 
 		// always admitted by ticketAdmitQuery.
 		return entity.AdmitResult{}, apperr.New(codes.Internal, "ticket was admissible but not admitted", attrs...)
 	}
-}
-
-// VoidByOrder marks every ticket of the given order as Voided. Idempotent.
-func (r *TicketRepository) VoidByOrder(ctx context.Context, orderID entity.OrderID) error {
-	_, err := r.db.Pool.Exec(ctx, ticketVoidByOrderQuery, string(orderID), int16(entity.TicketStatusVoided))
-	if err != nil {
-		return toAppErr(err, "failed to void tickets by order", slog.String("order_id", string(orderID)))
-	}
-	return nil
 }
 
 // scanTickets maps a multi-row result into a slice of entity.Ticket; the slice

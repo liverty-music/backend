@@ -37,8 +37,15 @@ const (
 	StripeEventPaymentIntentSucceeded StripeEventType = "payment_intent.succeeded"
 )
 
+// OrderRefunder refunds an Order under the refund policy. OrderUseCase
+// satisfies it. Interfaces are defined where consumed (AGENTS.md rule).
+type OrderRefunder interface {
+	// Refund applies the refund policy for the reason; see [OrderUseCase].
+	Refund(ctx context.Context, orderID entity.OrderID, reason RefundReason, now time.Time) (*entity.Order, error)
+}
+
 // PaymentFulfiller turns a completed charge into an issued, announced Order.
-// IssuanceUseCase satisfies it. Interfaces are defined where consumed
+// OrderUseCase satisfies it. Interfaces are defined where consumed
 // (AGENTS.md rule).
 type PaymentFulfiller interface {
 	// FulfillPayment issues, or finds, the Order of the charge's source and
@@ -101,7 +108,7 @@ type stripeWebhookService struct {
 	// through). Fixed: the HTTP handler now extracts ProviderChargeID+ProviderPaymentID;
 	// this service calls GetByProviderPaymentID.
 	orderRepo entity.OrderRepository
-	refundUC  RefundOrderUseCase
+	refunder  OrderRefunder
 	fulfiller PaymentFulfiller
 	logger    *logging.Logger
 }
@@ -114,14 +121,14 @@ var _ StripeWebhookService = (*stripeWebhookService)(nil)
 func NewStripeWebhookService(
 	processedRepo ProcessedWebhookEventRepository,
 	orderRepo entity.OrderRepository,
-	refundUC RefundOrderUseCase,
+	refunder OrderRefunder,
 	fulfiller PaymentFulfiller,
 	logger *logging.Logger,
 ) StripeWebhookService {
 	return &stripeWebhookService{
 		processedRepo: processedRepo,
 		orderRepo:     orderRepo,
-		refundUC:      refundUC,
+		refunder:      refunder,
 		fulfiller:     fulfiller,
 		logger:        logger,
 	}
@@ -271,10 +278,10 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 		return apperr.Wrap(err, codes.Internal, "stripe webhook: failed to resolve order for dispute")
 	}
 
-	// Delegate to RefundOrderUseCase with reason=DISPUTE. Idempotent: if the
+	// Delegate to OrderUseCase.Refund with reason=DISPUTE. Idempotent: if the
 	// Order is already Refunded (e.g. admin ran RefundOrder before the webhook
 	// arrived) the call is a no-op that returns the existing order.
-	if _, err := s.refundUC.RefundOrder(ctx, order.ID, RefundReasonDispute, event.ReceivedAt); err != nil {
+	if _, err := s.refunder.Refund(ctx, order.ID, RefundReasonDispute, event.ReceivedAt); err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Order disappeared between resolution and refund; very unlikely —
 			// accept without retry.

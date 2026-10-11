@@ -44,11 +44,11 @@ func (c *countingCardHold) GetCapturedPayment(_ context.Context, ref string) (*e
 
 // newCheckoutIssuance wires IssuanceUseCase on the real repositories and the
 // counting card hold, at a fixed time.
-func newCheckoutIssuance(t *testing.T, cardHold *countingCardHold, now time.Time) usecase.IssuanceUseCase {
+func newCheckoutIssuance(t *testing.T, cardHold *countingCardHold, now time.Time) usecase.OrderUseCase {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
+	return usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:       rdb.NewIssuanceRepository(testDB),
 		OrderRepo:          rdb.NewOrderRepository(testDB),
 		EventOrganizerRepo: rdb.NewEventOrganizerRepository(testDB),

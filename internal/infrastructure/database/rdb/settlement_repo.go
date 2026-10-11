@@ -25,11 +25,6 @@ func NewSettlementRepository(db *Database) *SettlementRepository {
 }
 
 const (
-	getSettlementQuery = `
-		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_at, created_at
-		FROM settlements WHERE id = $1
-	`
-
 	getSettlementByOrderIDQuery = `
 		SELECT id, order_id, organizer_id, event_id, provider_charge_id, status, release_at, created_at
 		FROM settlements WHERE order_id = $1
@@ -52,7 +47,7 @@ const (
 	`
 
 	// markReleasedQuery atomically transitions a Held settlement to Released,
-	// records the provider_charge_id, sets released_at, and upserts each split's
+	// records the provider_charge_id, sets release_at, and upserts each split's
 	// provider_payout_id. The status = 1 guard ensures idempotency: a concurrent
 	// release attempt finds status != 1 and the UPDATE affects 0 rows, which
 	// surfaces as FailedPrecondition.
@@ -70,22 +65,6 @@ const (
 		WHERE settlement_id = $1 AND payee_organizer_id = $2
 	`
 )
-
-// Get implements [entity.SettlementRepository].
-func (r *SettlementRepository) Get(ctx context.Context, id entity.SettlementID) (*entity.Settlement, error) {
-	row := r.db.Pool.QueryRow(ctx, getSettlementQuery, string(id))
-	s, err := scanSettlement(row)
-	if err != nil {
-		return nil, toAppErr(err, "failed to get settlement",
-			slog.String("settlement_id", string(id)))
-	}
-	splits, err := r.loadSplits(ctx, []string{string(id)})
-	if err != nil {
-		return nil, err
-	}
-	s.Splits = splits[string(id)]
-	return s, nil
-}
 
 // GetByOrderID implements [entity.SettlementRepository].
 func (r *SettlementRepository) GetByOrderID(ctx context.Context, orderID entity.OrderID) (*entity.Settlement, error) {
@@ -250,7 +229,7 @@ func scanSettlement(s settlementScanner) (*entity.Settlement, error) {
 		&providerChargeID,
 		&status,
 		&releasedAt,
-		&st.CreatedTime,
+		&st.CreateTime,
 	); err != nil {
 		return nil, err
 	}
@@ -261,7 +240,7 @@ func scanSettlement(s settlementScanner) (*entity.Settlement, error) {
 		st.ProviderChargeID = providerChargeID.String
 	}
 	if releasedAt.Valid {
-		st.ReleasedTime = releasedAt.Time
+		st.ReleaseTime = releasedAt.Time
 	}
 	return &st, nil
 }

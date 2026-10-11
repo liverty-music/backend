@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// refundUCStub is a function-field RefundOrderUseCase that records its call.
+// refundUCStub is a function-field OrderRefunder that records its call.
 type refundUCStub struct {
 	called bool
 	reason usecase.RefundReason
@@ -28,16 +28,27 @@ type refundUCStub struct {
 	fn     func(entity.OrderID) (*entity.Order, error)
 }
 
-func (s *refundUCStub) RefundOrder(_ context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
+func (s *refundUCStub) Refund(_ context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
 	s.called, s.reason, s.now = true, reason, now
 	return s.fn(orderID)
 }
 
-func newAdminOrderHandler(t *testing.T, orderUC usecase.OrderUseCase, refundUC usecase.RefundOrderUseCase) *handler.AdminOrderHandler {
+func newAdminOrderHandler(t *testing.T, orderUC usecase.OrderUseCase, refundUC usecase.OrderRefunder) *handler.AdminOrderHandler {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
-	return handler.NewAdminOrderHandler(orderUC, refundUC, logger)
+	return handler.NewAdminOrderHandler(orderWithRefund{OrderUseCase: orderUC, refunder: refundUC}, logger)
+}
+
+// orderWithRefund serves the admin OrderService from orderUC, with Refund
+// answered by refunder.
+type orderWithRefund struct {
+	usecase.OrderUseCase
+	refunder usecase.OrderRefunder
+}
+
+func (o orderWithRefund) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
+	return o.refunder.Refund(ctx, orderID, reason, now)
 }
 
 func TestAdminOrderHandler_Refund(t *testing.T) {

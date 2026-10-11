@@ -9,7 +9,7 @@ packages:
       ArtistNameResolutionUseCase:
       ConcertUseCase:
       ConcertCreationUseCase:
-      AdminConcertUseCase:
+      ConcertCandidateUseCase:
       UserUseCase:
       TicketUseCase:
       EntryUseCase:
@@ -35,7 +35,6 @@ packages:
       IdentityVerifier:
       LotteryEntryUseCase:
       EventPublishStatePort:
-      IssuanceUseCase:
       WalletPublicKeyUseCase:
       ReceptionLinkUseCase:
       SeriesImageUseCase:

@@ -34,7 +34,7 @@ func adminCtx() context.Context {
 
 func newAdminConcertHandler(
 	t *testing.T,
-	adminUC *usecasemocks.MockAdminConcertUseCase,
+	adminUC *usecasemocks.MockConcertUseCase,
 ) *handler.AdminConcertHandler {
 	t.Helper()
 	logger, err := logging.New()
@@ -72,7 +72,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 		ctx context.Context
 	}
 	type dep struct {
-		adminUC func(*usecasemocks.MockAdminConcertUseCase)
+		adminUC func(*usecasemocks.MockConcertUseCase)
 	}
 
 	tests := []struct {
@@ -88,7 +88,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			name: "map use-case concerts to ListResponse.Concerts",
 			args: args{ctx: adminCtx()},
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
+				adminUC: func(m *usecasemocks.MockConcertUseCase) {
 					m.EXPECT().List(mock.Anything).Return([]*entity.Concert{concertA, concertB}, nil).Once()
 				},
 			},
@@ -108,7 +108,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			name: "return the shared series and artist once for two concerts of one series",
 			args: args{ctx: adminCtx()},
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
+				adminUC: func(m *usecasemocks.MockConcertUseCase) {
 					m.EXPECT().List(mock.Anything).Return([]*entity.Concert{tourDay("event-1"), tourDay("event-2")}, nil).Once()
 				},
 			},
@@ -130,7 +130,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			name: "return empty Concerts slice when repo returns nothing",
 			args: args{ctx: adminCtx()},
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
+				adminUC: func(m *usecasemocks.MockConcertUseCase) {
 					m.EXPECT().List(mock.Anything).Return(nil, nil).Once()
 				},
 			},
@@ -146,7 +146,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 			args:    args{ctx: adminCtx()},
 			wantErr: true,
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
+				adminUC: func(m *usecasemocks.MockConcertUseCase) {
 					m.EXPECT().List(mock.Anything).Return(nil, errors.New("db failure")).Once()
 				},
 			},
@@ -157,7 +157,7 @@ func TestAdminConcertHandler_List(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			adminUC := usecasemocks.NewMockAdminConcertUseCase(t)
+			adminUC := usecasemocks.NewMockConcertUseCase(t)
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertHandler(t, adminUC)
@@ -184,7 +184,7 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 		eventID string
 	}
 	type dep struct {
-		adminUC func(*usecasemocks.MockAdminConcertUseCase)
+		adminUC func(*usecasemocks.MockConcertUseCase)
 	}
 
 	tests := []struct {
@@ -199,7 +199,7 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 			name: "pass event id through and return DeleteResponse",
 			args: args{ctx: adminCtx(), eventID: "event-abc"},
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
+				adminUC: func(m *usecasemocks.MockConcertUseCase) {
 					m.EXPECT().Delete(mock.Anything, "event-abc").Return(nil).Once()
 				},
 			},
@@ -213,7 +213,7 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 			args:    args{ctx: adminCtx(), eventID: "event-bad"},
 			wantErr: true,
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
+				adminUC: func(m *usecasemocks.MockConcertUseCase) {
 					m.EXPECT().Delete(mock.Anything, "event-bad").Return(errors.New("delete failed")).Once()
 				},
 			},
@@ -224,7 +224,7 @@ func TestAdminConcertHandler_Delete(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			adminUC := usecasemocks.NewMockAdminConcertUseCase(t)
+			adminUC := usecasemocks.NewMockConcertUseCase(t)
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertHandler(t, adminUC)
@@ -250,7 +250,7 @@ func TestAdminConcertHandler_Delete_Boundary(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/concert "Non-admin deletes"
 		// The mock fails the test if the usecase runs.
-		h := newAdminConcertHandler(t, usecasemocks.NewMockAdminConcertUseCase(t))
+		h := newAdminConcertHandler(t, usecasemocks.NewMockConcertUseCase(t))
 
 		_, err := callThroughAdminPipeline(t, nonAdminCtx(), &adminconcertv1.DeleteRequest{
 			EventId: &entityv1.EventId{Value: "019a0000-0000-7000-8000-0000000000e1"},
@@ -262,7 +262,7 @@ func TestAdminConcertHandler_Delete_Boundary(t *testing.T) {
 	t.Run("delete without an event", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/concert "Delete without an event"
-		h := newAdminConcertHandler(t, usecasemocks.NewMockAdminConcertUseCase(t))
+		h := newAdminConcertHandler(t, usecasemocks.NewMockConcertUseCase(t))
 
 		_, err := callThroughAdminPipeline(t, adminCtx(), &adminconcertv1.DeleteRequest{}, h.Delete)
 

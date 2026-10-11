@@ -46,7 +46,7 @@ func seedOrderForSettlement(
 		OrganizerID: organizerID,
 		EventID:     eventID,
 		Status:      entity.SettlementStatusHeld,
-		CreatedTime: settledAt,
+		CreateTime:  settledAt,
 	}
 	require.NoError(t, issuanceRepo.Issue(context.Background(), order, nil, settlement))
 	return order, settlement
@@ -126,7 +126,7 @@ func TestSettlementRepository_Integration(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		got, err := settlementRepo.Get(ctx, created.ID)
+		got, err := settlementRepo.GetByOrderID(ctx, created.OrderID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.SettlementStatusReleased, got.Status)
 		assert.Equal(t, "ch_settlement_itest", got.ProviderChargeID)
@@ -171,11 +171,11 @@ func TestSettlementRepository_Integration(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, apperr.ErrInvalidArgument, "a split constraint violation must surface as InvalidArgument")
 
-		got, err := settlementRepo.Get(ctx, created.ID)
+		got, err := settlementRepo.GetByOrderID(ctx, created.OrderID)
 		require.NoError(t, err)
 		assert.Equal(t, entity.SettlementStatusHeld, got.Status, "settlement must stay Held when the split update fails")
 		assert.Empty(t, got.ProviderChargeID, "charge_ref must not be persisted on rollback")
-		assert.True(t, got.ReleasedTime.IsZero(), "released_at must not be persisted on rollback")
+		assert.True(t, got.ReleaseTime.IsZero(), "released_at must not be persisted on rollback")
 		require.Len(t, got.Splits, 2)
 		for _, split := range got.Splits {
 			assert.Empty(t, split.ProviderPayoutID, "no split's transfer_ref may be persisted when the transaction rolls back")

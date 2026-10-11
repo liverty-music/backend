@@ -29,7 +29,7 @@ type checkoutIssuanceFixture struct {
 	captured              *entitymocks.MockPaymentCapturePort
 	entries               *entitymocks.MockLotteryEntryRepository
 	publisher             *ucmocks.MockEventPublisher
-	uc                    usecase.IssuanceUseCase
+	uc                    usecase.OrderUseCase
 }
 
 // newCheckoutIssuanceFixture builds the fixture whose ticket type "tt-1"
@@ -62,7 +62,7 @@ func newCheckoutIssuanceFixture(t *testing.T, now time.Time, req ...entity.Verif
 		sale.VerificationRequirement = req[0]
 	}
 	f.sales.EXPECT().GetTicketType(mock.Anything, entity.TicketTypeID("tt-1"), mock.Anything).Return(sale, tt, nil).Maybe()
-	f.uc = usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
+	f.uc = usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             f.issuance,
 		OrderRepo:                f.orders,
 		EventOrganizerRepo:       &stubEventOrganizerRepo{getOrganizerIDFn: func(context.Context, string) (string, error) { return "org-1", nil }},

@@ -131,7 +131,7 @@ func (r *IssuanceRepository) Issue(ctx context.Context, order *entity.Order, tic
 
 	if _, err := tx.Exec(ctx, issuanceInsertSettlementQuery,
 		string(settlement.ID), string(settlement.OrderID), settlement.OrganizerID, settlement.EventID,
-		int16(settlement.Status), settlement.CreatedTime,
+		int16(settlement.Status), settlement.CreateTime,
 	); err != nil {
 		return toAppErr(err, "failed to insert settlement", slog.String("settlement_id", string(settlement.ID)))
 	}

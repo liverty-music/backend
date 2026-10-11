@@ -38,7 +38,7 @@ type stubRefundUC struct {
 	refundOrderFn func(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error)
 }
 
-func (s *stubRefundUC) RefundOrder(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
+func (s *stubRefundUC) Refund(ctx context.Context, orderID entity.OrderID, reason usecase.RefundReason, now time.Time) (*entity.Order, error) {
 	if s.refundOrderFn != nil {
 		return s.refundOrderFn(ctx, orderID, reason, now)
 	}
@@ -51,7 +51,7 @@ func (s *stubRefundUC) RefundOrder(ctx context.Context, orderID entity.OrderID, 
 func newWebhookSvc(
 	processedRepo usecase.ProcessedWebhookEventRepository,
 	orderRepo entity.OrderRepository,
-	refundUC usecase.RefundOrderUseCase,
+	refundUC usecase.OrderRefunder,
 	t *testing.T,
 ) usecase.StripeWebhookService {
 	return usecase.NewStripeWebhookService(processedRepo, orderRepo, refundUC, &stubFulfiller{}, newTestLogger(t))

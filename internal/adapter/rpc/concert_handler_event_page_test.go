@@ -213,7 +213,7 @@ func TestConcertHandler_ListFollowed_SeriesOrganizer(t *testing.T) {
 			ctx := auth.WithClaims(context.Background(), &auth.Claims{Sub: "ext-user-1"})
 			user := &entity.User{ID: internalUserID}
 			userRepo.EXPECT().GetByProviderUserID(mock.Anything, "ext-user-1").Return(user, nil).Once()
-			concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, internalUserID, user.Home, mock.Anything).
+			concertUC.EXPECT().ListFollowed(mock.Anything, internalUserID, user.Home, mock.Anything).
 				Return([]*entity.ProximityGroup{{Date: date, Away: []*entity.Concert{tt.concert}}}, nil).Once()
 
 			resp, err := h.ListFollowed(ctx, connect.NewRequest(&concertv1.ListFollowedRequest{}))
@@ -241,7 +241,7 @@ func TestConcertHandler_ListFollowed_TourInOneList(t *testing.T) {
 	c1 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e1", day(20))
 	c2 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e2", day(21))
 	c3 := firstPartyConcert("019a0000-0000-7000-8000-0000000000e3", day(22))
-	concertUC.EXPECT().ListByFollowerGrouped(mock.Anything, user.ID, user.Home, mock.Anything).
+	concertUC.EXPECT().ListFollowed(mock.Anything, user.ID, user.Home, mock.Anything).
 		Return([]*entity.ProximityGroup{
 			{Date: day(20), Home: []*entity.Concert{c1}},
 			{Date: day(21), Nearby: []*entity.Concert{c2}},

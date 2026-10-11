@@ -77,7 +77,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 		Splits: []entity.SettlementSplit{
 			{PayeeOrganizerID: organizerID, Amount: order.Amount},
 		},
-		CreatedTime: paidTime,
+		CreateTime: paidTime,
 	}
 	require.NoError(t, issuanceRepo.Issue(ctx, order, tickets, settlement))
 
@@ -97,8 +97,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	assert.Equal(t, order.ID, gotByID.ID)
 
 	// -- Ticket reads: N covered tickets, bound to the user + event. --
-	byOrder, err := ticketRepo.ListByOrder(ctx, order.ID)
-	require.NoError(t, err)
+	byOrder := ticketsOfOrder(t, ticketRepo, entity.UserID(userID), order.ID)
 	require.Len(t, byOrder, 2)
 	for _, tk := range byOrder {
 		assert.Equal(t, eventID, tk.EventID)
@@ -137,27 +136,14 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 		EventID:     eventID,
 		Status:      entity.SettlementStatusHeld,
 		Splits:      []entity.SettlementSplit{{PayeeOrganizerID: organizerID, Amount: dup.Amount}},
-		CreatedTime: paidTime,
+		CreateTime:  paidTime,
 	}
 	err = issuanceRepo.Issue(ctx, &dup, nil, dupSettlement)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrAlreadyExists, "one Order per lottery entry (unique index)")
 
-	_, err = settlementRepo.Get(ctx, dupSettlement.ID)
+	_, err = settlementRepo.GetByOrderID(ctx, dup.ID)
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "the rolled-back transaction must not leave an orphan settlement")
-
-	// -- Refund side: status update + ticket void. --
-	require.NoError(t, orderRepo.UpdateStatus(ctx, order.ID, entity.OrderStatusRefunded))
-	refunded, err := orderRepo.Get(ctx, order.ID)
-	require.NoError(t, err)
-	assert.Equal(t, entity.OrderStatusRefunded, refunded.Status)
-
-	require.NoError(t, ticketRepo.VoidByOrder(ctx, order.ID))
-	voided, err := ticketRepo.ListByOrder(ctx, order.ID)
-	require.NoError(t, err)
-	for _, tk := range voided {
-		assert.Equal(t, entity.TicketStatusVoided, tk.Status)
-	}
 
 	// -- NotFound paths. --
 	_, err = orderRepo.Get(ctx, entity.OrderID(entity.NewID()))
@@ -233,7 +219,7 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 		EventID:     eventID,
 		Status:      entity.SettlementStatusHeld,
 		Splits:      []entity.SettlementSplit{{PayeeOrganizerID: organizerID, Amount: order.Amount}},
-		CreatedTime: paidTime,
+		CreateTime:  paidTime,
 	}
 
 	err := issuanceRepo.Issue(ctx, order, tickets, settlement)
@@ -242,8 +228,7 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 	_, err = orderRepo.Get(ctx, order.ID)
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "no Order must be stored when any Ticket fails to insert")
 
-	byOrder, err := ticketRepo.ListByOrder(ctx, order.ID)
-	require.NoError(t, err)
+	byOrder := ticketsOfOrder(t, ticketRepo, entity.UserID(userID), order.ID)
 	assert.Empty(t, byOrder, "no Ticket must be stored when any Ticket fails to insert")
 
 	_, err = settlementRepo.GetByOrderID(ctx, order.ID)
@@ -402,4 +387,18 @@ func TestIssuanceRepository_ListLotteryEntryIDsAwaitingIssuance(t *testing.T) {
 			assert.NotContains(t, got, id)
 		}
 	})
+}
+
+// ticketsOfOrder returns the user's tickets that belong to the order.
+func ticketsOfOrder(t *testing.T, repo *rdb.TicketRepository, userID entity.UserID, orderID entity.OrderID) []*entity.Ticket {
+	t.Helper()
+	all, err := repo.ListByUser(context.Background(), userID)
+	require.NoError(t, err)
+	var out []*entity.Ticket
+	for _, tk := range all {
+		if tk.OrderID == orderID {
+			out = append(out, tk)
+		}
+	}
+	return out
 }

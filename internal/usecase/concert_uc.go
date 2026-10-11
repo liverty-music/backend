@@ -18,6 +18,26 @@ import (
 
 // ConcertUseCase defines the interface for concert-related business logic.
 type ConcertUseCase interface {
+	// List returns every published concert (no audience filter), each carrying
+	// its event id and performers, for catalog review and management.
+	//
+	// # Possible errors
+	//
+	//  - Internal: database query failure.
+	List(ctx context.Context) ([]*entity.Concert, error)
+
+	// Delete permanently removes a published concert by its event id, cascading
+	// to the rows scoped to the event alone (see [entity.ConcertRepository.Delete]
+	// for the exact set); it fails instead if tickets or settlements still
+	// reference the event. It is idempotent: deleting an id that no longer
+	// exists succeeds.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: If the event id is empty or malformed.
+	//  - Internal: If the delete fails.
+	Delete(ctx context.Context, eventID string) error
+
 	// ListByArtist returns all concerts for a specific artist.
 	//
 	// # Possible errors
@@ -26,15 +46,7 @@ type ConcertUseCase interface {
 	//  - Internal: database query failure.
 	ListByArtist(ctx context.Context, artistID string) ([]*entity.Concert, error)
 
-	// ListByFollower returns concerts for artists followed by the given user whose
-	// local event date is on or after from. A nil from defaults to today onward.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If the user does not exist.
-	ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error)
-
-	// ListByFollowerGrouped returns concerts for followed artists, grouped by date
+	// ListFollowed returns concerts for followed artists, grouped by date
 	// and classified into home/nearby/away lanes based on proximity to the user's home.
 	// Only concerts whose local event date is on or after from are included; a nil
 	// from defaults to today onward.
@@ -42,7 +54,7 @@ type ConcertUseCase interface {
 	// # Possible errors
 	//
 	//  - NotFound: If the user does not exist.
-	ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error)
+	ListFollowed(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error)
 
 	// ListByArtists returns concerts for the specified artists, grouped by date
 	// and classified by proximity to the given home.
@@ -125,10 +137,8 @@ func errNoEventPage() error {
 	return apperr.New(codes.NotFound, "event page not found")
 }
 
-// concertUseCase implements both the consumer-facing ConcertUseCase and the
-// admin-facing AdminConcertUseCase. A single implementation keeps concert read
-// logic in one place; the two interfaces segregate capabilities so the consumer
-// handler never sees the admin operations (approve/reject/delete).
+// concertUseCase implements ConcertUseCase; concertCandidateUseCase builds on
+// it, so concert read logic stays in one place.
 type concertUseCase struct {
 	artistRepo           entity.ArtistRepository
 	concertRepo          entity.ConcertRepository
@@ -161,10 +171,7 @@ const pendingTimeout = 3 * time.Minute
 const statusUpdateTimeout = 5 * time.Second
 
 // Compile-time interface compliance check
-var (
-	_ ConcertUseCase      = (*concertUseCase)(nil)
-	_ AdminConcertUseCase = (*concertUseCase)(nil)
-)
+var _ ConcertUseCase = (*concertUseCase)(nil)
 
 // NewConcertUseCase creates a new concert use case.
 // It orchestrates concert searching, retrieval, event publishing, and the
@@ -289,16 +296,10 @@ func (uc *concertUseCase) eventPageSeries(ctx context.Context, seriesID string) 
 	return series, nil
 }
 
-// ListByFollower returns concerts for artists followed by the given user whose
-// local event date is on or after from (nil defaults to today onward).
-func (uc *concertUseCase) ListByFollower(ctx context.Context, userID string, from *time.Time) ([]*entity.Concert, error) {
-	return uc.concertRepo.ListByFollower(ctx, userID, from)
-}
-
-// ListByFollowerGrouped returns concerts for followed artists, grouped by date
+// ListFollowed returns concerts for followed artists, grouped by date
 // and classified into home/nearby/away lanes based on proximity to the user's home.
 // A nil from defaults to today onward; a past from widens the range into the past.
-func (uc *concertUseCase) ListByFollowerGrouped(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error) {
+func (uc *concertUseCase) ListFollowed(ctx context.Context, userID string, home *entity.Home, from *time.Time) ([]*entity.ProximityGroup, error) {
 	concerts, err := uc.concertRepo.ListByFollower(ctx, userID, from)
 	if err != nil {
 		return nil, err
@@ -691,4 +692,31 @@ func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string)
 	if err := uc.concertSearchRepo.UpdateStatus(updateCtx, artistID, entity.ConcertSearchStatusFailed); err != nil {
 		uc.logger.Error(ctx, "failed to mark search as failed", err, slog.String("artist_id", artistID))
 	}
+}
+
+// List returns every published concert for admin catalog management. Read logic
+// is shared with the consumer path through ConcertRepository; this method only
+// strips the audience filter.
+func (uc *concertUseCase) List(ctx context.Context) ([]*entity.Concert, error) {
+	concerts, err := uc.concertRepo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list published concerts: %w", err)
+	}
+	return concerts, nil
+}
+
+// Delete permanently removes a published concert by its event id, cascading to
+// the rows scoped to the event alone, and records a suppression entry from the
+// deleted event's natural key so a later discovery run does not re-create it.
+// An empty id is rejected; deleting an absent id succeeds and records no
+// suppression (the repository writes suppression only for a row that actually
+// existed).
+func (uc *concertUseCase) Delete(ctx context.Context, eventID string) error {
+	if eventID == "" {
+		return apperr.New(codes.InvalidArgument, "event id must not be empty")
+	}
+	if err := uc.concertRepo.DeleteAndSuppress(ctx, eventID); err != nil {
+		return fmt.Errorf("delete concert %q: %w", eventID, err)
+	}
+	return nil
 }

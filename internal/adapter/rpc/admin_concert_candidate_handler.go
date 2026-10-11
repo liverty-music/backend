@@ -24,18 +24,18 @@ var _ concertcandidatev1connect.ConcertCandidateServiceHandler = (*AdminConcertC
 // server-wide RequireRoleInterceptor (admin role); the handler is pure
 // proto<->entity mapping.
 type AdminConcertCandidateHandler struct {
-	concertUseCase usecase.AdminConcertUseCase
-	logger         *logging.Logger
+	concertCandidateUC usecase.ConcertCandidateUseCase
+	logger             *logging.Logger
 }
 
 // NewAdminConcertCandidateHandler creates a new admin concert candidate handler.
 func NewAdminConcertCandidateHandler(
-	concertUseCase usecase.AdminConcertUseCase,
+	concertCandidateUC usecase.ConcertCandidateUseCase,
 	logger *logging.Logger,
 ) *AdminConcertCandidateHandler {
 	return &AdminConcertCandidateHandler{
-		concertUseCase: concertUseCase,
-		logger:         logger,
+		concertCandidateUC: concertCandidateUC,
+		logger:             logger,
 	}
 }
 
@@ -45,14 +45,14 @@ func (h *AdminConcertCandidateHandler) List(
 	ctx context.Context,
 	_ *connect.Request[concertcandidatev1.ListRequest],
 ) (*connect.Response[concertcandidatev1.ListResponse], error) {
-	reviews, err := h.concertUseCase.ListPending(ctx)
+	reviews, err := h.concertCandidateUC.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	pending := make([]*concertcandidatev1.ConcertCandidate, 0, len(reviews))
 	for _, r := range reviews {
-		pending = append(pending, mapper.ConcertCandidateToProto(r.Staged, r.Performer))
+		pending = append(pending, mapper.ConcertCandidateToProto(r.ConcertCandidate, r.Performer))
 	}
 
 	return connect.NewResponse(&concertcandidatev1.ListResponse{
@@ -79,7 +79,7 @@ func (h *AdminConcertCandidateHandler) Approve(
 	stagedID := req.Msg.GetConcertCandidateId().GetValue()
 	resolution := approveResolutionFromProto(req.Msg.GetResolution())
 
-	result, err := h.concertUseCase.Approve(ctx, stagedID, resolution, reviewerSub)
+	result, err := h.concertCandidateUC.Approve(ctx, stagedID, resolution, reviewerSub)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func approveResolutionFromProto(r concertcandidatev1.Resolution) usecase.Approve
 func duplicateConflictToProto(dc *usecase.DuplicateConflict) *concertcandidatev1.DuplicateConflict {
 	return &concertcandidatev1.DuplicateConflict{
 		Existing:         existingEventToProto(dc.Existing),
-		ConcertCandidate: mapper.ConcertCandidateToProto(dc.Staged, dc.StagedPerformer),
+		ConcertCandidate: mapper.ConcertCandidateToProto(dc.ConcertCandidate, dc.ConcertCandidatePerformer),
 	}
 }
 
@@ -145,7 +145,7 @@ func (h *AdminConcertCandidateHandler) Reject(
 
 	stagedID := req.Msg.GetConcertCandidateId().GetValue()
 	reason := req.Msg.GetReason()
-	if err := h.concertUseCase.Reject(ctx, stagedID, reason, reviewerSub); err != nil {
+	if err := h.concertCandidateUC.Reject(ctx, stagedID, reason, reviewerSub); err != nil {
 		return nil, err
 	}
 

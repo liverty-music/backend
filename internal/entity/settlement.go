@@ -102,12 +102,12 @@ type Settlement struct {
 	Splits []SettlementSplit
 	// Status is the settlement's own lifecycle status.
 	Status SettlementStatus
-	// ReleasedTime is when the payout was released (Transfer(s) created). Zero
+	// ReleaseTime is when the payout was released (Transfer(s) created). Zero
 	// while still held.
-	ReleasedTime time.Time
-	// CreatedTime is when this settlement row was created (= Order issuance
+	ReleaseTime time.Time
+	// CreateTime is when this settlement row was created (= Order issuance
 	// time; inserted atomically by [IssuanceRepository.Issue]).
-	CreatedTime time.Time
+	CreateTime time.Time
 }
 
 // NewHeldSettlement returns a Held Settlement for the Order, paying the
@@ -123,7 +123,7 @@ func NewHeldSettlement(order *Order, organizerID, eventID string, rateBps int, n
 		Splits: []SettlementSplit{
 			{PayeeOrganizerID: organizerID, Amount: order.Amount - PlatformFee(order.Amount, rateBps)},
 		},
-		CreatedTime: now,
+		CreateTime: now,
 	}
 }
 
@@ -132,13 +132,6 @@ func NewHeldSettlement(order *Order, organizerID, eventID string, rateBps int, n
 // SettlementRepository only reads and updates settlements after issuance.
 // Interfaces are defined where consumed (AGENTS.md rule).
 type SettlementRepository interface {
-	// Get returns the Settlement for the given id.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no Settlement with the id exists.
-	//  - Internal: database query failure.
-	Get(ctx context.Context, id SettlementID) (*Settlement, error)
 
 	// GetByOrderID returns the Settlement for the given Order, if any.
 	//

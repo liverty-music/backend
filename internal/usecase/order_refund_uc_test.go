@@ -79,8 +79,14 @@ func newRefundUCWithLogger(
 	settlementRepo entity.SettlementRepository,
 	port entity.SettlementPayoutRepository,
 	t *testing.T,
-) usecase.RefundOrderUseCase {
-	return usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, port, newTestLogger(t))
+) usecase.OrderUseCase {
+	return usecase.NewOrderUseCase(usecase.OrderDeps{
+		OrderRepo:         orderRepo,
+		RefundRepo:        refundRepo,
+		SettlementRepo:    settlementRepo,
+		SettlementPayouts: port,
+		Logger:            newTestLogger(t),
+	})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,7 +179,7 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 
 	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
 
-	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 
@@ -238,7 +244,7 @@ func TestRefundOrder_Cancellation_NoSettlement(t *testing.T) {
 
 	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
 
-	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 	assert.True(t, refundCalled, "CreateRefund must be called even without a settlement row")
@@ -284,7 +290,7 @@ func TestRefundOrder_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, port, t)
 
-	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 	assert.False(t, refundCalled, "CreateRefund must NOT be called on idempotent replay")
@@ -318,7 +324,7 @@ func TestRefundOrder_NotRefundable_FailedOrder(t *testing.T) {
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
-	_, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
+	_, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "expected FailedPrecondition for a non-Paid order")
 }
@@ -397,7 +403,7 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 
 	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
 
-	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonDispute, now)
+	result, err := uc.Refund(ctx, orderID, usecase.RefundReasonDispute, now)
 	require.NoError(t, err)
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 	assert.True(t, reversalCalled, "ReverseTransfer must be called for chargeback-after-payout")
@@ -417,7 +423,7 @@ func TestRefundOrder_UnspecifiedReason_InvalidArgument(t *testing.T) {
 
 	uc := newRefundUCWithLogger(&stubOrderRepo{}, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
-	_, err := uc.RefundOrder(ctx, "order-unspec", usecase.RefundReasonUnspecified, now)
+	_, err := uc.Refund(ctx, "order-unspec", usecase.RefundReasonUnspecified, now)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrInvalidArgument, "expected InvalidArgument for unspecified reason")
 }
@@ -440,7 +446,7 @@ func TestRefundOrder_OrderNotFound(t *testing.T) {
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
-	_, err := uc.RefundOrder(ctx, "order-missing", usecase.RefundReasonCancellation, time.Now())
+	_, err := uc.Refund(ctx, "order-missing", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrNotFound, "expected NotFound")
 }
@@ -515,7 +521,7 @@ func TestRefundOrder_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
 
 	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
 
-	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)
 	// No transfers to reverse (Held = not yet paid out).
@@ -550,7 +556,7 @@ func TestRefundOrder_NonStripeProvider_FailedPrecondition(t *testing.T) {
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
-	_, err := uc.RefundOrder(ctx, "order-komoju", usecase.RefundReasonCancellation, time.Now())
+	_, err := uc.Refund(ctx, "order-komoju", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition,
 		"non-Stripe provider must return FailedPrecondition (no Stripe refund path)")
@@ -581,7 +587,7 @@ func TestRefundOrder_EmptyProviderPaymentID_FailedPrecondition(t *testing.T) {
 
 	uc := newRefundUCWithLogger(orderRepo, &stubRefundRepo{}, &stubSettlementRepo{}, &stubRefundSettlementPayouts{}, t)
 
-	_, err := uc.RefundOrder(ctx, "order-no-pi", usecase.RefundReasonCancellation, time.Now())
+	_, err := uc.Refund(ctx, "order-no-pi", usecase.RefundReasonCancellation, time.Now())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition,
 		"empty PaymentIntentRef must return FailedPrecondition")
@@ -648,7 +654,7 @@ func TestRefundOrder_ConcurrentRefund_IdempotentViaCommitFailedPrecondition(t *t
 
 	uc := newRefundUCWithLogger(orderRepo, refundRepo, settleRepo, port, t)
 
-	result, err := uc.RefundOrder(ctx, orderID, usecase.RefundReasonCancellation, now)
+	result, err := uc.Refund(ctx, orderID, usecase.RefundReasonCancellation, now)
 	require.NoError(t, err)
 	// Returns the current (post-concurrent-refund) state.
 	assert.Equal(t, entity.OrderStatusRefunded, result.Status)

@@ -133,7 +133,7 @@ type lotteryIssuanceDeps struct {
 
 // newLotteryIssuanceUC builds an IssuanceUseCase for the lottery path, whose
 // Organizer is at the 5% pilot rate.
-func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.IssuanceUseCase {
+func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseCase {
 	t.Helper()
 	organizers := entitymocks.NewMockOrganizerRepository(t)
 	organizers.EXPECT().Get(mock.Anything, mock.Anything).
@@ -161,7 +161,7 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.IssuanceU
 	if d.capturePort == nil {
 		d.capturePort = &stubCapturePort{}
 	}
-	return usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
+	return usecase.NewOrderUseCase(usecase.OrderDeps{
 		IssuanceRepo:             d.issuanceRepo,
 		OrderRepo:                d.orderRepo,
 		EntryRepo:                d.entryRepo,
@@ -287,7 +287,7 @@ func TestIssuanceUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.Equal(t, "organizer-1", issuedSettlement.OrganizerID)
 		assert.Equal(t, "event-1", issuedSettlement.EventID)
 		assert.Equal(t, entity.SettlementStatusHeld, issuedSettlement.Status)
-		assert.Equal(t, now, issuedSettlement.CreatedTime)
+		assert.Equal(t, now, issuedSettlement.CreateTime)
 		require.Len(t, issuedSettlement.Splits, 1)
 		assert.Equal(t, "organizer-1", issuedSettlement.Splits[0].PayeeOrganizerID)
 		assert.Equal(t, int64(15200), issuedSettlement.Splits[0].Amount)

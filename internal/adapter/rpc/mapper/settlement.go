@@ -49,13 +49,13 @@ func SettlementToProto(s *entity.Settlement) *entityv1.Settlement {
 		EventId:     &entityv1.EventId{Value: s.EventID},
 		Splits:      settlementSplitsToProto(s.Splits),
 		Status:      settlementStatusToProto(s.Status),
-		CreateTime:  timestamppb.New(s.CreatedTime),
+		CreateTime:  timestamppb.New(s.CreateTime),
 	}
 	if s.ProviderChargeID != "" {
 		proto.ProviderChargeId = &entityv1.Settlement_ProviderChargeId{Value: s.ProviderChargeID}
 	}
-	if !s.ReleasedTime.IsZero() {
-		proto.ReleaseTime = timestamppb.New(s.ReleasedTime)
+	if !s.ReleaseTime.IsZero() {
+		proto.ReleaseTime = timestamppb.New(s.ReleaseTime)
 	}
 	return proto
 }

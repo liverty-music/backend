@@ -21,7 +21,7 @@ const issuanceSweepInterval = 1 * time.Minute
 // The sweep stops when ctx is canceled. No drain is needed because issuance is
 // idempotent (one Order per lottery entry, enforced by a unique index): an
 // interrupted sweep is safely retried on the next tick.
-func startIssuanceSweeper(ctx context.Context, uc usecase.IssuanceUseCase, logger *logging.Logger) {
+func startIssuanceSweeper(ctx context.Context, uc usecase.OrderUseCase, logger *logging.Logger) {
 	go func() {
 		ticker := time.NewTicker(issuanceSweepInterval)
 		defer ticker.Stop()

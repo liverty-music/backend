@@ -221,20 +221,6 @@ type UserRepository interface {
 	//  - NotFound: If the user does not exist.
 	GetByProviderUserID(ctx context.Context, externalID string) (*User, error)
 
-	// GetByEmail retrieves a user by email address.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If the user does not exist.
-	GetByEmail(ctx context.Context, email string) (*User, error)
-
-	// Update updates user information.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: If the user does not exist.
-	Update(ctx context.Context, id string, params *NewUser) (*User, error)
-
 	// Delete removes a user.
 	//
 	// # Possible errors
@@ -269,9 +255,6 @@ type UserRepository interface {
 	//  - InvalidArgument: the values break the personal details rule.
 	//  - NotFound: If the user does not exist.
 	UpdatePersonalDetails(ctx context.Context, id string, fullName, phoneNumber string) (*User, error)
-
-	// List retrieves users with pagination.
-	List(ctx context.Context, limit, offset int) ([]*User, error)
 }
 
 // EmailVerifier sends and resends email verification codes via the identity

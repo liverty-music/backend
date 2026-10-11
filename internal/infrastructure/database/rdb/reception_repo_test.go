@@ -200,7 +200,8 @@ func TestTicketRepository_Admit(t *testing.T) {
 
 		tickets, err := repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)
-		require.NoError(t, repo.VoidByOrder(ctx, tickets[0].OrderID))
+		_, err = testDB.Pool.Exec(ctx, `UPDATE tickets SET status = $2 WHERE order_id = $1`, string(tickets[0].OrderID), int16(entity.TicketStatusVoided))
+		require.NoError(t, err)
 
 		tickets, err = repo.ListByUserAndEvent(ctx, entity.UserID(fan), eventID)
 		require.NoError(t, err)

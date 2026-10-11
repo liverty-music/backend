@@ -166,12 +166,6 @@ type AdmitResult struct {
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type TicketRepository interface {
-	// ListByOrder returns the tickets issued under the given Order.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database query failure.
-	ListByOrder(ctx context.Context, orderID OrderID) ([]*Ticket, error)
 
 	// ListByUser returns every ticket whose user is the given User, Issued and
 	// Voided alike, most recently issued first; empty when none.
@@ -205,13 +199,4 @@ type TicketRepository interface {
 	//    Revoked or does not exist; nothing changed.
 	//  - Internal: database failure.
 	Admit(ctx context.Context, ticketID TicketID, linkID ReceptionLinkID, admittedTime time.Time) (AdmitResult, error)
-
-	// VoidByOrder marks every ticket of the given Order as Voided (on a refund).
-	// Idempotent: voiding already-voided tickets is a no-op. The admitted time
-	// is kept.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database execution failure.
-	VoidByOrder(ctx context.Context, orderID OrderID) error
 }

@@ -23,7 +23,7 @@ import (
 // The usecase mocks fail the test on any call not expected.
 type checkoutFixture struct {
 	checkouts *ucmocks.MockCheckoutUseCase
-	issuance  *ucmocks.MockIssuanceUseCase
+	issuance  *ucmocks.MockOrderUseCase
 	users     *ucmocks.MockUserUseCase
 	client    checkoutv1connect.CheckoutServiceClient
 }
@@ -32,7 +32,7 @@ func newCheckoutFixture(t *testing.T, decorate func(context.Context) context.Con
 	t.Helper()
 	f := &checkoutFixture{
 		checkouts: ucmocks.NewMockCheckoutUseCase(t),
-		issuance:  ucmocks.NewMockIssuanceUseCase(t),
+		issuance:  ucmocks.NewMockOrderUseCase(t),
 		users:     ucmocks.NewMockUserUseCase(t),
 	}
 	logger, err := logging.New()

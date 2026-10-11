@@ -21,9 +21,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newOrderClient(t *testing.T, decorate func(context.Context) context.Context) (orderv1connect.OrderServiceClient, *ucmocks.MockTicketUseCase, *ucmocks.MockUserUseCase) {
+func newOrderClient(t *testing.T, decorate func(context.Context) context.Context) (orderv1connect.OrderServiceClient, *ucmocks.MockOrderUseCase, *ucmocks.MockUserUseCase) {
 	t.Helper()
-	uc := ucmocks.NewMockTicketUseCase(t)
+	uc := ucmocks.NewMockOrderUseCase(t)
 	users := ucmocks.NewMockUserUseCase(t)
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -46,7 +46,7 @@ func TestOrderHandler_Get(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/order "Fan reads their order"
 		client, uc, users := newOrderClient(t, signedInAs(tkFanSub))
 		expectFan(users)
-		uc.EXPECT().GetOrder(mock.Anything, entity.UserID(tkFanUserID), entity.OrderID(tkOrderID)).Return(&entity.Order{
+		uc.EXPECT().Get(mock.Anything, entity.UserID(tkFanUserID), entity.OrderID(tkOrderID)).Return(&entity.Order{
 			ID: tkOrderID, UserID: tkFanUserID, LotteryEntryID: tkEntryID, Status: entity.OrderStatusPaid,
 			Amount: 10000, Currency: "JPY", PayTime: time.Unix(1_700_000_000, 0),
 		}, nil)
@@ -64,7 +64,7 @@ func TestOrderHandler_Get(t *testing.T) {
 		t.Parallel()
 		client, uc, users := newOrderClient(t, signedInAs(tkFanSub))
 		expectFan(users)
-		uc.EXPECT().GetOrder(mock.Anything, entity.UserID(tkFanUserID), entity.OrderID(tkOrderID)).
+		uc.EXPECT().Get(mock.Anything, entity.UserID(tkFanUserID), entity.OrderID(tkOrderID)).
 			Return(nil, apperr.New(codes.NotFound, "order not found"))
 
 		_, err := client.Get(ctx, connect.NewRequest(getReq()))

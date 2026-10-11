@@ -9,15 +9,14 @@ import (
 
 	"github.com/liverty-music/backend/internal/entity"
 	"github.com/pannpers/go-apperr/apperr"
-	"github.com/pannpers/go-apperr/apperr/codes"
 	"github.com/pannpers/go-logging/logging"
 )
 
-// PendingConcertReview pairs a concert candidate with its resolved performer
+// ConcertCandidateReview pairs a concert candidate with its resolved performer
 // for presentation in the admin review queue.
-type PendingConcertReview struct {
-	// Staged is the concert candidate row awaiting approval.
-	Staged *entity.ConcertCandidate
+type ConcertCandidateReview struct {
+	// ConcertCandidate is the concert candidate row awaiting approval.
+	ConcertCandidate *entity.ConcertCandidate
 	// Performer is the artist who will perform at the concert.
 	Performer *entity.Artist
 }
@@ -55,10 +54,10 @@ type ApproveResult struct {
 type DuplicateConflict struct {
 	// Existing is the already-published event's display-field preview.
 	Existing *ExistingEventDisplay
-	// Staged is the concert candidate the reviewer proposed to publish.
-	Staged *entity.ConcertCandidate
-	// StagedPerformer is the artist the concert candidate was discovered for.
-	StagedPerformer *entity.Artist
+	// ConcertCandidate is the concert candidate the reviewer proposed to publish.
+	ConcertCandidate *entity.ConcertCandidate
+	// ConcertCandidatePerformer is the artist the concert candidate was discovered for.
+	ConcertCandidatePerformer *entity.Artist
 }
 
 // ExistingEventDisplay is the display-field preview of an already-published event
@@ -79,28 +78,18 @@ type ExistingEventDisplay struct {
 	OpenTime *time.Time
 }
 
-// AdminConcertUseCase defines the admin-console operations over concerts: the
-// approval gate over AI-discovered concerts plus management of the published
-// catalog. It is the admin-facing counterpart to ConcertUseCase; both are
-// implemented by the same concertUseCase, so a consumer handler depending on
-// ConcertUseCase never gains the approve/reject/delete capabilities.
-type AdminConcertUseCase interface {
-	// List returns every published concert (no audience filter), each carrying
-	// its event id and performers, for catalog review and management.
-	//
-	// # Possible errors
-	//
-	//  - Internal: database query failure.
-	List(ctx context.Context) ([]*entity.Concert, error)
-
-	// ListPending returns all concert candidates currently awaiting review, each
+// ConcertCandidateUseCase is the admin-console approval gate over
+// AI-discovered concerts: the review queue of ConcertCandidates, approving one
+// into a published event, or rejecting it into the RejectedConcert record.
+type ConcertCandidateUseCase interface {
+	// List returns all concert candidates currently awaiting review, each
 	// paired with the performing artist resolved per row. Results are ordered
 	// oldest-first (review-queue order).
 	//
 	// # Possible errors
 	//
 	//  - Internal: If the repository query or a per-row artist lookup fails.
-	ListPending(ctx context.Context) ([]*PendingConcertReview, error)
+	List(ctx context.Context) ([]*ConcertCandidateReview, error)
 
 	// Approve promotes a pending concert candidate to a published event. It resolves
 	// or creates the venues row, and — when the concert candidate does not duplicate
@@ -139,64 +128,39 @@ type AdminConcertUseCase interface {
 	//    success internally).
 	//  - Internal: If the log append or delete fails.
 	Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error
-
-	// Delete permanently removes a published concert by its event id, cascading
-	// to the rows scoped to the event alone (see [entity.ConcertRepository.Delete]
-	// for the exact set); it fails instead if tickets or settlements still
-	// reference the event. It is idempotent: deleting an id that no longer
-	// exists succeeds.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: If the event id is empty or malformed.
-	//  - Internal: If the delete fails.
-	Delete(ctx context.Context, eventID string) error
 }
 
-// List returns every published concert for admin catalog management. Read logic
-// is shared with the consumer path through ConcertRepository; this method only
-// strips the audience filter.
-func (uc *concertUseCase) List(ctx context.Context) ([]*entity.Concert, error) {
-	concerts, err := uc.concertRepo.List(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list published concerts: %w", err)
-	}
-	return concerts, nil
+// concertCandidateUseCase implements [ConcertCandidateUseCase] over the
+// concert use case's repositories and venue/duplicate helpers.
+type concertCandidateUseCase struct {
+	*concertUseCase
 }
 
-// Delete permanently removes a published concert by its event id, cascading to
-// the rows scoped to the event alone, and records a suppression entry from the
-// deleted event's natural key so a later discovery run does not re-create it.
-// An empty id is rejected; deleting an absent id succeeds and records no
-// suppression (the repository writes suppression only for a row that actually
-// existed).
-func (uc *concertUseCase) Delete(ctx context.Context, eventID string) error {
-	if eventID == "" {
-		return apperr.New(codes.InvalidArgument, "event id must not be empty")
-	}
-	if err := uc.concertRepo.DeleteAndSuppress(ctx, eventID); err != nil {
-		return fmt.Errorf("delete concert %q: %w", eventID, err)
-	}
-	return nil
+var _ ConcertCandidateUseCase = (*concertCandidateUseCase)(nil)
+
+// NewConcertCandidateUseCase creates the ConcertCandidate review use case on
+// the dependencies of concerts.
+func NewConcertCandidateUseCase(concerts *concertUseCase) ConcertCandidateUseCase {
+	return &concertCandidateUseCase{concertUseCase: concerts}
 }
 
-// ListPending returns all concert candidates awaiting review, each paired with
+// List returns all concert candidates awaiting review, each paired with
 // the resolved performing artist.
-func (uc *concertUseCase) ListPending(ctx context.Context) ([]*PendingConcertReview, error) {
+func (uc *concertCandidateUseCase) List(ctx context.Context) ([]*ConcertCandidateReview, error) {
 	staged, err := uc.concertCandidateRepo.ListPending(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list pending staged concerts: %w", err)
 	}
 
-	reviews := make([]*PendingConcertReview, 0, len(staged))
+	reviews := make([]*ConcertCandidateReview, 0, len(staged))
 	for _, sc := range staged {
 		artist, err := uc.artistRepo.Get(ctx, sc.ArtistID)
 		if err != nil {
 			return nil, fmt.Errorf("get artist %q for staged concert %q: %w", sc.ArtistID, sc.ID, err)
 		}
-		reviews = append(reviews, &PendingConcertReview{
-			Staged:    sc,
-			Performer: artist,
+		reviews = append(reviews, &ConcertCandidateReview{
+			ConcertCandidate: sc,
+			Performer:        artist,
 		})
 	}
 
@@ -205,7 +169,7 @@ func (uc *concertUseCase) ListPending(ctx context.Context) ([]*PendingConcertRev
 
 // Approve promotes a pending concert candidate to a published event, reconciling a
 // duplicate existing event per the resolution when one is detected.
-func (uc *concertUseCase) Approve(ctx context.Context, stagedID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
+func (uc *concertCandidateUseCase) Approve(ctx context.Context, stagedID string, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
 	sc, err := uc.concertCandidateRepo.GetByID(ctx, stagedID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -346,7 +310,7 @@ func duplicateEventAmong(events []*entity.Event, sc *entity.ConcertCandidate) *e
 }
 
 // reconcileDuplicate applies the reviewer's resolution to a detected duplicate.
-func (uc *concertUseCase) reconcileDuplicate(ctx context.Context, sc *entity.ConcertCandidate, existing *entity.Event, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
+func (uc *concertCandidateUseCase) reconcileDuplicate(ctx context.Context, sc *entity.ConcertCandidate, existing *entity.Event, resolution ApproveResolution, reviewerID string) (*ApproveResult, error) {
 	switch resolution {
 	case ApproveResolutionKeepExisting:
 		reason := fmt.Sprintf("duplicate of existing event %s", existing.ID)
@@ -401,7 +365,7 @@ func (uc *concertUseCase) reconcileDuplicate(ctx context.Context, sc *entity.Con
 // buildDuplicateConflict assembles the conflict DTO: the existing event's display
 // fields (its title resolved from the shared series) plus the staged preview and
 // its performer.
-func (uc *concertUseCase) buildDuplicateConflict(ctx context.Context, sc *entity.ConcertCandidate, existing *entity.Event) (*DuplicateConflict, error) {
+func (uc *concertCandidateUseCase) buildDuplicateConflict(ctx context.Context, sc *entity.ConcertCandidate, existing *entity.Event) (*DuplicateConflict, error) {
 	series, err := uc.seriesRepo.Get(ctx, existing.SeriesID)
 	if err != nil {
 		return nil, fmt.Errorf("get series for duplicate conflict: %w", err)
@@ -425,14 +389,14 @@ func (uc *concertUseCase) buildDuplicateConflict(ctx context.Context, sc *entity
 			StartTime:       existing.StartTime,
 			OpenTime:        existing.OpenTime,
 		},
-		Staged:          sc,
-		StagedPerformer: performer,
+		ConcertCandidate:          sc,
+		ConcertCandidatePerformer: performer,
 	}, nil
 }
 
 // Reject records the concert candidate in the rejection log and deletes the
 // staged row.
-func (uc *concertUseCase) Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error {
+func (uc *concertCandidateUseCase) Reject(ctx context.Context, stagedID string, reason string, reviewedBy string) error {
 	sc, err := uc.concertCandidateRepo.GetByID(ctx, stagedID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -476,7 +440,7 @@ func (uc *concertUseCase) Reject(ctx context.Context, stagedID string, reason st
 // given reason and reviewer identity. The artist name is snapshotted at write
 // time for readability even if the artist is later deleted. Shared by Reject and
 // the approval keep-existing reconciliation.
-func (uc *concertUseCase) appendRejectionLog(ctx context.Context, sc *entity.ConcertCandidate, reason, reviewedBy string) error {
+func (uc *concertCandidateUseCase) appendRejectionLog(ctx context.Context, sc *entity.ConcertCandidate, reason, reviewedBy string) error {
 	artist, err := uc.artistRepo.Get(ctx, sc.ArtistID)
 	if err != nil {
 		return fmt.Errorf("get artist for rejection log: %w", err)

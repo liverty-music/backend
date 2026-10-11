@@ -25,7 +25,7 @@ var _ checkoutv1connect.CheckoutServiceHandler = (*CheckoutHandler)(nil)
 // validated by the protovalidate interceptor before this handler runs.
 type CheckoutHandler struct {
 	checkoutUC usecase.CheckoutUseCase
-	issuanceUC usecase.IssuanceUseCase
+	orderUC    usecase.OrderUseCase
 	userUC     usecase.UserUseCase
 	logger     *logging.Logger
 }
@@ -33,11 +33,11 @@ type CheckoutHandler struct {
 // NewCheckoutHandler creates a new CheckoutHandler.
 func NewCheckoutHandler(
 	checkoutUC usecase.CheckoutUseCase,
-	issuanceUC usecase.IssuanceUseCase,
+	orderUC usecase.OrderUseCase,
 	userUC usecase.UserUseCase,
 	logger *logging.Logger,
 ) *CheckoutHandler {
-	return &CheckoutHandler{checkoutUC: checkoutUC, issuanceUC: issuanceUC, userUC: userUC, logger: logger}
+	return &CheckoutHandler{checkoutUC: checkoutUC, orderUC: orderUC, userUC: userUC, logger: logger}
 }
 
 // Start holds tickets of a TicketType for the caller for 15 minutes.
@@ -103,7 +103,7 @@ func (h *CheckoutHandler) Confirm(
 		return nil, err
 	}
 
-	order, err := h.issuanceUC.IssueFromCheckout(ctx, entity.CheckoutID(req.Msg.GetCheckoutId().GetValue()), &userID)
+	order, err := h.orderUC.IssueFromCheckout(ctx, entity.CheckoutID(req.Msg.GetCheckoutId().GetValue()), &userID)
 	if err != nil {
 		return nil, err
 	}

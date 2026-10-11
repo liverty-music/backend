@@ -95,7 +95,8 @@ type approvalTestDeps struct {
 	publisher       interface {
 		Subscribe(ctx context.Context, topic string) (<-chan *message.Message, error)
 	}
-	uc usecase.AdminConcertUseCase
+	concerts usecase.ConcertUseCase
+	uc       usecase.ConcertCandidateUseCase
 }
 
 func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps {
@@ -112,7 +113,7 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 	}
 	// Pass nil for repos/deps that Approve/Reject/ListPending/List/Delete never touch:
 	// searchLogRepo, concertSearcher, centroidResolver, and metrics.
-	d.uc = usecase.NewConcertUseCase(
+	concerts := usecase.NewConcertUseCase(
 		d.artistRepo,
 		d.concertRepo,
 		d.venueRepo,
@@ -129,6 +130,9 @@ func newApprovalTestDeps(t *testing.T, artist *entity.Artist) *approvalTestDeps 
 		0, // discoveryWindow — not used by admin methods
 		newTestLogger(t),
 	)
+	d.concerts = concerts
+	d.uc = usecase.NewConcertCandidateUseCase(concerts)
+
 	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
@@ -450,9 +454,9 @@ func TestAdminConcertUseCase_Approve_Reconciliation(t *testing.T) {
 		assert.Equal(t, "event-1", result.Conflict.Existing.EventID)
 		assert.Equal(t, "Existing Title", result.Conflict.Existing.Title)
 		assert.Equal(t, "Old Listed Name", result.Conflict.Existing.ListedVenueName)
-		require.NotNil(t, result.Conflict.Staged)
-		assert.Equal(t, "staged-dup", result.Conflict.Staged.ID)
-		require.NotNil(t, result.Conflict.StagedPerformer)
+		require.NotNil(t, result.Conflict.ConcertCandidate)
+		assert.Equal(t, "staged-dup", result.Conflict.ConcertCandidate.ID)
+		require.NotNil(t, result.Conflict.ConcertCandidatePerformer)
 
 		// No mutation: staged row preserved, nothing created/logged/updated.
 		assert.Len(t, d.stagedRepo.upserted, 1)
@@ -591,7 +595,7 @@ func TestAdminConcertUseCase_List(t *testing.T) {
 			},
 		}
 
-		concerts, err := d.uc.List(context.Background())
+		concerts, err := d.concerts.List(context.Background())
 		require.NoError(t, err)
 		require.Len(t, concerts, 2)
 		assert.Equal(t, "event-1", concerts[0].ID)
@@ -603,7 +607,7 @@ func TestAdminConcertUseCase_List(t *testing.T) {
 		d := newApprovalTestDeps(t, artist)
 		// No concerts seeded.
 
-		concerts, err := d.uc.List(context.Background())
+		concerts, err := d.concerts.List(context.Background())
 		require.NoError(t, err)
 		assert.Empty(t, concerts)
 	})
@@ -667,7 +671,7 @@ func TestAdminConcertUseCase_Delete(t *testing.T) {
 				})
 			}
 
-			err := d.uc.Delete(context.Background(), tt.args.eventID)
+			err := d.concerts.Delete(context.Background(), tt.args.eventID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)

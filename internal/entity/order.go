@@ -301,15 +301,6 @@ type OrderRepository interface {
 	//  - Internal: database query failure.
 	GetByProviderPaymentID(ctx context.Context, providerPaymentID string) (*Order, error)
 
-	// UpdateStatus changes the status of the Order identified by id (e.g. to
-	// Refunded on a cancellation refund, or Failed on the issuance-refund edge).
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no Order with the id exists.
-	//  - Internal: database execution failure.
-	UpdateStatus(ctx context.Context, id OrderID, status OrderStatus) error
-
 	// ListByUser returns every Order whose user is the given User, in any
 	// status. It returns an empty slice when the User bought nothing.
 	//

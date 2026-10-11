@@ -367,54 +367,6 @@ func (_c *MockOrderRepository_MarkConfirmationSent_Call) RunAndReturn(run func(c
 	return _c
 }
 
-// UpdateStatus provides a mock function with given fields: ctx, id, status
-func (_m *MockOrderRepository) UpdateStatus(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error {
-	ret := _m.Called(ctx, id, status)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateStatus")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.OrderID, entity.OrderStatus) error); ok {
-		r0 = rf(ctx, id, status)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockOrderRepository_UpdateStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateStatus'
-type MockOrderRepository_UpdateStatus_Call struct {
-	*mock.Call
-}
-
-// UpdateStatus is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id entity.OrderID
-//   - status entity.OrderStatus
-func (_e *MockOrderRepository_Expecter) UpdateStatus(ctx interface{}, id interface{}, status interface{}) *MockOrderRepository_UpdateStatus_Call {
-	return &MockOrderRepository_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", ctx, id, status)}
-}
-
-func (_c *MockOrderRepository_UpdateStatus_Call) Run(run func(ctx context.Context, id entity.OrderID, status entity.OrderStatus)) *MockOrderRepository_UpdateStatus_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.OrderID), args[2].(entity.OrderStatus))
-	})
-	return _c
-}
-
-func (_c *MockOrderRepository_UpdateStatus_Call) Return(_a0 error) *MockOrderRepository_UpdateStatus_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockOrderRepository_UpdateStatus_Call) RunAndReturn(run func(context.Context, entity.OrderID, entity.OrderStatus) error) *MockOrderRepository_UpdateStatus_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewMockOrderRepository creates a new instance of MockOrderRepository. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockOrderRepository(t interface {

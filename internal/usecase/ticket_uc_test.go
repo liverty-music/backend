@@ -18,7 +18,7 @@ func newOrderReadUC(t *testing.T, orders entity.OrderRepository, tickets entity.
 	return usecase.NewTicketUseCase(orders, tickets, nil, nil, nil, nil, nil, newTestLogger(t))
 }
 
-func TestTicketUseCase_GetOrder(t *testing.T) {
+func TestOrderUseCase_Get(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	own := &entity.Order{ID: "order-1", UserID: "fan-1", Status: entity.OrderStatusPaid}
@@ -68,9 +68,9 @@ func TestTicketUseCase_GetOrder(t *testing.T) {
 			t.Parallel()
 			orders := entitymocks.NewMockOrderRepository(t)
 			tt.setup(orders)
-			uc := newOrderReadUC(t, orders, entitymocks.NewMockTicketRepository(t))
+			uc := usecase.NewOrderUseCase(usecase.OrderDeps{OrderRepo: orders})
 
-			got, err := uc.GetOrder(ctx, tt.args.userID, tt.args.orderID)
+			got, err := uc.Get(ctx, tt.args.userID, tt.args.orderID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)

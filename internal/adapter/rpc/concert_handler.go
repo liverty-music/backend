@@ -100,7 +100,7 @@ func (h *ConcertHandler) ListFollowed(ctx context.Context, req *connect.Request[
 	// widens the window into the past.
 	from := mapper.DateToTimePtr(req.Msg.GetFrom().GetValue())
 
-	groups, err := h.concertUseCase.ListByFollowerGrouped(ctx, user.ID, user.Home, from)
+	groups, err := h.concertUseCase.ListFollowed(ctx, user.ID, user.Home, from)
 	if err != nil {
 		return nil, err
 	}

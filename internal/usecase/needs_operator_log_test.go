@@ -17,7 +17,7 @@ import (
 )
 
 // TestNeedsOperatorReports checks that the two operator reports are logged
-// under LogKeyNeedsOperator, with the checkout id and payment reference,
+// under LogKeyNeedsOperator, with the checkout id and card authorization id,
 // which the log-based alert pages on.
 func TestNeedsOperatorReports(t *testing.T) {
 	t.Parallel()
@@ -52,7 +52,7 @@ func TestNeedsOperatorReports(t *testing.T) {
 		out := buf.String()
 		assert.Equal(t, 2, strings.Count(out, usecase.LogKeyNeedsOperator))
 		assert.Contains(t, out, `"checkout_id":"checkout-1"`)
-		assert.Contains(t, out, `"payment_ref":"pi_charged"`)
+		assert.Contains(t, out, `"card_authorization_id":"pi_charged"`)
 	})
 
 	t.Run("charged checkout left unissued", func(t *testing.T) {
@@ -64,13 +64,13 @@ func TestNeedsOperatorReports(t *testing.T) {
 		charged := committedCopy(authorizedCheckout(), true)
 		checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{charged}, nil)
 		checkouts.EXPECT().Serialize(mock.Anything, mock.Anything, mock.Anything).Return(apperr.ErrInternal)
-		uc := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{CheckoutRepo: checkouts, Clock: fixedClock(now), Logger: logger})
+		uc := usecase.NewOrderUseCase(usecase.OrderDeps{CheckoutRepo: checkouts, Clock: fixedClock(now), Logger: logger})
 
 		require.NoError(t, uc.IssueDueCheckouts(context.Background()))
 
 		out := buf.String()
 		assert.Contains(t, out, usecase.LogKeyNeedsOperator)
-		assert.Contains(t, out, `"payment_ref":"pi_1"`)
+		assert.Contains(t, out, `"card_authorization_id":"pi_1"`)
 	})
 
 	t.Run("a fresh charge is not reported", func(t *testing.T) {
@@ -80,7 +80,7 @@ func TestNeedsOperatorReports(t *testing.T) {
 		checkouts := entitymocks.NewMockCheckoutRepository(t)
 		checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{committedCopy(authorizedCheckout(), true)}, nil)
 		checkouts.EXPECT().Serialize(mock.Anything, mock.Anything, mock.Anything).Return(apperr.ErrInternal)
-		uc := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{CheckoutRepo: checkouts, Clock: fixedClock(now), Logger: logger})
+		uc := usecase.NewOrderUseCase(usecase.OrderDeps{CheckoutRepo: checkouts, Clock: fixedClock(now), Logger: logger})
 
 		require.NoError(t, uc.IssueDueCheckouts(context.Background()))
 

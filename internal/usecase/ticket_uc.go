@@ -59,16 +59,6 @@ type AdmitResult struct {
 // TicketUseCase is the fan-facing read surface over a caller's own Orders and
 // issued Tickets, and the reception-side admission of Tickets at the venue.
 type TicketUseCase interface {
-	// GetOrder returns one of the calling fan's own Orders. An Order whose user
-	// is another account is reported as NotFound (non-revealing), never
-	// disclosed.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: no such Order for this caller.
-	//  - Internal: database query failure.
-	GetOrder(ctx context.Context, userID entity.UserID, orderID entity.OrderID) (*entity.Order, error)
-
 	// List returns every Ticket whose user is the calling fan, Voided
 	// ones included; empty when the fan has none.
 	//
@@ -134,20 +124,6 @@ func NewTicketUseCase(
 		rejectedScanRepo: rejectedScanRepo,
 		logger:           logger,
 	}
-}
-
-// GetOrder implements [TicketUseCase].
-func (uc *ticketUseCase) GetOrder(ctx context.Context, userID entity.UserID, orderID entity.OrderID) (*entity.Order, error) {
-	order, err := uc.orderRepo.Get(ctx, orderID)
-	if err != nil {
-		return nil, err // propagates NotFound
-	}
-	// Ownership check: an Order belonging to another account is reported exactly
-	// like a missing one (non-revealing), never disclosed.
-	if order.UserID != userID {
-		return nil, apperr.New(codes.NotFound, "order not found")
-	}
-	return order, nil
 }
 
 // List implements [TicketUseCase].

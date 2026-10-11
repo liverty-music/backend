@@ -24,65 +24,6 @@ func (_m *MockSettlementRepository) EXPECT() *MockSettlementRepository_Expecter 
 	return &MockSettlementRepository_Expecter{mock: &_m.Mock}
 }
 
-// Get provides a mock function with given fields: ctx, id
-func (_m *MockSettlementRepository) Get(ctx context.Context, id entity.SettlementID) (*entity.Settlement, error) {
-	ret := _m.Called(ctx, id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Get")
-	}
-
-	var r0 *entity.Settlement
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, entity.SettlementID) (*entity.Settlement, error)); ok {
-		return rf(ctx, id)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, entity.SettlementID) *entity.Settlement); ok {
-		r0 = rf(ctx, id)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*entity.Settlement)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, entity.SettlementID) error); ok {
-		r1 = rf(ctx, id)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockSettlementRepository_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
-type MockSettlementRepository_Get_Call struct {
-	*mock.Call
-}
-
-// Get is a helper method to define mock.On call
-//   - ctx context.Context
-//   - id entity.SettlementID
-func (_e *MockSettlementRepository_Expecter) Get(ctx interface{}, id interface{}) *MockSettlementRepository_Get_Call {
-	return &MockSettlementRepository_Get_Call{Call: _e.mock.On("Get", ctx, id)}
-}
-
-func (_c *MockSettlementRepository_Get_Call) Run(run func(ctx context.Context, id entity.SettlementID)) *MockSettlementRepository_Get_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(entity.SettlementID))
-	})
-	return _c
-}
-
-func (_c *MockSettlementRepository_Get_Call) Return(_a0 *entity.Settlement, _a1 error) *MockSettlementRepository_Get_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockSettlementRepository_Get_Call) RunAndReturn(run func(context.Context, entity.SettlementID) (*entity.Settlement, error)) *MockSettlementRepository_Get_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetByOrderID provides a mock function with given fields: ctx, orderID
 func (_m *MockSettlementRepository) GetByOrderID(ctx context.Context, orderID entity.OrderID) (*entity.Settlement, error) {
 	ret := _m.Called(ctx, orderID)

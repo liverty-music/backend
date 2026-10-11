@@ -20,7 +20,7 @@ import (
 
 func newAdminConcertCandidateHandler(
 	t *testing.T,
-	adminUC *usecasemocks.MockAdminConcertUseCase,
+	adminUC *usecasemocks.MockConcertCandidateUseCase,
 ) *handler.AdminConcertCandidateHandler {
 	t.Helper()
 	logger, err := logging.New()
@@ -70,7 +70,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 		ctx context.Context
 	}
 	type dep struct {
-		adminUC func(*usecasemocks.MockAdminConcertUseCase)
+		adminUC func(*usecasemocks.MockConcertCandidateUseCase)
 	}
 
 	tests := []struct {
@@ -86,9 +86,9 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 			name: "return pending concerts with resolved venue",
 			args: args{ctx: adminCtx()},
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
-					m.EXPECT().ListPending(mock.Anything).Return([]*usecase.PendingConcertReview{
-						{Staged: stagedWithVenue, Performer: artistA},
+				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
+					m.EXPECT().List(mock.Anything).Return([]*usecase.ConcertCandidateReview{
+						{ConcertCandidate: stagedWithVenue, Performer: artistA},
 					}, nil).Once()
 				},
 			},
@@ -114,9 +114,9 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 			name: "return pending concerts without resolved venue",
 			args: args{ctx: adminCtx()},
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
-					m.EXPECT().ListPending(mock.Anything).Return([]*usecase.PendingConcertReview{
-						{Staged: stagedNoVenue, Performer: artistB},
+				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
+					m.EXPECT().List(mock.Anything).Return([]*usecase.ConcertCandidateReview{
+						{ConcertCandidate: stagedNoVenue, Performer: artistB},
 					}, nil).Once()
 				},
 			},
@@ -135,7 +135,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			adminUC := usecasemocks.NewMockAdminConcertUseCase(t)
+			adminUC := usecasemocks.NewMockConcertCandidateUseCase(t)
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertCandidateHandler(t, adminUC)
@@ -165,7 +165,7 @@ func TestAdminConcertCandidateHandler_Approve(t *testing.T) {
 		stagedID string
 	}
 	type dep struct {
-		adminUC func(*usecasemocks.MockAdminConcertUseCase)
+		adminUC func(*usecasemocks.MockConcertCandidateUseCase)
 	}
 
 	tests := []struct {
@@ -179,7 +179,7 @@ func TestAdminConcertCandidateHandler_Approve(t *testing.T) {
 			name: "approve calls use case with staged id",
 			args: args{ctx: adminCtx(), stagedID: "staged-abc"},
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
+				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
 					m.EXPECT().Approve(mock.Anything, "staged-abc", usecase.ApproveResolutionUnspecified, mock.Anything).
 						Return(&usecase.ApproveResult{}, nil).Once()
 				},
@@ -191,7 +191,7 @@ func TestAdminConcertCandidateHandler_Approve(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			adminUC := usecasemocks.NewMockAdminConcertUseCase(t)
+			adminUC := usecasemocks.NewMockConcertCandidateUseCase(t)
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertCandidateHandler(t, adminUC)
@@ -224,7 +224,7 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 		reason   string
 	}
 	type dep struct {
-		adminUC func(*usecasemocks.MockAdminConcertUseCase)
+		adminUC func(*usecasemocks.MockConcertCandidateUseCase)
 	}
 
 	tests := []struct {
@@ -239,7 +239,7 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 			name: "reject passes reason and reviewer sub to use case",
 			args: args{ctx: adminCtx(), stagedID: "staged-xyz", reason: "wrong date"},
 			dep: dep{
-				adminUC: func(m *usecasemocks.MockAdminConcertUseCase) {
+				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
 					// reviewer sub must match the sub in adminCtx.
 					m.EXPECT().Reject(mock.Anything, "staged-xyz", "wrong date", "admin-sub-123").Return(nil).Once()
 				},
@@ -251,7 +251,7 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			adminUC := usecasemocks.NewMockAdminConcertUseCase(t)
+			adminUC := usecasemocks.NewMockConcertCandidateUseCase(t)
 			tt.dep.adminUC(adminUC)
 
 			h := newAdminConcertCandidateHandler(t, adminUC)
@@ -283,7 +283,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/staged-concert "Non-admin approves"
 		// The mock fails the test if the usecase runs.
-		h := newAdminConcertCandidateHandler(t, usecasemocks.NewMockAdminConcertUseCase(t))
+		h := newAdminConcertCandidateHandler(t, usecasemocks.NewMockConcertCandidateUseCase(t))
 
 		_, err := callThroughAdminPipeline(t, nonAdminCtx(), &concertcandidatev1.ApproveRequest{
 			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: stagedID},
@@ -295,7 +295,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 	t.Run("approve without a resolution", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/staged-concert "Approve without a resolution"
-		adminUC := usecasemocks.NewMockAdminConcertUseCase(t)
+		adminUC := usecasemocks.NewMockConcertCandidateUseCase(t)
 		startTime := time.Date(2026, 9, 1, 18, 0, 0, 0, time.UTC)
 		adminUC.EXPECT().Approve(mock.Anything, stagedID, usecase.ApproveResolutionUnspecified, "admin-sub-123").
 			Return(&usecase.ApproveResult{Conflict: &usecase.DuplicateConflict{
@@ -303,8 +303,8 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 					EventID: "event-1", Title: "Tour 2026", ListedVenueName: "Budokan",
 					LocalDate: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), StartTime: &startTime,
 				},
-				Staged:          &entity.ConcertCandidate{ID: stagedID, Title: "Tour 2026", ListedVenueName: "Budokan"},
-				StagedPerformer: &entity.Artist{ID: "artist-1", Name: "Artist Alpha"},
+				ConcertCandidate:          &entity.ConcertCandidate{ID: stagedID, Title: "Tour 2026", ListedVenueName: "Budokan"},
+				ConcertCandidatePerformer: &entity.Artist{ID: "artist-1", Name: "Artist Alpha"},
 			}}, nil).Once()
 		h := newAdminConcertCandidateHandler(t, adminUC)
 
@@ -321,7 +321,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 	t.Run("reject without a reason", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/staged-concert "Reject without a reason"
-		h := newAdminConcertCandidateHandler(t, usecasemocks.NewMockAdminConcertUseCase(t))
+		h := newAdminConcertCandidateHandler(t, usecasemocks.NewMockConcertCandidateUseCase(t))
 
 		_, err := callThroughAdminPipeline(t, adminCtx(), &concertcandidatev1.RejectRequest{
 			ConcertCandidateId: &entityv1.ConcertCandidateId{Value: stagedID},

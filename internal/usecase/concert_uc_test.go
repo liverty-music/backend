@@ -41,7 +41,6 @@ type concertTestDeps struct {
 	centroidResolver     usecase.CentroidResolver
 	publisher            *gochannel.GoChannel
 	uc                   usecase.ConcertUseCase
-	adminUC              usecase.AdminConcertUseCase
 }
 
 // noopCentroidResolver is a test stub that always returns "not found".
@@ -71,7 +70,6 @@ func newConcertTestDeps(t *testing.T) *concertTestDeps {
 	}
 	uc := usecase.NewConcertUseCase(d.artistRepo, d.concertRepo, d.venueRepo, d.seriesRepo, nil, d.concertSearchRepo, d.concertCandidateRepo, d.rejectedConcertRepo, d.searcher, d.centroidResolver, messaging.NewEventPublisher(pub), noopMetrics{}, testSearchCacheTTL, testDiscoveryWindow, logger)
 	d.uc = uc
-	d.adminUC = uc
 	t.Cleanup(func() { _ = pub.Close() })
 	return d
 }
@@ -169,7 +167,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		}
 		d.concertRepo.EXPECT().ListByFollower(ctx, "user-1", (*time.Time)(nil)).Return(concerts, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-1", home, nil)
+		groups, err := d.uc.ListFollowed(ctx, "user-1", home, nil)
 		assert.NoError(t, err)
 		assert.Len(t, groups, 2)
 
@@ -199,7 +197,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		}
 		d.concertRepo.EXPECT().ListByFollower(ctx, "user-2", (*time.Time)(nil)).Return(concerts, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-2", nil, nil)
+		groups, err := d.uc.ListFollowed(ctx, "user-2", nil, nil)
 		assert.NoError(t, err)
 		assert.Len(t, groups, 1)
 		assert.Len(t, groups[0].Home, 0)
@@ -214,7 +212,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		home := &entity.Home{Level1: "JP-13"}
 		d.concertRepo.EXPECT().ListByFollower(ctx, "user-3", (*time.Time)(nil)).Return(nil, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-3", home, nil)
+		groups, err := d.uc.ListFollowed(ctx, "user-3", home, nil)
 		assert.NoError(t, err)
 		assert.Nil(t, groups)
 	})
@@ -227,7 +225,7 @@ func TestConcertUseCase_ListByFollowerGrouped(t *testing.T) {
 		past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 		d.concertRepo.EXPECT().ListByFollower(ctx, "user-4", &past).Return(nil, nil).Once()
 
-		groups, err := d.uc.ListByFollowerGrouped(ctx, "user-4", home, &past)
+		groups, err := d.uc.ListFollowed(ctx, "user-4", home, &past)
 		assert.NoError(t, err)
 		assert.Nil(t, groups)
 	})

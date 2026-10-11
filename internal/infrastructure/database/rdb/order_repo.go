@@ -35,9 +35,8 @@ const (
 		UPDATE orders SET confirmation_send_at = $2
 		WHERE id = $1 AND confirmation_send_at IS NULL
 	`
-	orderExistsQuery       = `SELECT EXISTS (SELECT 1 FROM orders WHERE id = $1)`
-	orderUpdateStatusQuery = `UPDATE orders SET status = $2 WHERE id = $1`
-	orderListByUserQuery   = `SELECT ` + orderSelectColumns + ` FROM orders WHERE user_id = $1 ORDER BY pay_at, id`
+	orderExistsQuery     = `SELECT EXISTS (SELECT 1 FROM orders WHERE id = $1)`
+	orderListByUserQuery = `SELECT ` + orderSelectColumns + ` FROM orders WHERE user_id = $1 ORDER BY pay_at, id`
 )
 
 // NewOrderRepository creates a new order repository instance.
@@ -110,18 +109,6 @@ func (r *OrderRepository) GetByProviderPaymentID(ctx context.Context, providerPa
 			slog.String("provider_payment_id", providerPaymentID))
 	}
 	return order, nil
-}
-
-// UpdateStatus changes the status of the order identified by id.
-func (r *OrderRepository) UpdateStatus(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error {
-	tag, err := r.db.Pool.Exec(ctx, orderUpdateStatusQuery, string(id), int16(status))
-	if err != nil {
-		return toAppErr(err, "failed to update order status", slog.String("order_id", string(id)))
-	}
-	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "order not found")
-	}
-	return nil
 }
 
 // ListByUser returns every order the given user bought, in any status, oldest

@@ -79,7 +79,7 @@ func scanIdentityVerification(scan func(dest ...any) error) (*entity.IdentityVer
 
 	vi.Method = entity.VerificationMethod(method)
 	vi.DedupeStrength = entity.DedupeStrength(dedupeStrength)
-	vi.VerifiedTime = verifiedAt.UTC()
+	vi.VerifyTime = verifiedAt.UTC()
 	vi.Status = entity.VerificationStatus(status)
 	return &vi, nil
 }
@@ -98,7 +98,7 @@ func (r *IdentityVerificationRepository) Create(ctx context.Context, vi *entity.
 		int16(vi.Method),
 		vi.ProviderUserID,
 		int16(vi.DedupeStrength),
-		vi.VerifiedTime.UTC(),
+		vi.VerifyTime.UTC(),
 		int16(vi.Status),
 	)
 	created, err := scanIdentityVerification(row.Scan)

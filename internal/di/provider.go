@@ -369,24 +369,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryHolds, time.Now, logger)
 
-	// Issuance pipeline: turn Won-captured lottery entries and committed
-	// first-come checkouts into Orders + tickets.
-	issuanceUC := usecase.NewIssuanceUseCase(usecase.IssuanceDeps{
-		IssuanceRepo:             issuanceRepo,
-		OrderRepo:                orderRepo,
-		EntryRepo:                lotteryEntryRepo,
-		EventOrganizerRepo:       eventOrganizerRepo,
-		OrganizerRepo:            organizerRepo,
-		IdentityVerificationRepo: identityVerificationRepo,
-		CapturePort:              capturePort,
-		CheckoutRepo:             checkoutRepo,
-		TicketSaleRepo:           ticketSaleRepo,
-		EventState:               eventPublishState,
-		CheckoutAuth:             checkoutAuth,
-		Publisher:                eventPublisher,
-		Clock:                    time.Now,
-		Logger:                   logger,
-	})
 	// Ticket sales (Lottery and FirstCome), their TicketTypes, and the fan's
 	// 15-minute first-come checkout.
 	ticketSaleUC := usecase.NewTicketSaleUseCase(ticketSaleRepo, lotteryEntryRepo, seriesRepo, organizerRepo, eventPublishState, eventStartTimeRepo, time.Now)
@@ -407,13 +389,29 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	walletPublicKeyUC := usecase.NewWalletPublicKeyUseCase(walletPublicKeyRepo, logger)
 	receptionLinkUC := usecase.NewReceptionLinkUseCase(receptionLinkRepo, eventRepo, eventOrganizerRepo, eventPublishState, logger)
 
-	// ⑤ task 4.1: refund policy + settlement money-movement.
-	// refundRepo provides the single atomic DB commit (settlement→reversed +
-	// tickets→voided + order→refunded in one pgx tx). refundUC performs the
-	// idempotent Stripe calls first, then commits via refundRepo.
-	refundUC := usecase.NewRefundOrderUseCase(orderRepo, refundRepo, settlementRepo, settlementPayouts, logger)
-	// Admin OrderService.Get: the Order with its Settlement.
-	orderUC := usecase.NewOrderUseCase(orderRepo, settlementRepo)
+	// Orders: the fan's and the admin's reads, the issuance pipeline that turns
+	// Won-captured lottery entries and committed first-come checkouts into
+	// Orders + tickets, and the refund policy (refundRepo provides the single
+	// atomic DB commit; the idempotent Stripe calls run first).
+	orderUC := usecase.NewOrderUseCase(usecase.OrderDeps{
+		IssuanceRepo:             issuanceRepo,
+		OrderRepo:                orderRepo,
+		EntryRepo:                lotteryEntryRepo,
+		EventOrganizerRepo:       eventOrganizerRepo,
+		OrganizerRepo:            organizerRepo,
+		IdentityVerificationRepo: identityVerificationRepo,
+		CapturePort:              capturePort,
+		CheckoutRepo:             checkoutRepo,
+		TicketSaleRepo:           ticketSaleRepo,
+		EventState:               eventPublishState,
+		CheckoutAuth:             checkoutAuth,
+		Publisher:                eventPublisher,
+		Clock:                    time.Now,
+		RefundRepo:               refundRepo,
+		SettlementRepo:           settlementRepo,
+		SettlementPayouts:        settlementPayouts,
+		Logger:                   logger,
+	})
 
 	// Settlement task 4.3: Stripe webhook ingest — idempotent dispatch.
 	// settlementRepo removed from constructor: it was previously injected but
@@ -422,8 +420,8 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	stripeWebhookSvc := usecase.NewStripeWebhookService(
 		processedWebhookEventRepo,
 		orderRepo,
-		refundUC,
-		issuanceUC,
+		orderUC,
+		orderUC,
 		logger,
 	)
 
@@ -461,14 +459,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// The issuance sweeper reads ④'s captured payments, so it too requires a
 		// real payment provider and runs on the same (fan-api) workload. Both are
 		// idempotent across pods.
-		startIssuanceSweeper(ctx, issuanceUC, logger)
+		startIssuanceSweeper(ctx, orderUC, logger)
 		// The settlement sweeper releases held funds after the event + dispute
 		// buffer. It also requires a real Stripe key (Transfer creation). It runs
 		// on the same (fan-api) workload and is idempotent across pods.
 		startSettlementSweeper(ctx, payoutSweeperUC, logger)
 		// The checkout sweepers release lapsed holds and card holds, and finish
 		// stalled commits; both reach Stripe, so they run beside the others.
-		startCheckoutSweepers(ctx, checkoutUC, issuanceUC, logger)
+		startCheckoutSweepers(ctx, checkoutUC, orderUC, logger)
 	} else {
 		logger.Info(ctx, "lottery draw + issuance + settlement sweepers disabled on this workload",
 			slog.String("workload", cfg.Workload))
@@ -578,14 +576,14 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// Admin OrderService: Refund (⑤ task 4.1).
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminorderconnect.NewOrderServiceHandler(
-				rpc.NewAdminOrderHandler(orderUC, refundUC, logger),
+				rpc.NewAdminOrderHandler(orderUC, logger),
 				opts...,
 			)
 		},
 		// Admin ConcertCandidateService: review of concert candidates.
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return adminconcertcandidateconnect.NewConcertCandidateServiceHandler(
-				rpc.NewAdminConcertCandidateHandler(concertUC, logger),
+				rpc.NewAdminConcertCandidateHandler(usecase.NewConcertCandidateUseCase(concertUC), logger),
 				opts...,
 			)
 		},
@@ -651,7 +649,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return orderconnect.NewOrderServiceHandler(
-				rpc.NewOrderHandler(ticketUC, userUC, logger),
+				rpc.NewOrderHandler(orderUC, userUC, logger),
 				opts...,
 			)
 		},
@@ -687,7 +685,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		},
 		func(opts ...connect.HandlerOption) (string, http.Handler) {
 			return checkoutconnect.NewCheckoutServiceHandler(
-				rpc.NewCheckoutHandler(checkoutUC, issuanceUC, userUC, logger),
+				rpc.NewCheckoutHandler(checkoutUC, orderUC, userUC, logger),
 				opts...,
 			)
 		},
