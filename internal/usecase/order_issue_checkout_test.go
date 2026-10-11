@@ -256,7 +256,7 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 
 	t.Run("card payments unavailable during capture", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/order/issue-from-checkout "Card payments unavailable during capture"
+		// @spec components/usecase/order/issue-from-checkout "Payment provider unavailable during capture"
 		f := newCheckoutIssuanceFixture(t, placeAt)
 		committed := committedCopy(authorizedCheckout(), false)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committed, nil)

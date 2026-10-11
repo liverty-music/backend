@@ -32,13 +32,13 @@ func TestLotteryEntry_IsConfirmable(t *testing.T) {
 		want  bool
 	}{
 		{
-			// @spec components/entity/lottery-entry "Authorized draft"
+			// @spec components/entity/lottery-entry "Draft with a card authorization"
 			name:  "authorized draft",
 			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft, CardAuthorizationID: hold},
 			want:  true,
 		},
 		{
-			// @spec components/entity/lottery-entry "Draft without a hold"
+			// @spec components/entity/lottery-entry "Draft without a card authorization"
 			name:  "draft without a hold",
 			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft},
 		},
@@ -67,7 +67,7 @@ func TestLotteryEntry_TicketCount(t *testing.T) {
 	}{
 		// @spec components/entity/lottery-entry "Count within the limit"
 		{name: "count within the limit", count: 2, valid: true},
-		// @spec components/entity/lottery-entry "Zero tickets requested"
+		// @spec components/entity/lottery-entry "Zero tickets"
 		{name: "zero tickets requested", count: 0},
 		// @spec components/entity/lottery-entry "Count over the limit"
 		{name: "count over the limit", count: 5},

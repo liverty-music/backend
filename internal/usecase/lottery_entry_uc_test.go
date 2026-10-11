@@ -279,7 +279,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 
 	t.Run("fan authorizes", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/authorize "Fan authorizes"
+		// @spec components/usecase/lottery-entry/authorize-card "Fan authorizes their card"
 		f := newLotteryFixture(t, duringWindow, 1)
 		sale := lotterySale(entity.VerificationRequirementNone)
 		f.readsTicketType(sale)
@@ -297,7 +297,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 
 	t.Run("card declined, fan retries", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/authorize "Card declined, fan retries"
+		// @spec components/usecase/lottery-entry/authorize-card "Card declined, fan retries"
 		f := newLotteryFixture(t, duringWindow, 1)
 		sale := lotterySale(entity.VerificationRequirementNone)
 		f.readsTicketType(sale)
@@ -314,7 +314,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 
 	t.Run("someone else's entry", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/authorize "Someone else's entry"
+		// @spec components/usecase/lottery-entry/authorize-card "Someone else's entry"
 		f := newLotteryFixture(t, duringWindow, 1)
 		other := lotteryEntry("entry-1", "tt-1", "fan-2", entity.LotteryEntryStateDraft, 2, "")
 		f.entries.EXPECT().Get(mock.Anything, other.ID).Return(other, nil)
@@ -336,7 +336,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 
 	t.Run("missing identity details", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/authorize "Missing identity details"
+		// @spec components/usecase/lottery-entry/authorize-card "Missing identity details"
 		for name, details := range map[string][2]string{
 			"empty name":     {"", "+819012345678"},
 			"empty phone":    {"山田 花子", ""},
@@ -359,7 +359,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 
 	t.Run("window closed", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/authorize "Window closed"
+		// @spec components/usecase/lottery-entry/authorize-card "Window closed"
 		f := newLotteryFixture(t, afterWindow, 1)
 		sale := lotterySale(entity.VerificationRequirementNone)
 		f.readsTicketType(sale)
@@ -373,7 +373,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 
 	t.Run("card payments unavailable", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/authorize "Card payments unavailable"
+		// @spec components/usecase/lottery-entry/authorize-card "Payment provider unavailable"
 		f := newLotteryFixture(t, duringWindow, 1)
 		sale := lotterySale(entity.VerificationRequirementNone)
 		f.readsTicketType(sale)
@@ -435,9 +435,45 @@ func TestLotteryUseCase_Confirm(t *testing.T) {
 		assert.Equal(t, entered, got)
 	})
 
-	t.Run("hold does not verify", func(t *testing.T) {
+	t.Run("card authentication not completed", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/confirm "Hold does not verify"
+		// @spec components/usecase/lottery-entry/confirm "Card authentication not completed"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+		f.holds.EXPECT().Get(mock.Anything, "pi_1").Return(&entity.CardAuthorization{
+			ID: "pi_1", Amount: 16000, Status: entity.CardAuthorizationStatusPending,
+		}, nil)
+
+		_, err := f.uc.Confirm(ctx, draft.ID, "fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		f.entries.AssertNotCalled(t, "UpdateState", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("amount differs", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/confirm "Amount differs"
+		f := newLotteryFixture(t, duringWindow, 1)
+		sale := lotterySale(entity.VerificationRequirementNone)
+		f.readsTicketType(sale)
+		draft := lotteryEntry("entry-1", sale.TicketTypes[0].ID, "fan-1", entity.LotteryEntryStateDraft, 2, "pi_1")
+		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
+		f.holds.EXPECT().Get(mock.Anything, "pi_1").Return(&entity.CardAuthorization{
+			ID: "pi_1", Amount: 8000, CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized,
+		}, nil)
+
+		_, err := f.uc.Confirm(ctx, draft.ID, "fan-1")
+
+		assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+		f.entries.AssertNotCalled(t, "UpdateState", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("American Express card", func(t *testing.T) {
+		t.Parallel()
+		// @spec components/usecase/lottery-entry/confirm "American Express card"
 		f := newLotteryFixture(t, duringWindow, 1)
 		sale := lotterySale(entity.VerificationRequirementNone)
 		f.readsTicketType(sale)
@@ -455,7 +491,7 @@ func TestLotteryUseCase_Confirm(t *testing.T) {
 
 	t.Run("draft without a hold", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/confirm "Draft without a hold"
+		// @spec components/usecase/lottery-entry/confirm "Draft without a card authorization"
 		f := newLotteryFixture(t, duringWindow, 1)
 		draft := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateDraft, 2, "")
 		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
@@ -774,7 +810,7 @@ func TestLotteryUseCase_RunDraw(t *testing.T) {
 
 	t.Run("losers ordered for the waitlist", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/run-draw "Losers ordered for the waitlist"
+		// @spec components/usecase/lottery-entry/run-draw "Losers in draw order"
 		f := newLotteryFixture(t, afterWindow, 3)
 		sale := closedSale(2)
 		tt := sale.TicketTypes[0].ID

@@ -225,7 +225,7 @@ func TestSeriesUseCase_SetCoverImage_Idempotent(t *testing.T) {
 // None of these use t.Parallel() because they all use t.Setenv, which
 // requires sequential execution.
 
-// @spec components/usecase/media/process-media "Replacing a published cover"
+// @spec components/usecase/series-image/process "Replacing a published cover"
 func TestMediaUseCase_ProcessMedia_HappyPath(t *testing.T) {
 	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals")
 	t.Setenv("ORGANIZER_MEDIA_BUCKET", "served")
@@ -285,7 +285,7 @@ func TestMediaUseCase_ProcessMedia_ReplacesOldMedia(t *testing.T) {
 	assert.Contains(t, d.storer.deletedPfxs, wantPrefix, "old variant prefix must be deleted")
 }
 
-// @spec components/usecase/media/process-media "Decompression bomb"
+// @spec components/usecase/series-image/process "Decompression bomb"
 // TestMediaUseCase_ProcessMedia_UnsupportedImage verifies that a
 // permanently-invalid image ends processing without an error (so the event is
 // not retried) and deletes the original.
@@ -370,7 +370,7 @@ func TestMediaUseCase_ProcessMedia_Idempotent(t *testing.T) {
 	require.NoError(t, d.uc.Process(context.Background(), mediaID, seriesID))
 }
 
-// @spec components/usecase/media/process-media "Media gone"
+// @spec components/usecase/series-image/process "SeriesImage gone"
 // TestMediaUseCase_ProcessMedia_MissingMediaRow verifies that a missing media
 // row (cancelled upload) ends processing without error.
 func TestMediaUseCase_ProcessMedia_MissingMediaRow(t *testing.T) {
@@ -385,7 +385,7 @@ func TestMediaUseCase_ProcessMedia_MissingMediaRow(t *testing.T) {
 	assert.NoError(t, err, "missing media row must not be retried")
 }
 
-// @spec components/usecase/media/process-media "Series deleted meanwhile"
+// @spec components/usecase/series-image/process "Series deleted meanwhile"
 // TestMediaUseCase_ProcessMedia_MissingSeries verifies that a series deleted
 // before the cut-over ends processing without error and cleans up the
 // original.

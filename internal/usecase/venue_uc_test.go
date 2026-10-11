@@ -33,7 +33,7 @@ func TestVenueUseCase_Search(t *testing.T) {
 		wantErr error
 	}{
 		{
-			// @spec components/usecase/venue/search-places "Operator searches a venue"
+			// @spec components/usecase/venue/search "Operator searches a venue"
 			name: "return the catalog's candidates unchanged and store no venue",
 			args: args{text: "LIQUIDROOM"},
 			setup: func(d *authoringDeps) {
@@ -51,7 +51,7 @@ func TestVenueUseCase_Search(t *testing.T) {
 			want: liquidroom,
 		},
 		{
-			// @spec components/usecase/venue/search-places "Text too short"
+			// @spec components/usecase/venue/search "Text too short"
 			name:    "fail with INVALID_ARGUMENT without calling the catalog when the text is one character",
 			args:    args{text: "Z"},
 			wantErr: apperr.ErrInvalidArgument,
@@ -75,7 +75,7 @@ func TestVenueUseCase_Search(t *testing.T) {
 			want: []*entity.MapPlaceCandidate{},
 		},
 		{
-			// @spec components/usecase/venue/search-places "Catalog down"
+			// @spec components/usecase/venue/search "Catalog down"
 			name: "return UNAVAILABLE when the catalog cannot be reached",
 			args: args{text: "LIQUIDROOM"},
 			setup: func(d *authoringDeps) {

@@ -50,14 +50,14 @@ func TestPayoutAccountHandler_Get(t *testing.T) {
 		wantCode connect.Code
 	}{
 		{
-			// @spec components/adapter/organizer/api/rpc/payout-onboarding "Tenant with no Organizer"
+			// @spec components/adapter/organizer/api/rpc/payout-account "Tenant with no Organizer"
 			name:     "return PERMISSION_DENIED unchanged when ResolveCaller finds no organizer for the tenant",
 			args:     args{ctx: orgCtx(testProviderOrganizerID)},
 			dep:      dep{resolveCallerErr: apperr.New(apperr.ErrPermissionDenied.Code, "permission denied")},
 			wantCode: connect.CodePermissionDenied,
 		},
 		{
-			// @spec components/adapter/organizer/api/rpc/payout-onboarding "Deactivated Organizer"
+			// @spec components/adapter/organizer/api/rpc/payout-account "Deactivated Organizer"
 			name:     "return FAILED_PRECONDITION unchanged when ResolveCaller reports the organizer is deactivated",
 			args:     args{ctx: orgCtx(testProviderOrganizerID)},
 			dep:      dep{resolveCallerErr: apperr.New(apperr.ErrFailedPrecondition.Code, "organizer is deactivated")},

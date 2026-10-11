@@ -165,7 +165,7 @@ func TestRunLotteryDraw(t *testing.T) {
 			wantWinnerIDs: []string{"app-1", "app-2", "app-3"},
 			wantLoserIDs:  []string{},
 		},
-		// @spec components/entity/lottery-entry/run-lottery-draw "Demand at or below capacity"
+		// @spec components/entity/lottery-entry/run-lottery-draw "Demand at or below quantity"
 		{
 			name: "all entries win when total demand is below capacity",
 			args: args{
@@ -270,7 +270,7 @@ func TestRunLotteryDraw(t *testing.T) {
 func TestRunLotteryDraw_NoOversellAndPartitionAtScale(t *testing.T) {
 	t.Parallel()
 
-	// @spec components/entity/lottery-entry/run-lottery-draw "Demand above capacity"
+	// @spec components/entity/lottery-entry/run-lottery-draw "Demand above quantity"
 
 	const (
 		trials      = 500
@@ -414,7 +414,7 @@ func TestRunLotteryDraw_PartitionProperty(t *testing.T) {
 func TestRunLotteryDraw_WaitlistOrder(t *testing.T) {
 	t.Parallel()
 
-	// @spec components/entity/lottery-entry/run-lottery-draw "Waitlist order"
+	// @spec components/entity/lottery-entry/run-lottery-draw "Order of the losers"
 
 	// Use a capacity small enough that several entries must lose, so we can check
 	// ordering on a non-trivial waitlist.

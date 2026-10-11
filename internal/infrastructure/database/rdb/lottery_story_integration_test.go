@@ -327,7 +327,7 @@ func (s *lotteryStory) winPresale(fan entity.UserID, count int) time.Time {
 }
 
 func TestLotteryStory_DemandWithinCapacity(t *testing.T) {
-	// @spec stories/win-tickets-in-a-lottery "Demand within capacity"
+	// @spec stories/win-tickets-in-a-lottery "Demand within quantity"
 	s := newLotteryStory(t)
 	end := saleWindowStart.Add(3 * 24 * time.Hour)
 	tt := s.createLottery("抽選", saleWindowStart, end, 8000, 100, 0)
@@ -367,7 +367,7 @@ func TestLotteryStory_DemandWithinCapacity(t *testing.T) {
 }
 
 func TestLotteryStory_OversubscribedPhase(t *testing.T) {
-	// @spec stories/win-tickets-in-a-lottery "Oversubscribed phase"
+	// @spec stories/win-tickets-in-a-lottery "Oversubscribed sale"
 	s := newLotteryStory(t)
 	end := saleWindowStart.Add(3 * 24 * time.Hour)
 	tt := s.createLottery("抽選", saleWindowStart, end, 8000, 4, 4)
@@ -412,7 +412,7 @@ func TestLotteryStory_OversubscribedPhase(t *testing.T) {
 }
 
 func TestLotteryStory_WithdrawAndReapply(t *testing.T) {
-	// @spec stories/win-tickets-in-a-lottery "Withdraw and re-apply"
+	// @spec stories/win-tickets-in-a-lottery "Withdraw and enter again"
 	s := newLotteryStory(t)
 	end := saleWindowStart.Add(3 * 24 * time.Hour)
 	tt := s.createLottery("抽選", saleWindowStart, end, 8000, 100, 0)

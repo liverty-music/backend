@@ -82,7 +82,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 		check    func(t *testing.T, resp *connect.Response[concertcandidatev1.ListResponse])
 	}{
 		{
-			// @spec components/adapter/admin/api/rpc/staged-concert "Admin lists pending concerts"
+			// @spec components/adapter/admin/api/rpc/concert-candidate "Admin lists pending concerts"
 			name: "return pending concerts with resolved venue",
 			args: args{ctx: adminCtx()},
 			dep: dep{
@@ -235,7 +235,7 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 		wantCode connect.Code
 	}{
 		{
-			// @spec components/adapter/admin/api/rpc/staged-concert "Reject records the reviewer"
+			// @spec components/adapter/admin/api/rpc/concert-candidate "Reject records the reviewer"
 			name: "reject passes reason and reviewer sub to use case",
 			args: args{ctx: adminCtx(), concertCandidateID: "staged-xyz", reason: "wrong date"},
 			dep: dep{
@@ -281,7 +281,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 
 	t.Run("non-admin approves", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/admin/api/rpc/staged-concert "Non-admin approves"
+		// @spec components/adapter/admin/api/rpc/concert-candidate "Non-admin approves"
 		// The mock fails the test if the usecase runs.
 		h := newAdminConcertCandidateHandler(t, usecasemocks.NewMockConcertCandidateUseCase(t))
 
@@ -294,7 +294,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 
 	t.Run("approve without a resolution", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/admin/api/rpc/staged-concert "Approve without a resolution"
+		// @spec components/adapter/admin/api/rpc/concert-candidate "Approve without a resolution"
 		adminUC := usecasemocks.NewMockConcertCandidateUseCase(t)
 		startTime := time.Date(2026, 9, 1, 18, 0, 0, 0, time.UTC)
 		adminUC.EXPECT().Approve(mock.Anything, concertCandidateID, usecase.ApproveResolutionUnspecified, "admin-sub-123").
@@ -320,7 +320,7 @@ func TestAdminConcertCandidateHandler_Boundary(t *testing.T) {
 
 	t.Run("reject without a reason", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/admin/api/rpc/staged-concert "Reject without a reason"
+		// @spec components/adapter/admin/api/rpc/concert-candidate "Reject without a reason"
 		h := newAdminConcertCandidateHandler(t, usecasemocks.NewMockConcertCandidateUseCase(t))
 
 		_, err := callThroughAdminPipeline(t, adminCtx(), &concertcandidatev1.RejectRequest{

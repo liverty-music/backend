@@ -53,7 +53,7 @@ func TestConcertAuthoringUseCase_CreateDraft_PickedPlace(t *testing.T) {
 		checkCreate func(t *testing.T, created []*entity.Venue)
 	}{
 		{
-			// @spec components/usecase/series/create-draft "Known place id"
+			// @spec components/usecase/series/create "Known place id"
 			name:   "use the Venue holding the place id without reading the catalog",
 			inputs: []*usecase.DraftEventInput{draftInput("Zepp Haneda", new(zeppHanedaPlaceID))},
 			setup: func(d *authoringDeps, created *[]*entity.Venue) {
@@ -64,7 +64,7 @@ func TestConcertAuthoringUseCase_CreateDraft_PickedPlace(t *testing.T) {
 			wantStored: true,
 		},
 		{
-			// @spec components/usecase/series/create-draft "New place"
+			// @spec components/usecase/series/create "New place"
 			name:   "create a Venue for Zepp Haneda with its place id, coordinates and admin area JP-13",
 			inputs: []*usecase.DraftEventInput{draftInput("Zepp Haneda", new(zeppHanedaPlaceID))},
 			setup: func(d *authoringDeps, created *[]*entity.Venue) {
@@ -97,7 +97,7 @@ func TestConcertAuthoringUseCase_CreateDraft_PickedPlace(t *testing.T) {
 			},
 		},
 		{
-			// @spec components/usecase/series/create-draft "Same name in two cities"
+			// @spec components/usecase/series/create "Same name in two cities"
 			name: "give CLUB QUATTRO in Shibuya and in Umeda two different Venues in JP-13 and JP-27",
 			inputs: []*usecase.DraftEventInput{
 				draftInput("CLUB QUATTRO", new(quattroShibuyaPlace)),
@@ -133,7 +133,7 @@ func TestConcertAuthoringUseCase_CreateDraft_PickedPlace(t *testing.T) {
 			},
 		},
 		{
-			// @spec components/usecase/series/create-draft "Venue typed but not picked"
+			// @spec components/usecase/series/create "Venue typed but not picked"
 			name:    "fail with INVALID_ARGUMENT and store nothing when an event gives a venue name but no place id",
 			inputs:  []*usecase.DraftEventInput{draftInput("Zepp Haneda", nil)},
 			wantErr: apperr.ErrInvalidArgument,
@@ -152,7 +152,7 @@ func TestConcertAuthoringUseCase_CreateDraft_PickedPlace(t *testing.T) {
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
-			// @spec components/usecase/series/create-draft "Catalog down for a new place"
+			// @spec components/usecase/series/create "Catalog down for a new place"
 			name:   "fail with UNAVAILABLE and store nothing when no Venue holds the place id and the catalog cannot be reached",
 			inputs: []*usecase.DraftEventInput{draftInput("Zepp Haneda", new(zeppHanedaPlaceID))},
 			setup: func(d *authoringDeps, created *[]*entity.Venue) {

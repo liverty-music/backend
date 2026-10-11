@@ -372,7 +372,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("fan authorizes", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Fan authorizes"
+		// @spec components/usecase/checkout/authorize-card "Fan authorizes their card"
 		f := newCheckoutFixture(t, start.Add(3*time.Minute))
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 		sale, _ := firstComeTicketType(150, 0, 2)
@@ -392,7 +392,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("card declined, fan retries", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Card declined, fan retries"
+		// @spec components/usecase/checkout/authorize-card "Card declined, fan retries"
 		f := newCheckoutFixture(t, start.Add(5*time.Minute))
 		checkout := fanCheckout(start)
 		checkout.CardAuthorizationID = "pi_1"
@@ -411,7 +411,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("name corrected on retry", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Name corrected on retry"
+		// @spec components/usecase/checkout/authorize-card "Name corrected on retry"
 		f := newCheckoutFixture(t, start.Add(6*time.Minute))
 		checkout := fanCheckout(start)
 		checkout.CardAuthorizationID = "pi_1"
@@ -432,7 +432,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("domestic-format phone number", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Domestic-format phone number"
+		// @spec components/usecase/checkout/authorize-card "Domestic-format phone number"
 		f := newCheckoutFixture(t, start.Add(3*time.Minute))
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 
@@ -455,7 +455,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("someone else's checkout", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Someone else's checkout"
+		// @spec components/usecase/checkout/authorize-card "Someone else's checkout"
 		f := newCheckoutFixture(t, start)
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 
@@ -466,7 +466,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 
 	t.Run("hold lapsed", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/authorize "Hold lapsed"
+		// @spec components/usecase/checkout/authorize-card "Hold lapsed"
 		f := newCheckoutFixture(t, start.Add(16*time.Minute))
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(fanCheckout(start), nil)
 
@@ -530,7 +530,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 
 	t.Run("cancellation fails", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/checkout/release-expired "Cancellation fails"
+		// @spec components/usecase/checkout/release-expired "Release fails"
 		f := newCheckoutFixture(t, now)
 		first := fanCheckout(start)
 		first.ID, first.Status, first.CardAuthorizationID = "checkout-a", entity.CheckoutStatusExpired, "pi_a"

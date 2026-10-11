@@ -165,7 +165,7 @@ func TestUserToProto_ProfileFields(t *testing.T) {
 
 	t.Run("returning buyer", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/fan/api/rpc/user "Returning buyer"
+		// @spec components/adapter/fan/api/rpc/user "Returning fan"
 		pb := mapper.UserToProto(&entity.User{
 			ID:          "u-1",
 			FullName:    "山田 花子",

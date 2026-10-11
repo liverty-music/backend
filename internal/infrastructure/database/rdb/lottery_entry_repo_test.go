@@ -211,7 +211,7 @@ func TestLotteryEntryRepository_SetCardAuthorization(t *testing.T) {
 	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 
 	t.Run("hold recorded", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/set-authorization "Hold recorded"
+		// @spec components/entity/lottery-entry/set-card-authorization "Card authorization recorded"
 		draft := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateDraft)
 
 		require.NoError(t, repo.SetCardAuthorization(ctx, draft.ID, "pi_hold"))
@@ -223,8 +223,32 @@ func TestLotteryEntryRepository_SetCardAuthorization(t *testing.T) {
 		assert.Equal(t, &want, got)
 	})
 
+	t.Run("same card authorization on retry", func(t *testing.T) {
+		// @spec components/entity/lottery-entry/set-card-authorization "Same card authorization on retry"
+		draft := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateDraft)
+		require.NoError(t, repo.SetCardAuthorization(ctx, draft.ID, "pi_retry"))
+
+		require.NoError(t, repo.SetCardAuthorization(ctx, draft.ID, "pi_retry"))
+
+		got, err := repo.Get(ctx, draft.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "pi_retry", got.CardAuthorizationID)
+	})
+
+	t.Run("another card authorization", func(t *testing.T) {
+		draft := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateDraft)
+		require.NoError(t, repo.SetCardAuthorization(ctx, draft.ID, "pi_first"))
+
+		err := repo.SetCardAuthorization(ctx, draft.ID, "pi_second")
+
+		assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
+		got, err := repo.Get(ctx, draft.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "pi_first", got.CardAuthorizationID, "nothing changes")
+	})
+
 	t.Run("not a draft", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/set-authorization "Not a draft"
+		// @spec components/entity/lottery-entry/set-card-authorization "Not a draft"
 		entered := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateEntered)
 
 		err := repo.SetCardAuthorization(ctx, entered.ID, "pi_other")
@@ -236,7 +260,7 @@ func TestLotteryEntryRepository_SetCardAuthorization(t *testing.T) {
 	})
 
 	t.Run("unknown id", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/set-authorization "Unknown id"
+		// @spec components/entity/lottery-entry/set-card-authorization "Unknown id"
 		err := repo.SetCardAuthorization(ctx, entity.LotteryEntryID(entity.NewID()), "pi_none")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
@@ -282,7 +306,7 @@ func TestLotteryEntryRepository_GetByCardAuthorizationID(t *testing.T) {
 	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 
 	t.Run("charged win", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-by-payment-intent-ref "Charged win"
+		// @spec components/entity/lottery-entry/get-by-card-authorization-id "Charged win"
 		won := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
 
 		got, err := repo.GetByCardAuthorizationID(ctx, won.CardAuthorizationID)
@@ -292,7 +316,7 @@ func TestLotteryEntryRepository_GetByCardAuthorizationID(t *testing.T) {
 	})
 
 	t.Run("unknown authorization", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-by-payment-intent-ref "Unknown authorization"
+		// @spec components/entity/lottery-entry/get-by-card-authorization-id "Unknown card authorization"
 		_, err := repo.GetByCardAuthorizationID(ctx, "pi_unknown_"+entity.NewID())
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
@@ -383,7 +407,7 @@ func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("after the draw", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-ticket-type-stats "After the draw"
+		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "After the draw"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
 		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateWon)
@@ -398,7 +422,7 @@ func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
 	})
 
 	t.Run("withdrawn and draft entries excluded", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-ticket-type-stats "Withdrawn and draft entries excluded"
+		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "Withdrawn and draft entries excluded"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 		insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateEntered)
 		insertLotteryEntry(t, tt.ID, newUserID(), 3, entity.LotteryEntryStateDraft)
@@ -412,7 +436,7 @@ func TestLotteryEntryRepository_GetStatsByTicketType(t *testing.T) {
 	})
 
 	t.Run("no entries", func(t *testing.T) {
-		// @spec components/entity/lottery-entry/get-ticket-type-stats "No entries"
+		// @spec components/entity/lottery-entry/get-stats-by-ticket-type "No entries"
 		tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 
 		got, err := repo.GetStatsByTicketType(ctx, tt.ID)

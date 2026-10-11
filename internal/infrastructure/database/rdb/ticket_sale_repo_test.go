@@ -389,7 +389,7 @@ func TestTicketSaleRepository_SetVerificationRequirement(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("requirement changed", func(t *testing.T) {
-		// @spec components/entity/ticket-sale/update-verification-requirement "Requirement changed"
+		// @spec components/entity/ticket-sale/set-verification-requirement "Requirement changed"
 		sale := createSale(t, newSaleFor(t, entity.TicketSaleMethodLottery, saleWindowStart, saleWindowStart.Add(7*24*time.Hour), seedPublishedEvent(t)))
 		require.Equal(t, entity.VerificationRequirementNone, sale.VerificationRequirement)
 
@@ -406,7 +406,7 @@ func TestTicketSaleRepository_SetVerificationRequirement(t *testing.T) {
 	})
 
 	t.Run("unknown id", func(t *testing.T) {
-		// @spec components/entity/ticket-sale/update-verification-requirement "Unknown id"
+		// @spec components/entity/ticket-sale/set-verification-requirement "Unknown id"
 		_, err := repo.SetVerificationRequirement(ctx, entity.TicketSaleID(entity.NewID()), entity.VerificationRequirementJPKIOnly, saleWindowStart)
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)

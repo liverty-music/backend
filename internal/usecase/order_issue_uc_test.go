@@ -444,7 +444,7 @@ func TestOrderUseCase_IssueFromCapturedWin(t *testing.T) {
 		}
 	})
 
-	// @spec components/usecase/order/issue-from-captured-win "Verified identity missing"
+	// @spec components/usecase/order/issue-from-captured-win "Identity verification missing"
 	t.Run("fails with NotFound and creates nothing when the user has no identity verification", func(t *testing.T) {
 		t.Parallel()
 

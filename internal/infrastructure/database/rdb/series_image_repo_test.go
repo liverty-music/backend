@@ -18,7 +18,7 @@ func TestSeriesRepository_ListMediaByOrganizer(t *testing.T) {
 	repo := rdb.NewSeriesImageRepository(testDB)
 
 	t.Run("returns the cover and a media no series uses", func(t *testing.T) {
-		// @spec components/entity/media/list-by-organizer "Cover and replaced upload"
+		// @spec components/entity/series-image/list-by-organizer "Cover and replaced upload"
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
 		other := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
 
@@ -35,7 +35,7 @@ func TestSeriesRepository_ListMediaByOrganizer(t *testing.T) {
 	})
 
 	t.Run("returns an empty list when the organizer owns no media", func(t *testing.T) {
-		// @spec components/entity/media/list-by-organizer "No media"
+		// @spec components/entity/series-image/list-by-organizer "No series image"
 		got, err := repo.ListByOrganizer(ctx, entity.NewID())
 
 		require.NoError(t, err)

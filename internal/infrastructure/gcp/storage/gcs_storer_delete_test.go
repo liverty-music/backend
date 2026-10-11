@@ -126,12 +126,12 @@ func TestGCSStorer_DeleteOriginal(t *testing.T) {
 		wantErr error
 	}{
 		{
-			// @spec components/entity/media/delete-original "Uploaded original"
+			// @spec components/entity/series-image/delete-original "Uploaded original"
 			name:    "removes the uploaded original",
 			objects: []string{original, sibling},
 		},
 		{
-			// @spec components/entity/media/delete-original "Already removed"
+			// @spec components/entity/series-image/delete-original "Already removed"
 			name:    "succeeds when the original does not exist",
 			objects: []string{sibling},
 		},
@@ -176,12 +176,12 @@ func TestGCSStorer_DeleteVariants(t *testing.T) {
 		wantErr error
 	}{
 		{
-			// @spec components/entity/media/delete-variants "Served cover"
+			// @spec components/entity/series-image/delete-variants "Served cover"
 			name:    "removes the thumbnail and the large image",
 			objects: []string{thumb, large, sibling},
 		},
 		{
-			// @spec components/entity/media/delete-variants "Already removed"
+			// @spec components/entity/series-image/delete-variants "Already removed"
 			name:    "succeeds when no served size exists",
 			objects: []string{sibling},
 		},

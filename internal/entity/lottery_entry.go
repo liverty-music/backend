@@ -206,12 +206,13 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	GetOrCreateDraft(ctx context.Context, ticketTypeID TicketTypeID, userID UserID, count int) (*LotteryEntry, error)
 
-	// SetAuthorization records paymentIntentRef as the Draft's card hold. It
-	// changes no other attribute.
+	// SetCardAuthorization records the Draft's CardAuthorization. Recording the
+	// same one again succeeds without a change. It changes no other attribute.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: the entry is not a Draft.
+	//  - FailedPrecondition: the entry is not a Draft, or already has another
+	//    CardAuthorization.
 	//  - NotFound: no entry has the id.
 	//  - Internal: database failure.
 	SetCardAuthorization(ctx context.Context, id LotteryEntryID, cardAuthorizationID string) error
@@ -224,7 +225,7 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	Get(ctx context.Context, id LotteryEntryID) (*LotteryEntry, error)
 
-	// GetByProviderPaymentID returns the entry whose card hold has the given
+	// GetByCardAuthorizationID returns the entry whose card authorization has the given
 	// reference.
 	//
 	// # Possible errors

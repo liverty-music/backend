@@ -41,7 +41,7 @@ func TestPayoutAccountHandler_GetScenarios(t *testing.T) {
 
 	t.Run("operator opens payout settings", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/payout-onboarding "Operator opens payout settings"
+		// @spec components/adapter/organizer/api/rpc/payout-account "Operator opens payout settings"
 		h := newHandler(t, &onboardingUCStub{fn: func(organizerID string) (*entity.PayoutAccount, string, error) {
 			return &entity.PayoutAccount{OrganizerID: organizerID, ProviderAccountID: "acct_1", Status: entity.PayoutOnboardingStatusPending},
 				"https://connect.example/onboarding", nil
@@ -55,7 +55,7 @@ func TestPayoutAccountHandler_GetScenarios(t *testing.T) {
 
 	t.Run("organizer gone meanwhile", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/organizer/api/rpc/payout-onboarding "Organizer gone meanwhile"
+		// @spec components/adapter/organizer/api/rpc/payout-account "Organizer gone meanwhile"
 		h := newHandler(t, &onboardingUCStub{fn: func(string) (*entity.PayoutAccount, string, error) {
 			return nil, "", apperr.New(codes.NotFound, "organizer not found")
 		}})

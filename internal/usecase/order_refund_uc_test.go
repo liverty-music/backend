@@ -95,7 +95,7 @@ func newRefundUCWithLogger(
 
 func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 	t.Parallel()
-	// @spec components/usecase/order/refund-order "Cancellation refund"
+	// @spec components/usecase/order/refund "Cancellation refund"
 
 	ctx := context.Background()
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
@@ -257,7 +257,7 @@ func TestRefundOrder_Cancellation_NoSettlement(t *testing.T) {
 
 func TestRefundOrder_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 	t.Parallel()
-	// @spec components/usecase/order/refund-order "Repeated refund"
+	// @spec components/usecase/order/refund "Repeated refund"
 
 	ctx := context.Background()
 	now := time.Now()
@@ -335,7 +335,7 @@ func TestRefundOrder_NotRefundable_FailedOrder(t *testing.T) {
 
 func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 	t.Parallel()
-	// @spec components/usecase/order/refund-order "Dispute"
+	// @spec components/usecase/order/refund "Dispute"
 
 	ctx := context.Background()
 	now := time.Now()
@@ -416,7 +416,7 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 
 func TestRefundOrder_UnspecifiedReason_InvalidArgument(t *testing.T) {
 	t.Parallel()
-	// @spec components/usecase/order/refund-order "Reason missing"
+	// @spec components/usecase/order/refund "Reason missing"
 
 	ctx := context.Background()
 	now := time.Now()
@@ -434,7 +434,7 @@ func TestRefundOrder_UnspecifiedReason_InvalidArgument(t *testing.T) {
 
 func TestRefundOrder_OrderNotFound(t *testing.T) {
 	t.Parallel()
-	// @spec components/usecase/order/refund-order "Unknown order"
+	// @spec components/usecase/order/refund "Unknown order"
 
 	ctx := context.Background()
 

@@ -262,7 +262,7 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 	t.Run("set authorization", func(t *testing.T) {
 		c := heldCheckout(t, repo, 2, start)
 
-		// @spec components/entity/checkout/set-authorization "First authorization"
+		// @spec components/entity/checkout/set-card-authorization "First card authorization"
 		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_auth_1"))
 		got, err := repo.Get(ctx, c.ID)
 		require.NoError(t, err)
@@ -274,19 +274,19 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 		assert.Equal(t, want.Amount, got.Amount)
 		assert.True(t, want.HoldExpireTime.Equal(got.HoldExpireTime))
 
-		// @spec components/entity/checkout/set-authorization "Same hold on retry"
+		// @spec components/entity/checkout/set-card-authorization "Same card authorization on retry"
 		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_auth_1"))
 		got, err = repo.Get(ctx, c.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "pi_auth_1", got.CardAuthorizationID)
 
-		// @spec components/entity/checkout/set-authorization "Another hold"
+		// @spec components/entity/checkout/set-card-authorization "Another card authorization"
 		assert.ErrorIs(t, repo.SetCardAuthorization(ctx, c.ID, "pi_other"), apperr.ErrFailedPrecondition)
 		got, err = repo.Get(ctx, c.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "pi_auth_1", got.CardAuthorizationID, "nothing changes")
 
-		// @spec components/entity/checkout/set-authorization "Expired checkout"
+		// @spec components/entity/checkout/set-card-authorization "Expired checkout"
 		lapsed := heldCheckout(t, repo, 1, start)
 		_, err = repo.Release(ctx, lapsed.ID, expiry)
 		require.NoError(t, err)
@@ -422,7 +422,7 @@ func TestCheckoutRepository_Lifecycle(t *testing.T) {
 	})
 
 	t.Run("record authorization release", func(t *testing.T) {
-		// @spec components/entity/checkout/record-authorization-release "Hold given back"
+		// @spec components/entity/checkout/record-card-authorization-release "Card authorization given back"
 		c := heldCheckout(t, repo, 1, start)
 		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, "pi_rel"))
 		_, err := repo.Release(ctx, c.ID, expiry)
@@ -465,7 +465,7 @@ func TestCheckoutRepository_ListDue(t *testing.T) {
 	_, err = repo.Commit(ctx, fresh.ID, now.Add(-30*time.Second))
 	require.NoError(t, err)
 
-	// @spec components/entity/checkout/list-due "Card hold already given back"
+	// @spec components/entity/checkout/list-due "Card authorization already given back"
 	givenBack := heldCheckout(t, repo, 1, t0)
 	require.NoError(t, repo.SetCardAuthorization(ctx, givenBack.ID, "pi_given_back"))
 	_, err = repo.Release(ctx, givenBack.ID, t0.Add(16*time.Minute))
@@ -587,7 +587,7 @@ func TestCheckoutRepository_GetByCardAuthorizationID(t *testing.T) {
 	start := saleWindowStart.Add(time.Hour)
 
 	t.Run("charged checkout", func(t *testing.T) {
-		// @spec components/entity/checkout/get-by-authorization-ref "Charged checkout"
+		// @spec components/entity/checkout/get-by-card-authorization-id "Charged checkout"
 		c := heldCheckout(t, repo, 1, start)
 		ref := "pi_lookup_" + string(c.ID)
 		require.NoError(t, repo.SetCardAuthorization(ctx, c.ID, ref))
@@ -599,7 +599,7 @@ func TestCheckoutRepository_GetByCardAuthorizationID(t *testing.T) {
 	})
 
 	t.Run("unknown hold", func(t *testing.T) {
-		// @spec components/entity/checkout/get-by-authorization-ref "Unknown hold"
+		// @spec components/entity/checkout/get-by-card-authorization-id "Unknown card authorization"
 		_, err := repo.GetByCardAuthorizationID(ctx, "pi_unknown_"+entity.NewID())
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
