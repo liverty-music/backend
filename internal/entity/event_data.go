@@ -239,7 +239,7 @@ type UserCreatedData struct {
 	UserID string `json:"user_id"`
 	// ProviderUserID is the Zitadel user ID (JWT sub claim). Used by the
 	// email-verification consumer to address Zitadel APIs.
-	ProviderUserID string `json:"external_id"`
+	ProviderUserID string `json:"provider_user_id"`
 	// Email is the user's email address.
 	Email string `json:"email"`
 }
@@ -445,7 +445,7 @@ type MediaUploadedData struct {
 	// processor uses it to compose the originals-bucket key
 	// ({org}/{seriesImageID}) and the served-bucket variant keys
 	// (cdn/{org}/{seriesImageID}/{variant}.webp).
-	SeriesImageID string `json:"media_id"`
+	SeriesImageID string `json:"series_image_id"`
 	// SeriesID is the target series. The processor resolves the organizer id
 	// from the series image row (stored on insert by SetCoverImage) so it can compose
 	// all bucket paths without an extra DB lookup.

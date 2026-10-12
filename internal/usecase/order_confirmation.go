@@ -166,7 +166,7 @@ func (c orderConfirmationContent) email(lang string) entity.OrderConfirmationEma
 			c.count, yen(c.order.Amount), paid.Format("Jan 2, 2006 15:04"), card, c.order.Payment.CardLast4, c.order.ID)
 		fmt.Fprintf(&b, "[Showing your tickets]\nOpen the Tickets screen of the app and show your tickets to the staff at the entrance.\n\n")
 		fmt.Fprintf(&b, "[Please note]\n- Resale of these tickets without the organizer's consent is prohibited.\n- Tickets cannot be cancelled or refunded, except when the concert is cancelled.\n\n")
-		fmt.Fprintf(&b, "[Seller (Specified Commercial Transactions Act)]\nSeller: %s\nRepresentative: %s\nAddress: %s\nPhone: %s\nEmail: %s\n",
+		fmt.Fprintf(&b, "[Sold by (Specified Commercial Transactions Act)]\nBusiness name: %s\nRepresentative: %s\nAddress: %s\nPhone: %s\nEmail: %s\n",
 			business.LegalName, business.RepresentativeName, business.BusinessAddress, business.BusinessPhoneNumber, business.ContactEmail)
 		return entity.OrderConfirmationEmail{
 			Subject:  "[Liverty Music] Your ticket purchase is complete",

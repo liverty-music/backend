@@ -10,9 +10,9 @@ import (
 
 // RejectedScanReason is why a scan, or one Ticket presented in it, was
 // refused at reception. Values mirror the proto enum
-// liverty_music.entity.v1.RejectedScanReason, except that value 4 (the
-// proto's NOT_HOLDER) is unused and invalid: a code presenting a Ticket the
-// user does not hold for the event is rejected as Forged.
+// liverty_music.entity.v1.RejectedScanReason, except that reason 4 is
+// retired and invalid: a code presenting a Ticket the user does not hold for
+// the event is rejected as Forged.
 type RejectedScanReason int16
 
 const (
