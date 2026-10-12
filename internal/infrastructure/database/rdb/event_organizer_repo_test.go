@@ -26,8 +26,8 @@ func TestEventOrganizerRepository_GetOrganizerID(t *testing.T) {
 		venueID := seedVenue(t, "eorg-venue-owned")
 		seriesID := entity.NewID()
 		_, err := testDB.Pool.Exec(ctx, `
-			INSERT INTO series (id, title, type, organizer_id, visibility, publish_state)
-			VALUES ($1, 'Organizer Series', 'SINGLE', $2, 'PUBLIC', 'PUBLISHED')
+			INSERT INTO series (id, title, type, organizer_id, visibility)
+			VALUES ($1, 'Organizer Series', 'SINGLE', $2, 'PUBLIC')
 		`, seriesID, organizerID)
 		require.NoError(t, err)
 		eventID := entity.NewID()

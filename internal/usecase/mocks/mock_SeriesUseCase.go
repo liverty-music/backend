@@ -24,17 +24,17 @@ func (_m *MockSeriesUseCase) EXPECT() *MockSeriesUseCase_Expecter {
 	return &MockSeriesUseCase_Expecter{mock: &_m.Mock}
 }
 
-// Cancel provides a mock function with given fields: ctx, callerOrgID, seriesID
-func (_m *MockSeriesUseCase) Cancel(ctx context.Context, callerOrgID string, seriesID string) error {
-	ret := _m.Called(ctx, callerOrgID, seriesID)
+// Cancel provides a mock function with given fields: ctx, callerOrgID, seriesID, eventIDs
+func (_m *MockSeriesUseCase) Cancel(ctx context.Context, callerOrgID string, seriesID string, eventIDs []string) error {
+	ret := _m.Called(ctx, callerOrgID, seriesID, eventIDs)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Cancel")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, callerOrgID, seriesID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []string) error); ok {
+		r0 = rf(ctx, callerOrgID, seriesID, eventIDs)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -51,13 +51,14 @@ type MockSeriesUseCase_Cancel_Call struct {
 //   - ctx context.Context
 //   - callerOrgID string
 //   - seriesID string
-func (_e *MockSeriesUseCase_Expecter) Cancel(ctx interface{}, callerOrgID interface{}, seriesID interface{}) *MockSeriesUseCase_Cancel_Call {
-	return &MockSeriesUseCase_Cancel_Call{Call: _e.mock.On("Cancel", ctx, callerOrgID, seriesID)}
+//   - eventIDs []string
+func (_e *MockSeriesUseCase_Expecter) Cancel(ctx interface{}, callerOrgID interface{}, seriesID interface{}, eventIDs interface{}) *MockSeriesUseCase_Cancel_Call {
+	return &MockSeriesUseCase_Cancel_Call{Call: _e.mock.On("Cancel", ctx, callerOrgID, seriesID, eventIDs)}
 }
 
-func (_c *MockSeriesUseCase_Cancel_Call) Run(run func(ctx context.Context, callerOrgID string, seriesID string)) *MockSeriesUseCase_Cancel_Call {
+func (_c *MockSeriesUseCase_Cancel_Call) Run(run func(ctx context.Context, callerOrgID string, seriesID string, eventIDs []string)) *MockSeriesUseCase_Cancel_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]string))
 	})
 	return _c
 }
@@ -67,7 +68,7 @@ func (_c *MockSeriesUseCase_Cancel_Call) Return(_a0 error) *MockSeriesUseCase_Ca
 	return _c
 }
 
-func (_c *MockSeriesUseCase_Cancel_Call) RunAndReturn(run func(context.Context, string, string) error) *MockSeriesUseCase_Cancel_Call {
+func (_c *MockSeriesUseCase_Cancel_Call) RunAndReturn(run func(context.Context, string, string, []string) error) *MockSeriesUseCase_Cancel_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -229,9 +230,9 @@ func (_c *MockSeriesUseCase_List_Call) RunAndReturn(run func(context.Context, st
 	return _c
 }
 
-// Publish provides a mock function with given fields: ctx, callerOrgID, seriesID
-func (_m *MockSeriesUseCase) Publish(ctx context.Context, callerOrgID string, seriesID string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
-	ret := _m.Called(ctx, callerOrgID, seriesID)
+// Publish provides a mock function with given fields: ctx, callerOrgID, seriesID, eventIDs
+func (_m *MockSeriesUseCase) Publish(ctx context.Context, callerOrgID string, seriesID string, eventIDs []string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
+	ret := _m.Called(ctx, callerOrgID, seriesID, eventIDs)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Publish")
@@ -241,35 +242,35 @@ func (_m *MockSeriesUseCase) Publish(ctx context.Context, callerOrgID string, se
 	var r1 []*entity.Event
 	var r2 []*entity.Artist
 	var r3 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*entity.Series, []*entity.Event, []*entity.Artist, error)); ok {
-		return rf(ctx, callerOrgID, seriesID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)); ok {
+		return rf(ctx, callerOrgID, seriesID, eventIDs)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) *entity.Series); ok {
-		r0 = rf(ctx, callerOrgID, seriesID)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []string) *entity.Series); ok {
+		r0 = rf(ctx, callerOrgID, seriesID, eventIDs)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.Series)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string) []*entity.Event); ok {
-		r1 = rf(ctx, callerOrgID, seriesID)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, []string) []*entity.Event); ok {
+		r1 = rf(ctx, callerOrgID, seriesID, eventIDs)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).([]*entity.Event)
 		}
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, string, string) []*entity.Artist); ok {
-		r2 = rf(ctx, callerOrgID, seriesID)
+	if rf, ok := ret.Get(2).(func(context.Context, string, string, []string) []*entity.Artist); ok {
+		r2 = rf(ctx, callerOrgID, seriesID, eventIDs)
 	} else {
 		if ret.Get(2) != nil {
 			r2 = ret.Get(2).([]*entity.Artist)
 		}
 	}
 
-	if rf, ok := ret.Get(3).(func(context.Context, string, string) error); ok {
-		r3 = rf(ctx, callerOrgID, seriesID)
+	if rf, ok := ret.Get(3).(func(context.Context, string, string, []string) error); ok {
+		r3 = rf(ctx, callerOrgID, seriesID, eventIDs)
 	} else {
 		r3 = ret.Error(3)
 	}
@@ -286,13 +287,14 @@ type MockSeriesUseCase_Publish_Call struct {
 //   - ctx context.Context
 //   - callerOrgID string
 //   - seriesID string
-func (_e *MockSeriesUseCase_Expecter) Publish(ctx interface{}, callerOrgID interface{}, seriesID interface{}) *MockSeriesUseCase_Publish_Call {
-	return &MockSeriesUseCase_Publish_Call{Call: _e.mock.On("Publish", ctx, callerOrgID, seriesID)}
+//   - eventIDs []string
+func (_e *MockSeriesUseCase_Expecter) Publish(ctx interface{}, callerOrgID interface{}, seriesID interface{}, eventIDs interface{}) *MockSeriesUseCase_Publish_Call {
+	return &MockSeriesUseCase_Publish_Call{Call: _e.mock.On("Publish", ctx, callerOrgID, seriesID, eventIDs)}
 }
 
-func (_c *MockSeriesUseCase_Publish_Call) Run(run func(ctx context.Context, callerOrgID string, seriesID string)) *MockSeriesUseCase_Publish_Call {
+func (_c *MockSeriesUseCase_Publish_Call) Run(run func(ctx context.Context, callerOrgID string, seriesID string, eventIDs []string)) *MockSeriesUseCase_Publish_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]string))
 	})
 	return _c
 }
@@ -302,7 +304,7 @@ func (_c *MockSeriesUseCase_Publish_Call) Return(_a0 *entity.Series, _a1 []*enti
 	return _c
 }
 
-func (_c *MockSeriesUseCase_Publish_Call) RunAndReturn(run func(context.Context, string, string) (*entity.Series, []*entity.Event, []*entity.Artist, error)) *MockSeriesUseCase_Publish_Call {
+func (_c *MockSeriesUseCase_Publish_Call) RunAndReturn(run func(context.Context, string, string, []string) (*entity.Series, []*entity.Event, []*entity.Artist, error)) *MockSeriesUseCase_Publish_Call {
 	_c.Call.Return(run)
 	return _c
 }

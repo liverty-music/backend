@@ -28,6 +28,13 @@ type Concert struct {
 	Artists []*Artist
 }
 
+// IsVisibleToFans reports whether the concert is visible to fans: exactly when
+// its Event is publicly visible (see [Event.IsPubliclyVisible]). Its publish
+// state is its Event's.
+func (c *Concert) IsVisibleToFans() bool {
+	return c.IsPubliclyVisible(c.Series)
+}
+
 // ArtistIDs returns the IDs of all artists performing at this concert.
 // Convenient for callers that only need identifiers (e.g. mock comparisons,
 // repository writes, or hype checks against followed_artists).

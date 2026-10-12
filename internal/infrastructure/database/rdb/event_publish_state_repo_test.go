@@ -12,56 +12,40 @@ import (
 	"uuid"
 )
 
-// seedPublishedEvent inserts a first-party series in PUBLISHED state with an
-// associated event and returns the event ID. The series has an organizer_id,
-// visibility, and publish_state set to satisfy the schema constraints
-// (chk_series_first_party_state).
-func seedPublishedEvent(t *testing.T) string {
+// seedFirstPartyEvents inserts a first-party PUBLIC series with one event per
+// given publish state, on consecutive dates, and returns the event IDs in that
+// order.
+func seedFirstPartyEvents(t *testing.T, states ...string) []string {
 	t.Helper()
 	ctx := context.Background()
 
 	organizerID := seedOrganizer(t)
-	venueID := seedVenue(t, "eps-venue")
+	venueID := seedVenue(t, "eps-venue-"+uuid.NewV7().String())
 	seriesID := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO series (id, title, type, organizer_id, visibility, publish_state, published_at)
-		VALUES ($1, 'Published Series', 'SINGLE', $2, 'PUBLIC', 'PUBLISHED', now())
+		INSERT INTO series (id, title, type, organizer_id, visibility)
+		VALUES ($1, 'Organizer Series', 'TOUR', $2, 'PUBLIC')
 	`, seriesID, organizerID)
 	require.NoError(t, err)
 
-	eventID := uuid.NewV7().String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, '2027-03-01')`,
-		eventID, seriesID, venueID,
-	)
-	require.NoError(t, err)
-
-	return eventID
+	ids := make([]string, len(states))
+	for i, state := range states {
+		ids[i] = uuid.NewV7().String()
+		_, err = testDB.Pool.Exec(ctx,
+			`INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state)
+			 VALUES ($1, $2, $3, DATE '2027-03-01' + $4::int, $5::event_publish_state)`,
+			ids[i], seriesID, venueID, i, state,
+		)
+		require.NoError(t, err)
+	}
+	return ids
 }
 
-// seedDraftEvent inserts a first-party series in DRAFT state with an
-// associated event and returns the event ID.
-func seedDraftEvent(t *testing.T) string {
+// seedPublishedEvent inserts a first-party series with one PUBLISHED event and
+// returns the event ID.
+func seedPublishedEvent(t *testing.T) string {
 	t.Helper()
-	ctx := context.Background()
-
-	organizerID := seedOrganizer(t)
-	venueID := seedVenue(t, "eps-draft-venue")
-	seriesID := uuid.NewV7().String()
-	_, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO series (id, title, type, organizer_id, visibility, publish_state)
-		VALUES ($1, 'Draft Series', 'SINGLE', $2, 'PUBLIC', 'DRAFT')
-	`, seriesID, organizerID)
-	require.NoError(t, err)
-
-	eventID := uuid.NewV7().String()
-	_, err = testDB.Pool.Exec(ctx,
-		`INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, '2027-04-01')`,
-		eventID, seriesID, venueID,
-	)
-	require.NoError(t, err)
-
-	return eventID
+	return seedFirstPartyEvents(t, "PUBLISHED")[0]
 }
 
 // seedDiscoveredEvent inserts a discovered (NULL organizer/visibility/publish_state)
@@ -116,7 +100,8 @@ func TestEventPublishStateRepository_IsEventPublished(t *testing.T) {
 		wantErrCode codes.Code
 	}{
 		{
-			name: "return true for published event",
+			// @spec components/entity/event/is-event-published "Published organizer event"
+			name: "return true for a PUBLISHED event",
 			setup: func() string {
 				cleanDatabase(t)
 				return seedPublishedEvent(t)
@@ -124,15 +109,26 @@ func TestEventPublishStateRepository_IsEventPublished(t *testing.T) {
 			wantResult: true,
 		},
 		{
-			name: "return false (not error) for draft event",
+			// @spec components/entity/event/is-event-published "Draft date of a published series"
+			name: "return false (not error) for a DRAFT event whose sibling date is PUBLISHED",
 			setup: func() string {
 				cleanDatabase(t)
-				return seedDraftEvent(t)
+				return seedFirstPartyEvents(t, "PUBLISHED", "DRAFT")[1]
 			},
 			wantResult: false,
 		},
 		{
-			name: "return false (not error) for discovered event with null publish_state",
+			// @spec components/entity/event/is-event-published "Cancelled date of a published series"
+			name: "return false (not error) for a CANCELLED event whose sibling date is PUBLISHED",
+			setup: func() string {
+				cleanDatabase(t)
+				return seedFirstPartyEvents(t, "PUBLISHED", "CANCELLED")[1]
+			},
+			wantResult: false,
+		},
+		{
+			// @spec components/entity/event/is-event-published "Discovered event"
+			name: "return false (not error) for a discovered event with no publish state",
 			setup: func() string {
 				cleanDatabase(t)
 				return seedDiscoveredEvent(t)
@@ -140,6 +136,7 @@ func TestEventPublishStateRepository_IsEventPublished(t *testing.T) {
 			wantResult: false,
 		},
 		{
+			// @spec components/entity/event/is-event-published "Unknown event id"
 			name: "return NotFound for non-existent event",
 			setup: func() string {
 				cleanDatabase(t)
@@ -194,8 +191,8 @@ func TestEventPublishStateRepository_GetEventOrganizerID(t *testing.T) {
 		venueID := seedVenue(t, "eps-owner-venue")
 		seriesID := uuid.NewV7().String()
 		_, err := testDB.Pool.Exec(ctx, `
-			INSERT INTO series (id, title, type, organizer_id, visibility, publish_state, published_at)
-			VALUES ($1, 'Owned Series', 'SINGLE', $2, 'PUBLIC', 'PUBLISHED', now())
+			INSERT INTO series (id, title, type, organizer_id, visibility)
+			VALUES ($1, 'Owned Series', 'SINGLE', $2, 'PUBLIC')
 		`, seriesID, organizerID)
 		require.NoError(t, err)
 		eventID := uuid.NewV7().String()

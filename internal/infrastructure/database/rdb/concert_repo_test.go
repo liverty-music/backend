@@ -1332,27 +1332,22 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		// seedFirstPartySeriesEvent inserts a first-party series in the given
-		// publish_state/visibility with one event on date, linked to artistID
-		// via concert_artists.
+		// seedFirstPartySeriesEvent inserts a first-party series with the given
+		// visibility and one event on date in the given publish state, linked
+		// to artistID via concert_artists.
 		seedFirstPartySeriesEvent := func(title, publishState, visibility, date string) string {
 			t.Helper()
 			seriesID := newTestID(t)
-			var publishedAt *time.Time
-			if publishState == string(entity.SeriesPublishStatePublished) {
-				now := time.Now()
-				publishedAt = &now
-			}
 			_, err := testDB.Pool.Exec(ctx, `
-				INSERT INTO series (id, title, type, organizer_id, visibility, publish_state, published_at)
-				VALUES ($1, $2, 'SINGLE', $3, $4, $5, $6)
-			`, seriesID, title, organizerID, visibility, publishState, publishedAt)
+				INSERT INTO series (id, title, type, organizer_id, visibility)
+				VALUES ($1, $2, 'SINGLE', $3, $4)
+			`, seriesID, title, organizerID, visibility)
 			require.NoError(t, err)
 
 			eventID := newTestID(t)
 			_, err = testDB.Pool.Exec(ctx,
-				"INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, $4)",
-				eventID, seriesID, venueID, date,
+				"INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state) VALUES ($1, $2, $3, $4, $5)",
+				eventID, seriesID, venueID, date, publishState,
 			)
 			require.NoError(t, err)
 			_, err = testDB.Pool.Exec(ctx, "INSERT INTO concerts (event_id) VALUES ($1)", eventID)
@@ -1365,10 +1360,10 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 			return seriesID
 		}
 
-		seedFirstPartySeriesEvent("Draft Series Concert", string(entity.SeriesPublishStateDraft), string(entity.SeriesVisibilityPublic), "2027-06-01")
-		seedFirstPartySeriesEvent("Unlisted Series Concert", string(entity.SeriesPublishStatePublished), string(entity.SeriesVisibilityUnlisted), "2027-06-02")
-		seedFirstPartySeriesEvent("Cancelled Series Concert", string(entity.SeriesPublishStateCancelled), string(entity.SeriesVisibilityPublic), "2027-06-03")
-		publishedSeriesID := seedFirstPartySeriesEvent("Published Public Series Concert", string(entity.SeriesPublishStatePublished), string(entity.SeriesVisibilityPublic), "2027-06-04")
+		seedFirstPartySeriesEvent("Draft Series Concert", string(entity.PublishStateDraft), string(entity.SeriesVisibilityPublic), "2027-06-01")
+		seedFirstPartySeriesEvent("Unlisted Series Concert", string(entity.PublishStatePublished), string(entity.SeriesVisibilityUnlisted), "2027-06-02")
+		seedFirstPartySeriesEvent("Cancelled Series Concert", string(entity.PublishStateCancelled), string(entity.SeriesVisibilityPublic), "2027-06-03")
+		publishedSeriesID := seedFirstPartySeriesEvent("Published Public Series Concert", string(entity.PublishStatePublished), string(entity.SeriesVisibilityPublic), "2027-06-04")
 		coverID := newTestID(t)
 		_, err = testDB.Pool.Exec(ctx, "INSERT INTO series_images (id, organizer_id) VALUES ($1, $2)", coverID, organizerID)
 		require.NoError(t, err)
@@ -1385,7 +1380,7 @@ func TestConcertRepository_ListByFollower(t *testing.T) {
 		require.NotNil(t, got[0].Series.Visibility)
 		assert.Equal(t, entity.SeriesVisibilityPublic, *got[0].Series.Visibility)
 		require.NotNil(t, got[0].Series.PublishState)
-		assert.Equal(t, entity.SeriesPublishStatePublished, *got[0].Series.PublishState)
+		assert.Equal(t, entity.PublishStatePublished, *got[0].Series.PublishState)
 		require.NotNil(t, got[0].Series.CoverImage, "a list read carries the series' cover, as the event page does")
 		assert.Equal(t, coverID, got[0].Series.CoverImage.ID)
 		assert.Equal(t, organizerID, got[0].Series.CoverImage.OrganizerID)

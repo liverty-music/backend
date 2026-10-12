@@ -3,6 +3,9 @@ package entity
 import (
 	"context"
 	"time"
+
+	"github.com/pannpers/go-apperr/apperr"
+	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
 // Event represents a single occurrence on a specific date at a specific venue.
@@ -41,6 +44,113 @@ type Event struct {
 	StartTime *time.Time
 	// OpenTime is the time when doors open (optional).
 	OpenTime *time.Time
+	// PublishState is where the event is in the organizer publish lifecycle.
+	// Set for an Event of a first-party series; nil for an Event of a
+	// discovered series.
+	PublishState *PublishState
+}
+
+// NewAuthoredEvent returns a new Event of a first-party series. It starts
+// DRAFT: it holds no slot and is not a [Concert] until it is published.
+func NewAuthoredEvent(seriesID, venueID string, listedVenueName *string, localDate time.Time, startTime, openTime *time.Time) *Event {
+	state := PublishStateDraft
+	return &Event{
+		ID:              NewID(),
+		SeriesID:        seriesID,
+		VenueID:         venueID,
+		ListedVenueName: listedVenueName,
+		LocalDate:       localDate,
+		StartTime:       startTime,
+		OpenTime:        openTime,
+		PublishState:    &state,
+	}
+}
+
+// HasPublishState reports whether the event is in the given publish state. An
+// Event of a discovered series has no publish state, so it is in none.
+func (e *Event) HasPublishState(state PublishState) bool {
+	return e.PublishState != nil && *e.PublishState == state
+}
+
+// SameSlot reports whether e and other are the same performance: neither is
+// DRAFT, and they share the Venue, the local date and the start time, where an
+// unknown start time matches only another unknown start time. A DRAFT event
+// holds no slot, so it is the same performance as no other Event.
+func (e *Event) SameSlot(other *Event) bool {
+	if e.HasPublishState(PublishStateDraft) || other.HasPublishState(PublishStateDraft) {
+		return false
+	}
+	return e.VenueID == other.VenueID &&
+		e.LocalDate.Equal(other.LocalDate) &&
+		sameOptionalTime(e.StartTime, other.StartTime)
+}
+
+// CanTransitionTo reports whether the event may move to next. The only
+// transitions are DRAFT to PUBLISHED and PUBLISHED to CANCELLED: a draft that
+// will not happen is removed, never cancelled, and CANCELLED is terminal. An
+// Event of a discovered series has no transitions.
+func (e *Event) CanTransitionTo(next PublishState) bool {
+	switch {
+	case e.HasPublishState(PublishStateDraft):
+		return next == PublishStatePublished
+	case e.HasPublishState(PublishStatePublished):
+		return next == PublishStateCancelled
+	default:
+		return false
+	}
+}
+
+// IsPubliclyVisible reports whether the event appears on fan-facing public and
+// follower surfaces. An Event of a discovered series always does. An Event of a
+// first-party series does only when it is PUBLISHED and the series is PUBLIC.
+func (e *Event) IsPubliclyVisible(series *Series) bool {
+	if !series.IsFirstParty() {
+		return true
+	}
+	return e.HasPublishState(PublishStatePublished) && series.IsPublic()
+}
+
+// HasEventPage reports whether the event has a public event page
+// (/events/:id): its series is first-party and PUBLIC, and the event is
+// PUBLISHED or CANCELLED. Unlike [Event.IsPubliclyVisible], a CANCELLED event
+// keeps its page so a shared link can still explain the cancellation.
+func (e *Event) HasEventPage(series *Series) bool {
+	if !series.IsFirstParty() || !series.IsPublic() {
+		return false
+	}
+	return e.HasPublishState(PublishStatePublished) || e.HasPublishState(PublishStateCancelled)
+}
+
+// CheckChange returns FailedPrecondition when next would change what the
+// event's publish state fixes. A DRAFT event may change freely. A PUBLISHED
+// event keeps its Venue and local date; its open time may change, and its
+// start time may change only while no ticket sale offers it (onSale false). A
+// CANCELLED event may not change at all.
+func (e *Event) CheckChange(next *Event, onSale bool) error {
+	switch {
+	case e.HasPublishState(PublishStateCancelled):
+		if next.VenueID != e.VenueID || !next.LocalDate.Equal(e.LocalDate) ||
+			!sameOptionalTime(next.StartTime, e.StartTime) || !sameOptionalTime(next.OpenTime, e.OpenTime) {
+			return apperr.New(codes.FailedPrecondition, "a cancelled event cannot change")
+		}
+	case e.HasPublishState(PublishStatePublished):
+		if next.VenueID != e.VenueID || !next.LocalDate.Equal(e.LocalDate) {
+			return apperr.New(codes.FailedPrecondition, "the venue and date of a published event cannot change; cancel it and add a new date")
+		}
+		if onSale && !sameOptionalTime(next.StartTime, e.StartTime) {
+			return apperr.New(codes.FailedPrecondition, "the start time of an event on sale cannot change")
+		}
+	}
+	return nil
+}
+
+// sameOptionalTime reports whether two optional instants are equal, where two
+// unknown (nil) instants are equal and an unknown one equals no known one.
+func sameOptionalTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Equal(*b)
 }
 
 // EventRepository reads one [Event]'s current date and times.

@@ -56,9 +56,9 @@ func seedDeletableOrganizer(t *testing.T, status entity.OrganizerStatus) deletab
 	exec(`INSERT INTO followed_artists (user_id, artist_id) VALUES ($1, $2)`, o.followerID, o.artistID)
 
 	venueID := seedVenue(t, "delete-venue-"+uuid.NewV7().String())
-	exec(`INSERT INTO series (id, title, type, organizer_id, visibility, publish_state, published_at) VALUES ($1, 'Delete Tour', 'SINGLE', $2, 'PUBLIC', 'PUBLISHED', now())`,
+	exec(`INSERT INTO series (id, title, type, organizer_id, visibility) VALUES ($1, 'Delete Tour', 'SINGLE', $2, 'PUBLIC')`,
 		o.seriesID, o.organizerID)
-	exec(`INSERT INTO events (id, series_id, venue_id, local_event_date) VALUES ($1, $2, $3, '2026-11-20')`,
+	exec(`INSERT INTO events (id, series_id, venue_id, local_event_date, publish_state) VALUES ($1, $2, $3, '2026-11-20', 'PUBLISHED')`,
 		o.eventID, o.seriesID, venueID)
 	exec(`INSERT INTO concerts (event_id) VALUES ($1)`, o.eventID)
 	exec(`INSERT INTO concert_artists (event_id, artist_id) VALUES ($1, $2)`, o.eventID, o.artistID)

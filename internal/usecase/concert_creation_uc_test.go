@@ -127,16 +127,12 @@ func (r *fakeSeriesRepo) DeleteOrphaned(_ context.Context, seriesIDs []string) (
 // introduced by the organizer-event-authoring feature. Tests that exercise
 // discovery pipeline logic do not exercise these paths, so all are no-ops.
 
-func (r *fakeSeriesRepo) CreateDraft(_ context.Context, _ *entity.Series, _ []*entity.DraftEvent, _ []string) error {
+func (r *fakeSeriesRepo) CreateDraft(_ context.Context, _ *entity.Series, _ []*entity.Event, _ []string) error {
 	return nil
 }
 
-func (r *fakeSeriesRepo) UpdateDraft(_ context.Context, _ *entity.Series, _ []*entity.DraftEvent, _ []string) error {
+func (r *fakeSeriesRepo) Update(_ context.Context, _ *entity.Series, _ []*entity.Event, _ []string) error {
 	return nil
-}
-
-func (r *fakeSeriesRepo) LoadDraft(_ context.Context, _ string) ([]*entity.DraftEvent, []string, error) {
-	return nil, nil, nil
 }
 
 func (r *fakeSeriesRepo) GetAuthored(_ context.Context, _ string) (*entity.Series, []*entity.Event, []*entity.Artist, error) {
@@ -159,15 +155,11 @@ func (r *fakeSeriesRepo) ReplaceCoverImage(_ context.Context, _ string, _ *entit
 	return "", nil
 }
 
-func (r *fakeSeriesRepo) MarkPublished(_ context.Context, _ string, _ time.Time) error {
-	return nil
+func (r *fakeSeriesRepo) PublishEvents(_ context.Context, _ string, _ []string) ([]string, error) {
+	return nil, nil
 }
 
-func (r *fakeSeriesRepo) MarkCancelled(_ context.Context, _ string, _ time.Time) error {
-	return nil
-}
-
-func (r *fakeSeriesRepo) PublishDraft(_ context.Context, _ string, _ time.Time) ([]string, error) {
+func (r *fakeSeriesRepo) CancelEvents(_ context.Context, _ string, _ []string) ([]string, error) {
 	return nil, nil
 }
 
