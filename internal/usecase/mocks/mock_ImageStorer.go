@@ -22,9 +22,9 @@ func (_m *MockImageStorer) EXPECT() *MockImageStorer_Expecter {
 	return &MockImageStorer_Expecter{mock: &_m.Mock}
 }
 
-// DeleteOriginal provides a mock function with given fields: ctx, bucket, organizerID, mediaID
-func (_m *MockImageStorer) DeleteOriginal(ctx context.Context, bucket string, organizerID string, mediaID string) error {
-	ret := _m.Called(ctx, bucket, organizerID, mediaID)
+// DeleteOriginal provides a mock function with given fields: ctx, bucket, organizerID, seriesImageID
+func (_m *MockImageStorer) DeleteOriginal(ctx context.Context, bucket string, organizerID string, seriesImageID string) error {
+	ret := _m.Called(ctx, bucket, organizerID, seriesImageID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteOriginal")
@@ -32,7 +32,7 @@ func (_m *MockImageStorer) DeleteOriginal(ctx context.Context, bucket string, or
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
-		r0 = rf(ctx, bucket, organizerID, mediaID)
+		r0 = rf(ctx, bucket, organizerID, seriesImageID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -49,12 +49,12 @@ type MockImageStorer_DeleteOriginal_Call struct {
 //   - ctx context.Context
 //   - bucket string
 //   - organizerID string
-//   - mediaID string
-func (_e *MockImageStorer_Expecter) DeleteOriginal(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}) *MockImageStorer_DeleteOriginal_Call {
-	return &MockImageStorer_DeleteOriginal_Call{Call: _e.mock.On("DeleteOriginal", ctx, bucket, organizerID, mediaID)}
+//   - seriesImageID string
+func (_e *MockImageStorer_Expecter) DeleteOriginal(ctx interface{}, bucket interface{}, organizerID interface{}, seriesImageID interface{}) *MockImageStorer_DeleteOriginal_Call {
+	return &MockImageStorer_DeleteOriginal_Call{Call: _e.mock.On("DeleteOriginal", ctx, bucket, organizerID, seriesImageID)}
 }
 
-func (_c *MockImageStorer_DeleteOriginal_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string)) *MockImageStorer_DeleteOriginal_Call {
+func (_c *MockImageStorer_DeleteOriginal_Call) Run(run func(ctx context.Context, bucket string, organizerID string, seriesImageID string)) *MockImageStorer_DeleteOriginal_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
@@ -71,9 +71,9 @@ func (_c *MockImageStorer_DeleteOriginal_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
-// DeleteVariants provides a mock function with given fields: ctx, bucket, organizerID, mediaID
-func (_m *MockImageStorer) DeleteVariants(ctx context.Context, bucket string, organizerID string, mediaID string) error {
-	ret := _m.Called(ctx, bucket, organizerID, mediaID)
+// DeleteVariants provides a mock function with given fields: ctx, bucket, organizerID, seriesImageID
+func (_m *MockImageStorer) DeleteVariants(ctx context.Context, bucket string, organizerID string, seriesImageID string) error {
+	ret := _m.Called(ctx, bucket, organizerID, seriesImageID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteVariants")
@@ -81,7 +81,7 @@ func (_m *MockImageStorer) DeleteVariants(ctx context.Context, bucket string, or
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
-		r0 = rf(ctx, bucket, organizerID, mediaID)
+		r0 = rf(ctx, bucket, organizerID, seriesImageID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -98,12 +98,12 @@ type MockImageStorer_DeleteVariants_Call struct {
 //   - ctx context.Context
 //   - bucket string
 //   - organizerID string
-//   - mediaID string
-func (_e *MockImageStorer_Expecter) DeleteVariants(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}) *MockImageStorer_DeleteVariants_Call {
-	return &MockImageStorer_DeleteVariants_Call{Call: _e.mock.On("DeleteVariants", ctx, bucket, organizerID, mediaID)}
+//   - seriesImageID string
+func (_e *MockImageStorer_Expecter) DeleteVariants(ctx interface{}, bucket interface{}, organizerID interface{}, seriesImageID interface{}) *MockImageStorer_DeleteVariants_Call {
+	return &MockImageStorer_DeleteVariants_Call{Call: _e.mock.On("DeleteVariants", ctx, bucket, organizerID, seriesImageID)}
 }
 
-func (_c *MockImageStorer_DeleteVariants_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string)) *MockImageStorer_DeleteVariants_Call {
+func (_c *MockImageStorer_DeleteVariants_Call) Run(run func(ctx context.Context, bucket string, organizerID string, seriesImageID string)) *MockImageStorer_DeleteVariants_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
@@ -120,9 +120,9 @@ func (_c *MockImageStorer_DeleteVariants_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
-// PutVariant provides a mock function with given fields: ctx, bucket, organizerID, mediaID, variant, contentType, data
-func (_m *MockImageStorer) PutVariant(ctx context.Context, bucket string, organizerID string, mediaID string, variant string, contentType string, data []byte) error {
-	ret := _m.Called(ctx, bucket, organizerID, mediaID, variant, contentType, data)
+// PutVariant provides a mock function with given fields: ctx, bucket, organizerID, seriesImageID, variant, contentType, data
+func (_m *MockImageStorer) PutVariant(ctx context.Context, bucket string, organizerID string, seriesImageID string, variant string, contentType string, data []byte) error {
+	ret := _m.Called(ctx, bucket, organizerID, seriesImageID, variant, contentType, data)
 
 	if len(ret) == 0 {
 		panic("no return value specified for PutVariant")
@@ -130,7 +130,7 @@ func (_m *MockImageStorer) PutVariant(ctx context.Context, bucket string, organi
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string, []byte) error); ok {
-		r0 = rf(ctx, bucket, organizerID, mediaID, variant, contentType, data)
+		r0 = rf(ctx, bucket, organizerID, seriesImageID, variant, contentType, data)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -147,15 +147,15 @@ type MockImageStorer_PutVariant_Call struct {
 //   - ctx context.Context
 //   - bucket string
 //   - organizerID string
-//   - mediaID string
+//   - seriesImageID string
 //   - variant string
 //   - contentType string
 //   - data []byte
-func (_e *MockImageStorer_Expecter) PutVariant(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}, variant interface{}, contentType interface{}, data interface{}) *MockImageStorer_PutVariant_Call {
-	return &MockImageStorer_PutVariant_Call{Call: _e.mock.On("PutVariant", ctx, bucket, organizerID, mediaID, variant, contentType, data)}
+func (_e *MockImageStorer_Expecter) PutVariant(ctx interface{}, bucket interface{}, organizerID interface{}, seriesImageID interface{}, variant interface{}, contentType interface{}, data interface{}) *MockImageStorer_PutVariant_Call {
+	return &MockImageStorer_PutVariant_Call{Call: _e.mock.On("PutVariant", ctx, bucket, organizerID, seriesImageID, variant, contentType, data)}
 }
 
-func (_c *MockImageStorer_PutVariant_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string, variant string, contentType string, data []byte)) *MockImageStorer_PutVariant_Call {
+func (_c *MockImageStorer_PutVariant_Call) Run(run func(ctx context.Context, bucket string, organizerID string, seriesImageID string, variant string, contentType string, data []byte)) *MockImageStorer_PutVariant_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string), args[6].([]byte))
 	})
@@ -172,9 +172,9 @@ func (_c *MockImageStorer_PutVariant_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// ReadOriginal provides a mock function with given fields: ctx, bucket, organizerID, mediaID
-func (_m *MockImageStorer) ReadOriginal(ctx context.Context, bucket string, organizerID string, mediaID string) ([]byte, error) {
-	ret := _m.Called(ctx, bucket, organizerID, mediaID)
+// ReadOriginal provides a mock function with given fields: ctx, bucket, organizerID, seriesImageID
+func (_m *MockImageStorer) ReadOriginal(ctx context.Context, bucket string, organizerID string, seriesImageID string) ([]byte, error) {
+	ret := _m.Called(ctx, bucket, organizerID, seriesImageID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReadOriginal")
@@ -183,10 +183,10 @@ func (_m *MockImageStorer) ReadOriginal(ctx context.Context, bucket string, orga
 	var r0 []byte
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) ([]byte, error)); ok {
-		return rf(ctx, bucket, organizerID, mediaID)
+		return rf(ctx, bucket, organizerID, seriesImageID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) []byte); ok {
-		r0 = rf(ctx, bucket, organizerID, mediaID)
+		r0 = rf(ctx, bucket, organizerID, seriesImageID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]byte)
@@ -194,7 +194,7 @@ func (_m *MockImageStorer) ReadOriginal(ctx context.Context, bucket string, orga
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
-		r1 = rf(ctx, bucket, organizerID, mediaID)
+		r1 = rf(ctx, bucket, organizerID, seriesImageID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -211,12 +211,12 @@ type MockImageStorer_ReadOriginal_Call struct {
 //   - ctx context.Context
 //   - bucket string
 //   - organizerID string
-//   - mediaID string
-func (_e *MockImageStorer_Expecter) ReadOriginal(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}) *MockImageStorer_ReadOriginal_Call {
-	return &MockImageStorer_ReadOriginal_Call{Call: _e.mock.On("ReadOriginal", ctx, bucket, organizerID, mediaID)}
+//   - seriesImageID string
+func (_e *MockImageStorer_Expecter) ReadOriginal(ctx interface{}, bucket interface{}, organizerID interface{}, seriesImageID interface{}) *MockImageStorer_ReadOriginal_Call {
+	return &MockImageStorer_ReadOriginal_Call{Call: _e.mock.On("ReadOriginal", ctx, bucket, organizerID, seriesImageID)}
 }
 
-func (_c *MockImageStorer_ReadOriginal_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string)) *MockImageStorer_ReadOriginal_Call {
+func (_c *MockImageStorer_ReadOriginal_Call) Run(run func(ctx context.Context, bucket string, organizerID string, seriesImageID string)) *MockImageStorer_ReadOriginal_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
@@ -233,9 +233,9 @@ func (_c *MockImageStorer_ReadOriginal_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// SignedPutURLForOriginal provides a mock function with given fields: ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl
-func (_m *MockImageStorer) SignedPutURLForOriginal(ctx context.Context, bucket string, organizerID string, mediaID string, contentType string, maxBytes int64, ttl time.Duration) (string, error) {
-	ret := _m.Called(ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)
+// SignedPutURLForOriginal provides a mock function with given fields: ctx, bucket, organizerID, seriesImageID, contentType, maxBytes, ttl
+func (_m *MockImageStorer) SignedPutURLForOriginal(ctx context.Context, bucket string, organizerID string, seriesImageID string, contentType string, maxBytes int64, ttl time.Duration) (string, error) {
+	ret := _m.Called(ctx, bucket, organizerID, seriesImageID, contentType, maxBytes, ttl)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SignedPutURLForOriginal")
@@ -244,16 +244,16 @@ func (_m *MockImageStorer) SignedPutURLForOriginal(ctx context.Context, bucket s
 	var r0 string
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, int64, time.Duration) (string, error)); ok {
-		return rf(ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)
+		return rf(ctx, bucket, organizerID, seriesImageID, contentType, maxBytes, ttl)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, int64, time.Duration) string); ok {
-		r0 = rf(ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)
+		r0 = rf(ctx, bucket, organizerID, seriesImageID, contentType, maxBytes, ttl)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, int64, time.Duration) error); ok {
-		r1 = rf(ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)
+		r1 = rf(ctx, bucket, organizerID, seriesImageID, contentType, maxBytes, ttl)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -270,15 +270,15 @@ type MockImageStorer_SignedPutURLForOriginal_Call struct {
 //   - ctx context.Context
 //   - bucket string
 //   - organizerID string
-//   - mediaID string
+//   - seriesImageID string
 //   - contentType string
 //   - maxBytes int64
 //   - ttl time.Duration
-func (_e *MockImageStorer_Expecter) SignedPutURLForOriginal(ctx interface{}, bucket interface{}, organizerID interface{}, mediaID interface{}, contentType interface{}, maxBytes interface{}, ttl interface{}) *MockImageStorer_SignedPutURLForOriginal_Call {
-	return &MockImageStorer_SignedPutURLForOriginal_Call{Call: _e.mock.On("SignedPutURLForOriginal", ctx, bucket, organizerID, mediaID, contentType, maxBytes, ttl)}
+func (_e *MockImageStorer_Expecter) SignedPutURLForOriginal(ctx interface{}, bucket interface{}, organizerID interface{}, seriesImageID interface{}, contentType interface{}, maxBytes interface{}, ttl interface{}) *MockImageStorer_SignedPutURLForOriginal_Call {
+	return &MockImageStorer_SignedPutURLForOriginal_Call{Call: _e.mock.On("SignedPutURLForOriginal", ctx, bucket, organizerID, seriesImageID, contentType, maxBytes, ttl)}
 }
 
-func (_c *MockImageStorer_SignedPutURLForOriginal_Call) Run(run func(ctx context.Context, bucket string, organizerID string, mediaID string, contentType string, maxBytes int64, ttl time.Duration)) *MockImageStorer_SignedPutURLForOriginal_Call {
+func (_c *MockImageStorer_SignedPutURLForOriginal_Call) Run(run func(ctx context.Context, bucket string, organizerID string, seriesImageID string, contentType string, maxBytes int64, ttl time.Duration)) *MockImageStorer_SignedPutURLForOriginal_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(int64), args[6].(time.Duration))
 	})

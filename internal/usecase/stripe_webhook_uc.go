@@ -17,9 +17,9 @@ import (
 type StripeEventType string
 
 const (
-	// StripeEventProviderChargeIDunded fires when a Stripe Refund is applied against
+	// StripeEventChargeRefunded fires when a Stripe Refund is applied against
 	// a Charge. Used to confirm refund-initiated state changes.
-	StripeEventProviderChargeIDunded StripeEventType = "charge.refunded"
+	StripeEventChargeRefunded StripeEventType = "charge.refunded"
 	// StripeEventChargeDisputeCreated fires when a chargeback is opened. The
 	// platform must respond and may need to reverse the Organizer's Transfer.
 	StripeEventChargeDisputeCreated StripeEventType = "charge.dispute.created"
@@ -31,7 +31,7 @@ const (
 	StripeEventPayoutPaid StripeEventType = "payout.paid"
 	// StripeEventPayoutFailed fires when the platform's own payout fails.
 	StripeEventPayoutFailed StripeEventType = "payout.failed"
-	// StripeEventPaymentIntentSucceeded fires when a PaymentIntent is charged:
+	// StripeEventPaymentIntentSucceeded fires when a card authorization is captured:
 	// a checkout's capture or a lottery win's capture at the draw. It drives
 	// the fulfillment that announces the paid Order.
 	StripeEventPaymentIntentSucceeded StripeEventType = "payment_intent.succeeded"
@@ -50,7 +50,7 @@ type OrderRefunder interface {
 type PaymentFulfiller interface {
 	// FulfillPayment issues, or finds, the Order of the charge's source and
 	// announces it as paid. A charge of no source succeeds without effect.
-	FulfillPayment(ctx context.Context, paymentRef string) error
+	FulfillPayment(ctx context.Context, cardAuthorizationID string) error
 }
 
 // StripeWebhookEvent carries the parsed, signature-verified payload from a
@@ -66,7 +66,7 @@ type StripeWebhookEvent struct {
 	// ProviderChargeID is the affected Charge id ("ch_..."), populated for charge.*
 	// events. May be empty for other event types.
 	ProviderChargeID string
-	// ProviderPaymentID is the PaymentIntent id ("pi_...") associated with the
+	// ProviderPaymentID is the payment provider's ID for the payment ("pi_...") of the
 	// charge, if the handler could extract it from the event payload. The use
 	// case layer resolves this to an Order via OrderRepository. For
 	// charge.dispute.created Stripe embeds the payment_intent field on the
@@ -100,7 +100,7 @@ type StripeWebhookService interface {
 // stripeWebhookService implements [StripeWebhookService].
 type stripeWebhookService struct {
 	processedRepo ProcessedWebhookEventRepository
-	// orderRepo is used to resolve a dispute's payment_intent → Order, the
+	// orderRepo is used to resolve a dispute's provider payment ID → Order, the
 	// real production path for the dispute handler. Previously these fields
 	// were injected but never called — the handler early-returned because it
 	// relied on the HTTP handler to pre-resolve the OrderID (which it could
@@ -184,7 +184,7 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 		return s.handleDisputeCreated(ctx, event)
 	case StripeEventPaymentIntentSucceeded:
 		return s.handlePaymentIntentSucceeded(ctx, event)
-	case StripeEventProviderChargeIDunded:
+	case StripeEventChargeRefunded:
 		// A refund that we initiated via RefundOrder is already applied by the
 		// use case. This event confirms it at the Stripe level; informational.
 		s.logger.Info(ctx, "stripe webhook: charge.refunded event received (informational; refund already applied)",
@@ -218,7 +218,7 @@ func (s *stripeWebhookService) dispatch(ctx context.Context, event StripeWebhook
 // delivers it again.
 func (s *stripeWebhookService) handlePaymentIntentSucceeded(ctx context.Context, event StripeWebhookEvent) error {
 	if event.ProviderPaymentID == "" {
-		s.logger.Warn(ctx, "stripe webhook: payment_intent.succeeded without a PaymentIntent id; skipped",
+		s.logger.Warn(ctx, "stripe webhook: payment_intent.succeeded without a provider payment ID; skipped",
 			slog.String("event_id", event.ProviderEventID))
 		return nil
 	}
@@ -231,10 +231,10 @@ func (s *stripeWebhookService) handlePaymentIntentSucceeded(ctx context.Context,
 }
 
 // handleDisputeCreated handles charge.dispute.created — a chargeback opened
-// by the cardholder.
+// by the fan through their card issuer.
 //
 // Order resolution: the HTTP handler extracts the charge ref and the
-// payment_intent id from the dispute event data. This method uses the pi_ to
+// provider payment ID from the dispute event data. This method uses the pi_ to
 // resolve the Order via OrderRepository.GetByProviderPaymentID. Previously this
 // path was dead because the HTTP handler was not extracting the pi_ and
 // the service was checking a pre-set OrderID field that was always empty.
@@ -260,7 +260,7 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 		return nil
 	}
 
-	// Resolve the Order from the payment_intent ref. This is the real
+	// Resolve the Order from the provider payment ID. This is the real
 	// production resolution path — the HTTP handler can extract pi_ from the
 	// charge event data; the use case resolves it to an Order via the repo.
 	order, err := s.orderRepo.GetByProviderPaymentID(ctx, event.ProviderPaymentID)
@@ -268,7 +268,7 @@ func (s *stripeWebhookService) handleDisputeCreated(ctx context.Context, event S
 		if errors.Is(err, apperr.ErrNotFound) {
 			// Possibly a test event or a charge not issued by our platform.
 			// Accept without retry; admin must handle manually.
-			s.logger.Warn(ctx, "stripe webhook: dispute.created for unknown payment intent; manual review required",
+			s.logger.Warn(ctx, "stripe webhook: dispute.created for unknown provider payment ID; manual review required",
 				slog.String("event_id", event.ProviderEventID),
 				slog.String("provider_payment_id", event.ProviderPaymentID),
 				slog.String("provider_charge_id", event.ProviderChargeID),

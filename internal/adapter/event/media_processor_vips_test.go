@@ -66,12 +66,12 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 		{
 			name:    "rejects a declared 10000x10000 image before full decode",
 			args:    args{data: fakePNGHeader(10000, 10000)},
-			wantErr: entity.ErrUnsupportedMedia,
+			wantErr: entity.ErrUnsupportedImage,
 		},
 		{
 			name:    "rejects corrupt data",
 			args:    args{data: []byte("not an image")},
-			wantErr: entity.ErrUnsupportedMedia,
+			wantErr: entity.ErrUnsupportedImage,
 		},
 	}
 

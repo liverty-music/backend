@@ -127,11 +127,11 @@ func TestStripeWebhookHandler_ValidSignature_DisputeExtracts_ChargeAndPI(t *test
 	t.Parallel()
 
 	const (
-		secret  = "whsec_test_secret_valid"
-		eventID = "evt_valid_001"
-		dpRef   = "dp_test"
-		chRef   = "ch_dispute_test"
-		piRef   = "pi_dispute_test"
+		secret            = "whsec_test_secret_valid"
+		eventID           = "evt_valid_001"
+		providerDisputeID = "dp_test"
+		providerChargeID  = "ch_dispute_test"
+		providerPaymentID = "pi_dispute_test"
 	)
 
 	var gotEvent usecase.StripeWebhookEvent
@@ -152,9 +152,9 @@ func TestStripeWebhookHandler_ValidSignature_DisputeExtracts_ChargeAndPI(t *test
 		"type":   "charge.dispute.created",
 		"data": map[string]any{
 			"object": map[string]any{
-				"id":             dpRef,
-				"charge":         chRef,
-				"payment_intent": piRef,
+				"id":             providerDisputeID,
+				"charge":         providerChargeID,
+				"payment_intent": providerPaymentID,
 			},
 		},
 	}
@@ -171,21 +171,21 @@ func TestStripeWebhookHandler_ValidSignature_DisputeExtracts_ChargeAndPI(t *test
 	assert.Equal(t, eventID, gotEvent.ProviderEventID)
 	assert.Equal(t, usecase.StripeEventChargeDisputeCreated, gotEvent.Type)
 	// Fix #1: both fields must be extracted and passed through.
-	assert.Equal(t, chRef, gotEvent.ProviderChargeID, "ProviderChargeID must be extracted from dispute.charge")
-	assert.Equal(t, piRef, gotEvent.ProviderPaymentID, "ProviderPaymentID must be extracted from dispute.payment_intent")
+	assert.Equal(t, providerChargeID, gotEvent.ProviderChargeID, "ProviderChargeID must be extracted from dispute.charge")
+	assert.Equal(t, providerPaymentID, gotEvent.ProviderPaymentID, "ProviderPaymentID must be extracted from dispute.payment_intent")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Valid signature, charge.refunded → ProviderChargeID extracted (charge.id = object.id)
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestStripeWebhookHandler_ValidSignature_ProviderChargeIDunded_ExtractsProviderChargeID(t *testing.T) {
+func TestStripeWebhookHandler_ValidSignature_ChargeRefunded_ExtractsProviderChargeID(t *testing.T) {
 	t.Parallel()
 
 	const (
-		secret = "whsec_test_charge_refund"
-		chRef  = "ch_refunded_test"
-		piRef  = "pi_refunded_test"
+		secret            = "whsec_test_charge_refund"
+		providerChargeID  = "ch_refunded_test"
+		providerPaymentID = "pi_refunded_test"
 	)
 
 	var gotEvent usecase.StripeWebhookEvent
@@ -205,8 +205,8 @@ func TestStripeWebhookHandler_ValidSignature_ProviderChargeIDunded_ExtractsProvi
 		"type":   "charge.refunded",
 		"data": map[string]any{
 			"object": map[string]any{
-				"id":             chRef,
-				"payment_intent": piRef,
+				"id":             providerChargeID,
+				"payment_intent": providerPaymentID,
 			},
 		},
 	}
@@ -219,8 +219,8 @@ func TestStripeWebhookHandler_ValidSignature_ProviderChargeIDunded_ExtractsProvi
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, chRef, gotEvent.ProviderChargeID, "ProviderChargeID must be object.id for charge.refunded")
-	assert.Equal(t, piRef, gotEvent.ProviderPaymentID, "ProviderPaymentID must be extracted for charge.refunded")
+	assert.Equal(t, providerChargeID, gotEvent.ProviderChargeID, "ProviderChargeID must be object.id for charge.refunded")
+	assert.Equal(t, providerPaymentID, gotEvent.ProviderPaymentID, "ProviderPaymentID must be extracted for charge.refunded")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

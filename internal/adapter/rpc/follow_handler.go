@@ -35,12 +35,12 @@ func NewFollowHandler(
 
 // Follow establishes a follow relationship between the current user and an artist.
 func (h *FollowHandler) Follow(ctx context.Context, req *connect.Request[rpc.FollowRequest]) (*connect.Response[rpc.FollowResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -55,12 +55,12 @@ func (h *FollowHandler) Follow(ctx context.Context, req *connect.Request[rpc.Fol
 
 // Unfollow removes an existing follow relationship.
 func (h *FollowHandler) Unfollow(ctx context.Context, req *connect.Request[rpc.UnfollowRequest]) (*connect.Response[rpc.UnfollowResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -75,12 +75,12 @@ func (h *FollowHandler) Unfollow(ctx context.Context, req *connect.Request[rpc.U
 
 // List returns the signed-in fan's Follows with their Artists.
 func (h *FollowHandler) List(ctx context.Context, _ *connect.Request[rpc.ListRequest]) (*connect.Response[rpc.ListResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -97,12 +97,12 @@ func (h *FollowHandler) List(ctx context.Context, _ *connect.Request[rpc.ListReq
 
 // SetHype updates the user's enthusiasm tier for a followed artist.
 func (h *FollowHandler) SetHype(ctx context.Context, req *connect.Request[rpc.SetHypeRequest]) (*connect.Response[rpc.SetHypeResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}

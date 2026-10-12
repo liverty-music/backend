@@ -83,7 +83,7 @@ func TestOrderUseCase_Get(t *testing.T) {
 	}
 }
 
-func TestTicketUseCase_GetMyTickets(t *testing.T) {
+func TestTicketUseCase_List(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	issued := []*entity.Ticket{

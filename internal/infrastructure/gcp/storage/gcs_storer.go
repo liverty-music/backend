@@ -1,5 +1,5 @@
 // Package storage provides a Google Cloud Storage implementation of the
-// usecase.ImageStorer interface for persisting organizer-authored media.
+// usecase.ImageStorer interface for persisting organizer-authored series images.
 package storage
 
 import (
@@ -18,35 +18,35 @@ import (
 )
 
 // OriginalObjectKey constructs the GCS object key in the originals (internal)
-// bucket for the given organizer and media id. The key is
-// `{organizer_id}/{media_id}` — no cdn/ prefix because the originals bucket is
+// bucket for the given organizer and series image id. The key is
+// `{organizer_id}/{series_image_id}` — no cdn/ prefix because the originals bucket is
 // not CDN-served.
-func OriginalObjectKey(organizerID, mediaID string) string {
-	return organizerID + "/" + mediaID
+func OriginalObjectKey(organizerID, seriesImageID string) string {
+	return organizerID + "/" + seriesImageID
 }
 
 // VariantObjectKey constructs the GCS object key in the served (public) bucket
-// for a specific variant of the given organizer media. The key is
-// `cdn/{organizer_id}/{media_id}/{variant}.webp`.
-func VariantObjectKey(organizerID, mediaID, variant string) string {
-	return "cdn/" + organizerID + "/" + mediaID + "/" + variant + ".webp"
+// for a specific variant of the given organizer series image. The key is
+// `cdn/{organizer_id}/{series_image_id}/{variant}.webp`.
+func VariantObjectKey(organizerID, seriesImageID, variant string) string {
+	return "cdn/" + organizerID + "/" + seriesImageID + "/" + variant + ".webp"
 }
 
 // VariantObjectPrefix returns the key prefix covering all variants of a single
-// media object in the served bucket: `cdn/{organizer_id}/{media_id}/`.
+// image object in the served bucket: `cdn/{organizer_id}/{series_image_id}/`.
 // Pass this to DeleteVariants to remove all variants in one sweep.
-func VariantObjectPrefix(organizerID, mediaID string) string {
-	return "cdn/" + organizerID + "/" + mediaID + "/"
+func VariantObjectPrefix(organizerID, seriesImageID string) string {
+	return "cdn/" + organizerID + "/" + seriesImageID + "/"
 }
 
 // immutableCacheControl is set on every stored object. Object keys are
-// version-addressed (the key embeds a per-upload media id), so a given key
+// version-addressed (the key embeds a per-upload series image id), so a given key
 // never changes content and may be cached indefinitely; a replaced image is
-// written under a new key. This makes served media CDN- and browser-cache
+// written under a new key. This makes served images CDN- and browser-cache
 // friendly.
 const immutableCacheControl = "public, max-age=31536000, immutable"
 
-// GCSStorer stores media objects in Google Cloud Storage using the default
+// GCSStorer stores image object in Google Cloud Storage using the default
 // Application Default Credentials (Workload Identity in GKE).
 type GCSStorer struct {
 	client *storage.Client
@@ -71,7 +71,7 @@ func (s *GCSStorer) Close() error {
 
 // Put writes data to the given bucket under key with the supplied content type
 // and an immutable cache-control header. All objects are written under the
-// cdn/ key prefix; the caller composes the served URL from the media id and
+// cdn/ key prefix; the caller composes the served URL from the series image id and
 // ORGANIZER_MEDIA_CDN_BASE.
 func (s *GCSStorer) Put(ctx context.Context, bucket, key, contentType string, data []byte) error {
 	wc := s.client.Bucket(bucket).Object(key).NewWriter(ctx)
@@ -89,7 +89,7 @@ func (s *GCSStorer) Put(ctx context.Context, bucket, key, contentType string, da
 }
 
 // ReadObject downloads the object at key from bucket and returns its raw bytes.
-// The media consumer reads the uploaded original from the private originals
+// The media-consumer reads the uploaded original from the private originals
 // bucket with this before transcoding. Satisfies the optional objectReader
 // interface the consumer type-asserts on the ImageStorer (the base write/delete
 // ImageStorer does not expose reads).
@@ -107,7 +107,7 @@ func (s *GCSStorer) ReadObject(ctx context.Context, bucket, key string) ([]byte,
 	return data, nil
 }
 
-// Compile-time guard: the media consumer type-asserts this optional read
+// Compile-time guard: the media-consumer type-asserts this optional read
 // capability on the injected ImageStorer at runtime (readOriginal). Keep the
 // signature in lock-step so a real GCSStorer always satisfies it — the base
 // ImageStorer exposes only write/delete, so this cannot be caught there.
@@ -151,44 +151,44 @@ func (s *GCSStorer) SignedPutURL(ctx context.Context, bucket, key, contentType s
 }
 
 // SignedPutURLForOriginal returns a V4-signed GCS PUT URL for uploading the
-// ORIGINAL object of the given organizer/media pair to bucket. It composes the
+// ORIGINAL object of the given organizer/series image pair to bucket. It composes the
 // originals-bucket key via OriginalObjectKey and delegates to SignedPutURL —
 // see that method for the URL/condition semantics.
-func (s *GCSStorer) SignedPutURLForOriginal(ctx context.Context, bucket, organizerID, mediaID, contentType string, maxBytes int64, ttl time.Duration) (string, error) {
-	return s.SignedPutURL(ctx, bucket, OriginalObjectKey(organizerID, mediaID), contentType, maxBytes, ttl)
+func (s *GCSStorer) SignedPutURLForOriginal(ctx context.Context, bucket, organizerID, seriesImageID, contentType string, maxBytes int64, ttl time.Duration) (string, error) {
+	return s.SignedPutURL(ctx, bucket, OriginalObjectKey(organizerID, seriesImageID), contentType, maxBytes, ttl)
 }
 
 // ReadOriginal downloads the ORIGINAL object bytes for the given
-// organizer/media pair from bucket. It composes the originals-bucket key via
+// organizer/series image pair from bucket. It composes the originals-bucket key via
 // OriginalObjectKey and delegates to ReadObject.
-func (s *GCSStorer) ReadOriginal(ctx context.Context, bucket, organizerID, mediaID string) ([]byte, error) {
-	return s.ReadObject(ctx, bucket, OriginalObjectKey(organizerID, mediaID))
+func (s *GCSStorer) ReadOriginal(ctx context.Context, bucket, organizerID, seriesImageID string) ([]byte, error) {
+	return s.ReadObject(ctx, bucket, OriginalObjectKey(organizerID, seriesImageID))
 }
 
-// DeleteOriginal removes the ORIGINAL object for the given organizer/media
+// DeleteOriginal removes the ORIGINAL object for the given organizer/series image
 // pair from bucket. It composes the originals-bucket key via OriginalObjectKey
 // and delegates to Delete (idempotent: a missing object is not an error).
-func (s *GCSStorer) DeleteOriginal(ctx context.Context, bucket, organizerID, mediaID string) error {
-	return s.Delete(ctx, bucket, OriginalObjectKey(organizerID, mediaID))
+func (s *GCSStorer) DeleteOriginal(ctx context.Context, bucket, organizerID, seriesImageID string) error {
+	return s.Delete(ctx, bucket, OriginalObjectKey(organizerID, seriesImageID))
 }
 
 // PutVariant writes a processed image variant (thumb or large) for the given
-// organizer/media pair to the served bucket. It composes the variant object
+// organizer/series image pair to the served bucket. It composes the variant object
 // key via VariantObjectKey and delegates to Put.
-func (s *GCSStorer) PutVariant(ctx context.Context, bucket, organizerID, mediaID, variant, contentType string, data []byte) error {
-	return s.Put(ctx, bucket, VariantObjectKey(organizerID, mediaID, variant), contentType, data)
+func (s *GCSStorer) PutVariant(ctx context.Context, bucket, organizerID, seriesImageID, variant, contentType string, data []byte) error {
+	return s.Put(ctx, bucket, VariantObjectKey(organizerID, seriesImageID, variant), contentType, data)
 }
 
 // DeleteVariants removes every variant object (thumb, large, ...) for the given
-// organizer/media pair from the served bucket. It composes the variant prefix
+// organizer/series image pair from the served bucket. It composes the variant prefix
 // via VariantObjectPrefix and delegates to DeletePrefix (idempotent).
-func (s *GCSStorer) DeleteVariants(ctx context.Context, bucket, organizerID, mediaID string) error {
-	return s.DeletePrefix(ctx, bucket, VariantObjectPrefix(organizerID, mediaID))
+func (s *GCSStorer) DeleteVariants(ctx context.Context, bucket, organizerID, seriesImageID string) error {
+	return s.DeletePrefix(ctx, bucket, VariantObjectPrefix(organizerID, seriesImageID))
 }
 
 // DeletePrefix removes every object whose key begins with prefix from bucket.
 // A missing prefix (no matching objects) is silently skipped. Used to reclaim
-// all variant files of a replaced media id in a single sweep.
+// all variant files of a replaced series image id in a single sweep.
 func (s *GCSStorer) DeletePrefix(ctx context.Context, bucket, prefix string) error {
 	if prefix == "" {
 		return nil

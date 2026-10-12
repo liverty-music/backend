@@ -187,9 +187,9 @@ func (_c *MockUserUseCase_Get_Call) RunAndReturn(run func(context.Context, strin
 	return _c
 }
 
-// GetByProviderUserID provides a mock function with given fields: ctx, externalID
-func (_m *MockUserUseCase) GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error) {
-	ret := _m.Called(ctx, externalID)
+// GetByProviderUserID provides a mock function with given fields: ctx, providerUserID
+func (_m *MockUserUseCase) GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.User, error) {
+	ret := _m.Called(ctx, providerUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetByProviderUserID")
@@ -198,10 +198,10 @@ func (_m *MockUserUseCase) GetByProviderUserID(ctx context.Context, externalID s
 	var r0 *entity.User
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.User, error)); ok {
-		return rf(ctx, externalID)
+		return rf(ctx, providerUserID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.User); ok {
-		r0 = rf(ctx, externalID)
+		r0 = rf(ctx, providerUserID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.User)
@@ -209,7 +209,7 @@ func (_m *MockUserUseCase) GetByProviderUserID(ctx context.Context, externalID s
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, externalID)
+		r1 = rf(ctx, providerUserID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -224,12 +224,12 @@ type MockUserUseCase_GetByProviderUserID_Call struct {
 
 // GetByProviderUserID is a helper method to define mock.On call
 //   - ctx context.Context
-//   - externalID string
-func (_e *MockUserUseCase_Expecter) GetByProviderUserID(ctx interface{}, externalID interface{}) *MockUserUseCase_GetByProviderUserID_Call {
-	return &MockUserUseCase_GetByProviderUserID_Call{Call: _e.mock.On("GetByProviderUserID", ctx, externalID)}
+//   - providerUserID string
+func (_e *MockUserUseCase_Expecter) GetByProviderUserID(ctx interface{}, providerUserID interface{}) *MockUserUseCase_GetByProviderUserID_Call {
+	return &MockUserUseCase_GetByProviderUserID_Call{Call: _e.mock.On("GetByProviderUserID", ctx, providerUserID)}
 }
 
-func (_c *MockUserUseCase_GetByProviderUserID_Call) Run(run func(ctx context.Context, externalID string)) *MockUserUseCase_GetByProviderUserID_Call {
+func (_c *MockUserUseCase_GetByProviderUserID_Call) Run(run func(ctx context.Context, providerUserID string)) *MockUserUseCase_GetByProviderUserID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
@@ -246,9 +246,9 @@ func (_c *MockUserUseCase_GetByProviderUserID_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// ResendEmailVerification provides a mock function with given fields: ctx, externalID
-func (_m *MockUserUseCase) ResendEmailVerification(ctx context.Context, externalID string) error {
-	ret := _m.Called(ctx, externalID)
+// ResendEmailVerification provides a mock function with given fields: ctx, providerUserID
+func (_m *MockUserUseCase) ResendEmailVerification(ctx context.Context, providerUserID string) error {
+	ret := _m.Called(ctx, providerUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResendEmailVerification")
@@ -256,7 +256,7 @@ func (_m *MockUserUseCase) ResendEmailVerification(ctx context.Context, external
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, externalID)
+		r0 = rf(ctx, providerUserID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -271,12 +271,12 @@ type MockUserUseCase_ResendEmailVerification_Call struct {
 
 // ResendEmailVerification is a helper method to define mock.On call
 //   - ctx context.Context
-//   - externalID string
-func (_e *MockUserUseCase_Expecter) ResendEmailVerification(ctx interface{}, externalID interface{}) *MockUserUseCase_ResendEmailVerification_Call {
-	return &MockUserUseCase_ResendEmailVerification_Call{Call: _e.mock.On("ResendEmailVerification", ctx, externalID)}
+//   - providerUserID string
+func (_e *MockUserUseCase_Expecter) ResendEmailVerification(ctx interface{}, providerUserID interface{}) *MockUserUseCase_ResendEmailVerification_Call {
+	return &MockUserUseCase_ResendEmailVerification_Call{Call: _e.mock.On("ResendEmailVerification", ctx, providerUserID)}
 }
 
-func (_c *MockUserUseCase_ResendEmailVerification_Call) Run(run func(ctx context.Context, externalID string)) *MockUserUseCase_ResendEmailVerification_Call {
+func (_c *MockUserUseCase_ResendEmailVerification_Call) Run(run func(ctx context.Context, providerUserID string)) *MockUserUseCase_ResendEmailVerification_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
@@ -293,9 +293,9 @@ func (_c *MockUserUseCase_ResendEmailVerification_Call) RunAndReturn(run func(co
 	return _c
 }
 
-// ResolveCaller provides a mock function with given fields: ctx, externalID
-func (_m *MockUserUseCase) ResolveCaller(ctx context.Context, externalID string) (*entity.User, error) {
-	ret := _m.Called(ctx, externalID)
+// ResolveCaller provides a mock function with given fields: ctx, providerUserID
+func (_m *MockUserUseCase) ResolveCaller(ctx context.Context, providerUserID string) (*entity.User, error) {
+	ret := _m.Called(ctx, providerUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResolveCaller")
@@ -304,10 +304,10 @@ func (_m *MockUserUseCase) ResolveCaller(ctx context.Context, externalID string)
 	var r0 *entity.User
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.User, error)); ok {
-		return rf(ctx, externalID)
+		return rf(ctx, providerUserID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.User); ok {
-		r0 = rf(ctx, externalID)
+		r0 = rf(ctx, providerUserID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.User)
@@ -315,7 +315,7 @@ func (_m *MockUserUseCase) ResolveCaller(ctx context.Context, externalID string)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, externalID)
+		r1 = rf(ctx, providerUserID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -330,12 +330,12 @@ type MockUserUseCase_ResolveCaller_Call struct {
 
 // ResolveCaller is a helper method to define mock.On call
 //   - ctx context.Context
-//   - externalID string
-func (_e *MockUserUseCase_Expecter) ResolveCaller(ctx interface{}, externalID interface{}) *MockUserUseCase_ResolveCaller_Call {
-	return &MockUserUseCase_ResolveCaller_Call{Call: _e.mock.On("ResolveCaller", ctx, externalID)}
+//   - providerUserID string
+func (_e *MockUserUseCase_Expecter) ResolveCaller(ctx interface{}, providerUserID interface{}) *MockUserUseCase_ResolveCaller_Call {
+	return &MockUserUseCase_ResolveCaller_Call{Call: _e.mock.On("ResolveCaller", ctx, providerUserID)}
 }
 
-func (_c *MockUserUseCase_ResolveCaller_Call) Run(run func(ctx context.Context, externalID string)) *MockUserUseCase_ResolveCaller_Call {
+func (_c *MockUserUseCase_ResolveCaller_Call) Run(run func(ctx context.Context, providerUserID string)) *MockUserUseCase_ResolveCaller_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
@@ -472,9 +472,9 @@ func (_c *MockUserUseCase_SetPreferredLanguage_Call) RunAndReturn(run func(conte
 	return _c
 }
 
-// Update provides a mock function with given fields: ctx, externalID, fullName, phoneNumber
-func (_m *MockUserUseCase) Update(ctx context.Context, externalID string, fullName *string, phoneNumber *string) (*entity.User, error) {
-	ret := _m.Called(ctx, externalID, fullName, phoneNumber)
+// Update provides a mock function with given fields: ctx, providerUserID, fullName, phoneNumber
+func (_m *MockUserUseCase) Update(ctx context.Context, providerUserID string, fullName *string, phoneNumber *string) (*entity.User, error) {
+	ret := _m.Called(ctx, providerUserID, fullName, phoneNumber)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Update")
@@ -483,10 +483,10 @@ func (_m *MockUserUseCase) Update(ctx context.Context, externalID string, fullNa
 	var r0 *entity.User
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, *string, *string) (*entity.User, error)); ok {
-		return rf(ctx, externalID, fullName, phoneNumber)
+		return rf(ctx, providerUserID, fullName, phoneNumber)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, *string, *string) *entity.User); ok {
-		r0 = rf(ctx, externalID, fullName, phoneNumber)
+		r0 = rf(ctx, providerUserID, fullName, phoneNumber)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.User)
@@ -494,7 +494,7 @@ func (_m *MockUserUseCase) Update(ctx context.Context, externalID string, fullNa
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string, *string, *string) error); ok {
-		r1 = rf(ctx, externalID, fullName, phoneNumber)
+		r1 = rf(ctx, providerUserID, fullName, phoneNumber)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -509,14 +509,14 @@ type MockUserUseCase_Update_Call struct {
 
 // Update is a helper method to define mock.On call
 //   - ctx context.Context
-//   - externalID string
+//   - providerUserID string
 //   - fullName *string
 //   - phoneNumber *string
-func (_e *MockUserUseCase_Expecter) Update(ctx interface{}, externalID interface{}, fullName interface{}, phoneNumber interface{}) *MockUserUseCase_Update_Call {
-	return &MockUserUseCase_Update_Call{Call: _e.mock.On("Update", ctx, externalID, fullName, phoneNumber)}
+func (_e *MockUserUseCase_Expecter) Update(ctx interface{}, providerUserID interface{}, fullName interface{}, phoneNumber interface{}) *MockUserUseCase_Update_Call {
+	return &MockUserUseCase_Update_Call{Call: _e.mock.On("Update", ctx, providerUserID, fullName, phoneNumber)}
 }
 
-func (_c *MockUserUseCase_Update_Call) Run(run func(ctx context.Context, externalID string, fullName *string, phoneNumber *string)) *MockUserUseCase_Update_Call {
+func (_c *MockUserUseCase_Update_Call) Run(run func(ctx context.Context, providerUserID string, fullName *string, phoneNumber *string)) *MockUserUseCase_Update_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(*string), args[3].(*string))
 	})

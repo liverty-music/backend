@@ -275,7 +275,7 @@ func (uc *orderUseCase) issueFromCheckout(ctx context.Context, checkoutID entity
 	}
 
 	if checkout.Status == entity.CheckoutStatusHeld {
-		// 4. The hold must be authenticated and for the Checkout's amount.
+		// 4. The card authorization must be authorized and for the Checkout's amount.
 		authorization, err := uc.cardAuthorizations.Get(ctx, checkout.CardAuthorizationID)
 		if err != nil {
 			return nil, err
@@ -318,7 +318,7 @@ func (uc *orderUseCase) issueFromCheckout(ctx context.Context, checkoutID entity
 		}
 	}
 
-	// The charge is the card hold; its facets are read back from the provider,
+	// The charge is the card authorization; its facets are read back from the provider,
 	// as for a lottery win.
 	captured, err := uc.capturedPayment(ctx, checkout.CardAuthorizationID)
 	if err != nil {
@@ -372,8 +372,8 @@ func (uc *orderUseCase) IssueDueCheckouts(ctx context.Context) error {
 }
 
 // FulfillPayment implements [OrderUseCase].
-func (uc *orderUseCase) FulfillPayment(ctx context.Context, paymentRef string) error {
-	paid, err := uc.fulfill(ctx, paymentRef)
+func (uc *orderUseCase) FulfillPayment(ctx context.Context, cardAuthorizationID string) error {
+	paid, err := uc.fulfill(ctx, cardAuthorizationID)
 	if err != nil || paid == nil {
 		return err
 	}
@@ -382,15 +382,15 @@ func (uc *orderUseCase) FulfillPayment(ctx context.Context, paymentRef string) e
 	}
 	uc.logger.Info(ctx, "order announced as paid",
 		slog.String("order_id", paid.OrderID),
-		slog.String("card_authorization_id", paymentRef),
+		slog.String("card_authorization_id", cardAuthorizationID),
 	)
 	return nil
 }
 
 // fulfill issues, or finds, the Order of the charge's source and returns its
 // announcement; nil when the charge has no source here.
-func (uc *orderUseCase) fulfill(ctx context.Context, paymentRef string) (*entity.OrderPaidData, error) {
-	checkout, err := uc.checkoutRepo.GetByCardAuthorizationID(ctx, paymentRef)
+func (uc *orderUseCase) fulfill(ctx context.Context, cardAuthorizationID string) (*entity.OrderPaidData, error) {
+	checkout, err := uc.checkoutRepo.GetByCardAuthorizationID(ctx, cardAuthorizationID)
 	switch {
 	case err == nil:
 		order, err := uc.IssueFromCheckout(ctx, checkout.ID, nil)
@@ -406,10 +406,10 @@ func (uc *orderUseCase) fulfill(ctx context.Context, paymentRef string) (*entity
 		return nil, err
 	}
 
-	entry, err := uc.entryRepo.GetByCardAuthorizationID(ctx, paymentRef)
+	entry, err := uc.entryRepo.GetByCardAuthorizationID(ctx, cardAuthorizationID)
 	if errors.Is(err, apperr.ErrNotFound) {
 		uc.logger.Info(ctx, "completed charge of no checkout or lottery entry; nothing to fulfill",
-			slog.String("card_authorization_id", paymentRef))
+			slog.String("card_authorization_id", cardAuthorizationID))
 		return nil, nil
 	}
 	if err != nil {

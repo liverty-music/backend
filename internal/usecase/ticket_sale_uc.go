@@ -23,7 +23,7 @@ type TicketTypeView struct {
 	// LowStock reports whether the TicketType is OnSale with at most a tenth
 	// of its quantity left. FirstCome only.
 	LowStock bool
-	// Stats is the tally of the TicketType's entries. Set only for a Lottery
+	// Stats are the entry stats of the TicketType. Set only for a Lottery
 	// sale read by its Organizer ([TicketSaleUseCase.ListOwnByEvent]).
 	Stats *entity.LotteryEntryStats
 }
@@ -97,7 +97,7 @@ type TicketSaleUseCase interface {
 
 	// ListOwnByEvent returns every sale of one of the Organizer's events, in
 	// start order, with all of their TicketTypes: a Lottery TicketType with its
-	// entry tallies, a FirstCome TicketType with its counts and state now. It
+	// entry stats, a FirstCome TicketType with its counts and state now. It
 	// returns an empty slice when the event has no sale.
 	//
 	// # Possible errors

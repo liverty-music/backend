@@ -103,7 +103,7 @@ type TicketSale struct {
 }
 
 // NewTicketSale returns a sale with a generated UUIDv7 id, the verification
-// requirement None, no drawn time and no ticket types. Add ticket types with
+// requirement None, no draw time and no ticket types. Add ticket types with
 // [NewTicketType].
 func NewTicketSale(seriesID, name string, method TicketSaleMethod, saleStart, saleEnd time.Time) *TicketSale {
 	return &TicketSale{
@@ -171,7 +171,7 @@ func (s *TicketSale) Overlaps(other *TicketSale) bool {
 	return s.SaleStartTime.Before(other.SaleEndTime) && other.SaleStartTime.Before(s.SaleEndTime)
 }
 
-// IsDrawn reports whether the sale's drawn time is set.
+// IsDrawn reports whether the sale's draw time is set.
 func (s *TicketSale) IsDrawn() bool {
 	return s.DrawTime != nil
 }
@@ -196,7 +196,7 @@ func (s *TicketSale) TicketType(id TicketTypeID) *TicketType {
 //
 // Interfaces are defined where consumed (AGENTS.md rule).
 type TicketSaleRepository interface {
-	// Create stores the sale without a drawn time and all of its TicketTypes
+	// Create stores the sale without a draw time and all of its TicketTypes
 	// together, or nothing, and returns the sale with its TicketTypes. Each
 	// TicketType of a FirstCome sale starts with a sold count of 0.
 	//

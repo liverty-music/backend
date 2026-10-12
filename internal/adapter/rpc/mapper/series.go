@@ -9,7 +9,7 @@ import (
 	gcsstorage "github.com/liverty-music/backend/internal/infrastructure/gcp/storage"
 )
 
-// SeriesImageURLBuilder composes public CDN URLs for organizer series media
+// SeriesImageURLBuilder composes public CDN URLs for organizer series image
 // variants (thumb/large). The CDN base is sourced from the
 // ORGANIZER_MEDIA_CDN_BASE environment variable via config
 // (config.ServerConfig.OrganizerMediaCDNBase) and injected here at DI wiring
@@ -25,22 +25,22 @@ func NewSeriesImageURLBuilder(cdnBase string) *SeriesImageURLBuilder {
 	return &SeriesImageURLBuilder{cdnBase: strings.TrimRight(cdnBase, "/")}
 }
 
-// VariantURL composes the public CDN URL for one variant of a series media
+// VariantURL composes the public CDN URL for one variant of a series image
 // image: {cdnBase}/{VariantObjectKey}. Returns "" when no CDN base is
 // configured, so callers never emit a malformed relative URL.
 //
 // variant must be one of "thumb" or "large".
-func (b *SeriesImageURLBuilder) VariantURL(organizerID, mediaID, variant string) string {
+func (b *SeriesImageURLBuilder) VariantURL(organizerID, seriesImageID, variant string) string {
 	if b == nil || b.cdnBase == "" {
 		return ""
 	}
-	return b.cdnBase + "/" + gcsstorage.VariantObjectKey(organizerID, mediaID, variant)
+	return b.cdnBase + "/" + gcsstorage.VariantObjectKey(organizerID, seriesImageID, variant)
 }
 
-// seriesMediaProto builds the entityv1.SeriesImage message for a series' cover media.
-// Returns nil when the series has no cover media or when the CDN base is
+// seriesImageProto builds the entityv1.SeriesImage message for a series' cover image.
+// Returns nil when the series has no cover image or when the CDN base is
 // unset, so callers never emit a proto with empty URL fields.
-func (b *SeriesImageURLBuilder) seriesMediaProto(s *entity.Series) *entityv1.SeriesImage {
+func (b *SeriesImageURLBuilder) seriesImageProto(s *entity.Series) *entityv1.SeriesImage {
 	if s.CoverImage == nil {
 		return nil
 	}
@@ -58,20 +58,20 @@ func (b *SeriesImageURLBuilder) seriesMediaProto(s *entity.Series) *entityv1.Ser
 }
 
 // SeriesToProto maps a domain Series like [SeriesToProto] and additionally
-// sets its cover media with CDN URLs when the Series has one.
+// sets its cover image with CDN URLs when the Series has one.
 func (b *SeriesImageURLBuilder) SeriesToProto(s *entity.Series) *entityv1.Series {
 	proto := SeriesToProto(s)
 	if proto == nil {
 		return nil
 	}
-	if m := b.seriesMediaProto(s); m != nil {
+	if m := b.seriesImageProto(s); m != nil {
 		proto.CoverImage = m
 	}
 	return proto
 }
 
 // ReferencedSeries returns every Series the concerts refer to, once each, in
-// the order the concerts first refer to them, each with its cover media.
+// the order the concerts first refer to them, each with its cover image.
 func (b *SeriesImageURLBuilder) ReferencedSeries(concerts []*entity.Concert) []*entityv1.Series {
 	seen := make(map[string]bool)
 	out := make([]*entityv1.Series, 0)

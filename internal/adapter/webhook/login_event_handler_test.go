@@ -29,9 +29,9 @@ type stubUserResolver struct {
 	lastExtID string
 }
 
-func (s *stubUserResolver) GetByProviderUserID(_ context.Context, externalID string) (*entity.User, error) {
+func (s *stubUserResolver) GetByProviderUserID(_ context.Context, providerUserID string) (*entity.User, error) {
 	s.calls++
-	s.lastExtID = externalID
+	s.lastExtID = providerUserID
 	return s.user, s.err
 }
 

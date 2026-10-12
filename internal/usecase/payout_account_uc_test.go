@@ -57,14 +57,14 @@ func TestPayoutOnboardingStatus_IsPayoutEligible(t *testing.T) {
 // PayoutAccountUseCase — PayoutAccountUseCase.Get
 // ─────────────────────────────────────────────────────────────────────────────
 
-// stubOrganizerRepoForOnboarding is a local stub; we cannot reuse the one from
+// stubOrganizerRepoForPayoutAccount is a local stub; we cannot reuse the one from
 // organizer_uc_test.go because that file is in the same package and may not
 // compile with mockery issues.
-type stubOrganizerRepoForOnboarding struct {
+type stubOrganizerRepoForPayoutAccount struct {
 	getFn func(ctx context.Context, id string) (*entity.Organizer, error)
 }
 
-func (s *stubOrganizerRepoForOnboarding) Get(ctx context.Context, id string) (*entity.Organizer, error) {
+func (s *stubOrganizerRepoForPayoutAccount) Get(ctx context.Context, id string) (*entity.Organizer, error) {
 	if s.getFn != nil {
 		return s.getFn(ctx, id)
 	}
@@ -72,74 +72,74 @@ func (s *stubOrganizerRepoForOnboarding) Get(ctx context.Context, id string) (*e
 }
 
 // Satisfy the full OrganizerRepository interface with no-op stubs.
-func (s *stubOrganizerRepoForOnboarding) Create(ctx context.Context, o *entity.Organizer) (*entity.Organizer, error) {
+func (s *stubOrganizerRepoForPayoutAccount) Create(ctx context.Context, o *entity.Organizer) (*entity.Organizer, error) {
 	return o, nil
 }
-func (s *stubOrganizerRepoForOnboarding) GetByProviderOrganizerID(ctx context.Context, providerOrganizerID string) (*entity.Organizer, error) {
+func (s *stubOrganizerRepoForPayoutAccount) GetByProviderOrganizerID(ctx context.Context, providerOrganizerID string) (*entity.Organizer, error) {
 	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
 }
-func (s *stubOrganizerRepoForOnboarding) List(ctx context.Context) ([]*entity.Organizer, error) {
+func (s *stubOrganizerRepoForPayoutAccount) List(ctx context.Context) ([]*entity.Organizer, error) {
 	return nil, nil
 }
-func (s *stubOrganizerRepoForOnboarding) ListByStatus(ctx context.Context, status entity.OrganizerStatus) ([]*entity.Organizer, error) {
+func (s *stubOrganizerRepoForPayoutAccount) ListByStatus(ctx context.Context, status entity.OrganizerStatus) ([]*entity.Organizer, error) {
 	return nil, nil
 }
-func (s *stubOrganizerRepoForOnboarding) SetProviderOrganizerID(ctx context.Context, id, providerOrganizerID string) error {
+func (s *stubOrganizerRepoForPayoutAccount) SetProviderOrganizerID(ctx context.Context, id, providerOrganizerID string) error {
 	return nil
 }
-func (s *stubOrganizerRepoForOnboarding) SetStatus(ctx context.Context, id string, status entity.OrganizerStatus) error {
+func (s *stubOrganizerRepoForPayoutAccount) SetStatus(ctx context.Context, id string, status entity.OrganizerStatus) error {
 	return nil
 }
-func (s *stubOrganizerRepoForOnboarding) CompareAndSetStatus(ctx context.Context, id string, from, to entity.OrganizerStatus) (bool, error) {
+func (s *stubOrganizerRepoForPayoutAccount) CompareAndSetStatus(ctx context.Context, id string, from, to entity.OrganizerStatus) (bool, error) {
 	return true, nil
 }
-func (s *stubOrganizerRepoForOnboarding) AssociateArtist(ctx context.Context, organizerID, artistID string) error {
+func (s *stubOrganizerRepoForPayoutAccount) AssociateArtist(ctx context.Context, organizerID, artistID string) error {
 	return nil
 }
-func (s *stubOrganizerRepoForOnboarding) DisassociateArtist(ctx context.Context, organizerID, artistID string) error {
+func (s *stubOrganizerRepoForPayoutAccount) DisassociateArtist(ctx context.Context, organizerID, artistID string) error {
 	return nil
 }
-func (s *stubOrganizerRepoForOnboarding) ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
+func (s *stubOrganizerRepoForPayoutAccount) ListArtists(ctx context.Context, organizerID string) ([]*entity.Artist, error) {
 	return nil, nil
 }
-func (s *stubOrganizerRepoForOnboarding) FreeArtists(ctx context.Context, organizerID string) error {
+func (s *stubOrganizerRepoForPayoutAccount) FreeArtists(ctx context.Context, organizerID string) error {
 	return nil
 }
-func (s *stubOrganizerRepoForOnboarding) IsArtistRepresentedByActiveOrganizer(ctx context.Context, artistID string) (bool, error) {
+func (s *stubOrganizerRepoForPayoutAccount) IsArtistRepresentedByActiveOrganizer(ctx context.Context, artistID string) (bool, error) {
 	return false, nil
 }
 
-func (s *stubOrganizerRepoForOnboarding) Delete(_ context.Context, _ string, _ bool) error {
+func (s *stubOrganizerRepoForPayoutAccount) Delete(_ context.Context, _ string, _ bool) error {
 	return nil
 }
 
-func (s *stubOrganizerRepoForOnboarding) SetBusinessDetails(_ context.Context, _ string, _ entity.BusinessDetails) (*entity.Organizer, error) {
+func (s *stubOrganizerRepoForPayoutAccount) SetBusinessDetails(_ context.Context, _ string, _ entity.BusinessDetails) (*entity.Organizer, error) {
 	return nil, nil
 }
 
-func (s *stubOrganizerRepoForOnboarding) SetPlatformFeeRate(_ context.Context, _ string, _ int) error {
+func (s *stubOrganizerRepoForPayoutAccount) SetPlatformFeeRate(_ context.Context, _ string, _ int) error {
 	return nil
 }
 
-func newOnboardingUC(t *testing.T,
+func newPayoutAccountUC(t *testing.T,
 	acctRepo entity.PayoutAccountRepository,
 	port paymentProviderStub,
 ) usecase.PayoutAccountUseCase {
 	t.Helper()
 	return usecase.NewPayoutAccountUseCase(
 		withPayoutAccountProvider(acctRepo, port),
-		&stubOrganizerRepoForOnboarding{},
+		&stubOrganizerRepoForPayoutAccount{},
 		"https://console.example.com/payout",
 		newTestLogger(t),
 	)
 }
 
-func TestOnboardingUseCase_GetOrCreateOnboarding(t *testing.T) {
+func TestPayoutAccountUseCase_Get(t *testing.T) {
 	t.Parallel()
 
 	const (
-		orgID   = "org-onboard"
-		acctRef = "acct_onboard"
+		orgID             = "org-onboard"
+		providerAccountID = "acct_onboard"
 	)
 
 	tests := []struct {
@@ -170,7 +170,7 @@ func TestOnboardingUseCase_GetOrCreateOnboarding(t *testing.T) {
 			wantOnboardingURL: false,
 		},
 		{
-			name: "return pending account with onboarding URL when KYC not complete",
+			name: "return pending account with onboarding URL when payout account verification is not complete",
 			args: struct{ organizerID string }{organizerID: orgID},
 			dep: struct {
 				accountExists  bool
@@ -228,7 +228,7 @@ func TestOnboardingUseCase_GetOrCreateOnboarding(t *testing.T) {
 					}
 					return &entity.PayoutAccount{
 						OrganizerID:       orgID,
-						ProviderAccountID: acctRef,
+						ProviderAccountID: providerAccountID,
 						Status:            tc.dep.accountStatus,
 					}, nil
 				},
@@ -239,14 +239,14 @@ func TestOnboardingUseCase_GetOrCreateOnboarding(t *testing.T) {
 					return tc.dep.providerStatus, nil
 				},
 				createPayoutAccountFn: func(_ context.Context, _ string) (string, error) {
-					return acctRef, nil
+					return providerAccountID, nil
 				},
 				createOnboardingLinkFn: func(_ context.Context, _, _ string) (string, error) {
 					return "https://connect.stripe.com/onboarding/test", nil
 				},
 			}
 
-			uc := newOnboardingUC(t, acctRepo, port)
+			uc := newPayoutAccountUC(t, acctRepo, port)
 			acct, onboardingURL, err := uc.Get(ctx, tc.args.organizerID)
 
 			if tc.wantErr {
@@ -265,14 +265,14 @@ func TestOnboardingUseCase_GetOrCreateOnboarding(t *testing.T) {
 	}
 }
 
-func TestOnboardingUseCase_GetOrCreateOnboarding_OrganizerNotFound(t *testing.T) {
+func TestPayoutAccountUseCase_Get_OrganizerNotFound(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 
 	uc := usecase.NewPayoutAccountUseCase(
 		withPayoutAccountProvider(&stubPayoutAccountRepo{}, &stubPaymentProvider{}),
-		&stubOrganizerRepoForOnboarding{
+		&stubOrganizerRepoForPayoutAccount{
 			getFn: func(_ context.Context, _ string) (*entity.Organizer, error) {
 				return nil, apperr.New(apperr.ErrNotFound.Code, "organizer not found")
 			},

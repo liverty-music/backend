@@ -31,13 +31,13 @@ type ConcertSearch struct {
 	LastFoundTime time.Time
 }
 
-// IsFresh reports whether this search log represents a recently completed search
+// IsFresh reports whether this concert search represents a recently completed search
 // that is still within the given TTL. Returns false if the status is not Completed.
 func (sl *ConcertSearch) IsFresh(now time.Time, ttl time.Duration) bool {
 	return sl.Status == ConcertSearchStatusCompleted && now.Sub(sl.SearchTime) < ttl
 }
 
-// IsPending reports whether this search log represents an in-progress search
+// IsPending reports whether this concert search represents an in-progress search
 // that has not yet exceeded the given timeout. Returns false if the status is not Pending.
 func (sl *ConcertSearch) IsPending(now time.Time, timeout time.Duration) bool {
 	return sl.Status == ConcertSearchStatusPending && now.Sub(sl.SearchTime) < timeout
@@ -54,23 +54,23 @@ func (sl *ConcertSearch) WasRecentlyDiscovered(now time.Time, window time.Durati
 	return now.Sub(sl.LastFoundTime) < window
 }
 
-// ConcertSearchRepository defines the data access interface for search logs.
+// ConcertSearchRepository defines the data access interface for concert searches.
 type ConcertSearchRepository interface {
-	// GetByArtistID retrieves the search log for a specific artist.
+	// GetByArtistID retrieves the concert search for a specific artist.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: If no search log exists for the artist.
+	//  - NotFound: If no concert search exists for the artist.
 	GetByArtistID(ctx context.Context, artistID string) (*ConcertSearch, error)
 
-	// Upsert creates or updates the search log for an artist with the given status.
+	// Upsert creates or updates the concert search for an artist with the given status.
 	//
 	// # Possible errors
 	//
 	//  - Internal: If the upsert fails.
 	Upsert(ctx context.Context, artistID string, status ConcertSearchStatus) error
 
-	// UpdateStatus updates the status for an existing search log.
+	// UpdateStatus updates the status for an existing concert search.
 	//
 	// # Possible errors
 	//
@@ -86,7 +86,7 @@ type ConcertSearchRepository interface {
 	//  - Internal: If the update fails.
 	MarkFound(ctx context.Context, artistID string) error
 
-	// Delete removes the search log for a specific artist.
+	// Delete removes the concert search for a specific artist.
 	//
 	// # Possible errors
 	//

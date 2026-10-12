@@ -64,13 +64,13 @@ func (h *NotificationHandler) Dismiss(ctx context.Context, req *connect.Request[
 // resolveCallerUserID resolves the signed-in caller's internal user ID from
 // the JWT context, to scope the use-case call.
 func (h *NotificationHandler) resolveCallerUserID(ctx context.Context) (string, error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return "", err
 	}
 	// notifications.user_id references users.id (internal UUID), not the
 	// identity-provider provider_user_id, so resolve the internal record first.
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return "", err
 	}

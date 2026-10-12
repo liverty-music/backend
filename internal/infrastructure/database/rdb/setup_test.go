@@ -90,13 +90,13 @@ func cleanDatabase(t *testing.T) {
 }
 
 // seedUser inserts a minimal user record and returns its ID.
-func seedUser(t *testing.T, name, email, externalID string) string {
+func seedUser(t *testing.T, name, email, providerUserID string) string {
 	t.Helper()
 	ctx := context.Background()
 	id := uuid.NewV7().String()
 	_, err := testDB.Pool.Exec(ctx,
 		`INSERT INTO users (id, name, email, provider_user_id) VALUES ($1, $2, $3, $4)`,
-		id, name, email, externalID,
+		id, name, email, providerUserID,
 	)
 	require.NoError(t, err)
 	return id

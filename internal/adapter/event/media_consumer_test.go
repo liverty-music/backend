@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// makeMediaUploadedMsg builds a Watermill message carrying a MEDIA.uploaded payload.
-func makeMediaUploadedMsg(t *testing.T, mediaID, seriesID string) *message.Message {
+// makeSeriesImageUploadedMsg builds a Watermill message carrying a MEDIA.uploaded payload.
+func makeSeriesImageUploadedMsg(t *testing.T, seriesImageID, seriesID string) *message.Message {
 	t.Helper()
 	payload, err := json.Marshal(entity.MediaUploadedData{
-		MediaID:  mediaID,
-		SeriesID: seriesID,
+		SeriesImageID: seriesImageID,
+		SeriesID:      seriesID,
 	})
 	require.NoError(t, err)
 	msg := message.NewMessage("test-uuid", payload)
@@ -33,15 +33,15 @@ func makeMediaUploadedMsg(t *testing.T, mediaID, seriesID string) *message.Messa
 func TestMediaConsumer_Handle(t *testing.T) {
 	t.Parallel()
 
-	t.Run("delegates to ProcessMedia", func(t *testing.T) {
+	t.Run("delegates to Process", func(t *testing.T) {
 		t.Parallel()
 
 		seriesImageUC := ucmocks.NewMockSeriesImageUseCase(t)
 		handler := event.NewMediaConsumer(seriesImageUC, newTestLogger(t))
 
-		seriesImageUC.EXPECT().Process(anyCtx, "media-1", "series-1").Return(nil).Once()
+		seriesImageUC.EXPECT().Process(anyCtx, "image-1", "series-1").Return(nil).Once()
 
-		err := handler.Handle(makeMediaUploadedMsg(t, "media-1", "series-1"))
+		err := handler.Handle(makeSeriesImageUploadedMsg(t, "image-1", "series-1"))
 		assert.NoError(t, err)
 	})
 
@@ -51,11 +51,11 @@ func TestMediaConsumer_Handle(t *testing.T) {
 		seriesImageUC := ucmocks.NewMockSeriesImageUseCase(t)
 		handler := event.NewMediaConsumer(seriesImageUC, newTestLogger(t))
 
-		seriesImageUC.EXPECT().Process(anyCtx, "media-2", "series-2").Return(fmt.Errorf("gcs unavailable")).Once()
+		seriesImageUC.EXPECT().Process(anyCtx, "image-2", "series-2").Return(fmt.Errorf("gcs unavailable")).Once()
 
-		err := handler.Handle(makeMediaUploadedMsg(t, "media-2", "series-2"))
+		err := handler.Handle(makeSeriesImageUploadedMsg(t, "image-2", "series-2"))
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "process media media-2")
+		assert.Contains(t, err.Error(), "process series image image-2")
 	})
 
 	t.Run("returns error on invalid payload", func(t *testing.T) {

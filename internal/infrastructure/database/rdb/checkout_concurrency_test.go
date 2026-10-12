@@ -15,20 +15,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// countingCardHold is a CardAuthorizationRepository that counts every
+// countingCardAuthorizations is a CardAuthorizationRepository that counts every
 // capture call: a charged Checkout must never be captured again, so the
 // count must stay at one. Capture is slow, to widen the window for a racing
 // caller. Get reports the card authorization Authorized for 6000 yen until it
 // is captured, then Captured with its payment.
-type countingCardHold struct {
+type countingCardAuthorizations struct {
 	captures atomic.Int32
 }
 
-func (c *countingCardHold) Create(context.Context, entity.CardAuthorizationPurchase, int64) (*entity.CardAuthorization, error) {
+func (c *countingCardAuthorizations) Create(context.Context, entity.CardAuthorizationPurchase, int64) (*entity.CardAuthorization, error) {
 	return &entity.CardAuthorization{ID: "pi_conc", Amount: 6000, Status: entity.CardAuthorizationStatusPending, Secret: "secret"}, nil
 }
 
-func (c *countingCardHold) Get(_ context.Context, id string) (*entity.CardAuthorization, error) {
+func (c *countingCardAuthorizations) Get(_ context.Context, id string) (*entity.CardAuthorization, error) {
 	if c.captures.Load() == 0 {
 		return &entity.CardAuthorization{ID: id, Amount: 6000, CardBrand: "visa", Status: entity.CardAuthorizationStatusAuthorized}, nil
 	}
@@ -36,17 +36,17 @@ func (c *countingCardHold) Get(_ context.Context, id string) (*entity.CardAuthor
 		CapturedPayment: &entity.CapturedPayment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: id, AmountJPY: 6000, Currency: "JPY", CardBrand: "visa", CardLast4: "4242"}}, nil
 }
 
-func (c *countingCardHold) Capture(context.Context, string) error {
+func (c *countingCardAuthorizations) Capture(context.Context, string) error {
 	c.captures.Add(1)
 	time.Sleep(100 * time.Millisecond)
 	return nil
 }
 
-func (c *countingCardHold) Release(context.Context, string) error { return nil }
+func (c *countingCardAuthorizations) Release(context.Context, string) error { return nil }
 
 // newCheckoutIssuance wires OrderUseCase on the real repositories and the
-// counting card hold, at a fixed time.
-func newCheckoutIssuance(t *testing.T, cardHold *countingCardHold, now time.Time) usecase.OrderUseCase {
+// counting card authorization repository, at a fixed time.
+func newCheckoutIssuance(t *testing.T, cardAuthorizations *countingCardAuthorizations, now time.Time) usecase.OrderUseCase {
 	t.Helper()
 	logger, err := logging.New()
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func newCheckoutIssuance(t *testing.T, cardHold *countingCardHold, now time.Time
 		CheckoutRepo:       rdb.NewCheckoutRepository(testDB),
 		TicketSaleRepo:     rdb.NewTicketSaleRepository(testDB),
 		EventState:         rdb.NewEventPublishStateRepository(testDB),
-		CardAuthorizations: cardHold,
+		CardAuthorizations: cardAuthorizations,
 		Clock:              func() time.Time { return now },
 		Logger:             logger,
 	})
@@ -86,8 +86,8 @@ func TestIssueFromCheckout_Concurrency(t *testing.T) {
 	t.Run("double tap on the action", func(t *testing.T) {
 		// @spec components/usecase/order/issue-from-checkout "Double tap on the action"
 		c := authorized(t)
-		cardHold := &countingCardHold{}
-		uc := newCheckoutIssuance(t, cardHold, start.Add(5*time.Minute))
+		cardAuthorizations := &countingCardAuthorizations{}
+		uc := newCheckoutIssuance(t, cardAuthorizations, start.Add(5*time.Minute))
 		fan := c.UserID
 
 		var wg sync.WaitGroup
@@ -101,7 +101,7 @@ func TestIssueFromCheckout_Concurrency(t *testing.T) {
 		require.NoError(t, errs[0])
 		require.NoError(t, errs[1])
 		assert.Equal(t, got[0].ID, got[1].ID)
-		assert.Equal(t, int32(1), cardHold.captures.Load(), "the card is captured once")
+		assert.Equal(t, int32(1), cardAuthorizations.captures.Load(), "the card is captured once")
 		stored, err := orders.GetByCheckoutID(ctx, c.ID)
 		require.NoError(t, err)
 		assert.Equal(t, got[0].ID, stored.ID)
@@ -116,8 +116,8 @@ func TestIssueFromCheckout_Concurrency(t *testing.T) {
 		// The fan's first attempt committed but its capture never completed.
 		_, err := checkouts.Commit(ctx, c.ID, start.Add(2*time.Minute))
 		require.NoError(t, err)
-		cardHold := &countingCardHold{}
-		uc := newCheckoutIssuance(t, cardHold, start.Add(5*time.Minute))
+		cardAuthorizations := &countingCardAuthorizations{}
+		uc := newCheckoutIssuance(t, cardAuthorizations, start.Add(5*time.Minute))
 		fan := c.UserID
 
 		var wg sync.WaitGroup
@@ -129,7 +129,7 @@ func TestIssueFromCheckout_Concurrency(t *testing.T) {
 
 		require.NoError(t, fanErr)
 		require.NoError(t, jobErr)
-		assert.Equal(t, int32(1), cardHold.captures.Load(), "the card is captured once")
+		assert.Equal(t, int32(1), cardAuthorizations.captures.Load(), "the card is captured once")
 		stored, err := orders.GetByCheckoutID(ctx, c.ID)
 		require.NoError(t, err)
 		assert.Equal(t, fanOrder.ID, stored.ID, "both end with the same Order")

@@ -27,7 +27,7 @@ type AdminConcertHandler struct {
 	logger                *logging.Logger
 }
 
-// NewAdminConcertHandler creates a new admin concert handler. mediaURLBuilder
+// NewAdminConcertHandler creates a new admin concert handler. imageURLBuilder
 // composes the cover image URLs of the Series List returns, so they carry the
 // same fields as on the fan concert service.
 func NewAdminConcertHandler(

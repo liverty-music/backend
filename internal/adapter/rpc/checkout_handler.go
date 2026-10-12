@@ -75,7 +75,7 @@ func (h *CheckoutHandler) Get(
 }
 
 // AuthorizeCard stores the caller's full name and phone number and opens the card
-// hold, returning the hold's confirmation secret.
+// authorization, returning its card authorization secret.
 func (h *CheckoutHandler) AuthorizeCard(
 	ctx context.Context,
 	req *connect.Request[checkoutv1.AuthorizeCardRequest],

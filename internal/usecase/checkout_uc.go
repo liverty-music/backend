@@ -16,8 +16,8 @@ import (
 // CheckoutUseCase runs a signed-in fan's first-come checkout on a TicketType
 // of a FirstCome TicketSale: holding the tickets, reading the checkout, and
 // storing the fan's 本人確認 (identity check) details and opening the card
-// hold, plus the job that ends lapsed checkouts and gives back leftover card
-// holds.
+// authorization, plus the job that ends lapsed checkouts and releases leftover
+// card authorizations.
 type CheckoutUseCase interface {
 	// Start holds count tickets of the TicketType for the fan for 15 minutes,
 	// or resumes the fan's holding Checkout with the same count. When the sale
@@ -45,8 +45,8 @@ type CheckoutUseCase interface {
 	Get(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID) (*entity.Checkout, error)
 
 	// AuthorizeCard stores the full name and phone number on the fan's User, opens
-	// the card hold for the fan's holding Checkout, records it on the Checkout
-	// and returns the hold's confirmation secret (never stored).
+	// the card authorization for the fan's holding Checkout, records it on the Checkout
+	// and returns its card authorization secret (never stored).
 	//
 	// # Possible errors
 	//
@@ -58,7 +58,7 @@ type CheckoutUseCase interface {
 	AuthorizeCard(ctx context.Context, userID entity.UserID, checkoutID entity.CheckoutID, fullName, phoneNumber string) (string, error)
 
 	// ReleaseExpired makes lapsed Held Checkouts Expired and gives back the
-	// card hold of every ended Checkout, reporting a charged hold on an ended
+	// card authorization of every ended Checkout, reporting a captured one on an ended
 	// Checkout as needing an operator. One Checkout's failure never stops
 	// the others.
 	//
@@ -243,30 +243,30 @@ func (uc *checkoutUseCase) ReleaseExpired(ctx context.Context) error {
 					slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
 			}
 		case entity.CheckoutStatusExpired, entity.CheckoutStatusReleased:
-			uc.giveBackCardHold(ctx, checkout, now)
+			uc.releaseCardAuthorization(ctx, checkout, now)
 		}
 	}
 	return nil
 }
 
-// giveBackCardHold releases an ended checkout's card hold and records it. A
-// charged hold is reported as needing an operator.
-func (uc *checkoutUseCase) giveBackCardHold(ctx context.Context, checkout *entity.Checkout, now time.Time) {
+// releaseCardAuthorization releases an ended checkout's card authorization and records it. A
+// captured card authorization is reported as needing an operator.
+func (uc *checkoutUseCase) releaseCardAuthorization(ctx context.Context, checkout *entity.Checkout, now time.Time) {
 	if err := uc.cardAuthorizations.Release(ctx, checkout.CardAuthorizationID); err != nil {
 		if errors.Is(err, apperr.ErrFailedPrecondition) {
-			uc.logger.Error(ctx, LogKeyNeedsOperator, errors.New("the card hold of an ended checkout was charged"),
+			uc.logger.Error(ctx, LogKeyNeedsOperator, errors.New("the card authorization of an ended checkout was charged"),
 				slog.String("checkout_id", string(checkout.ID)),
 				slog.String("card_authorization_id", checkout.CardAuthorizationID),
 				slog.String("status", checkout.Status.String()),
 			)
 			return
 		}
-		uc.logger.Warn(ctx, "release sweep: failed to cancel card hold; retrying next run",
+		uc.logger.Warn(ctx, "release sweep: failed to cancel card authorization; retrying next run",
 			slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
 		return
 	}
 	if err := uc.checkoutRepo.RecordCardAuthorizationRelease(ctx, checkout.ID, now); err != nil {
-		uc.logger.Warn(ctx, "release sweep: failed to record card hold release; retrying next run",
+		uc.logger.Warn(ctx, "release sweep: failed to record card authorization release; retrying next run",
 			slog.String("checkout_id", string(checkout.ID)), slog.Any("error", err))
 	}
 }

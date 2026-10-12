@@ -24,7 +24,7 @@ var (
 	// "東京文化会館・大ホール" or "杉並公会堂・大ホール" — is preserved rather than
 	// truncated to a generic residue like "大ホール". Truncating those would
 	// silently collapse distinct same-date venues into one dedup key and, on the
-	// pending-staged path (which ignores start time), drop a genuinely-new concert
+	// pending-candidate path (which ignores start time), drop a genuinely-new concert
 	// with no DB-level safety net.
 	japanesePrefectureBases = []string{
 		"北海道",

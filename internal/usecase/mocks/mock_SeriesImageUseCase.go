@@ -23,27 +23,27 @@ func (_m *MockSeriesImageUseCase) EXPECT() *MockSeriesImageUseCase_Expecter {
 }
 
 // CreateUploadURL provides a mock function with given fields: ctx, callerOrgID, in
-func (_m *MockSeriesImageUseCase) CreateUploadURL(ctx context.Context, callerOrgID string, in usecase.CreateMediaUploadURLInput) (*usecase.CreateMediaUploadURLOutput, error) {
+func (_m *MockSeriesImageUseCase) CreateUploadURL(ctx context.Context, callerOrgID string, in usecase.CreateSeriesImageUploadURLInput) (*usecase.CreateSeriesImageUploadURLOutput, error) {
 	ret := _m.Called(ctx, callerOrgID, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateUploadURL")
 	}
 
-	var r0 *usecase.CreateMediaUploadURLOutput
+	var r0 *usecase.CreateSeriesImageUploadURLOutput
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, usecase.CreateMediaUploadURLInput) (*usecase.CreateMediaUploadURLOutput, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, usecase.CreateSeriesImageUploadURLInput) (*usecase.CreateSeriesImageUploadURLOutput, error)); ok {
 		return rf(ctx, callerOrgID, in)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, usecase.CreateMediaUploadURLInput) *usecase.CreateMediaUploadURLOutput); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, string, usecase.CreateSeriesImageUploadURLInput) *usecase.CreateSeriesImageUploadURLOutput); ok {
 		r0 = rf(ctx, callerOrgID, in)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*usecase.CreateMediaUploadURLOutput)
+			r0 = ret.Get(0).(*usecase.CreateSeriesImageUploadURLOutput)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, usecase.CreateMediaUploadURLInput) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, string, usecase.CreateSeriesImageUploadURLInput) error); ok {
 		r1 = rf(ctx, callerOrgID, in)
 	} else {
 		r1 = ret.Error(1)
@@ -60,31 +60,31 @@ type MockSeriesImageUseCase_CreateUploadURL_Call struct {
 // CreateUploadURL is a helper method to define mock.On call
 //   - ctx context.Context
 //   - callerOrgID string
-//   - in usecase.CreateMediaUploadURLInput
+//   - in usecase.CreateSeriesImageUploadURLInput
 func (_e *MockSeriesImageUseCase_Expecter) CreateUploadURL(ctx interface{}, callerOrgID interface{}, in interface{}) *MockSeriesImageUseCase_CreateUploadURL_Call {
 	return &MockSeriesImageUseCase_CreateUploadURL_Call{Call: _e.mock.On("CreateUploadURL", ctx, callerOrgID, in)}
 }
 
-func (_c *MockSeriesImageUseCase_CreateUploadURL_Call) Run(run func(ctx context.Context, callerOrgID string, in usecase.CreateMediaUploadURLInput)) *MockSeriesImageUseCase_CreateUploadURL_Call {
+func (_c *MockSeriesImageUseCase_CreateUploadURL_Call) Run(run func(ctx context.Context, callerOrgID string, in usecase.CreateSeriesImageUploadURLInput)) *MockSeriesImageUseCase_CreateUploadURL_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(usecase.CreateMediaUploadURLInput))
+		run(args[0].(context.Context), args[1].(string), args[2].(usecase.CreateSeriesImageUploadURLInput))
 	})
 	return _c
 }
 
-func (_c *MockSeriesImageUseCase_CreateUploadURL_Call) Return(_a0 *usecase.CreateMediaUploadURLOutput, _a1 error) *MockSeriesImageUseCase_CreateUploadURL_Call {
+func (_c *MockSeriesImageUseCase_CreateUploadURL_Call) Return(_a0 *usecase.CreateSeriesImageUploadURLOutput, _a1 error) *MockSeriesImageUseCase_CreateUploadURL_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockSeriesImageUseCase_CreateUploadURL_Call) RunAndReturn(run func(context.Context, string, usecase.CreateMediaUploadURLInput) (*usecase.CreateMediaUploadURLOutput, error)) *MockSeriesImageUseCase_CreateUploadURL_Call {
+func (_c *MockSeriesImageUseCase_CreateUploadURL_Call) RunAndReturn(run func(context.Context, string, usecase.CreateSeriesImageUploadURLInput) (*usecase.CreateSeriesImageUploadURLOutput, error)) *MockSeriesImageUseCase_CreateUploadURL_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Process provides a mock function with given fields: ctx, mediaID, seriesID
-func (_m *MockSeriesImageUseCase) Process(ctx context.Context, mediaID string, seriesID string) error {
-	ret := _m.Called(ctx, mediaID, seriesID)
+// Process provides a mock function with given fields: ctx, seriesImageID, seriesID
+func (_m *MockSeriesImageUseCase) Process(ctx context.Context, seriesImageID string, seriesID string) error {
+	ret := _m.Called(ctx, seriesImageID, seriesID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Process")
@@ -92,7 +92,7 @@ func (_m *MockSeriesImageUseCase) Process(ctx context.Context, mediaID string, s
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, mediaID, seriesID)
+		r0 = rf(ctx, seriesImageID, seriesID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -107,13 +107,13 @@ type MockSeriesImageUseCase_Process_Call struct {
 
 // Process is a helper method to define mock.On call
 //   - ctx context.Context
-//   - mediaID string
+//   - seriesImageID string
 //   - seriesID string
-func (_e *MockSeriesImageUseCase_Expecter) Process(ctx interface{}, mediaID interface{}, seriesID interface{}) *MockSeriesImageUseCase_Process_Call {
-	return &MockSeriesImageUseCase_Process_Call{Call: _e.mock.On("Process", ctx, mediaID, seriesID)}
+func (_e *MockSeriesImageUseCase_Expecter) Process(ctx interface{}, seriesImageID interface{}, seriesID interface{}) *MockSeriesImageUseCase_Process_Call {
+	return &MockSeriesImageUseCase_Process_Call{Call: _e.mock.On("Process", ctx, seriesImageID, seriesID)}
 }
 
-func (_c *MockSeriesImageUseCase_Process_Call) Run(run func(ctx context.Context, mediaID string, seriesID string)) *MockSeriesImageUseCase_Process_Call {
+func (_c *MockSeriesImageUseCase_Process_Call) Run(run func(ctx context.Context, seriesImageID string, seriesID string)) *MockSeriesImageUseCase_Process_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})

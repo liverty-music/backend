@@ -35,7 +35,7 @@ func TestMigration_OneNamePerConcept(t *testing.T) {
 		settleID               = id(42)
 		stagedID               = id(50)
 		rejectedID             = id(51)
-		mediaID                = id(60)
+		seriesImageID          = id(60)
 		linkID                 = id(70)
 		scanID                 = id(71)
 	)
@@ -79,8 +79,8 @@ func TestMigration_OneNamePerConcept(t *testing.T) {
 	mustExec(`INSERT INTO rejected_concerts_log (id, artist_id, artist_name, title, local_date, listed_venue_name, reason)
 	      VALUES ($1, $2, 'Artist', 'Tour 2026', '2026-12-01', 'Zepp Haneda', 'duplicate')`, rejectedID, artistID)
 	mustExec(`INSERT INTO latest_search_logs (artist_id, searched_at) VALUES ($1, $2)`, artistID, at)
-	mustExec(`INSERT INTO media (id, organizer_id, kind, attributes) VALUES ($1, $2, 'IMAGE', '{"content_type": "image/png"}')`, mediaID, organizerID)
-	mustExec(`INSERT INTO series_media (series_id, media_id) VALUES ($1, $2)`, seriesID, mediaID)
+	mustExec(`INSERT INTO media (id, organizer_id, kind, attributes) VALUES ($1, $2, 'IMAGE', '{"content_type": "image/png"}')`, seriesImageID, organizerID)
+	mustExec(`INSERT INTO series_media (series_id, media_id) VALUES ($1, $2)`, seriesID, seriesImageID)
 	mustExec(`INSERT INTO reception_links (id, event_id, number, token_hash, status) VALUES ($1, $2, 1, decode(repeat('ab', 32), 'hex'), 1)`, linkID, eventID)
 	mustExec(`INSERT INTO rejected_scans (id, event_id, reception_link_id, ticket_id, reason, scanned_at) VALUES ($1, $2, $3, $4, 5, $5)`,
 		scanID, eventID, linkID, ticketID, at)
@@ -104,7 +104,7 @@ func TestMigration_OneNamePerConcept(t *testing.T) {
 		assert.Zero(t, dropped, "country and is_active are dropped")
 	})
 
-	t.Run("the kyc row is an identity verification", func(t *testing.T) {
+	t.Run("the old identity verification row keeps its values", func(t *testing.T) {
 		var providerUserID string
 		var verifyAt time.Time
 		readOne(t, `SELECT provider_user_id, verify_at FROM identity_verifications WHERE id = $1`, []any{identityVerificationID}, &providerUserID, &verifyAt)
@@ -174,12 +174,12 @@ func TestMigration_OneNamePerConcept(t *testing.T) {
 		assert.Equal(t, []int{1, 1, 1}, []int{candidates, rejected, searches})
 	})
 
-	t.Run("the media row is the series image and series cover", func(t *testing.T) {
+	t.Run("the series image row is the series image and series cover", func(t *testing.T) {
 		var contentType, coverID string
-		readOne(t, `SELECT attributes->>'content_type' FROM series_images WHERE id = $1`, []any{mediaID}, &contentType)
+		readOne(t, `SELECT attributes->>'content_type' FROM series_images WHERE id = $1`, []any{seriesImageID}, &contentType)
 		readOne(t, `SELECT series_image_id FROM series_cover_images WHERE series_id = $1`, []any{seriesID}, &coverID)
 		assert.Equal(t, "image/png", contentType)
-		assert.Equal(t, mediaID, coverID)
+		assert.Equal(t, seriesImageID, coverID)
 	})
 
 	t.Run("a rejected scan with reason 4 is refused", func(t *testing.T) {

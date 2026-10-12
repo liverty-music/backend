@@ -64,7 +64,7 @@ func futureDate() time.Time {
 
 // --- Tests ---
 
-func TestConcertAuthoringUseCase_CreateDraft_OwnershipReject(t *testing.T) {
+func TestSeriesUseCase_Create_OwnershipReject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newAuthoringDeps(t)
@@ -90,7 +90,7 @@ func TestConcertAuthoringUseCase_CreateDraft_OwnershipReject(t *testing.T) {
 	assert.True(t, errors.Is(err, apperr.ErrPermissionDenied), "expected PermissionDenied, got %v", err)
 }
 
-func TestConcertAuthoringUseCase_Publish_NotifyOncePublic(t *testing.T) {
+func TestSeriesUseCase_Publish_NotifyOncePublic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newAuthoringDeps(t)
@@ -138,7 +138,7 @@ func TestConcertAuthoringUseCase_Publish_NotifyOncePublic(t *testing.T) {
 	assert.Equal(t, 1, orgPublishedCount, "ORGANIZER.concert_published must be emitted exactly once")
 }
 
-func TestConcertAuthoringUseCase_Publish_NoNotifyDraft(t *testing.T) {
+func TestSeriesUseCase_Publish_NoNotifyDraft(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newAuthoringDeps(t)
@@ -168,7 +168,7 @@ func TestConcertAuthoringUseCase_Publish_NoNotifyDraft(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestConcertAuthoringUseCase_Publish_SupersedeClaimedNoDoubleNotify(t *testing.T) {
+func TestSeriesUseCase_Publish_SupersedeClaimedNoDoubleNotify(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newAuthoringDeps(t)
@@ -196,7 +196,7 @@ func TestConcertAuthoringUseCase_Publish_SupersedeClaimedNoDoubleNotify(t *testi
 	require.NoError(t, err)
 }
 
-func TestConcertAuthoringUseCase_Publish_SuppressedSlot(t *testing.T) {
+func TestSeriesUseCase_Publish_SuppressedSlot(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newAuthoringDeps(t)
@@ -222,7 +222,7 @@ func TestConcertAuthoringUseCase_Publish_SuppressedSlot(t *testing.T) {
 	assert.True(t, errors.Is(err, apperr.ErrFailedPrecondition))
 }
 
-func TestConcertAuthoringUseCase_Publish_CrossOrgConflict(t *testing.T) {
+func TestSeriesUseCase_Publish_CrossOrgConflict(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newAuthoringDeps(t)
@@ -248,7 +248,7 @@ func TestConcertAuthoringUseCase_Publish_CrossOrgConflict(t *testing.T) {
 	assert.True(t, errors.Is(err, apperr.ErrFailedPrecondition))
 }
 
-func TestConcertAuthoringUseCase_Publish_RejectsIncompleteDraft(t *testing.T) {
+func TestSeriesUseCase_Publish_RejectsIncompleteDraft(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -324,7 +324,7 @@ func TestConcertAuthoringUseCase_Publish_RejectsIncompleteDraft(t *testing.T) {
 	}
 }
 
-func TestConcertAuthoringUseCase_RegenerateToken(t *testing.T) {
+func TestSeriesUseCase_RegenerateShareURL(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newAuthoringDeps(t)
@@ -348,7 +348,7 @@ func TestConcertAuthoringUseCase_RegenerateToken(t *testing.T) {
 	assert.NotEmpty(t, token)
 }
 
-func TestConcertAuthoringUseCase_Cancel_EmitsCancelled(t *testing.T) {
+func TestSeriesUseCase_Cancel_EmitsCancelled(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newAuthoringDeps(t)
@@ -378,7 +378,7 @@ func TestConcertAuthoringUseCase_Cancel_EmitsCancelled(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestConcertAuthoringUseCase_Cancel_AlreadyCancelled(t *testing.T) {
+func TestSeriesUseCase_Cancel_AlreadyCancelled(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := newAuthoringDeps(t)

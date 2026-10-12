@@ -507,7 +507,7 @@ func TestConcertUseCase_SearchNewConcertsOnFirstFollow(t *testing.T) {
 		},
 		{
 			// @spec components/usecase/concert/search-new-concerts-on-first-follow "Search history unreadable"
-			name: "search log lookup fails - returns error",
+			name: "concert search lookup fails - returns error",
 			args: args{artistID: "artist-1"},
 			setup: func(t *testing.T, d *concertTestDeps) {
 				t.Helper()
@@ -1116,11 +1116,11 @@ func TestConcertUseCase_ListByLocation(t *testing.T) {
 	})
 }
 
-// TestSearchNewConcerts_StagedDedup verifies that concerts already pending in
+// TestSearchNewConcerts_CandidateDedup verifies that concerts already pending in
 // concert_candidates are excluded from the discovery batch so they are not
 // re-staged, while the rejection log is intentionally NOT consulted (a rejected
 // concert can always re-enter the queue).
-func TestSearchNewConcerts_StagedDedup(t *testing.T) {
+func TestSearchNewConcerts_CandidateDedup(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -1129,7 +1129,7 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 
 	concertDate := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 
-	t.Run("concert matching a pending staged key is excluded from discovery", func(t *testing.T) {
+	t.Run("concert matching a pending candidate key is excluded from discovery", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			d := newConcertTestDeps(t)
@@ -1142,7 +1142,7 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 			scraped := []*entity.DiscoveredSeries{
 				// This one is already pending — must be excluded.
 				{
-					Title: "Already Staged", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
+					Title: "Already Pending", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
 					Events: []*entity.DiscoveredEvent{{ListedVenueName: "Zepp Tokyo", LocalDate: concertDate}},
 				},
 				// This one is genuinely new — must pass.
@@ -1160,7 +1160,7 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 			d.artistRepo.EXPECT().Get(ctx, artistID).Return(artist, nil).Once()
 			d.artistRepo.EXPECT().GetOfficialSite(ctx, artistID).Return(nil, apperr.ErrNotFound).Once()
 			d.concertRepo.EXPECT().ListByArtist(ctx, artistID, true).Return(nil, nil).Once()
-			// Return the pending key — the "Already Staged" concert must be filtered out.
+			// Return the pending key — the "Already Pending" concert must be filtered out.
 			d.concertCandidateRepo.EXPECT().ListPendingDedupKeysByArtist(mock.Anything, artistID).
 				Return([]entity.ConcertCandidateDedupKey{pendingKey}, nil).Once()
 			d.searcher.EXPECT().Search(mock.Anything, artist, (*entity.OfficialSite)(nil), mock.AnythingOfType("time.Time")).
@@ -1173,16 +1173,16 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 
 			// Only the genuinely new concert should be published.
 			got := receivePublishedConcerts(t, ctx, sub)
-			assert.Equal(t, 1, got, "pending staged concert must be excluded; only the new show should be published")
+			assert.Equal(t, 1, got, "pending concert candidate must be excluded; only the new show should be published")
 		})
 	})
 
-	t.Run("drifted venue name still matches a pending staged key via normalization", func(t *testing.T) {
+	t.Run("drifted venue name still matches a pending candidate key via normalization", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			d := newConcertTestDeps(t)
 
-			// The pending staged row was captured under the canonical name; this
+			// The pending concert candidate was captured under the canonical name; this
 			// run's scrape drifted to a prefixed spelling of the same venue.
 			pendingKey := entity.ConcertCandidateDedupKey{
 				LocalDate:       concertDate,
@@ -1192,7 +1192,7 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 			scraped := []*entity.DiscoveredSeries{
 				// Same physical venue, drifted name — must be excluded via normalization.
 				{
-					Title: "Drifted Staged", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
+					Title: "Drifted Pending", Type: entity.SeriesTypeSingle, SourceURL: "https://example.com/a",
 					Events: []*entity.DiscoveredEvent{{ListedVenueName: "大阪・フェスティバルホール", LocalDate: concertDate}},
 				},
 				// Genuinely new — must pass.
@@ -1221,11 +1221,11 @@ func TestSearchNewConcerts_StagedDedup(t *testing.T) {
 			require.NoError(t, err)
 
 			got := receivePublishedConcerts(t, ctx, sub)
-			assert.Equal(t, 1, got, "drifted-name re-discovery must dedup against the pending staged row; only the new show publishes")
+			assert.Equal(t, 1, got, "drifted-name re-discovery must dedup against the pending concert candidate; only the new show publishes")
 		})
 	})
 
-	t.Run("pending staged keys do not suppress rejected concerts (rejection log not consulted)", func(t *testing.T) {
+	t.Run("pending candidate key do not suppress rejected concerts (rejection log not consulted)", func(t *testing.T) {
 		t.Parallel()
 		synctest.Test(t, func(t *testing.T) {
 			d := newConcertTestDeps(t)

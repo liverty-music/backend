@@ -33,7 +33,7 @@ func NewTicketJourneyHandler(
 
 // SetStatus creates or updates the fan's ticket journey status for a specific event.
 func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *connect.Request[rpc.SetStatusRequest]) (*connect.Response[rpc.SetStatusResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *connect.Reque
 	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
 	// not the identity-provider-specific provider_user_id.
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (h *TicketJourneyHandler) SetStatus(ctx context.Context, req *connect.Reque
 
 // Delete removes the fan's ticket journey for a specific event.
 func (h *TicketJourneyHandler) Delete(ctx context.Context, req *connect.Request[rpc.DeleteRequest]) (*connect.Response[rpc.DeleteResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func (h *TicketJourneyHandler) Delete(ctx context.Context, req *connect.Request[
 	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
 	// not the identity-provider-specific provider_user_id.
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (h *TicketJourneyHandler) Delete(ctx context.Context, req *connect.Request[
 // List returns every ticket journey of the signed-in fan, empty when there is
 // none.
 func (h *TicketJourneyHandler) List(ctx context.Context, _ *connect.Request[rpc.ListRequest]) (*connect.Response[rpc.ListResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (h *TicketJourneyHandler) List(ctx context.Context, _ *connect.Request[rpc.
 	// Resolve the internal users.id from the JWT sub claim (Zitadel provider_user_id).
 	// ticket_journeys.user_id references users.id (internal UUID),
 	// not the identity-provider-specific provider_user_id.
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}

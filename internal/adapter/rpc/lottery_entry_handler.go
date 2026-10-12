@@ -43,11 +43,11 @@ func NewLotteryEntryHandler(
 // with Unauthenticated without a sign-in and NotFound without a stored
 // account.
 func callerUserID(ctx context.Context, userUC usecase.UserUseCase) (entity.UserID, error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return "", err
 	}
-	user, err := userUC.ResolveCaller(ctx, externalID)
+	user, err := userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return "", err
 	}
@@ -72,7 +72,7 @@ func (h *LotteryEntryHandler) Start(
 }
 
 // AuthorizeCard stores the caller's full name and phone number and opens the card
-// hold for their Draft, returning the hold's confirmation secret.
+// authorization for their Draft, returning its card authorization secret.
 func (h *LotteryEntryHandler) AuthorizeCard(
 	ctx context.Context,
 	req *connect.Request[lotteryentryv1.AuthorizeCardRequest],

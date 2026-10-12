@@ -22,9 +22,9 @@ func (_m *MockSeriesImageRepository) EXPECT() *MockSeriesImageRepository_Expecte
 	return &MockSeriesImageRepository_Expecter{mock: &_m.Mock}
 }
 
-// Create provides a mock function with given fields: ctx, media
-func (_m *MockSeriesImageRepository) Create(ctx context.Context, media *entity.SeriesImage) error {
-	ret := _m.Called(ctx, media)
+// Create provides a mock function with given fields: ctx, seriesImage
+func (_m *MockSeriesImageRepository) Create(ctx context.Context, seriesImage *entity.SeriesImage) error {
+	ret := _m.Called(ctx, seriesImage)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
@@ -32,7 +32,7 @@ func (_m *MockSeriesImageRepository) Create(ctx context.Context, media *entity.S
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, *entity.SeriesImage) error); ok {
-		r0 = rf(ctx, media)
+		r0 = rf(ctx, seriesImage)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -47,12 +47,12 @@ type MockSeriesImageRepository_Create_Call struct {
 
 // Create is a helper method to define mock.On call
 //   - ctx context.Context
-//   - media *entity.SeriesImage
-func (_e *MockSeriesImageRepository_Expecter) Create(ctx interface{}, media interface{}) *MockSeriesImageRepository_Create_Call {
-	return &MockSeriesImageRepository_Create_Call{Call: _e.mock.On("Create", ctx, media)}
+//   - seriesImage *entity.SeriesImage
+func (_e *MockSeriesImageRepository_Expecter) Create(ctx interface{}, seriesImage interface{}) *MockSeriesImageRepository_Create_Call {
+	return &MockSeriesImageRepository_Create_Call{Call: _e.mock.On("Create", ctx, seriesImage)}
 }
 
-func (_c *MockSeriesImageRepository_Create_Call) Run(run func(ctx context.Context, media *entity.SeriesImage)) *MockSeriesImageRepository_Create_Call {
+func (_c *MockSeriesImageRepository_Create_Call) Run(run func(ctx context.Context, seriesImage *entity.SeriesImage)) *MockSeriesImageRepository_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(*entity.SeriesImage))
 	})
@@ -69,9 +69,9 @@ func (_c *MockSeriesImageRepository_Create_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// Delete provides a mock function with given fields: ctx, mediaID
-func (_m *MockSeriesImageRepository) Delete(ctx context.Context, mediaID string) error {
-	ret := _m.Called(ctx, mediaID)
+// Delete provides a mock function with given fields: ctx, seriesImageID
+func (_m *MockSeriesImageRepository) Delete(ctx context.Context, seriesImageID string) error {
+	ret := _m.Called(ctx, seriesImageID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Delete")
@@ -79,7 +79,7 @@ func (_m *MockSeriesImageRepository) Delete(ctx context.Context, mediaID string)
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, mediaID)
+		r0 = rf(ctx, seriesImageID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -94,12 +94,12 @@ type MockSeriesImageRepository_Delete_Call struct {
 
 // Delete is a helper method to define mock.On call
 //   - ctx context.Context
-//   - mediaID string
-func (_e *MockSeriesImageRepository_Expecter) Delete(ctx interface{}, mediaID interface{}) *MockSeriesImageRepository_Delete_Call {
-	return &MockSeriesImageRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, mediaID)}
+//   - seriesImageID string
+func (_e *MockSeriesImageRepository_Expecter) Delete(ctx interface{}, seriesImageID interface{}) *MockSeriesImageRepository_Delete_Call {
+	return &MockSeriesImageRepository_Delete_Call{Call: _e.mock.On("Delete", ctx, seriesImageID)}
 }
 
-func (_c *MockSeriesImageRepository_Delete_Call) Run(run func(ctx context.Context, mediaID string)) *MockSeriesImageRepository_Delete_Call {
+func (_c *MockSeriesImageRepository_Delete_Call) Run(run func(ctx context.Context, seriesImageID string)) *MockSeriesImageRepository_Delete_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
@@ -116,9 +116,9 @@ func (_c *MockSeriesImageRepository_Delete_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// Get provides a mock function with given fields: ctx, mediaID
-func (_m *MockSeriesImageRepository) Get(ctx context.Context, mediaID string) (*entity.SeriesImage, error) {
-	ret := _m.Called(ctx, mediaID)
+// Get provides a mock function with given fields: ctx, seriesImageID
+func (_m *MockSeriesImageRepository) Get(ctx context.Context, seriesImageID string) (*entity.SeriesImage, error) {
+	ret := _m.Called(ctx, seriesImageID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Get")
@@ -127,10 +127,10 @@ func (_m *MockSeriesImageRepository) Get(ctx context.Context, mediaID string) (*
 	var r0 *entity.SeriesImage
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.SeriesImage, error)); ok {
-		return rf(ctx, mediaID)
+		return rf(ctx, seriesImageID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.SeriesImage); ok {
-		r0 = rf(ctx, mediaID)
+		r0 = rf(ctx, seriesImageID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.SeriesImage)
@@ -138,7 +138,7 @@ func (_m *MockSeriesImageRepository) Get(ctx context.Context, mediaID string) (*
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, mediaID)
+		r1 = rf(ctx, seriesImageID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -153,12 +153,12 @@ type MockSeriesImageRepository_Get_Call struct {
 
 // Get is a helper method to define mock.On call
 //   - ctx context.Context
-//   - mediaID string
-func (_e *MockSeriesImageRepository_Expecter) Get(ctx interface{}, mediaID interface{}) *MockSeriesImageRepository_Get_Call {
-	return &MockSeriesImageRepository_Get_Call{Call: _e.mock.On("Get", ctx, mediaID)}
+//   - seriesImageID string
+func (_e *MockSeriesImageRepository_Expecter) Get(ctx interface{}, seriesImageID interface{}) *MockSeriesImageRepository_Get_Call {
+	return &MockSeriesImageRepository_Get_Call{Call: _e.mock.On("Get", ctx, seriesImageID)}
 }
 
-func (_c *MockSeriesImageRepository_Get_Call) Run(run func(ctx context.Context, mediaID string)) *MockSeriesImageRepository_Get_Call {
+func (_c *MockSeriesImageRepository_Get_Call) Run(run func(ctx context.Context, seriesImageID string)) *MockSeriesImageRepository_Get_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
@@ -234,9 +234,9 @@ func (_c *MockSeriesImageRepository_ListByOrganizer_Call) RunAndReturn(run func(
 	return _c
 }
 
-// ReplaceCover provides a mock function with given fields: ctx, seriesID, newMediaID
-func (_m *MockSeriesImageRepository) ReplaceCover(ctx context.Context, seriesID string, newMediaID string) (string, error) {
-	ret := _m.Called(ctx, seriesID, newMediaID)
+// ReplaceCover provides a mock function with given fields: ctx, seriesID, newSeriesImageID
+func (_m *MockSeriesImageRepository) ReplaceCover(ctx context.Context, seriesID string, newSeriesImageID string) (string, error) {
+	ret := _m.Called(ctx, seriesID, newSeriesImageID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplaceCover")
@@ -245,16 +245,16 @@ func (_m *MockSeriesImageRepository) ReplaceCover(ctx context.Context, seriesID 
 	var r0 string
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string) (string, error)); ok {
-		return rf(ctx, seriesID, newMediaID)
+		return rf(ctx, seriesID, newSeriesImageID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, string) string); ok {
-		r0 = rf(ctx, seriesID, newMediaID)
+		r0 = rf(ctx, seriesID, newSeriesImageID)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = rf(ctx, seriesID, newMediaID)
+		r1 = rf(ctx, seriesID, newSeriesImageID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -270,20 +270,20 @@ type MockSeriesImageRepository_ReplaceCover_Call struct {
 // ReplaceCover is a helper method to define mock.On call
 //   - ctx context.Context
 //   - seriesID string
-//   - newMediaID string
-func (_e *MockSeriesImageRepository_Expecter) ReplaceCover(ctx interface{}, seriesID interface{}, newMediaID interface{}) *MockSeriesImageRepository_ReplaceCover_Call {
-	return &MockSeriesImageRepository_ReplaceCover_Call{Call: _e.mock.On("ReplaceCover", ctx, seriesID, newMediaID)}
+//   - newSeriesImageID string
+func (_e *MockSeriesImageRepository_Expecter) ReplaceCover(ctx interface{}, seriesID interface{}, newSeriesImageID interface{}) *MockSeriesImageRepository_ReplaceCover_Call {
+	return &MockSeriesImageRepository_ReplaceCover_Call{Call: _e.mock.On("ReplaceCover", ctx, seriesID, newSeriesImageID)}
 }
 
-func (_c *MockSeriesImageRepository_ReplaceCover_Call) Run(run func(ctx context.Context, seriesID string, newMediaID string)) *MockSeriesImageRepository_ReplaceCover_Call {
+func (_c *MockSeriesImageRepository_ReplaceCover_Call) Run(run func(ctx context.Context, seriesID string, newSeriesImageID string)) *MockSeriesImageRepository_ReplaceCover_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockSeriesImageRepository_ReplaceCover_Call) Return(oldMediaID string, err error) *MockSeriesImageRepository_ReplaceCover_Call {
-	_c.Call.Return(oldMediaID, err)
+func (_c *MockSeriesImageRepository_ReplaceCover_Call) Return(oldSeriesImageID string, err error) *MockSeriesImageRepository_ReplaceCover_Call {
+	_c.Call.Return(oldSeriesImageID, err)
 	return _c
 }
 

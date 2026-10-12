@@ -4,7 +4,7 @@ import "context"
 
 // PayoutOnboardingStatus is the Organizer's readiness to receive payouts.
 //
-// It is derived from the Stripe connected account's transfers capability and
+// It is derived from the payout account's transfers capability at Stripe and
 // is the platform's own enum — never a raw Stripe status string. Switching
 // payment provider is therefore an adapter change, not a schema break.
 // Values mirror the proto enum
@@ -15,12 +15,12 @@ const (
 	// PayoutOnboardingStatusUnspecified is the zero value and is never
 	// persisted.
 	PayoutOnboardingStatusUnspecified PayoutOnboardingStatus = 0
-	// PayoutOnboardingStatusPending means the connected account exists but
+	// PayoutOnboardingStatusPending means the payout account exists but
 	// the transfers capability is not yet active (identity verification /
 	// KYB is still in progress). Payout is withheld.
 	PayoutOnboardingStatusPending PayoutOnboardingStatus = 1
 	// PayoutOnboardingStatusActive means the transfers capability is active
-	// (KYC/KYB cleared). The Organizer is eligible to receive the scheduled
+	// (payout account verification cleared). The Organizer is eligible to receive the scheduled
 	// post-event Transfer.
 	PayoutOnboardingStatusActive PayoutOnboardingStatus = 2
 	// PayoutOnboardingStatusRestricted means the capability was disabled or
@@ -66,7 +66,7 @@ func (s PayoutOnboardingStatus) IsPayoutEligible() bool {
 type PayoutAccount struct {
 	// OrganizerID is the Organizer that owns this payout-recipient account.
 	OrganizerID string
-	// ProviderAccountID is the provider's connected-account reference (e.g. a Stripe
+	// ProviderAccountID is the payment provider's ID for the payout account (e.g. a Stripe
 	// "acct_..." id). Opaque; meaningful only to the provider.
 	ProviderAccountID string
 	// Status is the account's payout-onboarding readiness. Payout eligibility
@@ -92,25 +92,25 @@ type PayoutAccountRepository interface {
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no connected account exists for this Organizer.
+	//  - NotFound: no payout account exists for this Organizer.
 	//  - Internal: database query failure.
 	GetByOrganizerID(ctx context.Context, organizerID string) (*PayoutAccount, error)
 
-	// UpdateStatus updates only the Status field of the connected account.
+	// UpdateStatus updates only the Status field of the payout account.
 	// Called by the payout sweeper to refresh capability status before each
 	// release attempt.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no connected account exists for this Organizer.
+	//  - NotFound: no payout account exists for this Organizer.
 	//  - Internal: database execution failure.
 	UpdateStatus(ctx context.Context, organizerID string, status PayoutOnboardingStatus) error
 
 	// Create provisions a new Accounts v2 payout-recipient
-	// connected account for the Organizer. The account requests ONLY the
+	// payout account for the Organizer. The account requests ONLY the
 	// transfers capability on stripe_balance (never card_payments) and is
 	// configured with losses_collector = application so the platform absorbs
-	// negative balances. Returns the opaque account reference ("acct_...").
+	// negative balances. Returns the payment provider's ID for the account ("acct_...").
 	//
 	// contactEmail is the Organizer's business contact address. Stripe rejects
 	// a recipient configuration without one ("If configuration.recipient is
@@ -128,7 +128,7 @@ type PayoutAccountRepository interface {
 	Create(ctx context.Context, organizerID string, contactEmail string) (providerAccountID string, err error)
 
 	// GetStatus retrieves the payout-onboarding status of the
-	// connected account identified by accountRef. It maps the provider's
+	// payout account identified by providerAccountID. It maps the provider's
 	// transfers capability state to the platform's own
 	// PayoutOnboardingStatus enum without exposing raw provider status.
 	//
@@ -139,7 +139,7 @@ type PayoutAccountRepository interface {
 	GetStatus(ctx context.Context, providerAccountID string) (PayoutOnboardingStatus, error)
 
 	// CreateOnboardingLink returns a provider-hosted URL where the Organizer
-	// can start or continue KYC/KYB verification. The link is single-use and
+	// can start or continue payout account verification. The link is single-use and
 	// short-lived; callers must not cache it.
 	//
 	// # Possible errors

@@ -10,14 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSeriesRepository_ListMediaByOrganizer(t *testing.T) {
+func TestSeriesImageRepository_ListByOrganizer(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
 	}
 	ctx := context.Background()
 	repo := rdb.NewSeriesImageRepository(testDB)
 
-	t.Run("returns the cover and a media no series uses", func(t *testing.T) {
+	t.Run("returns the cover and an image no series uses", func(t *testing.T) {
 		// @spec components/entity/series-image/list-by-organizer "Cover and replaced upload"
 		o := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
 		other := seedDeletableOrganizer(t, entity.OrganizerStatusActive)
@@ -34,7 +34,7 @@ func TestSeriesRepository_ListMediaByOrganizer(t *testing.T) {
 		assert.NotContains(t, ids, other.coverID)
 	})
 
-	t.Run("returns an empty list when the organizer owns no media", func(t *testing.T) {
+	t.Run("returns an empty list when the organizer owns no series images", func(t *testing.T) {
 		// @spec components/entity/series-image/list-by-organizer "No series image"
 		got, err := repo.ListByOrganizer(ctx, entity.NewID())
 

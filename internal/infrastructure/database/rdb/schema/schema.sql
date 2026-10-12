@@ -655,7 +655,7 @@ COMMENT ON INDEX idx_rejected_concerts_artist_id IS 'Supports per-artist analysi
 CREATE INDEX IF NOT EXISTS idx_rejected_concerts_rejected_at ON rejected_concerts(rejected_at);
 COMMENT ON INDEX idx_rejected_concerts_rejected_at IS 'Supports time-windowed analysis of rejections';
 
--- Organizers: the vetted seller an admin creates to represent artists. Existence
+-- Organizers: the vetted business an admin creates to represent artists. Existence
 -- is the vetting (no verified flag). status is the operational lifecycle
 -- (1=provisioning, 2=active, 3=deactivated); provider_organizer_id links the token
 -- tenant to this row and is set once tenant provisioning completes.
@@ -679,7 +679,7 @@ CREATE TABLE IF NOT EXISTS organizers (
     CONSTRAINT chk_organizers_business_details_together CHECK ((legal_name IS NULL AND representative_name IS NULL AND business_address IS NULL AND business_phone_number IS NULL AND contact_email IS NULL) OR (legal_name IS NOT NULL AND representative_name IS NOT NULL AND business_address IS NOT NULL AND business_phone_number IS NOT NULL AND contact_email IS NOT NULL)),
     CONSTRAINT chk_organizers_business_phone_e164 CHECK (business_phone_number IS NULL OR business_phone_number ~ '^\+[1-9][0-9]{1,14}$')
 );
-COMMENT ON TABLE organizers IS 'Vetted sellers (label / agency / promoter / self-publishing artist) that represent artists';
+COMMENT ON TABLE organizers IS 'Vetted businesses (label / agency / promoter / self-publishing artist) that represent artists and sell their tickets';
 COMMENT ON COLUMN organizers.id IS 'Unique organizer identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN organizers.name IS 'Organizer display name (label / agency / promoter / self-publishing artist)';
 COMMENT ON COLUMN organizers.operator_email IS 'Email of the operator who administers this organizer; seeded as the initial Zitadel owner user';
@@ -785,7 +785,7 @@ COMMENT ON COLUMN ticket_sales.method IS 'Allocation method: 1=FirstCome, 2=Lott
 COMMENT ON COLUMN ticket_sales.sale_start_at IS 'When the sale opens';
 COMMENT ON COLUMN ticket_sales.sale_end_at IS 'When the sale closes; after sale_start_at, 1 to 14 days after it for a lottery, and before the start of every event the sale covers (checked by the application)';
 COMMENT ON COLUMN ticket_sales.verification_requirement IS '本人確認 requirement: 0=NONE (any fan), 1=VERIFIED_ANY (an Active IdentityVerification is required), 2=JPKI_ONLY (a JPKI-backed IdentityVerification is required)';
-COMMENT ON COLUMN ticket_sales.draw_at IS 'When the lottery draw ran for every ticket type of the sale; NULL until drawn and for a first-come sale. Set atomically with the draw outcome; the draw sweeper skips sales where it is set.';
+COMMENT ON COLUMN ticket_sales.draw_at IS 'When the lottery draw ran for every ticket type of the sale; NULL until the draw runs and for a first-come sale. Set atomically with the draw outcome; the draw sweeper skips sales where it is set.';
 
 CREATE INDEX IF NOT EXISTS idx_ticket_sales_series_id ON ticket_sales(series_id);
 COMMENT ON INDEX idx_ticket_sales_series_id IS 'Optimizes listing the sales of a Series';
@@ -846,9 +846,9 @@ COMMENT ON COLUMN lottery_entries.id IS 'Unique lottery entry identifier (UUIDv7
 COMMENT ON COLUMN lottery_entries.ticket_type_id IS 'The ticket type entered; its sale''s method is Lottery';
 COMMENT ON COLUMN lottery_entries.user_id IS 'The fan user ID (references users.id at application layer; no FK to survive user lifecycle independently)';
 COMMENT ON COLUMN lottery_entries.ticket_count IS 'Companion-group size (all-or-nothing allocation). Must be positive.';
-COMMENT ON COLUMN lottery_entries.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...); NULL on a Draft until the hold is opened, and on an entry withdrawn as a Draft; required from Entered on';
-COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (hold in place), 2=Won (captured), 3=Lost (hold released), 4=Withdrawn (fan-cancelled or abandoned Draft, hold released), 5=Draft (before confirmation; takes no part in the draw)';
-COMMENT ON COLUMN lottery_entries.draw_position IS 'Zero-based position in the ticket type''s draw shuffle. NULL until the draw runs; used to order the loser waitlist for official-resale.';
+COMMENT ON COLUMN lottery_entries.card_authorization_id IS 'The payment provider''s ID for the card authorization (Stripe pi_...); NULL on a Draft until the card authorization is opened, and on an entry withdrawn as a Draft; required from Entered on';
+COMMENT ON COLUMN lottery_entries.state IS 'Lifecycle state: 1=Entered (card authorization in place), 2=Won (captured), 3=Lost (card authorization released), 4=Withdrawn (fan-cancelled or abandoned Draft, card authorization released), 5=Draft (before confirmation; takes no part in the draw)';
+COMMENT ON COLUMN lottery_entries.draw_position IS 'Zero-based position in the ticket type''s draw shuffle. NULL until the draw runs; the draw order of the losers for official resale.';
 
 -- Partial unique index: at most one active entry per (ticket_type_id, user_id).
 -- "Active" means every state but Withdrawn (4): Draft, Entered, Won and Lost.
@@ -910,7 +910,7 @@ CREATE INDEX IF NOT EXISTS idx_checkouts_ticket_type_status ON checkouts(ticket_
 COMMENT ON INDEX idx_checkouts_ticket_type_status IS 'Optimizes the held and per-user committed counts of a ticket type';
 
 CREATE INDEX IF NOT EXISTS idx_checkouts_due ON checkouts(status, hold_expire_at) WHERE status IN (1, 2) OR (status IN (4, 5) AND card_authorization_id IS NOT NULL AND card_authorization_release_at IS NULL);
-COMMENT ON INDEX idx_checkouts_due IS 'Optimizes ListDue: lapsed holds, card holds to give back and stalled commits';
+COMMENT ON INDEX idx_checkouts_due IS 'Optimizes ListDue: lapsed holds, card authorizations to release and stalled commits';
 
 -- Orders: the ⑤ purchase record for one won lottery entry or one completed
 -- checkout. Created already paid from the captured payment (no pending state).
@@ -1010,7 +1010,7 @@ COMMENT ON INDEX idx_tickets_event_id IS 'Optimizes per-event ticket lookups (ch
 -- ============================================================
 
 -- Payout accounts: the payment provider's ID for each Organizer's
--- payout-recipient Stripe connected account. One row per
+-- payout account at the payment provider (Stripe). One row per
 -- Organizer; the platform provisions the account as a recipient (transfers
 -- capability only, never card_payments) with losses_collector = application
 -- so the platform absorbs negative balances.
@@ -1024,11 +1024,11 @@ CREATE TABLE IF NOT EXISTS payout_accounts (
     CONSTRAINT chk_payout_accounts_status CHECK (status IN (1, 2, 3))
 );
 
-COMMENT ON TABLE payout_accounts IS 'The Organizer''s payout account at the payment provider (a payout-recipient Stripe connected account, Accounts v2, transfers capability only). One row per Organizer. status: 1=Pending (KYC/KYB in progress), 2=Active (eligible for payout), 3=Restricted (capability disabled).';
+COMMENT ON TABLE payout_accounts IS 'The Organizer''s payout account at the payment provider (for example a Stripe account, Accounts v2, transfers capability only). One row per Organizer. status: 1=Pending (payout account verification in progress), 2=Active (eligible for payout), 3=Restricted (capability disabled).';
 COMMENT ON COLUMN payout_accounts.organizer_id IS 'The Organizer that owns this payout-recipient account (1:1 with organizers)';
 COMMENT ON COLUMN payout_accounts.provider_account_id IS 'The payment provider''s ID for the payout account (e.g. Stripe "acct_..."); meaningful only to the provider';
 COMMENT ON COLUMN payout_accounts.status IS 'Payout-onboarding readiness: 1=Pending, 2=Active, 3=Restricted. Eligibility = status 2 only.';
-COMMENT ON COLUMN payout_accounts.provisioned_at IS 'When the connected account was first provisioned via the payment provider';
+COMMENT ON COLUMN payout_accounts.provisioned_at IS 'When the payout account was first provisioned at the payment provider';
 COMMENT ON COLUMN payout_accounts.status_synced_at IS 'When the capability status was last refreshed from the payment provider';
 
 -- Settlements: one payout record per Order. Tracks the lifecycle of the
@@ -1052,7 +1052,7 @@ CREATE TABLE IF NOT EXISTS settlements (
 COMMENT ON TABLE settlements IS 'Payout record for one Order. Holds the captured platform charge until the release gate passes (event start_time + dispute buffer), then tracks the Transfer(s) that pay out the Organizer net share. Platform fee = un-transferred remainder (no fee split row). status: 1=Held, 2=Released, 3=Reversed.';
 COMMENT ON COLUMN settlements.id IS 'Unique settlement identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN settlements.order_id IS 'The Order this settlement pays out; one settlement per order (unique index)';
-COMMENT ON COLUMN settlements.organizer_id IS 'The Organizer that receives the payout. Stored denormalized so the sweeper avoids joining through application → phase → event.';
+COMMENT ON COLUMN settlements.organizer_id IS 'The Organizer that receives the payout. Stored denormalized so the sweeper avoids joining through the order''s lottery entry or checkout → ticket type → event.';
 COMMENT ON COLUMN settlements.event_id IS 'The event this settlement gates on. Stored denormalized so the release-gate check reads events.start_at without extra joins.';
 COMMENT ON COLUMN settlements.provider_charge_id IS 'The payment provider''s ID for the charge (e.g. Stripe "ch_...") resolved from the Order''s provider payment ID at payout time. NULL until resolved. Used as source_transaction on each Transfer.';
 COMMENT ON COLUMN settlements.status IS 'Settlement lifecycle: 1=Held (gate not passed), 2=Released (Transfer(s) created), 3=Reversed (transfer_reversal clawback applied)';
@@ -1195,7 +1195,7 @@ CREATE TABLE IF NOT EXISTS rejected_scans (
     CONSTRAINT chk_rejected_scans_ticket_unless_forged CHECK ((reason = 1) = (ticket_id IS NULL))
 );
 
-COMMENT ON TABLE rejected_scans IS 'Append-only note of a refused scan (Forged, Expired, OtherEvent) or of one refused ticket in it (Voided, AlreadyAdmitted). Reason 1=Forged, 2=Expired, 3=OtherEvent, 5=Voided, 6=AlreadyAdmitted (4, the former NotHolder, is retired).';
+COMMENT ON TABLE rejected_scans IS 'Append-only note of a refused scan (Forged, Expired, OtherEvent) or of one refused ticket in it (Voided, AlreadyAdmitted). Reason 1=Forged, 2=Expired, 3=OtherEvent, 5=Voided, 6=AlreadyAdmitted (4 is retired).';
 COMMENT ON COLUMN rejected_scans.id IS 'Unique rejected scan identifier (UUIDv7, application-generated)';
 COMMENT ON COLUMN rejected_scans.event_id IS 'The event of the reception link that scanned';
 COMMENT ON COLUMN rejected_scans.reception_link_id IS 'The reception link that scanned';

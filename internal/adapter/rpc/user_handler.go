@@ -41,12 +41,12 @@ func NewUserHandler(userUseCase usecase.UserUseCase, logger *logging.Logger) *Us
 
 // Get returns the signed-in caller's own User.
 func (h *UserHandler) Get(ctx context.Context, _ *connect.Request[userv1.GetRequest]) (*connect.Response[userv1.GetResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userUseCase.ResolveCaller(ctx, externalID)
+	user, err := h.userUseCase.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -107,14 +107,14 @@ func (h *UserHandler) Update(ctx context.Context, req *connect.Request[userv1.Up
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// UserUseCase.Update resolves the caller's User from externalID and fails
+	// UserUseCase.Update resolves the caller's User from providerUserID and fails
 	// with NotFound when the caller has none.
-	user, err := h.userUseCase.Update(ctx, externalID, fullName, phoneNumber)
+	user, err := h.userUseCase.Update(ctx, providerUserID, fullName, phoneNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -149,12 +149,12 @@ func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *connect.Req
 			errors.New("preferred_language must match ISO 639-1 (^[a-z]{2}$)"))
 	}
 
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	caller, err := h.userUseCase.ResolveCaller(ctx, externalID)
+	caller, err := h.userUseCase.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,12 +171,12 @@ func (h *UserHandler) SetPreferredLanguage(ctx context.Context, req *connect.Req
 
 // SetHome sets or changes the signed-in caller's home area.
 func (h *UserHandler) SetHome(ctx context.Context, req *connect.Request[userv1.SetHomeRequest]) (*connect.Response[userv1.SetHomeResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userUseCase.ResolveCaller(ctx, externalID)
+	user, err := h.userUseCase.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func (h *UserHandler) SetHome(ctx context.Context, req *connect.Request[userv1.S
 // ResendEmailVerification triggers a new email verification message for the
 // authenticated user via the Zitadel API.
 //
-// The handler only resolves the caller's external id from the JWT and
+// The handler only resolves the caller's provider user ID from the JWT and
 // delegates to the use case, which resolves the caller and enforces the resend
 // rate limit before calling the identity provider.
 func (h *UserHandler) ResendEmailVerification(ctx context.Context, _ *connect.Request[userv1.ResendEmailVerificationRequest]) (*connect.Response[userv1.ResendEmailVerificationResponse], error) {

@@ -34,7 +34,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	//    whose event (tickets.event_id FK) we reuse for the issued tickets. --
 	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 	eventID := tt.EventID
-	userID := seedUser(t, "buyer", entity.NewID()+"@example.test", entity.NewID())
+	userID := seedUser(t, "fan", entity.NewID()+"@example.test", entity.NewID())
 	entry := insertLotteryEntry(t, tt.ID, entity.UserID(userID), 2, entity.LotteryEntryStateWon)
 	organizerID := seedOrganizer(t)
 
@@ -171,7 +171,7 @@ func TestIssuanceRepository_Issue_FailureStoresNothing(t *testing.T) {
 
 	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 	eventID := tt.EventID
-	userID := seedUser(t, "failure-buyer", entity.NewID()+"@example.test", entity.NewID())
+	userID := seedUser(t, "failure-fan", entity.NewID()+"@example.test", entity.NewID())
 	entry := insertLotteryEntry(t, tt.ID, entity.UserID(userID), 2, entity.LotteryEntryStateWon)
 	organizerID := seedOrganizer(t)
 

@@ -60,12 +60,12 @@ const (
 	SeriesPublishStateCancelled SeriesPublishState = "CANCELLED"
 )
 
-// SeriesImage represents a single media object uploaded by an organizer. The ID is
+// SeriesImage represents a single image object uploaded by an organizer. The ID is
 // a UUIDv7 that serves as both the creation timestamp source and the
 // cache-busting object-key token. No URL is stored; the served URL is derived
-// at read time from the exposure and the media id.
+// at read time from the exposure and the series image id.
 type SeriesImage struct {
-	// ID is the unique media identifier (UUIDv7, application-generated). It is
+	// ID is the unique series image identifier (UUIDv7, application-generated). It is
 	// the object-key basename and the cache-busting version token.
 	ID string
 	// OrganizerID is the owning organizer. Used as the stable tenant segment
@@ -75,7 +75,7 @@ type SeriesImage struct {
 	Attributes map[string]string
 }
 
-// ContentType returns the content_type attribute for IMAGE media, or empty
+// ContentType returns the content_type attribute of the image, or empty
 // string when the attribute is absent.
 func (m *SeriesImage) ContentType() string {
 	if m.Attributes == nil {
@@ -109,9 +109,9 @@ type Series struct {
 
 	// Description is the optional free-form body text authored by the organizer.
 	Description *string
-	// CoverImage is the current cover media object for the series (the image
-	// shown as the series' cover). Nil when no media has been uploaded. The
-	// served URL is derived at read time from the exposure and the media id —
+	// CoverImage is the current cover image object for the series (the image
+	// shown as the series' cover). Nil when no image has been uploaded. The
+	// served URL is derived at read time from the exposure and the series image id —
 	// it is NOT stored on the series row.
 	CoverImage *SeriesImage
 	// OrganizerID is the owning organizer for a first-party series. Nil marks
@@ -184,47 +184,47 @@ func NewSeries(title string, seriesType SeriesType, sourceURL string) *Series {
 // series_cover_images cut-over that the media-processor consumer performs after writing
 // variants to GCS.
 type SeriesImageRepository interface {
-	// Create persists a media row idempotently (ON CONFLICT(id) DO NOTHING).
+	// Create persists a series image row idempotently (ON CONFLICT(id) DO NOTHING).
 	// Used by SetCoverImage to record the upload before publishing MEDIA.uploaded.
 	//
 	// # Possible errors
 	//
 	//  - Internal: if the insert fails.
-	Create(ctx context.Context, media *SeriesImage) error
+	Create(ctx context.Context, seriesImage *SeriesImage) error
 
-	// Get retrieves a single media row by id.
+	// Get retrieves a single series image row by id.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: if no media row exists with the given id.
-	Get(ctx context.Context, mediaID string) (*SeriesImage, error)
+	//  - NotFound: if no series image row exists with the given id.
+	Get(ctx context.Context, seriesImageID string) (*SeriesImage, error)
 
-	// ReplaceCover atomically re-points a series' cover to newMediaID and
-	// returns the prior media id (empty string when the series had no cover).
+	// ReplaceCover atomically re-points a series' cover to newSeriesImageID and
+	// returns the prior series image id (empty string when the series had no cover).
 	// The cut-over is performed in a single transaction:
-	//  1. upsert series_cover_images(series_id) → newMediaID;
-	//  2. capture the old media_id (if any);
-	//  3. delete the old media row.
+	//  1. upsert series_cover_images(series_id) → newSeriesImageID;
+	//  2. capture the old series_image_id (if any);
+	//  3. delete the old series image row.
 	// After a successful return the old GCS objects can be reclaimed via
 	// ImageStorer.DeletePrefix. On redelivery the operation is idempotent:
-	// if series_cover_images already points to newMediaID the function returns ("", nil).
+	// if series_cover_images already points to newSeriesImageID the function returns ("", nil).
 	//
 	// # Possible errors
 	//
 	//  - NotFound: if the series does not exist.
 	//  - Internal: if the transaction fails.
-	ReplaceCover(ctx context.Context, seriesID, newMediaID string) (oldMediaID string, err error)
+	ReplaceCover(ctx context.Context, seriesID, newSeriesImageID string) (oldSeriesImageID string, err error)
 
-	// Delete removes a media row by id. Used after GCS originals are
+	// Delete removes a series image row by id. Used after GCS originals are
 	// deleted to keep the DB consistent. Missing rows are silently skipped
 	// (idempotent).
 	//
 	// # Possible errors
 	//
 	//  - Internal: if the delete fails for a reason other than "not found".
-	Delete(ctx context.Context, mediaID string) error
+	Delete(ctx context.Context, seriesImageID string) error
 
-	// ListByOrganizer returns every media row owned by the organizer, whether or
+	// ListByOrganizer returns every series image row owned by the organizer, whether or
 	// not a series uses it as its cover. It returns an empty slice when the
 	// organizer owns none.
 	//
@@ -347,16 +347,16 @@ type SeriesRepository interface {
 	//  - NotFound: If no series with the given ID exists.
 	MarkCancelled(ctx context.Context, seriesID string, cancelledAt time.Time) error
 
-	// ReplaceCoverMedia atomically replaces a series' cover in a single
-	// transaction: it inserts a new media row (with the given organizer, kind, and
+	// ReplaceCover atomically replaces a series' cover in a single
+	// transaction: it inserts a new series image row (with the given organizer, kind, and
 	// attributes), inserts the series_cover_images join row, and deletes any prior
-	// series_cover_images + media rows. It returns the prior media id ("" when the series
+	// series_cover_images + series image row. It returns the prior series image id ("" when the series
 	// had no cover) so the caller can reclaim the replaced object from storage.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: If no series with the given ID exists.
-	ReplaceCoverImage(ctx context.Context, seriesID string, newMedia *SeriesImage) (oldMediaID string, err error)
+	ReplaceCoverImage(ctx context.Context, seriesID string, newSeriesImage *SeriesImage) (oldSeriesImageID string, err error)
 
 	// PublishDraft materializes the draft content of a first-party DRAFT series
 	// into the live events table and returns the IDs of newly inserted events (the

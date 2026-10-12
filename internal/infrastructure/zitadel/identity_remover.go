@@ -73,17 +73,17 @@ func NewIdentityRemover(ctx context.Context, issuerURL, keyPath string, logger *
 	}, nil
 }
 
-// DeleteIdentity removes the Zitadel user identified by externalID. A NotFound
+// DeleteIdentity removes the Zitadel user identified by providerUserID. A NotFound
 // response means the user is already gone and counts as success, so a retry
 // after a partial deletion completes.
-func (r *IdentityRemover) DeleteIdentity(ctx context.Context, externalID string) error {
-	if _, err := r.client.DeleteUser(ctx, &userpb.DeleteUserRequest{UserId: externalID}); err != nil {
+func (r *IdentityRemover) DeleteIdentity(ctx context.Context, providerUserID string) error {
+	if _, err := r.client.DeleteUser(ctx, &userpb.DeleteUserRequest{UserId: providerUserID}); err != nil {
 		if isNotFound(err) {
-			r.logger.Info(ctx, "identity already removed", slog.String("external_id", externalID))
+			r.logger.Info(ctx, "identity already removed", slog.String("provider_user_id", providerUserID))
 			return nil
 		}
 		return apperr.Wrap(err, codes.Internal, "delete zitadel user")
 	}
-	r.logger.Info(ctx, "identity removed", slog.String("external_id", externalID))
+	r.logger.Info(ctx, "identity removed", slog.String("provider_user_id", providerUserID))
 	return nil
 }

@@ -26,13 +26,13 @@ var _ entity.MediaProcessor = (*StubMediaProcessor)(nil)
 // NewMediaProcessor returns the stub processor used when libvips is absent.
 // Production binaries must be built with `CGO_ENABLED=1 go build -tags vips`.
 func NewMediaProcessor(logger *logging.Logger) entity.MediaProcessor {
-	logger.Warn(context.Background(), "libvips not available: media processing is a no-op stub; rebuild with -tags vips for production")
+	logger.Warn(context.Background(), "libvips not available: image processing is a no-op stub; rebuild with -tags vips for production")
 	return &StubMediaProcessor{logger: logger}
 }
 
-// ProcessImage always returns entity.ErrUnsupportedMedia when libvips is not
+// ProcessImage always returns entity.ErrUnsupportedImage when libvips is not
 // compiled in. SeriesImageUseCase.Process treats this as a permanent failure
 // and terminates processing without an error.
 func (s *StubMediaProcessor) ProcessImage(_ context.Context, _ []byte) ([]byte, []byte, error) {
-	return nil, nil, fmt.Errorf("%w: libvips not compiled in; rebuild with -tags vips", entity.ErrUnsupportedMedia)
+	return nil, nil, fmt.Errorf("%w: libvips not compiled in; rebuild with -tags vips", entity.ErrUnsupportedImage)
 }

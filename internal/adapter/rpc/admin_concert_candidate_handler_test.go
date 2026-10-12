@@ -39,8 +39,8 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 	adminArea := "JP-13"
 	sourceURL := "https://example.com/concert"
 
-	stagedWithVenue := &entity.ConcertCandidate{
-		ID:                "staged-1",
+	candidateWithVenue := &entity.ConcertCandidate{
+		ID:                "candidate-1",
 		ArtistID:          "artist-1",
 		Title:             "Tour 2026",
 		LocalDate:         time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
@@ -54,8 +54,8 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 		DiscoveredTime:    time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC),
 	}
 
-	stagedNoVenue := &entity.ConcertCandidate{
-		ID:              "staged-2",
+	candidateNoVenue := &entity.ConcertCandidate{
+		ID:              "candidate-2",
 		ArtistID:        "artist-2",
 		Title:           "Single Show",
 		LocalDate:       time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC),
@@ -88,7 +88,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
 					m.EXPECT().List(mock.Anything).Return([]*usecase.ConcertCandidateReview{
-						{ConcertCandidate: stagedWithVenue, Performer: artistA},
+						{ConcertCandidate: candidateWithVenue, Performer: artistA},
 					}, nil).Once()
 				},
 			},
@@ -96,7 +96,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 				t.Helper()
 				require.Len(t, resp.Msg.ConcertCandidates, 1)
 				pc := resp.Msg.ConcertCandidates[0]
-				assert.Equal(t, "staged-1", pc.GetId().GetValue())
+				assert.Equal(t, "candidate-1", pc.GetId().GetValue())
 				assert.Equal(t, "Artist Alpha", pc.GetPerformer().GetName().GetValue())
 				assert.Equal(t, "Tour 2026", pc.GetTitle().GetValue())
 				assert.Equal(t, "Budokan", pc.GetListedVenueName().GetValue())
@@ -116,7 +116,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
 					m.EXPECT().List(mock.Anything).Return([]*usecase.ConcertCandidateReview{
-						{ConcertCandidate: stagedNoVenue, Performer: artistB},
+						{ConcertCandidate: candidateNoVenue, Performer: artistB},
 					}, nil).Once()
 				},
 			},
@@ -124,7 +124,7 @@ func TestAdminConcertCandidateHandler_List(t *testing.T) {
 				t.Helper()
 				require.Len(t, resp.Msg.ConcertCandidates, 1)
 				pc := resp.Msg.ConcertCandidates[0]
-				assert.Equal(t, "staged-2", pc.GetId().GetValue())
+				assert.Equal(t, "candidate-2", pc.GetId().GetValue())
 				assert.Nil(t, pc.GetResolvedVenue())
 				assert.Nil(t, pc.GetSourceUrl())
 			},
@@ -176,11 +176,11 @@ func TestAdminConcertCandidateHandler_Approve(t *testing.T) {
 		wantCode connect.Code
 	}{
 		{
-			name: "approve calls use case with staged id",
-			args: args{ctx: adminCtx(), concertCandidateID: "staged-abc"},
+			name: "approve calls use case with the concert candidate id",
+			args: args{ctx: adminCtx(), concertCandidateID: "candidate-abc"},
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
-					m.EXPECT().Approve(mock.Anything, "staged-abc", usecase.ApproveResolutionUnspecified, mock.Anything).
+					m.EXPECT().Approve(mock.Anything, "candidate-abc", usecase.ApproveResolutionUnspecified, mock.Anything).
 						Return(&usecase.ApproveResult{}, nil).Once()
 				},
 			},
@@ -237,11 +237,11 @@ func TestAdminConcertCandidateHandler_Reject(t *testing.T) {
 		{
 			// @spec components/adapter/admin/api/rpc/concert-candidate "Reject records the reviewer"
 			name: "reject passes reason and reviewer sub to use case",
-			args: args{ctx: adminCtx(), concertCandidateID: "staged-xyz", reason: "wrong date"},
+			args: args{ctx: adminCtx(), concertCandidateID: "candidate-xyz", reason: "wrong date"},
 			dep: dep{
 				adminUC: func(m *usecasemocks.MockConcertCandidateUseCase) {
 					// reviewer sub must match the sub in adminCtx.
-					m.EXPECT().Reject(mock.Anything, "staged-xyz", "wrong date", "admin-sub-123").Return(nil).Once()
+					m.EXPECT().Reject(mock.Anything, "candidate-xyz", "wrong date", "admin-sub-123").Return(nil).Once()
 				},
 			},
 		},

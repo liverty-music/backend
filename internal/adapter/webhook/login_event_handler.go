@@ -27,7 +27,7 @@ const sessionUserCheckedEventType = "session.user.checked"
 // ID) to the platform user. Satisfied by usecase.UserUseCase; declared here so
 // the handler depends only on the one method it needs.
 type userResolver interface {
-	GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error)
+	GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.User, error)
 }
 
 // eventPublisher publishes a domain event as a CloudEvent to a NATS subject.

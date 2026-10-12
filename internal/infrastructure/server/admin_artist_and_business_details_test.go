@@ -154,7 +154,7 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("admin records seller details", func(t *testing.T) {
+	t.Run("admin records business details", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/admin/api/rpc/organizer "Admin records seller details"
 		uc := usecasemocks.NewMockOrganizerUseCase(t)

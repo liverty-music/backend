@@ -180,8 +180,8 @@ func (r *CheckoutRepository) Get(ctx context.Context, id entity.CheckoutID) (*en
 	return c, nil
 }
 
-// GetByCardAuthorizationID returns the checkout whose card hold has the given
-// reference.
+// GetByCardAuthorizationID returns the checkout that references the given card
+// authorization.
 func (r *CheckoutRepository) GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*entity.Checkout, error) {
 	c, err := scanCheckout(r.db.Pool.QueryRow(ctx, checkoutGetByCardAuthorizationIDQuery, cardAuthorizationID))
 	if err != nil {
@@ -190,7 +190,7 @@ func (r *CheckoutRepository) GetByCardAuthorizationID(ctx context.Context, cardA
 	return c, nil
 }
 
-// SetCardAuthorization stoc the card hold reference of a Held checkout; it
+// SetCardAuthorization stores the card authorization ID of a Held checkout; it
 // changes no other attribute.
 func (r *CheckoutRepository) SetCardAuthorization(ctx context.Context, id entity.CheckoutID, cardAuthorizationID string) error {
 	tag, err := r.db.Pool.Exec(ctx, checkoutSetCardAuthorizationQuery, string(id), cardAuthorizationID)
@@ -203,7 +203,7 @@ func (r *CheckoutRepository) SetCardAuthorization(ctx context.Context, id entity
 	if _, err := r.Get(ctx, id); err != nil {
 		return err
 	}
-	return apperr.New(codes.FailedPrecondition, "checkout is not Held or has another card hold",
+	return apperr.New(codes.FailedPrecondition, "checkout is not Held or has another card authorization",
 		slog.String("checkout_id", string(id)))
 }
 
@@ -344,7 +344,7 @@ func (r *CheckoutRepository) RecordCapture(ctx context.Context, id entity.Checko
 }
 
 // RecordCardAuthorizationRelease sets the authorization release time of an
-// Expired or Released checkout with a card hold, once.
+// Expired or Released checkout with a card authorization, once.
 func (r *CheckoutRepository) RecordCardAuthorizationRelease(ctx context.Context, id entity.CheckoutID, at time.Time) error {
 	tag, err := r.db.Pool.Exec(ctx, checkoutRecordCardAuthorizationReleaseQuery, string(id), at)
 	if err != nil {
@@ -361,11 +361,11 @@ func (r *CheckoutRepository) RecordCardAuthorizationRelease(ctx context.Context,
 	if ended && current.CardAuthorizationReleaseTime != nil {
 		return nil
 	}
-	return apperr.New(codes.FailedPrecondition, "checkout is not an ended checkout with a card hold",
+	return apperr.New(codes.FailedPrecondition, "checkout is not an ended checkout with a card authorization",
 		slog.String("checkout_id", string(id)))
 }
 
-// ListDue returns the lapsed holds, the card holds to give back and the
+// ListDue returns the lapsed holds, the card authorizations to give back and the
 // stalled commits, oldest hold first.
 func (r *CheckoutRepository) ListDue(ctx context.Context, now time.Time) ([]*entity.Checkout, error) {
 	rows, err := r.db.Pool.Query(ctx, checkoutListDueQuery, now, now.Add(-entity.CheckoutStalledCommitAge))
@@ -411,13 +411,13 @@ func scanCheckout(row pgx.Row) (*entity.Checkout, error) {
 	var (
 		c                                      entity.Checkout
 		id, ticketTypeID, userID               string
-		authRef                                sql.NullString
+		cardAuthorizationID                    sql.NullString
 		authReleasedAt, committedAt, captureAt sql.NullTime
 		status                                 int16
 	)
 	if err := row.Scan(
 		&id, &ticketTypeID, &userID, &c.TicketCount, &c.Amount,
-		&authRef, &authReleasedAt, &status, &c.HoldExpireTime,
+		&cardAuthorizationID, &authReleasedAt, &status, &c.HoldExpireTime,
 		&committedAt, &captureAt,
 	); err != nil {
 		return nil, err
@@ -426,8 +426,8 @@ func scanCheckout(row pgx.Row) (*entity.Checkout, error) {
 	c.TicketTypeID = entity.TicketTypeID(ticketTypeID)
 	c.UserID = entity.UserID(userID)
 	c.Status = entity.CheckoutStatus(status)
-	if authRef.Valid {
-		c.CardAuthorizationID = authRef.String
+	if cardAuthorizationID.Valid {
+		c.CardAuthorizationID = cardAuthorizationID.String
 	}
 	c.CardAuthorizationReleaseTime = optionalTime(authReleasedAt)
 	c.CommitTime = optionalTime(committedAt)

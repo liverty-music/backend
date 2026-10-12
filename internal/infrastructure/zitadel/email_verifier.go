@@ -100,15 +100,15 @@ func NewEmailVerifier(ctx context.Context, issuerURL, keyPath string, logger *lo
 }
 
 // SendVerification triggers a verification email for the given Zitadel user.
-func (v *EmailVerifier) SendVerification(ctx context.Context, externalID string) error {
+func (v *EmailVerifier) SendVerification(ctx context.Context, providerUserID string) error {
 	_, err := v.sendClient.SendEmailCode(ctx, &userpb.SendEmailCodeRequest{
-		UserId: externalID,
+		UserId: providerUserID,
 	})
 	if err != nil {
 		return apperr.Wrap(err, codes.Internal, "send email verification code")
 	}
 	v.logger.Info(ctx, "email verification sent",
-		slog.String("external_id", externalID),
+		slog.String("provider_user_id", providerUserID),
 	)
 	return nil
 }
@@ -118,13 +118,13 @@ func (v *EmailVerifier) SendVerification(ctx context.Context, externalID string)
 // where SMTP was inactive at sign-up time and no prior code exists — the v1
 // Management endpoint generates a fresh code and sends the email.
 // Returns FailedPrecondition if the email is already verified.
-func (v *EmailVerifier) ResendVerification(ctx context.Context, externalID string) error {
+func (v *EmailVerifier) ResendVerification(ctx context.Context, providerUserID string) error {
 	_, err := v.resendClient.ResendHumanEmailVerification(ctx, &mgmtpb.ResendHumanEmailVerificationRequest{
-		UserId: externalID,
+		UserId: providerUserID,
 	})
 	if err != nil {
 		v.logger.Error(ctx, "failed to resend email verification", err,
-			slog.String("external_id", externalID),
+			slog.String("provider_user_id", providerUserID),
 		)
 		if st, ok := status.FromError(err); ok && st.Code() == grpccodes.FailedPrecondition {
 			return apperr.Wrap(err, codes.FailedPrecondition, "email is already verified")
@@ -132,7 +132,7 @@ func (v *EmailVerifier) ResendVerification(ctx context.Context, externalID strin
 		return apperr.Wrap(err, codes.Internal, "resend email verification code")
 	}
 	v.logger.Info(ctx, "email verification resent",
-		slog.String("external_id", externalID),
+		slog.String("provider_user_id", providerUserID),
 	)
 	return nil
 }

@@ -246,7 +246,7 @@ func TestOrderUseCase_IssueFromCheckout(t *testing.T) {
 		f.checkouts.EXPECT().Get(mock.Anything, entity.CheckoutID("checkout-1")).Return(committed, nil)
 		f.orders.EXPECT().GetByCheckoutID(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil, apperr.ErrNotFound)
 		f.auth.EXPECT().Capture(mock.Anything, "pi_1").
-			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card hold was released"))
+			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card authorization was released"))
 		f.checkouts.EXPECT().RevertCommit(mock.Anything, entity.CheckoutID("checkout-1")).Return(nil)
 
 		_, err := f.uc.IssueFromCheckout(context.Background(), "checkout-1", nil)

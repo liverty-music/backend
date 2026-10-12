@@ -30,7 +30,7 @@ type IdentityVerifierRecheckResult struct {
 	NeedsReverification bool
 }
 
-// IdentityVerifier is the interface the KYC use case uses to interact
+// IdentityVerifier is the interface the identity verification use case uses to interact
 // with the Pocket Sign Stamp API.
 //
 // The interface is defined here (where consumed) per AGENTS.md. Implementations
@@ -122,7 +122,7 @@ type IdentityVerificationUseCase interface {
 	//
 	// # Possible errors
 	//
-	//   - NotFound: the user has never passed KYC.
+	//   - NotFound: the user has never verified their identity.
 	Get(ctx context.Context, userID string) (*entity.IdentityVerification, error)
 
 	// Delete removes the fan's IdentityVerification. Used for the privacy deletion path

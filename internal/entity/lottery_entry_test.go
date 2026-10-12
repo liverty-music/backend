@@ -25,7 +25,7 @@ func TestNewLotteryEntry(t *testing.T) {
 func TestLotteryEntry_IsConfirmable(t *testing.T) {
 	t.Parallel()
 
-	hold := "pi_1"
+	cardAuthorizationID := "pi_1"
 	tests := []struct {
 		name  string
 		entry *entity.LotteryEntry
@@ -34,19 +34,19 @@ func TestLotteryEntry_IsConfirmable(t *testing.T) {
 		{
 			// @spec components/entity/lottery-entry "Draft with a card authorization"
 			name:  "authorized draft",
-			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft, CardAuthorizationID: hold},
+			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft, CardAuthorizationID: cardAuthorizationID},
 			want:  true,
 		},
 		{
 			// @spec components/entity/lottery-entry "Draft without a card authorization"
-			name:  "draft without a hold",
+			name:  "draft without a card authorization",
 			entry: &entity.LotteryEntry{State: entity.LotteryEntryStateDraft},
 		},
 		// @spec components/entity/lottery-entry "Already entered"
-		{name: "entered", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateEntered, CardAuthorizationID: hold}},
-		{name: "won", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWon, CardAuthorizationID: hold}},
-		{name: "lost", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateLost, CardAuthorizationID: hold}},
-		{name: "withdrawn", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWithdrawn, CardAuthorizationID: hold}},
+		{name: "entered", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateEntered, CardAuthorizationID: cardAuthorizationID}},
+		{name: "won", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWon, CardAuthorizationID: cardAuthorizationID}},
+		{name: "lost", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateLost, CardAuthorizationID: cardAuthorizationID}},
+		{name: "withdrawn", entry: &entity.LotteryEntry{State: entity.LotteryEntryStateWithdrawn, CardAuthorizationID: cardAuthorizationID}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -19,8 +19,8 @@ type RefundReason int32
 const (
 	// RefundReasonUnspecified is the zero value; rejected at the boundary.
 	RefundReasonUnspecified RefundReason = 0
-	// RefundReasonCancellation is an event cancellation (中止): full holder
-	// refund (face + system/発券 fee; processor fee retained). Always allowed
+	// RefundReasonCancellation is an event cancellation (中止): full refund
+	// to the fan (face + system/発券 fee; processor fee retained). Always allowed
 	// while Order is Paid.
 	RefundReasonCancellation RefundReason = 1
 	// RefundReasonDispute is a chargeback / dispute. Funds clawed back via
@@ -60,7 +60,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		return order, nil
 	}
 
-	// Only Paid orders may be refunded. Failed orders have no hold to refund.
+	// Only Paid orders may be refunded. Failed orders have no captured payment to refund.
 	if order.Status != entity.OrderStatusPaid {
 		return nil, apperr.New(codes.FailedPrecondition,
 			"order is not in a refundable state (must be paid)")
@@ -75,13 +75,13 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	// ── STRIPE MONEY MOVEMENT ──────────────────────────────────────────────
 	// Both calls carry stable idempotency keys so retries are safe:
 	//   CreateRefund:    key = "order-refund:<orderID>"
-	//   ReversePayout: key = "settlement-reversal:<settlementID>:<transferRef>"
+	//   ReversePayout: key = "settlement-reversal:<settlementID>:<providerPayoutID>"
 	// A crash after Stripe but before the DB commit means the next invocation
 	// replays Stripe calls (no-ops at provider) and re-attempts the DB tx.
 
 	// -- issue the platform-balance Refund (CANCELLATION only).
 	//
-	// For DISPUTE we do NOT call CreateRefund. When a cardholder opens a
+	// For DISPUTE we do NOT call CreateRefund. When the fan opens a
 	// chargeback the card network immediately reverses the charge and debits the
 	// platform balance — Stripe surfaces this as the dispute. Calling
 	// CreateRefund on a disputed charge returns charge_disputed (402) because
@@ -92,9 +92,9 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	// refunded.
 	//
 	// Design decision on the refund amount (non-DISPUTE paths):
-	//   We refund the full Order.Amount (face + system/発券 fee), making the buyer
+	//   We refund the full Order.Amount (face + system/発券 fee), making the fan
 	//   whole. The processor fee (Stripe's cut) is NOT subtracted — doing so would
-	//   short the buyer by an amount they never agreed to forfeit. Stripe does not
+	//   short the fan by an amount they never agreed to forfeit. Stripe does not
 	//   return the processor fee on refunds; the platform absorbs it, which is the
 	//   JP norm. Precise per-fee subtraction is intentionally deferred: it requires
 	//   expanding the BalanceTransaction to obtain the exact fee.
@@ -107,11 +107,11 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 		}
 		if order.Payment.ProviderPaymentID == "" {
 			return nil, apperr.New(codes.FailedPrecondition,
-				"order has no payment intent reference; cannot resolve charge for refund")
+				"order has no provider payment ID; cannot resolve charge for refund")
 		}
 
-		// Resolve the charge ref: prefer the value cached on the settlement row
-		// (set by the payout sweep), fall back to a live PaymentIntent retrieval.
+		// Resolve the provider charge ID: prefer the value cached on the settlement row
+		// (set by the payout sweep), fall back to a live lookup at the payment provider.
 		providerChargeID, err := uc.resolveProviderChargeID(ctx, order, settlement)
 		if err != nil {
 			return nil, err
@@ -177,14 +177,14 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 	uc.logger.Info(ctx, "refund order: completed",
 		slog.String("order_id", string(orderID)),
 		slog.String("reason", reason.String()),
-		slog.String("refund_ref", providerRefundID), // empty for DISPUTE (no CreateRefund call)
+		slog.String("provider_refund_id", providerRefundID), // empty for DISPUTE (no CreateRefund call)
 	)
 	return order, nil
 }
 
 // resolveProviderChargeID returns the charge ref. Prefers the value already stored on
 // the settlement row (populated by the payout sweep), then falls back to a
-// live PaymentIntent retrieval.
+// live lookup at the payment provider.
 func (uc *orderUseCase) resolveProviderChargeID(ctx context.Context, order *entity.Order, settlement *entity.Settlement) (string, error) {
 	if settlement != nil && settlement.ProviderChargeID != "" {
 		return settlement.ProviderChargeID, nil
@@ -212,7 +212,7 @@ func (uc *orderUseCase) reverseSplits(ctx context.Context, settlement *entity.Se
 			// Already reversed; idempotent skip.
 			continue
 		}
-		reversalRef, err := uc.settlementRepo.ReversePayout(ctx, entity.ReversePayoutParams{
+		providerPayoutReversalID, err := uc.settlementRepo.ReversePayout(ctx, entity.ReversePayoutParams{
 			SettlementID:     settlement.ID,
 			ProviderPayoutID: split.ProviderPayoutID,
 			Amount:           split.Amount,
@@ -220,7 +220,7 @@ func (uc *orderUseCase) reverseSplits(ctx context.Context, settlement *entity.Se
 		if err != nil {
 			return nil, err
 		}
-		split.ProviderPayoutReversalID = reversalRef
+		split.ProviderPayoutReversalID = providerPayoutReversalID
 	}
 	return result, nil
 }

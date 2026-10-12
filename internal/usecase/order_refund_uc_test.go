@@ -59,7 +59,7 @@ func (s *stubRefundSettlementPayouts) ReversePayout(ctx context.Context, params 
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-func paidOrder(id entity.OrderID, amount int64, piRef string, paidAt time.Time) *entity.Order {
+func paidOrder(id entity.OrderID, amount int64, providerPaymentID string, paidAt time.Time) *entity.Order {
 	return &entity.Order{
 		ID:       id,
 		Status:   entity.OrderStatusPaid,
@@ -68,7 +68,7 @@ func paidOrder(id entity.OrderID, amount int64, piRef string, paidAt time.Time) 
 		PayTime:  paidAt,
 		Payment: entity.Payment{
 			Provider:          entity.PaymentProviderStripe,
-			ProviderPaymentID: piRef,
+			ProviderPaymentID: providerPaymentID,
 		},
 	}
 }
@@ -92,7 +92,7 @@ func newRefundUCWithLogger(
 // CANCELLATION — always allowed while Order is Paid; Released settlement
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
+func TestOrderUseCase_Refund_Cancellation_HappyPath(t *testing.T) {
 	t.Parallel()
 	// @spec components/usecase/order/refund "Cancellation refund"
 
@@ -101,21 +101,21 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 	paidAt := now.Add(-30 * 24 * time.Hour)
 
 	const (
-		orderID          = entity.OrderID("order-cancel")
-		settleID         = entity.SettlementID("settle-cancel")
-		providerPayoutID = "tr_cancel"
-		chRef            = "ch_cancel"
-		piRef            = "pi_cancel"
+		orderID           = entity.OrderID("order-cancel")
+		settleID          = entity.SettlementID("settle-cancel")
+		providerPayoutID  = "tr_cancel"
+		providerChargeID  = "ch_cancel"
+		providerPaymentID = "pi_cancel"
 	)
 
-	order := paidOrder(orderID, 10000, piRef, paidAt)
+	order := paidOrder(orderID, 10000, providerPaymentID, paidAt)
 
 	// Settlement is Released (Transfer already paid out) — reversal must occur.
 	settlement := &entity.Settlement{
 		ID:               settleID,
 		OrderID:          orderID,
 		Status:           entity.SettlementStatusReleased,
-		ProviderChargeID: chRef,
+		ProviderChargeID: providerChargeID,
 		Splits: []entity.SettlementSplit{
 			{PayeeOrganizerID: "org-1", Amount: 9000, ProviderPayoutID: providerPayoutID},
 		},
@@ -144,12 +144,12 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 
 	port := &stubRefundSettlementPayouts{
 		resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) {
-			return chRef, nil
+			return providerChargeID, nil
 		},
 		createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
 			// Fix #2: idempotency key must be keyed on OrderID, not SettlementID.
 			assert.Equal(t, orderID, params.OrderID)
-			assert.Equal(t, chRef, params.ProviderChargeID)
+			assert.Equal(t, providerChargeID, params.ProviderChargeID)
 			assert.Equal(t, int64(10000), params.Amount)
 			refundCalled = true
 			return "re_cancel", nil
@@ -191,7 +191,7 @@ func TestRefundOrder_Cancellation_HappyPath(t *testing.T) {
 // CANCELLATION — no settlement yet (payout sweep hasn't run)
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_Cancellation_NoSettlement(t *testing.T) {
+func TestOrderUseCase_Refund_Cancellation_NoSettlement(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -225,8 +225,8 @@ func TestRefundOrder_Cancellation_NoSettlement(t *testing.T) {
 	}
 
 	port := &stubRefundSettlementPayouts{
-		resolveProviderChargeIDFn: func(_ context.Context, piRef string) (string, error) {
-			assert.Equal(t, "pi_no_settle", piRef)
+		resolveProviderChargeIDFn: func(_ context.Context, providerPaymentID string) (string, error) {
+			assert.Equal(t, "pi_no_settle", providerPaymentID)
 			return "ch_no_settle", nil
 		},
 		createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
@@ -254,7 +254,7 @@ func TestRefundOrder_Cancellation_NoSettlement(t *testing.T) {
 // Idempotent replay — already-refunded Order is returned unchanged
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_IdempotentReplay_AlreadyRefunded(t *testing.T) {
+func TestOrderUseCase_Refund_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 	t.Parallel()
 	// @spec components/usecase/order/refund "Repeated refund"
 
@@ -299,7 +299,7 @@ func TestRefundOrder_IdempotentReplay_AlreadyRefunded(t *testing.T) {
 // Not-refundable — Failed order returns FAILED_PRECONDITION
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_NotRefundable_FailedOrder(t *testing.T) {
+func TestOrderUseCase_Refund_NotRefundable_FailedOrder(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -332,7 +332,7 @@ func TestRefundOrder_NotRefundable_FailedOrder(t *testing.T) {
 // DISPUTE — chargeback-after-payout reverses the transfer
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
+func TestOrderUseCase_Refund_Dispute_AfterPayout(t *testing.T) {
 	t.Parallel()
 	// @spec components/usecase/order/refund "Dispute"
 
@@ -344,7 +344,7 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 		orderID          = entity.OrderID("order-dispute")
 		settleID         = entity.SettlementID("settle-dispute")
 		providerPayoutID = "tr_dispute"
-		chRef            = "ch_dispute"
+		providerChargeID = "ch_dispute"
 	)
 
 	order := paidOrder(orderID, 12000, "pi_dispute", paidAt)
@@ -353,7 +353,7 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 		ID:               settleID,
 		OrderID:          orderID,
 		Status:           entity.SettlementStatusReleased,
-		ProviderChargeID: chRef,
+		ProviderChargeID: providerChargeID,
 		Splits: []entity.SettlementSplit{
 			{PayeeOrganizerID: "org-dispute", Amount: 11000, ProviderPayoutID: providerPayoutID},
 		},
@@ -384,7 +384,7 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 
 	port := &stubRefundSettlementPayouts{
 		createRefundFn: func(_ context.Context, params entity.RefundParams) (string, error) {
-			assert.Equal(t, chRef, params.ProviderChargeID)
+			assert.Equal(t, providerChargeID, params.ProviderChargeID)
 			// Fix #2: key is OrderID-based.
 			assert.Equal(t, orderID, params.OrderID)
 			return "re_dispute", nil
@@ -413,7 +413,7 @@ func TestRefundOrder_Dispute_AfterPayout(t *testing.T) {
 // UNSPECIFIED reason — returns InvalidArgument
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_UnspecifiedReason_InvalidArgument(t *testing.T) {
+func TestOrderUseCase_Refund_UnspecifiedReason_InvalidArgument(t *testing.T) {
 	t.Parallel()
 	// @spec components/usecase/order/refund "Reason missing"
 
@@ -431,7 +431,7 @@ func TestRefundOrder_UnspecifiedReason_InvalidArgument(t *testing.T) {
 // Order not found — returns NotFound
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_OrderNotFound(t *testing.T) {
+func TestOrderUseCase_Refund_OrderNotFound(t *testing.T) {
 	t.Parallel()
 	// @spec components/usecase/order/refund "Unknown order"
 
@@ -455,7 +455,7 @@ func TestRefundOrder_OrderNotFound(t *testing.T) {
 // settlement to Reversed (Fix #6 TOCTOU: blocks payout sweeper from releasing)
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
+func TestOrderUseCase_Refund_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -534,7 +534,7 @@ func TestRefundOrder_HeldSettlement_NoReversal_ButCommitCalled(t *testing.T) {
 // Fix #8: non-Stripe provider returns FailedPrecondition
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_NonStripeProvider_FailedPrecondition(t *testing.T) {
+func TestOrderUseCase_Refund_NonStripeProvider_FailedPrecondition(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -565,7 +565,7 @@ func TestRefundOrder_NonStripeProvider_FailedPrecondition(t *testing.T) {
 // Fix #8: empty ProviderPaymentID returns FailedPrecondition
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_EmptyProviderPaymentID_FailedPrecondition(t *testing.T) {
+func TestOrderUseCase_Refund_EmptyProviderPaymentID_FailedPrecondition(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -596,7 +596,7 @@ func TestRefundOrder_EmptyProviderPaymentID_FailedPrecondition(t *testing.T) {
 // Fix #3: CommitRefund FailedPrecondition (concurrent refund) is handled
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestRefundOrder_ConcurrentRefund_IdempotentViaCommitFailedPrecondition(t *testing.T) {
+func TestOrderUseCase_Refund_ConcurrentRefund_IdempotentViaCommitFailedPrecondition(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()

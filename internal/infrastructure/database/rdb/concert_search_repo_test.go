@@ -21,11 +21,11 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 		run  func(t *testing.T)
 	}{
 		{
-			name: "insert new search log with pending status",
+			name: "insert new concert search with pending status",
 			run: func(t *testing.T) {
 				t.Helper()
 				cleanDatabase(t)
-				artistID := seedArtist(t, "Search Log Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
+				artistID := seedArtist(t, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
 				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
@@ -42,7 +42,7 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 				cleanDatabase(t)
-				artistID := seedArtist(t, "Search Log Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
+				artistID := seedArtist(t, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
 				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusFailed)
 				require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestConcertSearchRepository_Upsert(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 				cleanDatabase(t)
-				artistID := seedArtist(t, "Search Log Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
+				artistID := seedArtist(t, "Concert Search Test Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b49d1")
 
 				err := repo.Upsert(ctx, artistID, entity.ConcertSearchStatusPending)
 				require.NoError(t, err)
@@ -214,7 +214,7 @@ func TestConcertSearchRepository_Delete(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "deletes existing search log",
+			name: "deletes existing concert search",
 			setup: func(t *testing.T) string {
 				t.Helper()
 				cleanDatabase(t)
@@ -230,7 +230,7 @@ func TestConcertSearchRepository_Delete(t *testing.T) {
 			setup: func(t *testing.T) string {
 				t.Helper()
 				cleanDatabase(t)
-				// Seed an artist but intentionally do not upsert a search log for it.
+				// Seed an artist but intentionally do not upsert a concert search for it.
 				return seedArtist(t, "No Log Artist", "aaaaaaaa-aaaa-aaaa-aaaa-f0e74f1b4c02")
 			},
 			wantErr: nil,

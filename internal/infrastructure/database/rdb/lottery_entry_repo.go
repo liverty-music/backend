@@ -62,7 +62,7 @@ const (
 	`
 	lotteryEntryGetQuery = `SELECT ` + lotteryEntryColumns + ` FROM lottery_entries WHERE id = $1`
 	// lotteryEntryGetByCardAuthorizationIDQuery takes the newest entry with the
-	// reference; one hold is recorded on one entry only.
+	// card authorization; one card authorization is recorded on one entry only.
 	lotteryEntryGetByCardAuthorizationIDQuery = `
 		SELECT ` + lotteryEntryColumns + ` FROM lottery_entries
 		WHERE card_authorization_id = $1
@@ -105,10 +105,10 @@ const (
 	lotteryEntryWithdrawDraftsQuery = `
 		UPDATE lottery_entries SET state = 4 WHERE id = ANY($1::uuid[]) AND state = 5
 	`
-	// ticketSaleStampDrawnQuery marks the sale drawn, the last write of the
-	// draw's transaction; chk_ticket_sales_drawn_lottery_only rejects a
+	// ticketSaleStampDrawQuery marks the sale drawn, the last write of the
+	// draw's transaction; chk_ticket_sales_draw_lottery_only rejects a
 	// FirstCome sale.
-	ticketSaleStampDrawnQuery = `UPDATE ticket_sales SET draw_at = $2 WHERE id = $1`
+	ticketSaleStampDrawQuery = `UPDATE ticket_sales SET draw_at = $2 WHERE id = $1`
 )
 
 // GetOrCreateDraft returns the user's Draft with the same count, replaces a
@@ -169,7 +169,7 @@ func (r *LotteryEntryRepository) GetOrCreateDraft(ctx context.Context, ticketTyp
 	return nil, apperr.New(codes.Aborted, "concurrent lottery entry starts did not settle", attrs...)
 }
 
-// SetCardAuthorization records the card hold on a Draft.
+// SetCardAuthorization records the card authorization on a Draft.
 func (r *LotteryEntryRepository) SetCardAuthorization(ctx context.Context, id entity.LotteryEntryID, cardAuthorizationID string) error {
 	attrs := []slog.Attr{slog.String("lottery_entry_id", string(id))}
 	tag, err := r.db.Pool.Exec(ctx, lotteryEntrySetCardAuthorizationQuery, string(id), cardAuthorizationID)
@@ -194,11 +194,11 @@ func (r *LotteryEntryRepository) Get(ctx context.Context, id entity.LotteryEntry
 	return entry, nil
 }
 
-// GetByCardAuthorizationID returns the entry whose card hold has the reference.
+// GetByCardAuthorizationID returns the entry that references the card authorization.
 func (r *LotteryEntryRepository) GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*entity.LotteryEntry, error) {
 	entry, err := scanLotteryEntry(r.db.Pool.QueryRow(ctx, lotteryEntryGetByCardAuthorizationIDQuery, cardAuthorizationID))
 	if err != nil {
-		return nil, toAppErr(err, "failed to get lottery entry by payment intent",
+		return nil, toAppErr(err, "failed to get lottery entry by card authorization",
 			slog.String("card_authorization_id", cardAuthorizationID))
 	}
 	return entry, nil
@@ -226,7 +226,7 @@ func (r *LotteryEntryRepository) ListUndrawnForTicketType(ctx context.Context, t
 	return entries, nil
 }
 
-// GetStatsByTicketType tallies the ticket type's Entered, Won and Lost entries.
+// GetStatsByTicketType counts the ticket type's Entered, Won and Lost entries.
 func (r *LotteryEntryRepository) GetStatsByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID) (entity.LotteryEntryStats, error) {
 	var s entity.LotteryEntryStats
 	if err := r.db.Pool.QueryRow(ctx, lotteryEntryStatsQuery, string(ticketTypeID)).Scan(
@@ -239,7 +239,7 @@ func (r *LotteryEntryRepository) GetStatsByTicketType(ctx context.Context, ticke
 }
 
 // PersistDrawOutcome records winners, losers, withdrawn Drafts and the sale's
-// drawn time in one transaction.
+// draw time in one transaction.
 func (r *LotteryEntryRepository) PersistDrawOutcome(
 	ctx context.Context,
 	saleID entity.TicketSaleID,
@@ -287,11 +287,11 @@ func (r *LotteryEntryRepository) PersistDrawOutcome(
 		}
 	}
 
-	// The drawn time is the last write, so a crash before it leaves the sale
+	// The draw time is the last write, so a crash before it leaves the sale
 	// due and the whole outcome is retried on the next sweep.
-	tag, err := tx.Exec(ctx, ticketSaleStampDrawnQuery, string(saleID), time.Now().UTC())
+	tag, err := tx.Exec(ctx, ticketSaleStampDrawQuery, string(saleID), time.Now().UTC())
 	if err != nil {
-		return toAppErr(err, "failed to set the sale's drawn time", attrs...)
+		return toAppErr(err, "failed to set the sale's draw time", attrs...)
 	}
 	if tag.RowsAffected() == 0 {
 		return apperr.New(codes.NotFound, "ticket sale not found", attrs...)

@@ -26,9 +26,9 @@ func (_m *MockOrderUseCase) EXPECT() *MockOrderUseCase_Expecter {
 	return &MockOrderUseCase_Expecter{mock: &_m.Mock}
 }
 
-// FulfillPayment provides a mock function with given fields: ctx, paymentRef
-func (_m *MockOrderUseCase) FulfillPayment(ctx context.Context, paymentRef string) error {
-	ret := _m.Called(ctx, paymentRef)
+// FulfillPayment provides a mock function with given fields: ctx, cardAuthorizationID
+func (_m *MockOrderUseCase) FulfillPayment(ctx context.Context, cardAuthorizationID string) error {
+	ret := _m.Called(ctx, cardAuthorizationID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FulfillPayment")
@@ -36,7 +36,7 @@ func (_m *MockOrderUseCase) FulfillPayment(ctx context.Context, paymentRef strin
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, paymentRef)
+		r0 = rf(ctx, cardAuthorizationID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -51,12 +51,12 @@ type MockOrderUseCase_FulfillPayment_Call struct {
 
 // FulfillPayment is a helper method to define mock.On call
 //   - ctx context.Context
-//   - paymentRef string
-func (_e *MockOrderUseCase_Expecter) FulfillPayment(ctx interface{}, paymentRef interface{}) *MockOrderUseCase_FulfillPayment_Call {
-	return &MockOrderUseCase_FulfillPayment_Call{Call: _e.mock.On("FulfillPayment", ctx, paymentRef)}
+//   - cardAuthorizationID string
+func (_e *MockOrderUseCase_Expecter) FulfillPayment(ctx interface{}, cardAuthorizationID interface{}) *MockOrderUseCase_FulfillPayment_Call {
+	return &MockOrderUseCase_FulfillPayment_Call{Call: _e.mock.On("FulfillPayment", ctx, cardAuthorizationID)}
 }
 
-func (_c *MockOrderUseCase_FulfillPayment_Call) Run(run func(ctx context.Context, paymentRef string)) *MockOrderUseCase_FulfillPayment_Call {
+func (_c *MockOrderUseCase_FulfillPayment_Call) Run(run func(ctx context.Context, cardAuthorizationID string)) *MockOrderUseCase_FulfillPayment_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})

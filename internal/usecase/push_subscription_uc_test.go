@@ -79,7 +79,7 @@ func expectNotificationRequestedMatching(
 		Once()
 }
 
-func TestPushNotificationUseCase_Create(t *testing.T) {
+func TestPushSubscriptionUseCase_Create(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -218,7 +218,7 @@ func TestPushNotificationUseCase_Create(t *testing.T) {
 	}
 }
 
-func TestPushNotificationUseCase_Get(t *testing.T) {
+func TestPushSubscriptionUseCase_Get(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -294,7 +294,7 @@ func TestPushNotificationUseCase_Get(t *testing.T) {
 	}
 }
 
-func TestPushNotificationUseCase_Delete(t *testing.T) {
+func TestPushSubscriptionUseCase_Delete(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -382,7 +382,7 @@ func TestPushNotificationUseCase_Delete(t *testing.T) {
 	}
 }
 
-func TestPushNotificationUseCase_NotifyNewConcerts(t *testing.T) {
+func TestPushSubscriptionUseCase_NotifyNewConcerts(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()

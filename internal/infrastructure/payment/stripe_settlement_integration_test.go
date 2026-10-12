@@ -98,7 +98,7 @@ func TestStripePayoutAccounts_Create_Integration(t *testing.T) {
 
 // TestStripeSettlementPort_MoneyOut_Integration walks the whole money-out path
 // through the production adapter against a Stripe sandbox: a captured platform
-// charge, the pi_ → ch_ resolution, a Transfer pinned to that charge, a buyer
+// charge, the pi_ → ch_ resolution, a Transfer pinned to that charge, a fan
 // refund, and a transfer reversal.
 //
 // The usecase tests already cover the *decisions* — release gate, splits, refund
@@ -134,16 +134,16 @@ func TestStripeSettlementPayouts_MoneyOut_Integration(t *testing.T) {
 	payeeProviderAccountID := findActiveRecipient(ctx, t, key)
 
 	const (
-		grossJPY    int64 = 5000 // what the buyer pays
+		grossJPY    int64 = 5000 // what the fan pays
 		platformFee int64 = 500  // retained as the un-transferred remainder
 		netJPY            = grossJPY - platformFee
 	)
 
-	// ── Capture: buyer funds land on the PLATFORM balance ──────────────────
+	// ── Capture: fan's funds land on the PLATFORM balance ──────────────────
 	// A plain platform charge, not a destination charge: settlement to the
 	// Organizer happens later, via Transfer.
 	opened, err := cardAuthorizations.Create(ctx, entity.CardAuthorizationPurchase{LotteryEntryID: entity.LotteryEntryID(entity.NewID())}, grossJPY)
-	require.NoError(t, err, "authorize the buyer's card")
+	require.NoError(t, err, "authorize the fan's card")
 	providerPaymentID := opened.ID
 	confirmWith(t, key, providerPaymentID, "pm_card_visa")
 	require.NoError(t, cardAuthorizations.Capture(ctx, providerPaymentID), "capture the card authorization")
@@ -162,7 +162,7 @@ func TestStripeSettlementPayouts_MoneyOut_Integration(t *testing.T) {
 	providerPayoutID, err := settlement.CreatePayout(ctx, entity.PayoutParams{
 		SettlementID:           settlementID,
 		PayeeProviderAccountID: payeeProviderAccountID,
-		SourceTransactionRef:   providerChargeID,
+		ProviderChargeID:       providerChargeID,
 		Amount:                 netJPY,
 		Currency:               string(stripe.CurrencyJPY),
 	})
@@ -181,17 +181,17 @@ func TestStripeSettlementPayouts_MoneyOut_Integration(t *testing.T) {
 
 	// A retried sweep must not double-transfer: the idempotency key is derived
 	// from the settlement id, so Stripe replays the original transfer.
-	replayRef, err := settlement.CreatePayout(ctx, entity.PayoutParams{
+	replayedPayoutID, err := settlement.CreatePayout(ctx, entity.PayoutParams{
 		SettlementID:           settlementID,
 		PayeeProviderAccountID: payeeProviderAccountID,
-		SourceTransactionRef:   providerChargeID,
+		ProviderChargeID:       providerChargeID,
 		Amount:                 netJPY,
 		Currency:               string(stripe.CurrencyJPY),
 	})
 	require.NoError(t, err, "a retried transfer must be a safe no-op")
-	assert.Equal(t, providerPayoutID, replayRef, "retry must replay the original transfer, not create a second")
+	assert.Equal(t, providerPayoutID, replayedPayoutID, "retry must replay the original transfer, not create a second")
 
-	// ── Cancellation: refund the buyer and claw the transfer back ──────────
+	// ── Cancellation: refund the fan and claw the transfer back ──────────
 	orderID := entity.OrderID("it-order-" + time.Now().UTC().Format("20060102T150405.000"))
 
 	providerRefundID, err := orders.CreateRefund(ctx, entity.RefundParams{
@@ -199,16 +199,16 @@ func TestStripeSettlementPayouts_MoneyOut_Integration(t *testing.T) {
 		ProviderChargeID: providerChargeID,
 		Amount:           grossJPY,
 	})
-	require.NoError(t, err, "refund the buyer from the platform balance")
+	require.NoError(t, err, "refund the fan from the platform balance")
 	require.True(t, strings.HasPrefix(providerRefundID, "re_"), "expected an re_ reference, got %q", providerRefundID)
 
-	reversalRef, err := settlement.ReversePayout(ctx, entity.ReversePayoutParams{
+	providerPayoutReversalID, err := settlement.ReversePayout(ctx, entity.ReversePayoutParams{
 		SettlementID:     settlementID,
 		ProviderPayoutID: providerPayoutID,
 		Amount:           netJPY,
 	})
 	require.NoError(t, err, "reverse the Organizer's transfer")
-	require.True(t, strings.HasPrefix(reversalRef, "trr_"), "expected a trr_ reference, got %q", reversalRef)
+	require.True(t, strings.HasPrefix(providerPayoutReversalID, "trr_"), "expected a trr_ reference, got %q", providerPayoutReversalID)
 
 	// The reversal must actually return the funds, not merely be recorded.
 	tr, err = sc.V1Transfers.Retrieve(ctx, providerPayoutID, nil)
@@ -223,7 +223,7 @@ func TestStripeSettlementPayouts_MoneyOut_Integration(t *testing.T) {
 		Amount:           netJPY,
 	})
 	require.NoError(t, err, "a retried reversal must be a safe no-op")
-	assert.Equal(t, reversalRef, replayReversal, "retry must replay the original reversal")
+	assert.Equal(t, providerPayoutReversalID, replayReversal, "retry must replay the original reversal")
 }
 
 // findActiveRecipient returns a connected account whose transfers capability is

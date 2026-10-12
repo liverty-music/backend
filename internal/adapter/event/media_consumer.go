@@ -45,12 +45,12 @@ func (h *MediaConsumer) Handle(msg *message.Message) error {
 	}
 
 	h.logger.Info(ctx, "processing MEDIA.uploaded event",
-		slog.String("media_id", data.MediaID),
+		slog.String("series_image_id", data.SeriesImageID),
 		slog.String("series_id", data.SeriesID),
 	)
 
-	if err := h.seriesImageUC.Process(ctx, data.MediaID, data.SeriesID); err != nil {
-		return fmt.Errorf("process media %s: %w", data.MediaID, err)
+	if err := h.seriesImageUC.Process(ctx, data.SeriesImageID, data.SeriesID); err != nil {
+		return fmt.Errorf("process series image %s: %w", data.SeriesImageID, err)
 	}
 
 	return nil

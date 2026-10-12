@@ -174,25 +174,25 @@ func (r *SettlementRepository) loadSplits(ctx context.Context, ids []string) (ma
 	result := make(map[string][]entity.SettlementSplit, len(ids))
 	for rows.Next() {
 		var (
-			settlementID     string
-			split            entity.SettlementSplit
-			providerPayoutID sql.NullString
-			transferRevRef   sql.NullString
+			settlementID             string
+			split                    entity.SettlementSplit
+			providerPayoutID         sql.NullString
+			providerPayoutReversalID sql.NullString
 		)
 		if err := rows.Scan(
 			&settlementID,
 			&split.PayeeOrganizerID,
 			&split.Amount,
 			&providerPayoutID,
-			&transferRevRef,
+			&providerPayoutReversalID,
 		); err != nil {
 			return nil, toAppErr(err, "failed to scan settlement split")
 		}
 		if providerPayoutID.Valid {
 			split.ProviderPayoutID = providerPayoutID.String
 		}
-		if transferRevRef.Valid {
-			split.ProviderPayoutReversalID = transferRevRef.String
+		if providerPayoutReversalID.Valid {
+			split.ProviderPayoutReversalID = providerPayoutReversalID.String
 		}
 		result[settlementID] = append(result[settlementID], split)
 	}

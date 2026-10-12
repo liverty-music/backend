@@ -99,12 +99,12 @@ type Payment struct {
 	// Provider backs the captured payment; drives which adapter interprets the
 	// opaque references below.
 	Provider PaymentProvider
-	// ProviderPaymentID is the provider's PaymentIntent reference (e.g. a Stripe
-	// "pi_..." id) for ④'s captured manual-capture authorization. Opaque; ⑤
+	// ProviderPaymentID is the payment provider's ID for the payment (for Stripe a
+	// "pi_..." id): the captured card authorization of ④. Opaque; ⑤
 	// references but never re-charges it.
 	ProviderPaymentID string
-	// ProviderPaymentMethodID is the provider's PaymentMethod reference (e.g. a Stripe
-	// "pm_..." id) when distinct from the PaymentIntent. Optional, opaque.
+	// ProviderPaymentMethodID is the payment provider's ID for the payment method
+	// (for Stripe a "pm_..." id). Optional, opaque.
 	ProviderPaymentMethodID string
 	// CardBrand is a display-only card brand facet (e.g. "visa"). Optional.
 	CardBrand string
@@ -149,7 +149,7 @@ type Order struct {
 	// Because the Order is created already paid, this is effectively its creation
 	// time.
 	PayTime time.Time
-	// ProviderRefundID is the opaque provider Refund reference ("re_...") set when the
+	// ProviderRefundID is the payment provider's ID for the refund ("re_...") set when the
 	// Order is refunded via CANCELLATION. Empty for orders
 	// refunded via DISPUTE (the chargeback reversed the charge at the card
 	// network; no Stripe Refund object is created) and for orders not yet
@@ -180,9 +180,9 @@ func (o *Order) ValidateSource() error {
 type RefundCommit struct {
 	// OrderID is the order to flip to Refunded.
 	OrderID OrderID
-	// ProviderRefundID is the opaque provider Refund reference ("re_...") returned by
+	// ProviderRefundID is the payment provider's ID for the refund ("re_...") returned by
 	// CreateRefund. Empty for DISPUTE reason — the chargeback already moved
-	// funds back to the cardholder and we do not issue a separate Refund call.
+	// funds back to the fan and we do not issue a separate Refund call.
 	ProviderRefundID string
 	// SettlementID is the settlement to flip to Reversed. Empty means no
 	// settlement row exists yet (payout sweep hasn't run); in that case no
@@ -292,12 +292,12 @@ type OrderRepository interface {
 
 	// GetByProviderPaymentID returns the Order whose Payment.ProviderPaymentID
 	// matches the given pi_ value. Used by the Stripe webhook service to resolve
-	// a dispute's charge → payment_intent → Order without exposing repo access
+	// a dispute's charge → provider payment ID → Order without exposing repo access
 	// to the HTTP handler layer.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no Order exists for the given payment intent.
+	//  - NotFound: no Order exists for the given provider payment ID.
 	//  - Internal: database query failure.
 	GetByProviderPaymentID(ctx context.Context, providerPaymentID string) (*Order, error)
 
@@ -320,8 +320,8 @@ type OrderRepository interface {
 
 	// CreateRefund issues a platform-balance Refund against the captured
 	// Charge. The refund amount is the full Order amount minus the processor
-	// fee (retained as the JP norm). Returns the opaque refund reference
-	// ("re_..."). Idempotency is keyed on the SettlementID so a replay never
+	// fee (retained as the JP norm). Returns the payment provider's ID for the
+	// refund ("re_..."). Idempotency is keyed on the SettlementID so a replay never
 	// double-refunds.
 	//
 	// # Possible errors
@@ -331,14 +331,14 @@ type OrderRepository interface {
 	//  - Unavailable: the payment provider is unreachable.
 	CreateRefund(ctx context.Context, params RefundParams) (providerRefundID string, err error)
 
-	// GetProviderChargeID retrieves the PaymentIntent identified by
-	// paymentIntentRef and returns the charge id ("ch_...") of its captured
+	// GetProviderChargeID retrieves the payment identified by
+	// providerPaymentID and returns the charge id ("ch_...") of its captured
 	// charge. The charge id is used as source_transaction on the Transfer.
 	//
 	// # Possible errors
 	//
-	//  - FailedPrecondition: the PaymentIntent is not in a succeeded state.
-	//  - NotFound: the PaymentIntent does not exist.
+	//  - FailedPrecondition: the payment is not captured.
+	//  - NotFound: the payment does not exist.
 	//  - Unavailable: the payment provider is unreachable.
 	GetProviderChargeID(ctx context.Context, providerPaymentID string) (providerChargeID string, err error)
 }
@@ -346,11 +346,12 @@ type OrderRepository interface {
 // CapturedPayment is the read-back of ④'s captured winning payment from the
 // provider: the authoritative amount/currency actually captured plus the
 // display-only card facets. It NEVER carries raw card data (no PAN/CVC/expiry).
-// Returned by [PaymentCapturePort.GetCapturedPayment].
+// Returned by [CardAuthorizationRepository.Get] for a Captured card
+// authorization.
 type CapturedPayment struct {
 	// Provider backs the captured payment (Stripe for the MVP).
 	Provider PaymentProvider
-	// ProviderPaymentID is the provider's reference of the charged payment
+	// ProviderPaymentID is the payment provider's ID for the charged payment
 	// (a Stripe "pi_..." id).
 	ProviderPaymentID string
 	// AmountJPY is the captured amount in whole yen.

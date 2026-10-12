@@ -13,7 +13,7 @@ import (
 const checkoutSweepInterval = 1 * time.Minute
 
 // startCheckoutSweepers launches the two 1-minute checkout jobs:
-// ReleaseExpired ends lapsed holds and gives back the card holds of ended
+// ReleaseExpired ends lapsed holds and gives back the card authorizations of ended
 // checkouts, and IssueDueCheckouts finishes checkouts committed more than a
 // minute ago. Both are idempotent across pods (conditional updates, the
 // per-Checkout lock), so an interrupted run is retried on the next tick.

@@ -480,10 +480,10 @@ func TestCheckoutRepository_ListDue(t *testing.T) {
 		ids[r.ID] = true
 	}
 	assert.True(t, ids[lapsed.ID], "lapsed hold")
-	assert.True(t, ids[released.ID], "card hold to give back")
+	assert.True(t, ids[released.ID], "card authorization to give back")
 	assert.True(t, ids[stalled.ID], "stalled commit")
 	assert.False(t, ids[fresh.ID], "fresh commit")
-	assert.False(t, ids[givenBack.ID], "card hold already given back")
+	assert.False(t, ids[givenBack.ID], "card authorization already given back")
 	assert.Len(t, due, 3)
 }
 
@@ -598,7 +598,7 @@ func TestCheckoutRepository_GetByCardAuthorizationID(t *testing.T) {
 		assert.Equal(t, c.ID, got.ID)
 	})
 
-	t.Run("unknown hold", func(t *testing.T) {
+	t.Run("unknown card authorization", func(t *testing.T) {
 		// @spec components/entity/checkout/get-by-card-authorization-id "Unknown card authorization"
 		_, err := repo.GetByCardAuthorizationID(ctx, "pi_unknown_"+entity.NewID())
 

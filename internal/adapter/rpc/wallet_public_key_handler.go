@@ -37,8 +37,8 @@ func NewWalletPublicKeyHandler(
 }
 
 // storedUserID resolves the caller's Zitadel subject to their stored users.id.
-func (h *WalletPublicKeyHandler) storedUserID(ctx context.Context, externalID string) (entity.UserID, error) {
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+func (h *WalletPublicKeyHandler) storedUserID(ctx context.Context, providerUserID string) (entity.UserID, error) {
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return "", err
 	}
@@ -51,14 +51,14 @@ func (h *WalletPublicKeyHandler) Register(
 	ctx context.Context,
 	req *connect.Request[walletpublickeyv1.RegisterRequest],
 ) (*connect.Response[walletpublickeyv1.RegisterResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if len(req.Msg.GetPublicKey().GetValue()) == 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("public_key is required"))
 	}
-	userID, err := h.storedUserID(ctx, externalID)
+	userID, err := h.storedUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -78,11 +78,11 @@ func (h *WalletPublicKeyHandler) Get(
 	ctx context.Context,
 	_ *connect.Request[walletpublickeyv1.GetRequest],
 ) (*connect.Response[walletpublickeyv1.GetResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	userID, err := h.storedUserID(ctx, externalID)
+	userID, err := h.storedUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}

@@ -54,7 +54,7 @@ func (r *PayoutAccountRepository) Upsert(ctx context.Context, a *entity.PayoutAc
 		int16(a.Status),
 	)
 	if err != nil {
-		return toAppErr(err, "failed to upsert organizer connected account",
+		return toAppErr(err, "failed to upsert payout account",
 			slog.String("organizer_id", a.OrganizerID))
 	}
 	return nil
@@ -68,7 +68,7 @@ func (r *PayoutAccountRepository) GetByOrganizerID(ctx context.Context, organize
 	)
 	row := r.db.Pool.QueryRow(ctx, getPayoutAccountQuery, organizerID)
 	if err := row.Scan(&a.OrganizerID, &a.ProviderAccountID, &status); err != nil {
-		return nil, toAppErr(err, "failed to get organizer connected account",
+		return nil, toAppErr(err, "failed to get payout account",
 			slog.String("organizer_id", organizerID))
 	}
 	a.Status = entity.PayoutOnboardingStatus(status)
@@ -80,11 +80,11 @@ func (r *PayoutAccountRepository) UpdateStatus(ctx context.Context, organizerID 
 	tag, err := r.db.Pool.Exec(ctx, updatePayoutAccountStatusQuery,
 		organizerID, int16(status))
 	if err != nil {
-		return toAppErr(err, "failed to update organizer connected account status",
+		return toAppErr(err, "failed to update payout account status",
 			slog.String("organizer_id", organizerID))
 	}
 	if tag.RowsAffected() == 0 {
-		return apperr.New(codes.NotFound, "organizer connected account not found")
+		return apperr.New(codes.NotFound, "payout account not found")
 	}
 	return nil
 }

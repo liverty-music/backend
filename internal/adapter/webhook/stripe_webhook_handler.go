@@ -189,7 +189,7 @@ func (h *StripeWebhookHandler) extractChargeContext(ctx context.Context, event s
 	}
 
 	switch string(event.Type) {
-	case string(usecase.StripeEventProviderChargeIDunded),
+	case string(usecase.StripeEventChargeRefunded),
 		string(usecase.StripeEventChargeDisputeCreated):
 	default:
 		return "", ""
@@ -207,7 +207,7 @@ func (h *StripeWebhookHandler) extractChargeContext(ctx context.Context, event s
 	// Resolve the charge ref: for a Charge object use its own id; for a Dispute
 	// object use the `charge` field.
 	switch string(event.Type) {
-	case string(usecase.StripeEventProviderChargeIDunded):
+	case string(usecase.StripeEventChargeRefunded):
 		providerChargeID = obj.ID
 	case string(usecase.StripeEventChargeDisputeCreated):
 		providerChargeID = obj.Charge

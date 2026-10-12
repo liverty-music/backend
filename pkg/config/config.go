@@ -139,9 +139,9 @@ type ServerConfig struct {
 	OrganizerMediaBucket string `envconfig:"ORGANIZER_MEDIA_BUCKET"`
 
 	// OrganizerMediaCDNBase is the public CDN base URL used to compose served
-	// series-media variant URLs (thumb/large). Injected into
+	// series-image variant URLs (thumb/large). Injected into
 	// mapper.SeriesImageURLBuilder at DI wiring time. Required outside local; empty in
-	// local development disables cover-media URLs on organizer-facing
+	// local development disables cover-image URLs on organizer-facing
 	// ConcertService responses rather than emitting a malformed relative URL.
 	OrganizerMediaCDNBase string `envconfig:"ORGANIZER_MEDIA_CDN_BASE"`
 
@@ -431,7 +431,7 @@ type GCPConfig struct {
 	// (Generative Language API only) before 2026-06-19.
 	GeminiSearchAPIKey string `envconfig:"GCP_GEMINI_SEARCH_API_KEY"`
 
-	// Freshness window for the search-log cache. A completed search within
+	// Freshness window for the concert-search cache. A completed search within
 	// this window suppresses a repeat external call. Empty/zero falls back
 	// to defaultSearchCacheTTL via SearchCacheTTL(); prod sets 72h.
 	GeminiSearchCacheTTL time.Duration `envconfig:"GCP_GEMINI_SEARCH_CACHE_TTL"`
@@ -511,7 +511,7 @@ func (c *GCPConfig) SalesReminderScanWindow() time.Duration {
 	return defaultSalesReminderWindow
 }
 
-// SearchCacheTTL returns the search-log freshness window. Resolution:
+// SearchCacheTTL returns the concert-search freshness window. Resolution:
 // env override (GCP_GEMINI_SEARCH_CACHE_TTL) → built-in default.
 func (c *GCPConfig) SearchCacheTTL() time.Duration {
 	if c.GeminiSearchCacheTTL > 0 {
@@ -665,7 +665,7 @@ type WebhookSettings struct {
 }
 
 // MediaConsumerConfig is the configuration for the media-consumer workload.
-// It embeds BaseConfig and adds NATS and the two media bucket names.
+// It embeds BaseConfig and adds NATS and the two image bucket names.
 type MediaConsumerConfig struct {
 	BaseConfig
 
@@ -681,12 +681,12 @@ type MediaConsumerConfig struct {
 	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
 
 	// OrganizerMediaBucket is the GCS bucket that serves CDN-cached WebP variants.
-	// The processor writes cdn/{org}/{mediaId}/{variant}.webp objects here.
+	// The processor writes cdn/{org}/{seriesImageID}/{variant}.webp objects here.
 	OrganizerMediaBucket string `envconfig:"ORGANIZER_MEDIA_BUCKET"`
 }
 
 // Validate validates MediaConsumerConfig including base checks. Outside local
-// the NATS URL and both media buckets are required.
+// the NATS URL and both image buckets are required.
 func (c *MediaConsumerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err

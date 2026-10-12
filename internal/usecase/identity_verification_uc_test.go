@@ -424,7 +424,7 @@ func TestIdentityVerificationUseCase_Get(t *testing.T) {
 			wantStatus: entity.VerificationStatusNeedsReverification,
 		},
 		{
-			name: "fail with NotFound for a fan who never passed KYC",
+			name: "fail with NotFound for a fan who never verified their identity",
 			setup: func(d *identityVerificationTestDeps) {
 				d.identityVerificationRepo.EXPECT().GetByUserID(ctx, userA).Return(nil, apperr.New(codes.NotFound, "not found"))
 			},

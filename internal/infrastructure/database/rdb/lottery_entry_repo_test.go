@@ -14,7 +14,7 @@ import (
 )
 
 // insertLotteryEntry stores an entry of the user for the ticket type in the
-// given state. Entered, Won and Lost entries carry a card hold "pi_<id>", as
+// given state. Entered, Won and Lost entries carry a card authorization "pi_<id>", as
 // the schema requires; Drafts and Withdrawn entries carry none.
 func insertLotteryEntry(t *testing.T, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int, state entity.LotteryEntryState) *entity.LotteryEntry {
 	t.Helper()
@@ -210,7 +210,7 @@ func TestLotteryEntryRepository_SetCardAuthorization(t *testing.T) {
 	ctx := context.Background()
 	tt := seedTicketType(t, entity.TicketSaleMethodLottery, 100, 4)
 
-	t.Run("hold recorded", func(t *testing.T) {
+	t.Run("card authorization recorded", func(t *testing.T) {
 		// @spec components/entity/lottery-entry/set-card-authorization "Card authorization recorded"
 		draft := insertLotteryEntry(t, tt.ID, newUserID(), 2, entity.LotteryEntryStateDraft)
 
@@ -513,7 +513,7 @@ func TestLotteryEntryRepository_PersistDrawOutcome(t *testing.T) {
 		loser := insertLotteryEntry(t, sale.TicketTypes[0].ID, newUserID(), 2, entity.LotteryEntryStateEntered)
 		draft := insertLotteryEntry(t, sale.TicketTypes[1].ID, newUserID(), 2, entity.LotteryEntryStateDraft)
 		// The last write fails: a FirstCome sale cannot be drawn
-		// (chk_ticket_sales_drawn_lottery_only).
+		// (chk_ticket_sales_draw_lottery_only).
 		firstCome := seedTicketType(t, entity.TicketSaleMethodFirstCome, 100, 4)
 
 		err := repo.PersistDrawOutcome(ctx, firstCome.TicketSaleID,

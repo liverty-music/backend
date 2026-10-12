@@ -102,7 +102,7 @@ func (p *StripeOrderPayments) GetProviderChargeID(ctx context.Context, providerP
 
 	p.logger.Info(ctx, "resolved charge ref from PaymentIntent",
 		slog.String("provider_payment_id", providerPaymentID),
-		slog.String("charge_ref", pi.LatestCharge.ID),
+		slog.String("provider_charge_id", pi.LatestCharge.ID),
 	)
 	return pi.LatestCharge.ID, nil
 }
@@ -138,7 +138,7 @@ func (p *StripeSettlementPayouts) CreatePayout(ctx context.Context, params entit
 		Amount:            &amount,
 		Currency:          stripe.String(params.Currency),
 		Destination:       stripe.String(params.PayeeProviderAccountID),
-		SourceTransaction: stripe.String(params.SourceTransactionRef),
+		SourceTransaction: stripe.String(params.ProviderChargeID),
 		// No on_behalf_of — see function-level comment above.
 		// No statement descriptor — platform account config (task 5.1).
 	}
@@ -150,7 +150,7 @@ func (p *StripeSettlementPayouts) CreatePayout(ctx context.Context, params entit
 	}
 
 	p.logger.Info(ctx, "Stripe Transfer created",
-		slog.String("transfer_ref", tr.ID),
+		slog.String("provider_payout_id", tr.ID),
 		slog.String("destination", tr.Destination.ID),
 		slog.Int64("amount", tr.Amount),
 		slog.String("settlement_id", string(params.SettlementID)),
@@ -238,7 +238,7 @@ func (p *StripePayoutAccounts) Create(ctx context.Context, organizerID string, c
 
 	p.logger.Info(ctx, "provisioned Accounts v2 recipient account",
 		slog.String("organizer_id", organizerID),
-		slog.String("account_ref", acct.ID),
+		slog.String("provider_account_id", acct.ID),
 	)
 
 	return acct.ID, nil
@@ -338,8 +338,8 @@ func (p *StripeOrderPayments) CreateRefund(ctx context.Context, params entity.Re
 	}
 
 	p.logger.Info(ctx, "Stripe Refund created",
-		slog.String("refund_ref", refund.ID),
-		slog.String("charge_ref", params.ProviderChargeID),
+		slog.String("provider_refund_id", refund.ID),
+		slog.String("provider_charge_id", params.ProviderChargeID),
 		slog.Int64("amount", refund.Amount),
 		slog.String("order_id", string(params.OrderID)),
 	)
@@ -377,8 +377,8 @@ func (p *StripeSettlementPayouts) ReversePayout(ctx context.Context, params enti
 	}
 
 	p.logger.Info(ctx, "Stripe TransferReversal created",
-		slog.String("reversal_ref", reversal.ID),
-		slog.String("transfer_ref", params.ProviderPayoutID),
+		slog.String("provider_payout_reversal_id", reversal.ID),
+		slog.String("provider_payout_id", params.ProviderPayoutID),
 		slog.Int64("amount", reversal.Amount),
 		slog.String("settlement_id", string(params.SettlementID)),
 	)
@@ -404,7 +404,7 @@ func (p *StripePayoutAccounts) CreateOnboardingLink(ctx context.Context, provide
 	}
 
 	p.logger.Info(ctx, "Stripe account onboarding link created",
-		slog.String("account_ref", providerAccountID),
+		slog.String("provider_account_id", providerAccountID),
 		slog.Time("expires_at", time.Unix(link.ExpiresAt, 0)),
 	)
 	return link.URL, nil

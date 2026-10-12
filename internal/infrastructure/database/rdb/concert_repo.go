@@ -359,34 +359,34 @@ func NewConcertRepository(db *Database) *ConcertRepository {
 }
 
 // scanConcertRow scans a row from the standard JOIN (events + series + cover
-// media + venue) into a Concert without populating Artists. Pass
+// image + venue) into a Concert without populating Artists. Pass
 // withCoords=true when the query selects venue lat/lng (used by ListByArtists /
 // ListByFollower).
 //
 // The Series carries its first-party attributes (organizer, description,
-// visibility, publish state) and its cover media's identity, so every read
+// visibility, publish state) and its cover image's identity, so every read
 // returns the same Series shape as the event page. The share token is never
 // read here.
 func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.Concert, error) {
 	var (
-		c            entity.Concert
-		series       entity.Series
-		venue        entity.Venue
-		seriesT      string
-		sourceURL    *string
-		organizerID  sql.NullString
-		description  sql.NullString
-		visibility   sql.NullString
-		publishState sql.NullString
-		mediaID      sql.NullString
-		mediaOrgID   sql.NullString
-		lat, lng     *float64
+		c             entity.Concert
+		series        entity.Series
+		venue         entity.Venue
+		seriesT       string
+		sourceURL     *string
+		organizerID   sql.NullString
+		description   sql.NullString
+		visibility    sql.NullString
+		publishState  sql.NullString
+		seriesImageID sql.NullString
+		imageOrgID    sql.NullString
+		lat, lng      *float64
 	)
 	dests := []any{
 		&c.ID, &c.SeriesID, &c.VenueID, &c.ListedVenueName, &c.LocalDate, &c.StartTime, &c.OpenTime,
 		&series.Title, &seriesT, &sourceURL,
 		&organizerID, &description, &visibility, &publishState,
-		&mediaID, &mediaOrgID,
+		&seriesImageID, &imageOrgID,
 		&venue.ID, &venue.Name, &venue.AdminArea,
 	}
 	if withCoords {
@@ -433,10 +433,10 @@ func scanConcertRow(rowScan func(dest ...any) error, withCoords bool) (*entity.C
 		v := entity.SeriesPublishState(publishState.String)
 		series.PublishState = &v
 	}
-	if mediaID.Valid {
+	if seriesImageID.Valid {
 		series.CoverImage = &entity.SeriesImage{
-			ID:          mediaID.String,
-			OrganizerID: mediaOrgID.String,
+			ID:          seriesImageID.String,
+			OrganizerID: imageOrgID.String,
 		}
 	}
 	if lat != nil && lng != nil {

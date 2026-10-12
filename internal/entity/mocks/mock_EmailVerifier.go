@@ -21,9 +21,9 @@ func (_m *MockEmailVerifier) EXPECT() *MockEmailVerifier_Expecter {
 	return &MockEmailVerifier_Expecter{mock: &_m.Mock}
 }
 
-// ResendVerification provides a mock function with given fields: ctx, externalID
-func (_m *MockEmailVerifier) ResendVerification(ctx context.Context, externalID string) error {
-	ret := _m.Called(ctx, externalID)
+// ResendVerification provides a mock function with given fields: ctx, providerUserID
+func (_m *MockEmailVerifier) ResendVerification(ctx context.Context, providerUserID string) error {
+	ret := _m.Called(ctx, providerUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResendVerification")
@@ -31,7 +31,7 @@ func (_m *MockEmailVerifier) ResendVerification(ctx context.Context, externalID 
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, externalID)
+		r0 = rf(ctx, providerUserID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -46,12 +46,12 @@ type MockEmailVerifier_ResendVerification_Call struct {
 
 // ResendVerification is a helper method to define mock.On call
 //   - ctx context.Context
-//   - externalID string
-func (_e *MockEmailVerifier_Expecter) ResendVerification(ctx interface{}, externalID interface{}) *MockEmailVerifier_ResendVerification_Call {
-	return &MockEmailVerifier_ResendVerification_Call{Call: _e.mock.On("ResendVerification", ctx, externalID)}
+//   - providerUserID string
+func (_e *MockEmailVerifier_Expecter) ResendVerification(ctx interface{}, providerUserID interface{}) *MockEmailVerifier_ResendVerification_Call {
+	return &MockEmailVerifier_ResendVerification_Call{Call: _e.mock.On("ResendVerification", ctx, providerUserID)}
 }
 
-func (_c *MockEmailVerifier_ResendVerification_Call) Run(run func(ctx context.Context, externalID string)) *MockEmailVerifier_ResendVerification_Call {
+func (_c *MockEmailVerifier_ResendVerification_Call) Run(run func(ctx context.Context, providerUserID string)) *MockEmailVerifier_ResendVerification_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
@@ -68,9 +68,9 @@ func (_c *MockEmailVerifier_ResendVerification_Call) RunAndReturn(run func(conte
 	return _c
 }
 
-// SendVerification provides a mock function with given fields: ctx, externalID
-func (_m *MockEmailVerifier) SendVerification(ctx context.Context, externalID string) error {
-	ret := _m.Called(ctx, externalID)
+// SendVerification provides a mock function with given fields: ctx, providerUserID
+func (_m *MockEmailVerifier) SendVerification(ctx context.Context, providerUserID string) error {
+	ret := _m.Called(ctx, providerUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SendVerification")
@@ -78,7 +78,7 @@ func (_m *MockEmailVerifier) SendVerification(ctx context.Context, externalID st
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, externalID)
+		r0 = rf(ctx, providerUserID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -93,12 +93,12 @@ type MockEmailVerifier_SendVerification_Call struct {
 
 // SendVerification is a helper method to define mock.On call
 //   - ctx context.Context
-//   - externalID string
-func (_e *MockEmailVerifier_Expecter) SendVerification(ctx interface{}, externalID interface{}) *MockEmailVerifier_SendVerification_Call {
-	return &MockEmailVerifier_SendVerification_Call{Call: _e.mock.On("SendVerification", ctx, externalID)}
+//   - providerUserID string
+func (_e *MockEmailVerifier_Expecter) SendVerification(ctx interface{}, providerUserID interface{}) *MockEmailVerifier_SendVerification_Call {
+	return &MockEmailVerifier_SendVerification_Call{Call: _e.mock.On("SendVerification", ctx, providerUserID)}
 }
 
-func (_c *MockEmailVerifier_SendVerification_Call) Run(run func(ctx context.Context, externalID string)) *MockEmailVerifier_SendVerification_Call {
+func (_c *MockEmailVerifier_SendVerification_Call) Run(run func(ctx context.Context, providerUserID string)) *MockEmailVerifier_SendVerification_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})

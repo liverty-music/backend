@@ -509,8 +509,8 @@ type ConcertRepository interface {
 	// unchanged. Idempotent: a no-op when eventIDs is empty.
 	FillEventStartTimes(ctx context.Context, eventIDs []string, startTimes, openTimes []*time.Time) error
 	// UpdateEventListedVenueName overwrites the listed_venue_name display field of
-	// an existing event. Used by the admin approval "adopt staged" reconciliation
-	// to replace the stored display name with the staged row's, leaving venue_id
+	// an existing event. Used by the admin approval "adopt the candidate" reconciliation
+	// to replace the stored display name with the concert candidate's, leaving venue_id
 	// and google_place_id untouched. Idempotent on a missing id (no-op success).
 	UpdateEventListedVenueName(ctx context.Context, eventID string, listedVenueName string) error
 	// List retrieves every published concert with Series, Venue, and Artists

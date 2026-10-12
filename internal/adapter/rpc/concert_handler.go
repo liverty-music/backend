@@ -20,7 +20,7 @@ type ConcertHandler struct {
 	logger                *logging.Logger
 }
 
-// NewConcertHandler creates a new concert handler. mediaURLBuilder composes
+// NewConcertHandler creates a new concert handler. imageURLBuilder composes
 // the cover image URLs of the first-party Series every response returns.
 func NewConcertHandler(
 	concertUseCase usecase.ConcertUseCase,
@@ -85,12 +85,12 @@ func (h *ConcertHandler) ListByArtist(ctx context.Context, req *connect.Request[
 // grouped by date and classified into proximity lanes around the fan's stored
 // home. The request names no fan and no home.
 func (h *ConcertHandler) ListFollowed(ctx context.Context, req *connect.Request[concertv1.ListFollowedRequest]) (*connect.Response[concertv1.ListFollowedResponse], error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	user, err := h.userRepo.GetByProviderUserID(ctx, externalID)
+	user, err := h.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}

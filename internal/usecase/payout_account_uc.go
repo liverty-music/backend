@@ -11,12 +11,12 @@ import (
 )
 
 // PayoutAccountUseCase manages Organizer payout-recipient Connect onboarding:
-// creating and persisting a connected account and surfacing its status.
+// creating and persisting a payout account and surfacing its status.
 type PayoutAccountUseCase interface {
 	// Get returns the caller's payout-recipient account and
-	// its current status, creating the connected account if none exists yet.
+	// its current status, creating the payout account if none exists yet.
 	// It also returns a provider-hosted onboarding URL when the account is
-	// not yet Active (payout-blocked), so the Organizer can complete KYC/KYB.
+	// not yet Active (payout-blocked), so the Organizer can complete payout account verification.
 	// An already-Active account returns the account with an empty onboarding URL.
 	//
 	// # Possible errors
@@ -66,7 +66,7 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 		return nil, "", err
 	}
 
-	// Attempt to load an existing connected account.
+	// Attempt to load an existing payout account.
 	acct, err := uc.payoutAccountRepo.GetByOrganizerID(ctx, organizerID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
@@ -77,14 +77,14 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 	}
 
 	// Refresh the status from the provider so the caller sees the latest
-	// capability state (e.g. KYC just cleared).
+	// capability state (e.g. payout account verification just cleared).
 	freshStatus, err := uc.payoutAccountRepo.GetStatus(ctx, acct.ProviderAccountID)
 	if err != nil {
 		// A provider failure means we cannot verify current status; return
 		// the cached state and let the caller retry.
 		uc.logger.Warn(ctx, "failed to refresh payout onboarding status from provider; returning cached status",
 			slog.String("organizer_id", organizerID),
-			slog.String("account_ref", acct.ProviderAccountID),
+			slog.String("provider_account_id", acct.ProviderAccountID),
 			slog.Any("error", err),
 		)
 	} else if freshStatus != acct.Status {
@@ -116,7 +116,7 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 	return acct, onboardingURL, nil
 }
 
-// provisionAndPersist creates a connected account at the provider, persists it,
+// provisionAndPersist creates a payout account at the provider, persists it,
 // and returns it together with an onboarding link.
 func (uc *payoutAccountUseCase) provisionAndPersist(ctx context.Context, organizerID string, contactEmail string) (*entity.PayoutAccount, string, error) {
 	providerAccountID, err := uc.payoutAccountRepo.Create(ctx, organizerID, contactEmail)
@@ -133,9 +133,9 @@ func (uc *payoutAccountUseCase) provisionAndPersist(ctx context.Context, organiz
 		return nil, "", err
 	}
 
-	uc.logger.Info(ctx, "provisioned Organizer connected account",
+	uc.logger.Info(ctx, "provisioned Organizer payout account",
 		slog.String("organizer_id", organizerID),
-		slog.String("account_ref", providerAccountID),
+		slog.String("provider_account_id", providerAccountID),
 	)
 
 	onboardingURL, err := uc.payoutAccountRepo.CreateOnboardingLink(ctx, providerAccountID, uc.returnURL)

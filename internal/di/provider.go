@@ -277,7 +277,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	default:
 		organizerProvisioner = infrazitadel.NewUnavailableOrganizerProvisioner(cfg.Workload)
 	}
-	// GCS image storer for organizer media. Local dev has no GCP credentials,
+	// GCS image storer for organizer series images. Local dev has no GCP credentials,
 	// so it runs without one and signed-URL issuance returns Internal; outside
 	// local a storer that cannot be created stops the server.
 	var imageStorer usecase.ImageStorer
@@ -306,7 +306,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	seriesUC := usecase.NewSeriesUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), venueRepo, mapCatalog, organizerRepo, eventPublisher, logger)
 
-	// Identity eKYC — select the real Pocket Sign Stamp client when all four
+	// Identity verification — select the real Pocket Sign Stamp client when all four
 	// POCKET_SIGN_* fields (base URL, token, tenant id, callback URL) are
 	// configured; fall back to StubVerifier (returns UNAVAILABLE) when
 	// unconfigured so local dev and pre-onboarding environments stay safe and inert.
@@ -342,7 +342,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// media-consumer job in media_job.go invokes it), so no MediaProcessor is
 	// wired here.
 	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, nil, eventPublisher, logger)
-	// SeriesImageURLBuilder composes organizer series-media CDN URLs for the
+	// SeriesImageURLBuilder composes organizer series-image CDN URLs for the
 	// organizer-facing ConcertService mapper. The CDN base is sourced from
 	// config (ORGANIZER_MEDIA_CDN_BASE) rather than read directly by entity.
 	seriesImageURLBuilder := mapper.NewSeriesImageURLBuilder(cfg.OrganizerMediaCDNBase)
@@ -446,7 +446,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// config.ServerConfig.RunsPaymentSweepers). The draw captures winners /
 	// releases losers, so it MUST run where Stripe is reachable; a Stripe-less
 	// pod winning the race would demote EVERY winner to a loser while leaving
-	// their holds unreleased. The gate used to be the presence of the key, which
+	// their card authorizations unreleased. The gate used to be the presence of the key, which
 	// kept it off the consoles only because they lacked one; it is now explicit,
 	// so the consoles can carry the key for refunds and payout onboarding. The
 	// draw remains idempotent across fan-api's own pods.
@@ -460,7 +460,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		// buffer. It also requires a real Stripe key (Transfer creation). It runs
 		// on the same (fan-api) workload and is idempotent across pods.
 		startSettlementSweeper(ctx, payoutSweeperUC, logger)
-		// The checkout sweepers release lapsed holds and card holds, and finish
+		// The checkout sweepers release lapsed holds and card authorizations, and finish
 		// stalled commits; both reach Stripe, so they run beside the others.
 		startCheckoutSweepers(ctx, checkoutUC, orderUC, logger)
 	} else {

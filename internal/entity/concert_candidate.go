@@ -22,7 +22,7 @@ type ConcertCandidate struct {
 	ID string
 	// ArtistID is the FK to artists.id of the performing artist.
 	ArtistID string
-	// SeriesID is the FK to series.id of the parent series this staged event
+	// SeriesID is the FK to series.id of the parent series this candidate
 	// belongs to. The series row is always created at discovery time (when the
 	// group's series_id is resolved), so this is a real foreign key by staging
 	// time — never a soft reference. On approval the event is inserted under this

@@ -140,7 +140,7 @@ func (h *IdentityVerificationHandler) Recheck(
 //
 // Errors:
 //   - UNAUTHENTICATED: no valid JWT, or the caller has no account.
-//   - NOT_FOUND: the caller has never passed KYC.
+//   - NOT_FOUND: the caller has never verified their identity.
 func (h *IdentityVerificationHandler) Get(
 	ctx context.Context,
 	_ *connect.Request[identityverificationv1.GetRequest],
@@ -162,12 +162,12 @@ func (h *IdentityVerificationHandler) Get(
 // resolves it to the caller's internal user, and returns its id. A caller
 // without an account fails with Unauthenticated.
 func (h *IdentityVerificationHandler) resolveCallerUserID(ctx context.Context) (string, error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	user, err := h.userUC.ResolveCaller(ctx, externalID)
+	user, err := h.userUC.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			return "", connect.NewError(connect.CodeUnauthenticated, errors.New("user not found"))
