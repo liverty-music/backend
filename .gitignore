@@ -9,7 +9,7 @@
 # new file there from being committed — which is why pkg/api had no tests.
 /main
 /api
-/media-processor
+/series-image-consumer
 # Pinned developer tools installed by the Makefile (golangci-lint).
 /bin/
 

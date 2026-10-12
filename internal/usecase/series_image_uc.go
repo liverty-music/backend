@@ -17,7 +17,7 @@ import (
 
 // seriesImageUploadMaxBytes is the maximum accepted upload size for a series image
 // (10 MiB). This value is returned to the client as max_bytes in
-// CreateMediaUploadURLResponse and is enforced by the signed-URL condition
+// CreateUploadUrlResponse and is enforced by the signed-URL condition
 // x-goog-content-length-range:0,<max_bytes>.
 const seriesImageUploadMaxBytes int64 = 10 * 1024 * 1024
 
@@ -26,13 +26,13 @@ const seriesImageUploadMaxBytes int64 = 10 * 1024 * 1024
 // limiting the exposure of a leaked URL.
 const signedURLTTL = 15 * time.Minute
 
-// mediaInternalBucketEnv is the environment variable name for the GCS bucket
+// storageInternalBucketEnv is the environment variable name for the GCS bucket
 // that holds raw originals uploaded by organizers.
-const mediaInternalBucketEnv = "ORGANIZER_MEDIA_INTERNAL_BUCKET"
+const storageInternalBucketEnv = "STORAGE_INTERNAL_BUCKET"
 
-// mediaServedBucketEnv is the environment variable name for the CDN-served
+// storageBucketEnv is the environment variable name for the CDN-served
 // GCS bucket that holds the processed thumb/large WebP variants.
-const mediaServedBucketEnv = "ORGANIZER_MEDIA_BUCKET"
+const storageBucketEnv = "STORAGE_BUCKET"
 
 // allowedImageContentTypes is the set of accepted MIME types for organizer
 // image upload. Only image/* types are allowed at MVP; SVG is explicitly
@@ -44,9 +44,9 @@ var allowedImageContentTypes = map[string]struct{}{
 	"image/webp": {},
 }
 
-// mediaInternalBucket returns the originals-bucket name from the environment.
-func mediaInternalBucket() string {
-	return os.Getenv(mediaInternalBucketEnv)
+// storageInternalBucket returns the originals-bucket name from the environment.
+func storageInternalBucket() string {
+	return os.Getenv(storageInternalBucketEnv)
 }
 
 // CreateSeriesImageUploadURLInput carries the parameters for CreateUploadURL.
@@ -82,13 +82,13 @@ type SeriesImageUseCase interface {
 	// # Possible errors
 	//
 	//  - InvalidArgument: if the content type is not accepted.
-	//  - Internal: if ORGANIZER_MEDIA_INTERNAL_BUCKET is unset or signing fails.
+	//  - Internal: if STORAGE_INTERNAL_BUCKET is unset or signing fails.
 	CreateUploadURL(ctx context.Context, callerOrgID string, in CreateSeriesImageUploadURLInput) (*CreateSeriesImageUploadURLOutput, error)
 
 	// Process reads the original upload from the internal bucket,
 	// validates and transcodes it into WebP thumb/large variants, switches
 	// the series' cover to the new image, and reclaims the replaced cover and
-	// the original upload. It is triggered by the MEDIA.uploaded event; the
+	// the original upload. It is triggered by the SERIES_IMAGE.uploaded event; the
 	// event consumer only decodes the message and calls this method.
 	//
 	// A missing series image row (upload cancelled before processing) or a missing
@@ -111,7 +111,7 @@ type seriesImageUseCase struct {
 	seriesRepo      entity.SeriesRepository
 	seriesImageRepo entity.SeriesImageRepository
 	imageStorer     ImageStorer
-	processor       entity.MediaProcessor
+	processor       entity.SeriesImageProcessor
 	publisher       EventPublisher
 	logger          *logging.Logger
 }
@@ -126,7 +126,7 @@ func NewSeriesImageUseCase(
 	seriesRepo entity.SeriesRepository,
 	seriesImageRepo entity.SeriesImageRepository,
 	imageStorer ImageStorer,
-	processor entity.MediaProcessor,
+	processor entity.SeriesImageProcessor,
 	publisher EventPublisher,
 	logger *logging.Logger,
 ) SeriesImageUseCase {
@@ -154,9 +154,9 @@ func (uc *seriesImageUseCase) CreateUploadURL(ctx context.Context, callerOrgID s
 		return nil, apperr.New(codes.Internal, "image storage is not configured")
 	}
 
-	bucket := mediaInternalBucket()
+	bucket := storageInternalBucket()
 	if bucket == "" {
-		return nil, apperr.New(codes.Internal, "ORGANIZER_MEDIA_INTERNAL_BUCKET is not set")
+		return nil, apperr.New(codes.Internal, "STORAGE_INTERNAL_BUCKET is not set")
 	}
 
 	// Mint the series image id now so it is the unique key for both the signed URL
@@ -186,10 +186,10 @@ func (uc *seriesImageUseCase) CreateUploadURL(ctx context.Context, callerOrgID s
 // WebP variants, writes them to the served bucket, cuts over series_cover_images to
 // the new series image id (no-404 guarantee), and deletes the original. Permanent
 // failures (invalid image, missing series image or series row) end processing without
-// an error so the MEDIA.uploaded event is not redelivered endlessly.
+// an error so the SERIES_IMAGE.uploaded event is not redelivered endlessly.
 func (uc *seriesImageUseCase) Process(ctx context.Context, seriesImageID, seriesID string) error {
-	internalBucket := os.Getenv(mediaInternalBucketEnv)
-	servedBucket := os.Getenv(mediaServedBucketEnv)
+	internalBucket := os.Getenv(storageInternalBucketEnv)
+	servedBucket := os.Getenv(storageBucketEnv)
 
 	// Load the series image row to get the organizer id the storage keys are scoped to.
 	seriesImage, err := uc.seriesImageRepo.Get(ctx, seriesImageID)

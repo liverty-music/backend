@@ -45,7 +45,7 @@ func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 		d.provisioner,
 		d.seriesImageRepo,
 		d.imageStorer,
-		usecase.OrganizerMediaBuckets{Internal: testInternalBucket, Served: testServedBucket},
+		usecase.StorageBuckets{Internal: testInternalBucket, Served: testServedBucket},
 		d.publisher,
 		d.metrics,
 		newTestLogger(t),
@@ -54,8 +54,8 @@ func newOrganizerTestDeps(t *testing.T) *organizerTestDeps {
 }
 
 const (
-	testInternalBucket = "organizer-media-internal"
-	testServedBucket   = "organizer-media"
+	testInternalBucket = "liverty-music-test-internal"
+	testServedBucket   = "liverty-music-test"
 )
 
 func TestOrganizerUseCase_Create(t *testing.T) {
@@ -1177,7 +1177,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			d := newOrganizerTestDeps(t)
 			if tt.noStorage {
 				d.uc = usecase.NewOrganizerUseCase(d.orgRepo, d.artistRepo, d.provisioner, d.seriesImageRepo, nil,
-					usecase.OrganizerMediaBuckets{}, d.publisher, d.metrics, newTestLogger(t))
+					usecase.StorageBuckets{}, d.publisher, d.metrics, newTestLogger(t))
 			}
 			var calls []string
 			tt.setup(d, &calls)

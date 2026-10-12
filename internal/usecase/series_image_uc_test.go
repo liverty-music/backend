@@ -89,7 +89,7 @@ type seriesImageDeps struct {
 	seriesRepo      *entitymocks.MockSeriesRepository
 	seriesImageRepo *entitymocks.MockSeriesImageRepository
 	storer          *fakeImageStorer
-	processor       *entitymocks.MockMediaProcessor
+	processor       *entitymocks.MockSeriesImageProcessor
 	publisher       *ucmocks.MockEventPublisher
 	uc              usecase.SeriesImageUseCase
 	series          usecase.SeriesUseCase
@@ -102,7 +102,7 @@ func newSeriesImageDeps(t *testing.T) *seriesImageDeps {
 		seriesRepo:      entitymocks.NewMockSeriesRepository(t),
 		seriesImageRepo: entitymocks.NewMockSeriesImageRepository(t),
 		storer:          newFakeImageStorer(),
-		processor:       entitymocks.NewMockMediaProcessor(t),
+		processor:       entitymocks.NewMockSeriesImageProcessor(t),
 		publisher:       ucmocks.NewMockEventPublisher(t),
 	}
 	d.uc = usecase.NewSeriesImageUseCase(
@@ -118,7 +118,7 @@ func newSeriesImageDeps(t *testing.T) *seriesImageDeps {
 // content type triggers a signed PUT URL and returns the series image id + max bytes.
 func TestSeriesImageUseCase_CreateUploadURL_IssuesSignedURL(t *testing.T) {
 	// t.Setenv requires sequential execution.
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals-bucket")
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals-bucket")
 	ctx := context.Background()
 	d := newSeriesImageDeps(t)
 
@@ -143,10 +143,10 @@ func TestSeriesImageUseCase_CreateUploadURL_RejectsInvalidType(t *testing.T) {
 }
 
 // TestSeriesImageUseCase_CreateUploadURL_MissingBucket verifies a clear Internal
-// error when ORGANIZER_MEDIA_INTERNAL_BUCKET is unset.
+// error when STORAGE_INTERNAL_BUCKET is unset.
 func TestSeriesImageUseCase_CreateUploadURL_MissingBucket(t *testing.T) {
 	// t.Setenv requires sequential execution.
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "")
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "")
 	ctx := context.Background()
 	d := newSeriesImageDeps(t)
 
@@ -172,7 +172,7 @@ func TestSeriesUseCase_SetCoverImage_InsertsAndPublishes(t *testing.T) {
 	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.MatchedBy(func(m *entity.SeriesImage) bool {
 		return m.ID == seriesImageID && m.OrganizerID == orgID
 	})).Return(nil)
-	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectMediaUploaded, mock.Anything).Return(nil)
+	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, mock.Anything).Return(nil)
 
 	err := d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID)
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestSeriesUseCase_SetCoverImage_Idempotent(t *testing.T) {
 	// Both calls use the same mock stubs — idempotent at the DB layer.
 	d.seriesRepo.EXPECT().Get(mock.Anything, seriesID).Return(s, nil).Times(2)
 	d.seriesImageRepo.EXPECT().Create(mock.Anything, mock.Anything).Return(nil).Times(2)
-	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectMediaUploaded, mock.Anything).Return(nil).Times(2)
+	d.publisher.EXPECT().PublishEvent(mock.Anything, entity.SubjectSeriesImageUploaded, mock.Anything).Return(nil).Times(2)
 
 	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID))
 	require.NoError(t, d.series.SetCoverImage(ctx, orgID, seriesID, seriesImageID))
@@ -227,8 +227,8 @@ func TestSeriesUseCase_SetCoverImage_Idempotent(t *testing.T) {
 
 // @spec components/usecase/series-image/process "Replacing a published cover"
 func TestSeriesImageUseCase_Process_HappyPath(t *testing.T) {
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals")
-	t.Setenv("ORGANIZER_MEDIA_BUCKET", "served")
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals")
+	t.Setenv("STORAGE_BUCKET", "served")
 
 	const (
 		seriesImageID = "image-new"
@@ -259,8 +259,8 @@ func TestSeriesImageUseCase_Process_HappyPath(t *testing.T) {
 // returns an old series image id, the old variant prefix is deleted from the served
 // bucket.
 func TestSeriesImageUseCase_Process_ReplacesOldImage(t *testing.T) {
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals")
-	t.Setenv("ORGANIZER_MEDIA_BUCKET", "served")
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals")
+	t.Setenv("STORAGE_BUCKET", "served")
 
 	const (
 		seriesImageID    = "image-new"
@@ -290,8 +290,8 @@ func TestSeriesImageUseCase_Process_ReplacesOldImage(t *testing.T) {
 // permanently-invalid image ends processing without an error (so the event is
 // not retried) and deletes the original.
 func TestSeriesImageUseCase_Process_UnsupportedImage(t *testing.T) {
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals")
-	t.Setenv("ORGANIZER_MEDIA_BUCKET", "served")
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals")
+	t.Setenv("STORAGE_BUCKET", "served")
 
 	const (
 		seriesImageID = "image-bad"
@@ -317,8 +317,8 @@ func TestSeriesImageUseCase_Process_UnsupportedImage(t *testing.T) {
 // processor error causes SeriesImageUseCase.Process to return a non-nil error so the
 // consumer naks (retries) the message.
 func TestSeriesImageUseCase_Process_TransientError(t *testing.T) {
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals")
-	t.Setenv("ORGANIZER_MEDIA_BUCKET", "served")
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals")
+	t.Setenv("STORAGE_BUCKET", "served")
 
 	const (
 		seriesImageID = "image-transient"
@@ -340,12 +340,12 @@ func TestSeriesImageUseCase_Process_TransientError(t *testing.T) {
 }
 
 // TestSeriesImageUseCase_Process_Idempotent verifies that re-delivery of the
-// same MEDIA.uploaded event is a safe no-op: cut-over returns "" (already
+// same SERIES_IMAGE.uploaded event is a safe no-op: cut-over returns "" (already
 // applied), variants are re-written (idempotent PUT), original is cleaned up
 // again.
 func TestSeriesImageUseCase_Process_Idempotent(t *testing.T) {
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals")
-	t.Setenv("ORGANIZER_MEDIA_BUCKET", "served")
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals")
+	t.Setenv("STORAGE_BUCKET", "served")
 
 	const (
 		seriesImageID = "image-idem"
@@ -374,8 +374,8 @@ func TestSeriesImageUseCase_Process_Idempotent(t *testing.T) {
 // TestSeriesImageUseCase_Process_MissingSeriesImageRow verifies that a missing series image
 // row (cancelled upload) ends processing without error.
 func TestSeriesImageUseCase_Process_MissingSeriesImageRow(t *testing.T) {
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals")
-	t.Setenv("ORGANIZER_MEDIA_BUCKET", "served")
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals")
+	t.Setenv("STORAGE_BUCKET", "served")
 
 	d := newSeriesImageDeps(t)
 	d.seriesImageRepo.EXPECT().Get(mock.Anything, "image-gone").
@@ -390,8 +390,8 @@ func TestSeriesImageUseCase_Process_MissingSeriesImageRow(t *testing.T) {
 // before the cut-over ends processing without error and cleans up the
 // original.
 func TestSeriesImageUseCase_Process_MissingSeries(t *testing.T) {
-	t.Setenv("ORGANIZER_MEDIA_INTERNAL_BUCKET", "originals")
-	t.Setenv("ORGANIZER_MEDIA_BUCKET", "served")
+	t.Setenv("STORAGE_INTERNAL_BUCKET", "originals")
+	t.Setenv("STORAGE_BUCKET", "served")
 
 	const (
 		seriesImageID = "image-1"

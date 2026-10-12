@@ -290,7 +290,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		shutdown.AddExternalPhase(storer)
 	}
 	organizerUC := usecase.NewOrganizerUseCase(organizerRepo, artistRepo, organizerProvisioner, rdb.NewSeriesImageRepository(db), imageStorer,
-		usecase.OrganizerMediaBuckets{Internal: cfg.OrganizerMediaInternalBucket, Served: cfg.OrganizerMediaBucket},
+		usecase.StorageBuckets{Internal: cfg.StorageInternalBucket, Served: cfg.StorageBucket},
 		eventPublisher, businessMetrics, logger)
 	// Run the provisioning reconciler only on the workload that provisions
 	// organizers (the isolated admin workload); it completes any organizer left
@@ -339,13 +339,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	}
 	identityVerificationUC := usecase.NewIdentityVerificationUseCase(identityVerificationRepo, userRepo, pocketSignVerifier, logger)
 	// SeriesImageUseCase.Process is never called from the RPC server (only the dedicated
-	// media-consumer job in media_job.go invokes it), so no MediaProcessor is
+	// series-image-consumer job in series_image_consumer.go invokes it), so no SeriesImageProcessor is
 	// wired here.
 	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, nil, eventPublisher, logger)
 	// SeriesImageURLBuilder composes organizer series-image CDN URLs for the
 	// organizer-facing ConcertService mapper. The CDN base is sourced from
-	// config (ORGANIZER_MEDIA_CDN_BASE) rather than read directly by entity.
-	seriesImageURLBuilder := mapper.NewSeriesImageURLBuilder(cfg.OrganizerMediaCDNBase)
+	// config (CDN_BASE_URL) rather than read directly by entity.
+	seriesImageURLBuilder := mapper.NewSeriesImageURLBuilder(cfg.CDNBaseURL)
 
 	// Card authorizations: use the real Stripe adapters when a
 	// secret key is configured, otherwise no-ops that return Unavailable so local

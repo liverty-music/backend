@@ -10,7 +10,7 @@ import (
 // TestObjectKeyComposition verifies that the originals-bucket key and the
 // served-bucket variant key/prefix follow the schemes documented on
 // OriginalObjectKey, VariantObjectKey, and VariantObjectPrefix. Moved from
-// internal/adapter/event/media_consumer_test.go as part of liverty-music/backend#485
+// internal/adapter/event/series_image_consumer_test.go as part of liverty-music/backend#485
 // (object-storage key composition belongs to the infrastructure layer that
 // owns object storage, not the entity package).
 func TestObjectKeyComposition(t *testing.T) {

@@ -44,9 +44,9 @@ func TestStreamForSubject(t *testing.T) {
 		wantOK     bool
 	}{
 		{
-			name:       "MEDIA.uploaded resolves to MEDIA stream",
-			subject:    "MEDIA.uploaded",
-			wantStream: "MEDIA",
+			name:       "SERIES_IMAGE.uploaded resolves to SERIES_IMAGE stream",
+			subject:    "SERIES_IMAGE.uploaded",
+			wantStream: "SERIES_IMAGE",
 			wantOK:     true,
 		},
 		{

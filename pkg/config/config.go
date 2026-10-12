@@ -128,22 +128,22 @@ type ServerConfig struct {
 	// LastFM API Key
 	LastFMAPIKey string `envconfig:"LASTFM_API_KEY"`
 
-	// OrganizerMediaInternalBucket is the GCS bucket that holds raw originals
+	// StorageInternalBucket is the GCS bucket that holds raw originals
 	// uploaded by organizers (write-only for the API, consumed by the
-	// media-consumer). Signed PUT URLs point here.
-	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
+	// series-image-consumer). Signed PUT URLs point here.
+	StorageInternalBucket string `envconfig:"STORAGE_INTERNAL_BUCKET"`
 
-	// OrganizerMediaBucket is the CDN-served GCS bucket that holds the
+	// StorageBucket is the CDN-served GCS bucket that holds the
 	// processed thumb/large WebP variants. The admin Organizer deletion removes
 	// a deleted Organizer's variants from it.
-	OrganizerMediaBucket string `envconfig:"ORGANIZER_MEDIA_BUCKET"`
+	StorageBucket string `envconfig:"STORAGE_BUCKET"`
 
-	// OrganizerMediaCDNBase is the public CDN base URL used to compose served
+	// CDNBaseURL is the public CDN base URL used to compose served
 	// series-image variant URLs (thumb/large). Injected into
 	// mapper.SeriesImageURLBuilder at DI wiring time. Required outside local; empty in
 	// local development disables cover-image URLs on organizer-facing
 	// ConcertService responses rather than emitting a malformed relative URL.
-	OrganizerMediaCDNBase string `envconfig:"ORGANIZER_MEDIA_CDN_BASE"`
+	CDNBaseURL string `envconfig:"CDN_BASE_URL"`
 
 	// FanWebBaseURL is the fan web origin (scheme and host only, e.g.
 	// "https://liverty-music.app") used for the canonical og:url and the
@@ -664,9 +664,9 @@ type WebhookSettings struct {
 	LoginEventSigningKey string `envconfig:"WEBHOOK_LOGIN_EVENT_SIGNING_KEY"`
 }
 
-// MediaConsumerConfig is the configuration for the media-consumer workload.
+// SeriesImageConsumerConfig is the configuration for the series-image-consumer workload.
 // It embeds BaseConfig and adds NATS and the two image bucket names.
-type MediaConsumerConfig struct {
+type SeriesImageConsumerConfig struct {
 	BaseConfig
 
 	// GCP configuration (project id for IAM SignBlob, etc.)
@@ -675,19 +675,19 @@ type MediaConsumerConfig struct {
 	// NATS configuration for event messaging
 	NATS NATSConfig `envconfig:""`
 
-	// OrganizerMediaInternalBucket is the GCS bucket that holds the raw originals
+	// StorageInternalBucket is the GCS bucket that holds the raw originals
 	// uploaded by organizers. The processor reads originals from here and deletes
 	// them on success.
-	OrganizerMediaInternalBucket string `envconfig:"ORGANIZER_MEDIA_INTERNAL_BUCKET"`
+	StorageInternalBucket string `envconfig:"STORAGE_INTERNAL_BUCKET"`
 
-	// OrganizerMediaBucket is the GCS bucket that serves CDN-cached WebP variants.
+	// StorageBucket is the GCS bucket that serves CDN-cached WebP variants.
 	// The processor writes cdn/{org}/{seriesImageID}/{variant}.webp objects here.
-	OrganizerMediaBucket string `envconfig:"ORGANIZER_MEDIA_BUCKET"`
+	StorageBucket string `envconfig:"STORAGE_BUCKET"`
 }
 
-// Validate validates MediaConsumerConfig including base checks. Outside local
+// Validate validates SeriesImageConsumerConfig including base checks. Outside local
 // the NATS URL and both image buckets are required.
-func (c *MediaConsumerConfig) Validate() error {
+func (c *SeriesImageConsumerConfig) Validate() error {
 	if err := c.BaseConfig.Validate(); err != nil {
 		return err
 	}
@@ -699,8 +699,8 @@ func (c *MediaConsumerConfig) Validate() error {
 	}
 	return requireSet(
 		envVar{"NATS_URL", c.NATS.URL},
-		envVar{"ORGANIZER_MEDIA_INTERNAL_BUCKET", c.OrganizerMediaInternalBucket},
-		envVar{"ORGANIZER_MEDIA_BUCKET", c.OrganizerMediaBucket},
+		envVar{"STORAGE_INTERNAL_BUCKET", c.StorageInternalBucket},
+		envVar{"STORAGE_BUCKET", c.StorageBucket},
 	)
 }
 
@@ -729,7 +729,7 @@ func requireSet(vars ...envVar) error {
 // LoggingConfig is loadable on its own so a process can build its logger
 // before, and independently of, its workload config.
 type Loadable interface {
-	ServerConfig | JobConfig | ConsumerConfig | MediaConsumerConfig | LoggingConfig
+	ServerConfig | JobConfig | ConsumerConfig | SeriesImageConsumerConfig | LoggingConfig
 }
 
 // Load loads configuration from environment variables into the specified workload config type.
@@ -928,16 +928,16 @@ func (c *ServerConfig) validateWorkloadSettings() error {
 
 	required := []envVar{
 		{"ADMIN_CORS_ALLOWED_ORIGINS", strings.Join(c.Server.AdminAllowedOrigins, ",")},
+		{"CDN_BASE_URL", c.CDNBaseURL},
 		{"GCP_GEMINI_SEARCH_API_KEY", c.GCP.GeminiSearchAPIKey},
 		{"LASTFM_API_KEY", c.LastFMAPIKey},
-		{"ORGANIZER_MEDIA_BUCKET", c.OrganizerMediaBucket},
-		{"ORGANIZER_MEDIA_CDN_BASE", c.OrganizerMediaCDNBase},
-		{"ORGANIZER_MEDIA_INTERNAL_BUCKET", c.OrganizerMediaInternalBucket},
 		{"POCKET_SIGN_BASE_URL", c.PocketSign.BaseURL},
 		{"POCKET_SIGN_CALLBACK_URL", c.PocketSign.CallbackURL},
 		{"POCKET_SIGN_TENANT_ID", c.PocketSign.TenantID},
 		{"POCKET_SIGN_TOKEN", c.PocketSign.Token},
 		{"RECEPTION_CORS_ALLOWED_ORIGINS", strings.Join(c.Server.ReceptionAllowedOrigins, ",")},
+		{"STORAGE_BUCKET", c.StorageBucket},
+		{"STORAGE_INTERNAL_BUCKET", c.StorageInternalBucket},
 		{"STRIPE_ONBOARDING_RETURN_URL", c.Stripe.OnboardingReturnURL},
 		{"STRIPE_SECRET_KEY", c.Stripe.SecretKey},
 		{"STRIPE_WEBHOOK_SIGNING_SECRET", c.Stripe.WebhookSigningSecret},

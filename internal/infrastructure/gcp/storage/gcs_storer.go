@@ -72,7 +72,7 @@ func (s *GCSStorer) Close() error {
 // Put writes data to the given bucket under key with the supplied content type
 // and an immutable cache-control header. All objects are written under the
 // cdn/ key prefix; the caller composes the served URL from the series image id and
-// ORGANIZER_MEDIA_CDN_BASE.
+// CDN_BASE_URL.
 func (s *GCSStorer) Put(ctx context.Context, bucket, key, contentType string, data []byte) error {
 	wc := s.client.Bucket(bucket).Object(key).NewWriter(ctx)
 	wc.ContentType = contentType
@@ -89,7 +89,7 @@ func (s *GCSStorer) Put(ctx context.Context, bucket, key, contentType string, da
 }
 
 // ReadObject downloads the object at key from bucket and returns its raw bytes.
-// The media-consumer reads the uploaded original from the private originals
+// The series-image-consumer reads the uploaded original from the private originals
 // bucket with this before transcoding. Satisfies the optional objectReader
 // interface the consumer type-asserts on the ImageStorer (the base write/delete
 // ImageStorer does not expose reads).
@@ -107,7 +107,7 @@ func (s *GCSStorer) ReadObject(ctx context.Context, bucket, key string) ([]byte,
 	return data, nil
 }
 
-// Compile-time guard: the media-consumer type-asserts this optional read
+// Compile-time guard: the series-image-consumer type-asserts this optional read
 // capability on the injected ImageStorer at runtime (readOriginal). Keep the
 // signature in lock-step so a real GCSStorer always satisfies it — the base
 // ImageStorer exposes only write/delete, so this cannot be caught there.

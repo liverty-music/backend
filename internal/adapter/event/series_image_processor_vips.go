@@ -24,17 +24,17 @@ const maxPixels = 50_000_000
 // is rejected before the full decode.
 const maxEdgePx = 8_000
 
-// vipsProcessor implements entity.MediaProcessor using libvips via govips.
+// vipsProcessor implements entity.SeriesImageProcessor using libvips via govips.
 // Build with: CGO_ENABLED=1 go build -tags vips
 type vipsProcessor struct {
 	logger *logging.Logger
 }
 
 // Compile-time interface check.
-var _ entity.MediaProcessor = (*vipsProcessor)(nil)
+var _ entity.SeriesImageProcessor = (*vipsProcessor)(nil)
 
-// NewMediaProcessor returns the production vips-backed processor.
-func NewMediaProcessor(logger *logging.Logger) entity.MediaProcessor {
+// NewSeriesImageProcessor returns the production vips-backed processor.
+func NewSeriesImageProcessor(logger *logging.Logger) entity.SeriesImageProcessor {
 	vips.Startup(nil)
 	return &vipsProcessor{logger: logger}
 }

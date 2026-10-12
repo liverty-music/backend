@@ -143,10 +143,10 @@ type OrganizerUseCase interface {
 	SetPlatformFeeRate(ctx context.Context, organizerID string, rateBps int) (*entity.Organizer, error)
 }
 
-// OrganizerMediaBuckets names the GCS buckets that hold Organizer series images: the
+// StorageBuckets names the GCS buckets that hold Organizer series images: the
 // internal bucket for uploaded originals and the served bucket for the
 // processed variants.
-type OrganizerMediaBuckets struct {
+type StorageBuckets struct {
 	Internal string
 	Served   string
 }
@@ -157,7 +157,7 @@ type organizerUseCase struct {
 	provisioner     OrganizerProvisioner
 	seriesImageRepo entity.SeriesImageRepository
 	imageStorer     ImageStorer
-	mediaBuckets    OrganizerMediaBuckets
+	storageBuckets  StorageBuckets
 	publisher       EventPublisher
 	metrics         OrganizerMetrics
 	logger          *logging.Logger
@@ -172,7 +172,7 @@ func NewOrganizerUseCase(
 	provisioner OrganizerProvisioner,
 	seriesImageRepo entity.SeriesImageRepository,
 	imageStorer ImageStorer,
-	mediaBuckets OrganizerMediaBuckets,
+	storageBuckets StorageBuckets,
 	publisher EventPublisher,
 	metrics OrganizerMetrics,
 	logger *logging.Logger,
@@ -183,7 +183,7 @@ func NewOrganizerUseCase(
 		provisioner:     provisioner,
 		seriesImageRepo: seriesImageRepo,
 		imageStorer:     imageStorer,
-		mediaBuckets:    mediaBuckets,
+		storageBuckets:  storageBuckets,
 		publisher:       publisher,
 		metrics:         metrics,
 		logger:          logger,
@@ -532,14 +532,14 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 	if err != nil {
 		return err
 	}
-	if len(seriesImage) > 0 && (uc.imageStorer == nil || uc.mediaBuckets.Internal == "" || uc.mediaBuckets.Served == "") {
+	if len(seriesImage) > 0 && (uc.imageStorer == nil || uc.storageBuckets.Internal == "" || uc.storageBuckets.Served == "") {
 		return apperr.New(codes.Internal, "organizer image storage is not configured", slog.String("organizer_id", organizerID))
 	}
 	for _, m := range seriesImage {
-		if err := uc.imageStorer.DeleteOriginal(ctx, uc.mediaBuckets.Internal, organizerID, m.ID); err != nil {
+		if err := uc.imageStorer.DeleteOriginal(ctx, uc.storageBuckets.Internal, organizerID, m.ID); err != nil {
 			return err
 		}
-		if err := uc.imageStorer.DeleteVariants(ctx, uc.mediaBuckets.Served, organizerID, m.ID); err != nil {
+		if err := uc.imageStorer.DeleteVariants(ctx, uc.storageBuckets.Served, organizerID, m.ID); err != nil {
 			return err
 		}
 	}

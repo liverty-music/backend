@@ -8,7 +8,7 @@ import (
 // ImageStorer stores and retrieves binary image object backing
 // organizer-authored series image (the ORIGINAL upload and its derived
 // thumb/large variants). It abstracts the GCS dependency so the series image use
-// case and the media-processor consumer are not tied to a specific storage
+// case and the series-image-consumer are not tied to a specific storage
 // provider and can be tested with a stub.
 //
 // Object addressing is identified purely by (organizerID, seriesImageID[, variant]);
@@ -31,7 +31,7 @@ type ImageStorer interface {
 	SignedPutURLForOriginal(ctx context.Context, bucket, organizerID, seriesImageID, contentType string, maxBytes int64, ttl time.Duration) (string, error)
 
 	// ReadOriginal downloads the ORIGINAL object bytes for the given
-	// organizer/series image pair from bucket. Used by the media-processor consumer to
+	// organizer/series image pair from bucket. Used by the series-image-consumer to
 	// read the upload before transcoding.
 	//
 	// # Possible errors
