@@ -21,6 +21,10 @@ const (
 	grantsZitadelRole   = "zitadel@test.iam"
 	grantsReceptionRole = "reception-api@test.iam"
 
+	// grantsRetiredMediaConsumerRole is the IAM user of the retired
+	// media-consumer worker. Its grants were revoked so Cloud SQL can drop it.
+	grantsRetiredMediaConsumerRole = "media-consumer@test.iam"
+
 	// grantsProbeTable is created after every migration has run, to check the
 	// default privileges a future table inherits.
 	grantsProbeTable = "grants_probe"
@@ -41,7 +45,6 @@ var grantsReadWriteRoles = []string{
 	"admin-console-api@test.iam",
 	"backend-app@test.iam",
 	"fan-api@test.iam",
-	"media-consumer@test.iam",
 	"series-image-consumer@test.iam",
 }
 
@@ -109,7 +112,7 @@ var receptionAccess = map[string]receptionTableAccess{
 // the privileges each role ends up with on schema app. It fails when a
 // migration (for example a generic `%@%.iam` grant loop) widens the
 // organizer-console-api write set or the reception-api access, or gives
-// zitadel any app privilege.
+// zitadel or the retired media-consumer any app privilege.
 func TestMigrationGrants_IAMRoles(t *testing.T) {
 	if testDB == nil {
 		t.Skip("no local database available")
@@ -185,6 +188,26 @@ func TestMigrationGrants_IAMRoles(t *testing.T) {
 		assert.False(t, hasAnySequencePrivilege(t, ctx, conn, grantsZitadelRole), "sequence privilege")
 	})
 
+	t.Run("retired media-consumer holds nothing that blocks dropping it", func(t *testing.T) {
+		role := grantsRetiredMediaConsumerRole
+		assert.False(t, hasSchemaUsage(t, ctx, conn, role), "USAGE on schema app")
+		for _, table := range tables {
+			for _, privilege := range []string{"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} {
+				assert.False(t, hasTablePrivilege(t, ctx, conn, role, table, privilege), "%s on %s", privilege, table)
+			}
+		}
+		assert.False(t, hasAnySequencePrivilege(t, ctx, conn, role), "sequence privilege")
+		// DROP ROLE fails while pg_shdepend records any privilege, default
+		// privilege or ownership of the role in a database.
+		var dependents int
+		require.NoError(t, conn.QueryRow(ctx, `
+			SELECT count(*) FROM pg_shdepend
+			WHERE refclassid = 'pg_authid'::regclass
+			  AND refobjid = (SELECT oid FROM pg_roles WHERE rolname = $1)
+			  AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`, role).Scan(&dependents))
+		assert.Zero(t, dependents, "objects in the database depend on %s", role)
+	})
+
 	t.Run("other service accounts keep full CRUD", func(t *testing.T) {
 		for _, role := range grantsReadWriteRoles {
 			for _, table := range tables {
@@ -223,7 +246,7 @@ func setupGrantsDatabase(t *testing.T, ctx context.Context) *pgx.Conn {
 	conn, err := pgx.Connect(ctx, dsn)
 	require.NoError(t, err)
 
-	roles := append([]string{grantsOrganizerRole, grantsZitadelRole, grantsReceptionRole}, grantsReadWriteRoles...)
+	roles := append([]string{grantsOrganizerRole, grantsZitadelRole, grantsReceptionRole, grantsRetiredMediaConsumerRole}, grantsReadWriteRoles...)
 	t.Cleanup(func() {
 		ctx := context.Background()
 		resetGrantsDatabase(t, ctx, conn, roles)
