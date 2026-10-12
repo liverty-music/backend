@@ -187,9 +187,9 @@ func (_c *MockUserRepository_Get_Call) RunAndReturn(run func(context.Context, st
 	return _c
 }
 
-// GetByProviderUserID provides a mock function with given fields: ctx, externalID
-func (_m *MockUserRepository) GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error) {
-	ret := _m.Called(ctx, externalID)
+// GetByProviderUserID provides a mock function with given fields: ctx, providerUserID
+func (_m *MockUserRepository) GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.User, error) {
+	ret := _m.Called(ctx, providerUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetByProviderUserID")
@@ -198,10 +198,10 @@ func (_m *MockUserRepository) GetByProviderUserID(ctx context.Context, externalI
 	var r0 *entity.User
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) (*entity.User, error)); ok {
-		return rf(ctx, externalID)
+		return rf(ctx, providerUserID)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) *entity.User); ok {
-		r0 = rf(ctx, externalID)
+		r0 = rf(ctx, providerUserID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*entity.User)
@@ -209,7 +209,7 @@ func (_m *MockUserRepository) GetByProviderUserID(ctx context.Context, externalI
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, externalID)
+		r1 = rf(ctx, providerUserID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -224,12 +224,12 @@ type MockUserRepository_GetByProviderUserID_Call struct {
 
 // GetByProviderUserID is a helper method to define mock.On call
 //   - ctx context.Context
-//   - externalID string
-func (_e *MockUserRepository_Expecter) GetByProviderUserID(ctx interface{}, externalID interface{}) *MockUserRepository_GetByProviderUserID_Call {
-	return &MockUserRepository_GetByProviderUserID_Call{Call: _e.mock.On("GetByProviderUserID", ctx, externalID)}
+//   - providerUserID string
+func (_e *MockUserRepository_Expecter) GetByProviderUserID(ctx interface{}, providerUserID interface{}) *MockUserRepository_GetByProviderUserID_Call {
+	return &MockUserRepository_GetByProviderUserID_Call{Call: _e.mock.On("GetByProviderUserID", ctx, providerUserID)}
 }
 
-func (_c *MockUserRepository_GetByProviderUserID_Call) Run(run func(ctx context.Context, externalID string)) *MockUserRepository_GetByProviderUserID_Call {
+func (_c *MockUserRepository_GetByProviderUserID_Call) Run(run func(ctx context.Context, providerUserID string)) *MockUserRepository_GetByProviderUserID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})

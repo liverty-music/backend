@@ -15,7 +15,7 @@ const settlementSweepInterval = 5 * time.Minute
 
 // startSettlementSweeper launches a background goroutine that periodically
 // finds held settlements whose event start_time + dispute buffer has elapsed
-// and whose Organizer's connected account is payout-active, then releases each
+// and whose Organizer's payout account is payout-active, then releases each
 // by creating the Stripe Transfer(s) and recording the result.
 //
 // The sweep stops when ctx is canceled (the shutdown signal). No separate

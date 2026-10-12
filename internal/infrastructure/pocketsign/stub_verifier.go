@@ -1,5 +1,5 @@
 // Package pocketsign provides the Pocket Sign Stamp API integration for the
-// identity eKYC flow. The real implementation is pending vendor onboarding
+// identity verification flow. The real implementation is pending vendor onboarding
 // (identity-ekyc-jpki Section 0).
 //
 // TODO: integrate real Pocket Sign Stamp API after onboarding

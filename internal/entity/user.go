@@ -219,7 +219,7 @@ type UserRepository interface {
 	// # Possible errors
 	//
 	//  - NotFound: If the user does not exist.
-	GetByProviderUserID(ctx context.Context, externalID string) (*User, error)
+	GetByProviderUserID(ctx context.Context, providerUserID string) (*User, error)
 
 	// Delete removes a user.
 	//
@@ -265,7 +265,7 @@ type EmailVerifier interface {
 	// # Possible errors
 	//
 	//  - Unavailable: The Zitadel API client is not configured.
-	SendVerification(ctx context.Context, externalID string) error
+	SendVerification(ctx context.Context, providerUserID string) error
 
 	// ResendVerification resends a verification email for the given Zitadel user.
 	//
@@ -273,18 +273,18 @@ type EmailVerifier interface {
 	//
 	//  - FailedPrecondition: The user's email is already verified.
 	//  - Unavailable: The Zitadel API client is not configured.
-	ResendVerification(ctx context.Context, externalID string) error
+	ResendVerification(ctx context.Context, providerUserID string) error
 }
 
 // IdentityRemover removes a User's sign-in identity at the identity provider.
 // Implementations call the Zitadel API.
 type IdentityRemover interface {
 	// DeleteIdentity removes the identity-provider user identified by
-	// externalID (the Zitadel subject claim), so it can no longer sign in. An
+	// providerUserID (the Zitadel subject claim), so it can no longer sign in. An
 	// identity that no longer exists counts as removed.
 	//
 	// # Possible errors
 	//
 	//  - Internal: the identity provider failed to remove the identity.
-	DeleteIdentity(ctx context.Context, externalID string) error
+	DeleteIdentity(ctx context.Context, providerUserID string) error
 }

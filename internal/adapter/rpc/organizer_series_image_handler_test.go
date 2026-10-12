@@ -23,8 +23,8 @@ func TestOrganizerSeriesImageHandler_CreateUploadUrl(t *testing.T) {
 		seriesImageUC, organizerUC := ucmocks.NewMockSeriesImageUseCase(t), ucmocks.NewMockOrganizerUseCase(t)
 		organizerUC.EXPECT().ResolveCaller(mock.Anything, testProviderOrganizerID).Return(activeOrganizer(), nil).Once()
 		seriesImageUC.EXPECT().
-			CreateUploadURL(mock.Anything, testOrganizerID, usecase.CreateMediaUploadURLInput{ContentType: "image/png"}).
-			Return(&usecase.CreateMediaUploadURLOutput{UploadURL: "https://storage.example.com/upload", MediaID: "img-1", MaxBytes: 1024}, nil).
+			CreateUploadURL(mock.Anything, testOrganizerID, usecase.CreateSeriesImageUploadURLInput{ContentType: "image/png"}).
+			Return(&usecase.CreateSeriesImageUploadURLOutput{UploadURL: "https://storage.example.com/upload", SeriesImageID: "img-1", MaxBytes: 1024}, nil).
 			Once()
 
 		resp, err := rpc.NewOrganizerSeriesImageHandler(seriesImageUC, organizerUC).CreateUploadUrl(orgCtx(testProviderOrganizerID),

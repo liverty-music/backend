@@ -47,7 +47,7 @@ type EventPublishStatePort interface {
 }
 
 // LotteryEntryUseCase lets a fan enter the lottery of a TicketType — start a Draft,
-// open the card hold, confirm — and withdraw, shows the fan their entries, and
+// open the card authorization, confirm — and withdraw, shows the fan their entries, and
 // draws every Lottery sale once its window has closed.
 type LotteryEntryUseCase interface {
 	// Start begins the fan's Draft entry for a TicketType of an open Lottery
@@ -67,8 +67,8 @@ type LotteryEntryUseCase interface {
 	Start(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID, count int) (*entity.LotteryEntry, error)
 
 	// AuthorizeCard stores the fan's full name and phone number on their User and
-	// opens the card hold for their own Draft, or reuses its hold, and returns
-	// the hold's confirmation secret, which must not be stored. Nothing is
+	// opens the card authorization for their own Draft, or reuses it, and returns
+	// its card authorization secret, which must not be stored. Nothing is
 	// captured.
 	//
 	// # Possible errors
@@ -82,7 +82,7 @@ type LotteryEntryUseCase interface {
 	AuthorizeCard(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID, fullName, phoneNumber string) (string, error)
 
 	// Confirm makes the fan's own authorized Draft Entered after verifying its
-	// hold for the amount, and returns it. An Entered entry is returned
+	// card authorization for the amount, and returns it. An Entered entry is returned
 	// unchanged.
 	//
 	// # Possible errors
@@ -90,10 +90,10 @@ type LotteryEntryUseCase interface {
 	//  - PermissionDenied: the entry does not exist or is another fan's.
 	//  - FailedPrecondition: the entry is not an authorized Draft, or the
 	//    sale's window is not open.
-	//  - Errors of the hold's verification, unchanged.
+	//  - Errors of reading the card authorization, unchanged.
 	Confirm(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error)
 
-	// Withdraw releases the hold of the fan's own Draft or Entered entry,
+	// Withdraw releases the card authorization of the fan's own Draft or Entered entry,
 	// when it has one, and then makes it Withdrawn. It works until the draw
 	// runs, also after the window has closed.
 	//
@@ -102,7 +102,7 @@ type LotteryEntryUseCase interface {
 	//  - NotFound: the entry does not exist.
 	//  - PermissionDenied: the entry is another fan's.
 	//  - FailedPrecondition: the entry is Won, Lost or Withdrawn.
-	//  - Errors of releasing the hold, unchanged; the entry keeps its state.
+	//  - Errors of releasing the card authorization, unchanged; the entry keeps its state.
 	Withdraw(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error
 
 	// ListByTicketType returns the fan's entries for the TicketType, in
@@ -122,9 +122,9 @@ type LotteryEntryUseCase interface {
 	DrawDueSales(ctx context.Context) error
 
 	// RunDraw draws one closed Lottery sale: for each TicketType it releases
-	// the holds of its Drafts, draws the Entered entries against the
+	// the card authorizations of its Drafts, draws the Entered entries against the
 	// TicketType's quantity in an unpredictable order, captures each winner's
-	// hold and releases every other, and records the whole sale's outcome
+	// card authorization and releases every other, and records the whole sale's outcome
 	// with the sale drawn. A winner whose capture fails is released and
 	// recorded Lost. It creates no Order or Ticket.
 	//
@@ -438,7 +438,7 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 		for _, w := range result.Winners {
 			ref := refs[w.Entry.ID]
 			if err := uc.cardAuthorizations.Capture(ctx, ref); err != nil {
-				// No promotion from the waitlist (繰上げ): the tickets stay
+				// No promotion of a loser (繰上げ): the tickets stay
 				// unallocated.
 				uc.logger.Warn(ctx, "capture failed for winner; recording it lost",
 					slog.String("ticket_sale_id", string(saleID)),
@@ -451,7 +451,7 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 			}
 			winners = append(winners, entity.DrawWinnerRow{LotteryEntryID: w.Entry.ID, CardAuthorizationID: ref, DrawPosition: w.DrawPosition})
 		}
-		for _, l := range result.Waitlist {
+		for _, l := range result.Losers {
 			ref := refs[l.Entry.ID]
 			uc.release(ctx, saleID, l.Entry.ID, ref)
 			losers = append(losers, entity.DrawLoserRow{LotteryEntryID: l.Entry.ID, CardAuthorizationID: ref, DrawPosition: l.DrawPosition})
@@ -470,11 +470,11 @@ func (uc *lotteryEntryUseCase) RunDraw(ctx context.Context, saleID entity.Ticket
 	return nil
 }
 
-// release releases a hold during the draw; a failure is logged and does not
+// release releases a card authorization during the draw; a failure is logged and does not
 // stop the draw.
-func (uc *lotteryEntryUseCase) release(ctx context.Context, saleID entity.TicketSaleID, entryID entity.LotteryEntryID, ref string) {
-	if err := uc.cardAuthorizations.Release(ctx, ref); err != nil {
-		uc.logger.Warn(ctx, "draw: releasing a hold failed; continuing",
+func (uc *lotteryEntryUseCase) release(ctx context.Context, saleID entity.TicketSaleID, entryID entity.LotteryEntryID, cardAuthorizationID string) {
+	if err := uc.cardAuthorizations.Release(ctx, cardAuthorizationID); err != nil {
+		uc.logger.Warn(ctx, "draw: releasing a card authorization failed; continuing",
 			slog.String("ticket_sale_id", string(saleID)),
 			slog.String("lottery_entry_id", string(entryID)),
 			slog.Any("error", err),

@@ -199,7 +199,7 @@ func TestIdentityVerificationHandler_Get(t *testing.T) {
 		assert.Equal(t, entityv1.VerificationStatus_VERIFICATION_STATUS_NEEDS_REVERIFICATION, resp.Msg.GetIdentityVerification().GetStatus())
 	})
 
-	t.Run("return NOT_FOUND for a fan who never passed KYC", func(t *testing.T) {
+	t.Run("return NOT_FOUND for a fan who never verified their identity", func(t *testing.T) {
 		t.Parallel()
 		identityVerificationUC, userUC := ucmocks.NewMockIdentityVerificationUseCase(t), ucmocks.NewMockUserUseCase(t)
 		expectCaller(userUC, true)

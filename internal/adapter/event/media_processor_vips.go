@@ -46,29 +46,29 @@ func (p *vipsProcessor) ProcessImage(ctx context.Context, data []byte) (thumb []
 	// Magic-byte + header-first safety check via stdlib image.DecodeConfig.
 	// This is fast (does not decode the full image) and catches:
 	//   - invalid/corrupt headers
-	//   - SVG (not registered → unknown format → entity.ErrUnsupportedMedia)
+	//   - SVG (not registered → unknown format → entity.ErrUnsupportedImage)
 	cfg, format, decodeErr := image.DecodeConfig(bytes.NewReader(data))
 	if decodeErr != nil {
-		return nil, nil, fmt.Errorf("%w: decode config: %v", entity.ErrUnsupportedMedia, decodeErr)
+		return nil, nil, fmt.Errorf("%w: decode config: %v", entity.ErrUnsupportedImage, decodeErr)
 	}
 	if format == "svg" || format == "" {
-		return nil, nil, fmt.Errorf("%w: format %q not allowed", entity.ErrUnsupportedMedia, format)
+		return nil, nil, fmt.Errorf("%w: format %q not allowed", entity.ErrUnsupportedImage, format)
 	}
 	// Edge limit (before full decode).
 	if cfg.Width > maxEdgePx || cfg.Height > maxEdgePx {
 		return nil, nil, fmt.Errorf("%w: image edge %dx%d exceeds limit %d",
-			entity.ErrUnsupportedMedia, cfg.Width, cfg.Height, maxEdgePx)
+			entity.ErrUnsupportedImage, cfg.Width, cfg.Height, maxEdgePx)
 	}
 	// Pixel-count limit (before full decode).
 	if int64(cfg.Width)*int64(cfg.Height) > maxPixels {
 		return nil, nil, fmt.Errorf("%w: pixel count %d exceeds limit %d",
-			entity.ErrUnsupportedMedia, int64(cfg.Width)*int64(cfg.Height), maxPixels)
+			entity.ErrUnsupportedImage, int64(cfg.Width)*int64(cfg.Height), maxPixels)
 	}
 
 	// Load via libvips.
 	img, err := vips.NewImageFromBuffer(data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: vips load: %v", entity.ErrUnsupportedMedia, err)
+		return nil, nil, fmt.Errorf("%w: vips load: %v", entity.ErrUnsupportedImage, err)
 	}
 	defer img.Close()
 

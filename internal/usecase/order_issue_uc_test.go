@@ -55,7 +55,7 @@ type stubOrderRepo struct {
 	entity.OrderRepository
 	getFn                    func(ctx context.Context, id entity.OrderID) (*entity.Order, error)
 	getByLotteryEntryIDFn    func(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
-	getByProviderPaymentIDFn func(ctx context.Context, piRef string) (*entity.Order, error)
+	getByProviderPaymentIDFn func(ctx context.Context, providerPaymentID string) (*entity.Order, error)
 	updateStatusFn           func(ctx context.Context, id entity.OrderID, status entity.OrderStatus) error
 }
 
@@ -73,9 +73,9 @@ func (s *stubOrderRepo) GetByLotteryEntryID(ctx context.Context, lotteryEntryID 
 	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
 }
 
-func (s *stubOrderRepo) GetByProviderPaymentID(ctx context.Context, piRef string) (*entity.Order, error) {
+func (s *stubOrderRepo) GetByProviderPaymentID(ctx context.Context, providerPaymentID string) (*entity.Order, error) {
 	if s.getByProviderPaymentIDFn != nil {
-		return s.getByProviderPaymentIDFn(ctx, piRef)
+		return s.getByProviderPaymentIDFn(ctx, providerPaymentID)
 	}
 	return nil, apperr.New(apperr.ErrNotFound.Code, "not found")
 }
@@ -191,13 +191,13 @@ func newLotteryIssuanceUC(t *testing.T, d lotteryIssuanceDeps) usecase.OrderUseC
 // requirement.
 func lotterySaleRepo(t *testing.T, req entity.VerificationRequirement) *entitymocks.MockTicketSaleRepository {
 	t.Helper()
-	drawn := time.Date(2026, 9, 12, 12, 1, 0, 0, time.UTC)
+	drawTime := time.Date(2026, 9, 12, 12, 1, 0, 0, time.UTC)
 	sale := &entity.TicketSale{
 		ID: "sale-lottery", SeriesID: "series-1", Name: "抽選", Method: entity.TicketSaleMethodLottery,
 		SaleStartTime:           time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC),
 		SaleEndTime:             time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC),
 		VerificationRequirement: req,
-		DrawTime:                &drawn,
+		DrawTime:                &drawTime,
 	}
 	tt := &entity.TicketType{ID: "tt-lottery", TicketSaleID: sale.ID, EventID: "event-1", Price: 5000, Quantity: 100, PerAccountLimit: 4}
 	sale.TicketTypes = []*entity.TicketType{tt}
@@ -541,11 +541,11 @@ func TestOrderUseCase_ThroughSettlementRelease(t *testing.T) {
 	eventStartTimeRepo := &stubEventStartTimeRepo{getFn: func(_ context.Context, _ string) (*time.Time, error) {
 		return &eventStarted, nil
 	}}
-	connectedAccountRepo := &stubPayoutAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
+	payoutAccountRepo := &stubPayoutAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
 		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusActive}, nil
 	}}
 
-	sweeperUC := usecase.NewSettlementUseCase(withSettlementPayouts(settlementRepo, &stubPaymentProvider{}), withOrderPayments(orderRepo, &stubPaymentProvider{}), withPayoutAccountProvider(connectedAccountRepo, &stubPaymentProvider{}), eventStartTimeRepo, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
+	sweeperUC := usecase.NewSettlementUseCase(withSettlementPayouts(settlementRepo, &stubPaymentProvider{}), withOrderPayments(orderRepo, &stubPaymentProvider{}), withPayoutAccountProvider(payoutAccountRepo, &stubPaymentProvider{}), eventStartTimeRepo, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
 
 	require.NoError(t, sweeperUC.ReleaseDueSettlements(context.Background()))
 	require.NotNil(t, released, "the settlement issuance created must be released once due")
@@ -648,7 +648,7 @@ func TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 	assert.Equal(t, entity.SettlementStatusHeld, storedSettlement.Status)
 
 	// -- the event started 8 days ago (past the dispute buffer), but the
-	//    Organizer's connected account is still Pending (identity check in
+	//    Organizer's payout account is still Pending (identity check in
 	//    progress): the sweeper withholds the payout instead of failing. --
 	transferCalled := false
 	markReleasedCalled := false
@@ -665,7 +665,7 @@ func TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 	eventStartTimeRepo := &stubEventStartTimeRepo{getFn: func(_ context.Context, _ string) (*time.Time, error) {
 		return &eventStarted, nil
 	}}
-	connectedAccountRepo := &stubPayoutAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
+	payoutAccountRepo := &stubPayoutAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
 		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusPending}, nil
 	}}
 	payments := &stubPaymentProvider{
@@ -678,7 +678,7 @@ func TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 		},
 	}
 
-	sweeperUC := usecase.NewSettlementUseCase(withSettlementPayouts(settlementRepo, payments), withOrderPayments(orderRepo, payments), withPayoutAccountProvider(connectedAccountRepo, payments), eventStartTimeRepo, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
+	sweeperUC := usecase.NewSettlementUseCase(withSettlementPayouts(settlementRepo, payments), withOrderPayments(orderRepo, payments), withPayoutAccountProvider(payoutAccountRepo, payments), eventStartTimeRepo, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
 
 	require.NoError(t, sweeperUC.ReleaseDueSettlements(context.Background()))
 	assert.False(t, transferCalled, "the Organizer's payout must stay Held while the account is Pending")

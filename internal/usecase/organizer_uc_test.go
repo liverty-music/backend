@@ -1029,7 +1029,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 	ctx := context.Background()
 	const orgID = "org-delete"
 	deactivated := &entity.Organizer{ID: orgID, ProviderOrganizerID: "zitadel-tenant", Status: entity.OrganizerStatusDeactivated}
-	media := []*entity.SeriesImage{{ID: "media-cover", OrganizerID: orgID}, {ID: "media-unused", OrganizerID: orgID}}
+	seriesImage := []*entity.SeriesImage{{ID: "image-cover", OrganizerID: orgID}, {ID: "image-unused", OrganizerID: orgID}}
 	errTenant := apperr.New(codes.Internal, "remove tenant org")
 
 	// expectRemoval expects every removal step of a deactivated organizer and
@@ -1039,8 +1039,8 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 		d.orgRepo.EXPECT().Delete(ctx, orgID, true).Run(func(context.Context, string, bool) {
 			*calls = append(*calls, "check")
 		}).Return(nil).Once()
-		d.seriesImageRepo.EXPECT().ListByOrganizer(ctx, orgID).Return(media, nil).Once()
-		for _, m := range media {
+		d.seriesImageRepo.EXPECT().ListByOrganizer(ctx, orgID).Return(seriesImage, nil).Once()
+		for _, m := range seriesImage {
 			d.imageStorer.EXPECT().DeleteOriginal(ctx, testInternalBucket, orgID, m.ID).Run(func(context.Context, string, string, string) {
 				*calls = append(*calls, "original:"+m.ID)
 			}).Return(nil).Once()
@@ -1064,8 +1064,8 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 	}
 	filesThen := func(tail ...string) []string {
 		return append([]string{"check",
-			"original:media-cover", "variants:media-cover",
-			"original:media-unused", "variants:media-unused",
+			"original:image-cover", "variants:image-cover",
+			"original:image-unused", "variants:image-unused",
 		}, tail...)
 	}
 
@@ -1079,7 +1079,7 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 	}{
 		{
 			// @spec components/usecase/organizer/delete "Deactivated test Organizer"
-			name: "removes the media files, then the tenant, then the records",
+			name: "removes the image files, then the tenant, then the records",
 			setup: func(d *organizerTestDeps, calls *[]string) {
 				expectRemoval(d, deactivated, calls, nil)
 			},
@@ -1161,12 +1161,12 @@ func TestOrganizerUseCase_Delete(t *testing.T) {
 			wantErr: apperr.ErrFailedPrecondition,
 		},
 		{
-			name:      "returns Internal before removing anything when media storage is not configured",
+			name:      "returns Internal before removing anything when image storage is not configured",
 			noStorage: true,
 			setup: func(d *organizerTestDeps, _ *[]string) {
 				d.orgRepo.EXPECT().Get(ctx, orgID).Return(deactivated, nil).Once()
 				d.orgRepo.EXPECT().Delete(ctx, orgID, true).Return(nil).Once()
-				d.seriesImageRepo.EXPECT().ListByOrganizer(ctx, orgID).Return(media, nil).Once()
+				d.seriesImageRepo.EXPECT().ListByOrganizer(ctx, orgID).Return(seriesImage, nil).Once()
 			},
 			wantErr: apperr.ErrInternal,
 		},

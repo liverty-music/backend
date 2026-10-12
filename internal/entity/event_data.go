@@ -74,10 +74,10 @@ const (
 	// on organizer_id; no fan distinct_id). Published as an ORGANIZER.* subject so
 	// the JetStream ORGANIZER stream captures it alongside the other organizer events.
 	SubjectOrganizerConcertPublished = "ORGANIZER.concert_published"
-	// SubjectMediaUploaded is published by the SetCoverImage handler once the media
+	// SubjectMediaUploaded is published by the SetCoverImage handler once the series image
 	// row is persisted. The media-processor consumer subscribes to this subject to
 	// read the original from the originals bucket, generate WebP variants, and
-	// cut over series_cover_images to the new media id. Two tokens (uploaded, not
+	// cut over series_cover_images to the new series image id. Two tokens (uploaded, not
 	// media.uploaded) so the MEDIA.* stream filter captures it with a plain
 	// single-token wildcard — same convention as SubjectSalesPhaseReminderDue.
 	SubjectMediaUploaded = "MEDIA.uploaded"
@@ -436,18 +436,18 @@ type TicketJourneyStatusChangedData struct {
 }
 
 // MediaUploadedData is the payload for MEDIA.uploaded events.
-// Published by the SetCoverImage handler once the media row is persisted in the
-// database. The media-processor consumer uses MediaID and SeriesID to locate
+// Published by the SetCoverImage handler once the series image row is persisted in the
+// database. The media-processor consumer uses SeriesImageID and SeriesID to locate
 // the original file in the originals bucket, generate WebP variants (thumb and
-// large), and cut over series_cover_images to the new media id.
+// large), and cut over series_cover_images to the new series image id.
 type MediaUploadedData struct {
-	// MediaID is the unique identifier of the uploaded media object. The
+	// SeriesImageID is the unique identifier of the uploaded image object. The
 	// processor uses it to compose the originals-bucket key
-	// ({org}/{mediaID}) and the served-bucket variant keys
-	// (cdn/{org}/{mediaID}/{variant}.webp).
-	MediaID string `json:"media_id"`
+	// ({org}/{seriesImageID}) and the served-bucket variant keys
+	// (cdn/{org}/{seriesImageID}/{variant}.webp).
+	SeriesImageID string `json:"media_id"`
 	// SeriesID is the target series. The processor resolves the organizer id
-	// from the media row (stored on insert by SetCoverImage) so it can compose
+	// from the series image row (stored on insert by SetCoverImage) so it can compose
 	// all bucket paths without an extra DB lookup.
 	SeriesID string `json:"series_id"`
 }

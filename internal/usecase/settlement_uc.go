@@ -14,7 +14,7 @@ import (
 
 // SettlementUseCase executes the periodic post-event payout sweep.
 // For each held Settlement whose Order has passed the release gate and whose
-// Organizer's connected account is payout-active, it resolves pi_ → ch_,
+// Organizer's payout account is payout-active, it resolves pi_ → ch_,
 // creates the Stripe Transfer(s), and marks the settlement released.
 type SettlementUseCase interface {
 	// ReleaseDueSettlements scans held settlements whose release gate has
@@ -130,8 +130,8 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	acct, err := uc.payoutAccountRepo.GetByOrganizerID(ctx, s.OrganizerID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
-			// No connected account yet; payout withheld (not failed).
-			uc.logger.Info(ctx, "payout sweep: no connected account for organizer; payout withheld",
+			// No payout account yet; payout withheld (not failed).
+			uc.logger.Info(ctx, "payout sweep: no payout account for organizer; payout withheld",
 				slog.String("settlement_id", string(s.ID)),
 				slog.String("organizer_id", s.OrganizerID),
 			)
@@ -145,14 +145,14 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	if err != nil {
 		uc.logger.Warn(ctx, "payout sweep: failed to refresh account status; using cached status",
 			slog.String("settlement_id", string(s.ID)),
-			slog.String("account_ref", acct.ProviderAccountID),
+			slog.String("provider_account_id", acct.ProviderAccountID),
 			slog.Any("error", err),
 		)
 		freshStatus = acct.Status
 	}
 
 	if !freshStatus.IsPayoutEligible() {
-		// KYC not complete; payout withheld (not failed).
+		// payout account verification not complete; payout withheld (not failed).
 		uc.logger.Info(ctx, "payout sweep: organizer account not payout-active; payout withheld",
 			slog.String("settlement_id", string(s.ID)),
 			slog.String("organizer_id", s.OrganizerID),
@@ -167,7 +167,7 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 		return err
 	}
 
-	// -- resolve pi_ → ch_ (retrieve PaymentIntent with latest_charge). --
+	// -- resolve the provider payment ID to its charge ID. --
 	providerChargeID, err := uc.orderRepo.GetProviderChargeID(ctx, order.Payment.ProviderPaymentID)
 	if err != nil {
 		return err
@@ -177,7 +177,7 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	// NOTE: NO on_behalf_of and NO statement descriptor are set on the
 	// Transfer. The platform is the Stripe settlement merchant; the statement
 	// descriptor is platform account configuration owned by cloud-provisioning
-	// task 5.1. Setting on_behalf_of would require the Organizer's connected
+	// task 5.1. Setting on_behalf_of would require the Organizer's payout
 	// account to hold the card_payments capability active before the original
 	// charge, which would gate ticket sale on merchant KYB — contradicting the
 	// design requirement that onboarding never blocks sale.
@@ -186,7 +186,7 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 		providerPayoutID, err := uc.settlementRepo.CreatePayout(ctx, entity.PayoutParams{
 			SettlementID:           s.ID,
 			PayeeProviderAccountID: acct.ProviderAccountID,
-			SourceTransactionRef:   providerChargeID,
+			ProviderChargeID:       providerChargeID,
 			Amount:                 split.Amount,
 			Currency:               order.Currency,
 		})

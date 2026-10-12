@@ -62,10 +62,10 @@ type SettlementSplit struct {
 	// Amount is the payee's net share in the Order's currency smallest unit
 	// (whole yen for JPY). Must be positive.
 	Amount int64
-	// ProviderPayoutID is the provider's Transfer reference (e.g. a Stripe "tr_..."
+	// ProviderPayoutID is the payment provider's ID for the payout (e.g. a Stripe "tr_..."
 	// id) that paid this split. Empty until the split is released.
 	ProviderPayoutID string
-	// ProviderPayoutReversalID is the provider's transfer-reversal reference (e.g.
+	// ProviderPayoutReversalID is the payment provider's ID for the payout reversal (e.g.
 	// a Stripe "trr_..." id) when the split was clawed back. Empty unless
 	// reversed.
 	ProviderPayoutReversalID string
@@ -75,7 +75,7 @@ type SettlementSplit struct {
 //
 // ④'s captured charge lands on the PLATFORM balance (separate charges &
 // transfers); after the release gate this record's split(s) are transferred to
-// the Organizer's connected account (source_transaction = the charge) and the
+// the Organizer's payout account (source_transaction = the charge) and the
 // platform retains its fee as the un-transferred remainder. It is
 // provider-agnostic: it stores only opaque provider tokens and its own status,
 // never raw provider status. Mirrors liverty_music.entity.v1.Settlement.
@@ -85,16 +85,16 @@ type Settlement struct {
 	// OrderID is the Order this settlement pays out. One Settlement per Order.
 	OrderID OrderID
 	// OrganizerID is the Organizer that receives the payout. Stored denormalized
-	// so the sweeper can look up the Organizer's connected account without
+	// so the sweeper can look up the Organizer's payout account without
 	// joining through the lottery entry/ticket type/event chain.
 	OrganizerID string
 	// EventID is the event this settlement is for. Stored denormalized so the
 	// release-gate check can read events.start_at without joining through
-	// order → ticket_application → lottery_sales_phase.
+	// order → lottery entry or checkout → ticket type.
 	EventID string
-	// ProviderChargeID is the provider's Charge reference (e.g. a Stripe "ch_..." id)
+	// ProviderChargeID is the payment provider's ID for the charge (e.g. a Stripe "ch_..." id)
 	// for ④'s captured payment, used as each Transfer's source_transaction.
-	// Resolved from the Order's PaymentIntent at payout time. Empty until
+	// Resolved from the Order's provider payment ID at payout time. Empty until
 	// resolved.
 	ProviderChargeID string
 	// Splits are the payout splits for this settlement. MVP = exactly one
@@ -164,7 +164,7 @@ type SettlementRepository interface {
 	MarkReleased(ctx context.Context, id SettlementID, providerChargeID string, releasedAt time.Time, splits []SettlementSplit) error
 
 	// CreatePayout creates a Stripe Transfer from the platform balance to
-	// the Organizer's connected account (source_transaction = the charge).
+	// the Organizer's payout account (source_transaction = the charge).
 	// The transfer carries NO on_behalf_of and NO statement descriptor:
 	// the platform is the Stripe settlement merchant; the statement descriptor
 	// is platform account configuration owned by cloud-provisioning task 5.1.
@@ -177,14 +177,14 @@ type SettlementRepository interface {
 
 	// ReversePayout creates a transfer_reversal for one split's Transfer,
 	// clawing back the Organizer's share to the platform balance. Returns the
-	// opaque reversal reference ("trr_..."). Idempotency is keyed on
+	// payment provider's ID for the reversal ("trr_..."). Idempotency is keyed on
 	// SettlementID+ProviderPayoutID so a replay never double-reverses.
 	//
 	// # Possible errors
 	//
 	//  - InvalidArgument: amount is zero or negative.
 	//  - Unavailable: the payment provider is unreachable.
-	ReversePayout(ctx context.Context, params ReversePayoutParams) (reversalRef string, err error)
+	ReversePayout(ctx context.Context, params ReversePayoutParams) (providerPayoutReversalID string, err error)
 }
 
 // PayoutParams carries the parameters for a single Stripe Transfer in the
@@ -194,14 +194,14 @@ type PayoutParams struct {
 	// SettlementID is used to derive a stable idempotency key so a retried
 	// sweep never double-transfers the same split.
 	SettlementID SettlementID
-	// PayeeAccountRef is the connected account that receives the transfer
+	// PayeeProviderAccountID is the payout account that receives the transfer
 	// (the Organizer's "acct_..." id).
 	PayeeProviderAccountID string
-	// SourceTransactionRef is the captured charge ("ch_..." id) that backs
+	// ProviderChargeID is the captured charge ("ch_..." id) that backs
 	// this transfer. Stripe requires source_transaction to come from the
 	// platform balance and pins the transfer amount to the charge's settled
 	// funds.
-	SourceTransactionRef string
+	ProviderChargeID string
 	// Amount is the transfer amount in the Order currency's smallest unit
 	// (whole yen for JPY).
 	Amount int64
@@ -210,7 +210,7 @@ type PayoutParams struct {
 }
 
 // RefundParams carries the parameters for a platform-balance Refund. The
-// refund is issued against the Charge (ch_) rather than the PaymentIntent so
+// refund is issued against the Charge (ch_) rather than the payment so
 // that the settlement's source_transaction reference remains coherent.
 type RefundParams struct {
 	// OrderID is always present and used to derive a stable, per-order

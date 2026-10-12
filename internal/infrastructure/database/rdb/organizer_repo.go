@@ -415,7 +415,7 @@ const (
 	deleteOrganizerSeriesQuery = `
 		DELETE FROM series WHERE organizer_id = $1
 	`
-	deleteOrganizerMediaQuery = `
+	deleteOrganizerSeriesImagesQuery = `
 		DELETE FROM series_images WHERE organizer_id = $1
 	`
 	deleteOrganizerQuery = `
@@ -481,7 +481,7 @@ func (r *OrganizerRepository) Delete(ctx context.Context, id string, dryRun bool
 		{deleteOrganizerOrdersQuery, []any{id, int16(entity.OrderStatusRefunded)}, "orders"},
 		{deleteOrganizerCheckoutsQuery, []any{id}, "checkouts"},
 		{deleteOrganizerSeriesQuery, []any{id}, "series"},
-		{deleteOrganizerMediaQuery, []any{id}, "media"},
+		{deleteOrganizerSeriesImagesQuery, []any{id}, "series images"},
 		{deleteOrganizerQuery, []any{id}, "organizer"},
 	}
 	for _, st := range statements {

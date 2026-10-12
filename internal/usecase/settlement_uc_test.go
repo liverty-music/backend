@@ -89,7 +89,7 @@ func (s *stubEventStartTimeRepo) GetEventStartTime(ctx context.Context, eventID 
 }
 
 type stubPaymentProvider struct {
-	resolveProviderChargeIDFn func(ctx context.Context, piRef string) (string, error)
+	resolveProviderChargeIDFn func(ctx context.Context, providerPaymentID string) (string, error)
 	createTransferFn          func(ctx context.Context, params entity.PayoutParams) (string, error)
 	createPayoutAccountFn     func(ctx context.Context, organizerID string) (string, error)
 	getAccountStatusFn        func(ctx context.Context, providerAccountID string) (entity.PayoutOnboardingStatus, error)
@@ -98,9 +98,9 @@ type stubPaymentProvider struct {
 	reverseTransferFn         func(ctx context.Context, params entity.ReversePayoutParams) (string, error)
 }
 
-func (s *stubPaymentProvider) GetProviderChargeID(ctx context.Context, piRef string) (string, error) {
+func (s *stubPaymentProvider) GetProviderChargeID(ctx context.Context, providerPaymentID string) (string, error) {
 	if s.resolveProviderChargeIDFn != nil {
-		return s.resolveProviderChargeIDFn(ctx, piRef)
+		return s.resolveProviderChargeIDFn(ctx, providerPaymentID)
 	}
 	return "ch_test", nil
 }
@@ -206,11 +206,11 @@ func TestSettlementUseCase_ReleaseDueSettlements_SplitsEngine(t *testing.T) {
 	t.Parallel()
 
 	const (
-		chargeAmount = int64(10000)
-		orgID        = "org-1"
-		eventID      = "event-1"
-		piRef        = "pi_test"
-		acctRef      = "acct_test"
+		chargeAmount      = int64(10000)
+		orgID             = "org-1"
+		eventID           = "event-1"
+		providerPaymentID = "pi_test"
+		providerAccountID = "acct_test"
 	)
 
 	pastStartVal := time.Now().Add(-30 * 24 * time.Hour)
@@ -220,7 +220,7 @@ func TestSettlementUseCase_ReleaseDueSettlements_SplitsEngine(t *testing.T) {
 		ID:       "order-1",
 		Amount:   chargeAmount,
 		Currency: "JPY",
-		Payment:  entity.Payment{ProviderPaymentID: piRef},
+		Payment:  entity.Payment{ProviderPaymentID: providerPaymentID},
 	}
 
 	tests := []struct {
@@ -302,7 +302,7 @@ func TestSettlementUseCase_ReleaseDueSettlements_SplitsEngine(t *testing.T) {
 					getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.PayoutAccount, error) {
 						return &entity.PayoutAccount{
 							OrganizerID:       orgID,
-							ProviderAccountID: acctRef,
+							ProviderAccountID: providerAccountID,
 							Status:            entity.PayoutOnboardingStatusActive,
 						}, nil
 					},
@@ -335,14 +335,14 @@ func TestSettlementUseCase_ReleaseDueSettlements_HappyPath(t *testing.T) {
 	pastStart := &pastStartVal
 
 	const (
-		settleID = entity.SettlementID("settle-happy")
-		orderID  = entity.OrderID("order-happy")
-		orgID    = "org-happy"
-		eventID  = "event-happy"
-		piRef    = "pi_happy"
-		chRef    = "ch_happy"
-		trRef    = "tr_happy"
-		acctRef  = "acct_happy"
+		settleID          = entity.SettlementID("settle-happy")
+		orderID           = entity.OrderID("order-happy")
+		orgID             = "org-happy"
+		eventID           = "event-happy"
+		providerPaymentID = "pi_happy"
+		providerChargeID  = "ch_happy"
+		providerPayoutID  = "tr_happy"
+		providerAccountID = "acct_happy"
 	)
 
 	settlement := &entity.Settlement{
@@ -375,12 +375,12 @@ func TestSettlementUseCase_ReleaseDueSettlements_HappyPath(t *testing.T) {
 				return nil
 			},
 		}, &stubPaymentProvider{
-			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return chRef, nil },
+			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return providerChargeID, nil },
 			createTransferFn: func(_ context.Context, p entity.PayoutParams) (string, error) {
-				assert.Equal(t, chRef, p.SourceTransactionRef)
-				assert.Equal(t, acctRef, p.PayeeProviderAccountID)
+				assert.Equal(t, providerChargeID, p.ProviderChargeID)
+				assert.Equal(t, providerAccountID, p.PayeeProviderAccountID)
 				assert.Equal(t, int64(9000), p.Amount)
-				return trRef, nil
+				return providerPayoutID, nil
 			},
 			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 				return entity.PayoutOnboardingStatusActive, nil
@@ -391,16 +391,16 @@ func TestSettlementUseCase_ReleaseDueSettlements_HappyPath(t *testing.T) {
 				require.Equal(t, orderID, id)
 				return &entity.Order{
 					ID: orderID, Amount: 10000, Currency: "JPY",
-					Payment: entity.Payment{ProviderPaymentID: piRef},
+					Payment: entity.Payment{ProviderPaymentID: providerPaymentID},
 				}, nil
 			},
 		}, &stubPaymentProvider{
-			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return chRef, nil },
+			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return providerChargeID, nil },
 			createTransferFn: func(_ context.Context, p entity.PayoutParams) (string, error) {
-				assert.Equal(t, chRef, p.SourceTransactionRef)
-				assert.Equal(t, acctRef, p.PayeeProviderAccountID)
+				assert.Equal(t, providerChargeID, p.ProviderChargeID)
+				assert.Equal(t, providerAccountID, p.PayeeProviderAccountID)
 				assert.Equal(t, int64(9000), p.Amount)
-				return trRef, nil
+				return providerPayoutID, nil
 			},
 			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 				return entity.PayoutOnboardingStatusActive, nil
@@ -409,17 +409,17 @@ func TestSettlementUseCase_ReleaseDueSettlements_HappyPath(t *testing.T) {
 		withPayoutAccountProvider(&stubPayoutAccountRepo{
 			getByOrganizerIDFn: func(_ context.Context, _ string) (*entity.PayoutAccount, error) {
 				return &entity.PayoutAccount{
-					OrganizerID: orgID, ProviderAccountID: acctRef,
+					OrganizerID: orgID, ProviderAccountID: providerAccountID,
 					Status: entity.PayoutOnboardingStatusActive,
 				}, nil
 			},
 		}, &stubPaymentProvider{
-			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return chRef, nil },
+			resolveProviderChargeIDFn: func(_ context.Context, _ string) (string, error) { return providerChargeID, nil },
 			createTransferFn: func(_ context.Context, p entity.PayoutParams) (string, error) {
-				assert.Equal(t, chRef, p.SourceTransactionRef)
-				assert.Equal(t, acctRef, p.PayeeProviderAccountID)
+				assert.Equal(t, providerChargeID, p.ProviderChargeID)
+				assert.Equal(t, providerAccountID, p.PayeeProviderAccountID)
 				assert.Equal(t, int64(9000), p.Amount)
-				return trRef, nil
+				return providerPayoutID, nil
 			},
 			getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 				return entity.PayoutOnboardingStatusActive, nil
@@ -435,8 +435,8 @@ func TestSettlementUseCase_ReleaseDueSettlements_HappyPath(t *testing.T) {
 
 	require.NoError(t, uc.ReleaseDueSettlements(ctx))
 	assert.True(t, markCalled, "MarkReleased must be called")
-	assert.Equal(t, chRef, gotProviderChargeID)
-	assert.Equal(t, trRef, gotProviderPayoutID)
+	assert.Equal(t, providerChargeID, gotProviderChargeID)
+	assert.Equal(t, providerPayoutID, gotProviderPayoutID)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

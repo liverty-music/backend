@@ -13,7 +13,7 @@ import "strings"
 // Unknown hosts return "other" so the analytics breakdown stays well-defined
 // without exposing arbitrary endpoint text downstream.
 //
-// Called by PushNotificationHandler at subscription registration/removal
+// Called by PushSubscriptionHandler at subscription registration/removal
 // time; the resulting device type is passed into PushSubscriptionUseCase so
 // the use case layer never needs to know about push-vendor host names (see
 // liverty-music/backend#485).

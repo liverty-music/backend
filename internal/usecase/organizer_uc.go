@@ -115,8 +115,8 @@ type OrganizerUseCase interface {
 	//   - FailedPrecondition: the organizer is not deactivated, or an Order
 	//     that is not Refunded, a Settlement that is not Reversed or a payout
 	//     account blocks deletion.
-	//   - Internal: a file or the tenant could not be removed, or media
-	//     storage is not configured while the organizer owns media.
+	//   - Internal: a file or the tenant could not be removed, or image
+	//     storage is not configured while the organizer owns series images.
 	Delete(ctx context.Context, organizerID string) error
 
 	// SetBusinessDetails records the Organizer's 特商法 business details (legal
@@ -143,7 +143,7 @@ type OrganizerUseCase interface {
 	SetPlatformFeeRate(ctx context.Context, organizerID string, rateBps int) (*entity.Organizer, error)
 }
 
-// OrganizerMediaBuckets names the GCS buckets that hold Organizer media: the
+// OrganizerMediaBuckets names the GCS buckets that hold Organizer series images: the
 // internal bucket for uploaded originals and the served bucket for the
 // processed variants.
 type OrganizerMediaBuckets struct {
@@ -165,7 +165,7 @@ type organizerUseCase struct {
 
 // NewOrganizerUseCase creates a new OrganizerUseCase. imageStorer may be nil
 // in local development; Delete then fails with Internal for an Organizer that
-// owns media rather than leaving its files behind.
+// owns series images rather than leaving its files behind.
 func NewOrganizerUseCase(
 	organizerRepo entity.OrganizerRepository,
 	artistRepo entity.ArtistRepository,
@@ -513,9 +513,9 @@ func (uc *organizerUseCase) Deactivate(ctx context.Context, organizerID string) 
 }
 
 // Delete removes a deactivated Organizer in the order of design D1: the dry-run
-// blocker check, the media files, the tenant, and finally the records. The
+// blocker check, the image files, the tenant, and finally the records. The
 // records go last because they are what lets a retry find the tenant and the
-// media ids again.
+// series image id again.
 func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) error {
 	org, err := uc.organizerRepo.Get(ctx, organizerID)
 	if err != nil {
@@ -528,14 +528,14 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 		return err
 	}
 
-	media, err := uc.seriesImageRepo.ListByOrganizer(ctx, organizerID)
+	seriesImage, err := uc.seriesImageRepo.ListByOrganizer(ctx, organizerID)
 	if err != nil {
 		return err
 	}
-	if len(media) > 0 && (uc.imageStorer == nil || uc.mediaBuckets.Internal == "" || uc.mediaBuckets.Served == "") {
-		return apperr.New(codes.Internal, "organizer media storage is not configured", slog.String("organizer_id", organizerID))
+	if len(seriesImage) > 0 && (uc.imageStorer == nil || uc.mediaBuckets.Internal == "" || uc.mediaBuckets.Served == "") {
+		return apperr.New(codes.Internal, "organizer image storage is not configured", slog.String("organizer_id", organizerID))
 	}
-	for _, m := range media {
+	for _, m := range seriesImage {
 		if err := uc.imageStorer.DeleteOriginal(ctx, uc.mediaBuckets.Internal, organizerID, m.ID); err != nil {
 			return err
 		}
@@ -562,7 +562,7 @@ func (uc *organizerUseCase) Delete(ctx context.Context, organizerID string) erro
 	uc.logger.Info(ctx, "organizer deleted",
 		slog.String("organizer_id", organizerID),
 		slog.String("provider_organizer_id", providerOrganizerID),
-		slog.Int("media_count", len(media)),
+		slog.Int("series_image_count", len(seriesImage)),
 	)
 	return nil
 }

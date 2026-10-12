@@ -7,7 +7,7 @@ import (
 )
 
 // LotteryEntryToProto maps a domain LotteryEntry to Protobuf. The
-// authorization is set only once a hold is opened.
+// card authorization is set only once it is opened.
 func LotteryEntryToProto(e *entity.LotteryEntry) *entityv1.LotteryEntry {
 	if e == nil {
 		return nil

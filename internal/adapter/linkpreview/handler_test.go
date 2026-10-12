@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	eventID     = "019a0000-0000-7000-8000-0000000000e1"
-	day2ID      = "019a0000-0000-7000-8000-0000000000e2"
-	seriesID    = "019a0000-0000-7000-8000-0000000000a1"
-	organizerID = "019a0000-0000-7000-8000-0000000000f1"
-	mediaID     = "019a0000-0000-7000-8000-0000000000c1"
-	siteBaseURL = "https://liverty-music.app"
-	cdnBaseURL  = "https://cdn.example.com"
+	eventID       = "019a0000-0000-7000-8000-0000000000e1"
+	day2ID        = "019a0000-0000-7000-8000-0000000000e2"
+	seriesID      = "019a0000-0000-7000-8000-0000000000a1"
+	organizerID   = "019a0000-0000-7000-8000-0000000000f1"
+	seriesImageID = "019a0000-0000-7000-8000-0000000000c1"
+	siteBaseURL   = "https://liverty-music.app"
+	cdnBaseURL    = "https://cdn.example.com"
 )
 
 // jstTime returns an instant at the given Japan-time hour on 2026-11-20.
@@ -65,7 +65,7 @@ func newConcert(id string, date time.Time, o concertOpts) *entity.Concert {
 		s.Description = &d
 	}
 	if o.cover {
-		s.CoverImage = &entity.SeriesImage{ID: mediaID, OrganizerID: organizerID}
+		s.CoverImage = &entity.SeriesImage{ID: seriesImageID, OrganizerID: organizerID}
 	}
 	return &entity.Concert{
 		ID: id, SeriesID: seriesID, LocalDate: date,
@@ -146,7 +146,7 @@ func TestHandler_SharedOnX(t *testing.T) {
 	assert.Equal(t,
 		"2026年11月20日(金) 開場18:00 開演19:00 Shibuya WWW（東京都） 全2公演 11/20(金)・11/21(土) Two nights at Shibuya WWW.",
 		metaContent(t, body, "og:description"))
-	assert.Equal(t, cdnBaseURL+"/cdn/"+organizerID+"/"+mediaID+"/large.webp", metaContent(t, body, "og:image"))
+	assert.Equal(t, cdnBaseURL+"/cdn/"+organizerID+"/"+seriesImageID+"/large.webp", metaContent(t, body, "og:image"))
 	assert.Equal(t, siteBaseURL+"/events/"+eventID, metaContent(t, body, "og:url"))
 	assert.Equal(t, "website", metaContent(t, body, "og:type"))
 	assert.Equal(t, "Liverty Music", metaContent(t, body, "og:site_name"))

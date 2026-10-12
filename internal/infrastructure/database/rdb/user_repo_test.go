@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestUser(externalID, email, name string) *entity.NewUser {
+func newTestUser(providerUserID, email, name string) *entity.NewUser {
 	return &entity.NewUser{
-		ProviderUserID:    externalID,
+		ProviderUserID:    providerUserID,
 		Email:             email,
 		Name:              name,
 		PreferredLanguage: "ja",
@@ -22,8 +22,8 @@ func newTestUser(externalID, email, name string) *entity.NewUser {
 	}
 }
 
-func newTestUserWithHome(externalID, email, name string) *entity.NewUser {
-	u := newTestUser(externalID, email, name)
+func newTestUserWithHome(providerUserID, email, name string) *entity.NewUser {
+	u := newTestUser(providerUserID, email, name)
 	u.Home = &entity.Home{
 		CountryCode: "JP",
 		Level1:      "JP-13",
@@ -193,10 +193,10 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
-		setup      func() string // returns external ID
-		externalID func() string
-		wantErr    error
+		name           string
+		setup          func() string // returns provider user ID
+		providerUserID func() string
+		wantErr        error
 	}{
 		{
 			name: "retrieves user by provider user ID",
@@ -209,14 +209,14 @@ func TestUserRepository_GetByProviderUserID(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "empty external ID returns error",
+			name: "empty provider user ID returns error",
 			setup: func() string {
 				return ""
 			},
 			wantErr: apperr.ErrInvalidArgument,
 		},
 		{
-			name: "non-existent external ID returns not found",
+			name: "non-existent provider user ID returns not found",
 			setup: func() string {
 				cleanDatabase(t)
 				return "non-existent-ext-id"
@@ -562,12 +562,12 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 	// equivalent to the legacy-row state after the persist-user-language
 	// migration.
 	const (
-		externalID = "ext-null-scan"
-		email      = "null-scan@example.com"
-		name       = "NullScan"
+		providerUserID = "ext-null-scan"
+		email          = "null-scan@example.com"
+		name           = "NullScan"
 	)
 	created, err := repo.Create(ctx, &entity.NewUser{
-		ProviderUserID:    externalID,
+		ProviderUserID:    providerUserID,
 		Email:             email,
 		Name:              name,
 		PreferredLanguage: "",
@@ -596,7 +596,7 @@ func TestUserRepository_ScanNULLColumns(t *testing.T) {
 	})
 
 	t.Run("GetByProviderUserID scans NULL columns without error", func(t *testing.T) {
-		got, err := repo.GetByProviderUserID(ctx, externalID)
+		got, err := repo.GetByProviderUserID(ctx, providerUserID)
 		require.NoError(t, err)
 		assertEmptyNullableFields(t, got)
 	})

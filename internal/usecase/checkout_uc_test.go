@@ -406,7 +406,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		secret, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", name, phone)
 
 		require.NoError(t, err)
-		assert.Equal(t, "secret_1", secret, "the same hold for another attempt")
+		assert.Equal(t, "secret_1", secret, "the same card authorization for another attempt")
 	})
 
 	t.Run("name corrected on retry", func(t *testing.T) {
@@ -427,7 +427,7 @@ func TestCheckoutUseCase_Authorize(t *testing.T) {
 		secret, err := f.uc.AuthorizeCard(context.Background(), "fan-1", "checkout-1", corrected, phone)
 
 		require.NoError(t, err)
-		assert.Equal(t, "secret_1", secret, "the same hold")
+		assert.Equal(t, "secret_1", secret, "the same card authorization")
 	})
 
 	t.Run("domestic-format phone number", func(t *testing.T) {
@@ -492,7 +492,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
 
-		// The next run finds it Expired with its card hold and gives it back.
+		// The next run finds it Expired with its card authorization and gives it back.
 		expired := *lapsed
 		expired.Status = entity.CheckoutStatusExpired
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{&expired}, nil).Once()
@@ -522,7 +522,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		lapsed := fanCheckout(start)
 		lapsed.CardAuthorizationID = "pi_3"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{lapsed}, nil)
-		// Committed meanwhile: Release changes nothing, and no card hold is cancelled.
+		// Committed meanwhile: Release changes nothing, and no card authorization is cancelled.
 		f.checkouts.EXPECT().Release(mock.Anything, entity.CheckoutID("checkout-1"), now).Return(false, nil)
 
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))
@@ -552,7 +552,7 @@ func TestCheckoutUseCase_ReleaseExpired(t *testing.T) {
 		released.Status, released.CardAuthorizationID = entity.CheckoutStatusReleased, "pi_charged"
 		f.checkouts.EXPECT().ListDue(mock.Anything, now).Return([]*entity.Checkout{released}, nil)
 		f.auth.EXPECT().Release(mock.Anything, "pi_charged").
-			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card hold has already been charged"))
+			Return(apperr.New(apperr.ErrFailedPrecondition.Code, "the card authorization has already been charged"))
 
 		// Reported (logged as needing an operator) and not recorded as released.
 		require.NoError(t, f.uc.ReleaseExpired(context.Background()))

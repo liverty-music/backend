@@ -249,25 +249,25 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 		// / connection failures. Both MUST propagate as themselves so the
 		// operator sees the real failure instead of AlreadyExists.
 		cases := []struct {
-			name       string
-			externalID string
-			email      string
-			retryErr   error
-			wantClass  error
+			name           string
+			providerUserID string
+			email          string
+			retryErr       error
+			wantClass      error
 		}{
 			{
-				name:       "Internal (scan failure on NULL column)",
-				externalID: "ext-internal-error",
-				email:      "ie@example.com",
-				retryErr:   apperr.New(codes.Internal, "scan failure"),
-				wantClass:  apperr.ErrInternal,
+				name:           "Internal (scan failure on NULL column)",
+				providerUserID: "ext-internal-error",
+				email:          "ie@example.com",
+				retryErr:       apperr.New(codes.Internal, "scan failure"),
+				wantClass:      apperr.ErrInternal,
 			},
 			{
-				name:       "Unavailable (transient pool failure)",
-				externalID: "ext-unavailable",
-				email:      "ua@example.com",
-				retryErr:   apperr.New(codes.Unavailable, "connection refused"),
-				wantClass:  apperr.ErrUnavailable,
+				name:           "Unavailable (transient pool failure)",
+				providerUserID: "ext-unavailable",
+				email:          "ua@example.com",
+				retryErr:       apperr.New(codes.Unavailable, "connection refused"),
+				wantClass:      apperr.ErrUnavailable,
 			},
 		}
 		for _, tc := range cases {
@@ -276,14 +276,14 @@ func TestUserUseCase_CreateUser(t *testing.T) {
 				d := newUserTestDeps(t)
 
 				params := &entity.NewUser{
-					ProviderUserID: tc.externalID,
+					ProviderUserID: tc.providerUserID,
 					Email:          tc.email,
 					Name:           "retry probe",
 				}
 
 				d.repo.EXPECT().Create(ctx, params).
 					Return(nil, apperr.New(codes.AlreadyExists, "duplicate user")).Once()
-				d.repo.EXPECT().GetByProviderUserID(ctx, tc.externalID).
+				d.repo.EXPECT().GetByProviderUserID(ctx, tc.providerUserID).
 					Return(nil, tc.retryErr).Once()
 
 				result, err := d.uc.Create(ctx, params)
@@ -755,7 +755,7 @@ func TestUserUseCase_ResolveCaller(t *testing.T) {
 	})
 
 	// @spec components/usecase/user/resolve-caller "Caller without an account"
-	t.Run("NotFound — no user exists for externalID", func(t *testing.T) {
+	t.Run("NotFound — no user exists for providerUserID", func(t *testing.T) {
 		t.Parallel()
 		d := newUserTestDeps(t)
 
@@ -869,7 +869,7 @@ func TestUserUseCase_ResendEmailVerification(t *testing.T) {
 		assert.ErrorIs(t, err, apperr.ErrResourceExhausted)
 	})
 
-	// The rate limit is per externalID: a different user is unaffected by
+	// The rate limit is per providerUserID: a different user is unaffected by
 	// another user's exhausted quota.
 	// @spec components/usecase/user/resend-email-verification "Limit is per user"
 	t.Run("rate limit is scoped per user", func(t *testing.T) {

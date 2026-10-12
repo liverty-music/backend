@@ -12,7 +12,7 @@ import (
 	"uuid"
 )
 
-// seedFanUser seeds a user with unique email and external id.
+// seedFanUser seeds a user with unique email and provider user ID.
 func seedFanUser(t *testing.T) string {
 	t.Helper()
 	return seedUser(t, "fan", uuid.NewV7().String()+"@example.test", uuid.NewV7().String())

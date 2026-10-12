@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func authedCtx(externalID string) context.Context {
-	return auth.WithClaims(context.Background(), &auth.Claims{Sub: externalID})
+func authedCtx(providerUserID string) context.Context {
+	return auth.WithClaims(context.Background(), &auth.Claims{Sub: providerUserID})
 }
 
 const (

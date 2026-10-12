@@ -116,7 +116,7 @@ func (t *TicketType) Validate() error {
 	return nil
 }
 
-// ValidateTicketCount reports whether a requested ticket count is at least 1
+// ValidateTicketCount reports whether a ticket count is at least 1
 // and at most the per-account limit.
 func (t *TicketType) ValidateTicketCount(count int) error {
 	if count < 1 || count > t.PerAccountLimit {

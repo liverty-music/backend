@@ -98,7 +98,7 @@ func NewTicketSaleRepository(db *Database) *TicketSaleRepository {
 	return &TicketSaleRepository{db: db}
 }
 
-// Create stores the sale without a drawn time and all of its ticket types in
+// Create stores the sale without a draw time and all of its ticket types in
 // one transaction.
 func (r *TicketSaleRepository) Create(ctx context.Context, sale *entity.TicketSale) (*entity.TicketSale, error) {
 	if sale == nil {
@@ -375,20 +375,20 @@ func scanTicketSale(row pgx.Row) (*entity.TicketSale, error) {
 		id       string
 		method   int16
 		verifReq int16
-		drawnAt  sql.NullTime
+		drawAt   sql.NullTime
 	)
 	if err := row.Scan(
 		&id, &s.SeriesID, &s.Name, &method, &s.SaleStartTime, &s.SaleEndTime,
-		&verifReq, &drawnAt,
+		&verifReq, &drawAt,
 	); err != nil {
 		return nil, err
 	}
 	s.ID = entity.TicketSaleID(id)
 	s.Method = entity.TicketSaleMethod(method)
 	s.VerificationRequirement = entity.VerificationRequirement(verifReq)
-	if drawnAt.Valid {
-		drawn := drawnAt.Time
-		s.DrawTime = &drawn
+	if drawAt.Valid {
+		drawTime := drawAt.Time
+		s.DrawTime = &drawTime
 	}
 	return &s, nil
 }

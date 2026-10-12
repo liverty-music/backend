@@ -36,7 +36,7 @@ func newDraftSeries() *entity.Series {
 	return &entity.Series{Title: "ONE MAN LIVE", Type: entity.SeriesTypeSingle, Visibility: &vis}
 }
 
-func TestConcertAuthoringUseCase_CreateDraft_PickedPlace(t *testing.T) {
+func TestSeriesUseCase_Create_PickedPlace(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -216,10 +216,10 @@ func TestConcertAuthoringUseCase_CreateDraft_PickedPlace(t *testing.T) {
 	}
 }
 
-// TestConcertAuthoringUseCase_UpdateDraft_PickedPlace verifies that UpdateDraft
+// TestSeriesUseCase_Update_PickedPlace verifies that UpdateDraft
 // applies the picked-place rule of CreateDraft ("find or create each event's
 // Venue as CreateDraft does").
-func TestConcertAuthoringUseCase_UpdateDraft_PickedPlace(t *testing.T) {
+func TestSeriesUseCase_Update_PickedPlace(t *testing.T) {
 	t.Parallel()
 
 	const seriesID = "series-1"

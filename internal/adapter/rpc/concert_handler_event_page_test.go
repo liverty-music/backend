@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	eventPageOrganizerID = "019a0000-0000-7000-8000-0000000000f1"
-	eventPageSeriesID    = "019a0000-0000-7000-8000-0000000000a1"
-	eventPageMediaID     = "019a0000-0000-7000-8000-0000000000c1"
+	eventPageOrganizerID   = "019a0000-0000-7000-8000-0000000000f1"
+	eventPageSeriesID      = "019a0000-0000-7000-8000-0000000000a1"
+	eventPageSeriesImageID = "019a0000-0000-7000-8000-0000000000c1"
 )
 
 // firstPartyConcert builds a Concert whose Series is a PUBLISHED PUBLIC
@@ -44,7 +44,7 @@ func firstPartyConcert(id string, date time.Time) *entity.Concert {
 			Title:         "ONE MAN LIVE",
 			Type:          entity.SeriesTypeSingle,
 			Description:   &description,
-			CoverImage:    &entity.SeriesImage{ID: eventPageMediaID, OrganizerID: eventPageOrganizerID},
+			CoverImage:    &entity.SeriesImage{ID: eventPageSeriesImageID, OrganizerID: eventPageOrganizerID},
 			OrganizerID:   &organizerID,
 			Visibility:    &visibility,
 			PublishState:  &state,
@@ -93,12 +93,12 @@ func TestConcertHandler_Get(t *testing.T) {
 		assert.Equal(t, "Two nights at Shibuya WWW.", s.GetDescription().GetValue())
 		assert.Equal(t, entityv1.Visibility_VISIBILITY_PUBLIC, s.GetVisibility())
 		assert.Equal(t, entityv1.PublishState_PUBLISH_STATE_PUBLISHED, s.GetPublishState())
-		assert.Equal(t, eventPageMediaID, s.GetCoverImage().GetId().GetValue())
+		assert.Equal(t, eventPageSeriesImageID, s.GetCoverImage().GetId().GetValue())
 		assert.Contains(t, s.GetCoverImage().GetLarge().GetValue(), "https://cdn.example.com/")
 		assert.NotContains(t, s.String(), "secret-share-token", "the share token is never returned")
 	})
 
-	t.Run("show the seller of a first-party concert", func(t *testing.T) {
+	t.Run("show the Organizer of a first-party concert", func(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/concert "Seller shown for a first-party concert"
 		t.Parallel()
 		h, concertUC, _ := newEventPageHandler(t)
@@ -275,8 +275,8 @@ func TestConcertHandler_ListByArtists_CoverImage(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.Series, 1)
-	media := resp.Msg.Series[0].GetCoverImage()
-	assert.Equal(t, eventPageMediaID, media.GetId().GetValue())
-	assert.Contains(t, media.GetLarge().GetValue(), "https://cdn.example.com/")
+	seriesImage := resp.Msg.Series[0].GetCoverImage()
+	assert.Equal(t, eventPageSeriesImageID, seriesImage.GetId().GetValue())
+	assert.Contains(t, seriesImage.GetLarge().GetValue(), "https://cdn.example.com/")
 	assert.NotContains(t, resp.Msg.Series[0].String(), "secret-share-token", "the share token is never returned")
 }

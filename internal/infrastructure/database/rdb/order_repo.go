@@ -97,13 +97,13 @@ func (r *OrderRepository) MarkConfirmationSent(ctx context.Context, id entity.Or
 
 // GetByProviderPaymentID retrieves the order whose Payment.ProviderPaymentID
 // matches the given pi_ value. Used by the webhook service to resolve a
-// dispute's payment_intent → Order without exposing repo access to the HTTP
+// dispute's provider payment ID → Order without exposing repo access to the HTTP
 // handler layer.
 func (r *OrderRepository) GetByProviderPaymentID(ctx context.Context, providerPaymentID string) (*entity.Order, error) {
 	row := r.db.Pool.QueryRow(ctx, orderGetByProviderPaymentIDQuery, providerPaymentID)
 	order, err := scanOrder(row)
 	if err != nil {
-		return nil, toAppErr(err, "failed to get order by payment intent ref",
+		return nil, toAppErr(err, "failed to get order by provider payment ID",
 			slog.String("provider_payment_id", providerPaymentID))
 	}
 	return order, nil

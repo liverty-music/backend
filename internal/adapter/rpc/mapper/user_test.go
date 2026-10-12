@@ -163,7 +163,7 @@ func TestUserToProto_ProfileFields(t *testing.T) {
 		assert.Nil(t, pb.GetPhoneNumber())
 	})
 
-	t.Run("returning buyer", func(t *testing.T) {
+	t.Run("returning fan", func(t *testing.T) {
 		t.Parallel()
 		// @spec components/adapter/fan/api/rpc/user "Returning fan"
 		pb := mapper.UserToProto(&entity.User{

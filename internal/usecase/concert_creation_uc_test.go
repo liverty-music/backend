@@ -115,7 +115,7 @@ func (r *fakeSeriesRepo) ListByIDs(_ context.Context, _ []string) ([]*entity.Ser
 }
 
 // DeleteOrphaned removes, from among the given candidate ids, series rows that
-// have no member events and no pending staged rows. In the fake it is always a
+// have no member events and no pending concert candidates. In the fake it is always a
 // no-op and merely records the call and the candidate ids.
 func (r *fakeSeriesRepo) DeleteOrphaned(_ context.Context, seriesIDs []string) (int64, error) {
 	r.deleteOrphanedCalls++
@@ -184,7 +184,7 @@ type fakeConcertRepo struct {
 	filledIDs    []string
 	filledStarts []*time.Time
 	// updatedListedNames maps eventID → the listed_venue_name written via
-	// UpdateEventListedVenueName; adopt-staged tests assert on this.
+	// UpdateEventListedVenueName; adopt-candidate tests assert on this.
 	updatedListedNames map[string]string
 	// published holds concerts returned by List; admin tests seed this directly.
 	published []*entity.Concert
@@ -337,7 +337,7 @@ func (r *fakeConcertCandidateRepo) GetByID(_ context.Context, id string) (*entit
 			return sc, nil
 		}
 	}
-	return nil, apperr.New(codes.NotFound, "staged concert not found")
+	return nil, apperr.New(codes.NotFound, "concert candidate not found")
 }
 
 func (r *fakeConcertCandidateRepo) Delete(_ context.Context, id string) error {
@@ -448,7 +448,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	// test can assert on auto-publish, staging, suppression, and CONCERT.created.
 	type creationHarness struct {
 		uc         usecase.ConcertCreationUseCase
-		staged     *fakeConcertCandidateRepo
+		candidate  *fakeConcertCandidateRepo
 		venue      *fakeVenueRepo
 		concert    *fakeConcertRepo
 		series     *fakeSeriesRepo
@@ -459,7 +459,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 	build := func(t *testing.T) *creationHarness {
 		t.Helper()
 		h := &creationHarness{
-			staged:     &fakeConcertCandidateRepo{},
+			candidate:  &fakeConcertCandidateRepo{},
 			venue:      newFakeVenueRepo(),
 			concert:    &fakeConcertRepo{},
 			series:     &fakeSeriesRepo{},
@@ -468,7 +468,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 			pub:        newGoChannelPub(t),
 		}
 		h.uc = usecase.NewConcertCreationUseCase(
-			h.staged, h.venue, h.concert, h.series, h.suppressed,
+			h.candidate, h.venue, h.concert, h.series, h.suppressed,
 			h.place, messaging.NewEventPublisher(h.pub), newTestLogger(t),
 		)
 		return h
@@ -524,7 +524,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		// Published directly: an event was inserted, a venue was created, and the
 		// concert was NOT staged.
 		require.Len(t, h.concert.created, 1)
-		assert.Empty(t, h.staged.upserted, "a genuinely new concert must not be staged")
+		assert.Empty(t, h.candidate.upserted, "a genuinely new concert must not be staged")
 		assert.Len(t, h.venue.created, 1, "venue is created only on the auto-publish path")
 
 		select {
@@ -560,7 +560,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		require.Len(t, h.staged.upserted, 1, "a conflict must be staged for reconciliation")
+		require.Len(t, h.candidate.upserted, 1, "a conflict must be staged for reconciliation")
 		assert.Empty(t, h.concert.created, "a conflict must not be auto-published")
 		assert.Empty(t, h.venue.created, "a conflict resolves to the existing venue; no new venue")
 		expectNoPublish(t, h)
@@ -586,8 +586,8 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		require.Len(t, h.staged.upserted, 1, "an unresolved venue is staged for review")
-		assert.Nil(t, h.staged.upserted[0].ResolvedPlaceID)
+		require.Len(t, h.candidate.upserted, 1, "an unresolved venue is staged for review")
+		assert.Nil(t, h.candidate.upserted[0].ResolvedPlaceID)
 		assert.Empty(t, h.venue.created, "no venues row for an unresolved venue")
 		assert.Empty(t, h.concert.created)
 		expectNoPublish(t, h)
@@ -615,7 +615,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		}
 		require.NoError(t, h.uc.CreateFromDiscovered(context.Background(), data))
 
-		assert.Empty(t, h.staged.upserted, "a suppressed concert must not be staged")
+		assert.Empty(t, h.candidate.upserted, "a suppressed concert must not be staged")
 		assert.Empty(t, h.concert.created, "a suppressed concert must not be auto-published")
 		expectNoPublish(t, h)
 	})
@@ -654,7 +654,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 		// The fill path completes the existing row (via FillEventStartTimes) and does
 		// not stage the concert as a conflict.
 		assert.Contains(t, h.concert.filledIDs, "event-1", "known-start fill must fill the existing row")
-		assert.Empty(t, h.staged.upserted, "a fill is the publish path, not a conflict to stage")
+		assert.Empty(t, h.candidate.upserted, "a fill is the publish path, not a conflict to stage")
 	})
 
 	t.Run("un-suppressing a key re-enables auto-publish on re-discovery", func(t *testing.T) {
@@ -683,7 +683,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		// No longer suppressed → auto-published again.
 		require.Len(t, h.concert.created, 1)
-		assert.Empty(t, h.staged.upserted)
+		assert.Empty(t, h.candidate.upserted)
 	})
 
 	t.Run("skips a concert with empty venue name without poisoning the batch", func(t *testing.T) {
@@ -710,7 +710,7 @@ func TestConcertCreationUseCase_CreateFromDiscovered(t *testing.T) {
 
 		// The empty-venue row is skipped; the valid one is auto-published.
 		assert.Len(t, h.concert.created, 1)
-		assert.Empty(t, h.staged.upserted)
+		assert.Empty(t, h.candidate.upserted)
 	})
 }
 
@@ -741,7 +741,7 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 
 	build := func(t *testing.T) (usecase.ConcertCreationUseCase, *fakeConcertRepo, *fakeSeriesRepo, *fakeConcertCandidateRepo, *gochannel.GoChannel) {
 		t.Helper()
-		staged := &fakeConcertCandidateRepo{}
+		candidate := &fakeConcertCandidateRepo{}
 		venue := newFakeVenueRepo()
 		concert := &fakeConcertRepo{}
 		series := &fakeSeriesRepo{}
@@ -754,15 +754,15 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 		place.places["Venue C"] = &entity.VenuePlace{ProviderUserID: "place-c", Name: "Venue C Canonical"}
 
 		uc := usecase.NewConcertCreationUseCase(
-			staged, venue, concert, series, suppressed,
+			candidate, venue, concert, series, suppressed,
 			place, messaging.NewEventPublisher(pub), newTestLogger(t),
 		)
-		return uc, concert, series, staged, pub
+		return uc, concert, series, candidate, pub
 	}
 
 	t.Run("three-date tour produces exactly one TOUR series and one CONCERT.created", func(t *testing.T) {
 		t.Parallel()
-		uc, concert, series, staged, pub := build(t)
+		uc, concert, series, candidate, pub := build(t)
 
 		ctx := context.Background()
 		ch, err := pub.Subscribe(ctx, "CONCERT.created")
@@ -801,7 +801,7 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 		}
 
 		// Nothing staged (all venues resolved).
-		assert.Empty(t, staged.upserted)
+		assert.Empty(t, candidate.upserted)
 
 		// Exactly one CONCERT.created message published, carrying all three event IDs.
 		select {
@@ -826,7 +826,7 @@ func TestCreateFromDiscovered_MultiDateTour_PersistsSingleTourSeries(t *testing.
 }
 
 // TestCreateFromDiscovered_ApprovePreservesTourSeriesID verifies that approving a
-// staged event that already carries a SeriesID (set at discovery time) inserts the
+// candidate that already carries a SeriesID (set at discovery time) inserts the
 // event under that existing series and does NOT create a new series row. This guards
 // the invariant that the admin approval path never mints a series — only the
 // discovery path does.
@@ -854,7 +854,7 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 		venueName := "Concert Hall Canonical"
 		sourceURL := "https://example.com/tour"
 		sc := &entity.ConcertCandidate{
-			ID:                "staged-tour-event",
+			ID:                "candidate-tour-event",
 			ArtistID:          artist.ID,
 			SeriesID:          tourSeriesID,
 			Title:             "Eras Tour 2026",
@@ -864,7 +864,7 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 			ResolvedPlaceID:   &placeID,
 			ResolvedVenueName: &venueName,
 		}
-		d.stagedRepo.upserted = append(d.stagedRepo.upserted, sc)
+		d.candidateRepo.upserted = append(d.candidateRepo.upserted, sc)
 
 		ctx := context.Background()
 		createdCh, err := d.publisher.Subscribe(ctx, entity.SubjectConcertCreated)
@@ -876,14 +876,14 @@ func TestCreateFromDiscovered_ApprovePreservesTourSeriesID(t *testing.T) {
 		// Event inserted under the pre-existing tour series.
 		require.Len(t, d.concertRepo.created, 1)
 		assert.Equal(t, tourSeriesID, d.concertRepo.created[0].SeriesID,
-			"approved event must be inserted under the staged row's existing series ID")
+			"approved event must be inserted under the concert candidate's existing series ID")
 
 		// NO new series row created — approval never mints a series.
 		assert.Empty(t, d.seriesRepo.created,
 			"Approve must not create a new series; the tour series already exists")
 
-		// Staged row deleted.
-		assert.Empty(t, d.stagedRepo.upserted)
+		// Concert candidate deleted.
+		assert.Empty(t, d.candidateRepo.upserted)
 
 		// CONCERT.created published.
 		select {

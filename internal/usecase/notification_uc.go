@@ -61,9 +61,9 @@ type NotificationUseCase interface {
 	//   - PermissionDenied: the notification belongs to a different user.
 	Dismiss(ctx context.Context, userID, notificationID string) error
 
-	// SendOrderConfirmation tells the buyer of a paid Order that the purchase
+	// SendOrderConfirmation tells the fan of a paid Order that the purchase
 	// went through: the confirmation email (at most once per Order) in the
-	// buyer's language, then an order_confirmation push that opens the Tickets
+	// fan's language, then an order_confirmation push that opens the Tickets
 	// screen. It runs for each ORDER.paid announcement, from a checkout or a
 	// won lottery.
 	//

@@ -11,7 +11,7 @@ const CardBrandAmex CardBrand = "amex"
 // authorize a lottery entry.
 //
 // American Express is rejected: a JP-based Stripe account cannot reliably hold
-// an Amex authorization for the up-to-14-day lottery window, so an Amex hold
+// an Amex authorization for the up-to-14-day lottery window, so an Amex card authorization
 // could lapse before the draw captures it. Every other brand — including an
 // empty/unknown brand the provider could not classify — is accepted; the
 // separate amount and JPY-currency checks still apply.

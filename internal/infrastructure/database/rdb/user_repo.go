@@ -281,14 +281,14 @@ func (r *UserRepository) Get(ctx context.Context, id string) (*entity.User, erro
 }
 
 // GetByProviderUserID retrieves a user by identity provider ID from the database.
-func (r *UserRepository) GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error) {
-	if externalID == "" {
-		return nil, apperr.New(codes.InvalidArgument, "external ID cannot be empty")
+func (r *UserRepository) GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.User, error) {
+	if providerUserID == "" {
+		return nil, apperr.New(codes.InvalidArgument, "provider user ID cannot be empty")
 	}
 
-	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByProviderUserIDQuery, externalID))
+	user, err := scanUser(r.db.Pool.QueryRow(ctx, getUserByProviderUserIDQuery, providerUserID))
 	if err != nil {
-		return nil, toAppErr(err, "failed to get user by provider user ID", slog.String("provider_user_id", externalID))
+		return nil, toAppErr(err, "failed to get user by provider user ID", slog.String("provider_user_id", providerUserID))
 	}
 
 	return user, nil

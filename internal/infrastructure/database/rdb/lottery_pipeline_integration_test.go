@@ -23,12 +23,12 @@ import (
 // shell. It drives:
 //
 //	a Lottery ticket type of 2 tickets → 3 fans each Start, Authorize (real
-//	hold) and Confirm, and a 4th fan leaves an authorized Draft → draw →
+//	card authorization) and Confirm, and a 4th fan leaves an authorized Draft → draw →
 //	exactly 2 winners captured, 1 loser released with its draw position, and
-//	the Draft withdrawn with its hold released.
+//	the Draft withdrawn with its card authorization released.
 //
 // Winners' PaymentIntents must end `succeeded` (captured); the loser's and the
-// Draft's must end `canceled` (hold released). Opt-in: runs only with
+// Draft's must end `canceled` (card authorization released). Opt-in: runs only with
 // STRIPE_INTEGRATION_TEST=1, a test-mode key, and a local DB. make check / CI
 // skip it.
 func TestLotteryPipeline_Integration(t *testing.T) {
@@ -59,10 +59,10 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 
 	// -- a Lottery ticket type of 2 tickets, so 3 single-ticket entries force one loss --
 	const (
-		capacity = 2
+		quantity = 2
 		entrants = 3
 	)
-	tt := seedTicketType(t, entity.TicketSaleMethodLottery, capacity, 1)
+	tt := seedTicketType(t, entity.TicketSaleMethodLottery, quantity, 1)
 
 	// enter starts, authorizes and (when confirm) confirms one fan's entry.
 	enter := func(confirm bool) entity.LotteryEntryID {
@@ -74,7 +74,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 		require.NoError(t, err)
 		authorized, err := entryRepo.Get(ctx, draft.ID)
 		require.NoError(t, err)
-		confirmHold(t, key, authorized.CardAuthorizationID) // → requires_capture
+		confirmCardAuthorization(t, key, authorized.CardAuthorizationID) // → requires_capture
 		if confirm {
 			entered, err := uc.Confirm(ctx, draft.ID, userID)
 			require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 	// -- run the draw --
 	require.NoError(t, uc.RunDraw(ctx, tt.TicketSaleID))
 
-	// -- assert outcomes: exactly `capacity` winners captured, the rest lost/released --
+	// -- assert outcomes: exactly `quantity` winners captured, the rest lost/released --
 	var won, lost int
 	for _, id := range entryIDs {
 		e, err := entryRepo.Get(ctx, id)
@@ -105,32 +105,32 @@ func TestLotteryPipeline_Integration(t *testing.T) {
 			lost++
 			assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, key, e.CardAuthorizationID),
 				"loser PaymentIntent must be released (canceled)")
-			assert.NotNil(t, e.DrawPosition, "loser must carry a waitlist position")
+			assert.NotNil(t, e.DrawPosition, "loser must carry a draw position")
 		default:
 			t.Fatalf("unexpected entry state after draw: %v", e.State)
 		}
 	}
-	assert.Equal(t, capacity, won, "winners must exactly fill capacity (no oversell)")
-	assert.Equal(t, entrants-capacity, lost, "the remaining entrants must lose")
+	assert.Equal(t, quantity, won, "winners must exactly fill quantity (no oversell)")
+	assert.Equal(t, entrants-quantity, lost, "the remaining entrants must lose")
 
 	draft, err := entryRepo.Get(ctx, draftID)
 	require.NoError(t, err)
 	assert.Equal(t, entity.LotteryEntryStateWithdrawn, draft.State, "an unconfirmed draft is withdrawn at the draw")
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, piStatus(t, key, draft.CardAuthorizationID),
-		"the draft's hold must be released")
+		"the draft's card authorization must be released")
 
 	sale, err := saleRepo.Get(ctx, tt.TicketSaleID, now)
 	require.NoError(t, err)
 	assert.True(t, sale.IsDrawn())
 }
 
-// confirmHold drives a freshly-created manual-capture PaymentIntent to
+// confirmCardAuthorization drives a freshly-created manual-capture PaymentIntent to
 // requires_capture using a non-3DS test card, standing in for the fan's
 // in-browser 3DS confirmation.
-func confirmHold(t *testing.T, key, ref string) {
+func confirmCardAuthorization(t *testing.T, key, cardAuthorizationID string) {
 	t.Helper()
 	sc := stripe.NewClient(key)
-	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), ref, &stripe.PaymentIntentConfirmParams{
+	pi, err := sc.V1PaymentIntents.Confirm(context.Background(), cardAuthorizationID, &stripe.PaymentIntentConfirmParams{
 		PaymentMethod: stripe.String("pm_card_visa"),
 	})
 	require.NoError(t, err)
@@ -138,10 +138,10 @@ func confirmHold(t *testing.T, key, ref string) {
 }
 
 // piStatus fetches the current status of a PaymentIntent from the Stripe test API.
-func piStatus(t *testing.T, key, ref string) stripe.PaymentIntentStatus {
+func piStatus(t *testing.T, key, cardAuthorizationID string) stripe.PaymentIntentStatus {
 	t.Helper()
 	sc := stripe.NewClient(key)
-	pi, err := sc.V1PaymentIntents.Retrieve(context.Background(), ref, nil)
+	pi, err := sc.V1PaymentIntents.Retrieve(context.Background(), cardAuthorizationID, nil)
 	require.NoError(t, err)
 	return pi.Status
 }

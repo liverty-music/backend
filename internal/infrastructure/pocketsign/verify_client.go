@@ -1,5 +1,5 @@
 // Package pocketsign provides the Pocket Sign Stamp API integration for the
-// identity eKYC flow.
+// identity verification flow.
 //
 // The package contains two implementations of usecase.IdentityVerifier:
 //
@@ -414,7 +414,7 @@ func (c *StampClient) Recheck(ctx context.Context, pocketSignUserID string) (*us
 	// re-verification. STATE_UNKNOWN (not revoked, but the validity window
 	// could not be confirmed via CRL) and STATE_UNSPECIFIED (unset/zero — a
 	// possible vendor hiccup) are INDETERMINATE, not confirmed-bad: flagging
-	// them would force spurious re-KYC on an otherwise-valid user for a
+	// them would force a spurious re-verification of an otherwise-valid user for a
 	// transient lookup failure. Leave those as not-needing-reverification
 	// and log.
 	state := resp.Msg.GetCertificateState()

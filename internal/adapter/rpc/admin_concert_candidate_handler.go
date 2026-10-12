@@ -60,10 +60,10 @@ func (h *AdminConcertCandidateHandler) List(
 	}), nil
 }
 
-// Approve promotes a pending concert candidate to a published event. When the staged
+// Approve promotes a pending concert candidate to a published event. When the candidate
 // concert duplicates an existing event and no resolution was chosen, the response
 // carries a DuplicateConflict and no state is mutated; the console then re-calls
-// Approve with a resolution. The operation is idempotent on a missing staged row.
+// Approve with a resolution. The operation is idempotent on a missing concert candidate.
 func (h *AdminConcertCandidateHandler) Approve(
 	ctx context.Context,
 	req *connect.Request[concertcandidatev1.ApproveRequest],
@@ -97,8 +97,8 @@ func approveResolutionFromProto(r concertcandidatev1.Resolution) usecase.Approve
 	switch r {
 	case concertcandidatev1.Resolution_RESOLUTION_KEEP_EXISTING:
 		return usecase.ApproveResolutionKeepExisting
-	case concertcandidatev1.Resolution_RESOLUTION_ADOPT_STAGED:
-		return usecase.ApproveResolutionAdoptStaged
+	case concertcandidatev1.Resolution_RESOLUTION_ADOPT_CANDIDATE:
+		return usecase.ApproveResolutionAdoptCandidate
 	default:
 		return usecase.ApproveResolutionUnspecified
 	}

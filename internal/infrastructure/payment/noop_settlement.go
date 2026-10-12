@@ -65,14 +65,14 @@ func (p *NoopPayoutAccounts) Create(ctx context.Context, organizerID string, _ s
 // GetStatus returns Unavailable because no Stripe key is configured.
 func (p *NoopPayoutAccounts) GetStatus(ctx context.Context, providerAccountID string) (entity.PayoutOnboardingStatus, error) {
 	p.logger.Warn(ctx, "account status check skipped: STRIPE_SECRET_KEY is not configured",
-		slog.String("account_ref", providerAccountID))
+		slog.String("provider_account_id", providerAccountID))
 	return entity.PayoutOnboardingStatusUnspecified, apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
 // CreateOnboardingLink returns Unavailable because no Stripe key is configured.
 func (p *NoopPayoutAccounts) CreateOnboardingLink(ctx context.Context, providerAccountID string, returnURL string) (string, error) {
 	p.logger.Warn(ctx, "onboarding link creation skipped: STRIPE_SECRET_KEY is not configured",
-		slog.String("account_ref", providerAccountID))
+		slog.String("provider_account_id", providerAccountID))
 	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
@@ -80,7 +80,7 @@ func (p *NoopPayoutAccounts) CreateOnboardingLink(ctx context.Context, providerA
 func (p *NoopOrderPayments) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	p.logger.Warn(ctx, "refund skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("order_id", string(params.OrderID)),
-		slog.String("charge_ref", params.ProviderChargeID))
+		slog.String("provider_charge_id", params.ProviderChargeID))
 	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
 }
 
@@ -88,6 +88,6 @@ func (p *NoopOrderPayments) CreateRefund(ctx context.Context, params entity.Refu
 func (p *NoopSettlementPayouts) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
 	p.logger.Warn(ctx, "transfer reversal skipped: STRIPE_SECRET_KEY is not configured",
 		slog.String("settlement_id", string(params.SettlementID)),
-		slog.String("transfer_ref", params.ProviderPayoutID))
+		slog.String("provider_payout_id", params.ProviderPayoutID))
 	return "", apperr.New(codes.Unavailable, "payment provider is not configured")
 }

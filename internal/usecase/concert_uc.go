@@ -97,18 +97,18 @@ type ConcertUseCase interface {
 	// here. When several fans follow the same artist concurrently, each
 	// publishes its own ARTIST.followed event and this method may run more
 	// than once for the artist, but SearchNewConcerts's own dedup (against
-	// already-known concerts and pending staged rows) and the DB natural key
+	// already-known concerts and pending concert candidates) and the DB natural key
 	// on events guarantee any discovered concerts are stored only once.
 	//
 	// # Possible errors
 	//
-	//  - Internal: search log lookup or search failure.
+	//  - Internal: concert search lookup or search failure.
 	SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error
 
 	// Get returns the Concert of one Event when its Series has an event page
 	// (see [entity.Series.HasEventPage]). The returned Concert carries its
 	// Series as every Concert read returns it, including its description,
-	// cover media, visibility and publish state. No signed-in caller is needed.
+	// cover image, visibility and publish state. No signed-in caller is needed.
 	//
 	// # Possible errors
 	//
@@ -161,11 +161,11 @@ type concertUseCase struct {
 	logger          *logging.Logger
 }
 
-// pendingTimeout is the maximum age of a pending search log before it is
+// pendingTimeout is the maximum age of a pending concert search before it is
 // considered stale and treated as failed (self-healing for crashed workers).
 const pendingTimeout = 3 * time.Minute
 
-// statusUpdateTimeout is the context timeout for search log status updates.
+// statusUpdateTimeout is the context timeout for concert search status updates.
 // Uses a fresh context.Background() to ensure updates succeed even when the
 // parent context (Gemini API call) has expired.
 const statusUpdateTimeout = 5 * time.Second
@@ -395,10 +395,10 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 		}
 	}
 
-	// Check search log — skip if recently completed or currently pending.
+	// Check concert search — skip if recently completed or currently pending.
 	concertSearch, err := uc.concertSearchRepo.GetByArtistID(ctx, artistID)
 	if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-		return nil, fmt.Errorf("failed to get search log: %w", err)
+		return nil, fmt.Errorf("failed to get concert search: %w", err)
 	}
 	if concertSearch != nil {
 		now := time.Now()
@@ -442,14 +442,14 @@ func (uc *concertUseCase) SearchNewConcerts(ctx context.Context, artistID string
 func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, artistID string) error {
 	_, err := uc.concertSearchRepo.GetByArtistID(ctx, artistID)
 	if err == nil {
-		// Search log exists — artist has been searched before, skip.
+		// Concert search exists — artist has been searched before, skip.
 		return nil
 	}
 	if !errors.Is(err, apperr.ErrNotFound) {
-		return fmt.Errorf("check search log for first-follow search: %w", err)
+		return fmt.Errorf("check concert search for first-follow search: %w", err)
 	}
 
-	// No search log — this is a first follow. Trigger concert discovery.
+	// No concert search — this is a first follow. Trigger concert discovery.
 	uc.logger.Info(ctx, "first follow detected, triggering concert search",
 		slog.String("artist_id", artistID),
 	)
@@ -460,7 +460,7 @@ func (uc *concertUseCase) SearchNewConcertsOnFirstFollow(ctx context.Context, ar
 }
 
 // executeSearch performs the actual Gemini search, deduplication, and event publishing.
-// It returns the newly discovered concerts and updates the search log status on exit.
+// It returns the newly discovered concerts and updates the concert search status on exit.
 //
 // Deduplication uses `(local_event_date, listed_venue_name)` matching via
 // `entity.FilterNewSeries`, aligned with the DB-level natural key
@@ -532,12 +532,12 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 		return nil, fmt.Errorf("failed to list existing concerts: %w", err)
 	}
 
-	// Fetch pending staged rows for this artist so that already-concert candidates
+	// Fetch pending concert candidates for this artist so that already-concert candidates
 	// are not re-staged. The rejection log is intentionally NOT consulted here:
 	// a rejected concert can always re-enter the queue on a subsequent run.
 	pendingKeys, err := uc.concertCandidateRepo.ListPendingDedupKeysByArtist(ctx, artistID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list pending staged concert keys: %w", err)
+		return nil, fmt.Errorf("failed to list pending concert candidate keys: %w", err)
 	}
 
 	// Search new concerts via external API (deadline inherited from HandlerTimeout).
@@ -558,7 +558,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 	)
 	filterSpan.End()
 
-	// Further deduplicate against pending staged rows. The staged dedup key uses
+	// Further deduplicate against pending concert candidates. The candidate dedup key uses
 	// (local_date, normalized listed_venue_name), matching FilterNewSeries'
 	// semantics: the venue name is compared through entity.NormalizeVenueName on
 	// both sides so name drift across runs does not re-stage an already-pending
@@ -657,7 +657,7 @@ func (uc *concertUseCase) executeSearch(ctx context.Context, artistID string) (r
 	return concerts, nil
 }
 
-// markSearchCompleted updates the search log status to completed.
+// markSearchCompleted updates the concert search status to completed.
 // It uses context.WithoutCancel to detach from the parent's deadline while
 // preserving trace context for span correlation.
 func (uc *concertUseCase) markSearchCompleted(ctx context.Context, artistID string) {
@@ -682,7 +682,7 @@ func (uc *concertUseCase) markSearchFound(ctx context.Context, artistID string) 
 	}
 }
 
-// markSearchFailed updates the search log status to failed.
+// markSearchFailed updates the concert search status to failed.
 // It uses context.WithoutCancel to detach from the parent's deadline while
 // preserving trace context for span correlation.
 func (uc *concertUseCase) markSearchFailed(ctx context.Context, artistID string) {

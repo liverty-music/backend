@@ -33,13 +33,13 @@ type DrawWinner struct {
 
 // DrawLoser is the outcome for an entry that was not allocated tickets.
 // The losers are returned in ascending DrawPosition order (the draw's random
-// shuffle order), which IS the persisted waitlist order for ⑦ official-resale.
+// shuffle order), which IS the persisted loser order for ⑦ official-resale.
 type DrawLoser struct {
 	// Entry is the original entry that lost.
 	Entry DrawEntry
 
 	// DrawPosition is the entry's zero-based position in the uniformly-
-	// random shuffle. Losers are sorted by ascending DrawPosition so the waitlist
+	// random shuffle. Losers are sorted by ascending DrawPosition so their order
 	// is deterministically ordered by draw outcome.
 	//
 	// Corresponds to LotteryEntry.draw_position in the proto schema.
@@ -48,21 +48,21 @@ type DrawLoser struct {
 
 // DrawResult holds the complete outcome of one lottery draw run. Every input
 // entry appears exactly once: either as a Winner or as a Loser (in
-// Waitlist). No entry is omitted.
+// Losers). No entry is omitted.
 type DrawResult struct {
 	// Winners are the entries admitted by the greedy-fit pass, in no
 	// guaranteed order (admission order is an implementation detail; callers
 	// should not rely on it).
 	Winners []DrawWinner
 
-	// Waitlist are the entries not admitted, sorted in ascending DrawPosition
-	// order. This slice IS the persisted waitlist: the loser draw order consumed
+	// Losers are the entries not admitted, sorted in ascending DrawPosition
+	// order. This slice IS the persisted loser order: the loser draw order consumed
 	// by ⑦ official-resale and any future 二次抽選.
-	Waitlist []DrawLoser
+	Losers []DrawLoser
 }
 
 // RunLotteryDraw executes the lottery draw algorithm against the given
-// entries and ticket capacity.
+// entries and ticket quantity.
 //
 // Algorithm — uniform-random order + greedy fit, whole-entry
 // all-or-nothing:
@@ -73,29 +73,29 @@ type DrawResult struct {
 //     cryptographically random value.
 //
 //  2. The shuffled list is walked once. An entry is admitted as a winner
-//     if its TicketCount fits within the remaining capacity
+//     if its TicketCount fits within the remaining quantity
 //     (remaining >= count). Admission is whole-entry and all-or-nothing:
 //     the full TicketCount is deducted, never a fraction. The walk
 //     continues past any entry that does not fit so that a later,
-//     smaller entry can still fill remaining capacity (greedy fit,
+//     smaller entry can still fill remaining quantity (greedy fit,
 //     better utilisation).
 //
-//  3. The total tickets allocated to winners never exceeds ticketCapacity.
+//  3. The total tickets allocated to winners never exceeds quantity.
 //
-//  4. Entries not admitted become losers. The Waitlist in the returned
+//  4. Entries not admitted become losers. The Losers in the returned
 //     DrawResult is sorted in ascending DrawPosition order (the shuffle order),
-//     which is the persisted waitlist order for ⑦ official-resale.
+//     which is the persisted loser order for ⑦ official-resale.
 //
 // RunLotteryDraw returns an empty DrawResult (no winners, no losers) when
-// entries is empty. It returns no error; validation (positive capacity,
+// entries is empty. It returns no error; validation (positive quantity,
 // positive TicketCount) is the caller's responsibility. As a defensive
 // measure, an entry with a non-positive TicketCount is never
-// admitted (it becomes a waitlisted loser), so malformed input can never inflate
-// a winner slot or break the no-oversell invariant. A non-positive capacity
+// admitted (it becomes a loser), so malformed input can never inflate
+// a winner slot or break the no-oversell invariant. A non-positive quantity
 // simply admits no one.
 //
 // The rng parameter must not be nil.
-func RunLotteryDraw(entries []DrawEntry, ticketCapacity int, rng *rand.Rand) DrawResult {
+func RunLotteryDraw(entries []DrawEntry, quantity int, rng *rand.Rand) DrawResult {
 	if len(entries) == 0 {
 		return DrawResult{}
 	}
@@ -110,18 +110,18 @@ func RunLotteryDraw(entries []DrawEntry, ticketCapacity int, rng *rand.Rand) Dra
 		indices[i], indices[j] = indices[j], indices[i]
 	})
 
-	remaining := ticketCapacity
+	remaining := quantity
 	winners := make([]DrawWinner, 0, len(entries))
-	waitlist := make([]DrawLoser, 0, len(entries))
+	losers := make([]DrawLoser, 0, len(entries))
 
 	for pos, origIdx := range indices {
 		entry := entries[origIdx]
-		// Admit only a positive request that fits the remaining capacity. The
+		// Admit only a positive request that fits the remaining quantity. The
 		// TicketCount > 0 guard is defensive: although the caller is
 		// responsible for validating positive counts, a stray zero would waste a
 		// winner slot on a 0-ticket allocation, and a negative count would ADD to
 		// remaining and break the no-oversell invariant. Non-positive requests are
-		// therefore never admitted — they fall through to the waitlist (safe side),
+		// therefore never admitted — they fall through to the losers (safe side),
 		// never affecting remaining.
 		if entry.TicketCount > 0 && entry.TicketCount <= remaining {
 			remaining -= entry.TicketCount
@@ -131,19 +131,19 @@ func RunLotteryDraw(entries []DrawEntry, ticketCapacity int, rng *rand.Rand) Dra
 			})
 		} else {
 			// Does not fit (or is a non-positive request): becomes a loser in the
-			// waitlist, ordered by draw position.
-			waitlist = append(waitlist, DrawLoser{
+			// losers, ordered by draw position.
+			losers = append(losers, DrawLoser{
 				Entry:        entry,
 				DrawPosition: pos,
 			})
 		}
 	}
 
-	// The waitlist is already in ascending DrawPosition order because we walk the
+	// The losers is already in ascending DrawPosition order because we walk the
 	// shuffled slice linearly and append losers in encounter order. No sort needed.
 
 	return DrawResult{
-		Winners:  winners,
-		Waitlist: waitlist,
+		Winners: winners,
+		Losers:  losers,
 	}
 }

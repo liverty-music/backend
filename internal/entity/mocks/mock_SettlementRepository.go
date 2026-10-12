@@ -295,8 +295,8 @@ func (_c *MockSettlementRepository_ReversePayout_Call) Run(run func(ctx context.
 	return _c
 }
 
-func (_c *MockSettlementRepository_ReversePayout_Call) Return(reversalRef string, err error) *MockSettlementRepository_ReversePayout_Call {
-	_c.Call.Return(reversalRef, err)
+func (_c *MockSettlementRepository_ReversePayout_Call) Return(providerPayoutReversalID string, err error) *MockSettlementRepository_ReversePayout_Call {
+	_c.Call.Return(providerPayoutReversalID, err)
 	return _c
 }
 

@@ -137,7 +137,7 @@ func (r *ConcertCandidateRepository) Upsert(ctx context.Context, sc *entity.Conc
 		sc.ResolvedLongitude,
 	)
 	if err != nil {
-		return toAppErr(err, "failed to upsert staged concert",
+		return toAppErr(err, "failed to upsert concert candidate",
 			slog.String("concert_candidate_id", sc.ID),
 			slog.String("artist_id", sc.ArtistID),
 		)
@@ -149,7 +149,7 @@ func (r *ConcertCandidateRepository) Upsert(ctx context.Context, sc *entity.Conc
 func (r *ConcertCandidateRepository) ListPending(ctx context.Context) ([]*entity.ConcertCandidate, error) {
 	rows, err := r.db.Pool.Query(ctx, listPendingConcertCandidatesQuery)
 	if err != nil {
-		return nil, toAppErr(err, "failed to list pending staged concerts")
+		return nil, toAppErr(err, "failed to list pending concert candidates")
 	}
 	defer rows.Close()
 
@@ -162,7 +162,7 @@ func (r *ConcertCandidateRepository) ListPending(ctx context.Context) ([]*entity
 		result = append(result, sc)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "staged concert row iteration ended with error")
+		return nil, toAppErr(err, "concert candidate row iteration ended with error")
 	}
 	return result, nil
 }
@@ -172,7 +172,7 @@ func (r *ConcertCandidateRepository) GetByID(ctx context.Context, id string) (*e
 	row := r.db.Pool.QueryRow(ctx, getConcertCandidateByIDQuery, id)
 	sc, err := scanConcertCandidateRow(row.Scan)
 	if err != nil {
-		return nil, toAppErr(err, "failed to get staged concert by ID",
+		return nil, toAppErr(err, "failed to get concert candidate by ID",
 			slog.String("concert_candidate_id", id),
 		)
 	}
@@ -183,7 +183,7 @@ func (r *ConcertCandidateRepository) GetByID(ctx context.Context, id string) (*e
 func (r *ConcertCandidateRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.Pool.Exec(ctx, deleteConcertCandidateQuery, id)
 	if err != nil {
-		return toAppErr(err, "failed to delete staged concert",
+		return toAppErr(err, "failed to delete concert candidate",
 			slog.String("concert_candidate_id", id),
 		)
 	}
@@ -208,7 +208,7 @@ func (r *ConcertCandidateRepository) ListPendingDedupKeysByArtist(ctx context.Co
 			listedVenueName string
 		)
 		if err := rows.Scan(&localDate, &listedVenueName); err != nil {
-			return nil, toAppErr(err, "failed to scan staged concert dedup key")
+			return nil, toAppErr(err, "failed to scan concert candidate dedup key")
 		}
 		keys = append(keys, entity.ConcertCandidateDedupKey{
 			LocalDate:       localDate,
@@ -216,7 +216,7 @@ func (r *ConcertCandidateRepository) ListPendingDedupKeysByArtist(ctx context.Co
 		})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, toAppErr(err, "staged concert dedup key iteration ended with error")
+		return nil, toAppErr(err, "concert candidate dedup key iteration ended with error")
 	}
 	return keys, nil
 }

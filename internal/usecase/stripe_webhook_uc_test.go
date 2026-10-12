@@ -63,8 +63,8 @@ type stubFulfiller struct {
 	err  error
 }
 
-func (s *stubFulfiller) FulfillPayment(_ context.Context, paymentRef string) error {
-	s.refs = append(s.refs, paymentRef)
+func (s *stubFulfiller) FulfillPayment(_ context.Context, cardAuthorizationID string) error {
+	s.refs = append(s.refs, cardAuthorizationID)
 	return s.err
 }
 
@@ -96,13 +96,13 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 
 	// The order repo resolves pi_ → Order for the dispute path.
 	const (
-		piRef   = "pi_dup"
-		orderID = entity.OrderID("order-dup")
+		providerPaymentID = "pi_dup"
+		orderID           = entity.OrderID("order-dup")
 	)
 	orderRepo := &stubOrderRepo{
 		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
 			return &entity.Order{ID: orderID, Status: entity.OrderStatusPaid,
-				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: piRef}}, nil
+				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: providerPaymentID}}, nil
 		},
 	}
 
@@ -119,7 +119,7 @@ func TestStripeWebhook_DuplicateEvent_AppliedOnce(t *testing.T) {
 		ProviderEventID:   "evt_dup_001",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_dup",
-		ProviderPaymentID: piRef, // real production path: pi_ used to resolve Order
+		ProviderPaymentID: providerPaymentID, // real production path: pi_ used to resolve Order
 		ReceivedAt:        time.Now(),
 	}
 
@@ -149,21 +149,21 @@ func TestStripeWebhook_DisputeCreated_ResolvesViaProviderPaymentID(t *testing.T)
 	ctx := context.Background()
 
 	const (
-		piRef   = "pi_dispute_wh"
-		chRef   = "ch_dispute_wh"
-		orderID = entity.OrderID("order-dispute-wh")
+		providerPaymentID = "pi_dispute_wh"
+		providerChargeID  = "ch_dispute_wh"
+		orderID           = entity.OrderID("order-dispute-wh")
 	)
 
 	// The order repo is the real resolution path: pi_ → Order.
 	orderRepo := &stubOrderRepo{
 		getByProviderPaymentIDFn: func(_ context.Context, ref string) (*entity.Order, error) {
-			assert.Equal(t, piRef, ref)
+			assert.Equal(t, providerPaymentID, ref)
 			return &entity.Order{
 				ID:     orderID,
 				Status: entity.OrderStatusPaid,
 				Payment: entity.Payment{
 					Provider:          entity.PaymentProviderStripe,
-					ProviderPaymentID: piRef,
+					ProviderPaymentID: providerPaymentID,
 				},
 			}, nil
 		},
@@ -186,8 +186,8 @@ func TestStripeWebhook_DisputeCreated_ResolvesViaProviderPaymentID(t *testing.T)
 	require.NoError(t, svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID:   "evt_dispute_001",
 		Type:              usecase.StripeEventChargeDisputeCreated,
-		ProviderChargeID:  chRef,
-		ProviderPaymentID: piRef,
+		ProviderChargeID:  providerChargeID,
+		ProviderPaymentID: providerPaymentID,
 		ReceivedAt:        time.Now(),
 	}))
 
@@ -305,7 +305,7 @@ func TestStripeWebhook_DisputeCreated_AlreadyRefunded_Acknowledged(t *testing.T)
 // charge.refunded — informational; no RefundOrder call
 // ─────────────────────────────────────────────────────────────────────────────
 
-func TestStripeWebhook_ProviderChargeIDunded_Informational(t *testing.T) {
+func TestStripeWebhook_ChargeRefunded_Informational(t *testing.T) {
 	t.Parallel()
 	// @spec components/adapter/fan/api/webhook/payment-events "Refund confirmation"
 
@@ -323,7 +323,7 @@ func TestStripeWebhook_ProviderChargeIDunded_Informational(t *testing.T) {
 
 	err := svc.HandleEvent(ctx, usecase.StripeWebhookEvent{
 		ProviderEventID:  "evt_charge_refunded_001",
-		Type:             usecase.StripeEventProviderChargeIDunded,
+		Type:             usecase.StripeEventChargeRefunded,
 		ProviderChargeID: "ch_refunded",
 		ReceivedAt:       time.Now(),
 	})
@@ -386,14 +386,14 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 	ctx := context.Background()
 
 	const (
-		piRef   = "pi_mark_fail"
-		orderID = entity.OrderID("order-mark-fail")
+		providerPaymentID = "pi_mark_fail"
+		orderID           = entity.OrderID("order-mark-fail")
 	)
 
 	orderRepo := &stubOrderRepo{
 		getByProviderPaymentIDFn: func(_ context.Context, _ string) (*entity.Order, error) {
 			return &entity.Order{ID: orderID, Status: entity.OrderStatusPaid,
-				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: piRef}}, nil
+				Payment: entity.Payment{Provider: entity.PaymentProviderStripe, ProviderPaymentID: providerPaymentID}}, nil
 		},
 	}
 
@@ -411,7 +411,7 @@ func TestStripeWebhook_MarkProcessedFailure_Propagated(t *testing.T) {
 		ProviderEventID:   "evt_mark_fail",
 		Type:              usecase.StripeEventChargeDisputeCreated,
 		ProviderChargeID:  "ch_mark_fail",
-		ProviderPaymentID: piRef,
+		ProviderPaymentID: providerPaymentID,
 		ReceivedAt:        time.Now(),
 	})
 	// Fix #4: error must propagate so handler returns 500 → Stripe retries.

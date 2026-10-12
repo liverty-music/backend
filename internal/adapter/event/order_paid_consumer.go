@@ -41,7 +41,7 @@ func (h *OrderPaidConsumer) parse(msg *message.Message) (entity.OrderPaidData, e
 	return data, nil
 }
 
-// HandleSendOrderConfirmation sends the buyer's confirmation email and push.
+// HandleSendOrderConfirmation sends the fan's confirmation email and push.
 func (h *OrderPaidConsumer) HandleSendOrderConfirmation(msg *message.Message) error {
 	data, err := h.parse(msg)
 	if err != nil {
@@ -55,7 +55,7 @@ func (h *OrderPaidConsumer) HandleSendOrderConfirmation(msg *message.Message) er
 	return nil
 }
 
-// HandleMarkPaid sets the buyer's ticket journey for the event to Paid.
+// HandleMarkPaid sets the fan's ticket journey for the event to Paid.
 func (h *OrderPaidConsumer) HandleMarkPaid(msg *message.Message) error {
 	data, err := h.parse(msg)
 	if err != nil {

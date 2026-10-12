@@ -53,7 +53,7 @@ func (h *OrganizerSeriesImageHandler) CreateUploadUrl(
 		return nil, err
 	}
 
-	out, err := h.seriesImageUC.CreateUploadURL(ctx, organizer.ID, usecase.CreateMediaUploadURLInput{
+	out, err := h.seriesImageUC.CreateUploadURL(ctx, organizer.ID, usecase.CreateSeriesImageUploadURLInput{
 		ContentType: req.Msg.GetContentType(),
 	})
 	if err != nil {
@@ -62,7 +62,7 @@ func (h *OrganizerSeriesImageHandler) CreateUploadUrl(
 
 	return connect.NewResponse(&seriesimagev1.CreateUploadUrlResponse{
 		UploadUrl:     &entityv1.Url{Value: out.UploadURL},
-		SeriesImageId: &entityv1.SeriesImageId{Value: out.MediaID},
+		SeriesImageId: &entityv1.SeriesImageId{Value: out.SeriesImageID},
 		MaxBytes:      out.MaxBytes,
 	}), nil
 }

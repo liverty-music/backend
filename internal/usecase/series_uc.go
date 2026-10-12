@@ -108,13 +108,13 @@ type SeriesUseCase interface {
 	List(ctx context.Context, callerOrgID string) ([]*entity.Series, []*[]*entity.Event, []*[]*entity.Artist, error)
 
 	// SetCoverImage verifies that the caller owns the target series, inserts the
-	// media row idempotently, and publishes MEDIA.uploaded{media_id, series_id}.
+	// series image row idempotently, and publishes MEDIA.uploaded{series_image_id, series_id}.
 	// It does NOT re-point series_cover_images — the media-processor consumer does
 	// that after generating variants. Idempotent on re-delivery.
 	//
 	// # Possible errors
 	//
-	//  - InvalidArgument: if series_id or media_id is empty.
+	//  - InvalidArgument: if series_id or series_image_id is empty.
 	//  - PermissionDenied: if the series is not owned by the caller (non-revealing).
 	//  - Internal: if the DB insert or event publish fails.
 	SetCoverImage(ctx context.Context, callerOrgID, seriesID, seriesImageID string) error
@@ -590,7 +590,7 @@ func validateDraftEventInputs(inputs []*DraftEventInput) error {
 // re-validates the whole required set to guarantee no PUBLISHED concert is ever
 // surfaced with a missing required field. The required set is: a non-empty
 // title, at least one performing artist, and at least one event that each has a
-// non-empty venue and a non-zero local date. `description` and `media` are
+// non-empty venue and a non-zero local date. `description` and the cover image are
 // optional and never block publish. Failures are FailedPrecondition (the draft
 // is in a not-yet-publishable state), leaving the series DRAFT.
 func validatePublishReadiness(series *entity.Series, events []*entity.Event, artists []*entity.Artist) error {
@@ -628,17 +628,17 @@ func eventVenueName(ev *entity.Event) string {
 	return ""
 }
 
-// SetCoverImage verifies ownership, inserts the media row idempotently, and
+// SetCoverImage verifies ownership, inserts the series image row idempotently, and
 // publishes MEDIA.uploaded so the processor can generate variants and cut over
 // series_cover_images. The series_cover_images re-point is intentionally deferred to the
 // consumer so the existing cover continues to serve until variants are ready
 // (no 404 window).
-func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesID, mediaID string) error {
+func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesID, seriesImageID string) error {
 	if seriesID == "" {
 		return apperr.New(codes.InvalidArgument, "series_id must not be empty")
 	}
-	if mediaID == "" {
-		return apperr.New(codes.InvalidArgument, "media_id must not be empty")
+	if seriesImageID == "" {
+		return apperr.New(codes.InvalidArgument, "series_image_id must not be empty")
 	}
 
 	// Verify caller owns the series. Non-revealing: NOT_FOUND → PermissionDenied.
@@ -653,40 +653,40 @@ func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesI
 		return apperr.New(codes.PermissionDenied, "permission denied")
 	}
 
-	// Insert the media row idempotently. The organizer_id comes from the
-	// verified caller so we never store a media row for a different tenant.
-	media := &entity.SeriesImage{
-		ID:          mediaID,
+	// Insert the series image row idempotently. The organizer_id comes from the
+	// verified caller so we never store a series image row for a different tenant.
+	seriesImage := &entity.SeriesImage{
+		ID:          seriesImageID,
 		OrganizerID: callerOrgID,
 		// content_type is not known here (the client declared it to the
 		// signed-URL endpoint, not to SetCoverImage). Store an empty attributes
 		// map; the processor will not need it and we avoid a round-trip.
 		Attributes: map[string]string{},
 	}
-	if err := uc.seriesImageRepo.Create(ctx, media); err != nil {
-		return fmt.Errorf("insert media row: %w", err)
+	if err := uc.seriesImageRepo.Create(ctx, seriesImage); err != nil {
+		return fmt.Errorf("insert series image row: %w", err)
 	}
 
 	// Publish MEDIA.uploaded so the processor can pick it up. Non-fatal on
 	// publish failure after a successful DB insert: the row persists and the
 	// event can be re-published via a retry or manual trigger.
 	if err := uc.publisher.PublishEvent(ctx, entity.SubjectMediaUploaded, entity.MediaUploadedData{
-		MediaID:  mediaID,
-		SeriesID: seriesID,
+		SeriesImageID: seriesImageID,
+		SeriesID:      seriesID,
 	}); err != nil {
 		uc.logger.Warn(ctx, "failed to publish MEDIA.uploaded event",
-			slog.String("media_id", mediaID),
+			slog.String("series_image_id", seriesImageID),
 			slog.String("series_id", seriesID),
 			slog.Any("error", err),
 		)
-		// Non-fatal: the media row is persisted; the processor picks it up on
+		// Non-fatal: the series image row is persisted; the processor picks it up on
 		// re-delivery. We do NOT return an error so the caller does not retry
 		// the entire RPC (which would insert a duplicate-idempotent row again
 		// and then try to publish again — a harmless but noisy loop).
 	}
 
-	uc.logger.Info(ctx, "media attached to series",
-		slog.String("media_id", mediaID),
+	uc.logger.Info(ctx, "series image attached to series",
+		slog.String("series_image_id", seriesImageID),
 		slog.String("series_id", seriesID),
 		slog.String("organizer_id", callerOrgID),
 	)

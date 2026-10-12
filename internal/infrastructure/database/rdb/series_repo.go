@@ -36,8 +36,8 @@ const (
 		RETURNING id
 	`
 
-	// getSeriesQuery reads all series columns plus the cover media fields joined
-	// from the media + series_cover_images tables. The cover media columns are nullable
+	// getSeriesQuery reads all series columns plus the cover image fields joined
+	// from the series_images + series_cover_images tables. The cover image columns are nullable
 	// (LEFT JOIN) so scanSeries uses sql.Null* for them.
 	getSeriesQuery = `
 		SELECT s.id, s.title, s.type, s.source_url,
@@ -195,57 +195,57 @@ const (
 		DELETE FROM concert_candidates WHERE series_id = $1
 	`
 
-	// selectCoverMediaIDQuery reads the current cover media id for a series via
+	// selectCoverImageIDQuery reads the current cover image id for a series via
 	// the series_cover_images join. Returns pgx.ErrNoRows when no cover exists.
 	selectCoverImageIDQuery = `
 		SELECT sm.series_image_id FROM series_cover_images sm WHERE sm.series_id = $1
 	`
 
-	// deleteCoverMediaBySeriesQuery removes the series_cover_images join row(s) and
-	// then the orphaned media row. Two statements are used in the transaction
-	// so the FK constraint on series_cover_images.media_id is satisfied before the
-	// media row is deleted.
+	// deleteCoverImageBySeriesQuery removes the series_cover_images join row(s) and
+	// then the orphaned series image row. Two statements are used in the transaction
+	// so the FK constraint on series_cover_images.series_image_id is satisfied before the
+	// series image row is deleted.
 	deleteCoverImageRowQuery = `
 		DELETE FROM series_images WHERE id = $1
 	`
 
-	deleteSeriesMediaBySeriesQuery = `
+	deleteSeriesCoverImageBySeriesQuery = `
 		DELETE FROM series_cover_images WHERE series_id = $1
 	`
 
-	insertMediaQuery = `
+	insertSeriesImageQuery = `
 		INSERT INTO series_images (id, organizer_id, attributes)
 		VALUES ($1, $2, $3)
 	`
 
-	insertSeriesMediaQuery = `
+	insertSeriesCoverImageQuery = `
 		INSERT INTO series_cover_images (series_id, series_image_id)
 		VALUES ($1, $2)
 	`
 
-	// insertMediaIdempotentQuery inserts a media row, silently skipping
-	// conflicts on the primary key. Used by InsertMedia so SetCoverImage is
+	// insertSeriesImageIdempotentQuery inserts a series image row, silently skipping
+	// conflicts on the primary key. Used by Create so SetCoverImage is
 	// safe to call multiple times for the same upload.
-	insertMediaIdempotentQuery = `
+	insertSeriesImageIdempotentQuery = `
 		INSERT INTO series_images (id, organizer_id, attributes)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (id) DO NOTHING
 	`
 
-	// findMediaByIDQuery retrieves a single media row by its primary key.
-	findMediaByIDQuery = `
+	// getSeriesImageQuery retrieves a single series image row by its primary key.
+	getSeriesImageQuery = `
 		SELECT id, organizer_id, attributes
 		FROM series_images
 		WHERE id = $1
 	`
 
-	// deleteMediaByIDQuery removes a media row by id. Missing rows are silently
+	// deleteSeriesImageQuery removes a series image row by id. Missing rows are silently
 	// skipped via the WHERE guard so DELETE is idempotent.
-	deleteMediaByIDQuery = `DELETE FROM series_images WHERE id = $1`
+	deleteSeriesImageQuery = `DELETE FROM series_images WHERE id = $1`
 
-	// listMediaByOrganizerQuery retrieves every media row an organizer owns,
+	// listSeriesImagesByOrganizerQuery retrieves every series image row an organizer owns,
 	// including rows no series uses as its cover.
-	listMediaByOrganizerQuery = `
+	listSeriesImagesByOrganizerQuery = `
 		SELECT id, organizer_id, attributes
 		FROM series_images
 		WHERE organizer_id = $1
@@ -254,12 +254,12 @@ const (
 )
 
 // scanSeries scans a single series row (including the nullable first-party
-// authoring columns and LEFT-JOINed cover media columns) into an entity.Series.
+// authoring columns and LEFT-JOINed cover image columns) into an entity.Series.
 // The column order MUST match getSeriesQuery, listSeriesByIDsQuery,
 // listSeriesByOrganizerQuery, and getSeriesByUnlistedTokenQuery.
-// scanSeries scans one series row plus its (optional) single cover-media row
-// from the LEFT JOIN series_cover_images/media used by the queries above. It assumes
-// AT MOST ONE media row per series, which the uq_series_media_series unique
+// scanSeries scans one series row plus its (optional) single cover-image row
+// from the LEFT JOIN series_cover_images/series_images used by the queries above. It assumes
+// AT MOST ONE series image row per series, which the uq_series_cover_images_series unique
 // index guarantees today. WARNING: if that unique index is ever relaxed for
 // galleries, these joins fan out to N rows per series and callers that scan
 // row-per-series (e.g. ListByIDs) will return duplicate entity.Series values —
@@ -276,17 +276,17 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 		unlistedTok  sql.NullString
 		publishedAt  sql.NullTime
 		cancelledAt  sql.NullTime
-		// Cover media columns (NULL when no cover exists).
-		mediaID          sql.NullString
-		mediaOrganizerID sql.NullString
-		mediaAttrs       []byte // JSONB scanned as raw bytes; nil when no cover.
+		// Cover image columns (NULL when no cover exists).
+		seriesImageID    sql.NullString
+		imageOrganizerID sql.NullString
+		imageAttrs       []byte // JSONB scanned as raw bytes; nil when no cover.
 	)
 	if err := scan(
 		&s.ID, &s.Title, &seriesT, &sourceURL,
 		&description, &organizerID,
 		&visibility, &publishState, &unlistedTok,
 		&publishedAt, &cancelledAt,
-		&mediaID, &mediaOrganizerID, &mediaAttrs,
+		&seriesImageID, &imageOrganizerID, &imageAttrs,
 	); err != nil {
 		return nil, err
 	}
@@ -325,14 +325,14 @@ func scanSeries(scan func(dest ...any) error) (*entity.Series, error) {
 		s.CancelledAt = &v
 	}
 	// Populate CoverImage when the LEFT JOIN produced a row.
-	if mediaID.Valid {
+	if seriesImageID.Valid {
 		m := &entity.SeriesImage{
-			ID:          mediaID.String,
-			OrganizerID: mediaOrganizerID.String,
+			ID:          seriesImageID.String,
+			OrganizerID: imageOrganizerID.String,
 		}
-		if len(mediaAttrs) > 0 {
-			if err := json.Unmarshal(mediaAttrs, &m.Attributes); err != nil {
-				return nil, apperr.New(codes.Internal, fmt.Sprintf("unmarshal media attributes for series %s: %v", s.ID, err))
+		if len(imageAttrs) > 0 {
+			if err := json.Unmarshal(imageAttrs, &m.Attributes); err != nil {
+				return nil, apperr.New(codes.Internal, fmt.Sprintf("unmarshal image attributes for series %s: %v", s.ID, err))
 			}
 		}
 		s.CoverImage = m
@@ -815,64 +815,64 @@ func (r *SeriesRepository) MarkPublished(ctx context.Context, seriesID string, p
 }
 
 // ReplaceCoverImage atomically swaps a series' cover in a single transaction:
-// it reads any prior cover media id, deletes the prior series_cover_images join row
-// and its media row, inserts the new media row, and inserts the new
-// series_cover_images join row. Returns the prior media id ("" when none) so the
+// it reads any prior cover image id, deletes the prior series_cover_images join row
+// and its series image row, inserts the new series image row, and inserts the new
+// series_cover_images join row. Returns the prior series image id ("" when none) so the
 // caller can reclaim the replaced object from storage.
-func (r *SeriesRepository) ReplaceCoverImage(ctx context.Context, seriesID string, newMedia *entity.SeriesImage) (string, error) {
+func (r *SeriesRepository) ReplaceCoverImage(ctx context.Context, seriesID string, newSeriesImage *entity.SeriesImage) (string, error) {
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
-		return "", toAppErr(err, "failed to begin cover media transaction")
+		return "", toAppErr(err, "failed to begin cover image transaction")
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Read and hold the prior cover media id (may be absent).
-	var oldMediaID string
-	err = tx.QueryRow(ctx, selectCoverImageIDQuery, seriesID).Scan(&oldMediaID)
+	// Read and hold the prior cover image id (may be absent).
+	var oldSeriesImageID string
+	err = tx.QueryRow(ctx, selectCoverImageIDQuery, seriesID).Scan(&oldSeriesImageID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return "", toAppErr(err, "failed to read existing cover media", slog.String("series_id", seriesID))
+		return "", toAppErr(err, "failed to read existing cover image", slog.String("series_id", seriesID))
 	}
 
 	// Delete the prior series_cover_images join row first (FK constraint satisfied
-	// before we delete the media row).
-	if _, err := tx.Exec(ctx, deleteSeriesMediaBySeriesQuery, seriesID); err != nil {
-		return "", toAppErr(err, "failed to delete prior series_media row", slog.String("series_id", seriesID))
+	// before we delete the series image row).
+	if _, err := tx.Exec(ctx, deleteSeriesCoverImageBySeriesQuery, seriesID); err != nil {
+		return "", toAppErr(err, "failed to delete prior series_cover_images row", slog.String("series_id", seriesID))
 	}
-	// Delete the prior media row if one existed.
-	if oldMediaID != "" {
-		if _, err := tx.Exec(ctx, deleteCoverImageRowQuery, oldMediaID); err != nil {
-			return "", toAppErr(err, "failed to delete prior media row",
+	// Delete the prior series image row if one existed.
+	if oldSeriesImageID != "" {
+		if _, err := tx.Exec(ctx, deleteCoverImageRowQuery, oldSeriesImageID); err != nil {
+			return "", toAppErr(err, "failed to delete prior series image row",
 				slog.String("series_id", seriesID),
-				slog.String("old_media_id", oldMediaID),
+				slog.String("old_series_image_id", oldSeriesImageID),
 			)
 		}
 	}
 
 	// Marshal the attributes map to JSONB.
-	attrsJSON, err := json.Marshal(newMedia.Attributes)
+	attrsJSON, err := json.Marshal(newSeriesImage.Attributes)
 	if err != nil {
-		return "", apperr.New(codes.Internal, fmt.Sprintf("marshal media attributes: %v", err))
+		return "", apperr.New(codes.Internal, fmt.Sprintf("marshal image attributes: %v", err))
 	}
 
-	// Insert the new media row then the join row.
-	if _, err := tx.Exec(ctx, insertMediaQuery,
-		newMedia.ID, newMedia.OrganizerID, attrsJSON,
+	// Insert the new series image row then the join row.
+	if _, err := tx.Exec(ctx, insertSeriesImageQuery,
+		newSeriesImage.ID, newSeriesImage.OrganizerID, attrsJSON,
 	); err != nil {
-		return "", toAppErr(err, "failed to insert media row", slog.String("media_id", newMedia.ID))
+		return "", toAppErr(err, "failed to insert series image row", slog.String("series_image_id", newSeriesImage.ID))
 	}
-	if _, err := tx.Exec(ctx, insertSeriesMediaQuery, seriesID, newMedia.ID); err != nil {
+	if _, err := tx.Exec(ctx, insertSeriesCoverImageQuery, seriesID, newSeriesImage.ID); err != nil {
 		// A foreign-key violation on series_id means the series does not exist;
 		// the series_cover_images FK is the sole existence check (no extra round-trip).
 		if IsForeignKeyViolation(err) {
 			return "", apperr.New(codes.NotFound, "series not found")
 		}
-		return "", toAppErr(err, "failed to insert series_media row", slog.String("series_id", seriesID))
+		return "", toAppErr(err, "failed to insert series_cover_images row", slog.String("series_id", seriesID))
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", toAppErr(err, "failed to commit cover media transaction")
+		return "", toAppErr(err, "failed to commit cover image transaction")
 	}
-	return oldMediaID, nil
+	return oldSeriesImageID, nil
 }
 
 // MarkCancelled transitions the series to CANCELLED and records cancelled_at.
@@ -1048,7 +1048,7 @@ func (r *SeriesRepository) PublishDraft(ctx context.Context, seriesID string, no
 
 	// Drop concert candidates that referenced this series (superseded by organizer version).
 	if _, err := tx.Exec(ctx, dropConcertCandidatesBySeriesQuery, seriesID); err != nil {
-		return nil, toAppErr(err, "failed to drop staged concerts for series")
+		return nil, toAppErr(err, "failed to drop concert candidates for series")
 	}
 
 	// Mark the series PUBLISHED.

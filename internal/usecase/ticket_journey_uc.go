@@ -35,7 +35,7 @@ type TicketJourneyUseCase interface {
 	//   - Internal: query failure.
 	List(ctx context.Context, userID string) ([]*entity.TicketJourney, error)
 
-	// MarkPaid sets the buyer's ticket journey for the event to Paid for a paid
+	// MarkPaid sets the fan's ticket journey for the event to Paid for a paid
 	// Order, from a checkout or a won lottery, replacing whatever status the fan
 	// set. The change is not announced as a status change. Running it again for
 	// the same Order leaves the journey Paid.

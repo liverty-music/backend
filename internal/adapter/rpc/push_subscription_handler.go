@@ -117,14 +117,14 @@ func (h *PushSubscriptionHandler) Delete(ctx context.Context, req *connect.Reque
 // resolveCallerUser extracts the provider_user_id from JWT claims and resolves the
 // internal user record for the caller.
 func (h *PushSubscriptionHandler) resolveCallerUser(ctx context.Context) (*entity.User, error) {
-	externalID, err := mapper.GetExternalUserID(ctx)
+	providerUserID, err := mapper.GetExternalUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	// push_subscriptions.user_id references users.id (internal UUID),
 	// not the identity-provider-specific provider_user_id, so we must resolve
 	// the internal user record before interacting with the repository.
-	return h.userRepo.GetByProviderUserID(ctx, externalID)
+	return h.userRepo.GetByProviderUserID(ctx, providerUserID)
 }
 
 // toPushSubscriptionProto maps the internal entity to the wire type returned

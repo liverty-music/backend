@@ -425,8 +425,8 @@ func TestTicketSaleUseCase_ListOwnByEvent(t *testing.T) {
 		f := newTicketSaleFixture(t, now)
 		f.events.EXPECT().GetEventOrganizerID(mock.Anything, "event-1").Return("org-1", nil)
 		presale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(11, 1, 10, 0), saleTime(11, 10, 10, 0), "event-1")
-		drawn := saleTime(11, 10, 10, 1)
-		presale.DrawTime = &drawn
+		drawTime := saleTime(11, 10, 10, 1)
+		presale.DrawTime = &drawTime
 		general := existingSale("一般発売", entity.TicketSaleMethodFirstCome, saleTime(11, 18, 10, 0), saleTime(11, 20, 19, 0), "event-1")
 		f.sales.EXPECT().ListByEvent(mock.Anything, "event-1", now).Return([]*entity.TicketSale{presale, general}, nil)
 		stats := entity.LotteryEntryStats{EntryCount: 120, TicketCount: 200, WonEntryCount: 80, WonTicketCount: 150, LostEntryCount: 40}
@@ -779,8 +779,8 @@ func TestTicketSaleUseCase_SetVerificationRequirement(t *testing.T) {
 		// @spec components/usecase/ticket-sale/set-verification-requirement "After the draw"
 		f := newTicketSaleFixture(t, now)
 		sale := existingSale("ファンクラブ先行", entity.TicketSaleMethodLottery, saleTime(10, 20, 0, 0), saleTime(10, 30, 0, 0), "event-1")
-		drawn := saleTime(10, 30, 0, 1)
-		sale.DrawTime = &drawn
+		drawTime := saleTime(10, 30, 0, 1)
+		sale.DrawTime = &drawTime
 		f.sales.EXPECT().Get(mock.Anything, sale.ID, now).Return(sale, nil)
 		f.seriesOwnedBy("org-1", "event-1")
 		updatesRequirement(f, sale, entity.VerificationRequirementVerifiedAny)

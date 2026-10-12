@@ -55,7 +55,7 @@ type UserUseCase interface {
 	// # Possible errors
 	//
 	//  - NotFound: If the user does not exist.
-	GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error)
+	GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.User, error)
 
 	// SetPreferredLanguage sets or changes the user's preferred display language.
 	//
@@ -81,8 +81,8 @@ type UserUseCase interface {
 	//
 	//  - InvalidArgument: no value is given, or a given value is empty or
 	//    breaks the User's personal details rule; nothing changed.
-	//  - NotFound: no user exists for externalID.
-	Update(ctx context.Context, externalID string, fullName, phoneNumber *string) (*entity.User, error)
+	//  - NotFound: no user exists for providerUserID.
+	Update(ctx context.Context, providerUserID string, fullName, phoneNumber *string) (*entity.User, error)
 
 	// Delete permanently removes a fan user at an admin's request: first the
 	// user's sign-in identity, then the user record with everything it owns.
@@ -100,17 +100,17 @@ type UserUseCase interface {
 	//    is not configured.
 	Delete(ctx context.Context, id string) error
 
-	// ResolveCaller returns the caller's own User, identified by externalID
+	// ResolveCaller returns the caller's own User, identified by providerUserID
 	// (the Zitadel subject claim). A request never names a User id, so a
 	// per-user call always acts on the caller's own User.
 	//
 	// # Possible errors
 	//
-	//  - NotFound: no user exists for externalID.
-	ResolveCaller(ctx context.Context, externalID string) (*entity.User, error)
+	//  - NotFound: no user exists for providerUserID.
+	ResolveCaller(ctx context.Context, providerUserID string) (*entity.User, error)
 
 	// ResendEmailVerification triggers a new email verification message via
-	// the identity provider for the caller identified by externalID (the
+	// the identity provider for the caller identified by providerUserID (the
 	// Zitadel subject claim), when the resend rate limit has not been
 	// exceeded.
 	//
@@ -125,8 +125,8 @@ type UserUseCase interface {
 	//  - ResourceExhausted: the resend rate limit has been exceeded.
 	//  - FailedPrecondition: the user's email is already verified.
 	//  - Unavailable: the email verification service is not configured.
-	//  - NotFound: no user exists for externalID.
-	ResendEmailVerification(ctx context.Context, externalID string) error
+	//  - NotFound: no user exists for providerUserID.
+	ResendEmailVerification(ctx context.Context, providerUserID string) error
 }
 
 // userUseCase implements the UserUseCase interface.
@@ -276,11 +276,11 @@ func (uc *userUseCase) Get(ctx context.Context, id string) (*entity.User, error)
 }
 
 // GetByProviderUserID retrieves a user by identity provider ID.
-func (uc *userUseCase) GetByProviderUserID(ctx context.Context, externalID string) (*entity.User, error) {
-	user, err := uc.userRepo.GetByProviderUserID(ctx, externalID)
+func (uc *userUseCase) GetByProviderUserID(ctx context.Context, providerUserID string) (*entity.User, error) {
+	user, err := uc.userRepo.GetByProviderUserID(ctx, providerUserID)
 	if err != nil {
 		// Preserve the repository's error code (see Get above).
-		return nil, fmt.Errorf("failed to get user by external ID %q: %w", externalID, err)
+		return nil, fmt.Errorf("failed to get user by provider user ID %q: %w", providerUserID, err)
 	}
 
 	return user, nil
@@ -383,14 +383,14 @@ func (uc *userUseCase) Delete(ctx context.Context, id string) error {
 
 // Update implements [UserUseCase]. It merges the given values with the
 // caller's current ones, so a value not given is kept.
-func (uc *userUseCase) Update(ctx context.Context, externalID string, fullName, phoneNumber *string) (*entity.User, error) {
+func (uc *userUseCase) Update(ctx context.Context, providerUserID string, fullName, phoneNumber *string) (*entity.User, error) {
 	if fullName == nil && phoneNumber == nil {
 		return nil, apperr.New(codes.InvalidArgument, "at least one of full name and phone number must be given")
 	}
 	if (fullName != nil && *fullName == "") || (phoneNumber != nil && *phoneNumber == "") {
 		return nil, apperr.New(codes.InvalidArgument, "a given full name or phone number must not be empty")
 	}
-	user, err := uc.ResolveCaller(ctx, externalID)
+	user, err := uc.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -412,20 +412,20 @@ func (uc *userUseCase) Update(ctx context.Context, externalID string, fullName, 
 	return updated, nil
 }
 
-// ResolveCaller returns the caller's own user, identified by externalID.
-func (uc *userUseCase) ResolveCaller(ctx context.Context, externalID string) (*entity.User, error) {
-	return uc.GetByProviderUserID(ctx, externalID)
+// ResolveCaller returns the caller's own user, identified by providerUserID.
+func (uc *userUseCase) ResolveCaller(ctx context.Context, providerUserID string) (*entity.User, error) {
+	return uc.GetByProviderUserID(ctx, providerUserID)
 }
 
 // ResendEmailVerification triggers a verification-email resend for the
 // caller, enforcing the in-memory resend rate limit before calling the
 // identity provider.
-func (uc *userUseCase) ResendEmailVerification(ctx context.Context, externalID string) error {
+func (uc *userUseCase) ResendEmailVerification(ctx context.Context, providerUserID string) error {
 	if uc.emailVerifier == nil {
 		return apperr.New(codes.Unavailable, "email verification service is not configured")
 	}
 
-	user, err := uc.ResolveCaller(ctx, externalID)
+	user, err := uc.ResolveCaller(ctx, providerUserID)
 	if err != nil {
 		return err
 	}
@@ -437,10 +437,10 @@ func (uc *userUseCase) ResendEmailVerification(ctx context.Context, externalID s
 	return uc.emailVerifier.ResendVerification(ctx, user.ProviderUserID)
 }
 
-// allowResend reports whether externalID has not exceeded the resend rate
+// allowResend reports whether providerUserID has not exceeded the resend rate
 // limit (resendRateLimit requests per rolling resendRateWindow), recording
 // this attempt when it allows it. Returns false when the caller must wait.
-func (uc *userUseCase) allowResend(externalID string) bool {
+func (uc *userUseCase) allowResend(providerUserID string) bool {
 	now := time.Now()
 	cutoff := now.Add(-resendRateWindow)
 
@@ -449,7 +449,7 @@ func (uc *userUseCase) allowResend(externalID string) bool {
 
 	// Filter out expired entries.
 	var recent []time.Time
-	for _, t := range uc.resendLog[externalID] {
+	for _, t := range uc.resendLog[providerUserID] {
 		if t.After(cutoff) {
 			recent = append(recent, t)
 		}
@@ -457,14 +457,14 @@ func (uc *userUseCase) allowResend(externalID string) bool {
 
 	// Reclaim memory for users with no recent activity.
 	if len(recent) == 0 {
-		delete(uc.resendLog, externalID)
+		delete(uc.resendLog, providerUserID)
 	}
 
 	if len(recent) >= resendRateLimit {
-		uc.resendLog[externalID] = recent
+		uc.resendLog[providerUserID] = recent
 		return false
 	}
 
-	uc.resendLog[externalID] = append(recent, now)
+	uc.resendLog[providerUserID] = append(recent, now)
 	return true
 }

@@ -278,7 +278,7 @@ func TestOrganizerSeriesHandler_RegenerateShareUrl(t *testing.T) {
 
 // TestOrganizerSeriesHandler_ResolveCallerFailure verifies that every
 // authoring call returns a failure of OrganizerUseCase.ResolveCaller unchanged
-// and reaches neither the authoring nor the media usecase, so nothing is
+// and reaches neither the authoring nor the series image use case, so nothing is
 // stored.
 func TestOrganizerSeriesHandler_ResolveCallerFailure(t *testing.T) {
 	t.Parallel()
@@ -345,7 +345,7 @@ func TestOrganizerSeriesHandler_ResolveCallerFailure(t *testing.T) {
 				t.Parallel()
 				d := newOrganizerSeriesHandlerDeps(t)
 
-				// The authoring and media usecases have no expectations: any
+				// The authoring and series image use case have no expectations: any
 				// call to them fails the test.
 				d.organizerUC.EXPECT().
 					ResolveCaller(mock.Anything, testProviderOrganizerID).

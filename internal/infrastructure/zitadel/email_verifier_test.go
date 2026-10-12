@@ -105,7 +105,7 @@ func TestEmailVerifier_SendVerification(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		externalID string
+		providerUserID string
 	}
 	tests := []struct {
 		name      string
@@ -118,7 +118,7 @@ func TestEmailVerifier_SendVerification(t *testing.T) {
 	}{
 		{
 			name:      "success emits INFO log",
-			args:      args{externalID: "user-123"},
+			args:      args{providerUserID: "user-123"},
 			sendErr:   nil,
 			wantErr:   nil,
 			wantInLog: "email verification sent",
@@ -129,14 +129,14 @@ func TestEmailVerifier_SendVerification(t *testing.T) {
 		},
 		{
 			name:      "gRPC unavailable wraps as internal without logging (caller logs)",
-			args:      args{externalID: "user-456"},
+			args:      args{providerUserID: "user-456"},
 			sendErr:   grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
 			wantErr:   apperr.ErrInternal,
 			wantNoLog: "failed to send email code",
 		},
 		{
 			name:      "gRPC not found wraps as internal without logging (caller logs)",
-			args:      args{externalID: "nonexistent"},
+			args:      args{providerUserID: "nonexistent"},
 			sendErr:   grpcstatus.Error(grpccodes.NotFound, "user not found"),
 			wantErr:   apperr.ErrInternal,
 			wantNoLog: "failed to send email code",
@@ -150,7 +150,7 @@ func TestEmailVerifier_SendVerification(t *testing.T) {
 			addr := startZitadelStubServer(t, stub, nil)
 			v, logBuf := newTestVerifier(t, addr)
 
-			err := v.SendVerification(context.Background(), tt.args.externalID)
+			err := v.SendVerification(context.Background(), tt.args.providerUserID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -159,7 +159,7 @@ func TestEmailVerifier_SendVerification(t *testing.T) {
 			}
 			if tt.wantInLog != "" {
 				assert.Contains(t, logBuf.String(), tt.wantInLog)
-				assert.Contains(t, logBuf.String(), tt.args.externalID)
+				assert.Contains(t, logBuf.String(), tt.args.providerUserID)
 			}
 			if tt.wantNoLog != "" {
 				assert.NotContains(t, logBuf.String(), tt.wantNoLog)
@@ -175,7 +175,7 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		externalID string
+		providerUserID string
 	}
 	tests := []struct {
 		name      string
@@ -187,7 +187,7 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 	}{
 		{
 			name:      "success emits INFO log",
-			args:      args{externalID: "user-123"},
+			args:      args{providerUserID: "user-123"},
 			resendErr: nil,
 			wantErr:   nil,
 			wantInLog: "email verification resent",
@@ -202,7 +202,7 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 			// fails this case with `Code is empty (EMAIL-5w5ilin4yt)`; the
 			// v1 Management endpoint generates a fresh code and succeeds.
 			name:      "succeeds when no prior verification code exists (post-SMTP-inactive sign-up)",
-			args:      args{externalID: "user-no-prior-code"},
+			args:      args{providerUserID: "user-no-prior-code"},
 			resendErr: nil,
 			wantErr:   nil,
 			wantInLog: "email verification resent",
@@ -213,28 +213,28 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 		},
 		{
 			name:      "already verified emits ERROR log and maps to FailedPrecondition",
-			args:      args{externalID: "verified-user"},
+			args:      args{providerUserID: "verified-user"},
 			resendErr: grpcstatus.Error(grpccodes.FailedPrecondition, "email already verified"),
 			wantErr:   apperr.ErrFailedPrecondition,
 			wantInLog: "failed to resend email verification",
 		},
 		{
 			name:      "gRPC unavailable emits ERROR log and wraps as internal",
-			args:      args{externalID: "user-456"},
+			args:      args{providerUserID: "user-456"},
 			resendErr: grpcstatus.Error(grpccodes.Unavailable, "connection refused"),
 			wantErr:   apperr.ErrInternal,
 			wantInLog: "failed to resend email verification",
 		},
 		{
 			name:      "gRPC internal emits ERROR log and wraps as internal",
-			args:      args{externalID: "user-789"},
+			args:      args{providerUserID: "user-789"},
 			resendErr: grpcstatus.Error(grpccodes.Internal, "something went wrong"),
 			wantErr:   apperr.ErrInternal,
 			wantInLog: "failed to resend email verification",
 		},
 		{
 			name:      "gRPC permission denied emits ERROR log and wraps as internal",
-			args:      args{externalID: "no-perms"},
+			args:      args{providerUserID: "no-perms"},
 			resendErr: grpcstatus.Error(grpccodes.PermissionDenied, "insufficient permissions"),
 			wantErr:   apperr.ErrInternal,
 			wantInLog: "failed to resend email verification",
@@ -248,7 +248,7 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 			addr := startZitadelStubServer(t, nil, stub)
 			v, logBuf := newTestVerifier(t, addr)
 
-			err := v.ResendVerification(context.Background(), tt.args.externalID)
+			err := v.ResendVerification(context.Background(), tt.args.providerUserID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -256,7 +256,7 @@ func TestEmailVerifier_ResendVerification(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Contains(t, logBuf.String(), tt.wantInLog)
-			assert.Contains(t, logBuf.String(), tt.args.externalID)
+			assert.Contains(t, logBuf.String(), tt.args.providerUserID)
 			if tt.check != nil {
 				tt.check(t, stub)
 			}

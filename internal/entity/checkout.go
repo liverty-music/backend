@@ -66,7 +66,7 @@ const CheckoutStalledCommitAge = time.Minute
 // TicketSale: it holds a count of tickets for 15 minutes while the fan
 // confirms their 本人確認 (identity check) details and authorizes their card.
 // It ends with the tickets committed, charged and issued, or with the hold
-// released and any card hold given back. The fan's full name and phone number
+// released and any card authorization given back. The fan's full name and phone number
 // are the User's.
 //
 // Mirrors liverty_music.entity.v1.Checkout.
@@ -83,10 +83,10 @@ type Checkout struct {
 	TicketCount int
 	// Amount is the ticket type's price × TicketCount in yen, fixed at creation.
 	Amount int64
-	// CardAuthorizationID is the payment provider's reference of the card hold
+	// CardAuthorizationID is the payment provider's ID for the card authorization
 	// (a Stripe "pi_..." id); empty until the fan authorizes, then set once.
 	CardAuthorizationID string
-	// AuthorizationReleaseTime is when the card hold was given back without a
+	// AuthorizationReleaseTime is when the card authorization was given back without a
 	// charge; nil unless released. Set once.
 	CardAuthorizationReleaseTime *time.Time
 	// Status is the checkout's lifecycle status.
@@ -96,7 +96,7 @@ type Checkout struct {
 	// CommitTime is when the tickets were committed; nil until committed and
 	// kept when a commit is given back.
 	CommitTime *time.Time
-	// CaptureTime is when the card hold (CardAuthorizationID) was charged; nil
+	// CaptureTime is when the card authorization (CardAuthorizationID) was charged; nil
 	// until charged. Set once.
 	CaptureTime *time.Time
 }
@@ -199,8 +199,8 @@ type CheckoutRepository interface {
 	//  - Internal: database failure.
 	Get(ctx context.Context, id CheckoutID) (*Checkout, error)
 
-	// GetByCardAuthorizationID returns the Checkout whose card hold has the
-	// given reference.
+	// GetByCardAuthorizationID returns the Checkout that references the given
+	// card authorization.
 	//
 	// # Possible errors
 	//
@@ -208,7 +208,7 @@ type CheckoutRepository interface {
 	//  - Internal: database failure.
 	GetByCardAuthorizationID(ctx context.Context, cardAuthorizationID string) (*Checkout, error)
 
-	// SetAuthorization stores the card hold's reference of a Held Checkout; it
+	// SetAuthorization stores the card authorization ID of a Held Checkout; it
 	// changes no other attribute. With the same reference already set it
 	// changes nothing and succeeds.
 	//
@@ -253,7 +253,7 @@ type CheckoutRepository interface {
 	RevertCommit(ctx context.Context, id CheckoutID) error
 
 	// RecordCapture stores the capture time of a Committed Checkout; the
-	// charged payment is its card hold. It changes nothing when a capture time
+	// charged payment is its card authorization. It changes nothing when a capture time
 	// is set.
 	//
 	// # Possible errors

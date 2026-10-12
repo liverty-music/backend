@@ -655,7 +655,7 @@ COMMENT ON INDEX idx_rejected_concerts_artist_id IS 'Supports per-artist analysi
 CREATE INDEX IF NOT EXISTS idx_rejected_concerts_rejected_at ON rejected_concerts(rejected_at);
 COMMENT ON INDEX idx_rejected_concerts_rejected_at IS 'Supports time-windowed analysis of rejections';
 
--- Organizers: the vetted seller an admin creates to represent artists. Existence
+-- Organizers: the vetted business an admin creates to represent artists. Existence
 -- is the vetting (no verified flag). status is the operational lifecycle
 -- (1=provisioning, 2=active, 3=deactivated); provider_organizer_id links the token
 -- tenant to this row and is set once tenant provisioning completes.

@@ -41,8 +41,8 @@ func TicketTypeToProto(v *usecase.TicketTypeView, withCounts bool) *entityv1.Tic
 	return pb
 }
 
-// LotteryEntryStatsToProto returns the entry tallies of every Lottery
-// TicketType of the sales, for their Organizer; a TicketType without tallies
+// LotteryEntryStatsToProto returns the entry stats of every Lottery
+// TicketType of the sales, for their Organizer; a TicketType without stats
 // is left out.
 func LotteryEntryStatsToProto(views []*usecase.TicketSaleView) []*organizerticketsalev1.LotteryEntryStats {
 	out := []*organizerticketsalev1.LotteryEntryStats{}

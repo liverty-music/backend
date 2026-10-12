@@ -22,24 +22,24 @@ const (
 	LotteryEntryStateUnspecified LotteryEntryState = 0
 
 	// LotteryEntryStateEntered means the fan confirmed the entry with its card
-	// hold in place; it takes part in the draw.
+	// authorization in place; it takes part in the draw.
 	LotteryEntryStateEntered LotteryEntryState = 1
 
 	// LotteryEntryStateWon means the draw allocated tickets to the entry. Its
-	// hold is captured.
+	// card authorization is captured.
 	LotteryEntryStateWon LotteryEntryState = 2
 
 	// LotteryEntryStateLost means the draw did not allocate tickets to the
-	// entry. Its hold is released.
+	// entry. Its card authorization is released.
 	LotteryEntryStateLost LotteryEntryState = 3
 
 	// LotteryEntryStateWithdrawn means the entry ended before the draw: the fan
 	// withdrew it, replaced a Draft with another count, or left a Draft
-	// unconfirmed until the draw. Any hold is released. A new entry may be
+	// unconfirmed until the draw. Any card authorization is released. A new entry may be
 	// started while the window is open.
 	LotteryEntryStateWithdrawn LotteryEntryState = 4
 
-	// LotteryEntryStateDraft is the entry being built: it may carry a card hold
+	// LotteryEntryStateDraft is the entry being built: it may carry a card authorization
 	// but has not been confirmed, takes no part in the draw and is not
 	// tallied.
 	LotteryEntryStateDraft LotteryEntryState = 5
@@ -65,7 +65,7 @@ func (s LotteryEntryState) String() string {
 
 // LotteryEntry is one fan account's entry into the lottery for one
 // TicketType: a request for a companion group of tickets allocated
-// all-or-nothing, and the card hold placed for the amount until the draw. The
+// all-or-nothing, and the card authorization placed for the amount until the draw. The
 // fan's 本人確認 (identity check) details are the User's full name and phone
 // number.
 //
@@ -94,7 +94,7 @@ type LotteryEntry struct {
 
 	// DrawPosition is the entry's zero-based position in its ticket type's
 	// random draw order; nil before the draw and set only by the draw. It
-	// orders the loser waitlist for official resale.
+	// orders the losers for official resale.
 	DrawPosition *int
 }
 
@@ -134,7 +134,7 @@ func (e *LotteryEntry) IsWithdrawable() bool {
 	return e.State == LotteryEntryStateDraft || e.State == LotteryEntryStateEntered
 }
 
-// LotteryEntryStats is the tally of one TicketType's Entered, Won and Lost
+// LotteryEntryStats are the counts of one TicketType's Entered, Won and Lost
 // entries for the Organizer's view of its sale. Draft and Withdrawn entries
 // are not counted.
 type LotteryEntryStats struct {
@@ -148,7 +148,7 @@ type LotteryEntryStats struct {
 	// WonEntryCount is the number of Won entries.
 	WonEntryCount int
 
-	// WonTicketCount is the sum of the Won entries' requested ticket counts.
+	// WonTicketCount is the sum of the Won entries' ticket counts.
 	WonTicketCount int
 
 	// LostEntryCount is the number of Lost entries.
@@ -182,7 +182,7 @@ type DrawLoserRow struct {
 	CardAuthorizationID string
 
 	// DrawPosition is the entry's zero-based position in the draw order; it
-	// keeps the loser waitlist order for official resale.
+	// keeps the order of the losers for official resale.
 	DrawPosition int
 }
 
@@ -192,7 +192,7 @@ type DrawLoserRow struct {
 // Interfaces are defined where consumed (AGENTS.md rule).
 type LotteryEntryRepository interface {
 	// GetOrCreateDraft returns the user's Draft for the TicketType when its
-	// requested ticket count equals count, changing nothing. When the user has
+	// ticket count equals count, changing nothing. When the user has
 	// a Draft with another count, it makes that Draft Withdrawn and creates a
 	// new Draft in the same step; with no active entry it creates a new
 	// Draft. Checking and creating are one indivisible step, so two concurrent
@@ -253,7 +253,7 @@ type LotteryEntryRepository interface {
 	//  - Internal: database failure.
 	ListUndrawnForTicketType(ctx context.Context, ticketTypeID TicketTypeID) ([]*LotteryEntry, error)
 
-	// GetStatsByTicketType tallies the TicketType's Entered, Won and Lost
+	// GetStatsByTicketType counts the TicketType's Entered, Won and Lost
 	// entries. A TicketType without entries yields all counts zero.
 	//
 	// # Possible errors
@@ -264,8 +264,8 @@ type LotteryEntryRepository interface {
 	// PersistDrawOutcome records one sale's draw in one transaction: every
 	// winner Won and every loser Lost with its draw position, every
 	// unconfirmed Draft in withdrawnDrafts Withdrawn, across all TicketTypes of
-	// the sale, and the sale's drawn time. With no winners, losers or Drafts it
-	// only sets the drawn time. On failure nothing is recorded.
+	// the sale, and the sale's draw time. With no winners, losers or Drafts it
+	// only sets the draw time. On failure nothing is recorded.
 	//
 	// # Possible errors
 	//

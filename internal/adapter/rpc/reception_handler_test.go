@@ -158,7 +158,7 @@ func TestReceptionHandler_Admit(t *testing.T) {
 
 		// Task 6.3: the response shape itself can carry no personal data —
 		// only a count, reasons, a time and a link number. Any new field
-		// (such as a holder name, phone number or account) fails this test.
+		// (such as a full name, phone number or account) fails this test.
 		assertFields(t, resp.Msg, "admitted_ticket_count", "rejected_scan_reason", "rejected_tickets")
 		assertFields(t, rt, "reason", "earlier_admit_time", "earlier_reception_link_number")
 		assertFields(t, rt.EarlierReceptionLinkNumber, "value")

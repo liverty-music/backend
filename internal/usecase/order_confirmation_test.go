@@ -196,7 +196,7 @@ func TestNotificationUseCase_SendOrderConfirmation(t *testing.T) {
 	})
 }
 
-// TestEmailLanguageDefault checks that a buyer without a language preference
+// TestEmailLanguageDefault checks that a fan without a language preference
 // gets the Japanese email.
 func TestEmailLanguageDefault(t *testing.T) {
 	t.Parallel()

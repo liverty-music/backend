@@ -17,21 +17,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// failingOnboardingUCStub is an PayoutAccountUseCase that fails the test when it
+// failingPayoutAccountUCStub is an PayoutAccountUseCase that fails the test when it
 // is called, for cases that must stop before the onboarding usecase runs.
-type failingOnboardingUCStub struct {
+type failingPayoutAccountUCStub struct {
 	t *testing.T
 }
 
-var _ usecase.PayoutAccountUseCase = (*failingOnboardingUCStub)(nil)
+var _ usecase.PayoutAccountUseCase = (*failingPayoutAccountUCStub)(nil)
 
-func (s *failingOnboardingUCStub) Get(context.Context, string) (*entity.PayoutAccount, string, error) {
+func (s *failingPayoutAccountUCStub) Get(context.Context, string) (*entity.PayoutAccount, string, error) {
 	s.t.Helper()
-	s.t.Error("OnboardingUseCase.GetOrCreateOnboarding must not be called")
+	s.t.Error("PayoutAccountUseCase.Get must not be called")
 	return nil, "", nil
 }
 
-// TestPayoutOnboardingHandler_Get verifies that a failure of
+// TestPayoutAccountHandler_Get verifies that a failure of
 // OrganizerUseCase.ResolveCaller is returned unchanged and stops the request
 // before the onboarding usecase runs.
 func TestPayoutAccountHandler_Get(t *testing.T) {
@@ -77,7 +77,7 @@ func TestPayoutAccountHandler_Get(t *testing.T) {
 
 			logger, err := logging.New()
 			require.NoError(t, err)
-			h := rpc.NewPayoutAccountHandler(&failingOnboardingUCStub{t: t}, organizerUC, logger)
+			h := rpc.NewPayoutAccountHandler(&failingPayoutAccountUCStub{t: t}, organizerUC, logger)
 
 			resp, err := h.Get(tt.args.ctx, connect.NewRequest(&payoutaccountv1.GetRequest{}))
 

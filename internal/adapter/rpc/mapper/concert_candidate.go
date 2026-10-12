@@ -12,7 +12,7 @@ import (
 //
 // ResolvedVenue is omitted when both ResolvedPlaceID and ResolvedVenueName are
 // nil (venue was not resolved by Google Places). SourceUrl is omitted when the
-// staged row carries no source URL. StartTime is omitted when the source did
+// concert candidate carries no source URL. StartTime is omitted when the source did
 // not state a start time.
 func ConcertCandidateToProto(sc *entity.ConcertCandidate, performer *entity.Artist) *concertcandidatev1.ConcertCandidate {
 	if sc == nil {

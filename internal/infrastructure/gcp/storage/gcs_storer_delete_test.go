@@ -110,14 +110,14 @@ const (
 	testInternalBucket = "organizer-media-internal"
 	testServedBucket   = "organizer-media"
 	testOrganizerID    = "org-1"
-	testMediaID        = "media-1"
+	testSeriesImageID  = "image-1"
 )
 
 func TestGCSStorer_DeleteOriginal(t *testing.T) {
 	t.Parallel()
 
-	original := storage.OriginalObjectKey(testOrganizerID, testMediaID)
-	sibling := storage.OriginalObjectKey(testOrganizerID, "media-2")
+	original := storage.OriginalObjectKey(testOrganizerID, testSeriesImageID)
+	sibling := storage.OriginalObjectKey(testOrganizerID, "image-2")
 
 	tests := []struct {
 		name    string
@@ -149,7 +149,7 @@ func TestGCSStorer_DeleteOriginal(t *testing.T) {
 			fake.failBuckets[testInternalBucket] = tt.fail
 			s := newFakeStorer(t, fake)
 
-			err := s.DeleteOriginal(context.Background(), testInternalBucket, testOrganizerID, testMediaID)
+			err := s.DeleteOriginal(context.Background(), testInternalBucket, testOrganizerID, testSeriesImageID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -157,7 +157,7 @@ func TestGCSStorer_DeleteOriginal(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.False(t, fake.exists(testInternalBucket, original))
-			assert.True(t, fake.exists(testInternalBucket, sibling), "another media's original must remain")
+			assert.True(t, fake.exists(testInternalBucket, sibling), "another image's original must remain")
 		})
 	}
 }
@@ -165,9 +165,9 @@ func TestGCSStorer_DeleteOriginal(t *testing.T) {
 func TestGCSStorer_DeleteVariants(t *testing.T) {
 	t.Parallel()
 
-	thumb := storage.VariantObjectKey(testOrganizerID, testMediaID, "thumb")
-	large := storage.VariantObjectKey(testOrganizerID, testMediaID, "large")
-	sibling := storage.VariantObjectKey(testOrganizerID, "media-2", "thumb")
+	thumb := storage.VariantObjectKey(testOrganizerID, testSeriesImageID, "thumb")
+	large := storage.VariantObjectKey(testOrganizerID, testSeriesImageID, "large")
+	sibling := storage.VariantObjectKey(testOrganizerID, "image-2", "thumb")
 
 	tests := []struct {
 		name    string
@@ -199,7 +199,7 @@ func TestGCSStorer_DeleteVariants(t *testing.T) {
 			fake.failBuckets[testServedBucket] = tt.fail
 			s := newFakeStorer(t, fake)
 
-			err := s.DeleteVariants(context.Background(), testServedBucket, testOrganizerID, testMediaID)
+			err := s.DeleteVariants(context.Background(), testServedBucket, testOrganizerID, testSeriesImageID)
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -208,7 +208,7 @@ func TestGCSStorer_DeleteVariants(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, fake.exists(testServedBucket, thumb))
 			assert.False(t, fake.exists(testServedBucket, large))
-			assert.True(t, fake.exists(testServedBucket, sibling), "another media's variants must remain")
+			assert.True(t, fake.exists(testServedBucket, sibling), "another image's variants must remain")
 		})
 	}
 }

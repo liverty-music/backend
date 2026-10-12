@@ -21,9 +21,9 @@ func (_m *MockIdentityRemover) EXPECT() *MockIdentityRemover_Expecter {
 	return &MockIdentityRemover_Expecter{mock: &_m.Mock}
 }
 
-// DeleteIdentity provides a mock function with given fields: ctx, externalID
-func (_m *MockIdentityRemover) DeleteIdentity(ctx context.Context, externalID string) error {
-	ret := _m.Called(ctx, externalID)
+// DeleteIdentity provides a mock function with given fields: ctx, providerUserID
+func (_m *MockIdentityRemover) DeleteIdentity(ctx context.Context, providerUserID string) error {
+	ret := _m.Called(ctx, providerUserID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteIdentity")
@@ -31,7 +31,7 @@ func (_m *MockIdentityRemover) DeleteIdentity(ctx context.Context, externalID st
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, externalID)
+		r0 = rf(ctx, providerUserID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -46,12 +46,12 @@ type MockIdentityRemover_DeleteIdentity_Call struct {
 
 // DeleteIdentity is a helper method to define mock.On call
 //   - ctx context.Context
-//   - externalID string
-func (_e *MockIdentityRemover_Expecter) DeleteIdentity(ctx interface{}, externalID interface{}) *MockIdentityRemover_DeleteIdentity_Call {
-	return &MockIdentityRemover_DeleteIdentity_Call{Call: _e.mock.On("DeleteIdentity", ctx, externalID)}
+//   - providerUserID string
+func (_e *MockIdentityRemover_Expecter) DeleteIdentity(ctx interface{}, providerUserID interface{}) *MockIdentityRemover_DeleteIdentity_Call {
+	return &MockIdentityRemover_DeleteIdentity_Call{Call: _e.mock.On("DeleteIdentity", ctx, providerUserID)}
 }
 
-func (_c *MockIdentityRemover_DeleteIdentity_Call) Run(run func(ctx context.Context, externalID string)) *MockIdentityRemover_DeleteIdentity_Call {
+func (_c *MockIdentityRemover_DeleteIdentity_Call) Run(run func(ctx context.Context, providerUserID string)) *MockIdentityRemover_DeleteIdentity_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})

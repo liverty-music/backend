@@ -50,8 +50,8 @@ type OrderUseCase interface {
 	//
 	// # Policy by reason
 	//
-	//   - CANCELLATION: always allowed while the Order is Paid. Refunds current
-	//     holder (face + system/発券 fee; processor fee retained).
+	//   - CANCELLATION: always allowed while the Order is Paid. Refunds the
+	//     fan (face + system/発券 fee; processor fee retained).
 	//   - DISPUTE: always allowed (platform absorbs via negative-balance
 	//     responsibility); funds already paid out are clawed back via
 	//     transfer_reversal.
@@ -133,7 +133,7 @@ type OrderUseCase interface {
 	// FulfillPayment turns a charge the payment provider reports as completed
 	// into an issued Order and announces it as ORDER.paid, with the Order id
 	// as the message id. It finds the charge's source — a Checkout by its
-	// card hold, else a LotteryEntry by its authorization — and runs the
+	// card authorization, else a LotteryEntry by its authorization — and runs the
 	// idempotent issuance for it, so a repeated report finds the same Order. A
 	// charge of no source succeeds without effect.
 	//
@@ -141,7 +141,7 @@ type OrderUseCase interface {
 	//
 	//  - The issuance's or the announcement's error, unchanged; the provider
 	//    reports the charge again.
-	FulfillPayment(ctx context.Context, paymentRef string) error
+	FulfillPayment(ctx context.Context, cardAuthorizationID string) error
 }
 
 // orderUseCase implements [OrderUseCase].

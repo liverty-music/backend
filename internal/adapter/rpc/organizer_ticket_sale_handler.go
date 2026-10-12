@@ -69,7 +69,7 @@ func (h *OrganizerTicketSaleHandler) Create(
 }
 
 // ListByEvent returns the sales of one of the caller's events with their
-// counts and, for a lottery, the entry tallies.
+// counts and, for a lottery, the entry stats.
 func (h *OrganizerTicketSaleHandler) ListByEvent(
 	ctx context.Context,
 	req *connect.Request[ticketsalev1.ListByEventRequest],

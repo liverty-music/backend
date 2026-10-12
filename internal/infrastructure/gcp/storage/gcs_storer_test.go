@@ -16,10 +16,10 @@ import (
 func TestObjectKeyComposition(t *testing.T) {
 	t.Parallel()
 	const orgID = "org-test"
-	const mediaID = "media-abc"
+	const seriesImageID = "image-abc"
 
-	assert.Equal(t, "org-test/media-abc", storage.OriginalObjectKey(orgID, mediaID))
-	assert.Equal(t, "cdn/org-test/media-abc/thumb.webp", storage.VariantObjectKey(orgID, mediaID, "thumb"))
-	assert.Equal(t, "cdn/org-test/media-abc/large.webp", storage.VariantObjectKey(orgID, mediaID, "large"))
-	assert.Equal(t, "cdn/org-test/media-abc/", storage.VariantObjectPrefix(orgID, mediaID))
+	assert.Equal(t, "org-test/image-abc", storage.OriginalObjectKey(orgID, seriesImageID))
+	assert.Equal(t, "cdn/org-test/image-abc/thumb.webp", storage.VariantObjectKey(orgID, seriesImageID, "thumb"))
+	assert.Equal(t, "cdn/org-test/image-abc/large.webp", storage.VariantObjectKey(orgID, seriesImageID, "large"))
+	assert.Equal(t, "cdn/org-test/image-abc/", storage.VariantObjectPrefix(orgID, seriesImageID))
 }
