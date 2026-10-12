@@ -23,6 +23,8 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/messaging"
 	"github.com/liverty-music/backend/internal/infrastructure/music/fanarttv"
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
+	infrapayment "github.com/liverty-music/backend/internal/infrastructure/payment"
+	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
 	infrawebpush "github.com/liverty-music/backend/internal/infrastructure/webpush"
 	infrazitadel "github.com/liverty-music/backend/internal/infrastructure/zitadel"
@@ -140,7 +142,9 @@ func InitializeConsumerApp(ctx context.Context) (*ConsumerApp, error) {
 	notificationRepo := rdb.NewNotificationRepository(db)
 	// Purchase confirmation: the email goes through Postmark when its token is
 	// configured, otherwise a no-op sender reports Unavailable.
-	orderRepo := rdb.NewOrderRepository(db)
+	// The consumer never refunds an Order or reads its charge, so the Order's
+	// payment provider part is the no-op.
+	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), infrapayment.NewNoopOrderPayments(logger))
 	var confirmationSender entity.OrderConfirmationSender
 	if cfg.Postmark.ServerToken != "" {
 		confirmationSender = mail.NewPostmarkConfirmationSender(orderRepo, cfg.Postmark.ServerToken,

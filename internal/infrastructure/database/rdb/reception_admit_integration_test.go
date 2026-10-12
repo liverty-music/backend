@@ -101,7 +101,7 @@ func TestTicketUseCase_Admit_Integration(t *testing.T) {
 
 	receptionDB := connectAsReceptionRole(t)
 	uc := usecase.NewTicketUseCase(
-		rdb.NewOrderRepository(receptionDB), rdb.NewTicketRepository(receptionDB), rdb.NewReceptionLinkRepository(receptionDB),
+		orderRepository(t, rdb.NewOrderRepository(receptionDB)), rdb.NewTicketRepository(receptionDB), rdb.NewReceptionLinkRepository(receptionDB),
 		rdb.NewEventRepository(receptionDB), rdb.NewWalletPublicKeyRepository(receptionDB), rdb.NewAdmissionRepository(receptionDB),
 		rdb.NewRejectedScanRepository(receptionDB), logger,
 	)

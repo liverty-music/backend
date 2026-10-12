@@ -30,16 +30,15 @@ type SettlementUseCase interface {
 	ReleaseDueSettlements(ctx context.Context) error
 }
 
-// payoutSweeperUseCase implements [SettlementUseCase].
+// settlementUseCase implements [SettlementUseCase].
 type settlementUseCase struct {
-	settlementRepo       entity.SettlementRepository
-	orderRepo            entity.OrderRepository
-	connectedAccountRepo entity.PayoutAccountRepository
-	eventStartTimeRepo   EventStartTimeRepository
-	settlementPayouts    entity.SettlementPayoutRepository
-	disputeBuffer        time.Duration
-	clock                Clock
-	logger               *logging.Logger
+	settlementRepo     entity.SettlementRepository
+	orderRepo          entity.OrderRepository
+	payoutAccountRepo  entity.PayoutAccountRepository
+	eventStartTimeRepo EventStartTimeRepository
+	disputeBuffer      time.Duration
+	clock              Clock
+	logger             *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -52,22 +51,20 @@ var _ SettlementUseCase = (*settlementUseCase)(nil)
 func NewSettlementUseCase(
 	settlementRepo entity.SettlementRepository,
 	orderRepo entity.OrderRepository,
-	connectedAccountRepo entity.PayoutAccountRepository,
+	payoutAccountRepo entity.PayoutAccountRepository,
 	eventStartTimeRepo EventStartTimeRepository,
-	settlementPayouts entity.SettlementPayoutRepository,
 	disputeBuffer time.Duration,
 	clock Clock,
 	logger *logging.Logger,
 ) SettlementUseCase {
 	return &settlementUseCase{
-		settlementRepo:       settlementRepo,
-		orderRepo:            orderRepo,
-		connectedAccountRepo: connectedAccountRepo,
-		eventStartTimeRepo:   eventStartTimeRepo,
-		settlementPayouts:    settlementPayouts,
-		disputeBuffer:        disputeBuffer,
-		clock:                clock,
-		logger:               logger,
+		settlementRepo:     settlementRepo,
+		orderRepo:          orderRepo,
+		payoutAccountRepo:  payoutAccountRepo,
+		eventStartTimeRepo: eventStartTimeRepo,
+		disputeBuffer:      disputeBuffer,
+		clock:              clock,
+		logger:             logger,
 	}
 }
 
@@ -130,7 +127,7 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	}
 
 	// -- Organizer payout eligibility: transfers capability must be active. --
-	acct, err := uc.connectedAccountRepo.GetByOrganizerID(ctx, s.OrganizerID)
+	acct, err := uc.payoutAccountRepo.GetByOrganizerID(ctx, s.OrganizerID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// No connected account yet; payout withheld (not failed).
@@ -144,7 +141,7 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	}
 
 	// Refresh capability status from the provider before deciding.
-	freshStatus, err := uc.settlementPayouts.GetPayoutAccountStatus(ctx, acct.ProviderAccountID)
+	freshStatus, err := uc.payoutAccountRepo.GetStatus(ctx, acct.ProviderAccountID)
 	if err != nil {
 		uc.logger.Warn(ctx, "payout sweep: failed to refresh account status; using cached status",
 			slog.String("settlement_id", string(s.ID)),
@@ -171,7 +168,7 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	}
 
 	// -- resolve pi_ → ch_ (retrieve PaymentIntent with latest_charge). --
-	providerChargeID, err := uc.settlementPayouts.GetProviderChargeID(ctx, order.Payment.ProviderPaymentID)
+	providerChargeID, err := uc.orderRepo.GetProviderChargeID(ctx, order.Payment.ProviderPaymentID)
 	if err != nil {
 		return err
 	}
@@ -186,7 +183,7 @@ func (uc *settlementUseCase) releaseOne(ctx context.Context, s *entity.Settlemen
 	// design requirement that onboarding never blocks sale.
 	releasedSplits := make([]entity.SettlementSplit, len(splits))
 	for i, split := range splits {
-		providerPayoutID, err := uc.settlementPayouts.CreatePayout(ctx, entity.PayoutParams{
+		providerPayoutID, err := uc.settlementRepo.CreatePayout(ctx, entity.PayoutParams{
 			SettlementID:           s.ID,
 			PayeeProviderAccountID: acct.ProviderAccountID,
 			SourceTransactionRef:   providerChargeID,

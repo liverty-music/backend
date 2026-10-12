@@ -52,6 +52,7 @@ func (s *stubEventOrganizerRepo) GetOrganizerID(ctx context.Context, eventID str
 }
 
 type stubOrderRepo struct {
+	entity.OrderRepository
 	getFn                    func(ctx context.Context, id entity.OrderID) (*entity.Order, error)
 	getByLotteryEntryIDFn    func(ctx context.Context, lotteryEntryID entity.LotteryEntryID) (*entity.Order, error)
 	getByProviderPaymentIDFn func(ctx context.Context, piRef string) (*entity.Order, error)
@@ -544,8 +545,7 @@ func TestOrderUseCase_ThroughSettlementRelease(t *testing.T) {
 		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusActive}, nil
 	}}
 
-	sweeperUC := usecase.NewSettlementUseCase(settlementRepo, orderRepo, connectedAccountRepo, eventStartTimeRepo,
-		&stubSettlementPayoutRepository{}, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
+	sweeperUC := usecase.NewSettlementUseCase(withSettlementPayouts(settlementRepo, &stubPaymentProvider{}), withOrderPayments(orderRepo, &stubPaymentProvider{}), withPayoutAccountProvider(connectedAccountRepo, &stubPaymentProvider{}), eventStartTimeRepo, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
 
 	require.NoError(t, sweeperUC.ReleaseDueSettlements(context.Background()))
 	require.NotNil(t, released, "the settlement issuance created must be released once due")
@@ -668,7 +668,7 @@ func TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 	connectedAccountRepo := &stubPayoutAccountRepo{getByOrganizerIDFn: func(_ context.Context, organizerID string) (*entity.PayoutAccount, error) {
 		return &entity.PayoutAccount{OrganizerID: organizerID, Status: entity.PayoutOnboardingStatusPending}, nil
 	}}
-	settlementPayouts := &stubSettlementPayoutRepository{
+	payments := &stubPaymentProvider{
 		getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 			return entity.PayoutOnboardingStatusPending, nil
 		},
@@ -678,8 +678,7 @@ func TestOrderUseCase_OrganizerPayoutReadinessNeverBlocksSale(t *testing.T) {
 		},
 	}
 
-	sweeperUC := usecase.NewSettlementUseCase(settlementRepo, orderRepo, connectedAccountRepo, eventStartTimeRepo,
-		settlementPayouts, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
+	sweeperUC := usecase.NewSettlementUseCase(withSettlementPayouts(settlementRepo, payments), withOrderPayments(orderRepo, payments), withPayoutAccountProvider(connectedAccountRepo, payments), eventStartTimeRepo, 7*24*time.Hour, fixedClock(now), newTestLogger(t))
 
 	require.NoError(t, sweeperUC.ReleaseDueSettlements(context.Background()))
 	assert.False(t, transferCalled, "the Organizer's payout must stay Held while the account is Pending")

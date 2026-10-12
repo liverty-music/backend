@@ -317,6 +317,30 @@ type OrderRepository interface {
 	//  - NotFound: no Order with the id exists.
 	//  - Internal: database execution failure.
 	MarkConfirmationSent(ctx context.Context, id OrderID, at time.Time) error
+
+	// CreateRefund issues a platform-balance Refund against the captured
+	// Charge. The refund amount is the full Order amount minus the processor
+	// fee (retained as the JP norm). Returns the opaque refund reference
+	// ("re_..."). Idempotency is keyed on the SettlementID so a replay never
+	// double-refunds.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: amount is zero or negative.
+	//  - FailedPrecondition: the charge has already been fully refunded.
+	//  - Unavailable: the payment provider is unreachable.
+	CreateRefund(ctx context.Context, params RefundParams) (providerRefundID string, err error)
+
+	// GetProviderChargeID retrieves the PaymentIntent identified by
+	// paymentIntentRef and returns the charge id ("ch_...") of its captured
+	// charge. The charge id is used as source_transaction on the Transfer.
+	//
+	// # Possible errors
+	//
+	//  - FailedPrecondition: the PaymentIntent is not in a succeeded state.
+	//  - NotFound: the PaymentIntent does not exist.
+	//  - Unavailable: the payment provider is unreachable.
+	GetProviderChargeID(ctx context.Context, providerPaymentID string) (providerChargeID string, err error)
 }
 
 // CapturedPayment is the read-back of ④'s captured winning payment from the

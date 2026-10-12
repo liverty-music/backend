@@ -60,6 +60,7 @@ import (
 	"github.com/liverty-music/backend/internal/infrastructure/music/musicbrainz"
 	infrapayment "github.com/liverty-music/backend/internal/infrastructure/payment"
 	infrapocketsign "github.com/liverty-music/backend/internal/infrastructure/pocketsign"
+	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	"github.com/liverty-music/backend/internal/infrastructure/server"
 	"github.com/liverty-music/backend/internal/infrastructure/server/ratelimit"
 	infratelemetry "github.com/liverty-music/backend/internal/infrastructure/telemetry"
@@ -166,12 +167,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	identityVerificationRepo := rdb.NewIdentityVerificationRepository(db)
 	lotteryEntryRepo := rdb.NewLotteryEntryRepository(db)
 	eventPublishState := rdb.NewEventPublishStateRepository(db)
-	orderRepo := rdb.NewOrderRepository(db)
+	// The Order, Settlement and PayoutAccount repositories combine their rows
+	// with their payment provider operations.
+	payments := newPaymentProviders(cfg.Stripe.SecretKey, logger)
+	orderRepo := repository.NewOrderRepository(rdb.NewOrderRepository(db), payments.orders)
 	ticketRepo := rdb.NewTicketRepository(db)
 	issuanceRepo := rdb.NewIssuanceRepository(db)
-	settlementRepo := rdb.NewSettlementRepository(db)
+	settlementRepo := repository.NewSettlementRepository(rdb.NewSettlementRepository(db), payments.settlements)
 	refundRepo := rdb.NewRefundRepository(db)
-	connectedAccountRepo := rdb.NewPayoutAccountRepository(db)
+	payoutAccountRepo := repository.NewPayoutAccountRepository(rdb.NewPayoutAccountRepository(db), payments.payoutAccounts)
 	eventStartTimeRepo := rdb.NewEventStartTimeRepository(db)
 	eventOrganizerRepo := rdb.NewEventOrganizerRepository(db)
 	ticketSaleRepo := rdb.NewTicketSaleRepository(db)
@@ -343,7 +347,7 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	// config (ORGANIZER_MEDIA_CDN_BASE) rather than read directly by entity.
 	seriesImageURLBuilder := mapper.NewSeriesImageURLBuilder(cfg.OrganizerMediaCDNBase)
 
-	// Card authorizations and payouts: use the real Stripe adapters when a
+	// Card authorizations: use the real Stripe adapters when a
 	// secret key is configured, otherwise no-ops that return Unavailable so local
 	// development starts cleanly without a Stripe account (outside local the key
 	// is required, see config.ServerConfig.Validate). The secret key value is
@@ -355,16 +359,13 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	var (
 		lotteryCardAuthorizations  entity.CardAuthorizationRepository
 		checkoutCardAuthorizations entity.CardAuthorizationRepository
-		settlementPayouts          entity.SettlementPayoutRepository
 	)
 	if paymentConfigured {
 		lotteryCardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.Stripe.SecretKey, infrapayment.LotteryCardAuthorizationPolicy, logger)
 		checkoutCardAuthorizations = infrapayment.NewStripeCardAuthorizationRepository(cfg.Stripe.SecretKey, infrapayment.CheckoutCardAuthorizationPolicy, logger)
-		settlementPayouts = infrapayment.NewStripeSettlementPayoutRepository(cfg.Stripe.SecretKey, logger)
 	} else {
 		noop := infrapayment.NewNoopCardAuthorizationRepository(logger)
 		lotteryCardAuthorizations, checkoutCardAuthorizations = noop, noop
-		settlementPayouts = infrapayment.NewNoopSettlementPayoutRepository(logger)
 	}
 	lotteryEntryUC := usecase.NewLotteryEntryUseCase(ticketSaleRepo, lotteryEntryRepo, ticketRepo, identityVerificationRepo, userRepo, lotteryCardAuthorizations, time.Now, logger)
 
@@ -407,7 +408,6 @@ func InitializeApp(ctx context.Context) (*App, error) {
 		Clock:                    time.Now,
 		RefundRepo:               refundRepo,
 		SettlementRepo:           settlementRepo,
-		SettlementPayouts:        settlementPayouts,
 		Logger:                   logger,
 	})
 
@@ -428,17 +428,15 @@ func InitializeApp(ctx context.Context) (*App, error) {
 	payoutSweeperUC := usecase.NewSettlementUseCase(
 		settlementRepo,
 		orderRepo,
-		connectedAccountRepo,
+		payoutAccountRepo,
 		eventStartTimeRepo,
-		settlementPayouts,
 		disputeBuffer,
 		time.Now,
 		logger,
 	)
 	payoutAccountUC := usecase.NewPayoutAccountUseCase(
-		connectedAccountRepo,
+		payoutAccountRepo,
 		organizerRepo,
-		settlementPayouts,
 		cfg.Stripe.OnboardingReturnURL,
 		logger,
 	)

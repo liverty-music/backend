@@ -81,7 +81,6 @@ packages:
       SettlementRepository:
       EmailVerifier:
       IdentityRemover:
-      SettlementPayoutRepository:
       CardAuthorizationRepository:
       TicketSaleRepository:
       CheckoutRepository:

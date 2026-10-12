@@ -123,13 +123,12 @@ func (s *stubOrganizerRepoForOnboarding) SetPlatformFeeRate(_ context.Context, _
 
 func newOnboardingUC(t *testing.T,
 	acctRepo entity.PayoutAccountRepository,
-	port entity.SettlementPayoutRepository,
+	port paymentProviderStub,
 ) usecase.PayoutAccountUseCase {
 	t.Helper()
 	return usecase.NewPayoutAccountUseCase(
-		acctRepo,
+		withPayoutAccountProvider(acctRepo, port),
 		&stubOrganizerRepoForOnboarding{},
-		port,
 		"https://console.example.com/payout",
 		newTestLogger(t),
 	)
@@ -235,7 +234,7 @@ func TestOnboardingUseCase_GetOrCreateOnboarding(t *testing.T) {
 				},
 			}
 
-			port := &stubSettlementPayoutRepository{
+			port := &stubPaymentProvider{
 				getAccountStatusFn: func(_ context.Context, _ string) (entity.PayoutOnboardingStatus, error) {
 					return tc.dep.providerStatus, nil
 				},
@@ -272,13 +271,12 @@ func TestOnboardingUseCase_GetOrCreateOnboarding_OrganizerNotFound(t *testing.T)
 	ctx := context.Background()
 
 	uc := usecase.NewPayoutAccountUseCase(
-		&stubPayoutAccountRepo{},
+		withPayoutAccountProvider(&stubPayoutAccountRepo{}, &stubPaymentProvider{}),
 		&stubOrganizerRepoForOnboarding{
 			getFn: func(_ context.Context, _ string) (*entity.Organizer, error) {
 				return nil, apperr.New(apperr.ErrNotFound.Code, "organizer not found")
 			},
 		},
-		&stubSettlementPayoutRepository{},
 		"https://console.example.com/payout",
 		newTestLogger(t),
 	)

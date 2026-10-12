@@ -117,7 +117,7 @@ func (uc *orderUseCase) Refund(ctx context.Context, orderID entity.OrderID, reas
 			return nil, err
 		}
 
-		providerRefundID, err = uc.settlementPayouts.CreateRefund(ctx, entity.RefundParams{
+		providerRefundID, err = uc.orderRepo.CreateRefund(ctx, entity.RefundParams{
 			OrderID:          orderID,
 			ProviderChargeID: providerChargeID,
 			Amount:           order.Amount,
@@ -189,7 +189,7 @@ func (uc *orderUseCase) resolveProviderChargeID(ctx context.Context, order *enti
 	if settlement != nil && settlement.ProviderChargeID != "" {
 		return settlement.ProviderChargeID, nil
 	}
-	return uc.settlementPayouts.GetProviderChargeID(ctx, order.Payment.ProviderPaymentID)
+	return uc.orderRepo.GetProviderChargeID(ctx, order.Payment.ProviderPaymentID)
 }
 
 // reverseSplits calls ReversePayout for every already-released split and
@@ -212,7 +212,7 @@ func (uc *orderUseCase) reverseSplits(ctx context.Context, settlement *entity.Se
 			// Already reversed; idempotent skip.
 			continue
 		}
-		reversalRef, err := uc.settlementPayouts.ReversePayout(ctx, entity.ReversePayoutParams{
+		reversalRef, err := uc.settlementRepo.ReversePayout(ctx, entity.ReversePayoutParams{
 			SettlementID:     settlement.ID,
 			ProviderPayoutID: split.ProviderPayoutID,
 			Amount:           split.Amount,

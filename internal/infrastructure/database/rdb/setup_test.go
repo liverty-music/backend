@@ -3,6 +3,8 @@ package rdb_test
 import (
 	"context"
 	"flag"
+	"github.com/liverty-music/backend/internal/infrastructure/payment"
+	"github.com/liverty-music/backend/internal/infrastructure/repository"
 	"os"
 	"strconv"
 	"testing"
@@ -296,4 +298,13 @@ func cleanTables(db *rdb.Database) {
 			panic("Failed to clean table " + table + ": " + err.Error())
 		}
 	}
+}
+
+// orderRepository is the Order's repository over testDB's rows with the no-op
+// payment provider: these tests never refund an Order or read its charge.
+func orderRepository(t *testing.T, orders *rdb.OrderRepository) entity.OrderRepository {
+	t.Helper()
+	logger, err := logging.New()
+	require.NoError(t, err)
+	return repository.NewOrderRepository(orders, payment.NewNoopOrderPayments(logger))
 }

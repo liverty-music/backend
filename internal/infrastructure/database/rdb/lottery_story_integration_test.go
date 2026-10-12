@@ -87,7 +87,7 @@ type lotteryStory struct {
 	published *recordingPublisher
 
 	entryRepo   *rdb.LotteryEntryRepository
-	orderRepo   *rdb.OrderRepository
+	orderRepo   entity.OrderRepository
 	userRepo    *rdb.UserRepository
 	journeyRepo *rdb.TicketJourneyRepository
 }
@@ -119,7 +119,7 @@ func newLotteryStory(t *testing.T) *lotteryStory {
 		now:         saleWindowStart.Add(-24 * time.Hour),
 		published:   &recordingPublisher{},
 		entryRepo:   rdb.NewLotteryEntryRepository(testDB),
-		orderRepo:   rdb.NewOrderRepository(testDB),
+		orderRepo:   orderRepository(t, rdb.NewOrderRepository(testDB)),
 		userRepo:    rdb.NewUserRepository(testDB),
 		journeyRepo: rdb.NewTicketJourneyRepository(testDB),
 	}

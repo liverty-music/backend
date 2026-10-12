@@ -162,6 +162,29 @@ type SettlementRepository interface {
 	//    or reversed).
 	//  - Internal: database execution failure.
 	MarkReleased(ctx context.Context, id SettlementID, providerChargeID string, releasedAt time.Time, splits []SettlementSplit) error
+
+	// CreatePayout creates a Stripe Transfer from the platform balance to
+	// the Organizer's connected account (source_transaction = the charge).
+	// The transfer carries NO on_behalf_of and NO statement descriptor:
+	// the platform is the Stripe settlement merchant; the statement descriptor
+	// is platform account configuration owned by cloud-provisioning task 5.1.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: amount is zero or negative.
+	//  - Unavailable: the payment provider is unreachable.
+	CreatePayout(ctx context.Context, params PayoutParams) (providerPayoutID string, err error)
+
+	// ReversePayout creates a transfer_reversal for one split's Transfer,
+	// clawing back the Organizer's share to the platform balance. Returns the
+	// opaque reversal reference ("trr_..."). Idempotency is keyed on
+	// SettlementID+ProviderPayoutID so a replay never double-reverses.
+	//
+	// # Possible errors
+	//
+	//  - InvalidArgument: amount is zero or negative.
+	//  - Unavailable: the payment provider is unreachable.
+	ReversePayout(ctx context.Context, params ReversePayoutParams) (reversalRef string, err error)
 }
 
 // PayoutParams carries the parameters for a single Stripe Transfer in the
@@ -216,103 +239,6 @@ type ReversePayoutParams struct {
 	// Amount is the reversal amount. For a full refund this equals the split's
 	// original transfer amount. Must be positive.
 	Amount int64
-}
-
-// SettlementPayoutRepository abstracts the money-movement operations needed by the
-// settlement use cases. The Stripe implementation lives in
-// internal/infrastructure/payment/stripe_settlement.go; the no-op fallback
-// for local dev lives alongside it. Defined here (entity package) so every
-// usecase that needs it (and every implementation) depends on the same
-// declaration.
-type SettlementPayoutRepository interface {
-	// GetProviderChargeID retrieves the PaymentIntent identified by
-	// paymentIntentRef and returns the charge id ("ch_...") of its captured
-	// charge. The charge id is used as source_transaction on the Transfer.
-	//
-	// # Possible errors
-	//
-	//  - FailedPrecondition: the PaymentIntent is not in a succeeded state.
-	//  - NotFound: the PaymentIntent does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	GetProviderChargeID(ctx context.Context, providerPaymentID string) (providerChargeID string, err error)
-
-	// CreatePayout creates a Stripe Transfer from the platform balance to
-	// the Organizer's connected account (source_transaction = the charge).
-	// The transfer carries NO on_behalf_of and NO statement descriptor:
-	// the platform is the Stripe settlement merchant; the statement descriptor
-	// is platform account configuration owned by cloud-provisioning task 5.1.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: amount is zero or negative.
-	//  - Unavailable: the payment provider is unreachable.
-	CreatePayout(ctx context.Context, params PayoutParams) (providerPayoutID string, err error)
-
-	// CreatePayoutAccount provisions a new Accounts v2 payout-recipient
-	// connected account for the Organizer. The account requests ONLY the
-	// transfers capability on stripe_balance (never card_payments) and is
-	// configured with losses_collector = application so the platform absorbs
-	// negative balances. Returns the opaque account reference ("acct_...").
-	//
-	// contactEmail is the Organizer's business contact address. Stripe rejects
-	// a recipient configuration without one ("If configuration.recipient is
-	// supplied, the Account must have a contact email"), and it is the address
-	// Stripe uses to reach the account. Apart from it the request carries no
-	// personal data: the Organizer supplies name, date of birth, address and
-	// documents directly to Stripe through the hosted onboarding link, so the
-	// account is created unverified and becomes payout-eligible only once
-	// Stripe reports the transfers capability active.
-	//
-	// # Possible errors
-	//
-	//  - Unavailable: the payment provider is unreachable or platform Connect
-	//    is not yet enabled.
-	CreatePayoutAccount(ctx context.Context, organizerID string, contactEmail string) (providerAccountID string, err error)
-
-	// GetPayoutAccountStatus retrieves the payout-onboarding status of the
-	// connected account identified by accountRef. It maps the provider's
-	// transfers capability state to the platform's own
-	// PayoutOnboardingStatus enum without exposing raw provider status.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: the account does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	GetPayoutAccountStatus(ctx context.Context, providerAccountID string) (PayoutOnboardingStatus, error)
-
-	// CreateOnboardingLink returns a provider-hosted URL where the Organizer
-	// can start or continue KYC/KYB verification. The link is single-use and
-	// short-lived; callers must not cache it.
-	//
-	// # Possible errors
-	//
-	//  - NotFound: the account does not exist.
-	//  - Unavailable: the payment provider is unreachable.
-	CreateOnboardingLink(ctx context.Context, providerAccountID string, returnURL string) (onboardingURL string, err error)
-
-	// CreateRefund issues a platform-balance Refund against the captured
-	// Charge. The refund amount is the full Order amount minus the processor
-	// fee (retained as the JP norm). Returns the opaque refund reference
-	// ("re_..."). Idempotency is keyed on the SettlementID so a replay never
-	// double-refunds.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: amount is zero or negative.
-	//  - FailedPrecondition: the charge has already been fully refunded.
-	//  - Unavailable: the payment provider is unreachable.
-	CreateRefund(ctx context.Context, params RefundParams) (providerRefundID string, err error)
-
-	// ReversePayout creates a transfer_reversal for one split's Transfer,
-	// clawing back the Organizer's share to the platform balance. Returns the
-	// opaque reversal reference ("trr_..."). Idempotency is keyed on
-	// SettlementID+ProviderPayoutID so a replay never double-reverses.
-	//
-	// # Possible errors
-	//
-	//  - InvalidArgument: amount is zero or negative.
-	//  - Unavailable: the payment provider is unreachable.
-	ReversePayout(ctx context.Context, params ReversePayoutParams) (reversalRef string, err error)
 }
 
 // basisPointsPerUnit is the denominator of a rate in basis points (hundredths

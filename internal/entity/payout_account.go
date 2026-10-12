@@ -105,4 +105,46 @@ type PayoutAccountRepository interface {
 	//  - NotFound: no connected account exists for this Organizer.
 	//  - Internal: database execution failure.
 	UpdateStatus(ctx context.Context, organizerID string, status PayoutOnboardingStatus) error
+
+	// Create provisions a new Accounts v2 payout-recipient
+	// connected account for the Organizer. The account requests ONLY the
+	// transfers capability on stripe_balance (never card_payments) and is
+	// configured with losses_collector = application so the platform absorbs
+	// negative balances. Returns the opaque account reference ("acct_...").
+	//
+	// contactEmail is the Organizer's business contact address. Stripe rejects
+	// a recipient configuration without one ("If configuration.recipient is
+	// supplied, the Account must have a contact email"), and it is the address
+	// Stripe uses to reach the account. Apart from it the request carries no
+	// personal data: the Organizer supplies name, date of birth, address and
+	// documents directly to Stripe through the hosted onboarding link, so the
+	// account is created unverified and becomes payout-eligible only once
+	// Stripe reports the transfers capability active.
+	//
+	// # Possible errors
+	//
+	//  - Unavailable: the payment provider is unreachable or platform Connect
+	//    is not yet enabled.
+	Create(ctx context.Context, organizerID string, contactEmail string) (providerAccountID string, err error)
+
+	// GetStatus retrieves the payout-onboarding status of the
+	// connected account identified by accountRef. It maps the provider's
+	// transfers capability state to the platform's own
+	// PayoutOnboardingStatus enum without exposing raw provider status.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: the account does not exist.
+	//  - Unavailable: the payment provider is unreachable.
+	GetStatus(ctx context.Context, providerAccountID string) (PayoutOnboardingStatus, error)
+
+	// CreateOnboardingLink returns a provider-hosted URL where the Organizer
+	// can start or continue KYC/KYB verification. The link is single-use and
+	// short-lived; callers must not cache it.
+	//
+	// # Possible errors
+	//
+	//  - NotFound: the account does not exist.
+	//  - Unavailable: the payment provider is unreachable.
+	CreateOnboardingLink(ctx context.Context, providerAccountID string, returnURL string) (onboardingURL string, err error)
 }

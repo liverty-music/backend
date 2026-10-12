@@ -160,7 +160,6 @@ type orderUseCase struct {
 	clock                    Clock
 	refundRepo               entity.RefundRepository
 	settlementRepo           entity.SettlementRepository
-	settlementPayouts        entity.SettlementPayoutRepository
 	logger                   *logging.Logger
 }
 
@@ -185,7 +184,6 @@ type OrderDeps struct {
 	Clock              Clock
 	RefundRepo         entity.RefundRepository
 	SettlementRepo     entity.SettlementRepository
-	SettlementPayouts  entity.SettlementPayoutRepository
 	Logger             *logging.Logger
 }
 
@@ -206,7 +204,6 @@ func NewOrderUseCase(d OrderDeps) OrderUseCase {
 		clock:                    d.Clock,
 		refundRepo:               d.RefundRepo,
 		settlementRepo:           d.SettlementRepo,
-		settlementPayouts:        d.SettlementPayouts,
 		logger:                   d.Logger,
 	}
 }

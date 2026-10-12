@@ -11,13 +11,11 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
-// SettlementRepository implements entity.SettlementRepository for PostgreSQL.
+// SettlementRepository is the PostgreSQL part of entity.SettlementRepository;
+// package repository adds the payment provider part.
 type SettlementRepository struct {
 	db *Database
 }
-
-// Compile-time interface compliance check.
-var _ entity.SettlementRepository = (*SettlementRepository)(nil)
 
 // NewSettlementRepository creates a new settlement repository instance.
 func NewSettlementRepository(db *Database) *SettlementRepository {

@@ -11,13 +11,11 @@ import (
 	"github.com/pannpers/go-apperr/apperr/codes"
 )
 
-// OrderRepository implements entity.OrderRepository for PostgreSQL.
+// OrderRepository is the PostgreSQL part of entity.OrderRepository; package
+// repository adds the payment provider part.
 type OrderRepository struct {
 	db *Database
 }
-
-// Compile-time interface compliance check.
-var _ entity.OrderRepository = (*OrderRepository)(nil)
 
 const (
 	orderSelectColumns = `

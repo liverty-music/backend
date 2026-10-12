@@ -15,9 +15,6 @@ type PayoutAccountRepository struct {
 	db *Database
 }
 
-// Compile-time interface compliance check.
-var _ entity.PayoutAccountRepository = (*PayoutAccountRepository)(nil)
-
 // NewPayoutAccountRepository creates a new repository instance.
 func NewPayoutAccountRepository(db *Database) *PayoutAccountRepository {
 	return &PayoutAccountRepository{db: db}

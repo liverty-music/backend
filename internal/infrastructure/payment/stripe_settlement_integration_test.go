@@ -33,7 +33,7 @@ import (
 //
 //	STRIPE_INTEGRATION_TEST=1 STRIPE_SECRET_KEY=sk_test_… \
 //	  go test ./internal/infrastructure/payment/ -run CreateConnectedAccount_Integration -v
-func TestStripeSettlementPayoutRepository_CreatePayoutAccount_Integration(t *testing.T) {
+func TestStripePayoutAccounts_Create_Integration(t *testing.T) {
 	if os.Getenv("STRIPE_INTEGRATION_TEST") != "1" {
 		t.Skip("opt-in: set STRIPE_INTEGRATION_TEST=1 and STRIPE_SECRET_KEY=sk_test_… to run")
 	}
@@ -43,7 +43,7 @@ func TestStripeSettlementPayoutRepository_CreatePayoutAccount_Integration(t *tes
 	}
 
 	logger := mustLogger(t)
-	port := payment.NewStripeSettlementPayoutRepository(key, logger)
+	port := payment.NewStripePayoutAccounts(key, logger)
 	ctx := context.Background()
 
 	// A distinct organizer id per run: the idempotency key is derived from it,
@@ -52,7 +52,7 @@ func TestStripeSettlementPayoutRepository_CreatePayoutAccount_Integration(t *tes
 
 	contactEmail := "it-organizer@pannpers.dev"
 
-	providerAccountID, err := port.CreatePayoutAccount(ctx, organizerID, contactEmail)
+	providerAccountID, err := port.Create(ctx, organizerID, contactEmail)
 	require.NoError(t, err, "create Accounts v2 recipient via the production adapter")
 	require.True(t, strings.HasPrefix(providerAccountID, "acct_"), "expected an acct_ reference, got %q", providerAccountID)
 	t.Logf("provisioned recipient account: %s (organizer %s)", providerAccountID, organizerID)
@@ -85,7 +85,7 @@ func TestStripeSettlementPayoutRepository_CreatePayoutAccount_Integration(t *tes
 
 	// The port's own status mapping must agree that the account is not yet
 	// eligible — this is what gates the payout sweeper.
-	status, err := port.GetPayoutAccountStatus(ctx, providerAccountID)
+	status, err := port.GetStatus(ctx, providerAccountID)
 	require.NoError(t, err)
 	assert.NotEqual(t, entity.PayoutOnboardingStatusActive, status,
 		"status must not report Active before verification completes")
@@ -112,7 +112,7 @@ func TestStripeSettlementPayoutRepository_CreatePayoutAccount_Integration(t *tes
 //
 //	STRIPE_INTEGRATION_TEST=1 STRIPE_SECRET_KEY=sk_test_… \
 //	  go test ./internal/infrastructure/payment/ -run MoneyOut_Integration -v
-func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
+func TestStripeSettlementPayouts_MoneyOut_Integration(t *testing.T) {
 	if os.Getenv("STRIPE_INTEGRATION_TEST") != "1" {
 		t.Skip("opt-in: set STRIPE_INTEGRATION_TEST=1 and STRIPE_SECRET_KEY=sk_test_… to run")
 	}
@@ -122,7 +122,8 @@ func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 	}
 
 	logger := mustLogger(t)
-	settlement := payment.NewStripeSettlementPayoutRepository(key, logger)
+	orders := payment.NewStripeOrderPayments(key, logger)
+	settlement := payment.NewStripeSettlementPayouts(key, logger)
 	cardAuthorizations := payment.NewStripeCardAuthorizationRepository(key, payment.LotteryCardAuthorizationPolicy, logger)
 	ctx := context.Background()
 
@@ -150,7 +151,7 @@ func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 	// ── Resolve pi_ → ch_ ──────────────────────────────────────────────────
 	// Transfer.source_transaction needs the charge, not the PaymentIntent.
 	// Passing pi_ here is the mistake a stubbed test can never catch.
-	providerChargeID, err := settlement.GetProviderChargeID(ctx, providerPaymentID)
+	providerChargeID, err := orders.GetProviderChargeID(ctx, providerPaymentID)
 	require.NoError(t, err, "resolve the captured charge from the PaymentIntent")
 	require.True(t, strings.HasPrefix(providerChargeID, "ch_"),
 		"source_transaction must be a charge reference, got %q", providerChargeID)
@@ -193,7 +194,7 @@ func TestStripeSettlementPayoutRepository_MoneyOut_Integration(t *testing.T) {
 	// ── Cancellation: refund the buyer and claw the transfer back ──────────
 	orderID := entity.OrderID("it-order-" + time.Now().UTC().Format("20060102T150405.000"))
 
-	providerRefundID, err := settlement.CreateRefund(ctx, entity.RefundParams{
+	providerRefundID, err := orders.CreateRefund(ctx, entity.RefundParams{
 		OrderID:          orderID,
 		ProviderChargeID: providerChargeID,
 		Amount:           grossJPY,

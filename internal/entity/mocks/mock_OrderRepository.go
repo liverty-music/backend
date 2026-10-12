@@ -24,6 +24,63 @@ func (_m *MockOrderRepository) EXPECT() *MockOrderRepository_Expecter {
 	return &MockOrderRepository_Expecter{mock: &_m.Mock}
 }
 
+// CreateRefund provides a mock function with given fields: ctx, params
+func (_m *MockOrderRepository) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
+	ret := _m.Called(ctx, params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateRefund")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, entity.RefundParams) (string, error)); ok {
+		return rf(ctx, params)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, entity.RefundParams) string); ok {
+		r0 = rf(ctx, params)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, entity.RefundParams) error); ok {
+		r1 = rf(ctx, params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockOrderRepository_CreateRefund_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateRefund'
+type MockOrderRepository_CreateRefund_Call struct {
+	*mock.Call
+}
+
+// CreateRefund is a helper method to define mock.On call
+//   - ctx context.Context
+//   - params entity.RefundParams
+func (_e *MockOrderRepository_Expecter) CreateRefund(ctx interface{}, params interface{}) *MockOrderRepository_CreateRefund_Call {
+	return &MockOrderRepository_CreateRefund_Call{Call: _e.mock.On("CreateRefund", ctx, params)}
+}
+
+func (_c *MockOrderRepository_CreateRefund_Call) Run(run func(ctx context.Context, params entity.RefundParams)) *MockOrderRepository_CreateRefund_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(entity.RefundParams))
+	})
+	return _c
+}
+
+func (_c *MockOrderRepository_CreateRefund_Call) Return(providerRefundID string, err error) *MockOrderRepository_CreateRefund_Call {
+	_c.Call.Return(providerRefundID, err)
+	return _c
+}
+
+func (_c *MockOrderRepository_CreateRefund_Call) RunAndReturn(run func(context.Context, entity.RefundParams) (string, error)) *MockOrderRepository_CreateRefund_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Get provides a mock function with given fields: ctx, id
 func (_m *MockOrderRepository) Get(ctx context.Context, id entity.OrderID) (*entity.Order, error) {
 	ret := _m.Called(ctx, id)
@@ -256,6 +313,63 @@ func (_c *MockOrderRepository_GetByProviderPaymentID_Call) Return(_a0 *entity.Or
 }
 
 func (_c *MockOrderRepository_GetByProviderPaymentID_Call) RunAndReturn(run func(context.Context, string) (*entity.Order, error)) *MockOrderRepository_GetByProviderPaymentID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetProviderChargeID provides a mock function with given fields: ctx, providerPaymentID
+func (_m *MockOrderRepository) GetProviderChargeID(ctx context.Context, providerPaymentID string) (string, error) {
+	ret := _m.Called(ctx, providerPaymentID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetProviderChargeID")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (string, error)); ok {
+		return rf(ctx, providerPaymentID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) string); ok {
+		r0 = rf(ctx, providerPaymentID)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, providerPaymentID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockOrderRepository_GetProviderChargeID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetProviderChargeID'
+type MockOrderRepository_GetProviderChargeID_Call struct {
+	*mock.Call
+}
+
+// GetProviderChargeID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - providerPaymentID string
+func (_e *MockOrderRepository_Expecter) GetProviderChargeID(ctx interface{}, providerPaymentID interface{}) *MockOrderRepository_GetProviderChargeID_Call {
+	return &MockOrderRepository_GetProviderChargeID_Call{Call: _e.mock.On("GetProviderChargeID", ctx, providerPaymentID)}
+}
+
+func (_c *MockOrderRepository_GetProviderChargeID_Call) Run(run func(ctx context.Context, providerPaymentID string)) *MockOrderRepository_GetProviderChargeID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockOrderRepository_GetProviderChargeID_Call) Return(providerChargeID string, err error) *MockOrderRepository_GetProviderChargeID_Call {
+	_c.Call.Return(providerChargeID, err)
+	return _c
+}
+
+func (_c *MockOrderRepository_GetProviderChargeID_Call) RunAndReturn(run func(context.Context, string) (string, error)) *MockOrderRepository_GetProviderChargeID_Call {
 	_c.Call.Return(run)
 	return _c
 }

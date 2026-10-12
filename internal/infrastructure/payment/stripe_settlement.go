@@ -3,7 +3,6 @@ package payment
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/liverty-music/backend/internal/entity"
@@ -13,7 +12,7 @@ import (
 	stripe "github.com/stripe/stripe-go/v86"
 )
 
-// Accounts v2 recipient provisioning constants. See CreatePayoutAccount for
+// Accounts v2 recipient provisioning constants. See StripePayoutAccounts.Create for
 // why each value is what it is.
 const (
 	// recipientDashboardNone gives the recipient no Stripe Dashboard access;
@@ -33,39 +32,56 @@ const (
 )
 
 // Compile-time interface compliance check.
-var _ entity.SettlementPayoutRepository = (*StripeSettlementPayoutRepository)(nil)
-
-// StripeSettlementPayoutRepository implements [entity.SettlementPayoutRepository] via the
-// Stripe API. It handles the money-out operations for the settlement/payout
-// capability: resolving charges, creating Transfers, and managing Accounts v2
-// payout-recipient connected accounts.
-type StripeSettlementPayoutRepository struct {
+// stripeConnect is the Stripe client of the money-movement adapters: the
+// Order's refund and charge, the Settlement's payouts and the PayoutAccount's
+// connected account.
+type stripeConnect struct {
 	client *stripe.Client
 	logger *logging.Logger
 }
 
-// NewStripeSettlementPayoutRepository creates a StripeSettlementPayoutRepository with the given Stripe
-// secret key. The key is never logged. Callers should use
-// [NewNoopSettlementPort] when the key is empty (local development without a
-// Stripe account configured).
-func NewStripeSettlementPayoutRepository(secretKey string, logger *logging.Logger) *StripeSettlementPayoutRepository {
-	backends := &stripe.Backends{
-		API: stripe.GetBackendWithConfig(stripe.APIBackend, &stripe.BackendConfig{
-			HTTPClient: &http.Client{Timeout: stripeHTTPTimeout},
-		}),
-	}
-	return &StripeSettlementPayoutRepository{
-		client: stripe.NewClient(secretKey, stripe.WithBackends(backends)),
-		logger: logger,
-	}
+// newStripeConnect returns a stripeConnect whose API calls are bounded by
+// stripeHTTPTimeout. The key is never logged.
+func newStripeConnect(secretKey string, logger *logging.Logger) stripeConnect {
+	return stripeConnect{client: newStripeClient(secretKey, ""), logger: logger}
 }
 
-// GetProviderChargeID implements [entity.SettlementPayoutRepository].
+// StripeOrderPayments is the Stripe side of the Order's operations:
+// GetProviderChargeID and CreateRefund.
+type StripeOrderPayments struct{ stripeConnect }
+
+// NewStripeOrderPayments creates the Stripe side of the Order's operations.
+func NewStripeOrderPayments(secretKey string, logger *logging.Logger) *StripeOrderPayments {
+	return &StripeOrderPayments{newStripeConnect(secretKey, logger)}
+}
+
+// StripeSettlementPayouts is the Stripe side of the Settlement's operations:
+// CreatePayout and ReversePayout.
+type StripeSettlementPayouts struct{ stripeConnect }
+
+// NewStripeSettlementPayouts creates the Stripe side of the Settlement's
+// operations.
+func NewStripeSettlementPayouts(secretKey string, logger *logging.Logger) *StripeSettlementPayouts {
+	return &StripeSettlementPayouts{newStripeConnect(secretKey, logger)}
+}
+
+// StripePayoutAccounts is the Stripe side of the PayoutAccount's operations:
+// Create, GetStatus and CreateOnboardingLink on Accounts v2 payout-recipient
+// connected accounts.
+type StripePayoutAccounts struct{ stripeConnect }
+
+// NewStripePayoutAccounts creates the Stripe side of the PayoutAccount's
+// operations.
+func NewStripePayoutAccounts(secretKey string, logger *logging.Logger) *StripePayoutAccounts {
+	return &StripePayoutAccounts{newStripeConnect(secretKey, logger)}
+}
+
+// GetProviderChargeID implements [entity.OrderRepository].
 //
 // It retrieves the PaymentIntent with latest_charge expanded and returns the
 // charge id ("ch_..."). The charge id is used as source_transaction on the
 // Transfer so Stripe can tie the transfer to the originating platform charge.
-func (p *StripeSettlementPayoutRepository) GetProviderChargeID(ctx context.Context, providerPaymentID string) (string, error) {
+func (p *StripeOrderPayments) GetProviderChargeID(ctx context.Context, providerPaymentID string) (string, error) {
 	params := &stripe.PaymentIntentRetrieveParams{}
 	params.AddExpand("latest_charge")
 
@@ -91,7 +107,7 @@ func (p *StripeSettlementPayoutRepository) GetProviderChargeID(ctx context.Conte
 	return pi.LatestCharge.ID, nil
 }
 
-// CreatePayout implements [entity.SettlementPayoutRepository].
+// CreatePayout implements [entity.SettlementRepository].
 //
 // It creates a Stripe Transfer from the platform balance to the Organizer's
 // connected account, with source_transaction set to the captured charge.
@@ -107,7 +123,7 @@ func (p *StripeSettlementPayoutRepository) GetProviderChargeID(ctx context.Conte
 //
 // The idempotency key is derived from the SettlementID and the split's payee
 // so a retried sweep never double-transfers the same split.
-func (p *StripeSettlementPayoutRepository) CreatePayout(ctx context.Context, params entity.PayoutParams) (string, error) {
+func (p *StripeSettlementPayouts) CreatePayout(ctx context.Context, params entity.PayoutParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "transfer amount must be positive")
 	}
@@ -142,7 +158,7 @@ func (p *StripeSettlementPayoutRepository) CreatePayout(ctx context.Context, par
 	return tr.ID, nil
 }
 
-// CreatePayoutAccount implements [entity.SettlementPayoutRepository].
+// Create implements [entity.PayoutAccountRepository].
 //
 // It creates an Accounts v2 payout-recipient account (POST /v2/core/accounts)
 // for the Organizer. Fresh sandboxes reject Accounts v1, and v2 is the shape
@@ -175,7 +191,7 @@ func (p *StripeSettlementPayoutRepository) CreatePayout(ctx context.Context, par
 //
 // The idempotency key is derived from the organizer id so a retried
 // provisioning call cannot create a second account for the same Organizer.
-func (p *StripeSettlementPayoutRepository) CreatePayoutAccount(ctx context.Context, organizerID string, contactEmail string) (string, error) {
+func (p *StripePayoutAccounts) Create(ctx context.Context, organizerID string, contactEmail string) (string, error) {
 	if organizerID == "" {
 		return "", apperr.New(codes.InvalidArgument, "organizer id must not be empty")
 	}
@@ -228,7 +244,7 @@ func (p *StripeSettlementPayoutRepository) CreatePayoutAccount(ctx context.Conte
 	return acct.ID, nil
 }
 
-// GetPayoutAccountStatus implements [entity.SettlementPayoutRepository].
+// GetStatus implements [entity.PayoutAccountRepository].
 //
 // It retrieves the connected account via the v1 accounts API and maps its
 // transfers capability state to the platform's own
@@ -243,7 +259,7 @@ func (p *StripeSettlementPayoutRepository) CreatePayoutAccount(ctx context.Conte
 // configuration.recipient.capabilities.stripe_balance.stripe_transfers.status
 // ("active" / "pending" / "restricted") directly instead of the deprecated
 // transfers_enabled bool.
-func (p *StripeSettlementPayoutRepository) GetPayoutAccountStatus(ctx context.Context, providerAccountID string) (entity.PayoutOnboardingStatus, error) {
+func (p *StripePayoutAccounts) GetStatus(ctx context.Context, providerAccountID string) (entity.PayoutOnboardingStatus, error) {
 	acct, err := p.client.V1Accounts.GetByID(ctx, providerAccountID, nil)
 	if err != nil {
 		return entity.PayoutOnboardingStatusUnspecified, toPaymentAppErr(ctx, err, "failed to retrieve connected account", p.logger)
@@ -286,7 +302,7 @@ func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 	}
 }
 
-// CreateRefund implements [entity.SettlementPayoutRepository].
+// CreateRefund implements [entity.OrderRepository].
 //
 // It creates a Stripe Refund against the captured Charge (ch_). The refund
 // amount is the Order's captured amount (face + system/発券 fee; processor fee
@@ -299,7 +315,7 @@ func mapAccountStatus(acct *stripe.Account) entity.PayoutOnboardingStatus {
 //   - Pre-sweep refunds (no settlement row) do not collide across distinct
 //     orders — previously a constant "no-settlement" placeholder would share
 //     the key across ALL orders that have not yet been swept.
-func (p *StripeSettlementPayoutRepository) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
+func (p *StripeOrderPayments) CreateRefund(ctx context.Context, params entity.RefundParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "refund amount must be positive")
 	}
@@ -330,7 +346,7 @@ func (p *StripeSettlementPayoutRepository) CreateRefund(ctx context.Context, par
 	return refund.ID, nil
 }
 
-// ReversePayout implements [entity.SettlementPayoutRepository].
+// ReversePayout implements [entity.SettlementRepository].
 //
 // It creates a Stripe TransferReversal for the given Transfer. On a refund or
 // dispute clawback the Organizer's share is clawed back to the platform balance
@@ -339,7 +355,7 @@ func (p *StripeSettlementPayoutRepository) CreateRefund(ctx context.Context, par
 //
 // The idempotency key is derived from SettlementID + ProviderPayoutID so a retried
 // clawback never double-reverses a split.
-func (p *StripeSettlementPayoutRepository) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
+func (p *StripeSettlementPayouts) ReversePayout(ctx context.Context, params entity.ReversePayoutParams) (string, error) {
 	if params.Amount <= 0 {
 		return "", apperr.New(codes.InvalidArgument, "reversal amount must be positive")
 	}
@@ -369,12 +385,12 @@ func (p *StripeSettlementPayoutRepository) ReversePayout(ctx context.Context, pa
 	return reversal.ID, nil
 }
 
-// CreateOnboardingLink implements [entity.SettlementPayoutRepository].
+// CreateOnboardingLink implements [entity.PayoutAccountRepository].
 //
 // It creates a Stripe AccountLink for the connected account so the Organizer
 // can complete KYC/KYB via the Stripe-hosted onboarding flow. The link is
 // single-use and expires after a short period; callers must not cache it.
-func (p *StripeSettlementPayoutRepository) CreateOnboardingLink(ctx context.Context, providerAccountID string, returnURL string) (string, error) {
+func (p *StripePayoutAccounts) CreateOnboardingLink(ctx context.Context, providerAccountID string, returnURL string) (string, error) {
 	params := &stripe.AccountLinkCreateParams{
 		Account:    stripe.String(providerAccountID),
 		RefreshURL: stripe.String(returnURL),

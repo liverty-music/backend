@@ -27,13 +27,12 @@ type PayoutAccountUseCase interface {
 	Get(ctx context.Context, organizerID string) (*entity.PayoutAccount, string, error)
 }
 
-// onboardingUseCase implements [PayoutAccountUseCase].
+// payoutAccountUseCase implements [PayoutAccountUseCase].
 type payoutAccountUseCase struct {
-	connectedAccountRepo entity.PayoutAccountRepository
-	organizerRepo        entity.OrganizerRepository
-	settlementPayouts    entity.SettlementPayoutRepository
-	returnURL            string
-	logger               *logging.Logger
+	payoutAccountRepo entity.PayoutAccountRepository
+	organizerRepo     entity.OrganizerRepository
+	returnURL         string
+	logger            *logging.Logger
 }
 
 // Compile-time interface compliance check.
@@ -44,18 +43,16 @@ var _ PayoutAccountUseCase = (*payoutAccountUseCase)(nil)
 // the provider-redirect URL after the Organizer finishes onboarding (typically
 // the organizer console's payout settings page).
 func NewPayoutAccountUseCase(
-	connectedAccountRepo entity.PayoutAccountRepository,
+	payoutAccountRepo entity.PayoutAccountRepository,
 	organizerRepo entity.OrganizerRepository,
-	settlementPayouts entity.SettlementPayoutRepository,
 	returnURL string,
 	logger *logging.Logger,
 ) PayoutAccountUseCase {
 	return &payoutAccountUseCase{
-		connectedAccountRepo: connectedAccountRepo,
-		organizerRepo:        organizerRepo,
-		settlementPayouts:    settlementPayouts,
-		returnURL:            returnURL,
-		logger:               logger,
+		payoutAccountRepo: payoutAccountRepo,
+		organizerRepo:     organizerRepo,
+		returnURL:         returnURL,
+		logger:            logger,
 	}
 }
 
@@ -70,7 +67,7 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 	}
 
 	// Attempt to load an existing connected account.
-	acct, err := uc.connectedAccountRepo.GetByOrganizerID(ctx, organizerID)
+	acct, err := uc.payoutAccountRepo.GetByOrganizerID(ctx, organizerID)
 	if err != nil {
 		if errors.Is(err, apperr.ErrNotFound) {
 			// No account exists yet — provision one.
@@ -81,7 +78,7 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 
 	// Refresh the status from the provider so the caller sees the latest
 	// capability state (e.g. KYC just cleared).
-	freshStatus, err := uc.settlementPayouts.GetPayoutAccountStatus(ctx, acct.ProviderAccountID)
+	freshStatus, err := uc.payoutAccountRepo.GetStatus(ctx, acct.ProviderAccountID)
 	if err != nil {
 		// A provider failure means we cannot verify current status; return
 		// the cached state and let the caller retry.
@@ -92,7 +89,7 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 		)
 	} else if freshStatus != acct.Status {
 		acct.Status = freshStatus
-		if updateErr := uc.connectedAccountRepo.UpdateStatus(ctx, organizerID, freshStatus); updateErr != nil {
+		if updateErr := uc.payoutAccountRepo.UpdateStatus(ctx, organizerID, freshStatus); updateErr != nil {
 			uc.logger.Warn(ctx, "failed to persist refreshed payout onboarding status",
 				slog.String("organizer_id", organizerID),
 				slog.Any("error", updateErr),
@@ -107,7 +104,7 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 
 	// Not yet active — generate a fresh onboarding link so the Organizer can
 	// continue verification.
-	onboardingURL, err := uc.settlementPayouts.CreateOnboardingLink(ctx, acct.ProviderAccountID, uc.returnURL)
+	onboardingURL, err := uc.payoutAccountRepo.CreateOnboardingLink(ctx, acct.ProviderAccountID, uc.returnURL)
 	if err != nil {
 		uc.logger.Warn(ctx, "failed to create onboarding link; returning account without URL",
 			slog.String("organizer_id", organizerID),
@@ -122,7 +119,7 @@ func (uc *payoutAccountUseCase) Get(ctx context.Context, organizerID string) (*e
 // provisionAndPersist creates a connected account at the provider, persists it,
 // and returns it together with an onboarding link.
 func (uc *payoutAccountUseCase) provisionAndPersist(ctx context.Context, organizerID string, contactEmail string) (*entity.PayoutAccount, string, error) {
-	providerAccountID, err := uc.settlementPayouts.CreatePayoutAccount(ctx, organizerID, contactEmail)
+	providerAccountID, err := uc.payoutAccountRepo.Create(ctx, organizerID, contactEmail)
 	if err != nil {
 		return nil, "", err
 	}
@@ -132,7 +129,7 @@ func (uc *payoutAccountUseCase) provisionAndPersist(ctx context.Context, organiz
 		ProviderAccountID: providerAccountID,
 		Status:            entity.PayoutOnboardingStatusPending,
 	}
-	if err := uc.connectedAccountRepo.Upsert(ctx, acct); err != nil {
+	if err := uc.payoutAccountRepo.Upsert(ctx, acct); err != nil {
 		return nil, "", err
 	}
 
@@ -141,7 +138,7 @@ func (uc *payoutAccountUseCase) provisionAndPersist(ctx context.Context, organiz
 		slog.String("account_ref", providerAccountID),
 	)
 
-	onboardingURL, err := uc.settlementPayouts.CreateOnboardingLink(ctx, providerAccountID, uc.returnURL)
+	onboardingURL, err := uc.payoutAccountRepo.CreateOnboardingLink(ctx, providerAccountID, uc.returnURL)
 	if err != nil {
 		uc.logger.Warn(ctx, "failed to create initial onboarding link after provisioning; returning account without URL",
 			slog.String("organizer_id", organizerID),

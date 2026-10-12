@@ -14,7 +14,7 @@ import (
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared stubs (self-contained; same rationale as settlement_uc_test.go).
-// stubSettlementRepo, stubOrderRepo, and stubPaymentSettlementPort are already
+// stubSettlementRepo, stubOrderRepo, and stubPaymentProvider are already
 // declared in settlement_uc_test.go and issuance_uc_test.go (same package
 // usecase_test). The stubs below cover the additional interfaces needed by the
 // refund use case.
@@ -33,10 +33,10 @@ func (s *stubRefundRepo) CommitRefund(ctx context.Context, commit entity.RefundC
 	return nil
 }
 
-// stubRefundSettlementPort extends stubPaymentSettlementPort to support the
-// new CreateRefund and ReversePayout methods.
+// stubRefundSettlementPayouts overrides the payment provider stub's
+// CreateRefund and ReversePayout.
 type stubRefundSettlementPayouts struct {
-	stubSettlementPayoutRepository
+	stubPaymentProvider
 	createRefundFn    func(ctx context.Context, params entity.RefundParams) (string, error)
 	reverseTransferFn func(ctx context.Context, params entity.ReversePayoutParams) (string, error)
 }
@@ -77,15 +77,14 @@ func newRefundUCWithLogger(
 	orderRepo entity.OrderRepository,
 	refundRepo entity.RefundRepository,
 	settlementRepo entity.SettlementRepository,
-	port entity.SettlementPayoutRepository,
+	port paymentProviderStub,
 	t *testing.T,
 ) usecase.OrderUseCase {
 	return usecase.NewOrderUseCase(usecase.OrderDeps{
-		OrderRepo:         orderRepo,
-		RefundRepo:        refundRepo,
-		SettlementRepo:    settlementRepo,
-		SettlementPayouts: port,
-		Logger:            newTestLogger(t),
+		OrderRepo:      withOrderPayments(orderRepo, port),
+		RefundRepo:     refundRepo,
+		SettlementRepo: withSettlementPayouts(settlementRepo, port),
+		Logger:         newTestLogger(t),
 	})
 }
 
