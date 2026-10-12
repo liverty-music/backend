@@ -99,7 +99,7 @@ func TestConcertHandler_Get(t *testing.T) {
 	})
 
 	t.Run("show the Organizer of a first-party concert", func(t *testing.T) {
-		// @spec components/adapter/fan/api/rpc/concert "Seller shown for a first-party concert"
+		// @spec components/adapter/fan/api/rpc/concert "Organizer shown for a first-party concert"
 		t.Parallel()
 		h, concertUC, _ := newEventPageHandler(t)
 		c := firstPartyConcert(eventID, date)

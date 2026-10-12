@@ -156,7 +156,7 @@ func TestAdminServer_OrganizerBusinessDetailsAndFeeRate(t *testing.T) {
 
 	t.Run("admin records business details", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/adapter/admin/api/rpc/organizer "Admin records seller details"
+		// @spec components/adapter/admin/api/rpc/organizer "Admin records business details"
 		uc := usecasemocks.NewMockOrganizerUseCase(t)
 		stored := details
 		uc.EXPECT().SetBusinessDetails(mock.Anything, deleteOrganizerID, details).

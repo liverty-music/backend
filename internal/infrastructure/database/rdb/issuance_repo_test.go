@@ -126,7 +126,7 @@ func TestIssuanceRepository_Integration(t *testing.T) {
 	// -- Idempotency: a second Issue for the same entry surfaces
 	//    AlreadyExists and rolls back the whole transaction, including the
 	//    settlement that would otherwise have been inserted. --
-	// @spec components/entity/order/issue "Second order for the application"
+	// @spec components/entity/order/issue "Second order for the lottery entry"
 	dup := *order
 	dup.ID = entity.OrderID(entity.NewID())
 	dupSettlement := &entity.Settlement{
@@ -265,7 +265,7 @@ func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
 		assert.Equal(t, c.ID, byCheckout.CheckoutID)
 		assert.Empty(t, byCheckout.LotteryEntryID)
 
-		// @spec components/entity/order/issue "Second order for the reservation"
+		// @spec components/entity/order/issue "Second order for the checkout"
 		dup, dupTickets, dupSettlement := checkoutOrder(t, c, start.Add(4*time.Minute))
 		err = issuanceRepo.Issue(ctx, dup, dupTickets, dupSettlement)
 		assert.ErrorIs(t, err, apperr.ErrAlreadyExists)
@@ -274,7 +274,7 @@ func TestIssuanceRepository_IssueFromCheckout(t *testing.T) {
 	})
 
 	t.Run("checkout not charged", func(t *testing.T) {
-		// @spec components/entity/order/issue "Reservation not charged"
+		// @spec components/entity/order/issue "Checkout not charged"
 		c := heldCheckout(t, checkouts, 2, start)
 		require.NoError(t, checkouts.SetCardAuthorization(ctx, c.ID, "pi_nc_"+string(c.ID)))
 		_, err := checkouts.Commit(ctx, c.ID, start.Add(time.Minute))

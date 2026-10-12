@@ -241,7 +241,7 @@ func TestOrderUseCase_IssueFromCapturedWin(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 
-	// @spec components/usecase/order/issue-from-captured-win "Won application issued"
+	// @spec components/usecase/order/issue-from-captured-win "Won entry issued"
 	t.Run("creates a paid Order, issues N covered tickets and a Held Settlement at the Organizer's rate", func(t *testing.T) {
 		t.Parallel()
 
@@ -348,7 +348,7 @@ func TestOrderUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.Same(t, raceOrder, order)
 	})
 
-	// @spec components/usecase/order/issue-from-captured-win "Application not won"
+	// @spec components/usecase/order/issue-from-captured-win "Entry not won"
 	t.Run("fails with FailedPrecondition and creates nothing for an entry that is not Won", func(t *testing.T) {
 		t.Parallel()
 
@@ -417,7 +417,7 @@ func TestOrderUseCase_IssueFromCapturedWin(t *testing.T) {
 		assert.False(t, *issueCalled, "must not issue when the Organizer cannot be resolved")
 	})
 
-	// @spec components/usecase/order/issue-from-captured-win "Phase required verification"
+	// @spec components/usecase/order/issue-from-captured-win "Sale required verification"
 	t.Run("binds every ticket to the user's identity verification when the sale requires verification", func(t *testing.T) {
 		t.Parallel()
 
