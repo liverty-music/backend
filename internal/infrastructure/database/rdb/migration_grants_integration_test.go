@@ -42,6 +42,7 @@ var grantsReadWriteRoles = []string{
 	"backend-app@test.iam",
 	"fan-api@test.iam",
 	"media-consumer@test.iam",
+	"series-image-consumer@test.iam",
 }
 
 // organizerTableWrites is the write set of one app table for the

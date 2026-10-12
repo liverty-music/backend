@@ -119,3 +119,5 @@ configMapGenerator:
   - migrations/20261012000000_one_name_per_concept.sql
   - migrations/20261012100000_rename_old_words_in_comments.sql
   - migrations/20261012220000_rename_reception_links_to_scanners.sql
+  - migrations/20261012230000_grant_series_image_consumer_app_schema.sql
+  - migrations/20261012230100_fix_series_images_key_comment.sql
