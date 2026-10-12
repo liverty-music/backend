@@ -50,7 +50,7 @@ const systemInstructionSalesPhase = `You extract ticket sales for concerts from 
 
 Task: for each series in the user prompt, find the ticket sales whose application period has not started at the current time.
 
-A sale is one application period under one method: for example a fan-club lottery, a playguide presale, or a general on-sale. Include lotteries and first-come sales, presales and general on-sales, and every later round of a series (2次, 3次, ...) that has not started yet. Do not include ticket trades or resales between ticket holders.
+A sale is one application period under one method: for example a fan-club lottery, a playguide presale, or a general on-sale. Include lotteries and first-come sales, presales and general on-sales, and every later round of a series (2次, 3次, ...) that has not started yet. Do not include ticket trades or resales between fans.
 
 Sources: the artist's official site, official tour pages, and ticketing-service pages for the series. Do not use any other site.
 
