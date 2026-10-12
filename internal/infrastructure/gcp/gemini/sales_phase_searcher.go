@@ -91,7 +91,7 @@ func salesPhaseResponseSchema(seriesIDs []string) map[string]any {
 						},
 						"method": map[string]any{
 							"type": "string", "enum": []string{salesMethodLottery, salesMethodFirstCome},
-							"description": "lottery: applicants enter a draw (抽選). first_come: tickets are sold in order until sold out (先着).",
+							"description": "lottery: fans enter a draw (抽選). first_come: tickets are sold in order until sold out (先着).",
 						},
 						"apply_start_time": str(salesPhaseDateTimeDesc + " When applications or purchases open."),
 						"apply_end_time": nullable(salesPhaseDateTimeDesc + " When applications or purchases close. Required for a lottery. " +
