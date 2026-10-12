@@ -21,19 +21,19 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// MediaConsumerApp is the event-consumer application for the media-consumer.
-// It subscribes to MEDIA.uploaded, generates WebP variants via libvips, and
+// SeriesImageConsumerApp is the event-consumer application for the series-image-consumer.
+// It subscribes to SERIES_IMAGE.uploaded, generates WebP variants via libvips, and
 // performs the cut-over of series_cover_images in a single transaction.
-type MediaConsumerApp struct {
+type SeriesImageConsumerApp struct {
 	Router          *message.Router
 	Logger          *logging.Logger
 	ShutdownTimeout time.Duration
 	Health          *messaging.ConsumerHealth
 }
 
-// InitializeMediaConsumerApp creates a MediaConsumerApp with all dependencies wired.
-func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) {
-	cfg, err := config.Load[config.MediaConsumerConfig]()
+// InitializeSeriesImageConsumerApp creates a SeriesImageConsumerApp with all dependencies wired.
+func InitializeSeriesImageConsumerApp(ctx context.Context) (*SeriesImageConsumerApp, error) {
+	cfg, err := config.Load[config.SeriesImageConsumerConfig]()
 	if err != nil {
 		return nil, err
 	}
@@ -90,18 +90,18 @@ func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) 
 	consumerHealth := messaging.NewConsumerHealth()
 
 	// Image processor (stub when libvips absent; production binary uses -tags vips).
-	processor := event.NewMediaProcessor(logger)
+	processor := event.NewSeriesImageProcessor(logger)
 
-	// SeriesImageUseCase orchestrates SeriesImageUseCase.Process; MediaConsumer only decodes the
-	// MEDIA.uploaded message and calls it.
+	// SeriesImageUseCase orchestrates SeriesImageUseCase.Process; SeriesImageConsumer only decodes the
+	// SERIES_IMAGE.uploaded message and calls it.
 	eventPublisher := messaging.NewEventPublisher(publisher)
 	seriesImageUC := usecase.NewSeriesImageUseCase(seriesRepo, rdb.NewSeriesImageRepository(db), imageStorer, processor, eventPublisher, logger)
 
-	// MediaConsumer
-	mediaConsumer := event.NewMediaConsumer(seriesImageUC, logger)
+	// SeriesImageConsumer
+	seriesImageConsumer := event.NewSeriesImageConsumer(seriesImageUC, logger)
 
 	behaviorTable := []behaviorEntry{
-		{"media_uploaded", entity.SubjectMediaUploaded, mediaConsumer.Handle},
+		{"process-series-image", entity.SubjectSeriesImageUploaded, seriesImageConsumer.Handle},
 	}
 
 	router, err := messaging.NewRouter(wmLogger, publisher, messaging.PoisonQueueSubject)
@@ -142,7 +142,7 @@ func InitializeMediaConsumerApp(ctx context.Context) (*MediaConsumerApp, error) 
 
 	startGoroutineLeakDetection(ctx, cfg.GoroutineLeak, cfg.Telemetry.ServiceName, logger)
 
-	return &MediaConsumerApp{
+	return &SeriesImageConsumerApp{
 		Router:          router,
 		Logger:          logger,
 		ShutdownTimeout: cfg.ShutdownTimeout,

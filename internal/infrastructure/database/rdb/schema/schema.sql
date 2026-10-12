@@ -264,7 +264,7 @@ CREATE TABLE IF NOT EXISTS series_images (
     CONSTRAINT chk_series_images_id_uuidv7 CHECK (substring(id::text, 15, 1) = '7')
 );
 
-COMMENT ON TABLE series_images IS 'Images uploaded by an organizer for its Series. The row id is the UUIDv7 that forms the object-key basename (internal/{org}/{id} or cdn/{org}/{id}); content_type is stored in attributes.';
+COMMENT ON TABLE series_images IS 'Images uploaded by an organizer for its Series. The row id is the UUIDv7 that forms the object-key basename ({org}/{id} in the internal bucket, cdn/{org}/{id}/ in the served bucket); content_type is stored in attributes.';
 COMMENT ON COLUMN series_images.id IS 'Unique series image identifier (UUIDv7, application-generated). Doubles as the cache-busting version token in the object key; a new upload mints a new id.';
 COMMENT ON COLUMN series_images.organizer_id IS 'Owning organizer. Used as the stable tenant segment of the object key.';
 COMMENT ON COLUMN series_images.attributes IS 'Upload metadata as JSONB: {"content_type": "image/jpeg"}. May include width/height later.';

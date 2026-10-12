@@ -1,6 +1,6 @@
-// Package main provides the media-consumer entry point.
+// Package main provides the series-image-consumer entry point.
 //
-// The media-consumer subscribes to MEDIA.uploaded events via a pull-based
+// The series-image-consumer subscribes to SERIES_IMAGE.uploaded events via a pull-based
 // JetStream durable (created externally by NACK), generates WebP variants
 // (thumb + large) from the original uploaded by the organizer, writes them to
 // the served CDN bucket, and cuts over series_cover_images to the new series image id in a
@@ -9,9 +9,9 @@
 //
 // Production binary must be built with libvips present:
 //
-//	CGO_ENABLED=1 go build -tags vips ./cmd/consumer/media-consumer
+//	CGO_ENABLED=1 go build -tags vips ./cmd/consumer/series-image-consumer
 //
-// Without the vips tag the StubMediaProcessor is used, which terms every
+// Without the vips tag the StubSeriesImageProcessor is used, which terms every
 // message immediately so the container crashloops — a deliberate signal that
 // the build tag is missing.
 package main
@@ -36,7 +36,7 @@ const fallbackShutdownTimeout = 10 * time.Second
 func main() {
 	logger := di.NewBootstrapLogger()
 	if err := run(logger); err != nil {
-		logger.Error(context.Background(), "media-consumer failed", err)
+		logger.Error(context.Background(), "series-image-consumer failed", err)
 		os.Exit(1)
 	}
 }
@@ -45,7 +45,7 @@ func run(bootLogger *logging.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	bootLogger.Info(ctx, "starting media-consumer")
+	bootLogger.Info(ctx, "starting series-image-consumer")
 
 	// Start the health probe server before DI so K8s can observe the pod
 	// during initialization (healthz=200, readyz=503 until ready). The
@@ -64,7 +64,7 @@ func run(bootLogger *logging.Logger) error {
 		}
 	}()
 
-	var app *di.MediaConsumerApp
+	var app *di.SeriesImageConsumerApp
 	defer func() {
 		timeout := fallbackShutdownTimeout
 		if app != nil {
@@ -78,7 +78,7 @@ func run(bootLogger *logging.Logger) error {
 	}()
 
 	var err error
-	app, err = di.InitializeMediaConsumerApp(ctx)
+	app, err = di.InitializeSeriesImageConsumerApp(ctx)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func run(bootLogger *logging.Logger) error {
 	healthSrv.SetLiveness(app.Health.Live)
 	shutdown.AddDrainPhase(healthSrv)
 
-	app.Logger.Info(ctx, "media-consumer ready; waiting for events")
+	app.Logger.Info(ctx, "series-image-consumer ready; waiting for events")
 
 	if err := app.Router.Run(ctx); err != nil {
 		return err

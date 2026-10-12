@@ -887,9 +887,9 @@ func validNonLocalServerConfig(workload string) *ServerConfig {
 		VAPID:                              VAPIDConfig{PublicKey: "vapid-pub", PrivateKey: "vapid-priv"},
 		ZitadelMachineKeyForBackendAppPath: "/secrets/backend-app.json",
 		LastFMAPIKey:                       "lastfm-key",
-		OrganizerMediaInternalBucket:       "media-internal",
-		OrganizerMediaBucket:               "media",
-		OrganizerMediaCDNBase:              "https://cdn.dev.liverty-music.app",
+		StorageInternalBucket:              "storage-internal",
+		StorageBucket:                      "storage",
+		CDNBaseURL:                         "https://cdn.dev.liverty-music.app",
 		FanWebBaseURL:                      "https://dev.liverty-music.app",
 		PocketSign: PocketSignConfig{
 			BaseURL:     "https://verify.mock.p8n.app",
@@ -954,10 +954,10 @@ func TestServerConfig_Validate_RequiresWorkloadSettingsOutsideLocal(t *testing.T
 			name: "name every missing variable at once",
 			mutate: func(c *ServerConfig) {
 				c.Stripe.OnboardingReturnURL = ""
-				c.OrganizerMediaInternalBucket = ""
+				c.StorageInternalBucket = ""
 				c.PocketSign = PocketSignConfig{}
 			},
-			wantErr: "ORGANIZER_MEDIA_INTERNAL_BUCKET, POCKET_SIGN_BASE_URL, POCKET_SIGN_CALLBACK_URL, POCKET_SIGN_TENANT_ID, POCKET_SIGN_TOKEN, STRIPE_ONBOARDING_RETURN_URL",
+			wantErr: "POCKET_SIGN_BASE_URL, POCKET_SIGN_CALLBACK_URL, POCKET_SIGN_TENANT_ID, POCKET_SIGN_TOKEN, STORAGE_INTERNAL_BUCKET, STRIPE_ONBOARDING_RETURN_URL",
 		},
 		{
 			name:    "reject a relative onboarding return URL",
@@ -1064,10 +1064,10 @@ func TestConsumerConfig_Validate_RequiresCredentialsOutsideLocal(t *testing.T) {
 	assert.NoError(t, cfg.Validate())
 }
 
-func TestMediaConsumerConfig_Validate_RequiresBucketsOutsideLocal(t *testing.T) {
+func TestSeriesImageConsumerConfig_Validate_RequiresBucketsOutsideLocal(t *testing.T) {
 	t.Parallel()
 
-	cfg := &MediaConsumerConfig{
+	cfg := &SeriesImageConsumerConfig{
 		Environment: "development",
 		Database: DatabaseConfig{
 			Port:                   5432,
@@ -1079,14 +1079,14 @@ func TestMediaConsumerConfig_Validate_RequiresBucketsOutsideLocal(t *testing.T) 
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "NATS_URL, ORGANIZER_MEDIA_INTERNAL_BUCKET, ORGANIZER_MEDIA_BUCKET")
+	assert.Contains(t, err.Error(), "NATS_URL, STORAGE_INTERNAL_BUCKET, STORAGE_BUCKET")
 
 	cfg.NATS.URL = "nats://nats.nats.svc.cluster.local:4222"
-	cfg.OrganizerMediaInternalBucket = "media-internal"
-	cfg.OrganizerMediaBucket = "media"
+	cfg.StorageInternalBucket = "storage-internal"
+	cfg.StorageBucket = "storage"
 	assert.NoError(t, cfg.Validate())
 
-	local := &MediaConsumerConfig{
+	local := &SeriesImageConsumerConfig{
 		Environment: "local",
 		Database:    DatabaseConfig{Port: 5432},
 		Logging:     LoggingConfig{Level: "info", Format: "json"}}

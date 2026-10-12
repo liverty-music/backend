@@ -74,13 +74,13 @@ const (
 	// on organizer_id; no fan distinct_id). Published as an ORGANIZER.* subject so
 	// the JetStream ORGANIZER stream captures it alongside the other organizer events.
 	SubjectOrganizerConcertPublished = "ORGANIZER.concert_published"
-	// SubjectMediaUploaded is published by the SetCoverImage handler once the series image
-	// row is persisted. The media-processor consumer subscribes to this subject to
+	// SubjectSeriesImageUploaded is published by the SetCoverImage handler once the series image
+	// row is persisted. The series-image-consumer subscribes to this subject to
 	// read the original from the originals bucket, generate WebP variants, and
 	// cut over series_cover_images to the new series image id. Two tokens (uploaded, not
-	// media.uploaded) so the MEDIA.* stream filter captures it with a plain
+	// series_image.uploaded) so the SERIES_IMAGE.* stream filter captures it with a plain
 	// single-token wildcard — same convention as SubjectSalesPhaseReminderDue.
-	SubjectMediaUploaded = "MEDIA.uploaded"
+	SubjectSeriesImageUploaded = "SERIES_IMAGE.uploaded"
 	// SubjectNotificationRequested is published once per eligible recipient by
 	// every producer of a user-facing notification (PushSubscriptionUseCase.
 	// NotifyNewConcerts, SalesPhaseAnnouncementUseCase.AnnounceDiscoveredPhase).
@@ -127,7 +127,7 @@ var AllSubjects = []string{
 	SubjectOrganizerCreated,
 	SubjectOrganizerArtistAssociated,
 	SubjectOrganizerConcertPublished,
-	SubjectMediaUploaded,
+	SubjectSeriesImageUploaded,
 	SubjectNotificationRequested,
 	SubjectOrderPaid,
 }
@@ -435,12 +435,12 @@ type TicketJourneyStatusChangedData struct {
 	ToStatus string `json:"to_status"`
 }
 
-// MediaUploadedData is the payload for MEDIA.uploaded events.
+// SeriesImageUploadedData is the payload for SERIES_IMAGE.uploaded events.
 // Published by the SetCoverImage handler once the series image row is persisted in the
-// database. The media-processor consumer uses SeriesImageID and SeriesID to locate
+// database. The series-image-consumer uses SeriesImageID and SeriesID to locate
 // the original file in the originals bucket, generate WebP variants (thumb and
 // large), and cut over series_cover_images to the new series image id.
-type MediaUploadedData struct {
+type SeriesImageUploadedData struct {
 	// SeriesImageID is the unique identifier of the uploaded image object. The
 	// processor uses it to compose the originals-bucket key
 	// ({org}/{seriesImageID}) and the served-bucket variant keys

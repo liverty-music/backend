@@ -197,7 +197,7 @@ func (h *OrganizerSeriesHandler) Cancel(
 }
 
 // SetCoverImage records an uploaded Series image as the series' cover and
-// publishes MEDIA.uploaded so the processor generates variants.
+// publishes SERIES_IMAGE.uploaded so the processor generates variants.
 func (h *OrganizerSeriesHandler) SetCoverImage(
 	ctx context.Context,
 	req *connect.Request[organizerseriesv1.SetCoverImageRequest],

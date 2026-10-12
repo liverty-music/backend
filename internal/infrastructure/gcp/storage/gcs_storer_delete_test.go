@@ -107,8 +107,8 @@ func newFakeStorer(t *testing.T, fake *fakeGCS) *storage.GCSStorer {
 }
 
 const (
-	testInternalBucket = "organizer-media-internal"
-	testServedBucket   = "organizer-media"
+	testInternalBucket = "liverty-music-test-internal"
+	testServedBucket   = "liverty-music-test"
 	testOrganizerID    = "org-1"
 	testSeriesImageID  = "image-1"
 )

@@ -11,8 +11,8 @@ import (
 
 // SeriesImageURLBuilder composes public CDN URLs for organizer series image
 // variants (thumb/large). The CDN base is sourced from the
-// ORGANIZER_MEDIA_CDN_BASE environment variable via config
-// (config.ServerConfig.OrganizerMediaCDNBase) and injected here at DI wiring
+// CDN_BASE_URL environment variable via config
+// (config.ServerConfig.CDNBaseURL) and injected here at DI wiring
 // time (see internal/di/provider.go), so this adapter — not the entity
 // package — owns the environment read.
 type SeriesImageURLBuilder struct {

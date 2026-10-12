@@ -108,8 +108,8 @@ type SeriesUseCase interface {
 	List(ctx context.Context, callerOrgID string) ([]*entity.Series, []*[]*entity.Event, []*[]*entity.Artist, error)
 
 	// SetCoverImage verifies that the caller owns the target series, inserts the
-	// series image row idempotently, and publishes MEDIA.uploaded{series_image_id, series_id}.
-	// It does NOT re-point series_cover_images — the media-processor consumer does
+	// series image row idempotently, and publishes SERIES_IMAGE.uploaded{series_image_id, series_id}.
+	// It does NOT re-point series_cover_images — the series-image-consumer does
 	// that after generating variants. Idempotent on re-delivery.
 	//
 	// # Possible errors
@@ -629,7 +629,7 @@ func eventVenueName(ev *entity.Event) string {
 }
 
 // SetCoverImage verifies ownership, inserts the series image row idempotently, and
-// publishes MEDIA.uploaded so the processor can generate variants and cut over
+// publishes SERIES_IMAGE.uploaded so the processor can generate variants and cut over
 // series_cover_images. The series_cover_images re-point is intentionally deferred to the
 // consumer so the existing cover continues to serve until variants are ready
 // (no 404 window).
@@ -667,14 +667,14 @@ func (uc *seriesUseCase) SetCoverImage(ctx context.Context, callerOrgID, seriesI
 		return fmt.Errorf("insert series image row: %w", err)
 	}
 
-	// Publish MEDIA.uploaded so the processor can pick it up. Non-fatal on
+	// Publish SERIES_IMAGE.uploaded so the processor can pick it up. Non-fatal on
 	// publish failure after a successful DB insert: the row persists and the
 	// event can be re-published via a retry or manual trigger.
-	if err := uc.publisher.PublishEvent(ctx, entity.SubjectMediaUploaded, entity.MediaUploadedData{
+	if err := uc.publisher.PublishEvent(ctx, entity.SubjectSeriesImageUploaded, entity.SeriesImageUploadedData{
 		SeriesImageID: seriesImageID,
 		SeriesID:      seriesID,
 	}); err != nil {
-		uc.logger.Warn(ctx, "failed to publish MEDIA.uploaded event",
+		uc.logger.Warn(ctx, "failed to publish SERIES_IMAGE.uploaded event",
 			slog.String("series_image_id", seriesImageID),
 			slog.String("series_id", seriesID),
 			slog.Any("error", err),

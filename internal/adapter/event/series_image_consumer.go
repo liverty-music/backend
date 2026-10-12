@@ -12,39 +12,39 @@ import (
 	"github.com/pannpers/go-logging/logging"
 )
 
-// MediaConsumer handles MEDIA.uploaded events by delegating orchestration
+// SeriesImageConsumer handles SERIES_IMAGE.uploaded events by delegating orchestration
 // (read original, transcode, cut over series_cover_images, reclaim storage) to
 // SeriesImageUseCase.Process. It only decodes the message.
-type MediaConsumer struct {
+type SeriesImageConsumer struct {
 	seriesImageUC usecase.SeriesImageUseCase
 	logger        *logging.Logger
 }
 
-// NewMediaConsumer creates a new MediaConsumer.
-func NewMediaConsumer(
+// NewSeriesImageConsumer creates a new SeriesImageConsumer.
+func NewSeriesImageConsumer(
 	seriesImageUC usecase.SeriesImageUseCase,
 	logger *logging.Logger,
-) *MediaConsumer {
-	return &MediaConsumer{
+) *SeriesImageConsumer {
+	return &SeriesImageConsumer{
 		seriesImageUC: seriesImageUC,
 		logger:        logger,
 	}
 }
 
-// Handle processes a MEDIA.uploaded event by parsing the payload and
+// Handle processes a SERIES_IMAGE.uploaded event by parsing the payload and
 // delegating to SeriesImageUseCase.Process. It returns nil to ack (including
 // after a permanent-failure cleanup the use case already performed) or a
 // wrapped error to nak (retry).
-func (h *MediaConsumer) Handle(msg *message.Message) error {
+func (h *SeriesImageConsumer) Handle(msg *message.Message) error {
 	ctx := msg.Context()
 
-	var data entity.MediaUploadedData
+	var data entity.SeriesImageUploadedData
 	if err := messaging.ParseCloudEventData(msg, &data); err != nil {
-		h.logger.Error(ctx, "failed to parse MEDIA.uploaded event", err)
-		return fmt.Errorf("parse MEDIA.uploaded: %w", err)
+		h.logger.Error(ctx, "failed to parse SERIES_IMAGE.uploaded event", err)
+		return fmt.Errorf("parse SERIES_IMAGE.uploaded: %w", err)
 	}
 
-	h.logger.Info(ctx, "processing MEDIA.uploaded event",
+	h.logger.Info(ctx, "processing SERIES_IMAGE.uploaded event",
 		slog.String("series_image_id", data.SeriesImageID),
 		slog.String("series_id", data.SeriesID),
 	)

@@ -1,4 +1,4 @@
-h1:2JiyLeSGMOVGvH1JOfNfvI3URBouGHiPyQQ4raf7j5U=
+h1:Wt/Os2Q66yVJD9Ot4tULWKBAxjG9fa1F9GgmabDyNvc=
 20250726000000_bootstrap_app_schema.sql h1:nKAFSMmbY+9pdhajenyx25jK6t5SAHc5x/JpNt9EgFM=
 20250726081442_initial_schema.sql h1:cWOx1AMHpgE784lJBtFmEj1oXRBkeqv56bKw1XV8ThI=
 20250726101741_add_foreign_key_to_posts.sql h1:Yq6yocwX7/UQHaMneA16MoHzImLamXDe7PvGYiGWudw=
@@ -105,3 +105,5 @@ h1:2JiyLeSGMOVGvH1JOfNfvI3URBouGHiPyQQ4raf7j5U=
 20261012000000_one_name_per_concept.sql h1:61AOPTlrwYkb2HwZhbsAX7S+KME8BjNGzuVE29RxJXU=
 20261012100000_rename_old_words_in_comments.sql h1:mhfJ/OPnR7qDT+G2WOmkAaa9fQw8QeM7aW06rghig+g=
 20261012220000_rename_reception_links_to_scanners.sql h1:sslocR92lXjAAU/pGtpOnjfjGs4PB8K4+qseAfzIP2E=
+20261012230000_grant_series_image_consumer_app_schema.sql h1:C7kCBU3tOrGQcF6h+UsmPvvtDt91jsu8WCjY7HuRYhc=
+20261012230100_fix_series_images_key_comment.sql h1:UkVTA9pZ9ymt4aW/UnUEV+E6ZvdcUL3rcEtwieGau4g=

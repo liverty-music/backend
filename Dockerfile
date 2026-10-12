@@ -116,38 +116,38 @@ ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
 COPY --from=build-consumer /out /consumer
 ENTRYPOINT ["/consumer"]
 
-# --- Media Consumer target (libvips / CGO) ---
-# Unlike every other target, the media-consumer links libvips (a C library),
+# --- Series Image Consumer target (libvips / CGO) ---
+# Unlike every other target, the series-image-consumer links libvips (a C library),
 # so it builds with CGO enabled and the `vips` build tag, and it runs on a base
 # that ships the libvips shared objects — distroless/static (no libc/libvips)
 # cannot run it. The build- and run-time Alpine releases MUST provide the same
 # libvips major so the soname matches; keep both pinned to the same Alpine as
 # the golang builder image.
-FROM builder AS build-media-consumer
+FROM builder AS build-series-image-consumer
 RUN apk add --no-cache vips-dev gcc musl-dev pkgconfig
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
     -tags vips \
     -ldflags='-w -s' \
-    -o /out ./cmd/consumer/media-consumer
+    -o /out ./cmd/consumer/series-image-consumer
 
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS media-consumer
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS series-image-consumer
 RUN apk add --no-cache vips ca-certificates \
     && addgroup -S nonroot && adduser -S -G nonroot nonroot
 USER nonroot:nonroot
 ENV GOLANG_PROTOBUF_REGISTRATION_CONFLICT=ignore
-COPY --from=build-media-consumer /out /media-consumer
-ENTRYPOINT ["/media-consumer"]
+COPY --from=build-series-image-consumer /out /series-image-consumer
+ENTRYPOINT ["/series-image-consumer"]
 
-# --- Media Consumer test target (libvips / CGO) ---
-# CI runs `go vet`/`go test` for the vips-tagged media-processing code
+# --- Series Image Consumer test target (libvips / CGO) ---
+# CI runs `go vet`/`go test` for the vips-tagged series-image processing code
 # (internal/adapter/event/*_vips*.go) through THIS stage rather than on a
 # bare GitHub-hosted runner, so the tests exercise the exact same libvips
 # build (same builder base image + same `apk add vips-dev ...` line) that
-# ships in the media-consumer runtime image above. Building from
-# build-media-consumer (not `builder`) reuses its already-installed
+# ships in the series-image-consumer runtime image above. Building from
+# build-series-image-consumer (not `builder`) reuses its already-installed
 # vips-dev/gcc/musl-dev/pkgconfig layer instead of re-installing them.
-# `docker build --target test-media-consumer` fails the build (and so the
+# `docker build --target test-series-image-consumer` fails the build (and so the
 # CI job) if either command exits non-zero.
-FROM build-media-consumer AS test-media-consumer
+FROM build-series-image-consumer AS test-series-image-consumer
 RUN CGO_ENABLED=1 go vet -tags vips ./internal/adapter/event/... \
     && CGO_ENABLED=1 go test -tags vips -v ./internal/adapter/event/...

@@ -116,12 +116,12 @@ var streams = []nats.StreamConfig{
 		Duplicates: 2 * time.Minute,
 	},
 	{
-		// Carries MEDIA.uploaded (organizer image upload events), consumed by
-		// the media-consumer to generate WebP variants and cut over
-		// series_cover_images. A plain MEDIA.* filter matches all two-token subjects
+		// Carries SERIES_IMAGE.uploaded (organizer image upload events), consumed by
+		// the series-image-consumer to generate WebP variants and cut over
+		// series_cover_images. A plain SERIES_IMAGE.* filter matches all two-token subjects
 		// — same convention as the ORGANIZER and SALES_PHASE streams.
-		Name:       "MEDIA",
-		Subjects:   []string{"MEDIA.*"},
+		Name:       "SERIES_IMAGE",
+		Subjects:   []string{"SERIES_IMAGE.*"},
 		Retention:  nats.LimitsPolicy,
 		MaxAge:     7 * 24 * time.Hour,
 		Storage:    nats.FileStorage,

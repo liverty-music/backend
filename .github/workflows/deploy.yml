@@ -5,12 +5,13 @@ name: Deploy Backend
 #                         main runs this workflow (no paths: trigger gate).
 #                         A per-run "build vs inherit" decision over the
 #                         pushed range (event.before..sha) picks one of:
-#                           * build:   8× docker/build-push-action across the
+#                           * build:   9× docker/build-push-action across the
 #                                      strategy matrix (server, consumer,
 #                                      concert-discovery, artist-image-sync,
 #                                      official-site-refresh,
 #                                      sales-phase-discovery, sales-reminders,
-#                                      media-consumer),
+#                                      series-image-consumer, and the
+#                                      temporary media-consumer alias),
 #                                      pushing :latest, :main, :<sha>.
 #                           * inherit: no rebuild — crane-copy the parent push
 #                                      tip's dev digest onto :<sha> (and
@@ -18,7 +19,7 @@ name: Deploy Backend
 #                                      push changed no build-relevant file
 #                                      (CI config / docs only).
 #  - release published -> retag dev AR digest into prod AR
-#                         (liverty-music-prod/backend). 8× `crane copy`
+#                         (liverty-music-prod/backend). 9× `crane copy`
 #                         across the matrix — no rebuild. Each matrix
 #                         entry resolves its own dev AR digest for
 #                         github.sha and promotes that exact digest to
@@ -106,12 +107,18 @@ jobs:
             target: sales-phase-discovery
           - name: sales-reminders
             target: sales-reminders
-          # media-consumer: the KEDA scale-to-zero JetStream worker. Its Dockerfile
+          # series-image-consumer: the KEDA scale-to-zero JetStream worker. Its Dockerfile
           # target links libvips (CGO, `-tags vips`) and runs on Alpine, unlike the
           # CGO-off distroless targets, but the build/push/retag path is
           # identical — one more image in the shared `backend` AR repo.
+          - name: series-image-consumer
+            target: series-image-consumer
+          # TEMPORARY: the same series-image-consumer target, also published under
+          # its old image name so the prod pin bump's provenance gate still finds
+          # a media-consumer image while the k8s cutover lands. The cleanup PR
+          # removes this entry.
           - name: media-consumer
-            target: media-consumer
+            target: series-image-consumer
     env:
       REGION: ${{ vars.REGION }}
       PROJECT_ID: ${{ vars.PROJECT_ID }}

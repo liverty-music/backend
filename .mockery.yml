@@ -85,7 +85,7 @@ packages:
       TicketSaleRepository:
       CheckoutRepository:
       OrderConfirmationSender:
-      MediaProcessor:
+      SeriesImageProcessor:
       EventRepository:
       WalletPublicKeyRepository:
       ScannerRepository:

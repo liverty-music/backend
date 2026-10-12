@@ -18,10 +18,10 @@ import (
 )
 
 // TestVipsProcessor_ProcessImage exercises the real libvips-backed
-// MediaProcessor. It only runs when built with `-tags vips` (see
-// media_processor_vips.go), since it links libvips via CGO.
+// SeriesImageProcessor. It only runs when built with `-tags vips` (see
+// series_image_processor_vips.go), since it links libvips via CGO.
 func TestVipsProcessor_ProcessImage(t *testing.T) {
-	// Not parallel: vips.Startup(nil) in NewMediaProcessor mutates
+	// Not parallel: vips.Startup(nil) in NewSeriesImageProcessor mutates
 	// process-global libvips state.
 
 	jpegOriginal, err := os.ReadFile("testdata/valid_photo_4000x3000.jpg")
@@ -78,7 +78,7 @@ func TestVipsProcessor_ProcessImage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := newTestLogger(t)
-			processor := event.NewMediaProcessor(logger)
+			processor := event.NewSeriesImageProcessor(logger)
 
 			thumb, large, err := processor.ProcessImage(context.Background(), tt.args.data)
 
