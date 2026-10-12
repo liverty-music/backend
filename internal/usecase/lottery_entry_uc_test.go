@@ -86,7 +86,7 @@ var (
 	afterWindow  = saleTime(11, 10, 10, 0)
 )
 
-func TestLotteryUseCase_Start(t *testing.T) {
+func TestLotteryEntryUseCase_Start(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -273,7 +273,7 @@ func TestLotteryUseCase_Start(t *testing.T) {
 	})
 }
 
-func TestLotteryUseCase_Authorize(t *testing.T) {
+func TestLotteryEntryUseCase_Authorize(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -400,7 +400,7 @@ func TestLotteryUseCase_Authorize(t *testing.T) {
 	})
 }
 
-func TestLotteryUseCase_Confirm(t *testing.T) {
+func TestLotteryEntryUseCase_Confirm(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -528,33 +528,33 @@ func TestLotteryUseCase_Confirm(t *testing.T) {
 	})
 }
 
-func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
+func TestLotteryEntryUseCase_Withdraw(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("withdraw before the draw", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/withdraw-entry "Withdraw before the draw"
+		// @spec components/usecase/lottery-entry/withdraw "Withdraw before the draw"
 		f := newLotteryFixture(t, duringWindow, 1)
 		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
 		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
 		released := f.holds.EXPECT().Release(mock.Anything, "pi_1").Return(nil).Call
 		f.entries.EXPECT().UpdateState(mock.Anything, entered.ID, entity.LotteryEntryStateWithdrawn).Return(nil).NotBefore(released)
 
-		err := f.uc.WithdrawEntry(ctx, entered.ID, "fan-1")
+		err := f.uc.Withdraw(ctx, entered.ID, "fan-1")
 
 		require.NoError(t, err)
 	})
 
 	t.Run("withdraw a draft", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/withdraw-entry "Withdraw a draft"
+		// @spec components/usecase/lottery-entry/withdraw "Withdraw a draft"
 		f := newLotteryFixture(t, duringWindow, 1)
 		draft := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateDraft, 2, "")
 		f.entries.EXPECT().Get(mock.Anything, draft.ID).Return(draft, nil)
 		f.entries.EXPECT().UpdateState(mock.Anything, draft.ID, entity.LotteryEntryStateWithdrawn).Return(nil)
 
-		err := f.uc.WithdrawEntry(ctx, draft.ID, "fan-1")
+		err := f.uc.Withdraw(ctx, draft.ID, "fan-1")
 
 		require.NoError(t, err)
 		f.holds.AssertNotCalled(t, "Release", mock.Anything, mock.Anything)
@@ -562,21 +562,21 @@ func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
 
 	t.Run("window closed but not drawn", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/withdraw-entry "Window closed but not drawn"
+		// @spec components/usecase/lottery-entry/withdraw "Window closed but not drawn"
 		f := newLotteryFixture(t, afterWindow, 1)
 		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
 		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
 		f.holds.EXPECT().Release(mock.Anything, "pi_1").Return(nil)
 		f.entries.EXPECT().UpdateState(mock.Anything, entered.ID, entity.LotteryEntryStateWithdrawn).Return(nil)
 
-		err := f.uc.WithdrawEntry(ctx, entered.ID, "fan-1")
+		err := f.uc.Withdraw(ctx, entered.ID, "fan-1")
 
 		require.NoError(t, err)
 	})
 
 	t.Run("already drawn", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/withdraw-entry "Already drawn"
+		// @spec components/usecase/lottery-entry/withdraw "Already drawn"
 		for _, state := range []entity.LotteryEntryState{entity.LotteryEntryStateWon, entity.LotteryEntryStateLost} {
 			t.Run(state.String(), func(t *testing.T) {
 				t.Parallel()
@@ -584,7 +584,7 @@ func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
 				drawn := lotteryEntry("entry-1", "tt-1", "fan-1", state, 2, "pi_1")
 				f.entries.EXPECT().Get(mock.Anything, drawn.ID).Return(drawn, nil)
 
-				err := f.uc.WithdrawEntry(ctx, drawn.ID, "fan-1")
+				err := f.uc.Withdraw(ctx, drawn.ID, "fan-1")
 
 				assert.ErrorIs(t, err, apperr.ErrFailedPrecondition)
 			})
@@ -593,12 +593,12 @@ func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
 
 	t.Run("another fan's entry", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/withdraw-entry "Another fan's entry"
+		// @spec components/usecase/lottery-entry/withdraw "Another fan's entry"
 		f := newLotteryFixture(t, duringWindow, 1)
 		other := lotteryEntry("entry-1", "tt-1", "fan-2", entity.LotteryEntryStateEntered, 2, "pi_1")
 		f.entries.EXPECT().Get(mock.Anything, other.ID).Return(other, nil)
 
-		err := f.uc.WithdrawEntry(ctx, other.ID, "fan-1")
+		err := f.uc.Withdraw(ctx, other.ID, "fan-1")
 
 		assert.ErrorIs(t, err, apperr.ErrPermissionDenied)
 	})
@@ -608,27 +608,27 @@ func TestLotteryUseCase_WithdrawEntry(t *testing.T) {
 		f := newLotteryFixture(t, duringWindow, 1)
 		f.entries.EXPECT().Get(mock.Anything, entity.LotteryEntryID("missing")).Return(nil, apperr.ErrNotFound)
 
-		err := f.uc.WithdrawEntry(ctx, "missing", "fan-1")
+		err := f.uc.Withdraw(ctx, "missing", "fan-1")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
 
 	t.Run("release fails", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/withdraw-entry "Release fails"
+		// @spec components/usecase/lottery-entry/withdraw "Release fails"
 		f := newLotteryFixture(t, duringWindow, 1)
 		entered := lotteryEntry("entry-1", "tt-1", "fan-1", entity.LotteryEntryStateEntered, 2, "pi_1")
 		f.entries.EXPECT().Get(mock.Anything, entered.ID).Return(entered, nil)
 		f.holds.EXPECT().Release(mock.Anything, "pi_1").Return(apperr.New(codes.Unavailable, "stripe down"))
 
-		err := f.uc.WithdrawEntry(ctx, entered.ID, "fan-1")
+		err := f.uc.Withdraw(ctx, entered.ID, "fan-1")
 
 		assert.ErrorIs(t, err, apperr.ErrUnavailable)
 		f.entries.AssertNotCalled(t, "UpdateState", mock.Anything, mock.Anything, mock.Anything)
 	})
 }
 
-func TestLotteryUseCase_ListOwnByTicketType(t *testing.T) {
+func TestLotteryEntryUseCase_ListByTicketType(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -636,11 +636,11 @@ func TestLotteryUseCase_ListOwnByTicketType(t *testing.T) {
 		name  string
 		state entity.LotteryEntryState
 	}{
-		// @spec components/usecase/lottery-entry/list-own-by-ticket-type "Entered entry"
+		// @spec components/usecase/lottery-entry/list-by-ticket-type "Entered entry"
 		{name: "entered entry", state: entity.LotteryEntryStateEntered},
-		// @spec components/usecase/lottery-entry/list-own-by-ticket-type "Fan won"
+		// @spec components/usecase/lottery-entry/list-by-ticket-type "Fan won"
 		{name: "fan won", state: entity.LotteryEntryStateWon},
-		// @spec components/usecase/lottery-entry/list-own-by-ticket-type "Fan lost"
+		// @spec components/usecase/lottery-entry/list-by-ticket-type "Fan lost"
 		{name: "fan lost", state: entity.LotteryEntryStateLost},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -653,7 +653,7 @@ func TestLotteryUseCase_ListOwnByTicketType(t *testing.T) {
 			f.entries.EXPECT().ListByTicketTypeAndUser(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1")).
 				Return([]*entity.LotteryEntry{own, withdrawn}, nil)
 
-			got, err := f.uc.ListOwnByTicketType(ctx, sale.TicketTypes[0].ID, "fan-1")
+			got, err := f.uc.ListByTicketType(ctx, sale.TicketTypes[0].ID, "fan-1")
 
 			require.NoError(t, err)
 			require.Len(t, got, 2)
@@ -663,13 +663,13 @@ func TestLotteryUseCase_ListOwnByTicketType(t *testing.T) {
 
 	t.Run("never entered", func(t *testing.T) {
 		t.Parallel()
-		// @spec components/usecase/lottery-entry/list-own-by-ticket-type "Never entered"
+		// @spec components/usecase/lottery-entry/list-by-ticket-type "Never entered"
 		f := newLotteryFixture(t, duringWindow, 1)
 		sale := lotterySale(entity.VerificationRequirementNone)
 		f.readsTicketType(sale)
 		f.entries.EXPECT().ListByTicketTypeAndUser(mock.Anything, sale.TicketTypes[0].ID, entity.UserID("fan-1")).Return([]*entity.LotteryEntry{}, nil)
 
-		got, err := f.uc.ListOwnByTicketType(ctx, sale.TicketTypes[0].ID, "fan-1")
+		got, err := f.uc.ListByTicketType(ctx, sale.TicketTypes[0].ID, "fan-1")
 
 		require.NoError(t, err)
 		assert.Empty(t, got)
@@ -680,7 +680,7 @@ func TestLotteryUseCase_ListOwnByTicketType(t *testing.T) {
 		f := newLotteryFixture(t, duringWindow, 1)
 		f.sales.EXPECT().GetTicketType(mock.Anything, entity.TicketTypeID("missing"), duringWindow).Return(nil, nil, apperr.ErrNotFound)
 
-		_, err := f.uc.ListOwnByTicketType(ctx, "missing", "fan-1")
+		_, err := f.uc.ListByTicketType(ctx, "missing", "fan-1")
 
 		assert.ErrorIs(t, err, apperr.ErrNotFound)
 	})
@@ -721,7 +721,7 @@ func closedSale(quantities ...int) *entity.TicketSale {
 	return sale
 }
 
-func TestLotteryUseCase_RunDraw(t *testing.T) {
+func TestLotteryEntryUseCase_RunDraw(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -937,7 +937,7 @@ func TestLotteryUseCase_RunDraw(t *testing.T) {
 	})
 }
 
-func TestLotteryUseCase_DrawDueSales(t *testing.T) {
+func TestLotteryEntryUseCase_DrawDueSales(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 

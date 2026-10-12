@@ -100,7 +100,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		// @spec components/adapter/fan/api/rpc/lottery-entry "Withdraw own entry"
 		f := newLotteryEntryFixture(t, signedInAs(tkFanSub))
 		expectFan(f.users)
-		f.lottery.EXPECT().WithdrawEntry(mock.Anything, entity.LotteryEntryID(tkEntryID), entity.UserID(tkFanUserID)).Return(nil)
+		f.lottery.EXPECT().Withdraw(mock.Anything, entity.LotteryEntryID(tkEntryID), entity.UserID(tkFanUserID)).Return(nil)
 
 		_, err := f.client.Withdraw(ctx, connect.NewRequest(&lotteryentryv1.WithdrawRequest{
 			LotteryEntryId: &entityv1.LotteryEntryId{Value: tkEntryID},
@@ -147,7 +147,7 @@ func TestLotteryEntryHandler(t *testing.T) {
 		expectFan(f.users)
 		withdrawn := *draft
 		withdrawn.ID, withdrawn.State = "019a0000-0000-7000-8000-0000000000d9", entity.LotteryEntryStateWithdrawn
-		f.lottery.EXPECT().ListOwnByTicketType(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID)).
+		f.lottery.EXPECT().ListByTicketType(mock.Anything, entity.TicketTypeID(tkTicketTypeID), entity.UserID(tkFanUserID)).
 			Return([]*entity.LotteryEntry{draft, &withdrawn}, nil)
 
 		resp, err := f.client.ListByTicketType(ctx, connect.NewRequest(&lotteryentryv1.ListByTicketTypeRequest{

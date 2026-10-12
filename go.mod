@@ -30,11 +30,10 @@ tool (
 )
 
 require (
-	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20261011173408-7c1f536ce1bf.1
-	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261011173408-7c1f536ce1bf.2
+	buf.build/gen/go/liverty-music/schema/connectrpc/go v1.21.0-20261012004415-6702a3125a66.1
+	buf.build/gen/go/liverty-music/schema/protocolbuffers/go v1.36.12-20261012004415-6702a3125a66.2
 	buf.build/gen/go/pocketsign/apis/connectrpc/go v1.20.0-20260826021924-0ff29b2b0335.1
 	buf.build/gen/go/pocketsign/apis/protocolbuffers/go v1.36.12-20260826021924-0ff29b2b0335.1
-	buf.build/go/protovalidate v1.4.0
 	cloud.google.com/go/cloudsqlconn v1.25.3
 	cloud.google.com/go/storage v1.69.0
 	connectrpc.com/authn v0.2.0
@@ -96,6 +95,7 @@ require (
 	buf.build/go/bufplugin v0.10.0 // indirect
 	buf.build/go/bufprivateusage v0.1.0 // indirect
 	buf.build/go/interrupt v1.1.0 // indirect
+	buf.build/go/protovalidate v1.4.0 // indirect
 	buf.build/go/protoyaml v0.7.0 // indirect
 	buf.build/go/spdx v0.2.0 // indirect
 	buf.build/go/standard v0.1.1-0.20260325175353-2b287e071df5 // indirect

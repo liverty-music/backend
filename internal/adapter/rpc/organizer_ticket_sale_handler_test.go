@@ -59,9 +59,9 @@ func TestOrganizerTicketSaleHandler(t *testing.T) {
 			Name:          &entityv1.TicketSaleName{Value: "一般発売"},
 			Method:        entityv1.TicketSaleMethod_TICKET_SALE_METHOD_FIRST_COME,
 			SaleStartTime: timestamppb.New(start),
-			TicketTypes: []*ticketsalev1.TicketTypeDraft{{
+			TicketTypes: []*ticketsalev1.TicketTypeInput{{
 				EventId:  &entityv1.EventId{Value: testEventID},
-				Price:    &entityv1.TicketPrice{Value: 3000},
+				Price:    &entityv1.TicketTypePrice{Value: 3000},
 				Quantity: 150,
 			}},
 		}

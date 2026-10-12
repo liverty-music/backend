@@ -117,7 +117,7 @@ func (h *LotteryEntryHandler) Withdraw(
 		return nil, err
 	}
 
-	if err := h.lotteryEntryUC.WithdrawEntry(ctx, entity.LotteryEntryID(req.Msg.GetLotteryEntryId().GetValue()), userID); err != nil {
+	if err := h.lotteryEntryUC.Withdraw(ctx, entity.LotteryEntryID(req.Msg.GetLotteryEntryId().GetValue()), userID); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&lotteryentryv1.WithdrawResponse{}), nil
@@ -134,7 +134,7 @@ func (h *LotteryEntryHandler) ListByTicketType(
 		return nil, err
 	}
 
-	entries, err := h.lotteryEntryUC.ListOwnByTicketType(ctx, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), userID)
+	entries, err := h.lotteryEntryUC.ListByTicketType(ctx, entity.TicketTypeID(req.Msg.GetTicketTypeId().GetValue()), userID)
 	if err != nil {
 		return nil, err
 	}

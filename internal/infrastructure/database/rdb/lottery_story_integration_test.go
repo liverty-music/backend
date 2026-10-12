@@ -267,10 +267,10 @@ func (s *lotteryStory) issueWins(won ...*entity.LotteryEntry) {
 	s.published.paid = nil
 }
 
-// ownEntry returns the fan's entry as ListOwnByTicketType shows it.
+// ownEntry returns the fan's entry as ListByTicketType shows it.
 func (s *lotteryStory) ownEntry(ttID entity.TicketTypeID, fan entity.UserID, id entity.LotteryEntryID) *entity.LotteryEntry {
 	s.t.Helper()
-	entries, err := s.lottery.ListOwnByTicketType(s.ctx, ttID, fan)
+	entries, err := s.lottery.ListByTicketType(s.ctx, ttID, fan)
 	require.NoError(s.t, err)
 	for _, e := range entries {
 		if e.ID == id {
@@ -420,7 +420,7 @@ func TestLotteryStory_WithdrawAndReapply(t *testing.T) {
 	s.now = saleWindowStart.Add(time.Hour)
 	fan := s.newFan()
 	first := s.enter(tt.ID, fan, 2)
-	require.NoError(t, s.lottery.WithdrawEntry(s.ctx, first.ID, fan))
+	require.NoError(t, s.lottery.Withdraw(s.ctx, first.ID, fan))
 	assert.Equal(t, stripe.PaymentIntentStatusCanceled, s.paymentIntent(first.CardAuthorizationID).Status,
 		"the first hold is released")
 
@@ -476,7 +476,7 @@ func TestLotteryStory_PresaleWinnerAtTheLimit(t *testing.T) {
 
 	_, err := s.lottery.Start(s.ctx, general.ID, fan, 1)
 	assert.ErrorIs(t, err, apperr.ErrFailedPrecondition, "the entry into the general sale is refused")
-	entries, err := s.lottery.ListOwnByTicketType(s.ctx, general.ID, fan)
+	entries, err := s.lottery.ListByTicketType(s.ctx, general.ID, fan)
 	require.NoError(t, err)
 	assert.Empty(t, entries, "no entry is made in the general sale")
 	assert.Len(t, s.eventTickets(fan), 4, "the fan still holds 4 Tickets")

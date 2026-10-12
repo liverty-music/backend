@@ -40,7 +40,7 @@ func TestOrganizerTicketTypeHandler_Update(t *testing.T) {
 	updateReq := func() *tickettypev1.UpdateRequest {
 		return &tickettypev1.UpdateRequest{
 			TicketTypeId:    &entityv1.TicketTypeId{Value: tkTicketTypeID},
-			Price:           &entityv1.TicketPrice{Value: 3000},
+			Price:           &entityv1.TicketTypePrice{Value: 3000},
 			Quantity:        180,
 			PerAccountLimit: 4,
 		}

@@ -93,7 +93,7 @@ type LotteryEntryUseCase interface {
 	//  - Errors of the hold's verification, unchanged.
 	Confirm(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) (*entity.LotteryEntry, error)
 
-	// WithdrawEntry releases the hold of the fan's own Draft or Entered entry,
+	// Withdraw releases the hold of the fan's own Draft or Entered entry,
 	// when it has one, and then makes it Withdrawn. It works until the draw
 	// runs, also after the window has closed.
 	//
@@ -103,15 +103,15 @@ type LotteryEntryUseCase interface {
 	//  - PermissionDenied: the entry is another fan's.
 	//  - FailedPrecondition: the entry is Won, Lost or Withdrawn.
 	//  - Errors of releasing the hold, unchanged; the entry keeps its state.
-	WithdrawEntry(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error
+	Withdraw(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error
 
-	// ListOwnByTicketType returns the fan's entries for the TicketType, in
+	// ListByTicketType returns the fan's entries for the TicketType, in
 	// every state, newest first; an empty slice when there is none.
 	//
 	// # Possible errors
 	//
 	//  - NotFound: the TicketType does not exist.
-	ListOwnByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID) ([]*entity.LotteryEntry, error)
+	ListByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID) ([]*entity.LotteryEntry, error)
 
 	// DrawDueSales runs [LotteryEntryUseCase.RunDraw] for every Lottery sale due
 	// now. A failed draw is logged and stays due for the next run.
@@ -356,8 +356,8 @@ func (uc *lotteryEntryUseCase) Confirm(ctx context.Context, entryID entity.Lotte
 	return entry, nil
 }
 
-// WithdrawEntry implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) WithdrawEntry(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error {
+// Withdraw implements [LotteryEntryUseCase].
+func (uc *lotteryEntryUseCase) Withdraw(ctx context.Context, entryID entity.LotteryEntryID, userID entity.UserID) error {
 	entry, err := uc.entryRepo.Get(ctx, entryID)
 	if err != nil {
 		return err
@@ -376,8 +376,8 @@ func (uc *lotteryEntryUseCase) WithdrawEntry(ctx context.Context, entryID entity
 	return uc.entryRepo.UpdateState(ctx, entryID, entity.LotteryEntryStateWithdrawn)
 }
 
-// ListOwnByTicketType implements [LotteryEntryUseCase].
-func (uc *lotteryEntryUseCase) ListOwnByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
+// ListByTicketType implements [LotteryEntryUseCase].
+func (uc *lotteryEntryUseCase) ListByTicketType(ctx context.Context, ticketTypeID entity.TicketTypeID, userID entity.UserID) ([]*entity.LotteryEntry, error) {
 	if _, _, err := uc.saleRepo.GetTicketType(ctx, ticketTypeID, uc.clock()); err != nil {
 		return nil, err
 	}

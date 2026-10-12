@@ -22,7 +22,7 @@ func TicketTypeToProto(v *usecase.TicketTypeView, withCounts bool) *entityv1.Tic
 		Id:              &entityv1.TicketTypeId{Value: string(t.ID)},
 		TicketSaleId:    &entityv1.TicketSaleId{Value: string(t.TicketSaleID)},
 		EventId:         &entityv1.EventId{Value: t.EventID},
-		Price:           &entityv1.TicketPrice{Value: t.Price},
+		Price:           &entityv1.TicketTypePrice{Value: t.Price},
 		PerAccountLimit: int32(t.PerAccountLimit),
 	}
 	firstCome := v.State != entity.TicketTypeStateUnspecified
